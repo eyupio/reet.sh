@@ -6,6 +6,14 @@ import (
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
+// ModelList is the connector-owned command that lists a preset's models.
+// Argv is appended to the resolved binary; Env adds fixed opt-outs to the
+// minimal listing environment. No controller-supplied argument is ever used.
+type ModelList struct {
+	Argv []string
+	Env  []string
+}
+
 // Preset is connector-owned data. No controller-supplied command line is used.
 // DisabledReason keeps unconfirmed commands unavailable even when installed.
 type Preset struct {
@@ -17,6 +25,7 @@ type Preset struct {
 	YoloArgs, SafeArgs []string
 	ACP                string
 	DisabledReason     string
+	ModelList          *ModelList
 }
 
 // Existing argument evidence predates this refactor: Claude Code 2.1.310
@@ -31,7 +40,7 @@ type Preset struct {
 var Catalogue = []Preset{
 	{ID: "claude", Name: "Claude Code", Binary: "claude", ModelFlag: "--model", PromptPositional: true, ACP: "adapter"},
 	{ID: "codex", Name: "Codex", Binary: "codex", ModelFlag: "--model", PromptPositional: true, ACP: "adapter"},
-	{ID: "opencode", Name: "OpenCode", Binary: "opencode", ModelFlag: "--model", PromptFlag: "--prompt", ACP: "native"},
+	{ID: "opencode", Name: "OpenCode", Binary: "opencode", ModelFlag: "--model", PromptFlag: "--prompt", ACP: "native", ModelList: &ModelList{Argv: []string{"models"}, Env: []string{"OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_DISABLE_AUTOUPDATE=1", "NO_COLOR=1", "LANG=C.UTF-8", "CI=1"}}},
 	{ID: "gemini", Name: "Gemini CLI", Binary: "gemini", ModelFlag: "--model", PromptFlag: "--prompt-interactive"},
 	{ID: "pi", Name: "Pi", Binary: "pi", DisabledReason: "This CLI has no built-in approval policy for tool execution."},
 	{ID: "cursor", Name: "Cursor Agent", Binary: "cursor-agent", DisabledReason: "CLI help and permission defaults have not been confirmed."},
@@ -43,6 +52,7 @@ type launchPreset struct {
 	binary, modelFlag, promptFlag string
 	effortArgs                    map[string][]string
 	safeArgs                      []string
+	modelList                     *ModelList
 }
 
 var launchPresets = func() map[string]launchPreset {
@@ -51,10 +61,17 @@ var launchPresets = func() map[string]launchPreset {
 		if p.DisabledReason != "" {
 			continue
 		}
-		out[p.ID] = launchPreset{binary: p.Binary, modelFlag: p.ModelFlag, promptFlag: p.PromptFlag, effortArgs: p.EffortArgs, safeArgs: p.SafeArgs}
+		out[p.ID] = launchPreset{binary: p.Binary, modelFlag: p.ModelFlag, promptFlag: p.PromptFlag, effortArgs: p.EffortArgs, safeArgs: p.SafeArgs, modelList: p.ModelList}
 	}
 	return out
 }()
+
+// ListsModels reports whether an enabled preset has a connector-owned
+// listing. A disabled or unknown tool never has one, and nothing runs for it.
+func ListsModels(tool string) bool {
+	p, ok := launchPresets[tool]
+	return ok && p.modelList != nil && len(p.modelList.Argv) > 0
+}
 
 // InstalledTools lists sorted, confirmed preset ids found on PATH. With no v2
 // argument it retains the old four-tool contract for existing callers.

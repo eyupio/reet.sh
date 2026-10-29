@@ -44,7 +44,7 @@ third-party command is run in this task.
 const ModelsFeature = "models-v1"
 func SupportsModels(features string) bool
 const MaxModels = 500
-const MaxModelsReplyBytes = 64 << 10
+const MaxModelsReplyBytes = 12 << 10 // fits the 16 KiB control frame with its envelope
 
 type Models struct { Tool string `json:"tool"` }                 // kind "models"
 type ModelEntry struct { ID string `json:"id"`; Provider string `json:"provider"` }

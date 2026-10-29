@@ -37,13 +37,29 @@ var (
 	// after 5 s (and given 2 s to exit), but resolving the folder can hang
 	// as a browse can.
 	branchesAnswerAfter = 8 * time.Second
-	// browsesRunning and branchesRunning count the browse and branches work
+	// modelsAnswerAfter is when a model listing that has not returned is
+	// answered timed_out and its slot freed. ListModels kills its process at
+	// 10 s; this leaves room for the reply and process reaping.
+	modelsAnswerAfter = 12 * time.Second
+	// modelListFloor is the shortest interval between two real listings for
+	// the same tool. Within it the connector answers its last result.
+	modelListFloor = 60 * time.Second
+	// listModels is the host listing; tests replace it so no binary runs.
+	listModels = (*terminalhost.Manager).ListModels
+	// browsesRunning, branchesRunning and modelsRunning count the aside work
 	// alive in this process, including work already answered at its deadline
 	// and still stuck. They are process-wide so reconnecting cannot multiply
 	// stuck work.
 	browsesRunning  atomic.Int32
 	branchesRunning atomic.Int32
+	modelsRunning   atomic.Int32
 )
+
+// modelListCacheEntry is one tool's last listing and when it was made.
+type modelListCacheEntry struct {
+	result terminalproto.ModelsResult
+	at     time.Time
+}
 
 // maxAsideRunning bounds the browse (and, separately, the branches) work
 // alive in this process. While that many are stuck a new one is refused as
@@ -94,10 +110,15 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 		// machine. It runs on its own goroutine so the dispatcher, and the
 		// controller's other requests, never wait for git.
 		worktreeSlot := make(chan struct{}, 1)
-		// browseSlot and branchesSlot allow one browse and one branch listing
-		// at a time on this connection, each run like a worktree request.
+		// browseSlot, branchesSlot and modelsSlot allow one browse, branch
+		// listing and model listing at a time on this connection, each run
+		// like a worktree request.
 		browseSlot := make(chan struct{}, 1)
 		branchesSlot := make(chan struct{}, 1)
+		modelsSlot := make(chan struct{}, 1)
+		// modelsMu guards the per-tool last listing used for the floor.
+		var modelsMu sync.Mutex
+		modelsLast := map[string]modelListCacheEntry{}
 		// uploads bounds the image transfers in flight on this connection.
 		uploads := &uploadCounter{max: maxUploadsInFlight}
 		// aside runs work for reply off the dispatcher. A second request while
@@ -251,6 +272,48 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 					terminalproto.BranchesResult{Reason: terminalproto.BranchesConflict}, terminalproto.BranchesResult{Reason: terminalproto.BranchesGitFailed},
 					func(ctx context.Context) terminalproto.Body {
 						return terminalhost.ListBranches(ctx, home, req, git)
+					})
+			case *terminalproto.Models:
+				// Models are served only on a generation that negotiated
+				// models-v1, and only for a tool the connector can list. A
+				// tool without a listing answers unsupported without exec.
+				if !terminalproto.SupportsModels(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+				if !terminalproto.ValidToolV2(op.Tool) {
+					return terminalproto.ErrInvalid
+				}
+				if !allowed(opts.Consent) || !allowed(opts.ModelsConsent) {
+					reply.Body = terminalproto.ModelsResult{Tool: op.Tool, Reason: terminalproto.ModelsOff}
+					return send(callCtx, reply)
+				}
+				if !terminalhost.ListsModels(op.Tool) {
+					reply.Body = terminalproto.ModelsResult{Tool: op.Tool, Reason: terminalproto.ModelsUnsupported}
+					return send(callCtx, reply)
+				}
+				if managerErr != nil || m == nil {
+					reply.Body = terminalproto.ModelsResult{Tool: op.Tool, Reason: terminalproto.ModelsOff}
+					return send(callCtx, reply)
+				}
+				modelsMu.Lock()
+				cached, seen := modelsLast[op.Tool]
+				modelsMu.Unlock()
+				// The floor answers the previous result instead of running the
+				// listing again, whether that result was a list or a failure.
+				if seen && time.Since(cached.at) < modelListFloor {
+					reply.Body = cached.result
+					return send(callCtx, reply)
+				}
+				tool, fn := op.Tool, listModels
+				return aside(callCtx, reply, modelsSlot, &modelsRunning, modelsAnswerAfter,
+					terminalproto.ModelsResult{Tool: op.Tool, Reason: terminalproto.ModelsConflict},
+					terminalproto.ModelsResult{Tool: op.Tool, Reason: terminalproto.ModelsTimedOut},
+					func(ctx context.Context) terminalproto.Body {
+						r := fn(m, ctx, tool)
+						modelsMu.Lock()
+						modelsLast[tool] = modelListCacheEntry{result: r, at: time.Now()}
+						modelsMu.Unlock()
+						return r
 					})
 			case *terminalproto.Upload:
 				// Uploads are served only on a generation that negotiated

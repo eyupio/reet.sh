@@ -26,7 +26,7 @@ func terminalControl(config string, c agentConfig) agenthealth.TerminalFactory {
 			return errors.New("terminal access disabled locally")
 		}
 		return nil
-	}, BrowseConsent: func() error { return browseConsent(config, c) }, ClipboardConsent: func() error { return clipboardConsent(config, c) }, UploadConsent: func() error { return uploadConsent(config, c) }})
+	}, BrowseConsent: func() error { return browseConsent(config, c) }, ClipboardConsent: func() error { return clipboardConsent(config, c) }, UploadConsent: func() error { return uploadConsent(config, c) }, ModelsConsent: func() error { return modelsConsent(config, c) }})
 }
 
 // launchTools reports the agent CLIs found on this connector's PATH from its
@@ -59,6 +59,13 @@ func clipboardAllowed(config string, c agentConfig) func() bool {
 // locally (reet terminal uploads off).
 func uploadsAllowed(config string, c agentConfig) func() bool {
 	return func() bool { return uploadConsent(config, c) == nil }
+}
+
+// modelsAllowed re-reads the enrollment: model listing is allowed while it is
+// still this enrollment, terminal access is on and models are not off locally
+// (reet terminal models off).
+func modelsAllowed(config string, c agentConfig) func() bool {
+	return func() bool { return modelsConsent(config, c) == nil }
 }
 
 // terminalAllowed re-reads the enrollment alone: it is still this one and
@@ -114,6 +121,17 @@ func uploadConsent(config string, c agentConfig) error {
 	}
 	if current.UploadsOff {
 		return errors.New("image uploads disabled locally")
+	}
+	return nil
+}
+
+func modelsConsent(config string, c agentConfig) error {
+	current, err := currentTerminalConfig(config, c)
+	if err != nil {
+		return err
+	}
+	if current.ModelsOff {
+		return errors.New("model listing disabled locally")
 	}
 	return nil
 }

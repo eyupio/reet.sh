@@ -39,6 +39,10 @@ type ManagerOptions struct {
 	// (reet terminal uploads on|off). nil means uploads are allowed, as they
 	// are by default. An error refuses every upload.
 	UploadConsent func() error
+	// ModelsConsent re-reads the machine's local model-listing switch
+	// (reet terminal models on|off). nil means listing is refused, as it is
+	// by default; an error refuses it too.
+	ModelsConsent func() error
 }
 
 type Manager struct {
@@ -589,6 +593,13 @@ func (m *Manager) Close() error {
 		_ = a.Close()
 	}
 	return nil
+}
+
+// ListModels runs the connector-owned listing for one tool with this
+// manager's home and PATH. The connector checks terminal and models consent
+// before calling it; this method only runs the local command.
+func (m *Manager) ListModels(ctx context.Context, tool string) terminalproto.ModelsResult {
+	return ListModels(ctx, tool, m.lookPath, m.home)
 }
 
 // WorktreeStatus reports a run's worktree (see the package function) after

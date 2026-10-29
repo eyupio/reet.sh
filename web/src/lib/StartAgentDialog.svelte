@@ -471,6 +471,10 @@
     {/each}
    </fieldset>
 
+   {#if chosenTool === 'opencode' && machine && !machine.capabilities?.acp}
+    <p class="hint">This machine's reet agent can't start OpenCode chats. This starts the terminal UI; update reet on the machine to use Chat with OpenCode.</p>
+   {/if}
+
    {#if chatCapable}
     <div class="field chat-choice">
      <label class="check"><input type="checkbox" bind:checked={structured} onchange={() => { chatTouched = true; edited() }} /> Chat with OpenCode</label>

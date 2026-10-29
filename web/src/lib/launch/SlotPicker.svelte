@@ -1,6 +1,6 @@
 <script lang="ts" module>
   /** One choice in a slot's list. A disabled one stays in the list (it can be focused and read) with its reason beside it. */
-  export type SlotOption = { value: string; label: string; detail?: string; group?: string; disabled?: boolean; reason?: string }
+  export type SlotOption = { value: string; label: string; detail?: string; group?: string; disabled?: boolean; reason?: string; starred?: boolean; starLabel?: string; onstar?: () => void }
 </script>
 
 <script lang="ts">
@@ -11,7 +11,7 @@
   // Arrow keys, Home and End move through the options, Enter or Space chooses, Escape (or Close) closes and gives focus back
   // to the slot's button; Tab from the popover closes it and moves on from the slot. A filter, when there is one, narrows the
   // list as it is typed (or asks the page to, for a list read from a machine). `other` adds a typed value (the model's Other…).
-  let { label, options, value, sheet, opener, filter, onfilter, other, status = '', onpick, onclose }: {
+  let { label, options, value, sheet, opener, filter, onfilter, other, status = '', statusAction, onpick, onclose }: {
     label: string
     options: SlotOption[]
     value: string
@@ -25,6 +25,8 @@
     other?: { label: string; field: string; validate: (text: string) => string | null }
     /** A line under the list: reading, or why the list is short. */
     status?: string
+    /** An action beside the status line, such as Refresh. */
+    statusAction?: { label: string; onclick: () => void; disabled?: boolean }
     onpick: (value: string) => void
     onclose: () => void
   } = $props()
@@ -68,6 +70,10 @@
   }
   const items = () => [...(list?.querySelectorAll<HTMLElement>('[role=option]') ?? [])]
   function keys(event: KeyboardEvent) {
+    if ((event.target as HTMLElement)?.closest('.star')) {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() }
+      return
+    }
     const all = items(), at = all.indexOf(document.activeElement as HTMLElement)
     const move = (i: number) => { event.preventDefault(); all[(i + all.length) % all.length]?.focus() }
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() }
@@ -76,6 +82,10 @@
     else if (event.key === 'Home' && at >= 0) move(0)
     else if (event.key === 'End' && at >= 0) move(all.length - 1)
     else if ((event.key === 'Enter' || event.key === ' ') && at >= 0) { event.preventDefault(); all[at].click() }
+    else if ((event.key.toLowerCase() === 's' || event.key === 'S') && at >= 0) {
+      const star = all[at].parentElement?.querySelector<HTMLButtonElement>('button.star')
+      if (star) { event.preventDefault(); star.click() }
+    }
     else if (event.key === 'Tab' && !sheet) tabOut()
   }
   // Tab from the popover (drawn at the end of the page) gives focus back to the slot first, so the browser's own Tab move
@@ -124,11 +134,21 @@
 <svelte:document onpointerdown={outside} />
 
 {#snippet row(o: SlotOption)}
-  <div class="option" role="option" tabindex="-1" aria-selected={o.value === value && o.value !== OTHER}
-    aria-disabled={o.disabled ? 'true' : undefined} onclick={() => choose(o)} onkeydown={() => {}}>
-    <span class="name">{o.label}</span>
-    {#if o.detail}<span class="detail">{o.detail}</span>{/if}
-    {#if o.reason}<span class="reason">{o.reason}</span>{/if}
+  <div class="option-row">
+    <div class="option" role="option" tabindex="-1" aria-selected={o.value === value && o.value !== OTHER}
+      aria-disabled={o.disabled ? 'true' : undefined} onclick={() => choose(o)} onkeydown={() => {}}>
+      <span class="name">{o.label}</span>
+      {#if o.detail}<span class="detail">{o.detail}</span>{/if}
+      {#if o.reason}<span class="reason">{o.reason}</span>{/if}
+    </div>
+    {#if o.onstar}
+      <button type="button" class="star" aria-pressed={o.starred ? 'true' : 'false'}
+        aria-label={o.starLabel ?? (o.starred ? `Unstar ${o.label}` : `Star ${o.label}`)}
+        title={o.starLabel ?? (o.starred ? `Unstar ${o.label}` : `Star ${o.label}`)}
+        onclick={(event) => { event.stopPropagation(); o.onstar?.() }}>
+        <span aria-hidden="true">{o.starred ? '★' : '☆'}</span>
+      </button>
+    {/if}
   </div>
 {/snippet}
 
@@ -163,7 +183,12 @@
       {#if otherError}<p class="error" id={`${id}-other-error`}>{otherError}</p>{/if}
     </form>
   {/if}
-  {#if status}<p class="status">{status}</p>{/if}
+  {#if status || statusAction}
+    <p class="status" role="status" aria-live="polite">
+      {#if status}{status}{/if}
+      {#if statusAction}<button type="button" class="status-action" disabled={statusAction.disabled} onclick={statusAction.onclick}>{statusAction.label}</button>{/if}
+    </p>
+  {/if}
 {/snippet}
 
 {#if sheet}
@@ -193,8 +218,23 @@
   }
   .list { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; outline: none; }
   .group { display: flex; flex-direction: column; gap: 2px; }
-  .group + .group, .list > .option + .group, .group + .option { margin-top: 6px; }
+  .group + .group { margin-top: 6px; }
   .heading { padding: 4px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .option-row { display: flex; align-items: stretch; gap: 4px; }
+  .option-row + .option-row { margin-top: 2px; }
+  .option-row > .option { flex: 1; min-width: 0; }
+  .star {
+    flex-shrink: 0; display: grid; place-items: center; min-width: 34px; min-height: 34px; padding: 4px;
+    border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-size: 15px; cursor: pointer;
+  }
+  .star[aria-pressed=true] { color: var(--accent-text); border-color: var(--line); }
+  .star:hover { background: var(--tint); border-color: var(--line); }
+  .status-action {
+    margin-left: 8px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--card); color: var(--accent-text); font: inherit; font-size: .7rem; cursor: pointer;
+  }
+  .status-action:disabled { opacity: .45; cursor: default; }
+  .heading { position: sticky; top: 0; z-index: 1; background: var(--card-raised); }
   .option {
     display: flex; flex-direction: column; gap: 1px; min-height: 34px; justify-content: center; padding: 6px 10px; border-radius: 8px;
     color: var(--ink); cursor: pointer;

@@ -2,12 +2,13 @@
   import { onMount, tick, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { shell } from '../dialogShell'
-  import { UnauthorizedError } from '../api'
+  import { UnauthorizedError, addModelFavourite, listModelFavourites, removeModelFavourite } from '../api'
   import { CATALOGUE, agentChoices } from '../catalogue'
+  import { modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
-  import { afterLaunch, defaultTitle, initialChoice, lastChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withHome, withProject, withSelection, sendKey,
+  import { afterLaunch, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
-  import { createTerminal, getFolderProject, getSelectionRun, listBranches, readiness, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
+  import { createTerminal, getFolderProject, getSelectionRun, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
     type BranchesResult, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { memberLine, runPending, STARTED_MEANS, type ProjectRun } from '../projects'
   import { keyboardLikelyOpen, PHONE_SCREEN, ViewportTracker, browserViewport } from '../terminal/sizing'
@@ -15,10 +16,10 @@
   import SlotPicker, { type SlotOption } from './SlotPicker.svelte'
 
   // The launch bar docked at the foot of Home: "Describe the job" and a sentence whose bold words are the choices (spec: The
-  // launch bar). It opens on the last launch (read from the sessions list, never from browser storage), so a second session
-  // is one press; Start sends one create through the idempotent create path and opens the new session. While the request is
-  // out the bar is locked; a reply that never came keeps the same request for Retry. On a phone the sentence folds into one
-  // summary line with Change, and the tab bar steps aside while the prompt has the keyboard up. The prompt lives only here.
+  // launch bar). It opens on the resolved project, account and favourite defaults (D1), never the last launch; Start sends one
+  // create through the idempotent create path and opens the new session. While the request is out the bar is locked; a reply
+  // that never came keeps the same request for Retry. On a phone the sentence folds into one summary line with Change, and the
+  // tab bar steps aside while the prompt has the keyboard up. The prompt lives only here.
   let { projects, projectsFailed = false, machines, sessions, profile, ready, initialProject = '', selection = [], onproject, onstarted, onleavefailed, onsignedout, onaddproject, onrun, onrundone }: {
     projects: FolderProject[] | undefined
     /** The projects could not be read (and none were read before): the bar says so instead of waiting silently. */
@@ -56,6 +57,9 @@
   const LOST_RUN = "We didn't hear back, so the agents may have started. Check your sessions before starting again. If you discard it and start again, more agents may start."
 
   let choice = $state<LaunchChoice | null>(null)
+  // Whether the person picked the model in this bar: an explicit model survives a project change for the same agent.
+  let explicitModel = $state(false)
+  let explicitEffort = $state(false)
   let busy = $state(false), leaving = $state(false), message = $state(''), failed = $state(false)
   // One attempt: the request id, the run token and every field, kept while its outcome is unknown so Retry asks about the same
   // start and a lost reply can never start a second agent. Dropped only when the server has definitely answered.
@@ -71,16 +75,30 @@
     void tick().then(() => { field?.focus(); history.replaceState(history.state, '', location.pathname + location.search) })
   })
 
-  // The first choice: the last launch, then the project an address named.
+  // The first choice: the resolved defaults (D1), then the project an address named.
   let named = ''
   $effect(() => {
     if (choice || !ready || !projects) return
     untrack(() => {
-      let next = initialChoice(lastChoice(sessions ?? [], projects!, profile), projects!, profile)
+      explicitModel = false; explicitEffort = false
+      const options = { machines: machines ?? [], favourites }
+      let next = initialChoice(projects!, profile, options)
       const p = initialProject && projects!.find(x => x.id === initialProject)
-      if (p) { next = withProject(next, p, profile); named = p.id }
+      if (p) { next = withProject(next, p, profile, options); named = p.id }
       choice = next
     })
+  })
+  // Favourites are a help, not a prerequisite: the bar opens on the project/account defaults and the favourite
+  // marked for the agent only fills a model that neither of those set. A late favourites read therefore cannot hold up
+  // the bar or overwrite a model the person chose.
+  $effect(() => {
+    const current = choice
+    if (!favouritesRead || !current || explicitModel || locked) return
+    const project = picked.length === 1 ? picked[0] : null
+    if (project?.defaultTool === current.agent && project.defaultModel) return
+    if (profile.defaultTool === current.agent && profile.defaultModel) return
+    const favourite = favourites.find(f => f.agentDefault && f.tool === current.agent)
+    if (favourite?.model && current.model !== favourite.model) choice = { ...current, model: favourite.model }
   })
   // An address that names a project later (an old /projects/<id> link, looked up after the bar opened) chooses it once.
   $effect(() => {
@@ -90,7 +108,9 @@
       const p = projects?.find(x => x.id === want)
       if (!p || locked) return
       named = want
-      choice = withProject(choice!, p, profile)
+      const next = withProject(choice!, p, profile, { machines: machines ?? [], favourites, explicitModel, explicitEffort })
+      if (next.agent !== choice!.agent) { explicitModel = false; explicitEffort = false }
+      choice = next
     })
   })
   // A project removed while chosen: the bar falls back as a fresh open would, keeping the prompt. Not while a request is out
@@ -101,7 +121,8 @@
     if (!choice || !list || locked) return
     untrack(() => {
       if (choice!.projectIds.every(pid => list.some(p => p.id === pid))) return
-      choice = { ...initialChoice(choice!, list, profile), prompt: choice!.prompt }
+      explicitModel = false; explicitEffort = false
+      choice = { ...initialChoice(list, profile, { machines: machines ?? [], favourites }), prompt: choice!.prompt }
     })
   })
 
@@ -118,7 +139,9 @@
     // Nothing changes while a start is out or kept, or before the bar's first choice: the status line says why.
     if (!choice) { hint = 'The bar is still opening. Choose the project again in a moment.'; return }
     if (locked) { hint = busy || leaving ? 'Wait for the current start to finish.' : 'Finish or discard the current start first.'; return }
-    choice = withProject(choice, project, profile)
+    const next = withProject(choice, project, profile, { machines: machines ?? [], favourites, explicitModel, explicitEffort })
+    if (next.agent !== choice.agent) { explicitModel = false; explicitEffort = false }
+    choice = next
     message = ''
     void tick().then(() => field?.focus({ preventScroll: phone }))
   }
@@ -134,8 +157,9 @@
       appliedSelection = key
       // The same projects (a card chosen in Select that the bar already names): nothing changes, so a refusal the bar shows
       // after a kept request stays. Only a different project set is a new start.
-      const next = withSelection(choice!, ids, projects!, profile)
+      const next = withSelection(choice!, ids, projects!, profile, { machines: machines ?? [], favourites, explicitModel, explicitEffort })
       if (sameProjects(next, choice!)) return
+      if (next.agent !== choice!.agent) { explicitModel = false; explicitEffort = false }
       choice = next
       message = ''
     })
@@ -151,6 +175,123 @@
   const targetId = $derived(one ? one.host : choice?.homeMachine ?? '')
   const target = $derived(machines?.find(m => m.agentId === targetId))
   const hostOf = (agentId: string) => machines?.find(m => m.agentId === agentId)?.host ?? projects?.find(p => p.host === agentId)?.machine ?? agentId
+
+  // --- the machine's model list (D5) -------------------------------------------------------------------------------------
+  // Favourites come from the account once; the machine list is read whenever the single target machine or agent changes. A read
+  // failure only changes the picker's status line: Start and `startable` never look at a list.
+  let favourites = $state<ModelFavourite[]>([])
+  let favouritesRead = $state(false)
+  let favouriteNote = $state('')
+  type ModelRead = { key: string; loading: boolean; machine: MachineModels | null; error: string }
+  let modelList = $state<ModelRead>({ key: '', loading: false, machine: null, error: '' })
+  const pickedHosts = $derived([...new Set(picked.map(p => p.host))])
+  const multiMachine = $derived(picked.length > 1 && pickedHosts.length > 1)
+  const modelTargetId = $derived(picked.length > 0 ? (pickedHosts.length === 1 ? pickedHosts[0] : '') : (choice?.homeMachine ?? ''))
+  const modelTarget = $derived(machines?.find(m => m.agentId === modelTargetId))
+  const modelHost = $derived(modelTarget?.host ?? hostOf(modelTargetId))
+  const modelKey = $derived(choice && modelTargetId ? `${modelTargetId}\u0000${choice.agent}` : '')
+  const modelMachine = $derived(modelList.key === modelKey ? modelList.machine : null)
+  const modelLoading = $derived(!!modelKey && modelList.key === modelKey && modelList.loading)
+  const modelError = $derived(modelList.key === modelKey ? modelList.error : '')
+  const modelCapable = $derived(!!modelTarget?.ready && !!modelTarget?.capabilities?.models && !modelTarget?.capabilities?.modelsOff)
+  const modelStatusInfo = $derived(modelStatus(modelMachine, modelHost))
+  const modelStatusLine = $derived.by(() => {
+    if (multiMachine) return 'Models differ per machine.'
+    if (!modelKey) return ''
+    if (modelLoading) return `Reading ${modelHost || 'the machine'}’s models…`
+    const ageWord = modelMachine?.state === 'failed' ? 'Checked' : 'Read'
+    const line = [modelError || modelStatusInfo.sentence, !modelError && modelStatusInfo.age ? `${ageWord} ${modelStatusInfo.age}.` : ''].filter(Boolean).join(' ')
+    return [line, favouriteNote].filter(Boolean).join(' ')
+  })
+  const modelStatusAction = $derived.by(() => {
+    if (!modelKey || multiMachine || !modelStatusInfo.canRefresh || !modelCapable) return undefined
+    return { label: 'Refresh', onclick: () => void refreshModels(), disabled: modelLoading }
+  })
+
+  function failedModels(tool: string, sentence: string, previous: MachineModels | null): MachineModels {
+    return previous
+      ? { ...previous, state: 'failed', sentence, checkedAt: Date.now() }
+      : { tool, state: 'failed', models: [], more: false, source: '', version: '', fetchedAt: null, checkedAt: Date.now(), reason: '', sentence }
+  }
+  async function readModels(agentId: string, tool: string, key: string) {
+    modelList = { key, loading: true, machine: modelList.key === key ? modelList.machine : null, error: '' }
+    try {
+      const next = await machineModels(agentId, tool, life.signal)
+      if (life.signal.aborted || modelList.key !== key) return
+      modelList = { key, loading: false, machine: next, error: '' }
+    } catch (e) {
+      if (life.signal.aborted || modelList.key !== key) return
+      if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+      const sentence = `Couldn’t read ${modelHost || 'the machine'}’s models just now. Favourites and suggestions still work.`
+      modelList = { key, loading: false, machine: failedModels(tool, sentence, modelList.machine), error: sentence }
+    }
+  }
+  $effect(() => {
+    const key = modelKey, agentId = modelTargetId, tool = choice?.agent ?? ''
+    if (!key || !agentId || !tool) return
+    if (untrack(() => modelList.key === key && (modelList.loading || modelList.machine))) return
+    untrack(() => { void readModels(agentId, tool, key) })
+  })
+  async function refreshModels() {
+    const key = modelKey, agentId = modelTargetId, tool = choice?.agent ?? ''
+    if (!key || !agentId || !tool || modelList.loading) return
+    const before = modelList.key === key ? modelList.machine : null
+    modelList = { key, loading: true, machine: before, error: '' }
+    try {
+      const next = await refreshMachineModels(agentId, tool, life.signal)
+      if (life.signal.aborted || modelList.key !== key) return
+      // An offline answer keeps the last list on screen; the status line says the machine is offline.
+      if (next.state === 'offline' && before) modelList = { key, loading: false, machine: { ...next, models: before.models, fetchedAt: before.fetchedAt }, error: '' }
+      else modelList = { key, loading: false, machine: next, error: '' }
+    } catch (e) {
+      if (life.signal.aborted || modelList.key !== key) return
+      if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+      const sentence = e instanceof TerminalError && e.status === 429 ? 'Slow down a moment, then try again. The last list is still here.'
+        : e instanceof TerminalError && e.status === 409 ? 'Another read is already running. Try again in a moment. The last list is still here.'
+        : `Couldn’t refresh ${modelHost || 'the machine'}’s models. The last list is still here.`
+      modelList = { key, loading: false, machine: before, error: sentence }
+    }
+  }
+  async function loadFavourites() {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const answer = await Promise.race([
+        listModelFavourites(life.signal),
+        new Promise<never>((_, no) => { timer = setTimeout(() => no(new Error('timeout')), 10_000) }),
+      ])
+      if (!life.signal.aborted) favourites = answer.favourites ?? []
+    } catch { /* favourites are a help, not a requirement: suggestions still work */ }
+    finally { clearTimeout(timer); if (!life.signal.aborted) favouritesRead = true }
+  }
+  async function toggleStar(model: string, starred: boolean) {
+    const tool = choice?.agent
+    if (!tool || !model) return
+    const before = favourites
+    favouriteNote = ''
+    favourites = starred ? before.filter(f => !(f.tool === tool && f.model === model)) : [...before, { tool, model, agentDefault: false }]
+    try {
+      if (starred) await removeModelFavourite(tool, model)
+      else {
+        const answer = await addModelFavourite(tool, model)
+        if (answer?.favourites) favourites = answer.favourites
+      }
+    } catch {
+      if (life.signal.aborted) return
+      favourites = before
+      favouriteNote = 'Couldn’t update your favourites just now. Try again.'
+    }
+  }
+  function modelOptionsFor(): SlotOption[] {
+    if (!choice) return []
+    const tool = choice.agent
+    return modelOptions({
+      tool, current: cleanModel(choice.model), machine: multiMachine ? null : modelMachine,
+      favourites, recent: recentModels(sessions ?? [], tool), suggestions: modelSuggestions(tool),
+      host: multiMachine ? '' : modelHost, agentName: toolName(tool),
+    }).map(o => o.value === '' ? o : {
+      ...o, starLabel: starLabel(tool, o.value, !!o.starred), onstar: () => { void toggleStar(o.value, !!o.starred) },
+    })
+  }
 
   // The checkout's branches, read once per folder from the machine (only for a repository on a machine that lists them).
   // 'loading' while the read is out; 'failed' after a read that failed, read again when the Branch list is next opened.
@@ -206,11 +347,7 @@
       const offers = target ? agentChoices(target) : CATALOGUE.map(agent => ({ agent, available: agent.enabled, reason: agent.enabled ? undefined : agent.disabledReason }))
       return offers.map(o => ({ value: o.agent.id, label: o.agent.name, disabled: !o.available, reason: o.available ? undefined : o.reason }))
     }
-    if (slot === 'model') {
-      const hints = modelSuggestions(choice.agent)
-      const own = cleanModel(choice.model)
-      return [{ value: '', label: 'default' }, ...hints.map(m => ({ value: m, label: m })), ...(own && !hints.includes(own) ? [{ value: own, label: own }] : [])]
-    }
+    if (slot === 'model') return modelOptionsFor()
     if (slot === 'project') {
       const out: SlotOption[] = (projects ?? []).map(p => {
         const why = readiness(machineFor(p.host))
@@ -248,17 +385,24 @@
   function set(slot: string, value: string) {
     if (!choice || locked) return
     message = ''
-    if (slot === 'agent') choice = { ...choice, agent: value, model: value === choice.agent ? choice.model : '', effort: CATALOGUE.find(a => a.id === value)?.effort ? choice.effort : '' }
-    else if (slot === 'model') choice = { ...choice, model: value }
+    if (slot === 'agent') {
+      const project = picked.length === 1 ? picked[0] : null
+      explicitModel = false; explicitEffort = false
+      choice = withAgent(choice, value, project, profile, { machines: machines ?? [], favourites })
+    } else if (slot === 'model') { explicitModel = true; choice = { ...choice, model: value } }
     else if (slot === 'project') {
       if (value === ADD) { const opener = open?.opener; if (opener) onaddproject?.(opener); return }
-      if (value.startsWith(HOME)) { choice = withHome(choice, value.slice(HOME.length)); return }
+      if (value.startsWith(HOME)) { choice = withHome(choice, value.slice(HOME.length), profile, { favourites, explicitModel, explicitEffort }); return }
       const p = projects?.find(x => x.id === value)
-      if (p) choice = withProject(choice, p, profile)
-    } else if (slot === 'machine') choice = withHome(choice, value)
+      if (p) {
+        const next = withProject(choice, p, profile, { machines: machines ?? [], favourites, explicitModel, explicitEffort })
+        if (next.agent !== choice.agent) { explicitModel = false; explicitEffort = false }
+        choice = next
+      }
+    } else if (slot === 'machine') choice = withHome(choice, value, profile, { favourites, explicitModel, explicitEffort })
     else if (slot === 'branch') choice = { ...choice, branch: value }
     else if (slot === 'worktree') choice = { ...choice, worktree: value === 'yes' }
-    else if (slot === 'effort') choice = { ...choice, effort: value as LaunchChoice['effort'] }
+    else if (slot === 'effort') { explicitEffort = true; choice = { ...choice, effort: value as LaunchChoice['effort'] } }
   }
   function openSlot(slot: string, opener: HTMLElement) {
     if (locked) return
@@ -583,6 +727,7 @@
   })
 
   onMount(() => {
+    void loadFavourites()
     const coarse = matchMedia('(pointer: coarse)'), narrow = matchMedia(PHONE_SCREEN)
     const read = () => { touch = coarse.matches; phone = narrow.matches; measureKeyboard() }
     read()
@@ -668,8 +813,9 @@
 {#if open && choice}
   {@const slot = open?.slot ?? ''}
   <SlotPicker label={LABELS[slot]} options={optionsFor(slot)} value={valueOf(slot)} sheet={touch || changing} opener={open?.opener ?? null}
-    filter={slot === 'project' ? 'Find a project' : slot === 'branch' && target?.capabilities?.branches ? 'Filter branches' : undefined}
-    onfilter={slot === 'branch' ? filterBranches : undefined} status={pickerStatus}
+    filter={slot === 'project' ? 'Find a project' : slot === 'model' ? 'Filter models' : slot === 'branch' && target?.capabilities?.branches ? 'Filter branches' : undefined}
+    onfilter={slot === 'branch' ? filterBranches : undefined} status={slot === 'model' ? modelStatusLine : pickerStatus}
+    statusAction={slot === 'model' ? modelStatusAction : undefined}
     other={slot === 'model' ? { label: 'Other…', field: 'Model name', validate: validateModel } : undefined}
     onpick={(value) => set(slot, value)} onclose={() => { open = null; branchFilter = null }} />
 {/if}

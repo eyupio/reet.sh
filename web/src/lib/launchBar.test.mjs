@@ -10,11 +10,13 @@ const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString(
 const catalogue = asURL(compile('./catalogue.ts'))
 const agentLaunch = asURL(compile('./agentLaunch.ts').replace("from './catalogue'", `from '${catalogue}'`))
 const terminalApi = asURL(compile('./terminal/api.ts'))
+const models = asURL(compile('./models.ts').replace("from './catalogue'", `from '${catalogue}'`))
 const source = compile('./launchBar.ts')
   .replace("from './catalogue'", `from '${catalogue}'`)
   .replace("from './agentLaunch'", `from '${agentLaunch}'`)
   .replace("from './terminal/api'", `from '${terminalApi}'`)
-const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText } = await import(asURL(source))
+  .replace("from './models'", `from '${models}'`)
+const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText } = await import(asURL(source))
 const { refusalText } = await import(agentLaunch)
 
 const caps = (extra = {}) => ({ protocolVersion: 1, os: 'linux', osUser: 'u', terminalEnabled: true, terminalControl: true, healthEnabled: true, readiness: 'ready',
@@ -85,34 +87,46 @@ test('sentence for several projects', () => {
 
 test('approvals reset to ask', () => {
   const last = choice({ approvals: 'yolo', prompt: 'Fix the tests' })
-  const next = initialChoice(last, projects, profile)
+  const next = initialChoice(projects, profile)
   assert.equal(next.approvals, 'ask')
   assert.equal(next.prompt, '')
   assert.equal(next.agent, 'claude')
-  assert.equal(next.model, 'sonnet')
+  assert.equal(next.model, '')
   assert.deepEqual(next.projectIds, ['p-reet'])
-  assert.equal(next.branch, 'main')
+  assert.equal(next.branch, '')
   const after = afterLaunch(last)
   assert.equal(after.approvals, 'ask')
   assert.equal(after.prompt, '')
   assert.equal(after.agent, 'claude')
 })
 
-test('first choice comes from the first project and the profile', () => {
-  assert.deepEqual(initialChoice(null, projects, profile), { agent: 'claude', model: '', projectIds: ['p-reet'], branch: '', worktree: true, effort: '', prompt: '', approvals: 'ask' })
-  const own = { ...reet, defaultTool: 'codex', defaultModel: 'gpt-5-codex', baseBranch: 'release', worktreeDefault: 'no' }
-  assert.deepEqual(initialChoice(null, [own], { defaultBaseBranch: 'develop', worktreesByDefault: true }), { agent: 'codex', model: 'gpt-5-codex', projectIds: ['p-reet'], branch: 'release', worktree: false, effort: '', prompt: '', approvals: 'ask' })
-  assert.equal(initialChoice(null, [reet], { defaultBaseBranch: 'develop', worktreesByDefault: false }).worktree, false)
-  assert.equal(initialChoice(null, [reet], { defaultBaseBranch: 'develop', worktreesByDefault: false }).branch, 'develop')
-  assert.equal(initialChoice(null, [{ ...reet, worktreeDefault: 'yes' }], { worktreesByDefault: false }).worktree, true)
-  assert.deepEqual(initialChoice(null, [], profile).projectIds, [])
-  // A removed project falls back to the first one; effort is dropped for an agent without it.
-  const gone = initialChoice(choice({ projectIds: ['p-gone'], effort: 'high' }), projects, profile)
-  assert.deepEqual(gone.projectIds, ['p-reet'])
-  assert.equal(gone.effort, '')
-  assert.equal(initialChoice(choice({ agent: 'cline', effort: 'low' }), projects, profile).effort, 'low')
-  const home = initialChoice(choice({ projectIds: [], homeMachine: 'm-desk' }), projects, profile)
-  assert.deepEqual([home.projectIds, home.homeMachine], [[], 'm-desk'])
+test('first choice comes from the project, account, favourite and agent defaults', () => {
+  assert.deepEqual(initialChoice(projects, profile), { agent: 'claude', model: '', projectIds: ['p-reet'], branch: '', worktree: true, effort: '', prompt: '', approvals: 'ask' })
+  const own = { ...reet, defaultTool: 'codex', defaultModel: 'gpt-5-codex', defaultEffort: 'high', baseBranch: 'release', worktreeDefault: 'no' }
+  assert.deepEqual(initialChoice([own], { defaultBaseBranch: 'develop', worktreesByDefault: true }), { agent: 'codex', model: 'gpt-5-codex', projectIds: ['p-reet'], branch: 'release', worktree: false, effort: '', prompt: '', approvals: 'ask' })
+  assert.equal(initialChoice([reet], { defaultBaseBranch: 'develop', worktreesByDefault: false }).worktree, false)
+  assert.equal(initialChoice([reet], { defaultBaseBranch: 'develop', worktreesByDefault: false }).branch, 'develop')
+  assert.equal(initialChoice([{ ...reet, worktreeDefault: 'yes' }], { worktreesByDefault: false }).worktree, true)
+  assert.deepEqual(initialChoice([], profile).projectIds, [])
+  // The account applies only when the project names no agent; its model only with its agent.
+  assert.deepEqual([initialChoice([reet], { defaultTool: 'codex', defaultModel: 'gpt-5-codex' }).agent, initialChoice([reet], { defaultTool: 'codex', defaultModel: 'gpt-5-codex' }).model], ['codex', 'gpt-5-codex'])
+  assert.equal(initialChoice([reet], { defaultTool: 'codex', defaultModel: 'gpt-5-codex' }).model, 'gpt-5-codex')
+  // A favourite marked for the agent fills an otherwise empty model.
+  assert.equal(initialChoice([reet], profile, { favourites: [{ tool: 'claude', model: 'opus', agentDefault: true }] }).model, 'opus')
+  assert.equal(initialChoice([reet], { defaultTool: 'codex', defaultModel: 'gpt-5-codex' }, { favourites: [{ tool: 'claude', model: 'opus', agentDefault: true }] }).model, 'gpt-5-codex')
+  // First project's machine decides the first available agent.
+  assert.equal(initialChoice([reet], profile, { machines: [machine('m-studio', 'studio', { tools: ['codex'] })] }).agent, 'codex')
+  // Effort only for an agent that takes it; a project's effort needs its agent too.
+  assert.equal(initialChoice([{ ...reet, defaultTool: 'cline', defaultEffort: 'high' }], profile).effort, 'high')
+  assert.equal(initialChoice([{ ...reet, defaultTool: 'claude', defaultEffort: 'high' }], profile).effort, '')
+  assert.equal(initialChoice([{ ...reet, defaultModel: 'sonnet', defaultEffort: 'high' }], profile).effort, '')
+})
+
+test('opening uses the resolved defaults, never the last launch', () => {
+  const sessions = [{ id: 's', agentId: 'm-studio', createdAt: 5, tool: 'codex', model: 'gpt-5-codex', projectId: 'p-reet' }]
+  assert.deepEqual([lastChoice(sessions, projects, profile).agent, lastChoice(sessions, projects, profile).model], ['codex', 'gpt-5-codex'])
+  const opened = initialChoice(projects, profile)
+  assert.deepEqual([opened.agent, opened.model], ['claude', ''])
 })
 
 test('Enter never sends on touch; Ctrl+Enter and Cmd+Enter send', () => {
@@ -224,10 +238,10 @@ test('a branch only goes out when chosen or set by the project or profile', () =
   // The suggestion from the machine's branches is for the picker and the sentence only.
   const branches = { current: 'main', default: 'main', branches: ['main'], more: false }
   assert.equal(baseBranchFor(reet, profile, branches), 'main')
-  assert.equal(initialChoice(null, [reet], profile).branch, '')
+  assert.equal(initialChoice([reet], profile).branch, '')
   assert.equal(words(sentence(unset, projects, machines, 'main')), 'Run Claude Code with sonnet on reet at studio from main in a fresh worktree')
   // A base the project sets is sent, and an old machine is told to update.
-  const set = initialChoice(null, [{ ...reet, baseBranch: 'release' }], profile)
+  const set = initialChoice([{ ...reet, baseBranch: 'release' }], profile)
   assert.equal(set.branch, 'release')
   assert.equal(toCreate(set, { ...reet, baseBranch: 'release' }, r, a).launch.base, 'release')
   assert.equal(startable(set, [{ ...reet, baseBranch: 'release' }], old), 'Update reet on that machine to use that option.')
@@ -250,20 +264,50 @@ test('the last launch comes from the newest session that names an agent, never f
   assert.deepEqual(lastChoice([s('h', 1, { tool: 'claude' })], projects, profile).homeMachine, 'm-studio')
   const gone = lastChoice([s('g', 1, { tool: 'claude', projectId: 'p-gone' })], projects, profile)
   assert.deepEqual([gone.projectIds, gone.homeMachine], [[], undefined])
-  assert.deepEqual(initialChoice(gone, projects, profile).projectIds, ['p-reet'])
 })
 
-test('choosing a project re-derives its branch and worktree and keeps the prompt', () => {
+test('choosing a project re-derives the agent, model, effort, branch and worktree', () => {
   const start = choice({ prompt: 'Fix the tests', effort: '', homeMachine: 'm-desk', projectIds: [] })
   const next = withProject(start, { ...site, baseBranch: 'trunk', worktreeDefault: 'no' }, profile)
-  assert.deepEqual(next, { agent: 'claude', model: 'sonnet', projectIds: ['p-site'], branch: 'trunk', worktree: false, effort: '', prompt: 'Fix the tests', approvals: 'ask' })
+  assert.deepEqual(next, { agent: 'claude', model: '', projectIds: ['p-site'], branch: 'trunk', worktree: false, effort: '', prompt: 'Fix the tests', approvals: 'ask' })
   assert.equal(withProject(start, site, { defaultBaseBranch: 'develop', worktreesByDefault: false }).branch, 'develop')
   assert.equal(withProject(start, site, { worktreesByDefault: false }).worktree, false)
   // The project's own default agent and model come with it; effort is dropped for an agent without it.
   const own = withProject(choice({ agent: 'cline', effort: 'high' }), { ...site, defaultTool: 'codex', defaultModel: 'gpt-5-codex' }, profile)
   assert.deepEqual([own.agent, own.model, own.effort], ['codex', 'gpt-5-codex', ''])
-  const home = withHome(choice(), 'm-server')
-  assert.deepEqual([home.projectIds, home.homeMachine, home.branch], [[], 'm-server', ''])
+  // An account model only applies with its own agent; a project model without its tool never applies.
+  assert.equal(withProject(choice({ agent: 'codex' }), site, { defaultTool: 'codex', defaultModel: 'gpt-5-codex' }).model, 'gpt-5-codex')
+  assert.equal(withProject(choice({ agent: 'claude' }), site, { defaultTool: 'codex', defaultModel: 'gpt-5-codex' }).model, '')
+  assert.equal(withProject(choice({ agent: 'codex' }), { ...site, defaultModel: 'gpt-5-codex' }, profile).model, '')
+  // A favourite marked for the agent fills the gap.
+  assert.equal(withProject(choice({ agent: 'claude' }), site, profile, { favourites: [{ tool: 'claude', model: 'opus', agentDefault: true }] }).model, 'opus')
+  // Explicit model wins over the project and account defaults for the same agent; a new project agent re-resolves it.
+  assert.equal(withProject(choice({ model: 'sonnet' }), site, profile, { explicitModel: true }).model, 'sonnet')
+  assert.equal(withProject(choice({ model: 'sonnet' }), { ...site, defaultTool: 'claude', defaultModel: 'opus' }, { defaultTool: 'claude', defaultModel: 'haiku' }, { explicitModel: true }).model, 'sonnet')
+  assert.equal(withProject(choice({ model: 'sonnet' }), { ...site, defaultTool: 'codex', defaultModel: 'gpt-5-codex' }, profile, { explicitModel: true }).model, 'gpt-5-codex')
+  // Explicit effort survives a project change for the same agent; otherwise the chain decides.
+  assert.equal(withProject(choice({ agent: 'cline', effort: 'high' }), { ...site, defaultTool: 'cline' }, { defaultTool: 'cline', defaultEffort: 'low' }, { explicitEffort: true }).effort, 'high')
+  assert.equal(withProject(choice({ agent: 'cline', effort: 'high' }), { ...site, defaultTool: 'cline' }, { defaultTool: 'cline', defaultEffort: 'low' }).effort, 'low')
+  const home = withHome(choice({ model: 'sonnet' }), 'm-server', { defaultTool: 'claude', defaultModel: 'haiku' })
+  assert.deepEqual([home.projectIds, home.homeMachine, home.branch, home.model], [[], 'm-server', '', 'haiku'])
+})
+
+test('an agent switch resolves that agent\'s model and effort, never the old model', () => {
+  const switched = withAgent(choice({ agent: 'claude', model: 'sonnet', effort: 'high' }), 'cline', reet, profile, { favourites: [{ tool: 'cline', model: 'cline-model', agentDefault: true }] })
+  assert.deepEqual([switched.agent, switched.model, switched.effort], ['cline', 'cline-model', ''])
+  const account = withAgent(choice({ agent: 'claude', model: 'sonnet' }), 'codex', reet, { defaultTool: 'codex', defaultModel: 'gpt-5-codex' })
+  assert.deepEqual([account.agent, account.model], ['codex', 'gpt-5-codex'])
+  const mismatch = withAgent(choice(), 'gemini', { ...reet, defaultTool: 'codex', defaultModel: 'gpt-5-codex' }, profile)
+  assert.deepEqual([mismatch.agent, mismatch.model], ['gemini', ''])
+  const effort = withAgent(choice(), 'cline', reet, { defaultTool: 'cline', defaultEffort: 'medium' })
+  assert.deepEqual([effort.model, effort.effort], ['', 'medium'])
+})
+
+test('a model-list failure never changes startable', () => {
+  assert.equal(startable(choice({ model: 'not-in-any-list' }), projects, machines), null)
+  const withModels = [{ ...machines[0], capabilities: { ...caps(), models: true } }]
+  assert.equal(startable(choice({ model: 'not-in-any-list' }), projects, withModels), null)
+  assert.equal(toCreate(choice({ model: 'not-in-any-list' }), reet, 'r'.repeat(16), 'a'.repeat(16)).launch.model, 'not-in-any-list')
 })
 
 test('the phone summary is the sentence in one line', () => {
@@ -298,6 +342,8 @@ test('a selection puts its projects in the sentence and one project its own defa
   assert.equal(words(sentence(many, projects, machines)), "Run Codex with gpt-5-codex on 2 projects at each project's machine from each project's default in a fresh worktree")
   const one = withSelection(many, ['p-site'], projects, profile)
   assert.deepEqual(one.projectIds, ['p-site'])
+  assert.equal(one.model, '')
+  assert.equal(withSelection(many, ['p-site'], projects, profile, { explicitModel: true }).model, 'gpt-5-codex')
   // Nothing chosen: the sentence goes back to the first project it named.
   assert.deepEqual(withSelection(many, [], projects, profile).projectIds, ['p-site'])
   assert.deepEqual(withSelection(start, [], projects, profile).projectIds, ['p-reet'])

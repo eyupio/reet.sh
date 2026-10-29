@@ -53,6 +53,13 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
 export const terminalMachine = (id, host, ready, consented = ready) => ({agentId:id,host,ready,serverEnabled:true,capabilities:{protocolVersion:1,terminalControl:true,os:'linux',osUser:'dev',terminalEnabled:consented,healthEnabled:false,readiness:consented?'ready':'terminal_disabled'}})
 export const active = {configured:true,available:true,reason:''}
 
+// A machine's model list as /api/v2/machines/{id}/models answers it; `models` defaults to two providers so a picker has a
+// group to draw. `state` drives the status line: listed, unsupported, failed, off, offline or update.
+export const modelEntry = (id, provider = id.includes('/') ? id.slice(0, id.indexOf('/')) : '') => ({id, provider})
+export const modelList = (over = {}) => ({tool:'opencode', state:'listed', models:[modelEntry('anthropic/claude-sonnet-4-5'), modelEntry('openai/gpt-5')],
+ more:false, source:'opencode models', version:'', fetchedAt:Date.now(), checkedAt:Date.now(), reason:'', sentence:'', ...over})
+export const modelFavourites = (favourites = []) => ({version:1, favourites})
+
 // What a fresh instance reports before any machine connects: the server scans itself, which is not a machine the person connected.
 export const freshInstanceSync = () => {
   const scope = {id:'srv',host:'controller',agent:'reet-server',name:'controller',skills:[],skillCount:0,complete:true,scannedAt:Date.now(),lastSeen:Date.now(),os:'linux',arch:'amd64',version:'test'}

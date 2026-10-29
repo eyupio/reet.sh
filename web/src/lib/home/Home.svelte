@@ -209,7 +209,7 @@
     // Once Home has gone, a late answer changes nothing and the timer is cleared.
     let giveUpTimer: ReturnType<typeof setTimeout> | undefined
     if (writer) Promise.race([getProfile(), new Promise<never>((_, no) => { giveUpTimer = setTimeout(() => no(new Error('timeout')), 10_000) })])
-      .then(p => { if (!life.signal.aborted) profile = { defaultBaseBranch: p.profile.defaultBaseBranch, worktreesByDefault: p.profile.worktreesByDefault } }, () => {})
+      .then(p => { if (!life.signal.aborted) profile = { defaultBaseBranch: p.profile.defaultBaseBranch, worktreesByDefault: p.profile.worktreesByDefault, defaultTool: p.profile.defaultTool, defaultModel: p.profile.defaultModel, defaultEffort: p.profile.defaultEffort } }, () => {})
       .finally(() => { clearTimeout(giveUpTimer); if (!life.signal.aborted) profileRead = true })
     if (writer && legacyProject) void findLegacy(legacyProject)
     const query = matchMedia(NARROW), resized = () => { narrow = query.matches }

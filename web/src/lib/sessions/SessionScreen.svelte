@@ -180,7 +180,7 @@
 {#if menuAt}
   <!-- data-keeps-focus: a reconnecting terminal never takes focus out of the open menu. -->
   <div class="menu" role="menu" aria-label={`Actions for ${session.title}`} tabindex="-1" data-keeps-focus bind:this={menu} style={`left:${menuAt.x}px;top:${menuAt.y}px`} onkeydown={menuKey}>
-    {#if oncontinue}<button role="menuitem" disabled={busy} onclick={continueSession}>Continue session…</button>{/if}
+    {#if oncontinue}<button role="menuitem" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue chat with history…' : 'Continue session…'}</button>{/if}
     <button role="menuitem" disabled={busy || serverOff} onclick={() => act('rename')}>Rename…</button>
     <button role="menuitem" onclick={theatreView}>{theatre ? 'Exit theatre view' : 'Theatre view'}</button>
     {#if session.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}

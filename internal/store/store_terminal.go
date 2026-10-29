@@ -58,6 +58,7 @@ func (s *Store) migrateTerminal() error {
 		{"terminal_sessions", "project_id TEXT"},
 		{"terminal_sessions", "dir TEXT NOT NULL DEFAULT ''"},
 		{"terminal_sessions", "structured INTEGER NOT NULL DEFAULT 0 CHECK(structured IN (0,1))"},
+		{"terminal_sessions", "acp_session_id TEXT NOT NULL DEFAULT ''"},
 	} {
 		ok, err := hasColumn(s.db, c.table, strings.Fields(c.ddl)[0])
 		if err != nil {
@@ -323,15 +324,18 @@ type TerminalSession struct {
 	Dir string `json:"dir"`
 	// Structured is an OpenCode chat over ACP; it has no terminal to attach to.
 	Structured bool `json:"structured,omitempty"`
+	// ACPSessionID is OpenCode's own session id, the handle for reopening a
+	// chat's stored history. It is empty until the machine reports it.
+	ACPSessionID string `json:"acpSessionId,omitempty"`
 }
 
-const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}')`
+const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}')`
 
 func readTerminal(row interface{ Scan(...any) error }) (TerminalSession, error) {
 	var t TerminalSession
 	var exit sql.NullInt64
 	var project sql.NullString
-	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.RemoveHistory)
+	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.ACPSessionID, &t.RemoveHistory)
 	if exit.Valid {
 		n := int(exit.Int64)
 		t.ExitCode = &n
@@ -457,11 +461,11 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 		if accountCount >= terminalproto.MaxSessionsPerAccount || agentCount >= terminalproto.MaxSessionsPerAgent {
 			return ErrTerminalCapacity
 		}
-		t = TerminalSession{ID: syncID(), AgentID: agentID, Title: in.Title, State: terminalproto.Creating, CreatedAt: now(), UpdatedAt: now(), Tool: in.Tool, Model: in.Model, Effort: in.Effort, Yolo: in.Yolo, Dir: in.Dir, Structured: in.Structured}
+		t = TerminalSession{ID: syncID(), AgentID: agentID, Title: in.Title, State: terminalproto.Creating, CreatedAt: now(), UpdatedAt: now(), Tool: in.Tool, Model: in.Model, Effort: in.Effort, Yolo: in.Yolo, Dir: in.Dir, Structured: in.Structured, ACPSessionID: in.ResumeACP}
 		if project.Valid {
 			t.ProjectID = &project.String
 		}
-		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at,tool,model,effort,yolo,project_id,dir,structured) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt, t.Tool, t.Model, t.Effort, t.Yolo, project, t.Dir, t.Structured); err != nil {
+		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at,tool,model,effort,yolo,project_id,dir,structured,acp_session_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt, t.Tool, t.Model, t.Effort, t.Yolo, project, t.Dir, t.Structured, t.ACPSessionID); err != nil {
 			return err
 		}
 		_, err = tx.Exec(`INSERT INTO terminal_operations(request_id,user_id,agent_id,session_id,kind,state,parameters,created_at,updated_at) VALUES(?,?,?,?,'create','pending',?,?,?)`, requestID, uid, agentID, t.ID, string(parameters), t.CreatedAt, t.UpdatedAt)
@@ -764,6 +768,46 @@ func (s *Store) FailTerminalCreateWithResultFor(uid int64, agentID, requestID st
 		if err == nil {
 			err = archiveTerminalOnClose(tx, uid, agentID, sessionID)
 		}
+		return err
+	})
+}
+
+// CanResumeACPSessionFor reports whether acpSessionID is the stored handle of
+// one of this account's closed structured sessions on agentID. It stops a
+// crafted resumeAcp from loading another project's OpenCode history.
+func (s *Store) CanResumeACPSessionFor(uid int64, agentID, acpSessionID, dir string) (bool, error) {
+	if !terminalproto.ValidID(agentID) || !terminalproto.ValidACPSessionID(acpSessionID) || dir != "" && !terminalproto.ValidDir(dir) {
+		return false, terminalproto.ErrInvalid
+	}
+	var ok bool
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM terminal_sessions WHERE user_id=? AND agent_id=? AND structured=1 AND state IN ('ended','exited','lost') AND acp_session_id=? AND dir=?)`, uid, agentID, acpSessionID, dir).Scan(&ok)
+	return ok, err
+}
+
+// RecordTerminalACPSessionFor stores OpenCode's session id on a structured
+// session. It is idempotent for the same id and refuses a different one.
+func (s *Store) RecordTerminalACPSessionFor(uid int64, agentID, sessionID, acpSessionID string) error {
+	if !terminalproto.ValidID(sessionID) || !terminalproto.ValidACPSessionID(acpSessionID) {
+		return terminalproto.ErrInvalid
+	}
+	return s.withTx(func(tx *sql.Tx) error {
+		if err := lockRemoteAgent(tx, uid, agentID, false); err != nil {
+			return err
+		}
+		t, err := terminalForTx(tx, uid, agentID, sessionID)
+		if err != nil {
+			return err
+		}
+		if !t.Structured {
+			return ErrTerminalConflict
+		}
+		if t.ACPSessionID == acpSessionID {
+			return nil
+		}
+		if t.ACPSessionID != "" {
+			return ErrTerminalConflict
+		}
+		_, err = tx.Exec(`UPDATE terminal_sessions SET acp_session_id=?,updated_at=? WHERE id=? AND user_id=? AND agent_id=? AND structured=1 AND acp_session_id=''`, acpSessionID, now(), sessionID, uid, agentID)
 		return err
 	})
 }

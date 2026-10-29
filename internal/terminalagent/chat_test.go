@@ -47,6 +47,7 @@ func (f *fakeChat) Allow(_ string, allow bool) error {
 	f.mu.Unlock()
 	return nil
 }
+func (f *fakeChat) SessionID() string     { return "ses_fake000000000000000000000001" }
 func (f *fakeChat) Working() bool         { f.mu.Lock(); defer f.mu.Unlock(); return f.busy }
 func (f *fakeChat) Close()                { f.done <- struct{}{} }
 func (f *fakeChat) Done() <-chan struct{} { return f.done }
@@ -81,7 +82,7 @@ func testChatHost(t *testing.T) (*chatHost, *fakeChat, *sent) {
 	dir := t.TempDir()
 	out := &sent{}
 	proc := &fakeChat{done: make(chan struct{}, 1)}
-	h := newChatHost(ctx, terminalhost.ManagerOptions{Home: home}, 1, out.send)
+	h := newChatHost(ctx, terminalhost.ManagerOptions{Home: home}, 1, out.send, true)
 	h.lookPath = func(string) (string, error) { return "/bin/true", nil }
 	h.start = func(_ context.Context, opts opencodeacp.Options) (chatProcess, error) {
 		proc.onEvent = opts.OnEvent
@@ -191,5 +192,30 @@ func TestReconcileSnapshotKeepsLiveChats(t *testing.T) {
 	got := reconcileSnapshot(shells, []terminalproto.SessionSnapshot{chat})
 	if len(got.Sessions) != 32 || got.Sessions[0].ID != chat.ID {
 		t.Fatalf("live chat was omitted: %+v", got.Sessions[:2])
+	}
+}
+
+func TestChatHostOmitsHistoryFieldsForAnOldController(t *testing.T) {
+	h, _, out := testChatHost(t)
+	h.history = false
+	changed, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.opts.Home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.ACPSessionID != "" {
+		t.Fatal("create reported an ACP id without acp-history-v1")
+	}
+	if snap, _ := h.snapshot("session-0123456789"); snap.ACPSessionID != "" {
+		t.Fatal("snapshot reported an ACP id")
+	}
+	if _, err := h.end("session-0123456789"); err != nil {
+		t.Fatal(err)
+	}
+	out.mu.Lock()
+	defer out.mu.Unlock()
+	for _, m := range out.msgs {
+		if s, ok := m.Body.(*terminalproto.SessionChanged); ok && s.ACPSessionID != "" {
+			t.Fatal("session change reported an ACP id")
+		}
 	}
 }

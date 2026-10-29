@@ -105,7 +105,7 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 				}
 			}()
 		}
-		chats := newChatHost(ctx, opts, generation, send)
+		chats := newChatHost(ctx, opts, generation, send, terminalproto.SupportsACPHistory(headers.Get(terminalproto.FeatureHeader)))
 		attachments := map[string]*terminalhost.Attachment{}
 		// worktreeSlot allows one worktree status or remove at a time on this
 		// machine. It runs on its own goroutine so the dispatcher, and the

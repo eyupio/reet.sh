@@ -70,6 +70,8 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 			if respond != nil {
 				reply.Body = respond(op)
 			}
+		case terminalproto.End:
+			reply.Body = terminalproto.SessionChanged{State: terminalproto.Ended}
 		case terminalproto.WorktreeStatus, terminalproto.WorktreeRemove:
 			f.mu.Lock()
 			f.worktrees = append(f.worktrees, op)

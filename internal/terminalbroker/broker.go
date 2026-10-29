@@ -249,6 +249,9 @@ func (p *Peer) observe() {
 			}
 			s := m.Body.(*terminalproto.SessionChanged)
 			err := p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, m.SessionID, p.Generation, s.State, s.ExitCode)
+			if err == nil && s.ACPSessionID != "" {
+				err = p.b.st.RecordTerminalACPSessionFor(p.key.uid, p.key.agent, m.SessionID, s.ACPSessionID)
+			}
 			if err != nil && !errors.Is(err, store.ErrRemoteNotFound) && !errors.Is(err, store.ErrTerminalConflict) {
 				p.Close()
 				return
@@ -474,6 +477,11 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 		if err := p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, s.ID, p.Generation, state, code); err != nil {
 			return err
 		}
+		if exists && observed.ACPSessionID != "" {
+			if err := p.b.st.RecordTerminalACPSessionFor(p.key.uid, p.key.agent, s.ID, observed.ACPSessionID); err != nil && !errors.Is(err, store.ErrTerminalConflict) {
+				return err
+			}
+		}
 	}
 	ops, err := p.b.st.PendingTerminalOperationsFor(p.key.uid, p.key.agent, p.Generation)
 	if err != nil {
@@ -545,9 +553,34 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	if in.Structured && in.Tool != "opencode" {
 		return store.TerminalSession{}, false, ErrACPUnsupported
 	}
+	if in.ResumeACP != "" {
+		// Only a closed session this account already owns may be loaded. A
+		// replay of an existing request skips this: its row is the evidence.
+		_, lookupErr := b.st.TerminalOperationFor(uid, agent, "create", request)
+		if errors.Is(lookupErr, store.ErrRemoteNotFound) {
+			ok, err := b.st.CanResumeACPSessionFor(uid, agent, in.ResumeACP, in.Dir)
+			if err != nil {
+				return store.TerminalSession{}, false, err
+			}
+			if !ok {
+				return store.TerminalSession{}, false, ErrACPResumeNotFound
+			}
+		} else if lookupErr != nil {
+			return store.TerminalSession{}, false, lookupErr
+		}
+	}
 	p, err := b.peer(uid, agent, true)
 	if err != nil {
 		return store.TerminalSession{}, false, err
+	}
+	if in.ResumeACP != "" {
+		caps, err := b.st.RemoteCapabilitiesFor(uid, agent)
+		if err != nil || caps.Generation != p.Generation {
+			return store.TerminalSession{}, false, ErrOffline
+		}
+		if !caps.Capabilities.ACPHistory {
+			return store.TerminalSession{}, false, ErrACPHistoryUnsupported
+		}
 	}
 	// A request id the controller already reserved is answered from that
 	// reservation below, whatever the machine advertises now: the agent may be
@@ -581,6 +614,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		}
 		if in.Structured && !caps.Capabilities.ACP {
 			return store.TerminalSession{}, false, ErrACPUnsupported
+		}
+		if in.ResumeACP != "" && !caps.Capabilities.ACPHistory {
+			return store.TerminalSession{}, false, ErrACPHistoryUnsupported
 		}
 		if !caps.Capabilities.Launch {
 			return store.TerminalSession{}, false, ErrLaunchUnsupported
@@ -633,8 +669,8 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	if in.Structured {
 		// The connector probes the version and opens an ACP session before it
 		// answers; that is slower than a tmux create but bounded by its own
-		// 20-second start context.
-		limit = 20 * time.Second
+		// 60-second start context: load replay can be longer than a new chat.
+		limit = 60 * time.Second
 	}
 	if worktreeRequested(in) {
 		limit = WorktreeCallTimeout
@@ -649,6 +685,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	var refusal error
 	if state, ok := reply.Body.(*terminalproto.SessionChanged); ok {
 		err = b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, state.State, state.ExitCode)
+		if err == nil && state.ACPSessionID != "" {
+			err = b.st.RecordTerminalACPSessionFor(uid, agent, s.ID, state.ACPSessionID)
+		}
 		if err == nil && worktreeRequested(in) && b.recordWorktree(uid, agent, s.ID, state) != nil {
 			// The agent started, but the machine's report of where does not
 			// match this run; nothing is recorded.

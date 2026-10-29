@@ -45,6 +45,9 @@ type Options struct {
 	Home   string
 	Model  string
 	Trust  bool
+	// Resume is OpenCode's own session id to load instead of creating a new
+	// session. The load replay is delivered through OnEvent.
+	Resume string
 	// BaseEnv is the parent environment the allowlist is selected from. The
 	// connector passes its own environment; tests pass a controlled slice.
 	BaseEnv []string

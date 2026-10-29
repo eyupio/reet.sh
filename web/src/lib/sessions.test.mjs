@@ -13,7 +13,7 @@ const home = asURL(compile('./home.ts'))
 const colour = asURL(compile('./projectColour.ts'))
 const api = asURL(compile('./terminal/api.ts'))
 const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './catalogue'", `from '${catalogue}'`).replace("from './projectColour'", `from '${colour}'`).replace("from './terminal/api'", `from '${api}'`)
-const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList } = await import(asURL(source))
+const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList } = await import(asURL(source))
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000
@@ -172,6 +172,13 @@ test('session header: agent · model · started, and the decisions line', () => 
   assert.equal(decisionsLine({}), 'Asked in the terminal.')
   assert.equal(decisionsLine({ yolo: true }), 'YOLO: reet answers yes, this once, to each request.')
   assert.equal(decisionsLine({ structured: true }), 'Asked in the chat: Allow once or Deny.')
+  assert.deepEqual(continueChatLaunch({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site', projectId: 'p1' }), { tool: 'opencode', dir: '/home/u/site', structured: true, trust: true, resumeAcp: 'ses_1', projectId: 'p1' })
+  assert.equal(continueChatLaunch({ structured: true, acpSessionId: 'ses_1', state: 'running', dir: '/home/u/site' }), null)
+  assert.deepEqual(continueChatLaunch({ structured: true, acpSessionId: 'ses_1', state: 'exited' }), { tool: 'opencode', structured: true, trust: true, resumeAcp: 'ses_1' })
+  assert.equal(continueChatLaunch({ structured: true, state: 'exited', dir: '/home/u/site' }), null)
+  assert.equal(canContinueChat({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: { acp: true, acpHistory: true } }), true)
+  assert.equal(canContinueChat({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: { acp: true } }), false)
+  assert.equal(canContinueChat({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: {} }), false)
 })
 
 test('changed files: at most twenty paths and the total', () => {

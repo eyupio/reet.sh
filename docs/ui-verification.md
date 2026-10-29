@@ -1493,3 +1493,21 @@ and a composer.
   session with the exact `opencode-ai@1.19.5` binary in a throwaway HOME (opt-in; skipped in CI).
 - Not checked: a physical phone, Safari or Firefox, a live model turn or provider, images, modes or MCP servers. The chat
   history is in memory; a server restart or a machine connection loss ends it.
+
+## Chat history, continue and images — 29 October 2026
+
+The chat pane keeps the slice 1 layout. The additions are the image chips and Attach image control in its composer, and
+the session menu's **Continue chat with history…** item for a closed chat. There is no drawing for either.
+
+- `chat.e2e.mjs` passed at 1360 × 900 and 390 × 844: **Chat with OpenCode** was on by default; an attached PNG was uploaded to the machine and the prompt carried
+  `Image: /…/launch-uploads/shot.png`; a closed structured session exposed Continue chat with history…, and the create body
+  carried `structured: true`, `trust: true`, `resumeAcp` and the old folder with no prompt model.
+- `internal/opencodeacp` fake-child tests cover `session/load` replay, mode refusal and `in_progress` tools becoming
+  interrupted. `TestRealOpenCodeStart` opened a session and reopened the same id with `session/load` against the exact
+  1.19.5 binary in a throwaway HOME (opt-in; skipped in CI). The real load returned `configOptions` with mode `build`.
+- `internal/store` covers recording the ACP id, idempotence, a different id conflicting, and resume only from a closed row.
+  `internal/terminalbroker` covers a crafted id being refused, and a valid resume creating a second row. `internal/api`
+  covers the chat routes and existing session tests.
+- `npm --prefix web run check`, `npm --prefix web run build`, `go test ./...` and the affected race tests passed.
+- Not checked: a live model turn, a physical phone, Safari, an image actually read by a model, or OpenCode's history after
+  its store is deleted. Pending approvals are not restored; replayed tools are shown interrupted.

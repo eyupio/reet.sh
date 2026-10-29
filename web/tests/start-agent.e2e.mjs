@@ -1,4 +1,5 @@
 import { chromium, expect } from '@playwright/test'
+import { modelList, modelFavourites } from './helpers/workspace.mjs'
 // Start an agent: the dialog from the Terminals workspace and from a machine card, against synthetic API responses. Every
 // create request the page sends is recorded, so what was sent (and that nothing was sent) is checked against the words.
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
@@ -14,13 +15,16 @@ const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{p
 const A='connector-laptop000000001',B='connector-oldbox00000001',C='connector-spare000000001'
 const HOME_A='/home/dev',SITE='/home/dev/work/site'
 let authMode='accounts',viewer=false,machinesFail=false,theme='light',machineReads=0
+let profileDefaults={},modelsFail=false,favourites=[],folderProjects=[]
 const tmachines=[
- {agentId:A,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,tools:['claude','codex','gemini']}},
+ {agentId:A,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,agentsV2:true,models:true,tools:['claude','codex','gemini','cline']}},
  // An older connector: no launch capability. The tools list is there only to show that it is not enough on its own.
  {agentId:B,host:'old-box',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'old',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',tools:['claude']}},
  {agentId:C,host:'spare-box',ready:false,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'spare',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,tools:['claude']}},
 ]
 const now=Date.now()
+const PROJECT_ID='fp1',PROJECT_DIR=SITE
+const projectFixture=()=>({id:PROJECT_ID,host:A,machine:'dev-laptop',dir:PROJECT_DIR,name:'Site',isRepo:true,baseBranch:'',worktreeDefault:'inherit',colour:'',defaultTool:'cline',defaultModel:'anthropic/claude-sonnet-4-5',defaultEffort:'high',hasStarterPrompt:false,note:'',position:0,createdAt:now,updatedAt:now,version:1})
 const scope=(host,project,id)=>({id,host,name:host,kind:'agent',agent:'claude',project,complete:true,scannedAt:now,lastSeen:now,skills:[],skillCount:1,os:'linux',arch:'amd64',version:'dev'})
 // Folders the machines reported: one project twice (with a trailing slash), one relative path that is never offered, and another machine's.
 const scopes=[scope('dev-laptop',SITE,'s1'),scope('dev-laptop',SITE+'/','s2'),scope('dev-laptop','work/relative','s3'),scope('dev-laptop','','s4'),scope('old-box','/srv/old','s5'),scope('spare-box','/srv/spare','s6')]
@@ -35,7 +39,12 @@ await page.route('**/api/**',async route=>{
  const req=route.request(),path=new URL(req.url()).pathname,method=req.method()
  let data={}
  if(path==='/api/v2/auth/status')data=authMode==='accounts'?{mode:'accounts',setupRequired:false,bootstrapRequired:false,user:{id:1,name:'Operator',email:'operator@example.test',role:viewer?'viewer':'owner'}}:{mode:authMode,setupRequired:false,bootstrapRequired:false}
- else if(path==='/api/v2/profile')data={user:{id:1,name:'Operator',email:'operator@example.test',role:viewer?'viewer':'owner'},profile:{theme,shelfView:'list'},sessionCount:1,accounts:authMode==='accounts'}
+ else if(path==='/api/v2/profile')data={user:{id:1,name:'Operator',email:'operator@example.test',role:viewer?'viewer':'owner'},profile:{theme,shelfView:'list',...profileDefaults},sessionCount:1,accounts:authMode==='accounts'}
+ else if(path==='/api/v2/profile/model-favourites'){
+  if(method==='POST'){const b=req.postDataJSON();if(!favourites.some(f=>f.tool===b.tool&&f.model===b.model))favourites=[...favourites,b];data=modelFavourites(favourites)}
+  else if(method==='DELETE'){const u=new URL(req.url()),t=u.searchParams.get('tool'),m=u.searchParams.get('model');favourites=favourites.filter(f=>!(f.tool===t&&f.model===m));return route.fulfill({status:204,body:''})}
+  else data=modelFavourites(favourites)
+ }
  else if(path==='/api/skills')data={skills:[],counts:{all:0,used:0}}
  else if(path==='/api/environments')data={environments:scopes,machines:machinesOf()}
  else if(path==='/api/tags')data={tags:[]}
@@ -43,6 +52,10 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/sync')data={environments:scopes,machines:machinesOf(),agents,targets:[],jobs:[]}
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
+ else if(path==='/api/v2/folder-projects')data={projects:folderProjects,savedWaiting:0}
+ else if(path==='/api/v2/folder-projects/'+PROJECT_ID&&folderProjects.length)data=folderProjects.find(p=>p.id===PROJECT_ID)
+ else if(/^\/api\/v2\/machines\/[^/]+\/models$/.test(path)){const tool=new URL(req.url()).searchParams.get('tool')??'';if(modelsFail)return route.fulfill({status:500,json:{error:'models are unavailable'}});data=modelList({tool})}
+ else if(/^\/api\/v2\/machines\/[^/]+\/models\/refresh$/.test(path)&&method==='POST'){const b=req.postDataJSON();data=modelList({tool:b.tool??''})}
  else if(path==='/api/v2/terminal/machines'){machineReads++;if(machinesFail)return route.fulfill({status:503,json:{error:'terminal machine is reconnecting; retry after it reconnects'}});data={machines:tmachines}}
  else if(path==='/api/v2/terminal/status')data={available:true,configured:true,reason:''}
  else if(path==='/api/v2/notifications/count')data={unread:0}
@@ -86,13 +99,24 @@ await page.addInitScript(()=>{
  for(const op of ['pushState','replaceState']){const original=history[op].bind(history);history[op]=(state,title,url)=>{window.__urls.push(String(url??''));return original(state,title,url)}}
 })
 
+// A switch for the pointer type, so the same page can check the mouse popover and the touch bottom sheet without a new fixture.
+await page.addInitScript(()=>{
+ window.__forceTouch=false
+ const original=window.matchMedia.bind(window)
+ window.matchMedia=query=>{
+  const list=original(query)
+  if(query!=='(pointer: coarse)')return list
+  return new Proxy(list,{get(target,prop){if(prop==='matches')return window.__forceTouch;const value=target[prop];return typeof value==='function'?value.bind(target):value}})
+ }
+})
+
 const dialog=()=>page.getByRole('dialog',{name:'Start an agent',exact:true})
 const parts=d=>({
  machine:d.getByRole('combobox',{name:'Machine',exact:true}),
- model:d.getByRole('combobox',{name:/^Model/}),
- other:d.getByRole('textbox',{name:'Model name',exact:true}),
+ model:d.getByRole('button',{name:/^Model:/}),
  folder:d.getByRole('combobox',{name:'Folder',exact:true}),
  path:d.getByRole('textbox',{name:'Folder path',exact:true}),
+ effort:d.getByRole('combobox',{name:'Thinking',exact:true}),
  prompt:d.getByRole('textbox',{name:/^Opening prompt/}),
  tool:name=>d.getByRole('radio',{name,exact:true}),
  status:d.getByRole('status'),
@@ -104,6 +128,11 @@ const parts=d=>({
  close:d.locator('header').getByRole('button',{name:'Close',exact:true}),
  notListed:d.getByRole('button',{name:'Not listed? Add a machine',exact:true}),
 })
+const escapeRe=text=>text.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
+// The shared picker's list, opened from the dialog's Model button.
+const openModel=async d=>{await parts(d).model.click();const list=page.getByRole('listbox',{name:'Model'});await expect(list).toBeVisible();return list}
+const pickModel=async(d,label)=>{const list=await openModel(d);await list.getByRole('option',{name:new RegExp('^'+escapeRe(label))}).click();await expect(list).toBeHidden()}
+const pickOtherModel=async(d,value)=>{const list=await openModel(d);await list.getByRole('option',{name:'Other…',exact:true}).click();await page.getByRole('textbox',{name:'Model name',exact:true}).fill(value);await page.getByRole('button',{name:'Use',exact:true}).click();await expect(list).toBeHidden()}
 const sidebarEntry=()=>page.locator('#terminal-sessions').getByRole('button',{name:'New agent session',exact:true})
 const card=host=>page.locator('article').filter({has:page.getByRole('heading',{name:host,exact:true})})
 const cardEntry=host=>card(host).getByRole('button',{name:'Start an agent',exact:true})
@@ -120,7 +149,7 @@ const texts=async d=>{const t=await d.innerText();expect(t).not.toMatch(/verifie
 // While a request is in flight or its outcome is unknown, nothing that would change the request can be touched.
 const locked=async p=>{
  for(const field of [p.machine,p.model,p.folder,p.prompt,p.tool('Claude Code'),p.tool('Codex'),p.tool('Gemini CLI')])await expect(field).toBeDisabled()
- for(const field of [p.other,p.path])if(await field.count())await expect(field).toBeDisabled()
+ for(const field of [p.effort,p.path])if(await field.count())await expect(field).toBeDisabled()
 }
 const openFromSidebar=async()=>{await sidebarEntry().click();const d=dialog();await expect(d).toBeVisible();return d}
 
@@ -136,20 +165,34 @@ try{
  await expect(p.tool('Claude Code')).toBeChecked()
  await expect(p.tool('Codex')).toBeEnabled()
  await expect(p.tool('Gemini CLI')).toBeEnabled()
+ await expect(p.tool('Cline')).toBeEnabled()
  await expect(p.tool('OpenCode')).toBeDisabled()
- await expect(p.tool('OpenCode')).toHaveAccessibleDescription('Not installed on this machine.')
+ await expect(p.tool('OpenCode')).toHaveAccessibleDescription('Not installed on dev-laptop')
  await expect(p.tool('Claude Code')).toHaveAccessibleDescription('')
  // The reason is text to read, not a disabled control: it is not faded (an axe scan found it below contrast when it was).
- expect(await d.getByText('Not installed on this machine.',{exact:true}).evaluate(el=>{let o=1;for(let n=el;n&&n.tagName!=='DIALOG';n=n.parentElement)o*=Number(getComputedStyle(n).opacity);return o})).toBe(1)
+ expect(await d.getByText('Not installed on dev-laptop',{exact:true}).evaluate(el=>{let o=1;for(let n=el;n&&n.tagName!=='DIALOG';n=n.parentElement)o*=Number(getComputedStyle(n).opacity);return o})).toBe(1)
  // Machines: every machine listed; the one not ready cannot be chosen.
  await expect(p.machine.locator('option')).toHaveText(['dev-laptop','old-box','spare-box · not ready'])
  await expect(p.machine.locator(`option[value="${C}"]`)).toBeDisabled()
- // Model suggestions per agent, Agent default first and Other last.
- await expect(p.model.locator('option')).toHaveText(['Agent default','sonnet','opus','haiku','Other…'])
+ // Model: the shared picker, with the agent default, the machine's list by provider, reet's suggestions and Other….
+ let list=await openModel(d)
+ await expect(list.getByRole('group',{name:'Agent default'}).getByRole('option',{name:/^Agent default/})).toBeVisible()
+ await expect(list.getByRole('group',{name:'On dev-laptop · anthropic'}).getByRole('option',{name:'anthropic/claude-sonnet-4-5'})).toBeVisible()
+ await expect(list.getByRole('group',{name:'On dev-laptop · openai'}).getByRole('option',{name:'openai/gpt-5'})).toBeVisible()
+ await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^sonnet/})).toBeVisible()
+ await expect(list.getByRole('option',{name:'Other…',exact:true})).toBeVisible()
+ await page.keyboard.press('Escape')
+ await expect(list).toBeHidden()
+ await expect(p.model).toBeFocused()
  await p.tool('Codex').check()
- await expect(p.model.locator('option')).toHaveText(['Agent default','gpt-5-codex','Other…'])
+ list=await openModel(d)
+ await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^gpt-5-codex/})).toBeVisible()
+ await page.keyboard.press('Escape')
  await p.tool('Gemini CLI').check()
- await expect(p.model.locator('option')).toHaveText(['Agent default','gemini-2.5-pro','gemini-2.5-flash','Other…'])
+ list=await openModel(d)
+ await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^gemini-2.5-pro/})).toBeVisible()
+ await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^gemini-2.5-flash/})).toBeVisible()
+ await page.keyboard.press('Escape')
  await p.tool('Claude Code').check()
  // Folders: home first, each reported project once, never a relative path or another machine's.
  await expect(p.folder.locator('option')).toHaveText(['Home folder',SITE,'Type a path…'])
@@ -158,21 +201,22 @@ try{
  await p.folder.selectOption(SITE)
  await expect(p.sentence).toHaveText(`Starts Claude Code in ${SITE} on dev-laptop. Nothing runs until you press Start.`)
 
- // Other: checked against the character rule, and a missing name is asked for only once Start is pressed.
- await p.model.selectOption({label:'Other…'})
- await expect(d).not.toContainText('Type a model name')
- await p.start.click()
- await expect(p.status).toHaveText('Type a model name, or choose Agent default.')
- await expect(p.other).toBeFocused()
- await expect(p.other).toHaveAttribute('maxlength','100')
+ // Other… opens the same field as before, checked against the character rule before Use sends it.
+ list=await openModel(d)
+ await list.getByRole('option',{name:'Other…',exact:true}).click()
+ const other=page.getByRole('textbox',{name:'Model name',exact:true})
+ await expect(other).toBeFocused()
+ await expect(other).toHaveAttribute('maxlength','100')
  for(const bad of ['bad model','-opus','opus;rm']){
-  await p.other.fill(bad)
-  await expect(d.getByText("That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit.",{exact:true})).toBeVisible()
+  await other.fill(bad)
+  await expect(page.getByText("That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit.",{exact:true})).toBeVisible()
  }
  expect(posts).toHaveLength(0)
- await p.other.fill('  opus-4.1  ')
- await expect(d.getByText("That model name isn't one reet can pass on.",{exact:false})).toHaveCount(0)
- // Editing the field takes the attempt's message out of the status line: it never outlives the mistake it named.
+ await other.fill('  opus-4.1  ')
+ await expect(page.getByText("That model name isn't one reet can pass on.",{exact:false})).toHaveCount(0)
+ await page.getByRole('button',{name:'Use',exact:true}).click()
+ await expect(list).toBeHidden()
+ await expect(p.model).toHaveAccessibleName('Model: opus-4.1')
  await expect(p.status).toHaveText('')
 
  // Prompt rules, with the byte counter.
@@ -199,11 +243,11 @@ try{
  await p.tool('Gemini CLI').check()
  await expect(d.getByText('Write the opening prompt as at least two words.',{exact:true})).toHaveCount(0)
  await expect(p.prompt).not.toHaveAttribute('aria-invalid','true')
- // A different agent started the model and folder afresh; going back does not bring them back.
- await expect(p.model).toHaveValue('')
+ // A different agent re-resolves the model (here no project/account default, so Agent default) and starts the folder afresh.
+ await expect(p.model).toHaveAccessibleName('Model: Agent default')
  await expect(p.folder).toHaveValue('')
  await p.tool('Claude Code').check()
- await expect(p.model).toHaveValue('')
+ await expect(p.model).toHaveAccessibleName('Model: Agent default')
  await expect(p.folder).toHaveValue('')
 
  // Type a path: absolute, checked as typed and when Start is pressed (focus goes to it).
@@ -235,8 +279,7 @@ try{
 
  // ── A full start: exactly the fields chosen, a request id, and the session opens with its title. ──
  await p.folder.selectOption(SITE)
- await p.model.selectOption({label:'Other…'})
- await p.other.fill('  opus-4.1  ')
+ await pickOtherModel(d,'  opus-4.1  ')
  await p.prompt.fill('fix the failing build please')
  await expect(p.sentence).toHaveText(`Starts Claude Code in ${SITE} on dev-laptop. Nothing runs until you press Start. The prompt is kept with the session record and is visible to other users of that machine in its process list.`)
  await p.start.click()
@@ -253,7 +296,7 @@ try{
  // Opened again, the prompt is gone (it lived only in the closed dialog). Escape closes and focus returns to the opener.
  d=await openFromSidebar();p=parts(d)
  await expect(p.prompt).toHaveValue('')
- await expect(p.model).toHaveValue('')
+ await expect(p.model).toHaveAccessibleName('Model: Agent default')
  await p.prompt.fill('fix the failing build please')
  await page.keyboard.press('Escape')
  await expect(d).toHaveCount(0)
@@ -269,8 +312,7 @@ try{
 
  // ── A held first Start: every field locked, Close and Escape wait, a second submit sends nothing. ──
  d=await openFromSidebar();p=parts(d)
- await p.model.selectOption({label:'Other…'})
- await p.other.fill('sonnet-4')
+ await pickOtherModel(d,'sonnet-4')
  await p.folder.selectOption({label:'Type a path…'})
  await p.path.fill('/home/dev/held')
  await p.prompt.fill('wait for me please')
@@ -293,7 +335,7 @@ try{
  // ── A lost reply: plain words, Retry focused, the same request id and body; nothing changes while it is in flight. ──
  d=await openFromSidebar();p=parts(d)
  await p.tool('Codex').check()
- await p.model.selectOption('gpt-5-codex')
+ await pickModel(d,'gpt-5-codex')
  await p.prompt.fill('tidy the readme')
  answers.push('drop')
  await p.start.click()
@@ -310,7 +352,7 @@ try{
  await settle()
  await expect(p.sentence).toHaveText(heldSentence)
  await expect(p.tool('Codex')).toBeChecked()
- await expect(p.model).toHaveValue('gpt-5-codex')
+ await expect(p.model).toHaveAccessibleName('Model: gpt-5-codex')
  await expect(p.prompt).toHaveValue('tidy the readme')
  await locked(p)
  // With every field disabled, the scrolling part can still be reached from the keyboard to read the choices.
@@ -338,7 +380,7 @@ try{
  hold.resolve()
  await expect(d).toHaveCount(0)
  expect(posts.slice(-3)).toEqual([lost,lost,lost])
- tmachines[0].capabilities.tools=['claude','codex','gemini']
+ tmachines[0].capabilities.tools=['claude','codex','gemini','cline']
  expect(JSON.parse(lost)).toEqual({agentId:A,requestId:JSON.parse(lost).requestId,title:'Codex',cols:100,rows:30,tool:'codex',model:'gpt-5-codex',prompt:'tidy the readme'})
 
  // ── Definite refusals: the exact sentence, the field concerned focused, and the next Start is a new request. ──
@@ -398,7 +440,9 @@ try{
  await p.machine.selectOption(B)
  await expect(p.machine).toHaveAccessibleDescription('Update reet on this machine to start agents.')
  await expect(d.locator('p.reason')).toHaveText(['Update reet on this machine to start agents.'])
- for(const name of ['Claude Code','Codex','OpenCode','Gemini CLI']){await expect(p.tool(name)).toBeDisabled();await expect(p.tool(name)).toHaveAccessibleDescription('Update reet on this machine to start agents.')}
+ for(const name of ['Claude Code','Codex','OpenCode','Gemini CLI','Cline']){await expect(p.tool(name)).toBeDisabled();await expect(p.tool(name)).toHaveAccessibleDescription('Update reet on that machine')}
+ await expect(p.tool('Pi')).toBeDisabled()
+ await expect(p.tool('Cursor Agent')).toBeDisabled()
  await expect(p.start).toBeDisabled()
  await expect(p.sentence).toHaveCount(0)
  const before=posts.length
@@ -513,6 +557,110 @@ try{
  await expect(cardEntry('dev-laptop')).toBeEnabled()
  await expect(card('dev-laptop')).not.toContainText("Couldn't check")
 
+ // ── A project's defaults, from the Projects bar: Cline, its model and high thinking; a machine or agent change
+ // re-resolves them, and effort is cleared for an agent that does not take it.
+ folderProjects=[projectFixture()]
+ await page.goto(`${base}/machines`)
+ await page.locator('details.projects-drawer > summary').click()
+ const projectEntry=page.getByRole('button',{name:'New session in Site',exact:true})
+ await expect(projectEntry).toBeEnabled()
+ await projectEntry.click()
+ d=dialog();p=parts(d)
+ await expect(p.machine).toHaveValue(A)
+ await expect(p.tool('Cline')).toBeChecked()
+ await expect(p.folder).toHaveValue(PROJECT_DIR)
+ await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
+ await expect(p.effort).toHaveValue('high')
+ await p.machine.selectOption(B)
+ await expect(p.model).toHaveAccessibleName('Model: Agent default')
+ await expect(p.effort).toHaveCount(0)
+ await p.machine.selectOption(A)
+ await expect(p.tool('Cline')).toBeChecked()
+ await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
+ await expect(p.effort).toHaveValue('high')
+ await p.tool('Claude Code').check()
+ await expect(p.model).toHaveAccessibleName('Model: Agent default')
+ await expect(p.effort).toHaveCount(0)
+ await p.tool('Cline').check()
+ await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
+ await expect(p.effort).toHaveValue('high')
+ await p.folder.selectOption(PROJECT_DIR)
+ await p.effort.selectOption('medium')
+ await p.start.click()
+ await expect(page).toHaveURL(/\/sessions\?/)
+ expect(body(-1)).toMatchObject({agentId:A,tool:'cline',model:'anthropic/claude-sonnet-4-5',effort:'medium',dir:PROJECT_DIR,projectId:PROJECT_ID})
+ folderProjects=[]
+
+ // ── The account's defaults reach the dialog without a project, from a machine card and from the workspace. ──
+ profileDefaults={defaultTool:'cline',defaultModel:'anthropic/claude-sonnet-4-5',defaultEffort:'medium'}
+ await page.goto(`${base}/machines`)
+ await cardEntry('dev-laptop').click()
+ d=dialog();p=parts(d)
+ await expect(p.tool('Cline')).toBeChecked()
+ await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
+ await expect(p.effort).toHaveValue('medium')
+ await p.close.click()
+ await page.goto(`${base}/sessions?agent=${A}`)
+ d=await openFromSidebar();p=parts(d)
+ await expect(p.tool('Cline')).toBeChecked()
+ await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
+ await expect(p.effort).toHaveValue('medium')
+ await page.keyboard.press('Escape')
+ profileDefaults={}
+
+ // ── A star in the picker writes a favourite, stays open, and can be undone. ──
+ favourites=[]
+ await page.goto(`${base}/machines`)
+ await cardEntry('dev-laptop').click()
+ d=dialog();p=parts(d)
+ await p.tool('Claude Code').check()
+ list=await openModel(d)
+ await list.getByRole('button',{name:'Star anthropic/claude-sonnet-4-5 for Claude Code',exact:true}).click()
+ await expect(list).toBeVisible()
+ await expect(list.getByRole('button',{name:'Unstar anthropic/claude-sonnet-4-5 for Claude Code',exact:true})).toHaveAttribute('aria-pressed','true')
+ await expect(list.getByRole('group',{name:'Favourites'}).getByRole('option',{name:'anthropic/claude-sonnet-4-5'})).toBeVisible()
+ await list.getByRole('button',{name:'Unstar anthropic/claude-sonnet-4-5 for Claude Code',exact:true}).click()
+ await expect(list.getByRole('button',{name:'Star anthropic/claude-sonnet-4-5 for Claude Code',exact:true})).toHaveAttribute('aria-pressed','false')
+ await page.keyboard.press('Escape')
+ await expect(p.model).toBeFocused()
+ await p.close.click()
+ favourites=[]
+
+ // ── A failed model read is only a status line: suggestions stay and Start still works without a model. ──
+ modelsFail=true
+ await page.goto(`${base}/machines`)
+ await cardEntry('dev-laptop').click()
+ d=dialog();p=parts(d)
+ list=await openModel(d)
+ await expect(list.locator('..').getByRole('status')).toContainText('Couldn’t read dev-laptop’s models just now. Favourites and suggestions still work.')
+ await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^sonnet/})).toBeVisible()
+ await page.keyboard.press('Escape')
+ await expect(p.model).toBeFocused()
+ await expect(p.start).toBeEnabled()
+ const sentBeforeFail=posts.length
+ await p.start.click()
+ await expect(page).toHaveURL(/\/sessions\?/)
+ expect(posts.length).toBe(sentBeforeFail+1)
+ expect(body(-1)).not.toHaveProperty('model')
+ modelsFail=false
+
+ // ── On touch the picker is the shared bottom sheet; closing it returns focus to the model control. ──
+ await page.setViewportSize({width:390,height:800})
+ await page.goto(`${base}/machines`)
+ await page.evaluate(()=>{window.__forceTouch=true})
+ await cardEntry('dev-laptop').click()
+ d=dialog();p=parts(d)
+ await p.model.click()
+ const modelSheet=page.getByRole('dialog',{name:'Model',exact:true})
+ await expect(modelSheet).toBeVisible()
+ await expect(modelSheet.getByRole('listbox',{name:'Model'})).toBeVisible()
+ await modelSheet.getByRole('button',{name:'Close',exact:true}).click()
+ await expect(modelSheet).toHaveCount(0)
+ await expect(p.model).toBeFocused()
+ await page.keyboard.press('Escape')
+ await page.evaluate(()=>{window.__forceTouch=false})
+ await page.setViewportSize({width:1360,height:900})
+
  // ── Matrix: every state of the dialog at 1360, 768, 390 and 320px in light and dark. ──
  // One walk through the states; at each, the viewport and scheme are changed under the open dialog (no reload) and the same checks
  // are made: no sideways scroll of the page, the dialog inside the window with neither it, its body nor anything in it reaching
@@ -579,7 +727,7 @@ try{
  d=dialog();p=parts(d)
  await expect(p.machine).toHaveValue(LONG_ID)
  await expect(p.machine.locator('option:checked')).toHaveText(LONG_HOST)
- await expect(p.tool('Codex')).toHaveAccessibleDescription('Not installed on this machine.')
+ await expect(p.tool('Codex')).toHaveAccessibleDescription('Not installed on '+LONG_HOST)
  await p.folder.selectOption(LONG_DIR)
  await expect(p.folder.locator('option:checked')).toHaveText(LONG_DIR)
  await expect(p.sentence).toHaveText(`Starts Claude Code in ${LONG_DIR} on ${LONG_HOST}. Nothing runs until you press Start.`)
@@ -610,11 +758,9 @@ try{
  await sweep('old machine',[p.close,p.machine])
  // Other model with its message; a typed path with its message; the long prompt with its counter; the leading-dash rule.
  await p.machine.selectOption(A)
- await p.model.selectOption({label:'Other…'})
- await p.other.fill('bad model')
- await expect(d.getByText("That model name isn't one reet can pass on.",{exact:false})).toBeVisible()
- await sweep('Other model with its message',[p.other,p.start])
- await p.model.selectOption('')
+ await pickModel(d,'anthropic/claude-sonnet-4-5')
+ await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
+ await sweep('a model chosen from the machine list',[p.model,p.start])
  await p.folder.selectOption({label:'Type a path…'})
  await p.path.fill('work/'+'a-long-relative-folder-name-without-spaces'.repeat(3))
  await expect(d.locator('p.reason').filter({hasText:'Use a full path that starts with /.'})).toBeVisible()
@@ -778,5 +924,5 @@ try{
  await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
 
  expect(errors).toEqual([])
- console.log(`Start an agent UI passed: both entry points with the machine preselected and focus returned, agents offered from what the machine reports (not installed, update reet, not ready), model suggestions and Other with cleanModel sent, folder choices and typed paths, prompt rules and byte counter, the sentence with and without a prompt, exact create bodies (launch fields only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states (both closed entry points, open, long machine and folder names, the process-list sentence, not ready, nothing ready, old machine, Other model, typed path, long prompt, prompt rule, Starting…, lost reply, landing and nine refusals) at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and no new storage key. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
+ console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old four otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and no new storage key. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

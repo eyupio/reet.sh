@@ -173,24 +173,41 @@ test('toolName gives the display name, and the id itself for anything unknown', 
   assert.equal(m.toolName(undefined), 'an agent')
 })
 
-test('toolChoices offers what the machine reports, and lists the rest as not installed', () => {
-  const caps = { launch: true, tools: ['codex', 'claude', 'pi'] }
-  assert.deepEqual(m.toolChoices(caps), [
-    { id: 'claude', name: 'Claude Code', available: true, reason: '' },
-    { id: 'codex', name: 'Codex', available: true, reason: '' },
-    { id: 'opencode', name: 'OpenCode', available: false, reason: 'Not installed on this machine.' },
-    { id: 'gemini', name: 'Gemini CLI', available: false, reason: 'Not installed on this machine.' },
-  ])
+const machine = (tools, over = {}) => ({ agentId: 'a', host: 'studio', ready: true, capabilities: { launch: true, agentsV2: true, tools, ...over } })
+
+test('toolChoices offers what the machine reports, including Cline under agents-v2', () => {
+  const out = m.toolChoices(machine(['codex', 'claude', 'cline']))
+  assert.deepEqual(out.filter(t => t.available).map(t => t.id), ['claude', 'codex', 'cline'])
+  assert.equal(out.find(t => t.id === 'opencode').reason, 'Not installed on studio')
+  assert.equal(out.find(t => t.id === 'cline').available, true)
+})
+
+test('an old machine keeps the original four agents and never offers Cline', () => {
+  const out = m.toolChoices(machine(['claude', 'codex', 'opencode', 'gemini', 'cline'], { agentsV2: false }))
+  assert.deepEqual(out.filter(t => t.available).map(t => t.id), ['claude', 'codex', 'opencode', 'gemini'])
+  assert.equal(out.find(t => t.id === 'cline').available, false)
+  assert.equal(out.find(t => t.id === 'cline').reason, 'Update reet on that machine')
 })
 
 test('toolChoices offers nothing on a machine that cannot take launch requests', () => {
   for (const caps of [undefined, {}, { launch: false, tools: ['claude'] }, { tools: ['claude'] }]) {
-    const out = m.toolChoices(caps)
-    assert.equal(out.length, 4)
-    assert.ok(out.every(t => !t.available && t.reason === 'Update reet on this machine to start agents.'))
+    const out = m.toolChoices({ agentId: 'a', host: 'studio', ready: true, capabilities: caps })
+    assert.equal(out.length, 7)
+    assert.ok(out.every(t => !t.available))
+    for (const id of ['claude', 'codex', 'opencode', 'gemini', 'cline']) assert.equal(out.find(t => t.id === id).reason, 'Update reet on that machine')
+    for (const id of ['pi', 'cursor']) assert.equal(out.find(t => t.id === id).reason, "reet doesn't start this agent yet.")
   }
-  assert.ok(m.toolChoices({ launch: true }).every(t => !t.available && t.reason === 'Not installed on this machine.'))
-  assert.ok(m.toolChoices({ launch: true, tools: 'claude' }).every(t => !t.available))
+  const none = m.toolChoices(machine([]))
+  assert.ok(none.every(t => !t.available))
+  for (const id of ['claude', 'codex', 'opencode', 'gemini', 'cline']) assert.equal(none.find(t => t.id === id).reason, 'Not installed on studio')
+  assert.ok(m.toolChoices(machine(undefined)).every(t => !t.available))
+})
+
+test('model validity is the character rule, never a machine list', () => {
+  // A project or account default, or a typed Other…, is valid even when no list named it; a failed or empty
+  // model read therefore cannot make Start invalid.
+  assert.equal(validateModel('acme/custom-model'), null)
+  assert.equal(validateModel('not-in-any-list'), null)
 })
 
 test('every surface names a tool from the one catalogue, so Cline reads Cline', () => {
@@ -226,16 +243,16 @@ test('preselect keeps an unready machine when none is ready, so its readiness se
   assert.deepEqual(m.preselect([], 'b'), { agentId: '', note: '' })
 })
 
-test('rekey resets the model and folder only when the machine or agent changes', () => {
+test('rekey resets the model and folder only when the machine or agent changes, to the resolved default', () => {
   const start = { key: '', model: '', folder: '' }
-  const s1 = m.rekey(start, 'a\0claude')
-  assert.deepEqual(s1, { key: 'a\0claude', model: '', folder: '' })
-  const chosen = { ...s1, model: 'opus', folder: '/home/a/site' }
-  assert.equal(m.rekey(chosen, 'a\0claude'), chosen)
-  assert.deepEqual(m.rekey(chosen, 'a\0codex'), { key: 'a\0codex', model: '', folder: '' })
-  assert.deepEqual(m.rekey(chosen, 'b\0claude'), { key: 'b\0claude', model: '', folder: '' })
-  // Going back does not bring the old choice back.
-  assert.deepEqual(m.rekey(m.rekey(chosen, 'b\0claude'), 'a\0claude'), { key: 'a\0claude', model: '', folder: '' })
+  const s1 = m.rekey(start, 'a\0claude', { model: 'sonnet' })
+  assert.deepEqual(s1, { key: 'a\0claude', model: 'sonnet', folder: '', effort: '' })
+  const chosen = { ...s1, model: 'opus', folder: '/home/a/site', effort: 'high' }
+  assert.equal(m.rekey(chosen, 'a\0claude', { model: 'haiku' }), chosen)
+  assert.deepEqual(m.rekey(chosen, 'a\0codex', { model: 'gpt-5-codex' }), { key: 'a\0codex', model: 'gpt-5-codex', folder: '', effort: '' })
+  assert.deepEqual(m.rekey(chosen, 'b\0claude', { model: 'opus' }), { key: 'b\0claude', model: 'opus', folder: '', effort: '' })
+  // Going back re-resolves the default for that agent; it does not bring the old explicit choice back.
+  assert.deepEqual(m.rekey(m.rekey(chosen, 'b\0claude', { model: 'opus' }), 'a\0claude', { model: 'sonnet' }), { key: 'a\0claude', model: 'sonnet', folder: '', effort: '' })
 })
 
 test('refusalField names the field a refusal is about', () => {

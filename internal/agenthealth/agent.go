@@ -48,6 +48,8 @@ type AgentConfig struct {
 	clipboardAllowed  bool
 	uploads           bool
 	uploadsAllowed    bool
+	models            bool
+	modelsAllowed     bool
 	OnConnection      func(bool)
 	TerminalSession   TerminalFactory
 	control           func(context.Context, terminalproto.Message) error
@@ -80,6 +82,10 @@ type AgentConfig struct {
 	// (reet terminal uploads on|off). It is polled with Consent. Nil means
 	// uploads are refused.
 	UploadsAllowed func() bool
+	// ModelsAllowed re-reads the machine's local model-listing switch
+	// (reet terminal models on|off). It is polled with Consent. Nil means
+	// model listing is refused.
+	ModelsAllowed func() bool
 	// TerminalAllowed re-reads the local terminal opt-in alone (the
 	// enrollment is still this one and terminal access is on), without
 	// probing readiness. Browse and branches requests are gated on it; nil
@@ -225,6 +231,7 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 	cfg.browseAllowed = readBrowseAllowed(cfg)
 	cfg.clipboardAllowed = readClipboardAllowed(cfg)
 	cfg.uploadsAllowed = readUploadsAllowed(cfg)
+	cfg.modelsAllowed = readModelsAllowed(cfg)
 	address, err := bootstrap(ctx, cfg)
 	if err != nil {
 		return false, err
@@ -381,6 +388,7 @@ func currentCapabilities(cfg AgentConfig) terminalproto.Capabilities {
 	cfg.browseAllowed = readBrowseAllowed(cfg)
 	cfg.clipboardAllowed = readClipboardAllowed(cfg)
 	cfg.uploadsAllowed = readUploadsAllowed(cfg)
+	cfg.modelsAllowed = readModelsAllowed(cfg)
 	return capabilitiesFor(cfg, enabled, readiness)
 }
 
@@ -398,6 +406,12 @@ func readClipboardAllowed(cfg AgentConfig) bool {
 // uploads are refused.
 func readUploadsAllowed(cfg AgentConfig) bool {
 	return cfg.UploadsAllowed != nil && cfg.UploadsAllowed()
+}
+
+// readModelsAllowed reads the local model-listing switch; without one,
+// listing is refused.
+func readModelsAllowed(cfg AgentConfig) bool {
+	return cfg.ModelsAllowed != nil && cfg.ModelsAllowed()
 }
 
 func readConsent(read func() (bool, terminalproto.Readiness, error)) (bool, terminalproto.Readiness) {
@@ -542,14 +556,15 @@ func consentControl(ctx context.Context, cfg AgentConfig, generation int64, enab
 		nextBrowse := readBrowseAllowed(cfg)
 		nextClipboard := readClipboardAllowed(cfg)
 		nextUploads := readUploadsAllowed(cfg)
-		if nextEnabled == enabled && nextReadiness == readiness && nextBrowse == cfg.browseAllowed && nextClipboard == cfg.clipboardAllowed && nextUploads == cfg.uploadsAllowed {
+		nextModels := readModelsAllowed(cfg)
+		if nextEnabled == enabled && nextReadiness == readiness && nextBrowse == cfg.browseAllowed && nextClipboard == cfg.clipboardAllowed && nextUploads == cfg.uploadsAllowed && nextModels == cfg.modelsAllowed {
 			continue
 		}
-		previousBrowse, previousClipboard, previousUploads := cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed
-		cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed = nextBrowse, nextClipboard, nextUploads
+		previousBrowse, previousClipboard, previousUploads, previousModels := cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed, cfg.modelsAllowed
+		cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed, cfg.modelsAllowed = nextBrowse, nextClipboard, nextUploads, nextModels
 		caps := capabilitiesFor(cfg, nextEnabled, nextReadiness)
 		if caps.ValidateFor(terminalFeatures(cfg)) != nil {
-			cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed = previousBrowse, previousClipboard, previousUploads
+			cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed, cfg.modelsAllowed = previousBrowse, previousClipboard, previousUploads, previousModels
 			continue
 		}
 		requestID, err := randomID()
@@ -663,6 +678,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.branches = terminalproto.SupportsBranches(advertised)
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
+	cfg.models = terminalproto.SupportsModels(advertised)
 }
 
 // setTerminalFeatures tells the terminal dispatcher which negotiated
@@ -700,6 +716,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.uploads {
 		features = append(features, terminalproto.UploadFeature)
+	}
+	if cfg.models {
+		features = append(features, terminalproto.ModelsFeature)
 	}
 	return strings.Join(features, ",")
 }
@@ -773,6 +792,8 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		Clipboard:       cfg.clipboard && control && enabled && cfg.clipboardAllowed,
 		Uploads:         cfg.uploads && control && enabled && cfg.uploadsAllowed,
 		UploadsOff:      cfg.uploads && control && enabled && !cfg.uploadsAllowed,
+		Models:          cfg.models && control && enabled && cfg.modelsAllowed,
+		ModelsOff:       cfg.models && control && enabled && !cfg.modelsAllowed,
 		Branches:        cfg.branches && worktree && enabled,
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),

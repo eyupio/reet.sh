@@ -68,9 +68,9 @@ var (
 // multi-repository Project member it was made from ("" for a new project), so
 // the migration can run again without making a second copy.
 type FolderProject struct {
-	ID, Host, Dir, Name                                                   string
-	IsRepo                                                                bool
-	BaseBranch, WorktreeDefault, DefaultTool, DefaultModel, StarterPrompt string
+	ID, Host, Dir, Name                                                                  string
+	IsRepo                                                                               bool
+	BaseBranch, WorktreeDefault, DefaultTool, DefaultModel, DefaultEffort, StarterPrompt string
 	// Colour is the rail colour the person chose ("", red, amber, green, blue
 	// or violet). It names an identity, not a state, so it is never used for
 	// status.
@@ -96,6 +96,7 @@ func (s *Store) migrateFolderProjects() error {
 				base_branch TEXT NOT NULL DEFAULT '',
 				worktree_default TEXT NOT NULL DEFAULT 'inherit' CHECK(worktree_default IN ('inherit','yes','no')),
 				default_tool TEXT NOT NULL DEFAULT '', default_model TEXT NOT NULL DEFAULT '',
+				default_effort TEXT NOT NULL DEFAULT '',
 				starter_prompt TEXT NOT NULL DEFAULT '',
 				colour TEXT NOT NULL DEFAULT '',
 				position INTEGER NOT NULL CHECK(position>=0),
@@ -146,6 +147,17 @@ func (s *Store) migrateFolderProjects() error {
 				return err
 			}
 		}
+		// Tables made before project effort gain the column. Existing rows
+		// keep "", the agent's own default.
+		var hasEffort int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('folder_projects') WHERE name='default_effort'`).Scan(&hasEffort); err != nil {
+			return err
+		}
+		if hasEffort == 0 {
+			if _, err := tx.Exec(`ALTER TABLE folder_projects ADD COLUMN default_effort TEXT NOT NULL DEFAULT ''`); err != nil {
+				return err
+			}
+		}
 		// Hosts were once machine names (index folder_projects_machine, on
 		// lower(host)). Where exactly one of the account's machines has the
 		// name, and no row already holds that machine and folder, the name
@@ -187,6 +199,13 @@ func normalizeFolderProject(p FolderProject) (FolderProject, error) {
 // normalizeFolder is normalizeFolderProject; checkPrompt false leaves the
 // starter prompt unchecked (an update that keeps the saved one).
 func normalizeFolder(p FolderProject, checkPrompt bool) (FolderProject, error) {
+	return normalizeFolderWith(p, checkPrompt, true)
+}
+
+// normalizeFolderWith validates a folder project. checkDefaults is false for an
+// update that leaves the three launch defaults untouched, so a row written
+// before the model-needs-a-tool rule stays editable for other fields.
+func normalizeFolderWith(p FolderProject, checkPrompt, checkDefaults bool) (FolderProject, error) {
 	if p.Host == "" || len(p.Host) > maxFolderProjectHostBytes || strings.TrimSpace(p.Host) != p.Host || !plainText(p.Host) {
 		return p, folderInvalid("machine id is required, at most %d bytes, plain text", maxFolderProjectHostBytes)
 	}
@@ -212,11 +231,20 @@ func normalizeFolder(p FolderProject, checkPrompt bool) (FolderProject, error) {
 	if p.Colour != "" && !validFolderProjectColour(p.Colour) {
 		return p, folderInvalid("project colour must be blank, red, amber, green, blue or violet")
 	}
-	if p.DefaultTool != "" && !terminalproto.ValidTool(p.DefaultTool) {
-		return p, folderInvalid("default agent must be one of claude, codex, opencode or gemini")
+	if p.DefaultTool != "" && !terminalproto.ValidToolV2(p.DefaultTool) {
+		return p, folderInvalid("default agent must be one of claude, codex, opencode, gemini or cline")
 	}
 	if p.DefaultModel != "" && !terminalproto.ValidModel(p.DefaultModel) {
 		return p, folderInvalid("default model has characters or a length the connector would refuse")
+	}
+	if checkDefaults && p.DefaultModel != "" && p.DefaultTool == "" {
+		return p, folderInvalid("default model needs a default agent")
+	}
+	if !terminalproto.ValidEffort(p.DefaultEffort) {
+		return p, folderInvalid("default effort must be blank, low, medium or high")
+	}
+	if checkDefaults && p.DefaultEffort != "" && (p.DefaultTool == "" || !terminalproto.ToolTakesEffort(p.DefaultTool)) {
+		return p, folderInvalid("default effort needs a default agent that takes an effort level")
 	}
 	if checkPrompt && p.StarterPrompt != "" && (len(p.StarterPrompt) > maxFolderProjectPromptBytes || strings.HasPrefix(p.StarterPrompt, "-") || !terminalproto.ValidPrompt(p.StarterPrompt)) {
 		return p, folderInvalid("starter prompt must be valid text of at most %d bytes with no control characters except newline, and must not start with -", maxFolderProjectPromptBytes)
@@ -301,13 +329,13 @@ func folderConflict(err error) error {
 	return ErrFolderProjectExists
 }
 
-const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,default_tool,default_model,starter_prompt,colour,position,COALESCE(legacy_project_id,''),note,created_at,updated_at,version`
+const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,starter_prompt,colour,position,COALESCE(legacy_project_id,''),note,created_at,updated_at,version`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanFolderProject(r rowScanner) (FolderProject, error) {
 	var p FolderProject
-	err := r.Scan(&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel,
+	err := r.Scan(&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort,
 		&p.StarterPrompt, &p.Colour, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version)
 	p.Note = noteText(p.Note)
 	return p, err
@@ -363,9 +391,9 @@ func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject, note string) (F
 	if p.LegacyProjectID != "" {
 		legacy = p.LegacyProjectID
 	}
-	_, err = tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,starter_prompt,colour,position,legacy_project_id,note,created_at,updated_at,version)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
-		p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.StarterPrompt, p.Colour, p.Position, legacy, note, t, t)
+	_, err = tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,starter_prompt,colour,position,legacy_project_id,note,created_at,updated_at,version)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+		p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.StarterPrompt, p.Colour, p.Position, legacy, note, t, t)
 	if err != nil {
 		return FolderProject{}, folderConflict(err)
 	}
@@ -382,9 +410,6 @@ func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject, note string) (F
 // only be cleared: an empty Note clears it, any other value keeps it.
 func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64) (FolderProject, error) {
 	id := p.ID
-	if _, err := normalizeFolder(p, false); err != nil {
-		return FolderProject{}, err
-	}
 	err := s.withTx(func(tx *sql.Tx) error {
 		var cur FolderProject
 		cur, err := scanFolderProject(tx.QueryRow(`SELECT `+folderColumns+` FROM folder_projects WHERE id=? AND user_id=?`, id, uid))
@@ -396,7 +421,8 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 		if expect != 0 && expect != cur.Version {
 			return ErrFolderProjectChanged
 		}
-		if p, err = normalizeFolder(p, p.StarterPrompt != cur.StarterPrompt); err != nil {
+		defaultsChanged := p.DefaultTool != cur.DefaultTool || p.DefaultModel != cur.DefaultModel || p.DefaultEffort != cur.DefaultEffort
+		if p, err = normalizeFolderWith(p, p.StarterPrompt != cur.StarterPrompt, defaultsChanged); err != nil {
 			return err
 		}
 		if p.Note != "" {
@@ -410,8 +436,8 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 			t = cur.CreatedAt
 		}
 		p.ID, p.Position, p.LegacyProjectID, p.CreatedAt, p.UpdatedAt, p.Version = id, cur.Position, cur.LegacyProjectID, cur.CreatedAt, t, cur.Version+1
-		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,starter_prompt=?,colour=?,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
-			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.StarterPrompt, p.Colour, p.Note, t, p.Version, id, uid, cur.Version)
+		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,default_effort=?,starter_prompt=?,colour=?,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
+			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.StarterPrompt, p.Colour, p.Note, t, p.Version, id, uid, cur.Version)
 		if err != nil {
 			return folderConflict(err)
 		}

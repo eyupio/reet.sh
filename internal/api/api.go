@@ -81,6 +81,9 @@ type server struct {
 	browseOnce   sync.Once
 	browseLimits *browseLimits
 	browseAudit  *browseAudit
+	// Person-pressed model refreshes per account and machine (models.go).
+	modelsOnce   sync.Once
+	modelsLimits *modelLimits
 	// Image uploads per account (terminal_upload.go).
 	uploadLimits uploadLimits
 	// Folder-project writes per account (folder_projects.go).
@@ -388,6 +391,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
 	s.registerBackupRoutes(mux)
 	s.registerProfileRoutes(mux)
+	s.registerModelFavouriteRoutes(mux)
 	s.registerMCPRoutes(mux)
 	s.registerHostedRoutes(mux)
 	s.registerPrivateSkillRoutes(mux)
@@ -397,6 +401,7 @@ func (s *server) routes() http.Handler {
 	s.registerHealthRoutes(mux)
 	s.registerTerminalRoutes(mux)
 	s.registerBrowseRoutes(mux)
+	s.registerModelRoutes(mux)
 	s.registerProjectRoutes(mux)
 	s.registerFolderProjectRoutes(mux)
 	s.registerProjectRunRoutes(mux)

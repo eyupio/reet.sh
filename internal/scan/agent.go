@@ -45,6 +45,9 @@ type agentConfig struct {
 	ClipboardOff bool `json:"clipboardOff,omitempty"`
 	// UploadsOff refuses image uploads locally (reet terminal uploads off).
 	UploadsOff bool `json:"uploadsOff,omitempty"`
+	// ModelsOff refuses reading an agent's model list locally
+	// (reet terminal models off).
+	ModelsOff bool `json:"modelsOff,omitempty"`
 }
 
 func agentConfigPath() string {
@@ -354,6 +357,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				BrowseAllowed:    browseAllowed(*config, c),
 				ClipboardAllowed: clipboardAllowed(*config, c),
 				UploadsAllowed:   uploadsAllowed(*config, c),
+				ModelsAllowed:    modelsAllowed(*config, c),
 				TerminalAllowed:  terminalAllowed(*config, c),
 				OnConnection:     state.connected.Store,
 				ServerURL:        c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,

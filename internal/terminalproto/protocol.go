@@ -138,6 +138,8 @@ type Capabilities struct {
 	Clipboard       bool      `json:"clipboard,omitempty"`
 	Uploads         bool      `json:"uploads,omitempty"`
 	UploadsOff      bool      `json:"uploadsOff,omitempty"`
+	Models          bool      `json:"models,omitempty"`
+	ModelsOff       bool      `json:"modelsOff,omitempty"`
 	TerminalControl bool      `json:"terminalControl,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
@@ -169,6 +171,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.Uploads && !c.TerminalControl || c.UploadsOff && (c.Uploads || !c.TerminalControl) {
+		return ErrInvalid
+	}
+	if c.Models && !c.TerminalControl || c.ModelsOff && (c.Models || !c.TerminalControl) {
 		return ErrInvalid
 	}
 	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {
@@ -509,6 +514,10 @@ func Decode(data []byte) (Message, error) {
 		b = &BranchesResult{}
 	case "upload":
 		b = &Upload{}
+	case "models":
+		b = &Models{}
+	case "models_result":
+		b = &ModelsResult{}
 	case "result":
 		b = &Result{}
 	case "session_changed":

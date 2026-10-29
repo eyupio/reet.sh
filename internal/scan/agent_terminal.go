@@ -37,23 +37,33 @@ func RunTerminalUploads(args []string, out io.Writer) error {
 	return runAgentTerminalInput(append([]string{"uploads"}, args...), os.Stdin, out, "")
 }
 
+// RunTerminalModels runs reet terminal models on|off|status: the machine's
+// local switch for reading an agent's model list, the same as reet agent
+// terminal models.
+func RunTerminalModels(args []string, out io.Writer) error {
+	return runAgentTerminalInput(append([]string{"models"}, args...), os.Stdin, out, "")
+}
+
 func runAgentTerminal(args []string, out io.Writer) error {
 	return runAgentTerminalInput(args, os.Stdin, out, "")
 }
 func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent terminal setup|enable|disable|status|sessions|end|browse|clipboard|uploads [--config PATH]")
+		return errors.New("usage: reet agent terminal setup|enable|disable|status|sessions|end|browse|clipboard|uploads|models [--config PATH]")
 	}
 	action := args[0]
-	// browse, clipboard and uploads take their own word: on, off or status.
+	// browse, clipboard, uploads and models take their own word: on, off or
+	// status.
 	sub := ""
-	if action == "browse" || action == "clipboard" || action == "uploads" {
+	if action == "browse" || action == "clipboard" || action == "uploads" || action == "models" {
 		usage := terminalBrowseUsage
 		switch action {
 		case "clipboard":
 			usage = terminalClipboardUsage
 		case "uploads":
 			usage = terminalUploadUsage
+		case "models":
+			usage = terminalModelsUsage
 		}
 		for _, arg := range args[1:] {
 			if arg == "-h" || arg == "--help" || arg == "-help" {
@@ -62,6 +72,8 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 					fmt.Fprintln(out, usage+"\nAllow or refuse folder browsing from reet on this enrolled machine (on by default).\nBrowsing also needs terminal access on (reet agent terminal enable).")
 				case "clipboard":
 					fmt.Fprintln(out, usage+"\nAllow or refuse forwarding an agent's clipboard writes (OSC 52) from this machine to the attached browser (on by default).\nForwarding also needs terminal access on (reet agent terminal enable).")
+				case "models":
+					fmt.Fprintln(out, usage+"\nAllow or refuse reading the model list an agent on this machine reports (on by default).\nListing also needs terminal access on (reet agent terminal enable).")
 				default:
 					fmt.Fprintln(out, usage+"\nAllow or refuse storing images a controller uploads in a private folder for each session on this machine (on by default).\nUploads also need terminal access on (reet agent terminal enable).")
 				}
@@ -137,7 +149,7 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 		return nil
 	case "status":
 		readiness := terminalhost.Readiness(context.Background(), layout, c.TerminalEnabled)
-		fmt.Fprintf(out, "Machine: %s\nTerminal access: %t\nReadiness: %s\nFolder browse: %s\nClipboard: %s\nUploads: %s\n", c.Host, c.TerminalEnabled, readiness, browseState(c), clipboardState(c), uploadsState(c))
+		fmt.Fprintf(out, "Machine: %s\nTerminal access: %t\nReadiness: %s\nFolder browse: %s\nClipboard: %s\nUploads: %s\nModels: %s\n", c.Host, c.TerminalEnabled, readiness, browseState(c), clipboardState(c), uploadsState(c), modelsState(c))
 		if tmux, err := terminalhost.FindTmux(context.Background()); err == nil {
 			fmt.Fprintf(out, "tmux: %s (%s)\n", tmux.Path, tmux.Version)
 		} else {
@@ -244,8 +256,27 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 			fmt.Fprintf(out, "Uploads: %s\n", uploadsState(c))
 		}
 		return nil
+	case "models":
+		switch sub {
+		case "on", "off":
+			c.ModelsOff = sub == "off"
+			if err := writePrivate(*config, c); err != nil {
+				return err
+			}
+			switch {
+			case c.ModelsOff:
+				fmt.Fprintf(out, "Models off for %s. reet can no longer read the model list this machine's agents report.\n", c.Host)
+			case !c.TerminalEnabled:
+				fmt.Fprintf(out, "Models on for %s, but terminal access is off on this machine, so reet still cannot read its model list. Turn terminal access on with: reet agent terminal enable\n", c.Host)
+			default:
+				fmt.Fprintf(out, "Models on for %s. reet can read the model list this machine's OpenCode reports; only model names leave this machine.\n", c.Host)
+			}
+		default:
+			fmt.Fprintf(out, "Models: %s\n", modelsState(c))
+		}
+		return nil
 	default:
-		return errors.New("unknown terminal action; use enable, disable, status, sessions, end, browse, clipboard or uploads")
+		return errors.New("unknown terminal action; use enable, disable, status, sessions, end, browse, clipboard, uploads or models")
 	}
 }
 
@@ -257,6 +288,9 @@ const terminalClipboardUsage = "reet terminal clipboard on|off|status [--config 
 
 // terminalUploadUsage is the usage line of the image-upload switch.
 const terminalUploadUsage = "reet terminal uploads on|off|status [--config PATH]"
+
+// terminalModelsUsage is the usage line of the model-listing switch.
+const terminalModelsUsage = "reet terminal models on|off|status [--config PATH]"
 
 // browseState is the switch as status shows it: on or off, and whether
 // browsing is unavailable anyway because terminal access is off.
@@ -283,6 +317,15 @@ func uploadsState(c agentConfig) string {
 		return "on (unavailable while terminal access is off)"
 	}
 	return onOff(!c.UploadsOff)
+}
+
+// modelsState is the switch as status shows it: on or off, and whether
+// listing is unavailable anyway because terminal access is off.
+func modelsState(c agentConfig) string {
+	if !c.ModelsOff && !c.TerminalEnabled {
+		return "on (unavailable while terminal access is off)"
+	}
+	return onOff(!c.ModelsOff)
 }
 
 func onOff(on bool) string {

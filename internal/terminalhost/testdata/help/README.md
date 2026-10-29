@@ -23,3 +23,9 @@ no-tools launch would be a different product behaviour and is not enabled.
 Cursor Agent remains disabled because the official `https://cursor.com/install`
 destination was denied by the environment proxy. An unrelated package named
 `cursor-agent` was not used as a substitute.
+
+
+OpenCode 1.19.5 is captured from the 28 October 2026 probe report rather than a new run:
+version, top-level help, `models --help` and the empty-HOME `opencode models` output with
+`OPENCODE_DISABLE_MODELS_FETCH=1`. The probe saw no outbound call with that setting. Only
+version, help and the model listing were run; no agent turn, prompt or ACP session.

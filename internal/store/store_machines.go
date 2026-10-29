@@ -231,11 +231,13 @@ func (s *Store) ForgetMachineFor(userID int64, host string) error {
 		return ErrMachineName
 	}
 	// Retain aliases so a future scan cannot resurrect duplicate names.
-	_, err = s.db.Exec(`DELETE FROM environments WHERE user_id=? AND host=? COLLATE NOCASE`, userID, host)
-	if err != nil {
-		return fmt.Errorf("forget machine: %w", err)
-	}
-	return nil
+	return s.withTx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`DELETE FROM environments WHERE user_id=? AND host=? COLLATE NOCASE`, userID, host); err != nil {
+			return fmt.Errorf("forget machine: %w", err)
+		}
+		// Cached model lists go with the machine; they describe that machine.
+		return deleteMachineModelsTx(tx, userID, host)
+	})
 }
 
 func (s *Store) GroupMachinesFor(userID int64, envs []SyncEnvironment) ([]Machine, error) {

@@ -16,7 +16,7 @@ import (
 // agreedControlFeatures is the feature list this connection negotiates: every
 // private control feature, with agents-v2 only for a machine that claims it.
 func agreedControlFeatures(c terminalproto.Capabilities) string {
-	features := []string{terminalproto.CommandHistoryFeature, terminalproto.LaunchFeature, terminalproto.WorktreeFeature, terminalproto.BrowseFeature, terminalproto.BranchesFeature, terminalproto.ClipboardFeature, terminalproto.UploadFeature}
+	features := []string{terminalproto.CommandHistoryFeature, terminalproto.LaunchFeature, terminalproto.WorktreeFeature, terminalproto.BrowseFeature, terminalproto.BranchesFeature, terminalproto.ClipboardFeature, terminalproto.UploadFeature, terminalproto.ModelsFeature}
 	if c.AgentsV2 {
 		features = append(features, terminalproto.AgentsFeature)
 	}
@@ -29,6 +29,18 @@ var privateControlFeatures = agreedControlFeatures(terminalproto.Capabilities{Ag
 // privateControl upgrades the exact private control route, authenticates the
 // enrollment, assigns a connection generation, and then services typed control
 // messages. The listener context, not a header, proves the transport.
+// isPeerReply lists the terminal-facing replies the broker may receive.
+// Health, probe and hello messages are handled before this check.
+func isPeerReply(body terminalproto.Body) bool {
+	switch body.(type) {
+	case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.SessionChanged,
+		*terminalproto.WorktreeState, *terminalproto.WorktreeResult,
+		*terminalproto.BrowseResult, *terminalproto.BranchesResult, *terminalproto.ModelsResult:
+		return true
+	}
+	return false
+}
+
 func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 	if !s.privateCredentials() {
 		writeErr(w, http.StatusForbidden, "private connections require an authenticated instance")
@@ -172,18 +184,18 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 				peerWorkers.Add(1)
 				go func() { defer peerWorkers.Done(); _ = peer.Synchronize(peerCtx) }()
 			}
-		case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.SessionChanged, *terminalproto.WorktreeState, *terminalproto.WorktreeResult,
-			*terminalproto.BrowseResult, *terminalproto.BranchesResult:
-			// A browse or branches answer that comes after its request gave
-			// up is dropped by the broker; it does not end the connection.
+		default:
+			if !isPeerReply(message.Body) {
+				return
+			}
+			// A browse, branches or models answer that comes after its request
+			// gave up is dropped by the broker; it does not end the connection.
 			if !s.terminalEnabled() {
 				continue
 			}
 			if err := peer.Receive(message); err != nil {
 				return
 			}
-		default:
-			return
 		}
 	}
 }

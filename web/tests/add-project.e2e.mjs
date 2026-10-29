@@ -2,7 +2,7 @@
 // which mounts the dialog alone; Home's rail opens the same dialog (home.e2e.mjs "Add opens the folder browser"). Synthetic API answers: the browse route answers from a small tree under
 // /home/dev on studio; desk is offline. Nothing is started on a machine.
 import { chromium, expect } from '@playwright/test'
-import { HOME, openFixture, refuse } from './helpers/folders.mjs'
+import { HOME, openFixture, refuse, saved } from './helpers/folders.mjs'
 import { startHarness } from './helpers/harness.mjs'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 const harness = await startHarness()
@@ -18,6 +18,27 @@ const row = (page, name) => folders(page).getByRole('button', {name, exact:true}
 const crumbs = page => dialog(page).getByRole('navigation', {name:'Folder path'})
 const crumbText = page => crumbs(page).evaluate(el => el.innerText.replace(/\s+/g, ' ').trim())
 const folderField = page => dialog(page).getByRole('textbox', {name:'Folder', exact:true})
+const agentField = page => dialog(page).getByRole('combobox', {name:'Default agent', exact:true})
+const effortField = page => dialog(page).getByRole('combobox', {name:'Default thinking', exact:true})
+const modelField = page => dialog(page).getByRole('button', {name:/^Default model:/})
+const escapeRe = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const modelList = page => page.getByRole('listbox', {name:'Default model'})
+async function pickModel(page, label) {
+ await modelField(page).click()
+ const list = modelList(page)
+ await expect(list).toBeVisible()
+ await list.getByRole('option', {name:new RegExp('^' + escapeRe(label))}).click()
+ await expect(list).toBeHidden()
+}
+async function pickOtherModel(page, value) {
+ await modelField(page).click()
+ const list = modelList(page)
+ await expect(list).toBeVisible()
+ await list.getByRole('option', {name:'Other…', exact:true}).click()
+ await page.getByRole('textbox', {name:'Model name', exact:true}).fill(value)
+ await page.getByRole('button', {name:'Use', exact:true}).click()
+ await expect(list).toBeHidden()
+}
 const lastBrowse = box => box.browses.at(-1)
 async function openDialog(page) {
  await addButton(page).click()
@@ -278,6 +299,162 @@ try {
   expect(box.writes[0].method).toBe('PATCH')
   expect(box.writes[0].headers['if-match']).toBe('"3"')
   expect(box.writes[0].body).toEqual({name:'reet main', starterPrompt:'Read the README and the plan first'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The default agent is the machine's own list: Cline only when the connector takes agents-v2 and reports it installed.
+ if (run('default agent comes from the machine')) {
+  const {context,page,errors} = await open()
+  await openDialog(page)
+  const d = dialog(page)
+  await d.locator('summary', {hasText:'More defaults'}).click()
+  await expect(agentField(page).locator('option')).toHaveText(["The launch bar's choice",'Claude Code','Codex','OpenCode','Gemini CLI','Cline'])
+  // desk is an old connector: it keeps the original four, with no Cline option at all.
+  await d.getByRole('combobox', {name:'Machine'}).selectOption('a2')
+  await expect(agentField(page).locator('option')).toHaveText(["The launch bar's choice",'Claude Code','Codex','OpenCode','Gemini CLI'])
+  await expect(agentField(page).locator('option[value="cline"]')).toHaveCount(0)
+  await d.getByRole('combobox', {name:'Machine'}).selectOption('a1')
+  await expect(agentField(page).locator('option[value="cline"]')).toHaveCount(1)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Cline takes thinking; a machine-listed model comes from the shared picker and all three defaults go in one create.
+ if (run('create with Cline, thinking and a machine-listed model')) {
+  const {context,page,errors,box} = await open()
+  await openDialog(page)
+  const d = dialog(page)
+  await d.locator('summary', {hasText:'More defaults'}).click()
+  await agentField(page).selectOption('cline')
+  await expect(effortField(page)).toBeVisible()
+  await expect(effortField(page)).toHaveValue('')
+  await expect.poll(() => box.favouriteReads).toBe(1)
+  await expect.poll(() => box.modelReads).toEqual(['cline'])
+  await modelField(page).click()
+  const list = modelList(page)
+  await expect(list.getByRole('group', {name:'Agent default'})).toBeVisible()
+  await expect(list.getByRole('group', {name:'Favourites'}).getByRole('option', {name:/^anthropic\/claude-opus-4-1/})).toBeVisible()
+  await expect(list.getByRole('group', {name:'On studio · anthropic'}).getByRole('option', {name:'anthropic/claude-sonnet-4-5'})).toBeVisible()
+  await expect(list.getByRole('group', {name:'On studio · openai'}).getByRole('option', {name:'openai/gpt-5'})).toBeVisible()
+  await list.getByRole('option', {name:'anthropic/claude-sonnet-4-5', exact:true}).click()
+  await expect(modelField(page)).toContainText('anthropic/claude-sonnet-4-5')
+  await effortField(page).selectOption('high')
+  await row(page, 'reet, git repository').click()
+  await d.getByRole('button', {name:'Use this folder'}).click()
+  await d.getByRole('button', {name:'Add project', exact:true}).click()
+  await expect(d).toBeHidden()
+  expect(box.writes[0].body).toEqual({host:'a1', dir:`${HOME}/reet`, isRepo:true, worktreeDefault:'inherit',
+   defaultTool:'cline', defaultModel:'anthropic/claude-sonnet-4-5', defaultEffort:'high'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A model the machine did not list is still allowed through Other; a non-effort agent has no thinking field.
+ if (run('a model not in the list through Other')) {
+  const {context,page,errors,box} = await open()
+  await openDialog(page)
+  const d = dialog(page)
+  await d.locator('summary', {hasText:'More defaults'}).click()
+  // Thinking is Cline's alone: choosing an agent without it clears the level rather than sending one it cannot take.
+  await agentField(page).selectOption('cline')
+  await effortField(page).selectOption('high')
+  await agentField(page).selectOption('claude')
+  await expect(effortField(page)).toHaveCount(0)
+  await pickOtherModel(page, 'custom/model-1')
+  await expect(modelField(page)).toContainText('custom/model-1')
+  await row(page, 'reet, git repository').click()
+  await d.getByRole('button', {name:'Use this folder'}).click()
+  await d.getByRole('button', {name:'Add project', exact:true}).click()
+  await expect(d).toBeHidden()
+  expect(box.writes[0].body).toEqual({host:'a1', dir:`${HOME}/reet`, isRepo:true, worktreeDefault:'inherit',
+   defaultTool:'claude', defaultModel:'custom/model-1'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The two combinations are refused by the dialog before anything is sent: a model needs an agent, and an effort needs
+ // an agent that takes one (a saved row can still carry an old effort, as this edit does).
+ if (run('invalid model and effort combinations are refused locally')) {
+  const {context,page,errors,box} = await open()
+  await openDialog(page)
+  let d = dialog(page)
+  await d.locator('summary', {hasText:'More defaults'}).click()
+  await agentField(page).selectOption('claude')
+  await pickModel(page, 'sonnet')
+  await row(page, 'reet, git repository').click()
+  await d.getByRole('button', {name:'Use this folder'}).click()
+  await agentField(page).selectOption('')
+  await d.getByRole('button', {name:'Add project', exact:true}).click()
+  await expect(d.locator('.status')).toHaveText('Choose a default agent before setting a default model.')
+  await expect(agentField(page)).toBeFocused()
+  expect(box.writes).toEqual([])
+  await page.keyboard.press('Escape')
+  await context.close()
+
+  const routes = {'/api/v2/folder-projects/fp1': request => request.method() === 'GET'
+   ? saved({defaultTool:'claude', defaultEffort:'high', starterPrompt:''})
+   : refuse(422, 'invalid_effort', 'A default effort needs a default agent that takes one.')}
+  const second = await open({query:'?edit=fp1', routes})
+  await second.page.getByRole('button', {name:'Edit', exact:true}).click()
+  d = second.page.getByRole('dialog')
+  await expect(d).toBeVisible()
+  await d.locator('summary', {hasText:'More defaults'}).click()
+  await expect(effortField(second.page)).toHaveCount(0)
+  await d.getByRole('textbox', {name:/^Name/}).fill('reet two')
+  await d.getByRole('button', {name:'Save changes'}).click()
+  await expect(d.locator('.status')).toHaveText('A default effort needs a default agent that takes one.')
+  expect(second.box.writes).toEqual([])
+  expect(second.errors).toEqual([])
+  await second.context.close()
+  expect(errors).toEqual([])
+ }
+
+ // A failed favourites read and a failed model read are status lines only: Other and Save still work.
+ if (run('a failed model or favourites read still saves')) {
+  const {context,page,errors,box} = await open()
+  box.favouriteFail = refuse(500, 'server_error', 'favourites are unavailable')
+  await openDialog(page)
+  const d = dialog(page)
+  await d.locator('summary', {hasText:'More defaults'}).click()
+  box.modelFail = refuse(500, 'models_failed', 'models are unavailable')
+  await agentField(page).selectOption('cline')
+  await expect.poll(() => box.favouriteReads).toBe(1)
+  await expect.poll(() => box.modelReads).toEqual(['cline'])
+  await expect(d.locator('.model-status')).toContainText('Couldn’t read studio’s models just now.')
+  await expect(d.locator('.model-status')).toContainText('Couldn’t read your favourite models just now.')
+  await pickOtherModel(page, 'typed/model-2')
+  await row(page, 'reet, git repository').click()
+  await d.getByRole('button', {name:'Use this folder'}).click()
+  await d.getByRole('button', {name:'Add project', exact:true}).click()
+  await expect(d).toBeHidden()
+  expect(box.writes[0].body).toEqual({host:'a1', dir:`${HOME}/reet`, isRepo:true, worktreeDefault:'inherit',
+   defaultTool:'cline', defaultModel:'typed/model-2'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // On a phone the shared picker is the bottom sheet, with 16 px fields and its close returning focus to the model button.
+ if (run('phone model sheet')) {
+  const {context,page,errors,box} = await open({width:390, height:844, touch:true})
+  await openDialog(page)
+  const d = dialog(page)
+  await d.locator('summary', {hasText:'More defaults'}).click()
+  await agentField(page).selectOption('cline')
+  await expect.poll(() => box.modelReads).toEqual(['cline'])
+  await modelField(page).click()
+  const sheet = page.getByRole('dialog', {name:'Default model', exact:true})
+  await expect(sheet).toBeVisible()
+  await expect(sheet.getByRole('listbox', {name:'Default model'})).toBeVisible()
+  const boxRect = await sheet.boundingBox()
+  expect(boxRect.x).toBeGreaterThanOrEqual(0)
+  expect(Math.round(boxRect.x + boxRect.width)).toBeLessThanOrEqual(390)
+  expect(Math.round(boxRect.y + boxRect.height)).toBeLessThanOrEqual(844)
+  for (const size of await sheet.locator('input').evaluateAll(els => els.map(e => getComputedStyle(e).fontSize))) expect(size).toBe('16px')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await sheet.getByRole('button', {name:'Close', exact:true}).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(modelField(page)).toBeFocused()
   expect(errors).toEqual([])
   await context.close()
  }

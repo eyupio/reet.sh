@@ -65,6 +65,9 @@ func (m *Manager) WriteUpload(ctx context.Context, sessionID string, req termina
 	m.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, uploadDeadline)
 	defer cancel()
+	if req.Launch {
+		return m.storeLaunchUpload(ctx, sessionID, req, src)
+	}
 	if err := m.uploadSessionRunning(ctx, sessionID); err != nil {
 		return "", err
 	}
@@ -118,7 +121,17 @@ func validateUploadRequest(req terminalproto.Upload) error {
 }
 
 func (m *Manager) storeUpload(ctx context.Context, sessionID string, req terminalproto.Upload, src io.Reader) (string, error) {
-	root := filepath.Join(m.layout.Dir, "uploads")
+	return m.storeUploadAt(ctx, filepath.Join(m.layout.Dir, "uploads"), sessionID, req, src, true)
+}
+
+// storeLaunchUpload stores an image for a launch prompt before any session
+// exists. It lives in its own root, so a session's cleanup can never remove an
+// image an agent is about to read, and the 24 hour sweep removes it later.
+func (m *Manager) storeLaunchUpload(ctx context.Context, token string, req terminalproto.Upload, src io.Reader) (string, error) {
+	return m.storeUploadAt(ctx, filepath.Join(m.layout.Dir, "launch-uploads"), token, req, src, false)
+}
+
+func (m *Manager) storeUploadAt(ctx context.Context, root, sessionID string, req terminalproto.Upload, src io.Reader, requireRunning bool) (string, error) {
 	m.uploadMu.Lock()
 	if err := m.checkUploadQuotaLocked(root, sessionID, req.Size); err != nil {
 		m.uploadMu.Unlock()
@@ -128,8 +141,10 @@ func (m *Manager) storeUpload(ctx context.Context, sessionID string, req termina
 	defer m.releaseUpload(sessionID, req.Size)
 	// Recheck after reserving: a session can end between the first check and
 	// the quota decision, and cleanup may already have removed its folder.
-	if err := m.uploadSessionRunning(ctx, sessionID); err != nil {
-		return "", err
+	if requireRunning {
+		if err := m.uploadSessionRunning(ctx, sessionID); err != nil {
+			return "", err
+		}
 	}
 	if err := ensurePrivateDir(root); err != nil {
 		return "", ErrUploadFailed
@@ -403,6 +418,54 @@ func sweepUploadRoot(root string, active map[string]bool, now time.Time) error {
 	return nil
 }
 
+// sweepAgedUploadRoot removes files older than the upload age in a root that
+// is not tied to live sessions, then removes the empty folders. It never
+// follows a symlink or touches anything outside root.
+func sweepAgedUploadRoot(root string, now time.Time) error {
+	info, err := os.Lstat(root)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return ErrUploadFailed
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !terminalproto.ValidID(name) {
+			continue
+		}
+		dir := filepath.Join(root, name)
+		inner, err := os.ReadDir(dir)
+		if err != nil {
+			return err
+		}
+		for _, file := range inner {
+			if file.Type()&os.ModeSymlink != 0 {
+				continue
+			}
+			info, err := file.Info()
+			if err != nil || !info.Mode().IsRegular() {
+				continue
+			}
+			if info.ModTime().Before(now.Add(-maxUploadAge)) {
+				_ = os.Remove(filepath.Join(dir, file.Name()))
+			}
+		}
+		_ = os.Remove(dir)
+	}
+	return nil
+}
+
 func removeUploadFolder(root, sessionID string) error {
 	if !terminalproto.ValidID(sessionID) {
 		return terminalproto.ErrInvalid
@@ -438,7 +501,10 @@ func (m *Manager) sweepUploads(active map[string]bool, now time.Time) error {
 	// Cleanup deliberately does not wait on uploadMu: a folder removed under
 	// an in-flight upload makes its publish fail, which is the right result
 	// for a session that has ended.
-	return sweepUploadRoot(filepath.Join(m.layout.Dir, "uploads"), active, now)
+	if err := sweepUploadRoot(filepath.Join(m.layout.Dir, "uploads"), active, now); err != nil {
+		return err
+	}
+	return sweepAgedUploadRoot(filepath.Join(m.layout.Dir, "launch-uploads"), now)
 }
 
 func (m *Manager) removeUploads(sessionID string) error {

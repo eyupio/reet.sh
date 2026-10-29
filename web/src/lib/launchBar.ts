@@ -342,9 +342,9 @@ export function startedLine(run: { members: { state: string }[] }): string {
   return `${started} of ${run.members.length} started`
 }
 
-/** R8: on touch the Start button is the only way to send, whatever the key. On a hardware keyboard Enter adds a line and
- * Ctrl+Enter or Cmd+Enter sends. */
+/** On touch the Start button is the only way to send, whatever the key. On a hardware keyboard Enter (and Ctrl+Enter or
+ * Cmd+Enter) sends; Shift+Enter and Alt+Enter add a line. */
 export function sendKey(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey' | 'isComposing'>, touch: boolean): boolean {
   if (touch) return false
-  return e.key === 'Enter' && !e.isComposing && !e.shiftKey && !e.altKey && (e.ctrlKey || e.metaKey)
+  return e.key === 'Enter' && !e.isComposing && !e.shiftKey && !e.altKey
 }

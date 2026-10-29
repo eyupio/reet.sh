@@ -44,6 +44,11 @@ type Upload struct {
 	Size        int64  `json:"size"`
 	SHA256      string `json:"sha256"`
 	MIME        string `json:"mime"`
+	// Launch is set for an image attached to a session that is about to start:
+	// SessionID then names a one-off launch upload, not a running session, and
+	// the machine stores it outside any session's folder so the opening prompt
+	// can name its path.
+	Launch bool `json:"launch,omitempty"`
 }
 
 func (Upload) kind() string { return "upload" }

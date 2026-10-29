@@ -1,5 +1,7 @@
 export const MAX_IMAGE_BYTES = 5 << 20
 export const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+export const MAX_IMAGES = 20
+export const MAX_IMAGE_TOTAL_BYTES = 50 << 20
 
 export type ImageValidation = { ok: true } | { ok: false; reason: 'type' | 'size' | 'empty' }
 
@@ -29,6 +31,18 @@ export function uploadInsertionAllowed(started: number, current: number, live: b
 export function joinReferences(references: string[]): string {
   return references.length ? ` ${references.join(' ')} ` : ''
 }
+
+/** The opening prompt with uploaded image paths appended. The words keep a
+ *  one-word prompt from being read as a subcommand, and the agent still sees
+ *  each path as plain text it can open. */
+export function imagePrompt(prompt: string, references: string[]): string {
+  const refs = references.filter(Boolean)
+  if (!refs.length) return prompt
+  const line = refs.length === 1 ? `Image: ${refs[0]}` : `Images: ${refs.join(' ')}`
+  const text = String(prompt ?? '').replace(/\s+$/, '')
+  return text ? `${text}\n\n${line}` : line
+}
+
 
 export interface ImageItemLike {
   kind?: string

@@ -641,3 +641,25 @@ func TestNewManagerIgnoresUnsweepableUploadRoot(t *testing.T) {
 		t.Fatalf("sweep followed a symlink outside the upload root: %v", err)
 	}
 }
+
+func TestLaunchUploadNeedsNoSessionAndUsesItsOwnRoot(t *testing.T) {
+	m, _, _ := uploadTestManager(t, terminalproto.Running)
+	payload := uploadPNG()
+	req := uploadRequest(payload, "image/png")
+	req.Launch = true
+	token := "launch0123456789abcdef"
+	path, err := m.WriteUpload(context.Background(), token, req, bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoot := filepath.Join(m.layout.Dir, "launch-uploads", token)
+	if filepath.Dir(path) != wantRoot {
+		t.Fatalf("launch upload stored at %q, want under %q", path, wantRoot)
+	}
+	if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, payload) {
+		t.Fatalf("stored bytes differ: %v", err)
+	}
+	if entries := uploadEntries(t, filepath.Join(m.layout.Dir, "uploads")); len(entries) != 0 {
+		t.Fatalf("launch upload touched the session root: %v", entries)
+	}
+}

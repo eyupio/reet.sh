@@ -88,11 +88,32 @@ func (b *Broker) Upload(ctx context.Context, uid int64, sessionID string, data [
 	if err != nil || s.State != terminalproto.Running {
 		return "", ErrDenied
 	}
-	p, err := b.peer(uid, s.AgentID, true)
+	return b.upload(ctx, uid, s.AgentID, sessionID, data, mime, false)
+}
+
+// UploadLaunch stores an image for a session that is about to start on agent.
+// No session exists yet, so the machine writes it outside every session folder
+// and the launch prompt names the returned path.
+func (b *Broker) UploadLaunch(ctx context.Context, uid int64, agent string, data []byte, mime string) (string, error) {
+	if !b.start() {
+		return "", ErrOffline
+	}
+	defer b.wg.Done()
+	if len(data) < 1 || len(data) > terminalproto.MaxUploadBytes {
+		return "", ErrUploadTooLarge
+	}
+	if !supportedUploadMIME(mime) {
+		return "", ErrUploadType
+	}
+	return b.upload(ctx, uid, agent, ID(), data, mime, true)
+}
+
+func (b *Broker) upload(ctx context.Context, uid int64, agent, sessionID string, data []byte, mime string, launch bool) (string, error) {
+	p, err := b.peer(uid, agent, true)
 	if err != nil {
 		return "", err
 	}
-	caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID)
+	caps, err := b.st.RemoteCapabilitiesFor(uid, agent)
 	if err != nil || caps.Generation != p.Generation {
 		return "", ErrOffline
 	}
@@ -111,7 +132,7 @@ func (b *Broker) Upload(ctx context.Context, uid int64, sessionID string, data [
 	defer p.forget(h)
 	defer e.close()
 	sum := sha256.Sum256(data)
-	req := terminalproto.Upload{StreamToken: h.Token, Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), MIME: mime}
+	req := terminalproto.Upload{StreamToken: h.Token, Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), MIME: mime, Launch: launch}
 	reply, err := p.call(ctx, message(h, req))
 	if err != nil {
 		return "", uploadCallError(err)

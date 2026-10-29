@@ -129,10 +129,10 @@ test('opening uses the resolved defaults, never the last launch', () => {
   assert.deepEqual([opened.agent, opened.model], ['claude', ''])
 })
 
-test('Enter never sends on touch; Ctrl+Enter and Cmd+Enter send', () => {
+test('Enter sends on a hardware keyboard; Shift+Enter adds a line; touch never sends', () => {
   const key = (extra = {}) => ({ key: 'Enter', ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, isComposing: false, ...extra })
-  // A hardware keyboard: only Ctrl+Enter or Cmd+Enter sends.
-  assert.equal(sendKey(key(), false), false)
+  // A hardware keyboard: Enter sends, as do Ctrl+Enter and Cmd+Enter.
+  assert.equal(sendKey(key(), false), true)
   assert.equal(sendKey(key({ shiftKey: true }), false), false)
   assert.equal(sendKey(key({ ctrlKey: true }), false), true)
   assert.equal(sendKey(key({ metaKey: true }), false), true)

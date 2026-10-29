@@ -18,7 +18,7 @@ try {
    await expect(page.getByRole('heading',{name:'Connect a machine to start syncing'})).toBeVisible()
    await expect(page.getByRole('link',{name:'Connect a machine'})).toHaveAttribute('href','/machines#add-machine')
    await expect(page.getByText('Fleet controls')).toHaveCount(0)
-   await expect(page.getByText('Choose what to sync')).toHaveCount(0)
+   await expect(page.getByRole('heading',{name:'Choose once. Keep in sync.'})).toHaveCount(0)
    await expect(page.locator('main .btn.primary'), `filled buttons at ${width}px`).toHaveCount(1)
    expect(errors).toEqual([])
    await context.close()
@@ -53,7 +53,7 @@ try {
   const scope = {id:'laptop-agents',host:'dev-laptop',agent:'agents',name:'dev-laptop',skills:[],skillCount:0,complete:true,scannedAt:Date.now(),lastSeen:Date.now(),os:'linux',arch:'amd64',version:'test'}
   const {context,page} = await open({width:1440,sync:{environments:[scope],machines:[{host:'dev-laptop',groups:[scope],skillCount:0}],agents:[],targets:[],jobs:[],runs:[],updateJobs:[]}})
   await page.goto(`${base}/sync`)
-  await expect(page.getByText('Choose what to sync')).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Choose once. Keep in sync.'})).toBeVisible()
   await expect(page.getByRole('heading',{name:'Connect a machine to start syncing'})).toHaveCount(0)
   await context.close()
  }
@@ -69,5 +69,5 @@ try {
   await expect(page.getByText(/The synced profile is metadata/)).toBeVisible()
   await context.close()
  }
- console.log('Empty states: Sync asks for a machine first, the Sync form is unchanged once one exists, Setups keeps the storage detail one click away.')
+ console.log('Empty states: Sync asks for a machine first, the simple Sync form is offered once a machine exists, Setups keeps the storage detail one click away.')
 } finally {await browser.close()}

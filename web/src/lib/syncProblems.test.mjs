@@ -17,7 +17,7 @@ test('a missing skills folder names the exact folder and the one command that ma
   const problem = explainSyncFailure('cannot read target skills directory: open /home/jnnngs/.config/opencode/skills: no such file or directory', context)
   assert.equal(problem.kind, 'skills-folder')
   assert.deepEqual(problem.commands, ["mkdir -p '/home/jnnngs/.config/opencode/skills'"])
-  assert.equal(problem.local, true)
+  assert.equal(problem.local, false)
   assert.equal(problem.retry, true)
   assert.match(problem.detail, /studio/)
 })

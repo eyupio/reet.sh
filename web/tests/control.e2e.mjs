@@ -8,7 +8,7 @@ const page = await context.newPage()
 const errors=[], writes=[]
 page.on('pageerror',e=>errors.push(e.message))
 const now=Date.now()
-const skill=id=>({id:`demo/toolkit/${id}`,name:id,slug:id,source:'demo/toolkit',sourceType:'github',description:'Example skill for UI verification.',notes:'',installs:0,installsWeek:0,trend:[],liked:false,bookmarked:false,used:true,createdAt:now,updatedAt:now})
+const skill=id=>({id:`demo/toolkit/${id}`,name:id,slug:id,url:`https://www.skills.sh/demo/toolkit/${id}`,source:'demo/toolkit',sourceType:'github',description:'Example skill for UI verification.',notes:'',installs:0,installsWeek:0,trend:[],liked:false,bookmarked:false,used:true,createdAt:now,updatedAt:now})
 const skills=[skill('code-review'),skill('testing'),skill('deployment')]
 const scope=(id,host,agent,items)=>({id,host,agent,name:host,skills:items,skillCount:items.length,complete:true,scannedAt:now,lastSeen:now,os:'linux',arch:'amd64',version:'test'})
 const environments=[scope('laptop-shared','dev-laptop','agents',skills.slice(0,2)),scope('laptop-claude','dev-laptop','claude',skills.slice(0,1)),scope('build-shared','build-server','agents',skills)]
@@ -114,6 +114,7 @@ try {
  writes.length=0
  await noOverflow()
  await page.goto(`${base}/sync`)
+ await page.locator('details.advanced-selection > summary').click()
  // The compare panel opens on the machine's saved set, not a blank form that contradicts it.
  await expect(page.getByText('Editing saved set · revision rev-laptop-shared')).toBeVisible()
  await expect(page.getByText('3 of 3 skills selected')).toBeVisible()
@@ -131,6 +132,7 @@ try {
  expect(writes.some(w=>w.body.action==='approve')).toBe(false)
  failQueue=false
  await page.goto(`${base}/sync?machine=*`)
+ await page.locator('details.advanced-selection > summary').click()
  await expect(page.getByLabel('Destination',{exact:true})).toHaveValue('*')
  // Nothing selected never offers a plain Save: an empty set is only cleared deliberately.
  await expect(page.getByText('0 of 3 skills selected')).toBeVisible()
@@ -155,7 +157,7 @@ try {
  expect(writes.length).toBe(beforeCancel)
  await page.getByLabel('Sync mode',{exact:true}).selectOption('additive')
  await expect(page.getByText('Differences by destination',{exact:true})).toBeVisible()
- const incoming=page.locator('details').filter({has:page.locator('summary').filter({hasText:'Only on selected scopes (2)'})})
+ const incoming=page.locator('#sync-selection details').filter({has:page.locator('summary').filter({hasText:'Only on selected scopes (2)'})})
  await incoming.locator('summary').click()
  for(const checkbox of await incoming.getByRole('checkbox').all())await checkbox.check()
  await incoming.getByRole('button',{name:'Add selected to reet.sh',exact:true}).click()
@@ -173,6 +175,7 @@ try {
  await page.goto(`${base}/terminals`)
  await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
  await page.goto(`${base}/machines?view=compare`)
+ await page.locator('details.advanced-selection > summary').click()
  await expect(page.getByLabel('Destination',{exact:true})).toBeVisible()
  // A scan is not proof of a live terminal connection. The wizard verifies both separately.
  terminalReady=false
@@ -204,6 +207,7 @@ try {
   await page.getByRole('button',{name:'Close settings'}).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.goto(`${base}/sync?machine=*`)
+ await page.locator('details.advanced-selection > summary').click()
   await expect(page.locator('.scope-option')).toHaveCount(3)
   await noOverflow()
  }
@@ -214,15 +218,16 @@ try {
  snapshot={...snapshot,agents:snapshot.agents.map(agent=>({...agent,lastSeen:Date.now()})),jobs:[failedJob('r1','a','laptop-shared'),failedJob('r2','b','build-shared')]}
  await page.setViewportSize({width:390,height:844})
  await page.goto(`${base}/sync`)
+ await page.locator('details.advanced-selection > summary').click()
  const devJob=page.locator('.activity-host').filter({hasText:'dev-laptop'}).locator('.activity-job').filter({hasText:'Apply failed'})
  const devRetry=devJob.getByRole('button',{name:/run it/})
  await devRetry.scrollIntoViewIfNeeded()
  await devRetry.click()
- const devQueued=devJob.getByRole('status').filter({hasText:'Fresh preview queued for dev-laptop'})
+ const devQueued=devJob.getByRole('status').filter({hasText:'Fresh sync queued for dev-laptop'})
  await expect(devQueued).toBeVisible()
  await devQueued.scrollIntoViewIfNeeded()
  await expect(devQueued).toBeInViewport()
- expect(writes.at(-1)).toEqual({path:'/api/v2/sync/jobs',body:{agentId:'a',targetId:'laptop-shared',kind:'preview'}})
+ expect(writes.at(-1)).toEqual({path:'/api/v2/sync/jobs',body:{agentId:'a',targetId:'laptop-shared',kind:'auto'}})
  await expect(devJob.getByRole('button',{name:/run it/})).toHaveCount(0)
  failRetry=true
  const serverJob=page.locator('.activity-host').filter({hasText:'build-server'}).locator('.activity-job').filter({hasText:'Apply failed'})
@@ -241,7 +246,8 @@ try {
  await page.setViewportSize({width:1440,height:900})
  failSource=true
  await page.goto(`${base}/sync?machine=*`)
- await expect(page.getByRole('alert')).toContainText('Source unavailable')
+ await page.locator('details.advanced-selection > summary').click()
+ await expect(page.getByRole('alert').first()).toContainText('Source unavailable')
  await expect(page.getByRole('button',{name:'Save desired set (no files change yet)',exact:true})).toBeDisabled()
  failSource=false
  viewer=true

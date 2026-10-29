@@ -184,6 +184,9 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 			if _, err := tx.Exec(`INSERT OR IGNORE INTO sync_options(target_id,mode,baseline,applied_revision) SELECT ?,mode,baseline,applied_revision FROM sync_options WHERE target_id=?`, id, e.id); err != nil {
 				return err
 			}
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO sync_policies(target_id,follow_source,problem) SELECT ?,follow_source,problem FROM sync_policies WHERE target_id=?`, id, e.id); err != nil {
+				return err
+			}
 			if !exists || e.scanned > scanned {
 				if _, err := tx.Exec(`INSERT INTO scan_errors(env_id,error) SELECT ?,error FROM scan_errors WHERE env_id=? ON CONFLICT(env_id) DO UPDATE SET error=excluded.error`, id, e.id); err != nil {
 					return err

@@ -26,6 +26,7 @@ func (s *server) registerSyncControl(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/sync/agents/update/stage", s.requireWriter(s.reportUpdateStage))
 	mux.HandleFunc("POST /api/v2/sync/agents", s.requireWriter(s.enrollSyncAgent))
 	mux.HandleFunc("PATCH /api/v2/sync/agents", s.requireWriter(s.controlSyncAgent))
+	mux.HandleFunc("POST /api/v2/sync/jobs/stage", s.requireWriter(s.reportSyncStage))
 	mux.HandleFunc("POST /api/v2/sync/jobs", s.requireWriter(s.queueSyncJob))
 	mux.HandleFunc("PATCH /api/v2/sync/jobs", s.requireWriter(s.controlSyncJob))
 	mux.HandleFunc("POST /api/v2/sync/poll", s.requireWriter(s.pollSyncAgent))
@@ -252,6 +253,13 @@ func (s *server) pollSyncAgent(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.importMu.Lock()
+	err := s.st.MaintainSync(s.uid(r), s.role(r), a)
+	s.importMu.Unlock()
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
 	s.maybeAutoUpdateAgent(r, a)
 	job, err := s.st.ClaimSyncJob(s.uid(r), a)
 	if err != nil {
@@ -281,6 +289,22 @@ func (s *server) finishSyncJob(w http.ResponseWriter, r *http.Request) {
 		// A storage or transaction failure may clear up; keep the agent's
 		// durable result for another attempt instead of calling it a refusal.
 		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (s *server) reportSyncStage(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.agentIdentity(w, r)
+	if !ok {
+		return
+	}
+	var in struct{ ID, Stage, Detail string }
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := s.st.SetSyncStage(s.uid(r), a.ID, in.ID, in.Stage, in.Detail); err != nil {
+		writeErr(w, 409, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})

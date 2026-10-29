@@ -47,7 +47,7 @@ const projectScope = /project is not enrolled/i
 const scanBlocked = /scan incomplete|no changes allowed|cannot read target skills directory[\s\S]*permission denied/i
 const stalePlan = /approved plan no longer matches|target identity or revision changed|controller target changed|local skills changed|desired revision changed|preview again/i
 const busy = /another sync may be running|cannot lock target/i
-const sharedSource = /is shared with|source conflict|local-only skill|no supported install source|has no supported install source|duplicate skill names/i
+const sharedSource = /has no linked install source yet|has no linked source|not in the saved sync source|no linked install source|is shared with|source conflict|local-only skill|no supported install source|has no supported install source|duplicate skill names/i
 const paused = /sync is paused/i
 const unconnected = /has no reet agent yet|no machine named|is connected\. refresh machines/i
 const needsReview = /local changes need review|reconcile/i
@@ -79,11 +79,11 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     return {
       kind: 'skills-folder',
       title: 'Skills folder missing',
-      detail: `${host} has no skills folder at ${directory}. Create it there, then retry. A current agent also creates it on its next sync.`,
+      detail: `${host} has no skills folder at ${directory}. Reet can create it on its next sync. Retry to repair it automatically; the command below is a manual alternative.`,
       commands: [`mkdir -p ${shellQuote(directory)}`],
-      hint: 'If this machine uses a custom --config, add it to the command.',
+      hint: 'Older agents may need updating first. Use the manual command if automatic repair fails.',
       retry: true,
-      local: true,
+      local: false,
     }
   }
   if (remoteApply.test(text)) {
@@ -195,7 +195,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     return {
       kind: 'stale-plan',
       title: 'The plan changed before it ran',
-      detail: 'Reet refuses to apply a plan that no longer matches the files or revision it checked. Nothing changed. A fresh preview is safe.',
+      detail: 'The machine or selected skills changed after the preview. Reet needs to check a fresh plan before continuing. Retry to plan and sync the remaining changes.',
       commands: [],
       retry: true,
       local: false,
@@ -219,7 +219,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
       commands: [],
       retry: false,
       local: false,
-      href: '/sync#sync-selection',
+      href: /linked|link.*source|saved sync source/.test(text) ? '/skills' : '/sync#sync-selection',
     }
   }
   return {

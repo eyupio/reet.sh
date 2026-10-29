@@ -38,7 +38,7 @@
   const liveJobs = $derived((sync?.jobs ?? []).filter(job => job.kind !== 'update'))
   const scopedJobs = $derived(liveJobs.filter(job => !host || hostFor(job.agentId).toLowerCase() === host))
   const activeJobs = $derived(scopedJobs.filter(job => ['queued', 'running', 'awaiting-approval'].includes(job.status)).sort((a, b) => b.updatedAt - a.updatedAt))
-  const activeRuns = $derived((sync?.runs ?? []).filter(run => ['running', 'review'].includes(run.status) && (!host || hostFor(run.agentId).toLowerCase() === host)))
+  const activeRuns = $derived((sync?.runs ?? []).filter(run => ['running', 'review'].includes(run.status) && (run.status !== 'review' || activeJobs.some(job => job.agentId === run.agentId && run.targets.includes(job.targetId))) && (!host || hostFor(run.agentId).toLowerCase() === host)))
   const run = $derived(activeRuns[0])
   const ordered = $derived([...scopedJobs].sort((a, b) => b.updatedAt - a.updatedAt))
   const latest = $derived(ordered[0])
@@ -52,7 +52,7 @@
   const progress = $derived(run ? Math.round((run.cursor / Math.max(1, run.targets.length)) * 100) : 0)
   const hostName = $derived(context?.host || hostForRunOrJob() || '')
   const title = $derived.by(() => {
-    if (context?.title) return context.title
+    if (context?.title && live && !activeJobs.some(job => job.status === 'awaiting-approval')) return context.title
     const suffix = hostName ? ` on ${hostName}` : ''
     if (waiting) return `Queued${suffix}`
     if (run) return `${run.status === 'review' ? 'Review needed' : 'Syncing'}${suffix}`
@@ -152,7 +152,7 @@
     try {
       const next = job.kind === 'update'
         ? await updateSyncAgent(job.agentId, job.revision || 'latest')
-        : await queueSyncJob(job.agentId, job.targetId, job.kind === 'scan' ? 'scan' : 'preview')
+        : await queueSyncJob(job.agentId, job.targetId, job.kind === 'scan' ? 'scan' : job.kind === 'apply' || job.kind === 'auto' ? 'auto' : 'preview')
       local = next
       error = ''
       onupdate?.(next)
@@ -229,7 +229,7 @@
       {#if run}
         <div class="run" role="group" aria-label={`Sync run, ${run.cursor} of ${run.targets.length} scopes complete`}>
           <div class="run-meta"><span>{run.status === 'review' ? 'Review needed' : 'Applying changes'}</span><strong>{run.cursor} / {run.targets.length}</strong></div>
-          <div class="track"><span style:width={`${progress}%`}></span></div>
+          <div class="track" role="progressbar" aria-label="Scopes synced" aria-valuemin={0} aria-valuemax={run.targets.length} aria-valuenow={run.cursor}><span style:width={`${progress}%`}></span></div>
           {#if currentTarget}<small>Next: {currentTarget.target.host} · {groupLabel(currentTarget.target)}</small>{/if}
         </div>
       {/if}
@@ -249,6 +249,7 @@
                 <li class={stage.state}><span class="step-dot" aria-hidden="true"></span><span>{stage.label}</span></li>
               {/each}
             </ol>
+            {#if job.status === 'running' && job.stages?.some(stage => stage.status === 'running')}<p class="job-message" role="status">{job.stages.find(stage => stage.status === 'running')?.detail}</p>{/if}
             {#if counts.total}
               <p class="plan-count">{counts.installs} install{counts.installs === 1 ? '' : 's'}{counts.removals ? ` · ${counts.removals} removal${counts.removals === 1 ? '' : 's'}` : ''}</p>
               <ul class="plan-list">

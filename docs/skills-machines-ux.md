@@ -1,3 +1,21 @@
+# Skills and Sync: simplified workflow
+
+The signed-in Sync page now starts with two choices: **all shelf skills or individual skills**, then **one or more machines**. **Sync now** saves the selection and starts the existing agent preview/apply chain. The default preserves other installed skills. Lists, reference machines, exact-set removals and per-scope controls remain under Advanced sync.
+
+Each machine has one **Keep synced** switch. It is stored with its agent enrollment, survives restarts and is evaluated on authenticated agent polls, independently of the browser. A whole-shelf selection follows later shelf additions; an individual selection maintains those selected skills. Paused agents do no work, stale/incomplete inventories block work, pending jobs prevent duplicates, and a failed attempt stops automatic retries until it is deliberately retried or the selection changes. Source-access and validation failures preserve the last good selection and are shown on the machine card.
+
+Live activity appears above setup. Current agents report read, plan, apply and verification stages, including the skill being installed and its position in the plan. Older agents retain status-based indicators. Retrying a failed apply starts a fresh automatic preview/apply chain, never replays the old approved plan. Additions can proceed automatically; removals still need exact-plan approval and machine-side apply still requires local opt-in. Completing a delayed approval now settles its run instead of leaving it permanently in Review needed. Superseded failures move into Earlier activity while preserving their evidence.
+
+**Add now** can supplement a saved list or machine selection using an owned shelf skill, without modifying the shared source list. Adding outside a followed source makes that target an explicit selection so a later source refresh cannot silently undo the addition. Unlinked skills show a source-link action rather than an install button that cannot work.
+
+Collapsed skill cards expose **Copy install** and **Copy prompt**. The Skills page also shows **Skills you create**, including private drafts, editing, public visibility and sharing. Publishing makes share-link and prompt copying available immediately. Large hosted libraries show a few entries first with search and Show all. Publishing and unpublishing remain explicit user actions; visibility changes read the latest content and preserve supporting files.
+
+Verification covers persistent automation, failed-job backoff, already-matching inventories, account isolation, supplemental selections, owned/typed progress and delayed approval settlement. Browser tests cover phone/desktop sync, machine toggles, real stage text, collapsed prompts, hosted sharing and activity recovery. Live installations still require a running controller and a locally opted-in enrolled binary.
+
+---
+
+The following records the earlier implementation and its original limitations; the workflow above supersedes those UX boundaries.
+
 # Skills and machines UX pass
 
 This pass looked at the two surfaces people use together: the Skills shelf (`/skills`) and

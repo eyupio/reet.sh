@@ -9,14 +9,14 @@ const run = name => !only || only === name
 const open = options => openWorkspace(browser, options)
 
 try {
- // Installed nowhere: Copy install leads, the shelf step is secondary, and the prompt waits behind Expand.
+ // Installed nowhere: Copy install leads, the shelf step is secondary, and the prompt is available while collapsed.
  if (run('not-installed')) {
   const {context,page,errors} = await open({width:1440,skills:[skill('code-review')]})
   await page.goto(`${base}/skills`)
   await expect(page.getByRole('button',{name:'Save to test'})).toBeVisible()
   await expect(page.getByRole('button',{name:'Copy install command for code-review'})).toHaveClass(/primary/)
   await expect(page.getByRole('button',{name:'Save to test'})).not.toHaveClass(/move/)
-  await expect(page.getByRole('button',{name:'Copy prompt for code-review'})).toBeHidden()
+  await expect(page.getByRole('button',{name:'Copy prompt for code-review'})).toBeVisible()
   await page.getByRole('button',{name:/^Expand/}).first().click()
   await expect(page.getByRole('button',{name:'Copy prompt for code-review'})).toBeVisible()
   expect(errors).toEqual([])
@@ -33,5 +33,5 @@ try {
   await expect(page.getByRole('button',{name:'Copy install command for code-review'})).not.toHaveClass(/primary/)
   await context.close()
  }
- console.log('Skill card: Copy install leads when installed nowhere, the shelf step leads once installed, the prompt waits behind Expand.')
+ console.log('Skill card: Copy install leads when installed nowhere, the shelf step leads once installed, the prompt is available while collapsed.')
 } finally {await browser.close()}

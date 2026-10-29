@@ -22,6 +22,7 @@
   import MCPConsent from './lib/MCPConsent.svelte'
   import WebMCP from './lib/WebMCP.svelte'
   import Hosting from './lib/Hosting.svelte'
+  import HostedShelf from './lib/HostedShelf.svelte'
   import AccountSignIn from './lib/AccountSignIn.svelte'
   import Admin from './lib/Admin.svelte'
   import BulkBar from './lib/BulkBar.svelte'
@@ -938,8 +939,8 @@
   {:else if isAdmin}
     <Admin onerror={fail} {role} accounts={authMode === 'accounts'} currentEmail={currentUser?.email ?? ''} />
   {:else if isSkills}
-    <PageHeader eyebrow="Ey up. Your skill shelf." title="Skills." lede="Keep the good finds here, then choose which machines receive them. Shelf stages organise your library; Sync controls installation.">
-      {#snippet actions()}{#if loading || counts.all > 0}<a class="btn" href="/sync">Sync skills</a>{/if}{#if canWrite}<a class="btn" href="/hosting">Create a skill</a>{/if}{/snippet}
+    <PageHeader eyebrow="Ey up. Your skill shelf." title="Skills." lede="Find, create and share skills. Sync the ones you want to your machines.">
+      {#snippet actions()}{#if loading || counts.all > 0}<a class="btn" href="/sync">Sync skills</a>{/if}{#if canWrite && authMode !== 'accounts'}<a class="btn" href="/hosting">Create a skill</a>{/if}{/snippet}
     </PageHeader>
     {#if canWrite}
       <form class="add" onsubmit={add} aria-busy={adding}>
@@ -965,6 +966,8 @@
       {/if}
       <p class="notice good" role="status" hidden={!message}>{message}</p>
     </div>
+
+    {#if authMode === 'accounts'}<HostedShelf {canWrite} onchange={() => { void load(); void loadMeta() }} />{/if}
 
     {#if counts.all > 0 || filtering}
       <div class="toolbar" role="group" aria-label="Filter and sort">
@@ -1203,6 +1206,7 @@
 
 {#if selecting && !needsAuth}
   <BulkBar
+    syncHref={`/sync?${selected.map(id => `skill=${encodeURIComponent(id)}`).join('&')}`}
     count={selected.length} {tagOptions} busy={bulkBusy}
     onclear={toggleSelecting} ontag={bulkTag} onstage={bulkStage}
     onlike={() => bulkPatch({ liked: true })} onremove={bulkRemove}

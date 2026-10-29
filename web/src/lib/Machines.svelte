@@ -25,7 +25,7 @@
     finally { busy = false }
   }
 </script>
-{#if !terminals}<PageHeader eyebrow={compare || !focus ? 'Machines' : 'Machine'} title={compare ? "Sync" : focus || "Your machines, connected."} lede={compare ? "Move skills between reet.sh and your machines. Choose a source, select destinations, then review the changes." : focus ? "Inspect this machine's agent scopes, health and saved skill sets, or continue in its terminal." : "Connect a machine, inspect its skills and agents, and open a terminal to put them to work."} />{/if}
+{#if !terminals}<PageHeader eyebrow={compare || !focus ? 'Machines' : 'Machine'} title={compare ? "Sync" : focus || "Your machines, connected."} lede={compare ? "Choose skills and machines, then sync. Turn on Keep synced to let reet maintain them automatically." : focus ? "Inspect this machine's agent scopes, health and saved skill sets, or continue in its terminal." : "Connect a machine, inspect its skills and agents, and open a terminal to put them to work."} />{/if}
 {#if !terminals}<nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare&&!terminals ? 'page' : undefined}>Inventory &amp; connection</a><a class="btn quiet" href="/sync" aria-current={compare ? 'page' : undefined}>Sync</a></nav>{/if}
 {#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView {userId} />{:else}<p role="status">{error||'Loading terminal workspace…'}</p>{/if}{:else}
 <EnvironmentSync {canWrite} {accounts} monitorAccess={monitoring} terminalAccess={accounts&&canWrite} {token} {onsignedout} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>

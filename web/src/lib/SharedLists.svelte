@@ -4,6 +4,7 @@
   import { matchesListScope } from './lists'
   import PageHeader from './PageHeader.svelte'
   import NewList from './NewList.svelte'
+  import { t } from './copy'
   let { userId, canWrite }: { userId: number; canWrite: boolean } = $props()
   let lists = $state<SharedList[]>([]), scope = $state('all'), search = $state(''), loading = $state(true), error = $state(''), creating = $state(false), linkEnabled = $state(false)
   let ownerId = $state(0), layout = $state('rows')
@@ -36,7 +37,7 @@
         <div class="metadata"><span class="badge">{audienceLabel(list.visibility)}</span><span>{list.skillCount} skills</span><span>{list.ownerId === ownerId ? 'Owned by you' : `By ${list.ownerName || 'another member'}`}</span><span>{list.role === 'admin' ? 'Admin access' : list.role === 'editor' ? 'Can edit' : list.ownerId === ownerId ? 'Owner' : 'Can view'}</span><time datetime={new Date(list.updatedAt).toISOString()}>Updated {new Date(list.updatedAt).toLocaleDateString()}</time></div>
       </a>
     {:else}
-      <section class="empty"><h2>{search ? 'Nowt matches just yet.' : scope === 'people' ? 'No lists shared with you yet.' : 'Make room for a good toolkit.'}</h2><p>{search ? 'Try another search or show all accessible lists.' : 'Create a list, explore community, or ask someone to share a collection with you.'}</p>{#if search || scope !== 'all'}<button class="btn quiet" onclick={() => { search = ''; scope = 'all' }}>Clear filters</button>{/if}{#if scope === 'team'}<a class="btn quiet" href="/spaces">Manage teams</a>{/if}</section>
+      <section class="empty"><h2>{search ? t('empty.search.title') : scope === 'people' ? 'No lists shared with you yet.' : 'Make room for a good toolkit.'}</h2><p>{search ? 'Try another search or show all accessible lists.' : 'Create a list, explore community, or ask someone to share a collection with you.'}</p>{#if search || scope !== 'all'}<button class="btn quiet" onclick={() => { search = ''; scope = 'all' }}>Clear filters</button>{/if}{#if scope === 'team'}<a class="btn quiet" href="/spaces">Manage teams</a>{/if}</section>
     {/each}
   </div>
 {/if}

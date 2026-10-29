@@ -1,3 +1,5 @@
+import type { ModelFavourite } from './models'
+
 export type Skill = {
   id: string
   source: string
@@ -874,7 +876,9 @@ export function backupDownloadUrl(admin: boolean, id: string): string {
 
 export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; terminalRemoveOnClose?: boolean; hostedPrefix: string; updatedAt: number
   /** Launch defaults: the base branch for fresh worktrees ('' for none) and whether sessions get a worktree by default. */
-  defaultBaseBranch?: string; worktreesByDefault?: boolean }
+  defaultBaseBranch?: string; worktreesByDefault?: boolean
+  /** New sessions without a project: the agent, its model and its thinking level; '' is the agent's own default. */
+  defaultTool?: string; defaultModel?: string; defaultEffort?: string }
 export type ProfileInfo = { user: User; profile: Profile; sessionCount: number; accounts: boolean }
 export type ProfileSession = { id: string; device: string; createdAt: number; lastSeen: number; expiresAt: number; current: boolean }
 
@@ -898,8 +902,26 @@ export function applyTheme(theme: string) {
 export async function getProfile(): Promise<ProfileInfo> {
   return (await req('/api/v2/profile')).json()
 }
-export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; hostedPrefix?: string }): Promise<ProfileInfo> {
+export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string }): Promise<ProfileInfo> {
   return (await req('/api/v2/profile', { method: 'PATCH', body: json(input) })).json()
+}
+
+export type ModelFavourites = { version: number; favourites: ModelFavourite[] }
+const modelFavouritesPath = '/api/v2/profile/model-favourites'
+export async function listModelFavourites(signal?: AbortSignal): Promise<ModelFavourites> {
+  return (await req(modelFavouritesPath, { signal })).json()
+}
+export async function addModelFavourite(tool: string, model: string): Promise<ModelFavourites> {
+  return (await req(modelFavouritesPath, { method: 'POST', body: json({ tool, model }) })).json()
+}
+export async function removeModelFavourite(tool: string, model: string): Promise<void> {
+  await req(`${modelFavouritesPath}?${new URLSearchParams({ tool, model })}`, { method: 'DELETE' })
+}
+export async function reorderModelFavourites(version: number, items: { tool: string; model: string }[]): Promise<ModelFavourites> {
+  return (await req(`${modelFavouritesPath}/order`, { method: 'PUT', body: json({ version, items }) })).json()
+}
+export async function setModelFavouriteDefault(tool: string, model: string): Promise<ModelFavourites> {
+  return (await req(`${modelFavouritesPath}/default`, { method: 'PUT', body: json({ tool, model }) })).json()
 }
 export async function changePassword(current: string, password: string): Promise<void> {
   await req('/api/v2/profile/password', { method: 'POST', body: json({ current, password }) })

@@ -1,8 +1,9 @@
 import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../projects'
+import type { MachineModels } from '../models'
 
 export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 'exited' | 'lost'
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string }
-export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -73,6 +74,17 @@ export async function terminalUpload(session: string, image: Blob, signal?: Abor
   return { path, reference }
 }
 export async function terminalMachines(signal?: AbortSignal): Promise<TerminalMachine[]> { return (await (await terminalRequest('/api/v2/terminal/machines', { signal })).json()).machines }
+const modelsQuery = (tool: string): string => new URLSearchParams({ tool }).toString()
+export async function machineModels(agentId: string, tool: string, signal?: AbortSignal): Promise<MachineModels> {
+  return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/models?${modelsQuery(tool)}`, { signal })).json()
+}
+export async function refreshMachineModels(agentId: string, tool: string, signal?: AbortSignal): Promise<MachineModels> {
+  return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/models/refresh`, { method: 'POST', signal, body: JSON.stringify({ tool }) })).json()
+}
+export type AllModels = { machines: (MachineModels & { agentId: string; host: string })[] }
+export async function allModels(tool: string, signal?: AbortSignal): Promise<AllModels> {
+  return (await terminalRequest(`/api/v2/models?${modelsQuery(tool)}`, { signal })).json()
+}
 export type TerminalControllerStatus={configured:boolean;available:boolean;reason:string}
 export async function terminalControllerStatus(signal?:AbortSignal):Promise<TerminalControllerStatus>{return (await terminalRequest('/api/v2/terminal/status',{signal})).json()}
 export async function terminalSessions(signal?: AbortSignal): Promise<TerminalSession[]> { return (await (await terminalRequest('/api/v2/terminal/sessions', { signal })).json()).sessions }
@@ -170,7 +182,7 @@ export type FolderProject = {
   dir: string; name: string; isRepo: boolean; baseBranch: string; worktreeDefault: WorktreeDefault
   /** The rail colour's id from projectColour.ts, "" when none. */
   colour: string
-  defaultTool: string; defaultModel: string; hasStarterPrompt: boolean
+  defaultTool: string; defaultModel: string; defaultEffort: string; hasStarterPrompt: boolean
   /** Only in the single read (`getFolderProject`), for the edit form. */
   starterPrompt?: string
   /** The one-time notice from moving saved Projects here: the names of the other Projects with this folder whose shared
@@ -180,7 +192,7 @@ export type FolderProject = {
 }
 /** A create sends host (the machine's enrollment id) and dir at least; an update sends only what changed (absent keeps, "" clears a text field).
  * `note` can only be cleared (anything else is 422 `invalid_note`). */
-export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'colour' | 'defaultTool' | 'defaultModel' | 'starterPrompt'>> & { note?: '' }
+export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'colour' | 'defaultTool' | 'defaultModel' | 'defaultEffort' | 'starterPrompt'>> & { note?: '' }
 export type RemovedFolderProject = { ok: boolean; message: string }
 /** The rail's list; `savedWaiting` counts saved Project repositories still waiting for room (offer `importSavedProjects`). */
 export type FolderProjectList = { projects: FolderProject[]; savedWaiting: number }

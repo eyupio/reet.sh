@@ -40,8 +40,9 @@ export async function installSkillOnMachine(skill: Pick<Skill, 'id' | 'slug' | '
   let next = state
   const targetIds: string[] = []
   for (const destination of savedInstallTargets(machine, state)) {
-    const candidate = pickSyncCandidate(await candidatesFor(destination.candidateKey, state, cache), skill)
-    if (!candidate) continue
+    const sourceCandidate = pickSyncCandidate(await candidatesFor(destination.candidateKey, state, cache), skill)
+    const candidate = sourceCandidate ?? pickSyncCandidate(shelf, skill)!
+
     if (!destination.skillIds.includes(candidate.id)) {
       next = await saveDesired({
         targetId: destination.targetId,
@@ -50,6 +51,7 @@ export async function installSkillOnMachine(skill: Pick<Skill, 'id' | 'slug' | '
         skillIds: [...destination.skillIds, candidate.id],
         mode: destination.mode,
         revision: destination.revision,
+        followSource: !!sourceCandidate && destination.followSource,
       })
     }
     targetIds.push(destination.targetId)

@@ -45,6 +45,8 @@ type SyncSkill struct {
 }
 
 type SyncTarget struct {
+	Problem         string      `json:"problem,omitempty"`
+	FollowSource    bool        `json:"followSource"`
 	Mode            string      `json:"mode"`
 	Baseline        []SyncSkill `json:"baseline"`
 	AppliedRevision string      `json:"appliedRevision"`
@@ -243,9 +245,13 @@ func (s *Store) SyncTargetsFor(userID int64) ([]SyncTarget, error) {
 		return nil, err
 	}
 	for i := range out {
+		err := s.db.QueryRow(`SELECT follow_source,problem FROM sync_policies WHERE target_id=?`, out[i].Target.ID).Scan(&out[i].FollowSource, &out[i].Problem)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
 		out[i].Mode = "mirror"
 		var baseline string
-		err := s.db.QueryRow(`SELECT mode,baseline,applied_revision FROM sync_options WHERE target_id=?`, out[i].Target.ID).Scan(&out[i].Mode, &baseline, &out[i].AppliedRevision)
+		err = s.db.QueryRow(`SELECT mode,baseline,applied_revision FROM sync_options WHERE target_id=?`, out[i].Target.ID).Scan(&out[i].Mode, &baseline, &out[i].AppliedRevision)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}

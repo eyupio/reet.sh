@@ -108,3 +108,11 @@ test('disconnected machines wait without claiming to install or being ready to s
     assert.match(overview.detail, /Reconnect laptop/)
   }
 })
+
+test('a legacy review run with no pending plan does not keep a synced machine busy forever', () => {
+  const overview = machineSyncOverview(machine([group('a')]), state({
+    runs: [{ id: 'old', agentId: 'agent-1', targets: ['a'], cursor: 1, status: 'review' }],
+    targets: [target('a')], environments: [group('a')], jobs: [],
+  }), now)
+  assert.equal(overview.tone, 'synced')
+})

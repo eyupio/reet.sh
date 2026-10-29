@@ -60,7 +60,7 @@
           {retrying ? 'Trying…' : fix.local ? 'I’ve run it — try again' : 'Fix and try again'}
         </button>
       {/if}
-      {#if fix.href}<a class="btn" href={fix.href}>{fix.href.startsWith('/machines') ? 'Open Machines' : 'Open Sync'}</a>{/if}
+      {#if fix.href}<a class="btn" href={fix.href}>{fix.href.startsWith('/machines') ? 'Open Machines' : fix.href.startsWith('/skills') ? 'Link skill source' : 'Review sync selection'}</a>{/if}
     </div>
   {/if}
 </section>

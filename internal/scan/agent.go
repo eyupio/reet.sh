@@ -550,7 +550,11 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 			}
 			if operationErr == nil {
 				args := []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--target", j.TargetID, "--config", config}
-				opts := syncOptions{cwd: dir, verifyEnrollment: true, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }}
+				opts := syncOptions{cwd: dir, verifyEnrollment: true, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }, onProgress: func(stage, detail string) {
+					reportCtx, reportCancel := context.WithTimeout(ctx, 5*time.Second)
+					defer reportCancel()
+					_ = agentRequestContext(reportCtx, c, "/api/v2/sync/jobs/stage", map[string]string{"id": j.ID, "stage": stage, "detail": detail}, nil, version)
+				}}
 				if j.Kind == "apply" {
 					args = append(args, "--apply")
 					opts.approvedHash = j.Hash

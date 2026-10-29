@@ -323,7 +323,7 @@ try {
   const notes = r.getByRole('button',{name:'Notes, desk, machine offline',exact:true})
   await expect(notes.locator('.icon.folder')).toHaveCount(1)
   await expect(notes.locator('.branch')).toHaveCount(0)
-  await expect(r.getByText('Folders are browsed live on the machine',{exact:true})).toBeVisible()
+  await expect(r.getByText('Folders are browsed live on the machine',{exact:true})).toHaveCount(0)
   expect(Math.round(await r.evaluate(el => el.getBoundingClientRect().width))).toBe(301)
   // Choosing a card puts it in the launch sentence (and marks it); Start then starts in that folder on its machine, tied to the project.
   await notes.click()

@@ -314,10 +314,6 @@
         {/each}
       </ul>
     {/if}
-    {#if variant !== 'sessions'}<p class="foot">
-      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="12" rx="2" /><path d="M8 21h8M12 17v4" /></svg>
-      Folders are browsed live on the machine
-    </p>{/if}
   </div>
   <div class="strip">
     <button type="button" class="add-icon" aria-label="Add a project" disabled={busy} aria-busy={busy} onclick={(e) => onadd(e.currentTarget)}>
@@ -427,8 +423,6 @@
   .ghost:hover:not(:disabled) { border-color: var(--muted); }
   .ghost:disabled { opacity: 0.5; cursor: default; }
   .none { margin: 0; color: var(--muted); font-size: 13px; }
-  .foot { margin: auto 0 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px dashed var(--line-mid); border-radius: 11px; color: var(--muted); font-size: 13px; }
-  .foot svg { width: 16px; height: 16px; flex: none; }
   .strip { display: none; }
   /* Select: the cards are checkboxes, with a tick box where the menu button was. */
   .head-more { display: grid; place-items: center; width: 30px; height: 30px; margin-right: 8px; padding: 0; border: 1px solid var(--line-mid); border-radius: 8px; background: transparent; color: var(--ink-soft); cursor: pointer; }
@@ -489,7 +483,6 @@
     .rail { border-right: 0; }
     .full { position: static; max-height: none; min-height: 0; overflow: visible; padding: 0; }
     h2 { font: 600 21px/1.3 var(--serif); letter-spacing: 0; text-transform: none; color: var(--ink); }
-    .foot { margin: 0; }
     /* The phone Sessions screen draws the heading as "Projects · N" over the cards, with a 44 px Add a project. */
     .rail.sessions h2 { font: 600 11px/1.3 var(--sans); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
     .rail.sessions .add { height: 44px; padding: 0 14px; border-color: var(--line-strong); border-radius: 10px; font-size: 15px; }

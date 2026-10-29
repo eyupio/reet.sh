@@ -2,6 +2,7 @@
   import NavigationMenu from './NavigationMenu.svelte'
   import { onMount } from 'svelte'
   import ActivitySection from './ActivitySection.svelte'
+  import AgentsSettings from './AgentsSettings.svelte'
   import Backups from './Backups.svelte'
   import CopyButton from './CopyButton.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -19,7 +20,7 @@
     user, onsignout, onerror, onuserchange, writer,
   }: { user: User; onsignout: () => void; onerror?: (e: unknown) => void; onuserchange?: (u: User) => void; writer?: boolean } = $props()
 
-  type Section = 'machines' | 'sync' | 'profile' | 'security' | 'sso' | 'sessions' | 'tokens' | 'mcp' | 'backups' | 'activity'
+  type Section = 'machines' | 'sync' | 'profile' | 'agents' | 'security' | 'sso' | 'sessions' | 'tokens' | 'mcp' | 'backups' | 'activity'
   // svelte-ignore state_referenced_locally
   let who = $state<User>(user)
   let sso = $state<SsoIdentity | null>(null)
@@ -27,6 +28,7 @@
   const canWrite = $derived(who.role !== 'viewer')
   const sections: { key: Section; label: string }[] = $derived([
     { key: 'profile', label: 'Profile' },
+    { key: 'agents', label: 'Agents' },
     { key: 'security', label: 'Password' },
     ...(sso?.enabled ? [{ key: 'sso' as const, label: 'Single sign-on' }] : []),
     { key: 'sessions', label: 'Sessions' },
@@ -62,7 +64,7 @@
     const fromPath = location.pathname === '/activity' ? 'activity' : location.pathname.split('/')[2] || ''
     const h = location.hash.slice(1) || fromPath || 'profile'
     if (h === 'connect-machine') return 'machines'
-    return ['profile', 'security', 'sso', 'sessions', 'machines', 'sync', 'tokens', 'mcp', 'backups', 'activity'].includes(h) ? h as Section : 'profile'
+    return ['profile', 'agents', 'security', 'sso', 'sessions', 'machines', 'sync', 'tokens', 'mcp', 'backups', 'activity'].includes(h) ? h as Section : 'profile'
   }
 
   onMount(() => {
@@ -362,6 +364,8 @@
         </div>
       </form>
     </section>
+  {:else if section === 'agents'}
+    <AgentsSettings {canWrite} onerror={onerror} />
   {:else if section === 'security'}
     <section class="block" aria-labelledby="password-title">
       <h2 id="password-title">Password</h2>

@@ -42,7 +42,7 @@
   let feedback = $state(''), terminalBackground=$state('#101820'),terminalForeground=$state('#dce5ef')
   let pendingPaste = $state<{text:string;generation:number;execute?:boolean}|null>(null), generation=0, alive=true
   let fileInput=$state<HTMLInputElement>(), uploads=$state<{id:number;name:string;size:number;controller:AbortController}[]>([])
-  let draggingFiles=$state(false), staleUploads=$state<string[]|null>(null), uploadSeq=0
+  let draggingFiles=$state(false), staleUploads=$state<string[]|null>(null), staleReason=$state<'connection'|'scrollback'>('connection'), uploadSeq=0
   let historyOpen=$state(false),appearanceOpen=$state(false),commandsOpen=$state(false),palette=$state('system'),cursor=$state<CursorShape>('bar')
   let scrollbackOpen=$state(false)
   let selectOpen=$state(false), selectModel=$state('')
@@ -177,7 +177,10 @@
       if(uploadInsertionAllowed(started,generation,live,alive)&&!scrollbackOpen){
         terminal?.paste(joinReferences(references))
         messages.push(references.length===1?'Uploaded and inserted the path.':`Uploaded ${references.length} images and inserted their paths.`)
-      } else staleUploads=references
+      } else {
+        staleUploads=references
+        staleReason=scrollbackOpen?'scrollback':'connection'
+      }
     }
     if(failed.length){
       const first=failed.find(item=>item.message)?.message
@@ -438,7 +441,7 @@
   {#if landscape}<div class="tool-rows">{@render toolbar()}{@render keys()}</div>{:else}{@render toolbar()}{/if}
   {#if searching}<form class="tools" onsubmit={e=>{e.preventDefault();find()}}><label>Find in terminal <input bind:this={searchInput} bind:value={query} maxlength="200" autocomplete="off" spellcheck="false" oninput={e=>{query=e.currentTarget.value;find()}} /></label><button>Next match</button><button type="button" onclick={()=>find(false)}>Previous match</button><button type="button" onclick={()=>{searching=false;search?.clearDecorations();terminal?.focus()}}>Close search</button><span role="status">{found?'':'No matches'}</span></form>{/if}
   {#if feedback}<p class="connection-message" role="status">{feedback}</p>{/if}
-  {#if staleUploads}<div class="agent-copy" role="status"><span>Uploaded, but the connection changed; nothing was inserted. Paste the path: <code>{staleUploads.join(' ')}</code></span><button type="button" onclick={()=>void copyStaleUpload()}>Copy path</button><button type="button" onclick={()=>staleUploads=null}>Dismiss</button></div>{/if}
+  {#if staleUploads}<div class="agent-copy" role="status"><span>{staleReason==='scrollback'?'Uploaded. Return to live output before inserting. Paste the path:':'Uploaded, but the connection changed; nothing was inserted. Paste the path:'} <code>{staleUploads.join(' ')}</code></span><button type="button" onclick={()=>void copyStaleUpload()}>Copy path</button><button type="button" onclick={()=>staleUploads=null}>Dismiss</button></div>{/if}
   {#if pendingCopy}<div class="agent-copy" role="status"><span>The agent copied {formatCopySize(pendingCopy.bytes)}.</span><button type="button" onclick={()=>void copyPending()}>Copy it</button><button type="button" onclick={()=>pendingCopy=null}>Dismiss</button></div>{/if}
   <input class="upload-input" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple tabindex="-1" aria-hidden="true" onchange={pickedImages} />
   <div class="screen-frame" bind:this={screenFrame} role="group" aria-label="Terminal screen drop area" ondragenter={dragFiles} ondragover={dragFiles} ondragleave={leaveFiles} ondrop={dropFiles}><div class="screen" class:reading={scrollbackOpen} inert={scrollbackOpen} bind:this={element} role="region" aria-label="Remote terminal screen" oncontextmenu={openContext}></div>{#if scrollbackOpen}<OutputScrollback session={session.id} onclose={()=>void closeScrollback()}/>{/if}{#if draggingFiles}<div class="drop-overlay" aria-hidden="true">Drop an image to upload.</div>{/if}{#if uploads.length}<div class="upload-chips">{#each uploads as chip (chip.id)}<UploadChip name={chip.name} size={chip.size} oncancel={()=>cancelUpload(chip.id)}/>{/each}</div>{/if}</div>

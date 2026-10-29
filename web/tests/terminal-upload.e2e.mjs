@@ -207,6 +207,24 @@ const wireText = inputs => inputs.join('').replace(/\x1b\[200~/g, '').replace(/\
 }
 
 {
+  // Opening Earlier output while the upload is in flight keeps the path out of
+  // the live shell and names the real reason, rather than blaming the connection.
+  const { context, page, errors, inputs, received, release } = await open({ hold: true })
+  await pickFiles(page, { name: 'scroll.png', mimeType: 'image/png', buffer: png })
+  await expect.poll(() => received.length).toBe(1)
+  await page.getByRole('button', { name: 'Earlier output', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Earlier terminal output' })).toBeVisible()
+  release()
+  await expect(page.getByText(/Uploaded\. Return to live output before inserting\. Paste the path:/)).toBeVisible()
+  expect(inputs.join('')).toBe('')
+  await page.getByRole('button', { name: 'Back to live ↓', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Copy path', exact: true })).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+  console.log('Scrollback mid-upload: nothing was inserted and the path was offered for copying.')
+}
+
+{
   // Uploads off: the control says so and an image drop sends nothing.
   const { context, page, errors, inputs, received } = await open({ uploadsOff: true })
   const attach = page.getByRole('button', { name: 'Attach image', exact: true })

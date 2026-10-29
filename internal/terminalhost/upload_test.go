@@ -560,6 +560,62 @@ func TestManagerEndAndLostRemoveSessionUploads(t *testing.T) {
 	})
 }
 
+func TestExitedSessionUploadsAreRemoved(t *testing.T) {
+	m, id, root := uploadTestManager(t, terminalproto.Exited)
+	dir := filepath.Join(root, id)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "img-"+strings.Repeat("a", 32)+".png"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	registry := hostRegistry{
+		Version:      1,
+		EnrollmentID: testEnrollment,
+		Sessions: map[string]ManagedSession{
+			id: {ID: id, Title: "Uploads", State: terminalproto.Exited, CreatedAt: 1, UpdatedAt: 1, CreateRequestID: testRequestID(1)},
+		},
+		Operations: map[string]operationReceipt{},
+	}
+	m.cleanupClosedSessions(&registry)
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("uploads survived Exited cleanup: %v", err)
+	}
+}
+
+func TestRunningManagerSweepsOldUploads(t *testing.T) {
+	m, opts := managerFixture(t)
+	s := createManaged(t, m, 1)
+	path := writeUpload(t, m, s.ID, uploadPNG(), "image/png")
+	past := time.Now().Add(-25 * time.Hour)
+	if err := os.Chtimes(path, past, past); err != nil {
+		t.Fatal(err)
+	}
+	previous := uploadSweepInterval
+	uploadSweepInterval = 25 * time.Millisecond
+	t.Cleanup(func() { uploadSweepInterval = previous })
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- m.Run(ctx) }()
+	deadline := time.Now().Add(6 * time.Second)
+	for {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("old upload survived the running sweep")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not stop")
+	}
+	_ = opts
+}
+
 func TestNewManagerIgnoresUnsweepableUploadRoot(t *testing.T) {
 	m, opts := managerFixture(t)
 	_ = m

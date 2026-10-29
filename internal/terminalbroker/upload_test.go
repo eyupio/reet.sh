@@ -243,6 +243,29 @@ func TestUploadSendsOneExactRequestAndBoundedFrames(t *testing.T) {
 	}
 }
 
+func TestUploadCallErrorMapsLostReplyToTimeout(t *testing.T) {
+	for name, err := range map[string]error{
+		"lost reply": errReplyLost{},
+		"deadline":   context.DeadlineExceeded,
+		"cancelled":  context.Canceled,
+		"offline":    ErrOffline,
+		"other":      errors.New("other"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := uploadCallError(err)
+			want := ErrUploadTimeout
+			if name == "offline" {
+				want = ErrOffline
+			} else if name == "other" {
+				want = ErrUploadFailed
+			}
+			if !errors.Is(got, want) {
+				t.Fatalf("got %v, want %v", got, want)
+			}
+		})
+	}
+}
+
 func TestUploadMapsResultCodes(t *testing.T) {
 	for name, tc := range map[string]struct {
 		result terminalproto.UploadResult

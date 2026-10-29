@@ -455,7 +455,9 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 
 // dialUploadStream is the production reverse-stream dialer; tests replace it
 // to check the operation and lifecycle without a live controller.
-var dialUploadStream = stream
+var dialUploadStream = func(ctx context.Context, client *http.Client, headers http.Header, msg terminalproto.Message, token, operation string) (uploadConn, error) {
+	return stream(ctx, client, headers, msg, token, operation)
+}
 
 // maxUploadsInFlight is the most image transfers one connection serves at
 // once. A further request is refused before any stream opens.

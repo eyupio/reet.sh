@@ -185,6 +185,12 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Tool != "" && !terminalproto.SupportsLaunch(headers.Get(terminalproto.FeatureHeader)) {
 				return respond(terminalhost.ErrLaunchUnavailable)
 			}
+			// A resume is accepted only on a generation that negotiated
+			// resume-v1; an older controller never sends it.
+			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Resume && !terminalproto.SupportsResume(headers.Get(terminalproto.FeatureHeader)) {
+				reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
+				return send(callCtx, reply)
+			}
 			// Likewise a worktree is made only on a generation that negotiated
 			// worktree-v1; without it the agent is never started in the folder.
 			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Worktree != "" && !terminalproto.SupportsWorktree(headers.Get(terminalproto.FeatureHeader)) {

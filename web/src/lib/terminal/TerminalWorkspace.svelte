@@ -12,7 +12,7 @@
   import TerminalPane from './TerminalPane.svelte'
   import SessionScreen from '../sessions/SessionScreen.svelte'
   import SessionTabs from '../sessions/SessionTabs.svelte'
-  import { closeTab, openTab } from '../sessions'
+  import { canContinue, closeTab, continueLaunch, openTab } from '../sessions'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import HealthHistory from './HealthHistory.svelte'
   import { renameTerminal, endTerminal, archiveTerminal, terminalClosed } from './api'
@@ -260,6 +260,22 @@
   }
   // A started agent lands exactly as a new shell does: it joins the list and the workspace switches to it.
   function agentStarted(item:TerminalSession){inventoryVersion++;if(!terminalClosed(item.state))sessions=[item,...sessions.filter(other=>other.id!==item.id)];showCreate=false;chooseSession(item);void refresh()}
+  // Continue a closed session as a new terminal in the same folder, asking the agent to resume its last conversation there.
+  async function continueSession(target=session){
+    if(!target||actionBusy)return
+    const launch=continueLaunch(target,projects??[])
+    if(!launch)return
+    actionBusy=true;error=''
+    try{
+      const created=await createTerminal(target.agentId,crypto.randomUUID(),target.title,100,30,AbortSignal.timeout(15000),launch)
+      if(disposed)return
+      inventoryVersion++
+      if(!terminalClosed(created.state))sessions=[created,...sessions.filter(item=>item.id!==created.id)]
+      chooseSession(created)
+      await refresh()
+    }catch(e){if(!disposed)error=e instanceof Error?e.message:'The session could not be continued.'}
+    finally{actionBusy=false}
+  }
   function openAction(kind:'rename'|'end'|'archive',target=session) { if(!target)return;actionSession=target.id;actionTitle=target.title;rename=target.title;removeOnClose=endKeys.get(target.id)?.remove??(target.state==='end_requested'?(target.removeHistory??false):removeDefault);saveRemoveDefault=false;preferenceError='';action=kind }
   async function performAction() {
     const kind=action,id=actionSession;action=null;if(!kind||actionBusy)return
@@ -361,7 +377,8 @@
       {:else if session}
         <!-- The session screen hosts the live terminal pane, unchanged: tabs and header above it, the context panel beside it. -->
         <SessionScreen {session} {sessions} {machines} health={health.machines} {projects} now={serverNow} {theatre} {keyboard} busy={actionBusy}
-          onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}>
+          onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}
+          oncontinue={canContinue(session, machines.find(item => item.agentId === session.agentId), projects ?? []) ? () => void continueSession(session) : undefined}>
           {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
           {#key session.id}<TerminalPane {keyboard} footnote={phone ? '' : `Approvals: ${session.yolo ? 'YOLO' : 'Ask me'}`} holdSize={resizing} sessionsVisible={shown!=='closed'} onsessions={paneSessions} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />{/key}
         </SessionScreen>

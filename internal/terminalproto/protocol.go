@@ -124,6 +124,9 @@ const (
 // Uploads and UploadsOff follow the same rule for upload-v1.
 type Capabilities struct {
 	Launch bool `json:"launch,omitempty"`
+	// Resume is sent only on a connection that negotiated resume-v1: an older
+	// controller's strict decoder would refuse the field.
+	Resume bool `json:"resume,omitempty"`
 	// Yolo is reserved: no connector may advertise it until YOLO launches exist,
 	// so ValidateFor rejects it.
 	Yolo            bool      `json:"yolo,omitempty"`
@@ -162,6 +165,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.Launch && !c.TerminalControl || len(c.Tools) > 0 && !c.Launch || !validTools(c.Tools, SupportsAgents(features)) || c.Yolo {
+		return ErrInvalid
+	}
+	if c.Resume && !c.Launch {
 		return ErrInvalid
 	}
 	if c.CommandHistory && !c.TerminalControl || c.Worktree && !c.Launch {
@@ -284,6 +290,10 @@ type Create struct {
 	Base      string `json:"base,omitempty"`
 	Effort    string `json:"effort,omitempty"`
 	Yolo      bool   `json:"yolo,omitempty"`
+	// Resume continues the agent's last conversation in Dir. It is offered
+	// only for a closed session, and only on a machine that negotiated
+	// resume-v1 and whose preset has a reviewed resume command.
+	Resume bool `json:"resume,omitempty"`
 }
 
 func (Create) kind() string  { return "create" }

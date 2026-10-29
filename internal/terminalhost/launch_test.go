@@ -78,6 +78,30 @@ func TestLaunchArgvPresets(t *testing.T) {
 	}
 }
 
+func TestLaunchArgvResumeOnlyForAReviewedPreset(t *testing.T) {
+	look := fakeLookPath("claude", "codex", "opencode", "gemini", "cline")
+	for _, tc := range []struct {
+		in   terminalproto.Create
+		want []string
+	}{
+		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "opencode", Resume: true}, []string{"/opt/fake/bin/opencode", "--continue"}},
+		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "opencode", Model: "m", Resume: true}, []string{"/opt/fake/bin/opencode", "--continue", "--model", "m"}},
+	} {
+		got, err := LaunchArgv(tc.in, look)
+		if err != nil || !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("resume %q: got %q, %v; want %q", tc.in.Model, got, err, tc.want)
+		}
+	}
+	for _, tool := range []string{"claude", "codex", "gemini", "cline"} {
+		if _, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: tool, Resume: true}, look); !errors.Is(err, ErrLaunchOptionUnsupported) {
+			t.Fatal(tool, "resume without a reviewed command", err)
+		}
+	}
+	if SupportsResume("claude") || !SupportsResume("opencode") {
+		t.Fatal("resume advertised for the wrong presets")
+	}
+}
+
 func TestLaunchArgvNeverUsesBypassOrPrintFlags(t *testing.T) {
 	// The only flags a preset may emit. Anything else (approval bypass, print or
 	// one-shot modes such as claude -p or gemini -p) needs a reviewed change here.

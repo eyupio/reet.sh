@@ -11,8 +11,9 @@ const catalogue = asURL(compile('./catalogue.ts'))
 const agentLaunch = asURL(compile('./agentLaunch.ts').replace("from './catalogue'", `from '${catalogue}'`))
 const home = asURL(compile('./home.ts'))
 const colour = asURL(compile('./projectColour.ts'))
-const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './projectColour'", `from '${colour}'`)
-const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList } = await import(asURL(source))
+const api = asURL(compile('./terminal/api.ts'))
+const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './catalogue'", `from '${catalogue}'`).replace("from './projectColour'", `from '${colour}'`).replace("from './terminal/api'", `from '${api}'`)
+const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList } = await import(asURL(source))
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000
@@ -65,6 +66,22 @@ test('filters combine', () => {
 
 test('agent choices name each agent once, shells last', () => {
   assert.deepEqual(agentChoicesOf(sessions), [{ value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex' }, { value: 'shell', label: 'Shell' }])
+})
+
+test('a closed session continues in its folder', () => {
+  const exited = session('s6', 'm-studio', 'Continue me', { tool: 'opencode', projectId: 'p-reet', state: 'exited', exitCode: 0 })
+  const resumeMachine = { capabilities: { resume: true } }
+  assert.deepEqual(continueLaunch(exited, projects), { tool: 'opencode', dir: '/home/u/reet', resume: true, projectId: 'p-reet' })
+  assert.equal(canContinue(exited, resumeMachine, projects), true)
+  assert.deepEqual(continueLaunch({ ...exited, model: 'sonnet', effort: 'high' }, projects),
+    { tool: 'opencode', dir: '/home/u/reet', resume: true, projectId: 'p-reet', model: 'sonnet', effort: 'high' })
+  // A worktree session continues in its worktree, without claiming the project's folder.
+  const worktree = session('s7', 'm-studio', 'Worktree', { tool: 'opencode', projectId: 'p-reet', worktreePath: '/home/u/.reet/worktrees/reet/reet/abc', state: 'exited' })
+  assert.deepEqual(continueLaunch(worktree, projects), { tool: 'opencode', dir: '/home/u/.reet/worktrees/reet/reet/abc', resume: true })
+  // A live session is not continued; the agent and the machine must both offer it.
+  assert.equal(continueLaunch(sessions[0], projects), null)
+  assert.equal(canContinue({ ...exited, tool: 'claude' }, resumeMachine, projects), false)
+  assert.equal(canContinue(exited, { capabilities: {} }, projects), false)
 })
 
 test('groups by project put the rest under Other on their machine, with the project machine', () => {

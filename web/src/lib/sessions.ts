@@ -1,6 +1,7 @@
-import type { FolderProject, TerminalSession } from './terminal/api'
+import { terminalClosed, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
 import { groupSessions, sessionOwners, type Group, type GroupBy } from './home'
 import { toolName } from './agentLaunch'
+import { CATALOGUE } from './catalogue'
 import { projectColour, type ProjectColour } from './projectColour'
 
 // Pure logic for the Sessions page (/sessions): search, filters, groups and the worktree a session's menu can check and
@@ -121,6 +122,26 @@ export function worktreeTargetOf(s: Pick<TerminalSession, 'agentId' | 'worktreeP
   if (folder !== 'worktrees' || dot !== '.reet' || repo !== s.worktreeRepo || !run || !project) return null
   if (s.worktreeBranch && s.worktreeBranch !== `reet/${project}-${run}`) return null
   return { agentId: s.agentId, project, repo, run }
+}
+
+/** The launch that continues a closed session in the same folder, with the same agent and model. A worktree session
+ *  continues in its worktree and is not tied to the project again (the project's folder is elsewhere). */
+export function continueLaunch(s: Pick<TerminalSession, 'state' | 'tool' | 'model' | 'effort' | 'worktreePath' | 'projectId'>, projects: Pick<FolderProject, 'id' | 'dir'>[]): LaunchRequest | null {
+  if (!s.tool || !terminalClosed(s.state)) return null
+  const project = s.projectId ? projects.find(p => p.id === s.projectId) : undefined
+  const dir = s.worktreePath || project?.dir || ''
+  if (!dir) return null
+  const launch: LaunchRequest = { tool: s.tool, dir, resume: true }
+  if (s.model) launch.model = s.model
+  if (s.effort === 'low' || s.effort === 'medium' || s.effort === 'high') launch.effort = s.effort
+  if (!s.worktreePath && project) launch.projectId = project.id
+  return launch
+}
+
+/** Whether a closed session can be continued: a reviewed resume command for its agent, a machine that negotiated
+ *  resume-v1, and a folder to continue in (its worktree, or its project's folder). */
+export function canContinue(s: Pick<TerminalSession, 'state' | 'tool' | 'worktreePath' | 'projectId'>, machine: Pick<TerminalMachine, 'capabilities'> | undefined, projects: Pick<FolderProject, 'id' | 'dir'>[]): boolean {
+  return continueLaunch(s, projects) !== null && machine?.capabilities?.resume === true && CATALOGUE.find(agent => agent.id === s.tool)?.resume === true
 }
 
 // The session screen (/sessions?agent=…&session=…). Its tabs are the sessions opened in this browser tab since it loaded

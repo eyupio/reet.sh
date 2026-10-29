@@ -62,6 +62,10 @@ Replayed tools left `pending` or `in_progress` are shown as interrupted, not as 
 restored; a new prompt starts cleanly. The controller will only load an id that belongs to one of the account's own closed
 structured sessions on that machine, so a crafted `resumeAcp` cannot read another project's OpenCode history.
 
+A connector that predates `acp-history-v1` can still run a new chat, but it does not report or accept an OpenCode session
+id, so its chats have no Continue action. The `acpHistory` capability is sent only to a controller that negotiated the
+feature, and the older controller's strict decoder never sees the new fields.
+
 ## Images
 
 In a chat, **Attach image** (or paste/drop) sends the file through reet's launch-upload path before the prompt. The machine

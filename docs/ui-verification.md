@@ -1499,7 +1499,7 @@ and a composer.
 The chat pane keeps the slice 1 layout. The additions are the image chips and Attach image control in its composer, and
 the session menu's **Continue chat with history…** item for a closed chat. There is no drawing for either.
 
-- `chat.e2e.mjs` passed at 1360 × 900 and 390 × 844: an attached PNG was uploaded to the machine and the prompt carried
+- `chat.e2e.mjs` passed at 1360 × 900 and 390 × 844: **Chat with OpenCode** was on by default; an attached PNG was uploaded to the machine and the prompt carried
   `Image: /…/launch-uploads/shot.png`; a closed structured session exposed Continue chat with history…, and the create body
   carried `structured: true`, `trust: true`, `resumeAcp` and the old folder with no prompt model.
 - `internal/opencodeacp` fake-child tests cover `session/load` replay, mode refusal and `in_progress` tools becoming

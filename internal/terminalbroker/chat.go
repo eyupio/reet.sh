@@ -19,6 +19,9 @@ var (
 	// ErrACPResumeNotFound means the requested OpenCode session is not one of
 	// this account's closed chats on that machine.
 	ErrACPResumeNotFound = errors.New("that chat history is not available")
+	// ErrACPHistoryUnsupported means the machine's connector predates
+	// acp-history-v1, so it cannot report or resume an OpenCode session id.
+	ErrACPHistoryUnsupported = errors.New("that machine cannot reopen chat history")
 )
 
 // ACPTrustError means the folder has OpenCode plugins and the start did not

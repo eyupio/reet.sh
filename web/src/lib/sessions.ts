@@ -151,7 +151,7 @@ export function continueChatLaunch(s: Pick<TerminalSession, 'state' | 'structure
 
 /** A chat can be reopened only on a machine that still advertises acp. */
 export function canContinueChat(s: Pick<TerminalSession, 'state' | 'structured' | 'acpSessionId' | 'dir' | 'projectId'>, machine: Pick<TerminalMachine, 'capabilities'> | undefined): boolean {
-  return continueChatLaunch(s) !== null && machine?.capabilities?.acp === true
+  return continueChatLaunch(s) !== null && machine?.capabilities?.acp === true && machine?.capabilities?.acpHistory === true
 }
 
 /** Whether a closed session can be continued: a reviewed resume command for its agent, a machine that negotiated

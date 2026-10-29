@@ -10,6 +10,11 @@ import (
 // A controller without it never receives the capability or sends chat bodies.
 const ACPFeature = "acp-v1"
 
+// ACPHistoryFeature lets a new controller accept the OpenCode session id and
+// resume fields. A slice-1 controller negotiated acp-v1 but its strict decoder
+// rejects those fields, so they are never sent without this feature.
+const ACPHistoryFeature = "acp-history-v1"
+
 const (
 	// MaxChatPromptBytes bounds one chat message. 2,000 bytes is the largest
 	// text whose JSON encoding is certain to fit the 16 KiB control frame, even
@@ -26,6 +31,16 @@ const (
 func SupportsACP(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == ACPFeature {
+			return true
+		}
+	}
+	return false
+}
+
+// SupportsACPHistory reports whether the peer negotiated acp-history-v1.
+func SupportsACPHistory(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ACPHistoryFeature {
 			return true
 		}
 	}

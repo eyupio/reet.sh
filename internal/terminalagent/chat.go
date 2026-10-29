@@ -46,6 +46,7 @@ type chatHost struct {
 	opts       terminalhost.ManagerOptions
 	generation int64
 	send       func(context.Context, terminalproto.Message) error
+	history    bool
 	start      chatStarter
 	lookPath   func(string) (string, error)
 
@@ -57,8 +58,8 @@ type chatHost struct {
 	wg       sync.WaitGroup
 }
 
-func newChatHost(ctx context.Context, opts terminalhost.ManagerOptions, generation int64, send func(context.Context, terminalproto.Message) error) *chatHost {
-	return &chatHost{ctx: ctx, opts: opts, generation: generation, send: send, start: func(ctx context.Context, opts opencodeacp.Options) (chatProcess, error) {
+func newChatHost(ctx context.Context, opts terminalhost.ManagerOptions, generation int64, send func(context.Context, terminalproto.Message) error, history bool) *chatHost {
+	return &chatHost{ctx: ctx, opts: opts, generation: generation, send: send, history: history, start: func(ctx context.Context, opts opencodeacp.Options) (chatProcess, error) {
 		return opencodeacp.Start(ctx, opts)
 	}, lookPath: exec.LookPath, sessions: map[string]*chatSession{}, requests: map[string]string{}, starting: map[string]string{}}
 }
@@ -79,9 +80,9 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 			h.mu.Unlock()
 			return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
 		}
-		state, exit, acpID := cs.state, cs.exit, cs.acpID
+		state, exit := cs.state, cs.exit
 		h.mu.Unlock()
-		return terminalproto.SessionChanged{State: state, ExitCode: exit, ACPSessionID: acpID}, nil
+		return terminalproto.SessionChanged{State: state, ExitCode: exit, ACPSessionID: h.reportedACP(cs)}, nil
 	}
 	if _, ok := h.sessions[sessionID]; ok {
 		h.mu.Unlock()
@@ -150,7 +151,14 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 		h.publish(cs, opencodeacp.Event{Kind: "user", Text: in.Prompt})
 		h.startPrompt(cs, in.Prompt)
 	}
-	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: cs.acpID}, nil
+	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: h.reportedACP(cs)}, nil
+}
+
+func (h *chatHost) reportedACP(cs *chatSession) string {
+	if !h.history {
+		return ""
+	}
+	return cs.acpID
 }
 
 func (h *chatHost) snapshot(sessionID string) (terminalproto.SessionSnapshot, bool) {
@@ -160,7 +168,7 @@ func (h *chatHost) snapshot(sessionID string) (terminalproto.SessionSnapshot, bo
 	if cs == nil {
 		return terminalproto.SessionSnapshot{}, false
 	}
-	return terminalproto.SessionSnapshot{ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit, ACPSessionID: cs.acpID}, true
+	return terminalproto.SessionSnapshot{ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit, ACPSessionID: h.reportedACP(cs)}, true
 }
 
 func (h *chatHost) snapshots() []terminalproto.SessionSnapshot {
@@ -168,7 +176,7 @@ func (h *chatHost) snapshots() []terminalproto.SessionSnapshot {
 	defer h.mu.Unlock()
 	out := make([]terminalproto.SessionSnapshot, 0, len(h.sessions))
 	for _, cs := range h.sessions {
-		out = append(out, terminalproto.SessionSnapshot{ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit, ACPSessionID: cs.acpID})
+		out = append(out, terminalproto.SessionSnapshot{ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit, ACPSessionID: h.reportedACP(cs)})
 	}
 	// The controller only needs live sessions to avoid marking them lost; keep
 	// ended receipts too, but never let history push a live one out.
@@ -258,7 +266,7 @@ func (h *chatHost) end(sessionID string) (terminalproto.SessionChanged, error) {
 	h.mu.Unlock()
 	cs.process.Close()
 	h.ended(cs, 0)
-	return terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: cs.acpID}, nil
+	return terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: h.reportedACP(cs)}, nil
 }
 
 func (h *chatHost) ended(cs *chatSession, code int) {
@@ -272,7 +280,7 @@ func (h *chatHost) ended(cs *chatSession, code int) {
 		}
 		h.mu.Unlock()
 		_ = h.send(h.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
-			Generation: h.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: cs.acpID}})
+			Generation: h.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: h.reportedACP(cs)}})
 	})
 }
 

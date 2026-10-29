@@ -309,6 +309,8 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusUnprocessableEntity, "tool_not_installed", "tool", "That agent isn't installed on that machine.", "")
 	case errors.Is(err, terminalbroker.ErrLaunchFailed):
 		writeErrCode(w, http.StatusUnprocessableEntity, "folder_unavailable", "dir", "That folder isn't available on that machine.", "")
+	case errors.Is(err, terminalbroker.ErrACPHistoryUnsupported):
+		writeErrCode(w, http.StatusConflict, "acp_history_unsupported", "", "Update reet on that machine to reopen chats with their history.", "")
 	case errors.Is(err, terminalbroker.ErrACPResumeNotFound):
 		writeErrCode(w, http.StatusNotFound, "acp_resume_not_found", "", "That chat's history is no longer available on that machine.", "")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported):

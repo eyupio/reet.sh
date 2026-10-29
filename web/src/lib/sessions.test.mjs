@@ -176,7 +176,8 @@ test('session header: agent · model · started, and the decisions line', () => 
   assert.equal(continueChatLaunch({ structured: true, acpSessionId: 'ses_1', state: 'running', dir: '/home/u/site' }), null)
   assert.deepEqual(continueChatLaunch({ structured: true, acpSessionId: 'ses_1', state: 'exited' }), { tool: 'opencode', structured: true, trust: true, resumeAcp: 'ses_1' })
   assert.equal(continueChatLaunch({ structured: true, state: 'exited', dir: '/home/u/site' }), null)
-  assert.equal(canContinueChat({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: { acp: true } }), true)
+  assert.equal(canContinueChat({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: { acp: true, acpHistory: true } }), true)
+  assert.equal(canContinueChat({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: { acp: true } }), false)
   assert.equal(canContinueChat({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: {} }), false)
 })
 

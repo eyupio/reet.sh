@@ -52,6 +52,7 @@ type AgentConfig struct {
 	models            bool
 	modelsAllowed     bool
 	acp               bool
+	acpHistory        bool
 	OnConnection      func(bool)
 	TerminalSession   TerminalFactory
 	control           func(context.Context, terminalproto.Message) error
@@ -683,6 +684,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
 	cfg.models = terminalproto.SupportsModels(advertised)
 	cfg.acp = terminalproto.SupportsACP(advertised)
+	cfg.acpHistory = terminalproto.SupportsACPHistory(advertised)
 }
 
 // setTerminalFeatures tells the terminal dispatcher which negotiated
@@ -729,6 +731,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acp {
 		features = append(features, terminalproto.ACPFeature)
+	}
+	if cfg.acpHistory {
+		features = append(features, terminalproto.ACPHistoryFeature)
 	}
 	return strings.Join(features, ",")
 }
@@ -789,6 +794,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 	// so they need terminal access on as well as their negotiated feature:
 	// browse also the local folder-browse switch on, branches worktrees.
 	control := cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin")
+	acp := cfg.acp && control && enabled && slices.Contains(tools, "opencode")
 	return terminalproto.Capabilities{
 		Launch:    launch,
 		Resume:    launch && cfg.resume,
@@ -805,7 +811,8 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		UploadsOff:      cfg.uploads && control && enabled && !cfg.uploadsAllowed,
 		Models:          cfg.models && control && enabled && cfg.modelsAllowed,
 		ModelsOff:       cfg.models && control && enabled && !cfg.modelsAllowed,
-		ACP:             cfg.acp && control && enabled && slices.Contains(tools, "opencode"),
+		ACP:             acp,
+		ACPHistory:      acp && cfg.acpHistory,
 		Branches:        cfg.branches && worktree && enabled,
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),

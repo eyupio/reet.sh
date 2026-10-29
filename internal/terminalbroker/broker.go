@@ -573,6 +573,15 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	if err != nil {
 		return store.TerminalSession{}, false, err
 	}
+	if in.ResumeACP != "" {
+		caps, err := b.st.RemoteCapabilitiesFor(uid, agent)
+		if err != nil || caps.Generation != p.Generation {
+			return store.TerminalSession{}, false, ErrOffline
+		}
+		if !caps.Capabilities.ACPHistory {
+			return store.TerminalSession{}, false, ErrACPHistoryUnsupported
+		}
+	}
 	// A request id the controller already reserved is answered from that
 	// reservation below, whatever the machine advertises now: the agent may be
 	// running, and a refusal here would read as "nothing started". Only a new
@@ -605,6 +614,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		}
 		if in.Structured && !caps.Capabilities.ACP {
 			return store.TerminalSession{}, false, ErrACPUnsupported
+		}
+		if in.ResumeACP != "" && !caps.Capabilities.ACPHistory {
+			return store.TerminalSession{}, false, ErrACPHistoryUnsupported
 		}
 		if !caps.Capabilities.Launch {
 			return store.TerminalSession{}, false, ErrLaunchUnsupported

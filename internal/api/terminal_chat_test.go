@@ -16,6 +16,7 @@ import (
 func chatCaps() terminalproto.Capabilities {
 	caps := launchCaps("opencode")
 	caps.ACP = true
+	caps.ACPHistory = true
 	return caps
 }
 

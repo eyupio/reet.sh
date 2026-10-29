@@ -302,6 +302,9 @@ once / Deny only, and only with all seven conditions:
   `/api/v2/machines/<id>/models` (the bar reads both without blocking Start); `phone-zoom`/`phone-dialogs` use
   `helpers/longtext.mjs` and need the same routes. The picker's filter is pinned and the sheet body scrolls; keep it
   that way for 500 models. Star focus must be restored after the row moves groups.
+- **Mixed versions:** `acpSessionId`, `resumeAcp` and the `acpHistory` capability are sent only after
+  `acp-history-v1`. A slice-1 controller negotiated `acp-v1` but its strict decoder rejects those fields; never send them
+  without the separate feature. `Continue chat` is offered only when the machine reports `acpHistory`.
 - **Chat history:** a closed chat is reopened as a **new** row with `resumeAcp`; the machine runs `session/load` and
   replays before its result. Store the `acpSessionId`, never a transcript. `CanResumeACPSessionFor` restricts the id to
   this account's closed structured sessions on that machine. Replayed pending tools are marked interrupted; pending

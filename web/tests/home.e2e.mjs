@@ -902,7 +902,7 @@ try {
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?agent=a1&session=new-/)
   const leaving = JSON.parse(await page.evaluate(() => sessionStorage.getItem('__e2e_leaving')))
-  expect(leaving).toEqual({text:'StartCtrl ↵', disabled:true, busy:'true', locked:true, status:`Opening ${box.created.title}…`, extra:0})
+  expect(leaving).toEqual({text:'StartEnter', disabled:true, busy:'true', locked:true, status:`Opening ${box.created.title}…`, extra:0})
   expect(reads.filter(r => r === 'POST /api/v2/terminal/sessions')).toHaveLength(1)
   expect(errors).toEqual([])
   await context.close()

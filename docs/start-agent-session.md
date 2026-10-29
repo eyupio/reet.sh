@@ -82,8 +82,12 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   box is empty. It is never put in the box, or sent, by itself.
 - **Title.** The prompt's first line is the session's title, shown as Titled "…" before sending (and
   stored as the session title); without a prompt it is \<Agent\> · \<folder name\>.
-- **Keys.** Enter adds a line. Ctrl+Enter (Cmd+Enter on a Mac) sends from a hardware keyboard. On
-  touch no key sends, Enter included: only **Start** does.
+- **Keys.** Enter sends from a hardware keyboard; Shift+Enter adds a line. Ctrl+Enter and Cmd+Enter
+  also send. On touch no key sends, Enter included: only **Start** does.
+- **Images.** Paste (or drop) a PNG, JPEG, GIF or WebP into the prompt to attach it. Each image is
+  uploaded to the chosen machine before the session starts, and its absolute path is added to the
+  opening prompt. At most 20 images and 50 MiB at once, and one project at a time. A machine with
+  uploads off, or an older reet, says so and Start waits.
 - **Starting, refusals and lost replies** work as in the dialog: the bar is locked while the request
   is out; a definite refusal unlocks it with its sentence; a lost reply keeps the same request (request
   id, run token and every field) for **Try the same request again**, and **Discard this request**

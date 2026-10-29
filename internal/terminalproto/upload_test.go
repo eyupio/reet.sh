@@ -341,3 +341,27 @@ func TestStreamHelloAcceptsUploadOperation(t *testing.T) {
 		t.Fatal("unknown stream hello field accepted")
 	}
 }
+
+func TestUploadLaunchRoundTripAndOmission(t *testing.T) {
+	u := validUpload()
+	encoded, err := Encode(testMessage(u))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(`"launch"`)) {
+		t.Fatal("a session upload carried the launch field", string(encoded))
+	}
+	u.Launch = true
+	encoded, err = Encode(testMessage(u))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := decoded.Body.(*Upload)
+	if !ok || !got.Launch {
+		t.Fatalf("launch upload lost its field: %#v", decoded.Body)
+	}
+}

@@ -114,7 +114,7 @@ the shell.
 bounded. — Cost if wrong: a constant and a test.
 
 **R8. Enter on phones.** Ruling: Enter inserts a newline on phones and touch tablets; the **Start**
-button sends. On a hardware keyboard Ctrl+Enter (Cmd+Enter on macOS) sends and Enter adds a line. —
+button sends. On a hardware keyboard Enter sends (Shift+Enter adds a line), as do Ctrl+Enter and Cmd+Enter. —
 Why: phone keyboards have no reliable modifier and a stray Enter must never start an agent. — Cost if
 wrong: one key handler.
 

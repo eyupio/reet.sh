@@ -72,8 +72,13 @@ func (l *uploadLimits) begin(uid int64) (release func(), reason string) {
 	}, ""
 }
 
-// terminalUploadPath names the one route allowed to write a non-JSON body.
+// terminalUploadPath names the routes allowed to write a non-JSON body: one
+// session's images and a machine's launch images.
 func terminalUploadPath(path string) bool {
+	if strings.HasPrefix(path, "/api/v2/machines/") && strings.HasSuffix(path, "/uploads") {
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/api/v2/machines/"), "/uploads")
+		return id != "" && !strings.Contains(id, "/")
+	}
 	const prefix = "/api/v2/terminal/sessions/"
 	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, "/uploads") {
 		return false
@@ -125,29 +130,8 @@ func (s *server) terminalUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(uploadRequestTimeout))
-	r.Body = http.MaxBytesReader(w, r.Body, terminalproto.MaxUploadBytes+1)
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		var limit *http.MaxBytesError
-		if errors.As(err, &limit) {
-			uploadError(w, terminalbroker.ErrUploadTooLarge)
-			return
-		}
-		terminalError(w, terminalproto.ErrInvalid)
-		return
-	}
-	if len(data) == 0 {
-		terminalError(w, terminalproto.ErrInvalid)
-		return
-	}
-	if len(data) > terminalproto.MaxUploadBytes {
-		uploadError(w, terminalbroker.ErrUploadTooLarge)
-		return
-	}
-	mime, _, ok := terminalproto.SniffUploadMIME(data)
-	if !ok || mime != declared {
-		uploadError(w, terminalbroker.ErrUploadType)
+	data, mime, ok := s.readUploadImage(w, r, declared)
+	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), uploadRequestTimeout)
@@ -164,6 +148,95 @@ func (s *server) terminalUpload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Reet-Upload-Path", url.PathEscape(path))
 	w.Header().Set("X-Reet-Upload-Reference", url.PathEscape(uploadReference(path)))
 	writeJSON(w, http.StatusOK, map[string]string{"uploaded": "true"})
+}
+
+// terminalLaunchUpload accepts an image for a session that is about to start
+// on the named machine. Nothing is stored on the controller: the bytes go
+// straight to the machine's private launch folder and the reply names the path
+// the opening prompt should carry.
+func (s *server) terminalLaunchUpload(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery != "" || r.URL.ForceQuery {
+		terminalError(w, terminalproto.ErrInvalid)
+		return
+	}
+	declared := r.Header.Get("Content-Type")
+	switch declared {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+	default:
+		uploadError(w, terminalbroker.ErrUploadType)
+		return
+	}
+	uid := s.uid(r)
+	agent := r.PathValue("agentId")
+	release, reason := s.uploadLimits.begin(uid)
+	if reason != "" {
+		if reason == "upload_busy" {
+			uploadError(w, terminalbroker.ErrUploadBusy)
+		} else {
+			writeErrCode(w, http.StatusTooManyRequests, reason, "", "Too many images at once. Slow down a moment, then try again.", "")
+		}
+		return
+	}
+	defer release()
+	caps, err := s.st.RemoteCapabilitiesFor(uid, agent)
+	if err != nil {
+		uploadError(w, terminalbroker.ErrOffline)
+		return
+	}
+	if !caps.Capabilities.Uploads {
+		if caps.Capabilities.UploadsOff {
+			uploadError(w, terminalbroker.ErrUploadsOff)
+		} else {
+			uploadError(w, terminalbroker.ErrUploadUnsupported)
+		}
+		return
+	}
+	data, mime, ok := s.readUploadImage(w, r, declared)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), uploadRequestTimeout)
+	defer cancel()
+	path, err := s.terminals.UploadLaunch(ctx, uid, agent, data, mime)
+	if err != nil {
+		uploadError(w, err)
+		return
+	}
+	s.auditTerminalLaunchUpload(uid, agent, mime, len(data))
+	w.Header().Set("X-Reet-Upload-Path", url.PathEscape(path))
+	w.Header().Set("X-Reet-Upload-Reference", url.PathEscape(uploadReference(path)))
+	writeJSON(w, http.StatusOK, map[string]string{"uploaded": "true"})
+}
+
+// readUploadImage reads, bounds and sniffs one image body. It writes the
+// refusal itself and reports false when it did.
+func (s *server) readUploadImage(w http.ResponseWriter, r *http.Request, declared string) ([]byte, string, bool) {
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(uploadRequestTimeout))
+	r.Body = http.MaxBytesReader(w, r.Body, terminalproto.MaxUploadBytes+1)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		var limit *http.MaxBytesError
+		if errors.As(err, &limit) {
+			uploadError(w, terminalbroker.ErrUploadTooLarge)
+			return nil, "", false
+		}
+		terminalError(w, terminalproto.ErrInvalid)
+		return nil, "", false
+	}
+	if len(data) == 0 {
+		terminalError(w, terminalproto.ErrInvalid)
+		return nil, "", false
+	}
+	if len(data) > terminalproto.MaxUploadBytes {
+		uploadError(w, terminalbroker.ErrUploadTooLarge)
+		return nil, "", false
+	}
+	mime, _, ok := terminalproto.SniffUploadMIME(data)
+	if !ok || mime != declared {
+		uploadError(w, terminalbroker.ErrUploadType)
+		return nil, "", false
+	}
+	return data, mime, true
 }
 
 // uploadReference is the text a browser inserts after an upload. It is the
@@ -190,6 +263,16 @@ func (s *server) auditTerminalUpload(uid int64, session store.TerminalSession, m
 		"machine": session.AgentID,
 		"host":    s.machineHost(uid, session.AgentID),
 		"tool":    session.Tool,
+		"mime":    mime,
+		"size":    uploadSizeBucket(size),
+	})
+}
+
+func (s *server) auditTerminalLaunchUpload(uid int64, agent, mime string, size int) {
+	s.event(uid, "ui", "terminal-upload", "", map[string]string{
+		"machine": agent,
+		"host":    s.machineHost(uid, agent),
+		"launch":  "true",
 		"mime":    mime,
 		"size":    uploadSizeBucket(size),
 	})

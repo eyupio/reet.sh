@@ -1455,3 +1455,19 @@ Tests and checks:
 Not checked: a physical phone, Safari or Firefox, a real provider-backed OpenCode list, a 500-model
 list under a slow reader, a live agent CLI with a project/account default, or a real machine's model
 Refresh. The Add project picker is exercised by its own fixtures, not in this PR's new browser runs.
+
+## Home launch bar: Enter sends, and pasted images — 29 October 2026
+
+Enter in Home's prompt now starts the session from a hardware keyboard; Shift+Enter adds a line.
+An image pasted or dropped on the prompt is validated (PNG, JPEG, GIF or WebP; 5 MiB each, 20
+files and 50 MiB together), shown as a removable chip, and uploaded to the chosen machine before the
+session exists. Its absolute path joins the opening prompt, so the agent receives the image with the
+job. The machine stores it under `launch-uploads/` and the existing 24 hour sweep removes it; the
+controller keeps no bytes. Images need one project and a machine that accepts uploads.
+
+Checks: `npm --prefix web run test`, `svelte-check` (0 errors, 0 warnings) and `npm --prefix web run
+build` passed. In Chromium, `launch.e2e.mjs` passed the Enter/Shift+Enter case and the new pasted
+image case (one upload to the machine, the reference in the create body, the chip visible);
+`home.e2e.mjs` passed the locked-bar case with the new `StartEnter` hint. The Go packages
+`terminalproto`, `terminalhost`, `terminalbroker`, `terminalagent` and `api` passed their tests,
+including new launch-upload round-trip, storage, broker and API cases.

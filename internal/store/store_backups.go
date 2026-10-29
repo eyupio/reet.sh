@@ -101,8 +101,15 @@ type Profile struct {
 	// project names none; blank means the repository's own default.
 	DefaultBaseBranch string `json:"defaultBaseBranch"`
 	// WorktreesByDefault is the person's answer for projects that inherit it.
-	WorktreesByDefault bool  `json:"worktreesByDefault"`
-	UpdatedAt          int64 `json:"updatedAt"`
+	WorktreesByDefault bool `json:"worktreesByDefault"`
+	// DefaultTool, DefaultModel and DefaultEffort are what a session outside
+	// a project starts with. Blank means the agent's own default (or reet's
+	// first agent when the tool is blank). The server never substitutes them
+	// into a launch; the browser resolves them and sends the chosen values.
+	DefaultTool   string `json:"defaultTool"`
+	DefaultModel  string `json:"defaultModel"`
+	DefaultEffort string `json:"defaultEffort"`
+	UpdatedAt     int64  `json:"updatedAt"`
 }
 
 // SessionInfo is one signed-in browser.
@@ -183,6 +190,9 @@ func (s *Store) migrateBackups() error {
 		{"default_base_branch", "default_base_branch TEXT NOT NULL DEFAULT ''"},
 		// Rows stored before this setting existed read as yes.
 		{"worktrees_by_default", "worktrees_by_default INTEGER NOT NULL DEFAULT 1"},
+		{"default_tool", "default_tool TEXT NOT NULL DEFAULT ''"},
+		{"default_model", "default_model TEXT NOT NULL DEFAULT ''"},
+		{"default_effort", "default_effort TEXT NOT NULL DEFAULT ''"},
 	} {
 		ok, err := hasColumn(s.db, "user_profiles", column.name)
 		if err != nil {
@@ -461,8 +471,8 @@ func (s *Store) DeleteBackupRemote(ownerID int64, name string) error {
 // time so the page has something to show.
 func (s *Store) ProfileFor(userID int64) (Profile, error) {
 	var p Profile
-	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,hosted_prefix,default_base_branch,worktrees_by_default,updated_at FROM user_profiles WHERE user_id=?`, userID).
-		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.TerminalRemoveOnClose, &p.HostedPrefix, &p.DefaultBaseBranch, &p.WorktreesByDefault, &p.UpdatedAt)
+	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,hosted_prefix,default_base_branch,worktrees_by_default,default_tool,default_model,default_effort,updated_at FROM user_profiles WHERE user_id=?`, userID).
+		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.TerminalRemoveOnClose, &p.HostedPrefix, &p.DefaultBaseBranch, &p.WorktreesByDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.UpdatedAt)
 	if err == nil {
 		return p, nil
 	}
@@ -481,11 +491,13 @@ func (s *Store) SaveProfileFor(userID int64, p Profile) error {
 	if p.ShelfView == "" {
 		p.ShelfView = "list"
 	}
-	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,hosted_prefix,default_base_branch,worktrees_by_default,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,hosted_prefix,default_base_branch,worktrees_by_default,default_tool,default_model,default_effort,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme, timezone=excluded.timezone,
 			date_format=excluded.date_format, shelf_view=excluded.shelf_view, cards_expanded=excluded.cards_expanded, terminal_remove_on_close=excluded.terminal_remove_on_close,
-			hosted_prefix=excluded.hosted_prefix, default_base_branch=excluded.default_base_branch, worktrees_by_default=excluded.worktrees_by_default, updated_at=excluded.updated_at`,
-		userID, p.Theme, p.Timezone, p.DateFormat, p.ShelfView, p.CardsExpanded, p.TerminalRemoveOnClose, p.HostedPrefix, p.DefaultBaseBranch, p.WorktreesByDefault, now())
+			hosted_prefix=excluded.hosted_prefix, default_base_branch=excluded.default_base_branch, worktrees_by_default=excluded.worktrees_by_default,
+			default_tool=excluded.default_tool, default_model=excluded.default_model, default_effort=excluded.default_effort, updated_at=excluded.updated_at`,
+		userID, p.Theme, p.Timezone, p.DateFormat, p.ShelfView, p.CardsExpanded, p.TerminalRemoveOnClose, p.HostedPrefix, p.DefaultBaseBranch, p.WorktreesByDefault,
+		p.DefaultTool, p.DefaultModel, p.DefaultEffort, now())
 	return err
 }
 

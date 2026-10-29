@@ -286,7 +286,7 @@ func migrateAccountProjects(tx *sql.Tx, uid int64, rep *MigrationReport, source 
 	for frows.Next() {
 		var p FolderProject
 		var raw string
-		if err := frows.Scan(&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel,
+		if err := frows.Scan(&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort,
 			&p.StarterPrompt, &p.Colour, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version, &raw); err != nil {
 			frows.Close()
 			return err

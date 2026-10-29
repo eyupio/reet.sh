@@ -32,6 +32,12 @@ func ValidTool(id string) bool { return launchTools[id] }
 // fields themselves.
 func ValidModel(model string) bool { return validModel(model) }
 
+// ValidEffort accepts the empty value (the agent's own default) and the effort
+// levels a preset maps.
+func ValidEffort(effort string) bool {
+	return effort == "" || effort == "low" || effort == "medium" || effort == "high"
+}
+
 // ValidDir accepts an absolute folder with no control characters.
 func ValidDir(dir string) bool { return validDir(dir) }
 

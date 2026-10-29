@@ -118,6 +118,7 @@ type folderProjectInput struct {
 	WorktreeDefault *string `json:"worktreeDefault"`
 	DefaultTool     *string `json:"defaultTool"`
 	DefaultModel    *string `json:"defaultModel"`
+	DefaultEffort   *string `json:"defaultEffort"`
 	StarterPrompt   *string `json:"starterPrompt"`
 	// Colour is the rail colour ("" clears it).
 	Colour *string `json:"colour"`
@@ -147,6 +148,7 @@ func (in folderProjectInput) apply(p store.FolderProject) store.FolderProject {
 	set(&p.WorktreeDefault, in.WorktreeDefault)
 	set(&p.DefaultTool, in.DefaultTool)
 	set(&p.DefaultModel, in.DefaultModel)
+	set(&p.DefaultEffort, in.DefaultEffort)
 	set(&p.StarterPrompt, in.StarterPrompt)
 	set(&p.Colour, in.Colour)
 	set(&p.Note, in.Note)
@@ -163,6 +165,7 @@ const (
 	sentenceFolderName     = "Give the project a name of 1 to 80 characters, without line breaks or control characters."
 	sentenceFolderPrompt   = "The starter prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash."
 	sentenceFolderMachine  = "That machine isn't enrolled on this account."
+	sentenceFolderEffort   = "Choose low, medium or high thinking, or the agent's default."
 )
 
 // folderRefusal maps every store error for folder projects to a code and one
@@ -273,11 +276,20 @@ func (s *server) checkFolderProject(names map[string]string, p *store.FolderProj
 	if !validProjectColour(p.Colour) {
 		return &projectRefusal{422, "invalid_colour", "colour", "Choose a colour from the palette, or no colour.", ""}
 	}
-	if p.DefaultTool != "" && !terminalproto.ValidTool(p.DefaultTool) {
+	if p.DefaultTool != "" && !terminalproto.ValidToolV2(p.DefaultTool) {
 		return &projectRefusal{422, "invalid_tool", "defaultTool", sentenceToolChoice, ""}
 	}
 	if p.DefaultModel != "" && !terminalproto.ValidModel(p.DefaultModel) {
 		return &projectRefusal{422, "invalid_model", "defaultModel", sentenceModel, ""}
+	}
+	if p.DefaultModel != "" && p.DefaultTool == "" {
+		return &projectRefusal{422, "invalid_model", "defaultModel", "Choose a default agent before setting a default model.", ""}
+	}
+	if !terminalproto.ValidEffort(p.DefaultEffort) {
+		return &projectRefusal{422, "invalid_effort", "defaultEffort", sentenceFolderEffort, ""}
+	}
+	if p.DefaultEffort != "" && (p.DefaultTool == "" || !terminalproto.ToolTakesEffort(p.DefaultTool)) {
+		return &projectRefusal{422, "invalid_effort", "defaultEffort", "A default effort needs a default agent that takes one.", ""}
 	}
 	// A saved prompt's shape is checked again only when it changes, so one
 	// that today's rules refuse does not block editing anything else. The
@@ -311,6 +323,7 @@ type folderProjectView struct {
 	WorktreeDefault  string  `json:"worktreeDefault"`
 	DefaultTool      string  `json:"defaultTool"`
 	DefaultModel     string  `json:"defaultModel"`
+	DefaultEffort    string  `json:"defaultEffort"`
 	HasStarterPrompt bool    `json:"hasStarterPrompt"`
 	StarterPrompt    *string `json:"starterPrompt,omitempty"`
 	// Note is the migration's one-time notice: the saved Projects (by name)
@@ -324,7 +337,7 @@ type folderProjectView struct {
 
 func viewFolderProject(p store.FolderProject, names map[string]string) folderProjectView {
 	return folderProjectView{ID: p.ID, Host: p.Host, Machine: names[p.Host], Dir: p.Dir, Name: p.Name, IsRepo: p.IsRepo, BaseBranch: p.BaseBranch, WorktreeDefault: p.WorktreeDefault,
-		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, HasStarterPrompt: p.StarterPrompt != "", Colour: p.Colour, Note: p.Note, Position: p.Position,
+		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, DefaultEffort: p.DefaultEffort, HasStarterPrompt: p.StarterPrompt != "", Colour: p.Colour, Note: p.Note, Position: p.Position,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
 }
 

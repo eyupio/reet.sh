@@ -94,12 +94,12 @@ func TestFolderProjectCreateReadUpdateDelete(t *testing.T) {
 	f := projectFixture(t)
 	created := f.fpCreate(t, nil)
 	id, _ := created["id"].(string)
-	want := []string{"baseBranch", "colour", "createdAt", "defaultModel", "defaultTool", "dir", "hasStarterPrompt", "host", "id", "isRepo", "machine", "name", "note", "position", "updatedAt", "version", "worktreeDefault"}
+	want := []string{"baseBranch", "colour", "createdAt", "defaultEffort", "defaultModel", "defaultTool", "dir", "hasStarterPrompt", "host", "id", "isRepo", "machine", "name", "note", "position", "updatedAt", "version", "worktreeDefault"}
 	if got := keysOf(created); !reflect.DeepEqual(got, want) {
 		t.Fatal("project keys", got)
 	}
 	if id == "" || created["host"] != f.agent.ID || created["machine"] != "laptop" || created["dir"] != "/home/tester/site" || created["name"] != "Site" || created["isRepo"] != true ||
-		created["baseBranch"] != "main" || created["colour"] != "" || created["worktreeDefault"] != "yes" || created["defaultTool"] != "claude" || created["defaultModel"] != "sonnet" ||
+		created["baseBranch"] != "main" || created["colour"] != "" || created["worktreeDefault"] != "yes" || created["defaultTool"] != "claude" || created["defaultModel"] != "sonnet" || created["defaultEffort"] != "" ||
 		created["hasStarterPrompt"] != true || created["version"] != float64(1) || created["position"] != float64(0) {
 		t.Fatal("created", created)
 	}

@@ -391,6 +391,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
 	s.registerBackupRoutes(mux)
 	s.registerProfileRoutes(mux)
+	s.registerModelFavouriteRoutes(mux)
 	s.registerMCPRoutes(mux)
 	s.registerHostedRoutes(mux)
 	s.registerPrivateSkillRoutes(mux)

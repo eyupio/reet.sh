@@ -54,6 +54,9 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		HostedPrefix          *string `json:"hostedPrefix"`
 		DefaultBaseBranch     *string `json:"defaultBaseBranch"`
 		WorktreesByDefault    *bool   `json:"worktreesByDefault"`
+		DefaultTool           *string `json:"defaultTool"`
+		DefaultModel          *string `json:"defaultModel"`
+		DefaultEffort         *string `json:"defaultEffort"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -89,6 +92,43 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
+	}
+	// Check the launch defaults as they will be stored: the incoming values
+	// plus the saved row. A refused save changes nothing, including fields it
+	// did not touch. Rows written before these rules may still hold a model
+	// with no tool; they stay readable, and an edit that leaves the three
+	// launch fields untouched is not blocked by that legacy pairing.
+	defaultTool, defaultModel, defaultEffort := profile.DefaultTool, profile.DefaultModel, profile.DefaultEffort
+	if in.DefaultTool != nil {
+		defaultTool = *in.DefaultTool
+	}
+	if in.DefaultModel != nil {
+		defaultModel = *in.DefaultModel
+	}
+	if in.DefaultEffort != nil {
+		defaultEffort = *in.DefaultEffort
+	}
+	if in.DefaultTool != nil || in.DefaultModel != nil || in.DefaultEffort != nil {
+		if defaultTool != "" && !terminalproto.ValidToolV2(defaultTool) {
+			writeErr(w, 400, "defaultTool must be blank or one of the agents reet can start")
+			return
+		}
+		if defaultModel != "" && !terminalproto.ValidModel(defaultModel) {
+			writeErr(w, 400, "defaultModel must be blank or a model name reet can pass on")
+			return
+		}
+		if defaultModel != "" && defaultTool == "" {
+			writeErr(w, 400, "defaultModel needs a defaultTool")
+			return
+		}
+		if !terminalproto.ValidEffort(defaultEffort) {
+			writeErr(w, 400, "defaultEffort must be blank, low, medium or high")
+			return
+		}
+		if defaultEffort != "" && (defaultTool == "" || !terminalproto.ToolTakesEffort(defaultTool)) {
+			writeErr(w, 400, "defaultEffort needs a defaultTool that takes an effort level")
+			return
+		}
 	}
 	detail := map[string]any{}
 	if in.Name != nil {
@@ -162,6 +202,18 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.WorktreesByDefault != nil {
 		profile.WorktreesByDefault = *in.WorktreesByDefault
 		detail["worktreesByDefault"] = *in.WorktreesByDefault
+	}
+	if in.DefaultTool != nil {
+		profile.DefaultTool = defaultTool
+		detail["defaultTool"] = defaultTool
+	}
+	if in.DefaultModel != nil {
+		profile.DefaultModel = defaultModel
+		detail["defaultModel"] = defaultModel
+	}
+	if in.DefaultEffort != nil {
+		profile.DefaultEffort = defaultEffort
+		detail["defaultEffort"] = defaultEffort
 	}
 	if err := s.st.SaveProfileFor(user.ID, profile); err != nil {
 		writeErr(w, 500, err.Error())

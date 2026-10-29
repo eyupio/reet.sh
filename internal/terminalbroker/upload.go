@@ -49,6 +49,23 @@ func supportedUploadMIME(mime string) bool {
 	return false
 }
 
+// uploadCallError maps a failed control call. A lost reply, like a deadline,
+// means the machine may have accepted the upload: it is a timeout, not a
+// plain failure, and is never retried.
+func uploadCallError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return ErrUploadTimeout
+	}
+	var lost errReplyLost
+	if errors.As(err, &lost) {
+		return ErrUploadTimeout
+	}
+	if errors.Is(err, ErrOffline) {
+		return ErrOffline
+	}
+	return ErrUploadFailed
+}
+
 // Upload streams one image to the owner's running session on the machine and
 // returns the absolute path the machine stored it at. It never retries and
 // never replays bytes: a timeout or disconnect drops the expectation, so a
@@ -97,14 +114,7 @@ func (b *Broker) Upload(ctx context.Context, uid int64, sessionID string, data [
 	req := terminalproto.Upload{StreamToken: h.Token, Size: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), MIME: mime}
 	reply, err := p.call(ctx, message(h, req))
 	if err != nil {
-		var lost errReplyLost
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.As(err, &lost) {
-			return "", ErrUploadTimeout
-		}
-		if errors.Is(err, ErrOffline) {
-			return "", ErrOffline
-		}
-		return "", ErrUploadFailed
+		return "", uploadCallError(err)
 	}
 	if r, ok := reply.Body.(*terminalproto.Result); ok {
 		switch r.Code {

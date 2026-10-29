@@ -400,6 +400,22 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	return m.reconcileLocked(ctx, &r)
 }
 
+// cleanupClosedSessions drops the derived state of sessions that no longer
+// reserve quota: attachments are closed and the private upload folder is
+// removed. The caller holds m.mu.
+func (m *Manager) cleanupClosedSessions(r *hostRegistry) {
+	for id, s := range r.Sessions {
+		if s.State.ReservesQuota() {
+			continue
+		}
+		if a := m.attachments[id]; a != nil {
+			_ = a.Close()
+			delete(m.attachments, id)
+		}
+		_ = m.removeUploads(id)
+	}
+}
+
 func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 	names, err := m.sessionNames(ctx)
 	if err != nil {
@@ -467,15 +483,7 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 			return err
 		}
 	}
-	for id, s := range r.Sessions {
-		if !s.State.ReservesQuota() {
-			if a := m.attachments[id]; a != nil {
-				_ = a.Close()
-				delete(m.attachments, id)
-			}
-			_ = m.removeUploads(id)
-		}
-	}
+	m.cleanupClosedSessions(r)
 	// Persist the exit observation before removing dead panes. A later pass can
 	// finish cleanup after a crash; never kill a live, unregistered session.
 	for id, s := range r.Sessions {

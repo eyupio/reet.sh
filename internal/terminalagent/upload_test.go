@@ -12,7 +12,11 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -244,6 +248,193 @@ func TestUploadCounterAllowsTwoAtATime(t *testing.T) {
 	c.release()
 	if !c.acquire() {
 		t.Fatal("a released slot was not reused")
+	}
+}
+
+// uploadHandlerFixture gives the Factory a durable Running session without a
+// tmux server: upload storage and the pre-stream checks only need the registry.
+func uploadHandlerFixture(t *testing.T) (terminalhost.ManagerOptions, string) {
+	t.Helper()
+	if _, err := terminalhost.FindTmux(context.Background()); err != nil {
+		t.Skip(err)
+	}
+	base, err := os.MkdirTemp("/tmp", "reet-upload-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	dir, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout, err := terminalhost.NewLayout(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := terminalhost.Ensure(layout); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(home, 0700); err != nil {
+		t.Fatal(err)
+	}
+	id := uploadTestSession
+	registry := map[string]any{
+		"Version":      1,
+		"EnrollmentID": "enrollment0123456789abcdef",
+		"Sessions": map[string]any{
+			id: map[string]any{
+				"ID": id, "Title": "Uploads", "State": "running",
+				"CreatedAt": 1, "UpdatedAt": 1, "CreateRequestID": "request0123456789abcdef",
+			},
+		},
+		"Operations": map[string]any{
+			"create:request0123456789abcdef": map[string]any{
+				"requestId": "request0123456789abcdef",
+				"sessionId": id,
+				"kind":      "create",
+				"create":    map[string]any{"title": "Uploads", "cols": 80, "rows": 24},
+				"complete":  true,
+			},
+		},
+	}
+	data, err := json.Marshal(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(layout.Dir, "registry.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return terminalhost.ManagerOptions{
+		EnrollmentID: "enrollment0123456789abcdef", Layout: layout, Home: home,
+		Consent:       func() error { return nil },
+		UploadConsent: func() error { return nil },
+	}, id
+}
+
+type blockingUploadConn struct {
+	payload []byte
+	release <-chan struct{}
+	sent    []uploadFrame
+	mu      sync.Mutex
+}
+
+func (c *blockingUploadConn) Read(context.Context) (websocket.MessageType, []byte, error) {
+	<-c.release
+	if len(c.payload) == 0 {
+		return 0, nil, &websocket.CloseError{Code: websocket.StatusNormalClosure}
+	}
+	data := c.payload
+	c.payload = nil
+	return websocket.MessageBinary, data, nil
+}
+
+func (c *blockingUploadConn) Write(_ context.Context, kind websocket.MessageType, data []byte) error {
+	c.mu.Lock()
+	c.sent = append(c.sent, uploadFrame{kind: kind, data: append([]byte(nil), data...)})
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *blockingUploadConn) Close(websocket.StatusCode, string) error { return nil }
+func (c *blockingUploadConn) CloseNow() error                          { return nil }
+func (c *blockingUploadConn) SetReadLimit(int64)                       {}
+
+func TestUploadHandlerHoldsTwoAndRefusesTheThird(t *testing.T) {
+	opts, _ := uploadHandlerFixture(t)
+	release := make(chan struct{})
+	var dials atomic.Int32
+	var mu sync.Mutex
+	var conns []*blockingUploadConn
+	original := dialUploadStream
+	dialUploadStream = func(context.Context, *http.Client, http.Header, terminalproto.Message, string, string) (uploadConn, error) {
+		dials.Add(1)
+		conn := &blockingUploadConn{payload: uploadPayload(), release: release}
+		mu.Lock()
+		conns = append(conns, conn)
+		mu.Unlock()
+		return conn, nil
+	}
+	defer func() { dialUploadStream = original }()
+
+	replies := make(chan terminalproto.Message, 8)
+	handle, cleanup := Factory(opts)(t.Context(), http.DefaultClient, uploadHeaders(), 1, func(_ context.Context, m terminalproto.Message) error {
+		replies <- m
+		return nil
+	})
+	req := uploadRequest(uploadPayload())
+	for range 2 {
+		if err := handle(t.Context(), uploadMessage(t, &req)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := handle(t.Context(), uploadMessage(t, &req)); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[terminalproto.ResultCode]int{}
+	for len(seen) < 3 || (seen[terminalproto.OK] != 2 || seen[terminalproto.UploadBusy] != 1) {
+		select {
+		case m := <-replies:
+			result, ok := m.Body.(terminalproto.Result)
+			if !ok {
+				t.Fatalf("reply body %T", m.Body)
+			}
+			seen[result.Code]++
+			if len(seen) == 1 && result.Code == terminalproto.UploadBusy {
+				break
+			}
+			if seen[terminalproto.OK]+seen[terminalproto.UploadBusy] >= 3 {
+				goto repliesDone
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("replies: %v", seen)
+		}
+	}
+repliesDone:
+	if seen[terminalproto.OK] != 2 || seen[terminalproto.UploadBusy] != 1 {
+		t.Fatalf("replies: %v", seen)
+	}
+	if dials.Load() != 2 {
+		t.Fatalf("dialed %d times, want 2", dials.Load())
+	}
+	close(release)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		done := true
+		for _, conn := range conns {
+			conn.mu.Lock()
+			if len(conn.sent) == 0 {
+				done = false
+			}
+			conn.mu.Unlock()
+		}
+		mu.Unlock()
+		if done {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("transfers did not finish")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cleanup()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(conns) != 2 {
+		t.Fatalf("connections: %d", len(conns))
+	}
+	for _, conn := range conns {
+		conn.mu.Lock()
+		sent := append([]uploadFrame(nil), conn.sent...)
+		conn.mu.Unlock()
+		if len(sent) != 1 || sent[0].kind != websocket.MessageText {
+			t.Fatalf("result frames: %+v", sent)
+		}
+		var result terminalproto.UploadResult
+		if err := json.Unmarshal(sent[0].data, &result); err != nil || result.Code != terminalproto.UploadOK || result.Path == "" {
+			t.Fatalf("result: %+v %v", result, err)
+		}
 	}
 }
 

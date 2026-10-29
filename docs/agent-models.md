@@ -127,12 +127,19 @@ Errors use `invalid_tool`, `invalid_model`, `invalid_effort`, `favourites_full`,
 are available to any signed-in account. Audit rows name the tool and model only:
 `model-favourite-added`, `model-favourite-removed`, `model-favourite-default`.
 
-## What is not here
+## What is here, and what is next
 
-The web picker, the launch-bar/dialog integration, the Settings › Agents page and
-the Machines "Agents" section are the next PR (M5–M11 in the design). Until then
-the browser keeps its static suggestions, the profile defaults and favourites
-are API-only, and a listed model is not shown anywhere in the UI.
+The launch bar now opens on the project, account and favourite defaults, reads
+the chosen machine's list automatically, and shows the agent default, favourites,
+Recent, the machine list by provider, reet's suggestions and Other…, with a star
+and an honest status/Refresh line. A read failure never blocks Start. See
+[terminal layout](ui-verification.md) for the size/touch evidence.
+
+The Start an agent dialog, Add project/Project settings, Settings › Agents (the
+account default and favourites manager), the Machines "Agents" section, Activity
+and the hover-card model are the next UI PR (M8–M11). Until then the profile
+defaults and favourites are editable only through the API in those places, the
+Start dialog still has its old select, and only OpenCode has a machine list.
 
 No real provider or paid model was used to test this backend: the listing parser
 and runner are tested with fake executables, the protocol with round-trip and

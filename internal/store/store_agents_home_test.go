@@ -100,14 +100,14 @@ func TestSessionListingCarriesLaunchMetadataNotPrompt(t *testing.T) {
 	if err != nil || !created {
 		t.Fatal(created, err)
 	}
-	if got.ProjectID == nil || *got.ProjectID != project.ID || got.Tool != "claude" || got.Model != "sonnet" {
+	if got.ProjectID == nil || *got.ProjectID != project.ID || got.Tool != "claude" || got.Model != "sonnet" || got.Dir != "/home/tester/site" {
 		t.Fatalf("reserved: %+v", got)
 	}
 	x, raw := listed(t, s, uid, got.ID)
-	if x.Tool != "claude" || x.Model != "sonnet" || x.Effort != "" || x.Yolo || x.ProjectID == nil || *x.ProjectID != project.ID || x.WorktreeBranch != "" {
+	if x.Tool != "claude" || x.Model != "sonnet" || x.Effort != "" || x.Yolo || x.ProjectID == nil || *x.ProjectID != project.ID || x.Dir != "/home/tester/site" || x.WorktreeBranch != "" {
 		t.Fatalf("listed: %+v", x)
 	}
-	for _, key := range []string{`"tool":"claude"`, `"model":"sonnet"`, `"effort":""`, `"yolo":false`, `"projectId":"` + project.ID + `"`} {
+	for _, key := range []string{`"tool":"claude"`, `"model":"sonnet"`, `"dir":"/home/tester/site"`, `"effort":""`, `"yolo":false`, `"projectId":"` + project.ID + `"`} {
 		if !strings.Contains(raw, key) {
 			t.Fatalf("listing lacks %s: %s", key, raw)
 		}

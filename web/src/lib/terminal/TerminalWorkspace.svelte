@@ -5,7 +5,7 @@
   import AddProjectDialog from '../home/AddProjectDialog.svelte'
   import SessionSidebar from './SessionSidebar.svelte'
   import CopyButton from '../CopyButton.svelte'
-  import { createTerminal, folderProjectList, machineHealth, readiness, terminalMachines, terminalSessions, updateFolderProject, type FolderProject, type HealthResponse, type TerminalMachine, type TerminalSession } from './api'
+  import { createTerminal, folderProjectList, machineHealth, readiness, terminalMachines, terminalSessions, updateFolderProject, type FolderProject, type HealthResponse, type LaunchRequest, type TerminalMachine, type TerminalSession } from './api'
   import type { ProjectColour } from '../projectColour'
   import { projectRunning, sessionTabTitle } from '../home'
   import MachineHealthStrip from './MachineHealthStrip.svelte'
@@ -85,6 +85,9 @@
   let loading = $state(true), busy = $state(false), error = $state(''), title = $state('Shell')
   type Creation = { requestId: string; title: string; error: string }
   let creations = $state<Record<string, Creation>>({})
+  // A continuation whose reply was lost keeps its request id and launch, so Continue again replays the same operation.
+  type Continuation = { requestId: string; title: string; launch: LaunchRequest }
+  let continuations = $state<Record<string, Continuation>>({})
   const pendingCreation = $derived(creations[selectedAgent])
   const requestId = $derived(pendingCreation?.requestId || '')
   let accessDenied=$state(false), machineSearchInput=$state<HTMLInputElement>()
@@ -261,19 +264,31 @@
   // A started agent lands exactly as a new shell does: it joins the list and the workspace switches to it.
   function agentStarted(item:TerminalSession){inventoryVersion++;if(!terminalClosed(item.state))sessions=[item,...sessions.filter(other=>other.id!==item.id)];showCreate=false;chooseSession(item);void refresh()}
   // Continue a closed session as a new terminal in the same folder, asking the agent to resume its last conversation there.
+  // The operation is kept per session until its outcome is known: an uncertain failure retries the same request id.
   async function continueSession(target=session){
     if(!target||actionBusy)return
-    const launch=continueLaunch(target,projects??[])
+    const existing=continuations[target.id]
+    const launch=existing?.launch??continueLaunch(target,projects??[])
     if(!launch)return
+    const operation=existing??{requestId:crypto.randomUUID(),title:target.title,launch}
+    continuations={...continuations,[target.id]:operation}
     actionBusy=true;error=''
+    const settle=()=>{const next={...continuations};delete next[target.id];continuations=next}
     try{
-      const created=await createTerminal(target.agentId,crypto.randomUUID(),target.title,100,30,AbortSignal.timeout(15000),launch)
+      const created=await createTerminal(target.agentId,operation.requestId,operation.title,100,30,AbortSignal.timeout(15000),operation.launch)
+      settle()
       if(disposed)return
       inventoryVersion++
       if(!terminalClosed(created.state))sessions=[created,...sessions.filter(item=>item.id!==created.id)]
       chooseSession(created)
       await refresh()
-    }catch(e){if(!disposed)error=e instanceof Error?e.message:'The session could not be continued.'}
+    }catch(e){
+      if(disposed)return
+      // A stated refusal of this request started nothing; an uncertain failure may have, so the operation is kept.
+      const definite=e instanceof TerminalError&&[400,401,403,409,422].includes(e.status)
+      if(definite)settle()
+      error=e instanceof TerminalError?(e.message||'The session could not be continued.'):'The continuation may have started. Continue again to check the same operation.'
+    }
     finally{actionBusy=false}
   }
   function openAction(kind:'rename'|'end'|'archive',target=session) { if(!target)return;actionSession=target.id;actionTitle=target.title;rename=target.title;removeOnClose=endKeys.get(target.id)?.remove??(target.state==='end_requested'?(target.removeHistory??false):removeDefault);saveRemoveDefault=false;preferenceError='';action=kind }

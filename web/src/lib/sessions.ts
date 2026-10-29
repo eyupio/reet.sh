@@ -124,23 +124,24 @@ export function worktreeTargetOf(s: Pick<TerminalSession, 'agentId' | 'worktreeP
   return { agentId: s.agentId, project, repo, run }
 }
 
-/** The launch that continues a closed session in the same folder, with the same agent and model. A worktree session
- *  continues in its worktree and is not tied to the project again (the project's folder is elsewhere). */
-export function continueLaunch(s: Pick<TerminalSession, 'state' | 'tool' | 'model' | 'effort' | 'worktreePath' | 'projectId'>, projects: Pick<FolderProject, 'id' | 'dir'>[]): LaunchRequest | null {
+/** The launch that continues a closed session in the folder it ran in, with the same agent and model. The session's own
+ *  dir is used, not the project's current folder: that may have changed since the session started. A project is named
+ *  again only when its current folder is still the session's. */
+export function continueLaunch(s: Pick<TerminalSession, 'state' | 'tool' | 'model' | 'effort' | 'dir' | 'projectId'>, projects: Pick<FolderProject, 'id' | 'dir'>[]): LaunchRequest | null {
   if (!s.tool || !terminalClosed(s.state)) return null
-  const project = s.projectId ? projects.find(p => p.id === s.projectId) : undefined
-  const dir = s.worktreePath || project?.dir || ''
+  const dir = s.dir || ''
   if (!dir) return null
+  const project = s.projectId ? projects.find(p => p.id === s.projectId) : undefined
   const launch: LaunchRequest = { tool: s.tool, dir, resume: true }
   if (s.model) launch.model = s.model
   if (s.effort === 'low' || s.effort === 'medium' || s.effort === 'high') launch.effort = s.effort
-  if (!s.worktreePath && project) launch.projectId = project.id
+  if (project && project.dir === dir) launch.projectId = project.id
   return launch
 }
 
 /** Whether a closed session can be continued: a reviewed resume command for its agent, a machine that negotiated
- *  resume-v1, and a folder to continue in (its worktree, or its project's folder). */
-export function canContinue(s: Pick<TerminalSession, 'state' | 'tool' | 'worktreePath' | 'projectId'>, machine: Pick<TerminalMachine, 'capabilities'> | undefined, projects: Pick<FolderProject, 'id' | 'dir'>[]): boolean {
+ *  resume-v1, and the folder the session ran in. */
+export function canContinue(s: Pick<TerminalSession, 'state' | 'tool' | 'dir' | 'projectId'>, machine: Pick<TerminalMachine, 'capabilities'> | undefined, projects: Pick<FolderProject, 'id' | 'dir'>[]): boolean {
   return continueLaunch(s, projects) !== null && machine?.capabilities?.resume === true && CATALOGUE.find(agent => agent.id === s.tool)?.resume === true
 }
 

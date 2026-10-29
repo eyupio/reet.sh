@@ -181,6 +181,7 @@
   // failure only changes the picker's status line: Start and `startable` never look at a list.
   let favourites = $state<ModelFavourite[]>([])
   let favouritesRead = $state(false)
+  let favouritesLoadSeq = 0
   let favouriteNote = $state('')
   type ModelRead = { key: string; loading: boolean; machine: MachineModels | null; error: string }
   let modelList = $state<ModelRead>({ key: '', loading: false, machine: null, error: '' })
@@ -194,7 +195,15 @@
   const modelLoading = $derived(!!modelKey && modelList.key === modelKey && modelList.loading)
   const modelError = $derived(modelList.key === modelKey ? modelList.error : '')
   const modelCapable = $derived(!!modelTarget?.ready && !!modelTarget?.capabilities?.models && !modelTarget?.capabilities?.modelsOff)
-  const modelStatusInfo = $derived(modelStatus(modelMachine, modelHost))
+  const modelStatusInfo = $derived.by(() => {
+    if (!modelMachine) return modelStatus(null, modelHost)
+    // The API caches the last good list; overlay the machine's current fact so an offline/off/old machine
+    // does not look freshly read.
+    if (modelTarget && !modelTarget.ready) return modelStatus({ ...modelMachine, state: 'offline' }, modelHost)
+    if (modelTarget?.capabilities?.modelsOff) return modelStatus({ ...modelMachine, state: 'off' }, modelHost)
+    if (modelTarget?.capabilities && !modelTarget.capabilities.models) return modelStatus({ ...modelMachine, state: 'update' }, modelHost)
+    return modelStatus(modelMachine, modelHost)
+  })
   const modelStatusLine = $derived.by(() => {
     if (multiMachine) return 'Models differ per machine.'
     if (!modelKey) return ''
@@ -253,20 +262,24 @@
     }
   }
   async function loadFavourites() {
+    const seq = ++favouritesLoadSeq
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       const answer = await Promise.race([
         listModelFavourites(life.signal),
         new Promise<never>((_, no) => { timer = setTimeout(() => no(new Error('timeout')), 10_000) }),
       ])
-      if (!life.signal.aborted) favourites = answer.favourites ?? []
-    } catch { /* favourites are a help, not a requirement: suggestions still work */ }
-    finally { clearTimeout(timer); if (!life.signal.aborted) favouritesRead = true }
+      // A star pressed while this read was out wins over the older list.
+      if (!life.signal.aborted && seq === favouritesLoadSeq) favourites = answer.favourites ?? []
+    } catch (e) {
+      if (!life.signal.aborted && e instanceof TerminalError && e.status === 401) onsignedout?.(new UnauthorizedError())
+    } finally { clearTimeout(timer); if (!life.signal.aborted && seq === favouritesLoadSeq) favouritesRead = true }
   }
   async function toggleStar(model: string, starred: boolean) {
     const tool = choice?.agent
     if (!tool || !model) return
     const before = favourites
+    favouritesLoadSeq++
     favouriteNote = ''
     favourites = starred ? before.filter(f => !(f.tool === tool && f.model === model)) : [...before, { tool, model, agentDefault: false }]
     try {
@@ -275,18 +288,20 @@
         const answer = await addModelFavourite(tool, model)
         if (answer?.favourites) favourites = answer.favourites
       }
-    } catch {
+    } catch (e) {
       if (life.signal.aborted) return
+      if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
       favourites = before
-      favouriteNote = 'Couldn’t update your favourites just now. Try again.'
+      favouriteNote = e instanceof TerminalError && e.message ? e.message : 'Couldn’t update your favourites just now. Try again.'
     }
   }
   function modelOptionsFor(): SlotOption[] {
     if (!choice) return []
     const tool = choice.agent
     return modelOptions({
-      tool, current: cleanModel(choice.model), machine: multiMachine ? null : modelMachine,
-      favourites, recent: recentModels(sessions ?? [], tool), suggestions: modelSuggestions(tool),
+      tool, current: multiMachine ? '' : cleanModel(choice.model), machine: multiMachine ? null : modelMachine,
+      favourites, recent: multiMachine ? [] : recentModels(sessions ?? [], tool), suggestions: modelSuggestions(tool),
+      selectedModel: multiMachine ? '' : choice.model,
       host: multiMachine ? '' : modelHost, agentName: toolName(tool),
     }).map(o => o.value === '' ? o : {
       ...o, starLabel: starLabel(tool, o.value, !!o.starred), onstar: () => { void toggleStar(o.value, !!o.starred) },

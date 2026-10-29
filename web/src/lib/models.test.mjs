@@ -107,7 +107,7 @@ test('model options without a machine list stay honest and selectedModel wins ov
     favourites: [{ tool: 'claude', model: 'fav', agentDefault: false }],
     recent: [], suggestions: ['hint'], host: '', agentName: '',
   })
-  assert.equal(options[0].detail, 'The agent decides')
+  assert.equal(options[0].detail, 'the agent decides')
   assert.ok(!options.some(o => o.group.startsWith('On ')))
   assert.equal(options.find(o => o.value === 'fav').detail, undefined)
   assert.equal(options.find(o => o.value === 'hint').detail, undefined)
@@ -199,7 +199,7 @@ test('model status says what happened, how old it is and whether Refresh is hone
   }), 'studio'), { label: 'Couldn’t read', sentence: 'That machine couldn’t read its models.', canRefresh: true, age: '2 min ago' })
 
   for (const [state, label, sentence] of [
-    ['unsupported', 'Not supported', 'reet can’t read this agent’s models; it uses its own list.'],
+    ['unsupported', 'Not supported', 'reet can’t read this agent’s models; showing suggestions.'],
     ['off', 'Off', 'Models are switched off on that machine.'],
     ['update', 'Update reet', 'Update reet on that machine to read its models.'],
     ['offline', 'Offline', 'studio is offline.'],

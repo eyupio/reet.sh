@@ -816,21 +816,86 @@ try {
   await context.close()
  }
 
- // Offline, old and switched-off machines say so, keep any cached list, and offer no Refresh.
+ // Offline, old and switched-off machines say so, keep any cached list, and offer no Refresh. The offline case uses
+ // the real cached shape: a listed GET with a not-ready machine, which the bar must overlay with the offline state.
  if (run('offline, old and off model states are honest')) {
-  for (const [state, words, cached] of [['offline','studio is offline',true], ['update','Update reet',false], ['off','switched off',false]]) {
-   const models = cached ? modelList({state, models:[{id:'anthropic/claude-sonnet-4-5',provider:'anthropic'}], fetchedAt:now-2*24*60*MIN}) : modelList({state, models:[]})
-   const {context,page,errors} = await launch({routes:{'/api/v2/machines/a1/models': () => models}})
+  {
+   const cached = modelList({state:'listed', models:[{id:'anthropic/claude-sonnet-4-5',provider:'anthropic'}], fetchedAt:now-2*24*60*MIN})
+   const routes = {
+    '/api/v2/terminal/machines': () => ({machines:[{...tmachines()[0], ready:false}, tmachines()[1]]}),
+    '/api/v2/machines/a1/models': () => cached,
+   }
+   const {context,page,errors} = await launch({routes})
+   await page.goto(base)
+   await slot(page,'Model').click()
+   const list = page.getByRole('listbox',{name:'Model'})
+   await expect(list.locator('..').getByRole('status')).toContainText('studio is offline')
+   await expect(list.locator('..').getByRole('button',{name:'Refresh'})).toHaveCount(0)
+   await expect(list.getByRole('option',{name:'anthropic/claude-sonnet-4-5'})).toBeVisible()
+   await page.keyboard.press('Escape')
+   expect(errors).toEqual([])
+   await context.close()
+  }
+  for (const [state, words] of [['update','Update reet'], ['off','switched off']]) {
+   const {context,page,errors} = await launch({routes:{'/api/v2/machines/a1/models': () => modelList({state, models:[]})}})
    await page.goto(base)
    await slot(page,'Model').click()
    const list = page.getByRole('listbox',{name:'Model'})
    await expect(list.locator('..').getByRole('status'), state).toContainText(words)
    await expect(list.locator('..').getByRole('button',{name:'Refresh'}), state).toHaveCount(0)
-   if (cached) await expect(list.getByRole('option',{name:'anthropic/claude-sonnet-4-5'}), state).toBeVisible()
    await page.keyboard.press('Escape')
    expect(errors).toEqual([])
    await context.close()
   }
+ }
+
+ // Typing a model that is not in the list offers Use ‘x’, which opens Other prefilled.
+ if (run('a typed model offers Use and prefills Other')) {
+  const {context,page,errors} = await launch()
+  await page.goto(base)
+  await slot(page,'Model').click()
+  const list = page.getByRole('listbox',{name:'Model'})
+  await page.getByLabel('Filter models').fill('acme/custom-model')
+  const use = list.getByRole('option',{name:/^Use ‘acme\/custom-model’$/})
+  await expect(use).toBeVisible()
+  await use.click()
+  await expect(page.getByRole('textbox',{name:'Model name'})).toHaveValue('acme/custom-model')
+  await page.getByRole('button',{name:'Use'}).click()
+  await expect(slot(page,'Model')).toHaveAccessibleName('Model: acme/custom-model')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // S on a focused model stars it, the row keeps focus when it moves to Favourites, and the change is announced.
+ if (run('starring by keyboard keeps focus and announces')) {
+  const {context,page,errors} = await launch()
+  await page.goto(base)
+  await slot(page,'Model').click()
+  const list = page.getByRole('listbox',{name:'Model'})
+  await list.getByRole('option',{name:'anthropic/claude-sonnet-4-5'}).focus()
+  await page.keyboard.press('s')
+  await expect(list.getByRole('button',{name:'Unstar anthropic/claude-sonnet-4-5 for Claude Code'})).toHaveAttribute('aria-pressed','true')
+  expect(await page.evaluate(() => document.activeElement?.getAttribute('data-value'))).toBe('anthropic/claude-sonnet-4-5')
+  await expect(list.locator('..').locator('.sr-only')).toHaveText('Starred anthropic/claude-sonnet-4-5')
+  await page.keyboard.press('s')
+  await expect(list.getByRole('button',{name:'Star anthropic/claude-sonnet-4-5 for Claude Code'})).toHaveAttribute('aria-pressed','false')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A failed favourites read leaves suggestions and Start working.
+ if (run('a failed favourites read never blocks the bar')) {
+  const {context,page,errors,box} = await launch({routes:{'/api/v2/profile/model-favourites': () => ({status:500, json:{error:'down'}})}})
+  await page.goto(base)
+  await slot(page,'Model').click()
+  const list = page.getByRole('listbox',{name:'Model'})
+  await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^sonnet/})).toBeVisible()
+  await page.keyboard.press('Escape')
+  await startButton(page).click()
+  await expect(page).toHaveURL(/\/sessions\?/)
+  expect(box.posts).toHaveLength(1)
+  expect(errors).toEqual([])
+  await context.close()
  }
 
  // The model slot stays in the Change sheet on a tablet and in the phone's picker sheet, with the status and the star.
@@ -849,6 +914,12 @@ try {
    await expect(list).toBeVisible()
    await expect(list.locator('..').getByRole('status')).toContainText('Models read from studio.')
    await expect(picker.getByRole('button',{name:/^Star /}).first()).toBeVisible()
+   const starBox = await picker.getByRole('button',{name:/^Star /}).first().boundingBox()
+   expect(starBox?.width ?? 0, 'star width').toBeGreaterThanOrEqual(44)
+   expect(starBox?.height ?? 0, 'star height').toBeGreaterThanOrEqual(44)
+   const refreshBox = await picker.getByRole('button',{name:'Refresh'}).boundingBox()
+   expect(refreshBox?.width ?? 0, 'refresh width').toBeGreaterThanOrEqual(44)
+   expect(refreshBox?.height ?? 0, 'refresh height').toBeGreaterThanOrEqual(44)
    if (width === 390) expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
    await page.keyboard.press('Escape')
    await expect(sheet).toBeVisible()

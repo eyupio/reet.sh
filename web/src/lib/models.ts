@@ -103,7 +103,7 @@ export function modelOptions({
   const missingDetail = `not in ${machineName}’s list`
   add({
     value: '', label: 'Agent default',
-    detail: host ? `${host}’s ${agent} decides` : 'The agent decides',
+    detail: host ? `${host}’s ${agent} decides` : 'the agent decides',
     group: 'Agent default',
   })
 
@@ -191,7 +191,7 @@ function statusSentence(state: ModelState, host: string): string {
   const machine = host || 'that machine'
   switch (state) {
     case 'listed': return `Models read from ${machine}.`
-    case 'unsupported': return 'reet can’t read this agent’s models; it uses its own list.'
+    case 'unsupported': return 'reet can’t read this agent’s models; showing suggestions.'
     case 'failed': return 'That machine couldn’t read its models.'
     case 'off': return 'Models are switched off on that machine.'
     case 'offline': return host ? `${host} is offline.` : 'That machine is offline.'

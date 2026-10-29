@@ -81,7 +81,7 @@ export async function machineModels(agentId: string, tool: string, signal?: Abor
 export async function refreshMachineModels(agentId: string, tool: string, signal?: AbortSignal): Promise<MachineModels> {
   return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/models/refresh`, { method: 'POST', signal, body: JSON.stringify({ tool }) })).json()
 }
-export type AllModels = { machines: (MachineModels & { agentId: string; host: string })[] }
+export type AllModels = { machines: (Omit<MachineModels, 'tool'> & { agentId: string; host: string; tool?: string })[] }
 export async function allModels(tool: string, signal?: AbortSignal): Promise<AllModels> {
   return (await terminalRequest(`/api/v2/models?${modelsQuery(tool)}`, { signal })).json()
 }

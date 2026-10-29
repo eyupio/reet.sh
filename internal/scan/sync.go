@@ -576,6 +576,9 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 					command = append(command, "--global")
 				}
 				operationErr = execute(command, cwd)
+				if operationErr == nil && target.Target.Project == "" && (agent == "cursor" || agent == "opencode") {
+					operationErr = linkSharedInstall(home, targetPath, action.Skill.Slug)
+				}
 			}
 		} else {
 			operationErr = backupSkillEntry(targetPath, action.Skill.Slug, out, options.onBackup)
@@ -595,10 +598,34 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		return err
 	}
 	if len(remaining) > 0 {
-		return errors.New("commands completed but differences remain; inspect the agent installation and preview again")
+		return errors.New("commands completed but the installed skills still differ from the plan; inspect the agent installation, then sync again")
 	}
 	fmt.Fprintln(out, "Sync complete. Updated inventory persisted on the controller.")
 	return nil
+}
+
+// linkSharedInstall exposes a skill in an agent's own folder. The skills CLI
+// treats Cursor and OpenCode as shared-folder agents and writes only to
+// ~/.agents/skills, so without this link their scope never shows the install.
+func linkSharedInstall(home, targetPath, slug string) error {
+	canonical := filepath.Join(home, ".agents", "skills", slug)
+	link := filepath.Join(targetPath, slug)
+	if _, err := os.Lstat(link); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(canonical, "SKILL.md")); err != nil {
+		return fmt.Errorf("installed %s not found in the shared skills folder: %w", slug, err)
+	}
+	if err := os.MkdirAll(targetPath, 0755); err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(targetPath, canonical)
+	if err != nil {
+		rel = canonical
+	}
+	return os.Symlink(rel, link)
 }
 
 func backupSkillEntry(targetPath, slug string, out io.Writer, onBackup func(string)) error {

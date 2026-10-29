@@ -606,7 +606,7 @@ try {
   const view = screen(page).getByRole('group',{name:'View'})
   const chat = view.getByRole('button',{name:'Chat'})
   await expect(chat).toHaveAttribute('aria-disabled','true')
-  await expect(chat).toHaveAccessibleDescription('Chat arrives with structured sessions.')
+  await expect(chat).toHaveAccessibleDescription('Chat is for a structured OpenCode session.')
   await expect(view.getByRole('button',{name:'Terminal'})).toHaveAttribute('aria-pressed','true')
   // Choosing it changes nothing (it is aria-disabled, so it stays in the tab order with its reason).
   await chat.click({force:true})

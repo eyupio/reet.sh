@@ -207,6 +207,13 @@ func TestListModelsNeverReturnsStderr(t *testing.T) {
 	}
 }
 
+func TestListModelsSkipsAProviderPastTheProtocolBound(t *testing.T) {
+	r := listModelsForTest(t, "printf '%s/model\\n' '"+strings.Repeat("a", 65)+"'\n")
+	if r.Reason != "" || len(r.Models) != 0 {
+		t.Fatalf("result: %+v", r)
+	}
+}
+
 func TestListModelsCapsAtFiveHundred(t *testing.T) {
 	// 501 entries are read; the list is capped at MaxModels before the encoded
 	// answer is trimmed to MaxModelsReplyBytes (which is smaller than 500

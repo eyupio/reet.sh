@@ -295,6 +295,31 @@ func TestFolderProjectExistingRowsKeepTheirDefaults(t *testing.T) {
 	}
 }
 
+func TestFolderProjectLegacyModelWithoutToolCanStillBeRenamed(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	if _, err := s.db.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,starter_prompt,colour,position,legacy_project_id,note,created_at,updated_at,version)
+		VALUES('legacy',?,'laptop','/legacy','legacy','legacy',0,'','inherit','','model-one','','','',0,NULL,'',1,1,1)`, uid); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.FolderProjectFor(uid, "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got.Name = "renamed"
+	if _, err := s.UpdateFolderProjectFor(uid, got, 1); err != nil {
+		t.Fatalf("a rename was blocked by the legacy pairing: %v", err)
+	}
+	after, err := s.FolderProjectFor(uid, "legacy")
+	if err != nil || after.Name != "renamed" || after.DefaultModel != "model-one" || after.DefaultTool != "" {
+		t.Fatalf("legacy row: %+v %v", after, err)
+	}
+	after.DefaultModel = "other-model"
+	if _, err := s.UpdateFolderProjectFor(uid, after, 2); !errors.Is(err, ErrFolderProjectInvalid) {
+		t.Fatalf("a launch-default edit kept the legacy pairing: %v", err)
+	}
+}
+
 func TestProfileModelWithoutToolStaysReadable(t *testing.T) {
 	s := newStore(t)
 	uid := projectUser(t, s, "a")

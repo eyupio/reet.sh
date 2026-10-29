@@ -1,6 +1,9 @@
 package terminalproto
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // ModelsFeature lets a connector list the models its agent reports, without a
 // controller-supplied argument or a launch.
@@ -102,5 +105,6 @@ func (r ModelsResult) valid() bool {
 		}
 		seen[entry.ID] = true
 	}
-	return true
+	data, err := json.Marshal(r)
+	return err == nil && len(data) <= MaxModelsReplyBytes
 }

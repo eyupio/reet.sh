@@ -5,7 +5,7 @@ package terminalhost
 import (
 	"context"
 	"encoding/json"
-	"io"
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
@@ -57,29 +57,15 @@ func ListModels(ctx context.Context, tool string, lookPath func(string) (string,
 	var stdout, stderr cappedBuffer
 	stdout.limit = modelListOutputLimit
 	stderr.limit = modelListStderrLimit
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		result.Reason = terminalproto.ModelsExited
-		return result
-	}
-	// stderr is read into a capped buffer and discarded: it can hold paths,
-	// URLs or key fragments, and never reaches the controller.
+	// os/exec writes stdout and stderr itself, so Wait cannot race a pipe
+	// reader. The writer swallows an overflow and keeps draining; the limit
+	// is remembered and checked after Wait.
+	cmd.Stdout = modelOutput{&stdout}
 	cmd.Stderr = modelOutput{&stderr}
 	if err := cmd.Start(); err != nil {
 		result.Reason = terminalproto.ModelsExited
 		return result
 	}
-	// Read stdout ourselves so an overflow is acted on at once: the capped
-	// buffer stops the copy, and the whole process group is killed so an
-	// agent that ignores SIGPIPE cannot keep the call alive.
-	readDone := make(chan struct{}, 1)
-	go func() {
-		_, _ = io.Copy(modelOutput{&stdout}, stdoutPipe)
-		if stdout.overflow {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		readDone <- struct{}{}
-	}()
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	timedOut := false
@@ -91,7 +77,6 @@ func ListModels(ctx context.Context, tool string, lookPath func(string) (string,
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		waitErr = <-done
 	}
-	<-readDone
 	if stdout.overflow {
 		result.Reason = terminalproto.ModelsTooLarge
 		return result
@@ -112,7 +97,15 @@ func ListModels(ctx context.Context, tool string, lookPath func(string) (string,
 // ReadFrom would otherwise let io.Copy bypass the limit entirely.
 type modelOutput struct{ buf *cappedBuffer }
 
-func (w modelOutput) Write(p []byte) (int, error) { return w.buf.Write(p) }
+func (w modelOutput) Write(p []byte) (int, error) {
+	if w.buf.overflow {
+		return len(p), nil
+	}
+	if _, err := w.buf.Write(p); err != nil && !errors.Is(err, ErrOutputLimit) {
+		return len(p), err
+	}
+	return len(p), nil
+}
 
 // modelListEnvironment starts from the launch allowlist, drops TERM and SHELL,
 // pins HOME to the connector's home and applies the row's fixed opt-outs. A
@@ -162,6 +155,9 @@ func parseModels(tool string, out []byte) terminalproto.ModelsResult {
 		provider := ""
 		if index := strings.IndexByte(line, '/'); index >= 0 {
 			provider = line[:index]
+		}
+		if len(provider) > 64 {
+			continue
 		}
 		result.Models = append(result.Models, terminalproto.ModelEntry{ID: line, Provider: provider})
 	}

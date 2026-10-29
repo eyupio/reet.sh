@@ -173,7 +173,7 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 				go func() { defer peerWorkers.Done(); _ = peer.Synchronize(peerCtx) }()
 			}
 		case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.SessionChanged, *terminalproto.WorktreeState, *terminalproto.WorktreeResult,
-			*terminalproto.BrowseResult, *terminalproto.BranchesResult:
+			*terminalproto.BrowseResult, *terminalproto.BranchesResult, *terminalproto.ModelsResult:
 			// A browse or branches answer that comes after its request gave
 			// up is dropped by the broker; it does not end the connection.
 			if !s.terminalEnabled() {

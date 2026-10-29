@@ -199,6 +199,13 @@ func normalizeFolderProject(p FolderProject) (FolderProject, error) {
 // normalizeFolder is normalizeFolderProject; checkPrompt false leaves the
 // starter prompt unchecked (an update that keeps the saved one).
 func normalizeFolder(p FolderProject, checkPrompt bool) (FolderProject, error) {
+	return normalizeFolderWith(p, checkPrompt, true)
+}
+
+// normalizeFolderWith validates a folder project. checkDefaults is false for an
+// update that leaves the three launch defaults untouched, so a row written
+// before the model-needs-a-tool rule stays editable for other fields.
+func normalizeFolderWith(p FolderProject, checkPrompt, checkDefaults bool) (FolderProject, error) {
 	if p.Host == "" || len(p.Host) > maxFolderProjectHostBytes || strings.TrimSpace(p.Host) != p.Host || !plainText(p.Host) {
 		return p, folderInvalid("machine id is required, at most %d bytes, plain text", maxFolderProjectHostBytes)
 	}
@@ -230,13 +237,13 @@ func normalizeFolder(p FolderProject, checkPrompt bool) (FolderProject, error) {
 	if p.DefaultModel != "" && !terminalproto.ValidModel(p.DefaultModel) {
 		return p, folderInvalid("default model has characters or a length the connector would refuse")
 	}
-	if p.DefaultModel != "" && p.DefaultTool == "" {
+	if checkDefaults && p.DefaultModel != "" && p.DefaultTool == "" {
 		return p, folderInvalid("default model needs a default agent")
 	}
 	if !terminalproto.ValidEffort(p.DefaultEffort) {
 		return p, folderInvalid("default effort must be blank, low, medium or high")
 	}
-	if p.DefaultEffort != "" && (p.DefaultTool == "" || !terminalproto.ToolTakesEffort(p.DefaultTool)) {
+	if checkDefaults && p.DefaultEffort != "" && (p.DefaultTool == "" || !terminalproto.ToolTakesEffort(p.DefaultTool)) {
 		return p, folderInvalid("default effort needs a default agent that takes an effort level")
 	}
 	if checkPrompt && p.StarterPrompt != "" && (len(p.StarterPrompt) > maxFolderProjectPromptBytes || strings.HasPrefix(p.StarterPrompt, "-") || !terminalproto.ValidPrompt(p.StarterPrompt)) {
@@ -403,9 +410,6 @@ func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject, note string) (F
 // only be cleared: an empty Note clears it, any other value keeps it.
 func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64) (FolderProject, error) {
 	id := p.ID
-	if _, err := normalizeFolder(p, false); err != nil {
-		return FolderProject{}, err
-	}
 	err := s.withTx(func(tx *sql.Tx) error {
 		var cur FolderProject
 		cur, err := scanFolderProject(tx.QueryRow(`SELECT `+folderColumns+` FROM folder_projects WHERE id=? AND user_id=?`, id, uid))
@@ -417,7 +421,8 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 		if expect != 0 && expect != cur.Version {
 			return ErrFolderProjectChanged
 		}
-		if p, err = normalizeFolder(p, p.StarterPrompt != cur.StarterPrompt); err != nil {
+		defaultsChanged := p.DefaultTool != cur.DefaultTool || p.DefaultModel != cur.DefaultModel || p.DefaultEffort != cur.DefaultEffort
+		if p, err = normalizeFolderWith(p, p.StarterPrompt != cur.StarterPrompt, defaultsChanged); err != nil {
 			return err
 		}
 		if p.Note != "" {

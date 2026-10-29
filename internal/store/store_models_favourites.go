@@ -101,7 +101,13 @@ func bumpModelFavouritesTx(tx *sql.Tx, uid int64) error {
 
 // ModelFavouritesFor returns uid's starred models in display order.
 func (s *Store) ModelFavouritesFor(uid int64) (ModelFavourites, error) {
-	return modelFavouritesTx(s.db, uid)
+	var out ModelFavourites
+	err := s.withTx(func(tx *sql.Tx) error {
+		var err error
+		out, err = modelFavouritesTx(tx, uid)
+		return err
+	})
+	return out, err
 }
 
 // AddModelFavouriteFor stars tool/model. Starring an already starred model is

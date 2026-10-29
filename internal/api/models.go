@@ -146,6 +146,17 @@ func machineModelsStatus(tool, state string, reason terminalproto.ModelsReason, 
 	return machineModelsView(store.MachineModels{Tool: tool, State: state, Reason: reason}, host)
 }
 
+// cachedModelsStatus overlays a connectivity or capability state on the last
+// good cached row, so an offline/off/update machine still shows its age and
+// list instead of an empty answer.
+func (s *server) cachedModelsStatus(uid int64, agent, tool, state string, reason terminalproto.ModelsReason, host string) modelView {
+	if row, ok, err := s.st.MachineModelsFor(uid, agent, tool); err == nil && ok {
+		row.State, row.Reason = state, reason
+		return machineModelsView(row, host)
+	}
+	return machineModelsStatus(tool, state, reason, host)
+}
+
 func modelsListEntryFor(row store.MachineModels, host string) modelsListEntry {
 	v := machineModelsView(row, host)
 	return modelsListEntry{
@@ -193,6 +204,10 @@ func (s *server) readMachineModels(ctx context.Context, uid int64, agent, tool s
 	result, err := s.terminals.Models(callCtx, uid, agent, tool)
 	now := time.Now().UnixMilli()
 	var row store.MachineModels
+	if errors.Is(err, context.Canceled) {
+		// The browser went away; do not turn its request into a failed cache.
+		return store.MachineModels{}, err
+	}
 	if err != nil {
 		switch {
 		case errors.Is(err, terminalbroker.ErrModelsUnsupported):
@@ -305,7 +320,7 @@ func (s *server) machineModelsRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	caps, err := s.st.RemoteCapabilitiesFor(uid, agent)
 	if errors.Is(err, store.ErrRemoteNotFound) {
-		writeJSON(w, http.StatusOK, machineModelsStatus(in.Tool, "update", "", host))
+		writeJSON(w, http.StatusOK, s.cachedModelsStatus(uid, agent, in.Tool, "update", "", host))
 		return
 	}
 	if err != nil {
@@ -314,13 +329,13 @@ func (s *server) machineModelsRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case caps.Capabilities.ModelsOff:
-		writeJSON(w, http.StatusOK, machineModelsStatus(in.Tool, "off", terminalproto.ModelsOff, host))
+		writeJSON(w, http.StatusOK, s.cachedModelsStatus(uid, agent, in.Tool, "off", terminalproto.ModelsOff, host))
 		return
 	case !caps.Capabilities.Models:
-		writeJSON(w, http.StatusOK, machineModelsStatus(in.Tool, "update", "", host))
+		writeJSON(w, http.StatusOK, s.cachedModelsStatus(uid, agent, in.Tool, "update", "", host))
 		return
 	case !s.terminals.Ready(uid, agent):
-		writeJSON(w, http.StatusOK, machineModelsStatus(in.Tool, "offline", "", host))
+		writeJSON(w, http.StatusOK, s.cachedModelsStatus(uid, agent, in.Tool, "offline", "", host))
 		return
 	}
 	if !s.modelLimitState().take(strconv.FormatInt(uid, 10) + "/" + agent) {
@@ -339,8 +354,12 @@ func (s *server) machineModelsRefresh(w http.ResponseWriter, r *http.Request) {
 		terminalError(w, err)
 		return
 	}
+	count := 0
+	if row.State == store.MachineModelsListed {
+		count = len(row.Models)
+	}
 	s.event(uid, "ui", "machine-models-read", "", map[string]any{
-		"machine": agent, "tool": in.Tool, "state": row.State, "count": len(row.Models),
+		"machine": agent, "tool": in.Tool, "state": row.State, "count": count,
 	})
 	if row.State == store.MachineModelsFailed && row.Reason == terminalproto.ModelsConflict {
 		writeErrCode(w, http.StatusConflict, "models_busy", "", sentenceModelsBusy, "")

@@ -330,6 +330,28 @@ func TestMachineModelsStatesWithoutACache(t *testing.T) {
 	})
 }
 
+func TestMachineModelsRefreshOfflineKeepsTheCachedList(t *testing.T) {
+	f := modelsAPIFixture(t, modelsCaps())
+	if err := f.st.UpsertMachineModelsFor(f.uid, store.MachineModels{
+		AgentID: f.agent, Tool: "opencode", State: store.MachineModelsListed,
+		Models: []terminalproto.ModelEntry{{ID: "cached/model", Provider: "cached"}},
+		Source: "opencode models", FetchedAt: 1000, CheckedAt: 1100,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.peers[f.agent].Close()
+	code, out, raw := f.refresh(t, f.cookie, f.agent, `{"tool":"opencode"}`)
+	if code != 200 || out["state"] != "offline" || out["sentence"] != sentenceMachineOffline {
+		t.Fatal(code, raw)
+	}
+	if models := modelsField(t, out, "models"); len(models) != 1 || models[0].(map[string]any)["id"] != "cached/model" {
+		t.Fatal("the cached list was dropped", raw)
+	}
+	if out["fetchedAt"] != float64(1000) {
+		t.Fatal("the last good fetchedAt was lost", raw)
+	}
+}
+
 func TestMachineModelsRefreshKeepsLastGoodOnFailure(t *testing.T) {
 	f := modelsAPIFixture(t, modelsCaps())
 	code, out, raw := f.refresh(t, f.cookie, f.agent, `{"tool":"opencode"}`)

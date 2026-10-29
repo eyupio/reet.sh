@@ -282,13 +282,14 @@ func (s *server) checkFolderProject(names map[string]string, p *store.FolderProj
 	if p.DefaultModel != "" && !terminalproto.ValidModel(p.DefaultModel) {
 		return &projectRefusal{422, "invalid_model", "defaultModel", sentenceModel, ""}
 	}
-	if p.DefaultModel != "" && p.DefaultTool == "" {
+	defaultsChanged := saved == nil || p.DefaultTool != saved.DefaultTool || p.DefaultModel != saved.DefaultModel || p.DefaultEffort != saved.DefaultEffort
+	if defaultsChanged && p.DefaultModel != "" && p.DefaultTool == "" {
 		return &projectRefusal{422, "invalid_model", "defaultModel", "Choose a default agent before setting a default model.", ""}
 	}
 	if !terminalproto.ValidEffort(p.DefaultEffort) {
 		return &projectRefusal{422, "invalid_effort", "defaultEffort", sentenceFolderEffort, ""}
 	}
-	if p.DefaultEffort != "" && (p.DefaultTool == "" || !terminalproto.ToolTakesEffort(p.DefaultTool)) {
+	if defaultsChanged && p.DefaultEffort != "" && (p.DefaultTool == "" || !terminalproto.ToolTakesEffort(p.DefaultTool)) {
 		return &projectRefusal{422, "invalid_effort", "defaultEffort", "A default effort needs a default agent that takes one.", ""}
 	}
 	// A saved prompt's shape is checked again only when it changes, so one

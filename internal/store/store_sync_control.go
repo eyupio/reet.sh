@@ -55,13 +55,14 @@ func (s *Store) SyncCandidatesFor(uid int64, role string, listID int64) ([]SyncS
 }
 
 type DesiredSelection struct {
-	Origin   string   `json:"-"`
-	TargetID string   `json:"targetId"`
-	SourceID string   `json:"sourceId"`
-	ListID   int64    `json:"listId"`
-	SkillIDs []string `json:"skillIds"`
-	Mode     string   `json:"mode"`
-	Revision string   `json:"revision"`
+	FollowSource bool     `json:"followSource"`
+	Origin       string   `json:"-"`
+	TargetID     string   `json:"targetId"`
+	SourceID     string   `json:"sourceId"`
+	ListID       int64    `json:"listId"`
+	SkillIDs     []string `json:"skillIds"`
+	Mode         string   `json:"mode"`
+	Revision     string   `json:"revision"`
 }
 
 func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) error {
@@ -104,6 +105,38 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 	}
 	if err != nil {
 		return err
+	}
+	if in.FollowSource && source == in.TargetID {
+		return errors.New("choose a different source machine")
+	}
+	if in.FollowSource {
+		if source == "hosted" {
+			return errors.New("choose individual published skills for syncing")
+		}
+		in.SkillIDs = nil
+		for _, sk := range candidates {
+			if sk.Source == "" || sk.SourceType == "local" {
+				return errors.New("link all skill sources before syncing the whole source")
+			}
+			in.SkillIDs = append(in.SkillIDs, sk.ID)
+		}
+	}
+	// An explicit per-skill install may supplement a list or machine source
+	// with a skill on this account's shelf. Shared source lists are unchanged.
+	if !in.FollowSource && source != "shelf" {
+		shelf, e := s.SyncCandidatesFor(uid, role, 0)
+		if e != nil {
+			return e
+		}
+		seen := map[string]bool{}
+		for _, sk := range candidates {
+			seen[sk.ID] = true
+		}
+		for _, sk := range shelf {
+			if !seen[sk.ID] {
+				candidates = append(candidates, sk)
+			}
+		}
 	}
 	selected := map[string]bool{}
 	for _, id := range in.SkillIDs {
@@ -171,6 +204,9 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		if err != nil {
 			return err
 		}
+		if _, err = tx.Exec(`INSERT INTO sync_policies(target_id,follow_source) VALUES(?,?) ON CONFLICT(target_id) DO UPDATE SET follow_source=excluded.follow_source,problem=''`, in.TargetID, in.FollowSource); err != nil {
+			return err
+		}
 		_, err = tx.Exec(`INSERT INTO sync_options(target_id,mode,baseline) VALUES(?,?,?) ON CONFLICT(target_id) DO UPDATE SET mode=excluded.mode,baseline=excluded.baseline`, in.TargetID, in.Mode, string(baseline))
 		return err
 	})
@@ -218,6 +254,7 @@ func ReconcileSkills(base, desired, actual []SyncSkill) ([]SyncSkill, []string) 
 }
 
 type SyncAgent struct {
+	KeepSynced bool   `json:"keepSynced"`
 	ID         string `json:"id"`
 	Host       string `json:"host"`
 	Version    string `json:"version"`
@@ -254,6 +291,7 @@ func (s *Store) migrateSyncAgents() error {
 	for _, c := range []struct{ name, ddl string }{
 		{"source_commit", "source_commit TEXT NOT NULL DEFAULT ''"},
 		{"auto_update", "auto_update INTEGER NOT NULL DEFAULT 1"},
+		{"keep_synced", "keep_synced INTEGER NOT NULL DEFAULT 0"},
 	} {
 		ok, err := hasColumn(s.db, "sync_agents", c.name)
 		if err != nil {
@@ -315,11 +353,11 @@ func (s *Store) EnrollSyncAgentBuild(uid int64, host, version, commit string) (S
 	return a, secret, nil
 }
 
-const agentCols = `id,host,version,source_commit,last_seen,paused,auto_update`
+const agentCols = `id,host,version,source_commit,last_seen,paused,auto_update,keep_synced`
 
 func scanAgent(row interface{ Scan(...any) error }) (SyncAgent, error) {
 	var a SyncAgent
-	err := row.Scan(&a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate)
+	err := row.Scan(&a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced)
 	return a, err
 }
 
@@ -375,7 +413,7 @@ func (s *Store) AuthenticateRemoteAgent(id, secret, version string) (int64, Sync
 	if id == "" || secret == "" || len(id) > 128 || len(secret) > 256 || len(version) > 64 || strings.ContainsAny(version, "\x00\r\n") {
 		return 0, a, errors.New("machine enrollment is missing or revoked")
 	}
-	err := s.db.QueryRow(`SELECT a.user_id,a.id,a.host,a.version,a.source_commit,a.last_seen,a.paused,a.auto_update FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND a.secret_hash=? AND u.disabled_at=0`, id, secretHash(secret)).Scan(&uid, &a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate)
+	err := s.db.QueryRow(`SELECT a.user_id,a.id,a.host,a.version,a.source_commit,a.last_seen,a.paused,a.auto_update,a.keep_synced FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND a.secret_hash=? AND u.disabled_at=0`, id, secretHash(secret)).Scan(&uid, &a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced)
 	if err != nil {
 		return 0, a, errors.New("machine enrollment is missing or revoked")
 	}
@@ -388,6 +426,9 @@ func (s *Store) AuthenticateRemoteAgent(id, secret, version string) (int64, Sync
 
 func (s *Store) ControlSyncAgent(uid int64, id, action string) error {
 	switch action {
+	case "keep-sync-on", "keep-sync-off":
+		_, err := s.db.Exec(`UPDATE sync_agents SET keep_synced=? WHERE id=? AND user_id=?`, action == "keep-sync-on", id, uid)
+		return err
 	case "pause", "resume":
 		_, err := s.db.Exec(`UPDATE sync_agents SET paused=? WHERE id=? AND user_id=?`, action == "pause", id, uid)
 		return err
@@ -635,7 +676,7 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 		}
 		stage := j.Stage
 		stages := j.Stages
-		if j.Kind == "update" {
+		if len(stages) > 0 && finalStatus != "awaiting-approval" && finalStatus != "queued" {
 			stage, stages = finishStages(stages, finalStatus, message)
 		}
 		if _, err = tx.Exec(`UPDATE sync_jobs SET kind=?,status=?,plan=?,hash=?,message=?,stage=?,stages=?,updated_at=? WHERE id=?`, finalKind, finalStatus, string(plan), hash, message, stage, encodeStages(stages), now(), id); err != nil {

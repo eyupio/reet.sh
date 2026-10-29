@@ -46,7 +46,13 @@
   const renameNeeded = $derived(!!originalSlug && !!editor && editor.slug !== originalSlug)
   const prefixMisplaced = $derived(!!prefix && !!originalSlug && !!editor && !editor.slug.startsWith(prefix))
   const showPrefixChip = $derived(!!prefix && (!originalSlug || (editor?.slug.startsWith(prefix) ?? false)))
-  onMount(() => { void load() })
+  onMount(() => { void load().then(() => {
+    const params = new URLSearchParams(location.search)
+    const skill = skills.find(item => item.slug === params.get('edit'))
+    if (skill) edit(skill)
+    else if (params.has('new') && username && canWrite) newSkill()
+    else if (params.has('import') && username && canWrite) openImport()
+  }) })
   function fail(e: unknown) { error = e instanceof Error ? e.message : String(e) }
   function fingerprint(skill: HostedSkill) {
     return JSON.stringify({

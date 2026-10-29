@@ -43,7 +43,7 @@ export function activeJobsFor(snapshot: SyncState, host: string): SyncJob[] {
 export function activeRunFor(snapshot: SyncState, host: string): SyncRun | undefined {
   const agent = agentFor(snapshot, host)
   if (!agent) return
-  return (snapshot.runs ?? []).find(run => run.agentId === agent.id && ACTIVE_RUN.has(run.status))
+  return (snapshot.runs ?? []).find(run => run.agentId === agent.id && ACTIVE_RUN.has(run.status) && (run.status !== 'review' || activeJobsFor(snapshot, host).some(job => run.targets.includes(job.targetId))))
 }
 
 export function agoLabel(at: number, now = Date.now()): string {
@@ -177,6 +177,13 @@ export type JobStage = { key: string; label: string; state: JobStageState }
 
 export function syncJobStages(job: SyncJob): JobStage[] {
   const status = job.status
+  if (job.kind !== 'update' && job.stages?.length && job.status !== 'queued') {
+    return job.stages.map(stage => ({ key: stage.key, label: stage.label, state:
+      status === 'succeeded' ? 'done' : status === 'awaiting-approval' && stage.key === 'apply' ? 'review' :
+      (stage.status === 'running' && status === 'failed') ? 'failed' :
+      stage.status === 'running' ? 'active' : stage.status === 'done' ? 'done' : stage.status === 'failed' ? 'failed' : 'pending'
+    }))
+  }
   if (job.kind === 'scan') {
     return [
       { key: 'scan', label: 'Scan agent folders', state: status === 'queued' ? 'pending' : status === 'running' ? 'active' : status === 'succeeded' ? 'done' : status === 'failed' ? 'failed' : 'pending' },
@@ -206,6 +213,7 @@ export function activeJobKindLabel(job: SyncJob): string {
 }
 
 export type InstallDestination = {
+  followSource?: boolean
   targetId: string
   /** The value save-desired accepts: shelf, hosted or a scanned environment id. */
   sourceId: string
@@ -232,6 +240,7 @@ export function savedInstallTargets(machine: Machine, snapshot: SyncState, now =
     .filter(target => isFresh((snapshot.environments ?? []).find(env => env.id === target.target.id), now))
     .map(target => ({
       targetId: target.target.id,
+      followSource: target.followSource,
       ...sourceInfo(target.sourceId),
       mode: target.mode || 'additive',
       revision: target.revision,

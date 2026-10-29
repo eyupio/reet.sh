@@ -167,19 +167,30 @@ func (s *Store) finishSyncRun(tx *sql.Tx, uid int64, jobID string, outcome runOu
 		_, err := tx.Exec(`UPDATE sync_runs SET status='cancelled',updated_at=? WHERE id=?`, now(), runID)
 		return err
 	}
-	// A reviewed plan stays visible while later scopes continue. A result for an
-	// older position (for example, approval after the chain moved on) must not
-	// advance the cursor a second time.
-	if position < cursor {
-		return nil
-	}
 	var targets []string
 	if json.Unmarshal([]byte(targetsJSON), &targets) != nil {
 		return errors.New("invalid sync run")
 	}
+	// Approval can finish after the chain has visited later scopes. Settle
+	// the run from its remaining jobs without advancing its cursor again.
+	var reviews, pending int
+	if err := tx.QueryRow(`SELECT COALESCE(SUM(j.status='awaiting-approval'),0),COALESCE(SUM(j.status IN ('queued','running')),0) FROM sync_run_jobs r JOIN sync_jobs j ON j.id=r.job_id WHERE r.run_id=?`, runID).Scan(&reviews, &pending); err != nil {
+		return err
+	}
+	if position < cursor {
+		nextStatus := "running"
+		if reviews > 0 {
+			nextStatus = "review"
+		} else if cursor >= len(targets) && pending == 0 {
+			nextStatus = "completed"
+		}
+		_, err := tx.Exec(`UPDATE sync_runs SET status=?,updated_at=? WHERE id=?`, nextStatus, now(), runID)
+		return err
+	}
+
 	next := cursor + 1
 	nextStatus := "running"
-	if outcome == runReview || status == "review" {
+	if outcome == runReview || reviews > 0 {
 		nextStatus = "review"
 	}
 	if next >= len(targets) {

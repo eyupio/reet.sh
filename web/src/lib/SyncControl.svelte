@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import SyncSetup from './SyncSetup.svelte'
   import { syncCandidates, listLists, getList, saveDesired, reconcileDesired, adoptSyncSkills, queueSyncJob, controlSyncJob, deleteSyncTarget, updateSyncAgent, type SyncState, type SyncSkill, type SharedList, type SyncTarget, type SyncJob, type SyncEnvironment } from './api'
   import { agentGroups, agentOnline, groupLabel, inventory, inventoryMachines } from './machines'
   import { elapsed } from './time'
@@ -74,7 +75,6 @@
   const firstActionKey = $derived(activity.hosts.flatMap(host => host.entries).find(entry => entry.failed || entry.review)?.key ?? '')
   const history = $derived(activeHosts.length ? finished : olderFinished)
   const failedHosts = $derived(activity.hosts.filter(host => host.failed))
-  const needsYou = $derived(activity.hosts.flatMap(host => host.entries.filter(entry => !entry.resolved && (entry.failed || entry.review))))
   const activityHeadline = $derived.by(() => {
     if (activity.active) return `${activity.active} sync ${activity.active === 1 ? 'job' : 'jobs'} in progress`
     if (activity.failed) return failedHosts.length === 1 ? `Sync needs attention on ${failedHosts[0].host}` : `Sync needs attention on ${failedHosts.length} machines`
@@ -193,7 +193,7 @@
     mode = item.mode || 'mirror'; revision = item.revision
     source = item.sourceId === 'hosted' || groups.some(g => g.id === item.sourceId) ? item.sourceId : 'shelf'
     listId = item.sourceId.startsWith('list:') ? Number(item.sourceId.slice(5)) : 0
-    await loadSource(); selected = item.desired.filter(s => candidates.some(c => c.id === s.id)).map(s => s.id)
+    await loadSource(); candidates = dedupeSkills([...candidates, ...item.desired]); selected = item.desired.map(s => s.id)
     if (selected.length !== item.desired.length) notice = 'Some previous skills are no longer in this source. Review the selection and any removals.'
     if (scroll) document.getElementById('sync-selection')?.scrollIntoView({ behavior: 'instant', block: 'start' })
   }
@@ -246,12 +246,14 @@
   function entryTitle(entry: SyncActivityEntry): string {
     const kind = kindName(entry.job.kind)
     if (entry.active) return entry.job.status === 'queued' ? 'Waiting for machine' : `${kind} in progress`
+    if (entry.superseded) return `Earlier ${kind.toLowerCase()} failed`
     if (entry.failed) return `${kind} failed`
     if (entry.review) return 'Plan ready to review'
     if (entry.cancelled) return `${kind} cancelled`
     return entry.job.kind === 'apply' ? 'Changes applied' : `${kind} complete`
   }
   function statusWord(entry: SyncActivityEntry): string {
+    if (entry.superseded) return 'Replaced'
     if (entry.active) return entry.job.status === 'queued' ? 'Queued' : 'Running'
     if (entry.review) return 'Review'
     if (entry.failed) return 'Failed'
@@ -259,6 +261,7 @@
     return 'Done'
   }
   function entryTone(entry: SyncActivityEntry): string {
+    if (entry.superseded) return 'quiet'
     if (entry.active) return 'work'
     if (entry.review) return 'warn'
     if (entry.failed) return 'bad'
@@ -312,14 +315,15 @@
           kind = 'update'
           next = await updateSyncAgent(job.agentId, job.revision || 'latest')
         } else {
-          kind = job.kind === 'scan' ? 'scan' : 'preview'
+          kind = job.kind === 'scan' ? 'scan' : job.kind === 'apply' || job.kind === 'auto' ? 'auto' : 'preview'
           next = await queueSyncJob(job.agentId, job.targetId, kind)
         }
         onupdate(next)
       }
+      const label = kind === 'auto' ? 'sync' : kind
       retryResult(entry.key, jobs.length > 1
-        ? `Fresh ${kind} queued for ${jobs.length} jobs on ${entry.host}. They appear at the top of Sync activity.`
-        : `Fresh ${kind} queued for ${entry.host}. It appears at the top of Sync activity.`)
+        ? `Fresh ${label} queued for ${jobs.length} jobs on ${entry.host}. They appear at the top of Sync activity.`
+        : `Fresh ${label} queued for ${entry.host}. It appears at the top of Sync activity.`)
     } catch (e) {
       retryResult(entry.key, e instanceof Error ? e.message : String(e), true)
     } finally {
@@ -340,17 +344,12 @@
   function startSync(group: { host: string; items: SyncTarget[] }) {
     const agent = snapshot.agents?.find(a => a.host.toLowerCase() === group.host.toLowerCase())
     if (!agent) return
-    const installs = group.items.reduce((total, item) => total + item.missing.length, 0)
-    confirm = {
-      title: `Run automatic sync on ${group.host}?`,
-      body: `${group.items.length} saved ${group.items.length === 1 ? 'scope' : 'scopes'} will preview changes. ${installs} additive ${installs === 1 ? 'install applies' : 'installs apply'} automatically; removals wait for your approval.`,
-      confirmLabel: 'Sync saved skills',
-      action: () => run(async () => {
-        onupdate(await startSyncRun(agent.id, group.items.map(item => item.target.id)))
-        notice = `Automatic sync started for ${group.host}. Additive installs apply on the spot; removals wait for your approval.`
-      })
-    }
+    void run(async () => {
+      onupdate(await startSyncRun(agent.id, group.items.map(item => item.target.id)))
+      notice = `Sync started for ${group.host}. Follow live progress below.`
+    })
   }
+
   function startScopeSync(agent: NonNullable<SyncState['agents']>[number], item: SyncTarget) {
     confirm = {
       title: `Run automatic sync for ${groupLabel(item.target)}?`,
@@ -428,7 +427,7 @@
   <details class="activity-job" class:is-active={entry.active} open={startOpen}>
     <summary>
       <span class="job-mark {entryTone(entry)}" aria-hidden="true">
-        {#if entry.failed}!{:else if entry.review}?{:else if entry.active}<span class="pulse"></span>{:else if entry.cancelled}–{:else}✓{/if}
+        {#if entry.superseded}–{:else if entry.failed}!{:else if entry.review}?{:else if entry.active}<span class="pulse"></span>{:else if entry.cancelled}–{:else}✓{/if}
       </span>
       <span class="job-copy"><strong>{entryTitle(entry)}</strong><small>{entryMeta(entry)}</small></span>
       <span class="job-end">
@@ -437,6 +436,7 @@
       </span>
     </summary>
     <div class="job-body">
+      {#if entry.superseded}<p class="hint">A newer attempt replaced this failure. See the latest activity for the current result.</p>{/if}
       {#if (entry.active && entry.job.status !== 'queued') || entry.review || entry.failed}
         <ol class="stages" aria-label="Job steps">
           {#each syncJobStages(entry.job) as stage (stage.key)}
@@ -444,6 +444,7 @@
           {/each}
         </ol>
       {/if}
+      {#if entry.active && entry.job.stages?.some(stage => stage.status === 'running')}<p class="job-message" role="status">{entry.job.stages.find(stage => stage.status === 'running')?.detail}</p>{/if}
       {#if counts.total && entry.jobs.length === 1}
         <p class="job-facts">{counts.installs} install{counts.installs === 1 ? '' : 's'}{counts.removals ? ` · ${counts.removals} removal${counts.removals === 1 ? '' : 's'}` : ''}</p>
       {/if}
@@ -501,20 +502,49 @@
 
 
 {#if view === 'compare'}
-{#if needsYou.length}
-<section class="needs-you" aria-labelledby="needs-you-title">
-  <div>
-    <p class="eyebrow">Needs you</p>
-    <h3 id="needs-you-title" aria-live="polite">{activityHeadline}</h3>
-    <ul>
-      {#each needsYou.slice(0, 2) as entry (entry.key)}
-        <li><strong>{entry.host}</strong> · {entryTitle(entry)} <span class="hint">{entryMeta(entry)}</span></li>
+{#if activity.total || location.hash === '#sync-jobs'}
+<section id="sync-jobs" class="activity" aria-labelledby="sync-jobs-title">
+  <header class="activity-head">
+    <div>
+      <div class="activity-top">
+        <p class="eyebrow">Sync activity</p>
+        {#if activity.total}<span class="badge">{activity.total} {activity.total === 1 ? 'job' : 'jobs'}</span>{/if}
+      </div>
+      <h3 id="sync-jobs-title" aria-live="polite">{activityHeadline}</h3>
+      <p>{activityDetail}</p>
+    </div>
+  </header>
+  {#if activeHosts.length}
+    <div class="activity-hosts">
+      {#each activeHosts as host (host.host)}
+        <section class="activity-host" aria-label={`Sync activity on ${host.host}`}>
+          <header class="host-head"><h4>{host.host}</h4><p>{hostSummary(host)}</p></header>
+          {#each host.entries.filter(entry => !entry.resolved) as entry (entry.key)}
+            {@render jobRow(entry, entry.active || entry.key === firstActionKey || !!retryResults[entry.key])}
+          {/each}
+        </section>
       {/each}
-    </ul>
-  </div>
-  <a class="btn" href="#sync-jobs">Review in activity</a>
+    </div>
+  {:else if latestFinished}
+    <section class="activity-host calm" aria-label={`Latest sync activity on ${latestFinished.host}`}>
+      <header class="host-head"><h4>{latestFinished.host}</h4><p>Nothing needs you.</p></header>
+      {@render jobRow(latestFinished, false)}
+    </section>
+  {/if}
+  {#if history.length}
+    <details class="activity-history">
+      <summary>Earlier activity ({history.length})</summary>
+      <div class="history-list">
+        {#each history as entry (entry.key)}
+          {@render jobRow(entry, false)}
+        {/each}
+      </div>
+    </details>
+  {/if}
 </section>
 {/if}
+<SyncSetup {snapshot} {canWrite} {onupdate} />
+<details class="advanced-selection"><summary>Advanced sync · lists, reference machines &amp; removal rules</summary>
 <section id="sync-selection" class="control" aria-labelledby="selection-title">
   <h2 id="selection-title">Choose what to sync</h2>
   <p>Choose skills from reet.sh, a list, or another machine. Compare, save the desired set, then preview and approve changes.</p>
@@ -608,7 +638,7 @@
   {/if}
 </section>
 <section aria-labelledby="saved-sets">
-  <h3 id="saved-sets">Synced machines</h3>
+  <h3 id="saved-sets">Saved sync selections</h3>
   {#each targetGroups as group (group.host)}
     {@const agent = snapshot.agents?.find(a => a.host.toLowerCase() === group.host.toLowerCase())}
     {@const machineOnline = agentOnline(agent)}
@@ -622,7 +652,7 @@
           <details class="more-actions machine-menu">
             <summary>Machine actions</summary>
             <div class="more-list">
-              <button class="btn" type="button" disabled={busy || agent.paused || !machineOnline} onclick={() => startSync(group)}>Sync saved skills (installs automatically)</button>
+              <button class="btn" type="button" disabled={busy || agent.paused || !machineOnline} onclick={() => startSync(group)}>Sync now</button>
               <button class="btn quiet" type="button" disabled={busy || agent.paused || !machineOnline} onclick={() => previewGroup(group)}>Preview all scopes</button>
             </div>
           </details>
@@ -639,11 +669,12 @@
           <div class="scope-set">
             <div class="scope-title"><strong>{groupLabel(item.target)}</strong><span class="badge">{item.mode || 'mirror'} · {item.desired.length} desired</span></div>
             <p>{item.sourceName}</p>
+            {#if item.problem}<p class="bad" role="status">{item.problem} <a href="/skills">Review skill sources</a></p>{/if}
             <p class:bad={!env?.complete || (env?.scannedAt ?? 0) < Date.now() - 14 * 86400000}>{env?.complete && env.scannedAt > Date.now() - 14 * 86400000 ? `${item.missing.length} to install · ${item.extra.length} extra${item.mode === 'additive' ? ' (kept)' : ' (review removals)'}` : 'Current differences unconfirmed — rescan required'}</p>
             <p class="hint">Last report: {env?.scannedAt ? ago(env.scannedAt) : 'none'} · {item.appliedRevision === item.revision ? 'Desired revision acknowledged' : 'Desired revision not yet acknowledged'}</p>
             {#if canWrite}
               <div class="actions">
-                {#if agent}<button class="btn primary" disabled={busy || agent.paused || !machineOnline} onclick={() => startScopeSync(agent, item)}>Sync now (installs automatically)</button><button class="btn" disabled={busy || agent.paused || !machineOnline} onclick={() => run(async () => { onupdate(await queueSyncJob(agent.id, item.target.id, 'preview')); notice = 'Preview queued. The machine will report its exact plan.' })}>Preview</button>{/if}
+                {#if agent}<button class="btn primary" disabled={busy || agent.paused || !machineOnline} onclick={() => startScopeSync(agent, item)}>Sync now</button><button class="btn" disabled={busy || agent.paused || !machineOnline} onclick={() => run(async () => { onupdate(await queueSyncJob(agent.id, item.target.id, 'preview')); notice = 'Preview queued. The machine will report its exact plan.' })}>Preview</button>{/if}
                 <details class="more-actions">
                   <summary>More actions</summary>
                   <div class="more-list">
@@ -663,51 +694,13 @@
 </section>
 <!-- Fleet-wide actions belong beside the activity they create, not between the person and the task. -->
 <FleetActions {snapshot} {canWrite} {onupdate} />
+</details>
 
-{#if activity.total || location.hash === '#sync-jobs'}
-<section id="sync-jobs" class="activity" aria-labelledby="sync-jobs-title">
-  <header class="activity-head">
-    <div>
-      <div class="activity-top">
-        <p class="eyebrow">Sync activity</p>
-        {#if activity.total}<span class="badge">{activity.total} {activity.total === 1 ? 'job' : 'jobs'}</span>{/if}
-      </div>
-      <h3 id="sync-jobs-title" aria-live="polite">{activityHeadline}</h3>
-      <p>{activityDetail}</p>
-    </div>
-  </header>
-  {#if activeHosts.length}
-    <div class="activity-hosts">
-      {#each activeHosts as host (host.host)}
-        <section class="activity-host" aria-label={`Sync activity on ${host.host}`}>
-          <header class="host-head"><h4>{host.host}</h4><p>{hostSummary(host)}</p></header>
-          {#each host.entries.filter(entry => !entry.resolved) as entry (entry.key)}
-            {@render jobRow(entry, entry.active || entry.key === firstActionKey || !!retryResults[entry.key])}
-          {/each}
-        </section>
-      {/each}
-    </div>
-  {:else if latestFinished}
-    <section class="activity-host calm" aria-label={`Latest sync activity on ${latestFinished.host}`}>
-      <header class="host-head"><h4>{latestFinished.host}</h4><p>Nothing needs you.</p></header>
-      {@render jobRow(latestFinished, false)}
-    </section>
-  {/if}
-  {#if history.length}
-    <details class="activity-history">
-      <summary>Earlier activity ({history.length})</summary>
-      <div class="history-list">
-        {#each history as entry (entry.key)}
-          {@render jobRow(entry, false)}
-        {/each}
-      </div>
-    </details>
-  {/if}
-</section>
-{/if}
+
 
 {/if}{#if confirm}<ConfirmDialog title={confirm.title} body={confirm.body} details={confirm.details} confirmLabel={confirm.confirmLabel ?? 'Confirm'} oncancel={() => confirm = null} onconfirm={() => { const action = confirm?.action; confirm = null; void action?.() }} />{/if}
 <style>
+ .advanced-selection {margin:20px 0;border-top:1px solid var(--line);padding-top:16px}.advanced-selection>summary{cursor:pointer;font-size:.85rem;color:var(--muted);padding:8px 0}
  .control { border:1px solid var(--line); border-radius:10px; padding:18px; margin:16px 0; min-width:0; }
  h2,h3,h4 { margin:0 0 10px; } .control h2 { font:500 1.35rem/1.2 var(--serif); letter-spacing:-.02em; } p,.hint { color:var(--muted); line-height:1.6; font-size:.85rem; } .hint {font-size:.8rem}
  .pickers {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px} label{display:grid;gap:6px;font-size:.85rem;font-weight:600} select,input[type=search]{width:100%;min-width:0}
@@ -724,8 +717,6 @@
  .inline-blocked{margin:10px 0;padding:9px 11px;border:1px solid var(--bad);border-radius:8px;font-size:.8rem}
  .save-dock{position:sticky;bottom:calc(var(--bottom-chrome,0px) + 10px);z-index:8;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:18px -6px -4px;padding:12px 14px;border:1px solid var(--line-strong);border-radius:10px;background:var(--card-raised);box-shadow:0 10px 30px -18px var(--scrim)}
  .save-summary{margin:0;font-size:.8rem;color:var(--ink-soft)}.save-hint{display:block;margin-top:2px;color:var(--muted);font-size:.72rem}
- .needs-you{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:16px 0;padding:12px 16px;border:1px solid color-mix(in srgb,var(--warn) 45%,var(--line));border-left-width:4px;border-radius:10px;background:var(--card)}
- .needs-you h3{margin:0;font:500 1rem/1.3 var(--serif)}.needs-you ul{margin:4px 0 0;padding-left:18px;font-size:.8rem}.needs-you .hint{font-size:.72rem}
  .editing{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0}
  .mini-btn{min-height:24px;padding:2px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink-soft);font:600 .72rem var(--sans);cursor:pointer}
  .mini-btn:hover{border-color:var(--muted)}
@@ -837,7 +828,6 @@
  @media(max-width:600px){
   .pickers{grid-template-columns:1fr}.control{padding:12px}.actions .btn{flex:1 1 auto}.scope-grid{grid-template-columns:1fr}.set-head{align-items:flex-start}.set-head .btn{width:100%}
   .save-dock{bottom:calc(var(--bottom-chrome,0px) + 6px);padding:10px}.save-dock .btn{width:100%}
-  .needs-you{padding:10px 12px}
   .differences th,.differences td{padding:7px 9px}
   .activity{padding:12px;border-radius:12px}.activity-head h3{font-size:1.12rem}
   .activity-job > summary{grid-template-columns:24px minmax(0,1fr);padding:10px 12px}

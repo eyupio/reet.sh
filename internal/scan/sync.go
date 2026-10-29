@@ -49,6 +49,7 @@ type syncOptions struct {
 	approvedHash     string
 	cwd              string
 	onPlan           func(SyncPlan)
+	onProgress       func(string, string)
 	onBackup         func(string)
 }
 
@@ -454,6 +455,12 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 		return actions, nil
 	}
+	progress := func(stage, detail string) {
+		if options.onProgress != nil {
+			options.onProgress(stage, detail)
+		}
+	}
+	progress("read", "Reading installed skills on this machine")
 	actions, err := collect()
 	if err != nil {
 		return err
@@ -468,6 +475,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 		fmt.Fprintf(out, "  %s %s (%s)\n", verb, action.Skill.Slug, action.Skill.Source)
 	}
+	progress("plan", fmt.Sprintf("%d changes planned", len(actions)))
 	plan := SyncPlan{Target: target.Target.ID, Directory: targetPath, Revision: target.Revision, Actions: actions}
 	if options.onPlan != nil {
 		options.onPlan(plan)
@@ -520,7 +528,12 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		return errors.New("local skills changed; preview again")
 	}
 
-	for _, action := range actions {
+	for index, action := range actions {
+		verb := "Installing"
+		if !action.Add {
+			verb = "Backing up"
+		}
+		progress("apply", fmt.Sprintf("%s %s · %d of %d", verb, action.Skill.Slug, index+1, len(actions)))
 		var operationErr error
 		if action.Add {
 			if action.Replace {
@@ -546,6 +559,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 	}
 
+	progress("verify", "Checking installed skills and reporting the result")
 	if err := rescan(); err != nil {
 		return err
 	}

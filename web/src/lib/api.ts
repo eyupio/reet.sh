@@ -468,7 +468,7 @@ export async function getRollup(): Promise<Rollup> {
 export type ContentInventory = { state: string; schemaVersion?: number; observedAt?: number; receivedAt?: number; skills: { name: string; complete: boolean; digest?: string; files: number; bytes: number; issues?: string[] }[] }
 export type SyncEnvironment = Environment & { content?: ContentInventory; error?: string; project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
 export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source' | 'sourceType'>
-export type SyncTarget = { mode?: string; baseline?: SyncSkill[]; appliedRevision?: string; hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
+export type SyncTarget = { problem?: string; followSource?: boolean; mode?: string; baseline?: SyncSkill[]; appliedRevision?: string; hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
 export type SetupProfileSummary = { name: string; revision: number; snapshotId: string; snapshotDigest: string; updatedAt: number }
 export type SetupProfileComponent = {
   kind: string; source: string; scope: string; state?: string
@@ -930,12 +930,12 @@ export async function deleteHostedSkill(slug: string): Promise<void> {
   await req(`/api/v2/hosting/skills/${encodeURIComponent(slug)}`, { method: 'DELETE' })
 }
 
-export type SyncAgent = { id: string; host: string; version: string; commit?: string; lastSeen: number; paused: boolean; autoUpdate: boolean }
+export type SyncAgent = { keepSynced?: boolean; id: string; host: string; version: string; commit?: string; lastSeen: number; paused: boolean; autoUpdate: boolean }
 export type SyncPlan = { backups?: string[]; target: string; directory: string; revision: string; actions: { add: boolean; skill: SyncSkill }[] }
 export type UpdateStage = { key: string; label: string; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped'; detail?: string }
 export type SyncJob = { id: string; agentId: string; targetId: string; kind: string; status: string; revision: string; hash: string; plan: Partial<SyncPlan>; message: string; stage?: string; stages?: UpdateStage[]; createdAt: number; updatedAt: number }
 export async function syncCandidates(listId = 0, collection = 'shelf'): Promise<{ skills: SyncSkill[] }> { return (await req(`/api/v2/sync/candidates?list=${listId}&collection=${encodeURIComponent(collection)}`)).json() }
-export async function saveDesired(data: { targetId: string; sourceId: string; listId: number; skillIds: string[]; mode: string; revision: string }): Promise<SyncState> { return (await req('/api/v2/sync/desired', { method: 'PUT', body: json(data) })).json() }
+export async function saveDesired(data: { followSource?: boolean; targetId: string; sourceId: string; listId: number; skillIds: string[]; mode: string; revision: string }): Promise<SyncState> { return (await req('/api/v2/sync/desired', { method: 'PUT', body: json(data) })).json() }
 export async function reconcileDesired(targetId: string): Promise<{ skills: SyncSkill[]; conflicts: string[]; revision: string }> { return (await req('/api/v2/sync/reconcile', { method: 'POST', body: json({ targetId }) })).json() }
 export async function adoptSyncSkills(targetId: string, skillIds: string[], listId = 0): Promise<void> { await req('/api/v2/sync/adopt', { method: 'POST', body: json({ targetId, skillIds, listId }) }) }
 export async function queueSyncJob(agentId: string, targetId: string, kind: string): Promise<SyncState> { return (await req('/api/v2/sync/jobs', { method: 'POST', body: json({ agentId, targetId, kind }) })).json() }

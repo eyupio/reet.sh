@@ -1,5 +1,6 @@
 <script lang="ts">
-  let { count, tagOptions, busy, onclear, ontag, onstage, onlike, onremove }: {
+  let { syncHref = '', count, tagOptions, busy, onclear, ontag, onstage, onlike, onremove }: {
+    syncHref?: string
     count: number
     tagOptions: string[]
     busy: boolean
@@ -36,6 +37,7 @@
 <section class="bulk" aria-label="Bulk actions" aria-live="polite">
   <strong>{count === 1 ? '1 selected' : `${count} selected`}</strong>
   <div class="actions">
+    {#if syncHref && count}<a class="btn primary" href={syncHref}>Sync to machines</a>{/if}
     {#if tagOpen}
       <form onsubmit={addTag}>
         <label class="vh" for="bulk-tag">Tag selected skills</label>

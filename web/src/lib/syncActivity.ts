@@ -19,6 +19,7 @@ export type SyncActivityEntry = {
   failed: boolean
   resolved: boolean
   cancelled: boolean
+  superseded: boolean
 }
 
 export type SyncHostActivity = {
@@ -60,27 +61,29 @@ function scopeLabel(job: SyncJob, view: SyncActivityView): string {
 }
 
 function entryRank(entry: SyncActivityEntry): number {
+  if (entry.superseded) return 5
   if (entry.active) return 0
-  if (entry.failed) return 1
-  if (entry.review) return 2
+  if (entry.review) return 1
+  if (entry.failed) return 2
   if (entry.cancelled) return 3
   return 4
 }
 
-function entryFor(jobs: SyncJob[], view: SyncActivityView): SyncActivityEntry {
+function entryFor(jobs: SyncJob[], view: SyncActivityView, superseded = false): SyncActivityEntry {
   const ordered = [...jobs].sort((a, b) => b.updatedAt - a.updatedAt)
   const job = ordered[0]
   const host = jobHost(job, view)
   return {
-    key: FAILED.has(job.status) ? `${host}|${job.kind}|${job.status}|${job.message}` : job.id,
+    key: FAILED.has(job.status) ? `${host}|${job.kind}|${job.status}|${job.message}|${superseded}` : job.id,
     host,
     job,
     jobs: ordered,
     scopes: [...new Set(ordered.map(item => scopeLabel(item, view)).filter(Boolean))],
     active: ACTIVE.has(job.status),
     review: job.status === 'awaiting-approval',
-    failed: FAILED.has(job.status),
-    resolved: RESOLVED.has(job.status),
+    failed: FAILED.has(job.status) && !superseded,
+    resolved: RESOLVED.has(job.status) || superseded,
+    superseded,
     cancelled: job.status === 'cancelled',
   }
 }
@@ -101,13 +104,15 @@ export function syncActivityOverview(jobs: SyncJob[], view: SyncActivityView = {
     if (!job || seen.has(job.id)) continue
     seen.add(job.id)
     const host = jobHost(job, view)
-    const key = FAILED.has(job.status) ? `${foldHost(host)}|${job.kind}|${job.status}|${job.message}` : job.id
+    const domain = (item: SyncJob) => item.kind === 'update' ? 'update' : item.kind === 'scan' ? 'scan' : 'sync'
+    const superseded = FAILED.has(job.status) && jobs.some(later => later.agentId === job.agentId && later.targetId === job.targetId && domain(later) === domain(job) && later.createdAt > job.createdAt)
+    const key = FAILED.has(job.status) ? `${foldHost(host)}|${job.kind}|${job.status}|${job.message}|${superseded ? 'history' : 'current'}` : job.id
     const list = grouped.get(key) ?? []
     list.push(job)
     grouped.set(key, list)
   }
 
-  const entries = [...grouped.values()].map(list => entryFor(list, view))
+  const entries = [...grouped.entries()].map(([key, list]) => entryFor(list, view, key.endsWith('|history')))
   const byHost = new Map<string, { host: string; entries: SyncActivityEntry[] }>()
   for (const entry of entries) {
     const key = foldHost(entry.host)
@@ -123,7 +128,7 @@ export function syncActivityOverview(jobs: SyncJob[], view: SyncActivityView = {
       entries: list,
       active: count(list, job => ACTIVE.has(job.status)),
       review: count(list, job => job.status === 'awaiting-approval'),
-      failed: count(list, job => FAILED.has(job.status)),
+      failed: list.filter(entry => entry.failed).reduce((sum, entry) => sum + entry.jobs.length, 0),
       done: count(list, job => job.status === 'succeeded'),
       cancelled: count(list, job => job.status === 'cancelled'),
     }

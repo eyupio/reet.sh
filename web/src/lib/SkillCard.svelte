@@ -90,7 +90,8 @@
     return rank[a.status] - rank[b.status] || a.host.localeCompare(b.host)
   }))
   const visibleInstallations = $derived(expanded ? installations : installations.slice(0, 3))
-  const missingReports = $derived(installations.filter(report => report.status === 'missing'))
+  const canInstall = $derived(!!command)
+  const missingReports = $derived(installations.filter(report => report.status === 'missing' && canInstall))
   // Nothing has this skill yet: installing it is the step that does something, so it leads. Once a machine has it, the next shelf step does.
   const installedSomewhere = $derived(installations.some(report => report.status === 'installed'))
   const leadWithInstall = $derived(!!command && !installedSomewhere)
@@ -274,7 +275,7 @@
       {#each visibleInstallations as report (report.host)}
         <li class="installation-badge {report.status}" title={report.status === 'installed' ? 'Present in at least one complete agent scan from the last 14 days.' : report.status === 'missing' ? 'Absent from all reported agent groups. All of this machine’s agent scans are complete and less than 14 days old.' : report.groupCount ? 'Rescan this machine: one or more agent inventories are incomplete or out of date.' : 'No agent inventory reported. A server heartbeat cannot confirm installed skills.'}>
           <span class="status-dot" aria-hidden="true"></span><span class="host">{report.host}</span>
-          {#if report.status === 'missing' && canWrite && oninstall}
+          {#if report.status === 'missing' && canWrite && oninstall && canInstall}
             <button type="button" class="install-now" disabled={!!installing} aria-label={`Install ${skill.name} on ${report.host} now`} onclick={(event) => { event.stopPropagation(); oninstall(skill, report.host) }}>{installing === `${skill.id}:${report.host}` ? 'Adding…' : 'Add now'}</button>
           {:else}
             <strong>{installationLabels[report.status]}</strong>
@@ -294,7 +295,8 @@
       <button type="button" class="chip heart" data-act="like" aria-label={`Like ${skill.name}`} aria-pressed={skill.liked} onclick={() => onpatch(skill, { liked: !skill.liked }, 'like')}><span aria-hidden="true">{skill.liked ? '♥' : '♡'}</span>Like</button>
     {/if}
     {#if command}<CopyButton text={command} label="Copy install" ariaLabel={`Copy install command for ${skill.name}`} compact primary={leadWithInstall} oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />{/if}
-    {#if prompt && expanded}<CopyButton text={prompt} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} compact oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />{/if}
+    {#if !command && canWrite}<button type="button" class="chip" onclick={() => { linking = true; onexpand(true) }}>Link source to sync</button>{/if}
+    {#if prompt}<CopyButton text={prompt} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} compact oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />{/if}
     {#if canWrite}
       <button type="button" class="chip menu-trigger" bind:this={menuButton} aria-haspopup="menu" aria-expanded={menuOpen} aria-label={`More actions for ${skill.name}`} title="More actions" onclick={openMenuFromButton}><span aria-hidden="true">⋯</span></button>
     {/if}
@@ -480,6 +482,8 @@
         <a role="menuitem" href={`/sync?machine=${encodeURIComponent(missingReports[0].host)}`}>Review sync for {missingReports[0].host}</a>
       {/if}
       {#if command}<button type="button" role="menuitem" onclick={copyInstall}>Copy install command</button>{/if}
+      {#if prompt}<button type="button" role="menuitem" onclick={() => { closeMenu(); void copyText(prompt) }}>Copy prompt</button>{/if}
+      <a role="menuitem" href={`/sync?skill=${encodeURIComponent(skill.id)}`}>Sync to machines…</a>
       <button type="button" role="menuitem" onclick={() => { closeMenu(); void onpatch(skill, { liked: !skill.liked }, 'like') }}>{skill.liked ? 'Unlike' : 'Like'}</button>
       <button type="button" role="menuitem" onclick={() => { closeMenu(); onexpand(!expanded) }}>{expanded ? 'Collapse details' : 'Expand details'}</button>
       <button type="button" role="menuitem" class="danger" onclick={() => { closeMenu(); onremove(skill) }}>Remove from shelf</button>

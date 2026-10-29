@@ -87,3 +87,26 @@ test('an update job with no target still belongs to its machine', () => {
   assert.deepEqual(overview.hosts[0].entries[0].scopes, [])
   assert.equal(overview.done, 1)
 })
+
+test('a newer retry moves the old failure to history without losing its evidence', () => {
+  for (const status of ['queued', 'running', 'awaiting-approval', 'succeeded']) {
+    const overview = syncActivityOverview([
+      job({ id: 'failed', kind: 'apply', createdAt: now - 2000 }),
+      job({ id: 'retry', kind: 'auto', status, createdAt: now, updatedAt: now }),
+    ], view)
+    assert.equal(overview.failed, 0)
+    const old = overview.hosts[0].entries.find(entry => entry.job.id === 'failed')
+    assert.equal(old.resolved, true)
+    assert.equal(old.superseded, true)
+    assert.equal(overview.total, 2)
+  }
+})
+
+test('a scan or a retry on another scope does not resolve an apply failure', () => {
+  const overview = syncActivityOverview([
+    job({ id: 'failed', kind: 'apply', createdAt: now - 2000 }),
+    job({ id: 'scan', kind: 'scan', status: 'succeeded', createdAt: now }),
+    job({ id: 'other', targetId: 't2', status: 'succeeded', createdAt: now }),
+  ], view)
+  assert.equal(overview.failed, 1)
+})

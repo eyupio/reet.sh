@@ -25,7 +25,9 @@
   } = $props()
 
   const id = $props.id()
-  const CHAT_WHY = 'Chat arrives with structured sessions.'
+  const chatView = $derived(!!session.structured)
+  const CHAT_WHY = 'Chat is for a structured OpenCode session.'
+  const TERMINAL_WHY = 'A chat session has no terminal.'
 
   // The skills line comes from the sync state, read once when the screen opens (undefined while reading, null if it failed).
   let sync = $state<SyncState | null | undefined>(undefined)
@@ -155,10 +157,11 @@
       <span class="pill {word.tone}" title={source}><span class="dot" aria-hidden="true"></span>{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
       {#if session.yolo}<span class="badge yolo">YOLO</span>{/if}
       <div class="view" role="group" aria-label="View">
-        <button type="button" class="chat" aria-pressed="false" aria-disabled="true" aria-describedby={`${id}-chat-why`} title={CHAT_WHY}>Chat</button>
-        <button type="button" aria-pressed="true">Terminal</button>
+        <button type="button" class="chat" aria-pressed={chatView} aria-disabled={!chatView} aria-describedby={chatView ? undefined : `${id}-chat-why`} title={chatView ? undefined : CHAT_WHY}>Chat</button>
+        <button type="button" aria-pressed={!chatView} aria-disabled={chatView} aria-describedby={chatView ? `${id}-terminal-why` : undefined} title={chatView ? TERMINAL_WHY : undefined}>Terminal</button>
       </div>
       <span class="vh" id={`${id}-chat-why`}>{CHAT_WHY}</span>
+      {#if chatView}<span class="vh" id={`${id}-terminal-why`}>{TERMINAL_WHY}</span>{/if}
       <button type="button" class="details" bind:this={detailsButton} aria-expanded={detailsOpen} aria-controls={`${id}-context`} onclick={() => void toggleDetails()} onkeydown={closeDetails}>Details</button>
       <button type="button" class="more" bind:this={menuButton} aria-label="Session actions" aria-haspopup="menu" aria-expanded={menuAt !== null}
         onclick={event => { if (menuAt) closeMenu(); else void openMenu(event) }} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event) }}>
@@ -218,7 +221,7 @@
   .view { flex: none; display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
   .view button { padding: 7px 16px; border: 0; background: none; color: var(--muted); font: 400 14px var(--sans); cursor: pointer; }
   .view button[aria-pressed=true] { background: var(--line-soft); color: var(--ink); font-weight: 500; cursor: default; }
-  .view .chat { cursor: not-allowed; }
+  .view button[aria-disabled=true] { cursor: not-allowed; }
   .view button:focus-visible, .details:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   .details { display: none; flex: none; min-height: 44px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: none; color: var(--ink); font: 500 14px var(--sans); cursor: pointer; }
   .details[aria-expanded=true] { background: var(--line-soft); }

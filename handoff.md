@@ -7,7 +7,8 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [control centre](docs/control-centre.md), [terminal workspace](docs/terminal-workspace.md),
 [projects](docs/projects.md), [folder browse](docs/folder-browse.md),
 [remote machine operations](docs/remote-machine-operations.md),
-[controller terminal commands](docs/terminal-controller-commands.md) and
+[controller terminal commands](docs/terminal-controller-commands.md),
+[structured OpenCode chats](docs/structured-sessions.md) and
 [voice and copy](docs/voice-and-copy.md)); the agents-home mock-up in
 [docs/design/agents-home/](docs/design/agents-home/), its
 [plan](docs/superpowers/plans/2026-10-26-agents-home.md) and
@@ -27,25 +28,23 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 
 ## Agents home redesign (27–28 October 2026)
 
-### Resume here (models UI complete, 29 October 2026)
+### Resume here (structured OpenCode chats in review, 29 October 2026)
 
-**#247 (models backend) merged as `16da0bb`; #245 as `1371cb5`; #242 as `961d530`; #231 as `7886511`.**
-The first models UI half is [PR #252](https://github.com/eyupio/reet.sh/pull/252) (M5–M7); the second half is
-**#255** on this branch (M8–M11).
+**#255 (models UI M8–M11) merged as `32866ad`; #252 as `3be0eaf`; #247 as `16da0bb`; #245 as `1371cb5`;
+#242 as `961d530`; #231 as `7886511`.**
 
-- **Branch and PR:** `ccr-7a7f5a9b-to5imh` holds M8–M11: the Start an agent picker with project/account defaults and
-  Cline thinking, Add project/Project settings defaults, Settings › Agents (account defaults and favourites), the
-  Machines “Agents” section with cache state and guarded Refresh, Activity and hover-card model lines, docs and the
-  phone/matrix evidence. The PR is **#255, open**; it is not merged yet.
-- **Next stage:** Program 2, slice 1 — structured OpenCode sessions with approval cards (Allow once / Deny), behind
-  the seven probe conditions. It is the next PR. Model work is done; no more model UI is queued.
+- **Branch and PR:** `ccr-acp-chat` holds Program 2 slice 1: structured OpenCode chats with Allow once / Deny approval
+  cards, the seven probe conditions, the `acp-v1` protocol, the Chat tab, docs and evidence. The PR is this one;
+  it is **open** until its checks are green and it is merged.
+- **Next stage after this PR:** none is queued for Program 2. A later slice can add history/resume, images and other
+  agents only after their protocol behaviour is probed. Model work is done.
 - **Do first:** check the PR's final head with the REST forms
   (`gh api repos/eyupio/reet.sh/pulls/<n>` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
   `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). Merge only when every check is green and Codex has
   reviewed it, or the owner gives an explicit exception.
-- **Release:** R22 lets B, C, E and the copy/paste work go out together; the models work can join when its UI is
-  done. The owner's call; no release tag was cut or checked (`gh release list --repo eyupio/reet.sh`). F and G
-  come later.
+- **Release:** R22 lets B, C, E and the copy/paste work go out together; the models work and this structured chat
+  slice can join it. The owner's call; no release tag was cut or checked (`gh release list --repo eyupio/reet.sh`).
+  F and G come later.
 - The research these start from is in [docs/research/](docs/research/) (copied whole from the session's git-ignored
   notes). Those reports summarise third-party code and docs read as untrusted data: check a claim against its label
   (*read*, *doc*, *belief*/*memory*) before building on it.
@@ -75,8 +74,8 @@ left out of the first pass, and the Program 2 spike ran in parallel.
 | Copy/paste follow-up | `Exited` cleanup, running 24 h sweep, two concurrent uploads and third refusal at the connector, lost-reply timeout, Scrollback-mid-upload wording, this handoff | merged, [#245](https://github.com/eyupio/reet.sh/pull/245) as `1371cb5` (owner approval; Codex re-review clean) |
 | Models backend | `models-v1`, OpenCode listing, local switch, per-machine cache, read/refresh/list API, favourites, account defaults, project effort, Cline project default | merged, [#247](https://github.com/eyupio/reet.sh/pull/247) as `16da0bb` (owner exception; Codex quota). M0 `c1152ff`, M1 `f4bf81c`, M2 `11afb42`, M3 `9d7f234`, M4 `5490a6c`, docs `3cd34f0` (plan `2a54133`); review fixes `56f5f5b`, `39a61a8`, `a8c9310` |
 | Models UI (M5–M7) | `models.ts`, model/favourite clients, picker star/status/Refresh/Use, launch bar defaults-first, Home account defaults, automatic machine read | **[#252](https://github.com/eyupio/reet.sh/pull/252), open**. Plan `d802ff0`, M5 `a7e0d7d`, picker `9202695`, bar `ca0f972`, review fixes `67feb99`, evidence `24df6cc` |
-| Models UI (M8–M11) | Start an agent picker with project/account defaults and Cline thinking; Add project/Project settings defaults; Settings › Agents; Machines “Agents” cache state and guarded Refresh; Activity/hover-card model lines; docs and phone evidence | **#255, open (this branch)**. Plan `docs/superpowers/plans/2026-10-29-agent-models-ui-2.md`; M8–M10 committed before M11 |
-| Program 2 | Structured chat over the agent protocol, with approval cards | spike done; OpenCode chosen (27 Oct); hands-on probe of `opencode acp` 1.19.5 done (28 Oct): conditional go for trusted workspaces only; queued as slice 1 below |
+| Models UI (M8–M11) | Start an agent picker with project/account defaults and Cline thinking; Add project/Project settings defaults; Settings › Agents; Machines “Agents” cache state and guarded Refresh; Activity/hover-card model lines; docs and phone evidence | merged, [#255](https://github.com/eyupio/reet.sh/pull/255) as `32866ad` (owner's instruction; Codex reviewed an earlier head, the runner timed out on the final head and a rerun passed). Plan `docs/superpowers/plans/2026-10-29-agent-models-ui-2.md` |
+| Program 2, slice 1 | Structured OpenCode chats: `acp-v1`, machine-side ACP supervisor with the seven probe conditions, controller relay and SSE, Chat tab, Allow once / Deny, docs | **this PR, open** on `ccr-acp-chat`; plan `docs/superpowers/plans/2026-10-29-program-2-slice-1.md` |
 
 Merged into main by the owner while this work was open: #222, #223 (`4791d89`), #224, #225, #228, #229, #230, #232, #233,
 #234, #235 and #236 (each merged into the open branch before its next push; #235 and #236 in `57d8f53`), then #237–#244
@@ -88,7 +87,8 @@ cleanly, or the owner gives an explicit exception. So far: #227's exception is r
 #226 merged on green CI without a Codex review and without an exception comment; #231 merged on the owner's decision
 after green checks; #242 merged on the owner's 28 October instruction to create it and merge when green; #245 merged
 on the owner's approval of the follow-up recommendation with a clean Codex re-review; #247 merged as `16da0bb` under the
-owner's merge instruction; #252 is the models UI and the owner instructed merge when green. CodeQL alert #20 on #242 was dismissed as a false positive (the
+owner's merge instruction; #252 and #255 merged on the owner's instruction to merge when green; #255's final head passed
+after a terminal-browser rerun. CodeQL alert #20 on #242 was dismissed as a false positive (the
 machine path is validated plain text, URL-escaped into response headers, and never in the JSON body; JSON plus nosniff).
 
 **Rulings beyond R1–R22** (all recorded in the session notes and kept here so they survive):
@@ -160,11 +160,26 @@ After the models picker/launch bar:
   model slot has a star, filter, Use ‘x’ and a status/Refresh line; tablet/phone keep the model in the Change sheet.
 - Only OpenCode has a machine list; other agents use favourites/suggestions/Other. The account defaults and
   favourite manager are under Account → Agents; the Start dialog, Add project/Project settings, Machines → Settings
-  → Agents, Activity and the hover card are in this PR (#255). A per-machine default remains deferred.
+  → Agents, Activity and the hover card are in #255. A per-machine default remains deferred.
 - Home does not load favourites itself; the bar does (a recorded plan deviation). A model read failure never
   blocks Start. The real cached-offline shape is overlaid in the bar, not by the API.
 - No physical phone/Safari; a 500-model list under a slow reader is not load-tested. The picker/star additions are
   not in the drawings; `docs/ui-verification.md` lists them.
+
+After the structured chat slice:
+
+- **Chat history is in memory.** The controller keeps at most 1,000 events / 256 KiB per chat and writes no transcript.
+  A server restart loses it; archiving the session drops it. A lost machine connection kills every chat process group; a
+  reconnect marks the session lost.
+- **OpenCode 1.19.5 only.** The connector refuses another version before starting a process. The seven conditions in
+  [structured-sessions.md](docs/structured-sessions.md) are mandatory; a repository with `.opencode` plugins needs the
+  Start dialog's trust confirmation. Always allow is never offered, and a diff or command too large for one control frame
+  cannot be allowed.
+- **No live model turn** was sent in the checks. The real 1.19.5 binary opened a session in a throwaway HOME; the protocol
+  tests use a fake ACP child. Images, modes, MCP servers, resume and other agents are not in slice 1. No physical phone,
+  Safari or Firefox was checked.
+- A chat's model is OpenCode's configured model; the picker is hidden. The process can still install
+  `@opencode-ai/plugin` from npm in the background, as the probe saw with the opt-outs set.
 
 Before this PR:
 
@@ -210,7 +225,7 @@ Still true from earlier PRs:
 
 ### Queued work (decided, not started)
 
-**1. Program 2, slice 1: structured OpenCode sessions** (after the models UI). Input:
+**1. Program 2, slice 1: structured OpenCode sessions** (implemented in this PR; kept as the design record). Input:
 [docs/research/probe-report.md](docs/research/probe-report.md),
 [reference-tool-frontend-research.md](docs/research/reference-tool-frontend-research.md) and
 [reference-tool-agents-research.md](docs/research/reference-tool-agents-research.md). Owner decision: trusted workspaces only, OpenCode, Allow
@@ -282,6 +297,14 @@ once / Deny only, and only with all seven conditions:
   `/api/v2/machines/<id>/models` (the bar reads both without blocking Start); `phone-zoom`/`phone-dialogs` use
   `helpers/longtext.mjs` and need the same routes. The picker's filter is pinned and the sheet body scrolls; keep it
   that way for 500 models. Star focus must be restored after the row moves groups.
+- **Structured chats:** the machine-side `internal/opencodeacp` starts exactly `opencode-ai@1.19.5` with
+  `OPENCODE_CONFIG_CONTENT`, `OPENCODE_DISABLE_PROJECT_CONFIG=1`, a random `OPENCODE_SERVER_PASSWORD`, `task: deny` and
+  the environment allowlist. It answers `fs/write_text_file` with success without writing (OpenCode already wrote the
+  file), checks mode `build`, offers `once`/`reject` only, closes its own cards on cancel/timeout, and kills the process
+  group on end. Do not forward raw ACP JSON to the browser; map it to `ACPEvent` and keep it inside the control frame.
+- **Chat transport:** events are a bounded ring in `internal/terminalbroker/chat.go` and SSE at
+  `/api/v2/terminal/sessions/{id}/chat`; prompts, cancel and approvals are POSTs. A browser reconnect resets and replays
+  the ring. A structured session is an ordinary row with `structured=1`; it has no terminal, so do not attach to it.
 - **Process used** (subagent-driven development): an implementer per task with a brief, a task review, fix rounds
   (at most five) with a scoped re-review, then a final broad review split by area and a single fix wave; mutation checks
   restore files byte-identical (`cp` before, `cmp` after); fidelity checks at 1440, 834 and 390 px recorded in
@@ -326,6 +349,7 @@ once / Deny only, and only with all seven conditions:
 | Typed private transport and broker | `internal/terminalproto`, `internal/terminalagent`, `internal/terminalbroker`, `internal/privateconn` |
 | Terminal API and records | `internal/api/terminal.go`, `internal/store/store_terminal.go` |
 | Terminal UI and connection state | `web/src/lib/terminal/TerminalWorkspace.svelte`, `TerminalPane.svelte`, `api.ts`, `connection.ts` |
+| Structured OpenCode chats | `internal/opencodeacp` (process, config, env, permissions), `internal/terminalagent/chat.go` (dispatch), `internal/terminalbroker/chat.go` (ring/commands), `internal/api/terminal_chat.go` (SSE and POSTs), `web/src/lib/chat.ts` and `terminal/ChatPane.svelte` |
 | Controller enablement | `cmd/reet/terminal.go`, `internal/terminalcontrol`, `docs/terminal-controller-commands.md` |
 | Machine health | `internal/agenthealth`, `internal/store/store_remote_health.go`, `internal/api/health.go` |
 | Notifications | `internal/notify`, `internal/store/store_notify.go`, `internal/api/notifications.go`, `web/src/lib/Notifications.svelte` |

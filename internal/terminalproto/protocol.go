@@ -129,20 +129,22 @@ type Capabilities struct {
 	Resume bool `json:"resume,omitempty"`
 	// Yolo is reserved: no connector may advertise it until YOLO launches exist,
 	// so ValidateFor rejects it.
-	Yolo            bool      `json:"yolo,omitempty"`
-	AgentsV2        bool      `json:"agentsV2,omitempty"`
-	OSVersion       string    `json:"osVersion,omitempty"`
-	Tools           []string  `json:"tools,omitempty"`
-	CommandHistory  bool      `json:"commandHistory,omitempty"`
-	Worktree        bool      `json:"worktree,omitempty"`
-	Browse          bool      `json:"browse,omitempty"`
-	Branches        bool      `json:"branches,omitempty"`
-	BrowseOff       bool      `json:"browseOff,omitempty"`
-	Clipboard       bool      `json:"clipboard,omitempty"`
-	Uploads         bool      `json:"uploads,omitempty"`
-	UploadsOff      bool      `json:"uploadsOff,omitempty"`
-	Models          bool      `json:"models,omitempty"`
-	ModelsOff       bool      `json:"modelsOff,omitempty"`
+	Yolo           bool     `json:"yolo,omitempty"`
+	AgentsV2       bool     `json:"agentsV2,omitempty"`
+	OSVersion      string   `json:"osVersion,omitempty"`
+	Tools          []string `json:"tools,omitempty"`
+	CommandHistory bool     `json:"commandHistory,omitempty"`
+	Worktree       bool     `json:"worktree,omitempty"`
+	Browse         bool     `json:"browse,omitempty"`
+	Branches       bool     `json:"branches,omitempty"`
+	BrowseOff      bool     `json:"browseOff,omitempty"`
+	Clipboard      bool     `json:"clipboard,omitempty"`
+	Uploads        bool     `json:"uploads,omitempty"`
+	UploadsOff     bool     `json:"uploadsOff,omitempty"`
+	Models         bool     `json:"models,omitempty"`
+	ModelsOff      bool     `json:"modelsOff,omitempty"`
+	// ACP is sent only on a connection that negotiated acp-v1.
+	ACP             bool      `json:"acp,omitempty"`
 	TerminalControl bool      `json:"terminalControl,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
@@ -180,6 +182,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.Models && !c.TerminalControl || c.ModelsOff && (c.Models || !c.TerminalControl) {
+		return ErrInvalid
+	}
+	if c.ACP && !c.TerminalControl {
 		return ErrInvalid
 	}
 	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {
@@ -294,12 +299,25 @@ type Create struct {
 	// only for a closed session, and only on a machine that negotiated
 	// resume-v1 and whose preset has a reviewed resume command.
 	Resume bool `json:"resume,omitempty"`
+	// Structured opens an OpenCode chat over ACP instead of a terminal. It is
+	// sent only on a connection that negotiated acp-v1; the machine never
+	// substitutes a terminal for it.
+	Structured bool `json:"structured,omitempty"`
+	// Trust confirms that the person accepted the repository plugin warning.
+	// It is meaningful only with Structured.
+	Trust bool `json:"trust,omitempty"`
 }
 
 func (Create) kind() string  { return "create" }
 func (c Create) valid() bool { return c.Validate() == nil }
 func (c Create) Validate() error {
 	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) || !c.validLaunch() || !c.validWorktree() || c.Base != "" && (c.Worktree == "" || !validRefName(c.Base)) {
+		return ErrInvalid
+	}
+	if c.Structured && (c.Tool != "opencode" || c.Worktree != "" || c.Project != "" || c.Base != "" || c.Effort != "" || c.Yolo || c.Resume) {
+		return ErrInvalid
+	}
+	if c.Trust && !c.Structured {
 		return ErrInvalid
 	}
 	return nil
@@ -388,10 +406,18 @@ const (
 	// UploadBusy refuses an upload before any stream is opened because two
 	// transfers are already in flight on this connection.
 	UploadBusy ResultCode = "upload_busy"
+	// ACPUnavailable means the machine did not negotiate acp-v1 or has no
+	// supported OpenCode to start.
+	ACPUnavailable ResultCode = "acp_unavailable"
+	// ACPVersion means OpenCode is installed but is not exactly 1.19.5.
+	ACPVersion ResultCode = "acp_version"
+	// ACPTrustRequired means the folder has .opencode plugins and the start
+	// did not carry the person's trust confirmation.
+	ACPTrustRequired ResultCode = "acp_trust_required"
 )
 
 func (c ResultCode) Valid() bool {
-	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == LaunchOptionUnsupported || c == YoloRefused || c == WorktreeChanged || c == WorktreeRefused || c == UploadsOff || c == UploadBusy
+	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == LaunchOptionUnsupported || c == YoloRefused || c == WorktreeChanged || c == WorktreeRefused || c == UploadsOff || c == UploadBusy || c == ACPUnavailable || c == ACPVersion || c == ACPTrustRequired
 }
 
 type Result struct {
@@ -410,7 +436,17 @@ func (r Result) valid() bool {
 	if r.Reason != "" && (r.Code != WorktreeRefused || !r.Reason.Valid()) {
 		return false
 	}
-	return r.Detail == "" || r.Reason != "" && validWorktreeDetail(r.Detail)
+	if r.Detail != "" {
+		switch r.Code {
+		case WorktreeRefused:
+			return r.Reason != "" && validWorktreeDetail(r.Detail)
+		case ACPUnavailable, ACPVersion, ACPTrustRequired:
+			return validChatText(r.Detail, 500)
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 type SessionChanged struct {
@@ -441,7 +477,7 @@ func (m Message) Validate() error {
 		return ErrInvalid
 	}
 	kind := m.Body.kind()
-	session := kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed" || kind == "upload"
+	session := kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed" || kind == "upload" || kind == "acp_prompt" || kind == "acp_cancel" || kind == "acp_permission" || kind == "acp_event"
 	attachment := kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "history" || kind == "command_history" || kind == "upload" || kind == "result" && m.AttachmentID != ""
 	if session && !ValidID(m.SessionID) || !session && m.SessionID != "" && (kind != "result" || !ValidID(m.SessionID)) {
 		return ErrInvalid
@@ -532,6 +568,14 @@ func Decode(data []byte) (Message, error) {
 		b = &Result{}
 	case "session_changed":
 		b = &SessionChanged{}
+	case "acp_prompt":
+		b = &ACPPrompt{}
+	case "acp_cancel":
+		b = &ACPCancel{}
+	case "acp_permission":
+		b = &ACPPermission{}
+	case "acp_event":
+		b = &ACPEvent{}
 	default:
 		return Message{}, ErrInvalid
 	}

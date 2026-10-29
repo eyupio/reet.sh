@@ -181,8 +181,9 @@ export function headerMeta(s: Pick<TerminalSession, 'tool' | 'model'>, createdAt
 }
 
 /** Decisions in this session. A terminal agent asks in its own terminal; reet sees none of it, so it lists none. */
-export function decisionsLine(s: Pick<TerminalSession, 'yolo'>): string {
-  return s.yolo ? 'YOLO: reet answers yes, this once, to each request.' : 'Asked in the terminal.'
+export function decisionsLine(s: Pick<TerminalSession, 'yolo' | 'structured'>): string {
+  if (s.yolo) return 'YOLO: reet answers yes, this once, to each request.'
+  return s.structured ? 'Asked in the chat: Allow once or Deny.' : 'Asked in the terminal.'
 }
 
 /** The context panel's changed files (R19): the first twenty paths the worktree status lists, the total, and how many more. */

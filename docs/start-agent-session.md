@@ -3,7 +3,8 @@
 Home starts sessions from its launch bar ([below](#on-home-the-launch-bar)). The **Start an agent**
 dialog stays for Machines and the Sessions panel: pick a machine, an agent, a folder and, if you like,
 a model and an opening prompt. Press **Start**
-and you land in a new browser terminal session with that agent already running. The dialog is
+and you land in a new browser terminal session with that agent already running, or in a structured chat when you
+choose **Chat**. The dialog is
 `web/src/lib/StartAgentDialog.svelte`. The launch request it sends and how a machine handles it are
 in [Launch requests](terminal-launch.md). The design spec was removed in the docs tidy-up
 (see git history before bd9e56c).
@@ -12,6 +13,14 @@ The browser never sends a command line. It names a tool id (`claude`, `codex`, `
 `gemini`) and the values you chose. The machine looks the tool up in a table built into its own
 connector and decides the program and its flags itself. No preset uses a flag that skips the
 agent's own permission prompts.
+
+## Chat instead of a terminal
+
+For OpenCode on a machine that advertises `acp`, the dialog has **Chat, not a terminal**. It sends `structured: true` and
+the person's trust confirmation; the model and Thinking controls are replaced with "Uses OpenCode's configured model".
+The opening prompt is the first message. The new session opens on its Chat tab, where OpenCode asks before it edits a file
+or runs a command with **Allow once** / **Deny**. There is no terminal in a chat session. The conditions, deadlines and
+limits are in [Structured OpenCode chats](structured-sessions.md).
 
 ## Who sees it
 

@@ -36,6 +36,7 @@ type Broker struct {
 	peers   map[key]*Peer
 	tickets map[string]ticket
 	bridges map[string]*Bridge
+	chats   map[chatKey]*chatLog
 	closed  bool
 	// lateRemoved hears of a remove whose ok answer came after its call.
 	lateRemoved func(uid int64, target WorktreeTarget, result terminalproto.WorktreeResult)
@@ -141,7 +142,7 @@ func ID() string {
 	return hex.EncodeToString(b[:])
 }
 func New(st *store.Store) *Broker {
-	return &Broker{st: st, peers: map[key]*Peer{}, tickets: map[string]ticket{}, bridges: map[string]*Bridge{}}
+	return &Broker{st: st, peers: map[key]*Peer{}, tickets: map[string]ticket{}, bridges: map[string]*Bridge{}, chats: map[chatKey]*chatLog{}}
 }
 
 func (b *Broker) Revoke(uid int64, agent string) {
@@ -190,6 +191,16 @@ func (b *Broker) Close() {
 	}
 	for _, v := range bs {
 		v.Close()
+	}
+	b.mu.Lock()
+	logs := make([]*chatLog, 0, len(b.chats))
+	for _, l := range b.chats {
+		logs = append(logs, l)
+	}
+	b.chats = map[chatKey]*chatLog{}
+	b.mu.Unlock()
+	for _, l := range logs {
+		l.close()
 	}
 	b.wg.Wait()
 }
@@ -326,6 +337,12 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 		select {
 		case p.observations <- m:
 		default: // a late answer is reported only when there is room
+		}
+		return nil
+	}
+	if event, ok := m.Body.(*terminalproto.ACPEvent); ok {
+		if p.b.chatExists(p.key.uid, m.SessionID) {
+			p.b.publishChat(p.key.uid, m.SessionID, *event)
 		}
 		return nil
 	}
@@ -525,6 +542,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	if terminalproto.PromptNeedsWords(in.Tool, in.Prompt) {
 		return store.TerminalSession{}, false, ErrPromptUnsupported
 	}
+	if in.Structured && in.Tool != "opencode" {
+		return store.TerminalSession{}, false, ErrACPUnsupported
+	}
 	p, err := b.peer(uid, agent, true)
 	if err != nil {
 		return store.TerminalSession{}, false, err
@@ -559,6 +579,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if worktreeRequested(in) && !caps.Capabilities.Worktree {
 			return store.TerminalSession{}, false, ErrWorktreeUnsupported
 		}
+		if in.Structured && !caps.Capabilities.ACP {
+			return store.TerminalSession{}, false, ErrACPUnsupported
+		}
 		if !caps.Capabilities.Launch {
 			return store.TerminalSession{}, false, ErrLaunchUnsupported
 		}
@@ -569,6 +592,11 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	s, created, err := b.st.ReserveTerminalCreateFor(uid, agent, request, p.Generation, in)
 	if err != nil {
 		return s, false, err
+	}
+	if in.Structured {
+		// The machine may stream its first status before the create reply
+		// returns; the log must exist before the request is sent.
+		b.chatLog(uid, s.ID)
 	}
 	if !created {
 		if s.State == terminalproto.Creating {
@@ -592,12 +620,22 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 						return s, false, &WorktreeError{Reason: op.Reason, Detail: op.Detail}
 					}
 					return s, false, ErrWorktreeRefused
+				default:
+					if refusal := acpRefusal(op.Code, op.Detail); refusal != nil {
+						return s, false, refusal
+					}
 				}
 			}
 		}
 		return s, false, nil
 	}
 	limit := callTimeout
+	if in.Structured {
+		// The connector probes the version and opens an ACP session before it
+		// answers; that is slower than a tmux create but bounded by its own
+		// 20-second start context.
+		limit = 20 * time.Second
+	}
 	if worktreeRequested(in) {
 		limit = WorktreeCallTimeout
 	}
@@ -627,6 +665,8 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 			refusal = ErrLaunchFailed
 		case terminalproto.WorktreeRefused:
 			refusal = &WorktreeError{Reason: r.Reason, Detail: r.Detail}
+		default:
+			refusal = acpRefusal(r.Code, r.Detail)
 		}
 	} else {
 		err = ErrOffline

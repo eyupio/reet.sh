@@ -107,10 +107,11 @@ func TestModelFavouritesOrderChecksVersionAndExactSet(t *testing.T) {
 		version int64
 		items   []ModelFavouriteRef
 	}{
-		"stale version":  {base.Version + 1, order},
-		"missing item":   {base.Version, order[:2]},
-		"extra item":     {base.Version, append(append([]ModelFavouriteRef(nil), order...), ModelFavouriteRef{Tool: "opencode", Model: "model-d"})},
-		"duplicate item": {base.Version, []ModelFavouriteRef{order[0], order[0], order[1]}},
+		"stale version":    {base.Version + 1, order},
+		"missing item":     {base.Version, order[:2]},
+		"extra item":       {base.Version, append(append([]ModelFavouriteRef(nil), order...), ModelFavouriteRef{Tool: "opencode", Model: "model-d"})},
+		"duplicate item":   {base.Version, []ModelFavouriteRef{order[0], order[0], order[1]}},
+		"substituted item": {base.Version, []ModelFavouriteRef{order[0], order[1], {Tool: "opencode", Model: "model-d"}}},
 	} {
 		if _, err := s.ReorderModelFavouritesFor(uid, in.version, in.items); !errors.Is(err, ErrModelFavouritesStale) {
 			t.Fatalf("%s: %v", name, err)

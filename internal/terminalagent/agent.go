@@ -292,7 +292,10 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 					return send(callCtx, reply)
 				}
 				if managerErr != nil || m == nil {
-					reply.Body = terminalproto.ModelsResult{Tool: op.Tool, Reason: terminalproto.ModelsOff}
+					// The host manager could not start (for example tmux is
+					// missing), so no listing can run; that is a failure, not
+					// the local switch being off.
+					reply.Body = terminalproto.ModelsResult{Tool: op.Tool, Reason: terminalproto.ModelsExited}
 					return send(callCtx, reply)
 				}
 				modelsMu.Lock()

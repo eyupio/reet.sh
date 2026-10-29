@@ -168,18 +168,21 @@ After the models picker/launch bar:
 
 After the structured chat slice:
 
-- **Chat history is in memory.** The controller keeps at most 1,000 events / 256 KiB per chat and writes no transcript.
-  A server restart loses it; archiving the session drops it. A lost machine connection kills every chat process group; a
-  reconnect marks the session lost.
+- **Chat history is in memory, but OpenCode keeps it.** The controller keeps at most 1,000 events / 256 KiB per chat and
+  writes no transcript. A closed chat can be reopened with Continue chat with history… as a new row that runs
+  `session/load`; the old row stays. A server restart clears the live ring; archiving drops it. A lost machine connection
+  kills every chat process group; a reconnect marks the live session lost, and its stored id can still be reopened if
+  OpenCode's own store survives. Pending approvals are not restored; replayed tools are shown interrupted.
 - **OpenCode 1.19.5 only.** The connector refuses another version before starting a process. The seven conditions in
   [structured-sessions.md](docs/structured-sessions.md) are mandatory; a repository with `.opencode` plugins needs the
   Start dialog's trust confirmation. Always allow is never offered, and a diff or command too large for one control frame
   cannot be allowed.
-- **No live model turn** was sent in the checks. The real 1.19.5 binary opened a session in a throwaway HOME; the protocol
-  tests use a fake ACP child. Images, modes, MCP servers, resume and other agents are not in slice 1. No physical phone,
-  Safari or Firefox was checked.
-- A chat's model is OpenCode's configured model; the picker is hidden. The process can still install
-  `@opencode-ai/plugin` from npm in the background, as the probe saw with the opt-outs set.
+- **No live model turn** was sent in the checks. The real 1.19.5 binary opened and then loaded a session in a throwaway
+  HOME; the protocol tests use a fake ACP child. Modes, MCP servers and other agents are not in this slice. No physical
+  phone, Safari or Firefox was checked.
+- **Images are paths.** Chat attachments use the launch-upload folder and the prompt names the file; no image bytes are
+  embedded in ACP. The 5 MiB / 20 files / 50 MiB limits and 24-hour sweep apply. A chat's model is OpenCode's configured
+  model; the picker is hidden. The process can still install `@opencode-ai/plugin` from npm in the background.
 
 Before this PR:
 
@@ -299,6 +302,10 @@ once / Deny only, and only with all seven conditions:
   `/api/v2/machines/<id>/models` (the bar reads both without blocking Start); `phone-zoom`/`phone-dialogs` use
   `helpers/longtext.mjs` and need the same routes. The picker's filter is pinned and the sheet body scrolls; keep it
   that way for 500 models. Star focus must be restored after the row moves groups.
+- **Chat history:** a closed chat is reopened as a **new** row with `resumeAcp`; the machine runs `session/load` and
+  replays before its result. Store the `acpSessionId`, never a transcript. `CanResumeACPSessionFor` restricts the id to
+  this account's closed structured sessions on that machine. Replayed pending tools are marked interrupted; pending
+  approvals are not restored. The old row stays in history.
 - **Structured chats:** the machine-side `internal/opencodeacp` starts exactly `opencode-ai@1.19.5` with
   `OPENCODE_CONFIG_CONTENT`, `OPENCODE_DISABLE_PROJECT_CONFIG=1`, a random `OPENCODE_SERVER_PASSWORD`, `task: deny` and
   the environment allowlist. It answers `fs/write_text_file` with success without writing (OpenCode already wrote the

@@ -87,3 +87,34 @@ func TestACPCapabilityNeedsTerminal(t *testing.T) {
 		t.Fatal("acp with terminal control refused")
 	}
 }
+
+func TestACPResumeFields(t *testing.T) {
+	id := "ses_fake000000000000000000000001"
+	c := Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, ResumeACP: id}
+	if c.Validate() != nil {
+		t.Fatal("valid resume refused")
+	}
+	for name, bad := range map[string]Create{
+		"not structured": {Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", ResumeACP: id},
+		"bad id":         {Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, ResumeACP: "not-a-session"},
+	} {
+		if bad.Validate() == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	if !ValidACPSessionID(id) || ValidACPSessionID("ses_") || ValidACPSessionID("ses_a b") {
+		t.Fatal("session id rule")
+	}
+	changed := SessionChanged{State: Exited, ACPSessionID: id}
+	data, err := Encode(Message{Version: Version, RequestID: "request-0123456789", SessionID: "session-0123456789", Generation: 1, Body: &changed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(data)
+	if err != nil || decoded.Body.(*SessionChanged).ACPSessionID != id {
+		t.Fatalf("session change %+v %v", decoded.Body, err)
+	}
+	if (Reconcile{Complete: true, Sessions: []SessionSnapshot{{ID: "session-0123456789", Title: "Chat", State: Running, ACPSessionID: "bad"}}}).valid() {
+		t.Fatal("bad snapshot id accepted")
+	}
+}

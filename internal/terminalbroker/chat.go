@@ -16,6 +16,9 @@ var (
 	ErrACPVersion     = errors.New("the machine needs OpenCode 1.19.5 for chats")
 	ErrACPBusy        = errors.New("the chat is already working")
 	ErrACPClosed      = errors.New("the chat is not running")
+	// ErrACPResumeNotFound means the requested OpenCode session is not one of
+	// this account's closed chats on that machine.
+	ErrACPResumeNotFound = errors.New("that chat history is not available")
 )
 
 // ACPTrustError means the folder has OpenCode plugins and the start did not

@@ -351,7 +351,7 @@
   busy = true; failed = false; invalidMessage = false
   message = `Starting ${toolName(op.launch.tool)} on ${op.host}… this can take a few seconds.`
   try {
-   const session = await createTerminal(op.agentId, op.requestId, op.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(structured ? 25000 : 15000)]), op.launch)
+   const session = await createTerminal(op.agentId, op.requestId, op.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(structured ? 60000 : 15000)]), op.launch)
    if (life.signal.aborted) return
    // Answered, but the machine did not start it: nothing is running, so this request is done and the next Start is a new one.
    const notStarted = notStartedText(session.state)
@@ -570,7 +570,7 @@
  .hint, small { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
  .count.over { color: var(--bad); }
  .reason { margin: 0; color: var(--bad); font-size: .83rem; line-height: 1.5; }
- .chat-choice .check { display: flex; align-items: flex-start; gap: 8px; font-weight: 600; }
+ .chat-choice .check { display: flex; align-items: flex-start; gap: 8px; min-height: 44px; font-weight: 600; }
  .chat-choice .check input { margin-top: 2px; }
  .chat-choice code { font-size: .9em; }
  .sentence { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--bg); font-size: .85rem; line-height: 1.5; }

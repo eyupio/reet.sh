@@ -121,3 +121,33 @@ func TestChatPlainSessionIsNotFound(t *testing.T) {
 		}
 	}
 }
+
+func TestChatResumeNeedsAClosedChatOwnedHere(t *testing.T) {
+	f := launchAPIFixture(t, chatCaps())
+	id := "ses_fake000000000000000000000001"
+	f.reply = func(terminalproto.Create) terminalproto.Body {
+		return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: id}
+	}
+	code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{
+		"tool": "opencode", "structured": true, "trust": true, "dir": "/tmp",
+	}))
+	if code != 200 || out["acpSessionId"] != id {
+		t.Fatalf("create: %d %v %s", code, out, body)
+	}
+	session, _ := out["id"].(string)
+	if code, _, body := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/end", map[string]string{"requestId": terminalbroker.ID()}); code != 200 {
+		t.Fatalf("end: %d %s", code, body)
+	}
+	code, out, body = f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{
+		"tool": "opencode", "structured": true, "trust": true, "resumeAcp": id, "dir": "/tmp",
+	}))
+	if code != 200 || out["acpSessionId"] != id {
+		t.Fatalf("resume: %d %v %s", code, out, body)
+	}
+	code, out, body = f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{
+		"tool": "opencode", "structured": true, "trust": true, "resumeAcp": "ses_nosuch000000000000000000001", "dir": "/tmp",
+	}))
+	if code != http.StatusNotFound || out["code"] != "acp_resume_not_found" {
+		t.Fatalf("crafted: %d %v %s", code, out, body)
+	}
+}

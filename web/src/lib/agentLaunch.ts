@@ -200,6 +200,7 @@ export function refusalText(status: number, code?: string, message?: string): st
   if (c === 'acp_version') return 'Chat needs OpenCode 1.19.5 on that machine.'
   if (c === 'acp_unavailable') return message || 'OpenCode chats are not available on that machine.'
   if (c === 'acp_trust_required') return message || 'This folder has OpenCode plugins. Start a chat only in a folder you trust.'
+  if (c === 'acp_resume_not_found') return message || "That chat's history is no longer available."
   if (status === 409 && c === '' && msg.includes('session limit')) return 'The terminal session limit has been reached. End a session and try again.'
   if (status === 409 && c === '') return 'That request changed. Start it again.'
   if (status === 503) return 'That machine is reconnecting. Try again in a moment.'

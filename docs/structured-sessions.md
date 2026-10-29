@@ -49,6 +49,26 @@ folder, as the connector's user. All seven conditions are mandatory:
    version is refused; a future version must be probed again before it is accepted. ACP's `initialize` version is checked
    as well.
 
+## Reopening a chat and history
+
+A structured session row keeps OpenCode's own session id (`ses_…`) once the machine reports it. When a chat is closed, its
+actions menu offers **Continue chat with history…**. That creates a **new** reet session row with `resumeAcp` set to the
+old id; the old row stays in history. The machine runs `session/load` with the same folder, checks mode `build`, and
+replays OpenCode's stored conversation before the new chat is ready. The controller keeps no transcript: the history is
+read from OpenCode each time, in memory, and is lost if that machine's OpenCode store is gone.
+
+Replayed tools left `pending` or `in_progress` are shown as interrupted, not as still working. Pending approvals are not
+restored; a new prompt starts cleanly. The controller will only load an id that belongs to one of the account's own closed
+structured sessions on that machine, so a crafted `resumeAcp` cannot read another project's OpenCode history.
+
+## Images
+
+In a chat, **Attach image** (or paste/drop) sends the file through reet's launch-upload path before the prompt. The machine
+stores it under its private `launch-uploads/` folder and the prompt carries the absolute path as text; it is not an embedded
+ACP image. The limits and sweep are the same as the launch bar's: PNG, JPEG, GIF or WebP, 5 MiB each, 20 files and 50 MiB
+together, removed by the existing 24-hour sweep. An agent that needs to look at the image opens that path with its own read
+tool, and that tool may ask for approval. A path may be gone after the sweep or when OpenCode's history is reopened later.
+
 ## Approvals
 
 The card names the tool, the folder and, for a command, the full command text; for an edit it shows the whole-file diff
@@ -62,13 +82,16 @@ person's answer both appear in the chat.
 ## Limits
 
 - **History is in memory.** The controller keeps at most 1,000 events / 256 KiB per chat and does not write a transcript.
-  A server restart loses it; the session record and its final state remain. Archiving a session drops its chat history.
+  A closed chat can be reopened from OpenCode's own store with Continue chat with history…; the live event ring still
+  resets on a server restart, and archiving a session drops its controller-side ring.
 - **A machine connection loss ends its chats.** The connector starts one process per chat and kills its process group when
-  the control connection closes. Reconnecting does not resume a chat; the session becomes lost.
-- **Only OpenCode, only 1.19.5.** No other agent has an ACP adapter in slice 1. A machine with an older OpenCode shows the
+  the control connection closes. Reconnecting does not resume a live chat; the session becomes lost, but its stored
+  OpenCode id can be reopened if that store survives.
+- **Only OpenCode, only 1.19.5.** No other agent has an ACP adapter in this slice. A machine with an older OpenCode shows the
   version refusal; a newer one waits for a probe.
 - **The model is OpenCode's configured one.** The picker is hidden for a chat in this slice. Favourites and account/project
   defaults do not choose a chat model.
-- **No images, file attachments, modes, MCP servers or resume.** The chat carries text and command/diff approvals only.
+- **Images are paths.** Attachments go through the launch-upload path and the prompt names the file; no image bytes are
+  embedded in ACP. Modes, MCP servers, resume of a live turn and other agents are not in this slice.
 - **No physical phone, Safari or live provider run** was part of the checks. The fake ACP child covers the protocol; the
-  real 1.19.5 binary opened a session in a throwaway HOME, but no model turn was sent.
+  real 1.19.5 binary opened and then loaded a session in a throwaway HOME, but no model turn was sent.

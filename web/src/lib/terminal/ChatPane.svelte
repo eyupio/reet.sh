@@ -1,13 +1,16 @@
 <script lang="ts">
  import { onMount, tick } from 'svelte'
  import { applyChatEvent, initialChat, isWorking, pendingPermissions, resetChat, type ChatEvent, type ChatState } from '../chat'
- import { chatAnswer, chatCancel, chatPrompt, chatURL, terminalClosed, type TerminalSession } from './api'
+ import { chatAnswer, chatCancel, chatPrompt, chatURL, launchUpload, terminalClosed, type TerminalSession } from './api'
+ import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session }: { session: TerminalSession } = $props()
+ let { session, uploadsSupported = false, uploadsOff = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean } = $props()
 
  const MAX_CHAT_BYTES = 2000
  let chat: ChatState = $state(initialChat())
- let draft = $state(''), feedback = $state(''), sending = $state(false), answering = $state('')
+ let draft = $state(''), feedback = $state(''), sending = $state(false), uploading = $state(false), answering = $state('')
+ let images = $state<{ id: number; file: File }[]>([]), imageSeq = 0, attachNote = $state('')
+ let fileInput: HTMLInputElement | undefined = $state()
  let log: HTMLElement | undefined = $state()
  let source: EventSource | undefined
  let alive = true, nearBottom = true
@@ -17,6 +20,7 @@
  const pending = $derived(pendingPermissions(chat))
  const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This chat has ended.' : pending.length ? 'Waiting for your approval.' : working ? 'OpenCode is working…' : chat.status.state === 'error' ? 'OpenCode stopped with an error.' : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
  const statusDetail = $derived(pending.length ? '' : chat.status.detail)
+ const canAttach = $derived(uploadsSupported && !uploadsOff && !ended)
 
  function closeStream() { source?.close(); source = undefined }
  function readReset(event: MessageEvent) {
@@ -40,14 +44,59 @@
   await tick()
   if (log) log.scrollTop = log.scrollHeight
  }
+ function noteImages(files: File[]) {
+  let total = images.reduce((sum, item) => sum + item.file.size, 0)
+  let refused = ''
+  for (const file of files) {
+   const check = validateImage(file)
+   if (!check.ok) { refused = check.reason === 'type' ? 'Use PNG, JPEG, GIF or WebP images.' : check.reason === 'size' ? 'Each image must be 5 MB or smaller.' : 'That image is empty.'; continue }
+   if (images.length >= MAX_IMAGES) { refused = `Attach at most ${MAX_IMAGES} images.`; break }
+   if (total + file.size > MAX_IMAGE_TOTAL_BYTES) { refused = 'Those images are more than 50 MB together.'; break }
+   images = [...images, { id: ++imageSeq, file }]
+   total += file.size
+  }
+  attachNote = refused
+ }
+ async function picked(event: Event) {
+  const input = event.currentTarget as HTMLInputElement
+  noteImages([...(input.files ?? [])])
+  input.value = ''
+ }
+ function pasted(event: ClipboardEvent) {
+  if (!canAttach) return
+  const files = imageFiles(event.clipboardData?.items)
+  if (!files.length) return
+  event.preventDefault(); noteImages(files)
+ }
+ function dropped(event: DragEvent) {
+  if (!canAttach) return
+  const files = imageFiles(event.dataTransfer?.items)
+  if (!files.length) return
+  event.preventDefault(); noteImages(files)
+ }
+ function removeImage(id: number) { images = images.filter(item => item.id !== id); attachNote = '' }
  async function send() {
   const text = draft.trim()
-  if (!text || sending || working || ended || chat.connection === 'reconnecting') return
+  if ((!text && !images.length) || sending || uploading || working || ended || chat.connection === 'reconnecting') return
+  if (images.length && !canAttach) { feedback = uploadsOff ? 'Image uploads are off on that machine.' : 'That machine does not accept images.'; return }
   if (new TextEncoder().encode(text).length > MAX_CHAT_BYTES) { feedback = 'That message is too long. Keep it under 2,000 bytes.'; return }
-  sending = true; feedback = ''
-  try { await chatPrompt(session.id, text); draft = ''; nearBottom = true; await scrollToEnd() }
+  uploading = images.length > 0; sending = true; feedback = ''
+  try {
+   const references: string[] = []
+   if (images.length) {
+    attachNote = ''
+    for (let i = 0; i < images.length; i++) {
+     if (images.length > 1) attachNote = `Uploading image ${i + 1} of ${images.length}…`
+     references.push((await launchUpload(session.agentId, images[i].file, AbortSignal.timeout(30000))).reference)
+    }
+   }
+   const message = imagePrompt(text, references)
+   if (new TextEncoder().encode(message).length > MAX_CHAT_BYTES) { feedback = 'That message and its image paths are too long. Keep the message under 2,000 bytes.'; return }
+   await chatPrompt(session.id, message)
+   draft = ''; images = []; attachNote = ''; nearBottom = true; await scrollToEnd()
+  }
   catch (e) { feedback = e instanceof Error ? e.message : 'That message was not sent.' }
-  finally { sending = false }
+  finally { uploading = false; sending = false }
  }
  async function stop() {
   feedback = ''
@@ -76,7 +125,7 @@
  })
 </script>
 
-<section class="chat-pane" aria-label={`Chat with OpenCode in ${session.title}`}>
+<section class="chat-pane" aria-label={`Chat with OpenCode in ${session.title}`} ondragover={(event) => { if (canAttach) event.preventDefault() }} ondrop={dropped}>
  <div class="chat-status" role="status" aria-live="polite">
   <span class="dot" class:busy={working} class:wait={pending.length > 0} class:down={chat.connection === 'reconnecting'} aria-hidden="true"></span>
   <strong>{statusWord}</strong>
@@ -124,12 +173,22 @@
   <p class="composer-note">This chat has ended. Its history is not kept after the machine connection closes.</p>
  {:else}
   <div class="composer">
+   {#if images.length}
+    <ul class="attachments" aria-label="Images to attach">
+     {#each images as image (image.id)}
+      <li><span>{image.file.name} · {formatImageSize(image.file.size)}</span><button type="button" aria-label={`Remove ${image.file.name}`} disabled={uploading} onclick={() => removeImage(image.id)}>×</button></li>
+     {/each}
+    </ul>
+   {/if}
+   {#if attachNote}<p class="notice" class:bad={/off|does not|at most|more than|Use PNG|Each image|empty/.test(attachNote)}>{attachNote}</p>{/if}
    <label class="vh" for={`${session.id}-chat-prompt`}>Message OpenCode</label>
-   <textarea id={`${session.id}-chat-prompt`} bind:value={draft} rows="2" maxlength="2000" placeholder={working ? 'OpenCode is working…' : 'Ask OpenCode to change this project…'} onkeydown={keydown} disabled={sending || working || chat.connection === 'reconnecting'}></textarea>
+   <textarea id={`${session.id}-chat-prompt`} bind:value={draft} rows="2" maxlength="2000" placeholder={working ? 'OpenCode is working…' : 'Ask OpenCode to change this project…'} onkeydown={keydown} onpaste={pasted} disabled={sending || uploading || working || chat.connection === 'reconnecting'}></textarea>
    <div class="composer-actions">
+    {#if canAttach}<button type="button" class="btn" disabled={sending || uploading || working || images.length >= MAX_IMAGES} onclick={() => fileInput?.click()}>Attach image</button>{/if}
     {#if working}<button type="button" class="btn" onclick={() => void stop()}>Stop</button>{/if}
-    <button type="button" class="btn primary" disabled={sending || working || !draft.trim() || chat.connection === 'reconnecting'} onclick={() => void send()}>{sending ? 'Sending…' : 'Send'}</button>
+    <button type="button" class="btn primary" disabled={sending || uploading || working || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : 'Send'}</button>
    </div>
+   {#if canAttach}<input class="vh" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={picked} />{/if}
   </div>
  {/if}
 </section>
@@ -170,7 +229,12 @@
  .composer { border-top: 1px solid var(--line); padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
  .composer textarea { width: 100%; resize: vertical; min-height: 48px; max-height: 10rem; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; font: inherit; font-size: 1rem; line-height: 1.4; color: var(--ink); background: var(--card); }
  .composer textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+ .attachments { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+ .attachments li { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 5px 6px 5px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); font-size: .76rem; color: var(--ink-soft); }
+ .attachments li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ .attachments button { min-width: 30px; min-height: 30px; border: 0; background: none; color: var(--ink-soft); font-size: 1rem; cursor: pointer; }
  .composer-note { margin: 0; padding: 12px 16px; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: .8rem; }
  .vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
  @media (max-width: 650px) { .log { padding: 12px; } .composer { padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); } .bubble { max-width: 92%; } }
+ @media (pointer: coarse) { .attachments button { min-width: 44px; min-height: 44px; } }
 </style>

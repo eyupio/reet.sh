@@ -69,6 +69,20 @@ func TestFakeACP(t *testing.T) {
 		switch message.Method {
 		case "initialize":
 			reply(message.ID, map[string]any{"protocolVersion": 1, "agentInfo": map[string]string{"name": "OpenCode", "version": version}})
+		case "session/load":
+			var params struct {
+				SessionID string `json:"sessionId"`
+			}
+			_ = json.Unmarshal(message.Params, &params)
+			session = params.SessionID
+			if scenario == "load-plan" {
+				reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": "plan"}}})
+				continue
+			}
+			update(session, "user_message_chunk", map[string]any{"messageId": "msg_old", "content": map[string]string{"type": "text", "text": "old question"}})
+			update(session, "tool_call", map[string]any{"toolCallId": "call_old", "title": "old command", "kind": "execute", "status": "in_progress"})
+			update(session, "agent_message_chunk", map[string]any{"messageId": "msg_old_reply", "content": map[string]string{"type": "text", "text": "old answer"}})
+			reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "model", "currentValue": "stub/model"}, {"id": "mode", "currentValue": "build"}}})
 		case "session/new":
 			mode := "build"
 			if scenario == "mode-plan" {
@@ -404,4 +418,40 @@ func TestCloseKillsOrphanedGroupMembers(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("orphaned child %d survived Close", pid)
+}
+
+func TestResumeLoadsHistoryAndMarksInterruptedTools(t *testing.T) {
+	opts, got := options(t, "basic", Version)
+	opts.Resume = "ses_fake000000000000000000000001"
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if session.SessionID() != opts.Resume {
+		t.Fatalf("resumed id %q", session.SessionID())
+	}
+	if !got.has("agent") || !got.has("user") {
+		t.Fatal("replay events missing")
+	}
+	found := false
+	for _, event := range got.all {
+		if event.Kind == "tool" && event.ToolCallID == "call_old" && event.Status == "completed" {
+			t.Fatal("interrupted tool stayed working")
+		}
+		if event.Kind == "tool" && event.ToolCallID == "call_old" && event.Status == "failed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("interrupted tool was not marked failed")
+	}
+}
+
+func TestResumePlanModeRefused(t *testing.T) {
+	opts, _ := options(t, "load-plan", Version)
+	opts.Resume = "ses_fake000000000000000000000001"
+	if _, err := Start(context.Background(), opts); err == nil {
+		t.Fatal("plan mode load accepted")
+	}
 }

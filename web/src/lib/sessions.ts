@@ -139,6 +139,21 @@ export function continueLaunch(s: Pick<TerminalSession, 'state' | 'tool' | 'mode
   return launch
 }
 
+/** A closed structured chat reopens as a new row that asks the machine to load OpenCode's stored history. The old row
+ *  stays in history. */
+export function continueChatLaunch(s: Pick<TerminalSession, 'state' | 'structured' | 'acpSessionId' | 'dir' | 'projectId'>): LaunchRequest | null {
+  if (!s.structured || !s.acpSessionId || !terminalClosed(s.state)) return null
+  const launch: LaunchRequest = { tool: 'opencode', structured: true, trust: true, resumeAcp: s.acpSessionId }
+  if (s.dir) launch.dir = s.dir
+  if (s.projectId) launch.projectId = s.projectId
+  return launch
+}
+
+/** A chat can be reopened only on a machine that still advertises acp. */
+export function canContinueChat(s: Pick<TerminalSession, 'state' | 'structured' | 'acpSessionId' | 'dir' | 'projectId'>, machine: Pick<TerminalMachine, 'capabilities'> | undefined): boolean {
+  return continueChatLaunch(s) !== null && machine?.capabilities?.acp === true
+}
+
 /** Whether a closed session can be continued: a reviewed resume command for its agent, a machine that negotiated
  *  resume-v1, and the folder the session ran in. */
 export function canContinue(s: Pick<TerminalSession, 'state' | 'tool' | 'dir' | 'projectId'>, machine: Pick<TerminalMachine, 'capabilities'> | undefined, projects: Pick<FolderProject, 'id' | 'dir'>[]): boolean {

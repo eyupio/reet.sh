@@ -196,3 +196,17 @@ func ValidChatPrompt(text string) bool { return (ACPPrompt{Text: text}).valid() 
 
 // ValidPermissionID accepts the machine-generated approval id in a URL.
 func ValidPermissionID(s string) bool { return validACPID(s) }
+
+// ValidACPSessionID accepts OpenCode's own session id, which is the only handle
+// a reopened chat has on its stored history.
+func ValidACPSessionID(s string) bool {
+	if !strings.HasPrefix(s, "ses_") || len(s) < 8 || len(s) > 128 {
+		return false
+	}
+	for _, c := range s[4:] {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}

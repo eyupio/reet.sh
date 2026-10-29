@@ -27,4 +27,14 @@ func TestRealOpenCodeStart(t *testing.T) {
 	if session.SessionID() == "" || session.Model() == "" {
 		t.Fatalf("session %q model %q", session.SessionID(), session.Model())
 	}
+	id := session.SessionID()
+	session.Close()
+	resumed, err := Start(ctx, Options{Binary: binary, Dir: dir, Home: home, BaseEnv: []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}, Resume: id, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resumed.Close()
+	if resumed.SessionID() != id {
+		t.Fatalf("loaded %q, wanted %q", resumed.SessionID(), id)
+	}
 }

@@ -13,7 +13,7 @@
   import ChatPane from './ChatPane.svelte'
   import SessionScreen from '../sessions/SessionScreen.svelte'
   import SessionTabs from '../sessions/SessionTabs.svelte'
-  import { canContinue, closeTab, continueLaunch, openTab } from '../sessions'
+  import { canContinue, canContinueChat, closeTab, continueChatLaunch, continueLaunch, openTab } from '../sessions'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import HealthHistory from './HealthHistory.svelte'
   import { renameTerminal, endTerminal, archiveTerminal, terminalClosed } from './api'
@@ -269,14 +269,14 @@
   async function continueSession(target=session){
     if(!target||actionBusy)return
     const existing=continuations[target.id]
-    const launch=existing?.launch??continueLaunch(target,projects??[])
+    const launch=existing?.launch??(target.structured?continueChatLaunch(target):continueLaunch(target,projects??[]))
     if(!launch)return
     const operation=existing??{requestId:crypto.randomUUID(),title:target.title,launch}
     continuations={...continuations,[target.id]:operation}
     actionBusy=true;error=''
     const settle=()=>{const next={...continuations};delete next[target.id];continuations=next}
     try{
-      const created=await createTerminal(target.agentId,operation.requestId,operation.title,100,30,AbortSignal.timeout(15000),operation.launch)
+      const created=await createTerminal(target.agentId,operation.requestId,operation.title,100,30,AbortSignal.timeout(operation.launch.structured?60000:15000),operation.launch)
       settle()
       if(disposed)return
       inventoryVersion++
@@ -394,10 +394,12 @@
         <!-- The session screen hosts the live terminal pane, unchanged: tabs and header above it, the context panel beside it. -->
         <SessionScreen {session} {sessions} {machines} health={health.machines} {projects} now={serverNow} {theatre} {keyboard} busy={actionBusy}
           onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}
-          oncontinue={!session.structured && canContinue(session, machines.find(item => item.agentId === session.agentId), projects ?? []) ? () => void continueSession(session) : undefined}>
+          oncontinue={session.structured
+            ? (canContinueChat(session, machines.find(item => item.agentId === session.agentId)) ? () => void continueSession(session) : undefined)
+            : (canContinue(session, machines.find(item => item.agentId === session.agentId), projects ?? []) ? () => void continueSession(session) : undefined)}>
           {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
           {#if session.structured}
-            {#key session.id}<ChatPane {session} />{/key}
+            {#key session.id}<ChatPane {session} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} />{/key}
           {:else}
             {#key session.id}<TerminalPane {keyboard} footnote={phone ? '' : `Approvals: ${session.yolo ? 'YOLO' : 'Ask me'}`} holdSize={resizing} sessionsVisible={shown!=='closed'} onsessions={paneSessions} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />{/key}
           {/if}

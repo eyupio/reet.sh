@@ -76,6 +76,7 @@ type Session struct {
 	closed   bool
 	acpID    string
 	model    string
+	tools    map[string]string
 	done     chan struct{}
 	doneOnce sync.Once
 
@@ -138,7 +139,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		return nil, ErrExited
 	}
 	s := &Session{opts: opts, binary: binary, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr,
-		calls: map[int64]chan rpcResult{}, pending: map[string]*pendingPermission{}, done: make(chan struct{})}
+		calls: map[int64]chan rpcResult{}, pending: map[string]*pendingPermission{}, tools: map[string]string{}, done: make(chan struct{})}
 	go s.readLoop()
 	go func() {
 		_ = cmd.Wait()
@@ -168,9 +169,15 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		s.Close()
 		return nil, fmt.Errorf("%w (found %s)", ErrVersion, safeVersion(initResult.AgentInfo.Version))
 	}
-	newCtx, newCancel := context.WithTimeout(ctx, 15*time.Second)
+	newCtx, newCancel := context.WithTimeout(ctx, 45*time.Second)
 	defer newCancel()
-	raw, err = s.request(newCtx, "session/new", map[string]any{"cwd": opts.Dir, "mcpServers": []any{}})
+	opened := opts.Resume == ""
+	method, params := "session/new", map[string]any{"cwd": opts.Dir, "mcpServers": []any{}}
+	if !opened {
+		method = "session/load"
+		params = map[string]any{"sessionId": opts.Resume, "cwd": opts.Dir, "mcpServers": []any{}}
+	}
+	raw, err = s.request(newCtx, method, params)
 	if err != nil {
 		s.Close()
 		return nil, ErrExited
@@ -183,7 +190,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 			CurrentValue string `json:"currentValue"`
 		} `json:"configOptions"`
 	}
-	if json.Unmarshal(raw, &created) != nil || created.SessionID == "" {
+	if json.Unmarshal(raw, &created) != nil || opened && created.SessionID == "" {
 		s.Close()
 		return nil, ErrExited
 	}
@@ -206,10 +213,17 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		s.Close()
 		return nil, ErrModel
 	}
+	sessionID := created.SessionID
+	if !opened {
+		sessionID = opts.Resume
+	}
 	s.mu.Lock()
-	s.acpID = created.SessionID
+	s.acpID = sessionID
 	s.model = model
 	s.mu.Unlock()
+	if !opened {
+		s.markInterrupted()
+	}
 	s.emit(Event{Kind: "status", State: "idle", Detail: model})
 	return s, nil
 }
@@ -404,6 +418,11 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 			s.emit(Event{Kind: "user", Text: text})
 		}
 	case "tool_call", "tool_call_update":
+		if u.ToolCallID != "" {
+			s.mu.Lock()
+			s.tools[u.ToolCallID] = u.Status
+			s.mu.Unlock()
+		}
 		text := toolText(u.Content)
 		locations := make([]string, 0, len(u.Locations))
 		for _, location := range u.Locations {
@@ -636,6 +655,24 @@ func (s *Session) Cancel() error {
 	}
 	s.emit(Event{Kind: "status", State: "cancelled"})
 	return s.sendCancel()
+}
+
+// markInterrupted closes tools that session/load replayed as still running.
+// OpenCode does not re-ask their permission, so leaving them "working" would
+// be a lie; a new prompt starts cleanly after them.
+func (s *Session) markInterrupted() {
+	s.mu.Lock()
+	ids := make([]string, 0)
+	for id, status := range s.tools {
+		if status == "pending" || status == "in_progress" {
+			ids = append(ids, id)
+		}
+	}
+	s.mu.Unlock()
+	for _, id := range ids {
+		s.emit(Event{Kind: "tool", ToolCallID: id, Status: "failed", ToolKind: "other", Title: "Interrupted tool call",
+			Text: "Interrupted before this chat was reopened."})
+	}
 }
 
 // Prompt runs one turn. It blocks until the turn ends; the connector calls it

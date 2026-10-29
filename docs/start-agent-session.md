@@ -19,8 +19,10 @@ agent's own permission prompts.
 For OpenCode on a machine that advertises `acp`, the dialog has **Chat, not a terminal**. It sends `structured: true` and
 the person's trust confirmation; the model and Thinking controls are replaced with "Uses OpenCode's configured model".
 The opening prompt is the first message. The new session opens on its Chat tab, where OpenCode asks before it edits a file
-or runs a command with **Allow once** / **Deny**. There is no terminal in a chat session. The conditions, deadlines and
-limits are in [Structured OpenCode chats](structured-sessions.md).
+or runs a command with **Allow once** / **Deny**. There is no terminal in a chat session. **Attach image** (or paste/drop)
+sends a file through the launch-upload path and puts its path in the message. A closed chat offers **Continue chat with
+history…**, which loads OpenCode's stored conversation into a new session row. The conditions, deadlines and limits are in
+[Structured OpenCode chats](structured-sessions.md).
 
 ## Who sees it
 

@@ -149,7 +149,7 @@ func TestValidationBoundariesAndBinding(t *testing.T) {
 	if m.Validate() == nil {
 		t.Fatal("probe accepted session binding")
 	}
-	r := Reconcile{Complete: true, Sessions: []SessionSnapshot{{testID, "Shell", Running, nil}, {testID, "Other", Running, nil}}}
+	r := Reconcile{Complete: true, Sessions: []SessionSnapshot{{ID: testID, Title: "Shell", State: Running}, {ID: testID, Title: "Other", State: Running}}}
 	if r.valid() {
 		t.Fatal("duplicate reconciliation session")
 	}

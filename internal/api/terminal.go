@@ -214,13 +214,14 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		// Structured starts an OpenCode chat; trust confirms the repository
 		// plugin warning. Both are controller-side choices and are never
 		// inferred by the machine.
-		Structured bool `json:"structured"`
-		Trust      bool `json:"trust"`
+		Structured bool   `json:"structured"`
+		Trust      bool   `json:"trust"`
+		ResumeACP  string `json:"resumeAcp"`
 	}
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Yolo: in.Yolo, Resume: in.Resume, Structured: in.Structured, Trust: in.Trust}
+	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Yolo: in.Yolo, Resume: in.Resume, Structured: in.Structured, Trust: in.Trust, ResumeACP: in.ResumeACP}
 	uid := s.uid(r)
 	// The project is checked before any machine is asked, so an unknown
 	// project is refused the same way whether the machine is online or not.
@@ -308,6 +309,8 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusUnprocessableEntity, "tool_not_installed", "tool", "That agent isn't installed on that machine.", "")
 	case errors.Is(err, terminalbroker.ErrLaunchFailed):
 		writeErrCode(w, http.StatusUnprocessableEntity, "folder_unavailable", "dir", "That folder isn't available on that machine.", "")
+	case errors.Is(err, terminalbroker.ErrACPResumeNotFound):
+		writeErrCode(w, http.StatusNotFound, "acp_resume_not_found", "", "That chat's history is no longer available on that machine.", "")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported):
 		writeErrCode(w, http.StatusConflict, "acp_unavailable", "", "Update reet on that machine to use OpenCode chats.", "")
 	case errors.Is(err, terminalbroker.ErrACPVersion):

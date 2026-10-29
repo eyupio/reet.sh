@@ -42,6 +42,9 @@ func chatFixture(t *testing.T) (*Broker, *Peer, int64, string) {
 			s := terminalproto.SessionSnapshot{ID: m.SessionID, Title: op.Title, State: terminalproto.Running}
 			sessions[s.ID] = s
 			reply.Body = terminalproto.SessionChanged{State: terminalproto.Running}
+			if op.Structured {
+				reply.Body = terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: "ses_fake000000000000000000000001"}
+			}
 		case terminalproto.End:
 			delete(sessions, m.SessionID)
 			reply.Body = terminalproto.SessionChanged{State: terminalproto.Ended}
@@ -76,8 +79,8 @@ func chatSession(t *testing.T, b *Broker, uid int64, agent string) store.Termina
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !s.Structured {
-		t.Fatal("session not structured")
+	if !s.Structured || s.ACPSessionID != "ses_fake000000000000000000000001" {
+		t.Fatalf("session %+v", s)
 	}
 	return s
 }
@@ -141,6 +144,24 @@ func TestChatRingOverflowAndReset(t *testing.T) {
 	defer cancel()
 	if !truncated || len(snapshot) > maxChatEvents || len(snapshot) == 0 {
 		t.Fatalf("ring: %d truncated=%v", len(snapshot), truncated)
+	}
+}
+
+func TestChatResumeMustBelongToAClosedChat(t *testing.T) {
+	b, _, uid, agent := chatFixture(t)
+	first := chatSession(t, b, uid, agent)
+	if _, err := b.End(t.Context(), uid, first.ID, ID()); err != nil {
+		t.Fatal(err)
+	}
+	second, err := b.Create(t.Context(), uid, agent, ID(), terminalproto.Create{Title: "Again", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: "/tmp", ResumeACP: first.ACPSessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ACPSessionID != first.ACPSessionID {
+		t.Fatalf("resume id %q", second.ACPSessionID)
+	}
+	if _, err := b.Create(t.Context(), uid, agent, ID(), terminalproto.Create{Title: "Crafted", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: "/tmp", ResumeACP: "ses_nosuch000000000000000000001"}); !errors.Is(err, ErrACPResumeNotFound) {
+		t.Fatalf("crafted resume: %v", err)
 	}
 }
 

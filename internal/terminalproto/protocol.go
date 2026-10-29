@@ -247,6 +247,9 @@ type SessionSnapshot struct {
 	Title    string       `json:"title"`
 	State    SessionState `json:"state"`
 	ExitCode *int         `json:"exitCode"`
+	// ACPSessionID is set only for a structured chat, so the controller can
+	// reopen it after a connection loss.
+	ACPSessionID string `json:"acpSessionId,omitempty"`
 }
 
 func validExit(state SessionState, code *int) bool {
@@ -265,7 +268,7 @@ func (r Reconcile) valid() bool {
 	}
 	seen := map[string]bool{}
 	for _, s := range r.Sessions {
-		if !ValidID(s.ID) || !ValidTitle(s.Title) || !s.State.Valid() || !validExit(s.State, s.ExitCode) || seen[s.ID] {
+		if !ValidID(s.ID) || !ValidTitle(s.Title) || !s.State.Valid() || !validExit(s.State, s.ExitCode) || s.ACPSessionID != "" && !ValidACPSessionID(s.ACPSessionID) || seen[s.ID] {
 			return false
 		}
 		seen[s.ID] = true
@@ -306,6 +309,9 @@ type Create struct {
 	// Trust confirms that the person accepted the repository plugin warning.
 	// It is meaningful only with Structured.
 	Trust bool `json:"trust,omitempty"`
+	// ResumeACP reopens a structured OpenCode session from its own session id.
+	// It is meaningful only with Structured; the controller creates a new row.
+	ResumeACP string `json:"resumeAcp,omitempty"`
 }
 
 func (Create) kind() string  { return "create" }
@@ -318,6 +324,9 @@ func (c Create) Validate() error {
 		return ErrInvalid
 	}
 	if c.Trust && !c.Structured {
+		return ErrInvalid
+	}
+	if c.ResumeACP != "" && (!c.Structured || !ValidACPSessionID(c.ResumeACP)) {
 		return ErrInvalid
 	}
 	return nil
@@ -459,6 +468,8 @@ type SessionChanged struct {
 	// change encodes exactly as before.
 	WorktreePath string `json:"worktreePath,omitempty"`
 	WorktreeRepo string `json:"worktreeRepo,omitempty"`
+	// ACPSessionID is set only for a structured chat.
+	ACPSessionID string `json:"acpSessionId,omitempty"`
 }
 
 func (SessionChanged) kind() string { return "session_changed" }
@@ -466,7 +477,7 @@ func (s SessionChanged) valid() bool {
 	if (s.WorktreePath == "") != (s.WorktreeRepo == "") || s.WorktreePath != "" && (!validDir(s.WorktreePath) || !validRepoName(s.WorktreeRepo)) {
 		return false
 	}
-	return s.State.Valid() && validExit(s.State, s.ExitCode)
+	return s.State.Valid() && validExit(s.State, s.ExitCode) && (s.ACPSessionID == "" || ValidACPSessionID(s.ACPSessionID))
 }
 
 func (m Message) Validate() error {

@@ -47,6 +47,7 @@ func (f *fakeChat) Allow(_ string, allow bool) error {
 	f.mu.Unlock()
 	return nil
 }
+func (f *fakeChat) SessionID() string     { return "ses_fake000000000000000000000001" }
 func (f *fakeChat) Working() bool         { f.mu.Lock(); defer f.mu.Unlock(); return f.busy }
 func (f *fakeChat) Close()                { f.done <- struct{}{} }
 func (f *fakeChat) Done() <-chan struct{} { return f.done }

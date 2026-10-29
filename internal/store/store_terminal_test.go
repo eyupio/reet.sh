@@ -507,3 +507,36 @@ func TestStructuredSessionPersistsAndReadsBack(t *testing.T) {
 		t.Fatalf("list: %+v %v", list, err)
 	}
 }
+
+func TestStructuredACPSessionIDRecordsAndResumesOnlyClosed(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	id := "ses_fake000000000000000000000001"
+	dir := "/home/tester/site"
+	got, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ACPSessionID != "" {
+		t.Fatal("new chat had an ACP id before the machine reported one")
+	}
+	if err := s.RecordTerminalACPSessionFor(uid, a.ID, got.ID, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordTerminalACPSessionFor(uid, a.ID, got.ID, id); err != nil {
+		t.Fatal("same id was not idempotent")
+	}
+	if err := s.RecordTerminalACPSessionFor(uid, a.ID, got.ID, "ses_other0000000000000000000001"); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatalf("different id: %v", err)
+	}
+	ok, err := s.CanResumeACPSessionFor(uid, a.ID, id, dir)
+	if err != nil || ok {
+		t.Fatalf("running chat resumable: %v %v", ok, err)
+	}
+	if err := s.ObserveTerminalStateFor(uid, a.ID, got.ID, c.Generation, terminalproto.Exited, nil); err != nil {
+		t.Fatal(err)
+	}
+	ok, err = s.CanResumeACPSessionFor(uid, a.ID, id, dir)
+	if err != nil || !ok {
+		t.Fatalf("closed chat not resumable: %v %v", ok, err)
+	}
+}

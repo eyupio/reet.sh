@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -363,7 +364,7 @@ func TestUploadHappyPathAuditsMetadataOnly(t *testing.T) {
 	f.result = terminalproto.UploadResult{Code: terminalproto.UploadOK, Path: path}
 	payload := uploadAPIData(200)
 	code, out, raw := f.post(t, f.cookie, f.uploadTarget(), payload, "image/png", "https://reet.example")
-	if code != 200 || out["path"] != path || out["reference"] != "'"+path+"'" {
+	if code != 200 || out["path"] != html.EscapeString(path) || out["reference"] != html.EscapeString("'"+path+"'") {
 		t.Fatalf("upload: %d %v %s", code, out, raw)
 	}
 	if got := f.sent(); len(got) != 1 {

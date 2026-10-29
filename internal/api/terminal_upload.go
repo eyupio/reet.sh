@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"html"
 	"io"
 	"net/http"
 	"regexp"
@@ -157,7 +158,10 @@ func (s *server) terminalUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditTerminalUpload(uid, session, mime, len(data))
-	writeJSON(w, http.StatusOK, map[string]string{"path": path, "reference": uploadReference(path)})
+	// The path comes back from a machine, so it is escaped for the response
+	// boundary even though this is JSON; the browser decodes it before it is
+	// inserted as terminal text.
+	writeJSON(w, http.StatusOK, map[string]string{"path": html.EscapeString(path), "reference": html.EscapeString(uploadReference(path))})
 }
 
 // uploadReference is the text a browser inserts after an upload. It is the

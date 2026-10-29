@@ -344,10 +344,11 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 	switch m.Body.(type) {
 	case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.WorktreeState, *terminalproto.WorktreeResult:
 		return nil
-	case *terminalproto.BrowseResult, *terminalproto.BranchesResult:
-		// The machine answers a browse by 4 s and a listing by 8 s, which can
-		// be after the request gave up. Such an answer is read-only and has
-		// no request left to answer: it is counted and dropped.
+	case *terminalproto.BrowseResult, *terminalproto.BranchesResult, *terminalproto.ModelsResult:
+		// The machine answers a browse by 4 s, a listing by 8 s and a model
+		// list by its own deadline, which can be after the request gave up.
+		// Such an answer is read-only and has no request left to answer: it is
+		// counted and dropped.
 		p.b.lateReplies.Add(1)
 		return nil
 	}

@@ -6,7 +6,7 @@ These are directions, not commitments: there are no dates.
 
 Next, in this order:
 
-- **Copy and paste in sessions, images included.** Paste text without a review step where the agent already guards against it, paste or drop an image into a session (kept in a private folder for that session on its machine, removed after a day), and copy an agent's own copy actions to your clipboard right after you ask for them.
+Copy and paste (text and images) and structured OpenCode chats have shipped; see the merged pull requests.
 
 Later:
 

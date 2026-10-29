@@ -3,12 +3,16 @@
   import { shell } from './dialogShell'
   import type { Machine, ReleaseInfo, SyncAgent } from './api'
   import { agentBuild, channelBuild } from './machines'
+  import { CATALOGUE } from './catalogue'
+  import { formatAge, type MachineModels } from './models'
+  import { allModels, machineModels, refreshMachineModels, type TerminalMachine } from './terminal/api'
 
   // A machine's policies live here rather than beside the buttons that act on
   // it, so a card says what is happening and this dialog says how it is set.
   let {
     machine,
     agent,
+    terminal,
     releases,
     busy,
     onautoupdate,
@@ -21,6 +25,7 @@
   }: {
     machine: Machine
     agent?: SyncAgent
+    terminal?: TerminalMachine
     releases?: ReleaseInfo
     busy: boolean
     onautoupdate: (enabled: boolean) => void
@@ -37,11 +42,99 @@
   const onDev = $derived(agent?.version === 'dev')
   const pointer = $derived(channelBuild(releases, onDev ? 'dev' : 'latest'))
 
+  type ModelRead = { loading: boolean; machine: MachineModels | null; error: string; refreshError: string }
+  let reads = $state<Record<string, ModelRead>>({})
+  let refreshing = $state('')
+
+  const syncTools = $derived(machine.groups.map(group => group.agent === 'agents' ? 'codex' : group.agent))
+  const installed = $derived.by(() => {
+    const tools = terminal?.capabilities?.tools
+    const ids = tools ? new Set(tools) : new Set(syncTools)
+    return CATALOGUE.filter(item => item.enabled && ids.has(item.id))
+  })
+  const canRefresh = $derived(!!terminal && terminal.ready && !!terminal.capabilities?.models && !terminal.capabilities?.modelsOff)
+  const refreshHint = $derived.by(() => {
+    if (!installed.length || canRefresh) return ''
+    if (!terminal) return `${machine.host} is not connected for terminals. Refresh will be available when it connects.`
+    if (!terminal.ready) return `${machine.host} is offline. Refresh will be available when it reconnects.`
+    if (terminal.capabilities?.modelsOff) return `Model reads are switched off on ${machine.host}. Turn them on with reet terminal models on.`
+    if (!terminal.capabilities?.models) return `Update reet on ${machine.host} to read its models.`
+    return ''
+  })
+
+  const REASONS: Record<string, string> = {
+    not_installed: 'not installed', unsupported: 'not supported', timed_out: 'timed out',
+    too_large: 'the list was too large', exited: 'the command exited', unreadable: 'the output was unreadable',
+    denied: 'the machine refused', conflict: 'another read was running', off: 'reads are off',
+  }
+
+  function modelLine(read: ModelRead | undefined): string {
+    if (!read || read.loading) return 'Reading the saved model list…'
+    if (read.error) return read.error
+    const list = read.machine
+    const age = formatAge(Date.now(), list?.fetchedAt)
+    if (read.refreshError) return `${read.refreshError}${age ? ` Last read ${age}.` : ''}`
+    if (!list) return 'No model list has been read from this machine yet.'
+    switch (list.state) {
+      case 'listed': return `${list.models.length}${list.more ? '+' : ''} read${age ? ` ${age}` : ''}`
+      case 'unsupported': return 'Not supported; reet uses suggestions.'
+      case 'failed': {
+        const reason = REASONS[list.reason] ?? ''
+        const kept = list.models?.length
+          ? ` ${list.models.length}${list.more ? '+' : ''} kept${age ? ` from ${age}` : ''}.`
+          : age ? ` Last read ${age}.` : ' No earlier list was kept.'
+        return `Couldn't read${reason ? `: ${reason}` : ''}.${kept}`
+      }
+      case 'off': return 'Off; model reads are switched off on this machine.'
+      case 'offline': return 'Offline; showing no live list.'
+      case 'update': return "Update reet to read this agent's models."
+    }
+  }
+
+  async function loadModels(tool: string, signal: AbortSignal) {
+    reads[tool] = { loading: true, machine: reads[tool]?.machine ?? null, error: '', refreshError: '' }
+    try {
+      let next: MachineModels
+      if (terminal) next = await machineModels(terminal.agentId, tool, signal)
+      else {
+        const answer = await allModels(tool, signal)
+        const row = answer.machines?.find(item => item.host === machine.host)
+        next = row ? { ...row, tool } : { tool, state: 'offline', models: [], more: false, source: '', version: '', fetchedAt: null, checkedAt: null, reason: '', sentence: '' }
+      }
+      if (!signal.aborted) reads[tool] = { loading: false, machine: next, error: '', refreshError: '' }
+    } catch {
+      if (!signal.aborted) reads[tool] = { loading: false, machine: reads[tool]?.machine ?? null, error: "Couldn't read the saved model list just now.", refreshError: '' }
+    }
+  }
+
+  async function refresh(tool: string) {
+    if (!terminal || !canRefresh || refreshing) return
+    const previous = reads[tool]
+    if (previous?.loading) return
+    refreshing = tool
+    reads[tool] = { loading: false, machine: previous?.machine ?? null, error: previous?.error ?? '', refreshError: '' }
+    try {
+      const next = await refreshMachineModels(terminal.agentId, tool)
+      reads[tool] = { loading: false, machine: next, error: '', refreshError: '' }
+    } catch {
+      reads[tool] = { loading: false, machine: previous?.machine ?? null, error: previous?.error ?? '', refreshError: "Couldn't refresh the list just now. Showing the last read." }
+    } finally {
+      refreshing = ''
+    }
+  }
+
   onMount(() => {
     dialog?.showModal()
     return () => {
       if (dialog?.open) dialog.close()
     }
+  })
+
+  onMount(() => {
+    if (!installed.length) return
+    const abort = new AbortController()
+    for (const item of installed) void loadModels(item.id, abort.signal)
+    return () => abort.abort()
   })
 </script>
 
@@ -101,6 +194,30 @@
       </section>
     {/if}
 
+    <section aria-labelledby={`${id}-agents`}>
+      <h3 id={`${id}-agents`}>Agents</h3>
+      <p class="hint">Installed agents and the model list this machine last read. A list is a suggestion; a start never waits for it.</p>
+      {#if refreshHint}<p class="hint">{refreshHint}</p>{/if}
+      {#if installed.length === 0}
+        <p class="hint">No launchable agents have reported from this machine yet.</p>
+      {:else}
+        {#each installed as item (item.id)}
+          {@const read = reads[item.id]}
+          {@const modelState = read?.machine?.state ?? ''}
+          {@const ready = canRefresh && !read?.loading && (!modelState || modelState === 'listed' || modelState === 'failed')}
+          <div class="row agent" data-agent={item.id} data-model-state={modelState}>
+            <div class="copy">
+              <strong>{item.name}</strong>
+              <small class="model-state" aria-live="polite">{modelLine(read)}</small>
+            </div>
+            <button class="btn" type="button" disabled={!ready || refreshing === item.id} onclick={() => void refresh(item.id)} aria-label={`Refresh ${item.name} models`}>
+              {refreshing === item.id ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+        {/each}
+      {/if}
+    </section>
+
     <section aria-labelledby={`${id}-access`}>
       <h3 id={`${id}-access`}>Access</h3>
       {#if agent}
@@ -141,6 +258,8 @@
   .copy strong { font-size: 0.86rem; }
   .copy small { color: var(--muted); font-size: 0.76rem; line-height: 1.5; }
   .copy code { font-size: 0.74rem; }
+  .hint { margin: 4px 0 0; color: var(--muted); font-size: 0.76rem; line-height: 1.5; }
+  .model-state { overflow-wrap: anywhere; }
   .row .btn { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.8rem; }
   .btn.danger { color: var(--bad); }
   .switch { position: relative; flex: none; width: 42px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); cursor: pointer; }
@@ -152,6 +271,9 @@
   @media (max-width: 560px) {
     .row { flex-wrap: wrap; }
     .row .btn { flex: 1 1 auto; }
+  }
+  @media (pointer: coarse) {
+    .row .btn { min-height: 44px; }
   }
   @media (prefers-reduced-motion: no-preference) {
     .switch { transition: background-color 160ms ease, border-color 160ms ease; }

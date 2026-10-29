@@ -3,6 +3,7 @@
   import { age, bytes, fresh, percent, value } from './health'
   import { shortAge, stateWord } from '../home'
   import { projectColourHex } from '../projectColour'
+  import { toolName } from '../agentLaunch'
 
   // The card a session row shows on hover or keyboard focus: what the session is, where it runs, the machine's last
   // resource readings and the way in. It repeats the row's own label rather than replacing it, so it is presentational;
@@ -37,6 +38,9 @@
   </header>
   <p class="where">{project ? `${project} · ` : ''}{host}{#if session.worktreeBranch}{' · '}<code>{session.worktreeBranch}</code>{/if}</p>
   <p class="age">{['running', 'creating', 'end_requested'].includes(session.state) ? `Running for ${shortAge(Math.max(0, serverNow - session.createdAt))}` : `Changed ${shortAge(Math.max(0, serverNow - session.updatedAt))} ago`}</p>
+  {#if session.tool || session.model}
+    <p class="agent">{toolName(session.tool)}{session.model ? ` · ${session.model}` : ''}</p>
+  {/if}
   <dl class="resources">
     <div class="cpu"><dt>CPU</dt><dd>{cpu == null ? '—' : reading(cpu)}</dd><span class="meter" aria-hidden="true"><span style:width={`${Math.max(0, Math.min(100, cpu ?? 0))}%`}></span></span></div>
     <div class="memory"><dt>Memory</dt><dd>{reading(memory)}</dd><span class="meter" aria-hidden="true"><span style:width={`${Math.max(0, Math.min(100, memory ?? 0))}%`}></span></span></div>
@@ -58,6 +62,7 @@
   .where { margin: 6px 0 0; color: var(--muted); overflow-wrap: anywhere; }
   code { font-family: var(--mono); font-size: .72rem; }
   .age { margin: 2px 0 0; color: var(--muted); font-size: .7rem; }
+  .agent { margin: 2px 0 0; color: var(--muted); font-size: .7rem; overflow-wrap: anywhere; }
   .resources { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
   .resources > div { display: grid; gap: 3px; min-width: 0; }
   dt { color: var(--muted); font-size: .62rem; letter-spacing: .05em; text-transform: uppercase; }

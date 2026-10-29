@@ -474,6 +474,7 @@
   <MachineSettings
     machine={settingsMachine}
     agent={enrolled}
+    terminal={terminals?.find((item) => item.host === settingsMachine.host)}
     releases={snapshot.releases}
     busy={!!busy}
     onautoupdate={(enabled) => { if (enrolled) void toggleAutoUpdate(enrolled, enabled) }}

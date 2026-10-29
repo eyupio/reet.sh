@@ -1,5 +1,5 @@
 import type { Event } from './api'
-import { launchActivity } from './agentLaunch'
+import { launchActivity, toolName } from './agentLaunch'
 
 type Detail = {
   host?: string
@@ -48,6 +48,11 @@ type Detail = {
   folderProjects?: unknown[]
   path?: string
   pages?: number
+  machine?: string
+  state?: string
+  defaultTool?: string
+  defaultModel?: string
+  defaultEffort?: string
 }
 
 function detail(e: Event): Detail {
@@ -231,8 +236,15 @@ export function eventLabel(e: Event): string {
       return `${d.published ? 'Published' : 'Saved a draft of'} ${name}`
     case 'hosted-delete':
       return `Deleted hosted skill ${name}`
-    case 'profile':
-      return 'Updated your profile'
+    case 'profile': {
+      const defaults: string[] = []
+      if (Object.hasOwn(d, 'defaultTool')) defaults.push(d.defaultTool ? `agent to ${toolName(d.defaultTool)}` : 'agent cleared')
+      if (Object.hasOwn(d, 'defaultModel')) defaults.push(d.defaultModel ? `model to ${d.defaultModel}` : 'model cleared')
+      if (Object.hasOwn(d, 'defaultEffort')) defaults.push(d.defaultEffort ? `thinking to ${d.defaultEffort}` : 'thinking cleared')
+      if (!defaults.length) return 'Updated your profile'
+      const last = defaults.pop() as string
+      return `Changed the default ${defaults.length ? `${defaults.join(', ')} and ${last}` : last}`
+    }
     case 'password-change':
       return 'Changed your password'
     case 'session-end':
@@ -257,6 +269,24 @@ export function eventLabel(e: Event): string {
       return `Recorded ownership of ${d.files === 1 ? '1 file' : `${d.files ?? 0} files`} of ${name}`
     case 'skill-content-release':
       return `Released ownership of ${name}`
+    case 'machine-models-read': {
+      const tool = toolName(d.tool)
+      switch (d.state) {
+        case 'listed': return `Read ${tool}'s models${typeof d.count === 'number' ? ` (${d.count})` : ''}`
+        case 'unsupported': return `${tool} can't list its models on that machine`
+        case 'failed': return `Couldn't read ${tool}'s models on that machine`
+        case 'off': return `Model reads are off for ${tool} on that machine`
+        case 'update': return `Update reet to read ${tool}'s models on that machine`
+        case 'offline': return `${tool}'s models were not read; the machine was offline`
+      }
+      return `Asked ${tool} for its models`
+    }
+    case 'model-favourite-added':
+      return d.model ? `Starred ${d.model} for ${toolName(d.tool)}` : 'Starred a model'
+    case 'model-favourite-removed':
+      return d.model ? `Unstarred ${d.model} for ${toolName(d.tool)}` : 'Unstarred a model'
+    case 'model-favourite-default':
+      return d.model ? `Made ${d.model} the default for ${toolName(d.tool)}` : `Cleared the default model for ${toolName(d.tool)}`
   }
   return `${e.action.replace(/-/g, ' ')} ${name}`.trim()
 }
@@ -279,6 +309,10 @@ export const EVENT_CATEGORIES: { id: EventCategory; label: string }[] = [
 
 const CATEGORY_ACTIONS: Record<string, EventCategory> = {
   'terminal-launch': 'agents',
+  'machine-models-read': 'agents',
+  'model-favourite-added': 'agents',
+  'model-favourite-removed': 'agents',
+  'model-favourite-default': 'agents',
   'worktree-remove': 'agents',
   'merge-machines': 'agents',
   'forget-machine': 'agents',

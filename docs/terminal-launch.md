@@ -86,7 +86,13 @@ A listed name is a suggestion, not proof that the model works: the launch path
 still sends the explicit `Create.Model` under the existing rule and never reads
 the list. The machine's local switch is
 `reet terminal models on|off|status` (on by default, refused while terminal
-access is off). See [agent models](agent-models.md) for the command's
+access is off). The shared picker in the launch bar, Start an agent, Add
+project/Project settings and Settings › Agents reads this cached list, with
+favourites, reet's suggestions and Other… when it cannot. A machine's
+**Settings → Agents** shows each installed agent's state last read (“42 read
+3 h ago”, “not supported”, “couldn't read: timed out”, “off”, “offline” or
+“update”) and offers Refresh only while the machine is online and
+models-capable. See [agent models](agent-models.md) for the command's
 environment, limits, cache and API.
 
 ## Uploaded images

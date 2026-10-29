@@ -12,7 +12,7 @@
 // Plus: the long skill name fits its heading once the card is expanded. The fixture's names contain no hyphens on purpose;
 // a browser may break a line after a hyphen, which would hide the problem.
 // REET_E2E_ONLY=<regexp> limits the screens (matched against the name), REET_E2E_WIDTHS=320,390 the widths.
-import { chromium } from '@playwright/test'
+import { chromium, expect } from '@playwright/test'
 import { homeExtra, HOST80, installApi, LONGHOST, LONGSKILL, PROJECT80, SESSION80 } from './helpers/longtext.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
@@ -70,7 +70,15 @@ const SCREENS = [
  {name:'sessions', path:'/sessions'},
  {name:'machines', path:'/machines'},
  {name:'machines: start agent dialog', path:'/machines', action:click('Start an agent')},
- {name:'machines: settings dialog', path:'/machines', action:async page => { await page.getByRole('article',{name:LONGHOST}).locator('summary[aria-label^="More options"]').click(); await page.getByRole('menuitem',{name:'Settings…',exact:true}).click() }},
+ {name:'machines: settings dialog', path:'/machines', action:async page => {
+  await page.getByRole('article',{name:LONGHOST}).locator('summary[aria-label^="More options"]').click()
+  await page.getByRole('menuitem',{name:'Settings…',exact:true}).click()
+  const d=page.locator('dialog[open]').last()
+  await expect(d.getByRole('heading',{name:'Agents',exact:true})).toBeVisible()
+  const claude=d.locator('[data-agent="claude"]')
+  await expect(claude.locator('.model-state')).toHaveText(/^2 read .+ ago$/)
+  await expect(claude.getByRole('button',{name:'Refresh Claude Code models'})).toBeEnabled()
+ }},
  {name:'machines: commands dialog', path:'/machines', action:async page => { await page.getByRole('article',{name:LONGHOST}).locator('summary[aria-label^="More options"]').click(); await page.getByRole('menuitem',{name:'Commands…',exact:true}).click() }},
  {name:'machine focus page', path:`/machines?machine=${LONGHOST}`},
  {name:'sync', path:'/sync'},

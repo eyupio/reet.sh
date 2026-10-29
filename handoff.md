@@ -27,23 +27,22 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 
 ## Agents home redesign (27–28 October 2026)
 
-### Resume here (after the models picker/launch bar, 29 October 2026)
+### Resume here (models UI complete, 29 October 2026)
 
 **#247 (models backend) merged as `16da0bb`; #245 as `1371cb5`; #242 as `961d530`; #231 as `7886511`.**
-[PR #252](https://github.com/eyupio/reet.sh/pull/252) is the first models UI half (M5–M7).
+The first models UI half is [PR #252](https://github.com/eyupio/reet.sh/pull/252) (M5–M7); the second half is this
+branch's **#TBD** (M8–M11).
 
-- **Branch and PR:** `ccr-7a7f5a9b-to5imh` was restarted from `origin/main` at `16da0bb` for **#252**, "Agent
-  models UI: picker and launch defaults". It holds M5–M7: `models.ts` and clients, the slot picker's favourite
-  star/status/Refresh, the launch bar/Home defaults-first integration. The owner instructed: create PRs and merge
-  when green. That is the explicit merge exception for #252 (Codex quota has been exhausted before).
-- **Do first:** check #252's final head with the REST forms
-  (`gh api repos/eyupio/reet.sh/pulls/252` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
-  `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). Merge only when every check is green. If it is
-  merged, start UI-2 from current main.
-- **Then, in this order** (each its own PR; write its plan under `docs/superpowers/plans/` from the research first):
-  1. Agent models UI, second half (M8–M11): Start an agent dialog, Add project/Project settings, Settings › Agents,
-     Machines “Agents”, Activity/hover-card, docs and the remaining matrix rows.
-  2. Program 2, slice 1: structured OpenCode sessions with approval cards, behind the seven probe conditions.
+- **Branch and PR:** `ccr-7a7f5a9b-to5imh` holds M8–M11: the Start an agent picker with project/account defaults and
+  Cline thinking, Add project/Project settings defaults, Settings › Agents (account defaults and favourites), the
+  Machines “Agents” section with cache state and guarded Refresh, Activity and hover-card model lines, docs and the
+  phone/matrix evidence. The PR number is **#TBD** until it is opened; it is **not merged**.
+- **Next stage:** Program 2, slice 1 — structured OpenCode sessions with approval cards (Allow once / Deny), behind
+  the seven probe conditions. It is the next PR. Model work is done; no more model UI is queued.
+- **Do first:** check the PR's final head with the REST forms
+  (`gh api repos/eyupio/reet.sh/pulls/<n>` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
+  `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). Merge only when every check is green and Codex has
+  reviewed it, or the owner gives an explicit exception.
 - **Release:** R22 lets B, C, E and the copy/paste work go out together; the models work can join when its UI is
   done. The owner's call; no release tag was cut or checked (`gh release list --repo eyupio/reet.sh`). F and G
   come later.
@@ -76,6 +75,7 @@ left out of the first pass, and the Program 2 spike ran in parallel.
 | Copy/paste follow-up | `Exited` cleanup, running 24 h sweep, two concurrent uploads and third refusal at the connector, lost-reply timeout, Scrollback-mid-upload wording, this handoff | merged, [#245](https://github.com/eyupio/reet.sh/pull/245) as `1371cb5` (owner approval; Codex re-review clean) |
 | Models backend | `models-v1`, OpenCode listing, local switch, per-machine cache, read/refresh/list API, favourites, account defaults, project effort, Cline project default | merged, [#247](https://github.com/eyupio/reet.sh/pull/247) as `16da0bb` (owner exception; Codex quota). M0 `c1152ff`, M1 `f4bf81c`, M2 `11afb42`, M3 `9d7f234`, M4 `5490a6c`, docs `3cd34f0` (plan `2a54133`); review fixes `56f5f5b`, `39a61a8`, `a8c9310` |
 | Models UI (M5–M7) | `models.ts`, model/favourite clients, picker star/status/Refresh/Use, launch bar defaults-first, Home account defaults, automatic machine read | **[#252](https://github.com/eyupio/reet.sh/pull/252), open**. Plan `d802ff0`, M5 `a7e0d7d`, picker `9202695`, bar `ca0f972`, review fixes `67feb99`, evidence `24df6cc` |
+| Models UI (M8–M11) | Start an agent picker with project/account defaults and Cline thinking; Add project/Project settings defaults; Settings › Agents; Machines “Agents” cache state and guarded Refresh; Activity/hover-card model lines; docs and phone evidence | **#TBD, open (this branch)**. Plan `docs/superpowers/plans/2026-10-29-agent-models-ui-2.md`; M8–M10 committed before M11 |
 | Program 2 | Structured chat over the agent protocol, with approval cards | spike done; OpenCode chosen (27 Oct); hands-on probe of `opencode acp` 1.19.5 done (28 Oct): conditional go for trusted workspaces only; queued as slice 1 below |
 
 Merged into main by the owner while this work was open: #222, #223 (`4791d89`), #224, #225, #228, #229, #230, #232, #233,
@@ -118,6 +118,16 @@ After the copy/paste PR:
   still writes only after a gesture or **Copy it**, write-only, at most 1 MiB. Old browsers ignore the sequence.
 - Image uploads write to the machine's private terminal directory, outside the project. They are derived state, not in
   the registry. A machine that ends a session mid-upload may make that one upload fail; nothing is retried.
+
+After the models UI:
+
+- Only OpenCode reports a machine-owned model list. Favourites, reet's suggestions and Other… are offered for every
+  agent; they are suggestions, not proof that a model exists. A per-machine default stays deferred (D2); the account
+  and project defaults are per account/project.
+- **Refresh** reads the machine only when it is online and models-capable. Offline shows the last list with its age and
+  disables Refresh; a failed refresh keeps the last good list and age. A cache read never contacts a machine.
+- No real provider-backed OpenCode list was used; the tests use fake machines and synthetic API answers. A 500-model
+  list was not load-tested, and no physical phone, Safari or live agent CLI run was part of this PR.
 - The new terminal controls have no mock-up element. They join the existing toolbar, menu and banner styles; at 1440
   the toolbar scrolls as it did before. The Select text sheet, upload chip, copy-on-select checkbox and the uploads-off
   note are the additions listed in [docs/ui-verification.md](docs/ui-verification.md).

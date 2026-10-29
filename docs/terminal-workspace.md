@@ -117,9 +117,9 @@ recent one). Right-click, Shift+F10 or the row's menu opens New session here, Sh
 project's colour. The heading's **+** opens Add a project in place, so a project can be added
 without leaving the terminal; the empty list says so too. Colours are saved on the project, so they
 follow the person to every browser; a session's own colour, chosen from its row's menu, still wins
-over its project's. A session row's hover or keyboard focus shows a card with the machine, project,
-branch, state, runtime and the machine's last CPU, memory and disk readings, named last known when
-the report is stale.
+over its project's. A session row's hover or keyboard focus shows a card with the agent and model
+the session was started with, the machine, project, branch, state, runtime and the machine's last
+CPU, memory and disk readings, named last known when the report is stale.
 
 The sessions panel scrolls independently and has three modes: **full**, a 64 px
 **mini rail**, and **closed**. **Sessions** in the workspace header opens or closes

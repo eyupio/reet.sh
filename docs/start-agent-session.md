@@ -16,7 +16,8 @@ agent's own permission prompts.
 
 ## Chat instead of a terminal
 
-For OpenCode on a machine that advertises `acp`, the dialog has **Chat, not a terminal**. It sends `structured: true` and
+For OpenCode on a machine that advertises `acp`, the dialog has **Chat with OpenCode**, on by default. Uncheck it to start
+the terminal UI instead. It sends `structured: true` and
 the person's trust confirmation; the model and Thinking controls are replaced with "Uses OpenCode's configured model".
 The opening prompt is the first message. The new session opens on its Chat tab, where OpenCode asks before it edits a file
 or runs a command with **Allow once** / **Deny**. There is no terminal in a chat session. **Attach image** (or paste/drop)

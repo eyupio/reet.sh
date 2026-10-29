@@ -47,7 +47,7 @@
  let agentId = $state(opening.agentId)
  // Said once, while the machine chosen for you is the one shown: why it is not the one you came from.
  const switchedNote = $derived(agentId === opening.agentId ? opening.note : '')
- let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), effort = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state(''), structured = $state(false)
+ let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), effort = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state(''), structured = $state(false), chatTouched = $state(false)
  // An agent, model or thinking level the person chose survives a late project/profile/favourite read for the same agent.
  // svelte-ignore state_referenced_locally
  let explicitTool = $state(CATALOGUE.some(agent => agent.id === initialAgent) ? initialAgent : '')
@@ -134,7 +134,16 @@
  const model = $derived(modelChoice === OTHER ? cleanModel(modelOther) : cleanModel(modelChoice))
  const effortOptions = $derived(effortChoices(chosenTool))
  const chatCapable = $derived(chosenTool === 'opencode' && !!machine?.capabilities?.acp)
- $effect(() => { if (structured && pickerOpen) pickerOpen = false; if (!chatCapable) structured = false })
+ // OpenCode is a chat by default when the machine offers ACP; the checkbox is
+ // the explicit terminal escape hatch. A machine or agent change starts over.
+ let chatKey = ''
+ $effect(() => {
+  const key = agentId + '\u0000' + chosenTool
+  if (key !== chatKey) { chatKey = key; chatTouched = false }
+  if (!chatCapable) { chatTouched = false; structured = false; return }
+  if (!chatTouched) structured = true
+  if (structured && pickerOpen) pickerOpen = false
+ })
  const modelLabel = $derived(modelChoice === OTHER ? cleanModel(modelOther) || 'Other…' : modelChoice || 'Agent default')
  const modelKey = $derived(machine && chosenTool ? `${machine.agentId}\u0000${chosenTool}` : '')
  const modelMachine = $derived(modelList.key === modelKey ? modelList.machine : null)
@@ -464,7 +473,7 @@
 
    {#if chatCapable}
     <div class="field chat-choice">
-     <label class="check"><input type="checkbox" bind:checked={structured} onchange={edited} /> Chat, not a terminal</label>
+     <label class="check"><input type="checkbox" bind:checked={structured} onchange={() => { chatTouched = true; edited() }} /> Chat with OpenCode</label>
      <p class="hint">OpenCode asks before it edits a file or runs a command. Any plugins in this folder's <code>.opencode</code> run when the chat starts, so use a folder you trust. Chat history stays in memory and ends when the machine connection does.</p>
     </div>
    {/if}

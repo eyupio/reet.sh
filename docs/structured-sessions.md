@@ -10,7 +10,8 @@ not offered. The probe is [OpenCode `opencode acp` hands-on probe](research/prob
 
 ## Starting one
 
-In **Start an agent**, choose OpenCode on a machine that advertises `acp`, then **Chat, not a terminal**. The model and
+In **Start an agent**, choose OpenCode on a machine that advertises `acp`. **Chat with OpenCode** is on by default; uncheck
+it for the terminal UI. The model and
 thinking controls are replaced with a note: a chat uses the model configured in OpenCode. The opening prompt becomes the
 first message. The dialog states that the folder's `.opencode` plugins run when the chat starts and that history lives in
 memory.

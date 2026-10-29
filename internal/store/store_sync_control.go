@@ -40,7 +40,11 @@ func (s *Store) SyncCandidatesFor(uid int64, role string, listID int64) ([]SyncS
 			return nil, err
 		}
 		for _, sk := range d.Skills {
-			out = append(out, asSync(sk.Skill))
+			candidate, e := s.privateSyncCandidate(uid, asSync(sk.Skill))
+			if e != nil {
+				return nil, e
+			}
+			out = append(out, candidate)
 		}
 		return out, nil
 	}
@@ -49,20 +53,25 @@ func (s *Store) SyncCandidatesFor(uid int64, role string, listID int64) ([]SyncS
 		return nil, err
 	}
 	for _, sk := range skills {
-		out = append(out, asSync(sk))
+		candidate, e := s.privateSyncCandidate(uid, asSync(sk))
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, candidate)
 	}
 	return out, nil
 }
 
 type DesiredSelection struct {
-	FollowSource bool     `json:"followSource"`
-	Origin       string   `json:"-"`
-	TargetID     string   `json:"targetId"`
-	SourceID     string   `json:"sourceId"`
-	ListID       int64    `json:"listId"`
-	SkillIDs     []string `json:"skillIds"`
-	Mode         string   `json:"mode"`
-	Revision     string   `json:"revision"`
+	FollowPending bool     `json:"-"` // Preserve whole-shelf intent while private source files are in flight.
+	FollowSource  bool     `json:"followSource"`
+	Origin        string   `json:"-"`
+	TargetID      string   `json:"targetId"`
+	SourceID      string   `json:"sourceId"`
+	ListID        int64    `json:"listId"`
+	SkillIDs      []string `json:"skillIds"`
+	Mode          string   `json:"mode"`
+	Revision      string   `json:"revision"`
 }
 
 func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) error {
@@ -105,6 +114,12 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 	}
 	if err != nil {
 		return err
+	}
+	for i := range candidates {
+		candidates[i], err = s.privateSyncCandidate(uid, candidates[i])
+		if err != nil {
+			return err
+		}
 	}
 	if in.FollowSource && source == in.TargetID {
 		return errors.New("choose a different source machine")
@@ -204,7 +219,7 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		if err != nil {
 			return err
 		}
-		if _, err = tx.Exec(`INSERT INTO sync_policies(target_id,follow_source) VALUES(?,?) ON CONFLICT(target_id) DO UPDATE SET follow_source=excluded.follow_source,problem=''`, in.TargetID, in.FollowSource); err != nil {
+		if _, err = tx.Exec(`INSERT INTO sync_policies(target_id,follow_source) VALUES(?,?) ON CONFLICT(target_id) DO UPDATE SET follow_source=excluded.follow_source,problem=''`, in.TargetID, in.FollowSource || in.FollowPending); err != nil {
 			return err
 		}
 		_, err = tx.Exec(`INSERT INTO sync_options(target_id,mode,baseline) VALUES(?,?,?) ON CONFLICT(target_id) DO UPDATE SET mode=excluded.mode,baseline=excluded.baseline`, in.TargetID, in.Mode, string(baseline))

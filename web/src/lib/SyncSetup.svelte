@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getSyncState, syncCandidates, saveDesired, startSyncRun, controlSyncAgent, queueSyncJob, type SyncState, type SyncSkill } from './api'
+  import { getSyncState, syncCandidates, saveDesired, startSyncRun, controlSyncAgent, queueSyncJob, syncFromMachine, getImports, type ImportRequest, type SyncState, type SyncSkill } from './api'
+  import MachineSkillSync from './MachineSkillSync.svelte'
   import { agentOnline, groupLabel, inventoryMachines } from './machines'
   import { fallbackInstallTarget, isFresh, syncableAgent, machineSyncOverview } from './syncOverview'
 
@@ -8,15 +9,17 @@
   let candidates = $state<SyncSkill[]>([]), chosen = $state<string[]>([]), hosts = $state<string[]>([])
   let locations = $state<Record<string, string[]>>({})
   let all = $state(true), query = $state(''), busy = $state(false), loading = $state(true)
+  let imports=$state<ImportRequest[]>([]),copying=$state<{skill:SyncSkill;host:string;requestId:string}|null>(null)
   let error = $state(''), result = $state(''), operation = $state(''), toggling = $state('')
   const connectHref = '/machines#add-machine'
   const fleet = $derived(inventoryMachines(snapshot.machines ?? []))
   const selectableHosts = $derived(fleet.filter(machine => snapshot.agents?.some(agent => agent.host.toLowerCase() === machine.host.toLowerCase())).map(machine => machine.host))
   const linked = $derived(candidates.filter(skill => skill.source && skill.sourceType !== 'local'))
-  const selected = $derived(all ? linked.map(skill => skill.id) : chosen)
+  const copyable = $derived(candidates.filter(skill => linked.some(item=>item.id===skill.id)||snapshot.environments.some(env=>env.skills.some(item=>item.id===skill.id))))
+  const selected = $derived(all ? copyable.map(skill => skill.id) : chosen)
   const filtered = $derived(candidates.filter(skill => `${skill.name} ${skill.source}`.toLowerCase().includes(query.toLowerCase())))
   const chosenMachines = $derived(fleet.filter(machine => hosts.includes(machine.host)))
-  const blockedSources = $derived(all && candidates.length !== linked.length)
+  const blockedSources = $derived(all && candidates.length !== copyable.length)
 
   function scopes(host: string): string[] {
     if (locations[host]) return locations[host]
@@ -60,16 +63,19 @@
           if (!agent) throw new Error('Connect the reet agent first.')
           if (agent.paused) throw new Error('Resume this machine first.')
           if (!ids.length) throw new Error('Choose an install location, or request a fresh scan.')
+          const direct=selected.filter(id=>linked.some(skill=>skill.id===id))
+          const local=selected.filter(id=>!direct.includes(id))
           for (const id of ids) {
             const env = state.environments.find(item => item.id === id)
             if (!isFresh(env)) throw new Error('A fresh complete scan is needed. Use Scan machine below.')
             operation = `Saving skills for ${machine.host}…`
-            state = await saveDesired({ targetId: id, sourceId: 'shelf', listId: 0, skillIds: selected, mode: 'additive', revision: state.targets.find(target => target.target.id === id)?.revision ?? '', followSource: all })
+            if(direct.length)state = await saveDesired({ targetId: id, sourceId: 'shelf', listId: 0, skillIds: direct, mode: 'additive', revision: state.targets.find(target => target.target.id === id)?.revision ?? '', followSource: all && !local.length })
             onupdate(state)
           }
           operation = `Starting sync on ${machine.host}…`
-          state = await startSyncRun(agent.id, ids)
-          onupdate(state)
+          if(direct.length){state = await startSyncRun(agent.id, ids);onupdate(state)}
+          for(const id of ids)for(const skillId of local){await syncFromMachine({skillId,destination:machine.host,destinationId:id,followShelf:all,requestKey:crypto.randomUUID()})}
+          if(local.length)imports=(await getImports()).requests
           successes.push(machine.host)
         } catch (e) { failures.push(`${machine.host}: ${e instanceof Error ? e.message : String(e)}`) }
       }
@@ -84,7 +90,12 @@
     hosts = requested === '*' ? selectableHosts : fleet.filter(machine => requested ? machine.host === requested : fleet.length === 1).map(machine => machine.host)
     const requestedSkills = params.getAll('skill')
     if (requestedSkills.length) { all = false; chosen = requestedSkills }
-    void syncCandidates().then(response => { candidates = response.skills; chosen = chosen.filter(id => candidates.some(skill => skill.id === id && skill.source && skill.sourceType !== 'local')) }).catch(e => { error = e instanceof Error ? e.message : String(e) }).finally(() => { loading = false })
+    let alive=true
+    const refreshImports=async()=>{if(!canWrite)return;try{const data=await getImports();if(alive)imports=data.requests}catch{}}
+    void refreshImports()
+    const timer=setInterval(()=>{if(document.visibilityState==='visible')void refreshImports()},5000)
+    void syncCandidates().then(response => { candidates = response.skills; chosen = chosen.filter(id => candidates.some(skill => skill.id === id)) }).catch(e => { error = e instanceof Error ? e.message : String(e) }).finally(() => { loading = false })
+    return()=>{alive=false;clearInterval(timer)}
   })
 </script>
 
@@ -102,12 +113,12 @@
       <label class="search-label">Find a skill<input type="search" bind:value={query} placeholder="Search your skills" /></label>
       <div class="skills" aria-label="Choose skills">
         {#each filtered as skill (skill.id)}
-          {@const installable = skill.source && skill.sourceType !== 'local'}
-          <label class="skill"><input type="checkbox" value={skill.id} bind:group={chosen} disabled={!installable} /><span><strong>{skill.name}</strong><small>{installable ? skill.source : 'Link a source on Skills to sync this skill'}</small></span>{#if !installable}<a href={`/skills?search=${encodeURIComponent(skill.name)}`}>Link source</a>{/if}</label>
+          {@const installable = copyable.some(item=>item.id===skill.id)}
+          <label class="skill"><input type="checkbox" value={skill.id} bind:group={chosen} disabled={!installable} /><span><strong>{skill.name}</strong><small>{skill.source && skill.sourceType!=='local' ? skill.sourceType==='private'?'Private copy in reet.sh':skill.source : installable?'Copy privately from an installed machine':'Connect its source machine or link a source'}</small></span>{#if !installable}<a href={`/skills?search=${encodeURIComponent(skill.name)}`}>Link source</a>{/if}</label>
         {:else}<p>No skills match this search.</p>{/each}
       </div>
     {/if}
-    {#if blockedSources}<p class="warning">{candidates.length - linked.length} skills need a source before they can be synced. <a href="/skills">Link their sources</a>, or choose individual skills.</p>{/if}
+    {#if blockedSources}<p class="warning">{candidates.length - copyable.length} skills have neither a linked source nor a reported machine copy. <a href="/skills">Link their sources</a>, or choose individual skills.</p>{/if}
   </fieldset>
   <fieldset disabled={busy || !canWrite}>
     <legend><span class="step">2</span> Which machines?</legend>
@@ -140,9 +151,16 @@
     <p>Keep synced runs automatically on the machines where you turn it on. Other installed skills are kept.</p>
     <div class="submit"><p>{selected.length} skills · {hosts.length} {hosts.length === 1 ? 'machine' : 'machines'}<small>Reet checks each change before applying it.</small></p><button type="button" class="btn primary" disabled={busy || loading || !canWrite || !selected.length || !hosts.length || blockedSources || !!toggling} onclick={sync}>{busy ? operation || 'Starting…' : 'Sync now'}</button></div>
   </div>
+  {#each imports.filter(item=>item.syncSkillId&&item.destinationId&&(!item.syncRunId||snapshot.runs?.some(run=>run.id===item.syncRunId&&run.status!=='completed'))) as item (item.id)}
+    {@const candidate=candidates.find(skill=>skill.id===item.syncSkillId)}
+    {@const target=snapshot.environments.find(env=>env.id===item.destinationId)}
+    {#if candidate&&target}<p class="result" role="status">{candidate.name} · {item.host} → {target.host} · {item.syncRunId?'Sync queued':item.state} <button class="btn quiet" onclick={()=>copying={skill:candidate,host:target.host,requestId:item.id}}>View progress</button></p>{/if}
+  {/each}
   {#if result}<p class="result" role="status">{result}</p>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 </section>
+
+{#if copying}<MachineSkillSync skill={copying.skill} destination={copying.host} initialRequestId={copying.requestId} onclose={()=>copying=null} />{/if}
 
 <style>
   .setup{margin:16px 0 28px;min-width:0}header{margin-bottom:28px}h2{font:500 clamp(1.6rem,3vw,2.2rem)/1.15 var(--serif);letter-spacing:-.03em;margin:6px 0 12px}p{color:var(--muted);font-size:.86rem;line-height:1.6}.eyebrow{font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-text)}fieldset{border:0;border-top:1px solid var(--line);padding:22px 0;margin:0;min-width:0}legend{font-size:1rem;font-weight:650;padding:0 12px 0 0}.step{display:inline-grid;place-items:center;width:26px;height:26px;border:1px solid var(--line);border-radius:50%;margin-right:8px;color:var(--accent-text);font-size:.8rem}.choices,.machines{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.choices>label{display:flex;gap:12px;padding:18px;border:1px solid var(--line);border-radius:12px;cursor:pointer;background:var(--bg)}.choices>label.chosen,article.selected{border-color:var(--accent-text);background:color-mix(in srgb,var(--accent-text) 5%,var(--card))}strong{font-size:.9rem}small{display:block;color:var(--muted);font-size:.78rem;line-height:1.5;margin-top:4px}.search-label{display:grid;gap:6px;font-size:.8rem;margin-top:18px}.skills{max-height:280px;overflow:auto;margin-top:10px;border:1px solid var(--line);border-radius:10px}.skill{display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--line)}.skill>span{flex:1;min-width:0}.skill a{font-size:.78rem}.machine-tools{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:.8rem;gap:8px}.machines article{border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}.machine-choice{display:flex;gap:12px;align-items:center}.machine-choice strong{overflow-wrap:anywhere}.keep-machine{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:16px;margin-top:14px;border-top:1px solid var(--line);font-size:.83rem;font-weight:600}.keep-machine input{appearance:none;position:relative;width:36px;height:22px;border:1px solid var(--line);border-radius:20px;background:var(--line);cursor:pointer}.keep-machine input:checked{background:var(--accent-text);border-color:var(--accent-text)}.keep-machine input:after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--card)}.keep-machine input:checked:after{left:17px}.machine-note{font-size:.75rem;margin:7px 0 0}details{margin-top:14px;font-size:.8rem}summary{cursor:pointer;padding:8px 0;min-height:30px}details p{font-size:.78rem}.location{display:flex;align-items:center;gap:10px;padding:8px}.finish{padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}.submit{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:12px;border-top:1px solid var(--line);padding-top:14px}.submit p{margin:0}.warning,.error,.result{padding:12px;border:1px solid var(--warn);border-radius:8px;font-size:.83rem}.error{border-color:var(--bad);color:var(--bad)}.result{border-color:var(--good)}input[type=checkbox],input[type=radio]{flex-shrink:0;accent-color:var(--accent-text)}a{color:var(--accent-text)}@media(max-width:600px){.choices,.machines{grid-template-columns:1fr}.submit{align-items:stretch;flex-direction:column}.submit .btn{width:100%}.choices>label{padding:14px}}

@@ -11,6 +11,7 @@ import (
 )
 
 func (s *server) registerRemoteImports(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v2/sync/from-machine", s.privateSkillAccess(s.syncFromMachine))
 	for _, route := range []string{"GET /api/v2/skill-imports", "GET /api/v2/skill-imports/{id}", "POST /api/v2/skill-imports", "POST /api/v2/skill-imports/{id}/approve", "POST /api/v2/skill-imports/{id}/cancel", "DELETE /api/v2/skill-imports/{id}"} {
 		mux.HandleFunc(route, s.privateSkillAccess(s.browserSkillImports))
 	}
@@ -91,7 +92,7 @@ func (s *server) browserSkillImports(w http.ResponseWriter, r *http.Request) {
 }
 func remoteImportError(w http.ResponseWriter, err error) {
 	if err == store.ErrRemoteImportCapacity {
-		writeErr(w, 409, "Import history limit reached (128 requests). Finish or cancel pending work, then dismiss finished request history before creating another.")
+		writeErr(w, 409, "Transfer history is full. Finish or cancel pending work, then dismiss finished request history before creating another.")
 		return
 	}
 	if err == store.ErrRemoteImport || err == store.ErrContentObservationStale || err == store.ErrRemoteNotFound {
@@ -170,4 +171,30 @@ func (s *server) connectorSkillImports(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, map[string]bool{"recorded": true})
 	}
+}
+
+func (s *server) syncFromMachine(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		SkillID       string `json:"skillId"`
+		DestinationID string `json:"destinationId"`
+		FollowShelf   bool   `json:"followShelf"`
+		Destination   string `json:"destination"`
+		SourceID      string `json:"sourceId"`
+		RequestKey    string `json:"requestKey"`
+	}
+	if !importDecode(w, r, 16384, &in) {
+		return
+	}
+	result, err := s.st.RequestMachineSkillSync(s.uid(r), in.SkillID, in.Destination, in.SourceID, in.RequestKey, in.DestinationID, in.FollowShelf)
+	if err != nil {
+		if err == store.ErrRemoteImport {
+			writeErr(w, 409, "The source machine is not ready to transfer files. Connect it and update reet, then try again.")
+		} else if err == store.ErrRemoteImportCapacity {
+			remoteImportError(w, err)
+		} else {
+			writeErr(w, 409, err.Error())
+		}
+		return
+	}
+	writeJSON(w, 200, result)
 }

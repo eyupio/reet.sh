@@ -48,8 +48,9 @@
   import Welcome from './lib/Welcome.svelte'
   import SkillCard from './lib/SkillCard.svelte'
   import SyncActivity from './lib/SyncActivity.svelte'
+  import MachineSkillSync from './lib/MachineSkillSync.svelte'
   import SyncProblem from './lib/SyncProblem.svelte'
-  import { installSkillOnMachine } from './lib/syncActions'
+  import { MachineSourceRequired, installSkillOnMachine } from './lib/syncActions'
   import Bookmarklets from './lib/Bookmarklets.svelte'
   import Toast from './lib/Toast.svelte'
   import { ssoErrorFromSearch, ssoErrorMessage, withoutSsoError, type SsoStatus } from './lib/sso'
@@ -105,6 +106,7 @@
   let installing = $state('')
   // The install that just failed, so the Skills page can offer the exact fix
   // and a retry instead of a bare error banner.
+  let machineCopy = $state<{skill:Skill;host:string}|null>(null)
   let installFailure = $state<{ message: string; host: string; skill: Skill } | null>(null)
   let syncWatch = $state<{ host: string; title: string; note: string } | null>(null)
   const shelfMachines = $derived(inventoryMachines(machines))
@@ -742,6 +744,7 @@
       ok(`Installing ${skill.name} on ${result.host}. Follow the live progress in the corner.`)
       void loadMeta()
     } catch (e) {
+      if(e instanceof MachineSourceRequired){error='';installFailure=null;machineCopy={skill,host};return}
       installFailure = { message: e instanceof Error ? e.message : String(e), host, skill }
       fail(e)
     } finally {
@@ -1165,6 +1168,7 @@
 </main>
 
 {#if authMode === 'accounts' && currentUser && !needsAuth && !isMCPConsent}<WebMCP />{/if}
+{#if machineCopy}<MachineSkillSync skill={machineCopy.skill} destination={machineCopy.host} onclose={() => {machineCopy=null;void loadMeta()}} />{/if}
 {#if isSkills && authenticated && !needsAuth}<SyncActivity open={syncWatch !== null} context={syncWatch} {canWrite} onclose={() => (syncWatch = null)} />{/if}
 {#if !terminalLayout && !homeLayout}<Footer
   signedIn={!isPublicList && authMode !== 'none' && authenticated && !needsAuth}

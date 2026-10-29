@@ -24,6 +24,7 @@ import (
 // Found is one installed skill in one place; Source is "owner/repo" when the skills CLI lock file knows it.
 type Found struct {
 	Name, Source, Host, Agent, Project, Path string
+	Digest                                   string
 }
 
 // ScannedEnv is one environment a scan looked at, including folders with no skills.
@@ -97,6 +98,14 @@ func CollectScan(home, cwd string, extraDirs []string, host string) Scan {
 			}
 			return
 		}
+		scopeSources := map[string]string{}
+		for _, lock := range []string{filepath.Join(filepath.Dir(dir), ".skill-lock.json"), filepath.Join(filepath.Dir(dir), "skills-lock.json"), filepath.Join(dir, ".skill-lock.json")} {
+			readLock(lock, func(name, source string) {
+				if source != "" {
+					scopeSources[name] = source
+				}
+			})
+		}
 		env := addEnv(agent, project, label)
 		seen := map[string]bool{}
 		for _, e := range entries {
@@ -112,8 +121,12 @@ func CollectScan(home, cwd string, extraDirs []string, host string) Scan {
 			}
 			if !st.IsDir() {
 				name := e.Name()
+				source := sourceForScope(globalSources, projectSources, project, name)
+				if scoped := scopeSources[name]; scoped != "" {
+					source = scoped
+				}
 				found[host+"\x00"+agent+"\x00"+project+"\x00"+name] = Found{
-					Name: name, Source: sourceForScope(globalSources, projectSources, project, name), Host: host, Agent: agent, Project: project, Path: label,
+					Name: name, Source: source, Host: host, Agent: agent, Project: project, Path: label,
 				}
 				if !seen[name] {
 					seen[name] = true
@@ -217,6 +230,9 @@ func readLock(path string, add func(name, source string)) {
 		for key, e := range asMap {
 			name := lockSkillName(key, e.SkillPath)
 			source := e.Source
+			if source == "" && e.SourceType == "github" {
+				source = e.SourceURL
+			}
 			if e.SourceType == "well-known" {
 				base := e.SourceBaseURL
 				if base == "" {

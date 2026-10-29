@@ -167,6 +167,7 @@ const schema = `CREATE TABLE IF NOT EXISTS skills (
 
 var schemaV12 = []string{
 	`CREATE TABLE IF NOT EXISTS scan_errors (env_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE, error TEXT NOT NULL)`,
+	`CREATE TABLE IF NOT EXISTS sync_private_sources (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE, bundle_id TEXT NOT NULL,revision_id TEXT NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(user_id,skill_id))`,
 	`CREATE TABLE IF NOT EXISTS sync_policies (target_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE, follow_source INTEGER NOT NULL DEFAULT 0, problem TEXT NOT NULL DEFAULT '')`,
 	`CREATE TABLE IF NOT EXISTS sync_options (target_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE, mode TEXT NOT NULL DEFAULT 'mirror', baseline TEXT NOT NULL DEFAULT '[]', applied_revision TEXT NOT NULL DEFAULT '')`,
 	`CREATE TABLE IF NOT EXISTS sync_agents (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, host TEXT NOT NULL, secret_hash TEXT NOT NULL, version TEXT NOT NULL, source_commit TEXT NOT NULL DEFAULT '', last_seen INTEGER NOT NULL, paused INTEGER NOT NULL DEFAULT 0, auto_update INTEGER NOT NULL DEFAULT 1, UNIQUE(user_id,host))`,

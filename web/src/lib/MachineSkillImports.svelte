@@ -3,7 +3,7 @@
  import { shell } from './dialogShell'
  import { getImports, getImport, requestImport, approveImport, cancelImport, stopImport, getPrivateBundles, getPrivateRevisions, type ImportRequest, type ImportState, type PrivateBundle, type PrivateRevision, type SyncState } from './api'
  import CopyButton from './CopyButton.svelte'
- let { snapshot, source, onclose }: { snapshot: SyncState; source?: { environmentId: string; name: string }; onclose: () => void } = $props()
+ let { snapshot, source, initialRequestId = '', onclose }: { snapshot: SyncState; source?: { environmentId: string; name: string }; initialRequestId?: string; onclose: () => void } = $props()
  let dialog = $state<HTMLDialogElement>()
  let importState = $state<ImportState>({requests: [], capabilities: []}), bundles = $state<PrivateBundle[]>([])
  let selected = $state<ImportRequest | null>(null), selectedID = $state(''), error = $state(''), busy = $state(false), loading = $state(true)
@@ -40,7 +40,7 @@
   finally { if (refreshAbort === abort) { syncing = false; if (alive) loading = false } }
  }
  onMount(() => {
-  environmentId = source?.environmentId ?? ''; name = source?.name ?? ''; dialog?.showModal(); void refresh()
+  environmentId = source?.environmentId ?? ''; name = source?.name ?? ''; selectedID = initialRequestId; dialog?.showModal(); void refresh()
   const timer = setInterval(() => { if (document.visibilityState === 'visible') void refresh() },3000)
   return () => { alive = false; generation++; refreshAbort?.abort(); clearInterval(timer) }
  })

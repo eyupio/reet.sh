@@ -78,6 +78,28 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 				}
 				continue
 			}
+			// Following the whole source also covers skills discovered without an
+			// upstream URL. Capture one private copy through their enrolled host;
+			// the durable transfer queues this destination when the bytes arrive.
+			preparing := false
+			for _, sk := range candidates {
+				if target.SourceID != "shelf" || sk.Source != "" && sk.SourceType != "local" {
+					continue
+				}
+				preparing = true
+				key := "follow_" + secretHash(target.Target.ID+"\x00"+sk.ID)
+				_, e := s.RequestMachineSkillSync(uid, sk.ID, agent.Host, "", key, target.Target.ID, target.SourceID == "shelf")
+				if e != nil {
+					if e = problem("Connect and update the source machine to copy " + sk.Name + ". " + e.Error()); e != nil {
+						return e
+					}
+				} else if e = problem("Copying machine-only skills privately before installation."); e != nil {
+					return e
+				}
+			}
+			if preparing {
+				continue
+			}
 			ids := func(skills []SyncSkill) []string {
 				out := []string{}
 				for _, sk := range skills {

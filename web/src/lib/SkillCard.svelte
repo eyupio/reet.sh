@@ -90,7 +90,7 @@
     return rank[a.status] - rank[b.status] || a.host.localeCompare(b.host)
   }))
   const visibleInstallations = $derived(expanded ? installations : installations.slice(0, 3))
-  const canInstall = $derived(!!command)
+  const canInstall = $derived(!!command || installations.some(report => report.status === 'installed'))
   const missingReports = $derived(installations.filter(report => report.status === 'missing' && canInstall))
   // Nothing has this skill yet: installing it is the step that does something, so it leads. Once a machine has it, the next shelf step does.
   const installedSomewhere = $derived(installations.some(report => report.status === 'installed'))
@@ -251,7 +251,7 @@
         <a class="source source-link" href={source} target="_blank" rel="noopener noreferrer" title={source} aria-label={`Source: ${skill.source} (opens in a new tab)`}>
           <code>{skill.source}</code><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M21 3 10 14M10 3H3v18h18v-7" /></svg>
         </a>
-      {:else}<code class="source">Unlinked source</code>{/if}
+      {:else}<code class="source">{installedSomewhere ? 'Available from your machines' : 'Source not linked'}</code>{/if}
     </div>
     <button type="button" class="disclosure" aria-expanded={expanded} aria-controls={`skill-details-${skill.id}`}
       aria-label={`${expanded ? 'Collapse' : 'Expand'} ${skill.name}`} onclick={() => onexpand(!expanded)}>
@@ -295,7 +295,7 @@
       <button type="button" class="chip heart" data-act="like" aria-label={`Like ${skill.name}`} aria-pressed={skill.liked} onclick={() => onpatch(skill, { liked: !skill.liked }, 'like')}><span aria-hidden="true">{skill.liked ? '♥' : '♡'}</span>Like</button>
     {/if}
     {#if command}<CopyButton text={command} label="Copy install" ariaLabel={`Copy install command for ${skill.name}`} compact primary={leadWithInstall} oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />{/if}
-    {#if !command && canWrite}<button type="button" class="chip" onclick={() => { linking = true; onexpand(true) }}>Link source to sync</button>{/if}
+    {#if !command && !installedSomewhere && canWrite}<button type="button" class="chip" onclick={() => { linking = true; onexpand(true) }}>Link source to sync</button>{/if}
     {#if prompt}<CopyButton text={prompt} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} compact oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />{/if}
     {#if canWrite}
       <button type="button" class="chip menu-trigger" bind:this={menuButton} aria-haspopup="menu" aria-expanded={menuOpen} aria-label={`More actions for ${skill.name}`} title="More actions" onclick={openMenuFromButton}><span aria-hidden="true">⋯</span></button>

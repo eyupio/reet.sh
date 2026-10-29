@@ -3,7 +3,7 @@
 A **project** is one folder on one machine, kept in the project rail on Home. Choosing a card puts it
 in Home's launch bar with its own defaults ([Start an agent session](start-agent-session.md#on-home-the-launch-bar));
 a session started there is listed under the project in In flight. A project can carry an optional **starter prompt**,
-a default agent and model, a default base branch, whether each session gets its own worktree, and a
+a default agent, model and effort, a default base branch, whether each session gets its own worktree, and a
 rail **colour** (blank, red, amber, green, blue or violet) that marks it in the rail and, by default,
 the sessions started in it.
 There is no separate Projects page: `/projects` and `/projects/<id>` go to Home.
@@ -121,8 +121,9 @@ plain sentence, and a field refusal names the field so the dialog can move focus
   Project's first folder still on the account. Unknown ids, another account's and removed ones are the
   same 404 `project_not_found`.
 - `POST /folder-projects` with `{host, dir, isRepo?, name?, baseBranch?, worktreeDefault?,
-  defaultTool?, defaultModel?, starterPrompt?}` → 201 and an `ETag`. `host` is the machine's
-  enrollment id.
+  defaultTool?, defaultModel?, defaultEffort?, starterPrompt?}` → 201 and an `ETag`. `host` is the machine's
+  enrollment id. `defaultTool` accepts any agent reet can start (including Cline); a default model needs
+  a default agent, and a default effort needs an agent whose preset takes one.
 - `GET /folder-projects/{id}` → the project **with** `starterPrompt`, for the edit form, and its
   `ETag` (the version, quoted).
 - `PATCH /folder-projects/{id}` with `If-Match` and any of the create fields: absent keeps, `""`
@@ -133,7 +134,7 @@ plain sentence, and a field refusal names the field so the dialog can move focus
 - `POST /folder-projects/import-saved` with `{}` → the list plus `{created, skipped, message}`.
 
 A FolderProject is `{id, host, machine, dir, name, isRepo, baseBranch, worktreeDefault, defaultTool,
-defaultModel, hasStarterPrompt, starterPrompt?, note, position, createdAt, updatedAt, version}`.
+defaultModel, defaultEffort, hasStarterPrompt, starterPrompt?, note, position, createdAt, updatedAt, version}`.
 `machine` is the machine's current name, `""` once it is no longer enrolled (the card says "machine
 not enrolled"). A terminal create may carry `projectId`; the controller checks it belongs to the
 account and to that machine (404 `project_not_found`, 422 `project_machine_mismatch`) and never
@@ -144,9 +145,12 @@ sends it to the machine.
 The session listing (`GET /api/v2/terminal/sessions`) now carries, for every session, `tool`, `model`,
 `effort` (always `""` for now), `yolo` (always `false` for now) and `projectId` (the folder project it
 was started in, `null` otherwise), and never the prompt. The profile (`GET`/`PATCH /api/v2/profile`)
-gains `defaultBaseBranch` (blank, the repository's own default, or a valid branch name) and
-`worktreesByDefault` (true unless changed): the account default a project's `inherit` means. No page
-sets either yet: they are set through the profile API, and the launch bar reads them.
+gains `defaultBaseBranch` (blank, the repository's own default, or a valid branch name),
+`worktreesByDefault` (true unless changed): the account default a project's `inherit` means, and
+`defaultTool`, `defaultModel`, `defaultEffort` for a session started outside a project. Model
+favourites are per account under `/api/v2/profile/model-favourites`; see
+[agent models](agent-models.md). No page sets these yet: they are set through the API, and the
+launch bar (the next PR) reads them.
 
 ## Starter prompts
 

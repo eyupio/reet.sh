@@ -47,7 +47,7 @@ comparable struct and `omitempty` keeps a plain create unchanged. They are named
 
 | Field | Meaning | Limits |
 | --- | --- | --- |
-| `tool` | Tool id | One of `claude`, `codex`, `opencode`, `gemini` |
+| `tool` | Tool id | One of `claude`, `codex`, `opencode`, `gemini`; `cline` under `agents-v2` |
 | `model` | Model id, optional | 1 to 100 bytes; letters, digits and `. _ : / @ + -`; the first character must be a letter or digit |
 | `dir` | Folder, optional | Absolute; at most 4,096 bytes; valid UTF-8; no control characters |
 | `prompt` | Opening prompt, optional | At most 2,000 bytes; valid UTF-8; no control characters except newline; must not begin with `-` |
@@ -76,6 +76,18 @@ other one-shot flag; a test pins the only flags used to `--model`, `--prompt` an
 | `codex` | `codex --model <model> -- <prompt>` | https://learn.chatgpt.com/docs/developer-commands?surface=cli (reached from https://developers.openai.com/codex/cli/reference): "Running `codex` with no subcommand launches the interactive terminal UI", `--model, -m`, and an optional `PROMPT`. Source: `codex-rs/tui/src/cli.rs` in openai/codex has a positional `prompt: Option<String>`. |
 | `opencode` | `opencode --model <model> --prompt <prompt>` | https://opencode.ai/docs/cli/: "opencode [project]" starts the terminal UI, with `--prompt` and `--model`. The positional is a project path, so the prompt goes through the flag. |
 | `gemini` | `gemini --model <model> --prompt-interactive <prompt>` | https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/cli-reference.md and `packages/cli/src/config/config.ts`: `--prompt-interactive` runs the prompt and continues interactively; `--model` sets the model. `-p/--prompt` is headless and is deliberately not used. |
+
+## Models read from the machine
+
+A connector that negotiated `models-v1` can list the models its agent reports.
+In v1 only OpenCode has a confirmed listing (`opencode models`); the other
+agents answer `unsupported` and the browser keeps its suggestions plus Other….
+A listed name is a suggestion, not proof that the model works: the launch path
+still sends the explicit `Create.Model` under the existing rule and never reads
+the list. The machine's local switch is
+`reet terminal models on|off|status` (on by default, refused while terminal
+access is off). See [agent models](agent-models.md) for the command's
+environment, limits, cache and API.
 
 ## Uploaded images
 

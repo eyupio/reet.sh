@@ -83,6 +83,7 @@ jobs:
           node web/tests/empty-states.e2e.mjs
           node web/tests/sync-activity.e2e.mjs
           node web/tests/skills-sync-simple.e2e.mjs
+          node web/tests/machine-skill-sync.e2e.mjs
           node web/tests/skill-card.e2e.mjs
           node web/tests/control.e2e.mjs
           node web/tests/machine-import.e2e.mjs

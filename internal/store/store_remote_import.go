@@ -16,6 +16,11 @@ var ErrRemoteImport = errors.New("import changed, expired, unavailable or not ap
 var ErrRemoteImportCapacity = errors.New("import request history full")
 
 type RemoteImport struct {
+	SyncError     string               `json:"syncError,omitempty"`
+	FollowShelf   bool                 `json:"followShelf,omitempty"`
+	SyncSkillID   string               `json:"syncSkillId,omitempty"`
+	DestinationID string               `json:"destinationId,omitempty"`
+	SyncRunID     string               `json:"syncRunId,omitempty"`
 	ID            string               `json:"id"`
 	RequestKey    string               `json:"requestKey"`
 	AgentID       string               `json:"agentId"`
@@ -44,6 +49,9 @@ type ImportCapability struct {
 	ObservedAt int64  `json:"observedAt"`
 }
 type RemoteImportCreate struct {
+	FollowShelf   bool   `json:"followShelf,omitempty"`
+	SyncSkillID   string `json:"syncSkillId,omitempty"`
+	DestinationID string `json:"destinationId,omitempty"`
 	RequestKey    string `json:"requestKey"`
 	AgentID       string `json:"agentId"`
 	EnvironmentID string `json:"environmentId"`
@@ -159,12 +167,15 @@ func (s *Store) CreateRemoteImportFor(uid int64, in RemoteImportCreate) (out Rem
 			if err != nil {
 				return err
 			}
-			if out.AgentID != in.AgentID || out.EnvironmentID != in.EnvironmentID || out.Name != in.Name || out.BundleID != in.BundleID || out.ExpectedBase != in.ExpectedBase {
+			if out.FollowShelf != in.FollowShelf || out.SyncSkillID != in.SyncSkillID || out.DestinationID != in.DestinationID || out.AgentID != in.AgentID || out.EnvironmentID != in.EnvironmentID || out.Name != in.Name || out.BundleID != in.BundleID || out.ExpectedBase != in.ExpectedBase {
 				return ErrRemoteImport
 			}
 			return nil
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err := s.validateSyncImport(tx, uid, in); err != nil {
 			return err
 		}
 		if err = contentAgent(tx, uid, in.AgentID); err != nil {
@@ -185,10 +196,10 @@ func (s *Store) CreateRemoteImportFor(uid int64, in RemoteImportCreate) (out Rem
 		if err = tx.QueryRow(`SELECT count(*) FROM machine_import_requests WHERE agent_id=? AND state IN ('queued','previewing','reviewing','approved','uploading')`, in.AgentID).Scan(&busy); err != nil {
 			return err
 		}
-		if busy > 0 {
+		if busy > 0 && in.SyncSkillID == "" {
 			return ErrRemoteImport
 		}
-		out = RemoteImport{ID: syncID(), RequestKey: in.RequestKey, AgentID: in.AgentID, EnvironmentID: in.EnvironmentID, Name: in.Name, Instance: instance, State: "queued", BundleID: in.BundleID, ExpectedBase: in.ExpectedBase, CreatedAt: now(), UpdatedAt: now(), ExpiresAt: now() + 10*60*1000, Excluded: []string{}}
+		out = RemoteImport{FollowShelf: in.FollowShelf, SyncSkillID: in.SyncSkillID, DestinationID: in.DestinationID, ID: syncID(), RequestKey: in.RequestKey, AgentID: in.AgentID, EnvironmentID: in.EnvironmentID, Name: in.Name, Instance: instance, State: "queued", BundleID: in.BundleID, ExpectedBase: in.ExpectedBase, CreatedAt: now(), UpdatedAt: now(), ExpiresAt: now() + 10*60*1000, Excluded: []string{}}
 		err = tx.QueryRow(`SELECT e.host,e.agent,e.project FROM environments e JOIN sync_agents a ON a.user_id=e.user_id AND a.host=e.host COLLATE NOCASE WHERE e.id=? AND e.user_id=? AND a.id=?`, in.EnvironmentID, uid, in.AgentID).Scan(&out.Host, &out.Agent, &out.Project)
 		if err != nil || !contentobs.ValidScope(out.Agent, out.Project) {
 			return ErrRemoteImport
@@ -326,6 +337,14 @@ func (s *Store) RecordRemotePreviewFor(uid int64, agent, id, instance string, p 
 		r.Preview = &p
 		r.PreviewHash = hash
 		r.State = "reviewing"
+		if r.DestinationID != "" && p.Allowed(nil) {
+			m, e := p.Manifest(nil)
+			if e != nil {
+				return e
+			}
+			r.Digest = m.Digest
+			r.State = "approved"
+		}
 		return writeImport(tx, uid, r)
 	})
 }
@@ -437,6 +456,9 @@ func (s *Store) CommitRemoteImportFor(uid int64, agent, id, instance, sourceDige
 		}
 		current.State = "completed"
 		current.Receipt = &result
+		if err := bindPrivateSync(tx, uid, current, result); err != nil {
+			return err
+		}
 		return writeImport(tx, uid, current)
 	})
 }

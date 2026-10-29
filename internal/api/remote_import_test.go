@@ -104,3 +104,73 @@ func mustRemoteJSON(t *testing.T, in any) []byte {
 	}
 	return raw
 }
+
+func TestMachineSkillSyncAPIRequiresOwnedReportedSkill(t *testing.T) {
+	srv, st, a, secret, token := privateFixture(t, AuthAccounts, "")
+	uid, _ := st.DefaultOwner()
+	if err := st.TouchEnvironmentFor(uid, a.Host, "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpsertLocalFor(uid, "demo", store.Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordEnvironmentFor(uid, "local/demo", a.Host, "agents", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	dest, _, err := st.EnrollSyncAgent(uid, "destination", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = st.TouchEnvironmentFor(uid, dest.Host, "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	env := store.EnvironmentIDFor(uid, dest.Host, "agents", "")
+	if err = st.RecordInventoryFor(uid, env, true, store.MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.ClaimRemoteImportFor(uid, a.ID, strings.Repeat("a", 48)); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"skillId":"local/demo","destination":"destination","requestKey":"api_machine_sync_000001"}`
+	call := func(method, path, body, auth string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "https://reet.example"+path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		if auth != "" {
+			req.Header.Set("Authorization", "Bearer "+auth)
+		}
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		return w
+	}
+	if w := call("POST", "/api/v2/sync/from-machine", body, ""); w.Code == 200 {
+		t.Fatal("unauthenticated transfer")
+	}
+	w := call("POST", "/api/v2/sync/from-machine", body, token)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var imported store.RemoteImport
+	if err = json.Unmarshal(w.Body.Bytes(), &imported); err != nil {
+		t.Fatal(err)
+	}
+	if imported.SyncSkillID != "local/demo" || imported.DestinationID != env {
+		t.Fatal(imported)
+	}
+	if w = call("POST", "/api/v2/sync/from-machine", strings.Replace(body, "local/demo", "local/absent", 1), token); w.Code == 200 {
+		t.Fatal("unreported skill transfer")
+	}
+	if w = call("POST", "/api/v2/sync/from-machine", strings.TrimSuffix(body, "}")+`,"files":[]}`, token); w.Code != 400 {
+		t.Fatal(w.Code)
+	}
+	// A browser's sync request does not bypass the source binary's enrollment.
+	req := httptest.NewRequest("POST", "https://reet.example/api/v2/sync/skill-import/work", strings.NewReader(`{"schemaVersion":1,"instanceId":"`+strings.Repeat("a", 48)+`"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Reet-Agent", a.ID)
+	req.Header.Set("X-Reet-Agent-Key", secret)
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), imported.ID) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}

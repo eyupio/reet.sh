@@ -1,6 +1,8 @@
 import { getSyncState, saveDesired, startSyncRun, syncCandidates, type Skill, type SyncSkill, type SyncState } from './api'
 import { fallbackInstallTarget, foldHost, pickSyncCandidate, savedInstallTargets } from './syncOverview'
 
+export class MachineSourceRequired extends Error {}
+
 export type InstallResult = {
   state: SyncState
   host: string
@@ -35,7 +37,7 @@ export async function installSkillOnMachine(skill: Pick<Skill, 'id' | 'slug' | '
 
   const cache = new Map<string, Promise<SyncSkill[]>>()
   const shelf = await candidatesFor('shelf', state, cache)
-  if (!pickSyncCandidate(shelf, skill)) throw new Error(`${skill.name} has no linked install source yet. Link its source, then try again.`)
+  if (!pickSyncCandidate(shelf, skill)) throw new MachineSourceRequired(`${skill.name} needs a copy from a machine that has it.`)
 
   let next = state
   const targetIds: string[] = []

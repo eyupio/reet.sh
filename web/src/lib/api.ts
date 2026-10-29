@@ -467,7 +467,7 @@ export async function getRollup(): Promise<Rollup> {
 
 export type ContentInventory = { state: string; schemaVersion?: number; observedAt?: number; receivedAt?: number; skills: { name: string; complete: boolean; digest?: string; files: number; bytes: number; issues?: string[] }[] }
 export type SyncEnvironment = Environment & { content?: ContentInventory; error?: string; project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
-export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source' | 'sourceType'>
+export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source'> & { sourceType: Skill['sourceType'] | 'private' }
 export type SyncTarget = { problem?: string; followSource?: boolean; mode?: string; baseline?: SyncSkill[]; appliedRevision?: string; hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
 export type SetupProfileSummary = { name: string; revision: number; snapshotId: string; snapshotDigest: string; updatedAt: number }
 export type SetupProfileComponent = {
@@ -962,6 +962,7 @@ export async function deleteSetupProfile(name: string): Promise<void> {
 
 export type ImportPreviewFile = { path: string; bytes: number; digest: string; executable: boolean; blocked?: string }
 export type ImportRequest = {
+ syncSkillId?: string; destinationId?: string; syncRunId?: string; syncError?: string;
  id: string; requestKey: string; agentId: string; environmentId: string; host: string; agent: string; project: string; name: string
  state: string; bundleId: string; expectedBase: string; createdAt: number; updatedAt: number; expiresAt: number
  previewHash?: string; digest?: string; excluded: string[]; error?: string
@@ -1053,3 +1054,5 @@ export async function getContentReceipts(signal?: AbortSignal): Promise<{ receip
 export async function adoptContent(input: { requestKey: string; previewId: string; reviewHash: string; adoptAsRevisionId: string }): Promise<ContentReceipt> { return (await req('/api/v2/skill-content-receipts', { method: 'POST', body: json(input) })).json() }
 export async function releaseContentReceipt(id: string, expectedVersion: string): Promise<{ removed: boolean }> { return (await req(`/api/v2/skill-content-receipts/${encodeURIComponent(id)}`, { method: 'DELETE', body: json({ expectedVersion }) })).json() }
 export async function getAdoptionBreakdown(previewId: string, revisionId: string, signal?: AbortSignal): Promise<AdoptionBreakdown> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(previewId)}/adoption/${encodeURIComponent(revisionId)}`, { signal })).json() }
+
+export async function syncFromMachine(input: {skillId:string;destination:string;sourceId?:string;destinationId?:string;followShelf?:boolean;requestKey:string}):Promise<ImportRequest>{return(await req('/api/v2/sync/from-machine',{method:'POST',body:json(input)})).json()}

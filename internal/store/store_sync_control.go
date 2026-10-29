@@ -40,7 +40,11 @@ func (s *Store) SyncCandidatesFor(uid int64, role string, listID int64) ([]SyncS
 			return nil, err
 		}
 		for _, sk := range d.Skills {
-			out = append(out, asSync(sk.Skill))
+			candidate, e := s.privateSyncCandidate(uid, asSync(sk.Skill))
+			if e != nil {
+				return nil, e
+			}
+			out = append(out, candidate)
 		}
 		return out, nil
 	}
@@ -49,7 +53,11 @@ func (s *Store) SyncCandidatesFor(uid int64, role string, listID int64) ([]SyncS
 		return nil, err
 	}
 	for _, sk := range skills {
-		out = append(out, asSync(sk))
+		candidate, e := s.privateSyncCandidate(uid, asSync(sk))
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, candidate)
 	}
 	return out, nil
 }
@@ -105,6 +113,12 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 	}
 	if err != nil {
 		return err
+	}
+	for i := range candidates {
+		candidates[i], err = s.privateSyncCandidate(uid, candidates[i])
+		if err != nil {
+			return err
+		}
 	}
 	if in.FollowSource && source == in.TargetID {
 		return errors.New("choose a different source machine")

@@ -254,7 +254,10 @@ func (s *server) pollSyncAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.importMu.Lock()
-	err := s.st.MaintainSync(s.uid(r), s.role(r), a)
+	err := s.st.AdvanceMachineSkillSyncs(s.uid(r), s.role(r))
+	if err == nil {
+		err = s.st.MaintainSync(s.uid(r), s.role(r), a)
+	}
 	s.importMu.Unlock()
 	if err != nil {
 		writeErr(w, 500, err.Error())

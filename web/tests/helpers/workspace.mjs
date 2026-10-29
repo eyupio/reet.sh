@@ -32,6 +32,7 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/sync')return json(sync)
   if(path==='/api/v2/setup/profiles')return json({profiles:[]})
   if(path==='/api/v2/hosting')return json(hosting)
+  if(path==='/api/v2/skill-imports')return json({requests:[],capabilities:[]})
   // As the server answers it: the health read uses the browser cookie only, so a single-token sign-in (which sends its token
   // in a header the read never carries) is refused with 401, and an open instance with 403.
   if(path==='/api/v2/machines/health'){

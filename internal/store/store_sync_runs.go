@@ -45,6 +45,9 @@ func (s *Store) SyncRunsFor(uid int64) ([]SyncRun, error) {
 // StartSyncRun queues automatic sync for every saved scope on an enrolled
 // machine. Callers may narrow it to specific target IDs.
 func (s *Store) StartSyncRun(uid int64, agentID string, targetIDs []string) (SyncRun, error) {
+	return s.startSyncRun(uid, agentID, targetIDs, "")
+}
+func (s *Store) startSyncRun(uid int64, agentID string, targetIDs []string, idempotentID string) (SyncRun, error) {
 	var host string
 	if err := s.db.QueryRow(`SELECT host FROM sync_agents WHERE id=? AND user_id=?`, agentID, uid).Scan(&host); err != nil {
 		return SyncRun{}, ErrNotFound
@@ -95,7 +98,23 @@ func (s *Store) StartSyncRun(uid int64, agentID string, targetIDs []string) (Syn
 		return SyncRun{}, err
 	}
 	run := SyncRun{ID: syncID(), AgentID: agentID, Targets: ordered, Status: "running", CreatedAt: now(), UpdatedAt: now()}
+	if idempotentID != "" {
+		run.ID = idempotentID
+	}
 	err = s.withTx(func(tx *sql.Tx) error {
+		if idempotentID != "" {
+			var existingAgent string
+			err := tx.QueryRow(`SELECT agent_id FROM sync_runs WHERE id=? AND user_id=?`, run.ID, uid).Scan(&existingAgent)
+			if err == nil {
+				if existingAgent != agentID {
+					return ErrSync
+				}
+				return nil
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+		}
 		if _, err := tx.Exec(`UPDATE sync_jobs SET status='cancelled',message='Replaced by a newer sync run.',updated_at=? WHERE status IN ('queued','awaiting-approval') AND id IN (SELECT job_id FROM sync_run_jobs WHERE run_id IN (SELECT id FROM sync_runs WHERE user_id=? AND agent_id=? AND status IN ('running','review')))`, now(), uid, agentID); err != nil {
 			return err
 		}

@@ -26,9 +26,10 @@ import (
 )
 
 type syncAction struct {
-	Add     bool            `json:"add"`
-	Replace bool            `json:"replace,omitempty"`
-	Skill   store.SyncSkill `json:"skill"`
+	BeforeDigest string          `json:"beforeDigest,omitempty"`
+	Add          bool            `json:"add"`
+	Replace      bool            `json:"replace,omitempty"`
+	Skill        store.SyncSkill `json:"skill"`
 }
 type SyncPlan struct {
 	Target    string       `json:"target"`
@@ -60,6 +61,12 @@ var domainSource = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z0-9-]+
 func syncSource(sk store.SyncSkill) (string, error) {
 	if !safeSlug.MatchString(sk.Slug) || sk.Slug == "." || sk.Slug == ".." {
 		return "", errors.New("invalid skill slug")
+	}
+	if sk.SourceType == "private" {
+		if privateSourcePattern.MatchString(sk.Source) {
+			return sk.Source, nil
+		}
+		return "", errors.New("invalid private skill source")
 	}
 	if sk.SourceType == "github" && githubSource.MatchString(sk.Source) {
 		return "https://github.com/" + sk.Source, nil
@@ -107,7 +114,7 @@ func planSync(desired []store.SyncSkill, actual []Found) ([]syncAction, error) {
 		if installed.Source == "" {
 			// The local copy has no provenance. Replace it with the reviewed
 			// source-linked skill; apply moves the old folder into the backup.
-			actions = append(actions, syncAction{Add: true, Replace: true, Skill: sk})
+			actions = append(actions, syncAction{Add: true, Replace: true, Skill: sk, BeforeDigest: installed.Digest})
 			continue
 		}
 		if canonicalSource(installed.Source) != canonicalSource(sk.Source) {
@@ -407,6 +414,23 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				return nil, errors.New("local changes need review in Compare & sync; save the reconciled selection before applying")
 			}
 		}
+		// An imported private copy has no public lock-file URL. Compare its
+		// actual file digest against the pinned revision instead of reinstalling
+		// it on every sync or guessing an upstream from its name.
+		for i := range actual {
+			for _, want := range desired {
+				if want.SourceType == "private" && actual[i].Name == want.Slug {
+					digest, e := privateSkillDigest(filepath.Join(targetPath, want.Slug))
+					if e != nil {
+						return nil, e
+					}
+					actual[i].Digest = digest
+					if parts := privateSourcePattern.FindStringSubmatch(want.Source); parts != nil && digest == parts[3] {
+						actual[i].Source = want.Source
+					}
+				}
+			}
+		}
 		actions, err := planSync(desired, actual)
 		if target.Mode == "additive" {
 			// Preserve extras, including local-only skills, in additive mode.
@@ -539,7 +563,9 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			if action.Replace {
 				operationErr = backupSkillEntry(targetPath, action.Skill.Slug, out, options.onBackup)
 			}
-			if operationErr == nil {
+			if operationErr == nil && action.Skill.SourceType == "private" {
+				operationErr = installPrivateSkill(*server, *token, action.Skill, targetPath)
+			} else if operationErr == nil {
 				source, err := syncSource(action.Skill)
 				if err != nil {
 					return err

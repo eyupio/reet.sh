@@ -482,6 +482,9 @@ var (
 	ErrLaunchOptionUnsupported = errors.New("machine does not support that launch option")
 	ErrYoloRefused             = errors.New("YOLO sessions are not allowed")
 	ErrLaunchUnsupported       = errors.New("machine does not support starting agents")
+	// ErrResumeUnsupported means the machine did not negotiate resume-v1; the
+	// resume field was not sent and nothing was reserved.
+	ErrResumeUnsupported = errors.New("machine does not support continuing sessions")
 	// ErrLaunchFailed means the connector refused to start the agent
 	// (launch_failed): the tool or the folder is unavailable there.
 	ErrLaunchFailed = errors.New("machine could not start that agent")
@@ -496,7 +499,7 @@ var (
 )
 
 func launchRequested(in terminalproto.Create) bool {
-	return in.Base != "" || in.Effort != "" || in.Yolo || in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != "" || worktreeRequested(in)
+	return in.Base != "" || in.Effort != "" || in.Yolo || in.Resume || in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != "" || worktreeRequested(in)
 }
 func worktreeRequested(in terminalproto.Create) bool { return in.Worktree != "" || in.Project != "" }
 
@@ -546,6 +549,10 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		// by the machine after a session is reserved.
 		if in.Effort != "" && !terminalproto.ToolTakesEffort(in.Tool) || in.Model != "" && !terminalproto.ToolTakesModel(in.Tool) {
 			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
+		}
+		// A peer without resume-v1 is never sent the resume field.
+		if in.Resume && !caps.Capabilities.Resume {
+			return store.TerminalSession{}, false, ErrResumeUnsupported
 		}
 		// A peer without worktree-v1 is never sent the worktree fields, and the
 		// launch is not started without its worktree.

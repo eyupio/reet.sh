@@ -39,6 +39,10 @@ func (s *Store) migrateTerminal() error {
 	if err != nil {
 		return err
 	}
+	hadDir, err := hasColumn(s.db, "terminal_sessions", "dir")
+	if err != nil {
+		return err
+	}
 	// Columns added for worktrees: where a worktree create made its worktree,
 	// and why a refused create was refused.
 	for _, c := range []struct{ table, ddl string }{
@@ -52,6 +56,7 @@ func (s *Store) migrateTerminal() error {
 		{"terminal_sessions", "effort TEXT NOT NULL DEFAULT ''"},
 		{"terminal_sessions", "yolo INTEGER NOT NULL DEFAULT 0 CHECK(yolo IN (0,1))"},
 		{"terminal_sessions", "project_id TEXT"},
+		{"terminal_sessions", "dir TEXT NOT NULL DEFAULT ''"},
 	} {
 		ok, err := hasColumn(s.db, c.table, strings.Fields(c.ddl)[0])
 		if err != nil {
@@ -67,6 +72,12 @@ func (s *Store) migrateTerminal() error {
 		if _, err := s.db.Exec(`UPDATE terminal_sessions SET
 			tool=COALESCE((SELECT json_extract(o.parameters,'$.tool') FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='create' AND json_valid(o.parameters)),''),
 			model=COALESCE((SELECT json_extract(o.parameters,'$.model') FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='create' AND json_valid(o.parameters)),'')`); err != nil {
+			return err
+		}
+	}
+	if !hadDir {
+		if _, err := s.db.Exec(`UPDATE terminal_sessions SET
+			dir=COALESCE((SELECT json_extract(o.parameters,'$.dir') FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='create' AND json_valid(o.parameters)),'')`); err != nil {
 			return err
 		}
 	}
@@ -305,15 +316,19 @@ type TerminalSession struct {
 	Effort    string  `json:"effort"`
 	Yolo      bool    `json:"yolo"`
 	ProjectID *string `json:"projectId"`
+	// Dir is where the agent ran: the worktree it made, else the folder its
+	// create named. It is kept on the session so a continuation starts in the
+	// same folder even after the project's folder changes.
+	Dir string `json:"dir"`
 }
 
-const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,tool,model,effort,yolo,project_id,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}')`
+const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}')`
 
 func readTerminal(row interface{ Scan(...any) error }) (TerminalSession, error) {
 	var t TerminalSession
 	var exit sql.NullInt64
 	var project sql.NullString
-	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.RemoveHistory)
+	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.RemoveHistory)
 	if exit.Valid {
 		n := int(exit.Int64)
 		t.ExitCode = &n
@@ -439,11 +454,11 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 		if accountCount >= terminalproto.MaxSessionsPerAccount || agentCount >= terminalproto.MaxSessionsPerAgent {
 			return ErrTerminalCapacity
 		}
-		t = TerminalSession{ID: syncID(), AgentID: agentID, Title: in.Title, State: terminalproto.Creating, CreatedAt: now(), UpdatedAt: now(), Tool: in.Tool, Model: in.Model, Effort: in.Effort, Yolo: in.Yolo}
+		t = TerminalSession{ID: syncID(), AgentID: agentID, Title: in.Title, State: terminalproto.Creating, CreatedAt: now(), UpdatedAt: now(), Tool: in.Tool, Model: in.Model, Effort: in.Effort, Yolo: in.Yolo, Dir: in.Dir}
 		if project.Valid {
 			t.ProjectID = &project.String
 		}
-		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at,tool,model,effort,yolo,project_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt, t.Tool, t.Model, t.Effort, t.Yolo, project); err != nil {
+		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at,tool,model,effort,yolo,project_id,dir) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt, t.Tool, t.Model, t.Effort, t.Yolo, project, t.Dir); err != nil {
 			return err
 		}
 		_, err = tx.Exec(`INSERT INTO terminal_operations(request_id,user_id,agent_id,session_id,kind,state,parameters,created_at,updated_at) VALUES(?,?,?,?,'create','pending',?,?,?)`, requestID, uid, agentID, t.ID, string(parameters), t.CreatedAt, t.UpdatedAt)

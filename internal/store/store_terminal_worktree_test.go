@@ -46,7 +46,7 @@ func TestTerminalSessionRecordsWhereItsWorktreeIs(t *testing.T) {
 		t.Fatal("a different worktree replaced the recorded one", err)
 	}
 	got, err := s.TerminalSessionFor(uid, session.ID)
-	if err != nil || got.WorktreePath != path || got.WorktreeRepo != "site" || got.WorktreeBranch != "reet/demo-"+storeRun {
+	if err != nil || got.WorktreePath != path || got.WorktreeRepo != "site" || got.WorktreeBranch != "reet/demo-"+storeRun || got.Dir != path {
 		t.Fatal("recorded worktree", got, err)
 	}
 	data, _ := json.Marshal(got)

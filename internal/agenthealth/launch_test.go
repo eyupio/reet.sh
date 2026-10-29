@@ -43,6 +43,23 @@ func TestLaunchCapabilityRequiresNegotiationAndTerminalControl(t *testing.T) {
 	}
 }
 
+func TestResumeCapabilityFollowsNegotiationAndLaunch(t *testing.T) {
+	factory := func(context.Context, *http.Client, http.Header, int64, Sender) (func(context.Context, terminalproto.Message) error, func()) {
+		return nil, func() {}
+	}
+	tools := func() []string { return []string{"opencode"} }
+	for _, tc := range []struct{ launch, resume, want bool }{
+		{false, true, false},
+		{true, false, false},
+		{true, true, true},
+	} {
+		caps := capabilities(AgentConfig{TerminalSession: factory, LaunchTools: tools, launch: tc.launch, resume: tc.resume})
+		if caps.Resume != tc.want {
+			t.Fatal("resume capability", tc, caps.Resume)
+		}
+	}
+}
+
 func TestTerminalFeaturesFollowTheControllerAdvertisement(t *testing.T) {
 	for _, tc := range []struct {
 		advertised string

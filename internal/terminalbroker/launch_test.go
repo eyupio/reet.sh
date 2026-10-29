@@ -171,6 +171,27 @@ func TestLaunchSendsFieldsToALaunchPeerAndReplaysIdempotently(t *testing.T) {
 	}
 }
 
+func TestResumeIsOnlySentToAPeerThatNegotiatedIt(t *testing.T) {
+	in := terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "opencode", Dir: "/home/test/site", Resume: true}
+	without := launchFixture(t, launchCapabilities("opencode"))
+	if _, err := without.b.Create(t.Context(), without.uid, without.agent, ID(), in); !errors.Is(err, ErrResumeUnsupported) {
+		t.Fatal("resume sent without resume-v1", err)
+	}
+	if len(without.sent()) != 0 {
+		t.Fatal("resume reached a peer without the capability")
+	}
+	caps := launchCapabilities("opencode")
+	caps.Resume = true
+	with := launchFixture(t, caps)
+	s, err := with.b.Create(t.Context(), with.uid, with.agent, ID(), in)
+	if err != nil || s.State != terminalproto.Running {
+		t.Fatal(s, err)
+	}
+	if sent := with.sent(); len(sent) != 1 || sent[0] != in {
+		t.Fatal(sent)
+	}
+}
+
 func TestLaunchRefusesSingleWordPositionalPromptBeforeSending(t *testing.T) {
 	f := launchFixture(t, launchCapabilities("claude", "codex", "gemini"))
 	for _, tool := range []string{"claude", "codex"} {

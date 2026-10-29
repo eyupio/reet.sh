@@ -241,6 +241,30 @@ func TestTerminalLaunchOnAPeerWithoutLaunchAsksForAnUpdate(t *testing.T) {
 	}
 }
 
+func TestTerminalResumeForwardsTheFieldAndNeedsTheMachineCapability(t *testing.T) {
+	caps := launchCaps("opencode")
+	caps.Resume = true
+	f := launchAPIFixture(t, caps)
+	body := launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "opencode", "dir": "/home/tester/site", "resume": true})
+	if code, out, raw := f.create(t, body); code != 200 || out["state"] != "running" {
+		t.Fatal("resume create", code, raw)
+	}
+	want := terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "opencode", Dir: "/home/tester/site", Resume: true}
+	if sent := f.sent(); len(sent) != 1 || sent[0] != want {
+		t.Fatal("resume was not forwarded exactly", sent)
+	}
+
+	old := launchAPIFixture(t, launchCaps("opencode"))
+	oldBody := launchBody(old.agent.ID, terminalbroker.ID(), map[string]any{"tool": "opencode", "dir": "/home/tester/site", "resume": true})
+	code, out, raw := old.create(t, oldBody)
+	if code != 409 || out["code"] != "resume_unsupported" || out["error"] != "Update reet on that machine to continue sessions." {
+		t.Fatal("resume on a machine without resume-v1", code, raw)
+	}
+	if len(old.sent()) != 0 {
+		t.Fatal("resume reached a machine without resume-v1", old.sent())
+	}
+}
+
 func TestTerminalLaunchRefusesSingleWordPromptBeforeSending(t *testing.T) {
 	f := launchAPIFixture(t, launchCaps("claude", "codex"))
 	for _, tool := range []string{"claude", "codex"} {

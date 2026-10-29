@@ -39,6 +39,7 @@ const (
 type AgentConfig struct {
 	commandHistory    bool
 	launch            bool
+	resume            bool
 	agentsV2          bool
 	worktree          bool
 	browse            bool
@@ -672,6 +673,7 @@ func authHeaders(cfg AgentConfig) http.Header {
 func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.commandHistory = terminalproto.SupportsCommandHistory(advertised)
 	cfg.launch = terminalproto.SupportsLaunch(advertised)
+	cfg.resume = terminalproto.SupportsResume(advertised)
 	cfg.agentsV2 = terminalproto.SupportsAgents(advertised)
 	cfg.worktree = terminalproto.SupportsWorktree(advertised)
 	cfg.browse = terminalproto.SupportsBrowse(advertised)
@@ -701,6 +703,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.launch {
 		features = append(features, terminalproto.LaunchFeature)
+	}
+	if cfg.resume {
+		features = append(features, terminalproto.ResumeFeature)
 	}
 	if cfg.worktree {
 		features = append(features, terminalproto.WorktreeFeature)
@@ -781,6 +786,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 	control := cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin")
 	return terminalproto.Capabilities{
 		Launch:    launch,
+		Resume:    launch && cfg.resume,
 		AgentsV2:  cfg.agentsV2,
 		OSVersion: reportedOSVersion(cfg.agentsV2),
 		Tools:     tools,

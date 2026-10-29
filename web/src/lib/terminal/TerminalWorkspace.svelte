@@ -5,14 +5,14 @@
   import AddProjectDialog from '../home/AddProjectDialog.svelte'
   import SessionSidebar from './SessionSidebar.svelte'
   import CopyButton from '../CopyButton.svelte'
-  import { createTerminal, folderProjectList, machineHealth, readiness, terminalMachines, terminalSessions, updateFolderProject, type FolderProject, type HealthResponse, type TerminalMachine, type TerminalSession } from './api'
+  import { createTerminal, folderProjectList, machineHealth, readiness, terminalMachines, terminalSessions, updateFolderProject, type FolderProject, type HealthResponse, type LaunchRequest, type TerminalMachine, type TerminalSession } from './api'
   import type { ProjectColour } from '../projectColour'
   import { projectRunning, sessionTabTitle } from '../home'
   import MachineHealthStrip from './MachineHealthStrip.svelte'
   import TerminalPane from './TerminalPane.svelte'
   import SessionScreen from '../sessions/SessionScreen.svelte'
   import SessionTabs from '../sessions/SessionTabs.svelte'
-  import { closeTab, openTab } from '../sessions'
+  import { canContinue, closeTab, continueLaunch, openTab } from '../sessions'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import HealthHistory from './HealthHistory.svelte'
   import { renameTerminal, endTerminal, archiveTerminal, terminalClosed } from './api'
@@ -85,6 +85,9 @@
   let loading = $state(true), busy = $state(false), error = $state(''), title = $state('Shell')
   type Creation = { requestId: string; title: string; error: string }
   let creations = $state<Record<string, Creation>>({})
+  // A continuation whose reply was lost keeps its request id and launch, so Continue again replays the same operation.
+  type Continuation = { requestId: string; title: string; launch: LaunchRequest }
+  let continuations = $state<Record<string, Continuation>>({})
   const pendingCreation = $derived(creations[selectedAgent])
   const requestId = $derived(pendingCreation?.requestId || '')
   let accessDenied=$state(false), machineSearchInput=$state<HTMLInputElement>()
@@ -260,6 +263,34 @@
   }
   // A started agent lands exactly as a new shell does: it joins the list and the workspace switches to it.
   function agentStarted(item:TerminalSession){inventoryVersion++;if(!terminalClosed(item.state))sessions=[item,...sessions.filter(other=>other.id!==item.id)];showCreate=false;chooseSession(item);void refresh()}
+  // Continue a closed session as a new terminal in the same folder, asking the agent to resume its last conversation there.
+  // The operation is kept per session until its outcome is known: an uncertain failure retries the same request id.
+  async function continueSession(target=session){
+    if(!target||actionBusy)return
+    const existing=continuations[target.id]
+    const launch=existing?.launch??continueLaunch(target,projects??[])
+    if(!launch)return
+    const operation=existing??{requestId:crypto.randomUUID(),title:target.title,launch}
+    continuations={...continuations,[target.id]:operation}
+    actionBusy=true;error=''
+    const settle=()=>{const next={...continuations};delete next[target.id];continuations=next}
+    try{
+      const created=await createTerminal(target.agentId,operation.requestId,operation.title,100,30,AbortSignal.timeout(15000),operation.launch)
+      settle()
+      if(disposed)return
+      inventoryVersion++
+      if(!terminalClosed(created.state))sessions=[created,...sessions.filter(item=>item.id!==created.id)]
+      chooseSession(created)
+      await refresh()
+    }catch(e){
+      if(disposed)return
+      // A stated refusal of this request started nothing; an uncertain failure may have, so the operation is kept.
+      const definite=e instanceof TerminalError&&[400,401,403,409,422].includes(e.status)
+      if(definite)settle()
+      error=e instanceof TerminalError?(e.message||'The session could not be continued.'):'The continuation may have started. Continue again to check the same operation.'
+    }
+    finally{actionBusy=false}
+  }
   function openAction(kind:'rename'|'end'|'archive',target=session) { if(!target)return;actionSession=target.id;actionTitle=target.title;rename=target.title;removeOnClose=endKeys.get(target.id)?.remove??(target.state==='end_requested'?(target.removeHistory??false):removeDefault);saveRemoveDefault=false;preferenceError='';action=kind }
   async function performAction() {
     const kind=action,id=actionSession;action=null;if(!kind||actionBusy)return
@@ -361,7 +392,8 @@
       {:else if session}
         <!-- The session screen hosts the live terminal pane, unchanged: tabs and header above it, the context panel beside it. -->
         <SessionScreen {session} {sessions} {machines} health={health.machines} {projects} now={serverNow} {theatre} {keyboard} busy={actionBusy}
-          onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}>
+          onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}
+          oncontinue={canContinue(session, machines.find(item => item.agentId === session.agentId), projects ?? []) ? () => void continueSession(session) : undefined}>
           {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
           {#key session.id}<TerminalPane {keyboard} footnote={phone ? '' : `Approvals: ${session.yolo ? 'YOLO' : 'Ask me'}`} holdSize={resizing} sessionsVisible={shown!=='closed'} onsessions={paneSessions} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />{/key}
         </SessionScreen>

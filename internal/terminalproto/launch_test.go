@@ -22,6 +22,49 @@ func TestLaunchFeatureToken(t *testing.T) {
 	}
 }
 
+func TestResumeFeatureToken(t *testing.T) {
+	for _, value := range []string{"", "other", "resume-v10", "prefix-resume-v1"} {
+		if SupportsResume(value) {
+			t.Fatal("unadvertised extension enabled", value)
+		}
+	}
+	if !SupportsResume("launch-v1, resume-v1") || ResumeFeature != "resume-v1" {
+		t.Fatal("feature not recognized")
+	}
+}
+
+func TestResumeNeedsAToolAndRoundTrips(t *testing.T) {
+	in := launchCreate()
+	in.Resume = true
+	decoded, err := Decode(mustEncode(t, testMessage(in)))
+	if err != nil || !decoded.Body.(*Create).Resume {
+		t.Fatal("resume did not round-trip", decoded, err)
+	}
+	if (Create{Title: "Shell", Cols: 80, Rows: 24, Resume: true}).Validate() == nil {
+		t.Fatal("a resume was accepted for a plain shell")
+	}
+}
+
+func TestResumeCapabilityNeedsLaunch(t *testing.T) {
+	caps := Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", HealthEnabled: true, TerminalEnabled: true, TerminalControl: true, Readiness: Ready, Launch: true, Resume: true}
+	if err := caps.Validate(); err != nil {
+		t.Fatal("resume capability refused", err)
+	}
+	caps.Launch = false
+	if caps.Validate() == nil {
+		t.Fatal("resume without launch accepted")
+	}
+}
+
+func mustEncode(t *testing.T, m Message) []byte {
+	t.Helper()
+	data, err := Encode(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
 func TestLaunchCreateRoundTripsStrictly(t *testing.T) {
 	m := testMessage(launchCreate())
 	encoded, err := Encode(m)
@@ -40,7 +83,7 @@ func TestLaunchCreateRoundTripsStrictly(t *testing.T) {
 
 func TestPlainCreateOmitsLaunchKeys(t *testing.T) {
 	data, _ := json.Marshal(Create{Title: "Shell", Cols: 80, Rows: 24})
-	for _, key := range []string{"tool", "model", "dir", "prompt"} {
+	for _, key := range []string{"tool", "model", "dir", "prompt", "resume"} {
 		if bytes.Contains(data, []byte(`"`+key+`"`)) {
 			t.Fatal("plain create carries", key, string(data))
 		}

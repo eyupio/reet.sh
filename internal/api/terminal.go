@@ -197,6 +197,7 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		Base      string `json:"base"`
 		Effort    string `json:"effort"`
 		Yolo      bool   `json:"yolo"`
+		Resume    bool   `json:"resume"`
 		Model     string `json:"model"`
 		Dir       string `json:"dir"`
 		Prompt    string `json:"prompt"`
@@ -212,7 +213,7 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Yolo: in.Yolo}
+	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Yolo: in.Yolo, Resume: in.Resume}
 	uid := s.uid(r)
 	// The project is checked before any machine is asked, so an unknown
 	// project is refused the same way whether the machine is online or not.
@@ -258,6 +259,8 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusUnprocessableEntity, "project_machine_mismatch", "projectId", "That project is on another machine. Start the session on its machine.", "")
 	case errors.Is(err, store.ErrProjectFolderMismatch):
 		writeErrCode(w, http.StatusUnprocessableEntity, "project_folder_mismatch", "dir", "That isn't the project's folder. Start the session in the project's folder.", "")
+	case errors.Is(err, terminalbroker.ErrResumeUnsupported):
+		writeErrCode(w, http.StatusConflict, "resume_unsupported", "", "Update reet on that machine to continue sessions.", "")
 	case errors.Is(err, terminalbroker.ErrLaunchOptionUnsupported) && s.terminalAgentsV2(uid, agent):
 		// Updating a machine that already has agents-v2 would not help.
 		writeErrCode(w, http.StatusConflict, "launch_option_unsupported", "", "That agent doesn't take that option.", "")
@@ -311,7 +314,7 @@ func (s *server) terminalToolInstalled(uid int64, agent, tool string) bool {
 // prompt is deliberately absent: it is user text kept only with the session.
 func (s *server) auditTerminalLaunch(uid int64, agent string, in terminalproto.Create, session store.TerminalSession) {
 	host := s.machineHost(uid, agent)
-	detail := map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir, "effort": in.Effort, "base": in.Base, "yolo": strconv.FormatBool(in.Yolo)}
+	detail := map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir, "effort": in.Effort, "base": in.Base, "yolo": strconv.FormatBool(in.Yolo), "resume": strconv.FormatBool(in.Resume)}
 	if in.ProjectID != "" {
 		detail["projectId"] = in.ProjectID
 	}

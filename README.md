@@ -46,7 +46,7 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 
 ## Features
 
-- **Terminal-first control.** Home shows your machines and the sessions in flight, and starts an agent in a folder project from one sentence. Continue exact sessions from Sessions, or connect and open a machine's terminals.
+- **Terminal-first control.** Home shows your machines and the sessions in flight, and starts an agent in a folder project from one sentence. Continue exact sessions from Sessions, or connect and open a machine's terminals. When a session has exited, **Manage → Continue session…** starts a new terminal in the same folder and asks the agent to resume its last conversation there (OpenCode today).
 - **An organised session workspace.** Filter across machines, sort and group, colour-code sessions, drag to reorder, resize or collapse the sidebar. Right-click or use keyboard-accessible row actions to rename, disconnect, stop and remove closed history. Layout stays in this browser, separately per account.
 - **Comfortable remote terminals.** Four colour palettes, font/cursor controls, search, clipboard and guarded paste. Search a machine’s saved Bash/Zsh history to paste/edit or explicitly review and rerun a command. Keep a separate account command library for reusable snippets, inserted without an extra Enter. Stopping can remove history after the machine confirms closure; set its default in Account → Profile.
 - **One or all machines.** In Sync, choose a library, list, published collection or reported machine scope as the source; select one destination or All machines, then adjust individual scopes. Differences are shown per destination. Saving desired state is separate from previewing and approving changes.
@@ -248,6 +248,8 @@ Private skill revisions have an [account-scoped storage/API contract](docs/priva
 Start a new shell with the + beside a machine in Control or Terminals. Right-click cards or terminal output for actions; Show sessions reopens a hidden session sidebar.
 
 To start an AI agent instead of a shell, use **New agent session** in Terminals or **Start an agent** on a machine's card (disabled, with the reason, while the machine isn't ready): choose the agent, an optional model, a folder inside the machine's home and an optional opening prompt, and you land in the new session; the machine decides how the agent is started. [What it does and what it does not establish](docs/start-agent-session.md).
+
+A closed agent session offers **Continue session…** under its actions: reet starts a new terminal in the same folder and asks the agent to resume its last conversation there. OpenCode is supported today; other agents wait for a reviewed resume command, and the machine must run a reet that negotiated `resume-v1`.
 
 Keep the folders you work in as **projects** in the rail on Home: one folder on one machine each, picked by browsing the machine's folders live. Choosing one opens Start an agent with that folder filled in; saved multi-repository Projects were moved into the rail, and their old runs stay readable in Activity, where their worktrees can still be checked and removed; reet never removes a worktree by itself. [How projects work and their limits](docs/projects.md).
 
@@ -537,10 +539,13 @@ Ctrl+C interrupts (or copies selected output on Windows/Linux); the **Interrupt*
 button always sends Ctrl+C. Ctrl+V/Cmd+V pastes, Ctrl+X stays a shell/editor key,
 and right-click opens Copy/Paste. Shift+right-click keeps the browser menu. Multiple
 lines, control characters and large pastes require review before sending.
-Disconnect leaves the shell running; **End session** stops its work. Removing
-a closed session from history is available under **Manage → Remove from history**.
-This hides its record without deleting machine files, and works while remote terminal
-execution is disabled. Active or pending sessions must be ended first.
+Disconnect leaves the shell running; **End session** stops its work. A session whose
+agent has exited can be continued from **Manage → Continue session…**: reet starts a
+new terminal in the same folder and asks the agent to resume its last conversation
+there, on a machine that reports resume support. Removing a closed session from history
+is available under **Manage → Remove from history**. This hides its record without
+deleting machine files, and works while remote terminal execution is disabled. Active
+or pending sessions must be ended first.
 Terminals require controller opt-in (`reet terminal start` with HTTPS/accounts)
 and explicit host-local consent, including for root-owned enrollments. Sessions
 survive browser/agent disconnects while tmux remains running. See the

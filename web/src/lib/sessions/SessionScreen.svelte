@@ -14,12 +14,14 @@
   // Approvals under it, and the context panel beside it (behind Details under 1100 px and in theatre view). A terminal
   // session shows no steps and no progress bar (R10): only its state word and where that word came from.
   let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false,
-    onaction, ontheatre, onrefresh, onsignedout, children }: {
+    onaction, ontheatre, onrefresh, onsignedout, oncontinue, children }: {
     session: TerminalSession; sessions: TerminalSession[]
     machines: TerminalMachine[]; health: MachineHealth[]; projects: FolderProject[] | undefined; now: number
     theatre?: boolean; keyboard?: boolean; busy?: boolean
     onaction: (kind: 'rename' | 'end' | 'archive') => void; ontheatre: () => void; onrefresh: () => void
-    onsignedout?: (e: unknown) => void; children: Snippet
+    onsignedout?: (e: unknown) => void
+    /** Present only when this closed session can be continued here. */
+    oncontinue?: () => void; children: Snippet
   } = $props()
 
   const id = $props.id()
@@ -114,6 +116,7 @@
   const menuKeyOpens = (event: KeyboardEvent) => event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')
   function act(kind: 'rename' | 'end' | 'archive') { closeMenu(false); onaction(kind) }
   function theatreView() { closeMenu(false); ontheatre() }
+  function continueSession() { if (!oncontinue) return; closeMenu(false); oncontinue() }
 
   let notice = $state<{ text: string; bad?: boolean } | null>(null)
   async function copyBranch() {
@@ -174,6 +177,7 @@
 {#if menuAt}
   <!-- data-keeps-focus: a reconnecting terminal never takes focus out of the open menu. -->
   <div class="menu" role="menu" aria-label={`Actions for ${session.title}`} tabindex="-1" data-keeps-focus bind:this={menu} style={`left:${menuAt.x}px;top:${menuAt.y}px`} onkeydown={menuKey}>
+    {#if oncontinue}<button role="menuitem" disabled={busy} onclick={continueSession}>Continue session…</button>{/if}
     <button role="menuitem" disabled={busy || serverOff} onclick={() => act('rename')}>Rename…</button>
     <button role="menuitem" onclick={theatreView}>{theatre ? 'Exit theatre view' : 'Theatre view'}</button>
     {#if session.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}

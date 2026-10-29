@@ -71,16 +71,16 @@
 
 <style>
   dialog {
-    max-width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 0; border: 0;
+    max-width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; overflow-x: hidden; padding: 0; border: 0;
     background: transparent; color: var(--ink);
   }
   dialog::backdrop { background: rgb(20 18 15 / 0.45); backdrop-filter: blur(2px); }
   .box {
     padding: 28px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
-    box-shadow: 0 28px 80px -24px rgb(0 0 0 / 0.45);
+    box-shadow: 0 28px 80px -24px rgb(0 0 0 / 0.45); overflow-wrap: anywhere;
   }
-  h2 { margin: 0; font: 600 1.5rem/1.15 var(--serif); letter-spacing: -0.02em; }
-  p { margin: 10px 0 0; color: var(--muted); }
+  h2 { margin: 0; font: 600 1.5rem/1.15 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; text-wrap: balance; }
+  p { margin: 10px 0 0; color: var(--muted); overflow-wrap: anywhere; }
   .details { width:100%; box-sizing:border-box; margin:16px 0 0; padding:12px; max-height:240px; overflow:auto; resize:vertical; white-space:pre-wrap; overflow-wrap:anywhere; font:.76rem/1.5 ui-monospace,monospace; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); }
   .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; flex-wrap: wrap; }
   .danger { background: var(--bad); border-color: var(--bad); color: var(--bg); }

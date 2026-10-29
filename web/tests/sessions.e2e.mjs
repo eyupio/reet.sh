@@ -236,6 +236,24 @@ try {
   await context.close()
  }
 
+ if (run('a long session title wraps in the remove confirmation')) {
+  // A shell command can be one unbroken link: the confirmation must wrap it instead of scrolling sideways.
+  const title = 'npx skills use "https://github.com/emilkowalski/skills/blob/main/very-long-unbroken-path-0123456789abcdef" --skill find-animation-opportunities'
+  const {context,page,errors} = await open({sessions:sessions().map(s => s.id === 's6' ? {...s, title} : s)})
+  await page.goto(`${base}/sessions`)
+  await rows(page).filter({hasText:'find-animation-opportunities'}).locator('a.open').click({button:'right'})
+  await page.getByRole('menuitem',{name:'Remove from history…'}).click()
+  const dialog = page.getByRole('dialog',{name:`Remove ${title} from history?`})
+  await expect(dialog).toBeVisible()
+  expect(await dialog.evaluate(d => {
+   const heading = d.querySelector('h2')
+   return d.scrollWidth <= d.clientWidth + 1 && !!heading && heading.scrollWidth <= heading.clientWidth + 1
+  })).toBe(true)
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('offline machine group sentence')) {
   const {context,page,errors} = await open()
   await page.goto(`${base}/sessions`)

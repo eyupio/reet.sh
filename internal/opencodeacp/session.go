@@ -762,6 +762,14 @@ func cutUTF8(s string, max int) string {
 	return s[:max]
 }
 
+func (s *Session) killGroup() {
+	if s.cmd != nil && s.cmd.Process != nil {
+		// The leader may already be gone while an approved command's child
+		// survives; kill the whole process group, not just the leader.
+		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+	}
+}
+
 func (s *Session) ended() {
 	s.doneOnce.Do(func() {
 		s.mu.Lock()
@@ -785,6 +793,7 @@ func (s *Session) ended() {
 			s.emitFinal(Event{Kind: "permission_cancelled", PermissionID: id, Reason: "ended"})
 		}
 		s.emitFinal(Event{Kind: "status", State: "ended"})
+		s.killGroup()
 		close(s.done)
 		_ = s.stdin.Close()
 	})
@@ -803,6 +812,7 @@ func (s *Session) Close() {
 	closed := s.closed
 	s.mu.Unlock()
 	if closed {
+		s.killGroup()
 		return
 	}
 	_ = s.sendCancel()
@@ -821,10 +831,9 @@ func (s *Session) Close() {
 	}
 	select {
 	case <-s.done:
-		return
 	case <-time.After(3 * time.Second):
 	}
-	if s.cmd.Process != nil {
-		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
-	}
+	// Wait may return when the leader exits even if a child it started is
+	// still alive; the group kill is the backstop either way.
+	s.killGroup()
 }

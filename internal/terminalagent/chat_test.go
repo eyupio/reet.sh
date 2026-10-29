@@ -181,3 +181,15 @@ func TestWireEventTrimsAndValidates(t *testing.T) {
 	}
 	_ = time.Second
 }
+
+func TestReconcileSnapshotKeepsLiveChats(t *testing.T) {
+	shells := make([]terminalproto.SessionSnapshot, 32)
+	for i := range shells {
+		shells[i] = terminalproto.SessionSnapshot{ID: "shell-" + string(rune('a'+i)), Title: "Shell", State: terminalproto.Exited}
+	}
+	chat := terminalproto.SessionSnapshot{ID: "chat-0123456789", Title: "Chat", State: terminalproto.Running}
+	got := reconcileSnapshot(shells, []terminalproto.SessionSnapshot{chat})
+	if len(got.Sessions) != 32 || got.Sessions[0].ID != chat.ID {
+		t.Fatalf("live chat was omitted: %+v", got.Sessions[:2])
+	}
+}

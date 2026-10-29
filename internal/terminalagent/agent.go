@@ -458,11 +458,7 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 						snapshot.Sessions = append(snapshot.Sessions, terminalproto.SessionSnapshot{ID: s.ID, Title: s.Title, State: s.State, ExitCode: s.ExitCode})
 					}
 				}
-				snapshot.Sessions = append(snapshot.Sessions, chats.snapshots()...)
-				if len(snapshot.Sessions) > 32 {
-					snapshot.Sessions = snapshot.Sessions[:32]
-				}
-				reply.Body = snapshot
+				reply.Body = reconcileSnapshot(snapshot.Sessions, chats.snapshots())
 				return respond(nil)
 			}
 			if managerErr != nil {
@@ -875,4 +871,18 @@ func newID() string {
 		panic("secure randomness unavailable")
 	}
 	return hex.EncodeToString(b[:])
+}
+
+// reconcileSnapshot merges terminal and chat receipts without letting history
+// push a live session out of the complete 32-entry snapshot. The controller
+// treats an omitted live session as lost.
+func reconcileSnapshot(shells, chats []terminalproto.SessionSnapshot) terminalproto.Reconcile {
+	sessions := append(append([]terminalproto.SessionSnapshot{}, shells...), chats...)
+	sort.SliceStable(sessions, func(i, j int) bool {
+		return sessions[i].State.ReservesQuota() && !sessions[j].State.ReservesQuota()
+	})
+	if len(sessions) > 32 {
+		sessions = sessions[:32]
+	}
+	return terminalproto.Reconcile{Complete: true, Sessions: sessions}
 }

@@ -9,9 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -23,7 +26,7 @@ func fakeACP(t *testing.T, scenario, version string) string {
 		t.Fatal(err)
 	}
 	script := filepath.Join(t.TempDir(), "opencode")
-	body := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo %s; exit 0; fi\nGO_WANT_ACP_HELPER=1 ACP_SCENARIO=%s ACP_VERSION=%s exec %q -test.run=TestFakeACP\n", version, scenario, version, bin)
+	body := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo %s; exit 0; fi\nGO_WANT_ACP_HELPER=1 ACP_SCENARIO=%s ACP_VERSION=%s ACP_ORPHAN_FILE=%q exec %q -test.run=TestFakeACP\n", version, scenario, version, script+".pid", bin)
 	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -76,6 +79,13 @@ func TestFakeACP(t *testing.T) {
 				{"id": "model", "currentValue": "stub/model"},
 				{"id": "mode", "currentValue": mode},
 			}})
+			if scenario == "orphan" {
+				child := exec.Command("/bin/sh", "-c", "trap '' TERM; sleep 60")
+				if child.Start() == nil {
+					_ = os.WriteFile(os.Getenv("ACP_ORPHAN_FILE"), []byte(fmt.Sprint(child.Process.Pid)), 0600)
+				}
+				os.Exit(0)
+			}
 		case "session/prompt":
 			var params struct {
 				SessionID string `json:"sessionId"`
@@ -361,4 +371,37 @@ func TestEnvironmentScrub(t *testing.T) {
 			t.Fatalf("environment missing %s:\n%s", good, joined)
 		}
 	}
+}
+
+func TestCloseKillsOrphanedGroupMembers(t *testing.T) {
+	opts, _ := options(t, "orphan", Version)
+	pidFile := opts.Binary + ".pid"
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pid int
+	for i := 0; i < 100; i++ {
+		data, err := os.ReadFile(pidFile)
+		if err == nil {
+			pid, _ = strconv.Atoi(string(data))
+			if pid > 0 {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if pid <= 0 {
+		t.Fatal("fake child did not report its pid")
+	}
+	defer func() { _ = syscall.Kill(pid, syscall.SIGKILL) }()
+	session.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(pid, 0); err != nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("orphaned child %d survived Close", pid)
 }

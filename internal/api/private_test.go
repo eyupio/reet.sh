@@ -289,6 +289,21 @@ func TestPrivateHelloAuthenticatesCapabilitiesAndFencesGenerations(t *testing.T)
 	}
 }
 
+func TestPrivatePeerRepliesIncludeModels(t *testing.T) {
+	for _, body := range []terminalproto.Body{
+		&terminalproto.Result{}, &terminalproto.Reconcile{}, &terminalproto.SessionChanged{},
+		&terminalproto.WorktreeState{}, &terminalproto.WorktreeResult{},
+		&terminalproto.BrowseResult{}, &terminalproto.BranchesResult{}, &terminalproto.ModelsResult{},
+	} {
+		if !isPeerReply(body) {
+			t.Fatalf("%T is not forwarded", body)
+		}
+	}
+	if isPeerReply(&terminalproto.Hello{}) {
+		t.Fatal("Hello should be handled before peer replies")
+	}
+}
+
 func TestPrivateHelloRejectsDisabledInstancesAndOversizedBodies(t *testing.T) {
 	srv, _, agent, secret, _ := privateFixture(t, AuthNone, "")
 	handler := srv.s.privateHandler()

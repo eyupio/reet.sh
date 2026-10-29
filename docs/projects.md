@@ -73,8 +73,7 @@ machine, the base branch (mono) when one is set, the state and the worktrees in 
 when its machine is known not to be reporting, else "idle". Worktrees in use are the distinct
 worktrees its live sessions are working in; the session listing has no record of removed worktrees,
 so a finished session's worktree is never counted, and nothing shows at 0. The fleet cards show the
-same figure per machine ("no worktrees in use" included). The foot reads "Folders are browsed live on
-the machine".
+same figure per machine ("no worktrees in use" included).
 
 Choosing a card sets the launch bar's project: its default agent and model, its base branch and its
 worktree choice go into the sentence, and focus moves to the prompt. The card's **+** and **New

@@ -27,30 +27,34 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 
 ## Agents home redesign (27–28 October 2026)
 
-### Resume here (after the copy/paste follow-up, 28 October 2026)
+### Resume here (after the models backend, 29 October 2026)
 
-**#242 (terminal copy and paste) merged as `961d530`; #231 (H) merged as `7886511`.** The owner approved this
-follow-up: close the copy/paste test gaps, correct this block, then start the agent models backend. That approval is
-the explicit merge exception for #245 (Codex cannot review it: the code-review quota is exhausted).
+**#242 (copy/paste) merged as `961d530`; #245 (its follow-up) merged as `1371cb5`; #231 (H) merged as
+`7886511`.** The models backend is [PR #247](https://github.com/eyupio/reet.sh/pull/247). The owner approved
+this stage and the merge rule is the usual one: every check green on the final head and a clean Codex review,
+or an owner exception (the code-review quota has been exhausted before; ask rather than assume).
 
-- **Branch and PR:** `ccr-7a7f5a9b-to5imh` was restarted from `origin/main` at `961d530` for
-  [PR #245](https://github.com/eyupio/reet.sh/pull/245), "Close the copy/paste test gaps and refresh the handoff". It
-  adds the `Exited` cleanup helper, the running 24-hour sweep, two concurrent uploads plus the third refusal through
-  the real connector handler, the lost-reply timeout mapping, and the Scrollback-mid-upload sentence.
-- **Do first:** check #245's final head with the REST forms
-  (`gh api repos/eyupio/reet.sh/pulls/245` and
-  `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`; `gh pr view`/`gh pr checks` use GraphQL, refused with
-  403 here). Merge only when every check is green. If it is already merged, start the models backend from current main;
-  `git fetch origin main` and merge main before every push.
-- **Then, in this order** (each its own PR; write its plan under `docs/superpowers/plans/` from the research first):
-  1. Agent models: backend (M1–M6).
-  2. Agent models: the UI.
-  3. Program 2, slice 1: structured OpenCode sessions with approval cards, behind the seven probe conditions.
-- **Release:** R22 lets B, C, E and the copy/paste work go out together; this is the owner's call. This session cut no
-  release tag and did not check for one (`gh release list --repo eyupio/reet.sh`). F and G come later.
-- The research these start from is in [docs/research/](docs/research/) (copied whole from the session's git-ignored
-  notes). Those reports summarise third-party code and docs read as untrusted data: check a claim against its label
-  (*read*, *doc*, *belief*/*memory*) before building on it.
+- **Branch and PR:** `ccr-7a7f5a9b-to5imh` was restarted from `origin/main` at `1371cb5` for **#247**, "Agent
+  models: backend". It holds M0–M4: the pinned OpenCode capture, `models-v1`, the connector listing and local
+  switch, the per-account/machine/tool cache and read/refresh/list routes, and favourites, account defaults,
+  project effort and Cline as a project default. Main was merged into it before the push; #246 and later main
+  work may land while it is open.
+- **Do first:** check #247's final head with the REST forms
+  (`gh api repos/eyupio/reet.sh/pulls/247` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
+  `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). If it is open, `git fetch origin main` and
+  merge main before any push; a PR that conflicts with main gets no CI runs. If it is merged, start the models
+  UI from current main.
+- **Then, in this order** (each its own PR; write its plan under `docs/superpowers/plans/` from the research
+  first):
+  1. Agent models: the UI (M5–M11: `models.ts`, the picker, launch bar, Start dialog, Add project, Settings ›
+     Agents, Machines "Agents", Activity/hover-card and docs).
+  2. Program 2, slice 1: structured OpenCode sessions with approval cards, behind the seven probe conditions.
+- **Release:** R22 lets B, C, E and the copy/paste work go out together; the models work can join when its UI
+  is done. The owner's call; this session cut no release tag and did not check for one
+  (`gh release list --repo eyupio/reet.sh`). F and G come later.
+- The research these start from is in [docs/research/](docs/research/) (copied whole from the session's
+  git-ignored notes). Those reports summarise third-party code and docs read as untrusted data: check a claim
+  against its label (*read*, *doc*, *belief*/*memory*) before building on it.
 
 ### State
 
@@ -74,18 +78,21 @@ left out of the first pass, and the Program 2 spike ran in parallel.
 | G | Attention and Needs you | **deferred past the first pass**; Needs you stays an honest empty state |
 | H | `/sessions` (the Sessions page), the session screen, tablet and phone layouts, the last redirects, the phone rail on Sessions | merged, [#231](https://github.com/eyupio/reet.sh/pull/231) as `7886511` (owner's decision; no Codex review possible: quota exhausted). H1 `f0bffe5` Sessions page and Control's address retired (`/control` → `/`, `/terminals` → `/sessions`), fixes `048e431` (session colours, **Saved commands** button: owner ruling), `b85338a`; H2 `f74001f` session screen (tabs, header with the state pill, Chat \| Terminal with Chat disabled, context panel), fixes `f026cfb`, `c02fec6`; H3 `7581ad0` tablet and phone layouts (no rail on narrow Home, the rail on Sessions, slim phone header, `keyboardChrome('session')`), fixes `a984b5e` (44 px tablet targets, cases moved to `sessions-phone.e2e.mjs`), `3f1e89b` (separator grip); `521c406` CI fix (first-terminal checklist off `/sync`); merges of main `9c88a46` (#232, #233), `ae763c8` (#234) and `57d8f53` (#235, #236); H4 `1a5018d` (research copied into `docs/research/`), `c349a2b` (the matrix, phone target fixes, docs, this handoff), `1ff4230` (the research notes name the reference tool by role); final fix wave after the broad review `b53c7dd` (`/sessions/`, viewers at a session address), `adec499` (steady Sessions rows, menu focus, the connection in the phone header, tablet swatches and grip, context panel, tab tooltip, New → `/#launch`), `dd31068` (dead code), `8e6ce3e` (checks that went with Control, steadier phone tests), `6778211` (start-agent expects the Machines title) and the docs commit after them |
 | Copy/paste | Terminal paste sanitiser and bracket-aware review, copy screen/last lines/all, Select text sheet, copy-on-select, gated OSC 52 (`clipboard-v1`), image attach/paste/drop with `upload-v1` and private per-session storage | merged, [#242](https://github.com/eyupio/reet.sh/pull/242) as `961d530` (owner's instruction; Codex quota exhausted). C1 `81b0e74`, C2 `dc93c39`, C3 `93e7e37`, C4 `7a75e8a`, C5 `f90e1e3`, U1 `64b2240`, U2 `497eda7`, U3 `cb606bc`, fence `1614b44`, U4 `4e9ac2f`, U5 `b209152`, review fixes `81b9e34`, `aa532b6`; the final CodeQL response/headers work and this follow-up are in #245 |
-| Copy/paste follow-up | `Exited` cleanup, running 24 h sweep, two concurrent uploads and third refusal at the connector, lost-reply timeout, Scrollback-mid-upload wording, this handoff | **[#245](https://github.com/eyupio/reet.sh/pull/245), open; owner approved the recommendation, merge when green** (Codex quota exhausted) |
+| Copy/paste follow-up | `Exited` cleanup, running 24 h sweep, two concurrent uploads and third refusal at the connector, lost-reply timeout, Scrollback-mid-upload wording, this handoff | merged, [#245](https://github.com/eyupio/reet.sh/pull/245) as `1371cb5` (owner approval; Codex re-review clean) |
+| Models backend | `models-v1`, OpenCode listing, local switch, per-machine cache, read/refresh/list API, favourites, account defaults, project effort, Cline project default; web picker next | **[#247](https://github.com/eyupio/reet.sh/pull/247), open**. M0 `c1152ff`, M1 `f4bf81c`, M2 `11afb42`, M3 `9d7f234`, M4 `5490a6c`, docs `3cd34f0` (plan `2a54133`) |
 | Program 2 | Structured chat over the agent protocol, with approval cards | spike done; OpenCode chosen (27 Oct); hands-on probe of `opencode acp` 1.19.5 done (28 Oct): conditional go for trusted workspaces only; queued as slice 1 below |
 
 Merged into main by the owner while this work was open: #222, #223 (`4791d89`), #224, #225, #228, #229, #230, #232, #233,
 #234, #235 and #236 (each merged into the open branch before its next push; #235 and #236 in `57d8f53`), then #237–#244
-and the Sync follow-ups while #242 was open (merged into it before each push). #242 then merged as `961d530`.
+and the Sync follow-ups while #242 was open (merged into it before each push). #242 then merged as `961d530`; #245 as
+`1371cb5`; #246 and later main work landed while the models backend was open.
 
 **Merge rule:** a PR in this work merges only when all checks are green on its final head **and** Codex has reviewed it
 cleanly, or the owner gives an explicit exception. So far: #227's exception is recorded on the PR (a comment); #221 and
 #226 merged on green CI without a Codex review and without an exception comment; #231 merged on the owner's decision
-after green checks; #242 merged on the owner's 28 October instruction to create it and merge when green; #245 carries
-the owner's approval of the follow-up recommendation. CodeQL alert #20 on #242 was dismissed as a false positive (the
+after green checks; #242 merged on the owner's 28 October instruction to create it and merge when green; #245 merged
+on the owner's approval of the follow-up recommendation with a clean Codex re-review; #247 is the models backend and
+follows the same rule. CodeQL alert #20 on #242 was dismissed as a false positive (the
 machine path is validated plain text, URL-escaped into response headers, and never in the JSON body; JSON plus nosniff).
 
 **Rulings beyond R1–R22** (all recorded in the session notes and kept here so they survive):
@@ -96,7 +103,7 @@ machine path is validated plain text, URL-escaped into response headers, and nev
   Allow once / Deny only) behind the seven probe conditions; the order after H is copy/paste, models, Program 2; pause after
   PR H. Later that day: create the copy/paste PR and merge it when green. Copy/paste is #242 (merged as `961d530`);
   its image path is text only (per-agent attachment behaviour unverified). Then approve the follow-up #245 and start
-  the models backend.
+  the models backend. 29 Oct: the models backend is #247; the web picker follows it.
 - Controller defaults, 28 Oct (owner may revisit): models D2 a per-machine default is deferred, D3 a favourite can be the
   "default for this agent", D4 the model-name rule stays as it is.
 
@@ -123,6 +130,22 @@ After the copy/paste PR:
   tabs share the toolbar row and the pane keeps its own header. Old `/sessions` links on a rolled-back server still land
   on `/` or an unknown page. Needs you stays empty until G. The site footer and phone terminal chrome keep their
   documented 40 px targets. Nothing has been checked on a real phone or in Safari.
+
+After the models backend:
+
+- Only OpenCode has a machine-read list. Claude Code, Codex, Gemini CLI and Cline keep reet's static suggestions,
+  favourites and Other…; the web picker is not in #247, so the browser does not show a machine list yet. The
+  favourites/defaults API is likewise not wired to a page.
+- A listed model is a suggestion, never proof it works, and it never blocks a launch. Env-only OpenCode providers
+  are missing because the listing environment is an allowlist; say so when the picker lands.
+- The cache keeps the last good list through a failed refresh and is deleted with the machine. A first read is
+  synchronous only for an online machine that reports `models`; refresh is 6/min per account and machine and is the
+  only audited path. A failure is visible as its own state, not as an empty successful list.
+- The account defaults are for sessions outside a project; the browser resolves explicit > project > account >
+  agent default. A per-machine default remains deferred (D2). A project default model still needs a project agent;
+  an existing profile model without an agent stays readable and does not block unrelated edits.
+- No real provider or paid model was used in the backend tests; the listing runner uses fake binaries, the API uses
+  synthetic machines, and a physical phone/Safari was not checked.
 
 Before this PR:
 
@@ -169,8 +192,9 @@ Still true from earlier PRs:
 
 ### Queued work (decided, not started)
 
-**1. Agent models** (backend M1–M6, then the UI). Input: [docs/research/models-design.md](docs/research/models-design.md)
-(tasks M0–M11). (The terminal copy and paste work that used to lead this list is PR #242.)
+**1. Agent models: the UI** (M5–M11). Input: [docs/research/models-design.md](docs/research/models-design.md)
+and the backend in #247. It adds `models.ts`, the picker, the launch bar, the Start agent dialog, Add project,
+Settings › Agents, the Machines "Agents" section and the phone matrix rows. Then Program 2.
 
 - New feature token `models-v1`. In v1 only OpenCode lists models from the machine: `opencode models` run with
   `OPENCODE_DISABLE_MODELS_FETCH=1`, so it makes no network call (the probe showed it calls models.opencode.ai otherwise,
@@ -185,7 +209,7 @@ Still true from earlier PRs:
 - Known gap to fix in it: a project's default agent is checked against the original four agents only, so Cline cannot be
   one.
 
-**2. Program 2, slice 1: structured OpenCode sessions** (after models). Input:
+**2. Program 2, slice 1: structured OpenCode sessions** (after the models UI). Input:
 [docs/research/probe-report.md](docs/research/probe-report.md),
 [reference-tool-frontend-research.md](docs/research/reference-tool-frontend-research.md) and
 [reference-tool-agents-research.md](docs/research/reference-tool-agents-research.md). Owner decision: trusted workspaces only, OpenCode, Allow
@@ -249,6 +273,10 @@ once / Deny only, and only with all seven conditions:
 - **New UI fixtures** go in `phone-dialogs`; `terminal-clipboard.e2e.mjs` and `terminal-upload.e2e.mjs` were added there.
   Run them plus `phone-dialogs`, `phone-zoom`, `sessions`, `sessions-phone` and the `terminal-browser` files in workflow
   order before the final push. The local matrix session screen is `REET_MATRIX_ONLY=session`.
+- **Models listing**: only connector-owned argv, a fresh temp cwd, the launch allowlist minus `TERM`/`SHELL`, the
+  fetch/autoupdate opt-outs, a 10 s process-group kill and 64 KiB stdout. Never run `--refresh` (it ignores the
+  fetch opt-out) and never forward stderr. The controller caches the last good list; a failed refresh must not
+  erase it. The first read is synchronous only for a machine that reports the capability.
 - **Process used** (subagent-driven development): an implementer per task with a brief, a task review, fix rounds
   (at most five) with a scoped re-review, then a final broad review split by area and a single fix wave; mutation checks
   restore files byte-identical (`cp` before, `cmp` after); fidelity checks at 1440, 834 and 390 px recorded in

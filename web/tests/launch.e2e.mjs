@@ -820,7 +820,7 @@ try {
  // the real cached shape: a listed GET with a not-ready machine, which the bar must overlay with the offline state.
  if (run('offline, old and off model states are honest')) {
   {
-   const cached = modelList({state:'listed', models:[{id:'anthropic/claude-sonnet-4-5',provider:'anthropic'}], fetchedAt:now-2*24*60*MIN})
+   const cached = modelList({state:'listed', models:[{id:'anthropic/claude-sonnet-4-5',provider:'anthropic'}], fetchedAt:now-2*24*60*MIN, sentence:'Models read from studio.'})
    const routes = {
     '/api/v2/terminal/machines': () => ({machines:[{...tmachines()[0], ready:false}, tmachines()[1]]}),
     '/api/v2/machines/a1/models': () => cached,
@@ -830,6 +830,7 @@ try {
    await slot(page,'Model').click()
    const list = page.getByRole('listbox',{name:'Model'})
    await expect(list.locator('..').getByRole('status')).toContainText('studio is offline')
+   await expect(list.locator('..').getByRole('status')).not.toContainText('Models read from studio.')
    await expect(list.locator('..').getByRole('button',{name:'Refresh'})).toHaveCount(0)
    await expect(list.getByRole('option',{name:'anthropic/claude-sonnet-4-5'})).toBeVisible()
    await page.keyboard.press('Escape')

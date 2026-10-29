@@ -4,7 +4,7 @@
   import { shell } from '../dialogShell'
   import { UnauthorizedError, addModelFavourite, listModelFavourites, removeModelFavourite } from '../api'
   import { CATALOGUE, agentChoices } from '../catalogue'
-  import { modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
+  import { favouriteKey, modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
   import { afterLaunch, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
@@ -182,6 +182,7 @@
   let favourites = $state<ModelFavourite[]>([])
   let favouritesRead = $state(false)
   let favouritesLoadSeq = 0
+  let favouriteQueue: Promise<void> = Promise.resolve()
   let favouriteNote = $state('')
   type ModelRead = { key: string; loading: boolean; machine: MachineModels | null; error: string }
   let modelList = $state<ModelRead>({ key: '', loading: false, machine: null, error: '' })
@@ -199,9 +200,9 @@
     if (!modelMachine) return modelStatus(null, modelHost)
     // The API caches the last good list; overlay the machine's current fact so an offline/off/old machine
     // does not look freshly read.
-    if (modelTarget && !modelTarget.ready) return modelStatus({ ...modelMachine, state: 'offline' }, modelHost)
-    if (modelTarget?.capabilities?.modelsOff) return modelStatus({ ...modelMachine, state: 'off' }, modelHost)
-    if (modelTarget?.capabilities && !modelTarget.capabilities.models) return modelStatus({ ...modelMachine, state: 'update' }, modelHost)
+    if (modelTarget && !modelTarget.ready) return modelStatus({ ...modelMachine, state: 'offline', sentence: '' }, modelHost)
+    if (modelTarget?.capabilities?.modelsOff) return modelStatus({ ...modelMachine, state: 'off', sentence: '' }, modelHost)
+    if (modelTarget?.capabilities && !modelTarget.capabilities.models) return modelStatus({ ...modelMachine, state: 'update', sentence: '' }, modelHost)
     return modelStatus(modelMachine, modelHost)
   })
   const modelStatusLine = $derived.by(() => {
@@ -241,6 +242,23 @@
     if (untrack(() => modelList.key === key && (modelList.loading || modelList.machine))) return
     untrack(() => { void readModels(agentId, tool, key) })
   })
+  // A machine that reconnects becomes capable again: read once on that transition, so an offline read does not
+  // leave the picker stuck until the page is reloaded. A failed read still needs the person's Refresh.
+  let modelWasCapable = false
+  $effect(() => {
+    const capable = modelCapable
+    if (!capable) { modelWasCapable = false; return }
+    if (modelWasCapable) return
+    modelWasCapable = true
+    const key = modelKey, agentId = modelTargetId, tool = choice?.agent ?? ''
+    if (!key || !agentId || !tool) return
+    untrack(() => {
+      if (modelList.loading) return
+      const current = modelList.key === key ? modelList.machine : null
+      if (current && !['offline', 'update', 'off'].includes(current.state)) return
+      void readModels(agentId, tool, key)
+    })
+  })
   async function refreshModels() {
     const key = modelKey, agentId = modelTargetId, tool = choice?.agent ?? ''
     if (!key || !agentId || !tool || modelList.loading) return
@@ -278,22 +296,26 @@
   async function toggleStar(model: string, starred: boolean) {
     const tool = choice?.agent
     if (!tool || !model) return
-    const before = favourites
+    const key = favouriteKey(tool, model)
+    const beforeEntry = favourites.find(f => favouriteKey(f.tool, f.model) === key) ?? null
     favouritesLoadSeq++
     favouriteNote = ''
-    favourites = starred ? before.filter(f => !(f.tool === tool && f.model === model)) : [...before, { tool, model, agentDefault: false }]
-    try {
-      if (starred) await removeModelFavourite(tool, model)
-      else {
-        const answer = await addModelFavourite(tool, model)
-        if (answer?.favourites) favourites = answer.favourites
+    // The local list is the picker's source. Mutations run in order and a failure restores only its own row, so
+    // two quick stars cannot overwrite each other with an older server snapshot.
+    favourites = starred ? favourites.filter(f => favouriteKey(f.tool, f.model) !== key) : beforeEntry ? favourites : [...favourites, { tool, model, agentDefault: false }]
+    favouriteQueue = favouriteQueue.then(async () => {
+      try {
+        if (starred) await removeModelFavourite(tool, model)
+        else await addModelFavourite(tool, model)
+      } catch (e) {
+        if (life.signal.aborted) return
+        if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+        favourites = favourites.filter(f => favouriteKey(f.tool, f.model) !== key)
+        if (beforeEntry) favourites = [...favourites, beforeEntry]
+        favouriteNote = e instanceof TerminalError && e.message ? e.message : 'Couldn’t update your favourites just now. Try again.'
       }
-    } catch (e) {
-      if (life.signal.aborted) return
-      if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
-      favourites = before
-      favouriteNote = e instanceof TerminalError && e.message ? e.message : 'Couldn’t update your favourites just now. Try again.'
-    }
+    })
+    await favouriteQueue
   }
   function modelOptionsFor(): SlotOption[] {
     if (!choice) return []

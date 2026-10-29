@@ -258,7 +258,12 @@ func uploadHandlerFixture(t *testing.T) (terminalhost.ManagerOptions, string) {
 	if _, err := terminalhost.FindTmux(context.Background()); err != nil {
 		t.Skip(err)
 	}
-	dir, err := filepath.EvalSymlinks(t.TempDir())
+	base, err := os.MkdirTemp("/tmp", "reet-upload-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	dir, err := filepath.EvalSymlinks(base)
 	if err != nil {
 		t.Fatal(err)
 	}

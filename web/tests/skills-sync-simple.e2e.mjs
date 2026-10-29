@@ -39,6 +39,25 @@ try {
   expect(fixture.errors).toEqual([])
   await fixture.context.close()
  }
+ // Grouped apply failures must chain scopes; exclusive auto jobs cannot be
+ // independently queued while an earlier one waits on the same machine.
+ const groupedState=initial()
+ const second={...scope,id:'claude',agent:'claude'}
+ groupedState.environments.push(second);groupedState.machines[0].groups.push(second)
+ groupedState.targets=[scope,second].map(target=>({target,sourceId:'shelf',sourceName:'Shelf',desired:[one],missing:[one],extra:[],mode:'additive',revision:'r'}))
+ groupedState.jobs=[scope,second].map(target=>({id:`failed-${target.id}`,agentId:'a1',targetId:target.id,kind:'apply',status:'failed',revision:'r',hash:'old',plan:{},message:'approved plan no longer matches local files or desired revision; preview again',createdAt:now-10000,updatedAt:now-9000}))
+ const chained=[]
+ const grouped=await openWorkspace(browser,{width:390,height:844,touch:true,sync:groupedState,routes:{
+  '/api/v2/sync/candidates':{skills:[one]},
+  '/api/v2/sync/jobs':()=>{throw new Error('Grouped auto retries must use a run')},
+  '/api/v2/sync/run':request=>{chained.push(request.postDataJSON());return groupedState},
+ }})
+ await grouped.page.goto(`${base}/sync`)
+ await grouped.page.getByRole('button',{name:'Fix and try again',exact:true}).click()
+ await expect(grouped.page.getByText('Fresh sync queued for 2 jobs on Elitebook. They appear at the top of Sync activity.')).toBeVisible()
+ expect(chained).toEqual([{agentId:'a1',targetIds:['shared','claude']}])
+ expect(grouped.errors).toEqual([])
+ await grouped.context.close()
  let hosted={slug:'reet-review',description:'Reviews code',content:'---\nname: reet-review\ndescription: Reviews code\n---\nReview carefully.',files:{'guide.md':'keep this'},published:false,createdAt:now,updatedAt:now}
  const shelf=await openWorkspace(browser,{width:390,height:844,touch:true,skills:[one],routes:{
   '/api/v2/hosting':()=>({username:'sam',prefix:'reet-',skills:[hosted]}),

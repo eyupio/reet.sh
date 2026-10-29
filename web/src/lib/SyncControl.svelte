@@ -310,7 +310,14 @@
       const jobs = retryJobs(entry)
       let next = snapshot
       let kind = 'preview'
-      for (const job of jobs) {
+      if (jobs.length > 1 && ['apply', 'auto'].includes(entry.job.kind)) {
+        kind = 'auto'
+        const agents = [...new Set(jobs.map(job => job.agentId))]
+        for (const agentId of agents) {
+          next = await startSyncRun(agentId, jobs.filter(job => job.agentId === agentId).map(job => job.targetId))
+          onupdate(next)
+        }
+      } else for (const job of jobs) {
         if (job.kind === 'update') {
           kind = 'update'
           next = await updateSyncAgent(job.agentId, job.revision || 'latest')

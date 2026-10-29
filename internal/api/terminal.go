@@ -29,6 +29,7 @@ func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
 		writeJSON(w, 200, s.terminalStatus())
 	}))
 	mux.HandleFunc("GET /api/v2/terminal/machines", s.terminal(s.terminalMachines))
+	mux.HandleFunc("POST /api/v2/machines/{agentId}/uploads", s.terminal(s.terminalLaunchUpload))
 	mux.HandleFunc("GET /api/v2/terminal/sessions", s.terminal(s.terminalSessions))
 	mux.HandleFunc("POST /api/v2/terminal/sessions", s.terminal(s.terminalCreate))
 	mux.HandleFunc("PATCH /api/v2/terminal/sessions/{id}", s.terminal(s.terminalRename))

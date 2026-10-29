@@ -73,6 +73,33 @@ export async function terminalUpload(session: string, image: Blob, signal?: Abor
   if (!reference) throw new TerminalError(response.status, 'The upload did not return a path.')
   return { path, reference }
 }
+/** Upload one image for a session that is about to start on a machine. The
+ *  reply is the path the opening prompt should name. Same body and headers as
+ *  a session upload; there is no session yet. */
+export async function launchUpload(agentId: string, image: Blob, signal?: AbortSignal): Promise<{ path: string; reference: string }> {
+  const response = await fetch(`/api/v2/machines/${encodeURIComponent(agentId)}/uploads`, {
+    method: 'POST',
+    body: image,
+    headers: new Headers({ 'Content-Type': image.type }),
+    credentials: 'same-origin',
+    cache: 'no-store',
+    signal,
+  })
+  if (!response.ok) {
+    let message = 'The terminal connection is unavailable.', code: string | undefined, detail: string | undefined, field: string | undefined
+    try {
+      const body = await response.json()
+      if (typeof body?.error === 'string' && body.error) message = body.error
+      if (typeof body?.code === 'string' && body.code) code = body.code
+      if (typeof body?.detail === 'string' && body.detail) detail = body.detail
+      if (typeof body?.field === 'string' && body.field) field = body.field
+    } catch { /* fixed fallback */ }
+    throw new TerminalError(response.status, message, code, detail, field)
+  }
+  const reference = decodeURIComponent(response.headers.get('X-Reet-Upload-Reference') ?? '')
+  if (!reference) throw new TerminalError(response.status, 'The upload did not return a path.')
+  return { path: decodeURIComponent(response.headers.get('X-Reet-Upload-Path') ?? ''), reference }
+}
 export async function terminalMachines(signal?: AbortSignal): Promise<TerminalMachine[]> { return (await (await terminalRequest('/api/v2/terminal/machines', { signal })).json()).machines }
 const modelsQuery = (tool: string): string => new URLSearchParams({ tool }).toString()
 export async function machineModels(agentId: string, tool: string, signal?: AbortSignal): Promise<MachineModels> {

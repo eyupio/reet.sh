@@ -74,3 +74,11 @@ test('an SVG file item is extracted so validation can refuse it rather than past
   const svg = { name: 'drawing.svg', type: 'image/svg+xml', size: 12 }
   assert.deepEqual(u.imageFiles([{ kind: 'file', type: 'image/svg+xml', getAsFile: () => svg }]), [svg])
 })
+
+test('an image path joins the opening prompt as words the agent can open', () => {
+  assert.equal(u.imagePrompt('', []), '')
+  assert.equal(u.imagePrompt('fix the build', ['/tmp/a.png']), 'fix the build\n\nImage: /tmp/a.png')
+  assert.equal(u.imagePrompt('', ['/tmp/a.png']), 'Image: /tmp/a.png')
+  assert.equal(u.imagePrompt('', ['/tmp/a.png', '/tmp/b.png']), 'Images: /tmp/a.png /tmp/b.png')
+  assert.equal(u.imagePrompt('fix\n', ['/tmp/a.png']), 'fix\n\nImage: /tmp/a.png')
+})

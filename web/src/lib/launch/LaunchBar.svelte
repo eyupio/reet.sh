@@ -8,8 +8,9 @@
   import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
   import { afterLaunch, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
-  import { createTerminal, getFolderProject, getSelectionRun, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
+  import { createTerminal, getFolderProject, getSelectionRun, launchUpload, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
     type BranchesResult, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from '../terminal/upload'
   import { memberLine, runPending, STARTED_MEANS, type ProjectRun } from '../projects'
   import { keyboardLikelyOpen, PHONE_SCREEN, ViewportTracker, browserViewport } from '../terminal/sizing'
   import { chromeFocus } from '../shell/chrome.svelte'
@@ -378,11 +379,26 @@
   // Why Start can't be pressed yet. Until the machines have been read nothing is checked, so nothing is sent.
   const reason = $derived(!choice || !projects ? '' : !machines ? 'Start waits until your machines have been read.' : startable(choice, projects, machines, profile))
   const locked = $derived(busy || leaving || operation !== null)
+  // Images pasted, dropped or chosen before a start. They live only in this page: each is uploaded to the
+  // machine as it starts, and its path joins the opening prompt. Nothing is stored by the controller.
+  type Attachment = { id: number; file: File; preview: string }
+  let attachments = $state<Attachment[]>([])
+  let attachmentSeq = 0
+  const attachmentBytes = $derived(attachments.reduce((total, item) => total + item.file.size, 0))
+  // Images need one project and a machine that accepts uploads; the reason is shown and Start waits, as for a missing default.
+  const imagesReason = $derived.by(() => {
+    if (!attachments.length) return ''
+    if (picked.length > 1) return 'Attach images to one project at a time.'
+    const m = machines?.find(x => x.agentId === targetId)
+    if (!m?.capabilities) return ''
+    if (!m.capabilities.uploads) return m.capabilities.uploadsOff ? 'Image uploads are off on this machine.' : 'Update reet on that machine to attach images.'
+    return ''
+  })
   // Why a rail card or New session here changed nothing (the bar was busy or not open yet); it goes once the bar is free.
   let hint = $state('')
   $effect(() => { if (!locked && choice) untrack(() => { hint = '' }) })
   const UNREAD = "Couldn't read your projects just now. Start waits until they have been read; Home tries again every 15 seconds."
-  const shownStatus = $derived([message || (!choice && projectsFailed ? UNREAD : '') || (!locked ? reason ?? '' : ''), hint].filter(Boolean).join(' '))
+  const shownStatus = $derived([imagesReason, message || (!choice && projectsFailed ? UNREAD : '') || (!locked ? reason ?? '' : ''), hint].filter(Boolean).join(' '))
   // The session's title, shown before sending (the prompt's first line).
   const titled = $derived(choice?.prompt ? defaultTitle(choice.prompt) : '')
   const starter = $derived(!!choice && choice.prompt === '' && !!one?.hasStarterPrompt && !locked)
@@ -515,6 +531,56 @@
   }
 
   // --- prompt ------------------------------------------------------------------------------------------------------------
+  function imageRefusal(reason: 'type' | 'size' | 'empty'): string {
+    if (reason === 'empty') return 'That image is empty.'
+    if (reason === 'size') return 'That image is larger than 5 MiB.'
+    return 'Attach a PNG, JPEG, GIF or WebP image.'
+  }
+  function addImages(files: File[]) {
+    if (locked || !files.length) return
+    const accepted: Attachment[] = [], reasons: string[] = []
+    let count = attachments.length, bytes = attachmentBytes
+    for (const file of files) {
+      if (count >= MAX_IMAGES) { reasons.push(`Attach at most ${MAX_IMAGES} images.`); break }
+      if (bytes + file.size > MAX_IMAGE_TOTAL_BYTES) { reasons.push('Those images are larger than 50 MiB together.'); break }
+      const check = validateImage({ type: file.type, size: file.size })
+      if (!check.ok) { reasons.push(imageRefusal(check.reason)); continue }
+      accepted.push({ id: ++attachmentSeq, file, preview: URL.createObjectURL(file) })
+      count++
+      bytes += file.size
+    }
+    if (accepted.length) attachments = [...attachments, ...accepted]
+    message = reasons.length === 1 ? reasons[0] : reasons.length ? `${reasons.length} images were refused. ${reasons[0]}` : ''
+    failed = reasons.length > 0
+  }
+  function removeImage(id: number) {
+    const item = attachments.find(x => x.id === id)
+    if (item) URL.revokeObjectURL(item.preview)
+    attachments = attachments.filter(x => x.id !== id)
+    message = ''
+  }
+  function clearImages() {
+    for (const item of attachments) URL.revokeObjectURL(item.preview)
+    attachments = []
+  }
+  function pasted(event: ClipboardEvent) {
+    const files = imageFiles(event.clipboardData?.items)
+    if (!files.length) return
+    event.preventDefault()
+    addImages(files)
+  }
+  function dropped(event: DragEvent) {
+    const files = imageFiles(event.dataTransfer?.items)
+    if (!files.length) return
+    event.preventDefault()
+    addImages(files)
+  }
+  function dragOver(event: DragEvent) {
+    const types = Array.from(event.dataTransfer?.types ?? [])
+    if (!types.includes('Files')) return
+    event.preventDefault()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  }
   async function useStarter() {
     const p = one
     if (!p || !choice) return
@@ -543,10 +609,32 @@
     if (busy || leaving || !choice || !projects || life.signal.aborted) return
     if (!operation) {
       if (reason !== null) return
+      if (imagesReason) { failed = true; message = imagesReason; return }
       keptProjects = [...projects]
       if (picked.length > 1) operation = { kind: 'run', body: toSelectionRun(choice, crypto.randomUUID()) }
       else {
         const req = toCreate(choice, one, crypto.randomUUID(), crypto.randomUUID().replaceAll('-', ''), profile)
+        if (attachments.length) {
+          // The image goes to the machine before the session exists; its path joins the opening prompt.
+          busy = true; failed = false
+          const files = attachments.map(item => item.file)
+          const references: string[] = []
+          try {
+            for (let i = 0; i < files.length; i++) {
+              message = files.length === 1 ? 'Attaching the image…' : `Attaching image ${i + 1} of ${files.length}…`
+              references.push((await launchUpload(req.agentId, files[i], life.signal)).reference)
+            }
+          } catch (e) {
+            busy = false
+            if (life.signal.aborted) return
+            if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+            failed = true
+            message = `Couldn't attach that image. ${refusalSentence(e)}`
+            return
+          }
+          if (life.signal.aborted) return
+          req.launch.prompt = imagePrompt(req.launch.prompt ?? '', references)
+        }
         operation = { kind: 'one', ...req, host: hostOf(req.agentId) }
       }
     }
@@ -561,6 +649,7 @@
       const notStarted = notStartedText(session.state)
       if (notStarted) { operation = null; failed = true; message = notStarted; return }
       operation = null
+      clearImages()
       // A later start in one project: the older run's Show run status goes.
       lastRun = null; clearTimeout(lastPoll)
       const next = afterLaunch(choice!)
@@ -792,6 +881,7 @@
     vv?.addEventListener('resize', measureKeyboard)
     vv?.addEventListener('scroll', measureKeyboard)
     return () => {
+      for (const item of attachments) URL.revokeObjectURL(item.preview)
       stopLeaving(); life.abort(); cancelAnimationFrame(frame); clearTimeout(poll); clearTimeout(lastPoll)
       coarse.removeEventListener('change', read); narrow.removeEventListener('change', read)
       removeEventListener('resize', measureKeyboard); vv?.removeEventListener('resize', measureKeyboard); vv?.removeEventListener('scroll', measureKeyboard)
@@ -813,20 +903,32 @@
 {/snippet}
 
 <form class="launch" aria-label="Start a session" bind:this={form} style:--lift={`${lift}px`} class:lifted={lift > 0}
-  onsubmit={(event) => { event.preventDefault(); void start() }}>
+  onsubmit={(event) => { event.preventDefault(); void start() }} ondragover={dragOver} ondrop={dropped}>
   <fieldset disabled={locked || !choice}>
     <div class="ask">
       <label class="vh" for={`${id}-prompt`}>Describe the job</label>
       <textarea id={`${id}-prompt`} bind:this={field} rows="1" placeholder={phone ? 'Describe the job…' : 'Describe the job. Say what done looks like.'}
         value={choice?.prompt ?? ''} oninput={(e) => { if (choice) { choice = { ...choice, prompt: e.currentTarget.value }; message = '' } }}
-        onkeydown={keydown} onfocus={() => { focused = true }} onblur={() => { focused = false }}
+        onkeydown={keydown} onpaste={pasted} onfocus={() => { focused = true }} onblur={() => { focused = false }}
         aria-describedby={[choice?.prompt ? `${id}-secrets` : '', shownStatus ? `${id}-status` : ''].filter(Boolean).join(' ') || undefined}
         autocomplete="off" spellcheck="true"></textarea>
     </div>
-    {#if starter || choice?.prompt || runOpen}
+    {#if starter || choice?.prompt || runOpen || attachments.length}
       <div class="under">
         {#if runOpen}<button type="button" class="chip" onclick={reopenRun}>Show run status</button>{/if}
         {#if starter}<button type="button" class="chip" onclick={useStarter}>Use the starter prompt</button>{/if}
+        {#if attachments.length}
+          <ul class="attachments" aria-label="Images to attach">
+            {#each attachments as item (item.id)}
+              <li class="attachment">
+                <img src={item.preview} alt="" />
+                <span class="attachment-name" title={item.file.name}>{item.file.name || 'image'}</span>
+                <span class="attachment-size">{formatImageSize(item.file.size)}</span>
+                <button type="button" class="attachment-remove" aria-label={`Remove ${item.file.name || 'image'}`} onclick={() => removeImage(item.id)}>×</button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
         {#if titled}<p class="titled">Titled “{titled}”</p>{/if}
         {#if choice?.prompt}<p class="secrets" id={`${id}-secrets`}>Secrets don't belong here. The prompt is visible in the machine's process list.</p>{/if}
       </div>
@@ -855,10 +957,10 @@
   </fieldset>
   <div class="go">
     {#if operation && !busy}<button type="button" class="discard" onclick={discard}>Discard this request</button>{/if}
-    <button type="submit" class="start" bind:this={startButton} disabled={busy || leaving || !choice || (!operation && reason !== null)} aria-busy={busy || leaving}
+    <button type="submit" class="start" bind:this={startButton} disabled={busy || leaving || !choice || (!operation && (reason !== null || !!imagesReason))} aria-busy={busy || leaving}
       aria-label={operation ? 'Try the same request again' : 'Start the session'} aria-describedby={shownStatus ? `${id}-status` : undefined}>
       <svg class="arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
-      <span class="word">{operation ? 'Try the same request again' : 'Start'}</span>{#if !operation}<kbd aria-hidden="true">{mac ? '⌘ ↵' : 'Ctrl ↵'}</kbd>{/if}
+      <span class="word">{operation ? 'Try the same request again' : 'Start'}</span>{#if !operation}<kbd aria-hidden="true">{mac ? '↵' : 'Enter'}</kbd>{/if}
     </button>
   </div>
   <p class="status" class:bad={failed} id={`${id}-status`} role="status" aria-live="polite" aria-atomic="true">{shownStatus}</p>
@@ -971,6 +1073,13 @@
   /* The prompt has no box of its own (the bar is its frame): focus draws a line under the field. */
   textarea:focus-visible { box-shadow: inset 0 -2px 0 var(--accent-text); }
   textarea:hover { border: 0; }
+  .attachments { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 0; padding: 0; list-style: none; }
+  .attachment { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 2px 2px 4px; border: 1px solid var(--line-mid); border-radius: 8px; background: var(--card); font-size: 12px; }
+  .attachment img { width: 24px; height: 24px; flex: none; border-radius: 4px; object-fit: cover; }
+  .attachment-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .attachment-size { flex: none; color: var(--muted); }
+  .attachment-remove { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); font: 16px/1 var(--sans); cursor: pointer; }
+  .attachment-remove:hover { background: var(--line-soft); color: var(--ink); }
   .chip { min-height: 30px; padding: 2px 12px; border: 1px solid var(--line-mid); border-radius: 99px; background: transparent; color: var(--ink); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
   .chip:hover { border-color: var(--muted); }
   .secrets { margin: 0; font-size: 12px; color: var(--muted); }
@@ -1062,6 +1171,8 @@
     /* Finger-sized slots that keep the sentence's line spacing: the extra height overlaps the gap between lines. */
     .slot { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; margin-block: -10px; }
     .sentence { row-gap: 14px; }
+    .attachment { min-height: 44px; }
+    .attachment-remove { width: 44px; height: 44px; }
   }
   /* Tablet: the mock-up's 44 px Start without the key hint, the same two rows. */
   @media (max-width: 1099px) {

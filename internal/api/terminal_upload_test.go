@@ -441,3 +441,33 @@ func TestUploadSizeBuckets(t *testing.T) {
 		}
 	}
 }
+
+func TestLaunchUploadMarksTheMachineRequestAndAuditsLaunch(t *testing.T) {
+	f := newUploadAPIFixture(t, uploadAPICaps(true, false))
+	path := "/home/tester/.local/state/reet/launch-uploads/launch0123456789abcdef/img-0123456789abcdef.png"
+	f.result = terminalproto.UploadResult{Code: terminalproto.UploadOK, Path: path}
+	target := "/api/v2/machines/" + f.agent.ID + "/uploads"
+	rec := f.postRecorder(t, f.cookie, target, uploadAPIData(200), "image/png", "https://reet.example")
+	gotPath, pathErr := url.PathUnescape(rec.Header().Get("X-Reet-Upload-Path"))
+	if rec.Code != 200 || pathErr != nil || gotPath != path {
+		t.Fatalf("launch upload: %d headers %v %v body %s", rec.Code, rec.Header(), pathErr, rec.Body.String())
+	}
+	sent := f.sent()
+	if len(sent) != 1 || !sent[0].Launch {
+		t.Fatalf("want one launch upload, got %+v", sent)
+	}
+	events := uploadEvents(t, f.st, f.uid)
+	if len(events) != 1 {
+		t.Fatalf("want one audit row, got %d", len(events))
+	}
+	var detail map[string]string
+	if err := json.Unmarshal([]byte(events[0].Detail), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail["machine"] != f.agent.ID || detail["host"] != "laptop" || detail["launch"] != "true" || detail["mime"] != "image/png" {
+		t.Fatalf("audit detail: %v", detail)
+	}
+	if strings.Contains(events[0].Detail, path) {
+		t.Fatalf("audit carried the path: %s", events[0].Detail)
+	}
+}

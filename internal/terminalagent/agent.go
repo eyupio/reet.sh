@@ -342,20 +342,22 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 					reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
 					return send(callCtx, reply)
 				}
-				sessions, err := m.List(callCtx)
-				if err != nil {
-					return respond(err)
-				}
-				running := false
-				for _, s := range sessions {
-					if s.ID == msg.SessionID && s.State == terminalproto.Running {
-						running = true
-						break
+				if !op.Launch {
+					sessions, err := m.List(callCtx)
+					if err != nil {
+						return respond(err)
 					}
-				}
-				if !running {
-					reply.Body = terminalproto.Result{Code: terminalproto.NotFound}
-					return send(callCtx, reply)
+					running := false
+					for _, s := range sessions {
+						if s.ID == msg.SessionID && s.State == terminalproto.Running {
+							running = true
+							break
+						}
+					}
+					if !running {
+						reply.Body = terminalproto.Result{Code: terminalproto.NotFound}
+						return send(callCtx, reply)
+					}
 				}
 				if !uploads.acquire() {
 					reply.Body = terminalproto.Result{Code: terminalproto.UploadBusy}

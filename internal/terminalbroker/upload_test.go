@@ -456,3 +456,22 @@ func TestUploadTimesOutWaitingForTheResult(t *testing.T) {
 		t.Fatalf("a late result caused a replay: %d", len(uploads))
 	}
 }
+
+func TestUploadLaunchNeedsNoSessionAndMarksTheRequest(t *testing.T) {
+	b, p, uid, agent := fixture(t)
+	uploadCaps(t, b, p, uid, agent, true, false)
+	path := "/home/u/.local/state/reet/launch-uploads/launch0123456789abcdef/img-0123.png"
+	rec := attachUploadMachine(t, b, p, uid, agent, true, func(ctx context.Context, c *websocket.Conn, req terminalproto.Upload, rec *uploadRecorder) {
+		if readDeclaredUpload(ctx, c, req.Size, rec) {
+			writeUploadResult(c, terminalproto.UploadResult{Code: terminalproto.UploadOK, Path: path})
+		}
+	})
+	got, err := b.UploadLaunch(t.Context(), uid, agent, uploadPayload(64), "image/png")
+	if err != nil || got != path {
+		t.Fatalf("launch upload: %q, %v", got, err)
+	}
+	uploads, _, _, _ := rec.snapshot()
+	if len(uploads) != 1 || !uploads[0].Launch || uploads[0].MIME != "image/png" {
+		t.Fatalf("want one launch upload, got %+v", uploads)
+	}
+}

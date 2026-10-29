@@ -11,7 +11,7 @@ const run = name => !only || only === name
 const now = Date.now()
 const MIN = 60_000
 const caps = (extra = {}) => ({protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,
- worktree:true,agentsV2:true,branches:true,browse:true,models:true,tools:['claude','codex','gemini','cline'],...extra})
+ worktree:true,agentsV2:true,branches:true,browse:true,models:true,uploads:true,tools:['claude','codex','gemini','cline'],...extra})
 // studio is ready; desk is reconnecting (not ready), so its projects and its home folder are offered disabled with the sentence.
 const tmachines = () => [
  {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:caps()},
@@ -1152,17 +1152,50 @@ try {
   await context.close()
  }
 
- // Plain Enter adds a line (R8); Ctrl+Enter sends from a keyboard.
- if (run('Enter adds a line and Ctrl+Enter sends')) {
+ // Enter sends from a keyboard; Shift+Enter adds a line.
+ if (run('Enter sends and Shift+Enter adds a line')) {
   const {context,page,errors,box} = await launch()
   await page.goto(base)
   await prompt(page).fill('Fix the failing tests')
-  await prompt(page).press('Enter')
+  await prompt(page).press('Shift+Enter')
   await expect(prompt(page)).toHaveValue('Fix the failing tests\n')
   expect(box.posts).toEqual([])
-  await prompt(page).press('Control+Enter')
+  await prompt(page).press('Enter')
   await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts).toHaveLength(1)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A pasted image is uploaded to the machine before the session exists, and its path joins the opening prompt.
+ if (run('a pasted image joins the opening prompt')) {
+  const {context,page,errors,box} = await launch()
+  const uploads = []
+  const reference = '/home/dev/.local/state/reet/launch-uploads/launch0123456789abcdef/img-0123456789abcdef.png'
+  await page.route('**/api/v2/machines/a1/uploads', route => {
+   uploads.push(route.request().postDataBuffer())
+   return route.fulfill({status:200, contentType:'application/json', body:'{"uploaded":"true"}', headers:{
+    'X-Reet-Upload-Path': encodeURIComponent(reference),
+    'X-Reet-Upload-Reference': encodeURIComponent(reference),
+   }})
+  })
+  await page.goto(base)
+  await prompt(page).fill('Fix the failing tests')
+  await page.evaluate(() => {
+   const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], 'shot.png', {type:'image/png'})
+   const transfer = new DataTransfer()
+   transfer.items.add(image)
+   const event = new Event('paste', {bubbles:true, cancelable:true})
+   Object.defineProperty(event, 'clipboardData', {value: transfer})
+   document.querySelector('form[aria-label="Start a session"] textarea').dispatchEvent(event)
+  })
+  await expect(bar(page).getByRole('list',{name:'Images to attach'})).toBeVisible()
+  await expect(bar(page).getByText('shot.png')).toBeVisible()
+  await startButton(page).click()
+  await expect(page).toHaveURL(/\/sessions\?/)
+  expect(uploads).toHaveLength(1)
+  expect(box.posts).toHaveLength(1)
+  expect(box.posts[0].prompt).toBe(`Fix the failing tests\n\nImage: ${reference}`)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -1478,7 +1511,7 @@ try {
   }
  }
 
- console.log('Launch bar: Select and start in several projects (lost reply, status sheet, retry, touch, 320 px, strip count), one press with the resolved defaults and Recent, profile defaults, machine lists and Refresh, several machines, favourites and stars, Other, a failed list, offline/old/off states, tablet and phone model pickers, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar and a card chosen while it is locked, a refusal kept across the same selection, Show run status going once all started or after a later start, Enter and Ctrl+Enter (and no key on touch), the phone Change sheet and the landscape phone with one Change, the keyboard-open prompt, Tab and Escape from a list, no card marked for the home folder, branch reads, the YOLO reason, Stop selecting on the strip, unread projects, a removed project under a kept request, a run that is gone and nothing in storage checked.')
+ console.log('Launch bar: Select and start in several projects (lost reply, status sheet, retry, touch, 320 px, strip count), one press with the resolved defaults and Recent, profile defaults, machine lists and Refresh, several machines, favourites and stars, Other, a failed list, offline/old/off states, tablet and phone model pickers, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar and a card chosen while it is locked, a refusal kept across the same selection, Show run status going once all started or after a later start, Enter and Shift+Enter (and no key on touch), a pasted image uploaded before the session starts and its path in the prompt, the phone Change sheet and the landscape phone with one Change, the keyboard-open prompt, Tab and Escape from a list, no card marked for the home folder, branch reads, the YOLO reason, Stop selecting on the strip, unread projects, a removed project under a kept request, a run that is gone and nothing in storage checked.')
 } finally {
  await browser.close()
 }

@@ -397,6 +397,21 @@ func TestUploadHappyPathAuditsMetadataOnly(t *testing.T) {
 	}
 }
 
+func TestUploadPathHeadersSurviveSpecialCharacters(t *testing.T) {
+	f := newUploadAPIFixture(t, uploadAPICaps(true, false))
+	path := "/home/tester/a & b's image.png"
+	f.result = terminalproto.UploadResult{Code: terminalproto.UploadOK, Path: path}
+	rec := f.postRecorder(t, f.cookie, f.uploadTarget(), uploadAPIData(64), "image/png", "https://reet.example")
+	gotPath, pathErr := url.PathUnescape(rec.Header().Get("X-Reet-Upload-Path"))
+	gotReference, refErr := url.PathUnescape(rec.Header().Get("X-Reet-Upload-Reference"))
+	if rec.Code != 200 || pathErr != nil || refErr != nil || gotPath != path {
+		t.Fatalf("path header: %d %q %v", rec.Code, gotPath, pathErr)
+	}
+	if gotReference != "'"+path+"'" {
+		t.Fatalf("reference header: %q", gotReference)
+	}
+}
+
 func TestUploadReferenceQuotesOnlyWhenNeeded(t *testing.T) {
 	for in, want := range map[string]string{
 		"/home/u/img-1.png":             "/home/u/img-1.png",

@@ -227,8 +227,9 @@ feature-list test.
   5 MiB + 1, magic-byte sniff matching the declared type, per-user 20/minute limiter and at most 2 in flight,
   session `Running` and owned by the user.
 - On success: audit `terminal-upload` with machine host, tool, MIME and a size bucket (no name, path or hash); reply
-  `{path, reference}` where `reference` is the shell-escaped absolute path and the UI says it is a path (per-agent
-  image behaviour is not verified).
+  `{uploaded:true}` with the shell-escaped absolute path and reference in `X-Reet-Upload-Path` and
+  `X-Reet-Upload-Reference` headers (URL-escaped, so the shared JSON writer never carries a machine value). The UI says
+  it is a path (per-agent image behaviour is not verified).
 - Errors: 409 `upload_unsupported`, 409 `uploads_off`, 413, 415, 409 `upload_quota`, 429 `upload_rate_limited`,
   502/503/504 for machine failures. No path or hash in any error sentence.
 - Expected controller feature list gains `upload-v1` and `clipboard-v1`.

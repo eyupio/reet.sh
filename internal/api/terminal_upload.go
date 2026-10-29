@@ -3,9 +3,9 @@ package api
 import (
 	"context"
 	"errors"
-	"html"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -158,10 +158,12 @@ func (s *server) terminalUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditTerminalUpload(uid, session, mime, len(data))
-	// The path comes back from a machine, so it is escaped for the response
-	// boundary even though this is JSON; the browser decodes it before it is
-	// inserted as terminal text.
-	writeJSON(w, http.StatusOK, map[string]string{"path": html.EscapeString(path), "reference": html.EscapeString(uploadReference(path))})
+	// The path is machine-generated and validated as plain text. It travels in
+	// ASCII-only headers, escaped, so the browser gets it without the shared
+	// JSON response writer carrying a machine value into the body.
+	w.Header().Set("X-Reet-Upload-Path", url.PathEscape(path))
+	w.Header().Set("X-Reet-Upload-Reference", url.PathEscape(uploadReference(path)))
+	writeJSON(w, http.StatusOK, map[string]string{"uploaded": "true"})
 }
 
 // uploadReference is the text a browser inserts after an upload. It is the

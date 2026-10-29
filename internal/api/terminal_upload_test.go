@@ -6,9 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"html"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -160,7 +160,7 @@ func (f *uploadAPIFixture) sent() []terminalproto.Upload {
 	return append([]terminalproto.Upload(nil), f.uploads...)
 }
 
-func (f *uploadAPIFixture) post(t *testing.T, cookie, target string, body []byte, contentType, origin string) (int, map[string]any, string) {
+func (f *uploadAPIFixture) postRecorder(t *testing.T, cookie, target string, body []byte, contentType, origin string) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest("POST", target, bytes.NewReader(body))
 	r.Header.Set("Content-Type", contentType)
@@ -172,6 +172,12 @@ func (f *uploadAPIFixture) post(t *testing.T, cookie, target string, body []byte
 	}
 	w := httptest.NewRecorder()
 	f.srv.ServeHTTP(w, r)
+	return w
+}
+
+func (f *uploadAPIFixture) post(t *testing.T, cookie, target string, body []byte, contentType, origin string) (int, map[string]any, string) {
+	t.Helper()
+	w := f.postRecorder(t, cookie, target, body, contentType, origin)
 	out := map[string]any{}
 	_ = json.Unmarshal(w.Body.Bytes(), &out)
 	return w.Code, out, w.Body.String()
@@ -363,9 +369,11 @@ func TestUploadHappyPathAuditsMetadataOnly(t *testing.T) {
 	path := "/home/tester/My Images/img-0123456789abcdef.png"
 	f.result = terminalproto.UploadResult{Code: terminalproto.UploadOK, Path: path}
 	payload := uploadAPIData(200)
-	code, out, raw := f.post(t, f.cookie, f.uploadTarget(), payload, "image/png", "https://reet.example")
-	if code != 200 || out["path"] != html.EscapeString(path) || out["reference"] != html.EscapeString("'"+path+"'") {
-		t.Fatalf("upload: %d %v %s", code, out, raw)
+	rec := f.postRecorder(t, f.cookie, f.uploadTarget(), payload, "image/png", "https://reet.example")
+	gotPath, pathErr := url.PathUnescape(rec.Header().Get("X-Reet-Upload-Path"))
+	gotReference, refErr := url.PathUnescape(rec.Header().Get("X-Reet-Upload-Reference"))
+	if rec.Code != 200 || pathErr != nil || refErr != nil || gotPath != path || gotReference != "'"+path+"'" {
+		t.Fatalf("upload: %d headers %v %v body %s", rec.Code, rec.Header(), rec.Body.String(), pathErr)
 	}
 	if got := f.sent(); len(got) != 1 {
 		t.Fatalf("want one machine request, got %d", len(got))

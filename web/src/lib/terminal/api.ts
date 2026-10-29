@@ -45,12 +45,6 @@ export async function terminalRequest(path: string, init: RequestInit = {}): Pro
   }
   return response
 }
-// The controller escapes the machine path for its response boundary; turn the
-// five entities back into the path before it is inserted as terminal text.
-function decodeUploadPath(value: unknown): string {
-  if (typeof value !== 'string') return ''
-  return value.replace(/&#39;/g, "'").replace(/&#34;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
-}
 /** Upload one image body as sent by the browser. It never goes through
  *  terminalRequest, which forces a JSON Content-Type on every body. */
 export async function terminalUpload(session: string, image: Blob, signal?: AbortSignal): Promise<{ path: string; reference: string }> {
@@ -73,8 +67,10 @@ export async function terminalUpload(session: string, image: Blob, signal?: Abor
     } catch { /* fixed fallback */ }
     throw new TerminalError(response.status, message, code, detail, field)
   }
-  const body = await response.json()
-  return { path: decodeUploadPath(body?.path), reference: decodeUploadPath(body?.reference) }
+  const path = decodeURIComponent(response.headers.get('X-Reet-Upload-Path') ?? '')
+  const reference = decodeURIComponent(response.headers.get('X-Reet-Upload-Reference') ?? '')
+  if (!reference) throw new TerminalError(response.status, 'The upload did not return a path.')
+  return { path, reference }
 }
 export async function terminalMachines(signal?: AbortSignal): Promise<TerminalMachine[]> { return (await (await terminalRequest('/api/v2/terminal/machines', { signal })).json()).machines }
 export type TerminalControllerStatus={configured:boolean;available:boolean;reason:string}

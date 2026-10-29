@@ -39,7 +39,7 @@ async function open({ uploads = true, uploadsOff = false, hold = false, delay = 
       received.push({ contentType: request.headers()['content-type'], body: Buffer.from(request.postDataBuffer() ?? []) })
       if (gate) await gate
       else if (delay) await new Promise(resolve => setTimeout(resolve, delay))
-      try { await route.fulfill({ json: { path: uploadPath(at), reference: uploadPath(at) } }); fulfilSucceeded++ }
+      try { await route.fulfill({ headers: { 'X-Reet-Upload-Path': encodeURIComponent(uploadPath(at)), 'X-Reet-Upload-Reference': encodeURIComponent(uploadPath(at)) }, json: { uploaded: true } }); fulfilSucceeded++ }
       catch { fulfilFailed++ }
       return
     }

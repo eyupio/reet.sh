@@ -499,8 +499,8 @@ Tasks (exact target values are in the audit report): **P1** tokens and base spac
 **Interfaces:**
 - Produces: `const AttentionFeature = "attention-v1"`; `SessionSnapshot.ActivityAt int64` (`activityAt,omitempty`), `BellAt int64` (`bellAt,omitempty`), `ExitStatus *int` (`exitStatus,omitempty`), sent only when negotiated; tmux sessions get `monitor-bell on`; `func ReadAttention(ctx, tmux, session string) (activityAt, bellAt int64, err error)` from `#{window_activity}` and `#{window_bell_flag}` (bell time recorded by the connector when the flag is first seen set, then cleared).
 
-- [ ] Step 1: failing tests: `TestSnapshotAttentionFieldsOnlyWhenNegotiated`, `TestReadAttentionActivityAndBell` (real tmux: `printf '\a'` sets `BellAt`; output moves `ActivityAt`), `TestAttentionCarriesNoOutput` (snapshot JSON contains no pane text).
-- [ ] Step 2–4: FAIL, implement, PASS. Commit "Report terminal activity and bell under attention-v1".
+- [x] Step 1: failing tests: `TestSnapshotAttentionFieldsOnlyWhenNegotiated`, `TestReadAttentionActivityAndBell` (real tmux: `printf '\a'` sets `BellAt`; output moves `ActivityAt`), `TestAttentionCarriesNoOutput` (snapshot JSON contains no pane text).
+- [x] Step 2–4: FAIL, implement, PASS. Commit "Report terminal activity and bell under attention-v1".
 
 ### Task G2: Derived state and seen
 
@@ -509,8 +509,8 @@ Tasks (exact target values are in the audit report): **P1** tokens and base spac
 **Interfaces:**
 - Produces: `func AttentionState(s Session, now time.Time) (state, source string)` with states `starting|working|quiet|waiting|finished|failed` and source `terminal` (30 s working window; waiting when `BellAt > seenAt`); `MarkSessionSeenFor(uid int64, sessionID string, at int64) error`; listing adds `attention`, `attentionSource`, `changedSinceSeen`; `POST /api/v2/terminal/sessions/{id}/seen`.
 
-- [ ] Step 1: failing tests: `TestAttentionWorkingThenQuiet`, `TestAttentionWaitingOnlyAfterBell`, `TestAttentionExitStatus` (0 → finished, 2 → failed "Exited 2"), `TestSeenIsPerPerson`, `TestOldPeerSessionsHaveNoAttention`.
-- [ ] Step 2–4: FAIL, implement, PASS. Commit "Derive attention and remember what each person has seen".
+- [x] Step 1: failing tests: `TestAttentionWorkingThenQuiet`, `TestAttentionWaitingOnlyAfterBell`, `TestAttentionExitStatus` (0 → finished, 2 → failed "Exited 2"), `TestSeenIsPerPerson`, `TestOldPeerSessionsHaveNoAttention`.
+- [x] Step 2–4: FAIL, implement, PASS. Commit "Derive attention and remember what each person has seen".
 
 ### Task G3: Needs you queue, bell, title, live region
 
@@ -519,13 +519,13 @@ Tasks (exact target values are in the audit report): **P1** tokens and base spac
 **Interfaces:**
 - Produces: `needsYou` (empty since PR D) builds cards from `attention`; `attentionCount` (PR D) now counts them; `stateWord` reads `attention` and `attentionSource`; bell popover listing the same cards (phones: Home's Needs you); document title `(3) Home · reet.sh`; polite live region announcing transitions into Waiting at most once per session per minute; **Mark seen** calls the seen route.
 
-- [ ] Step 1: failing tests: `home.test.mjs` "bell count equals queue length", "announce at most once a minute"; `home.e2e.mjs` "bell opens the queue", "title count", "Mark seen removes a finished card", "state word says From terminal activity".
-- [ ] Step 2–4: FAIL, implement, run 4 times — PASS; mutation-check the bell count. Commit "Show what needs you across every machine".
+- [x] Step 1: failing tests: `home.test.mjs` "bell count equals queue length", "announce at most once a minute"; `home.e2e.mjs` "bell opens the queue", "title count", "Mark seen removes a finished card", "state word says From terminal activity".
+- [x] Step 2–4: FAIL, implement, run 4 times — PASS; mutation-check the bell count. Commit "Show what needs you across every machine".
 
 **Tweaks to the redesign:**
-- [ ] The empty state "Nothing needs you." and the first card share one height so the column does not jump.
-- [ ] Needs you comes first on tablet and phone with its cards' 48 px full-width **Open**.
-- [ ] The bell popover fits 1360 px without covering the launch bar; on phones the bell opens Home's Needs you.
+- [x] The empty state "Nothing needs you." and the first card share one height so the column does not jump.
+- [x] Needs you comes first on tablet and phone with its cards' 48 px full-width **Open**.
+- [x] The bell popover fits 1360 px without covering the launch bar; on phones the bell opens Home's Needs you.
 
 **PR G validation, review and merge:** the common steps.
 

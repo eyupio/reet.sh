@@ -62,6 +62,7 @@ func TestOpenCodePromptErrorRecovery(t *testing.T) {
 }
 
 func TestOpenCodeLogErrorRecovery(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "opencode.log")
 	now := time.Now().UTC()

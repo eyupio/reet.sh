@@ -402,6 +402,7 @@ func TestWatchdogAndFSMirror(t *testing.T) {
 }
 
 func TestSilentProviderErrorStopsTheTurn(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "")
 	opts, got := options(t, "silent-error", testVersion)
 	session, err := Start(context.Background(), opts)
 	if err != nil {

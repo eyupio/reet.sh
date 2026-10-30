@@ -197,7 +197,7 @@ export function refusalText(status: number, code?: string, message?: string): st
   if (status === 422 && c === 'tool_not_installed') return "That agent isn't installed on that machine."
   if (status === 422 && c === 'folder_unavailable') return "That folder isn't available on that machine."
   if (status === 422 && c === 'prompt_unsupported') return 'Write the opening prompt as at least two words.'
-  if (c === 'acp_version') return 'The reet TUI needs OpenCode 1.19.5 on that machine.'
+  if (c === 'acp_version') return 'The reet TUI needs OpenCode 1.19.5 or newer on that machine.'
   if (c === 'acp_unavailable') return message || 'The reet TUI is not available on that machine.'
   if (c === 'acp_trust_required') return message || 'This folder has OpenCode plugins. Start the reet TUI only in a folder you trust.'
   if (c === 'acp_resume_not_found') return message || "That reet session's history is no longer available."

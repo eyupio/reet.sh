@@ -1,6 +1,6 @@
 //go:build linux
 
-package opencodeacp
+package acpagent
 
 import "syscall"
 

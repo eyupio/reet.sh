@@ -1,6 +1,6 @@
 //go:build darwin
 
-package opencodeacp
+package acpagent
 
 import "syscall"
 

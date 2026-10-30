@@ -1,6 +1,6 @@
 //go:build linux || darwin
 
-package opencodeacp
+package acpagent
 
 import (
 	"bufio"
@@ -68,7 +68,14 @@ func TestFakeACP(t *testing.T) {
 		}
 		switch message.Method {
 		case "initialize":
-			reply(message.ID, map[string]any{"protocolVersion": 1, "agentInfo": map[string]string{"name": "OpenCode", "version": version}})
+			name, protocol := "OpenCode", 1
+			if scenario == "wrong-name" {
+				name = "Another Agent"
+			}
+			if scenario == "wrong-protocol" {
+				protocol = 2
+			}
+			reply(message.ID, map[string]any{"protocolVersion": protocol, "agentInfo": map[string]string{"name": name, "version": version}})
 		case "session/load":
 			var params struct {
 				SessionID string `json:"sessionId"`
@@ -204,11 +211,13 @@ func (e *events) has(kind string) bool {
 	return false
 }
 
+const testVersion = "1.19.5"
+
 func options(t *testing.T, scenario, version string) (Options, *events) {
 	t.Helper()
 	home, dir := t.TempDir(), t.TempDir()
 	got := &events{wait: make(chan Event, 32)}
-	return Options{Binary: fakeACP(t, scenario, version), Dir: dir, Home: home,
+	return Options{Agent: OpenCode, Binary: fakeACP(t, scenario, version), Dir: dir, Home: home,
 		BaseEnv:           []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"},
 		PermissionTimeout: time.Second, StillWorkingAfter: 40 * time.Millisecond, TurnTimeout: 2 * time.Second,
 		OnEvent: got.add}, got
@@ -217,7 +226,7 @@ func options(t *testing.T, scenario, version string) (Options, *events) {
 func TestPermissionAllowDeny(t *testing.T) {
 	for _, allow := range []bool{true, false} {
 		t.Run(fmt.Sprint(allow), func(t *testing.T) {
-			opts, got := options(t, "permission", Version)
+			opts, got := options(t, "permission", testVersion)
 			session, err := Start(context.Background(), opts)
 			if err != nil {
 				t.Fatal(err)
@@ -253,7 +262,7 @@ func TestPermissionAllowDeny(t *testing.T) {
 }
 
 func TestCancelClosesPermissionCard(t *testing.T) {
-	opts, got := options(t, "permission", Version)
+	opts, got := options(t, "permission", testVersion)
 	session, err := Start(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
@@ -277,7 +286,7 @@ func TestCancelClosesPermissionCard(t *testing.T) {
 }
 
 func TestPermissionTimeout(t *testing.T) {
-	opts, got := options(t, "timeout", Version)
+	opts, got := options(t, "timeout", testVersion)
 	opts.PermissionTimeout = 30 * time.Millisecond
 	session, err := Start(context.Background(), opts)
 	if err != nil {
@@ -306,18 +315,34 @@ func TestPermissionTimeout(t *testing.T) {
 }
 
 func TestVersionAndModeRefused(t *testing.T) {
-	opts, _ := options(t, "basic", "1.18.0")
+	opts, _ := options(t, "basic", "1.15.13")
 	if _, err := Start(context.Background(), opts); !errors.Is(err, ErrVersion) {
 		t.Fatalf("version: %v", err)
 	}
-	opts, _ = options(t, "mode-plan", Version)
+	opts, _ = options(t, "mode-plan", testVersion)
 	if _, err := Start(context.Background(), opts); err == nil {
 		t.Fatal("plan mode accepted")
 	}
 }
 
+func TestHandshakeRequiresTheNamedAgentAndProtocol(t *testing.T) {
+	opts, _ := options(t, "wrong-name", testVersion)
+	if _, err := Start(context.Background(), opts); !errors.Is(err, ErrVersion) {
+		t.Fatalf("wrong name: %v", err)
+	}
+	var version *VersionError
+	opts, _ = options(t, "wrong-name", testVersion)
+	if _, err := Start(context.Background(), opts); !errors.As(err, &version) || version.Required != "" {
+		t.Fatalf("wrong name error: %v", err)
+	}
+	opts, _ = options(t, "wrong-protocol", testVersion)
+	if _, err := Start(context.Background(), opts); !errors.As(err, &version) || version.Required != "ACP protocol 1" {
+		t.Fatalf("wrong protocol error: %v", err)
+	}
+}
+
 func TestPluginsNeedTrust(t *testing.T) {
-	opts, _ := options(t, "basic", Version)
+	opts, _ := options(t, "basic", testVersion)
 	if err := os.MkdirAll(filepath.Join(opts.Dir, ".opencode"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +361,7 @@ func TestPluginsNeedTrust(t *testing.T) {
 }
 
 func TestWatchdogAndFSMirror(t *testing.T) {
-	opts, got := options(t, "watchdog", Version)
+	opts, got := options(t, "watchdog", testVersion)
 	session, err := Start(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
@@ -349,7 +374,7 @@ func TestWatchdogAndFSMirror(t *testing.T) {
 	}
 	session.Close()
 
-	opts, got = options(t, "fs", Version)
+	opts, got = options(t, "fs", testVersion)
 	session, err = Start(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
@@ -370,17 +395,17 @@ func TestWatchdogAndFSMirror(t *testing.T) {
 }
 
 func TestEnvironmentScrub(t *testing.T) {
-	env := chatEnvironment("/home/u", []string{
+	env := agentEnvironment(OpenCode, "/home/u", []string{
 		"PATH=/bin", "HOME=/elsewhere", "OPENCODE_PERMISSION={}", "OPENCODE_CONFIG=/tmp/x",
-		"SSH_AUTH_SOCK=/tmp/ssh", "GH_TOKEN=secret", "LANG=C.UTF-8",
-	}, "pw", "")
+		"OPENCODE_API_KEY=oc_secret", "OPENAI_API_KEY=sk-test", "SSH_AUTH_SOCK=/tmp/ssh", "GH_TOKEN=secret", "LANG=C.UTF-8",
+	}, LaunchEnv{Password: "pw"})
 	joined := strings.Join(env, "\n")
 	for _, bad := range []string{"OPENCODE_PERMISSION", "OPENCODE_CONFIG=", "SSH_AUTH_SOCK", "GH_TOKEN", "HOME=/elsewhere"} {
 		if strings.Contains(joined, bad) {
 			t.Fatalf("environment kept %s:\n%s", bad, joined)
 		}
 	}
-	for _, good := range []string{"HOME=/home/u", "OPENCODE_SERVER_PASSWORD=pw", "OPENCODE_DISABLE_PROJECT_CONFIG=1", "OPENCODE_DISABLE_MODELS_FETCH=1"} {
+	for _, good := range []string{"HOME=/home/u", "OPENCODE_SERVER_PASSWORD=pw", "OPENCODE_DISABLE_PROJECT_CONFIG=1", "OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_API_KEY=oc_secret", "OPENAI_API_KEY=sk-test"} {
 		if !strings.Contains(joined, good) {
 			t.Fatalf("environment missing %s:\n%s", good, joined)
 		}
@@ -388,7 +413,7 @@ func TestEnvironmentScrub(t *testing.T) {
 }
 
 func TestCloseKillsOrphanedGroupMembers(t *testing.T) {
-	opts, _ := options(t, "orphan", Version)
+	opts, _ := options(t, "orphan", testVersion)
 	pidFile := opts.Binary + ".pid"
 	session, err := Start(context.Background(), opts)
 	if err != nil {
@@ -421,7 +446,7 @@ func TestCloseKillsOrphanedGroupMembers(t *testing.T) {
 }
 
 func TestResumeLoadsHistoryAndMarksInterruptedTools(t *testing.T) {
-	opts, got := options(t, "basic", Version)
+	opts, got := options(t, "basic", testVersion)
 	opts.Resume = "ses_fake000000000000000000000001"
 	session, err := Start(context.Background(), opts)
 	if err != nil {
@@ -449,7 +474,7 @@ func TestResumeLoadsHistoryAndMarksInterruptedTools(t *testing.T) {
 }
 
 func TestResumePlanModeRefused(t *testing.T) {
-	opts, _ := options(t, "load-plan", Version)
+	opts, _ := options(t, "load-plan", testVersion)
 	opts.Resume = "ses_fake000000000000000000000001"
 	if _, err := Start(context.Background(), opts); err == nil {
 		t.Fatal("plan mode load accepted")

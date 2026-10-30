@@ -285,7 +285,7 @@ test('the reet TUI sentence says it asks before it acts', () => {
 })
 
 test('the reet TUI refusals have plain sentences', () => {
-  assert.match(refusalText(409, 'acp_version'), /OpenCode 1\.19\.5/)
+  assert.match(refusalText(409, 'acp_version'), /OpenCode 1\.19\.5 or newer/)
   assert.match(refusalText(409, 'acp_unavailable', 'No OpenCode here.'), /No OpenCode here\./)
   assert.match(refusalText(409, 'acp_trust_required', 'This folder has OpenCode plugins.'), /OpenCode plugins/)
 })

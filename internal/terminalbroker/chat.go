@@ -13,7 +13,7 @@ import (
 
 var (
 	ErrACPUnsupported = errors.New("that machine does not support OpenCode chats")
-	ErrACPVersion     = errors.New("the machine needs OpenCode 1.19.5 for chats")
+	ErrACPVersion     = errors.New("the machine needs OpenCode 1.19.5 or newer for chats")
 	ErrACPBusy        = errors.New("the chat is already working")
 	ErrACPClosed      = errors.New("the chat is not running")
 	// ErrACPResumeNotFound means the requested OpenCode session is not one of

@@ -288,7 +288,7 @@
     }finally{actionBusy=false}
   }
   async function openSideTerminal(target=session){
-    if(!target||actionBusy||phone)return
+    if(!target||actionBusy||phone||sideSession)return
     actionBusy=true;error=''
     try{
       const requestId=crypto.randomUUID()

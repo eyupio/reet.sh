@@ -445,6 +445,11 @@ export function sessionTabTitle(session: Pick<TerminalSession, 'title' | 'projec
   return [session.title, projectName || machineName].filter(Boolean).join(' · ') + ' · reet.sh'
 }
 
+/** Prefix a page title with the attention count when non-zero. */
+export function titleWithAttention(title: string, attention: number): string {
+  return attention > 0 ? `(${attention}) ${title}` : title
+}
+
 /** Age since the last state change, short: "now", "12m", "3h", "2d". */
 export function shortAge(ms: number): string {
   if (ms < MINUTE) return 'now'

@@ -6,7 +6,7 @@ import ts from 'typescript'
 const source = readFileSync(new URL('./home.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const h = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
-const { fleetCards, sessionOwners, inFlight, rowSubtitle, stateWord, needsYou, attentionCount, announceWaiting, reporting, sessionTabTitle } = h
+const { fleetCards, sessionOwners, inFlight, rowSubtitle, stateWord, needsYou, attentionCount, announceWaiting, reporting, sessionTabTitle, titleWithAttention } = h
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000, HOUR = 60 * MIN
@@ -44,6 +44,13 @@ test('the Sessions tab names the session and its project, or its machine', () =>
   assert.equal(sessionTabTitle(undefined), 'Sessions · reet.sh')
   assert.equal(sessionTabTitle({ title: 'Build', projectId: 'p1' }, 'reet'), 'Build · reet · reet.sh')
   assert.equal(sessionTabTitle({ title: 'Build', projectId: null }, '', 'studio'), 'Build · studio · reet.sh')
+})
+
+test('titleWithAttention prefixes positive attention counts to the document title', () => {
+  assert.equal(titleWithAttention('Home · reet.sh', 0), 'Home · reet.sh')
+  assert.equal(titleWithAttention('Home · reet.sh', 3), '(3) Home · reet.sh')
+  assert.equal(titleWithAttention(sessionTabTitle({ title: 'Build', projectId: 'p1' }, 'reet'), 1), '(1) Build · reet · reet.sh')
+  assert.equal(titleWithAttention(sessionTabTitle(undefined), 2), '(2) Sessions · reet.sh')
 })
 
 test('cpu null shows No reading, labelled CPU', () => {

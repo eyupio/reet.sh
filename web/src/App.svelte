@@ -6,7 +6,7 @@
   import SessionsPage from './lib/sessions/SessionsPage.svelte'
   import Machines from './lib/Machines.svelte'
   import Home from './lib/home/Home.svelte'
-  import { attentionCount, needsYou, sessionOwners, type NeedCard } from './lib/home'
+  import { attentionCount, needsYou, sessionOwners, titleWithAttention, type NeedCard } from './lib/home'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import Community from './lib/Community.svelte'
   import SharedLists from './lib/SharedLists.svelte'
@@ -193,6 +193,7 @@
   let attention = $state(0)
   let needsCards = $state<NeedCard[]>([])
   let onMarkSeen = $state<((sessionId: string) => void | Promise<void>) | undefined>(undefined)
+  let workspaceTitle = $state('')
   // Home spans the page: the project rail on the left and the docked Start an agent at the foot.
   const homeLayout = $derived(isHome && authChecked && !!authMode && authenticated && !needsAuth && !(authMode === 'accounts' && setupRequired))
   const tabs = $derived<Tab[]>([
@@ -872,11 +873,15 @@
       return false
     }
   }
+  const defaultPageTitle = $derived(
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+  )
+  const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 </script>
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{attention > 0 ? `(${attention}) ` : ''}{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
+    <title>{titleWithAttention(pageTitle, attention)}</title>
   {/if}
 </svelte:head>
 
@@ -948,7 +953,7 @@
   {:else if isSessions && sessionsAccess}
     <SessionsPage userId={currentUser?.id ?? 0} onsignedout={fail} onattention={(count, cards, seen) => { attention = count; needsCards = cards; onMarkSeen = seen }} />
   {:else if isMachines}
-    <Machines userId={currentUser?.id??0} onsignedout={fail} {canWrite} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} />
+    <Machines userId={currentUser?.id??0} onsignedout={fail} {canWrite} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} ontitle={title => (workspaceTitle = title)} />
   {:else if isProfiles}
     <SetupProfiles {canWrite} onerror={fail} />
   {:else if isNotifications}

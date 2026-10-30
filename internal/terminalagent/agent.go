@@ -67,6 +67,13 @@ type modelListCacheEntry struct {
 const maxAsideRunning = 4
 
 func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
+	return FactoryWithChats(opts, nil)
+}
+
+// FactoryWithChats builds the per-connection control handler around a
+// process-scoped chat supervisor. A nil supervisor keeps the old
+// connection-scoped behaviour for callers that do not own one.
+func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervisor) agenthealth.TerminalFactory {
 	return func(ctx context.Context, client *http.Client, headers http.Header, generation int64, send agenthealth.Sender) (func(context.Context, terminalproto.Message) error, func()) {
 		ctx, cancel := context.WithCancel(ctx)
 		var wg sync.WaitGroup
@@ -105,7 +112,7 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 				}
 			}()
 		}
-		chats := newChatHost(ctx, opts, generation, send, terminalproto.SupportsACPHistory(headers.Get(terminalproto.FeatureHeader)))
+		chats := attachChats(supervisor, ctx, opts, generation, send, terminalproto.SupportsACPHistory(headers.Get(terminalproto.FeatureHeader)))
 		attachments := map[string]*terminalhost.Attachment{}
 		// worktreeSlot allows one worktree status or remove at a time on this
 		// machine. It runs on its own goroutine so the dispatcher, and the
@@ -200,10 +207,6 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 			if create, ok := msg.Body.(*terminalproto.Create); ok {
 				if (create.Base != "" || create.Effort != "" || create.Yolo || create.Tool != "" && !terminalproto.ValidTool(create.Tool)) && !terminalproto.SupportsAgents(headers.Get(terminalproto.FeatureHeader)) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
-					return send(callCtx, reply)
-				}
-				if create.Yolo {
-					reply.Body = terminalproto.Result{Code: terminalproto.YoloRefused}
 					return send(callCtx, reply)
 				}
 			}
@@ -409,9 +412,11 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 					// Starting ACP probes a version and opens a session; keep the
 					// control reader answering health probes while it runs. A
 					// slow start must never look like a lost machine.
-					wg.Add(1)
+					if !chats.sup.addWork() {
+						return respond(terminalhost.ErrManagerClosed)
+					}
 					go func(in terminalproto.Create) {
-						defer wg.Done()
+						defer chats.sup.wg.Done()
 						changed, err := chats.open(msg.RequestID, msg.SessionID, in)
 						if callCtx.Err() != nil {
 							return
@@ -429,9 +434,11 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 				if _, ok := chats.snapshot(msg.SessionID); ok {
 					// Closing a chat waits for its process group; answer from
 					// its own goroutine so the connection stays responsive.
-					wg.Add(1)
+					if !chats.sup.addWork() {
+						return respond(terminalhost.ErrManagerClosed)
+					}
 					go func() {
-						defer wg.Done()
+						defer chats.sup.wg.Done()
 						changed, err := chats.end(msg.SessionID)
 						if callCtx.Err() != nil {
 							return

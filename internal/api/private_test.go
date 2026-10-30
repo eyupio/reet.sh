@@ -289,11 +289,12 @@ func TestPrivateHelloAuthenticatesCapabilitiesAndFencesGenerations(t *testing.T)
 	}
 }
 
-func TestPrivatePeerRepliesIncludeModels(t *testing.T) {
+func TestPrivatePeerRepliesIncludeModelsAndChatEvents(t *testing.T) {
 	for _, body := range []terminalproto.Body{
 		&terminalproto.Result{}, &terminalproto.Reconcile{}, &terminalproto.SessionChanged{},
 		&terminalproto.WorktreeState{}, &terminalproto.WorktreeResult{},
 		&terminalproto.BrowseResult{}, &terminalproto.BranchesResult{}, &terminalproto.ModelsResult{},
+		&terminalproto.ACPEvent{},
 	} {
 		if !isPeerReply(body) {
 			t.Fatalf("%T is not forwarded", body)
@@ -381,6 +382,18 @@ func TestPrivateControlStreamsProbesAndHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := conn.Write(ctx, websocket.MessageText, result); err != nil {
+		t.Fatal(err)
+	}
+	// A chat event is a peer reply like any other: forwarding it must not end
+	// the control connection, which would lose every session on the machine.
+	chatEvent, err := terminalproto.Encode(terminalproto.Message{
+		Version: terminalproto.Version, RequestID: strings.Repeat("e", 32), SessionID: strings.Repeat("c", 32), Generation: reply.Generation,
+		Body: terminalproto.ACPEvent{Kind: "notice", Text: "chat event"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, chatEvent); err != nil {
 		t.Fatal(err)
 	}
 	cpu := 18.0

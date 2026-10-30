@@ -12,13 +12,13 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/eyupio/reet.sh/internal/opencodeacp"
+	"github.com/eyupio/reet.sh/internal/acpagent"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
-// chatProcess is the part of an OpenCode chat the connector drives. Tests use
-// it to exercise the dispatch without a real OpenCode install.
+// chatProcess is the part of an ACP chat the connector drives. Tests use it to
+// exercise the dispatch without a real agent install.
 type chatProcess interface {
 	Prompt(context.Context, string) error
 	Cancel() error
@@ -29,7 +29,7 @@ type chatProcess interface {
 	Done() <-chan struct{}
 }
 
-type chatStarter func(context.Context, opencodeacp.Options) (chatProcess, error)
+type chatStarter func(context.Context, acpagent.Options) (chatProcess, error)
 
 type chatSession struct {
 	id, title string
@@ -39,113 +39,300 @@ type chatSession struct {
 	process   chatProcess
 	cancel    context.CancelFunc
 	busy      bool
+	yolo      bool
 	ended     sync.Once
+
+	// outbox holds events produced while no control connection is attached,
+	// oldest first. It is bounded by the same event and byte ceilings as the
+	// controller's ring, and sheds the oldest first.
+	outbox      []terminalproto.ACPEvent
+	outboxBytes int
 }
 
-type chatHost struct {
-	ctx        context.Context
-	opts       terminalhost.ManagerOptions
-	generation int64
-	send       func(context.Context, terminalproto.Message) error
-	history    bool
-	start      chatStarter
-	lookPath   func(string) (string, error)
+const (
+	maxDetachedChatEvents = 1000
+	maxDetachedChatBytes  = 256 << 10
+)
+
+// chatSupervisor owns chat sessions for the life of the agent process. A
+// control connection attaches to it; losing that connection detaches the link
+// but leaves every ACP process and turn running, so a reconnect can adopt the
+// same sessions instead of losing them. This mirrors the detached worker
+// model: the transport is replaceable, the agent process is not.
+type chatSupervisor struct {
+	ctx      context.Context
+	opts     terminalhost.ManagerOptions
+	start    chatStarter
+	lookPath func(string) (string, error)
 
 	mu       sync.Mutex
+	link     *chatLink
 	sessions map[string]*chatSession
 	requests map[string]string
 	starting map[string]string
 	closed   bool
 	wg       sync.WaitGroup
+	close    sync.Once
 }
 
-func newChatHost(ctx context.Context, opts terminalhost.ManagerOptions, generation int64, send func(context.Context, terminalproto.Message) error, history bool) *chatHost {
-	return &chatHost{ctx: ctx, opts: opts, generation: generation, send: send, history: history, start: func(ctx context.Context, opts opencodeacp.Options) (chatProcess, error) {
-		return opencodeacp.Start(ctx, opts)
-	}, lookPath: exec.LookPath, sessions: map[string]*chatSession{}, requests: map[string]string{}, starting: map[string]string{}}
+// chatLink is one control connection's delivery path. history is the
+// acp-history-v1 capability of that connection.
+type chatLink struct {
+	generation int64
+	send       func(context.Context, terminalproto.Message) error
+	history    bool
+	live       bool
+}
+
+// ChatSupervisor is the process-scoped ACP session owner. The connector creates
+// one per agent process and passes it to every control connection.
+type ChatSupervisor struct{ s *chatSupervisor }
+
+// NewChatSupervisor creates the process-scoped supervisor. Cancelling ctx
+// closes every live chat process.
+func NewChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *ChatSupervisor {
+	return &ChatSupervisor{s: newChatSupervisor(ctx, opts)}
+}
+
+func newChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *chatSupervisor {
+	s := &chatSupervisor{
+		ctx: ctx, opts: opts,
+		start: func(ctx context.Context, opts acpagent.Options) (chatProcess, error) {
+			return acpagent.Start(ctx, opts)
+		},
+		lookPath: exec.LookPath,
+		sessions: map[string]*chatSession{}, requests: map[string]string{}, starting: map[string]string{},
+	}
+	go func() {
+		<-ctx.Done()
+		s.Close()
+	}()
+	return s
+}
+
+// Close ends every chat process and refuses new sessions.
+func (s *chatSupervisor) Close() {
+	s.closeOnce()
+}
+
+func (s *chatSupervisor) closeOnce() {
+	s.close.Do(func() {
+		s.mu.Lock()
+		s.closed = true
+		sessions := make([]*chatSession, 0, len(s.sessions))
+		for _, cs := range s.sessions {
+			sessions = append(sessions, cs)
+		}
+		s.sessions = map[string]*chatSession{}
+		s.requests = map[string]string{}
+		s.starting = map[string]string{}
+		if s.link != nil {
+			s.link.live = false
+			s.link = nil
+		}
+		s.mu.Unlock()
+		for _, cs := range sessions {
+			if cs.process != nil {
+				cs.process.Close()
+			} else if cs.cancel != nil {
+				cs.cancel()
+			}
+		}
+		s.wg.Wait()
+	})
+}
+
+// chatHost is one control connection's view of the supervisor.
+type chatHost struct {
+	sup  *chatSupervisor
+	link *chatLink
+}
+
+// attachChats attaches a control connection to a supervisor. A nil supervisor
+// creates a connection-scoped one, which keeps unit tests and any caller that
+// does not own a process yet isolated.
+func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalhost.ManagerOptions, generation int64, send func(context.Context, terminalproto.Message) error, history bool) *chatHost {
+	var s *chatSupervisor
+	if supervisor != nil {
+		s = supervisor.s
+	} else {
+		s = newChatSupervisor(ctx, opts)
+	}
+	return s.attach(ctx, generation, send, history)
+}
+
+func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history bool) *chatHost {
+	link := &chatLink{generation: generation, send: send, history: history}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return &chatHost{sup: s, link: link}
+	}
+	s.link = link
+	s.mu.Unlock()
+
+	h := &chatHost{sup: s, link: link}
+	s.flush(h)
+	return h
+}
+
+// flush delivers the buffered events from the previous connection before the
+// new link is marked live. Events produced meanwhile keep buffering, so each
+// session's order is preserved.
+func (s *chatSupervisor) flush(h *chatHost) {
+	for {
+		s.mu.Lock()
+		var (
+			cs    *chatSession
+			event terminalproto.ACPEvent
+		)
+		for _, candidate := range s.sessions {
+			if len(candidate.outbox) > 0 {
+				cs = candidate
+				event = candidate.outbox[0]
+				break
+			}
+		}
+		if cs == nil {
+			if s.link == h.link {
+				h.link.live = true
+			}
+			s.mu.Unlock()
+			return
+		}
+		cs.outbox = cs.outbox[1:]
+		cs.outboxBytes -= chatEventBytes(event)
+		s.mu.Unlock()
+
+		err := h.link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
+			Generation: h.link.generation, Body: &event})
+		if err != nil {
+			s.mu.Lock()
+			if s.link == h.link {
+				h.link.live = false
+			}
+			cs.outbox = append([]terminalproto.ACPEvent{event}, cs.outbox...)
+			cs.outboxBytes += chatEventBytes(event)
+			s.mu.Unlock()
+			return
+		}
+	}
+}
+
+// addWork registers one goroutine whose lifetime the supervisor must wait
+// for. It refuses work once Close has started.
+func (s *chatSupervisor) addWork() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	s.wg.Add(1)
+	return true
+}
+
+func (s *chatSupervisor) detach(h *chatHost) {
+	s.mu.Lock()
+	if s.link == h.link {
+		s.link = nil
+		h.link.live = false
+	}
+	s.mu.Unlock()
 }
 
 func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (terminalproto.SessionChanged, error) {
-	h.mu.Lock()
-	if h.closed {
-		h.mu.Unlock()
+	h.sup.mu.Lock()
+	if h.sup.closed {
+		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrManagerClosed
 	}
-	if existing, ok := h.requests[requestID]; ok {
+	if existing, ok := h.sup.requests[requestID]; ok {
 		if existing != sessionID {
-			h.mu.Unlock()
+			h.sup.mu.Unlock()
 			return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
 		}
-		cs := h.sessions[sessionID]
+		cs := h.sup.sessions[sessionID]
 		if cs == nil {
-			h.mu.Unlock()
+			h.sup.mu.Unlock()
 			return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
 		}
-		state, exit := cs.state, cs.exit
-		h.mu.Unlock()
-		return terminalproto.SessionChanged{State: state, ExitCode: exit, ACPSessionID: h.reportedACP(cs)}, nil
+		state, exit, acpID := cs.state, cs.exit, cs.acpID
+		history := h.link.history
+		h.sup.mu.Unlock()
+		return terminalproto.SessionChanged{State: state, ExitCode: exit, ACPSessionID: reportedACP(acpID, history)}, nil
 	}
-	if _, ok := h.sessions[sessionID]; ok {
-		h.mu.Unlock()
+	if _, ok := h.sup.sessions[sessionID]; ok {
+		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
 	}
-	if _, ok := h.starting[requestID]; ok {
-		h.mu.Unlock()
+	if _, ok := h.sup.starting[requestID]; ok {
+		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
 	}
 	live := 0
-	for _, existing := range h.sessions {
+	for _, existing := range h.sup.sessions {
 		if existing.state.ReservesQuota() {
 			live++
 		}
 	}
 	if live >= terminalproto.MaxSessionsPerAgent {
-		h.mu.Unlock()
+		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrSessionCapacity
 	}
-	cs := &chatSession{id: sessionID, title: in.Title, state: terminalproto.Creating}
-	h.sessions[sessionID] = cs
-	h.requests[requestID] = sessionID
-	h.starting[requestID] = sessionID
-	h.mu.Unlock()
+	if in.Yolo && (h.sup.opts.YoloConsent == nil || h.sup.opts.YoloConsent() != nil) {
+		h.sup.mu.Unlock()
+		return terminalproto.SessionChanged{}, terminalhost.ErrYoloRefused
+	}
+	cs := &chatSession{id: sessionID, title: in.Title, state: terminalproto.Creating, yolo: in.Yolo}
+	h.sup.sessions[sessionID] = cs
+	h.sup.requests[requestID] = sessionID
+	h.sup.starting[requestID] = sessionID
+	h.sup.mu.Unlock()
 	succeeded := false
 	defer func() {
-		h.mu.Lock()
-		delete(h.starting, requestID)
+		h.sup.mu.Lock()
+		delete(h.sup.starting, requestID)
 		if !succeeded {
-			delete(h.sessions, sessionID)
-			delete(h.requests, requestID)
+			delete(h.sup.sessions, sessionID)
+			delete(h.sup.requests, requestID)
 		}
-		h.mu.Unlock()
+		h.sup.mu.Unlock()
 	}()
 
-	dir, err := terminalhost.ResolveDir(h.opts.Home, in.Dir)
+	dir, err := terminalhost.ResolveDir(h.sup.opts.Home, in.Dir)
 	if err != nil {
 		return terminalproto.SessionChanged{}, err
 	}
-	binary, err := h.lookPath("opencode")
-	if err != nil {
-		return terminalproto.SessionChanged{}, opencodeacp.ErrVersion
+	spec, ok := acpagent.Lookup(in.Tool)
+	if !ok {
+		return terminalproto.SessionChanged{}, acpagent.ErrUnsupported
 	}
-	startCtx, cancel := context.WithTimeout(h.ctx, 60*time.Second)
+	binary, err := h.sup.lookPath(spec.Command)
+	if err != nil {
+		return terminalproto.SessionChanged{}, &acpagent.VersionError{Agent: spec.DisplayName, Required: spec.MinVersion, Reason: "the agent is not installed"}
+	}
+	// The start runs on the supervisor's process-lifetime context: a control
+	// connection lost during startup must not kill a chat the controller can
+	// adopt after it reconnects.
+	startCtx, cancel := context.WithTimeout(h.sup.ctx, 60*time.Second)
 	defer cancel()
-	h.mu.Lock()
+	h.sup.mu.Lock()
 	cs.cancel = cancel
-	h.mu.Unlock()
-	process, err := h.start(startCtx, opencodeacp.Options{
-		Binary: binary, Dir: dir, Home: h.opts.Home, Model: in.Model, Trust: in.Trust, Resume: in.ResumeACP,
+	h.sup.mu.Unlock()
+	process, err := h.sup.start(startCtx, acpagent.Options{
+		Agent: spec, Binary: binary, Dir: dir, Home: h.sup.opts.Home, Model: in.Model, Trust: in.Trust, Resume: in.ResumeACP,
 		BaseEnv: os.Environ(),
-		OnEvent: func(event opencodeacp.Event) { h.publish(cs, event) },
+		OnEvent: func(event acpagent.Event) { h.sup.publish(cs, event) },
 	})
 	if err != nil {
 		return terminalproto.SessionChanged{}, err
 	}
 	acpID := process.SessionID()
-	h.mu.Lock()
-	if h.closed {
-		delete(h.sessions, sessionID)
-		delete(h.requests, requestID)
-		h.mu.Unlock()
+	h.sup.mu.Lock()
+	if h.sup.closed {
+		delete(h.sup.sessions, sessionID)
+		delete(h.sup.requests, requestID)
+		h.sup.mu.Unlock()
 		process.Close()
 		return terminalproto.SessionChanged{}, terminalhost.ErrManagerClosed
 	}
@@ -154,43 +341,48 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 	cs.state = terminalproto.Running
 	cs.cancel = nil
 	succeeded = true
-	h.mu.Unlock()
-	h.wg.Add(1)
+	h.sup.wg.Add(1)
+	h.sup.mu.Unlock()
+	// The create reply belongs to the connection that asked, which may already
+	// have been replaced while startup ran. Publish the running state to
+	// whichever link is attached now so a reconcile done during startup does
+	// not leave the controller stuck in Creating.
+	h.sup.announceRunning(cs)
 	go func() {
-		defer h.wg.Done()
+		defer h.sup.wg.Done()
 		<-process.Done()
-		h.ended(cs, 0)
+		h.sup.ended(cs, 0)
 	}()
 	if in.Prompt != "" {
-		h.publish(cs, opencodeacp.Event{Kind: "user", Text: in.Prompt})
+		h.sup.publish(cs, acpagent.Event{Kind: "user", Text: in.Prompt})
 		h.startPrompt(cs, in.Prompt)
 	}
-	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: h.reportedACP(cs)}, nil
+	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(acpID, h.link.history)}, nil
 }
 
-func (h *chatHost) reportedACP(cs *chatSession) string {
-	if !h.history {
+func reportedACP(acpID string, history bool) string {
+	if !history {
 		return ""
 	}
-	return cs.acpID
+	return acpID
 }
 
 func (h *chatHost) snapshot(sessionID string) (terminalproto.SessionSnapshot, bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	cs := h.sessions[sessionID]
+	h.sup.mu.Lock()
+	defer h.sup.mu.Unlock()
+	cs := h.sup.sessions[sessionID]
 	if cs == nil {
 		return terminalproto.SessionSnapshot{}, false
 	}
-	return terminalproto.SessionSnapshot{ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit, ACPSessionID: h.reportedACP(cs)}, true
+	return terminalproto.SessionSnapshot{ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit, ACPSessionID: reportedACP(cs.acpID, h.link.history)}, true
 }
 
 func (h *chatHost) snapshots() []terminalproto.SessionSnapshot {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	out := make([]terminalproto.SessionSnapshot, 0, len(h.sessions))
-	for _, cs := range h.sessions {
-		out = append(out, terminalproto.SessionSnapshot{ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit, ACPSessionID: h.reportedACP(cs)})
+	h.sup.mu.Lock()
+	defer h.sup.mu.Unlock()
+	out := make([]terminalproto.SessionSnapshot, 0, len(h.sup.sessions))
+	for _, cs := range h.sup.sessions {
+		out = append(out, terminalproto.SessionSnapshot{ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit, ACPSessionID: reportedACP(cs.acpID, h.link.history)})
 	}
 	// The controller only needs live sessions to avoid marking them lost; keep
 	// ended receipts too, but never let history push a live one out.
@@ -208,24 +400,24 @@ func (h *chatHost) snapshots() []terminalproto.SessionSnapshot {
 }
 
 func (h *chatHost) find(sessionID string) *chatSession {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.sessions[sessionID]
+	h.sup.mu.Lock()
+	defer h.sup.mu.Unlock()
+	return h.sup.sessions[sessionID]
 }
 
 func (h *chatHost) startPrompt(cs *chatSession, text string) bool {
-	h.mu.Lock()
+	h.sup.mu.Lock()
 	if cs.busy || cs.state != terminalproto.Running {
-		h.mu.Unlock()
+		h.sup.mu.Unlock()
 		return false
 	}
 	cs.busy = true
-	h.mu.Unlock()
-	h.wg.Add(1)
+	h.sup.wg.Add(1)
+	h.sup.mu.Unlock()
 	go func() {
-		defer h.wg.Done()
-		defer func() { h.mu.Lock(); cs.busy = false; h.mu.Unlock() }()
-		_ = cs.process.Prompt(h.ctx, text)
+		defer h.sup.wg.Done()
+		defer func() { h.sup.mu.Lock(); cs.busy = false; h.sup.mu.Unlock() }()
+		_ = cs.process.Prompt(h.sup.ctx, text)
 	}()
 	return true
 }
@@ -235,9 +427,9 @@ func (h *chatHost) prompt(sessionID, text string) error {
 	if cs == nil {
 		return terminalhost.ErrSessionMissing
 	}
-	h.mu.Lock()
+	h.sup.mu.Lock()
 	state := cs.state
-	h.mu.Unlock()
+	h.sup.mu.Unlock()
 	if state != terminalproto.Running {
 		return terminalhost.ErrOperationConflict
 	}
@@ -252,6 +444,9 @@ func (h *chatHost) cancel(sessionID string) error {
 	if cs == nil {
 		return terminalhost.ErrSessionMissing
 	}
+	if cs.process == nil {
+		return terminalhost.ErrOperationConflict
+	}
 	return cs.process.Cancel()
 }
 
@@ -260,82 +455,133 @@ func (h *chatHost) permission(sessionID, permissionID string, allow bool) error 
 	if cs == nil {
 		return terminalhost.ErrSessionMissing
 	}
+	if cs.process == nil {
+		return terminalhost.ErrOperationConflict
+	}
 	err := cs.process.Allow(permissionID, allow)
-	if errors.Is(err, opencodeacp.ErrNoPermission) {
+	if errors.Is(err, acpagent.ErrNoPermission) {
 		return terminalhost.ErrOperationConflict
 	}
 	return err
 }
 
 func (h *chatHost) end(sessionID string) (terminalproto.SessionChanged, error) {
-	h.mu.Lock()
-	cs := h.sessions[sessionID]
+	h.sup.mu.Lock()
+	cs := h.sup.sessions[sessionID]
 	if cs == nil {
-		h.mu.Unlock()
+		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrSessionMissing
 	}
 	if cs.process == nil {
-		h.mu.Unlock()
+		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
 	}
 	// Keep the ended record and its request receipt: a lost end reply must be
 	// answerable with the same exited state, not looked up in the tmux manager
 	// and reported missing.
-	h.mu.Unlock()
+	h.sup.mu.Unlock()
 	cs.process.Close()
-	h.ended(cs, 0)
-	return terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: h.reportedACP(cs)}, nil
+	h.sup.ended(cs, 0)
+	return terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: reportedACP(cs.acpID, h.link.history)}, nil
 }
 
-func (h *chatHost) ended(cs *chatSession, code int) {
+func (h *chatHost) ended(cs *chatSession, code int) { h.sup.ended(cs, code) }
+
+// announceRunning tells the currently attached connection that startup
+// finished. It deliberately ignores link.live: a link being flushed is still
+// writable, and this state must not wait behind the chat-event queue.
+func (s *chatSupervisor) announceRunning(cs *chatSession) {
+	s.mu.Lock()
+	link := s.link
+	acpID := cs.acpID
+	s.mu.Unlock()
+	if link == nil {
+		return
+	}
+	_ = link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
+		Generation: link.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(acpID, link.history)}})
+}
+
+func (s *chatSupervisor) ended(cs *chatSession, code int) {
 	cs.ended.Do(func() {
-		h.mu.Lock()
+		s.mu.Lock()
 		if cs.state != terminalproto.Exited {
 			cs.state = terminalproto.Exited
 			if code >= 0 && code <= 255 {
 				cs.exit = &code
 			}
 		}
-		h.mu.Unlock()
-		_ = h.send(h.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
-			Generation: h.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: h.reportedACP(cs)}})
+		link := s.link
+		acpID, exit := cs.acpID, cs.exit
+		s.mu.Unlock()
+		if link == nil || !link.live {
+			return
+		}
+		_ = link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
+			Generation: link.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: exit, ACPSessionID: reportedACP(acpID, link.history)}})
 	})
 }
 
-func (h *chatHost) close() {
-	h.mu.Lock()
-	h.closed = true
-	sessions := make([]*chatSession, 0, len(h.sessions))
-	for _, cs := range h.sessions {
-		sessions = append(sessions, cs)
-	}
-	h.sessions = map[string]*chatSession{}
-	h.requests = map[string]string{}
-	h.starting = map[string]string{}
-	h.mu.Unlock()
-	for _, cs := range sessions {
-		if cs.process != nil {
-			cs.process.Close()
-		} else if cs.cancel != nil {
-			cs.cancel()
-		}
-	}
-	h.wg.Wait()
-}
+func (h *chatHost) close() { h.sup.detach(h) }
 
-func (h *chatHost) publish(cs *chatSession, event opencodeacp.Event) {
+func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 	wire, ok := wireEvent(event)
 	if !ok {
 		return
 	}
-	_ = h.send(h.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
-		Generation: h.generation, Body: &wire})
+	s.deliver(cs, wire)
+	if cs.yolo && event.Kind == "permission" && event.PermissionID != "" && cs.process != nil {
+		// YOLO answers this once, for the person. The process emits the real
+		// permission_resolved (which may be a rejection when no allow-once
+		// option exists), and that is what the controller audits.
+		_ = cs.process.Allow(event.PermissionID, true)
+	}
 	if event.Kind == "status" && event.State == "ended" {
-		h.ended(cs, 0)
+		s.ended(cs, 0)
 	}
 }
 
-func wireEvent(event opencodeacp.Event) (terminalproto.ACPEvent, bool) {
+func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
+	s.mu.Lock()
+	link := s.link
+	if link == nil || !link.live {
+		bufferChatEvent(cs, wire)
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+	if err := link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
+		Generation: link.generation, Body: &wire}); err != nil {
+		s.mu.Lock()
+		if s.link == link {
+			link.live = false
+		}
+		bufferChatEvent(cs, wire)
+		s.mu.Unlock()
+	}
+}
+
+func bufferChatEvent(cs *chatSession, event terminalproto.ACPEvent) {
+	size := chatEventBytes(event)
+	if size > maxDetachedChatBytes {
+		return
+	}
+	cs.outbox = append(cs.outbox, event)
+	cs.outboxBytes += size
+	for len(cs.outbox) > maxDetachedChatEvents || cs.outboxBytes > maxDetachedChatBytes {
+		cs.outboxBytes -= chatEventBytes(cs.outbox[0])
+		cs.outbox = cs.outbox[1:]
+	}
+}
+
+func chatEventBytes(event terminalproto.ACPEvent) int {
+	return len(event.Kind) + len(event.MessageID) + len(event.ToolCallID) + len(event.PermissionID) +
+		len(event.Title) + len(event.ToolKind) + len(event.Status) + len(event.State) + len(event.Text) +
+		len(event.Command) + len(event.Path) + len(event.Diff) + len(event.Reason) + len(event.Detail) +
+		len(strings.Join(event.Locations, ""))
+}
+
+func wireEvent(event acpagent.Event) (terminalproto.ACPEvent, bool) {
 	wire := terminalproto.ACPEvent{Kind: event.Kind, MessageID: event.MessageID, ToolCallID: event.ToolCallID,
 		PermissionID: event.PermissionID, Title: event.Title, ToolKind: event.ToolKind, Status: event.Status,
 		State: event.State, Text: event.Text, Command: event.Command, Path: event.Path, Diff: event.Diff,
@@ -390,24 +636,40 @@ func wireEvent(event opencodeacp.Event) (terminalproto.ACPEvent, bool) {
 }
 
 func chatResult(err error) terminalproto.Result {
-	var trust *opencodeacp.TrustError
+	var trust *acpagent.TrustError
 	switch {
 	case errors.As(err, &trust):
-		detail := "This folder has OpenCode plugins: " + strings.Join(trust.Plugins, ", ") + ". Start a chat only in a folder you trust."
+		detail := "This folder has agent extensions: " + strings.Join(trust.Files, ", ") + ". Start a chat only in a folder you trust."
 		if len(detail) > 480 {
 			detail = cutText(detail, 480)
 		}
 		return terminalproto.Result{Code: terminalproto.ACPTrustRequired, Detail: detail}
-	case errors.Is(err, opencodeacp.ErrVersion):
-		return terminalproto.Result{Code: terminalproto.ACPVersion, Detail: "Chat needs OpenCode 1.19.5 on this machine."}
-	case errors.Is(err, opencodeacp.ErrPluginsUnreadable):
-		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The folder's OpenCode plugins could not be read, so the chat was not started."}
-	case errors.Is(err, opencodeacp.ErrModel):
-		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "OpenCode did not use the chosen model, so the chat was not started."}
+	case errors.Is(err, acpagent.ErrVersion):
+		detail := "That agent needs a newer version on this machine."
+		code := terminalproto.ACPVersion
+		var version *acpagent.VersionError
+		if errors.As(err, &version) {
+			detail = version.Error()
+			if version.Required == "" {
+				// A different agent answered: update/install guidance would
+				// point at the wrong thing, so report it as unavailable.
+				code = terminalproto.ACPUnavailable
+			}
+		}
+		if len(detail) > 480 {
+			detail = cutText(detail, 480)
+		}
+		return terminalproto.Result{Code: code, Detail: detail}
+	case errors.Is(err, acpagent.ErrUnsupported):
+		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "That agent does not support chats on this machine."}
+	case errors.Is(err, acpagent.ErrPluginsUnreadable):
+		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The folder's agent extensions could not be read, so the chat was not started."}
+	case errors.Is(err, acpagent.ErrModel):
+		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not use the chosen model, so the chat was not started."}
 	default:
 		r := result(err)
 		if r.Code == terminalproto.Unavailable {
-			return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "OpenCode could not start the chat in that folder."}
+			return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "That agent could not start the chat in that folder."}
 		}
 		return r
 	}

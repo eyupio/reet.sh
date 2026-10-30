@@ -33,8 +33,8 @@ concurrency:
 jobs:
   test:
     runs-on: zoomies-linux-x64
-    # The suite takes 35 to 45 minutes on the Zoomies runners, and slower on a host under pressure. 45
-    # cancelled runs seconds after the Go tests finished, so leave room for the slowest hosts.
+    # The full race suite runs close to 45 minutes on the Zoomies runners, and slower on a host
+    # under pressure; 45 cancelled runs seconds after the Go tests finished.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4

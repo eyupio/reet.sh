@@ -412,6 +412,13 @@ export async function getAdminStatus(): Promise<AdminStatus> {
 export async function saveAdminSettings(settings: { refreshEnabled?: boolean; topicsEnabled?: boolean; linkListsEnabled?: boolean; rollupIndividual?: boolean; pruneServerEnvironmentsDays?: number; instanceName?: string }): Promise<void> {
   await req('/api/admin/settings', { method: 'PATCH', body: json(settings) })
 }
+export type YoloSetting = { allowed: boolean; changedBy?: string; changedAt?: number }
+export async function getYoloSetting(): Promise<YoloSetting> {
+  return (await req('/api/v2/settings/yolo')).json()
+}
+export async function setYoloSetting(allowed: boolean): Promise<YoloSetting> {
+  return (await req('/api/v2/settings/yolo', { method: 'PUT', body: json({ allowed }) })).json()
+}
 export async function listIgnored(): Promise<{ ignored: Ignored[] }> {
   return (await req('/api/ignored')).json()
 }

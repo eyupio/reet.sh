@@ -1,6 +1,6 @@
 //go:build linux || darwin
 
-package opencodeacp
+package acpagent
 
 import (
 	"bufio"
@@ -25,9 +25,8 @@ var (
 	ErrBusy         = errors.New("the chat is already working")
 	ErrClosed       = errors.New("the chat is closed")
 	ErrNoPermission = errors.New("that approval is no longer waiting")
-	ErrExited       = errors.New("OpenCode exited")
+	ErrExited       = errors.New("the agent exited")
 	ErrTimeout      = errors.New("the chat turn timed out")
-	ErrModel        = errors.New("OpenCode did not use the chosen model")
 )
 
 const maxLineBytes = 1 << 20
@@ -58,7 +57,7 @@ type pendingPermission struct {
 	timer    *time.Timer
 }
 
-// Session is one OpenCode ACP process. Methods are safe for concurrent use;
+// Session is one ACP agent process. Methods are safe for concurrent use;
 // Prompt runs one turn at a time and Cancel may be called from any goroutine.
 type Session struct {
 	opts   Options
@@ -80,14 +79,18 @@ type Session struct {
 	done     chan struct{}
 	doneOnce sync.Once
 
-	turnMu    sync.Mutex
-	working   bool
-	turnStart time.Time
-	lastEvent time.Time
-	warned    bool
+	turnMu       sync.Mutex
+	working      bool
+	turnProgress bool
+	turnStart    time.Time
+	lastEvent    time.Time
+	warned       bool
 }
 
 func Start(ctx context.Context, opts Options) (*Session, error) {
+	if opts.Agent.Key == "" {
+		return nil, errors.New("the chat agent is not configured")
+	}
 	if opts.Dir == "" || !filepath.IsAbs(opts.Dir) {
 		return nil, errors.New("the chat folder must be absolute")
 	}
@@ -97,31 +100,35 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	if opts.Home == "" || !filepath.IsAbs(opts.Home) {
 		return nil, errors.New("the chat home is unavailable")
 	}
+	spec := opts.Agent
 	binary := opts.Binary
 	if binary == "" {
-		found, err := exec.LookPath("opencode")
+		found, err := exec.LookPath(spec.Command)
 		if err != nil {
-			return nil, fmt.Errorf("%w: OpenCode is not installed", ErrVersion)
+			return nil, &VersionError{Agent: spec.displayName(), Required: spec.MinVersion, Reason: "the agent is not installed"}
 		}
 		binary = found
 	}
-	plugins, err := Plugins(opts.Dir)
-	if err != nil {
-		return nil, err
+	if spec.Trust != nil {
+		files, err := spec.Trust(opts.Dir)
+		if err != nil {
+			return nil, err
+		}
+		if len(files) > 0 && !opts.Trust {
+			return nil, &TrustError{Files: files}
+		}
 	}
-	if len(plugins) > 0 && !opts.Trust {
-		return nil, &TrustError{Plugins: plugins}
-	}
-	if _, err := ProbeVersion(ctx, binary, opts.Dir, opts.Home, opts.BaseEnv); err != nil {
+	if _, err := ProbeVersion(ctx, binary, spec, opts.Dir, opts.Home, opts.BaseEnv); err != nil {
 		return nil, err
 	}
 	password, err := serverPassword(opts.Random)
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(binary, "acp")
+	args := append([]string(nil), spec.Args...)
+	cmd := exec.Command(binary, args...)
 	cmd.Dir = opts.Dir
-	cmd.Env = chatEnvironment(opts.Home, opts.BaseEnv, password, opts.Model)
+	cmd.Env = agentEnvironment(spec, opts.Home, opts.BaseEnv, LaunchEnv{Model: opts.Model, Password: password})
 	cmd.SysProcAttr = procAttr()
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -148,13 +155,14 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	initCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	var initResult struct {
-		AgentInfo struct {
+		ProtocolVersion int `json:"protocolVersion"`
+		AgentInfo       struct {
 			Name    string `json:"name"`
 			Version string `json:"version"`
 		} `json:"agentInfo"`
 	}
 	raw, err := s.request(initCtx, "initialize", map[string]any{
-		"protocolVersion": 1,
+		"protocolVersion": ProtocolVersion,
 		"clientCapabilities": map[string]any{
 			"fs":       map[string]bool{"readTextFile": false, "writeTextFile": false},
 			"terminal": false,
@@ -165,9 +173,21 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		s.Close()
 		return nil, ErrExited
 	}
-	if json.Unmarshal(raw, &initResult) != nil || initResult.AgentInfo.Version != Version {
+	if json.Unmarshal(raw, &initResult) != nil {
 		s.Close()
-		return nil, fmt.Errorf("%w (found %s)", ErrVersion, safeVersion(initResult.AgentInfo.Version))
+		return nil, ErrExited
+	}
+	if initResult.ProtocolVersion != ProtocolVersion {
+		s.Close()
+		return nil, &VersionError{Agent: spec.displayName(), Found: fmt.Sprintf("ACP protocol %d", initResult.ProtocolVersion), Required: fmt.Sprintf("ACP protocol %d", ProtocolVersion)}
+	}
+	if spec.ExpectedName != "" && initResult.AgentInfo.Name != spec.ExpectedName {
+		s.Close()
+		return nil, &VersionError{Agent: spec.displayName(), Found: "agent name " + safeName(initResult.AgentInfo.Name), Reason: "a different agent answered"}
+	}
+	if err := checkVersion(spec, initResult.AgentInfo.Version); err != nil {
+		s.Close()
+		return nil, err
 	}
 	newCtx, newCancel := context.WithTimeout(ctx, 45*time.Second)
 	defer newCancel()
@@ -205,9 +225,9 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	}
 	// No mode switching is offered: a custom primary agent must never become
 	// the default behind the approval config.
-	if mode != "build" {
+	if spec.RequireMode != "" && mode != spec.RequireMode {
 		s.Close()
-		return nil, errors.New("OpenCode is not in build mode; the chat was not started")
+		return nil, fmt.Errorf("%s is not in %s mode; the chat was not started", spec.displayName(), spec.RequireMode)
 	}
 	if opts.Model != "" && model != "" && model != opts.Model {
 		s.Close()
@@ -228,7 +248,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	return s, nil
 }
 
-// SessionID is OpenCode's own id, for diagnostics only; the controller uses
+// SessionID is the agent's own id, for diagnostics only; the controller uses
 // its own session id.
 func (s *Session) SessionID() string {
 	s.mu.Lock()
@@ -308,7 +328,7 @@ func (s *Session) request(ctx context.Context, method string, params any) (json.
 	select {
 	case result := <-ch:
 		if result.err != nil {
-			return nil, fmt.Errorf("OpenCode: %s", safeRPCText(result.err.Message))
+			return nil, fmt.Errorf("%s: %s", s.opts.Agent.displayName(), safeRPCText(result.err.Message))
 		}
 		return result.result, nil
 	case <-ctx.Done():
@@ -358,7 +378,7 @@ func (s *Session) handle(message rpcMessage) {
 		case "session/request_permission":
 			s.handlePermission(message.ID, message.Params)
 		case "fs/write_text_file":
-			// OpenCode has already written the file itself. The client fs call is
+			// The agent has already written the file itself. The client fs call is
 			// a mirror, never a gate; answering without writing avoids a double
 			// write and keeps the protocol moving.
 			s.respond(message.ID, nil, nil)
@@ -410,6 +430,7 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 	case "agent_message_chunk":
 		text := contentText(u.Content)
 		if text != "" {
+			s.markProgress()
 			s.emit(Event{Kind: "agent", MessageID: u.MessageID, Text: text})
 		}
 	case "user_message_chunk":
@@ -418,6 +439,7 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 			s.emit(Event{Kind: "user", Text: text})
 		}
 	case "tool_call", "tool_call_update":
+		s.markProgress()
 		if u.ToolCallID != "" {
 			s.mu.Lock()
 			s.tools[u.ToolCallID] = u.Status
@@ -434,9 +456,16 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 	case "agent_thought_chunk":
 		text := contentText(u.Content)
 		if text != "" {
+			s.markProgress()
 			s.emit(Event{Kind: "tool", ToolCallID: "thought-" + u.MessageID, Title: "Thinking", ToolKind: "think", Status: "in_progress", Text: text})
 		}
 	}
+}
+
+func (s *Session) markProgress() {
+	s.mu.Lock()
+	s.turnProgress = true
+	s.mu.Unlock()
 }
 
 func contentText(raw json.RawMessage) string {
@@ -556,12 +585,12 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 	s.mu.Unlock()
 	pending.timer = time.AfterFunc(s.opts.permissionTimeout(), func() {
 		s.resolve(permissionID, "cancelled", "timeout")
-		s.emit(Event{Kind: "notice", Text: "The approval request timed out, so OpenCode was stopped.", Bad: true})
+		s.emit(Event{Kind: "notice", Text: "The approval request timed out, so " + s.opts.Agent.displayName() + " was stopped.", Bad: true})
 		_ = s.sendCancel()
 	})
 	title := params.ToolCall.Title
 	if title == "" {
-		title = "OpenCode tool call"
+		title = s.opts.Agent.displayName() + " tool call"
 	}
 	s.emit(Event{Kind: "status", State: "waiting", Detail: "Waiting for your approval."})
 	s.emit(Event{Kind: "permission", PermissionID: permissionID, ToolCallID: params.ToolCall.ToolCallID,
@@ -642,7 +671,7 @@ func (s *Session) sendCancel() error {
 }
 
 // Cancel stops the current turn and closes every card this client still holds.
-// OpenCode does not withdraw an outstanding request_permission, so reet must.
+// The agent does not withdraw an outstanding request_permission, so reet must.
 func (s *Session) Cancel() error {
 	s.mu.Lock()
 	pending := make([]string, 0, len(s.pending))
@@ -658,7 +687,7 @@ func (s *Session) Cancel() error {
 }
 
 // markInterrupted closes tools that session/load replayed as still running.
-// OpenCode does not re-ask their permission, so leaving them "working" would
+// The agent does not re-ask their permission, so leaving them "working" would
 // be a lie; a new prompt starts cleanly after them.
 func (s *Session) markInterrupted() {
 	s.mu.Lock()
@@ -696,7 +725,9 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 	s.warned = false
 	s.mu.Lock()
 	s.lastEvent = s.turnStart
+	s.turnProgress = false
 	s.mu.Unlock()
+	startedAt := s.turnStart
 	s.turnMu.Unlock()
 	defer func() {
 		s.turnMu.Lock()
@@ -740,7 +771,7 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 					s.emit(Event{Kind: "notice", Text: "Still working: the provider may be retrying."})
 				}
 				if timedOut {
-					s.emit(Event{Kind: "notice", Text: "The turn took too long, so OpenCode was stopped.", Bad: true})
+					s.emit(Event{Kind: "notice", Text: "The turn took too long, so " + s.opts.Agent.displayName() + " was stopped.", Bad: true})
 					_ = s.Cancel()
 					return
 				}
@@ -771,6 +802,15 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 	case "cancelled":
 		s.emit(Event{Kind: "status", State: "cancelled"})
 	case "end_turn", "":
+		s.mu.Lock()
+		progress := s.turnProgress
+		s.mu.Unlock()
+		if !progress && s.opts.Agent.RecoverError != nil {
+			if message := s.opts.Agent.RecoverError(s.opts.Home, acpID, startedAt.UnixMilli()); message != "" {
+				s.emit(Event{Kind: "status", State: "error", Detail: safeRPCText(message)})
+				return nil
+			}
+		}
 		s.emit(Event{Kind: "status", State: "idle"})
 	default:
 		s.emit(Event{Kind: "status", State: "idle", Detail: result.StopReason})
@@ -784,7 +824,7 @@ func safeRPCText(s string) string {
 		s = cutUTF8(s, 200)
 	}
 	if strings.ContainsRune(s, '\x00') {
-		return "OpenCode reported an error."
+		return "The agent reported an error."
 	}
 	return s
 }
@@ -812,7 +852,7 @@ func (s *Session) ended() {
 		s.mu.Lock()
 		s.closed = true
 		for _, ch := range s.calls {
-			ch <- rpcResult{err: &rpcError{Message: "OpenCode exited"}}
+			ch <- rpcResult{err: &rpcError{Message: "the agent exited"}}
 		}
 		s.calls = map[int64]chan rpcResult{}
 		pending := make([]string, 0, len(s.pending))

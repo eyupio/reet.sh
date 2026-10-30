@@ -216,7 +216,10 @@ is off. `reet terminal clipboard on|off|status` (also `reet agent terminal clipb
 controls whether an agent's OSC 52 write reaches the browser; it is on by default and
 only changes what the attached tmux server forwards. `reet terminal models on|off|status` (also
 `reet agent terminal models …`) controls whether reet may read the model list an agent on the machine
-reports; it is on by default and refused while terminal access is off. Revoking enrollment cuts private
+reports; it is on by default and refused while terminal access is off. `reet terminal yolo on|off|status`
+(also `reet agent terminal yolo …`) controls whether reet may start a session where the agent skips its
+own approval prompts; it is on by default, still needs the account setting and a per-session
+confirmation, and is refused while terminal access is off. Revoking enrollment cuts private
 access and prevents new authorization; it does not terminate independent local tmux work.
 Sign-out closes that browser login's attachments. Forgetting an inventory report
 is not credential revocation. End work locally if the controller is unavailable.

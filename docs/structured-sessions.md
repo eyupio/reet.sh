@@ -17,8 +17,9 @@ first message. The dialog states that the folder's `.opencode` plugins run when 
 memory.
 
 The session appears in the usual list with its title and state. Its screen opens on **reet TUI**; the agent TUI is disabled
-because there is no shell to attach to. Closing the tab, **End session** or losing the machine connection ends the reet session and
-its process.
+because there is no shell to attach to. Closing the tab or **End session** ends the reet session and its process. Losing the
+control connection detaches it without killing the agent; the next connection adopts the running session and drains events
+queued while it was away. Restarting the agent process ends its chats.
 
 ## The seven conditions
 
@@ -42,13 +43,15 @@ folder, as the connector's user. All seven conditions are mandatory:
    connector's own OpenCode settings reach the process. `SSH_AUTH_SOCK`, `DISPLAY`, DBus, GitHub/cloud tokens and shell
    settings do not. The model fetch, autoupdate, default plugins, LSP download, Claude Code compatibility and external
    skills are off. OpenCode may still install `@opencode-ai/plugin` from npm in the background; the probe saw that with the
-   opt-outs set. Provider credentials come from OpenCode's own auth store, not from reet's environment.
+   opt-outs set. OpenCode reads credentials from its own auth store or from the verified provider keys reet forwards
+   (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, the Google/Gemini keys, `OPENROUTER_API_KEY`, `OPENCODE_API_KEY`); no other
+   inherited variable reaches it.
 6. **Trusted folders.** If `.opencode/plugin*` or `.opencode/package.json` exists, the machine refuses the reet TUI unless the
    start carries the person's trust confirmation. The Start dialog always shows the warning and sends the confirmation
    when the reet TUI is chosen. An unreadable `.opencode` refuses the reet TUI rather than hiding a plugin.
-7. **The exact version.** The connector runs `opencode --version` and requires `1.19.5` before it starts a process. Another
-   version is refused; a future version must be probed again before it is accepted. ACP's `initialize` version is checked
-   as well.
+7. **The version floor.** The connector runs `opencode --version` and requires at least `1.19.5` before it starts a process.
+   ACP's `initialize` must also report protocol 1, the agent name `OpenCode`, and a version at or above the floor; a newer
+   release is accepted, but lowering the floor needs a fresh probe. This is the same shape AOE uses for its adapters.
 
 ## Reopening a reet session and history
 
@@ -88,12 +91,15 @@ person's answer both appear in the reet TUI.
 - **History is in memory.** The controller keeps at most 1,000 events / 256 KiB per reet session and does not write a transcript.
   A closed reet TUI session can be reopened from OpenCode's own store with Continue in reet TUI with history…; the live event ring still
   resets on a server restart, and archiving a session drops its controller-side ring.
-- **A machine connection loss ends its reet sessions.** The connector starts one process per reet session and kills its process group when
-  the control connection closes. Reconnecting does not resume a live reet session; the session becomes lost, but its stored
-  OpenCode id can be reopened if that store survives.
-- **Only OpenCode, only 1.19.5.** No other agent has an ACP adapter in this slice. A machine with an older OpenCode shows the
-  version refusal; a newer one waits for a probe.
+- **A control connection loss does not end a reet session.** The connector owns one process per reet session for the life of
+  the agent process. A reconnect adopts the running sessions, includes them in reconciliation, and drains the bounded event
+  queue produced while detached. Restarting the agent ends them; their stored OpenCode ids can still be reopened if that
+  store survives.
+- **Only OpenCode, at least 1.19.5.** No other agent has an ACP adapter in this slice. A machine with an older OpenCode
+  shows the version refusal; a newer release passes the name and semver checks.
 - **The model is OpenCode's configured one.** The picker is hidden for the reet TUI in this slice. Favourites and account/project defaults do not choose its model.
+- **Dropped provider errors are recovered.** When OpenCode ends a turn without streaming any progress, the connector reads
+  the newest matching error from OpenCode's local store and shows it instead of leaving a silently empty turn.
 - **Images are paths.** Attachments go through the launch-upload path and the prompt names the file; no image bytes are
   embedded in ACP. Modes, MCP servers, resume of a live turn and other agents are not in this slice.
 - **No physical phone, Safari or live provider run** was part of the checks. The fake ACP child covers the protocol; the

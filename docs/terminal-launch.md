@@ -78,8 +78,9 @@ path must also be absolute and contain only letters, digits and `. _ + @ / -`,
 because tmux hands a one-argument command to `sh -c`; a binary at any other path
 is treated as not installed. The model and the prompt are each exactly one
 argument element. No preset uses an approval-bypass, auto-approve, print, exec or
-other one-shot flag; a test pins the only flags used to `--model`, `--prompt` and
-`--prompt-interactive`.
+other one-shot flag unless the person chose YOLO and the machine accepts it. A
+test pins the ordinary flags to `--model`, `--prompt` and
+`--prompt-interactive`, and the YOLO flags to the reviewed rows below.
 
 | Tool | Arguments (with a model and a prompt) | Confirmed from |
 | --- | --- | --- |
@@ -271,7 +272,11 @@ Effort accepts `low`, `medium` or `high`. Cline 3.0.74 maps these to its
 confirmed `--thinking` option; other presets have no effort mapping until their
 exact CLI arguments have captured help evidence. An
 unsupported mapping answers `launch_option_unsupported`; it never silently
-ignores the choice. YOLO remains refused (`yolo_refused`) in this pass.
+ignores the choice. YOLO maps to a reviewed option only for Codex
+(`--dangerously-bypass-approvals-and-sandbox`), OpenCode (`--auto`) and Cline
+(`--yolo --tui`); every other preset refuses it with
+`launch_option_unsupported`. A machine switch (`reet terminal yolo off`) refuses
+it with `yolo_refused`, and the account setting must allow it first.
 
 Cline 3.0.74 is enabled after a pinned, help-only installation confirmed its
 `--auto-approve false --tui` safety and interactive arguments, `--model` and

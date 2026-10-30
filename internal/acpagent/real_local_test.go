@@ -1,6 +1,6 @@
 //go:build linux || darwin
 
-package opencodeacp
+package acpagent
 
 import (
 	"context"
@@ -19,7 +19,7 @@ func TestRealOpenCodeStart(t *testing.T) {
 	home, dir := t.TempDir(), t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	session, err := Start(ctx, Options{Binary: binary, Dir: dir, Home: home, BaseEnv: []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second})
+	session, err := Start(ctx, Options{Agent: OpenCode, Binary: binary, Dir: dir, Home: home, BaseEnv: []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestRealOpenCodeStart(t *testing.T) {
 	}
 	id := session.SessionID()
 	session.Close()
-	resumed, err := Start(ctx, Options{Binary: binary, Dir: dir, Home: home, BaseEnv: []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}, Resume: id, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second})
+	resumed, err := Start(ctx, Options{Agent: OpenCode, Binary: binary, Dir: dir, Home: home, BaseEnv: []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}, Resume: id, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}

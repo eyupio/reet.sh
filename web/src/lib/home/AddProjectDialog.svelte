@@ -18,10 +18,12 @@
   // (offline, an older reet, browsing switched off) still takes a typed path, checked again at launch. One save per press; a
   // change names the version it was read at. The starter prompt lives only in this component while it is open: never in
   // browser storage, the URL or a log.
-  let { machines, project, opener = null, onadded, onsignedout, onclose }: {
+  let { machines, project, initialHost, opener = null, onadded, onsignedout, onclose }: {
     machines: TerminalMachine[]
     /** The project to change, read with its starter prompt (the single read); absent adds a new one. */
     project?: FolderProject
+    /** The machine a machine card's New project named, chosen before the usual browseable one; absent when adding elsewhere. */
+    initialHost?: string
     opener?: HTMLElement | null
     /** After a save: the project as the server answered it. The dialog then closes; the page shows the success line. */
     onadded: (project: FolderProject) => void
@@ -52,7 +54,7 @@
     return ''
   }
   // svelte-ignore state_referenced_locally
-  let host = $state(initial?.host ?? (machines.find(m => !browseBlock(m)) ?? machines[0])?.agentId ?? '')
+  let host = $state(initial?.host ?? (initialHost && machineFor(initialHost) ? initialHost : (machines.find(m => !browseBlock(m)) ?? machines[0])?.agentId) ?? '')
   let dir = $state(initial?.dir ?? '')
   let name = $state(initial?.name ?? '')
   let worktreeDefault = $state<WorktreeDefault>(initial?.worktreeDefault ?? 'inherit')

@@ -51,6 +51,7 @@ type AgentConfig struct {
 	uploadsAllowed    bool
 	models            bool
 	modelsAllowed     bool
+	yoloAllowed       bool
 	acp               bool
 	acpHistory        bool
 	shellDir          bool
@@ -90,6 +91,10 @@ type AgentConfig struct {
 	// (reet terminal models on|off). It is polled with Consent. Nil means
 	// model listing is refused.
 	ModelsAllowed func() bool
+	// YoloAllowed re-reads the machine's local YOLO switch
+	// (reet terminal yolo on|off). It is polled with Consent. Nil means YOLO
+	// is refused.
+	YoloAllowed func() bool
 	// TerminalAllowed re-reads the local terminal opt-in alone (the
 	// enrollment is still this one and terminal access is on), without
 	// probing readiness. Browse and branches requests are gated on it; nil
@@ -236,6 +241,7 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 	cfg.clipboardAllowed = readClipboardAllowed(cfg)
 	cfg.uploadsAllowed = readUploadsAllowed(cfg)
 	cfg.modelsAllowed = readModelsAllowed(cfg)
+	cfg.yoloAllowed = readYoloAllowed(cfg)
 	address, err := bootstrap(ctx, cfg)
 	if err != nil {
 		return false, err
@@ -393,6 +399,7 @@ func currentCapabilities(cfg AgentConfig) terminalproto.Capabilities {
 	cfg.clipboardAllowed = readClipboardAllowed(cfg)
 	cfg.uploadsAllowed = readUploadsAllowed(cfg)
 	cfg.modelsAllowed = readModelsAllowed(cfg)
+	cfg.yoloAllowed = readYoloAllowed(cfg)
 	return capabilitiesFor(cfg, enabled, readiness)
 }
 
@@ -416,6 +423,11 @@ func readUploadsAllowed(cfg AgentConfig) bool {
 // listing is refused.
 func readModelsAllowed(cfg AgentConfig) bool {
 	return cfg.ModelsAllowed != nil && cfg.ModelsAllowed()
+}
+
+// readYoloAllowed reads the local YOLO switch; without one, YOLO is refused.
+func readYoloAllowed(cfg AgentConfig) bool {
+	return cfg.YoloAllowed != nil && cfg.YoloAllowed()
 }
 
 func readConsent(read func() (bool, terminalproto.Readiness, error)) (bool, terminalproto.Readiness) {
@@ -561,14 +573,15 @@ func consentControl(ctx context.Context, cfg AgentConfig, generation int64, enab
 		nextClipboard := readClipboardAllowed(cfg)
 		nextUploads := readUploadsAllowed(cfg)
 		nextModels := readModelsAllowed(cfg)
-		if nextEnabled == enabled && nextReadiness == readiness && nextBrowse == cfg.browseAllowed && nextClipboard == cfg.clipboardAllowed && nextUploads == cfg.uploadsAllowed && nextModels == cfg.modelsAllowed {
+		nextYolo := readYoloAllowed(cfg)
+		if nextEnabled == enabled && nextReadiness == readiness && nextBrowse == cfg.browseAllowed && nextClipboard == cfg.clipboardAllowed && nextUploads == cfg.uploadsAllowed && nextModels == cfg.modelsAllowed && nextYolo == cfg.yoloAllowed {
 			continue
 		}
-		previousBrowse, previousClipboard, previousUploads, previousModels := cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed, cfg.modelsAllowed
-		cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed, cfg.modelsAllowed = nextBrowse, nextClipboard, nextUploads, nextModels
+		previousBrowse, previousClipboard, previousUploads, previousModels, previousYolo := cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed, cfg.modelsAllowed, cfg.yoloAllowed
+		cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed, cfg.modelsAllowed, cfg.yoloAllowed = nextBrowse, nextClipboard, nextUploads, nextModels, nextYolo
 		caps := capabilitiesFor(cfg, nextEnabled, nextReadiness)
 		if caps.ValidateFor(terminalFeatures(cfg)) != nil {
-			cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed, cfg.modelsAllowed = previousBrowse, previousClipboard, previousUploads, previousModels
+			cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed, cfg.modelsAllowed, cfg.yoloAllowed = previousBrowse, previousClipboard, previousUploads, previousModels, previousYolo
 			continue
 		}
 		requestID, err := randomID()
@@ -804,6 +817,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		Launch:    launch,
 		Resume:    launch && cfg.resume,
 		AgentsV2:  cfg.agentsV2,
+		Yolo:      launch && cfg.agentsV2 && enabled && cfg.yoloAllowed,
 		OSVersion: reportedOSVersion(cfg.agentsV2),
 		Tools:     tools,
 		Worktree:  worktree,

@@ -670,7 +670,7 @@ try {
   await page.goto(`${base}/sessions?agent=a2&session=s4`)
   await expect(screen(page).getByRole('heading',{name:'Speed up the runner pool',level:2})).toBeVisible()
   await expect(screen(page).locator('.head .badge.yolo')).toHaveText('YOLO')
-  await expect(panel(page).locator('.decisions')).toContainText('YOLO: reet answers yes, this once, to each request.')
+  await expect(panel(page).locator('.decisions')).toContainText('YOLO: the agent asked not to be prompted; the launch is audited.')
   await expect(panel(page).locator('.decisions').getByRole('link')).toHaveAttribute('href','/activity')
   await expect(screen(page).locator('.approvals')).toHaveText('Approvals: YOLO')
   // A session that is not YOLO says the terminal asks.

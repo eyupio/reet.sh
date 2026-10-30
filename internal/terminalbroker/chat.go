@@ -13,7 +13,7 @@ import (
 
 var (
 	ErrACPUnsupported = errors.New("that machine does not support OpenCode chats")
-	ErrACPVersion     = errors.New("the machine needs OpenCode 1.19.5 for chats")
+	ErrACPVersion     = errors.New("the machine needs OpenCode 1.19.5 or newer for chats")
 	ErrACPBusy        = errors.New("the chat is already working")
 	ErrACPClosed      = errors.New("the chat is not running")
 	// ErrACPResumeNotFound means the requested OpenCode session is not one of
@@ -168,6 +168,13 @@ func (b *Broker) publishChat(uid int64, session string, event terminalproto.ACPE
 	b.mu.Unlock()
 	if l != nil {
 		l.publish(event)
+	}
+	if event.Kind == "permission_resolved" && event.Allow != nil && *event.Allow {
+		if s, err := b.st.TerminalSessionFor(uid, session); err == nil && s.Yolo {
+			_ = b.st.AddEventFor(uid, "machine", "yolo-allow", "", map[string]string{
+				"machine": s.AgentID, "tool": s.Tool, "session": session, "permission": event.PermissionID,
+			})
+		}
 	}
 }
 

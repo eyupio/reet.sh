@@ -3,6 +3,7 @@
 package scan
 
 import (
+	"context"
 	"errors"
 	"os/exec"
 	"path/filepath"
@@ -12,12 +13,12 @@ import (
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 )
 
-func terminalControl(config string, c agentConfig) agenthealth.TerminalFactory {
+func terminalControl(ctx context.Context, config string, c agentConfig) agenthealth.TerminalFactory {
 	layout, err := terminalhost.NewEnrollmentLayout(config, c.ID)
 	if err != nil {
 		return nil
 	}
-	return terminalagent.Factory(terminalhost.ManagerOptions{EnrollmentID: c.ID, Layout: layout, Home: c.Home, Consent: func() error {
+	opts := terminalhost.ManagerOptions{EnrollmentID: c.ID, Layout: layout, Home: c.Home, YoloConsent: func() error { return yoloConsent(config, c) }, Consent: func() error {
 		current, err := loadAgentConfig(config)
 		if err != nil {
 			return err
@@ -26,7 +27,10 @@ func terminalControl(config string, c agentConfig) agenthealth.TerminalFactory {
 			return errors.New("terminal access disabled locally")
 		}
 		return nil
-	}, BrowseConsent: func() error { return browseConsent(config, c) }, ClipboardConsent: func() error { return clipboardConsent(config, c) }, UploadConsent: func() error { return uploadConsent(config, c) }, ModelsConsent: func() error { return modelsConsent(config, c) }})
+	}, BrowseConsent: func() error { return browseConsent(config, c) }, ClipboardConsent: func() error { return clipboardConsent(config, c) }, UploadConsent: func() error { return uploadConsent(config, c) }, ModelsConsent: func() error { return modelsConsent(config, c) }}
+	// Chat sessions are owned by this process, not by one control connection:
+	// a reconnect adopts them instead of ending every running agent.
+	return terminalagent.FactoryWithChats(opts, terminalagent.NewChatSupervisor(ctx, opts))
 }
 
 // launchTools reports the agent CLIs found on this connector's PATH from its
@@ -59,6 +63,25 @@ func clipboardAllowed(config string, c agentConfig) func() bool {
 // locally (reet terminal uploads off).
 func uploadsAllowed(config string, c agentConfig) func() bool {
 	return func() bool { return uploadConsent(config, c) == nil }
+}
+
+// yoloConsent re-reads the enrollment and the machine's YOLO switch.
+func yoloConsent(config string, c agentConfig) error {
+	current, err := currentTerminalConfig(config, c)
+	if err != nil {
+		return err
+	}
+	if current.YoloOff {
+		return errors.New("YOLO disabled locally")
+	}
+	return nil
+}
+
+// yoloAllowed re-reads the enrollment: YOLO is allowed while it is still this
+// enrollment, terminal access is on and YOLO is not off locally
+// (reet terminal yolo off).
+func yoloAllowed(config string, c agentConfig) func() bool {
+	return func() bool { return yoloConsent(config, c) == nil }
 }
 
 // modelsAllowed re-reads the enrollment: model listing is allowed while it is

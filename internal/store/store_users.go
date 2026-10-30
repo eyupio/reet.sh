@@ -867,6 +867,25 @@ func (s *Store) AddEventFor(userID int64, source, action, skillID string, detail
 	return err
 }
 
+// AddEventOnceFor records an event unless the same user, action and detail
+// already exist. The insert and check are one SQL statement, so a retried
+// launch cannot write the audit row twice.
+func (s *Store) AddEventOnceFor(userID int64, source, action, skillID string, detail any) error {
+	detailJSON := ""
+	if detail != nil {
+		b, err := json.Marshal(detail)
+		if err != nil {
+			return err
+		}
+		detailJSON = string(b)
+	}
+	_, err := s.db.Exec(`INSERT INTO events(at,user_id,actor,source,action,skill_id,detail)
+		SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS (
+			SELECT 1 FROM events WHERE user_id=? AND action=? AND detail=?)`,
+		now(), userID, "", source, action, skillID, detailJSON, userID, action, detailJSON)
+	return err
+}
+
 // AddEventIDFor records an event like AddEventFor and returns its id, so the
 // caller can later update the same row with UpdateEventDetailFor.
 func (s *Store) AddEventIDFor(userID int64, source, action, skillID string, detail any) (int64, error) {

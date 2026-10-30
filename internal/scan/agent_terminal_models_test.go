@@ -161,7 +161,7 @@ func TestModelsSwitchReachesTheConnector(t *testing.T) {
 	if err := writePrivate(config, c); err != nil {
 		t.Fatal(err)
 	}
-	factory := terminalControl(config, c)
+	factory := terminalControl(t.Context(), config, c)
 	if factory == nil {
 		t.Fatal("no terminal control")
 	}

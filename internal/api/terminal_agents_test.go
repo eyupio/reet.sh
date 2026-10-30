@@ -14,7 +14,7 @@ import (
 )
 
 func TestCreateNewFieldsRefusedToOldPeer(t *testing.T) {
-	for _, fields := range []map[string]any{{"effort": "high"}, {"base": "main", "worktree": "0123456789abcdef0123456789abcdef", "project": "reet"}, {"yolo": true}} {
+	for _, fields := range []map[string]any{{"effort": "high"}, {"base": "main", "worktree": "0123456789abcdef0123456789abcdef", "project": "reet"}} {
 		f := launchAPIFixture(t, launchCaps("claude"))
 		body := launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "dir": "/home/tester/reet"})
 		for k, v := range fields {
@@ -45,12 +45,16 @@ func TestCreateBaseMissingSentence(t *testing.T) {
 func TestLaunchAuditCarriesEffortBaseYolo(t *testing.T) {
 	caps := launchCaps("cline")
 	caps.AgentsV2 = true
+	caps.Yolo = true
 	f := launchAPIFixture(t, caps)
-	status, out, _ := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "cline", "effort": "high", "prompt": "private prompt text"}))
+	if err := f.st.SetSetting(yoloSettingKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	status, out, _ := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "cline", "effort": "high", "yolo": true, "prompt": "private prompt text"}))
 	if status != 200 {
 		t.Fatalf("%d %v", status, out)
 	}
-	if out["effort"] != "high" || out["yolo"] != false {
+	if out["effort"] != "high" || out["yolo"] != true {
 		t.Fatalf("session launch metadata not retained: %v", out)
 	}
 	if _, exists := out["prompt"]; exists {
@@ -60,18 +64,55 @@ func TestLaunchAuditCarriesEffortBaseYolo(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("%v", events)
 	}
-	// Metadata remains explicit even when the selected base is HEAD and approvals are asking.
 	detail := events[0].Detail
-	if !strings.Contains(detail, `"effort":"high"`) || !strings.Contains(detail, `"base":""`) || !strings.Contains(detail, `"yolo":"false"`) || strings.Contains(detail, "private prompt") {
+	if !strings.Contains(detail, `"effort":"high"`) || !strings.Contains(detail, `"base":""`) || !strings.Contains(detail, `"yolo":"true"`) || strings.Contains(detail, "private prompt") {
 		t.Fatalf("%s", detail)
 	}
+	all, _ := f.st.ListEventsFor(f.uid, 100, "")
+	found := false
+	for _, e := range all {
+		if e.Action == "yolo-launch" {
+			found = true
+			if !strings.Contains(e.Detail, `"machine":"`+f.agent.ID+`"`) || !strings.Contains(e.Detail, `"tool":"cline"`) || !strings.Contains(e.Detail, `"session":"`) {
+				t.Fatalf("%s", e.Detail)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no yolo-launch audit row")
+	}
 }
-func TestCreateYoloRefusedBeforeForwarding(t *testing.T) {
-	caps := launchCaps("claude")
+
+func TestCreateYoloGates(t *testing.T) {
+	// The account setting is off by default: 403 before the machine is asked.
+	caps := launchCaps("cline")
 	caps.AgentsV2 = true
 	f := launchAPIFixture(t, caps)
-	status, out, _ := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "yolo": true}))
+	status, out, _ := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "cline", "yolo": true}))
+	if status != 403 || out["code"] != "yolo_not_allowed" || len(f.sent()) != 0 {
+		t.Fatalf("account gate: %d %v", status, out)
+	}
+	if err := f.st.SetSetting(yoloSettingKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	// An agent with no reviewed option is refused before any reservation.
+	status, out, _ = f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "yolo": true}))
+	if status != 409 || out["code"] != "launch_option_unsupported" || len(f.sent()) != 0 {
+		t.Fatalf("agent option gate: %d %v", status, out)
+	}
+	// A machine that does not advertise yolo is refused before any reservation.
+	status, out, _ = f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "cline", "yolo": true}))
 	if status != 409 || out["code"] != "yolo_refused" || len(f.sent()) != 0 {
+		t.Fatalf("machine gate: %d %v", status, out)
+	}
+}
+
+func TestMachineYoloGate(t *testing.T) {
+	caps := launchCaps("cline")
+	caps.AgentsV2 = true
+	f := launchAPIFixture(t, caps)
+	status, out, _ := f.do(t, f.cookie, "GET", "/api/v2/machines/"+f.agent.ID+"/yolo", nil)
+	if status != 200 || out["accepts"] != false {
 		t.Fatalf("%d %v", status, out)
 	}
 }
@@ -135,6 +176,28 @@ func TestCreateClineEffortAcceptedOnAgentsV2(t *testing.T) {
 	}
 	if sent := f.sent(); len(sent) != 1 || sent[0].Tool != "cline" || sent[0].Effort != "medium" {
 		t.Fatalf("%v", sent)
+	}
+}
+
+// A generic machine refusal marks the session lost but is not a worktree
+// refusal, so it leaves refusal nil. It must not count as a started launch.
+func TestCreateGenericMachineRefusalIsNotAudited(t *testing.T) {
+	caps := launchCaps("cline")
+	caps.AgentsV2 = true
+	caps.Yolo = true
+	f := launchAPIFixture(t, caps)
+	if err := f.st.SetSetting(yoloSettingKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	f.reply = func(terminalproto.Create) terminalproto.Body {
+		return terminalproto.Result{Code: terminalproto.Capacity}
+	}
+	status, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "cline", "yolo": true}))
+	if status != 200 || out["state"] != "lost" {
+		t.Fatalf("create: %d %s", status, raw)
+	}
+	if len(launchEvents(t, f.st, f.uid)) != 0 || len(worktreeEvents(t, f.st, f.uid, "yolo-launch")) != 0 {
+		t.Fatal("a refused launch was audited")
 	}
 }
 

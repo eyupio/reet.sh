@@ -103,8 +103,9 @@ func TestLaunchArgvResumeOnlyForAReviewedPreset(t *testing.T) {
 }
 
 func TestLaunchArgvNeverUsesBypassOrPrintFlags(t *testing.T) {
-	// The only flags a preset may emit. Anything else (approval bypass, print or
-	// one-shot modes such as claude -p or gemini -p) needs a reviewed change here.
+	// The ordinary flags a preset may emit. YOLO arguments are separate and only
+	// sent after the person confirms; print and one-shot modes need a reviewed
+	// change here.
 	allowed := map[string]bool{"--model": true, "--prompt-interactive": true, "--prompt": true, "": true}
 	for tool, p := range launchPresets {
 		if p.modelFlag != "--model" || !allowed[p.promptFlag] || p.binary != tool {

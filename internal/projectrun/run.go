@@ -83,6 +83,7 @@ const (
 	// Refusals of a selection run's launch options, all before anything is
 	// reserved: YOLO, an option the agent's preset lacks, an agent reet does
 	// not start, and an agent the machine does not have.
+	CodeYoloNotAllowed          = "yolo_not_allowed"
 	CodeYoloRefused             = "yolo_refused"
 	CodeLaunchOptionUnsupported = "launch_option_unsupported"
 	CodeToolUnavailable         = "tool_unavailable"
@@ -659,6 +660,8 @@ func (o *Orchestrator) classify(uid int64, m store.RunMember, request string, se
 		return CodeInvalidLaunch, true
 	// A selection run's options and its project, all checked before anything
 	// is reserved.
+	case errors.Is(err, terminalbroker.ErrYoloNotAllowed):
+		return CodeYoloNotAllowed, true
 	case errors.Is(err, terminalbroker.ErrYoloRefused):
 		return CodeYoloRefused, true
 	case errors.Is(err, terminalbroker.ErrLaunchOptionUnsupported):

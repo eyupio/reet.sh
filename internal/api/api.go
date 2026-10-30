@@ -387,6 +387,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/v2/groups/{id}", s.requireWriter(s.updateGroup))
 	mux.HandleFunc("POST /api/v2/groups/{id}/members", s.requireWriter(s.groupMember))
 	mux.HandleFunc("PATCH /api/admin/settings", s.requireOwner(s.adminSettings))
+	mux.HandleFunc("GET /api/v2/settings/yolo", s.requireWriter(s.yoloSettingGet))
+	mux.HandleFunc("PUT /api/v2/settings/yolo", s.requireAdmin(s.yoloSettingPut))
 	mux.HandleFunc("GET /api/export", s.requireWriter(s.export))
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
 	s.registerBackupRoutes(mux)

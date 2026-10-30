@@ -48,10 +48,15 @@ func TestLaunchArgvEffortMapping(t *testing.T) {
 	}
 }
 
-func TestLaunchArgvYoloRefusedBeforeF(t *testing.T) {
+func TestLaunchArgvYoloOption(t *testing.T) {
 	in := terminalproto.Create{Title: "test", Cols: 80, Rows: 24, Tool: "codex", Yolo: true}
 	argv, err := LaunchArgv(in, fakeLookPath("codex"))
-	if argv != nil || !errors.Is(err, ErrYoloRefused) || LaunchResultCode(err) != terminalproto.YoloRefused {
+	want := []string{"/opt/fake/bin/codex", "--dangerously-bypass-approvals-and-sandbox"}
+	if err != nil || !reflect.DeepEqual(argv, want) {
+		t.Fatal(argv, err)
+	}
+	in.Tool = "claude"
+	if argv, err := LaunchArgv(in, fakeLookPath("claude")); argv != nil || !errors.Is(err, ErrLaunchOptionUnsupported) {
 		t.Fatal(argv, err)
 	}
 }
@@ -232,7 +237,7 @@ func approvalBypass(args []string) string {
 	for i, arg := range args {
 		lower := strings.ToLower(arg)
 		switch {
-		case lower == "-y", lower == "--yolo", lower == "--full-auto", lower == "--force", lower == "-f":
+		case lower == "-y", lower == "--yolo", lower == "--auto", lower == "--full-auto", lower == "--force", lower == "-f":
 			return arg
 		case strings.HasPrefix(lower, "--dangerously"), strings.Contains(lower, "bypass"), strings.Contains(lower, "skip-permission"), strings.HasPrefix(lower, "--allow-all"), strings.HasPrefix(lower, "--trust-all"):
 			return arg
@@ -265,15 +270,12 @@ func TestApprovalBypassDenylist(t *testing.T) {
 	}
 }
 
-func TestCatalogueDoesNotEnableApprovalBypass(t *testing.T) {
+func TestCatalogueKeepsApprovalBypassBehindYolo(t *testing.T) {
 	for _, p := range Catalogue {
-		if len(p.YoloArgs) != 0 {
-			t.Fatal("YOLO must remain deferred", p.ID)
-		}
 		if p.DisabledReason != "" {
 			continue
 		}
-		groups := map[string][]string{"SafeArgs": p.SafeArgs, "YoloArgs": p.YoloArgs}
+		groups := map[string][]string{"SafeArgs": p.SafeArgs}
 		for level, args := range p.EffortArgs {
 			groups["EffortArgs["+level+"]"] = args
 		}
@@ -281,6 +283,9 @@ func TestCatalogueDoesNotEnableApprovalBypass(t *testing.T) {
 			if hit := approvalBypass(args); hit != "" {
 				t.Fatalf("%s %s enables approval bypass: %s", p.ID, name, hit)
 			}
+		}
+		if len(p.YoloArgs) > 0 && approvalBypass(p.YoloArgs) == "" {
+			t.Fatalf("%s YoloArgs do not bypass approvals", p.ID)
 		}
 	}
 }
@@ -359,6 +364,40 @@ func TestClinePromptCannotChangeApprovalMode(t *testing.T) {
 	}
 }
 
+func TestClineYoloReplacesAutoApproveFalse(t *testing.T) {
+	in := terminalproto.Create{Title: "test", Cols: 80, Rows: 24, Tool: "cline", Yolo: true, Prompt: "fix the tests"}
+	got, err := LaunchArgv(in, fakeLookPath("cline"))
+	want := []string{"/opt/fake/bin/cline", "--yolo", "--tui", "--", "fix the tests"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatal(got, err)
+	}
+	if slicesContains(got, "--auto-approve") {
+		t.Fatal("safe flag kept beside YOLO", got)
+	}
+}
+
+func TestYoloNeverWithoutFlag(t *testing.T) {
+	for _, tc := range []struct {
+		tool string
+		args []string
+	}{
+		{"codex", []string{"--dangerously-bypass-approvals-and-sandbox"}},
+		{"opencode", []string{"--auto"}},
+		{"cline", []string{"--yolo"}},
+	} {
+		in := terminalproto.Create{Title: "test", Cols: 80, Rows: 24, Tool: tc.tool}
+		got, err := LaunchArgv(in, fakeLookPath(tc.tool))
+		if err != nil {
+			t.Fatal(tc.tool, err)
+		}
+		for _, arg := range tc.args {
+			if slicesContains(got, arg) {
+				t.Fatalf("%s emitted %s without YOLO: %v", tc.tool, arg, got)
+			}
+		}
+	}
+}
+
 // TestControllerOptionTableMatchesCatalogue keeps the controller's pre-reservation
 // checks in step with the presets this connector actually starts.
 func TestControllerOptionTableMatchesCatalogue(t *testing.T) {
@@ -371,7 +410,7 @@ func TestControllerOptionTableMatchesCatalogue(t *testing.T) {
 			continue
 		}
 		effort := len(p.EffortArgs["low"]) > 0 && len(p.EffortArgs["medium"]) > 0 && len(p.EffortArgs["high"]) > 0
-		if terminalproto.ToolTakesEffort(p.ID) != effort || terminalproto.ToolTakesModel(p.ID) != (p.ModelFlag != "") {
+		if terminalproto.ToolTakesEffort(p.ID) != effort || terminalproto.ToolTakesModel(p.ID) != (p.ModelFlag != "") || terminalproto.ToolTakesYolo(p.ID) != (len(p.YoloArgs) > 0) {
 			t.Fatal(p.ID, "controller option table differs from the catalogue")
 		}
 	}

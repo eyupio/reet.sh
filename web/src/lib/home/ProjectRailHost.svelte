@@ -62,8 +62,9 @@
   // One change at a time: a project with a dismiss or remove on its way, and a move on its way, ignore a second press, so
   // the second never meets the first one's new version as "someone changed this project".
   const pending = new SvelteSet<string>()
-  // The Add project dialog: a new project, or the one being changed (read with its starter prompt).
-  let adding = $state<{ opener: HTMLElement | null; project?: FolderProject } | null>(null)
+  // The Add project dialog: a new project, or the one being changed (read with its starter prompt). `host` is the machine a
+  // machine card's New project named, so the dialog opens with it already chosen.
+  let adding = $state<{ opener: HTMLElement | null; project?: FolderProject; host?: string } | null>(null)
   let removing = $state<{ opener: HTMLElement | null; project: FolderProject } | null>(null)
   let listing = $state<{ opener: HTMLElement | null; project: FolderProject } | null>(null)
 
@@ -78,11 +79,12 @@
       return false
     } finally { checking = false }
   }
-  /** Add a project, from the rail or from elsewhere on the page (the launch bar's project slot). */
-  export async function openAdd(opener: HTMLElement) {
+  /** Add a project, from the rail, from elsewhere on the page (the launch bar's project slot), or a machine card's New
+   *  project, which names the machine to open it on. */
+  export async function openAdd(opener: HTMLElement, host?: string) {
     if (checking) return
     onnotice(null)
-    if (await machinesForDialog()) adding = { opener }
+    if (await machinesForDialog()) adding = { opener, host }
   }
   // Edit reads the project again with its starter prompt (only the single read carries it), then opens the dialog.
   async function openEdit(project: FolderProject, opener: HTMLElement) {
@@ -199,7 +201,7 @@
 
 {#if adding && terminals}
   {@const wasEdit = !!adding.project}
-  <AddProjectDialog machines={terminals} project={adding.project} opener={adding.opener} onadded={(p) => added(p, wasEdit)} onsignedout={signOut} onclose={() => (adding = null)} />
+  <AddProjectDialog machines={terminals} project={adding.project} initialHost={adding.host} opener={adding.opener} onadded={(p) => added(p, wasEdit)} onsignedout={signOut} onclose={() => (adding = null)} />
 {/if}
 {#if removing}
   {@const p = removing.project}

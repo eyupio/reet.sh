@@ -81,6 +81,7 @@
   let projects = $state<FolderProject[] | undefined>()
   let selectedAgent = $state(new URLSearchParams(location.search).get('agent') || '')
   let selectedSession = $state(new URLSearchParams(location.search).get('session') || '')
+  let sideSession = $state<TerminalSession | null>(null)
   let health = $state<HealthResponse>({ serverNow:Date.now(),machines:[] })
   let receivedAt = performance.now(), elapsed = $state(0)
   let loading = $state(true), busy = $state(false), error = $state(''), title = $state('Shell')
@@ -286,6 +287,31 @@
       error=e instanceof TerminalError?(e.message||'That terminal could not be opened.'):'That terminal could not be opened.'
     }finally{actionBusy=false}
   }
+  async function openSideTerminal(target=session){
+    if(!target||actionBusy||phone)return
+    actionBusy=true;error=''
+    try{
+      const requestId=crypto.randomUUID()
+      const folder=target.dir||''
+      const name=folder.split('/').filter(Boolean).pop()||target.title
+      const created=await createTerminal(target.agentId,requestId,`Terminal · ${name}`,100,30,AbortSignal.timeout(15000),folder?{dir:folder}:undefined)
+      if(disposed)return
+      inventoryVersion++
+      if(!terminalClosed(created.state))sessions=[created,...sessions.filter(item=>item.id!==created.id)]
+      sideSession=created
+      await refresh()
+    }catch(e){
+      if(disposed)return
+      error=e instanceof TerminalError?(e.message||'That terminal could not be opened.'):'That terminal could not be opened.'
+    }finally{actionBusy=false}
+  }
+  async function closeSideTerminal(){
+    const target=sideSession
+    sideSession=null
+    if(!target||target.state!=='running')return
+    try{await endTerminal(target.id,crypto.randomUUID(),true);await refresh()}
+    catch{/* the shell stays listed; the panel is only a view */}
+  }
   async function continueSession(target=session){
     if(!target||actionBusy)return
     const existing=continuations[target.id]
@@ -417,7 +443,19 @@
           oncontinue={session.structured
             ? (canContinueChat(session, machines.find(item => item.agentId === session.agentId)) ? () => void continueSession(session) : undefined)
             : (canContinue(session, machines.find(item => item.agentId === session.agentId), projects ?? []) ? () => void continueSession(session) : undefined)}
-          onterminal={() => void openPlainTerminal(session)}>
+          onterminal={() => void openPlainTerminal(session)}
+          onside={!phone ? () => void openSideTerminal(session) : undefined}
+          showSide={!!sideSession}
+          >
+          {#snippet side()}
+            {#if sideSession}
+              {@const pane = sideSession}
+              <div class="side-terminal">
+                <div class="side-terminal-head"><strong>{pane.title}</strong><button type="button" onclick={() => void closeSideTerminal()}>Close</button></div>
+                <TerminalPane {keyboard} session={pane} historySupported={false} uploadsSupported={false} uploadsOff host={machines.find(item => item.agentId === pane.agentId)?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} actionDisabled={actionBusy} />
+              </div>
+            {/if}
+          {/snippet}
           {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
           {#if session.structured}
             {#key session.id}<ChatPane {session} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} />{/key}
@@ -459,6 +497,9 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   /* Keyboard focus layout (phones only, see keyboardLikelyOpen): the terminal toolbar keeps Show sessions. */
   .workspace.keyboard>.workspace-toolbar{display:none}
   /* A phone's session screen has its own back arrow in the slim header (held sideways the header gives its rows to the terminal, so the toolbar keeps its arrow). */
+  .side-terminal-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); background: var(--bg-sunk); }
+  .side-terminal-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
+  .side-terminal-head button { min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font-size: .78rem; }
   @media (max-width:650px){.workspace:has(:global(.session-screen)) .workspace-title>a{display:none}}
   .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:14px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:.75rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:.65rem;border-radius:20px;background:var(--tint);padding:1px 5px}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:.85rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:.75rem}.create-form input{width:100%;min-width:0}.create-form .new-agent{grid-column:1/-1;justify-self:start}.create-form p{grid-column:1/-1;font-size:.72rem;color:var(--muted);line-height:1.5;margin:0 0 16px}.workspace-notice{margin:0;padding:7px 12px;background:var(--tint);font-size:.74rem;flex-shrink:0;display:flex;align-items:center;gap:10px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:.8rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:14px;border-radius:8px}.setup-notice pre{font-size:.75rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:.85rem;margin:0 0 10px}.shortcut-help p+p{margin-top:8px}
   .creation-error{color:var(--bad)!important}.find-machine{font-size:.72rem;padding:6px 8px;min-height:34px}.machine-search{display:grid;gap:8px;font-size:.8rem}.machine-results{display:grid;gap:8px;max-height:50dvh;overflow:auto}.machine-result{display:grid;gap:5px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}.machine-result[aria-current=true]{border-color:var(--accent)}.machine-result span{font-size:.74rem;color:var(--muted)}

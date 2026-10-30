@@ -1501,8 +1501,9 @@ the session menu's **Continue in reet TUI with history…** item for a closed se
 - `launch.e2e.mjs` passed the Home case: an OpenCode project on an `acp` machine said "Run OpenCode in reet TUI", hid the
   model/worktree slots, switched to "in OpenCode TUI" and back through the TUI slot, and sent `structured: true`,
   `trust: true`, the folder and prompt with no model, worktree or effort.
-- `sessions.e2e.mjs` covers **Open a terminal here…** in the session actions menu; the plain shell path is gated by
-  `shell-dir-v1`.
+- `sessions.e2e.mjs` covers **Open a terminal here…** and **Open a terminal beside this session…** in the session actions
+  menu; the plain shell path is gated by `shell-dir-v1`. The side panel is the existing terminal pane in the right column
+  with its header and footer hidden, so the primary stays visible.
 - `chat.e2e.mjs` passed at 1360 × 900 and 390 × 844: **reet TUI** was the Session default; an attached PNG was uploaded to the machine and the prompt carried
   `Image: /…/launch-uploads/shot.png`; a closed structured session exposed Continue in reet TUI with history…, and the create body
   carried `structured: true`, `trust: true`, `resumeAcp` and the old folder with no prompt model.

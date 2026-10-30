@@ -175,7 +175,8 @@ After the reet TUI slices:
   worktree, and uses OpenCode's configured model. Home requires **I trust this folder** before Start, because `.opencode`
   plugins run when the reet TUI starts. A multi-project selection must switch to the agent TUI; it starts in one folder.
   A session's actions menu offers **Open a terminal here…**, a plain shell in the same folder as a separate session; it
-  needs `shell-dir-v1` on the machine. The right-hand side-by-side terminal panel is not built yet.
+  needs `shell-dir-v1` on the machine. **Open a terminal beside this session…** shows that plain shell in the right-hand
+  panel, replacing the context panel while it is open; Close ends it. The agent TUI/reet TUI stays in the main column.
 - **reet TUI history is in memory, but OpenCode keeps it.** The controller keeps at most 1,000 events / 256 KiB per reet session and
   writes no transcript. A closed reet session can be reopened with Continue in reet TUI with history… as a new row that runs
   `session/load`; the old row stays. A server restart clears the live ring; archiving drops it. A lost machine connection

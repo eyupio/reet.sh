@@ -18,7 +18,7 @@
  const ended = $derived(terminalClosed(session.state) || chat.status.state === 'ended')
  const working = $derived(isWorking(chat))
  const pending = $derived(pendingPermissions(chat))
- const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This chat has ended.' : pending.length ? 'Waiting for your approval.' : working ? 'OpenCode is working…' : chat.status.state === 'error' ? 'OpenCode stopped with an error.' : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
+ const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This reet session has ended.' : pending.length ? 'Waiting for your approval.' : working ? 'OpenCode is working…' : chat.status.state === 'error' ? 'OpenCode stopped with an error.' : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
  const statusDetail = $derived(pending.length ? '' : chat.status.detail)
  const canAttach = $derived(uploadsSupported && !uploadsOff && !ended)
 
@@ -101,7 +101,7 @@
  async function stop() {
   feedback = ''
   try { await chatCancel(session.id) }
-  catch (e) { feedback = e instanceof Error ? e.message : 'That chat could not be stopped.' }
+  catch (e) { feedback = e instanceof Error ? e.message : 'That reet session could not be stopped.' }
  }
  async function answer(permissionId: string, allow: boolean) {
   if (answering) return
@@ -125,13 +125,13 @@
  })
 </script>
 
-<section class="chat-pane" aria-label={`Chat with OpenCode in ${session.title}`} ondragover={(event) => { if (canAttach) event.preventDefault() }} ondrop={dropped}>
+<section class="chat-pane" aria-label={`reet TUI in ${session.title}`} ondragover={(event) => { if (canAttach) event.preventDefault() }} ondrop={dropped}>
  <div class="chat-status" role="status" aria-live="polite">
   <span class="dot" class:busy={working} class:wait={pending.length > 0} class:down={chat.connection === 'reconnecting'} aria-hidden="true"></span>
   <strong>{statusWord}</strong>
   {#if statusDetail}<span class="detail">{statusDetail}</span>{/if}
  </div>
- {#if chat.truncated}<p class="notice bad">Earlier messages in this chat are no longer available.</p>{/if}
+ {#if chat.truncated}<p class="notice bad">Earlier messages in this reet session are no longer available.</p>{/if}
  {#if feedback}<p class="notice bad" role="alert">{feedback}</p>{/if}
  <div class="log" role="log" bind:this={log} onscroll={onScroll}>
   {#if chat.items.length === 0}
@@ -170,7 +170,7 @@
   {/each}
  </div>
  {#if ended}
-  <p class="composer-note">This chat has ended. Its history is not kept after the machine connection closes.</p>
+  <p class="composer-note">This reet session has ended. Its live history is not kept after the machine connection closes.</p>
  {:else}
   <div class="composer">
    {#if images.length}

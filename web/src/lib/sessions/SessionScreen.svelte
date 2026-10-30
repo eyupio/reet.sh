@@ -6,11 +6,12 @@
   import { fleetCards, stateWord, type FleetCard } from '../home'
   import type { RunMember } from '../projects'
   import { headerMeta, offlineSentence, tabFromMenu, worktreeTargetOf } from '../sessions'
+  import { toolName } from '../agentLaunch'
   import { terminalClosed, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
 
   // The session screen: the strip of open sessions, the session's header (title, agent · model · started, the state in words
-  // with its source, YOLO, Chat | Terminal and the actions menu), the live terminal the workspace hosts here (children),
+  // with its source, YOLO, reet TUI | the agent TUI and the actions menu), the live terminal the workspace hosts here (children),
   // Approvals under it, and the context panel beside it (behind Details under 1100 px and in theatre view). A terminal
   // session shows no steps and no progress bar (R10): only its state word and where that word came from.
   let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false,
@@ -26,8 +27,9 @@
 
   const id = $props.id()
   const chatView = $derived(!!session.structured)
-  const CHAT_WHY = 'Chat is for a structured OpenCode session.'
-  const TERMINAL_WHY = 'A chat session has no terminal.'
+  const CHAT_WHY = 'The reet TUI is for a structured OpenCode session.'
+  const terminalLabel = $derived(session.tool ? `${toolName(session.tool)} TUI` : 'Terminal')
+  const TERMINAL_WHY = $derived(`${terminalLabel} is not available in this reet session.`)
 
   // The skills line comes from the sync state, read once when the screen opens (undefined while reading, null if it failed).
   let sync = $state<SyncState | null | undefined>(undefined)
@@ -157,8 +159,8 @@
       <span class="pill {word.tone}" title={source}><span class="dot" aria-hidden="true"></span>{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
       {#if session.yolo}<span class="badge yolo">YOLO</span>{/if}
       <div class="view" role="group" aria-label="View">
-        <button type="button" class="chat" aria-pressed={chatView} aria-disabled={!chatView} aria-describedby={chatView ? undefined : `${id}-chat-why`} title={chatView ? undefined : CHAT_WHY}>Chat</button>
-        <button type="button" aria-pressed={!chatView} aria-disabled={chatView} aria-describedby={chatView ? `${id}-terminal-why` : undefined} title={chatView ? TERMINAL_WHY : undefined}>Terminal</button>
+        <button type="button" class="chat" aria-pressed={chatView} aria-disabled={!chatView} aria-describedby={chatView ? undefined : `${id}-chat-why`} title={chatView ? undefined : CHAT_WHY}>reet TUI</button>
+        <button type="button" aria-pressed={!chatView} aria-disabled={chatView} aria-describedby={chatView ? `${id}-terminal-why` : undefined} title={chatView ? TERMINAL_WHY : undefined}>{terminalLabel}</button>
       </div>
       <span class="vh" id={`${id}-chat-why`}>{CHAT_WHY}</span>
       {#if chatView}<span class="vh" id={`${id}-terminal-why`}>{TERMINAL_WHY}</span>{/if}
@@ -180,7 +182,7 @@
 {#if menuAt}
   <!-- data-keeps-focus: a reconnecting terminal never takes focus out of the open menu. -->
   <div class="menu" role="menu" aria-label={`Actions for ${session.title}`} tabindex="-1" data-keeps-focus bind:this={menu} style={`left:${menuAt.x}px;top:${menuAt.y}px`} onkeydown={menuKey}>
-    {#if oncontinue}<button role="menuitem" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue chat with history…' : 'Continue session…'}</button>{/if}
+    {#if oncontinue}<button role="menuitem" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue in reet TUI with history…' : 'Continue session…'}</button>{/if}
     <button role="menuitem" disabled={busy || serverOff} onclick={() => act('rename')}>Rename…</button>
     <button role="menuitem" onclick={theatreView}>{theatre ? 'Exit theatre view' : 'Theatre view'}</button>
     {#if session.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}
@@ -255,7 +257,7 @@
   .theatre.details-open .body > :global(.context-panel) { display: flex; grid-column: 1; grid-row: 3; justify-self: end; position: relative; z-index: 20; width: min(340px, 100%); box-shadow: var(--shadow); }
   .theatre.details-open .body > :global(.context-panel .close-details) { display: inline-flex; align-items: center; }
   /* Phones: one slim header (title, project · machine, the state), as the mock-up's phone session draws it; the tabs,
-     the Chat | Terminal switch and the Approvals line give their rows to the terminal. H3 lays out the rest. */
+     the reet TUI | agent TUI switch and the Approvals line give their rows to the terminal. H3 lays out the rest. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .view, .sub { display: none; }
     .where-phone { display: block; font-size: 12px; }

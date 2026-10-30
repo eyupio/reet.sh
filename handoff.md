@@ -30,12 +30,12 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 
 ### Resume here (Home OpenCode chat, 29 October 2026)
 
-**#258 (chat history, continue, images) merged as `2ee12f6`; #256 (structured chats) as `7555da2`;
+**#258 (reet TUI history, continue, images) merged as `2ee12f6`; #256 (structured chats) as `7555da2`;
 #255 (models UI) as `32866ad`; #252 as `3be0eaf`; #247 as `16da0bb`; #245 as `1371cb5`;
 #242 as `961d530`; #231 as `7886511`.**
 
-- **Branch and PR:** `ccr-home-chat` holds the Home launch bar change: OpenCode on an `acp` machine starts as a native
-  chat by default, with a **Session** word to switch to the terminal. The PR is this one; it is **open** until its
+- **Branch and PR:** `ccr-home-chat` holds the Home launch bar change: OpenCode on an `acp` machine starts in the reet TUI by
+  default, with a **TUI** word to switch to the agent TUI. The PR is this one; it is **open** until its
   checks are green and it is merged.
 - **Next stage after this PR:** no further Program 2 slice is queued. Other agents need their own probes; the
   deferred F (YOLO) and G (Needs you) work remains. Model work is done.
@@ -76,8 +76,8 @@ left out of the first pass, and the Program 2 spike ran in parallel.
 | Models UI (M5–M7) | `models.ts`, model/favourite clients, picker star/status/Refresh/Use, launch bar defaults-first, Home account defaults, automatic machine read | **[#252](https://github.com/eyupio/reet.sh/pull/252), open**. Plan `d802ff0`, M5 `a7e0d7d`, picker `9202695`, bar `ca0f972`, review fixes `67feb99`, evidence `24df6cc` |
 | Models UI (M8–M11) | Start an agent picker with project/account defaults and Cline thinking; Add project/Project settings defaults; Settings › Agents; Machines “Agents” cache state and guarded Refresh; Activity/hover-card model lines; docs and phone evidence | merged, [#255](https://github.com/eyupio/reet.sh/pull/255) as `32866ad` (owner's instruction; Codex reviewed an earlier head, the runner timed out on the final head and a rerun passed). Plan `docs/superpowers/plans/2026-10-29-agent-models-ui-2.md` |
 | Program 2, slice 1 | Structured OpenCode chats: `acp-v1`, machine-side ACP supervisor with the seven probe conditions, controller relay and SSE, Chat tab, Allow once / Deny, docs | merged, [#256](https://github.com/eyupio/reet.sh/pull/256) as `7555da2` (owner's instruction; Codex findings fixed, all checks green) |
-| Program 2, slice 2 | Reopen a closed chat with `session/load` history, continue it, and attach images as machine paths | merged, [#258](https://github.com/eyupio/reet.sh/pull/258) as `2ee12f6` (Codex mixed-version finding fixed with `acp-history-v1`; all checks green) |
-| Home OpenCode chat | OpenCode on an `acp` machine starts as a native chat from Home's launch bar; the Session word switches to the terminal UI | **this PR, open** on `ccr-home-chat`; plan `docs/superpowers/plans/2026-10-29-home-opencode-chat.md` |
+| Program 2, slice 2 | Reopen a closed reet session with `session/load` history, continue it, and attach images as machine paths | merged, [#258](https://github.com/eyupio/reet.sh/pull/258) as `2ee12f6` (Codex mixed-version finding fixed with `acp-history-v1`; all checks green) |
+| Home OpenCode reet TUI | OpenCode on an `acp` machine starts in the reet TUI from Home's launch bar; the TUI word switches to the agent TUI | **this PR, open** on `ccr-home-chat`; plan `docs/superpowers/plans/2026-10-29-home-opencode-chat.md` |
 
 Merged into main by the owner while this work was open: #222, #223 (`4791d89`), #224, #225, #228, #229, #230, #232, #233,
 #234, #235 and #236 (each merged into the open branch before its next push; #235 and #236 in `57d8f53`), then #237–#244
@@ -170,11 +170,12 @@ After the models picker/launch bar:
 
 After the structured chat slice:
 
-- **Home starts OpenCode as a chat by default.** The launch sentence shows **as a chat** for OpenCode on an `acp`
-  machine; the **Session** word switches to **as a terminal**. A chat runs in the project folder, not a worktree, and
-  uses OpenCode's configured model. A multi-project selection must switch to a terminal; a chat starts in one folder.
-- **Chat history is in memory, but OpenCode keeps it.** The controller keeps at most 1,000 events / 256 KiB per chat and
-  writes no transcript. A closed chat can be reopened with Continue chat with history… as a new row that runs
+- **Home starts OpenCode in the reet TUI by default.** The launch sentence shows **in reet TUI** for OpenCode on an
+  `acp` machine; the **TUI** word switches to **in OpenCode TUI**. The reet TUI runs in the project folder, not a
+  worktree, and uses OpenCode's configured model. A multi-project selection must switch to the agent TUI; it starts in one
+  folder.
+- **reet TUI history is in memory, but OpenCode keeps it.** The controller keeps at most 1,000 events / 256 KiB per chat and
+  writes no transcript. A closed chat can be reopened with Continue in reet TUI with history… as a new row that runs
   `session/load`; the old row stays. A server restart clears the live ring; archiving drops it. A lost machine connection
   kills every chat process group; a reconnect marks the live session lost, and its stored id can still be reopened if
   OpenCode's own store survives. Pending approvals are not restored; replayed tools are shown interrupted.
@@ -310,7 +311,7 @@ once / Deny only, and only with all seven conditions:
 - **Mixed versions:** `acpSessionId`, `resumeAcp` and the `acpHistory` capability are sent only after
   `acp-history-v1`. A slice-1 controller negotiated `acp-v1` but its strict decoder rejects those fields; never send them
   without the separate feature. `Continue chat` is offered only when the machine reports `acpHistory`.
-- **Chat history:** a closed chat is reopened as a **new** row with `resumeAcp`; the machine runs `session/load` and
+- **reet TUI history:** a closed chat is reopened as a **new** row with `resumeAcp`; the machine runs `session/load` and
   replays before its result. Store the `acpSessionId`, never a transcript. `CanResumeACPSessionFor` restricts the id to
   this account's closed structured sessions on that machine. Replayed pending tools are marked interrupted; pending
   approvals are not restored. The old row stays in history.

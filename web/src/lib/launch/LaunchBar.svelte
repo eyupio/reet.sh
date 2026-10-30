@@ -52,7 +52,7 @@
 
   const id = $props.id()
   const ADD = '\u0000add', HOME = '\u0000home:'
-  const LABELS: Record<string, string> = { agent: 'Agent', chat: 'Session', model: 'Model', project: 'Project', machine: 'Machine', branch: 'Branch', worktree: 'Worktree', effort: 'Thinking' }
+  const LABELS: Record<string, string> = { agent: 'Agent', chat: 'TUI', model: 'Model', project: 'Project', machine: 'Machine', branch: 'Branch', worktree: 'Worktree', effort: 'Thinking' }
   const LOST_TAIL = 'Check your sessions before starting another. If you discard it and start again, a second agent may start.'
   const LOST = `We didn't hear back, so the agent may have started. ${LOST_TAIL}`
   const LOST_RUN = "We didn't hear back, so the agents may have started. Check your sessions before starting again. If you discard it and start again, more agents may start."
@@ -425,7 +425,7 @@
       const offers = target ? agentChoices(target) : CATALOGUE.map(agent => ({ agent, available: agent.enabled, reason: agent.enabled ? undefined : agent.disabledReason }))
       return offers.map(o => ({ value: o.agent.id, label: o.agent.name, disabled: !o.available, reason: o.available ? undefined : o.reason }))
     }
-    if (slot === 'chat') return [{ value: 'chat', label: 'a chat' }, { value: 'terminal', label: 'a terminal' }]
+    if (slot === 'chat') return [{ value: 'chat', label: 'reet TUI' }, { value: 'terminal', label: `${toolName(choice.agent)} TUI` }]
     if (slot === 'model') return modelOptionsFor()
     if (slot === 'project') {
       const out: SlotOption[] = (projects ?? []).map(p => {

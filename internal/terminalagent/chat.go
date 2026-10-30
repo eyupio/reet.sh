@@ -343,6 +343,11 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 	succeeded = true
 	h.sup.wg.Add(1)
 	h.sup.mu.Unlock()
+	// The create reply belongs to the connection that asked, which may already
+	// have been replaced while startup ran. Publish the running state to
+	// whichever link is attached now so a reconcile done during startup does
+	// not leave the controller stuck in Creating.
+	h.sup.announceRunning(cs)
 	go func() {
 		defer h.sup.wg.Done()
 		<-process.Done()
@@ -481,6 +486,21 @@ func (h *chatHost) end(sessionID string) (terminalproto.SessionChanged, error) {
 }
 
 func (h *chatHost) ended(cs *chatSession, code int) { h.sup.ended(cs, code) }
+
+// announceRunning tells the currently attached connection that startup
+// finished. It deliberately ignores link.live: a link being flushed is still
+// writable, and this state must not wait behind the chat-event queue.
+func (s *chatSupervisor) announceRunning(cs *chatSession) {
+	s.mu.Lock()
+	link := s.link
+	acpID := cs.acpID
+	s.mu.Unlock()
+	if link == nil {
+		return
+	}
+	_ = link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
+		Generation: link.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(acpID, link.history)}})
+}
 
 func (s *chatSupervisor) ended(cs *chatSession, code int) {
 	cs.ended.Do(func() {

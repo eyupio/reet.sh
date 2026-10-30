@@ -484,3 +484,61 @@ func TestFactoryReattachesProcessScopedChat(t *testing.T) {
 		t.Fatalf("detached event not flushed: %+v", second.msgs)
 	}
 }
+
+func TestChatStartupCompletesOnTheReplacementLink(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	sup := newChatSupervisor(ctx, terminalhost.ManagerOptions{Home: t.TempDir()})
+	proc := &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}
+	gate := make(chan struct{})
+	sup.lookPath = func(string) (string, error) { return "/bin/true", nil }
+	sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
+		<-gate
+		proc.onEvent = opts.OnEvent
+		return proc, nil
+	}
+
+	firstOut := &sent{}
+	first := sup.attach(ctx, 1, firstOut.send, true)
+	defer first.close()
+	opened := make(chan error, 1)
+	go func() {
+		_, err := first.open("request-0123456789", "session-0123456789", terminalproto.Create{
+			Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: sup.opts.Home,
+		})
+		opened <- err
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		if snapshot, ok := first.snapshot("session-0123456789"); ok && snapshot.State == terminalproto.Creating {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the chat never reached Creating")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// The connection that asked goes away while ACP startup is still running.
+	first.close()
+	secondOut := &sent{}
+	second := sup.attach(ctx, 2, secondOut.send, true)
+	defer second.close()
+	close(gate)
+	if err := <-opened; err != nil {
+		t.Fatal(err)
+	}
+	secondOut.waitFor(t, func(m terminalproto.Message) bool {
+		switch changed := m.Body.(type) {
+		case terminalproto.SessionChanged:
+			return changed.State == terminalproto.Running && changed.ACPSessionID != ""
+		case *terminalproto.SessionChanged:
+			return changed.State == terminalproto.Running && changed.ACPSessionID != ""
+		}
+		return false
+	})
+	if snapshot, ok := second.snapshot("session-0123456789"); !ok || snapshot.State != terminalproto.Running {
+		t.Fatalf("snapshot: %+v %v", snapshot, ok)
+	}
+	sup.Close()
+}

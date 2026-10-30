@@ -475,6 +475,9 @@ func TestFactoryReattachesProcessScopedChat(t *testing.T) {
 	for _, session := range snapshot.Sessions {
 		if session.ID == create.SessionID && session.State == terminalproto.Running && session.ACPSessionID != "" {
 			found = true
+			if session.ActivityAt != 0 || session.BellAt != 0 {
+				t.Fatalf("attention fields sent without attention-v1: %+v", session)
+			}
 		}
 	}
 	if !found {

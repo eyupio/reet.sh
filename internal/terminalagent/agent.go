@@ -507,7 +507,12 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						}.ForFeatures(headers.Get(terminalproto.FeatureHeader)))
 					}
 				}
-				reply.Body = reconcileSnapshot(snapshot.Sessions, chats.snapshots())
+				chatSnapshots := chats.snapshots()
+				features := headers.Get(terminalproto.FeatureHeader)
+				for i := range chatSnapshots {
+					chatSnapshots[i] = chatSnapshots[i].ForFeatures(features)
+				}
+				reply.Body = reconcileSnapshot(snapshot.Sessions, chatSnapshots)
 				return respond(nil)
 			}
 			if managerErr != nil {

@@ -425,31 +425,31 @@ func waitAgent(config string, running bool) error {
 	}
 	return errors.New("agent did not reach the requested state; inspect its local logs")
 }
-func printAgentStatus(config string, out io.Writer) error {
+
+// ReadAgentStatus reports the local daemon without printing it, so the
+// terminal UI and reet agent status describe the same state.
+func ReadAgentStatus(config string) (AgentStatus, error) {
+	s := AgentStatus{ConfigPath: config}
 	running, err := agentRunning(config)
 	if err != nil {
-		return err
+		return s, err
 	}
+	s.Running = running
 	if !running {
-		fmt.Fprintln(out, "Agent: stopped\nPrivate connection: disconnected")
-		return nil
+		return s, nil
 	}
 	var status agentLocalStatus
 	if err = localAgentCall(config, "GET", "/status", &status); err != nil {
-		fmt.Fprintln(out, "Agent: running (local control unavailable; older process)")
-		return nil
+		return s, nil
 	}
-	connection := "reconnecting"
-	if status.Connected {
-		connection = "connected"
-	}
-	mode := "background/foreground process"
-	if status.Supervised {
-		mode = "native service"
-	}
-	fmt.Fprintf(out, "Agent: running (PID %d, %s)\nPrivate connection: %s\nStarted: %s\nVersion: %s\n", status.PID, mode, connection, time.UnixMilli(status.StartedAt).Format(time.RFC3339), status.Version)
+	s.LocalControl = true
+	s.PID = status.PID
+	s.Supervised = status.Supervised
+	s.Connected = status.Connected
+	s.StartedAt = time.UnixMilli(status.StartedAt)
+	s.Version = status.Version
 	if status.LastCycle > 0 {
-		fmt.Fprintf(out, "Last successful inventory/job cycle: %s\n", time.UnixMilli(status.LastCycle).Format(time.RFC3339))
+		s.LastCycle = time.UnixMilli(status.LastCycle)
 	}
-	return nil
+	return s, nil
 }

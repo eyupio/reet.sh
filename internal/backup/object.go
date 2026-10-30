@@ -75,6 +75,9 @@ func (m ObjectManifest) Extension() string {
 // digest from the bytes it is given.
 func EncodeObject(m ObjectManifest, payload []byte) ([]byte, error) {
 	m.PayloadSize = int64(len(payload))
+	// This is an integrity digest over encrypted payload bytes, not a
+	// password hash.
+	// codeql[go/weak-sensitive-data-hashing]
 	sum := sha256.Sum256(payload)
 	m.PayloadSHA256 = hex.EncodeToString(sum[:])
 	return encodeObjectWithHeader(m, payload, nil)
@@ -84,6 +87,8 @@ func EncodeObject(m ObjectManifest, payload []byte) ([]byte, error) {
 // sealed again under a destination passphrase.
 func EncodeObjectWithOuter(m ObjectManifest, payload, outer []byte) ([]byte, error) {
 	m.PayloadSize = int64(len(payload))
+	// The digest is over payload bytes for integrity, not a password hash.
+	// codeql[go/weak-sensitive-data-hashing]
 	sum := sha256.Sum256(payload)
 	m.PayloadSHA256 = hex.EncodeToString(sum[:])
 	m.PassphraseSealed = true
@@ -102,7 +107,7 @@ func encodeObjectWithHeader(m ObjectManifest, body []byte, _ []byte) ([]byte, er
 		return nil, fmt.Errorf("the manifest is %d bytes, larger than this build writes (%d)", len(head), MaxManifestBytes)
 	}
 	digest := sha256.Sum256(head)
-	out := make([]byte, 0, headerFixed+len(head)+len(body))
+	out := make([]byte, 0, headerFixed+len(head))
 	out = append(out, ObjectMagic...)
 	out = binary.BigEndian.AppendUint32(out, uint32(len(head)))
 	out = append(out, digest[:]...)

@@ -75,7 +75,7 @@ func (m ObjectManifest) Extension() string {
 // digest from the bytes it is given.
 func EncodeObject(m ObjectManifest, payload []byte) ([]byte, error) {
 	m.PayloadSize = int64(len(payload))
-	sum := sha256.Sum256(payload) // lgtm[go/weak-sensitive-data-hashing]
+	sum := sha256.Sum256(payload)
 	m.PayloadSHA256 = hex.EncodeToString(sum[:])
 	return encodeObjectWithHeader(m, payload, nil)
 }
@@ -84,7 +84,7 @@ func EncodeObject(m ObjectManifest, payload []byte) ([]byte, error) {
 // sealed again under a destination passphrase.
 func EncodeObjectWithOuter(m ObjectManifest, payload, outer []byte) ([]byte, error) {
 	m.PayloadSize = int64(len(payload))
-	sum := sha256.Sum256(payload) // lgtm[go/weak-sensitive-data-hashing]
+	sum := sha256.Sum256(payload)
 	m.PayloadSHA256 = hex.EncodeToString(sum[:])
 	m.PassphraseSealed = true
 	m.OuterSize = int64(len(outer))

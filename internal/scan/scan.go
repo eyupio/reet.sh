@@ -2,23 +2,17 @@
 package scan
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
-	"time"
-
-	"github.com/eyupio/reet.sh/internal/clientconfig"
 )
 
 // Found is one installed skill in one place; Source is "owner/repo" when the skills CLI lock file knows it.
@@ -312,143 +306,30 @@ func runVersionAt(dir string, args []string, out io.Writer, version string) erro
 	if fs.NArg() != 0 {
 		return errors.New("unexpected positional arguments; use --help")
 	}
-	if !*dry && *server == "" {
-		value, err := clientconfig.ResolveURL("", os.Stdin, os.Stderr)
-		if err != nil {
-			return err
-		}
-		*server = value
+	r, err := RunReport(ReportOptions{
+		Server:      *server,
+		Token:       *token,
+		TokenFile:   *tokenEnvFile,
+		Host:        *envName,
+		Dir:         dir,
+		Dirs:        dirs,
+		Prune:       *prune,
+		Reconcile:   *reconcile,
+		ServerHost:  *serverHost,
+		DryRun:      *dry,
+		Version:     version,
+		Interactive: true,
+		In:          os.Stdin,
+		Out:         os.Stderr,
+		OnScan:      func(found Scan) { RenderFindings(out, found.Found) },
+		OnReconciled: func(from, to string) {
+			fmt.Fprintf(out, "Reet, hostname %s now reports as %s. Refreshing inventories.\n", from, to)
+		},
+	})
+	if err == nil || r.DryRun || r.Sent {
+		RenderResult(out, r)
 	}
-	if !*dry {
-		var input io.Reader = os.Stdin
-		if *serverHost {
-			input = strings.NewReader("")
-		}
-		value, err := clientconfig.ResolveToken(*token, *tokenEnvFile, input, os.Stderr)
-		if err != nil {
-			return err
-		}
-		*token = value
-	}
-	host := strings.TrimSpace(*envName)
-	if host == "" {
-		host, _ = os.Hostname()
-	}
-	if host == "" {
-		host = "unknown"
-	}
-	home, _ := os.UserHomeDir()
-	cwd := dir
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	scan := CollectScan(home, cwd, dirs, host)
-
-	for _, f := range scan.Found {
-		src := f.Source
-		if src == "" {
-			src = "(unknown source)"
-		}
-		place := f.Agent
-		if f.Project != "" {
-			place += " · " + f.Project
-		}
-		if place == "" {
-			place = "(lock file)"
-		}
-		fmt.Fprintf(out, "%-40s %-26s %s\n", f.Name, src, place)
-	}
-	if *dry {
-		fmt.Fprintf(out, "%d skills found in %d environments (dry run, nothing sent)\n", len(scan.Found), len(scan.Envs))
-		return scan.Err()
-	}
-	if *reconcile {
-		hostname, err := os.Hostname()
-		if err != nil || hostname == "" {
-			return errors.New("cannot reconcile this machine without a hostname")
-		}
-		if strings.TrimSpace(*envName) == "" {
-			return errors.New("--reconcile requires --env NAME (or REET_ENV) so the preferred machine name is explicit")
-		}
-		body, _ := json.Marshal(map[string]string{"from": hostname, "to": host})
-		req, err := http.NewRequest(http.MethodPost, strings.TrimRight(*server, "/")+"/api/v2/machines/merge", bytes.NewReader(body))
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Reet-Token", *token)
-		resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-		if err != nil {
-			return err
-		}
-		if resp.StatusCode != http.StatusOK {
-			var result struct {
-				Error string `json:"error"`
-			}
-			_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result)
-			resp.Body.Close()
-			return fmt.Errorf("machine reconciliation failed (%s): %s", resp.Status, result.Error)
-		}
-		resp.Body.Close()
-		fmt.Fprintf(out, "Reet, hostname %s now reports as %s. Refreshing inventories.\n", hostname, host)
-	}
-
-	type item struct {
-		Name    string `json:"name"`
-		Source  string `json:"source,omitempty"`
-		Host    string `json:"host,omitempty"`
-		Agent   string `json:"agent,omitempty"`
-		Project string `json:"project,omitempty"`
-		Path    string `json:"path,omitempty"`
-	}
-	items := make([]item, len(scan.Found))
-	for i, f := range scan.Found {
-		items[i] = item{f.Name, f.Source, f.Host, f.Agent, f.Project, f.Path}
-	}
-	body, _ := json.Marshal(map[string]any{"items": items, "environments": scan.Envs, "prune": *prune, "machine": map[string]any{"host": host, "os": runtime.GOOS, "arch": runtime.GOARCH, "version": version, "server": *serverHost}})
-	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(*server, "/")+"/api/import", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Reet-Source", "scan")
-	if *token != "" {
-		req.Header.Set("X-Reet-Token", *token)
-	}
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusUnauthorized {
-			return errors.New("server replied 401 Unauthorized; use a personal API token from Account on the target server via REET_TOKEN, --env-file .env, or the interactive token prompt; delete a stale saved token with reet configure --forget-token")
-		}
-		return fmt.Errorf("server replied %s", resp.Status)
-	}
-	var res struct {
-		Imported int      `json:"imported"`
-		Created  int      `json:"created"`
-		Ignored  int      `json:"ignored"`
-		Pruned   int      `json:"pruned"`
-		Errors   []string `json:"errors"`
-		User     string   `json:"user"`
-	}
-	if json.NewDecoder(resp.Body).Decode(&res) != nil {
-		return errors.New("unreadable reply from server")
-	}
-	fmt.Fprintf(out, "%d new, %d ignored, %d pruned on %s\n", res.Created, res.Ignored, res.Pruned, host)
-	if res.User != "" {
-		fmt.Fprintf(out, "reported as %s\n", res.User)
-	}
-	fmt.Fprintf(out, "reported %d skills; existing shelf choices preserved\n", res.Imported)
-	for _, e := range res.Errors {
-		fmt.Fprintf(out, "  skipped: %s\n", e)
-	}
-	if len(res.Errors) > 0 {
-		return fmt.Errorf("scan reported %d errors; inventory is incomplete", len(res.Errors))
-	}
-	return nil
+	return err
 }
 
 func sourceForScope(global, project map[string]string, scope, name string) string {

@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/eyupio/reet.sh/internal/health"
@@ -26,6 +27,7 @@ const (
 	ScreenHome     ScreenID = "home"
 	ScreenDoctor   ScreenID = "doctor"
 	ScreenHealth   ScreenID = "healthcheck"
+	ScreenScan     ScreenID = "scan"
 	ScreenVersion  ScreenID = "version"
 	ScreenTerminal ScreenID = "terminal"
 	ScreenAgent    ScreenID = "agent"
@@ -47,6 +49,15 @@ type Options struct {
 
 	TerminalDataDir string
 	AgentConfig     string
+
+	ScanServer    string
+	ScanToken     string
+	ScanTokenFile string
+	ScanEnv       string
+	ScanDirs      string
+	ScanPrune     bool
+	ScanReconcile bool
+	ScanDryRun    bool
 
 	In      io.Reader
 	Out     io.Writer
@@ -78,6 +89,7 @@ type homeItem struct {
 var homeItems = []homeItem{
 	{ScreenDoctor, "Doctor", "Check this installation"},
 	{ScreenHealth, "Healthcheck", "Check a server's /healthz"},
+	{ScreenScan, "Scan", "Report installed skills to a controller"},
 	{ScreenVersion, "Version", "Build and runtime details"},
 	{ScreenTerminal, "Terminal status", "Controller terminal availability"},
 	{ScreenAgent, "Agent status", "This machine's enrollment and daemon"},
@@ -108,6 +120,11 @@ type model struct {
 	agent    scan.AgentStatus
 	config   string
 	enrolled bool
+
+	scanForm   *huh.Form
+	scanValues *scanFormValues
+	scanReport scan.Report
+	scanSet    bool
 }
 
 func newModel(opts Options) model {
@@ -117,17 +134,25 @@ func newModel(opts Options) model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Line
 	sp.Style = newStyles(opts.NoColor).spinner
-	return model{
+	m := model{
 		opts:     opts,
 		styles:   newStyles(opts.NoColor),
 		page:     opts.Start,
-		loading:  opts.Start != ScreenHome && opts.Start != ScreenVersion,
+		loading:  opts.Start != ScreenHome && opts.Start != ScreenVersion && opts.Start != ScreenScan,
 		viewport: viewport.New(80, 20),
 		spinner:  sp,
 	}
+	if opts.Start == ScreenScan {
+		m.scanValues = defaultScanValues(opts)
+		m.scanForm = buildScanForm(m.scanValues)
+	}
+	return m
 }
 
 func (m model) Init() tea.Cmd {
+	if m.formActive() {
+		return m.scanForm.Init()
+	}
 	if m.loading {
 		return tea.Batch(m.spinner.Tick, m.load(m.page))
 	}
@@ -160,7 +185,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.resize()
+		if m.formActive() {
+			updated, cmd := m.scanForm.Update(msg)
+			m.scanForm = updated.(*huh.Form)
+			m.setContent()
+			return m, cmd
+		}
 		return m, nil
+	}
+	if m.formActive() {
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				return m.open(ScreenHome)
+			}
+		}
+		updated, cmd := m.scanForm.Update(msg)
+		m.scanForm = updated.(*huh.Form)
+		switch m.scanForm.State {
+		case huh.StateCompleted:
+			m.scanForm = nil
+			return m.startScan()
+		case huh.StateAborted:
+			return m.open(ScreenHome)
+		}
+		m.setContent()
+		return m, cmd
+	}
+	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	case spinner.TickMsg:
@@ -205,6 +259,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.page == ScreenScan {
+		switch msg.String() {
+		case "r":
+			return m.startScan()
+		case "e":
+			return m.open(ScreenScan)
+		}
+	}
 	switch msg.String() {
 	case "q":
 		return m, tea.Quit
@@ -228,6 +290,18 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 	m.page = page
 	m.cursor = 0
 	m.err = nil
+	if page == ScreenScan {
+		if m.scanValues == nil {
+			m.scanValues = defaultScanValues(m.opts)
+		}
+		m.scanForm = buildScanForm(m.scanValues)
+		m.scanSet = false
+		m.loading = false
+		m.resize()
+		m.setContent()
+		return m, m.scanForm.Init()
+	}
+	m.scanForm = nil
 	m.loading = page != ScreenHome && page != ScreenVersion
 	m.setContent()
 	if !m.loading {
@@ -257,7 +331,47 @@ func (m *model) apply(msg resultMsg) {
 			m.config = value.config
 			m.enrolled = value.enrolled
 		}
+	case ScreenScan:
+		if report, ok := msg.value.(scan.Report); ok {
+			m.scanReport = report
+			m.scanSet = true
+		}
 	}
+}
+
+func (m model) formActive() bool {
+	return m.page == ScreenScan && m.scanForm != nil && !m.loading
+}
+
+func (m model) startScan() (tea.Model, tea.Cmd) {
+	values := m.scanValues
+	if values == nil {
+		values = defaultScanValues(m.opts)
+		m.scanValues = values
+	}
+	opts := m.opts
+	m.scanForm = nil
+	m.scanSet = false
+	m.err = nil
+	m.loading = true
+	m.setContent()
+	return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
+		report, err := scan.RunReport(scan.ReportOptions{
+			Server:      strings.TrimSpace(values.Server),
+			Token:       values.Token,
+			TokenFile:   opts.ScanTokenFile,
+			Host:        strings.TrimSpace(values.Host),
+			Dirs:        scanDirs(values.Dirs),
+			Prune:       values.Prune,
+			Reconcile:   values.Reconcile,
+			DryRun:      values.DryRun,
+			Version:     opts.Version,
+			Interactive: false,
+			In:          strings.NewReader(""),
+			Out:         io.Discard,
+		})
+		return resultMsg{page: ScreenScan, value: report, err: err}
+	})
 }
 
 func (m *model) resize() {
@@ -273,6 +387,18 @@ func (m *model) resize() {
 		m.viewport.Width = 10
 	}
 	m.viewport.Height = body
+	if m.scanForm != nil {
+		width := m.width - 4
+		if width < 20 {
+			width = 20
+		}
+		height := m.height - 5
+		if height < 5 {
+			height = 5
+		}
+		m.scanForm.WithWidth(width)
+		m.scanForm.WithHeight(height)
+	}
 	m.setContent()
 }
 
@@ -310,7 +436,16 @@ func (m model) renderFooter() string {
 	if m.page != ScreenHome {
 		keys = "↑/↓ scroll · r refresh · esc back · q quit"
 	}
-	if m.loading {
+	if m.page == ScreenScan {
+		if m.formActive() {
+			keys = "enter next/submit · esc cancel · ctrl+c quit"
+		} else if m.loading {
+			keys = "scanning… · ctrl+c quit"
+		} else {
+			keys = "r run again · e edit · esc back · q quit"
+		}
+	}
+	if m.loading && m.page != ScreenScan {
 		keys = "loading… · q quit"
 	}
 	return m.styles.footer.Width(m.width).Render("  " + keys)
@@ -333,13 +468,18 @@ func (m model) renderHome() string {
 }
 
 func (m model) renderPage() string {
+	if m.formActive() {
+		return m.scanForm.View()
+	}
 	if m.loading {
 		return "\n  " + m.spinner.View() + " " + m.styles.muted.Render(pageLoading(m.page)) + "\n"
 	}
-	if m.err != nil && m.page != ScreenHealth {
+	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) {
 		return "\n  " + m.styles.fail.Render("Error: "+m.err.Error()) + "\n\n  " + m.styles.muted.Render("Press r to try again, or esc for the menu.") + "\n"
 	}
 	switch m.page {
+	case ScreenScan:
+		return m.renderScan()
 	case ScreenDoctor:
 		return m.renderDoctor()
 	case ScreenHealth:
@@ -360,6 +500,8 @@ func pageTitle(page ScreenID) string {
 		return "Doctor"
 	case ScreenHealth:
 		return "Healthcheck"
+	case ScreenScan:
+		return "Scan"
 	case ScreenVersion:
 		return "Version"
 	case ScreenTerminal:
@@ -376,6 +518,8 @@ func pageLoading(page ScreenID) string {
 		return "Running doctor checks…"
 	case ScreenHealth:
 		return "Checking server health…"
+	case ScreenScan:
+		return "Scanning installed skills…"
 	case ScreenTerminal:
 		return "Reading terminal status…"
 	case ScreenAgent:

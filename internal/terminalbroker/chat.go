@@ -267,9 +267,10 @@ func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
 		s.Attention = "waiting"
 		if len(l.queue) > 0 {
 			first := l.queue[0]
+			cmd, shortened := previewText(first.Command, 240)
 			s.PendingPermission = &store.PendingPermission{
 				PermissionID: first.PermissionID, Title: first.Title, ToolKind: first.ToolKind,
-				Command: previewText(first.Command, 240), Path: first.Path, Truncated: first.Truncated,
+				Command: cmd, Path: first.Path, Truncated: first.Truncated || shortened,
 				Queued: len(l.queue) - 1,
 			}
 		}
@@ -322,14 +323,15 @@ func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
 }
 
 // previewText bounds a command shown on a Home card; the full text stays in the chat.
-func previewText(s string, max int) string {
+// It reports whether the preview was shortened so callers can mark it truncated.
+func previewText(s string, max int) (string, bool) {
 	if len(s) <= max {
-		return s
+		return s, false
 	}
 	for max > 0 && !utf8.RuneStart(s[max]) {
 		max--
 	}
-	return s[:max] + "…"
+	return s[:max] + "…", true
 }
 
 func mustJSON(event terminalproto.ACPEvent) []byte {

@@ -175,3 +175,23 @@ func TestChatCloseClosesSubscribers(t *testing.T) {
 		t.Fatal("subscriber channel stayed open")
 	}
 }
+
+func TestPreviewTextBoundsAndFlagsTruncation(t *testing.T) {
+	got, truncated := previewText("short command", 20)
+	if got != "short command" || truncated {
+		t.Fatalf("short command: got %q, truncated=%v", got, truncated)
+	}
+
+	got, truncated = previewText("1234567890abcdef", 10)
+	if got != "1234567890…" || !truncated {
+		t.Fatalf("truncated command: got %q, truncated=%v", got, truncated)
+	}
+
+	// Rune boundary handling: ensure multi-byte character is not sliced midway.
+	text := "hello 日本語 world"
+	// Slicing midway through '日' (at index 8, where '日' starts at index 6 and takes 3 bytes)
+	got, truncated = previewText(text, 8)
+	if got != "hello …" || !truncated {
+		t.Fatalf("rune boundary command: got %q, truncated=%v", got, truncated)
+	}
+}

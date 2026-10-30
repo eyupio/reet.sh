@@ -412,6 +412,21 @@ try {
   await context.close()
  }
 
+ // Ending from Home follows the account's own default for removing a session from history, as Sessions and the terminal do.
+ if (run('ending a session on Home uses the account default for history')) {
+  const profile = {user:owner,sessionCount:1,accounts:true,profile:{theme:'light',timezone:'Europe/London',dateFormat:'',shelfView:'list',cardsExpanded:false,hostedPrefix:'reet-',updatedAt:1,terminalRemoveOnClose:true}}
+  const {context,page,errors,box} = await home({routes:{'/api/v2/profile':profile}})
+  await page.goto(base)
+  await inFlight(page).getByRole('link',{name:/Tidy the release notes/}).click({button:'right'})
+  await page.getByRole('menuitem',{name:'End session…'}).click()
+  const end = page.getByRole('dialog',{name:'End Tidy the release notes?'})
+  await expect(end.getByRole('checkbox',{name:'Remove from history when this session ends'})).toBeChecked()
+  await end.getByRole('button',{name:'End session'}).click()
+  await expect.poll(() => box.writes.find(w => w.path === '/api/v2/terminal/sessions/s2/end')?.body ?? null).toMatchObject({removeHistory:true})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A session started outside every project is listed under its machine, not left out and not given a project.
  if (run('a session outside every project sits under its machine')) {
   const {context,page,errors} = await home()

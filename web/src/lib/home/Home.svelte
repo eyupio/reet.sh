@@ -59,6 +59,8 @@
   let chosen = $state(new URLSearchParams(location.search).get('project') ?? '')
   // The account's launch defaults (base branch, worktrees by default), read once; the bar waits for the answer or its failure.
   let profile = $state<LaunchDefaults>({}), profileRead = $state(false)
+  // The account's choice for a session that ends: remove it from history too. Read with the launch defaults.
+  let removeDefault = $state(false)
   let bar = $state<LaunchBar>()
   let now = $state(Date.now())
   let problem = $state('')
@@ -256,7 +258,7 @@
     // Once Home has gone, a late answer changes nothing and the timer is cleared.
     let giveUpTimer: ReturnType<typeof setTimeout> | undefined
     if (writer) Promise.race([getProfile(), new Promise<never>((_, no) => { giveUpTimer = setTimeout(() => no(new Error('timeout')), 10_000) })])
-      .then(p => { if (!life.signal.aborted) profile = { defaultBaseBranch: p.profile.defaultBaseBranch, worktreesByDefault: p.profile.worktreesByDefault, defaultTool: p.profile.defaultTool, defaultModel: p.profile.defaultModel, defaultEffort: p.profile.defaultEffort } }, () => {})
+      .then(p => { if (!life.signal.aborted) { profile = { defaultBaseBranch: p.profile.defaultBaseBranch, worktreesByDefault: p.profile.worktreesByDefault, defaultTool: p.profile.defaultTool, defaultModel: p.profile.defaultModel, defaultEffort: p.profile.defaultEffort }; removeDefault = p.profile.terminalRemoveOnClose ?? false } }, () => {})
       .finally(() => { clearTimeout(giveUpTimer); if (!life.signal.aborted) profileRead = true })
     if (writer && legacyProject) void findLegacy(legacyProject)
     const query = matchMedia(NARROW), resized = () => { narrow = query.matches }
@@ -292,7 +294,7 @@
       <div class="work">
         <NeedsYou cards={needs} />
         <InFlight {groups} {owners} machines={health ?? []} {offline} {now} loaded={sessions !== undefined} failed={sessionsFailed} {groupBy} onchoose={choose} {projectColours}
-          terminals={terminals ?? []} onchanged={() => load(true)} onnotice={(n) => (notice = n)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
+          terminals={terminals ?? []} {removeDefault} onchanged={() => load(true)} onnotice={(n) => (notice = n)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       </div>
       {#if chooser && writer}
         <NewSessionDialog host={chooser.card.name} agentId={chooser.card.agentId} machine={terminals?.find(m => m.agentId === chooser?.card.agentId)} machinesLoaded={terminals !== undefined} projects={projects ?? []}

@@ -430,12 +430,23 @@ func (p *Peer) callWithin(ctx context.Context, m terminalproto.Message, limit ti
 	if err := p.send(ctx, m); err != nil {
 		return m, ErrOffline
 	}
-	select {
-	case result := <-ch:
+	answered := func(result terminalproto.Message) (terminalproto.Message, error) {
 		if result.SessionID != m.SessionID || result.AttachmentID != m.AttachmentID || result.AttachmentGeneration != m.AttachmentGeneration {
 			return m, ErrConflict
 		}
 		return result, nil
+	}
+	// A reply the machine sent before the connection went may already be waiting. It is not a lost reply, so read it
+	// before the select, where a connection closing at the same moment would otherwise turn an answered request into
+	// an uncertain one.
+	select {
+	case result := <-ch:
+		return answered(result)
+	default:
+	}
+	select {
+	case result := <-ch:
+		return answered(result)
 	case <-p.done:
 		return m, errReplyLost{}
 	case <-ctx.Done():

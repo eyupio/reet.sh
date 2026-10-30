@@ -36,12 +36,13 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 #255 (models UI) as `32866ad`; #252 as `3be0eaf`; #247 as `16da0bb`; #245 as `1371cb5`;
 #242 as `961d530`; #231 as `7886511`.**
 
-- **Branch and PR:** none open. F shipped: the account's Allow YOLO setting (`GET`/`PUT
+- **Branch and PR:** [#270](https://github.com/eyupio/reet.sh/pull/270) is open for the reet TUI model choice and
+  provider-error recovery (`fix/reet-tui-model-and-provider-errors`, `0d4c747`). F shipped: the account's Allow YOLO setting (`GET`/`PUT
   /api/v2/settings/yolo`, owners and admins change it), the machine's `reet terminal yolo
   on|off|status` switch and `yolo` capability, reviewed options for Codex/OpenCode/Cline, controller
   gates and audit, structured `allow_once` answers, the confirmation dialog and badges. #266 fixed the
   launch audit on a mismatched worktree and kept generic machine refusals from counting as started.
-- **ACP provider errors (working tree, not committed, 30 October 2026):** OpenCode 1.19.5 can leave a
+- **ACP provider errors — [#270](https://github.com/eyupio/reet.sh/pull/270), `0d4c747` (30 October 2026):** OpenCode 1.19.5 can leave a
   silent turn when its provider rejects the configured model (for example the free-model usage limit);
   the adapter writes the error to its log but never sends it over ACP. The silence watchdog now reads
   the newest matching `stream error` line for the session and stops the turn with that error instead of
@@ -49,7 +50,7 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
   (`RecoverLive`), `opencode.go` (log reader), `session.go` (watchdog and cancellation), both test files
   and `docs/structured-sessions.md`. Checks: `go test ./internal/acpagent ./internal/terminalagent
   ./internal/terminalbroker` and `-race` on the first two.
-- **reet TUI model choice (working tree, not committed, 30 October 2026):** Home's sentence and
+- **reet TUI model choice — [#270](https://github.com/eyupio/reet.sh/pull/270), `0d4c747` (30 October 2026):** Home's sentence and
   **Start an agent** now show the shared Model picker for a reet TUI chat. **Agent default** sends
   nothing and keeps OpenCode's configured model; a chosen model is sent in the create and must match
   the model OpenCode reports after `session/new`. Continue in reet TUI carries the model recorded on

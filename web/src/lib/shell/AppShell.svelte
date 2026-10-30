@@ -34,7 +34,8 @@
 
   const overflow = $derived(tabs.filter(tab => !bar.some(b => b.href === tab.href)))
   let viewportWidth = $state(window.innerWidth)
-  const visibleOverflow = $derived(viewportWidth < 1100 ? overflow : [])
+  let phoneLayout = $state(matchMedia(PHONE_SCREEN).matches)
+  const visibleOverflow = $derived(viewportWidth < 1100 || phoneLayout ? overflow : [])
   const moreCurrent = $derived([...visibleOverflow, ...more].some(tab => tab.current))
 
   let moreOpen = $state(false)
@@ -80,6 +81,8 @@
   onMount(() => {
     const tracker = new ViewportTracker()
     const coarse = matchMedia('(pointer: coarse)'), phone = matchMedia(PHONE_SCREEN)
+    const updatePhoneLayout = () => { phoneLayout = phone.matches }
+    phone.addEventListener('change', updatePhoneLayout)
     let frame = 0
     measureKeyboard = () => {
       cancelAnimationFrame(frame)
@@ -95,6 +98,7 @@
     vv?.addEventListener('scroll', measureKeyboard)
     return () => {
       cancelAnimationFrame(frame)
+      phone.removeEventListener('change', updatePhoneLayout)
       window.removeEventListener('resize', measureKeyboard)
       vv?.removeEventListener('resize', measureKeyboard)
       vv?.removeEventListener('scroll', measureKeyboard)

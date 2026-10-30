@@ -147,6 +147,22 @@ try {
   await wide.context.close()
  }
 
+ // Wide touch devices also use the phone bar when landscape leaves little vertical room.
+ if (run('short landscape keeps overflow reachable')) {
+  const {context,page,errors} = await open({width:1180,height:480,touch:true})
+  await page.goto(base)
+  await tabs(page).getByRole('button',{name:'More',exact:true}).click()
+  const more = page.getByRole('dialog',{name:'More'})
+  await expect(more.getByRole('link',{name:'Skills',exact:true})).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({width:1180,height:812})
+  await expect(tabs(page).getByRole('link',{name:'Skills',exact:true})).toBeVisible()
+  await tabs(page).getByRole('button',{name:'More',exact:true}).click()
+  await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Skills',exact:true})).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // Nothing the old navigation reached is lost: every former destination is a tab or sits under the separate More panel.
  // Projects left More: folder projects live in Home's rail, and /projects goes there. Control left too (R4): it is folded
  // into Home and Machines, and /control goes to Home; the Sessions tab is /sessions.

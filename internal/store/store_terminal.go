@@ -311,7 +311,7 @@ type TerminalSession struct {
 	WorktreeBranch string `json:"worktreeBranch,omitempty"`
 	// Launch metadata for the listing. The opening prompt is deliberately
 	// absent: it is kept only with the create request. Effort is the requested
-	// launch level; Yolo stays false while approval bypass is deferred.
+	// launch level; Yolo records the person's confirmation for this session.
 	// ProjectID is null for a session started outside a folder project.
 	Tool      string  `json:"tool"`
 	Model     string  `json:"model"`

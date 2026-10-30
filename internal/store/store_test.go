@@ -661,3 +661,24 @@ func TestUpdateEventDetailForKeepsToTheOwnersRowOfThatAction(t *testing.T) {
 		t.Fatal(events)
 	}
 }
+
+func TestAddEventOnceForIsIdempotent(t *testing.T) {
+	s := newStore(t)
+	owner, _ := s.DefaultOwner()
+	detail := map[string]string{"machine": "a1", "session": "session-1"}
+	for i := 0; i < 2; i++ {
+		if err := s.AddEventOnceFor(owner, "machine", "yolo-launch", "", detail); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := s.ListEventsFor(owner, 10, "")
+	if err != nil || len(events) != 1 || events[0].Action != "yolo-launch" {
+		t.Fatalf("%v %+v", err, events)
+	}
+	if err := s.AddEventOnceFor(owner, "machine", "yolo-launch", "", map[string]string{"machine": "a1", "session": "session-2"}); err != nil {
+		t.Fatal(err)
+	}
+	if events, _ := s.ListEventsFor(owner, 10, ""); len(events) != 2 {
+		t.Fatalf("a second session was not recorded: %+v", events)
+	}
+}

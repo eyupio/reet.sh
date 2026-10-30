@@ -127,8 +127,8 @@ type Capabilities struct {
 	// Resume is sent only on a connection that negotiated resume-v1: an older
 	// controller's strict decoder would refuse the field.
 	Resume bool `json:"resume,omitempty"`
-	// Yolo is reserved: no connector may advertise it until YOLO launches exist,
-	// so ValidateFor rejects it.
+	// Yolo is sent only on a connection that negotiated agents-v2, and only
+	// when the machine accepts YOLO sessions locally.
 	Yolo           bool     `json:"yolo,omitempty"`
 	AgentsV2       bool     `json:"agentsV2,omitempty"`
 	OSVersion      string   `json:"osVersion,omitempty"`
@@ -171,7 +171,10 @@ func (c Capabilities) ValidateFor(features string) error {
 	if (c.AgentsV2 || c.OSVersion != "") && !SupportsAgents(features) || !plainText(c.OSVersion, 128) {
 		return ErrInvalid
 	}
-	if c.Launch && !c.TerminalControl || len(c.Tools) > 0 && !c.Launch || !validTools(c.Tools, SupportsAgents(features)) || c.Yolo {
+	if c.Launch && !c.TerminalControl || len(c.Tools) > 0 && !c.Launch || !validTools(c.Tools, SupportsAgents(features)) {
+		return ErrInvalid
+	}
+	if c.Yolo && (!c.Launch || !c.AgentsV2 || !SupportsAgents(features)) {
 		return ErrInvalid
 	}
 	if c.Resume && !c.Launch {
@@ -325,7 +328,7 @@ func (c Create) Validate() error {
 	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) || !c.validLaunch() || !c.validWorktree() || c.Base != "" && (c.Worktree == "" || !validRefName(c.Base)) {
 		return ErrInvalid
 	}
-	if c.Structured && (c.Tool != "opencode" || c.Worktree != "" || c.Project != "" || c.Base != "" || c.Effort != "" || c.Yolo || c.Resume) {
+	if c.Structured && (c.Tool != "opencode" || c.Worktree != "" || c.Project != "" || c.Base != "" || c.Effort != "" || c.Resume) {
 		return ErrInvalid
 	}
 	if c.Trust && !c.Structured {

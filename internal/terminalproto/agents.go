@@ -19,12 +19,12 @@ func SupportsAgents(features string) bool {
 // terminalhost.Catalogue (a test there keeps them equal) so the controller can
 // refuse an option before it reserves a session. Disabled presets (pi, cursor)
 // are absent until the connector starts them.
-var agentOptions = map[string]struct{ effort, model bool }{
+var agentOptions = map[string]struct{ effort, model, yolo bool }{
 	"claude":   {model: true},
-	"codex":    {model: true},
-	"opencode": {model: true},
+	"codex":    {model: true, yolo: true},
+	"opencode": {model: true, yolo: true},
 	"gemini":   {model: true},
-	"cline":    {effort: true, model: true},
+	"cline":    {effort: true, model: true, yolo: true},
 }
 
 // ValidToolV2 accepts the agents started under agents-v2.
@@ -38,3 +38,8 @@ func ToolTakesEffort(id string) bool { return agentOptions[id].effort }
 
 // ToolTakesModel reports whether the agent's preset takes a model.
 func ToolTakesModel(id string) bool { return agentOptions[id].model }
+
+// ToolTakesYolo reports whether the agent's preset has a reviewed option that
+// skips its own approval prompts. The connector still refuses when the machine
+// has YOLO switched off.
+func ToolTakesYolo(id string) bool { return agentOptions[id].yolo }

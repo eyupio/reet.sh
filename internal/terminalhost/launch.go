@@ -74,11 +74,14 @@ func LaunchArgv(in terminalproto.Create, lookPath func(string) (string, error)) 
 	if !ok {
 		return nil, launchUnavailable("tool not installed")
 	}
-	// The catalogue never enables approval bypass in this slice.
-	if in.Yolo {
-		return nil, ErrYoloRefused
+	if in.Yolo && len(p.yoloArgs) == 0 {
+		return nil, ErrLaunchOptionUnsupported
 	}
-	argv := append([]string{path}, p.safeArgs...)
+	args := p.safeArgs
+	if in.Yolo {
+		args = p.yoloArgs
+	}
+	argv := append([]string{path}, args...)
 	if in.Resume {
 		if len(p.resumeArgs) == 0 {
 			return nil, ErrLaunchOptionUnsupported

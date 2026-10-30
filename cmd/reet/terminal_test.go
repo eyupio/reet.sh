@@ -118,3 +118,24 @@ func TestTerminalModelsIsTheMachineSwitch(t *testing.T) {
 		t.Fatal(out.String(), err)
 	}
 }
+
+// reet terminal yolo is the machine's local YOLO switch, not a controller command.
+func TestTerminalYoloIsTheMachineSwitch(t *testing.T) {
+	err := runTerminal([]string{"yolo"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "reet terminal yolo on|off|status") {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp("/tmp", "reet-cli-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	err = runTerminal([]string{"yolo", "status", "--config", dir + "/missing.json"}, &bytes.Buffer{})
+	if err == nil || strings.Contains(err.Error(), "unexpected terminal command arguments") {
+		t.Fatal("yolo reached the controller command", err)
+	}
+	var out bytes.Buffer
+	if err := runTerminal([]string{"--help"}, &out); err != nil || !strings.Contains(out.String(), "reet terminal yolo on|off|status") {
+		t.Fatal(out.String(), err)
+	}
+}

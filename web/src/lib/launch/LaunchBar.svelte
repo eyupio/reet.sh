@@ -2,11 +2,11 @@
   import { onMount, tick, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { shell } from '../dialogShell'
-  import { UnauthorizedError, addModelFavourite, listModelFavourites, removeModelFavourite } from '../api'
+  import { UnauthorizedError, addModelFavourite, getYoloSetting, listModelFavourites, removeModelFavourite, type YoloSetting } from '../api'
   import { CATALOGUE, agentChoices } from '../catalogue'
   import { favouriteKey, modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
-  import { afterLaunch, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey,
+  import { afterLaunch, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
   import { createTerminal, getFolderProject, getSelectionRun, launchUpload, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
     type BranchesResult, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
@@ -15,6 +15,7 @@
   import { keyboardLikelyOpen, PHONE_SCREEN, ViewportTracker, browserViewport } from '../terminal/sizing'
   import { chromeFocus } from '../shell/chrome.svelte'
   import SlotPicker, { type SlotOption } from './SlotPicker.svelte'
+  import YoloDialog from './YoloDialog.svelte'
 
   // The launch bar docked at the foot of Home: "Describe the job" and a sentence whose bold words are the choices (spec: The
   // launch bar). It opens on the resolved project, account and favourite defaults (D1), never the last launch; Start sends one
@@ -66,6 +67,8 @@
   // start and a lost reply can never start a second agent. Dropped only when the server has definitely answered.
   // A start in several projects keeps its one run request (request id and every field) the same way.
   let operation = $state<({ kind: 'one' } & LaunchCreate & { host: string }) | { kind: 'run'; body: SelectionRunRequest } | null>(null)
+  // The account's Allow YOLO setting and the open confirmation. YOLO is never remembered by the browser.
+  let yoloSetting = $state<YoloSetting | null>(null), yoloOpen = $state(false)
   const life = new AbortController()
   let form = $state<HTMLFormElement>(), field = $state<HTMLTextAreaElement>(), startButton = $state<HTMLButtonElement>()
   // The session screen's + arrives at /#launch: the prompt takes focus once the bar is ready, and the address forgets it.
@@ -387,6 +390,15 @@
   // Why Start can't be pressed yet. Until the machines have been read nothing is checked, so nothing is sent.
   const reason = $derived(!choice || !projects ? '' : !machines ? 'Start waits until your machines have been read.' : startable(choice, projects, machines, profile))
   const locked = $derived(busy || leaving || operation !== null)
+  // Why YOLO cannot even open the dialog. A machine that refuses it is shown in the dialog instead.
+  const yoloWhy = $derived.by(() => {
+    if (!yoloSetting) return 'Reading the account setting…'
+    if (!yoloSetting.allowed) return 'An owner or admin can allow YOLO for this account in Settings.'
+    const agent = choice?.agent ?? ''
+    if (!agent || !CATALOGUE.find(a => a.id === agent)?.yolo) return 'This agent has no option reet can use for that.'
+    return ''
+  })
+  const yoloGateList = $derived(choice ? yoloGates(choice, yoloSetting, projects ?? [], machines ?? []) : [])
   // Images pasted, dropped or chosen before a start. They live only in this page: each is uploaded to the
   // machine as it starts, and its path joins the opening prompt. Nothing is stored by the controller.
   type Attachment = { id: number; file: File; preview: string }
@@ -880,8 +892,30 @@
     return () => { watch.disconnect(); removeEventListener('resize', fit); root.style.removeProperty('scroll-padding-bottom') }
   })
 
+  async function loadYolo() {
+    try { yoloSetting = await getYoloSetting() } catch { yoloSetting = null }
+  }
+  function openYolo() {
+    if (!choice || locked || yoloWhy) return
+    // The dialog decides; the radio stays on Ask me until Start with YOLO.
+    choice = { ...choice, approvals: 'ask' }
+    yoloOpen = true
+  }
+  function cancelYolo() {
+    yoloOpen = false
+    if (choice) choice = { ...choice, approvals: 'ask' }
+  }
+  async function startYolo() {
+    if (!choice || !yoloCanStart(yoloGateList)) return
+    choice = { ...choice, approvals: 'yolo' }
+    yoloOpen = false
+    await tick()
+    await start()
+  }
+
   onMount(() => {
     void loadFavourites()
+    void loadYolo()
     const coarse = matchMedia('(pointer: coarse)'), narrow = matchMedia(PHONE_SCREEN)
     const read = () => { touch = coarse.matches; phone = narrow.matches; measureKeyboard() }
     read()
@@ -907,9 +941,11 @@
     <span class="lead" aria-hidden="true">Approvals</span>
     <span class="segments">
       <label class:on={choice?.approvals !== 'yolo'}><input type="radio" name={name} value="ask" checked={choice?.approvals !== 'yolo'} onchange={() => choice && (choice = { ...choice, approvals: 'ask' })} />Ask me</label>
-      <label class="off" title="reet doesn't start YOLO sessions yet."><input type="radio" name={name} value="yolo" disabled aria-describedby={`${id}-${name}-why`} />YOLO</label>
+      <label class:on={choice?.approvals === 'yolo'} class:off={!!yoloWhy} title={yoloWhy || 'Start only after a confirmation.'}>
+        <input type="radio" name={name} value="yolo" checked={choice?.approvals === 'yolo'} disabled={locked || !!yoloWhy} onclick={(event) => { event.preventDefault(); openYolo() }} onchange={(event) => { (event.currentTarget as HTMLInputElement).checked = false; openYolo() }} aria-describedby={`${id}-${name}-why`} />YOLO
+      </label>
     </span>
-    <span class={shown ? 'why' : 'vh'} id={`${id}-${name}-why`}>reet doesn't start YOLO sessions yet.</span>
+    <span class={shown ? 'why' : 'vh'} id={`${id}-${name}-why`}>{yoloWhy || 'Starts only after a confirmation. Each use is audited.'}</span>
   </div>
 {/snippet}
 
@@ -971,7 +1007,7 @@
   </fieldset>
   <div class="go">
     {#if operation && !busy}<button type="button" class="discard" onclick={discard}>Discard this request</button>{/if}
-    <button type="submit" class="start" bind:this={startButton} disabled={busy || leaving || !choice || (!operation && (reason !== null || !!imagesReason))} aria-busy={busy || leaving}
+    <button type="submit" class="start" bind:this={startButton} disabled={busy || leaving || !choice || (!operation && (reason !== null || !!imagesReason || (choice?.approvals === 'yolo' && !!yoloWhy)))} aria-busy={busy || leaving}
       aria-label={operation ? 'Try the same request again' : 'Start the session'} aria-describedby={shownStatus ? `${id}-status` : undefined}>
       <svg class="arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
       <span class="word">{operation ? 'Try the same request again' : 'Start'}</span>{#if !operation}<kbd aria-hidden="true">{mac ? '↵' : 'Enter'}</kbd>{/if}
@@ -1018,6 +1054,11 @@
       </footer>
     </div>
   </dialog>
+{/if}
+
+{#if yoloOpen && choice}
+  <YoloDialog gates={yoloGateList} tool={choice.agent} structured={choice.chat === true} machine={hostOf(choice.projectIds.length === 0 ? (choice.homeMachine ?? '') : (picked[0]?.host ?? '')) || 'the machine'}
+    oncancel={cancelYolo} onstart={() => void startYolo()} />
 {/if}
 
 {#if run}

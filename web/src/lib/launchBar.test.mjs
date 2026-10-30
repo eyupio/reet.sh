@@ -16,7 +16,7 @@ const source = compile('./launchBar.ts')
   .replace("from './agentLaunch'", `from '${agentLaunch}'`)
   .replace("from './terminal/api'", `from '${terminalApi}'`)
   .replace("from './models'", `from '${models}'`)
-const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText } = await import(asURL(source))
+const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText, yoloGates, yoloCanStart } = await import(asURL(source))
 const { refusalText } = await import(agentLaunch)
 
 const caps = (extra = {}) => ({ protocolVersion: 1, os: 'linux', osUser: 'u', terminalEnabled: true, terminalControl: true, healthEnabled: true, readiness: 'ready',
@@ -179,10 +179,35 @@ test('startable names the first reason', () => {
   assert.equal(startable(choice({ worktree: false }), projects, old), null)
   const noWorktree = [machine('m-studio', 'studio', { worktree: false })]
   assert.equal(startable(choice(), projects, noWorktree), 'Update reet on that machine to start agents with worktrees.')
-  assert.equal(startable(choice({ approvals: 'yolo' }), projects, machines), "studio doesn't accept YOLO sessions.")
-  assert.equal(startable(choice({ approvals: 'yolo' }), projects, [machine('m-studio', 'studio', { yolo: true })]), null)
+  assert.equal(startable(choice({ agent: 'claude', approvals: 'yolo' }), projects, [machine('m-studio', 'studio', { yolo: true })]), "That agent doesn't take that option.")
+  assert.equal(startable(choice({ agent: 'cline', approvals: 'yolo' }), projects, machines), "studio doesn't accept YOLO sessions.")
+  assert.equal(startable(choice({ agent: 'cline', approvals: 'yolo' }), projects, [machine('m-studio', 'studio', { yolo: true })]), null)
+  const chat = choice({ agent: 'opencode', chat: true, trust: true, approvals: 'yolo', model: '' })
+  assert.equal(startable(chat, projects, [machine('m-studio', 'studio', { acp: true, yolo: true, tools: ['opencode'] })]), null)
+  assert.equal(startable(chat, projects, [machine('m-studio', 'studio', { acp: true, tools: ['opencode'] })]), "studio doesn't accept YOLO sessions.")
   assert.equal(startable(choice({ projectIds: [], homeMachine: 'm-desk' }), projects, machines), null)
   assert.equal(startable(choice({ projectIds: ['p-reet', 'p-site'] }), projects, [machines[0], machine('m-server', 'server', {}, false)]), 'The machine is reconnecting. Existing shells will be kept.')
+})
+
+test('yolo gates read the account, each machine, the agent and the worktree', () => {
+  const setting = { allowed: true, changedBy: 'Sam' }
+  const gates = yoloGates(choice({ agent: 'cline', approvals: 'yolo' }), setting, projects, [machine('m-studio', 'studio', { yolo: true })])
+  assert.equal(yoloCanStart(gates), true)
+  assert.deepEqual(gates.map(g => [g.label, g.ok]), [
+    ['Your account allows YOLO', true],
+    ['studio accepts YOLO sessions', true],
+    ['This agent has an option reet can use', true],
+    ['New worktree and branch for this session', true],
+  ])
+  assert.equal(yoloCanStart(yoloGates(choice({ agent: 'cline' }), { allowed: false }, projects, machines)), false)
+  assert.equal(yoloCanStart(yoloGates(choice({ agent: 'cline' }), setting, projects, machines)), false)
+  assert.equal(yoloCanStart(yoloGates(choice({ agent: 'claude' }), setting, projects, [machine('m-studio', 'studio', { yolo: true })])), false)
+  const several = yoloGates(choice({ agent: 'cline', projectIds: ['p-reet', 'p-site'] }), setting, projects, [machine('m-studio', 'studio', { yolo: true }), machine('m-server', 'server', { yolo: false })])
+  assert.equal(yoloCanStart(several), false)
+  assert.equal(several.filter(g => g.label.endsWith('accepts YOLO sessions')).length, 2)
+  const checkout = yoloGates(choice({ agent: 'cline', worktree: false }), setting, projects, [machine('m-studio', 'studio', { yolo: true })])
+  assert.equal(yoloCanStart(checkout), true)
+  assert.equal(checkout.at(-1).warning, true)
 })
 
 test('toCreate adds base, effort and yolo only when set', () => {
@@ -317,10 +342,10 @@ test('the phone summary is the sentence in one line', () => {
   assert.equal(summary(sentence(choice({ agent: 'cline', effort: 'low' }), projects, machines)), 'Cline on reet at studio · main · fresh worktree · thinking low')
 })
 
-test('several projects send one run request, never YOLO', () => {
+test('several projects send one run request, with YOLO when chosen', () => {
   const r = 'r'.repeat(36)
   const many = choice({ agent: 'cline', model: ' sonnet ', effort: 'high', projectIds: ['p-reet', 'p-site', 'p-notes'], prompt: 'Fix the failing tests', approvals: 'yolo', branch: 'release' })
-  assert.deepEqual(toSelectionRun(many, r), { requestId: r, projectIds: ['p-reet', 'p-site', 'p-notes'], tool: 'cline', model: 'sonnet', effort: 'high', prompt: 'Fix the failing tests', worktree: true })
+  assert.deepEqual(toSelectionRun(many, r), { requestId: r, projectIds: ['p-reet', 'p-site', 'p-notes'], tool: 'cline', model: 'sonnet', effort: 'high', prompt: 'Fix the failing tests', worktree: true, yolo: true })
   // Effort only for an agent that takes it; no model is ''; the checkout is worktree false.
   assert.deepEqual(toSelectionRun(choice({ agent: 'claude', model: '', effort: 'high', projectIds: ['p-reet', 'p-site'], worktree: false, prompt: '' }), r),
     { requestId: r, projectIds: ['p-reet', 'p-site'], tool: 'claude', model: '', effort: '', prompt: '', worktree: false })
@@ -353,7 +378,8 @@ test('a start in several projects words its own refusals', () => {
   const cases = [
     [409, 'run_in_progress', 'One of those projects is still starting. Wait for it to finish, then start again.'],
     [422, 'invalid_selection', 'Choose 2 to 12 different projects.'],
-    [409, 'yolo_refused', "reet doesn't start YOLO sessions yet."],
+    [409, 'yolo_not_allowed', 'An owner or admin can allow YOLO for this account in Settings.'],
+    [409, 'yolo_refused', "That machine doesn't accept YOLO sessions."],
     [422, 'invalid_effort', "Choose low, medium or high thinking, or the agent's default."],
     [422, 'invalid_model', "That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit."],
     [422, 'request_id_required', 'Starting needs a request id: 16 to 128 letters, digits, hyphens or underscores.'],

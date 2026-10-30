@@ -41,10 +41,15 @@ func (f *fakeChat) Cancel() error {
 	f.mu.Unlock()
 	return nil
 }
-func (f *fakeChat) Allow(_ string, allow bool) error {
+func (f *fakeChat) Allow(id string, allow bool) error {
 	f.mu.Lock()
 	f.allow = append(f.allow, allow)
+	onEvent := f.onEvent
 	f.mu.Unlock()
+	if onEvent != nil {
+		answer := allow
+		onEvent(opencodeacp.Event{Kind: "permission_resolved", PermissionID: id, Allow: &answer})
+	}
 	return nil
 }
 func (f *fakeChat) SessionID() string     { return "ses_fake000000000000000000000001" }
@@ -90,6 +95,53 @@ func testChatHost(t *testing.T) (*chatHost, *fakeChat, *sent) {
 	}
 	_ = dir
 	return h, proc, out
+}
+
+func TestChatHostYoloAllowsOnce(t *testing.T) {
+	h, proc, out := testChatHost(t)
+	h.opts.YoloConsent = func() error { return nil }
+	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
+		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Yolo: true, Dir: h.opts.Home,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	proc.onEvent(opencodeacp.Event{Kind: "permission", PermissionID: "permission-0123456789", Title: "run tests"})
+	proc.mu.Lock()
+	defer proc.mu.Unlock()
+	if len(proc.allow) != 1 || !proc.allow[0] {
+		t.Fatalf("allow: %v", proc.allow)
+	}
+	out.mu.Lock()
+	defer out.mu.Unlock()
+	var permission, resolved bool
+	for _, m := range out.msgs {
+		if e, ok := m.Body.(*terminalproto.ACPEvent); ok {
+			if e.Kind == "permission" {
+				permission = true
+			}
+			if e.Kind == "permission_resolved" && e.Allow != nil && *e.Allow {
+				resolved = true
+			}
+		}
+	}
+	if !permission || !resolved {
+		t.Fatalf("events: permission=%v resolved=%v", permission, resolved)
+	}
+}
+
+func TestChatHostYoloRefusedWithoutMachineConsent(t *testing.T) {
+	h, _, _ := testChatHost(t)
+	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
+		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Yolo: true, Dir: h.opts.Home,
+	}); !errors.Is(err, terminalhost.ErrYoloRefused) {
+		t.Fatalf("refused: %v", err)
+	}
+	h.opts.YoloConsent = func() error { return errors.New("off") }
+	if _, err := h.open("request-9876543210", "session-9876543210", terminalproto.Create{
+		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Yolo: true, Dir: h.opts.Home,
+	}); !errors.Is(err, terminalhost.ErrYoloRefused) {
+		t.Fatalf("refused off: %v", err)
+	}
 }
 
 func TestChatHostCreatePromptPermissionEnd(t *testing.T) {

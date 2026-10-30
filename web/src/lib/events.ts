@@ -77,6 +77,10 @@ export function eventLabel(e: Event): string {
     case 'merge-machines': return `Consolidated machine ${d.from || ''} as ${d.to || ''}`
     case 'forget-machine': return `Forgot machine ${d.host || ''}`
     case 'terminal-launch': return launchActivity(d)
+    case 'yolo-launch': return `Started ${toolName(d.tool || '')} on YOLO${d.host || d.machine ? ` on ${d.host || d.machine}` : ''}`
+    case 'yolo-allow': return `YOLO allowed a request in a ${toolName(d.tool || '')} session`
+    case 'yolo-allowed': return 'Allowed YOLO sessions for the account'
+    case 'yolo-disallowed': return 'Turned off YOLO sessions for the account'
     case 'project-create': return d.name ? `Created project ${d.name}${typeof d.members === 'number' ? ` with ${repositories(d.members)}` : ''}` : 'Created a project'
     case 'project-update': return d.previousName && d.name ? `Renamed project ${d.previousName} to ${d.name}` : d.name ? `Updated project ${d.name}` : 'Updated a project'
     case 'project-delete': return d.name ? `Deleted project ${d.name}` : 'Deleted a project'
@@ -311,6 +315,10 @@ export const EVENT_CATEGORIES: { id: EventCategory; label: string }[] = [
 
 const CATEGORY_ACTIONS: Record<string, EventCategory> = {
   'terminal-launch': 'agents',
+  'yolo-launch': 'agents',
+  'yolo-allow': 'agents',
+  'yolo-allowed': 'admin',
+  'yolo-disallowed': 'admin',
   'machine-models-read': 'agents',
   'model-favourite-added': 'agents',
   'model-favourite-removed': 'agents',

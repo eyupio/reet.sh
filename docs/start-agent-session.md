@@ -74,8 +74,9 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
 
 - **What it opens on.** The last launch, read from the sessions list (never from browser storage),
   with the prompt empty and Approvals on **Ask me**. After every start Approvals is back on Ask me.
-  **YOLO** is shown disabled ("reet doesn't start YOLO sessions yet.") and the controller refuses it
-  (409 `yolo_refused`) until a later release.
+  **YOLO** opens the confirmation dialog; it is available only when an owner or admin has allowed it
+  for the account, the machine accepts it, the agent has a reviewed option and the person confirms
+  this session. The controller refuses it with 403 `yolo_not_allowed` or 409 `yolo_refused` otherwise.
 - **The rail.** Choosing a rail card puts that project in the sentence with its own default agent,
   model, base branch and worktree choice, then moves focus to the prompt. `/?project=<id>` does the
   same once. The card's **+** and **New session here** start at once instead, sending the bar's Start
@@ -137,7 +138,8 @@ start in one project is made. **Done** leaves Select.
 A lost reply keeps the same run request for **Try the same request again**, and so does a refusal for
 speed (429 `project_rate_limited`). Other refusals are in this start's own words, for example "One of
 those projects is still starting. Wait for it to finish, then start again." (409 `run_in_progress`)
-and "Choose 2 to 12 different projects." YOLO is refused here too.
+and "Choose 2 to 12 different projects." YOLO applies to every member, after the same account,
+machine and agent gates.
 
 ## The dialog
 
@@ -238,7 +240,9 @@ attempt did start, it appears in your sessions list on the next refresh.
 - The opening prompt can't start with `-`. For Claude Code, Codex and Cline it must be at least two words.
 - No agent status (working, waiting or idle), no resuming an earlier conversation and no Windows
   machines. Several folders start together only from Home's Select (2 to 12 folder projects).
-- YOLO is refused (409 `yolo_refused`) until a later release.
+- YOLO is off unless an owner or admin allows it for the account, the machine accepts it and the
+  session is confirmed. A machine can refuse it locally with `reet terminal yolo off`.
+- YOLO is recorded per launch; a structured session records each permission reet answers.
 
 ## What this does not establish
 

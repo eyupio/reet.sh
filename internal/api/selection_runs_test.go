@@ -157,7 +157,7 @@ func TestSelectionRunRefusals(t *testing.T) {
 		"dash":          {with(func(b map[string]any) { b["prompt"] = "-" + selectionAPIPrompt }), 422, "invalid_prompt"},
 		"long":          {with(func(b map[string]any) { b["prompt"] = strings.Repeat(selectionAPIPrompt, 40) }), 422, "invalid_prompt"},
 		"one word":      {with(func(b map[string]any) { b["prompt"] = "zebra-sentinel" }), 422, "prompt_unsupported"},
-		"yolo":          {with(func(b map[string]any) { b["yolo"] = true }), 409, "yolo_refused"},
+		"yolo":          {with(func(b map[string]any) { b["yolo"] = true }), 409, "launch_option_unsupported"},
 		"unknown field": {with(func(b map[string]any) { b["sharedPrompt"] = selectionAPIPrompt }), 400, "invalid_request"},
 		"not json":      {`{"prompt":"zebra-sentinel"`, 400, "invalid_request"},
 	} {
@@ -275,7 +275,8 @@ func TestSelectionRunMemberSentences(t *testing.T) {
 	for code, want := range map[string]string{
 		projectrun.CodeOptionNeedsUpdate:       "Update reet on that machine to use that option.",
 		projectrun.CodeLaunchOptionUnsupported: "That agent doesn't take that option.",
-		projectrun.CodeYoloRefused:             "reet doesn't start YOLO sessions yet.",
+		projectrun.CodeYoloNotAllowed:          "An owner or admin can allow YOLO for this account in Settings.",
+		projectrun.CodeYoloRefused:             "That machine doesn't accept YOLO sessions.",
 		projectrun.CodeToolUnavailable:         "reet doesn't start this agent yet.",
 		projectrun.CodeProjectMoved:            "That project was removed, or moved to another machine or folder, since this start. Start it again from the rail.",
 		"base_missing":                         "That branch isn't in the repository on that machine.",

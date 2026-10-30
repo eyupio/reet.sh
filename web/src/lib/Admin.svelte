@@ -4,8 +4,8 @@
   import { groupLabel } from './machines'
   import PageHeader from './PageHeader.svelte'
   import {
-    createInvite, deleteAdminUser, getAdminSso, getAdminStatus, getRollup, listAdminUsers, resetUserPassword, revokeUserTokens,
-    saveAdminSettings, transferOwner, updateAdminUser, type AdminStatus, type Rollup, type RollupSkill, type UserMeta,
+    createInvite, deleteAdminUser, getAdminSso, getAdminStatus, getRollup, getYoloSetting, listAdminUsers, resetUserPassword, revokeUserTokens,
+    saveAdminSettings, setYoloSetting, transferOwner, updateAdminUser, type AdminStatus, type Rollup, type RollupSkill, type UserMeta, type YoloSetting,
   } from './api'
   import AdminEmail from './AdminEmail.svelte'
   import AdminNotifications from './AdminNotifications.svelte'
@@ -54,6 +54,9 @@
   let saving = $state(false)
   let saved = $state('')
   let form = $state({ refreshEnabled: true, topicsEnabled: true, linkListsEnabled: false, rollupIndividual: true, pruneServerEnvironmentsDays: 0, instanceName: '' })
+  let yolo = $state<YoloSetting | null>(null)
+  let yoloSaving = $state(false)
+  let yoloNotice = $state('')
   let users = $state<UserMeta[]>([])
   let usersError = $state('')
   let ssoStatus = $state<AdminSso | null>(null)
@@ -81,6 +84,7 @@
       status = r
       form = { ...r.settings }
       error = ''
+      try { yolo = await getYoloSetting() } catch { yolo = null }
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
       onerror?.(e)
@@ -329,6 +333,25 @@
       onerror?.(e)
     } finally {
       saving = false
+    }
+  }
+
+  async function saveYolo(event: Event) {
+    if (!yolo) return
+    const input = event.currentTarget as HTMLInputElement
+    const allowed = input.checked
+    yoloSaving = true
+    yoloNotice = ''
+    error = ''
+    try {
+      yolo = await setYoloSetting(allowed)
+      yoloNotice = allowed ? 'YOLO is allowed for this account.' : 'YOLO is off for this account.'
+    } catch (e) {
+      input.checked = yolo.allowed
+      error = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      yoloSaving = false
     }
   }
 
@@ -724,6 +747,14 @@
           {/each}
         </ul>
       {/if}
+    </section>
+    {/if}
+    {#if (role === 'owner' || role === 'admin') && yolo}
+    <section class="block" aria-labelledby="admin-yolo">
+      <h2 id="admin-yolo">Approvals</h2>
+      <p class="muted">Lets people start a session where the agent doesn't ask before acting. Each session still needs its own confirmation.</p>
+      <label class="check"><input type="checkbox" checked={yolo.allowed} disabled={yoloSaving} onchange={saveYolo} /> Allow YOLO</label>
+      <p class="muted" role="status">{yoloNotice || (yolo.changedBy ? `Last changed by ${yolo.changedBy}.` : 'Off unless an owner or admin allows it.')}</p>
     </section>
     {/if}
     {#if confirmAction}

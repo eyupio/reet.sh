@@ -149,11 +149,11 @@ func (s *server) projectRunStart(w http.ResponseWriter, r *http.Request) {
 }
 
 const (
-	sentenceSelection     = "Choose 2 to 12 different projects."
-	sentenceRunPrompt     = "The prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash."
-	sentenceNoOption      = "That agent doesn't take that option."
-	sentenceYoloNotYet    = "reet doesn't start YOLO sessions yet."
-	sentenceSelectionBusy = "One of those projects is still starting. Wait for it to finish, then start again."
+	sentenceSelection      = "Choose 2 to 12 different projects."
+	sentenceRunPrompt      = "The prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash."
+	sentenceNoOption       = "That agent doesn't take that option."
+	sentenceYoloNotAllowed = "An owner or admin can allow YOLO for this account in Settings."
+	sentenceSelectionBusy  = "One of those projects is still starting. Wait for it to finish, then start again."
 )
 
 // selectionRunStart starts agents in several folder projects at once: one run
@@ -162,7 +162,8 @@ const (
 // "tool", "model", "effort", "prompt", "worktree", "yolo"}. The request id
 // makes it idempotent: the same request again answers 200 with its run and
 // starts nothing new. Each field is checked here with its own sentence, which
-// never repeats the prompt; YOLO is refused until reet starts YOLO sessions.
+// never repeats the prompt. YOLO is checked before each member starts, so a
+// machine that refuses it fails that member.
 func (s *server) selectionRunStart(w http.ResponseWriter, r *http.Request) {
 	if !s.terminalEnabled() {
 		terminalsOff(w)
@@ -215,8 +216,8 @@ func (s *server) selectionRunStart(w http.ResponseWriter, r *http.Request) {
 		refuse(http.StatusUnprocessableEntity, "invalid_prompt", "prompt", sentenceRunPrompt)
 	case terminalproto.PromptNeedsWords(in.Tool, in.Prompt):
 		refuse(http.StatusUnprocessableEntity, "prompt_unsupported", "prompt", sentenceTwoWords)
-	case in.Yolo:
-		refuse(http.StatusConflict, "yolo_refused", "", sentenceYoloNotYet)
+	case in.Yolo && !terminalproto.ToolTakesYolo(in.Tool):
+		refuse(http.StatusConflict, "launch_option_unsupported", "", sentenceNoOption)
 	default:
 		run, created, err := s.st.StartSelectionRunFor(uid, in.RequestID, in.ProjectIDs, store.RunLaunch{Tool: in.Tool, Model: in.Model, Effort: in.Effort, Prompt: in.Prompt, Worktree: in.Worktree, Yolo: in.Yolo})
 		switch {

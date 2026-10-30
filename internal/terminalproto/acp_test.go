@@ -61,11 +61,14 @@ func TestStructuredCreateRules(t *testing.T) {
 	if c.Validate() != nil {
 		t.Fatal("valid structured create refused")
 	}
+	c.Yolo = true
+	if c.Validate() != nil {
+		t.Fatal("structured YOLO create refused")
+	}
 	for name, mutate := range map[string]func(*Create){
 		"other tool":  func(c *Create) { c.Tool = "claude" },
 		"worktree":    func(c *Create) { c.Worktree = "run" },
 		"resume":      func(c *Create) { c.Resume = true },
-		"yolo":        func(c *Create) { c.Yolo = true },
 		"effort":      func(c *Create) { c.Effort = "high" },
 		"project run": func(c *Create) { c.Project = "p" },
 	} {

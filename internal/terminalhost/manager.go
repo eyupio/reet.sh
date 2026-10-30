@@ -43,6 +43,10 @@ type ManagerOptions struct {
 	// (reet terminal models on|off). nil means listing is refused, as it is
 	// by default; an error refuses it too.
 	ModelsConsent func() error
+	// YoloConsent re-reads the machine's local YOLO switch
+	// (reet terminal yolo on|off). nil means YOLO is refused, as it is by
+	// default; an error refuses it too.
+	YoloConsent func() error
 }
 
 type Manager struct {
@@ -55,6 +59,8 @@ type Manager struct {
 	clipboardConsent func() error
 	// uploadConsent nil means image uploads are allowed.
 	uploadConsent func() error
+	// yoloConsent nil means YOLO sessions are refused.
+	yoloConsent func() error
 	// clipboardSet and clipboardOn remember the last set-clipboard value the
 	// manager applied to the running tmux server.
 	clipboardSet bool
@@ -95,7 +101,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if git == nil {
 		git = ExecGit
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, lookPath: exec.LookPath, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, changed: make(chan struct{})}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, changed: make(chan struct{})}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -156,6 +162,9 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	defer m.mu.Unlock()
 	if err := m.allowed(); err != nil {
 		return ManagedSession{}, err
+	}
+	if in.Yolo && (m.yoloConsent == nil || m.yoloConsent() != nil) {
+		return ManagedSession{}, ErrYoloRefused
 	}
 	lock, err := m.registryLock(ctx)
 	if err != nil {

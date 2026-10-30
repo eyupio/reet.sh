@@ -29,6 +29,7 @@ func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
 		writeJSON(w, 200, s.terminalStatus())
 	}))
 	mux.HandleFunc("GET /api/v2/terminal/machines", s.terminal(s.terminalMachines))
+	mux.HandleFunc("GET /api/v2/machines/{agentId}/yolo", s.terminalAccess(s.terminalMachineYolo, true))
 	mux.HandleFunc("POST /api/v2/machines/{agentId}/uploads", s.terminal(s.terminalLaunchUpload))
 	mux.HandleFunc("GET /api/v2/terminal/sessions", s.terminal(s.terminalSessions))
 	mux.HandleFunc("POST /api/v2/terminal/sessions", s.terminal(s.terminalCreate))
@@ -180,6 +181,22 @@ func (s *server) terminalMachines(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"machines": out})
 }
+
+// terminalMachineYolo is the confirmation dialog's gate: whether the machine
+// currently reports that it accepts YOLO, and when that was observed.
+func (s *server) terminalMachineYolo(w http.ResponseWriter, r *http.Request) {
+	c, err := s.st.RemoteCapabilitiesFor(s.uid(r), r.PathValue("agentId"))
+	if errors.Is(err, store.ErrRemoteNotFound) {
+		writeJSON(w, 200, map[string]any{"accepts": false, "checkedAt": int64(0)})
+		return
+	}
+	if err != nil {
+		terminalError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"accepts": c.Capabilities.Yolo, "checkedAt": c.ObservedAt})
+}
+
 func (s *server) terminalSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := s.st.TerminalSessionsFor(s.uid(r))
 	if err != nil {
@@ -288,8 +305,10 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusUnprocessableEntity, "tool_unavailable", "tool", "reet doesn't start this agent yet.", "")
 	case errors.Is(err, terminalbroker.ErrToolNotInstalled):
 		writeErrCode(w, http.StatusUnprocessableEntity, "tool_not_installed", "tool", "That agent isn't installed on that machine.", "")
+	case errors.Is(err, terminalbroker.ErrYoloNotAllowed):
+		writeErrCode(w, http.StatusForbidden, "yolo_not_allowed", "", "An owner or admin can allow YOLO for this account in Settings.", "")
 	case errors.Is(err, terminalbroker.ErrYoloRefused):
-		writeErrCode(w, http.StatusConflict, "yolo_refused", "", "That machine does not allow YOLO sessions.", "")
+		writeErrCode(w, http.StatusConflict, "yolo_refused", "", "That machine doesn't accept YOLO sessions.", "")
 	case errors.Is(err, terminalbroker.ErrPromptUnsupported):
 		writeErrCode(w, http.StatusUnprocessableEntity, "prompt_unsupported", "prompt", "Write the opening prompt as at least two words.", "")
 	case errors.Is(err, terminalbroker.ErrWorktreeUnsupported):

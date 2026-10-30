@@ -1,4 +1,4 @@
-import type { Profile } from './api'
+import type { Profile, YoloSetting } from './api'
 import type { BranchesResult, FolderProject, LaunchRequest, TerminalMachine, TerminalSession } from './terminal/api'
 import { readiness } from './terminal/api'
 import { CATALOGUE, agentChoices } from './catalogue'
@@ -273,14 +273,16 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
   if (choice.chat === true) {
     if (picked.length > 1) return 'The reet TUI starts in one folder at a time. Choose one project, or switch to the agent TUI.'
     if (choice.trust !== true) return 'Confirm you trust this folder before starting the reet TUI.'
-    if (choice.effort || choice.approvals === 'yolo') return 'The reet TUI uses its own model and approvals; switch to the agent TUI for those choices.'
+    if (choice.effort) return 'The reet TUI uses its own model and approvals; switch to the agent TUI for those choices.'
     const target = machines.find(x => x.agentId === (picked[0]?.host ?? choice.homeMachine ?? ''))
     if (readiness(target)) return readiness(target)!
     if (!target?.capabilities?.acp) return 'Update reet on that machine to start the reet TUI.'
+    if (choice.approvals === 'yolo' && !target.capabilities.yolo) return `${target.host} doesn't accept YOLO sessions.`
     return null
   }
   const model = validateModel(choice.model)
   if (model) return model
+  if (choice.approvals === 'yolo' && !agent.yolo) return NO_OPTION
   if (choice.effort && !agent.effort) return NO_OPTION
   const targets: { agentId: string; repo: boolean; base: boolean }[] = picked.length > 0
     ? picked.map(p => ({ agentId: p.host, repo: p.isRepo, base: !!baseFor(choice, p, profile) }))
@@ -336,7 +338,7 @@ export function toCreate(choice: LaunchChoice, project: LaunchProject | null, re
     if (base) launch.base = base
   }
   if (!chat && choice.effort && takesEffort(choice.agent)) launch.effort = choice.effort
-  if (!chat && choice.approvals === 'yolo') launch.yolo = true
+  if (choice.approvals === 'yolo') launch.yolo = true
   return {
     agentId: project ? project.host : choice.homeMachine ?? '',
     requestId,
@@ -345,13 +347,60 @@ export function toCreate(choice: LaunchChoice, project: LaunchProject | null, re
   }
 }
 
+/** One line of the YOLO dialog's checklist. A warning is a recommendation, not a gate. */
+export type YoloGate = { label: string; ok: boolean; detail: string; warning?: boolean }
+
+/** The gates the confirmation dialog states, each with its source. */
+export function yoloGates(choice: LaunchChoice, setting: YoloSetting | null | undefined, projects: LaunchProject[], machines: LaunchMachine[]): YoloGate[] {
+  const gates: YoloGate[] = []
+  const account = setting?.allowed === true
+  gates.push({
+    label: 'Your account allows YOLO',
+    ok: account,
+    detail: account ? (setting?.changedBy ? `set by ${setting.changedBy}` : 'set by an owner') : setting ? 'An owner or admin can allow YOLO for this account in Settings.' : 'Reading the account setting…',
+  })
+  const picked = chosen(choice, projects)
+  const hosts = picked.length > 0 ? [...new Set(picked.map(p => p.host))] : [choice.homeMachine ?? '']
+  for (const host of hosts) {
+    const machine = machines.find(m => m.agentId === host)
+    const name = machine?.host || 'That machine'
+    const ok = !!machine?.capabilities?.yolo
+    gates.push({
+      label: `${name} accepts YOLO sessions`,
+      ok,
+      detail: ok ? 'checked a moment ago' : `${name} doesn't accept YOLO sessions.`,
+    })
+  }
+  const agent = agentOf(choice.agent)
+  gates.push({
+    label: 'This agent has an option reet can use',
+    ok: !!agent?.yolo,
+    detail: agent?.yolo ? 'the option is recorded with the launch' : 'This agent has no option reet can use for that.',
+  })
+  if (picked.some(p => p.isRepo)) {
+    gates.push({
+      label: choice.worktree ? 'New worktree and branch for this session' : 'Works in the checkout on main',
+      ok: true,
+      warning: !choice.worktree,
+      detail: choice.worktree ? 'a throwaway worktree is safer' : 'Secrets in that folder are readable to the agent. Use a throwaway worktree if unsure.',
+    })
+  }
+  return gates
+}
+
+/** Whether the dialog's Start with YOLO may be pressed: warnings are recommendations. */
+export function yoloCanStart(gates: YoloGate[]): boolean {
+  return gates.every(g => g.warning || g.ok)
+}
+
 /** What a start in several projects sends: one request for a run (POST /api/v2/folder-projects/runs). Each project's base is
- * the controller's to settle (`baseFor`'s rule); YOLO is never sent until reet starts YOLO sessions. */
-export type SelectionRunRequest = { requestId: string; projectIds: string[]; tool: string; model: string; effort: Effort; prompt: string; worktree: boolean }
+ * the controller's to settle (`baseFor`'s rule). */
+export type SelectionRunRequest = { requestId: string; projectIds: string[]; tool: string; model: string; effort: Effort; prompt: string; worktree: boolean; yolo?: boolean }
 export function toSelectionRun(choice: LaunchChoice, requestId: string): SelectionRunRequest {
   return {
     requestId, projectIds: [...choice.projectIds], tool: choice.agent, model: cleanModel(choice.model),
     effort: takesEffort(choice.agent) ? choice.effort : '', prompt: choice.prompt, worktree: choice.worktree,
+    ...(choice.approvals === 'yolo' ? { yolo: true } : {}),
   }
 }
 
@@ -360,7 +409,8 @@ export function toSelectionRun(choice: LaunchChoice, requestId: string): Selecti
 const RUN_REFUSALS: Record<string, string> = {
   run_in_progress: 'One of those projects is still starting. Wait for it to finish, then start again.',
   invalid_selection: 'Choose 2 to 12 different projects.',
-  yolo_refused: "reet doesn't start YOLO sessions yet.",
+  yolo_not_allowed: 'An owner or admin can allow YOLO for this account in Settings.',
+  yolo_refused: "That machine doesn't accept YOLO sessions.",
   invalid_effort: "Choose low, medium or high thinking, or the agent's default.",
   invalid_model: "That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit.",
   request_id_required: 'Starting needs a request id: 16 to 128 letters, digits, hyphens or underscores.',

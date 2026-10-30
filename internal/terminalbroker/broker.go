@@ -505,6 +505,7 @@ var (
 	// ErrLaunchUnsupported means the machine did not negotiate launch-v1; the
 	// launch fields were not sent and nothing was reserved.
 	ErrLaunchOptionUnsupported = errors.New("machine does not support that launch option")
+	ErrYoloNotAllowed          = errors.New("YOLO sessions are not allowed for this account")
 	ErrYoloRefused             = errors.New("YOLO sessions are not allowed")
 	ErrLaunchUnsupported       = errors.New("machine does not support starting agents")
 	// ErrResumeUnsupported means the machine did not negotiate resume-v1; the
@@ -525,6 +526,12 @@ var (
 	// could read it as a subcommand; it was refused before sending.
 	ErrPromptUnsupported = errors.New("opening prompt must be at least two words for that agent")
 )
+
+// yoloAllowed reads the account-wide Allow YOLO setting; absent is off.
+func (b *Broker) yoloAllowed() bool {
+	v, err := b.st.GetSetting("terminal_allow_yolo")
+	return err == nil && v == "1"
+}
 
 func launchRequested(in terminalproto.Create) bool {
 	return in.Base != "" || in.Effort != "" || in.Yolo || in.Resume || in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != "" || worktreeRequested(in)
@@ -555,6 +562,20 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	}
 	if in.Structured && in.Tool != "opencode" {
 		return store.TerminalSession{}, false, ErrACPUnsupported
+	}
+	if in.Yolo {
+		// The account's Allow YOLO setting is checked before the machine is
+		// asked. A replay of a request already recorded is answered from that
+		// reservation below, even if the setting has since been turned off.
+		_, lookupErr := b.st.TerminalOperationFor(uid, agent, "create", request)
+		switch {
+		case errors.Is(lookupErr, store.ErrRemoteNotFound):
+			if !b.yoloAllowed() {
+				return store.TerminalSession{}, false, ErrYoloNotAllowed
+			}
+		case lookupErr != nil:
+			return store.TerminalSession{}, false, lookupErr
+		}
 	}
 	if in.ResumeACP != "" {
 		// Only a closed session this account already owns may be loaded. A
@@ -595,11 +616,14 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if err != nil || caps.Generation != p.Generation {
 			return store.TerminalSession{}, false, ErrOffline
 		}
-		if (in.Base != "" || in.Effort != "" || in.Yolo || in.Tool != "" && !terminalproto.ValidTool(in.Tool)) && !caps.Capabilities.AgentsV2 {
+		if in.Yolo && !terminalproto.ToolTakesYolo(in.Tool) {
 			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
 		}
-		if in.Yolo {
+		if in.Yolo && !caps.Capabilities.Yolo {
 			return store.TerminalSession{}, false, ErrYoloRefused
+		}
+		if (in.Base != "" || in.Effort != "" || in.Tool != "" && !terminalproto.ValidTool(in.Tool)) && !caps.Capabilities.AgentsV2 {
+			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
 		}
 		// Options the agent's preset has no mapping for are refused here, not
 		// by the machine after a session is reserved.
@@ -725,6 +749,11 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	s, err = b.st.TerminalSessionFor(uid, s.ID)
 	if err == nil && refusal != nil {
 		err = refusal
+	}
+	if err == nil && refusal == nil && in.Yolo {
+		_ = b.st.AddEventFor(uid, "machine", "yolo-launch", "", map[string]string{
+			"machine": agent, "tool": in.Tool, "session": s.ID, "worktree": s.WorktreePath,
+		})
 	}
 	return s, err == nil && s.State != terminalproto.Creating && s.State != terminalproto.Lost, err
 }

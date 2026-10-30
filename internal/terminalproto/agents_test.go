@@ -69,16 +69,19 @@ func TestCapabilitiesNewToolIDsNeedAgentsV2(t *testing.T) {
 		t.Fatal("feature or tool check failed")
 	}
 }
-func TestCapabilitiesYoloRefusedUntilSupported(t *testing.T) {
+func TestCapabilitiesYoloNeedsAgentsV2(t *testing.T) {
 	c := Capabilities{Yolo: true, Launch: true, TerminalControl: true, ProtocolVersion: Version, OS: "linux", OSUser: "test", TerminalEnabled: true, Readiness: Ready}
-	for _, features := range []string{"", AgentsFeature} {
+	for _, features := range []string{"", "launch-v1"} {
 		if c.ValidateFor(features) == nil {
 			t.Fatalf("yolo capability accepted for %q", features)
 		}
 	}
-	c.Yolo = false
+	if c.ValidateFor(AgentsFeature) == nil {
+		t.Fatal("yolo capability without agents-v2 claim accepted")
+	}
+	c.AgentsV2 = true
 	if c.ValidateFor(AgentsFeature) != nil {
-		t.Fatal("capabilities without yolo refused")
+		t.Fatal("yolo capability with agents-v2 refused")
 	}
 }
 

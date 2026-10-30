@@ -128,6 +128,7 @@ export async function createTerminal(agentId: string, requestId: string, title: 
 }
 export async function terminalTicket(session: string, cols: number, rows: number, takeover: boolean, signal?: AbortSignal): Promise<string> { return (await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(session)}/attachments`, { method: 'POST', body: JSON.stringify({ cols, rows, takeover }), signal })).json()).ticket }
 export async function machineHealth(signal?: AbortSignal): Promise<HealthResponse> { return (await terminalRequest('/api/v2/machines/health', { signal })).json() }
+export async function machineYolo(agentId: string, signal?: AbortSignal): Promise<{ accepts: boolean; checkedAt: number }> { return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/yolo`, { signal })).json() }
 export async function renameTerminal(id: string, title: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify({title}) }) }
 export async function endTerminal(id: string, requestId: string, removeHistory=false): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/end`, { method:'POST', body:JSON.stringify({requestId,removeHistory}) }) }
 /** The address that opens one session (R17). Only ids go in the address. */
@@ -182,7 +183,7 @@ export async function getRun(runId: string, signal?: AbortSignal): Promise<Proje
 // Start in several projects: one run of the folder projects chosen in the rail (POST /api/v2/folder-projects/runs), read and
 // retried under the folder projects' routes. The start is idempotent by its request id; a member's retry asks the controller,
 // which keeps the same request id while the earlier create may have started an agent.
-export type SelectionRunBody = { requestId: string; projectIds: string[]; tool: string; model: string; effort: string; prompt: string; worktree: boolean }
+export type SelectionRunBody = { requestId: string; projectIds: string[]; tool: string; model: string; effort: string; prompt: string; worktree: boolean; yolo?: boolean }
 const selectionRunPath = (runId: string): string => `/api/v2/folder-projects/runs/${encodeURIComponent(runId)}`
 export async function startSelectionRun(body: SelectionRunBody, signal?: AbortSignal): Promise<ProjectRun> {
   return (await terminalRequest('/api/v2/folder-projects/runs', { method: 'POST', signal: within(signal), body: JSON.stringify(body) })).json()

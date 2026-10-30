@@ -432,8 +432,9 @@ projects" and "Browsed folders from ~ (3 pages)". The old runs' `project-run`, `
 - **Worktrees in use, not worktrees made.** No record says which worktrees reet made and has not
   removed, so the rail and fleet cards count only those live sessions are in. A worktree left by an
   ended session (outside an old run) is not listed anywhere.
-- **YOLO not yet.** The launch bar shows YOLO disabled and the controller refuses it (409
-  `yolo_refused`), for one project and for several, until a later release.
+- **YOLO is gated.** The account setting, the machine's acceptance, the agent's reviewed option and
+  a per-session confirmation are all required, for one project and for several. A refusal is 403
+  `yolo_not_allowed` or 409 `yolo_refused`.
 - **Old runs listed: the newest 20 per saved Project** (what the run list answers); older runs and their
   worktrees are not listed.
 - **Rail menu reorder only.** Moving is one place at a time from the menu; there is no drag.

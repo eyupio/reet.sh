@@ -197,7 +197,7 @@ export function headerMeta(s: Pick<TerminalSession, 'tool' | 'model'>, createdAt
 
 /** Decisions in this session. A terminal agent asks in its own terminal; reet sees none of it, so it lists none. */
 export function decisionsLine(s: Pick<TerminalSession, 'yolo' | 'structured'>): string {
-  if (s.yolo) return 'YOLO: reet answers yes, this once, to each request.'
+  if (s.yolo) return s.structured ? 'YOLO: reet answers yes, this once, to each request.' : 'YOLO: the agent asked not to be prompted; the launch is audited.'
   return s.structured ? 'Asked in the chat: Allow once or Deny.' : 'Asked in the terminal.'
 }
 

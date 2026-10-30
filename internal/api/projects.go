@@ -283,7 +283,8 @@ var runMemberSentences = func() map[string]string {
 		"invalid_launch":     "reet couldn't send that start request. Check the Project's settings and try again.",
 		"internal_error":     "Something went wrong on our side. Check your sessions, then retry.",
 		// A selection run's own codes.
-		"yolo_refused":              sentenceYoloNotYet,
+		"yolo_not_allowed":          sentenceYoloNotAllowed,
+		"yolo_refused":              "That machine doesn't accept YOLO sessions.",
 		"launch_option_unsupported": sentenceNoOption,
 		"option_needs_update":       "Update reet on that machine to use that option.",
 		"tool_unavailable":          "reet doesn't start this agent yet.",

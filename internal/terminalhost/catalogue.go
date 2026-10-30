@@ -42,20 +42,20 @@ type Preset struct {
 // denial and interactive mode; its default otherwise auto-approves tools.
 var Catalogue = []Preset{
 	{ID: "claude", Name: "Claude Code", Binary: "claude", ModelFlag: "--model", PromptPositional: true, ACP: "adapter"},
-	{ID: "codex", Name: "Codex", Binary: "codex", ModelFlag: "--model", PromptPositional: true, ACP: "adapter"},
-	{ID: "opencode", Name: "OpenCode", Binary: "opencode", ModelFlag: "--model", PromptFlag: "--prompt", ResumeArgs: []string{"--continue"}, ACP: "native", ModelList: &ModelList{Argv: []string{"models"}, Env: []string{"OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_DISABLE_AUTOUPDATE=1", "NO_COLOR=1", "LANG=C.UTF-8", "CI=1"}}},
+	{ID: "codex", Name: "Codex", Binary: "codex", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--dangerously-bypass-approvals-and-sandbox"}, ACP: "adapter"},
+	{ID: "opencode", Name: "OpenCode", Binary: "opencode", ModelFlag: "--model", PromptFlag: "--prompt", YoloArgs: []string{"--auto"}, ResumeArgs: []string{"--continue"}, ACP: "native", ModelList: &ModelList{Argv: []string{"models"}, Env: []string{"OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_DISABLE_AUTOUPDATE=1", "NO_COLOR=1", "LANG=C.UTF-8", "CI=1"}}},
 	{ID: "gemini", Name: "Gemini CLI", Binary: "gemini", ModelFlag: "--model", PromptFlag: "--prompt-interactive"},
 	{ID: "pi", Name: "Pi", Binary: "pi", DisabledReason: "This CLI has no built-in approval policy for tool execution."},
 	{ID: "cursor", Name: "Cursor Agent", Binary: "cursor-agent", DisabledReason: "CLI help and permission defaults have not been confirmed."},
-	{ID: "cline", Name: "Cline", Binary: "cline", ModelFlag: "--model", PromptPositional: true, SafeArgs: []string{"--auto-approve", "false", "--tui"}, EffortArgs: map[string][]string{"low": {"--thinking", "low"}, "medium": {"--thinking", "medium"}, "high": {"--thinking", "high"}}, ACP: "native"},
+	{ID: "cline", Name: "Cline", Binary: "cline", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--yolo", "--tui"}, SafeArgs: []string{"--auto-approve", "false", "--tui"}, EffortArgs: map[string][]string{"low": {"--thinking", "low"}, "medium": {"--thinking", "medium"}, "high": {"--thinking", "high"}}, ACP: "native"},
 }
 
 // launchPreset is a private execution view of the confirmed catalogue rows.
 type launchPreset struct {
-	binary, modelFlag, promptFlag string
-	effortArgs                    map[string][]string
-	safeArgs, resumeArgs          []string
-	modelList                     *ModelList
+	binary, modelFlag, promptFlag  string
+	effortArgs                     map[string][]string
+	safeArgs, yoloArgs, resumeArgs []string
+	modelList                      *ModelList
 }
 
 var launchPresets = func() map[string]launchPreset {
@@ -64,7 +64,7 @@ var launchPresets = func() map[string]launchPreset {
 		if p.DisabledReason != "" {
 			continue
 		}
-		out[p.ID] = launchPreset{binary: p.Binary, modelFlag: p.ModelFlag, promptFlag: p.PromptFlag, effortArgs: p.EffortArgs, safeArgs: p.SafeArgs, resumeArgs: p.ResumeArgs, modelList: p.ModelList}
+		out[p.ID] = launchPreset{binary: p.Binary, modelFlag: p.ModelFlag, promptFlag: p.PromptFlag, effortArgs: p.EffortArgs, safeArgs: p.SafeArgs, yoloArgs: p.YoloArgs, resumeArgs: p.ResumeArgs, modelList: p.ModelList}
 	}
 	return out
 }()

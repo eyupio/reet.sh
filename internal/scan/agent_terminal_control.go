@@ -17,7 +17,7 @@ func terminalControl(config string, c agentConfig) agenthealth.TerminalFactory {
 	if err != nil {
 		return nil
 	}
-	return terminalagent.Factory(terminalhost.ManagerOptions{EnrollmentID: c.ID, Layout: layout, Home: c.Home, Consent: func() error {
+	return terminalagent.Factory(terminalhost.ManagerOptions{EnrollmentID: c.ID, Layout: layout, Home: c.Home, YoloConsent: func() error { return yoloConsent(config, c) }, Consent: func() error {
 		current, err := loadAgentConfig(config)
 		if err != nil {
 			return err
@@ -59,6 +59,25 @@ func clipboardAllowed(config string, c agentConfig) func() bool {
 // locally (reet terminal uploads off).
 func uploadsAllowed(config string, c agentConfig) func() bool {
 	return func() bool { return uploadConsent(config, c) == nil }
+}
+
+// yoloConsent re-reads the enrollment and the machine's YOLO switch.
+func yoloConsent(config string, c agentConfig) error {
+	current, err := currentTerminalConfig(config, c)
+	if err != nil {
+		return err
+	}
+	if current.YoloOff {
+		return errors.New("YOLO disabled locally")
+	}
+	return nil
+}
+
+// yoloAllowed re-reads the enrollment: YOLO is allowed while it is still this
+// enrollment, terminal access is on and YOLO is not off locally
+// (reet terminal yolo off).
+func yoloAllowed(config string, c agentConfig) func() bool {
+	return func() bool { return yoloConsent(config, c) == nil }
 }
 
 // modelsAllowed re-reads the enrollment: model listing is allowed while it is

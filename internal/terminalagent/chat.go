@@ -39,6 +39,7 @@ type chatSession struct {
 	process   chatProcess
 	cancel    context.CancelFunc
 	busy      bool
+	yolo      bool
 	ended     sync.Once
 }
 
@@ -103,7 +104,11 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 		h.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrSessionCapacity
 	}
-	cs := &chatSession{id: sessionID, title: in.Title, state: terminalproto.Creating}
+	if in.Yolo && (h.opts.YoloConsent == nil || h.opts.YoloConsent() != nil) {
+		h.mu.Unlock()
+		return terminalproto.SessionChanged{}, terminalhost.ErrYoloRefused
+	}
+	cs := &chatSession{id: sessionID, title: in.Title, state: terminalproto.Creating, yolo: in.Yolo}
 	h.sessions[sessionID] = cs
 	h.requests[requestID] = sessionID
 	h.starting[requestID] = sessionID
@@ -330,6 +335,15 @@ func (h *chatHost) publish(cs *chatSession, event opencodeacp.Event) {
 	}
 	_ = h.send(h.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
 		Generation: h.generation, Body: &wire})
+	if cs.yolo && event.Kind == "permission" && event.PermissionID != "" {
+		// YOLO answers this once, for the person; the resolved event lets the
+		// controller record it and the chat show what was allowed.
+		if err := cs.process.Allow(event.PermissionID, true); err == nil {
+			allow := true
+			_ = h.send(h.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
+				Generation: h.generation, Body: &terminalproto.ACPEvent{Kind: "permission_resolved", PermissionID: event.PermissionID, Allow: &allow}})
+		}
+	}
 	if event.Kind == "status" && event.State == "ended" {
 		h.ended(cs, 0)
 	}

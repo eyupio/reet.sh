@@ -202,10 +202,6 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)
 				}
-				if create.Yolo {
-					reply.Body = terminalproto.Result{Code: terminalproto.YoloRefused}
-					return send(callCtx, reply)
-				}
 			}
 			switch msg.Body.(type) {
 			case *terminalproto.ACPPrompt, *terminalproto.ACPCancel, *terminalproto.ACPPermission:

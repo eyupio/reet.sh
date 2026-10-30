@@ -169,6 +169,13 @@ func (b *Broker) publishChat(uid int64, session string, event terminalproto.ACPE
 	if l != nil {
 		l.publish(event)
 	}
+	if event.Kind == "permission_resolved" && event.Allow != nil && *event.Allow {
+		if s, err := b.st.TerminalSessionFor(uid, session); err == nil && s.Yolo {
+			_ = b.st.AddEventFor(uid, "machine", "yolo-allow", "", map[string]string{
+				"machine": s.AgentID, "tool": s.Tool, "session": session, "permission": event.PermissionID,
+			})
+		}
+	}
 }
 
 // SubscribeChat returns the current ring and a subscription. The caller must

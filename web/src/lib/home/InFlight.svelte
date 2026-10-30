@@ -64,7 +64,7 @@
                 <a class="row" href={sessionHref(s)} onmouseenter={(event) => showCard(event.currentTarget, s)} onmouseleave={hideCard} onfocus={(event) => showCard(event.currentTarget, s)} onblur={hideCard}>
                   <span class="dot {word.tone}" aria-hidden="true"></span>
                   <span class="main">
-                    <span class="title">{s.title}</span>
+                    <span class="title">{s.title}{#if s.yolo}{' '}<span class="badge yolo">YOLO</span>{/if}</span>
                     <span class="where">{#if s.tool}{toolName(s.tool)}{' · '}{/if}{owner ? `${owner.name} · ` : ''}{hostOf(s.agentId)}{#if s.worktreeBranch}{' · '}<code class="branch">{s.worktreeBranch}</code>{/if}</span>
                   </span>
                   <span class="state">
@@ -114,6 +114,7 @@
   .dot.bad { background: var(--bad); }
   .main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
   .title { font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .badge.yolo { margin-left: 4px; padding: 0 5px; border: 1px solid var(--warn); border-radius: 5px; color: var(--warn); font-size: 10px; font-weight: 600; vertical-align: 1px; }
   .where { font-size: 12px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .branch { font-family: var(--mono); font-size: 12px; }
   .state { flex: none; display: flex; flex-direction: column; align-items: flex-end; text-align: right; max-width: 40%; }

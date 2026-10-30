@@ -11,7 +11,7 @@ const run = name => !only || only === name
 const now = Date.now()
 const MIN = 60_000
 const caps = (extra = {}) => ({protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,
- worktree:true,agentsV2:true,branches:true,browse:true,models:true,uploads:true,tools:['claude','codex','gemini','cline'],...extra})
+ worktree:true,agentsV2:true,yolo:true,branches:true,browse:true,models:true,uploads:true,tools:['claude','codex','gemini','cline'],...extra})
 // studio is ready; desk is reconnecting (not ready), so its projects and its home folder are offered disabled with the sentence.
 const tmachines = () => [
  {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:caps()},
@@ -42,6 +42,7 @@ async function launch(options={}) {
  const routes = {
   '/api/v2/machines/health': health(),
   '/api/v2/terminal/machines': () => ({machines:tmachines()}),
+  '/api/v2/settings/yolo': () => options.yolo ?? {allowed:true, changedBy:'Owner', changedAt:Date.now()},
   '/api/v2/terminal/sessions': async request => {
    if (request.method() !== 'POST') return {sessions:box.sessions}
    const body = request.postDataJSON()
@@ -537,16 +538,35 @@ try {
 
  // YOLO's reason can be read without a screen reader: a tooltip in the bar and a line in the Change sheet.
  if (run('YOLO reason is visible')) {
-  const desk = await launch()
+  const why = 'An owner or admin can allow YOLO for this account in Settings.'
+  const desk = await launch({yolo:{allowed:false}})
   await desk.page.goto(base)
-  await expect(bar(desk.page).locator('label', {hasText:'YOLO'})).toHaveAttribute('title', "reet doesn't start YOLO sessions yet.")
+  await expect(bar(desk.page).locator('label', {hasText:'YOLO'})).toHaveAttribute('title', why)
   expect(desk.errors).toEqual([])
   await desk.context.close()
-  const {context,page,errors} = await launch({width:390, height:844, touch:true})
+  const {context,page,errors} = await launch({width:390, height:844, touch:true, yolo:{allowed:false}})
   await page.goto(base)
   await bar(page).getByRole('button',{name:'Change',exact:true}).click()
   const sheet = page.getByRole('dialog',{name:'Change the launch'})
-  await expect(sheet.getByText("reet doesn't start YOLO sessions yet.",{exact:true})).toBeVisible()
+  await expect(sheet.getByText(why,{exact:true})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // YOLO confirms before the control moves, sends the flag once, and is back on Ask me after the start.
+ if (run('YOLO confirms and starts')) {
+  const {context,page,errors,box} = await launch()
+  await page.goto(base)
+  await pick(page,'Agent','Cline')
+  await bar(page).getByRole('radiogroup',{name:'Approvals'}).getByRole('radio',{name:'YOLO'}).click()
+  const dialog = page.getByRole('alertdialog',{name:'Start this session on YOLO?'})
+  await expect(dialog.getByText('Your account allows YOLO',{exact:true})).toBeVisible()
+  await expect(dialog.getByText('studio accepts YOLO sessions',{exact:true})).toBeVisible()
+  await expect(dialog.getByText('This agent has an option reet can use',{exact:true})).toBeVisible()
+  await dialog.getByRole('button',{name:'Start with YOLO'}).click()
+  await expect(page).toHaveURL(/\/sessions\?/)
+  await expect.poll(() => box.posts.length).toBe(1)
+  expect(box.posts[0]).toMatchObject({tool:'cline', yolo:true})
   expect(errors).toEqual([])
   await context.close()
  }
@@ -1003,10 +1023,16 @@ try {
   await expect.poll(() => sentenceText(page)).toBe('Run Cline with default on the home folder at studio · thinking high')
   await pick(page,'Project',/^Store rewrite/)
   await pick(page,'Worktree','the checkout')
-  // YOLO waits for a later release: its half is disabled, with the reason in its description.
+  // YOLO is live behind its dialog; Keep asking me leaves Approvals on Ask me.
   const yolo = bar(page).getByRole('radiogroup',{name:'Approvals'}).getByRole('radio',{name:'YOLO'})
-  await expect(yolo).toBeDisabled()
-  await expect(yolo).toHaveAccessibleDescription("reet doesn't start YOLO sessions yet.")
+  await expect(yolo).toBeEnabled()
+  await yolo.click()
+  const dialog = page.getByRole('alertdialog',{name:'Start this session on YOLO?'})
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button',{name:'Start with YOLO'})).toBeEnabled()
+  await dialog.getByRole('button',{name:'Keep asking me'}).click()
+  await expect(dialog).toBeHidden()
+  await expect(yolo).not.toBeChecked()
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[1]).toMatchObject({agentId:'a1', tool:'cline', effort:'high', dir:'/home/dev/store', projectId:'fp1'})
@@ -1537,7 +1563,7 @@ try {
   await context.close()
  }
 
- console.log('Launch bar: Select and start in several projects (lost reply, status sheet, retry, touch, 320 px, strip count), one press with the resolved defaults and Recent, profile defaults, machine lists and Refresh, several machines, favourites and stars, Other, a failed list, offline/old/off states, tablet and phone model pickers, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar and a card chosen while it is locked, a refusal kept across the same selection, Show run status going once all started or after a later start, Enter and Shift+Enter (and no key on touch), a pasted image uploaded before the session starts and its path in the prompt, the phone Change sheet and the landscape phone with one Change, the keyboard-open prompt, Tab and Escape from a list, no card marked for the home folder, branch reads, the YOLO reason, Stop selecting on the strip, unread projects, a removed project under a kept request, a run that is gone and nothing in storage checked.')
+ console.log('Launch bar: Select and start in several projects (lost reply, status sheet, retry, touch, 320 px, strip count), one press with the resolved defaults and Recent, profile defaults, machine lists and Refresh, several machines, favourites and stars, Other, a failed list, offline/old/off states, tablet and phone model pickers, each slot, unready machines, the starter prompt chip, lost replies and refusals, a -x folder, the locked bar and a card chosen while it is locked, a refusal kept across the same selection, Show run status going once all started or after a later start, Enter and Shift+Enter (and no key on touch), a pasted image uploaded before the session starts and its path in the prompt, the phone Change sheet and the landscape phone with one Change, the keyboard-open prompt, Tab and Escape from a list, no card marked for the home folder, branch reads, the YOLO reason, the YOLO confirmation and its single flag, Stop selecting on the strip, unread projects, a removed project under a kept request, a run that is gone and nothing in storage checked.')
 } finally {
  await browser.close()
 }

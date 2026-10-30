@@ -38,3 +38,26 @@ func btoi(b bool) int {
 	}
 	return 0
 }
+
+func TestYoloCapabilityNeedsAgentsV2AndTheLocalSwitch(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: func(context.Context, *http.Client, http.Header, int64, Sender) (func(context.Context, terminalproto.Message) error, func()) {
+		return nil, nil
+	}, LaunchTools: func() []string { return []string{"cline"} }, YoloAllowed: func() bool { return true }}
+	negotiateFeatures(&cfg, terminalproto.LaunchFeature+","+terminalproto.AgentsFeature)
+	cfg.yoloAllowed = readYoloAllowed(cfg)
+	if caps := capabilitiesFor(cfg, true, terminalproto.Ready); !caps.Yolo {
+		t.Fatal("YOLO not reported with agents-v2 and the switch on")
+	}
+	if caps := capabilitiesFor(cfg, true, terminalproto.Ready); caps.Validate() != nil {
+		t.Fatal(caps.Validate())
+	}
+	cfg.yoloAllowed = false
+	if caps := capabilitiesFor(cfg, true, terminalproto.Ready); caps.Yolo {
+		t.Fatal("YOLO reported with the switch off")
+	}
+	cfg.yoloAllowed = true
+	cfg.agentsV2 = false
+	if caps := capabilitiesFor(cfg, true, terminalproto.Ready); caps.Yolo {
+		t.Fatal("YOLO reported without agents-v2")
+	}
+}

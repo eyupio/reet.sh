@@ -48,6 +48,8 @@ type agentConfig struct {
 	// ModelsOff refuses reading an agent's model list locally
 	// (reet terminal models off).
 	ModelsOff bool `json:"modelsOff,omitempty"`
+	// YoloOff refuses YOLO sessions locally (reet terminal yolo off).
+	YoloOff bool `json:"yoloOff,omitempty"`
 }
 
 func agentConfigPath() string {
@@ -358,6 +360,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				ClipboardAllowed: clipboardAllowed(*config, c),
 				UploadsAllowed:   uploadsAllowed(*config, c),
 				ModelsAllowed:    modelsAllowed(*config, c),
+				YoloAllowed:      yoloAllowed(*config, c),
 				TerminalAllowed:  terminalAllowed(*config, c),
 				OnConnection:     state.connected.Store,
 				ServerURL:        c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,

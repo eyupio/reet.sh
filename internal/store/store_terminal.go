@@ -337,6 +337,21 @@ type TerminalSession struct {
 	ChangedSinceSeen  bool   `json:"changedSinceSeen,omitempty"`
 	AttentionObserved bool   `json:"-"`
 	NoAttention       bool   `json:"-"`
+	// PendingPermission is the earliest unanswered tool approval of a structured
+	// chat that is waiting, so Home can answer it without opening the chat.
+	PendingPermission *PendingPermission `json:"pendingPermission,omitempty"`
+}
+
+// PendingPermission is the card-sized view of one unanswered approval. Queued
+// counts the approvals behind it.
+type PendingPermission struct {
+	PermissionID string `json:"permissionId"`
+	Title        string `json:"title,omitempty"`
+	ToolKind     string `json:"toolKind,omitempty"`
+	Command      string `json:"command,omitempty"`
+	Path         string `json:"path,omitempty"`
+	Truncated    bool   `json:"truncated,omitempty"`
+	Queued       int    `json:"queued,omitempty"`
 }
 
 const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,activity_at,bell_at,attention_observed,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}'),completed_at,chat_status`

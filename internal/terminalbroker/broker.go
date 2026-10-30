@@ -773,10 +773,11 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		// records the launch before the refusal is propagated.
 		b.auditYoloLaunch(uid, agent, in, s)
 	}
+	started := s.State != terminalproto.Creating && s.State != terminalproto.Lost
 	if refusal != nil {
-		return s, false, refusal
+		return s, started, refusal
 	}
-	return s, true, nil
+	return s, started, nil
 }
 func (p *Peer) end(ctx context.Context, session, request string) error {
 	reply, err := p.call(ctx, terminalproto.Message{RequestID: request, SessionID: session, Body: terminalproto.End{}})

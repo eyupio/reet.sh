@@ -241,7 +241,7 @@ export function sentence(choice: LaunchChoice, projects: LaunchProject[], machin
   const chat = supports && choice.chat === true
   const opening: SentencePart[] = []
   if (supports) opening.push(word('in'), { slot: 'chat', text: chat ? 'reet TUI' : `${toolName(choice.agent)} TUI` })
-  if (!chat) opening.push(word('with'), { slot: 'model', text: cleanModel(choice.model) || 'default' })
+  opening.push(word('with'), { slot: 'model', text: cleanModel(choice.model) || 'default' })
   const parts: SentencePart[] = [
     word('Run'), { slot: 'agent', text: toolName(choice.agent || undefined) },
     ...opening,
@@ -273,7 +273,8 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
   if (choice.chat === true) {
     if (picked.length > 1) return 'The reet TUI starts in one folder at a time. Choose one project, or switch to the agent TUI.'
     if (choice.trust !== true) return 'Confirm you trust this folder before starting the reet TUI.'
-    if (choice.effort) return 'The reet TUI uses its own model and approvals; switch to the agent TUI for those choices.'
+    const model = validateModel(choice.model)
+    if (model) return model
     const target = machines.find(x => x.agentId === (picked[0]?.host ?? choice.homeMachine ?? ''))
     if (readiness(target)) return readiness(target)!
     if (!target?.capabilities?.acp) return 'Update reet on that machine to start the reet TUI.'
@@ -327,7 +328,7 @@ export function toCreate(choice: LaunchChoice, project: LaunchProject | null, re
   const launch: LaunchRequest = { tool: choice.agent }
   if (chat) { launch.structured = true; if (choice.trust === true) launch.trust = true }
   const model = cleanModel(choice.model)
-  if (!chat && model) launch.model = model
+  if (model) launch.model = model
   if (project) launch.dir = project.dir
   if (choice.prompt) launch.prompt = choice.prompt
   if (project) launch.projectId = project.id

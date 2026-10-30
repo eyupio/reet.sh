@@ -82,6 +82,8 @@ type Session struct {
 	turnMu       sync.Mutex
 	working      bool
 	turnProgress bool
+	turnError    bool
+	turnSeq      uint64
 	turnStart    time.Time
 	lastEvent    time.Time
 	warned       bool
@@ -673,6 +675,20 @@ func (s *Session) sendCancel() error {
 // Cancel stops the current turn and closes every card this client still holds.
 // The agent does not withdraw an outstanding request_permission, so reet must.
 func (s *Session) Cancel() error {
+	s.cancelCards()
+	s.emit(Event{Kind: "status", State: "cancelled"})
+	return s.sendCancel()
+}
+
+// stopTurn cancels the agent without reporting the turn as cancelled. The
+// caller has already reported a terminal provider error, which must remain the
+// last state the person sees.
+func (s *Session) stopTurn() error {
+	s.cancelCards()
+	return s.sendCancel()
+}
+
+func (s *Session) cancelCards() {
 	s.mu.Lock()
 	pending := make([]string, 0, len(s.pending))
 	for id := range s.pending {
@@ -682,8 +698,38 @@ func (s *Session) Cancel() error {
 	for _, id := range pending {
 		_ = s.resolve(id, "cancelled", "cancelled")
 	}
-	s.emit(Event{Kind: "status", State: "cancelled"})
-	return s.sendCancel()
+}
+
+// recoverLive asks the adapter for an error it logged while the turn has been
+// silent. It returns "" when the adapter has no live source or the log is quiet.
+func (s *Session) recoverLive(acpID string, afterMS int64) string {
+	if s.opts.Agent.RecoverLive == nil {
+		return ""
+	}
+	return s.opts.Agent.RecoverLive(s.opts.Home, acpID, afterMS)
+}
+
+// reportTurnError ends a turn whose provider failed without ACP reporting it.
+// The error stays the last observable state; the cancelled reply that follows
+// session/cancel is suppressed by Prompt. The turn sequence keeps a watchdog
+// from reporting against a later turn.
+func (s *Session) reportTurnError(seq uint64, message string) bool {
+	s.turnMu.Lock()
+	active := s.working && s.turnSeq == seq
+	s.turnMu.Unlock()
+	if !active {
+		return false
+	}
+	s.mu.Lock()
+	if s.turnProgress {
+		s.mu.Unlock()
+		return false
+	}
+	s.turnError = true
+	s.mu.Unlock()
+	s.emit(Event{Kind: "status", State: "error", Detail: safeRPCText(message)})
+	_ = s.stopTurn()
+	return true
 }
 
 // markInterrupted closes tools that session/load replayed as still running.
@@ -721,56 +767,104 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 	acpID := s.acpID
 	s.mu.Unlock()
 	s.working = true
+	s.turnSeq++
+	seq := s.turnSeq
 	s.turnStart = time.Now()
 	s.warned = false
 	s.mu.Lock()
 	s.lastEvent = s.turnStart
 	s.turnProgress = false
+	s.turnError = false
 	s.mu.Unlock()
 	startedAt := s.turnStart
 	s.turnMu.Unlock()
+	watchDone := make(chan struct{})
+	watchStopped := make(chan struct{})
+	// Join the watchdog before the next turn can start: a recovery already
+	// reading the log must not report against, or cancel, that next turn.
 	defer func() {
+		close(watchDone)
+		<-watchStopped
 		s.turnMu.Lock()
 		s.working = false
 		s.turnMu.Unlock()
 	}()
 	s.emit(Event{Kind: "status", State: "working"})
-	watchDone := make(chan struct{})
 	go func() {
+		defer close(watchStopped)
 		interval := time.Second
 		if s.opts.stillWorkingAfter() < interval/2 {
 			interval = s.opts.stillWorkingAfter() / 2
 		}
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+		nextRecover := time.Now().Add(s.opts.stillWorkingAfter())
 		for {
 			select {
 			case <-watchDone:
 				return
 			case <-ticker.C:
+				select {
+				case <-watchDone:
+					return
+				default:
+				}
 				s.turnMu.Lock()
 				if !s.working {
 					s.turnMu.Unlock()
 					return
 				}
 				elapsed := time.Since(s.turnStart)
-				warnNow := false
-				if !s.warned {
-					s.mu.Lock()
-					quiet := time.Since(s.lastEvent)
-					pending := len(s.pending) > 0
-					s.mu.Unlock()
-					if !pending && quiet >= s.opts.stillWorkingAfter() {
+				quietNow := time.Now()
+				warnNow, recoverNow := false, false
+				s.mu.Lock()
+				quiet := quietNow.Sub(s.lastEvent)
+				pending := len(s.pending) > 0
+				progress := s.turnProgress
+				s.mu.Unlock()
+				if !pending && quiet >= s.opts.stillWorkingAfter() {
+					if !s.warned {
 						s.warned = true
 						warnNow = true
+					}
+					if !progress && !quietNow.Before(nextRecover) {
+						nextRecover = quietNow.Add(s.opts.stillWorkingAfter())
+						recoverNow = true
 					}
 				}
 				timedOut := elapsed >= s.opts.turnTimeout()
 				s.turnMu.Unlock()
+				if recoverNow {
+					if message := s.recoverLive(acpID, startedAt.UnixMilli()); message != "" {
+						select {
+						case <-watchDone:
+							return
+						default:
+						}
+						if s.reportTurnError(seq, message) {
+							return
+						}
+					}
+				}
 				if warnNow {
 					s.emit(Event{Kind: "notice", Text: "Still working: the provider may be retrying."})
 				}
 				if timedOut {
+					s.mu.Lock()
+					progress := s.turnProgress
+					s.mu.Unlock()
+					if !progress {
+						if message := s.recoverLive(acpID, startedAt.UnixMilli()); message != "" {
+							select {
+							case <-watchDone:
+								return
+							default:
+							}
+							if s.reportTurnError(seq, message) {
+								return
+							}
+						}
+					}
 					s.emit(Event{Kind: "notice", Text: "The turn took too long, so " + s.opts.Agent.displayName() + " was stopped.", Bad: true})
 					_ = s.Cancel()
 					return
@@ -778,7 +872,6 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 			}
 		}
 	}()
-	defer close(watchDone)
 	requestCtx, cancel := context.WithTimeout(ctx, s.opts.turnTimeout()+30*time.Second)
 	defer cancel()
 	raw, err := s.request(requestCtx, "session/prompt", map[string]any{
@@ -786,6 +879,12 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 		"prompt":    []map[string]string{{"type": "text", "text": text}},
 	})
 	if err != nil {
+		s.mu.Lock()
+		reported := s.turnError
+		s.mu.Unlock()
+		if reported {
+			return nil
+		}
 		if errors.Is(err, ErrTimeout) {
 			_ = s.Cancel()
 			s.emit(Event{Kind: "status", State: "cancelled", Detail: "The turn timed out."})
@@ -798,6 +897,12 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 		StopReason string `json:"stopReason"`
 	}
 	_ = json.Unmarshal(raw, &result)
+	s.mu.Lock()
+	reported := s.turnError
+	s.mu.Unlock()
+	if reported {
+		return nil
+	}
 	switch result.StopReason {
 	case "cancelled":
 		s.emit(Event{Kind: "status", State: "cancelled"})

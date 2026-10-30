@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -135,6 +136,25 @@ func TestFakeACP(t *testing.T) {
 			case "watchdog":
 				time.Sleep(120 * time.Millisecond)
 				reply(promptID, map[string]any{"stopReason": "end_turn"})
+			case "silent-error":
+				logDir := filepath.Join(os.Getenv("HOME"), ".local", "share", "opencode", "log")
+				_ = os.MkdirAll(logDir, 0700)
+				line := `timestamp=` + time.Now().UTC().Format(time.RFC3339Nano) +
+					` level=ERROR run=x message="stream error" providerID=opencode modelID=stub session.id=` + session +
+					` small=false agent=build mode=primary error.error="AI_APICallError: quota exhausted"` + "\n"
+				_ = os.WriteFile(filepath.Join(logDir, "opencode.log"), []byte(line), 0600)
+			case "progress-first":
+				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_progress", "content": map[string]string{"type": "text", "text": "still here"}})
+				time.Sleep(120 * time.Millisecond)
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
+			case "progress-after-silence":
+				time.Sleep(60 * time.Millisecond)
+				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_progress", "content": map[string]string{"type": "text", "text": "still here"}})
+				time.Sleep(60 * time.Millisecond)
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
+			case "progress-after-silence-hang":
+				time.Sleep(60 * time.Millisecond)
+				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_progress", "content": map[string]string{"type": "text", "text": "still here"}})
 			case "fs":
 				send(map[string]any{"jsonrpc": "2.0", "id": 9, "method": "fs/write_text_file", "params": map[string]string{"sessionId": session, "path": "/tmp/mirror.txt", "content": "mirror"}})
 			}
@@ -392,6 +412,217 @@ func TestWatchdogAndFSMirror(t *testing.T) {
 	if !found {
 		t.Fatal("fs mirror did not continue the turn")
 	}
+}
+
+func TestSilentProviderErrorStopsTheTurn(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "")
+	opts, got := options(t, "silent-error", testVersion)
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "say hello") }()
+	var reported Event
+	for event := got.next(t); ; event = got.next(t) {
+		if event.Kind == "status" && event.State == "error" {
+			reported = event
+			break
+		}
+	}
+	if !strings.Contains(reported.Detail, "quota exhausted") {
+		t.Fatalf("error detail %q", reported.Detail)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("prompt: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("prompt did not stop after the provider error")
+	}
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	for _, event := range got.all {
+		if event.Kind == "status" && event.State == "cancelled" {
+			t.Fatal("the provider error was replaced by a cancelled status")
+		}
+	}
+}
+
+func TestSilentRecoveryDoesNotOutliveTheTurn(t *testing.T) {
+	opts, got := options(t, "watchdog", testVersion)
+	opts.StillWorkingAfter = 20 * time.Millisecond
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	opts.Agent.RecoverLive = func(_, _ string, _ int64) string {
+		once.Do(func() { close(entered) })
+		<-release
+		return "late provider error"
+	}
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "slow") }()
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the watchdog never read the live error source")
+	}
+	for event := got.next(t); ; event = got.next(t) {
+		if event.Kind == "status" && event.State == "idle" && event.Detail == "" {
+			break
+		}
+	}
+	// Let Prompt reach its deferred join, which closes watchDone.
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("prompt: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("prompt waited for the watchdog after the turn")
+	}
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	for _, event := range got.all {
+		if event.Kind == "status" && (event.State == "error" || event.State == "cancelled") {
+			t.Fatalf("the finished turn was reported as %s: %+v", event.State, event)
+		}
+	}
+}
+
+func TestSilentRecoverySkipsTurnsWithProgress(t *testing.T) {
+	t.Run("progress before the check", func(t *testing.T) {
+		opts, got := options(t, "progress-first", testVersion)
+		opts.StillWorkingAfter = 20 * time.Millisecond
+		var called atomic.Bool
+		opts.Agent.RecoverLive = func(_, _ string, _ int64) string {
+			called.Store(true)
+			return "stale provider error"
+		}
+		session, err := Start(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+		if err := session.Prompt(context.Background(), "working"); err != nil {
+			t.Fatal(err)
+		}
+		if called.Load() {
+			t.Fatal("live recovery ran for a turn that streamed progress")
+		}
+		got.mu.Lock()
+		defer got.mu.Unlock()
+		for _, event := range got.all {
+			if event.Kind == "status" && event.State == "error" {
+				t.Fatalf("healthy progress was stopped: %+v", event)
+			}
+		}
+	})
+
+	t.Run("progress after the read", func(t *testing.T) {
+		opts, got := options(t, "progress-after-silence", testVersion)
+		opts.StillWorkingAfter = 20 * time.Millisecond
+		entered, release := make(chan struct{}), make(chan struct{})
+		var once sync.Once
+		opts.Agent.RecoverLive = func(_, _ string, _ int64) string {
+			once.Do(func() { close(entered) })
+			<-release
+			return "stale provider error"
+		}
+		session, err := Start(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+		done := make(chan error, 1)
+		go func() { done <- session.Prompt(context.Background(), "working") }()
+		select {
+		case <-entered:
+		case <-time.After(3 * time.Second):
+			t.Fatal("the watchdog never read the live error source")
+		}
+		for event := got.next(t); ; event = got.next(t) {
+			if event.Kind == "agent" {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+		close(release)
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("prompt: %v", err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("prompt did not finish")
+		}
+		got.mu.Lock()
+		defer got.mu.Unlock()
+		for _, event := range got.all {
+			if event.Kind == "status" && event.State == "error" {
+				t.Fatalf("late progress was stopped: %+v", event)
+			}
+		}
+	})
+
+	t.Run("progress while a stale error is read", func(t *testing.T) {
+		opts, got := options(t, "progress-after-silence-hang", testVersion)
+		opts.StillWorkingAfter = 20 * time.Millisecond
+		opts.TurnTimeout = 150 * time.Millisecond
+		entered, release := make(chan struct{}), make(chan struct{})
+		var once sync.Once
+		opts.Agent.RecoverLive = func(_, _ string, _ int64) string {
+			once.Do(func() { close(entered) })
+			<-release
+			return "stale provider error"
+		}
+		session, err := Start(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+		done := make(chan error, 1)
+		go func() { done <- session.Prompt(context.Background(), "working") }()
+		select {
+		case <-entered:
+		case <-time.After(3 * time.Second):
+			t.Fatal("the watchdog never read the live error source")
+		}
+		for event := got.next(t); ; event = got.next(t) {
+			if event.Kind == "agent" {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+		close(release)
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Fatal("prompt did not finish")
+		}
+		got.mu.Lock()
+		defer got.mu.Unlock()
+		stopped := false
+		for _, event := range got.all {
+			if event.Kind == "status" && event.State == "error" {
+				t.Fatalf("stale error stopped healthy work: %+v", event)
+			}
+			if event.Kind == "notice" && strings.Contains(event.Text, "took too long") {
+				stopped = true
+			}
+		}
+		if !stopped {
+			t.Fatal("the watchdog stopped watching after the stale read")
+		}
+	})
 }
 
 func TestEnvironmentScrub(t *testing.T) {

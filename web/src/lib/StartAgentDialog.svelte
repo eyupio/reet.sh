@@ -142,9 +142,8 @@
   if (key !== chatKey) { chatKey = key; sessionTouched = false }
   if (!chatCapable) { sessionTouched = false; structured = false; return }
   if (!sessionTouched) structured = true
-  if (structured && pickerOpen) pickerOpen = false
  })
- const modelLabel = $derived(modelChoice === OTHER ? cleanModel(modelOther) || 'Other…' : modelChoice || 'Agent default')
+ const modelLabel = $derived(modelChoice === OTHER ? cleanModel(modelOther) || 'Other…' : modelChoice || (structured ? 'OpenCode’s configured model' : 'Agent default'))
  const modelKey = $derived(machine && chosenTool ? `${machine.agentId}\u0000${chosenTool}` : '')
  const modelMachine = $derived(modelList.key === modelKey ? modelList.machine : null)
  const modelLoading = $derived(!!modelKey && modelList.key === modelKey && modelList.loading)
@@ -345,11 +344,11 @@
   if (!operation) {
    if (blocked || !machine) return
    // The errors are derived, so they already count this attempt; no await here, or a second press could slip past the busy guard.
-   const invalid = !structured && modelError ? ['model', modelError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
+   const invalid = modelError ? ['model', modelError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
    if (invalid) { failed = true; message = invalid[1]; invalidMessage = true; field(invalid[0])?.focus(); return }
    const launch: LaunchRequest & { tool: string } = { tool: chosenTool }
    if (structured) { launch.structured = true; launch.trust = true }
-   if (!structured && model) launch.model = model
+   if (model) launch.model = model
    if (!structured && effort && effortOptions.length > 1) launch.effort = effort as NonNullable<LaunchRequest['effort']>
    if (dir) launch.dir = dir
    if (prompt) launch.prompt = prompt
@@ -490,7 +489,6 @@
     </div>
    {/if}
 
-   {#if !structured}
    <div class="field">
     <label for={`${id}-model`}>Model <span class="optional">optional</span></label>
     <button id={`${id}-model`} type="button" class="picker" bind:this={modelButton} disabled={!chosenTool}
@@ -499,18 +497,16 @@
     </button>
     {#if modelChoice === OTHER && modelError}<p class="reason" id={`${id}-model-error`}>{modelError}</p>{/if}
     <p class="hint">Suggestions are hints. The agent says itself if it doesn't know a model.</p>
+    {#if structured}<p class="hint">The reet TUI uses this model. Leave it at OpenCode’s configured model to keep OpenCode’s own; its thinking comes from OpenCode.</p>{/if}
    </div>
 
-   {#if effortOptions.length > 1}
+   {#if !structured && effortOptions.length > 1}
     <div class="field">
      <label for={`${id}-effort`}>Thinking</label>
      <select id={`${id}-effort`} bind:value={effort} onchange={() => { explicitEffort = true; edited() }} disabled={!chosenTool}>
       {#each effortOptions as value (value || 'default')}<option value={value}>{value || 'default'}</option>{/each}
      </select>
     </div>
-   {/if}
-   {:else}
-    <div class="field"><p class="hint">The reet TUI uses OpenCode's configured model and thinking. The first message is the opening prompt.</p></div>
    {/if}
 
    <div class="field">
@@ -543,7 +539,7 @@
    <button class="btn primary" type="submit" disabled={busy || (!operation && !!blocked)} aria-busy={busy} bind:this={startButton}>{busy ? 'Starting…' : operation ? 'Try the same request again' : 'Start'}</button>
   </footer>
  </form>
- {#if pickerOpen && !structured}
+ {#if pickerOpen}
   <SlotPicker label="Model" options={modelOptionsFor()} value={model} sheet={touch} opener={modelButton ?? null}
    filter="Filter models" status={modelStatusLine} statusAction={modelStatusAction}
    other={{ label: 'Other…', field: 'Model name', validate: validateModel }}

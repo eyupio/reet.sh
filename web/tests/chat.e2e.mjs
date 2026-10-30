@@ -5,7 +5,7 @@ const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const A = 'connector-laptop000000001', S = 'session-chat000000000000001', S2 = 'session-chat000000000000002', S3 = 'session-chat000000000000003', SITE = '/home/dev/work/site'
 const now = Date.now()
 const session = { id: S, agentId: A, title: 'OpenCode · site', state: 'running', createdAt: now, updatedAt: now, exitCode: null, tool: 'opencode', model: '', effort: '', yolo: false, projectId: null, dir: SITE, structured: true }
-const closedSession = { ...session, id: S2, state: 'exited', exitCode: 0, acpSessionId: 'ses_fake000000000000000000000001' }
+const closedSession = { ...session, id: S2, state: 'exited', exitCode: 0, model: 'anthropic/claude-sonnet-4-5', acpSessionId: 'ses_fake000000000000000000000001' }
 const machine = { agentId: A, host: 'dev-laptop', ready: true, serverEnabled: true, capabilities: { protocolVersion: 1, terminalControl: true, os: 'linux', osUser: 'dev', terminalEnabled: true, healthEnabled: true, readiness: 'ready', launch: true, agentsV2: true, models: true, acp: true, acpHistory: true, uploads: true, tools: ['opencode'] } }
 
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
@@ -54,8 +54,12 @@ try {
   await expect(dialog).toBeVisible()
   await dialog.getByRole('radio', { name: 'OpenCode', exact: true }).check()
   await expect(dialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue('reet')
-  await expect(dialog.getByRole('button', { name: /^Model:/ })).toHaveCount(0)
-  await expect(dialog).toContainText("uses OpenCode's configured model")
+  await expect(dialog.getByRole('button', { name: /^Model:/ })).toHaveAccessibleName('Model: OpenCode’s configured model')
+  await dialog.getByRole('button', { name: /^Model:/ }).click()
+  const models = page.getByRole('listbox', { name: 'Model', exact: true })
+  await expect(models).toBeVisible()
+  await models.getByRole('option', { name: 'anthropic/claude-sonnet-4-5', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: /^Model:/ })).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
   await dialog.getByRole('textbox', { name: /Opening prompt/ }).fill('fix the failing build')
   await dialog.getByRole('button', { name: 'Start', exact: true }).click()
   await page.waitForURL(new RegExp(`session=${S}`))
@@ -90,8 +94,7 @@ try {
   await expect.poll(() => state.cancelled).toBe(true)
   await page.evaluate(() => window.__chatStream.emit('chat', { seq: 7, kind: 'status', state: 'cancelled' }))
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
-  expect(state.create).toMatchObject({ structured: true, trust: true, tool: 'opencode', prompt: 'fix the failing build' })
-  expect(state.create.model).toBeUndefined()
+  expect(state.create).toMatchObject({ structured: true, trust: true, tool: 'opencode', model: 'anthropic/claude-sonnet-4-5', prompt: 'fix the failing build' })
   expect(state.create.effort).toBeUndefined()
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('textbox', { name: 'Message OpenCode' })).toBeVisible()
@@ -108,9 +111,9 @@ try {
   await expect.poll(() => state.resume).toMatchObject({ structured: true, trust: true, resumeAcp: closedSession.acpSessionId, dir: SITE })
   await page.waitForURL(new RegExp(`session=${S3}`))
   expect(state.resume.prompt).toBeUndefined()
-  expect(state.resume.model).toBeUndefined()
+  expect(state.resume.model).toBe('anthropic/claude-sonnet-4-5')
   expect(errors).toEqual([])
-  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured and trust but no model, the session screen opens reet TUI with the OpenCode TUI disabled, agent chunks stream, a command approval is Allow once or Deny, a message sends, an attached image uploads and its path joins the prompt, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id.')
+  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled, agent chunks stream, a command approval is Allow once or Deny, a message sends, an attached image uploads and its path joins the prompt, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id.')
 } finally {
   await context.close()
   await browser.close()

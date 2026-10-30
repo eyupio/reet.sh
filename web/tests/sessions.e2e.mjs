@@ -624,8 +624,8 @@ try {
   // The actions menu: Rename, Theatre view, Copy branch, End session, Check and remove worktree (waits for the end).
   await screen(page).getByRole('button',{name:'Session actions'}).click()
   const menu = page.getByRole('menu',{name:'Actions for Add browse-v1 protocol'})
-  await expect(menu.getByRole('menuitem')).toHaveText(['Rename…','Theatre view','Copy branch','End session…','Check and remove worktree…'])
-  await expect(menu.getByRole('menuitem',{name:'Rename…'})).toBeFocused()
+  await expect(menu.getByRole('menuitem')).toHaveText(['Open a terminal here…','Rename…','Theatre view','Copy branch','End session…','Check and remove worktree…'])
+  await expect(menu.getByRole('menuitem',{name:'Open a terminal here…'})).toBeFocused()
   await expect(menu.getByRole('menuitem',{name:'Check and remove worktree…'})).toBeDisabled()
   await page.keyboard.press('Escape')
   await expect(menu).toBeHidden()

@@ -17,6 +17,7 @@ func chatCaps() terminalproto.Capabilities {
 	caps := launchCaps("opencode")
 	caps.ACP = true
 	caps.ACPHistory = true
+	caps.ShellDir = true
 	return caps
 }
 
@@ -150,5 +151,21 @@ func TestChatResumeNeedsAClosedChatOwnedHere(t *testing.T) {
 	}))
 	if code != http.StatusNotFound || out["code"] != "acp_resume_not_found" {
 		t.Fatalf("crafted: %d %v %s", code, out, body)
+	}
+}
+
+func TestPlainTerminalInAFolderNeedsTheFeature(t *testing.T) {
+	f := launchAPIFixture(t, chatCaps())
+	code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"dir": "/tmp"}))
+	if code != 200 {
+		t.Fatalf("shell dir: %d %v %s", code, out, body)
+	}
+	if created := f.creates[len(f.creates)-1]; created.Dir != "/tmp" || created.Tool != "" {
+		t.Fatalf("create %+v", created)
+	}
+	plain := launchAPIFixture(t, launchCaps("claude"))
+	code, out, body = plain.create(t, launchBody(plain.agent.ID, terminalbroker.ID(), map[string]any{"dir": "/tmp"}))
+	if code != http.StatusConflict || out["code"] != "shell_dir_unsupported" {
+		t.Fatalf("old machine: %d %v %s", code, out, body)
 	}
 }

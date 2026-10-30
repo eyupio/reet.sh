@@ -85,6 +85,9 @@ beside it). Its parts:
   history.
 - **The terminal pane**, unchanged. Its footer starts with **Approvals: Ask me** (or **Approvals: YOLO**). When the
   device asks for reduced motion the terminal's cursor does not blink.
+- **A session's actions menu** has **Open a terminal here…** for any agent session. It starts a plain shell in the same
+  folder as a separate session; a machine that negotiated `shell-dir-v1` runs it there, otherwise the controller says to
+  update reet. This is the direct non-agent terminal entry point.
 - **The reet TUI pane** for a structured OpenCode session ([structured sessions](structured-sessions.md)): the streamed
   conversation, tool calls, approval cards with **Allow once** and **Deny**, a composer (Enter sends, Shift+Enter adds a
   line), **Attach image** (uploaded as a machine path), **Stop**, and the watchdog's "still working" notice. A closed reet

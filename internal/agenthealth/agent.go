@@ -53,6 +53,7 @@ type AgentConfig struct {
 	modelsAllowed     bool
 	acp               bool
 	acpHistory        bool
+	shellDir          bool
 	OnConnection      func(bool)
 	TerminalSession   TerminalFactory
 	control           func(context.Context, terminalproto.Message) error
@@ -685,6 +686,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.models = terminalproto.SupportsModels(advertised)
 	cfg.acp = terminalproto.SupportsACP(advertised)
 	cfg.acpHistory = terminalproto.SupportsACPHistory(advertised)
+	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
 }
 
 // setTerminalFeatures tells the terminal dispatcher which negotiated
@@ -734,6 +736,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpHistory {
 		features = append(features, terminalproto.ACPHistoryFeature)
+	}
+	if cfg.shellDir {
+		features = append(features, terminalproto.ShellDirFeature)
 	}
 	return strings.Join(features, ",")
 }
@@ -813,6 +818,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ModelsOff:       cfg.models && control && enabled && !cfg.modelsAllowed,
 		ACP:             acp,
 		ACPHistory:      acp && cfg.acpHistory,
+		ShellDir:        cfg.shellDir && control && enabled,
 		Branches:        cfg.branches && worktree && enabled,
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),

@@ -201,6 +201,7 @@ export function refusalText(status: number, code?: string, message?: string): st
   if (c === 'acp_unavailable') return message || 'The reet TUI is not available on that machine.'
   if (c === 'acp_trust_required') return message || 'This folder has OpenCode plugins. Start the reet TUI only in a folder you trust.'
   if (c === 'acp_resume_not_found') return message || "That reet session's history is no longer available."
+  if (c === 'shell_dir_unsupported') return message || 'Update reet on that machine to open a terminal in that folder.'
   if (c === 'acp_history_unsupported') return message || 'Update reet on that machine to reopen reet sessions with their history.'
   if (status === 409 && c === '' && msg.includes('session limit')) return 'The terminal session limit has been reached. End a session and try again.'
   if (status === 409 && c === '') return 'That request changed. Start it again.'

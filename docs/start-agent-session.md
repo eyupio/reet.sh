@@ -58,10 +58,12 @@ The bar is docked at the foot of Home (`web/src/lib/launch/LaunchBar.svelte`; it
 whose bold words are the choices.
 
 For OpenCode on a machine that advertises `acp`, the sentence says **in reet TUI** by default and Start
-opens the reet TUI instead of the agent terminal UI. The **TUI** word switches it to **in OpenCode TUI**;
+opens the reet TUI instead of the agent terminal UI. Home asks you to confirm **I trust this folder** first, because
+OpenCode runs any plugins in `.opencode` when the reet TUI starts. The **TUI** word switches it to **in OpenCode TUI**;
 the model, worktree and thinking choices come back for that terminal. The reet TUI runs in the chosen
 project folder (not a worktree), uses OpenCode's configured model, and can attach images through Home's
-existing pasted-image path. It starts in one folder at a time.
+existing pasted-image path. It starts in one folder at a time. A session's actions menu has **Open a terminal here…**, which starts a plain shell in
+the same folder as a separate session.
 
 > Run **Claude Code** with **default** on **Store rewrite** at **studio** from **main** in **a fresh worktree** · thinking **high**
 

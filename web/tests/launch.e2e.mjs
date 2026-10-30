@@ -1525,6 +1525,7 @@ try {
   await expect.poll(() => sentenceText(page)).toContain('in OpenCode TUI with')
   await expect(slot(page,'Model')).toBeVisible()
   await pick(page,'TUI','reet TUI')
+  await page.getByRole('checkbox', { name: /I trust this folder/ }).check()
   await prompt(page).fill('fix the failing build')
   await startButton(page).click()
   await expect.poll(() => box.posts.length).toBe(1)

@@ -37,6 +37,7 @@ type chatSession struct {
 	state     terminalproto.SessionState
 	exit      *int
 	process   chatProcess
+	cancel    context.CancelFunc
 	busy      bool
 	ended     sync.Once
 }
@@ -102,11 +103,19 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 		h.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrSessionCapacity
 	}
+	cs := &chatSession{id: sessionID, title: in.Title, state: terminalproto.Creating}
+	h.sessions[sessionID] = cs
+	h.requests[requestID] = sessionID
 	h.starting[requestID] = sessionID
 	h.mu.Unlock()
+	succeeded := false
 	defer func() {
 		h.mu.Lock()
 		delete(h.starting, requestID)
+		if !succeeded {
+			delete(h.sessions, sessionID)
+			delete(h.requests, requestID)
+		}
 		h.mu.Unlock()
 	}()
 
@@ -118,9 +127,11 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 	if err != nil {
 		return terminalproto.SessionChanged{}, opencodeacp.ErrVersion
 	}
-	cs := &chatSession{id: sessionID, title: in.Title, state: terminalproto.Creating}
 	startCtx, cancel := context.WithTimeout(h.ctx, 60*time.Second)
 	defer cancel()
+	h.mu.Lock()
+	cs.cancel = cancel
+	h.mu.Unlock()
 	process, err := h.start(startCtx, opencodeacp.Options{
 		Binary: binary, Dir: dir, Home: h.opts.Home, Model: in.Model, Trust: in.Trust, Resume: in.ResumeACP,
 		BaseEnv: os.Environ(),
@@ -129,17 +140,20 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 	if err != nil {
 		return terminalproto.SessionChanged{}, err
 	}
-	cs.process = process
-	cs.acpID = process.SessionID()
+	acpID := process.SessionID()
 	h.mu.Lock()
 	if h.closed {
+		delete(h.sessions, sessionID)
+		delete(h.requests, requestID)
 		h.mu.Unlock()
 		process.Close()
 		return terminalproto.SessionChanged{}, terminalhost.ErrManagerClosed
 	}
+	cs.process = process
+	cs.acpID = acpID
 	cs.state = terminalproto.Running
-	h.sessions[sessionID] = cs
-	h.requests[requestID] = sessionID
+	cs.cancel = nil
+	succeeded = true
 	h.mu.Unlock()
 	h.wg.Add(1)
 	go func() {
@@ -260,6 +274,10 @@ func (h *chatHost) end(sessionID string) (terminalproto.SessionChanged, error) {
 		h.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrSessionMissing
 	}
+	if cs.process == nil {
+		h.mu.Unlock()
+		return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
+	}
 	// Keep the ended record and its request receipt: a lost end reply must be
 	// answerable with the same exited state, not looked up in the tmux manager
 	// and reported missing.
@@ -296,7 +314,11 @@ func (h *chatHost) close() {
 	h.starting = map[string]string{}
 	h.mu.Unlock()
 	for _, cs := range sessions {
-		cs.process.Close()
+		if cs.process != nil {
+			cs.process.Close()
+		} else if cs.cancel != nil {
+			cs.cancel()
+		}
 	}
 	h.wg.Wait()
 }

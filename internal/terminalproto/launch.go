@@ -93,7 +93,7 @@ func validPrompt(prompt string) bool {
 
 func (c Create) validLaunch() bool {
 	if c.Tool == "" {
-		return c.Model == "" && c.Dir == "" && c.Prompt == "" && c.Effort == "" && !c.Yolo && !c.Resume
+		return c.Model == "" && (c.Dir == "" || validDir(c.Dir)) && c.Prompt == "" && c.Effort == "" && !c.Yolo && !c.Resume
 	}
 	return ValidToolV2(c.Tool) && (c.Effort == "" || c.Effort == "low" || c.Effort == "medium" || c.Effort == "high") && (c.Model == "" || validModel(c.Model)) && (c.Dir == "" || validDir(c.Dir)) && (c.Prompt == "" || validPrompt(c.Prompt))
 }

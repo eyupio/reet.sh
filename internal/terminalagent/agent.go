@@ -213,6 +213,10 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 					return terminalproto.ErrInvalid
 				}
 			}
+			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Tool == "" && create.Dir != "" && !terminalproto.SupportsShellDir(headers.Get(terminalproto.FeatureHeader)) {
+				reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
+				return send(callCtx, reply)
+			}
 			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Structured && !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
 				reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "Update reet on this machine to use OpenCode chats."}
 				return send(callCtx, reply)

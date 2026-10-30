@@ -266,6 +266,26 @@
   function agentStarted(item:TerminalSession){inventoryVersion++;if(!terminalClosed(item.state))sessions=[item,...sessions.filter(other=>other.id!==item.id)];showCreate=false;chooseSession(item);void refresh()}
   // Continue a closed session as a new terminal in the same folder, asking the agent to resume its last conversation there.
   // The operation is kept per session until its outcome is known: an uncertain failure retries the same request id.
+  // A plain shell in the folder an agent session is using. It is a separate
+  // session (and row), so it can sit beside the agent rather than replace it.
+  async function openPlainTerminal(target=session){
+    if(!target||actionBusy)return
+    actionBusy=true;error=''
+    try{
+      const requestId=crypto.randomUUID()
+      const folder=target.dir||''
+      const name=folder.split('/').filter(Boolean).pop()||target.title
+      const created=await createTerminal(target.agentId,requestId,`Terminal · ${name}`,100,30,AbortSignal.timeout(15000),folder?{dir:folder}:undefined)
+      if(disposed)return
+      inventoryVersion++
+      if(!terminalClosed(created.state))sessions=[created,...sessions.filter(item=>item.id!==created.id)]
+      chooseSession(created)
+      await refresh()
+    }catch(e){
+      if(disposed)return
+      error=e instanceof TerminalError?(e.message||'That terminal could not be opened.'):'That terminal could not be opened.'
+    }finally{actionBusy=false}
+  }
   async function continueSession(target=session){
     if(!target||actionBusy)return
     const existing=continuations[target.id]
@@ -396,7 +416,8 @@
           onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}
           oncontinue={session.structured
             ? (canContinueChat(session, machines.find(item => item.agentId === session.agentId)) ? () => void continueSession(session) : undefined)
-            : (canContinue(session, machines.find(item => item.agentId === session.agentId), projects ?? []) ? () => void continueSession(session) : undefined)}>
+            : (canContinue(session, machines.find(item => item.agentId === session.agentId), projects ?? []) ? () => void continueSession(session) : undefined)}
+          onterminal={() => void openPlainTerminal(session)}>
           {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
           {#if session.structured}
             {#key session.id}<ChatPane {session} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} />{/key}

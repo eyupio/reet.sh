@@ -1475,7 +1475,7 @@ including new launch-upload round-trip, storage, broker and API cases.
 ## OpenCode in the reet TUI — 29 October 2026
 
 The session screen's reet TUI and the Start dialog's Session choice were checked against the existing screen and sheet
-tokens; the drawings have no chat screen, so there is no mock-up comparison. The chat keeps the session header, the
+tokens; the drawings have no reet TUI screen, so there is no mock-up comparison. The reet TUI keeps the session header, the
 sessions panel and the phone's slim header. Its additions are a status line, message bubbles, tool rows, approval cards
 and a composer.
 
@@ -1491,8 +1491,7 @@ and a composer.
 - `go test ./...` passed. `internal/opencodeacp` covers the fake ACP child (permission allow/deny, cancel, timeout, mode
   refusal, version refusal, plugin trust, watchdog, fs mirror, environment scrub). `TestRealOpenCodeStart` opened a
   session with the exact `opencode-ai@1.19.5` binary in a throwaway HOME (opt-in; skipped in CI).
-- Not checked: a physical phone, Safari or Firefox, a live model turn or provider, images, modes or MCP servers. The chat
-  history is in memory; a server restart or a machine connection loss ends it.
+- Not checked: a physical phone, Safari or Firefox, a live model turn or provider, images, modes or MCP servers. The live reet TUI history is in memory; a server restart or a machine connection loss ends it.
 
 ## reet TUI history, continue and images — 29 October 2026
 
@@ -1500,8 +1499,10 @@ The reet TUI pane keeps the slice 1 layout. The additions are the image chips an
 the session menu's **Continue in reet TUI with history…** item for a closed session. There is no drawing for either.
 
 - `launch.e2e.mjs` passed the Home case: an OpenCode project on an `acp` machine said "Run OpenCode in reet TUI", hid the
-  model/worktree slots, switched to "as a terminal" and back through the Session slot, and sent `structured: true`,
+  model/worktree slots, switched to "in OpenCode TUI" and back through the TUI slot, and sent `structured: true`,
   `trust: true`, the folder and prompt with no model, worktree or effort.
+- `sessions.e2e.mjs` covers **Open a terminal here…** in the session actions menu; the plain shell path is gated by
+  `shell-dir-v1`.
 - `chat.e2e.mjs` passed at 1360 × 900 and 390 × 844: **reet TUI** was the Session default; an attached PNG was uploaded to the machine and the prompt carried
   `Image: /…/launch-uploads/shot.png`; a closed structured session exposed Continue in reet TUI with history…, and the create body
   carried `structured: true`, `trust: true`, `resumeAcp` and the old folder with no prompt model.

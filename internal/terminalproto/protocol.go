@@ -146,7 +146,10 @@ type Capabilities struct {
 	// ACP is sent only on a connection that negotiated acp-v1.
 	ACP bool `json:"acp,omitempty"`
 	// ACPHistory is sent only when acp-history-v1 was negotiated as well.
-	ACPHistory      bool      `json:"acpHistory,omitempty"`
+	ACPHistory bool `json:"acpHistory,omitempty"`
+	// ShellDir is sent only when shell-dir-v1 was negotiated; a plain shell
+	// may then start in a chosen folder.
+	ShellDir        bool      `json:"shellDir,omitempty"`
 	TerminalControl bool      `json:"terminalControl,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
@@ -186,7 +189,7 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.Models && !c.TerminalControl || c.ModelsOff && (c.Models || !c.TerminalControl) {
 		return ErrInvalid
 	}
-	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP {
+	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ShellDir && !c.TerminalControl {
 		return ErrInvalid
 	}
 	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {

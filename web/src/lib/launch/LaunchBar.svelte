@@ -924,6 +924,9 @@
         aria-describedby={[choice?.prompt ? `${id}-secrets` : '', shownStatus ? `${id}-status` : ''].filter(Boolean).join(' ') || undefined}
         autocomplete="off" spellcheck="true"></textarea>
     </div>
+    {#if choice?.chat}
+      <label class="trust"><input type="checkbox" bind:checked={choice.trust} disabled={locked} /> I trust this folder; OpenCode plugins in <code>.opencode</code> may run.</label>
+    {/if}
     {#if starter || choice?.prompt || runOpen || attachments.length}
       <div class="under">
         {#if runOpen}<button type="button" class="chip" onclick={reopenRun}>Show run status</button>{/if}
@@ -1071,7 +1074,10 @@
   .line { grid-column: 1 / -1; grid-row: 3; display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; padding: 8px 18px 14px; border-top: 1px solid var(--line-soft); }
   .checkout { grid-column: 1 / -1; grid-row: 4; margin: -8px 0 0; padding: 0 18px 12px; font-size: 13px; color: var(--muted); }
   .summary, .tablet-change { display: none; }
-  .titled { margin: 0; max-width: 100%; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trust { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 0; font-size: .8rem; line-height: 1.4; color: var(--ink-soft); }
+ .trust input { margin-top: 2px; }
+ .trust code { font-size: .95em; }
+ .titled { margin: 0; max-width: 100%; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .status { grid-column: 1 / -1; grid-row: 5; margin: 0; padding: 0 18px 12px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
   .status:empty { display: none; }
   .status.bad { color: var(--bad); }

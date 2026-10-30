@@ -380,12 +380,15 @@ test('OpenCode on an acp machine launches a native chat by default', () => {
   assert.deepEqual(slots(sentence(start, [openProject], [acp])), ['agent', 'chat', 'project', 'machine'])
   const create = toCreate(start, openProject, 'r'.repeat(16), 'a'.repeat(16))
   assert.equal(create.launch.structured, true)
-  assert.equal(create.launch.trust, true)
+  assert.equal(create.launch.trust, undefined)
   assert.equal(create.launch.model, undefined)
   assert.equal(create.launch.worktree, undefined)
   assert.equal(create.launch.effort, undefined)
-  assert.equal(startable(start, [openProject], [acp], profile), null)
-  assert.match(startable({ ...start, projectIds: ['p-reet', 'p-site'] }, projects, [acp, machines[1]], profile), /one folder at a time/)
+  assert.match(startable(start, [openProject], [acp], profile), /trust this folder/)
+  const trusted = { ...start, trust: true }
+  assert.equal(toCreate(trusted, openProject, 'r'.repeat(16), 'a'.repeat(16)).launch.trust, true)
+  assert.equal(startable(trusted, [openProject], [acp], profile), null)
+  assert.match(startable({ ...trusted, projectIds: ['p-reet', 'p-site'] }, projects, [acp, machines[1]], profile), /one folder at a time/)
 
   const terminal = { ...start, chat: false }
   assert.match(words(sentence(terminal, [openProject], [acp])), /in OpenCode TUI with/)

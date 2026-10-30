@@ -201,13 +201,14 @@
   ])
   const barTabs = $derived(tabs.filter(tab => ['/', '/sessions', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
-    { href: '/profiles', label: 'Setups', current: isProfiles },
-    { href: '/sync', label: 'Sync', current: isSync },
-    { href: '/shared', label: 'Lists', current: isShared || isList },
-    { href: '/community', label: 'Community', current: isCommunity },
-    { href: '/support', label: 'Support', current: isSupport || isTicket },
-    { href: '/spaces', label: 'Teams & organisations', current: isSpaces },
-    ...(canWrite ? [{ href: '/hosting', label: 'Host skills', current: isHosting }] : []),
+    { href: '/profiles', label: 'Setups', group: 'Skills & distribution', current: isProfiles },
+    { href: '/sync', label: 'Sync', group: 'Skills & distribution', current: isSync },
+    { href: '/shared', label: 'Lists', group: 'Skills & distribution', current: isShared || isList },
+    { href: '/community', label: 'Community', group: 'Help & community', current: isCommunity },
+    { href: '/support', label: 'Support', group: 'Help & community', current: isSupport || isTicket },
+    { href: '/spaces', label: 'Teams & organisations', group: 'Workspace', current: isSpaces },
+    ...(canWrite ? [{ href: '/hosting', label: 'Host skills', group: 'Skills & distribution', current: isHosting }] : []),
+    ...(isAdminUser ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Workspace', current: isAdmin }] : []),
   ])
   // Jump searches what the workspace already lists: sessions, folder projects and machines (a writer's terminal machines,
   // and the machines on the shelf inventory for everyone). Read when Jump is used; a list that cannot be read is left out.
@@ -849,17 +850,15 @@
 <a class="skip" href="#main-content">Skip to content</a>
 <header class="site-header" class:terminal-chrome={terminalLayout}>
   {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-    <AppShell {tabs} bar={barTabs} {more} {attention} compact={terminalLayout} bell={sessionsAccess} moreInAccount={authMode !== 'none'} jump={jumpItems}>
+    <AppShell {tabs} bar={barTabs} {more} {attention} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems}>
       {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu
             name={currentUser?.name ?? ''}
             email={currentUser?.email ?? ''}
-            admin={isAdminUser}
             accounts={authMode === 'accounts'}
-            active={isAccount || isActivity || isAdmin || isNotifications || more.some(item => item.current)}
+            active={isAccount || (authMode === 'accounts' && isActivity) || isNotifications}
             unread={unreadNotifications}
-            {more}
             onsignout={signOut}
           />
         {/if}

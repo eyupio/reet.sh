@@ -100,9 +100,9 @@ jobs:
         with:
           name: release-web
           path: web/dist
-      # internal/store alone runs close to 20 minutes under -race, which made the old
-      # per-package timeout race the clock. Keep a margin over it.
-      - run: go vet ./... && go test -race -timeout=30m ./...
+      # internal/store alone runs close to 20 minutes under -race, and a host under pressure can
+      # double that. Keep a margin well over the slowest observed run.
+      - run: go vet ./... && go test -race -timeout=60m ./...
 
   build:
     # Only web is needed to package: the Go sources come from the checkout, not from verify. Waiting for verify made

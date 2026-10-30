@@ -11,37 +11,38 @@
   import type { JumpItem, Tab } from './tabs'
 
   // The signed-in top bar and, on a phone, the bottom tab bar (spec: Information architecture and navigation, R13).
-  // Desktop (1100 px and wider): logo, every tab, Jump, the bell, the account menu (which holds More).
+  // Desktop (1100 px and wider): logo, every tab, Jump, the bell, More, and the account menu.
   // Tablet (651-1099 px): logo, the bar's tabs and More, a search button, the bell, the account menu.
   // Phone (PHONE_SCREEN): a slim bar with logo, search button, bell and account; the bar's tabs and More along the bottom.
   // `compact` is the terminal workspace's slim header: no bottom bar (the terminal keeps its own height rule), and on a
   // phone a More button in the top bar reaches every page instead.
   let {
-    tabs, attention, compact, bar, more, bell = false, moreInAccount = true, jump, account,
+    tabs, attention, compact, bar, more, bell = false, jump, account,
   }: {
     tabs: Tab[]
     attention: number
     compact: boolean
     /** The tabs a tablet and a phone keep in view (Home, Sessions, Machines); the rest of `tabs` move into More there. */
     bar: Tab[]
-    /** Pages under More: in the account menu on a desktop, in the More sheet on a tablet or phone. */
+    /** Secondary pages, grouped in More at every screen size. */
     more: Tab[]
     /** The bell and its Needs you count, for a writer in accounts mode only. */
     bell?: boolean
-    /** False when there is no account menu (an open instance): More then stays in the top bar on a desktop too. */
-    moreInAccount?: boolean
     jump: () => Promise<JumpItem[]>
     account?: Snippet
   } = $props()
 
   const overflow = $derived(tabs.filter(tab => !bar.some(b => b.href === tab.href)))
-  const moreCurrent = $derived([...overflow, ...more].some(tab => tab.current))
+  let viewportWidth = $state(window.innerWidth)
+  let phoneLayout = $state(matchMedia(PHONE_SCREEN).matches)
+  const visibleOverflow = $derived(viewportWidth < 1100 || phoneLayout ? overflow : [])
+  const moreCurrent = $derived([...visibleOverflow, ...more].some(tab => tab.current))
 
   let moreOpen = $state(false)
   let moreOpener = $state<HTMLElement>()
   let moreAll = $state(false)
   // The More sheet lists what is out of view: the overflow tabs and More, or every page from the terminal's slim bar on a phone.
-  const sheetItems = $derived(moreAll ? [...tabs, ...more] : [...overflow, ...more])
+  const sheetItems = $derived(moreAll ? [...tabs, ...more] : [...visibleOverflow, ...more])
   let searchOpen = $state(false)
   let searchButton = $state<HTMLButtonElement>()
   let input = $state<HTMLInputElement>()
@@ -80,6 +81,8 @@
   onMount(() => {
     const tracker = new ViewportTracker()
     const coarse = matchMedia('(pointer: coarse)'), phone = matchMedia(PHONE_SCREEN)
+    const updatePhoneLayout = () => { phoneLayout = phone.matches }
+    phone.addEventListener('change', updatePhoneLayout)
     let frame = 0
     measureKeyboard = () => {
       cancelAnimationFrame(frame)
@@ -95,6 +98,7 @@
     vv?.addEventListener('scroll', measureKeyboard)
     return () => {
       cancelAnimationFrame(frame)
+      phone.removeEventListener('change', updatePhoneLayout)
       window.removeEventListener('resize', measureKeyboard)
       vv?.removeEventListener('resize', measureKeyboard)
       vv?.removeEventListener('scroll', measureKeyboard)
@@ -117,11 +121,11 @@
   })
 </script>
 
-<svelte:window onkeydown={shortcut} />
+<svelte:window onkeydown={shortcut} bind:innerWidth={viewportWidth} />
 
 <div class="shell-bar" class:compact>
   <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
-  <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} moreOnDesktop={!moreInAccount} onmore={openMore} />
+  <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
   <span class="grow"></span>
   <JumpSearch load={jump} open={searchOpen} bind:input onclose={closeSearch}
     onfocuschange={(focused) => { searchFocused = focused; measureKeyboard() }} />

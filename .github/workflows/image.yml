@@ -33,8 +33,9 @@ concurrency:
 jobs:
   test:
     runs-on: zoomies-linux-x64
-    # The full race suite now runs close to 45 minutes on the Zoomies runners.
-    timeout-minutes: 60
+    # The full race suite runs close to 45 minutes on the Zoomies runners, and slower on a host
+    # under pressure; 45 cancelled runs seconds after the Go tests finished.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: Install tmux when the runner lacks it
@@ -65,9 +66,9 @@ jobs:
       - run: npm test
         working-directory: mcp
       - run: go vet ./...
-      # internal/store alone runs close to 20 minutes under -race, which made the old
-      # per-package timeout race the clock. Keep a margin over it.
-      - run: go test -race -timeout=30m ./...
+      # internal/store alone runs close to 20 minutes under -race, and a host under pressure can
+      # double that. Keep a margin well over the slowest observed run.
+      - run: go test -race -timeout=60m ./...
 
   publish:
     needs: test

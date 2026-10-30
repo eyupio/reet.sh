@@ -12,7 +12,7 @@ const tabs = page => page.getByRole('navigation',{name:'Main navigation'})
 
 try {
  // The desktop tabs are Home, Sessions, Machines and Skills for a writer, with Home current at /, the Jump search and
- // the bell beside them; the rest of the old navigation sits under More in the account menu, and Activity is in Account.
+ // the bell beside them; the rest of the old navigation sits under the separate More panel, and Activity is in Account.
  if (run('writer desktop shows five tabs with Home current')) {
   const {context,page,errors} = await open({width:1440})
   await page.goto(base)
@@ -110,7 +110,7 @@ try {
    await expect(more).toBeVisible()
    const links = await more.getByRole('link').allInnerTexts()
    // Neither Control (folded into Home and Machines) nor Activity (in the account) is under More any more.
-   expect(links.map(t=>t.trim())).toEqual(['Skills','Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
+   expect(links.map(t=>t.trim())).toEqual(['Skills','Setups','Sync','Lists','Host skills','Community','Support','Teams & organisations','Instance administration'])
    await page.keyboard.press('Escape')
    await expect(more).toBeHidden()
    await expect(bar.getByRole('button',{name:'More'})).toBeFocused()
@@ -134,7 +134,7 @@ try {
   await tabs(page).getByRole('button',{name:'More'}).click()
   await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Skills',exact:true})).toBeVisible()
   await page.keyboard.press('Escape')
-  // Every link in the account menu, More included, is a 44 px target on a touch tablet.
+  // Every link in the account menu is a 44 px target on a touch tablet.
   await page.locator('summary[aria-label^="Account menu"]').click()
   const heights = await page.locator('.panel a, .panel button').evaluateAll(els=>els.map(e=>[e.textContent.trim(),e.getBoundingClientRect().height]))
   for (const [name,h] of heights) expect(h, `${name} target height at 834px touch`).toBeGreaterThanOrEqual(44)
@@ -147,22 +147,44 @@ try {
   await wide.context.close()
  }
 
- // Nothing the old navigation reached is lost: every former destination is a tab or sits under More in the account menu.
+ // Wide touch devices also use the phone bar when landscape leaves little vertical room.
+ if (run('short landscape keeps overflow reachable')) {
+  const {context,page,errors} = await open({width:1180,height:480,touch:true})
+  await page.goto(base)
+  await tabs(page).getByRole('button',{name:'More',exact:true}).click()
+  const more = page.getByRole('dialog',{name:'More'})
+  await expect(more.getByRole('link',{name:'Skills',exact:true})).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({width:1180,height:812})
+  await expect(tabs(page).getByRole('link',{name:'Skills',exact:true})).toBeVisible()
+  await tabs(page).getByRole('button',{name:'More',exact:true}).click()
+  await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Skills',exact:true})).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Nothing the old navigation reached is lost: every former destination is a tab or sits under the separate More panel.
  // Projects left More: folder projects live in Home's rail, and /projects goes there. Control left too (R4): it is folded
  // into Home and Machines, and /control goes to Home; the Sessions tab is /sessions.
  if (run('Control no longer under More')) {
   const {context,page,errors} = await open({width:1440})
   await page.goto(base)
-  await page.locator('summary[aria-label^="Account menu"]').click()
-  const more = page.locator('.panel').getByRole('group',{name:'More'})
+  await tabs(page).getByRole('button',{name:'More',exact:true}).click()
+  const more = page.getByRole('dialog',{name:'More'})
   const names = await more.getByRole('link').allInnerTexts()
-  expect(names.map(t=>t.trim())).toEqual(['Setups','Sync','Lists','Community','Support','Teams & organisations','Host skills'])
+  expect(names.map(t=>t.trim())).toEqual(['Setups','Sync','Lists','Host skills','Community','Support','Teams & organisations','Instance administration'])
+  await expect(more.getByRole('region',{name:'Skills & distribution'}).getByRole('link')).toHaveText(['Setups','Sync','Lists','Host skills'])
+  await expect(more.getByRole('region',{name:'Help & community'}).getByRole('link')).toHaveText(['Community','Support'])
+  await expect(more.getByRole('region',{name:'Workspace'}).getByRole('link')).toHaveText(['Teams & organisations','Instance administration'])
   const hrefs = [...await tabs(page).getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href'))), ...await more.getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href')))]
   for (const former of ['/machines','/sessions','/skills','/profiles','/sync','/shared','/community','/support','/spaces','/hosting'])
    expect(hrefs, `${former} is reachable`).toContain(former)
   await expect(page.locator('a[href="/control"], a[href="/terminals"]')).toHaveCount(0)
   await expect(more.getByRole('link',{name:'Control'})).toHaveCount(0)
-  // Notifications, the account and the theme are still in the same menu.
+  await page.keyboard.press('Escape')
+  await page.locator('summary[aria-label^="Account menu"]').click()
+  await expect(page.locator('.panel').getByRole('link')).toHaveCount(2)
+  // Personal settings stay in the avatar menu.
   await expect(page.locator('.panel').getByRole('link',{name:/^Notifications/})).toHaveAttribute('href','/notifications')
   await expect(page.locator('.panel').getByRole('group',{name:'Theme'})).toBeVisible()
   expect(errors).toEqual([])
@@ -180,9 +202,9 @@ try {
     await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Control'})).toHaveCount(0)
     await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Projects'})).toHaveCount(0)
    } else {
-    await page.locator('summary[aria-label^="Account menu"]').click()
-    await expect(page.locator('.panel').getByRole('group',{name:'More'}).getByRole('link',{name:'Setups'})).toBeVisible()
-    await expect(page.locator('.panel').getByRole('link',{name:'Projects'})).toHaveCount(0)
+    await tabs(page).getByRole('button',{name:'More',exact:true}).click()
+    await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Setups'})).toBeVisible()
+    await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Projects'})).toHaveCount(0)
    }
    await expect(page.locator('a[href="/projects"], a[href^="/projects/"]')).toHaveCount(0)
    expect(errors).toEqual([])
@@ -303,9 +325,11 @@ try {
    await page.goto(`${base}${path}`)
    await expect(tabs(page).locator('[aria-current]')).toHaveCount(0)
    const menu = page.locator('summary[aria-label^="Account menu"]')
-   await expect(menu).toHaveClass(/active/)
-   await menu.click()
-   await expect(page.locator('.panel').getByRole('group',{name:'More'}).getByRole('link',{name:link,exact:true})).toHaveAttribute('aria-current','page')
+   await expect(menu).not.toHaveClass(/active/)
+   const more = tabs(page).getByRole('button',{name:/^More/})
+   await expect(more).toHaveClass(/current/)
+   await more.click()
+   await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:link,exact:true})).toHaveAttribute('aria-current','page')
    await context.close()
   }
   const {context,page} = await open({width:390,touch:true})
@@ -436,7 +460,7 @@ try {
 
  // The signed-in header is one row on a phone and does not overflow at the widths either side of the menu breakpoint.
  if (run('header')) {
-  for (const [width,maxHeight] of [[375,100],[1001,110],[1024,110]]) {
+  for (const [width,maxHeight] of [[375,100],[651,72],[1001,72],[1024,72],[1100,72],[1180,72]]) {
    const {context,page} = await open({width,unread:12})
    await page.goto(base)
    await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()

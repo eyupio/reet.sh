@@ -152,6 +152,9 @@ func TestFakeACP(t *testing.T) {
 				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_progress", "content": map[string]string{"type": "text", "text": "still here"}})
 				time.Sleep(60 * time.Millisecond)
 				reply(promptID, map[string]any{"stopReason": "end_turn"})
+			case "progress-after-silence-hang":
+				time.Sleep(60 * time.Millisecond)
+				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_progress", "content": map[string]string{"type": "text", "text": "still here"}})
 			case "fs":
 				send(map[string]any{"jsonrpc": "2.0", "id": 9, "method": "fs/write_text_file", "params": map[string]string{"sessionId": session, "path": "/tmp/mirror.txt", "content": "mirror"}})
 			}
@@ -567,6 +570,57 @@ func TestSilentRecoverySkipsTurnsWithProgress(t *testing.T) {
 			if event.Kind == "status" && event.State == "error" {
 				t.Fatalf("late progress was stopped: %+v", event)
 			}
+		}
+	})
+
+	t.Run("progress while a stale error is read", func(t *testing.T) {
+		opts, got := options(t, "progress-after-silence-hang", testVersion)
+		opts.StillWorkingAfter = 20 * time.Millisecond
+		opts.TurnTimeout = 150 * time.Millisecond
+		entered, release := make(chan struct{}), make(chan struct{})
+		var once sync.Once
+		opts.Agent.RecoverLive = func(_, _ string, _ int64) string {
+			once.Do(func() { close(entered) })
+			<-release
+			return "stale provider error"
+		}
+		session, err := Start(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+		done := make(chan error, 1)
+		go func() { done <- session.Prompt(context.Background(), "working") }()
+		select {
+		case <-entered:
+		case <-time.After(3 * time.Second):
+			t.Fatal("the watchdog never read the live error source")
+		}
+		for event := got.next(t); ; event = got.next(t) {
+			if event.Kind == "agent" {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+		close(release)
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Fatal("prompt did not finish")
+		}
+		got.mu.Lock()
+		defer got.mu.Unlock()
+		stopped := false
+		for _, event := range got.all {
+			if event.Kind == "status" && event.State == "error" {
+				t.Fatalf("stale error stopped healthy work: %+v", event)
+			}
+			if event.Kind == "notice" && strings.Contains(event.Text, "took too long") {
+				stopped = true
+			}
+		}
+		if !stopped {
+			t.Fatal("the watchdog stopped watching after the stale read")
 		}
 	})
 }

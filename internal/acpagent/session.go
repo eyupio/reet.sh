@@ -822,12 +822,12 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 				pending := len(s.pending) > 0
 				progress := s.turnProgress
 				s.mu.Unlock()
-				if !pending && !progress && quiet >= s.opts.stillWorkingAfter() {
+				if !pending && quiet >= s.opts.stillWorkingAfter() {
 					if !s.warned {
 						s.warned = true
 						warnNow = true
 					}
-					if !quietNow.Before(nextRecover) {
+					if !progress && !quietNow.Before(nextRecover) {
 						nextRecover = quietNow.Add(s.opts.stillWorkingAfter())
 						recoverNow = true
 					}
@@ -841,8 +841,9 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 							return
 						default:
 						}
-						s.reportTurnError(seq, message)
-						return
+						if s.reportTurnError(seq, message) {
+							return
+						}
 					}
 				}
 				if warnNow {
@@ -859,8 +860,9 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 								return
 							default:
 							}
-							s.reportTurnError(seq, message)
-							return
+							if s.reportTurnError(seq, message) {
+								return
+							}
 						}
 					}
 					s.emit(Event{Kind: "notice", Text: "The turn took too long, so " + s.opts.Agent.displayName() + " was stopped.", Bad: true})

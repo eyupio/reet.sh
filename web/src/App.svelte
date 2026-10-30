@@ -192,6 +192,7 @@
   // The bell's Needs you count and cards, as Home reads them.
   let attention = $state(0)
   let needsCards = $state<NeedCard[]>([])
+  let onAnswered = $state<(() => void | Promise<void>) | undefined>(undefined)
   let onMarkSeen = $state<((sessionId: string) => void | Promise<void>) | undefined>(undefined)
   let workspaceTitle = $state('')
   // Home spans the page: the project rail on the left and the docked Start an agent at the foot.
@@ -371,6 +372,7 @@
       const cards = needsYou(sessions, Date.now(), sessionOwners(sessions, projects), hosts)
       attention = attentionCount(cards)
       needsCards = cards
+      onAnswered = () => loadAttention()
       onMarkSeen = async (sessionId: string) => {
         try {
           await markSessionSeen(sessionId)
@@ -888,7 +890,7 @@
 <a class="skip" href="#main-content">Skip to content</a>
 <header class="site-header" class:terminal-chrome={terminalLayout}>
   {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems}>
+    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems}>
       {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu
@@ -949,9 +951,9 @@
   {:else if isActivity && authMode !== 'accounts'}
     <ActivityPage accounts={false} writer={sessionsAccess} onsignedout={fail} />
   {:else if isHome}
-    <Home userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={(count, cards, seen) => { attention = count; needsCards = cards; onMarkSeen = seen }} />
+    <Home userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={(count, cards, seen, answered) => { attention = count; needsCards = cards; onMarkSeen = seen; onAnswered = answered }} />
   {:else if isSessions && sessionsAccess}
-    <SessionsPage userId={currentUser?.id ?? 0} onsignedout={fail} onattention={(count, cards, seen) => { attention = count; needsCards = cards; onMarkSeen = seen }} />
+    <SessionsPage userId={currentUser?.id ?? 0} onsignedout={fail} onattention={(count, cards, seen, answered) => { attention = count; needsCards = cards; onMarkSeen = seen; onAnswered = answered }} />
   {:else if isMachines}
     <Machines userId={currentUser?.id??0} onsignedout={fail} {canWrite} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} ontitle={title => (workspaceTitle = title)} />
   {:else if isProfiles}

@@ -551,6 +551,47 @@ try {
   await context.close()
  }
 
+ // A waiting reet TUI chat shows its earliest approval on the Needs you card and in the bell, with Allow once and Deny; an
+ // answer is sent to the chat, the card leaves once the session no longer waits, and a cut-short command cannot be allowed.
+ if (run('Needs you approvals: Allow once and Deny from the card and the bell')) {
+  const {context,page,errors,box} = await home()
+  const answers = []
+  await page.route('**/api/v2/terminal/sessions/*/chat/permissions/*', route => {
+   const request = route.request(), parts = new URL(request.url()).pathname.split('/')
+   answers.push({session:parts.at(-4), permission:parts.at(-1), body:request.postDataJSON()})
+   const s = box.sessions.find(x => x.id === parts.at(-4))
+   if (s) { s.attention = 'working'; delete s.pendingPermission; s.changedSinceSeen = false }
+   return route.fulfill({json:{answered:true}})
+  })
+  box.sessions = [
+   session('c1','a1','Fix the build','running',{structured:true,attention:'waiting',attentionSource:'chat',bellAt:now-MIN,changedSinceSeen:true,pendingPermission:{permissionId:'perm-aaaa00000001',title:'go test',command:'go test ./...',queued:1}}),
+   session('c2','a1','Rewrite the docs','running',{structured:true,attention:'waiting',attentionSource:'chat',bellAt:now-2*MIN,changedSinceSeen:true,pendingPermission:{permissionId:'perm-bbbb00000002',title:'cat',command:'cat big',truncated:true}}),
+  ]
+  await page.goto(base)
+  await expect(needs(page).locator('.card')).toHaveCount(2)
+  const first = needs(page).locator('.card',{hasText:'Fix the build'})
+  await expect(first).toContainText('go test ./...')
+  await expect(first).toContainText('1 more waiting')
+  // A command that was cut short cannot be allowed here, but can be denied.
+  const cut = needs(page).locator('.card',{hasText:'Rewrite the docs'})
+  await expect(cut.getByRole('button',{name:'Allow once'})).toBeDisabled()
+  await expect(cut.getByRole('button',{name:'Deny'})).toBeEnabled()
+  await expect(cut).toContainText('Open the chat to read it all')
+  // The bell carries the same approval.
+  await page.getByRole('button',{name:'Needs you: 2',exact:true}).click()
+  const pop = page.getByRole('banner').getByRole('region',{name:'Needs you'})
+  await expect(pop.getByRole('button',{name:'Allow once'})).toHaveCount(2)
+  await page.keyboard.press('Escape')
+  await first.getByRole('button',{name:'Allow once'}).click()
+  await expect.poll(() => answers).toEqual([{session:'c1', permission:'perm-aaaa00000001', body:{allow:true}}])
+  await expect(needs(page).locator('.card')).toHaveCount(1)
+  await cut.getByRole('button',{name:'Deny'}).click()
+  await expect.poll(() => answers.at(-1)).toEqual({session:'c2', permission:'perm-bbbb00000002', body:{allow:false}})
+  await expect(needs(page).locator('.none')).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // The rail lists the folder projects: repository diamond or folder icon, name, machine tag, base branch, state in words and
  // worktrees in use. Choosing a card puts that project in the launch bar's sentence and moves to the prompt; the card menu
  // has New session here, Edit, Worktrees, Move up and down, and Remove from reet (confirmed).

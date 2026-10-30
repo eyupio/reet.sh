@@ -21,7 +21,7 @@
   let { userId, onsignedout, onattention }: {
     userId: number
     onsignedout: (e: unknown) => void
-    onattention?: (count: number, cards: NeedCard[], markSeen: (sessionId: string) => Promise<void>) => void
+    onattention?: (count: number, cards: NeedCard[], markSeen: (sessionId: string) => Promise<void>, answered: () => Promise<void>) => void
   } = $props()
 
   const POLL_MS = 15_000
@@ -95,7 +95,7 @@
     } catch { /* next read recovers */ }
   }
   $effect(() => {
-    onattention?.(attentionCount(cards), cards, markSeen)
+    onattention?.(attentionCount(cards), cards, markSeen, async () => { await load(true) })
   })
   const shown = $derived(filterSessions(searchSessions(sessions ?? [], projects ?? [], machines, query), filter, needing, colourOf))
   const groups = $derived(sessionGroups(shown, projects ?? [], machines, groupBy, offline, sort, order))

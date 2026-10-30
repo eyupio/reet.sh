@@ -55,6 +55,8 @@ export type NeedCard = {
   age: string
   markSeen: boolean
   worktreeTarget: { agentId: string; project: string; repo: string; run: string } | null
+  /** The earliest unanswered tool approval of a waiting reet TUI chat: answered from the card without opening it. */
+  approval?: { permissionId: string; title: string; command: string; path: string; truncated: boolean; queued: number }
 }
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR
@@ -299,6 +301,10 @@ export function rowSubtitle(session: HomeSession, owner: SessionOwner | undefine
   return [owner?.name, machine?.host || session.agentId, session.worktreeBranch].filter(Boolean).join(' · ')
 }
 
+function approvalOf(p: NonNullable<TerminalSession['pendingPermission']>): NonNullable<NeedCard['approval']> {
+  return { permissionId: p.permissionId, title: p.title || 'A tool call', command: p.command ?? '', path: p.path ?? '', truncated: !!p.truncated, queued: p.queued ?? 0 }
+}
+
 function needWorktreeTarget(s: Pick<TerminalSession, 'agentId' | 'worktreePath' | 'worktreeRepo' | 'worktreeBranch'>): NeedCard['worktreeTarget'] {
   if (!s.worktreePath || !s.worktreeRepo) return null
   const parts = s.worktreePath.split('/').filter(Boolean)
@@ -342,6 +348,7 @@ export function needsYou(
         age: shortAge(Math.max(0, now - at)),
         markSeen: false,
         worktreeTarget: null,
+        ...(s.pendingPermission?.permissionId ? { approval: approvalOf(s.pendingPermission) } : {}),
       })
       continue
     }

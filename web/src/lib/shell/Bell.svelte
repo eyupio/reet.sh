@@ -1,12 +1,14 @@
 <script lang="ts">
   import type { NeedCard } from '../home'
+  import Approval from './Approval.svelte'
 
   // The top bar's Needs you bell (spec: Information architecture and navigation).
   // When nothing needs the person it carries no badge and stays in the muted chrome colour.
-  let { count, cards = [], onseen }: {
+  let { count, cards = [], onseen, onanswered }: {
     count: number
     cards?: NeedCard[]
     onseen?: (sessionId: string) => void | Promise<void>
+    onanswered?: () => void | Promise<void>
   } = $props()
 
   let open = $state(false)
@@ -60,6 +62,7 @@
             <span class="kind {card.tone}">{card.label} · {card.age}</span>
             <span class="title">{card.title}</span>
             {#if card.where}<span class="where">{card.where}</span>{/if}
+            {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} compact />{/if}
             <div class="actions">
               <a class="btn open" href={card.href} onclick={() => { close(); void onseen?.(card.sessionId) }}>Open</a>
               {#if card.markSeen}

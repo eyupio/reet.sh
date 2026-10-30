@@ -259,6 +259,18 @@ test('needs you is empty and the count is 0', () => {
   assert.equal(attentionCount([{ kind: 'x' }, { kind: 'y' }]), 2)
 })
 
+test('a waiting chat card carries its earliest approval, and a terminal card carries none', () => {
+  const pending = { permissionId: 'p1', title: 'go test', command: 'go test ./...', path: '', truncated: false, queued: 2 }
+  const cards = needsYou([
+    session('c1', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - MIN, changedSinceSeen: true, pendingPermission: { permissionId: 'p1', title: 'go test', command: 'go test ./...', queued: 2 } }),
+    session('t1', 'a1', 'running', { attention: 'waiting', attentionSource: 'terminal', bellAt: NOW - 2 * MIN, changedSinceSeen: true }),
+    session('c2', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - 3 * MIN, changedSinceSeen: true, pendingPermission: { permissionId: 'p9', truncated: true } }),
+  ], NOW)
+  assert.deepEqual(cards.find(c => c.sessionId === 'c1').approval, pending)
+  assert.equal(cards.find(c => c.sessionId === 't1').approval, undefined)
+  assert.deepEqual(cards.find(c => c.sessionId === 'c2').approval, { permissionId: 'p9', title: 'A tool call', command: '', path: '', truncated: true, queued: 0 })
+})
+
 test('bell count equals queue length', () => {
   const owners = new Map([['s1', { id: 'p1', name: 'site' }]])
   const machines = [machine('a1', 'studio')]

@@ -30,7 +30,7 @@
     legacyProject?: string
     onsignedout: (e: unknown) => void
     /** The Needs you count and cards, for the bell and document title. */
-    onattention?: (count: number, cards: NeedCard[], onseen: (sessionId: string) => Promise<void>) => void
+    onattention?: (count: number, cards: NeedCard[], onseen: (sessionId: string) => Promise<void>, onanswered: () => Promise<void>) => void
   } = $props()
 
   const POLL_MS = 15_000
@@ -90,7 +90,9 @@
     }
   }
 
-  $effect(() => { onattention?.(attentionCount(needs), needs, markSeen) })
+  const answered = async () => { await load(true) }
+
+  $effect(() => { onattention?.(attentionCount(needs), needs, markSeen, answered) })
 
   // Polite live region for transitions into Waiting for you, throttled to at most once per session per minute.
   let waitingNotice = $state('')
@@ -320,7 +322,7 @@
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
       <div class="work">
-        <NeedsYou cards={needs} onseen={markSeen} />
+        <NeedsYou cards={needs} onseen={markSeen} onanswered={answered} />
         <InFlight {groups} {owners} machines={health ?? []} {offline} {now} loaded={sessions !== undefined} failed={sessionsFailed} {groupBy} onchoose={choose} {projectColours}
           terminals={terminals ?? []} {removeDefault} onchanged={() => load(true)} onnotice={(n) => (notice = n)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       </div>

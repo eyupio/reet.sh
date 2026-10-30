@@ -6,10 +6,10 @@
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
   import { addedLine } from '../folderBrowser'
-  import { needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy } from '../home'
+  import { attentionCount, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy, type NeedCard } from '../home'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import { agentChoicesOf, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
-  import { folderProjectList, machineHealth, sessionHref, terminalMachines, terminalSessions, TerminalError,
+  import { folderProjectList, machineHealth, markSessionSeen, sessionHref, terminalMachines, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import SessionActions from './SessionActions.svelte'
 
@@ -18,7 +18,11 @@
   // Add a project. Read again every 15 seconds while in view. A read that fails keeps the last list and says so. Only the
   // Group by choice is stored (Home's key); the search and filters live on this page only. On a tablet or phone the projects
   // are the full project rail (the phone rail, moved here from Home): its menus, Select and the state words.
-  let { userId, onsignedout }: { userId: number; onsignedout: (e: unknown) => void } = $props()
+  let { userId, onsignedout, onattention }: {
+    userId: number
+    onsignedout: (e: unknown) => void
+    onattention?: (count: number, cards: NeedCard[], markSeen: (sessionId: string) => Promise<void>) => void
+  } = $props()
 
   const POLL_MS = 15_000
   // The Machines page opens Add a machine when it arrives with this fragment.
@@ -82,7 +86,17 @@
   const offline = $derived(new Set((health ?? []).filter(m => m.state !== 'connected').map(m => m.agentId)))
   const colourOf = (s: TerminalSession) => sessionColourOf(s, colors, projects ?? [])
   const colourName = (id: string) => PROJECT_COLOURS.find(c => c.id === id)?.name ?? ''
-  const needing = $derived(new Set(needsYou(sessions ?? [], now, sessionOwners(sessions ?? [], projects ?? []), machines).map(c => c.sessionId)))
+  const cards = $derived(needsYou(sessions ?? [], now, sessionOwners(sessions ?? [], projects ?? []), machines))
+  const needing = $derived(new Set(cards.map(c => c.sessionId)))
+  async function markSeen(sessionId: string) {
+    try {
+      await markSessionSeen(sessionId)
+      await load(true)
+    } catch { /* next read recovers */ }
+  }
+  $effect(() => {
+    onattention?.(attentionCount(cards), cards, markSeen)
+  })
   const shown = $derived(filterSessions(searchSessions(sessions ?? [], projects ?? [], machines, query), filter, needing, colourOf))
   const groups = $derived(sessionGroups(shown, projects ?? [], machines, groupBy, offline, sort, order))
   const agents = $derived(agentChoicesOf(sessions ?? []))

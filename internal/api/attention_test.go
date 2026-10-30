@@ -82,3 +82,59 @@ func TestTerminalSessionSeenClearsWaitingAndFinishedNeeds(t *testing.T) {
 		t.Fatalf("after seen got %+v", got)
 	}
 }
+
+func TestStructuredChatPermissionResolvedRestoresWorkingAttention(t *testing.T) {
+	f := launchAPIFixture(t, chatCaps())
+	code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{
+		"tool": "opencode", "structured": true, "trust": true, "dir": "/tmp",
+	}))
+	if code != 200 {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	session, _ := out["id"].(string)
+
+	send := func(ev terminalproto.ACPEvent) {
+		if err := f.peer.Receive(terminalproto.Message{
+			Version: 1, RequestID: terminalbroker.ID(), SessionID: session, Generation: f.peer.Generation,
+			Body: &ev,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(terminalproto.ACPEvent{Kind: "status", State: "working"})
+	send(terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-0123456789", Title: "go test", Command: "go test"})
+	send(terminalproto.ACPEvent{Kind: "status", State: "waiting"})
+
+	readOne := func() store.TerminalSession {
+		r := httptest.NewRequest(http.MethodGet, "/api/v2/terminal/sessions", nil)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: f.cookie})
+		w := httptest.NewRecorder()
+		f.srv.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET /api/v2/terminal/sessions: %d %s", w.Code, w.Body.String())
+		}
+		var out struct {
+			Sessions []store.TerminalSession `json:"sessions"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		if len(out.Sessions) != 1 {
+			t.Fatalf("expected 1 session, got %d", len(out.Sessions))
+		}
+		return out.Sessions[0]
+	}
+
+	got := readOne()
+	if got.Attention != "waiting" || got.AttentionSource != "chat" || !got.ChangedSinceSeen {
+		t.Fatalf("while permission pending got %+v", got)
+	}
+
+	allow := true
+	send(terminalproto.ACPEvent{Kind: "permission_resolved", PermissionID: "permission-0123456789", Allow: &allow})
+
+	got = readOne()
+	if got.Attention != "working" || got.AttentionSource != "chat" {
+		t.Fatalf("after permission resolved got %+v", got)
+	}
+}

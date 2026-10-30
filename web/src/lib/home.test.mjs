@@ -260,6 +260,7 @@ test('bell count equals queue length', () => {
     session('s2', 'a1', 'exited', { exitCode: 2, attention: 'failed', attentionSource: 'terminal', updatedAt: NOW - 5 * MIN, changedSinceSeen: true }),
     session('s3', 'a1', 'exited', { exitCode: 0, attention: 'finished', attentionSource: 'terminal', updatedAt: NOW - 10 * MIN, changedSinceSeen: true, ...tree('web') }),
     session('s4', 'a1', 'exited', { exitCode: 0, attention: 'finished', attentionSource: 'terminal', updatedAt: NOW - 15 * MIN, changedSinceSeen: false }),
+    session('s4b', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - 3 * MIN }),
     session('s5', 'a1', 'running', { attention: 'working', attentionSource: 'terminal', changedSinceSeen: true }),
   ]
   const cards = needsYou(sessions, NOW, owners, machines)
@@ -270,7 +271,7 @@ test('bell count equals queue length', () => {
   ])
   assert.equal(attentionCount(cards), 3)
   assert.deepEqual(stateWord(sessions[0]), { word: 'Waiting for you', source: 'from terminal activity', tone: 'warn' })
-  assert.deepEqual(stateWord(sessions[4]), { word: 'Working', source: 'from terminal activity', tone: 'good' })
+  assert.deepEqual(stateWord(sessions[5]), { word: 'Working', source: 'from terminal activity', tone: 'good' })
   assert.deepEqual(stateWord(session('s6', 'a1', 'running', { attention: 'quiet', attentionSource: 'terminal' })), { word: 'Quiet', source: 'from terminal activity', tone: 'muted' })
   assert.deepEqual(stateWord(session('s7', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat' })), { word: 'Waiting for you', source: 'from the chat', tone: 'warn' })
 })

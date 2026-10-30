@@ -245,9 +245,11 @@ Still true from earlier PRs:
 
 ### Queued work (decided, not started)
 
-**1. Program 2, slice 2: reet TUI history, continue and images** (this PR). Input: the slice 1 probe, the real
-`session/load` result (configOptions, mode `build`, replay before the result), and the Home launch-upload path.
-Slice 1 is merged in #256; its conditions and limits remain binding.
+**1. Program 2, slice 3: Inline approval cards in Home's Needs you column.** Surface pending reet TUI permission
+requests (`permission` events with `permissionId`, `title`, `command`, `diff`, `truncated`) on `GET /api/v2/terminal/sessions`
+so Home's **Needs you** column and the bell popover render the command/edit approval cards with inline **Allow once** and
+**Deny** actions (`POST /api/v2/terminal/sessions/{id}/chat/permissions/{permissionId}`) alongside **Open**. Slices 1 and
+2 are merged in #256 and #258; their seven conditions and limits remain binding:
 [docs/research/probe-report.md](docs/research/probe-report.md),
 [reference-tool-frontend-research.md](docs/research/reference-tool-frontend-research.md) and
 [reference-tool-agents-research.md](docs/research/reference-tool-agents-research.md). Owner decision: trusted workspaces only, OpenCode, Allow

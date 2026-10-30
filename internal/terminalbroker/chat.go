@@ -146,6 +146,13 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 			delete(l.pending, event.PermissionID)
 			if len(l.pending) == 0 {
 				l.waitingAt = 0
+				if l.lastState == "waiting" {
+					if l.running {
+						l.lastState = "working"
+					} else {
+						l.lastState = "quiet"
+					}
+				}
 			}
 		}
 	}
@@ -189,9 +196,7 @@ func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
 		if l.waitingAt > s.BellAt {
 			s.BellAt = l.waitingAt
 		}
-		if l.waitingAt > s.SeenAt {
-			s.ChangedSinceSeen = true
-		}
+		s.ChangedSinceSeen = l.waitingAt > s.SeenAt
 		return
 	}
 	if l.running && s.State == terminalproto.Running {

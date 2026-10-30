@@ -327,7 +327,7 @@ export function needsYou(
     const host = machineName(s.agentId, [...machines])
     const where = [owner?.name, host].filter(Boolean).join(' · ')
     const href = `/sessions?agent=${encodeURIComponent(s.agentId)}&session=${encodeURIComponent(s.id)}`
-    if (s.attention === 'waiting' && s.changedSinceSeen !== false) {
+    if (s.attention === 'waiting' && s.changedSinceSeen) {
       const at = s.bellAt && s.bellAt > 0 ? s.bellAt : s.updatedAt
       out.push({
         kind: 'waiting',

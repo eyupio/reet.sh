@@ -67,6 +67,16 @@ packages on Go 1.27. `huh` is added with the first form slice. The project keeps
 "one Go binary, one SQLite file"; this is a deliberate exception, not a new
 runtime.
 
+## Packaging
+
+The interface is compiled into the same single binary as the server and the CLI.
+It has no separate executable, asset directory or runtime to install. Release and
+container builds already set `CGO_ENABLED=0`, so the binary is statically linked
+and carries every terminal-interface dependency; verify with
+`CGO_ENABLED=0 go build ./cmd/reet && file reet` (statically linked) and `ldd reet`
+(not a dynamic executable). The embedded web UI remains in the same binary for
+`reet serve`; the terminal interface does not load it.
+
 ## Limits
 
 Bubble Tea owns one program's screen and input. It cannot host OpenCode, Codex or

@@ -83,6 +83,7 @@ type Session struct {
 	working      bool
 	turnProgress bool
 	turnError    bool
+	turnSeq      uint64
 	turnStart    time.Time
 	lastEvent    time.Time
 	warned       bool
@@ -710,13 +711,21 @@ func (s *Session) recoverLive(acpID string, afterMS int64) string {
 
 // reportTurnError ends a turn whose provider failed without ACP reporting it.
 // The error stays the last observable state; the cancelled reply that follows
-// session/cancel is suppressed by Prompt.
-func (s *Session) reportTurnError(message string) {
+// session/cancel is suppressed by Prompt. The turn sequence keeps a watchdog
+// from reporting against a later turn.
+func (s *Session) reportTurnError(seq uint64, message string) bool {
+	s.turnMu.Lock()
+	active := s.working && s.turnSeq == seq
+	s.turnMu.Unlock()
+	if !active {
+		return false
+	}
 	s.mu.Lock()
 	s.turnError = true
 	s.mu.Unlock()
 	s.emit(Event{Kind: "status", State: "error", Detail: safeRPCText(message)})
 	_ = s.stopTurn()
+	return true
 }
 
 // markInterrupted closes tools that session/load replayed as still running.
@@ -754,6 +763,8 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 	acpID := s.acpID
 	s.mu.Unlock()
 	s.working = true
+	s.turnSeq++
+	seq := s.turnSeq
 	s.turnStart = time.Now()
 	s.warned = false
 	s.mu.Lock()
@@ -763,14 +774,18 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 	s.mu.Unlock()
 	startedAt := s.turnStart
 	s.turnMu.Unlock()
+	watchDone := make(chan struct{})
+	watchStopped := make(chan struct{})
 	defer func() {
+		close(watchDone)
+		<-watchStopped
 		s.turnMu.Lock()
 		s.working = false
 		s.turnMu.Unlock()
 	}()
 	s.emit(Event{Kind: "status", State: "working"})
-	watchDone := make(chan struct{})
 	go func() {
+		defer close(watchStopped)
 		interval := time.Second
 		if s.opts.stillWorkingAfter() < interval/2 {
 			interval = s.opts.stillWorkingAfter() / 2
@@ -783,6 +798,11 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 			case <-watchDone:
 				return
 			case <-ticker.C:
+				select {
+				case <-watchDone:
+					return
+				default:
+				}
 				s.turnMu.Lock()
 				if !s.working {
 					s.turnMu.Unlock()
@@ -809,7 +829,12 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 				s.turnMu.Unlock()
 				if recoverNow {
 					if message := s.recoverLive(acpID, startedAt.UnixMilli()); message != "" {
-						s.reportTurnError(message)
+						select {
+						case <-watchDone:
+							return
+						default:
+						}
+						s.reportTurnError(seq, message)
 						return
 					}
 				}
@@ -818,7 +843,12 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 				}
 				if timedOut {
 					if message := s.recoverLive(acpID, startedAt.UnixMilli()); message != "" {
-						s.reportTurnError(message)
+						select {
+						case <-watchDone:
+							return
+						default:
+						}
+						s.reportTurnError(seq, message)
 						return
 					}
 					s.emit(Event{Kind: "notice", Text: "The turn took too long, so " + s.opts.Agent.displayName() + " was stopped.", Bad: true})
@@ -828,7 +858,6 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 			}
 		}
 	}()
-	defer close(watchDone)
 	requestCtx, cancel := context.WithTimeout(ctx, s.opts.turnTimeout()+30*time.Second)
 	defer cancel()
 	raw, err := s.request(requestCtx, "session/prompt", map[string]any{

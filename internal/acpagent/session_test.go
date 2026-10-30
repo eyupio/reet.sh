@@ -438,6 +438,47 @@ func TestSilentProviderErrorStopsTheTurn(t *testing.T) {
 	}
 }
 
+func TestSilentRecoveryDoesNotOutliveTheTurn(t *testing.T) {
+	opts, got := options(t, "watchdog", testVersion)
+	opts.StillWorkingAfter = 20 * time.Millisecond
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	opts.Agent.RecoverLive = func(_, _ string, _ int64) string {
+		once.Do(func() { close(entered) })
+		<-release
+		return "late provider error"
+	}
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "slow") }()
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the watchdog never read the live error source")
+	}
+	time.Sleep(250 * time.Millisecond)
+	close(release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("prompt: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("prompt waited for the watchdog after the turn")
+	}
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	for _, event := range got.all {
+		if event.Kind == "status" && (event.State == "error" || event.State == "cancelled") {
+			t.Fatalf("the finished turn was reported as %s: %+v", event.State, event)
+		}
+	}
+}
+
 func TestEnvironmentScrub(t *testing.T) {
 	env := agentEnvironment(OpenCode, "/home/u", []string{
 		"PATH=/bin", "HOME=/elsewhere", "OPENCODE_PERMISSION={}", "OPENCODE_CONFIG=/tmp/x",

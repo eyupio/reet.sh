@@ -721,6 +721,10 @@ func (s *Session) reportTurnError(seq uint64, message string) bool {
 		return false
 	}
 	s.mu.Lock()
+	if s.turnProgress {
+		s.mu.Unlock()
+		return false
+	}
 	s.turnError = true
 	s.mu.Unlock()
 	s.emit(Event{Kind: "status", State: "error", Detail: safeRPCText(message)})
@@ -816,8 +820,9 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 				s.mu.Lock()
 				quiet := quietNow.Sub(s.lastEvent)
 				pending := len(s.pending) > 0
+				progress := s.turnProgress
 				s.mu.Unlock()
-				if !pending && quiet >= s.opts.stillWorkingAfter() {
+				if !pending && !progress && quiet >= s.opts.stillWorkingAfter() {
 					if !s.warned {
 						s.warned = true
 						warnNow = true
@@ -844,14 +849,19 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 					s.emit(Event{Kind: "notice", Text: "Still working: the provider may be retrying."})
 				}
 				if timedOut {
-					if message := s.recoverLive(acpID, startedAt.UnixMilli()); message != "" {
-						select {
-						case <-watchDone:
+					s.mu.Lock()
+					progress := s.turnProgress
+					s.mu.Unlock()
+					if !progress {
+						if message := s.recoverLive(acpID, startedAt.UnixMilli()); message != "" {
+							select {
+							case <-watchDone:
+								return
+							default:
+							}
+							s.reportTurnError(seq, message)
 							return
-						default:
 						}
-						s.reportTurnError(seq, message)
-						return
 					}
 					s.emit(Event{Kind: "notice", Text: "The turn took too long, so " + s.opts.Agent.displayName() + " was stopped.", Bad: true})
 					_ = s.Cancel()

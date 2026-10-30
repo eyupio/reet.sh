@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -142,6 +143,15 @@ func TestFakeACP(t *testing.T) {
 					` level=ERROR run=x message="stream error" providerID=opencode modelID=stub session.id=` + session +
 					` small=false agent=build mode=primary error.error="AI_APICallError: quota exhausted"` + "\n"
 				_ = os.WriteFile(filepath.Join(logDir, "opencode.log"), []byte(line), 0600)
+			case "progress-first":
+				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_progress", "content": map[string]string{"type": "text", "text": "still here"}})
+				time.Sleep(120 * time.Millisecond)
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
+			case "progress-after-silence":
+				time.Sleep(60 * time.Millisecond)
+				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_progress", "content": map[string]string{"type": "text", "text": "still here"}})
+				time.Sleep(60 * time.Millisecond)
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
 			case "fs":
 				send(map[string]any{"jsonrpc": "2.0", "id": 9, "method": "fs/write_text_file", "params": map[string]string{"sessionId": session, "path": "/tmp/mirror.txt", "content": "mirror"}})
 			}
@@ -483,6 +493,82 @@ func TestSilentRecoveryDoesNotOutliveTheTurn(t *testing.T) {
 			t.Fatalf("the finished turn was reported as %s: %+v", event.State, event)
 		}
 	}
+}
+
+func TestSilentRecoverySkipsTurnsWithProgress(t *testing.T) {
+	t.Run("progress before the check", func(t *testing.T) {
+		opts, got := options(t, "progress-first", testVersion)
+		opts.StillWorkingAfter = 20 * time.Millisecond
+		var called atomic.Bool
+		opts.Agent.RecoverLive = func(_, _ string, _ int64) string {
+			called.Store(true)
+			return "stale provider error"
+		}
+		session, err := Start(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+		if err := session.Prompt(context.Background(), "working"); err != nil {
+			t.Fatal(err)
+		}
+		if called.Load() {
+			t.Fatal("live recovery ran for a turn that streamed progress")
+		}
+		got.mu.Lock()
+		defer got.mu.Unlock()
+		for _, event := range got.all {
+			if event.Kind == "status" && event.State == "error" {
+				t.Fatalf("healthy progress was stopped: %+v", event)
+			}
+		}
+	})
+
+	t.Run("progress after the read", func(t *testing.T) {
+		opts, got := options(t, "progress-after-silence", testVersion)
+		opts.StillWorkingAfter = 20 * time.Millisecond
+		entered, release := make(chan struct{}), make(chan struct{})
+		var once sync.Once
+		opts.Agent.RecoverLive = func(_, _ string, _ int64) string {
+			once.Do(func() { close(entered) })
+			<-release
+			return "stale provider error"
+		}
+		session, err := Start(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+		done := make(chan error, 1)
+		go func() { done <- session.Prompt(context.Background(), "working") }()
+		select {
+		case <-entered:
+		case <-time.After(3 * time.Second):
+			t.Fatal("the watchdog never read the live error source")
+		}
+		for event := got.next(t); ; event = got.next(t) {
+			if event.Kind == "agent" {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+		close(release)
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("prompt: %v", err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("prompt did not finish")
+		}
+		got.mu.Lock()
+		defer got.mu.Unlock()
+		for _, event := range got.all {
+			if event.Kind == "status" && event.State == "error" {
+				t.Fatalf("late progress was stopped: %+v", event)
+			}
+		}
+	})
 }
 
 func TestEnvironmentScrub(t *testing.T) {

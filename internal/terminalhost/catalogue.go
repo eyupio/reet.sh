@@ -42,7 +42,7 @@ type Preset struct {
 // denial and interactive mode; its default otherwise auto-approves tools.
 var Catalogue = []Preset{
 	{ID: "claude", Name: "Claude Code", Binary: "claude", ModelFlag: "--model", PromptPositional: true, ACP: "adapter"},
-	{ID: "codex", Name: "Codex", Binary: "codex", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--dangerously-bypass-approvals-and-sandbox"}, ACP: "adapter"},
+	{ID: "codex", Name: "Codex", Binary: "codex", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--ask-for-approval", "never"}, ACP: "adapter"},
 	{ID: "opencode", Name: "OpenCode", Binary: "opencode", ModelFlag: "--model", PromptFlag: "--prompt", YoloArgs: []string{"--auto"}, ResumeArgs: []string{"--continue"}, ACP: "native", ModelList: &ModelList{Argv: []string{"models"}, Env: []string{"OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_DISABLE_AUTOUPDATE=1", "NO_COLOR=1", "LANG=C.UTF-8", "CI=1"}}},
 	{ID: "gemini", Name: "Gemini CLI", Binary: "gemini", ModelFlag: "--model", PromptFlag: "--prompt-interactive"},
 	{ID: "pi", Name: "Pi", Binary: "pi", DisabledReason: "This CLI has no built-in approval policy for tool execution."},

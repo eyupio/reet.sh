@@ -51,7 +51,7 @@ func TestLaunchArgvEffortMapping(t *testing.T) {
 func TestLaunchArgvYoloOption(t *testing.T) {
 	in := terminalproto.Create{Title: "test", Cols: 80, Rows: 24, Tool: "codex", Yolo: true}
 	argv, err := LaunchArgv(in, fakeLookPath("codex"))
-	want := []string{"/opt/fake/bin/codex", "--dangerously-bypass-approvals-and-sandbox"}
+	want := []string{"/opt/fake/bin/codex", "--ask-for-approval", "never"}
 	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatal(argv, err)
 	}
@@ -157,7 +157,7 @@ func flagBlock(help, flag string) string {
 			continue
 		}
 		rest := help[end:]
-		for _, sep := range []string{"\n  -", "\n\n"} {
+		for _, sep := range []string{"\n  -", "\n      --", "\n\nCommands:"} {
 			if j := strings.Index(rest, sep); j >= 0 {
 				rest = rest[:j]
 			}
@@ -381,7 +381,7 @@ func TestYoloNeverWithoutFlag(t *testing.T) {
 		tool string
 		args []string
 	}{
-		{"codex", []string{"--dangerously-bypass-approvals-and-sandbox"}},
+		{"codex", []string{"--ask-for-approval", "never"}},
 		{"opencode", []string{"--auto"}},
 		{"cline", []string{"--yolo"}},
 	} {

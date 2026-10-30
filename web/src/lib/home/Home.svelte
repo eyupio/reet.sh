@@ -202,10 +202,13 @@
     void load(true)
   }
 
-  // A machine's + or its menu's New session asks which project on it, or a terminal. The project then starts through the
-  // launch bar, so its defaults, refusals and navigation are the same as the bar's Start.
+  // A machine's + offers what to start there: a session (which asks which project on it, or a terminal), a new project on
+  // it, or a plain terminal. A project then starts through the launch bar, so its defaults, refusals and navigation are the
+  // same as the bar's Start.
   let chooser = $state<{ card: FleetCard; opener: HTMLElement } | null>(null)
   function newSessionOn(card: FleetCard, opener: HTMLElement) { notice = null; chooser = { card, opener } }
+  // New project opens the rail's Add project dialog with this machine already chosen.
+  function newProjectOn(card: FleetCard, opener: HTMLElement) { notice = null; void host?.openAdd(opener, card.agentId) }
   function startProjectNow(project: FolderProject) {
     chooser = null
     if (!bar) { notice = { text: 'Home is still opening. Try again in a moment.', bad: true }; return }
@@ -286,7 +289,7 @@
   <div class="column">
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
     <FleetStrip {cards} sessions={writer && sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
-      onnew={writer ? newSessionOn : undefined} onterminal={writer ? startTerminalOn : undefined} />
+      onnew={writer ? newSessionOn : undefined} onproject={writer ? newProjectOn : undefined} onterminal={writer ? startTerminalOn : undefined} />
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}</div>
       <div class="work">

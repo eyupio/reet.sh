@@ -7,9 +7,9 @@
   // measures (R12): the running sessions on that machine of any kind, and how many are ending (the listing cannot say which run an agent), the CPU from
   // a fresh health report or "No reading", the worktrees live sessions there are in ("in use": no record says which other
   // worktrees reet made and has not removed) and the skills line from the last finished sync check. A card opens that
-  // machine on Machines. Its + starts a session there (a project on the machine or a terminal); its menu offers the same
-  // plus opening the machine and its sync. The pills report what the last scan says is installed.
-  let { cards, sessions, addHref, loaded, onnew, onterminal }: {
+  // machine on Machines. Its + offers what to start there (a session, a project on the machine, or a terminal); its ⋮ menu
+  // offers the same plus opening the machine and its sync. The pills report what the last scan says is installed.
+  let { cards, sessions, addHref, loaded, onnew, onproject, onterminal }: {
     cards: FleetCard[]
     /** False on the read-only Home: those sign-ins cannot read sessions, so no count is shown rather than a false 0. */
     sessions: boolean
@@ -18,6 +18,8 @@
     loaded: boolean
     /** Start a session on this machine (writer only); absent on the read-only Home. */
     onnew?: (card: FleetCard, opener: HTMLElement) => void
+    /** Add a project on this machine (writer only). */
+    onproject?: (card: FleetCard, opener: HTMLElement) => void
     /** Start a plain terminal on this machine (writer only). */
     onterminal?: (card: FleetCard, opener: HTMLElement) => void
   } = $props()
@@ -52,14 +54,17 @@
     : c.installed.skills ? `${c.installed.skills} distinct ${c.installed.skills === 1 ? 'skill' : 'skills'} across this machine’s agent scopes.` : 'No skills are installed on this machine.'
   const mcpTitle = (c: FleetCard) => c.installed.mcp === null ? 'No agent reports its MCP servers yet.' : `${c.installed.mcp} MCP ${c.installed.mcp === 1 ? 'server' : 'servers'} reported.`
 
-  // One machine menu at a time: New session, New terminal, Open on Machines, Skills & sync. A right-click opens it where the
-  // pointer is; the card's ⋮ opens it under the button; Escape closes it and gives focus back.
+  // One machine menu at a time: the + opens what to start there (New session, New project, New terminal) and the ⋮ opens the
+  // same plus Open on Machines and Skills & sync. A right-click opens the full menu where the pointer is; Escape closes it and
+  // gives focus back.
+  type MenuKind = 'create' | 'actions'
   let menuFor = $state<string | null>(null)
+  let menuKind = $state<MenuKind>('actions')
   let menuButton: HTMLElement | null = null
   let menuX = $state(0), menuY = $state(0)
-  async function openMenu(c: FleetCard, button: HTMLElement, point?: { x: number; y: number }) {
-    if (menuFor === c.agentId && !point) { closeMenu(); return }
-    menuFor = c.agentId; menuButton = button
+  async function openMenu(c: FleetCard, button: HTMLElement, point?: { x: number; y: number }, kind: MenuKind = 'actions') {
+    if (menuFor === c.agentId && menuKind === kind && !point) { closeMenu(); return }
+    menuFor = c.agentId; menuKind = kind; menuButton = button
     const box = button.getBoundingClientRect()
     const at = point ?? { x: Math.max(8, box.right - 198), y: box.bottom + 4 }
     menuX = Math.min(Math.max(8, at.x), Math.max(8, innerWidth - 208))
@@ -97,7 +102,7 @@
     location.assign(path)
   }
   function outside(event: PointerEvent) {
-    if (menuFor && !(event.target as HTMLElement).closest('.menu, .more')) closeMenu()
+    if (menuFor && !(event.target as HTMLElement).closest('.menu, .more, .quick')) closeMenu()
   }
 </script>
 
@@ -139,11 +144,15 @@
           <span class="foot">{#if sessions}<span class="worktrees">{worktreesInUse(c.worktrees)}</span>{/if}<span class="skills {c.skills.tone}">{c.skills.text}</span></span>
         </a>
         {#if onnew}
-          <button type="button" class="quick" aria-label={`New session on ${c.name}`} title={`Start a session on ${c.name}`} onclick={(event) => onnew(c, event.currentTarget)}>
+          <button type="button" class="quick" aria-label={`New on ${c.name}`} title={`Start something on ${c.name}`} aria-haspopup="menu"
+            aria-expanded={menuFor === c.agentId && menuKind === 'create'}
+            aria-controls={menuFor === c.agentId && menuKind === 'create' ? `${id}-menu-${c.agentId}` : undefined}
+            onclick={(event) => openMenu(c, event.currentTarget, undefined, 'create')}>
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>
           </button>
-          <button type="button" class="more" aria-label={`Actions for ${c.name}`} aria-haspopup="menu" aria-expanded={menuFor === c.agentId}
-            aria-controls={menuFor === c.agentId ? `${id}-menu-${c.agentId}` : undefined} onclick={(event) => openMenu(c, event.currentTarget)}>
+          <button type="button" class="more" aria-label={`Actions for ${c.name}`} aria-haspopup="menu" aria-expanded={menuFor === c.agentId && menuKind === 'actions'}
+            aria-controls={menuFor === c.agentId && menuKind === 'actions' ? `${id}-menu-${c.agentId}` : undefined}
+            onclick={(event) => openMenu(c, event.currentTarget, undefined, 'actions')}>
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
           </button>
         {/if}
@@ -165,9 +174,12 @@
     <!-- svelte-ignore a11y_interactive_supports_focus -->
     <div class="menu" id={`${id}-menu-${card.agentId}`} style:left={`${menuX}px`} style:top={`${menuY}px`} role="menu" aria-label={card.name} tabindex="-1" onkeydown={menuKeys}>
       <button type="button" role="menuitem" onclick={() => { const target = card; pick((opener) => onnew?.(target, opener)) }}>New session…</button>
+      {#if onproject}<button type="button" role="menuitem" onclick={() => { const target = card; pick((opener) => onproject?.(target, opener)) }}>New project…</button>{/if}
       {#if onterminal}<button type="button" role="menuitem" onclick={() => { const target = card; pick((opener) => onterminal?.(target, opener)) }}>New terminal</button>{/if}
-      <button type="button" role="menuitem" onclick={() => open(`/machines?machine=${encodeURIComponent(card.name)}`)}>Open on Machines</button>
-      <button type="button" role="menuitem" onclick={() => open(`/sync?machine=${encodeURIComponent(card.name)}`)}>Skills &amp; sync</button>
+      {#if menuKind === 'actions'}
+        <button type="button" role="menuitem" onclick={() => open(`/machines?machine=${encodeURIComponent(card.name)}`)}>Open on Machines</button>
+        <button type="button" role="menuitem" onclick={() => open(`/sync?machine=${encodeURIComponent(card.name)}`)}>Skills &amp; sync</button>
+      {/if}
     </div>
   {/if}
 {/if}

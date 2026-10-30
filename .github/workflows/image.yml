@@ -33,8 +33,9 @@ concurrency:
 jobs:
   test:
     runs-on: zoomies-linux-x64
-    # The tests take 20 to 29 minutes on the Zoomies runners; 30 left too little room.
-    timeout-minutes: 45
+    # The suite takes 35 to 45 minutes on the Zoomies runners under load; 45 left no room for the
+    # slowest runs, which were cancelled seconds after the Go tests finished.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Install tmux when the runner lacks it

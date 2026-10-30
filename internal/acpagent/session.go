@@ -776,6 +776,8 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 	s.turnMu.Unlock()
 	watchDone := make(chan struct{})
 	watchStopped := make(chan struct{})
+	// Join the watchdog before the next turn can start: a recovery already
+	// reading the log must not report against, or cancel, that next turn.
 	defer func() {
 		close(watchDone)
 		<-watchStopped

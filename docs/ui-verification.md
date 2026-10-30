@@ -1516,3 +1516,23 @@ the session menu's **Continue in reet TUI with history…** item for a closed se
 - `npm --prefix web run check`, `npm --prefix web run build`, `go test ./...` and the affected race tests passed.
 - Not checked: a live model turn, a physical phone, Safari, an image actually read by a model, or OpenCode's history after
   its store is deleted. Pending approvals are not restored; replayed tools are shown interrupted.
+
+## reet TUI model choice — 30 October 2026
+
+The reet TUI now takes a model like the agent terminal UI does. Home's launch sentence gained a **Model** slot for an
+OpenCode chat (`Run OpenCode in reet TUI with default on …`), and **Start an agent** shows the same shared picker instead
+of a note. **Agent default** sends nothing and leaves OpenCode's configured model in place; a chosen model is sent in the
+create body and must match the model OpenCode reports after `session/new`. Continuing a closed chat carries the model
+recorded on that session. Thinking remains OpenCode's own.
+
+- `npm --prefix web run check` passed (unit tests including `launchBar.test.mjs`, `sessions.test.mjs` and
+  `svelte-check` 0 errors/0 warnings); `npm --prefix web run build` passed.
+- `launch.e2e.mjs` passed the Home case: the chat sentence showed **Model: default**, choosing
+  `anthropic/claude-sonnet-4-5` changed the sentence, and the create body carried `structured: true`, `trust: true` and that
+  model with no worktree or effort.
+- `chat.e2e.mjs` passed at 1360 × 900 and 390 × 844: the Start dialog showed **Model: OpenCode's configured model**,
+  choosing `anthropic/claude-sonnet-4-5` sent that model, and **Continue in reet TUI with history…** sent the model
+  recorded on the closed session.
+- `start-agent.e2e.mjs` passed unchanged, including its terminal model picker and phone sheet.
+- `go test ./internal/acpagent ./internal/terminalagent ./internal/terminalbroker` passed; `go build ./...` passed.
+- Not checked: a physical phone, Safari, a live provider turn, or a model that OpenCode lists but cannot run.

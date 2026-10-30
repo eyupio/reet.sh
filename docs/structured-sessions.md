@@ -11,8 +11,8 @@ not offered. The probe is [OpenCode `opencode acp` hands-on probe](research/prob
 ## Starting one
 
 In **Start an agent**, choose OpenCode on a machine that advertises `acp`. The **Session** choice is **reet TUI** by
-default; choose **OpenCode TUI** for the terminal UI. The model and
-thinking controls are replaced with a note: the reet TUI uses the model configured in OpenCode. The opening prompt becomes the
+default; choose **OpenCode TUI** for the terminal UI. The **Model** control chooses the model for the chat; leave it at
+**Agent default** to use the model configured in OpenCode. Thinking stays OpenCode's own. The opening prompt becomes the
 first message. The dialog states that the folder's `.opencode` plugins run when it starts and that history lives in
 memory.
 
@@ -37,8 +37,9 @@ folder, as the connector's user. All seven conditions are mandatory:
 3. **No subagents.** `task: deny` removes the `task` tool. OpenCode does not forward a subagent's permission request over
    ACP, so allowing subagents would hang the turn and hide an approval.
 4. **Deadlines.** One card waits at most five minutes; a turn is cancelled after ten minutes and says "still working" after
-   twenty seconds of silence. On cancel or timeout reet closes its own cards and sends `session/cancel`, because OpenCode
-   never withdraws an outstanding `request_permission`.
+   twenty seconds of silence. If OpenCode logged a provider error during that silence but did not send it over ACP, reet
+   shows the error and stops the turn instead of waiting for the ten-minute deadline. On cancel or timeout reet closes its
+   own cards and sends `session/cancel`, because OpenCode never withdraws an outstanding `request_permission`.
 5. **An allowlist environment and opt-outs.** Only PATH, HOME, XDG directories, TMPDIR/TEMP/TMP, locale, timezone and the
    connector's own OpenCode settings reach the process. `SSH_AUTH_SOCK`, `DISPLAY`, DBus, GitHub/cloud tokens and shell
    settings do not. The model fetch, autoupdate, default plugins, LSP download, Claude Code compatibility and external
@@ -97,9 +98,13 @@ person's answer both appear in the reet TUI.
   store survives.
 - **Only OpenCode, at least 1.19.5.** No other agent has an ACP adapter in this slice. A machine with an older OpenCode
   shows the version refusal; a newer release passes the name and semver checks.
-- **The model is OpenCode's configured one.** The picker is hidden for the reet TUI in this slice. Favourites and account/project defaults do not choose its model.
+- **The model is chosen at launch.** **Agent default** uses OpenCode's configured model. A chosen model is passed in
+  `OPENCODE_CONFIG_CONTENT` and must match the model OpenCode reports after `session/new`; a mismatch refuses the start.
+  Thinking remains OpenCode's own. Continuing a chat keeps the model recorded on the closed session.
 - **Dropped provider errors are recovered.** When OpenCode ends a turn without streaming any progress, the connector reads
-  the newest matching error from OpenCode's local store and shows it instead of leaving a silently empty turn.
+  the newest matching error from OpenCode's local store and shows it instead of leaving a silently empty turn. A provider
+  error OpenCode writes to its log during a silent turn is read the same way; the connector shows it and stops that turn
+  rather than leaving "still working" until the deadline.
 - **Images are paths.** Attachments go through the launch-upload path and the prompt names the file; no image bytes are
   embedded in ACP. Modes, MCP servers, resume of a live turn and other agents are not in this slice.
 - **No physical phone, Safari or live provider run** was part of the checks. The fake ACP child covers the protocol; the

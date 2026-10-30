@@ -220,7 +220,7 @@
   const modelTargetId = $derived(picked.length > 0 ? (pickedHosts.length === 1 ? pickedHosts[0] : '') : (choice?.homeMachine ?? ''))
   const modelTarget = $derived(machines?.find(m => m.agentId === modelTargetId))
   const modelHost = $derived(modelTarget?.host ?? hostOf(modelTargetId))
-  const modelKey = $derived(choice && !choice.chat && modelTargetId ? `${modelTargetId}\u0000${choice.agent}` : '')
+  const modelKey = $derived(choice && modelTargetId ? `${modelTargetId}\u0000${choice.agent}` : '')
   const modelMachine = $derived(modelList.key === modelKey ? modelList.machine : null)
   const modelLoading = $derived(!!modelKey && modelList.key === modelKey && modelList.loading)
   const modelError = $derived(modelList.key === modelKey ? modelList.error : '')

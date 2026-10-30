@@ -41,6 +41,23 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
   on|off|status` switch and `yolo` capability, reviewed options for Codex/OpenCode/Cline, controller
   gates and audit, structured `allow_once` answers, the confirmation dialog and badges. #266 fixed the
   launch audit on a mismatched worktree and kept generic machine refusals from counting as started.
+- **ACP provider errors (working tree, not committed, 30 October 2026):** OpenCode 1.19.5 can leave a
+  silent turn when its provider rejects the configured model (for example the free-model usage limit);
+  the adapter writes the error to its log but never sends it over ACP. The silence watchdog now reads
+  the newest matching `stream error` line for the session and stops the turn with that error instead of
+  showing only "still working" until the ten-minute deadline. Files: `internal/acpagent/spec.go`
+  (`RecoverLive`), `opencode.go` (log reader), `session.go` (watchdog and cancellation), both test files
+  and `docs/structured-sessions.md`. Checks: `go test ./internal/acpagent ./internal/terminalagent
+  ./internal/terminalbroker` and `-race` on the first two.
+- **reet TUI model choice (working tree, not committed, 30 October 2026):** Home's sentence and
+  **Start an agent** now show the shared Model picker for a reet TUI chat. **Agent default** sends
+  nothing and keeps OpenCode's configured model; a chosen model is sent in the create and must match
+  the model OpenCode reports after `session/new`. Continue in reet TUI carries the model recorded on
+  the closed session. Thinking remains OpenCode's own. Files: `web/src/lib/launchBar.ts`,
+  `web/src/lib/launch/LaunchBar.svelte`, `web/src/lib/StartAgentDialog.svelte`,
+  `web/src/lib/sessions.ts`, their tests and `web/tests/{launch,chat}.e2e.mjs`; docs and
+  `docs/ui-verification.md`. Checks: `npm --prefix web run check`, `npm --prefix web run build`,
+  `launch.e2e.mjs`, `chat.e2e.mjs`, `start-agent.e2e.mjs`.
 - **Next stage:** G (Needs you) is the next roadmap item. Other Program 2 slices still need their own
   probes; model work is done.
 - **Before G:** change Codex's YOLO option from `--dangerously-bypass-approvals-and-sandbox` to

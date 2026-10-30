@@ -68,6 +68,10 @@ type Spec struct {
 	// consulted only when a completed turn streamed no progress. Nil means
 	// the adapter reports its own errors.
 	RecoverError func(home, sessionID string, afterMS int64) string
+	// RecoverLive recovers an error the adapter logged while a turn is still
+	// silent and has not reported anything over ACP. It is consulted by the
+	// silence watchdog, never for a turn that streamed progress.
+	RecoverLive func(home, sessionID string, afterMS int64) string
 }
 
 func (s Spec) displayName() string {

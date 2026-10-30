@@ -18,8 +18,8 @@ agent's own permission prompts.
 
 For OpenCode on a machine that advertises `acp`, the dialog's **Session** choice is **reet TUI** by default; choose
 **OpenCode TUI** for the terminal UI instead. It sends `structured: true` and
-the person's trust confirmation; the model and Thinking controls are replaced with "Uses OpenCode's configured model".
-The opening prompt is the first message. The new session opens on its reet TUI, where OpenCode asks before it edits a file
+the person's trust confirmation. The **Model** control chooses the model; **Agent default** uses OpenCode's configured
+model, and Thinking stays OpenCode's own. The opening prompt is the first message. The new session opens on its reet TUI, where OpenCode asks before it edits a file
 or runs a command with **Allow once** / **Deny**. There is no terminal in a reet TUI session. **Attach image** (or paste/drop)
 sends a file through the launch-upload path and puts its path in the message. A closed reet TUI session offers **Continue in reet TUI with
 history…**, which loads OpenCode's stored conversation into a new session row. The conditions, deadlines and limits are in
@@ -60,9 +60,9 @@ whose bold words are the choices.
 For OpenCode on a machine that advertises `acp`, the sentence says **in reet TUI** by default and Start
 opens the reet TUI instead of the agent terminal UI. Home asks you to confirm **I trust this folder** first, because
 OpenCode runs any plugins in `.opencode` when the reet TUI starts. The **TUI** word switches it to **in OpenCode TUI**;
-the model, worktree and thinking choices come back for that terminal. The reet TUI runs in the chosen
-project folder (not a worktree), uses OpenCode's configured model, and can attach images through Home's
-existing pasted-image path. It starts in one folder at a time. A session's actions menu has **Open a terminal here…**, which starts a plain shell in
+the worktree and thinking choices come back for that terminal. The Model word chooses the chat's model; leave it at
+**default** to use OpenCode's configured model. The reet TUI runs in the chosen project folder (not a worktree) and can
+attach images through Home's existing pasted-image path. It starts in one folder at a time. A session's actions menu has **Open a terminal here…**, which starts a plain shell in
 the same folder as a separate session.
 
 > Run **Claude Code** with **default** on **Store rewrite** at **studio** from **main** in **a fresh worktree** · thinking **high**

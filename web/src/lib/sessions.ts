@@ -141,16 +141,17 @@ export function continueLaunch(s: Pick<TerminalSession, 'state' | 'tool' | 'mode
 
 /** A closed structured chat reopens as a new row that asks the machine to load OpenCode's stored history. The old row
  *  stays in history. */
-export function continueChatLaunch(s: Pick<TerminalSession, 'state' | 'structured' | 'acpSessionId' | 'dir' | 'projectId'>): LaunchRequest | null {
+export function continueChatLaunch(s: Pick<TerminalSession, 'state' | 'structured' | 'acpSessionId' | 'dir' | 'projectId' | 'model'>): LaunchRequest | null {
   if (!s.structured || !s.acpSessionId || !terminalClosed(s.state)) return null
   const launch: LaunchRequest = { tool: 'opencode', structured: true, trust: true, resumeAcp: s.acpSessionId }
+  if (s.model) launch.model = s.model
   if (s.dir) launch.dir = s.dir
   if (s.projectId) launch.projectId = s.projectId
   return launch
 }
 
 /** A chat can be reopened only on a machine that still advertises acp. */
-export function canContinueChat(s: Pick<TerminalSession, 'state' | 'structured' | 'acpSessionId' | 'dir' | 'projectId'>, machine: Pick<TerminalMachine, 'capabilities'> | undefined): boolean {
+export function canContinueChat(s: Pick<TerminalSession, 'state' | 'structured' | 'acpSessionId' | 'dir' | 'projectId' | 'model'>, machine: Pick<TerminalMachine, 'capabilities'> | undefined): boolean {
   return continueChatLaunch(s) !== null && machine?.capabilities?.acp === true && machine?.capabilities?.acpHistory === true
 }
 

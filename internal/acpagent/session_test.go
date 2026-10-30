@@ -135,6 +135,13 @@ func TestFakeACP(t *testing.T) {
 			case "watchdog":
 				time.Sleep(120 * time.Millisecond)
 				reply(promptID, map[string]any{"stopReason": "end_turn"})
+			case "silent-error":
+				logDir := filepath.Join(os.Getenv("HOME"), ".local", "share", "opencode", "log")
+				_ = os.MkdirAll(logDir, 0700)
+				line := `timestamp=` + time.Now().UTC().Format(time.RFC3339Nano) +
+					` level=ERROR run=x message="stream error" providerID=opencode modelID=stub session.id=` + session +
+					` small=false agent=build mode=primary error.error="AI_APICallError: quota exhausted"` + "\n"
+				_ = os.WriteFile(filepath.Join(logDir, "opencode.log"), []byte(line), 0600)
 			case "fs":
 				send(map[string]any{"jsonrpc": "2.0", "id": 9, "method": "fs/write_text_file", "params": map[string]string{"sessionId": session, "path": "/tmp/mirror.txt", "content": "mirror"}})
 			}
@@ -391,6 +398,42 @@ func TestWatchdogAndFSMirror(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("fs mirror did not continue the turn")
+	}
+}
+
+func TestSilentProviderErrorStopsTheTurn(t *testing.T) {
+	opts, got := options(t, "silent-error", testVersion)
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "say hello") }()
+	var reported Event
+	for event := got.next(t); ; event = got.next(t) {
+		if event.Kind == "status" && event.State == "error" {
+			reported = event
+			break
+		}
+	}
+	if !strings.Contains(reported.Detail, "quota exhausted") {
+		t.Fatalf("error detail %q", reported.Detail)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("prompt: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("prompt did not stop after the provider error")
+	}
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	for _, event := range got.all {
+		if event.Kind == "status" && event.State == "cancelled" {
+			t.Fatal("the provider error was replaced by a cancelled status")
+		}
 	}
 }
 

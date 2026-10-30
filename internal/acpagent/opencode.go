@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,6 +42,7 @@ var OpenCode = Spec{
 	Trust:        openCodePlugins,
 	ConfigEnv:    openCodeConfigEnv,
 	RecoverError: openCodePromptError,
+	RecoverLive:  openCodeLiveError,
 }
 
 // agents is the catalogue of adapters this connector can start. Adding an
@@ -115,11 +117,12 @@ func openCodePromptError(home, sessionID string, afterMS int64) string {
 	if home == "" || sessionID == "" {
 		return ""
 	}
-	path := openCodeDBPath(home)
-	if path == "" {
-		return ""
+	if path := openCodeDBPath(home); path != "" {
+		if message := openCodePromptErrorAt(path, sessionID, afterMS); message != "" {
+			return message
+		}
 	}
-	return openCodePromptErrorAt(path, sessionID, afterMS)
+	return openCodeLogErrorAt(openCodeLogPath(home), sessionID, afterMS)
 }
 
 func openCodeDataDir(home string) string {
@@ -205,4 +208,122 @@ func openCodePromptErrorAt(path, sessionID string, afterMS int64) string {
 		message = message[:500]
 	}
 	return message
+}
+
+// openCodeLogPath is where 1.19.5 writes its provider and session log. The ACP
+// adapter does not forward every provider failure, so this is the only live
+// record of an error while a turn is still silent.
+func openCodeLogPath(home string) string {
+	return filepath.Join(openCodeDataDir(home), "log", "opencode.log")
+}
+
+// openCodeLiveError recovers the newest provider error OpenCode logged for a
+// turn that has not reported it over ACP. Only errors after the turn started
+// are considered, and the small title-model retries are ignored because they
+// do not stop the main turn.
+func openCodeLiveError(home, sessionID string, afterMS int64) string {
+	if home == "" || sessionID == "" {
+		return ""
+	}
+	return openCodeLogErrorAt(openCodeLogPath(home), sessionID, afterMS)
+}
+
+const openCodeLogTail = 1 << 20
+
+func openCodeLogErrorAt(path, sessionID string, afterMS int64) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	start := info.Size() - openCodeLogTail
+	if start < 0 {
+		start = 0
+	}
+	data := make([]byte, info.Size()-start)
+	n, _ := file.ReadAt(data, start)
+	data = data[:n]
+	if start > 0 {
+		lineEnd := strings.IndexByte(string(data), '\n')
+		if lineEnd < 0 {
+			return ""
+		}
+		data = data[lineEnd+1:]
+	}
+	newest := int64(0)
+	message := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.Contains(line, "session.id="+sessionID) ||
+			!strings.Contains(line, "level=ERROR") ||
+			!strings.Contains(line, `message="stream error"`) ||
+			strings.Contains(line, "small=true") {
+			continue
+		}
+		created, ok := openCodeLogTimestamp(line)
+		if !ok || created < afterMS {
+			continue
+		}
+		text := strings.TrimPrefix(openCodeLogQuoted(line, "error.error"), "AI_APICallError: ")
+		if text == "" {
+			continue
+		}
+		if message == "" || created > newest {
+			newest, message = created, text
+		}
+	}
+	if len(message) > 500 {
+		message = message[:500]
+	}
+	return message
+}
+
+func openCodeLogTimestamp(line string) (int64, bool) {
+	raw := openCodeLogPlain(line, "timestamp")
+	if raw == "" {
+		return 0, false
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return 0, false
+	}
+	return parsed.UnixMilli(), true
+}
+
+func openCodeLogPlain(line, key string) string {
+	marker := key + "="
+	at := strings.Index(line, marker)
+	if at < 0 {
+		return ""
+	}
+	rest := line[at+len(marker):]
+	if end := strings.IndexAny(rest, " \t"); end >= 0 {
+		rest = rest[:end]
+	}
+	return rest
+}
+
+func openCodeLogQuoted(line, key string) string {
+	marker := key + `="`
+	at := strings.Index(line, marker)
+	if at < 0 {
+		return ""
+	}
+	rest := line[at+len(marker):]
+	for i := 0; i < len(rest); i++ {
+		if rest[i] == '\\' {
+			i++
+			continue
+		}
+		if rest[i] == '"' {
+			if value, err := strconv.Unquote(`"` + rest[:i] + `"`); err == nil {
+				return value
+			}
+			return rest[:i]
+		}
+	}
+	return ""
 }

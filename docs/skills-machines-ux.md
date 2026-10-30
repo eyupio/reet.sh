@@ -53,7 +53,7 @@ Each machine card now opens with a sync band under its identity:
 - one primary action: **Sync now** when it can work, **View progress** while a run is active,
   or **Set up sync** when the machine still needs a scan or a desired set;
 - a `⋯` menu for the deliberate alternatives: choose skills and scopes, preview only, rescan,
-  and open sync activity;
+  and open sync activity; a right-click anywhere on the card opens the same menu;
 - a thin progress bar while a run is walking through saved scopes.
 
 The former primary sync buttons were removed from the general action row, so the card has one

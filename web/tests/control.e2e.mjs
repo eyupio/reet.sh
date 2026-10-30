@@ -87,6 +87,13 @@ try {
  await serverUpdates.getByText('Show the steps').click()
  await expect(serverUpdates.getByText('Verifying the checksum and build')).toBeVisible()
  await expect(serverUpdates.getByRole('button',{name:/^Retry update to/})).toBeVisible()
+ // A right-click anywhere on a machine card opens the same options menu as its ⋮ button.
+ await laptop.click({button:'right'})
+ await expect(page.getByRole('menuitem',{name:'Choose skills & scopes'})).toBeVisible()
+ await expect(page.getByRole('menuitem',{name:'Settings…',exact:true})).toBeVisible()
+ await page.keyboard.press('Escape')
+ await expect(page.getByRole('menuitem',{name:'Settings…',exact:true})).toBeHidden()
+ await expect(laptop.locator('summary[aria-label^="More options"]')).toBeFocused()
  // Policies live in the machine's settings, not beside the update button.
  await expect(laptop.getByRole('button',{name:'Manage'})).toHaveCount(0)
  if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/machines-desktop.png`,fullPage:true})

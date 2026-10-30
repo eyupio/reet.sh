@@ -57,6 +57,7 @@ async function open(options={}) {
    return item
   },
   '/api/v2/folder-projects': () => box.fail ? {status:500,json:{error:'down'}} : {projects:box.projects,savedWaiting:0},
+  '/api/v2/projects': {projects:[]},
   '/api/v2/terminal/status': {configured:true,available:true,reason:''},
   '/api/v2/terminal/worktrees/status': request => { box.status.push(request.postDataJSON()); return {path:'/home/dev/.reet/worktrees/reet/reet/0f1e2d3c4b5a6978',branch:'reet/reet-0f1e2d3c4b5a6978',changed:options.changed ?? changedPaths.length,unpushed:0,paths:changedPaths.slice(0, options.changed ?? changedPaths.length),unreferenced:0,hidden:0,nested:false,incomplete:false} },
  }
@@ -232,6 +233,32 @@ try {
   await rows(page).filter({hasText:'Docs pass'}).locator('a.open').click({button:'right'})
   await expect(page.getByRole('menu',{name:'Actions for Docs pass'}).getByRole('menuitem',{name:'Copy branch'})).toHaveCount(0)
   await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('project cards have a right-click menu')) {
+  const {context,page,errors} = await open()
+  await page.goto(`${base}/sessions`)
+  const card = page.getByRole('link',{name:/^reet,/})
+  await card.click({button:'right'})
+  const menu = page.getByRole('menu',{name:'Actions for reet'})
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('menuitem')).toHaveText(['Open on Home','New session here','Worktrees…'])
+  await expect(menu.getByRole('menuitem',{name:'Open on Home'})).toHaveAttribute('href','/?project=p1')
+  await expect(menu.getByRole('menuitem',{name:'New session here'})).toHaveAttribute('href','/?project=p1#launch')
+  await expect(menu.getByRole('menuitem',{name:'Open on Home'})).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(card).toBeFocused()
+  // Shift+F10 opens the same menu, and Worktrees opens the existing sheet for the folder.
+  await card.dispatchEvent('keydown',{key:'F10',shiftKey:true})
+  await page.getByRole('menuitem',{name:'Worktrees…'}).click()
+  const worktrees = page.getByRole('dialog',{name:'Worktrees for reet'})
+  await expect(worktrees).toBeVisible()
+  await expect(worktrees).toContainText('In use by Refactor the store layer')
+  await worktrees.getByRole('button',{name:'Close',exact:true}).click()
+  await expect(worktrees).toBeHidden()
   expect(errors).toEqual([])
   await context.close()
  }

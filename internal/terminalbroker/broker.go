@@ -768,7 +768,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	if err == nil && refusal != nil {
 		err = refusal
 	}
-	if err == nil && refusal == nil {
+	if err == nil && s.State != terminalproto.Creating && s.State != terminalproto.Lost {
+		// A worktree-report mismatch still means the agent started; the audit
+		// records the launch even though the caller sees the mismatch.
 		b.auditYoloLaunch(uid, agent, in, s)
 	}
 	return s, err == nil && s.State != terminalproto.Creating && s.State != terminalproto.Lost, err

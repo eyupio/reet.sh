@@ -30,17 +30,18 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 
 ### Resume here (Needs you / PR G, 30 October 2026)
 
-**#266 (YOLO audit follow-up) merged as `99b3fd0`; #264 (YOLO sessions) as `9cf82f4`;
+**#270 (reet TUI model choice and provider error recovery) merged as `1717b7a`;
+#266 (YOLO audit follow-up) as `99b3fd0`; #264 (YOLO sessions) as `9cf82f4`;
 #261 (reet TUI naming and terminal views) as `329f978`; #260 (Home reet TUI) as `2b35802`;
 #258 (reet TUI history, continue, images) as `2ee12f6`; #256 (OpenCode in the reet TUI) as `7555da2`;
 #255 (models UI) as `32866ad`; #252 as `3be0eaf`; #247 as `16da0bb`; #245 as `1371cb5`;
 #242 as `961d530`; #231 as `7886511`.**
 
-- **Branch:** `ccr-attention` implements PR G (`attention-v1` terminal activity and bell reporting, per-person
-  `terminal_session_seen` store and `POST /api/v2/terminal/sessions/{id}/seen`, attention derivation for both
-  `attention-v1` terminal sessions and structured reet TUI sessions, Home's **Needs you** queue, the bell popover,
-  `(N)` document title prefix, polite live-region announcements, and Codex's YOLO preset updated to
-  `--ask-for-approval never`).
+- **Branch and PR:** [#269](https://github.com/eyupio/reet.sh/pull/269) on `ccr-attention` implements PR G (`attention-v1`
+  terminal activity and bell reporting, per-person `terminal_session_seen` store and `POST /api/v2/terminal/sessions/{id}/seen`,
+  attention derivation for both `attention-v1` terminal sessions and structured reet TUI sessions, recovering completed-turn
+  attention across controller restarts, Home's **Needs you** queue, the bell popover, `(N)` document title prefix, polite
+  live-region announcements, and Codex's YOLO preset updated to `--ask-for-approval never`).
 - **Merged PR:** [#270](https://github.com/eyupio/reet.sh/pull/270) added reet TUI model choice and provider-error
   recovery. OpenCode's `stream error` log is surfaced when a provider rejects a model, and the shared model picker lets a
   reet TUI session use a selected model while preserving OpenCode's configured default. F shipped: the account's Allow YOLO setting (`GET`/`PUT

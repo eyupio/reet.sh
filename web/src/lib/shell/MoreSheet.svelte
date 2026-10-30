@@ -2,9 +2,11 @@
   import { onMount } from 'svelte'
   import { shell } from '../dialogShell'
   import type { Tab } from './tabs'
-  // More on a tablet or a phone (and on a desktop with no account menu): every page that is not one of the bar's tabs.
+  // Secondary navigation at every width; core tabs overflow here on smaller screens.
   // A bottom sheet on the shared dialog shell; Escape or Close hands focus back to the button that opened it.
   let { items, opener, onclose }: { items: Tab[]; opener?: HTMLElement; onclose: () => void } = $props()
+  const groups = $derived([...new Set(items.map(item => item.group ?? 'Quick access'))]
+    .map(label => ({ label, items: items.filter(item => (item.group ?? 'Quick access') === label) })))
   let dialog = $state<HTMLDialogElement>()
   const titleId = $props.id()
 
@@ -30,8 +32,13 @@
       </button>
     </header>
     <nav aria-labelledby={titleId} data-shell-body>
-      {#each items as item (item.href)}
-        <a href={item.href} aria-current={item.current ? 'page' : undefined}>{item.label}</a>
+      {#each groups as group (group.label)}
+        <section aria-label={group.label}>
+          <h3>{group.label}</h3>
+          {#each group.items as item (item.href)}
+            <a href={item.href} aria-current={item.current ? 'page' : undefined}>{item.label}</a>
+          {/each}
+        </section>
       {/each}
     </nav>
   </div>
@@ -39,7 +46,7 @@
 
 <style>
   dialog {
-    width: min(360px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 0; overflow: auto;
+    width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 0; overflow: auto;
     background: transparent; color: var(--ink);
   }
   dialog::backdrop { background: color-mix(in srgb, var(--bg) 60%, transparent); }
@@ -52,7 +59,13 @@
   }
   .close:hover { background: var(--tint); color: var(--ink); }
   .close svg { width: 20px; height: 20px; }
-  nav { display: grid; gap: 2px; }
+  nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 8px; }
+  section { min-width: 0; }
+  h3 { margin: 4px 12px 6px; color: var(--muted); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  a:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+  @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
+    nav { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  }
   a {
     display: flex; align-items: center; min-height: 48px; padding: 0 12px; border-radius: 10px;
     color: var(--ink); font-size: 0.95rem; text-decoration: none;

@@ -1,5 +1,5 @@
 // The app shell's navigation types. A tab is a link to a page; `current` marks the page in view (aria-current="page").
-export type Tab = { href: string; label: string; current: boolean }
+export type Tab = { href: string; label: string; current: boolean; group?: string }
 
 // One row of the Jump search: a session, an existing Project or a machine the workspace already knows about.
 export type JumpItem = { kind: 'session' | 'project' | 'machine'; label: string; detail: string; href: string }

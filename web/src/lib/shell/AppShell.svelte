@@ -9,6 +9,7 @@
   import MoreSheet from './MoreSheet.svelte'
   import TopTabs from './TopTabs.svelte'
   import type { JumpItem, Tab } from './tabs'
+  import type { NeedCard } from '../home'
 
   // The signed-in top bar and, on a phone, the bottom tab bar (spec: Information architecture and navigation, R13).
   // Desktop (1100 px and wider): logo, every tab, Jump, the bell, More, and the account menu.
@@ -17,10 +18,12 @@
   // `compact` is the terminal workspace's slim header: no bottom bar (the terminal keeps its own height rule), and on a
   // phone a More button in the top bar reaches every page instead.
   let {
-    tabs, attention, compact, bar, more, bell = false, jump, account,
+    tabs, attention, needsCards = [], onseen, compact, bar, more, bell = false, jump, account,
   }: {
     tabs: Tab[]
     attention: number
+    needsCards?: NeedCard[]
+    onseen?: (sessionId: string) => void | Promise<void>
     compact: boolean
     /** The tabs a tablet and a phone keep in view (Home, Sessions, Machines); the rest of `tabs` move into More there. */
     bar: Tab[]
@@ -133,7 +136,7 @@
     onclick={() => (searchOpen ? closeSearch() : void openSearch())}>
     <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
   </button>
-  {#if bell}<Bell count={attention} />{/if}
+  {#if bell}<Bell count={attention} cards={needsCards} {onseen} />{/if}
   {#if compact}
     <button type="button" class="icon compact-more" class:current={moreCurrent} aria-haspopup="dialog" aria-expanded={moreOpen}
       aria-label={moreCurrent ? 'More, current page inside' : 'More'} onclick={(event) => openMore(event.currentTarget, true)}>

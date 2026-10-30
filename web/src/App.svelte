@@ -6,6 +6,7 @@
   import SessionsPage from './lib/sessions/SessionsPage.svelte'
   import Machines from './lib/Machines.svelte'
   import Home from './lib/home/Home.svelte'
+  import type { NeedCard } from './lib/home'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import Community from './lib/Community.svelte'
   import SharedLists from './lib/SharedLists.svelte'
@@ -188,8 +189,10 @@
   // Sessions and Machines stay in view on a tablet or phone and the rest
   // move into More. Sessions and the bell are for a writer in accounts mode only (R16), as Terminals and Projects were.
   const sessionsAccess = $derived(authMode === 'accounts' && canWrite)
-  // The bell's Needs you count, as Home reads it. Nothing signals that a session needs the person today, so it stays 0.
+  // The bell's Needs you count and cards, as Home reads them.
   let attention = $state(0)
+  let needsCards = $state<NeedCard[]>([])
+  let onMarkSeen = $state<((sessionId: string) => void | Promise<void>) | undefined>(undefined)
   // Home spans the page: the project rail on the left and the docked Start an agent at the foot.
   const homeLayout = $derived(isHome && authChecked && !!authMode && authenticated && !needsAuth && !(authMode === 'accounts' && setupRequired))
   const tabs = $derived<Tab[]>([
@@ -843,14 +846,14 @@
 
 <svelte:head>
   {#if !isPublicList}
-    <title>{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
+    <title>{attention > 0 ? `(${attention}) ` : ''}{isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your AI fleet control room' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found'} · reet.sh</title>
   {/if}
 </svelte:head>
 
 <a class="skip" href="#main-content">Skip to content</a>
 <header class="site-header" class:terminal-chrome={terminalLayout}>
   {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-    <AppShell {tabs} bar={barTabs} {more} {attention} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems}>
+    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems}>
       {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu
@@ -911,7 +914,7 @@
   {:else if isActivity && authMode !== 'accounts'}
     <ActivityPage accounts={false} writer={sessionsAccess} onsignedout={fail} />
   {:else if isHome}
-    <Home userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={count => (attention = count)} />
+    <Home userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={(count, cards, seen) => { attention = count; needsCards = cards; onMarkSeen = seen }} />
   {:else if isSessions && sessionsAccess}
     <SessionsPage userId={currentUser?.id ?? 0} onsignedout={fail} />
   {:else if isMachines}

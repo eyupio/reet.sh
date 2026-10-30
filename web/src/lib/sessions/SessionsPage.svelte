@@ -6,7 +6,7 @@
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
   import { addedLine } from '../folderBrowser'
-  import { projectWorktrees, railState, shortAge, stateWord, type GroupBy } from '../home'
+  import { needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy } from '../home'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import { agentChoicesOf, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
   import { folderProjectList, machineHealth, sessionHref, terminalMachines, terminalSessions, TerminalError,
@@ -82,7 +82,8 @@
   const offline = $derived(new Set((health ?? []).filter(m => m.state !== 'connected').map(m => m.agentId)))
   const colourOf = (s: TerminalSession) => sessionColourOf(s, colors, projects ?? [])
   const colourName = (id: string) => PROJECT_COLOURS.find(c => c.id === id)?.name ?? ''
-  const shown = $derived(filterSessions(searchSessions(sessions ?? [], projects ?? [], machines, query), filter, new Set(), colourOf))
+  const needing = $derived(new Set(needsYou(sessions ?? [], now, sessionOwners(sessions ?? [], projects ?? []), machines).map(c => c.sessionId)))
+  const shown = $derived(filterSessions(searchSessions(sessions ?? [], projects ?? [], machines, query), filter, needing, colourOf))
   const groups = $derived(sessionGroups(shown, projects ?? [], machines, groupBy, offline, sort, order))
   const agents = $derived(agentChoicesOf(sessions ?? []))
   const on = $derived(filtersOn(filter))

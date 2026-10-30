@@ -41,8 +41,21 @@ export type SessionOwner = { id: string; name: string }
 export type HomeSession = TerminalSession
 export type GroupBy = 'project' | 'machine' | 'state'
 export type Group = { key: string; label: string; count: number; sessions: HomeSession[] }
-/** The Needs you card. Program 1's kinds arrive when a signal says a session wants the person; none does today. */
-export type NeedCard = { kind: string; sessionId: string; at: number }
+export type NeedKind = 'waiting' | 'failed' | 'review' | 'finished'
+export type NeedCard = {
+  kind: NeedKind
+  label: string
+  tone: Tone
+  sessionId: string
+  agentId: string
+  title: string
+  where: string
+  href: string
+  at: number
+  age: string
+  markSeen: boolean
+  worktreeTarget: { agentId: string; project: string; repo: string; run: string } | null
+}
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR
 const LIVE: ReadonlySet<SessionState> = new Set(['creating', 'running', 'end_requested'])
@@ -196,8 +209,27 @@ export function sessionOwners(sessions: TerminalSession[], projects: Pick<Folder
 
 const machineName = (agentId: string, machines: Pick<MachineHealth, 'agentId' | 'host'>[]): string => machines.find(m => m.agentId === agentId)?.host || agentId
 
-export function stateWord(session: Pick<TerminalSession, 'state' | 'exitCode'>): { word: string; source: string; tone: Tone } {
+export function stateWord(session: Pick<TerminalSession, 'state' | 'exitCode' | 'attention' | 'attentionSource'>): { word: string; source: string; tone: Tone } {
   const fromState = "from the session's state"
+  const fromActivity = session.attentionSource === 'chat' ? 'from the chat' : 'from terminal activity'
+  switch (session.attention) {
+    case 'waiting':
+      return { word: 'Waiting for you', source: fromActivity, tone: 'warn' }
+    case 'working':
+      return { word: 'Working', source: fromActivity, tone: 'good' }
+    case 'quiet':
+      return { word: 'Quiet', source: fromActivity, tone: 'muted' }
+    case 'starting':
+      return { word: 'Starting', source: session.attentionSource === 'chat' ? 'from the chat' : fromState, tone: 'muted' }
+    case 'finished':
+      if (session.attentionSource === 'chat') return { word: 'Finished', source: 'from the chat', tone: 'muted' }
+      if (typeof session.exitCode === 'number') return { word: `Exited ${session.exitCode}`, source: 'from the exit code', tone: 'muted' }
+      return { word: 'Finished', source: fromState, tone: 'muted' }
+    case 'failed':
+      if (session.state === 'lost') return { word: 'Connection lost', source: fromState, tone: 'warn' }
+      if (typeof session.exitCode === 'number') return { word: `Exited ${session.exitCode}`, source: 'from the exit code', tone: 'bad' }
+      return { word: 'Failed', source: session.attentionSource === 'chat' ? 'from the chat' : fromState, tone: 'bad' }
+  }
   switch (session.state) {
     case 'creating': return { word: 'Starting', source: fromState, tone: 'muted' }
     case 'running': return { word: 'Running', source: fromState, tone: 'good' }
@@ -267,16 +299,112 @@ export function rowSubtitle(session: HomeSession, owner: SessionOwner | undefine
   return [owner?.name, machine?.host || session.agentId, session.worktreeBranch].filter(Boolean).join(' · ')
 }
 
+function needWorktreeTarget(s: Pick<TerminalSession, 'agentId' | 'worktreePath' | 'worktreeRepo' | 'worktreeBranch'>): NeedCard['worktreeTarget'] {
+  if (!s.worktreePath || !s.worktreeRepo) return null
+  const parts = s.worktreePath.split('/').filter(Boolean)
+  if (parts.length < 5) return null
+  const [run, repo, project, folder, dot] = parts.slice(-5).reverse()
+  if (folder !== 'worktrees' || dot !== '.reet' || repo !== s.worktreeRepo || !run || !project) return null
+  if (s.worktreeBranch && s.worktreeBranch !== `reet/${project}-${run}`) return null
+  return { agentId: s.agentId, project, repo, run }
+}
+
 /**
- * Needs you is empty in this release: no existing signal says a session wants the person (an exit already shows in
- * In flight), and without a per-person "seen" record a card could not be dismissed.
+ * Needs you cards: sessions waiting for the person (terminal bell or structured chat approval), sessions that exited
+ * with an error or lost their connection, and sessions that finished since the person last saw them (titled "Ready to
+ * review" when started in a worktree). Ordered newest first.
  */
-export function needsYou(_sessions: TerminalSession[], _now: number): NeedCard[] {
-  return []
+export function needsYou(
+  sessions: TerminalSession[],
+  now: number,
+  owners: ReadonlyMap<string, SessionOwner> = new Map(),
+  machines: readonly Pick<MachineHealth, 'agentId' | 'host'>[] = [],
+): NeedCard[] {
+  const out: NeedCard[] = []
+  for (const s of sessions) {
+    if (!s.attention) continue
+    const owner = owners.get(s.id)
+    const host = machineName(s.agentId, [...machines])
+    const where = [owner?.name, host].filter(Boolean).join(' · ')
+    const href = `/sessions?agent=${encodeURIComponent(s.agentId)}&session=${encodeURIComponent(s.id)}`
+    if (s.attention === 'waiting' && s.changedSinceSeen !== false) {
+      const at = s.bellAt && s.bellAt > 0 ? s.bellAt : s.updatedAt
+      out.push({
+        kind: 'waiting',
+        label: 'Waiting for you',
+        tone: 'warn',
+        sessionId: s.id,
+        agentId: s.agentId,
+        title: s.title,
+        where,
+        href,
+        at,
+        age: shortAge(Math.max(0, now - at)),
+        markSeen: false,
+        worktreeTarget: null,
+      })
+      continue
+    }
+    if (!s.changedSinceSeen || now - s.updatedAt > FINISHED_KEPT_MS) continue
+    if (s.attention === 'failed') {
+      const at = s.updatedAt
+      out.push({
+        kind: 'failed',
+        label: s.state === 'lost' ? 'Connection lost' : 'Exited with an error',
+        tone: 'bad',
+        sessionId: s.id,
+        agentId: s.agentId,
+        title: s.title,
+        where,
+        href,
+        at,
+        age: shortAge(Math.max(0, now - at)),
+        markSeen: true,
+        worktreeTarget: null,
+      })
+    } else if (s.attention === 'finished') {
+      const at = s.updatedAt
+      const review = !!s.worktreePath
+      out.push({
+        kind: review ? 'review' : 'finished',
+        label: review ? 'Ready to review' : 'Finished',
+        tone: review ? 'good' : 'muted',
+        sessionId: s.id,
+        agentId: s.agentId,
+        title: s.title,
+        where,
+        href,
+        at,
+        age: shortAge(Math.max(0, now - at)),
+        markSeen: true,
+        worktreeTarget: needWorktreeTarget(s),
+      })
+    }
+  }
+  return out.sort((a, b) => b.at - a.at || a.sessionId.localeCompare(b.sessionId))
 }
 
 export function attentionCount(cards: NeedCard[]): number {
   return cards.length
+}
+
+/**
+ * Announces transitions into "Waiting for you" at most once per session per minute.
+ */
+export function announceWaiting(
+  cards: readonly Pick<NeedCard, 'kind' | 'sessionId' | 'title' | 'where'>[],
+  previousWaiting: ReadonlySet<string>,
+  lastAnnounced: Map<string, number>,
+  now: number,
+): string {
+  for (const card of cards) {
+    if (card.kind !== 'waiting' || previousWaiting.has(card.sessionId)) continue
+    const last = lastAnnounced.get(card.sessionId)
+    if (last !== undefined && now - last < MINUTE) continue
+    lastAnnounced.set(card.sessionId, now)
+    return `${card.title} is waiting for you${card.where ? ` (${card.where})` : ''}.`
+  }
+  return ''
 }
 
 /** Running and starting sessions per folder project, from each session's own projectId (an ending one is not running,

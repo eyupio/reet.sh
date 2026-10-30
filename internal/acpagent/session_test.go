@@ -460,7 +460,13 @@ func TestSilentRecoveryDoesNotOutliveTheTurn(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("the watchdog never read the live error source")
 	}
-	time.Sleep(250 * time.Millisecond)
+	for event := got.next(t); ; event = got.next(t) {
+		if event.Kind == "status" && event.State == "idle" && event.Detail == "" {
+			break
+		}
+	}
+	// Let Prompt reach its deferred join, which closes watchDone.
+	time.Sleep(20 * time.Millisecond)
 	close(release)
 	select {
 	case err := <-done:

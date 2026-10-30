@@ -15,16 +15,34 @@ import (
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 )
 
-type diagnostic struct {
+// Diagnostic is one doctor check. Status is pass, warn or fail.
+type Diagnostic struct {
 	Name    string `json:"name"`
 	Status  string `json:"status"`
 	Message string `json:"message"`
 	Advice  string `json:"advice,omitempty"`
 }
-type report struct {
+
+// Report is what reet doctor found. It is shared by the text output and the
+// terminal UI so both always describe the same checks.
+type Report struct {
 	Version string       `json:"version"`
 	Commit  string       `json:"commit"`
-	Checks  []diagnostic `json:"checks"`
+	Checks  []Diagnostic `json:"checks"`
+}
+
+// Keep the original unexported names for tests and for the package's own use.
+type diagnostic = Diagnostic
+type report = Report
+
+// DoctorOptions selects what doctor inspects. Interactive allows the CLI to
+// prompt for a missing controller URL or token; the terminal UI never prompts.
+type DoctorOptions struct {
+	StateDir    string
+	Server      string
+	TokenFile   string
+	Interactive bool
+	JSON        bool
 }
 
 func (a *App) doctor(args []string) error {
@@ -37,13 +55,67 @@ func (a *App) doctor(args []string) error {
 	if !ok {
 		return err
 	}
-	state, err := absolute(*stateArg)
+	r, err := a.DoctorReport(DoctorOptions{
+		StateDir:    *stateArg,
+		Server:      *server,
+		TokenFile:   *tokenFile,
+		Interactive: !*asJSON,
+		JSON:        *asJSON,
+	})
 	if err != nil {
 		return err
 	}
-	r := report{Version: a.Version, Commit: a.Commit, Checks: []diagnostic{}}
+	if *asJSON {
+		if err := json.NewEncoder(a.Out).Encode(r); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintf(a.Out, "reet doctor — %s (%s)\n", r.Version, r.Commit)
+		for _, c := range r.Checks {
+			fmt.Fprintf(a.Out, "[%s] %s: %s\n", c.Status, c.Name, c.Message)
+			if c.Advice != "" {
+				fmt.Fprintln(a.Out, "  "+c.Advice)
+			}
+		}
+		fmt.Fprintf(a.Out, "%d warning(s). Doctor made no configuration changes.\n", r.Warnings())
+	}
+	if r.HasFailures() {
+		return fmt.Errorf("doctor found problems requiring attention")
+	}
+	return nil
+}
+
+// HasFailures reports whether any check needs attention.
+func (r Report) HasFailures() bool {
+	for _, c := range r.Checks {
+		if c.Status == "fail" {
+			return true
+		}
+	}
+	return false
+}
+
+// Warnings counts the checks that are worth mentioning but did not fail.
+func (r Report) Warnings() int {
+	n := 0
+	for _, c := range r.Checks {
+		if c.Status == "warn" {
+			n++
+		}
+	}
+	return n
+}
+
+// DoctorReport runs the checks without writing anything to a.Out. The terminal
+// UI renders the returned Report; the text command renders the same value.
+func (a *App) DoctorReport(opts DoctorOptions) (Report, error) {
+	r := Report{Version: a.Version, Commit: a.Commit, Checks: []Diagnostic{}}
 	add := func(name, status, message, advice string) {
-		r.Checks = append(r.Checks, diagnostic{name, status, message, advice})
+		r.Checks = append(r.Checks, Diagnostic{name, status, message, advice})
+	}
+	state, err := absolute(opts.StateDir)
+	if err != nil {
+		return r, err
 	}
 	path, err := a.executable()
 	if err != nil {
@@ -120,7 +192,7 @@ func (a *App) doctor(args []string) error {
 			add(tool, "pass", tool+" is available for skill sync.", "")
 		}
 	}
-	controller := *server
+	controller := opts.Server
 	if controller == "" {
 		controller = os.Getenv("REET_URL")
 	}
@@ -128,13 +200,17 @@ func (a *App) doctor(args []string) error {
 		controller = os.Getenv("REET_CONTROLLER_URL")
 	}
 	token := os.Getenv("REET_TOKEN")
-	if os.Getenv("REET_URL") == "" && *server == "" && os.Getenv("REET_CONTROLLER_URL") != "" {
+	if os.Getenv("REET_URL") == "" && opts.Server == "" && os.Getenv("REET_CONTROLLER_URL") != "" {
 		token = os.Getenv("REET_CONTROLLER_TOKEN")
 	}
-	if controller == "" && !*asJSON && clientconfig.Interactive(a.In) {
-		value, err := clientconfig.ResolveURL("", a.In, os.Stderr)
+	input := a.In
+	if !opts.Interactive {
+		input = strings.NewReader("")
+	}
+	if controller == "" && !opts.JSON && opts.Interactive && clientconfig.Interactive(input) {
+		value, err := clientconfig.ResolveURL("", input, os.Stderr)
 		if err != nil {
-			return err
+			return r, err
 		}
 		controller = value
 	}
@@ -145,14 +221,10 @@ func (a *App) doctor(args []string) error {
 		if e != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 			add("controller", "fail", "Invalid controller URL.", "Use an http(s) site URL; keep tokens in REET_TOKEN, not the URL.")
 		} else {
-			if !*asJSON || *tokenFile != "" {
-				input := a.In
-				if *asJSON {
-					input = strings.NewReader("")
-				}
-				value, err := clientconfig.ResolveToken(token, *tokenFile, input, os.Stderr)
+			if !opts.JSON || opts.TokenFile != "" {
+				value, err := clientconfig.ResolveToken(token, opts.TokenFile, input, os.Stderr)
 				if err != nil {
-					return err
+					return r, err
 				}
 				token = value
 			}
@@ -178,32 +250,5 @@ func (a *App) doctor(args []string) error {
 			}
 		}
 	}
-	failed := false
-	warnings := 0
-	for _, c := range r.Checks {
-		if c.Status == "fail" {
-			failed = true
-		}
-		if c.Status == "warn" {
-			warnings++
-		}
-	}
-	if *asJSON {
-		if err = json.NewEncoder(a.Out).Encode(r); err != nil {
-			return err
-		}
-	} else {
-		fmt.Fprintf(a.Out, "reet doctor — %s (%s)\n", a.Version, a.Commit)
-		for _, c := range r.Checks {
-			fmt.Fprintf(a.Out, "[%s] %s: %s\n", c.Status, c.Name, c.Message)
-			if c.Advice != "" {
-				fmt.Fprintln(a.Out, "  "+c.Advice)
-			}
-		}
-		fmt.Fprintf(a.Out, "%d warning(s). Doctor made no configuration changes.\n", warnings)
-	}
-	if failed {
-		return fmt.Errorf("doctor found problems requiring attention")
-	}
-	return nil
+	return r, nil
 }

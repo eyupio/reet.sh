@@ -52,7 +52,10 @@ type agentConfig struct {
 	YoloOff bool `json:"yoloOff,omitempty"`
 }
 
-func agentConfigPath() string {
+func agentConfigPath() string { return AgentConfigPath() }
+
+// AgentConfigPath is the default private enrollment file for this user.
+func AgentConfigPath() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "reet-agent.json"

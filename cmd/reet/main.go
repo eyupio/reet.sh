@@ -47,9 +47,20 @@ func env(k, def string) string {
 }
 
 func main() {
+	rawArgs := os.Args[1:]
+	tuiFlag := false
+	filtered := make([]string, 0, len(rawArgs))
+	for _, arg := range rawArgs {
+		if arg == "--tui" {
+			tuiFlag = true
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+	bare := len(filtered) == 0
 	cmd := "serve"
-	args := os.Args[1:]
-	if len(args) > 0 {
+	args := filtered
+	if !bare {
 		cmd = args[0]
 		args = args[1:]
 	}
@@ -62,6 +73,21 @@ func main() {
 	scan.SetBuildCommit(commit)
 	if cmd == "configure" || cmd == "install" || cmd == "init" || cmd == "upgrade" || cmd == "update" || cmd == "help" || cmd == "--help" || cmd == "-h" {
 		cliui.Banner(os.Stderr)
+	}
+	if tuiFlag || (bare && os.Getenv("REET_NO_TUI") == "" && tuiAvailable()) {
+		if !tuiAvailable() {
+			fmt.Fprintln(os.Stderr, "reet: the terminal interface needs an interactive terminal")
+			os.Exit(1)
+		}
+		screen := cmd
+		if bare {
+			screen = ""
+		}
+		if err := runTUI(screen, args, version, commit); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
 	}
 	switch cmd {
 	case "version", "--version", "-v":
@@ -84,6 +110,9 @@ Usage: reet <command> [options]
   doctor       Check your installation and suggest next steps
   healthcheck  Check your saved server, --url, or --local
   version      Show the binary version and source commit
+
+Run reet with no command in a terminal for the menu, or add --tui to doctor,
+healthcheck, version, terminal status or agent status to open that screen.
 
 Connect to an existing site:
   Open Account on your site, then Connect a machine.

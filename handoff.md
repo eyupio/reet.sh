@@ -26,6 +26,15 @@ implemented baseline, S/A/W/L task lists, start-agent-session protocol notes, Pr
 delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief) are in
 [handoff-history.md](handoff-history.md), under "Moved from handoff.md on 27 October 2026".
 
+## Terminal interface (30 October 2026)
+
+The binary now has a read-only terminal interface: `reet` in a terminal opens a menu over Doctor,
+Healthcheck, Version, Terminal status and Agent status, and `--tui` opens a screen directly. It is
+built with Bubble Tea under `internal/tui`, reads the same report values as the text commands, and
+does not touch the store or the web app. This deliberately moves the "full terminal TUI" note below
+ahead of its earlier lower priority; it is scoped to the binary's existing commands, not a second
+control room. Forms and actions follow in slices for scan, sync, backup, setup and upgrade.
+
 ## Agents home redesign (27–30 October 2026)
 
 ### Resume here (after YOLO, 30 October 2026)

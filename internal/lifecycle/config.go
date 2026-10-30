@@ -17,14 +17,20 @@ type deployment struct {
 	Environment map[string]string `json:"environment,omitempty"`
 }
 
-func stateDefault() string {
+func stateDefault() string { return StateDefault() }
+func dataDefault() string  { return DataDefault() }
+
+// StateDefault is the managed deployment configuration directory.
+func StateDefault() string {
 	p, err := os.UserConfigDir()
 	if err != nil {
 		return ""
 	}
 	return filepath.Join(p, "reet")
 }
-func dataDefault() string {
+
+// DataDefault is the default server database directory for a managed install.
+func DataDefault() string {
 	p, err := os.UserHomeDir()
 	if err != nil {
 		return ""

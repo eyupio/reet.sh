@@ -642,7 +642,7 @@ func seedRecoveredChatEvents(cs *chatSession) {
 		return
 	}
 	var prefix []terminalproto.ACPEvent
-	if cs.lastStatus != nil && (cs.lastStatus.State == "working" || cs.lastStatus.State == "waiting" || cs.lastStatus.State == "starting") {
+	if cs.lastStatus != nil {
 		hasStatus := false
 		for _, e := range cs.outbox {
 			if e.Kind == "status" {

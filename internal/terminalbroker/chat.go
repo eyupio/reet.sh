@@ -99,16 +99,23 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 	defer l.mu.Unlock()
 	l.updatedAt = nowMs
 	switch event.Kind {
+	case "user":
+		l.updatedAt = nowMs
+		l.completedAt = 0
+		l.running = true
+		l.lastState = "working"
 	case "status":
 		switch event.State {
 		case "starting":
 			l.running = false
 			l.lastState = "starting"
+			l.completedAt = 0
 		case "working":
 			l.running = true
 			if len(l.pending) == 0 {
 				l.lastState = "working"
 			}
+			l.completedAt = 0
 		case "waiting":
 			l.running = true
 			l.lastState = "waiting"
@@ -122,7 +129,11 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 			l.waitingAt = 0
 			if wasRunning || l.lastState == "working" || l.lastState == "waiting" {
 				l.lastState = "finished"
-				l.completedAt = nowMs
+				if l.completedAt == 0 {
+					l.completedAt = nowMs
+				}
+			} else if l.lastState == "finished" {
+				// preserve existing completion
 			} else if l.lastState == "" || l.lastState == "starting" {
 				l.lastState = "quiet"
 			}
@@ -136,7 +147,9 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 			clear(l.pending)
 			l.waitingAt = 0
 			l.lastState = "failed"
-			l.completedAt = nowMs
+			if l.completedAt == 0 {
+				l.completedAt = nowMs
+			}
 		case "ended":
 			l.running = false
 			clear(l.pending)
@@ -348,6 +361,22 @@ func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
 			if s.BellAt > l.updatedAt {
 				l.updatedAt = s.BellAt
 			}
+		} else if s.ChatStatus == "finished" {
+			l.lastState = "finished"
+			l.completedAt = s.CompletedAt
+			l.updatedAt = s.CompletedAt
+			l.running = false
+		} else if s.ChatStatus == "failed" {
+			l.lastState = "failed"
+			l.completedAt = s.CompletedAt
+			l.updatedAt = s.CompletedAt
+			l.running = false
+		} else if s.ChatStatus == "working" {
+			l.lastState = "working"
+			l.running = true
+			if s.ActivityAt > 0 {
+				l.updatedAt = s.ActivityAt
+			}
 		} else if s.ActivityAt > 0 && l.lastState == "" {
 			l.updatedAt = s.ActivityAt
 			if time.Since(time.UnixMilli(s.ActivityAt)) <= 30*time.Second {
@@ -380,11 +409,12 @@ func (b *Broker) publishChat(uid int64, session string, event terminalproto.ACPE
 	b.mu.Unlock()
 	if l != nil {
 		l.publish(event)
-		if b.st != nil && (event.Kind == "status" || event.Kind == "permission" || event.Kind == "permission_resolved" || event.Kind == "permission_cancelled") {
+		if b.st != nil && (event.Kind == "status" || event.Kind == "permission" || event.Kind == "permission_resolved" || event.Kind == "permission_cancelled" || event.Kind == "user") {
 			l.mu.Lock()
 			actAt, waitAt := l.updatedAt, l.waitingAt
+			st, compAt := l.lastState, l.completedAt
 			l.mu.Unlock()
-			_ = b.st.SetTerminalChatAttentionFor(uid, session, actAt, waitAt)
+			_ = b.st.SetTerminalChatAttentionFor(uid, session, actAt, waitAt, st, compAt)
 		}
 	}
 	if event.Kind == "permission_resolved" && event.Allow != nil && *event.Allow {

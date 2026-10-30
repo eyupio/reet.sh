@@ -19,6 +19,8 @@ func (s *Store) migrateAttention() error {
 		"activity_at INTEGER NOT NULL DEFAULT 0",
 		"bell_at INTEGER NOT NULL DEFAULT 0",
 		"attention_observed INTEGER NOT NULL DEFAULT 0 CHECK(attention_observed IN (0,1))",
+		"completed_at INTEGER NOT NULL DEFAULT 0",
+		"chat_status TEXT NOT NULL DEFAULT ''",
 	} {
 		col := strings.Fields(ddl)[0]
 		ok, err := hasColumn(s.db, "terminal_sessions", col)
@@ -157,20 +159,23 @@ func (s *Store) ObserveTerminalAttentionFor(uid int64, agentID, sessionID string
 	})
 }
 
-// SetTerminalChatAttentionFor records the current activity and waiting timestamps
+// SetTerminalChatAttentionFor records the current activity, waiting, completion and status
 // of a structured chat session without advancing updated_at.
-func (s *Store) SetTerminalChatAttentionFor(uid int64, sessionID string, activityAt, bellAt int64) error {
-	if !terminalproto.ValidID(sessionID) || activityAt < 0 || bellAt < 0 {
+func (s *Store) SetTerminalChatAttentionFor(uid int64, sessionID string, activityAt, bellAt int64, chatStatus string, completedAt int64) error {
+	if !terminalproto.ValidID(sessionID) || activityAt < 0 || bellAt < 0 || completedAt < 0 {
 		return terminalproto.ErrInvalid
 	}
 	actMs := attentionMillis(activityAt)
 	bellMs := attentionMillis(bellAt)
+	compMs := attentionMillis(completedAt)
 	_, err := s.db.Exec(`UPDATE terminal_sessions SET
 		activity_at = CASE WHEN ? > activity_at THEN ? ELSE activity_at END,
 		bell_at = ?,
-		attention_observed = 1
+		attention_observed = 1,
+		chat_status = ?,
+		completed_at = ?
 		WHERE user_id = ? AND id = ? AND structured = 1`,
-		actMs, actMs, bellMs, uid, sessionID)
+		actMs, actMs, bellMs, chatStatus, compMs, uid, sessionID)
 	return err
 }
 

@@ -205,4 +205,58 @@ func TestStructuredChatPermissionResolvedRestoresWorkingAttention(t *testing.T) 
 	if got.Attention != "working" || got.AttentionSource != "chat" {
 		t.Fatalf("after resolving permission on restarted controller got %+v", got)
 	}
+
+	// Completing the turn moves attention to finished. If the controller restarts
+	// before the person sees it, the finished attention and its original completion
+	// timestamp must be recovered rather than disappearing or becoming quiet.
+	send2 := func(e terminalproto.ACPEvent) {
+		t.Helper()
+		if err := peer2.Receive(terminalproto.Message{
+			Version: 1, RequestID: terminalbroker.ID(), SessionID: session, Generation: peer2.Generation,
+			Body: &e,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send2(terminalproto.ACPEvent{Kind: "status", State: "idle"})
+	got = readOne()
+	if got.Attention != "finished" || !got.ChangedSinceSeen {
+		t.Fatalf("after idle on peer2 got %+v", got)
+	}
+	originalCompletedAt := got.UpdatedAt
+	if originalCompletedAt == 0 {
+		t.Fatal("expected non-zero UpdatedAt on finished attention")
+	}
+
+	// Restart controller again while unseen finished turn is pending:
+	restarted2 := terminalbroker.New(f.st)
+	t.Cleanup(restarted2.Close)
+	f.srv.s.terminals = restarted2
+	got = readOne()
+	if got.Attention != "finished" || !got.ChangedSinceSeen || got.UpdatedAt != originalCompletedAt {
+		t.Fatalf("after second restart with unseen completed turn got %+v, want finished with UpdatedAt=%d", got, originalCompletedAt)
+	}
+
+	// Marking seen dismisses the recovered finished state across further restarts.
+	seenReq = httptest.NewRequest(http.MethodPost, "/api/v2/terminal/sessions/"+session+"/seen", strings.NewReader(`{}`))
+	seenReq.Header.Set("Content-Type", "application/json")
+	seenReq.Header.Set("Origin", "https://reet.example")
+	seenReq.AddCookie(&http.Cookie{Name: sessionCookie, Value: f.cookie})
+	seenRec = httptest.NewRecorder()
+	f.srv.ServeHTTP(seenRec, seenReq)
+	if seenRec.Code != http.StatusOK {
+		t.Fatalf("POST seen: %d %s", seenRec.Code, seenRec.Body.String())
+	}
+	got = readOne()
+	if got.Attention != "quiet" || got.ChangedSinceSeen {
+		t.Fatalf("after mark seen on restarted controller got %+v", got)
+	}
+
+	restarted3 := terminalbroker.New(f.st)
+	t.Cleanup(restarted3.Close)
+	f.srv.s.terminals = restarted3
+	got = readOne()
+	if got.Attention != "quiet" || got.ChangedSinceSeen {
+		t.Fatalf("after third restart following seen got %+v", got)
+	}
 }

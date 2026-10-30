@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import { cardReadiness, terminalMachines, type HealthResponse, type TerminalMachine, type TerminalSession } from './terminal/api'
   import StartAgentDialog from './StartAgentDialog.svelte'
   import { getMachineHealth as machineHealth } from './api'
@@ -225,6 +225,17 @@
   function closeMenus() {
     document.querySelectorAll<HTMLDetailsElement>('details.sync-menu[open]').forEach((menu) => menu.removeAttribute('open'))
   }
+  // A right-click anywhere on a machine card opens the same options menu as its ⋮ button, so the card itself offers
+  // Sync now's neighbours, Commands, Settings and Review sync activity.
+  function cardContextMenu(event: MouseEvent) {
+    if ((event.target as HTMLElement).closest('details.sync-menu, dialog')) return
+    const menu = (event.currentTarget as HTMLElement).querySelector<HTMLDetailsElement>('details.sync-menu')
+    if (!menu) return
+    event.preventDefault()
+    closeMenus()
+    menu.open = true
+    void tick().then(() => menu.querySelector<HTMLElement>('[role=menuitem]:not([disabled])')?.focus())
+  }
   function menusKey(event: KeyboardEvent) {
     if (event.key !== 'Escape') return
     const opener = document.querySelector<HTMLElement>('details.sync-menu[open] > summary')
@@ -333,7 +344,7 @@
       {@const scanOnly = scanOnlyAgents(machine)}
       {@const state = machineStatus(machine)}
       {@const sync = machineSyncOverview(machine, snapshot)}
-      <article class="machine" class:just-added={highlight === machine.host} aria-labelledby={`machine-${machine.host}`}>
+      <article class="machine" class:just-added={highlight === machine.host} aria-labelledby={`machine-${machine.host}`} oncontextmenu={cardContextMenu}>
         <header class="machine-head">
           <div class="identity">
             <span class="dot" class:current={!!enrolled && enrolled.lastSeen > Date.now() - 90000} class:offline={!!enrolled && enrolled.lastSeen <= Date.now() - 90000} aria-hidden="true"></span>

@@ -1,12 +1,15 @@
 <script lang="ts">
   import { toolName } from '../agentLaunch'
-  import { sessionHref, type MachineHealth } from '../terminal/api'
+  import { sessionHref, type MachineHealth, type TerminalMachine } from '../terminal/api'
   import { shortAge, stateWord, type GroupBy, type Group, type HomeSession, type SessionOwner } from '../home'
+  import SessionActions from '../sessions/SessionActions.svelte'
   import SessionHoverCard from '../terminal/SessionHoverCard.svelte'
 
   // In flight: live sessions, and finished ones for a day, grouped by Project, Machine or State. Each row says the state word
-  // and where it came from (R10): a terminal session reports no steps, so there is no progress bar. A row opens the session.
-  let { groups, owners, machines, offline, now, loaded, failed = false, groupBy, onchoose, projectColours = new Map<string, string>() }: {
+  // and where it came from (R10): a terminal session reports no steps, so there is no progress bar. A row opens the session;
+  // its actions menu (a right-click, Shift+F10 or the menu key) offers the same actions as on the Sessions page.
+  let { groups, owners, machines, offline, now, loaded, failed = false, groupBy, onchoose, projectColours = new Map<string, string>(),
+    terminals = [], removeDefault = false, onchanged, onnotice, onsignedout }: {
     groups: Group[]
     owners: Map<string, SessionOwner>
     machines: MachineHealth[]
@@ -20,7 +23,18 @@
     onchoose: (groupBy: GroupBy) => void
     /** Folder project id → its rail colour id, ""/absent for none. */
     projectColours?: Map<string, string>
+    /** The machines' terminal records, for a session whose machine has the server turned off. */
+    terminals?: TerminalMachine[]
+    /** The profile's choice for a session that ends: remove it from history too. */
+    removeDefault?: boolean
+    /** A session action went through: read the sessions again. */
+    onchanged: () => void | Promise<void>
+    onnotice: (notice: { text: string; bad?: boolean } | null) => void
+    onsignedout: () => void
   } = $props()
+
+  let actions = $state<SessionActions>()
+  const offlineIds = $derived(new Set(offline.map(m => m.agentId)))
 
   const id = $props.id()
   const choices: { value: GroupBy; label: string }[] = [{ value: 'project', label: 'Project' }, { value: 'machine', label: 'Machine' }, { value: 'state', label: 'State' }]
@@ -61,7 +75,9 @@
               {@const word = stateWord(s)}
               {@const owner = owners.get(s.id)}
               <li>
-                <a class="row" href={sessionHref(s)} onmouseenter={(event) => showCard(event.currentTarget, s)} onmouseleave={hideCard} onfocus={(event) => showCard(event.currentTarget, s)} onblur={hideCard}>
+                <a class="row" href={sessionHref(s)} onmouseenter={(event) => showCard(event.currentTarget, s)} onmouseleave={hideCard} onfocus={(event) => showCard(event.currentTarget, s)} onblur={hideCard}
+                  oncontextmenu={(event) => { hideCard(); void actions?.openMenu(event, s) }}
+                  onkeydown={(event) => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { hideCard(); void actions?.openMenu(event, s) } }}>
                   <span class="dot {word.tone}" aria-hidden="true"></span>
                   <span class="main">
                     <span class="title">{s.title}</span>
@@ -85,6 +101,7 @@
   {@const tip = card}
   <div class="session-card-pop" style={`left:${tip.x}px;top:${tip.y}px`}><SessionHoverCard session={tip.item} host={hostOf(tip.item.agentId)} project={owners.get(tip.item.id)?.name} colour={tip.item.projectId ? projectColours.get(tip.item.projectId) : ''} health={machines.find(m => m.agentId === tip.item.agentId)} serverNow={now} href={sessionHref(tip.item)} /></div>
 {/if}
+<SessionActions bind:this={actions} {machines} offline={offlineIds} {terminals} {removeDefault} {onsignedout} {onchanged} {onnotice} />
 
 <style>
   .flight { min-width: 0; display: flex; flex-direction: column; gap: 8px; }

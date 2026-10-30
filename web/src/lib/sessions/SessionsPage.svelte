@@ -1,19 +1,17 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { getProfile, UnauthorizedError } from '../api'
-  import { copyText } from '../clipboard'
-  import ConfirmDialog from '../ConfirmDialog.svelte'
-  import WorktreeDialog from '../WorktreeDialog.svelte'
   import CommandLibrary from '../terminal/CommandLibrary.svelte'
   import AddProjectDialog from '../home/AddProjectDialog.svelte'
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
+  import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
   import { addedLine } from '../folderBrowser'
   import { projectWorktrees, railState, shortAge, stateWord, type GroupBy } from '../home'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
-  import type { RunMember } from '../projects'
-  import { agentChoicesOf, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, worktreeTargetOf, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
-  import { archiveTerminal, endTerminal, folderProjectList, machineHealth, renameTerminal, sessionHref, terminalClosed, terminalMachines, terminalSessions, TerminalError, validTerminalTitle,
+  import { agentChoicesOf, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
+  import { folderProjectList, machineHealth, sessionHref, terminalMachines, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import SessionActions from './SessionActions.svelte'
 
   // The Sessions page (/sessions): every session across machines from the account-wide listing, grouped as Home groups them
   // (the Group by choice is Home's), with search, filters and each session's actions menu; the projects come below with
@@ -82,7 +80,6 @@
   })
   // A machine the health report says is not connected is offline; with no report nothing is called offline.
   const offline = $derived(new Set((health ?? []).filter(m => m.state !== 'connected').map(m => m.agentId)))
-  const hostOf = (agentId: string) => machines.find(m => m.agentId === agentId)?.host || agentId
   const colourOf = (s: TerminalSession) => sessionColourOf(s, colors, projects ?? [])
   const colourName = (id: string) => PROJECT_COLOURS.find(c => c.id === id)?.name ?? ''
   const shown = $derived(filterSessions(searchSessions(sessions ?? [], projects ?? [], machines, query), filter, new Set(), colourOf))
@@ -122,83 +119,45 @@
     }
   }
 
-  // The actions menu: right-click on a row, Shift+F10 or the menu key on it, or its ⋮ button. Arrow keys move, Escape closes
-  // and gives focus back to what opened it.
-  let menu = $state<HTMLElement>()
-  let context = $state<{ item: TerminalSession; x: number; y: number } | null>(null)
-  let returnFocus = $state<HTMLElement>()
-  async function openMenu(event: MouseEvent | KeyboardEvent, item: TerminalSession) {
-    // Shift+right-click keeps the browser's own menu, as on the terminal.
+  // The actions menu: right-click on a row, Shift+F10 or the menu key on it, or its \u22ee button. SessionActions draws it,
+  // moves between its items, and gives focus back to what opened it.
+  let actions = $state<SessionActions>()
+  let openActionsFor = $state('')
+  const menuKeyOpens = (event: KeyboardEvent) => event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')
+  const openMenu = (event: MouseEvent | KeyboardEvent, item: TerminalSession) => void actions?.openMenu(event, item)
+  let removeDefault = $state(false)
+
+  // A project card's menu: right-click or Shift+F10 offers the ways into the project that fit here. Edit and remove stay on
+  // Home's rail; Worktrees opens the existing sheet for the folder.
+  let projectMenu = $state<{ item: FolderProject; x: number; y: number; opener: HTMLElement } | null>(null)
+  let projectMenuEl = $state<HTMLElement>()
+  async function openProjectMenu(event: MouseEvent | KeyboardEvent, item: FolderProject) {
     if (event.type === 'contextmenu' && event.shiftKey) return
     event.preventDefault()
-    const opener = event.currentTarget as HTMLElement
-    // Focus goes back to what opened the menu: the row's link or its ⋮ button.
-    returnFocus = opener
-    const box = opener.getBoundingClientRect()
+    const opener = event.currentTarget as HTMLElement, box = opener.getBoundingClientRect()
     const x = 'clientX' in event && event.clientX ? event.clientX : box.left, y = 'clientY' in event && event.clientY ? event.clientY : box.bottom
-    context = { item, x: Math.min(Math.max(8, x), Math.max(8, innerWidth - 248)), y: Math.max(8, Math.min(y, innerHeight - 290)) }
+    projectMenu = { item, opener, x: Math.min(Math.max(8, x), Math.max(8, innerWidth - 248)), y: Math.max(8, Math.min(y, innerHeight - 190)) }
     await tick()
-    menu?.querySelector<HTMLElement>('[role=menuitem]:not(:disabled):not([aria-disabled=true])')?.focus()
+    projectMenuEl?.querySelector<HTMLElement>('[role=menuitem]')?.focus()
   }
-  function closeMenu(focus = true) { context = null; if (focus) returnFocus?.focus() }
-  function menuKey(event: KeyboardEvent) {
-    if (event.key === 'Escape') { event.preventDefault(); closeMenu(); return }
-    if (event.key === 'Tab') { event.preventDefault(); closeMenu(false); tabFromMenu(returnFocus, event.shiftKey); return }
+  function closeProjectMenu(focus = true) {
+    const opener = projectMenu?.opener
+    projectMenu = null
+    if (focus) opener?.focus()
+  }
+  function projectMenuKey(event: KeyboardEvent) {
+    if (event.key === 'Escape') { event.preventDefault(); closeProjectMenu(); return }
+    if (event.key === 'Tab') { event.preventDefault(); const opener = projectMenu?.opener; closeProjectMenu(false); tabFromMenu(opener, event.shiftKey); return }
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
-    const items = [...menu!.querySelectorAll<HTMLElement>('[role=menuitem]:not(:disabled):not([aria-disabled=true])')], at = items.indexOf(document.activeElement as HTMLElement)
+    const items = [...projectMenuEl!.querySelectorAll<HTMLElement>('[role=menuitem]')], at = items.indexOf(document.activeElement as HTMLElement)
     items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
   }
-  const menuKeyOpens = (event: KeyboardEvent) => event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')
-  const live = (s: TerminalSession) => !terminalClosed(s.state)
-  const serverOff = (s: TerminalSession) => terminals?.find(m => m.agentId === s.agentId)?.serverEnabled === false
-
-  // Rename, End (with the remove-from-history choice) and Remove from history, each confirmed; then the list is read again.
-  let action = $state<{ kind: 'rename' | 'end' | 'archive'; item: TerminalSession } | null>(null)
-  let rename = $state(''), removeOnEnd = $state(false), removeDefault = false, busy = $state(false)
-  const endKeys = new Map<string, { key: string; remove: boolean }>()
-  function begin(kind: 'rename' | 'end' | 'archive') {
-    if (!context) return
-    const item = context.item
-    closeMenu(false)
-    rename = item.title
-    removeOnEnd = endKeys.get(item.id)?.remove ?? (item.state === 'end_requested' ? item.removeHistory ?? false : removeDefault)
-    action = { kind, item }
-  }
-  function cancel() { action = null; returnFocus?.focus() }
-  async function perform() {
-    if (!action || busy) return
-    const { kind, item } = action
-    if (kind === 'rename' && !validTerminalTitle(rename.trim())) { notice = { text: 'Use a session name of 1–80 characters without control characters.', bad: true }; return }
-    action = null; busy = true; notice = null
-    try {
-      if (kind === 'rename') await renameTerminal(item.id, rename.trim())
-      else if (kind === 'archive') { await archiveTerminal(item.id); sessions = (sessions ?? []).filter(s => s.id !== item.id) }
-      else {
-        let op = endKeys.get(item.id)
-        if (!op) { op = { key: crypto.randomUUID(), remove: removeOnEnd }; endKeys.set(item.id, op) }
-        await endTerminal(item.id, op.key, op.remove)
-      }
-      await load(true)
-    } catch (e) {
-      if (refused(e)) return signOut()
-      notice = { text: e instanceof Error ? e.message : 'The action is unconfirmed. Retry checks the same session.', bad: true }
-    } finally { busy = false }
-  }
-  async function copyBranch() {
-    if (!context?.item.worktreeBranch) return
-    const branch = context.item.worktreeBranch
-    closeMenu()
-    notice = (await copyText(branch)) ? { text: `Copied ${branch}.` } : { text: "Couldn't copy the branch. Select it in the session's details instead.", bad: true }
-  }
-  // Check and remove worktree: the existing sheet, which reads the worktree's state first and removes nothing unsaved.
-  let removing = $state<{ member: RunMember; host: string } | null>(null)
-  function checkWorktree() {
-    const item = context?.item, target = item ? worktreeTargetOf(item) : null
-    if (!item || !target) return
-    closeMenu(false)
-    removing = { host: hostOf(item.agentId), member: { position: 0, host: item.agentId, dir: '', tool: item.tool ?? '', model: item.model ?? '', state: 'started', code: '', sentence: '', sessionId: item.id,
-      worktreePath: item.worktreePath ?? '', worktreeRepo: target.repo, worktreeBranch: item.worktreeBranch ?? '', worktreeRun: target.run, worktreeProject: target.project, sharesCheckout: false, attempt: 0 } }
+  let worktreesFor = $state<{ project: FolderProject; opener: HTMLElement } | null>(null)
+  function openWorktrees() {
+    const target = projectMenu
+    closeProjectMenu(false)
+    if (target) worktreesFor = { project: target.item, opener: target.opener }
   }
 
   // Add a project: the machines are read again first, as on Home.
@@ -230,8 +189,6 @@
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', wake); query.removeEventListener('change', resized); life.abort() }
   })
 </script>
-
-<svelte:window onpointerdown={event => { if (context && !menu?.contains(event.target as Node)) closeMenu(false) }} onblur={() => closeMenu(false)} />
 
 <div class="sessions-page">
   <header class="page-head">
@@ -301,7 +258,7 @@
                 {@const word = stateWord(s)}
                 {@const colour = colourOf(s)}
                 <li class="session-row" class:coloured={!!colour} style={colour ? `--session-colour:${projectColourHex(colour)}` : undefined}>
-                  <a class="open" href={sessionHref(s)} oncontextmenu={event => void openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event, s) }}>
+                  <a class="open" href={sessionHref(s)} oncontextmenu={event => openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) openMenu(event, s) }}>
                     <span class="dot {word.tone}" aria-hidden="true"></span>
                     <span class="main">
                       <span class="line"><span class="title" title={s.title}>{s.title}</span>{#if s.yolo}<span class="badge yolo">YOLO</span>{/if}{#if s.worktreePath}<span class="badge wt">worktree</span>{/if}{#if colour}<span class="badge colour-name"><span class="swatch" aria-hidden="true"></span>{colourName(colour)}</span>{/if}</span>
@@ -310,7 +267,7 @@
                     <span class="word {word.tone}" title={word.source}>{word.word}{#if offline.has(s.agentId)}{' '}<span class="lk">· last known</span>{/if}</span>
                     <span class="age"><span class="vh">changed </span>{shortAge(Math.max(0, now - s.updatedAt))}<span class="vh"> ago</span></span>
                   </a>
-                  <button type="button" class="more" aria-label={`Actions for ${s.title}`} aria-haspopup="menu" aria-expanded={context?.item.id === s.id} onclick={event => void openMenu(event, s)} oncontextmenu={event => void openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event, s) }}>
+                  <button type="button" class="more" aria-label={`Actions for ${s.title}`} aria-haspopup="menu" aria-expanded={openActionsFor === s.id} onclick={event => openMenu(event, s)} oncontextmenu={event => openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) openMenu(event, s) }}>
                     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
                   </button>
                 </li>
@@ -346,7 +303,8 @@
       {:else if projects}
         <ul class="project-list">
           {#each projects as p (p.id)}
-            <li><a class="project-card" href={`/?project=${encodeURIComponent(p.id)}`} aria-label={projectLabel(p)} style={`--project-colour:${projectColourHex(p.colour)}`}>
+            <li><a class="project-card" href={`/?project=${encodeURIComponent(p.id)}`} aria-label={projectLabel(p)} style={`--project-colour:${projectColourHex(p.colour)}`}
+              oncontextmenu={event => void openProjectMenu(event, p)} onkeydown={event => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) void openProjectMenu(event, p) }}>
               <span class="stripe" aria-hidden="true"></span><span class="pname" title={p.name}>{p.name}</span><span class="pmachine" title={p.machine || 'machine not enrolled'}>{p.machine || 'machine not enrolled'}</span>
             </a></li>
           {/each}
@@ -356,37 +314,26 @@
   {/if}
 </div>
 
-{#if context}
-  {@const item = context.item}
-  {@const away = offline.has(item.agentId)}
-  {@const target = worktreeTargetOf(item)}
-  <div class="menu" role="menu" aria-label={`Actions for ${item.title}`} tabindex="-1" bind:this={menu} style={`left:${context.x}px;top:${context.y}px`} onkeydown={menuKey}>
-    <p>{item.title}<small>{hostOf(item.agentId)}</small></p>
-    <button role="menuitem" disabled={busy || serverOff(item)} onclick={() => begin('rename')}>Rename…</button>
-    {#if away}<a role="menuitem" aria-disabled="true" title={offlineSentence(hostOf(item.agentId))}>Open in theatre</a>
-    {:else}<a role="menuitem" href={`${sessionHref(item)}&theatre=1`}>Open in theatre</a>{/if}
-    {#if item.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}
-    {#if live(item)}<button role="menuitem" class="danger" disabled={busy || serverOff(item)} onclick={() => begin('end')}>{item.state === 'end_requested' ? 'Retry end request…' : 'End session…'}</button>
-    {:else}<button role="menuitem" disabled={busy} onclick={() => begin('archive')}>Remove from history…</button>{/if}
-    {#if target}<button role="menuitem" disabled={live(item) || away} title={live(item) ? 'End the session first: it is working in this worktree.' : away ? offlineSentence(hostOf(item.agentId)) : undefined} onclick={checkWorktree}>Check and remove worktree…</button>{/if}
+<svelte:window onpointerdown={event => { if (projectMenu && !projectMenuEl?.contains(event.target as Node)) closeProjectMenu(false) }} />
+
+{#if projectMenu}
+  {@const item = projectMenu.item}
+  <div class="menu" role="menu" aria-label={`Actions for ${item.name}`} tabindex="-1" bind:this={projectMenuEl} style={`left:${projectMenu.x}px;top:${projectMenu.y}px`} onkeydown={projectMenuKey}>
+    <p>{item.name}<small>{item.machine || 'machine not enrolled'}</small></p>
+    <a role="menuitem" href={`/?project=${encodeURIComponent(item.id)}`}>Open on Home</a>
+    <a role="menuitem" href={`/?project=${encodeURIComponent(item.id)}#launch`}>New session here</a>
+    <button role="menuitem" onclick={openWorktrees}>Worktrees…</button>
   </div>
 {/if}
-
-{#if action?.kind === 'rename'}
-  <ConfirmDialog title="Rename session" body="Only the display name changes. The running shell stays the same." confirmLabel="Save name" onconfirm={() => void perform()} oncancel={cancel}><label class="field">Session name<input bind:value={rename} maxlength="80" required /></label></ConfirmDialog>
-{:else if action?.kind === 'end'}
-  <ConfirmDialog title={`End ${action.item.title}?`} body="This stops the shell and its running jobs. If the machine is offline, the request stays pending until it reconnects." confirmLabel="End session" danger onconfirm={() => void perform()} oncancel={cancel}>
-    <label class="option"><input type="checkbox" bind:checked={removeOnEnd} disabled={endKeys.has(action.item.id) || action.item.state === 'end_requested'} /><span>Remove from history when this session ends</span></label>
-  </ConfirmDialog>
-{:else if action?.kind === 'archive'}
-  <ConfirmDialog title={`Remove ${action.item.title} from history?`} body="This removes the closed session from your history. Files on the machine are kept. You cannot restore it from the web interface." confirmLabel="Remove from history" onconfirm={() => void perform()} oncancel={cancel} />
-{/if}
-{#if removing}
-  <WorktreeDialog member={removing.member} host={removing.host} opener={returnFocus ?? null} onremoved={() => void load(true)} onsignedout={signOut} onclose={() => (removing = null)} />
-{/if}
+<SessionActions bind:this={actions} machines={machines} {offline} {terminals} {removeDefault}
+  onsignedout={signOut} onchanged={() => load(true)} onnotice={(n) => (notice = n)}
+  onopen={(item) => (openActionsFor = item.id)} onclose={() => (openActionsFor = '')} />
 {#if commandsOpen}<CommandLibrary onclose={() => void closeCommands()} />{/if}
 {#if adding && terminals}
   <AddProjectDialog machines={terminals} opener={adding.opener} onadded={added} onsignedout={signOut} onclose={() => (adding = null)} />
+{/if}
+{#if worktreesFor}
+  <ProjectWorktrees project={worktreesFor.project} {sessions} sessionsFailed={failed && sessions === undefined} opener={worktreesFor.opener} onsignedout={signOut} onclose={() => (worktreesFor = null)} />
 {/if}
 
 <style>
@@ -484,12 +431,8 @@
   .menu p { margin: 5px 8px 8px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
   .menu small { display: block; margin-top: 3px; font-size: 12px; font-weight: 400; color: var(--muted); }
   .menu [role=menuitem] { display: block; min-height: 36px; padding: 8px 9px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 400 14px var(--sans); text-align: left; text-decoration: none; cursor: pointer; }
-  .menu [role=menuitem]:hover:not(:disabled):not([aria-disabled=true]), .menu [role=menuitem]:focus-visible { background: var(--tint); outline: none; }
-  .menu [role=menuitem]:disabled, .menu [role=menuitem][aria-disabled=true] { opacity: .45; cursor: default; }
-  .menu .danger { color: var(--bad); }
-  .field { display: grid; gap: 6px; margin-top: 12px; font-size: 14px; }
-  .option { display: flex; align-items: flex-start; gap: 9px; margin-top: 14px; font-size: 14px; line-height: 1.5; cursor: pointer; }
-  .option input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--accent); }
+  .menu [role=menuitem]:hover, .menu [role=menuitem]:focus-visible { background: var(--tint); outline: none; }
+  .menu [role=menuitem]:disabled { opacity: .45; cursor: default; }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   @media (pointer: coarse) { .menu [role=menuitem] { min-height: 44px; } }
   /* Tablet and phone: the mock-up's phone Sessions screen (the tablet uses it at its own width). */

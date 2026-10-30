@@ -125,6 +125,23 @@ async function home(options={}) {
    store.setItem = (k, v) => { window.__recordStorage(`${area}.set`, k, String(v)); return set(k, v) }
   }
  })
+ // A session's own writes from the actions menu: rename (PATCH), end and remove from history (POST).
+ await opened.page.route('**/api/v2/terminal/sessions/*', async route => {
+  const request = route.request(), path = new URL(request.url()).pathname, id = decodeURIComponent(path.split('/').pop())
+  box.writes.push({method:request.method(), path, body:request.postDataJSON()})
+  const s = box.sessions.find(x => x.id === id)
+  if (request.method() === 'PATCH' && s) s.title = request.postDataJSON().title
+  return route.fulfill({json:s ?? {}})
+ })
+ await opened.page.route('**/api/v2/terminal/sessions/*/*', async route => {
+  const request = route.request(), path = new URL(request.url()).pathname, parts = path.split('/'), id = decodeURIComponent(parts.at(-2)), kind = parts.at(-1)
+  if (kind === 'attachments') return route.fulfill({json:{ticket:'home-fixture-ticket01'}})
+  box.writes.push({method:request.method(), path, body:request.postDataJSON()})
+  const s = box.sessions.find(x => x.id === id)
+  if (kind === 'end' && s) s.state = 'end_requested'
+  if (kind === 'archive') box.sessions = box.sessions.filter(x => x.id !== id)
+  return route.fulfill({json:{}})
+ })
  return {...opened, reads, storage, box}
 }
 const strip = page => page.getByRole('region',{name:'Your machines',exact:true})
@@ -335,6 +352,77 @@ try {
   await expect.poll(() => groups(page)).toEqual(['Running 3','Exited 1'])
   // Grouping comes from each session's own project id: no old Projects or runs are read for it.
   expect(reads.filter(r => /\/api\/v2\/(projects|project-runs)/.test(r))).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A row's actions menu opens on a right-click or Shift+F10, with the same actions as the Sessions page. Rename asks first;
+ // End asks first and then the row says Ending; a finished session offers Remove from history instead.
+ if (run('In flight session menu by right-click and Shift+F10')) {
+  const {context,page,errors,box} = await home()
+  await page.goto(base)
+  const row = inFlight(page).getByRole('link',{name:/Refactor the store layer/})
+  await row.click({button:'right'})
+  const menu = page.getByRole('menu',{name:'Actions for Refactor the store layer'})
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('menuitem')).toHaveText(['Rename…','Open in theatre','Copy branch','End session…','Check and remove worktree…'])
+  await expect(menu.getByRole('menuitem',{name:'Open in theatre'})).toHaveAttribute('href','/sessions?agent=a1&session=s1&theatre=1')
+  // A live session's worktree is in use: removing it waits for the session to end.
+  await expect(menu.getByRole('menuitem',{name:'Check and remove worktree…'})).toBeDisabled()
+  await expect(menu.getByRole('menuitem',{name:'Rename…'})).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitem',{name:'Open in theatre'})).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(row).toBeFocused()
+  // Shift+F10 on the focused row opens the same menu; Rename asks for the new name.
+  await row.dispatchEvent('keydown',{key:'F10',shiftKey:true})
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Enter')
+  const rename = page.getByRole('dialog',{name:'Rename session'})
+  await expect(rename).toBeVisible()
+  await rename.getByLabel('Session name').fill('Split the store layer')
+  await rename.getByRole('button',{name:'Save name'}).click()
+  await expect(inFlight(page).getByRole('link',{name:/Split the store layer/})).toBeVisible()
+  expect(box.writes.at(-1)).toMatchObject({method:'PATCH', path:'/api/v2/terminal/sessions/s1', body:{title:'Split the store layer'}})
+  // An ended session offers Remove from history (with a confirmation) instead of End, and has no branch to copy.
+  await inFlight(page).getByRole('link',{name:/Docs pass/}).click({button:'right'})
+  const ended = page.getByRole('menu',{name:'Actions for Docs pass'})
+  await expect(ended.getByRole('menuitem')).toHaveText(['Rename…','Open in theatre','Remove from history…'])
+  await ended.getByRole('menuitem',{name:'Remove from history…'}).click()
+  await page.getByRole('dialog',{name:'Remove Docs pass from history?'}).getByRole('button',{name:'Remove from history'}).click()
+  await expect(inFlight(page).getByRole('link',{name:/Docs pass/})).toBeHidden()
+  expect(box.writes.at(-1)).toMatchObject({method:'POST', path:'/api/v2/terminal/sessions/s4/archive'})
+  // An offline machine's session can't open in theatre: the item says so rather than leading nowhere.
+  await inFlight(page).getByRole('link',{name:/Speed up the runner pool/}).click({button:'right'})
+  await expect(page.getByRole('menuitem',{name:'Open in theatre'})).toHaveAttribute('aria-disabled','true')
+  await page.keyboard.press('Escape')
+  // End session asks first, then the row says Ending.
+  await inFlight(page).getByRole('link',{name:/Tidy the release notes/}).click({button:'right'})
+  await page.getByRole('menuitem',{name:'End session…'}).click()
+  const end = page.getByRole('dialog',{name:'End Tidy the release notes?'})
+  await expect(end).toBeVisible()
+  await end.getByRole('button',{name:'End session'}).click()
+  await expect(inFlight(page).getByRole('link',{name:/Tidy the release notes/})).toContainText('Ending')
+  expect(box.writes.at(-1)).toMatchObject({method:'POST', path:'/api/v2/terminal/sessions/s2/end'})
+  // Shift+right-click keeps the browser's own menu.
+  await inFlight(page).getByRole('link',{name:/Split the store layer/}).click({button:'right',modifiers:['Shift']})
+  await expect(page.getByRole('menu',{name:'Actions for Split the store layer'})).toBeHidden()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Ending from Home follows the account's own default for removing a session from history, as Sessions and the terminal do.
+ if (run('ending a session on Home uses the account default for history')) {
+  const profile = {user:owner,sessionCount:1,accounts:true,profile:{theme:'light',timezone:'Europe/London',dateFormat:'',shelfView:'list',cardsExpanded:false,hostedPrefix:'reet-',updatedAt:1,terminalRemoveOnClose:true}}
+  const {context,page,errors,box} = await home({routes:{'/api/v2/profile':profile}})
+  await page.goto(base)
+  await inFlight(page).getByRole('link',{name:/Tidy the release notes/}).click({button:'right'})
+  await page.getByRole('menuitem',{name:'End session…'}).click()
+  const end = page.getByRole('dialog',{name:'End Tidy the release notes?'})
+  await expect(end.getByRole('checkbox',{name:'Remove from history when this session ends'})).toBeChecked()
+  await end.getByRole('button',{name:'End session'}).click()
+  await expect.poll(() => box.writes.find(w => w.path === '/api/v2/terminal/sessions/s2/end')?.body ?? null).toMatchObject({removeHistory:true})
   expect(errors).toEqual([])
   await context.close()
  }

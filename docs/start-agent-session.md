@@ -4,7 +4,7 @@ Home starts sessions from its launch bar ([below](#on-home-the-launch-bar)). The
 dialog stays for Machines and the Sessions panel: pick a machine, an agent, a folder and, if you like,
 a model and an opening prompt. Press **Start**
 and you land in a new browser terminal session with that agent already running, or in the reet TUI when you
-choose **Chat**. The dialog is
+choose it. The dialog is
 `web/src/lib/StartAgentDialog.svelte`. The launch request it sends and how a machine handles it are
 in [Launch requests](terminal-launch.md). The design spec was removed in the docs tidy-up
 (see git history before bd9e56c).

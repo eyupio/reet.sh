@@ -16,7 +16,7 @@ thinking controls are replaced with a note: the reet TUI uses the model configur
 first message. The dialog states that the folder's `.opencode` plugins run when it starts and that history lives in
 memory.
 
-The session appears in the usual list with its title and state. Its screen opens on **Chat**; **Terminal** is disabled
+The session appears in the usual list with its title and state. Its screen opens on **reet TUI**; the agent TUI is disabled
 because there is no shell to attach to. Closing the tab, **End session** or losing the machine connection ends the reet session and
 its process.
 

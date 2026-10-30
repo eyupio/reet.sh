@@ -109,8 +109,8 @@ beside it). Its parts:
   reaches into the panel's widened padding, covers no control and reaches no further over the terminal than its 24 px
   track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
   extra keys are 40 × 40 px.
-- **Phones** get one slim header (back to Sessions, title, project · machine, state, Details, ⋮); the tabs and Chat |
-  Terminal are left out. With the keyboard up for the terminal the site's top bar steps aside (`keyboardChrome` with the
+- **Phones** get one slim header (back to Sessions, title, project · machine, state, Details, ⋮); the tabs and reet TUI |
+  agent TUI are left out. With the keyboard up for the terminal the site's top bar steps aside (`keyboardChrome` with the
   `session` focus, the same usable-height rule as Jump and the launch prompt); the slim header stays, 44 px tall while
   typing, and the pane's own header gives its row to the terminal, so the keyboard-open rows are unchanged (24 at
   390 × 844). While the connection is down the pane's header stays, so **Retry now**, **Reconnect** or **Continue here**

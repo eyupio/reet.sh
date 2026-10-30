@@ -179,6 +179,28 @@ func TestCreateClineEffortAcceptedOnAgentsV2(t *testing.T) {
 	}
 }
 
+// A generic machine refusal marks the session lost but is not a worktree
+// refusal, so it leaves refusal nil. It must not count as a started launch.
+func TestCreateGenericMachineRefusalIsNotAudited(t *testing.T) {
+	caps := launchCaps("cline")
+	caps.AgentsV2 = true
+	caps.Yolo = true
+	f := launchAPIFixture(t, caps)
+	if err := f.st.SetSetting(yoloSettingKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	f.reply = func(terminalproto.Create) terminalproto.Body {
+		return terminalproto.Result{Code: terminalproto.Capacity}
+	}
+	status, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "cline", "yolo": true}))
+	if status != 200 || out["state"] != "lost" {
+		t.Fatalf("create: %d %s", status, raw)
+	}
+	if len(launchEvents(t, f.st, f.uid)) != 0 || len(worktreeEvents(t, f.st, f.uid, "yolo-launch")) != 0 {
+		t.Fatal("a refused launch was audited")
+	}
+}
+
 // TestLaunchOptionRefusedByCurrentMachineSaysOption covers a refusal the
 // machine itself sends: an up-to-date machine is not told to update.
 func TestLaunchOptionRefusedByCurrentMachineSaysOption(t *testing.T) {

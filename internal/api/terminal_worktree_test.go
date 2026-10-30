@@ -608,3 +608,31 @@ func TestTerminalWorktreeLateRemoveIsAudited(t *testing.T) {
 		t.Fatal("late removal audit", events[0].Detail)
 	}
 }
+
+// A YOLO session that starts but reports the wrong worktree is still audited:
+// the refusal reaches the caller, but the launch happened.
+func TestYoloWorktreeMismatchStillAuditsTheLaunch(t *testing.T) {
+	caps := worktreeCaps("cline")
+	caps.AgentsV2 = true
+	caps.Yolo = true
+	f := launchAPIFixture(t, caps)
+	if err := f.st.SetSetting(yoloSettingKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	f.reply = func(terminalproto.Create) terminalproto.Body {
+		return terminalproto.SessionChanged{State: terminalproto.Running, WorktreePath: "/home/tester/elsewhere", WorktreeRepo: "site"}
+	}
+	code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{
+		"tool": "cline", "dir": "/home/tester/site", "prompt": launchTestPrompt, "worktree": worktreeTestRun, "project": worktreeTestProject, "yolo": true,
+	}))
+	if code != 503 || out["code"] != "worktree_mismatch" {
+		t.Fatal(code, raw)
+	}
+	events := worktreeEvents(t, f.st, f.uid, "yolo-launch")
+	if len(events) != 1 {
+		t.Fatalf("yolo-launch rows: %v", events)
+	}
+	if len(launchEvents(t, f.st, f.uid)) != 0 {
+		t.Fatal("a mismatched answer wrote a terminal-launch row")
+	}
+}

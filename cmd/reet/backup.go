@@ -278,6 +278,9 @@ func backupUnescrow(args []string, out io.Writer) error {
 	fmt.Fprintf(out, "REET_BACKUP_S3_PREFIX=%s\n", chosen.Prefix)
 	fmt.Fprintf(out, "REET_BACKUP_S3_ACCESS_KEY_ID=%s\n", chosen.AccessKey)
 	fmt.Fprintf(out, "REET_BACKUP_S3_SECRET_ACCESS_KEY=%s\n", chosen.SecretKey)
+	if chosen.Passphrase != "" {
+		fmt.Fprintf(out, "REET_BACKUP_S3_PASSPHRASE=%s\n", chosen.Passphrase)
+	}
 	if chosen.PathStyle != nil {
 		fmt.Fprintf(out, "REET_BACKUP_S3_PATH_STYLE=%t\n", *chosen.PathStyle)
 	}

@@ -44,8 +44,9 @@ Each owner chooses, with the schedule, how a copy is stored:
   characters. Removing it affects later copies only: existing
   password-protected copies still need that password.
 
-A password-protected copy downloaded from the page is a `.reetbackup` file.
-Open it on any machine with:
+A copy downloaded from the page is a `.zip` holding the sealed payload
+(`<id>.sealed`) and its clear manifest (`<id>.json`). The `.sealed` file opens
+exactly like a `.reetbackup` copy. Open it on any machine with:
 
 ```sh
 reet backup open --password-file ./password copy.reetbackup > copy.db
@@ -74,6 +75,11 @@ The credentials need, on the bucket and the prefix:
 - `s3:DeleteObject`
 - `s3:ListBucket`
 - `s3:AbortMultipartUpload`
+
+A destination may also set `REET_BACKUP_S3_PASSPHRASE`: the already-encrypted
+payload is then sealed once more before it is stored, and the manifest records
+only `passphrase_sealed`, `outer_size` and `outer_sha256` — never the
+passphrase. A wrong or changed passphrase is named when the copy is fetched.
 
 Use `https://` for a destination on another machine. An `http://` endpoint on
 localhost is accepted; an `http://` endpoint elsewhere is refused unless
@@ -155,9 +161,38 @@ A copy is sealed and opened as one payload in memory, so this build caps a
 single copy at 512 MiB. That is far above a normal shelf; an instance that has
 kept years of event history may need its history pruned first.
 
+## What an off-site object is
+
+Each successful copy is exactly **one object**: a small clear manifest header,
+then the sealed payload. The key ends `.gz.enc` when the plaintext was gzipped
+before it was encrypted, and `.enc` when it was not. The manifest records the
+target, time, plaintext and payload sizes and SHA-256 digests, compression, key
+fingerprint and version/instance facts; it never holds a passphrase, access
+key, token, password or private key. Compression always happens before
+encryption, never after.
+
+Listing reads only the bucket keys, so it never GETs every copy. Fetching reads
+the header only where a manifest is needed, verifies the header digest and the
+payload digests, and reconstructs the local sealed payload. A destination with
+its own passphrase seals the already-encrypted payload once more and records
+`passphrase_sealed`, `outer_size` and `outer_sha256`; a wrong or changed
+passphrase is named when the copy is opened.
+
+A copy larger than the store's single-PUT limit is sent as a multipart upload
+with parts sized for the store. The whole object is hashed before completion; a
+completion whose answer was lost is settled by checking that the object is
+there, and a failed upload is aborted so no copy is advertised that may not
+exist.
+
+The earlier one-object layout (`<id>.reetbackup`) and the older two-object
+layout (`<id>.json` plus `<id>.sealed`) are still listed, fetched, restored and
+deleted. When both layouts exist for one name the new one-object key wins.
+Nothing is rewritten during an upgrade: new copies use the new layout and old
+ones age out by retention.
+
 ## Verifying
 
-**Download** hands over the sealed `.reetbackup` file exactly as it is kept and shipped. **Verify** opens a copy as a restore would:
+**Download** hands over a `.zip` with the sealed payload and its manifest, never an uncompressed archive. **Verify** opens a copy as a restore would:
 
 - an instance copy is written to a temporary file and checked with SQLite's
   `PRAGMA quick_check`;
@@ -218,4 +253,4 @@ tools. It is not encrypted, so treat it accordingly.
 | Database | `<data>/reet.db` |
 | Copies on this machine | `<data>/backups/*.reetbackup` |
 | Generated key | `<data>/backup.key` |
-| Off-site object | `<prefix>/instance/<id>.reetbackup` or `<prefix>/user-<id>/<id>.reetbackup` |
+| Off-site object | `<prefix>/instance/<id>.gz.enc` or `<prefix>/user-<id>/<id>.gz.enc` (`.enc` when uncompressed) |

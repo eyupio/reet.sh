@@ -17,23 +17,24 @@ import (
 )
 
 const (
-	EnvDir         = "REET_BACKUP_DIR"
-	EnvKey         = "REET_BACKUP_KEY"
-	EnvEvery       = "REET_BACKUP_EVERY"
-	EnvKeep        = "REET_BACKUP_KEEP"
-	EnvUserEvery   = "REET_BACKUP_USER_EVERY"
-	EnvUserKeep    = "REET_BACKUP_USER_KEEP"
-	EnvDestination = "REET_BACKUP_DESTINATION"
-	EnvCompression = "REET_BACKUP_COMPRESSION"
-	EnvS3Endpoint  = "REET_BACKUP_S3_ENDPOINT"
-	EnvS3Region    = "REET_BACKUP_S3_REGION"
-	EnvS3Bucket    = "REET_BACKUP_S3_BUCKET"
-	EnvS3Prefix    = "REET_BACKUP_S3_PREFIX"
-	EnvS3AccessKey = "REET_BACKUP_S3_ACCESS_KEY_ID"
-	EnvS3SecretKey = "REET_BACKUP_S3_SECRET_ACCESS_KEY"
-	EnvS3PathStyle = "REET_BACKUP_S3_PATH_STYLE"
-	EnvS3Name      = "REET_BACKUP_S3_NAME"
-	EnvAllowLocal  = "REET_BACKUP_ALLOW_LOCAL"
+	EnvDir          = "REET_BACKUP_DIR"
+	EnvKey          = "REET_BACKUP_KEY"
+	EnvEvery        = "REET_BACKUP_EVERY"
+	EnvKeep         = "REET_BACKUP_KEEP"
+	EnvUserEvery    = "REET_BACKUP_USER_EVERY"
+	EnvUserKeep     = "REET_BACKUP_USER_KEEP"
+	EnvDestination  = "REET_BACKUP_DESTINATION"
+	EnvCompression  = "REET_BACKUP_COMPRESSION"
+	EnvS3Endpoint   = "REET_BACKUP_S3_ENDPOINT"
+	EnvS3Region     = "REET_BACKUP_S3_REGION"
+	EnvS3Bucket     = "REET_BACKUP_S3_BUCKET"
+	EnvS3Prefix     = "REET_BACKUP_S3_PREFIX"
+	EnvS3AccessKey  = "REET_BACKUP_S3_ACCESS_KEY_ID"
+	EnvS3SecretKey  = "REET_BACKUP_S3_SECRET_ACCESS_KEY"
+	EnvS3PathStyle  = "REET_BACKUP_S3_PATH_STYLE"
+	EnvS3Name       = "REET_BACKUP_S3_NAME"
+	EnvS3Passphrase = "REET_BACKUP_S3_PASSPHRASE"
+	EnvAllowLocal   = "REET_BACKUP_ALLOW_LOCAL"
 )
 
 const (
@@ -56,7 +57,10 @@ type S3 struct {
 	Prefix    string
 	AccessKey string
 	SecretKey string
-	PathStyle *bool
+	// Passphrase, when set, seals an already-encrypted payload again before
+	// it is stored. It is never written to a copy or a log.
+	Passphrase string
+	PathStyle  *bool
 }
 
 func (s S3) Configured() bool { return strings.TrimSpace(s.Endpoint) != "" }
@@ -201,12 +205,13 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	}
 	c.KeyPath = filepath.Join(filepath.Dir(c.Dir), "backup.key")
 	c.S3 = S3{
-		Endpoint:  str(EnvS3Endpoint, ""),
-		Region:    str(EnvS3Region, ""),
-		Bucket:    str(EnvS3Bucket, ""),
-		Prefix:    str(EnvS3Prefix, DefaultPrefix),
-		AccessKey: str(EnvS3AccessKey, ""),
-		SecretKey: str(EnvS3SecretKey, ""),
+		Endpoint:   str(EnvS3Endpoint, ""),
+		Region:     str(EnvS3Region, ""),
+		Bucket:     str(EnvS3Bucket, ""),
+		Prefix:     str(EnvS3Prefix, DefaultPrefix),
+		AccessKey:  str(EnvS3AccessKey, ""),
+		SecretKey:  str(EnvS3SecretKey, ""),
+		Passphrase: str(EnvS3Passphrase, ""),
 	}
 	if c.S3.Prefix != "" && !strings.HasSuffix(c.S3.Prefix, "/") {
 		c.S3.Prefix += "/"

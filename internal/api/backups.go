@@ -1,6 +1,8 @@
 package api
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -546,12 +548,54 @@ func (s *server) downloadBackup(w http.ResponseWriter, r *http.Request, svc *bac
 		writeErr(w, 404, err.Error())
 		return
 	}
+	if r.URL.Query().Get("format") == "zip" {
+		packed, err := zipBackup(id, payload)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		name := id + ".zip"
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(name, `"`, "")+`"`)
+		w.Header().Set("Content-Length", strconv.Itoa(len(packed)))
+		w.WriteHeader(200)
+		_, _ = w.Write(packed)
+		return
+	}
 	name := id + ".reetbackup"
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(name, `"`, "")+`"`)
 	w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
 	w.WriteHeader(200)
 	_, _ = w.Write(payload)
+}
+
+// zipBackup hands a person the local form of a copy: the sealed payload and
+// the clear manifest, never an uncompressed tar.
+func zipBackup(id string, payload []byte) ([]byte, error) {
+	m, err := backup.ManifestOf(payload)
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, body := range map[string][]byte{id + ".sealed": payload, id + ".json": manifest} {
+		w, err := zw.Create(name)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := w.Write(body); err != nil {
+			return nil, err
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func (s *server) verifyBackup(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {

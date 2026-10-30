@@ -876,7 +876,7 @@ export async function restoreUserBackup(id: string, password?: string): Promise<
   return (await req(`/api/v2/backups/items/${encodeURIComponent(id)}/restore`, { method: 'POST', body: json(body) })).json()
 }
 export function backupDownloadUrl(admin: boolean, id: string): string {
-  return `${bpath(admin)}/items/${encodeURIComponent(id)}/download`
+  return `${bpath(admin)}/items/${encodeURIComponent(id)}/download?format=zip`
 }
 
 // --- profile ---------------------------------------------------------------

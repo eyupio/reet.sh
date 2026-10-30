@@ -190,6 +190,10 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		if argv, err = LaunchArgv(in, m.lookPath); err != nil {
 			return ManagedSession{}, err
 		}
+	} else if in.Dir != "" {
+		if dir, err = ResolveDir(m.home, in.Dir); err != nil {
+			return ManagedSession{}, err
+		}
 	}
 	if !responsive(ctx, m.tmux, m.layout) {
 		return ManagedSession{}, ErrNotRunning

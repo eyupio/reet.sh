@@ -510,6 +510,9 @@ var (
 	// ErrResumeUnsupported means the machine did not negotiate resume-v1; the
 	// resume field was not sent and nothing was reserved.
 	ErrResumeUnsupported = errors.New("machine does not support continuing sessions")
+	// ErrShellDirUnsupported means the machine did not negotiate shell-dir-v1;
+	// a plain shell in a chosen folder was not reserved.
+	ErrShellDirUnsupported = errors.New("machine does not support a shell in that folder")
 	// ErrLaunchFailed means the connector refused to start the agent
 	// (launch_failed): the tool or the folder is unavailable there.
 	ErrLaunchFailed = errors.New("machine could not start that agent")
@@ -618,11 +621,17 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if in.ResumeACP != "" && !caps.Capabilities.ACPHistory {
 			return store.TerminalSession{}, false, ErrACPHistoryUnsupported
 		}
-		if !caps.Capabilities.Launch {
-			return store.TerminalSession{}, false, ErrLaunchUnsupported
-		}
-		if in.Tool != "" && !slices.Contains(caps.Capabilities.Tools, in.Tool) {
-			return store.TerminalSession{}, false, ErrToolNotInstalled
+		if in.Tool == "" && in.Dir != "" {
+			if !caps.Capabilities.ShellDir {
+				return store.TerminalSession{}, false, ErrShellDirUnsupported
+			}
+		} else {
+			if !caps.Capabilities.Launch {
+				return store.TerminalSession{}, false, ErrLaunchUnsupported
+			}
+			if in.Tool != "" && !slices.Contains(caps.Capabilities.Tools, in.Tool) {
+				return store.TerminalSession{}, false, ErrToolNotInstalled
+			}
 		}
 	}
 	s, created, err := b.st.ReserveTerminalCreateFor(uid, agent, request, p.Generation, in)

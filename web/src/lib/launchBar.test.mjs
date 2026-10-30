@@ -376,19 +376,22 @@ test('OpenCode on an acp machine launches a native chat by default', () => {
   const start = initialChoice([openProject], profile, { machines: [acp] })
   assert.equal(start.agent, 'opencode')
   assert.equal(start.chat, true)
-  assert.equal(words(sentence(start, [openProject], [acp])), 'Run OpenCode as a chat on reet at studio')
+  assert.equal(words(sentence(start, [openProject], [acp])), 'Run OpenCode in reet TUI on reet at studio')
   assert.deepEqual(slots(sentence(start, [openProject], [acp])), ['agent', 'chat', 'project', 'machine'])
   const create = toCreate(start, openProject, 'r'.repeat(16), 'a'.repeat(16))
   assert.equal(create.launch.structured, true)
-  assert.equal(create.launch.trust, true)
+  assert.equal(create.launch.trust, undefined)
   assert.equal(create.launch.model, undefined)
   assert.equal(create.launch.worktree, undefined)
   assert.equal(create.launch.effort, undefined)
-  assert.equal(startable(start, [openProject], [acp], profile), null)
-  assert.match(startable({ ...start, projectIds: ['p-reet', 'p-site'] }, projects, [acp, machines[1]], profile), /one folder at a time/)
+  assert.match(startable(start, [openProject], [acp], profile), /trust this folder/)
+  const trusted = { ...start, trust: true }
+  assert.equal(toCreate(trusted, openProject, 'r'.repeat(16), 'a'.repeat(16)).launch.trust, true)
+  assert.equal(startable(trusted, [openProject], [acp], profile), null)
+  assert.match(startable({ ...trusted, projectIds: ['p-reet', 'p-site'] }, projects, [acp, machines[1]], profile), /one folder at a time/)
 
   const terminal = { ...start, chat: false }
-  assert.match(words(sentence(terminal, [openProject], [acp])), /as a terminal with/)
+  assert.match(words(sentence(terminal, [openProject], [acp])), /in OpenCode TUI with/)
   assert.equal(toCreate(terminal, openProject, 'r'.repeat(16), 'a'.repeat(16)).launch.structured, undefined)
 })
 
@@ -396,7 +399,7 @@ test('without acp OpenCode stays a terminal and history is absent', () => {
   const openProject = { ...reet, defaultTool: 'opencode' }
   const start = initialChoice([openProject], profile, { machines: [] })
   assert.equal(start.chat, undefined)
-  assert.equal(words(sentence(start, [openProject], [])).includes('as a chat'), false)
+  assert.equal(words(sentence(start, [openProject], [])).includes('reet TUI'), false)
   const moved = withAgent(choice(), 'opencode', openProject, profile, { machines: [] })
   assert.equal('chat' in moved, false)
   const acp = machine('m-studio', 'studio', { tools: ['opencode'], acp: true, acpHistory: true })

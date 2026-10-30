@@ -6,28 +6,30 @@
   import { fleetCards, stateWord, type FleetCard } from '../home'
   import type { RunMember } from '../projects'
   import { headerMeta, offlineSentence, tabFromMenu, worktreeTargetOf } from '../sessions'
+  import { toolName } from '../agentLaunch'
   import { terminalClosed, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
 
   // The session screen: the strip of open sessions, the session's header (title, agent · model · started, the state in words
-  // with its source, YOLO, Chat | Terminal and the actions menu), the live terminal the workspace hosts here (children),
+  // with its source, YOLO, reet TUI | the agent TUI and the actions menu), the live terminal the workspace hosts here (children),
   // Approvals under it, and the context panel beside it (behind Details under 1100 px and in theatre view). A terminal
   // session shows no steps and no progress bar (R10): only its state word and where that word came from.
   let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false,
-    onaction, ontheatre, onrefresh, onsignedout, oncontinue, children }: {
+    onaction, ontheatre, onrefresh, onsignedout, oncontinue, onterminal, onside, side, showSide = false, children }: {
     session: TerminalSession; sessions: TerminalSession[]
     machines: TerminalMachine[]; health: MachineHealth[]; projects: FolderProject[] | undefined; now: number
     theatre?: boolean; keyboard?: boolean; busy?: boolean
     onaction: (kind: 'rename' | 'end' | 'archive') => void; ontheatre: () => void; onrefresh: () => void
     onsignedout?: (e: unknown) => void
     /** Present only when this closed session can be continued here. */
-    oncontinue?: () => void; children: Snippet
+    oncontinue?: () => void; onterminal?: () => void; onside?: () => void; side?: Snippet; showSide?: boolean; children: Snippet
   } = $props()
 
   const id = $props.id()
   const chatView = $derived(!!session.structured)
-  const CHAT_WHY = 'Chat is for a structured OpenCode session.'
-  const TERMINAL_WHY = 'A chat session has no terminal.'
+  const CHAT_WHY = 'The reet TUI is for a structured OpenCode session.'
+  const terminalLabel = $derived(session.tool ? `${toolName(session.tool)} TUI` : 'Terminal')
+  const TERMINAL_WHY = $derived(`${terminalLabel} is not available in this reet session.`)
 
   // The skills line comes from the sync state, read once when the screen opens (undefined while reading, null if it failed).
   let sync = $state<SyncState | null | undefined>(undefined)
@@ -119,6 +121,8 @@
   function act(kind: 'rename' | 'end' | 'archive') { closeMenu(false); onaction(kind) }
   function theatreView() { closeMenu(false); ontheatre() }
   function continueSession() { if (!oncontinue) return; closeMenu(false); oncontinue() }
+  function openTerminal() { if (!onterminal) return; closeMenu(false); onterminal() }
+  function openSideTerminal() { if (!onside) return; closeMenu(false); onside() }
 
   let notice = $state<{ text: string; bad?: boolean } | null>(null)
   async function copyBranch() {
@@ -157,8 +161,8 @@
       <span class="pill {word.tone}" title={source}><span class="dot" aria-hidden="true"></span>{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
       {#if session.yolo}<span class="badge yolo">YOLO</span>{/if}
       <div class="view" role="group" aria-label="View">
-        <button type="button" class="chat" aria-pressed={chatView} aria-disabled={!chatView} aria-describedby={chatView ? undefined : `${id}-chat-why`} title={chatView ? undefined : CHAT_WHY}>Chat</button>
-        <button type="button" aria-pressed={!chatView} aria-disabled={chatView} aria-describedby={chatView ? `${id}-terminal-why` : undefined} title={chatView ? TERMINAL_WHY : undefined}>Terminal</button>
+        <button type="button" class="chat" aria-pressed={chatView} aria-disabled={!chatView} aria-describedby={chatView ? undefined : `${id}-chat-why`} title={chatView ? undefined : CHAT_WHY}>reet TUI</button>
+        <button type="button" aria-pressed={!chatView} aria-disabled={chatView} aria-describedby={chatView ? `${id}-terminal-why` : undefined} title={chatView ? TERMINAL_WHY : undefined}>{terminalLabel}</button>
       </div>
       <span class="vh" id={`${id}-chat-why`}>{CHAT_WHY}</span>
       {#if chatView}<span class="vh" id={`${id}-terminal-why`}>{TERMINAL_WHY}</span>{/if}
@@ -170,9 +174,13 @@
     </header>
     <!-- Always rendered (empty takes no room), so the first message in it is announced. -->
     <div class="live" role="status">{#if notice}<p class:bad={notice.bad}>{notice.text}</p>{/if}</div>
-    {#key session.id}
-      <ContextPanel {session} {host} {status} {project} {skills} id={`${id}-context`} onkeydown={panelKey} onclose={hideDetails} />
-    {/key}
+    {#if showSide && side}
+      <div class="side-terminal" data-keeps-focus>{@render side()}</div>
+    {:else}
+      {#key session.id}
+        <ContextPanel {session} {host} {status} {project} {skills} id={`${id}-context`} onkeydown={panelKey} onclose={hideDetails} />
+      {/key}
+    {/if}
     <div class="stage" bind:this={stage}>{@render children()}</div>
   </div>
 </div>
@@ -180,7 +188,9 @@
 {#if menuAt}
   <!-- data-keeps-focus: a reconnecting terminal never takes focus out of the open menu. -->
   <div class="menu" role="menu" aria-label={`Actions for ${session.title}`} tabindex="-1" data-keeps-focus bind:this={menu} style={`left:${menuAt.x}px;top:${menuAt.y}px`} onkeydown={menuKey}>
-    {#if oncontinue}<button role="menuitem" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue chat with history…' : 'Continue session…'}</button>{/if}
+    {#if oncontinue}<button role="menuitem" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue in reet TUI with history…' : 'Continue session…'}</button>{/if}
+    {#if onterminal}<button role="menuitem" disabled={busy} onclick={openTerminal}>Open a terminal here…</button>{/if}
+    {#if onside}<button role="menuitem" disabled={busy} onclick={openSideTerminal}>Open a terminal beside this session…</button>{/if}
     <button role="menuitem" disabled={busy || serverOff} onclick={() => act('rename')}>Rename…</button>
     <button role="menuitem" onclick={theatreView}>{theatre ? 'Exit theatre view' : 'Theatre view'}</button>
     {#if session.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}
@@ -200,6 +210,9 @@
   .live { grid-column: 1; grid-row: 2; }
   .stage { grid-column: 1; grid-row: 3; }
   .body > :global(.context-panel) { grid-column: 2; grid-row: 1 / -1; }
+  .side-terminal { grid-column: 2; grid-row: 1 / -1; width: 340px; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line-soft); background: var(--bg-sunk); }
+  .side-terminal :global(.pane) { flex: 1; min-height: 0; }
+  .side-terminal :global(.pane > header), .side-terminal :global(.pane > footer) { display: none; }
   /* The mock-up's header: 62 px, 28 px in from the sides, the title in Fraunces 21 px over a 13 px line. */
   .head { flex: none; display: flex; align-items: center; gap: 14px; min-height: 62px; padding: 0 28px; box-sizing: border-box; }
   .heading { flex-grow: 1; min-width: 0; }
@@ -255,7 +268,7 @@
   .theatre.details-open .body > :global(.context-panel) { display: flex; grid-column: 1; grid-row: 3; justify-self: end; position: relative; z-index: 20; width: min(340px, 100%); box-shadow: var(--shadow); }
   .theatre.details-open .body > :global(.context-panel .close-details) { display: inline-flex; align-items: center; }
   /* Phones: one slim header (title, project · machine, the state), as the mock-up's phone session draws it; the tabs,
-     the Chat | Terminal switch and the Approvals line give their rows to the terminal. H3 lays out the rest. */
+     the reet TUI | agent TUI switch and the Approvals line give their rows to the terminal. H3 lays out the rest. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .view, .sub { display: none; }
     .where-phone { display: block; font-size: 12px; }

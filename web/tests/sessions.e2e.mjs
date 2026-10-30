@@ -604,13 +604,13 @@ try {
   const {context,page,errors} = await open()
   await page.goto(`${base}/sessions?agent=a1&session=s2`)
   const view = screen(page).getByRole('group',{name:'View'})
-  const chat = view.getByRole('button',{name:'Chat'})
+  const chat = view.getByRole('button',{name:'reet TUI'})
   await expect(chat).toHaveAttribute('aria-disabled','true')
-  await expect(chat).toHaveAccessibleDescription('Chat is for a structured OpenCode session.')
-  await expect(view.getByRole('button',{name:'Terminal'})).toHaveAttribute('aria-pressed','true')
+  await expect(chat).toHaveAccessibleDescription('The reet TUI is for a structured OpenCode session.')
+  await expect(view.getByRole('button',{name:'Claude Code TUI'})).toHaveAttribute('aria-pressed','true')
   // Choosing it changes nothing (it is aria-disabled, so it stays in the tab order with its reason).
   await chat.click({force:true})
-  await expect(view.getByRole('button',{name:'Terminal'})).toHaveAttribute('aria-pressed','true')
+  await expect(view.getByRole('button',{name:'Claude Code TUI'})).toHaveAttribute('aria-pressed','true')
   await expect(page.locator('.pane')).toBeVisible()
   // The header: agent · model · started, the state in words with its source, and no step count or progress bar (R10).
   await expect(screen(page).locator('.sub')).toHaveText('Claude Code · sonnet · started 2 hours ago')
@@ -624,8 +624,8 @@ try {
   // The actions menu: Rename, Theatre view, Copy branch, End session, Check and remove worktree (waits for the end).
   await screen(page).getByRole('button',{name:'Session actions'}).click()
   const menu = page.getByRole('menu',{name:'Actions for Add browse-v1 protocol'})
-  await expect(menu.getByRole('menuitem')).toHaveText(['Rename…','Theatre view','Copy branch','End session…','Check and remove worktree…'])
-  await expect(menu.getByRole('menuitem',{name:'Rename…'})).toBeFocused()
+  await expect(menu.getByRole('menuitem')).toHaveText(['Open a terminal here…','Open a terminal beside this session…','Rename…','Theatre view','Copy branch','End session…','Check and remove worktree…'])
+  await expect(menu.getByRole('menuitem',{name:'Open a terminal here…'})).toBeFocused()
   await expect(menu.getByRole('menuitem',{name:'Check and remove worktree…'})).toBeDisabled()
   await page.keyboard.press('Escape')
   await expect(menu).toBeHidden()
@@ -1043,5 +1043,5 @@ try {
    await context.close()
   }
  }
- console.log('Sessions: groups shared with Home, search by branch and machine, filters together, the actions menu by right-click, Shift+F10 and its button, the offline sentence, 44 px rows on touch, a failed refresh keeping the list, the empty states, session colours, saved commands without a session, menu focus, Checking… on later reads, the Needs you sentence, a viewer at /sessions, and the session screen: tabs held in memory (eight at most, closing one never ends its session), the context panel, changed files read once and on refresh, Chat disabled with its reason and the YOLO decisions line.')
+ console.log('Sessions: groups shared with Home, search by branch and machine, filters together, the actions menu by right-click, Shift+F10 and its button, the offline sentence, 44 px rows on touch, a failed refresh keeping the list, the empty states, session colours, saved commands without a session, menu focus, Checking… on later reads, the Needs you sentence, a viewer at /sessions, and the session screen: tabs held in memory (eight at most, closing one never ends its session), the context panel, changed files read once and on refresh, the reet TUI disabled with its reason and the YOLO decisions line.')
 } finally { await browser.close() }

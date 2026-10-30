@@ -213,6 +213,10 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 					return terminalproto.ErrInvalid
 				}
 			}
+			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Tool == "" && create.Dir != "" && !terminalproto.SupportsShellDir(headers.Get(terminalproto.FeatureHeader)) {
+				reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
+				return send(callCtx, reply)
+			}
 			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Structured && !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
 				reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "Update reet on this machine to use OpenCode chats."}
 				return send(callCtx, reply)
@@ -402,22 +406,44 @@ func Factory(opts terminalhost.ManagerOptions) agenthealth.TerminalFactory {
 			switch op := msg.Body.(type) {
 			case *terminalproto.Create:
 				if op.Structured {
-					changed, err := chats.open(msg.RequestID, msg.SessionID, *op)
-					if err != nil {
-						reply.Body = chatResult(err)
-						return send(callCtx, reply)
-					}
-					reply.Body = changed
-					return respond(nil)
+					// Starting ACP probes a version and opens a session; keep the
+					// control reader answering health probes while it runs. A
+					// slow start must never look like a lost machine.
+					wg.Add(1)
+					go func(in terminalproto.Create) {
+						defer wg.Done()
+						changed, err := chats.open(msg.RequestID, msg.SessionID, in)
+						if callCtx.Err() != nil {
+							return
+						}
+						if err != nil {
+							reply.Body = chatResult(err)
+						} else {
+							reply.Body = changed
+						}
+						_ = send(callCtx, reply)
+					}(*op)
+					return nil
 				}
 			case *terminalproto.End:
 				if _, ok := chats.snapshot(msg.SessionID); ok {
-					changed, err := chats.end(msg.SessionID)
-					if err != nil {
-						return respond(err)
-					}
-					reply.Body = changed
-					return respond(nil)
+					// Closing a chat waits for its process group; answer from
+					// its own goroutine so the connection stays responsive.
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						changed, err := chats.end(msg.SessionID)
+						if callCtx.Err() != nil {
+							return
+						}
+						if err != nil {
+							reply.Body = result(err)
+						} else {
+							reply.Body = changed
+						}
+						_ = send(callCtx, reply)
+					}()
+					return nil
 				}
 			case *terminalproto.ACPPrompt:
 				if err := chats.prompt(msg.SessionID, op.Text); err != nil {

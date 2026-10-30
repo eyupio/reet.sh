@@ -23,7 +23,7 @@ the bell are for a writer in accounts mode only.
 | In flight | Live sessions, and finished ones for a day, grouped by project, Machine or State. A session joins the folder project it was started in (its own project id); the subtitle is `project · machine · branch`. Each row shows the state word and where it came from ("from the session's state" or "from the exit code"). There is no step or progress bar. | Attention states: PR G |
 | Needs you | "Nothing needs you." with a count of 0. Nothing signals today that a session needs the person. | Cards: PR G. Decision cards: a later programme |
 | Project rail | Your folder projects ([Projects](projects.md)): each card's colour, machine, base branch, state in words and worktrees in use; choosing one sets the launch bar's project, while its **+** (and New session here in its menu) starts a session there at once; a menu, from the card's button or a right-click, with New session here, Edit, project colour, Worktrees, Move up and down, and Remove from reet. **Select projects** in the heading's menu (or a long press on touch) turns the cards into checkboxes for a start in 2 to 12 projects. **Add** opens the folder browser. Under 1240 px it is a 56 px strip that shows how many are chosen. On a tablet or phone it is on the **Sessions** screen instead (see [The Sessions page](#the-sessions-page)); Home there keeps the launch sentence's project slot and its Add a project. | |
-| Launch bar | Docked at the foot: **Describe the job**, **Start** and the launch sentence ("Run Claude Code with default on Store rewrite at studio from main in a fresh worktree"), whose words are the choices. OpenCode on an acp machine reads "Run OpenCode as a chat…" by default; the **Session** word switches it to a terminal. Home has no Start an agent button; the dialog stays for Machines and the Sessions panel. Details: [Start an agent session](start-agent-session.md#on-home-the-launch-bar). | YOLO: a later release |
+| Launch bar | Docked at the foot: **Describe the job**, **Start** and the launch sentence ("Run Claude Code with default on Store rewrite at studio from main in a fresh worktree"), whose words are the choices. OpenCode on an acp machine reads "Run OpenCode in reet TUI…" by default; the **TUI** word switches it to **OpenCode TUI**. Home has no Start an agent button; the dialog stays for Machines and the Sessions panel. Details: [Start an agent session](start-agent-session.md#on-home-the-launch-bar). | YOLO: a later release |
 | Bell | The Needs you count, which is 0 today and shows no badge. | PR G |
 
 Viewers, single-token and open sign-ins get the fleet strip only. Those sign-ins cannot read sessions, so the cards
@@ -76,19 +76,25 @@ beside it). Its parts:
   are held in memory: nothing is stored, and the address carries only the session's ids.
 - **Header**: the title, `agent · model · started …`, the state pill (Home's state words, with where the word came from in
   its tooltip and read out; while this browser's connection to a live session is down it says that instead, such as
-  "Reconnecting" or "Disconnected", from the connection), a **YOLO** badge when on, **Chat | Terminal** — Terminal chosen for a shell, Chat chosen for a
-  structured OpenCode chat (and Terminal disabled there), and Chat disabled with its reason for a
-  shell — and the actions menu (⋮, or Shift+F10 on it): Rename, Theatre view, Copy branch,
+  "Reconnecting" or "Disconnected", from the connection), a **YOLO** badge when on, **reet TUI | the agent TUI** — the agent TUI chosen for a shell or terminal
+  session, reet TUI chosen for a structured OpenCode session (and the agent TUI disabled there), and
+  reet TUI disabled with its reason for a shell — and the actions menu (⋮, or Shift+F10 on it): Rename, Theatre view, Copy branch,
   End session or Remove from history, Check and remove worktree. Tab from the open menu goes on to the control after ⋮
   (Shift+Tab back to ⋮), and a reconnecting terminal never takes focus out of it. A terminal session shows no steps and no
   progress bar (R10). A tab's close button says the session keeps running, or for a finished one that it stays in its
   history.
 - **The terminal pane**, unchanged. Its footer starts with **Approvals: Ask me** (or **Approvals: YOLO**). When the
   device asks for reduced motion the terminal's cursor does not blink.
-- **The chat pane** for a structured OpenCode session ([structured sessions](structured-sessions.md)): the streamed
+- **A session's actions menu** has **Open a terminal here…** for any agent session. It starts a plain shell in the same
+  folder as a separate session; a machine that negotiated `shell-dir-v1` runs it there, otherwise the controller says to
+  update reet. This is the direct non-agent terminal entry point. **Open a terminal beside this session…** creates the
+  same plain shell but shows it in the right-hand panel while the reet TUI or agent TUI stays in the main column; Close
+  ends that shell. The side panel replaces the context panel while it is open.
+- **The reet TUI pane** for a structured OpenCode session ([structured sessions](structured-sessions.md)): the streamed
   conversation, tool calls, approval cards with **Allow once** and **Deny**, a composer (Enter sends, Shift+Enter adds a
-  line), **Attach image** (uploaded as a machine path), **Stop**, and the watchdog's "still working" notice. A closed chat's
-  menu offers **Continue chat with history…**, which opens a new chat and loads OpenCode's stored conversation. It asks before an edit or command; there is no shell in this
+  line), **Attach image** (uploaded as a machine path), **Stop**, and the watchdog's "still working" notice. A closed reet
+  session's menu offers **Continue in reet TUI with history…**, which opens a new reet TUI and loads OpenCode's stored
+  conversation. It asks before an edit or command; there is no shell in this
   session. It has no terminal or session tabs on a phone; the usual slim header and End actions stay.
 - **Context panel** (340 px): *Where it's working* (machine and whether it is reporting, project, branch, worktree: "own
   copy" or "the checkout"); *Changed files* for a session in its own worktree (the first 20 paths from the worktree status
@@ -105,8 +111,8 @@ beside it). Its parts:
   reaches into the panel's widened padding, covers no control and reaches no further over the terminal than its 24 px
   track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
   extra keys are 40 × 40 px.
-- **Phones** get one slim header (back to Sessions, title, project · machine, state, Details, ⋮); the tabs and Chat |
-  Terminal are left out. With the keyboard up for the terminal the site's top bar steps aside (`keyboardChrome` with the
+- **Phones** get one slim header (back to Sessions, title, project · machine, state, Details, ⋮); the tabs and reet TUI |
+  agent TUI are left out. With the keyboard up for the terminal the site's top bar steps aside (`keyboardChrome` with the
   `session` focus, the same usable-height rule as Jump and the launch prompt); the slim header stays, 44 px tall while
   typing, and the pane's own header gives its row to the terminal, so the keyboard-open rows are unchanged (24 at
   390 × 844). While the connection is down the pane's header stays, so **Retry now**, **Reconnect** or **Continue here**

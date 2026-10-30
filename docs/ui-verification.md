@@ -1472,45 +1472,47 @@ image case (one upload to the machine, the reference in the create body, the chi
 `terminalproto`, `terminalhost`, `terminalbroker`, `terminalagent` and `api` passed their tests,
 including new launch-upload round-trip, storage, broker and API cases.
 
-## Structured OpenCode chats — 29 October 2026
+## OpenCode in the reet TUI — 29 October 2026
 
-The session screen's Chat tab and the Start dialog's Chat choice were checked against the existing screen and sheet
-tokens; the drawings have no chat screen, so there is no mock-up comparison. The chat keeps the session header, the
+The session screen's reet TUI and the Start dialog's Session choice were checked against the existing screen and sheet
+tokens; the drawings have no reet TUI screen, so there is no mock-up comparison. The reet TUI keeps the session header, the
 sessions panel and the phone's slim header. Its additions are a status line, message bubbles, tool rows, approval cards
 and a composer.
 
-- `chat.e2e.mjs` passed at 1360 × 900 and at 390 × 844 with a fake `EventSource`: the Start dialog offered Chat for
+- `chat.e2e.mjs` passed at 1360 × 900 and at 390 × 844 with a fake `EventSource`: the Start dialog offered the reet TUI for
   OpenCode and hid the model picker; the create body carried `structured: true` and `trust: true` but no model or effort;
-  the session opened on Chat with Terminal disabled; streamed agent chunks joined; a command approval was answered with
+  the session opened on reet TUI with the agent TUI disabled; streamed agent chunks joined; a command approval was answered with
   **Allow once**; a message sent; **Stop** cancelled; the phone showed no sideways scroll; and a truncated reset said
   earlier messages were gone. The fixture also sees no browser storage write.
-- `start-agent.e2e.mjs` passed unchanged (the Chat choice is hidden for an agent without `acp`, so every existing case
+- `start-agent.e2e.mjs` passed unchanged (the Session choice is hidden for an agent without `acp`, so every existing case
   still holds).
-- `npm --prefix web run check` passed (unit tests including the chat reducer, `svelte-check` 0 errors/0 warnings);
+- `npm --prefix web run check` passed (unit tests including the reet TUI reducer, `svelte-check` 0 errors/0 warnings);
   `npm --prefix web run build` passed.
 - `go test ./...` passed. `internal/opencodeacp` covers the fake ACP child (permission allow/deny, cancel, timeout, mode
   refusal, version refusal, plugin trust, watchdog, fs mirror, environment scrub). `TestRealOpenCodeStart` opened a
   session with the exact `opencode-ai@1.19.5` binary in a throwaway HOME (opt-in; skipped in CI).
-- Not checked: a physical phone, Safari or Firefox, a live model turn or provider, images, modes or MCP servers. The chat
-  history is in memory; a server restart or a machine connection loss ends it.
+- Not checked: a physical phone, Safari or Firefox, a live model turn or provider, images, modes or MCP servers. The live reet TUI history is in memory; a server restart or a machine connection loss ends it.
 
-## Chat history, continue and images — 29 October 2026
+## reet TUI history, continue and images — 29 October 2026
 
-The chat pane keeps the slice 1 layout. The additions are the image chips and Attach image control in its composer, and
-the session menu's **Continue chat with history…** item for a closed chat. There is no drawing for either.
+The reet TUI pane keeps the slice 1 layout. The additions are the image chips and Attach image control in its composer, and
+the session menu's **Continue in reet TUI with history…** item for a closed session. There is no drawing for either.
 
-- `launch.e2e.mjs` passed the Home case: an OpenCode project on an `acp` machine said "Run OpenCode as a chat", hid the
-  model/worktree slots, switched to "as a terminal" and back through the Session slot, and sent `structured: true`,
+- `launch.e2e.mjs` passed the Home case: an OpenCode project on an `acp` machine said "Run OpenCode in reet TUI", hid the
+  model/worktree slots, switched to "in OpenCode TUI" and back through the TUI slot, and sent `structured: true`,
   `trust: true`, the folder and prompt with no model, worktree or effort.
-- `chat.e2e.mjs` passed at 1360 × 900 and 390 × 844: **Chat with OpenCode** was on by default; an attached PNG was uploaded to the machine and the prompt carried
-  `Image: /…/launch-uploads/shot.png`; a closed structured session exposed Continue chat with history…, and the create body
+- `sessions.e2e.mjs` covers **Open a terminal here…** and **Open a terminal beside this session…** in the session actions
+  menu; the plain shell path is gated by `shell-dir-v1`. The side panel is the existing terminal pane in the right column
+  with its header and footer hidden, so the primary stays visible.
+- `chat.e2e.mjs` passed at 1360 × 900 and 390 × 844: **reet TUI** was the Session default; an attached PNG was uploaded to the machine and the prompt carried
+  `Image: /…/launch-uploads/shot.png`; a closed structured session exposed Continue in reet TUI with history…, and the create body
   carried `structured: true`, `trust: true`, `resumeAcp` and the old folder with no prompt model.
 - `internal/opencodeacp` fake-child tests cover `session/load` replay, mode refusal and `in_progress` tools becoming
   interrupted. `TestRealOpenCodeStart` opened a session and reopened the same id with `session/load` against the exact
   1.19.5 binary in a throwaway HOME (opt-in; skipped in CI). The real load returned `configOptions` with mode `build`.
 - `internal/store` covers recording the ACP id, idempotence, a different id conflicting, and resume only from a closed row.
   `internal/terminalbroker` covers a crafted id being refused, and a valid resume creating a second row. `internal/api`
-  covers the chat routes and existing session tests.
+  covers the reet TUI routes and existing session tests.
 - `npm --prefix web run check`, `npm --prefix web run build`, `go test ./...` and the affected race tests passed.
 - Not checked: a live model turn, a physical phone, Safari, an image actually read by a model, or OpenCode's history after
   its store is deleted. Pending approvals are not restored; replayed tools are shown interrupted.

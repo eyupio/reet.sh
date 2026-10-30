@@ -309,14 +309,16 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusUnprocessableEntity, "tool_not_installed", "tool", "That agent isn't installed on that machine.", "")
 	case errors.Is(err, terminalbroker.ErrLaunchFailed):
 		writeErrCode(w, http.StatusUnprocessableEntity, "folder_unavailable", "dir", "That folder isn't available on that machine.", "")
+	case errors.Is(err, terminalbroker.ErrShellDirUnsupported):
+		writeErrCode(w, http.StatusConflict, "shell_dir_unsupported", "", "Update reet on that machine to open a terminal in that folder.", "")
 	case errors.Is(err, terminalbroker.ErrACPHistoryUnsupported):
-		writeErrCode(w, http.StatusConflict, "acp_history_unsupported", "", "Update reet on that machine to reopen chats with their history.", "")
+		writeErrCode(w, http.StatusConflict, "acp_history_unsupported", "", "Update reet on that machine to reopen reet sessions with their history.", "")
 	case errors.Is(err, terminalbroker.ErrACPResumeNotFound):
-		writeErrCode(w, http.StatusNotFound, "acp_resume_not_found", "", "That chat's history is no longer available on that machine.", "")
+		writeErrCode(w, http.StatusNotFound, "acp_resume_not_found", "", "That reet session's history is no longer available on that machine.", "")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported):
 		writeErrCode(w, http.StatusConflict, "acp_unavailable", "", "Update reet on that machine to use OpenCode chats.", "")
 	case errors.Is(err, terminalbroker.ErrACPVersion):
-		writeErrCode(w, http.StatusConflict, "acp_version", "", "Chat needs OpenCode 1.19.5 on that machine.", "")
+		writeErrCode(w, http.StatusConflict, "acp_version", "", "The reet TUI needs OpenCode 1.19.5 on that machine.", "")
 	default:
 		terminalError(w, err)
 	}

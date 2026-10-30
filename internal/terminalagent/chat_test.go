@@ -219,3 +219,40 @@ func TestChatHostOmitsHistoryFieldsForAnOldController(t *testing.T) {
 		}
 	}
 }
+
+func TestChatHostReportsCreatingInSnapshots(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	out := &sent{}
+	h := newChatHost(ctx, terminalhost.ManagerOptions{Home: t.TempDir()}, 1, out.send, true)
+	h.lookPath = func(string) (string, error) { return "/bin/true", nil }
+	gate := make(chan struct{})
+	proc := &fakeChat{done: make(chan struct{}, 1)}
+	h.start = func(_ context.Context, _ opencodeacp.Options) (chatProcess, error) {
+		<-gate
+		return proc, nil
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.opts.Home})
+		done <- err
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		if snap, ok := h.snapshot("session-0123456789"); ok {
+			if snap.State != terminalproto.Creating {
+				t.Fatalf("state %q", snap.State)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("creating session was not in the snapshot")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(gate)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	h.close()
+}

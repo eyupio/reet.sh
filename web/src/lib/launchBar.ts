@@ -27,6 +27,8 @@ export type LaunchChoice = {
   approvals: 'ask' | 'yolo'
   /** OpenCode on an acp machine starts as a native chat by default; false or absent is the terminal UI. */
   chat?: boolean
+  /** The person confirmed this folder's OpenCode plugins may run. Reset on a folder change. */
+  trust?: boolean
 }
 /** The person's launch defaults from the profile (`defaultBaseBranch`, `worktreesByDefault`, which is true when absent). */
 export type LaunchDefaults = Partial<Pick<Profile, 'defaultBaseBranch' | 'worktreesByDefault' | 'defaultTool' | 'defaultModel' | 'defaultEffort'>>
@@ -139,7 +141,7 @@ export function withProject(choice: LaunchChoice, project: LaunchProject, profil
   const sameAgent = next.agent === choice.agent
   const keepModel = !!options.explicitModel && sameAgent
   const keepEffort = !!options.explicitEffort && sameAgent
-  const { homeMachine: _home, chat: _chat, ...rest } = choice
+  const { homeMachine: _home, chat: _chat, trust: _trust, ...rest } = choice
   const chat = supportsChat(next.agent, project.host, options.machines) && choice.chat !== false
   const out: LaunchChoice = {
     ...rest, agent: next.agent, model: keepModel ? choice.model : next.model, projectIds: [project.id],
@@ -186,6 +188,7 @@ export function withHome(choice: LaunchChoice, agentId: string, profile: LaunchD
   const keepEffort = !!options.explicitEffort
   const chat = supportsChat(next.agent, agentId, options.machines) && choice.chat !== false
   const out: LaunchChoice = { ...choice, projectIds: [], homeMachine: agentId, branch: '', model: keepModel ? choice.model : next.model, effort: (keepEffort ? choice.effort : next.effort) as Effort }
+  delete out.trust
   if (chat) out.chat = true
   else if (next.agent === 'opencode' && choice.chat === false) out.chat = false
   else delete out.chat
@@ -196,7 +199,7 @@ export function withHome(choice: LaunchChoice, agentId: string, profile: LaunchD
 export function summary(parts: SentencePart[]): string {
   const text = (slot: SentencePart['slot']) => parts.find(p => p.slot === slot)?.text ?? ''
   const out = [`${text('agent')} on ${text('project')} at ${text('machine')}`]
-  const chat = parts.some(p => p.slot === 'chat' && p.text === 'a chat')
+  const chat = parts.some(p => p.slot === 'chat' && p.text === 'reet TUI')
   const worktree = text('worktree')
   if (!chat && worktree === 'a fresh worktree') out.push(text('branch'), 'fresh worktree')
   else if (!chat && worktree) out.push(worktree)
@@ -237,7 +240,7 @@ export function sentence(choice: LaunchChoice, projects: LaunchProject[], machin
   const supports = choice.chat === true || supportsChat(choice.agent, chatHost, machines)
   const chat = supports && choice.chat === true
   const opening: SentencePart[] = []
-  if (supports) opening.push(word('as'), { slot: 'chat', text: chat ? 'a chat' : 'a terminal' })
+  if (supports) opening.push(word('in'), { slot: 'chat', text: chat ? 'reet TUI' : `${toolName(choice.agent)} TUI` })
   if (!chat) opening.push(word('with'), { slot: 'model', text: cleanModel(choice.model) || 'default' })
   const parts: SentencePart[] = [
     word('Run'), { slot: 'agent', text: toolName(choice.agent || undefined) },
@@ -268,11 +271,12 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
   const prompt = validatePrompt(choice.agent, choice.prompt)
   if (prompt) return prompt
   if (choice.chat === true) {
-    if (picked.length > 1) return 'A chat starts in one folder at a time. Choose one project, or change it to a terminal.'
-    if (choice.effort || choice.approvals === 'yolo') return 'A chat uses its own model and approvals; change it to a terminal for those choices.'
+    if (picked.length > 1) return 'The reet TUI starts in one folder at a time. Choose one project, or switch to the agent TUI.'
+    if (choice.trust !== true) return 'Confirm you trust this folder before starting the reet TUI.'
+    if (choice.effort || choice.approvals === 'yolo') return 'The reet TUI uses its own model and approvals; switch to the agent TUI for those choices.'
     const target = machines.find(x => x.agentId === (picked[0]?.host ?? choice.homeMachine ?? ''))
     if (readiness(target)) return readiness(target)!
-    if (!target?.capabilities?.acp) return 'Update reet on that machine to start OpenCode chats.'
+    if (!target?.capabilities?.acp) return 'Update reet on that machine to start the reet TUI.'
     return null
   }
   const model = validateModel(choice.model)
@@ -319,7 +323,7 @@ export function defaultTitle(prompt: string, fallback = ''): string {
 export function toCreate(choice: LaunchChoice, project: LaunchProject | null, requestId: string, runToken: string, profile: LaunchDefaults = {}): LaunchCreate {
   const chat = choice.chat === true && choice.agent === 'opencode'
   const launch: LaunchRequest = { tool: choice.agent }
-  if (chat) { launch.structured = true; launch.trust = true }
+  if (chat) { launch.structured = true; if (choice.trust === true) launch.trust = true }
   const model = cleanModel(choice.model)
   if (!chat && model) launch.model = model
   if (project) launch.dir = project.dir

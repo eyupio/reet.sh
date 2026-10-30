@@ -27,7 +27,7 @@ func (s *server) terminalChatSession(r *http.Request) (store.TerminalSession, bo
 	}
 	session, err := s.st.TerminalSessionFor(s.uid(r), id)
 	if err != nil || !session.Structured {
-		writeErr(w(r), 404, "that chat is not available")
+		writeErr(w(r), 404, "that reet session is not available")
 		return store.TerminalSession{}, false
 	}
 	return session, true
@@ -47,7 +47,7 @@ func (s *server) terminalChat(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := s.st.TerminalSessionFor(s.uid(r), id)
 	if err != nil || !session.Structured {
-		writeErr(w, 404, "that chat is not available")
+		writeErr(w, 404, "that reet session is not available")
 		return
 	}
 	snapshot, truncated, events, cancel := s.terminals.SubscribeChat(s.uid(r), id)
@@ -160,7 +160,7 @@ func (s *server) terminalChatTarget(w http.ResponseWriter, r *http.Request) (sto
 	}
 	session, err := s.st.TerminalSessionFor(s.uid(r), id)
 	if err != nil || !session.Structured {
-		writeErr(w, 404, "that chat is not available")
+		writeErr(w, 404, "that reet session is not available")
 		return store.TerminalSession{}, false
 	}
 	return session, true
@@ -169,16 +169,16 @@ func (s *server) terminalChatTarget(w http.ResponseWriter, r *http.Request) (sto
 func (s *server) terminalChatError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrRemoteNotFound):
-		writeErr(w, 404, "that chat is not available")
+		writeErr(w, 404, "that reet session is not available")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported), errors.Is(err, terminalbroker.ErrACPClosed):
-		writeErr(w, 409, "that chat is not running")
+		writeErr(w, 409, "that reet session is not running")
 	case errors.Is(err, terminalbroker.ErrACPBusy):
-		writeErr(w, 409, "that chat is already working")
+		writeErr(w, 409, "that reet session is already working")
 	case errors.Is(err, terminalbroker.ErrOffline):
 		writeErr(w, 503, "terminal machine is reconnecting; retry after it reconnects")
 	case errors.Is(err, terminalproto.ErrInvalid):
 		writeErr(w, 400, "invalid terminal request")
 	default:
-		writeErr(w, 502, "the chat could not complete that request")
+		writeErr(w, 502, "the reet session could not complete that request")
 	}
 }

@@ -124,7 +124,6 @@ func TestLaunchLimits(t *testing.T) {
 		"unknown tool":        func(c *Create) { c.Tool = "bash" },
 		"model without tool":  func(c *Create) { *c = Create{Title: "A", Cols: 80, Rows: 24, Model: "m"} },
 		"prompt without tool": func(c *Create) { *c = Create{Title: "A", Cols: 80, Rows: 24, Prompt: "hi"} },
-		"dir without tool":    func(c *Create) { *c = Create{Title: "A", Cols: 80, Rows: 24, Dir: "/home/a"} },
 	}
 	for name, mutate := range cases {
 		c := launchCreate()
@@ -132,6 +131,10 @@ func TestLaunchLimits(t *testing.T) {
 		if c.Validate() == nil {
 			t.Error("accepted:", name)
 		}
+	}
+	plainDir := Create{Title: "A", Cols: 80, Rows: 24, Dir: "/home/a"}
+	if plainDir.Validate() != nil {
+		t.Fatal("plain shell refused a folder")
 	}
 	good := launchCreate()
 	good.Model = strings.Repeat("a", 100)

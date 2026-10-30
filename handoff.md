@@ -8,7 +8,7 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [projects](docs/projects.md), [folder browse](docs/folder-browse.md),
 [remote machine operations](docs/remote-machine-operations.md),
 [controller terminal commands](docs/terminal-controller-commands.md),
-[structured OpenCode chats](docs/structured-sessions.md) and
+[OpenCode in the reet TUI](docs/structured-sessions.md) and
 [voice and copy](docs/voice-and-copy.md)); the agents-home mock-up in
 [docs/design/agents-home/](docs/design/agents-home/), its
 [plan](docs/superpowers/plans/2026-10-26-agents-home.md) and
@@ -28,14 +28,14 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 
 ## Agents home redesign (27–28 October 2026)
 
-### Resume here (Home OpenCode chat, 29 October 2026)
+### Resume here (Home OpenCode reet TUI, 29 October 2026)
 
-**#258 (chat history, continue, images) merged as `2ee12f6`; #256 (structured chats) as `7555da2`;
+**#258 (reet TUI history, continue, images) merged as `2ee12f6`; #256 (OpenCode in the reet TUI) as `7555da2`;
 #255 (models UI) as `32866ad`; #252 as `3be0eaf`; #247 as `16da0bb`; #245 as `1371cb5`;
 #242 as `961d530`; #231 as `7886511`.**
 
-- **Branch and PR:** `ccr-home-chat` holds the Home launch bar change: OpenCode on an `acp` machine starts as a native
-  chat by default, with a **Session** word to switch to the terminal. The PR is this one; it is **open** until its
+- **Branch and PR:** `ccr-home-chat` holds the Home launch bar change: OpenCode on an `acp` machine starts in the reet TUI by
+  default, with a **TUI** word to switch to the agent TUI. The PR is this one; it is **open** until its
   checks are green and it is merged.
 - **Next stage after this PR:** no further Program 2 slice is queued. Other agents need their own probes; the
   deferred F (YOLO) and G (Needs you) work remains. Model work is done.
@@ -43,7 +43,7 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
   (`gh api repos/eyupio/reet.sh/pulls/<n>` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
   `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). Merge only when every check is green and Codex has
   reviewed it, or the owner gives an explicit exception.
-- **Release:** R22 lets B, C, E, copy/paste, models and structured chats go out together. The owner's call; no
+- **Release:** R22 lets B, C, E, copy/paste, models and the reet TUI go out together. The owner's call; no
   release tag was cut or checked (`gh release list --repo eyupio/reet.sh`). F and G come later.
 - The research these start from is in [docs/research/](docs/research/) (copied whole from the session's git-ignored
   notes). Those reports summarise third-party code and docs read as untrusted data: check a claim against its label
@@ -75,9 +75,9 @@ left out of the first pass, and the Program 2 spike ran in parallel.
 | Models backend | `models-v1`, OpenCode listing, local switch, per-machine cache, read/refresh/list API, favourites, account defaults, project effort, Cline project default | merged, [#247](https://github.com/eyupio/reet.sh/pull/247) as `16da0bb` (owner exception; Codex quota). M0 `c1152ff`, M1 `f4bf81c`, M2 `11afb42`, M3 `9d7f234`, M4 `5490a6c`, docs `3cd34f0` (plan `2a54133`); review fixes `56f5f5b`, `39a61a8`, `a8c9310` |
 | Models UI (M5–M7) | `models.ts`, model/favourite clients, picker star/status/Refresh/Use, launch bar defaults-first, Home account defaults, automatic machine read | **[#252](https://github.com/eyupio/reet.sh/pull/252), open**. Plan `d802ff0`, M5 `a7e0d7d`, picker `9202695`, bar `ca0f972`, review fixes `67feb99`, evidence `24df6cc` |
 | Models UI (M8–M11) | Start an agent picker with project/account defaults and Cline thinking; Add project/Project settings defaults; Settings › Agents; Machines “Agents” cache state and guarded Refresh; Activity/hover-card model lines; docs and phone evidence | merged, [#255](https://github.com/eyupio/reet.sh/pull/255) as `32866ad` (owner's instruction; Codex reviewed an earlier head, the runner timed out on the final head and a rerun passed). Plan `docs/superpowers/plans/2026-10-29-agent-models-ui-2.md` |
-| Program 2, slice 1 | Structured OpenCode chats: `acp-v1`, machine-side ACP supervisor with the seven probe conditions, controller relay and SSE, Chat tab, Allow once / Deny, docs | merged, [#256](https://github.com/eyupio/reet.sh/pull/256) as `7555da2` (owner's instruction; Codex findings fixed, all checks green) |
-| Program 2, slice 2 | Reopen a closed chat with `session/load` history, continue it, and attach images as machine paths | merged, [#258](https://github.com/eyupio/reet.sh/pull/258) as `2ee12f6` (Codex mixed-version finding fixed with `acp-history-v1`; all checks green) |
-| Home OpenCode chat | OpenCode on an `acp` machine starts as a native chat from Home's launch bar; the Session word switches to the terminal UI | **this PR, open** on `ccr-home-chat`; plan `docs/superpowers/plans/2026-10-29-home-opencode-chat.md` |
+| Program 2, slice 1 | OpenCode in the reet TUI: `acp-v1`, machine-side ACP supervisor with the seven probe conditions, controller relay and SSE, reet TUI, Allow once / Deny, docs | merged, [#256](https://github.com/eyupio/reet.sh/pull/256) as `7555da2` (owner's instruction; Codex findings fixed, all checks green) |
+| Program 2, slice 2 | Reopen a closed reet session with `session/load` history, continue it, and attach images as machine paths | merged, [#258](https://github.com/eyupio/reet.sh/pull/258) as `2ee12f6` (Codex mixed-version finding fixed with `acp-history-v1`; all checks green) |
+| Home OpenCode reet TUI | OpenCode on an `acp` machine starts in the reet TUI from Home's launch bar; the TUI word switches to the agent TUI | **this PR, open** on `ccr-home-chat`; plan `docs/superpowers/plans/2026-10-29-home-opencode-chat.md` |
 
 Merged into main by the owner while this work was open: #222, #223 (`4791d89`), #224, #225, #228, #229, #230, #232, #233,
 #234, #235 and #236 (each merged into the open branch before its next push; #235 and #236 in `57d8f53`), then #237–#244
@@ -168,15 +168,19 @@ After the models picker/launch bar:
 - No physical phone/Safari; a 500-model list under a slow reader is not load-tested. The picker/star additions are
   not in the drawings; `docs/ui-verification.md` lists them.
 
-After the structured chat slice:
+After the reet TUI slices:
 
-- **Home starts OpenCode as a chat by default.** The launch sentence shows **as a chat** for OpenCode on an `acp`
-  machine; the **Session** word switches to **as a terminal**. A chat runs in the project folder, not a worktree, and
-  uses OpenCode's configured model. A multi-project selection must switch to a terminal; a chat starts in one folder.
-- **Chat history is in memory, but OpenCode keeps it.** The controller keeps at most 1,000 events / 256 KiB per chat and
-  writes no transcript. A closed chat can be reopened with Continue chat with history… as a new row that runs
+- **Home starts OpenCode in the reet TUI by default.** The launch sentence shows **in reet TUI** for OpenCode on an
+  `acp` machine; the **TUI** word switches to **in OpenCode TUI**. The reet TUI runs in the project folder, not a
+  worktree, and uses OpenCode's configured model. Home requires **I trust this folder** before Start, because `.opencode`
+  plugins run when the reet TUI starts. A multi-project selection must switch to the agent TUI; it starts in one folder.
+  A session's actions menu offers **Open a terminal here…**, a plain shell in the same folder as a separate session; it
+  needs `shell-dir-v1` on the machine. **Open a terminal beside this session…** shows that plain shell in the right-hand
+  panel, replacing the context panel while it is open; Close ends it. The agent TUI/reet TUI stays in the main column.
+- **reet TUI history is in memory, but OpenCode keeps it.** The controller keeps at most 1,000 events / 256 KiB per reet session and
+  writes no transcript. A closed reet session can be reopened with Continue in reet TUI with history… as a new row that runs
   `session/load`; the old row stays. A server restart clears the live ring; archiving drops it. A lost machine connection
-  kills every chat process group; a reconnect marks the live session lost, and its stored id can still be reopened if
+  kills every reet process group; a reconnect marks the live session lost, and its stored id can still be reopened if
   OpenCode's own store survives. Pending approvals are not restored; replayed tools are shown interrupted.
 - **OpenCode 1.19.5 only.** The connector refuses another version before starting a process. The seven conditions in
   [structured-sessions.md](docs/structured-sessions.md) are mandatory; a repository with `.opencode` plugins needs the
@@ -185,8 +189,8 @@ After the structured chat slice:
 - **No live model turn** was sent in the checks. The real 1.19.5 binary opened and then loaded a session in a throwaway
   HOME; the protocol tests use a fake ACP child. Modes, MCP servers and other agents are not in this slice. No physical
   phone, Safari or Firefox was checked.
-- **Images are paths.** Chat attachments use the launch-upload folder and the prompt names the file; no image bytes are
-  embedded in ACP. The 5 MiB / 20 files / 50 MiB limits and 24-hour sweep apply. A chat's model is OpenCode's configured
+- **Images are paths.** reet TUI attachments use the launch-upload folder and the prompt names the file; no image bytes are
+  embedded in ACP. The 5 MiB / 20 files / 50 MiB limits and 24-hour sweep apply. The reet TUI's model is OpenCode's configured
   model; the picker is hidden. The process can still install `@opencode-ai/plugin` from npm in the background.
 
 Before this PR:
@@ -233,7 +237,7 @@ Still true from earlier PRs:
 
 ### Queued work (decided, not started)
 
-**1. Program 2, slice 2: chat history, continue and images** (this PR). Input: the slice 1 probe, the real
+**1. Program 2, slice 2: reet TUI history, continue and images** (this PR). Input: the slice 1 probe, the real
 `session/load` result (configOptions, mode `build`, replay before the result), and the Home launch-upload path.
 Slice 1 is merged in #256; its conditions and limits remain binding.
 [docs/research/probe-report.md](docs/research/probe-report.md),
@@ -309,17 +313,17 @@ once / Deny only, and only with all seven conditions:
   that way for 500 models. Star focus must be restored after the row moves groups.
 - **Mixed versions:** `acpSessionId`, `resumeAcp` and the `acpHistory` capability are sent only after
   `acp-history-v1`. A slice-1 controller negotiated `acp-v1` but its strict decoder rejects those fields; never send them
-  without the separate feature. `Continue chat` is offered only when the machine reports `acpHistory`.
-- **Chat history:** a closed chat is reopened as a **new** row with `resumeAcp`; the machine runs `session/load` and
+  without the separate feature. `Continue in reet TUI` is offered only when the machine reports `acpHistory`.
+- **reet TUI history:** a closed reet session is reopened as a **new** row with `resumeAcp`; the machine runs `session/load` and
   replays before its result. Store the `acpSessionId`, never a transcript. `CanResumeACPSessionFor` restricts the id to
   this account's closed structured sessions on that machine. Replayed pending tools are marked interrupted; pending
   approvals are not restored. The old row stays in history.
-- **Structured chats:** the machine-side `internal/opencodeacp` starts exactly `opencode-ai@1.19.5` with
+- **reet TUI:** the machine-side `internal/opencodeacp` starts exactly `opencode-ai@1.19.5` with
   `OPENCODE_CONFIG_CONTENT`, `OPENCODE_DISABLE_PROJECT_CONFIG=1`, a random `OPENCODE_SERVER_PASSWORD`, `task: deny` and
   the environment allowlist. It answers `fs/write_text_file` with success without writing (OpenCode already wrote the
   file), checks mode `build`, offers `once`/`reject` only, closes its own cards on cancel/timeout, and kills the process
   group on end. Do not forward raw ACP JSON to the browser; map it to `ACPEvent` and keep it inside the control frame.
-- **Chat transport:** events are a bounded ring in `internal/terminalbroker/chat.go` and SSE at
+- **reet TUI transport:** events are a bounded ring in `internal/terminalbroker/chat.go` and SSE at
   `/api/v2/terminal/sessions/{id}/chat`; prompts, cancel and approvals are POSTs. A browser reconnect resets and replays
   the ring. A structured session is an ordinary row with `structured=1`; it has no terminal, so do not attach to it.
 - **Process used** (subagent-driven development): an implementer per task with a brief, a task review, fix rounds
@@ -366,7 +370,7 @@ once / Deny only, and only with all seven conditions:
 | Typed private transport and broker | `internal/terminalproto`, `internal/terminalagent`, `internal/terminalbroker`, `internal/privateconn` |
 | Terminal API and records | `internal/api/terminal.go`, `internal/store/store_terminal.go` |
 | Terminal UI and connection state | `web/src/lib/terminal/TerminalWorkspace.svelte`, `TerminalPane.svelte`, `api.ts`, `connection.ts` |
-| Structured OpenCode chats | `internal/opencodeacp` (process, config, env, permissions), `internal/terminalagent/chat.go` (dispatch), `internal/terminalbroker/chat.go` (ring/commands), `internal/api/terminal_chat.go` (SSE and POSTs), `web/src/lib/chat.ts` and `terminal/ChatPane.svelte` |
+| OpenCode in the reet TUI | `internal/opencodeacp` (process, config, env, permissions), `internal/terminalagent/chat.go` (dispatch), `internal/terminalbroker/chat.go` (ring/commands), `internal/api/terminal_chat.go` (SSE and POSTs), `web/src/lib/chat.ts` and `terminal/ChatPane.svelte` |
 | Controller enablement | `cmd/reet/terminal.go`, `internal/terminalcontrol`, `docs/terminal-controller-commands.md` |
 | Machine health | `internal/agenthealth`, `internal/store/store_remote_health.go`, `internal/api/health.go` |
 | Notifications | `internal/notify`, `internal/store/store_notify.go`, `internal/api/notifications.go`, `web/src/lib/Notifications.svelte` |

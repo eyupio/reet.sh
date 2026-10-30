@@ -3,8 +3,8 @@
 Home starts sessions from its launch bar ([below](#on-home-the-launch-bar)). The **Start an agent**
 dialog stays for Machines and the Sessions panel: pick a machine, an agent, a folder and, if you like,
 a model and an opening prompt. Press **Start**
-and you land in a new browser terminal session with that agent already running, or in a structured chat when you
-choose **Chat**. The dialog is
+and you land in a new browser terminal session with that agent already running, or in the reet TUI when you
+choose it. The dialog is
 `web/src/lib/StartAgentDialog.svelte`. The launch request it sends and how a machine handles it are
 in [Launch requests](terminal-launch.md). The design spec was removed in the docs tidy-up
 (see git history before bd9e56c).
@@ -14,16 +14,16 @@ The browser never sends a command line. It names a tool id (`claude`, `codex`, `
 connector and decides the program and its flags itself. No preset uses a flag that skips the
 agent's own permission prompts.
 
-## Chat instead of a terminal
+## The reet TUI or the agent TUI
 
-For OpenCode on a machine that advertises `acp`, the dialog has **Chat with OpenCode**, on by default. Uncheck it to start
-the terminal UI instead. It sends `structured: true` and
+For OpenCode on a machine that advertises `acp`, the dialog's **Session** choice is **reet TUI** by default; choose
+**OpenCode TUI** for the terminal UI instead. It sends `structured: true` and
 the person's trust confirmation; the model and Thinking controls are replaced with "Uses OpenCode's configured model".
-The opening prompt is the first message. The new session opens on its Chat tab, where OpenCode asks before it edits a file
-or runs a command with **Allow once** / **Deny**. There is no terminal in a chat session. **Attach image** (or paste/drop)
-sends a file through the launch-upload path and puts its path in the message. A closed chat offers **Continue chat with
+The opening prompt is the first message. The new session opens on its reet TUI, where OpenCode asks before it edits a file
+or runs a command with **Allow once** / **Deny**. There is no terminal in a reet TUI session. **Attach image** (or paste/drop)
+sends a file through the launch-upload path and puts its path in the message. A closed reet TUI session offers **Continue in reet TUI with
 history…**, which loads OpenCode's stored conversation into a new session row. The conditions, deadlines and limits are in
-[Structured OpenCode chats](structured-sessions.md).
+[OpenCode in the reet TUI](structured-sessions.md).
 
 ## Who sees it
 
@@ -57,11 +57,13 @@ The bar is docked at the foot of Home (`web/src/lib/launch/LaunchBar.svelte`; it
 `web/src/lib/launchBar.ts`). It is a **Describe the job** box, **Start**, and the launch sentence,
 whose bold words are the choices.
 
-For OpenCode on a machine that advertises `acp`, the sentence says **as a chat** by default and Start
-opens the native reet chat instead of the terminal UI. The **Session** word switches it to **as a
-terminal**; the model, worktree and thinking choices come back for that terminal. A chat runs in the
-chosen project folder (not a worktree), uses OpenCode's configured model, and can attach images
-through Home's existing pasted-image path. A chat starts in one folder at a time.
+For OpenCode on a machine that advertises `acp`, the sentence says **in reet TUI** by default and Start
+opens the reet TUI instead of the agent terminal UI. Home asks you to confirm **I trust this folder** first, because
+OpenCode runs any plugins in `.opencode` when the reet TUI starts. The **TUI** word switches it to **in OpenCode TUI**;
+the model, worktree and thinking choices come back for that terminal. The reet TUI runs in the chosen
+project folder (not a worktree), uses OpenCode's configured model, and can attach images through Home's
+existing pasted-image path. It starts in one folder at a time. A session's actions menu has **Open a terminal here…**, which starts a plain shell in
+the same folder as a separate session.
 
 > Run **Claude Code** with **default** on **Store rewrite** at **studio** from **main** in **a fresh worktree** · thinking **high**
 

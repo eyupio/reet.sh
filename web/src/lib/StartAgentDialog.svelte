@@ -47,7 +47,7 @@
  let agentId = $state(opening.agentId)
  // Said once, while the machine chosen for you is the one shown: why it is not the one you came from.
  const switchedNote = $derived(agentId === opening.agentId ? opening.note : '')
- let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), effort = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state(''), structured = $state(false), chatTouched = $state(false)
+ let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), effort = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state(''), structured = $state(false), sessionTouched = $state(false)
  // An agent, model or thinking level the person chose survives a late project/profile/favourite read for the same agent.
  // svelte-ignore state_referenced_locally
  let explicitTool = $state(CATALOGUE.some(agent => agent.id === initialAgent) ? initialAgent : '')
@@ -139,9 +139,9 @@
  let chatKey = ''
  $effect(() => {
   const key = agentId + '\u0000' + chosenTool
-  if (key !== chatKey) { chatKey = key; chatTouched = false }
-  if (!chatCapable) { chatTouched = false; structured = false; return }
-  if (!chatTouched) structured = true
+  if (key !== chatKey) { chatKey = key; sessionTouched = false }
+  if (!chatCapable) { sessionTouched = false; structured = false; return }
+  if (!sessionTouched) structured = true
   if (structured && pickerOpen) pickerOpen = false
  })
  const modelLabel = $derived(modelChoice === OTHER ? cleanModel(modelOther) || 'Other…' : modelChoice || 'Agent default')
@@ -472,13 +472,21 @@
    </fieldset>
 
    {#if chosenTool === 'opencode' && machine && !machine.capabilities?.acp}
-    <p class="hint">This machine's reet agent can't start OpenCode chats. This starts the terminal UI; update reet on the machine to use Chat with OpenCode.</p>
+    <p class="hint">This machine's reet agent can't start the reet TUI. This starts the OpenCode TUI; update reet on the machine to use the reet TUI.</p>
    {/if}
 
    {#if chatCapable}
     <div class="field chat-choice">
-     <label class="check"><input type="checkbox" bind:checked={structured} onchange={() => { chatTouched = true; edited() }} /> Chat with OpenCode</label>
-     <p class="hint">OpenCode asks before it edits a file or runs a command. Any plugins in this folder's <code>.opencode</code> run when the chat starts, so use a folder you trust. Chat history stays in memory and ends when the machine connection does.</p>
+     <label for={`${id}-session`}>Session</label>
+     <select id={`${id}-session`} value={structured ? 'reet' : 'terminal'} onchange={(event) => { structured = (event.currentTarget as HTMLSelectElement).value === 'reet'; sessionTouched = true; edited() }}>
+      <option value="reet">reet TUI</option>
+      <option value="terminal">{toolName(chosenTool)} TUI</option>
+     </select>
+     {#if structured}
+      <p class="hint">In the reet TUI, OpenCode asks before it edits a file or runs a command. Any plugins in this folder's <code>.opencode</code> run when it starts, so use a folder you trust. Its live history stays in memory and ends when the machine connection does.</p>
+     {:else}
+      <p class="hint">Starts the {toolName(chosenTool)} TUI in a terminal session; the agent's own prompts apply.</p>
+     {/if}
     </div>
    {/if}
 
@@ -502,7 +510,7 @@
     </div>
    {/if}
    {:else}
-    <div class="field"><p class="hint">Uses OpenCode's configured model and thinking. The first message is the opening prompt.</p></div>
+    <div class="field"><p class="hint">The reet TUI uses OpenCode's configured model and thinking. The first message is the opening prompt.</p></div>
    {/if}
 
    <div class="field">
@@ -583,8 +591,6 @@
  .hint, small { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
  .count.over { color: var(--bad); }
  .reason { margin: 0; color: var(--bad); font-size: .83rem; line-height: 1.5; }
- .chat-choice .check { display: flex; align-items: flex-start; gap: 8px; min-height: 44px; font-weight: 600; }
- .chat-choice .check input { margin-top: 2px; }
  .chat-choice code { font-size: .9em; }
  .sentence { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--bg); font-size: .85rem; line-height: 1.5; }
  .status { flex: 1 0 100%; margin: 0; font-size: .85rem; line-height: 1.5; }

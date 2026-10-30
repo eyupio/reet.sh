@@ -535,12 +535,8 @@ func (s *Service) Items(ctx context.Context, ownerID int64) ([]Item, []string, e
 			unreachable = append(unreachable, r.Name)
 			continue
 		}
-		for _, o := range objects {
-			if !strings.HasSuffix(o.Key, ".reetbackup") {
-				continue
-			}
-			base := filepath.Base(o.Key)
-			id := strings.TrimSuffix(base, ".reetbackup")
+		for _, ref := range DiscoverCopies(strings.Trim(r.S3.Prefix, "/"), objects) {
+			id := ref.Name
 			if !validID(id) {
 				continue
 			}
@@ -548,8 +544,12 @@ func (s *Service) Items(ctx context.Context, ownerID int64) ([]Item, []string, e
 				items[i].Remotes = append(items[i].Remotes, r.Name)
 				continue
 			}
+			taken := ref.Modified.UnixMilli()
+			if !ref.TakenAt.IsZero() {
+				taken = ref.TakenAt.UnixMilli()
+			}
 			byID[id] = len(items)
-			items = append(items, Item{ID: id, Kind: scope, OwnerID: ownerID, Target: targetOf(ownerID), TakenAt: o.LastModified.UnixMilli(), Bytes: o.Size, Local: false, Remotes: []string{r.Name}})
+			items = append(items, Item{ID: id, Kind: scope, OwnerID: ownerID, Target: targetOf(ownerID), TakenAt: taken, Bytes: ref.Size, Local: false, Remotes: []string{r.Name}})
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].TakenAt > items[j].TakenAt })
@@ -745,6 +745,14 @@ func (s *Service) ship(ctx context.Context, ownerID int64, id string, data []byt
 	outcome := map[string]string{}
 	sent, failed := 0, 0
 	var firstErr error
+	sealedManifest, err := ManifestOf(data)
+	if err != nil {
+		return "", err
+	}
+	om, err := s.objectManifestOf(sealedManifest, data)
+	if err != nil {
+		return "", err
+	}
 	for _, r := range remotes {
 		if r.Disabled || r.Problem != "" {
 			continue
@@ -759,8 +767,17 @@ func (s *Service) ship(ctx context.Context, ownerID int64, id string, data []byt
 			continue
 		}
 		_ = s.st.SetBackupRemoteUploading(ownerID, r.Name, true)
-		key := remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id)
-		putErr := cl.PutRetry(ctx, key, data)
+		object, err := sealObject(om, data, r.S3.Passphrase)
+		if err != nil {
+			outcome[nameOr(r.Name)] = err.Error()
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		key := ObjectKey(r.S3.Prefix, om.Target, om.CopyID, om.Compression)
+		putErr := cl.PutObjectRetry(ctx, key, object)
 		at := time.Now().UnixMilli()
 		msg := ""
 		if putErr != nil {
@@ -853,22 +870,26 @@ func (s *Service) pruneOneRemote(ctx context.Context, ownerID int64, r runtimeRe
 	if err != nil {
 		return nil, err
 	}
-	copies := objects[:0]
+	root := strings.Trim(r.S3.Prefix, "/")
+	present := map[string]bool{}
 	for _, o := range objects {
-		if strings.HasSuffix(o.Key, ".reetbackup") {
-			copies = append(copies, o)
-		}
+		present[o.Key] = true
 	}
-	sort.Slice(copies, func(i, j int) bool { return copies[i].LastModified.After(copies[j].LastModified) })
+	copies := DiscoverCopies(root, objects)
 	var removed []string
-	for i, o := range copies {
+	for i, copy := range copies {
 		if i < r.Keep {
 			continue
 		}
-		if err := cl.Delete(rctx, o.Key); err != nil {
-			return removed, err
+		for _, key := range KeysForCopy(root, copy) {
+			if !present[key] {
+				continue
+			}
+			if err := cl.Delete(rctx, key); err != nil {
+				return removed, err
+			}
 		}
-		removed = append(removed, strings.TrimSuffix(filepath.Base(o.Key), ".reetbackup"))
+		removed = append(removed, copy.Name)
 	}
 	return removed, nil
 }
@@ -902,11 +923,11 @@ func (s *Service) ShipMissing(ctx context.Context, ownerID int64) (Shipment, err
 		return out, err
 	}
 	type source struct {
-		r  runtimeRemote
-		cl *s3Client
+		r    runtimeRemote
+		cl   *s3Client
+		refs map[string]CopyRef
 	}
 	var sources []source
-	held := map[string]map[string]bool{}
 	ids := map[string]bool{}
 	localIDs := map[string]bool{}
 	for _, it := range local {
@@ -926,23 +947,19 @@ func (s *Service) ShipMissing(ctx context.Context, ownerID int64) (Shipment, err
 			out.Errors[r.Name] = err.Error()
 			continue
 		}
-		held[r.Name] = map[string]bool{}
-		for _, o := range objects {
-			if !strings.HasSuffix(o.Key, ".reetbackup") {
-				continue
-			}
-			id := strings.TrimSuffix(filepath.Base(o.Key), ".reetbackup")
-			if validID(id) {
-				held[r.Name][id] = true
-				ids[id] = true
+		refs := map[string]CopyRef{}
+		for _, ref := range DiscoverCopies(strings.Trim(r.S3.Prefix, "/"), objects) {
+			if validID(ref.Name) {
+				refs[ref.Name] = ref
+				ids[ref.Name] = true
 			}
 		}
-		sources = append(sources, source{r: r, cl: cl})
+		sources = append(sources, source{r: r, cl: cl, refs: refs})
 	}
 	for _, src := range sources {
 		r := src.r
 		for id := range ids {
-			if held[r.Name][id] {
+			if _, ok := src.refs[id]; ok {
 				continue
 			}
 			var data []byte
@@ -952,11 +969,12 @@ func (s *Service) ShipMissing(ctx context.Context, ownerID int64) (Shipment, err
 			if data == nil || err != nil {
 				data = nil
 				for _, other := range sources {
-					if other.r.Name == r.Name || !held[other.r.Name][id] {
+					ref, ok := other.refs[id]
+					if other.r.Name == r.Name || !ok {
 						continue
 					}
 					rctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-					data, err = other.cl.Get(rctx, remotePath(other.r.S3.Prefix, scopeOf(ownerID), ownerID, id))
+					data, err = s.fetchRemotePayload(rctx, other.r, ref)
 					cancel()
 					if err == nil {
 						break
@@ -967,14 +985,30 @@ func (s *Service) ShipMissing(ctx context.Context, ownerID int64) (Shipment, err
 			if data == nil {
 				continue
 			}
-			if err := src.cl.PutRetry(ctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id), data); err != nil {
+			sm, err := ManifestOf(data)
+			if err != nil {
+				out.Errors[r.Name] = err.Error()
+				continue
+			}
+			om, err := s.objectManifestOf(sm, data)
+			if err != nil {
+				out.Errors[r.Name] = err.Error()
+				continue
+			}
+			object, err := sealObject(om, data, r.S3.Passphrase)
+			if err != nil {
+				out.Errors[r.Name] = err.Error()
+				continue
+			}
+			key := ObjectKey(r.S3.Prefix, om.Target, om.CopyID, om.Compression)
+			if err := src.cl.PutObjectRetry(ctx, key, object); err != nil {
 				out.Errors[r.Name] = err.Error()
 				_ = s.st.SetBackupRemoteResult(ownerID, r.Name, time.Now().UnixMilli(), err.Error())
 				break
 			}
-			held[r.Name][id] = true
+			src.refs[id] = CopyRef{Key: key, Target: om.Target, Name: id}
 			_ = s.st.SetBackupRemoteResult(ownerID, r.Name, time.Now().UnixMilli(), "")
-			out.Sent = append(out.Sent, SentCopy{Remote: r.Name, ID: id, Bytes: int64(len(data))})
+			out.Sent = append(out.Sent, SentCopy{Remote: r.Name, ID: id, Bytes: int64(len(object))})
 		}
 		if _, err := s.pruneOneRemote(ctx, ownerID, r); err != nil && out.Errors[r.Name] == "" {
 			out.Errors[r.Name] = err.Error()
@@ -1046,7 +1080,20 @@ func (s *Service) DeleteRemoteCopy(ctx context.Context, ownerID int64, name, id 
 		}
 		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		return cl.Delete(rctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id))
+		root := strings.Trim(r.S3.Prefix, "/")
+		ref := CopyRef{Target: scopeOf(ownerID), Name: id}
+		if scopeOf(ownerID) == "user" {
+			ref.Target = targetOf(ownerID)
+		}
+		for _, key := range KeysForCopy(root, ref) {
+			if err := cl.Delete(rctx, key); err != nil {
+				// A copy that is not there is already deleted.
+				if !strings.Contains(err.Error(), "holds no such object") && !strings.Contains(err.Error(), "answered 404") {
+					return err
+				}
+			}
+		}
+		return nil
 	}
 	return store.ErrNotFound
 }
@@ -1078,34 +1125,18 @@ func (s *Service) download(ctx context.Context, ownerID int64, id, password stri
 		}
 		return s.openArchive(ownerID, data, password)
 	}
-	remotes, err := s.loadRemotes(ownerID)
+	data, err := s.fetchRemoteSealed(ctx, ownerID, id)
 	if err != nil {
 		return Manifest{}, nil, err
 	}
-	for _, r := range remotes {
-		if r.Disabled || r.Problem != "" {
-			continue
-		}
-		cl, err := newS3Client(r.S3)
-		if err != nil {
-			continue
-		}
-		rctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		data, err := cl.Get(rctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id))
-		cancel()
-		if err != nil {
-			continue
-		}
-		m, err := ManifestOf(data)
-		if err != nil {
-			return Manifest{}, nil, err
-		}
-		if err := ownedBy(m, ownerID); err != nil {
-			return Manifest{}, nil, err
-		}
-		return s.openArchive(ownerID, data, password)
+	m, err := ManifestOf(data)
+	if err != nil {
+		return Manifest{}, nil, err
 	}
-	return Manifest{}, nil, os.ErrNotExist
+	if err := ownedBy(m, ownerID); err != nil {
+		return Manifest{}, nil, err
+	}
+	return s.openArchive(ownerID, data, password)
 }
 
 func ownedBy(m Manifest, ownerID int64) error {
@@ -1134,34 +1165,18 @@ func (s *Service) Archive(ctx context.Context, ownerID int64, id string) ([]byte
 		}
 		return data, nil
 	}
-	remotes, err := s.loadRemotes(ownerID)
+	data, err := s.fetchRemoteSealed(ctx, ownerID, id)
 	if err != nil {
 		return nil, err
 	}
-	for _, r := range remotes {
-		if r.Disabled || r.Problem != "" {
-			continue
-		}
-		cl, err := newS3Client(r.S3)
-		if err != nil {
-			continue
-		}
-		rctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		data, err := cl.Get(rctx, remotePath(r.S3.Prefix, scopeOf(ownerID), ownerID, id))
-		cancel()
-		if err != nil {
-			continue
-		}
-		m, err := ManifestOf(data)
-		if err != nil {
-			return nil, err
-		}
-		if err := ownedBy(m, ownerID); err != nil {
-			return nil, err
-		}
-		return data, nil
+	m, err := ManifestOf(data)
+	if err != nil {
+		return nil, err
 	}
-	return nil, os.ErrNotExist
+	if err := ownedBy(m, ownerID); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // VerifyResult says whether a copy opens and what is wrong when it does not.
@@ -1565,16 +1580,17 @@ func (s *Service) RemoteCopies(ctx context.Context, ownerID int64, name string) 
 			return nil, err
 		}
 		out := []Item{}
-		for _, o := range objects {
-			if !strings.HasSuffix(o.Key, ".reetbackup") {
-				continue
-			}
-			id := strings.TrimSuffix(filepath.Base(o.Key), ".reetbackup")
+		for _, ref := range DiscoverCopies(strings.Trim(r.S3.Prefix, "/"), objects) {
+			id := ref.Name
 			if !validID(id) {
 				continue
 			}
+			taken := ref.Modified.UnixMilli()
+			if !ref.TakenAt.IsZero() {
+				taken = ref.TakenAt.UnixMilli()
+			}
 			out = append(out, Item{ID: id, Kind: scopeOf(ownerID), OwnerID: ownerID, Target: targetOf(ownerID),
-				TakenAt: o.LastModified.UnixMilli(), Bytes: o.Size, Remotes: []string{name}})
+				TakenAt: taken, Bytes: ref.Size, Remotes: []string{name}})
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].TakenAt > out[j].TakenAt })
 		return out, nil

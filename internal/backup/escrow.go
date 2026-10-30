@@ -30,9 +30,11 @@ type EscrowRemote struct {
 	Prefix    string `json:"prefix"`
 	AccessKey string `json:"accessKey"`
 	SecretKey string `json:"secretKey"`
-	PathStyle *bool  `json:"pathStyle,omitempty"`
-	Keep      int    `json:"keep"`
-	Disabled  bool   `json:"disabled"`
+	// Passphrase seals the already-encrypted payload again at the destination.
+	Passphrase string `json:"passphrase,omitempty"`
+	PathStyle  *bool  `json:"pathStyle,omitempty"`
+	Keep       int    `json:"keep"`
+	Disabled   bool   `json:"disabled"`
 }
 
 // Escrow returns the key and every destination for one owner, secrets
@@ -54,7 +56,8 @@ func (s *Service) Escrow(ownerID int64) (Escrow, error) {
 		out.Destinations = append(out.Destinations, EscrowRemote{
 			Name: r.Name, Source: r.Source, Endpoint: r.Endpoint, Region: r.Region,
 			Bucket: r.Bucket, Prefix: r.Prefix, AccessKey: r.AccessKey,
-			SecretKey: r.S3.SecretKey, PathStyle: r.S3.PathStyle, Keep: r.Keep, Disabled: r.Disabled,
+			SecretKey: r.S3.SecretKey, Passphrase: r.S3.Passphrase,
+			PathStyle: r.S3.PathStyle, Keep: r.Keep, Disabled: r.Disabled,
 		})
 	}
 	return out, nil

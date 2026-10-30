@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"strconv"
-	"strings"
 	"time"
 )
 
@@ -52,15 +50,4 @@ func Test(ctx context.Context, s S3) ([]CheckStep, error) {
 		return steps, err
 	}
 	return steps, nil
-}
-
-func remotePath(prefix, scope string, ownerID int64, id string) string {
-	prefix = strings.Trim(prefix, "/")
-	if prefix != "" {
-		prefix += "/"
-	}
-	if scope == "instance" {
-		return prefix + "instance/" + id + ".reetbackup"
-	}
-	return prefix + "user-" + strconv.FormatInt(ownerID, 10) + "/" + id + ".reetbackup"
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -29,6 +31,13 @@ const (
 
 	emptyPayloadSHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 	defaultS3Region    = "us-east-1"
+)
+
+// A larger object is sent as a multipart upload, with parts sized for the
+// store. Both are variables so a test can exercise the path with small parts.
+var (
+	SinglePutLimit    int64 = 64 << 20
+	MultipartPartSize int64 = 8 << 20
 )
 
 type Config struct {
@@ -186,6 +195,237 @@ func (c *Client) PutRetry(ctx context.Context, key string, body []byte) error {
 		}
 	}
 	return err
+}
+
+// PutObjectRetry sends one whole object, retrying the failures that may pass.
+func (c *Client) PutObjectRetry(ctx context.Context, key string, body []byte) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		err = c.PutObject(ctx, key, body)
+		if err == nil || !retryableS3(err) {
+			return err
+		}
+		wait := time.Duration(attempt+1) * 500 * time.Millisecond
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+	}
+	return err
+}
+
+// PutObject stores one whole object, using multipart upload when it is larger
+// than the single-PUT limit. A completion whose answer was lost is settled by
+// checking whether the object is there; a failed upload is aborted.
+func (c *Client) PutObject(ctx context.Context, key string, body []byte) error {
+	if int64(len(body)) <= SinglePutLimit {
+		return c.Put(ctx, key, body)
+	}
+	return c.putMultipart(ctx, key, body)
+}
+
+func (c *Client) putMultipart(ctx context.Context, key string, body []byte) error {
+	partSize := MultipartPartSize
+	if partSize <= 0 {
+		partSize = 8 << 20
+	}
+	uploadID, err := c.startMultipart(ctx, key)
+	if err != nil {
+		return err
+	}
+	var parts []completedPart
+	for n, off := 1, int64(0); off < int64(len(body)); n, off = n+1, off+partSize {
+		end := off + partSize
+		if end > int64(len(body)) {
+			end = int64(len(body))
+		}
+		etag, err := c.putPart(ctx, key, uploadID, n, body[off:end])
+		if err != nil {
+			c.abortMultipart(ctx, key, uploadID)
+			return err
+		}
+		parts = append(parts, completedPart{PartNumber: n, ETag: etag})
+	}
+	if err := c.completeMultipart(ctx, key, uploadID, parts); err != nil {
+		if ok, checkErr := c.objectExists(ctx, key); checkErr == nil && ok {
+			return c.verifyStored(ctx, key, body)
+		}
+		c.abortMultipart(ctx, key, uploadID)
+		return err
+	}
+	return c.verifyStored(ctx, key, body)
+}
+
+func (c *Client) verifyStored(ctx context.Context, key string, expected []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(key).String(), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.do(req, emptyPayloadSHA256)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	h := sha256.New()
+	n, err := io.Copy(h, resp.Body)
+	if err != nil {
+		return err
+	}
+	want := sha256.Sum256(expected)
+	if n != int64(len(expected)) || !bytes.Equal(h.Sum(nil), want[:]) {
+		_ = c.Delete(ctx, key)
+		return errors.New("the completed multipart object is not the one that was uploaded")
+	}
+	return nil
+}
+
+func (c *Client) startMultipart(ctx context.Context, key string) (string, error) {
+	u := c.url(key)
+	q := u.Query()
+	q.Set("uploads", "")
+	u.RawQuery = q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.do(req, emptyPayloadSHA256)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var started struct {
+		UploadID string `xml:"UploadId"`
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	if err := xml.Unmarshal(raw, &started); err != nil || started.UploadID == "" {
+		return "", errors.New("the store did not answer with a multipart upload id")
+	}
+	return started.UploadID, nil
+}
+
+func (c *Client) putPart(ctx context.Context, key, uploadID string, number int, body []byte) (string, error) {
+	u := c.url(key)
+	q := u.Query()
+	q.Set("partNumber", strconv.Itoa(number))
+	q.Set("uploadId", uploadID)
+	u.RawQuery = q.Encode()
+	sum := sha256.Sum256(body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u.String(), bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.ContentLength = int64(len(body))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	resp, err := c.do(req, hex.EncodeToString(sum[:]))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	etag := strings.Trim(resp.Header.Get("ETag"), `"`)
+	if etag == "" {
+		local := md5.Sum(body)
+		etag = hex.EncodeToString(local[:])
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	return etag, nil
+}
+
+type completedPart struct {
+	PartNumber int
+	ETag       string
+}
+
+func (c *Client) completeMultipart(ctx context.Context, key, uploadID string, parts []completedPart) error {
+	type partXML struct {
+		PartNumber int    `xml:"PartNumber"`
+		ETag       string `xml:"ETag"`
+	}
+	body := struct {
+		XMLName xml.Name  `xml:"CompleteMultipartUpload"`
+		Parts   []partXML `xml:"Part"`
+	}{}
+	for _, p := range parts {
+		body.Parts = append(body.Parts, partXML(p))
+	}
+	raw, err := xml.Marshal(body)
+	if err != nil {
+		return err
+	}
+	u := c.url(key)
+	q := u.Query()
+	q.Set("uploadId", uploadID)
+	u.RawQuery = q.Encode()
+	sum := sha256.Sum256(raw)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	req.ContentLength = int64(len(raw))
+	req.Header.Set("Content-Type", "application/xml")
+	resp, err := c.do(req, hex.EncodeToString(sum[:]))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	return nil
+}
+
+func (c *Client) abortMultipart(ctx context.Context, key, uploadID string) {
+	u := c.url(key)
+	q := u.Query()
+	q.Set("uploadId", uploadID)
+	u.RawQuery = q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u.String(), nil)
+	if err != nil {
+		return
+	}
+	resp, err := c.do(req, emptyPayloadSHA256)
+	if err == nil {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+	}
+}
+
+func (c *Client) objectExists(ctx context.Context, key string) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.url(key).String(), nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := c.do(req, emptyPayloadSHA256)
+	if err == nil {
+		resp.Body.Close()
+		return true, nil
+	}
+	objects, listErr := c.List(ctx, key)
+	if listErr != nil {
+		return false, listErr
+	}
+	for _, o := range objects {
+		if o.Key == key {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// GetPrefix reads only the start of an object, for a manifest.
+func (c *Client) GetPrefix(ctx context.Context, key string, max int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(key).String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", max-1))
+	resp, err := c.do(req, emptyPayloadSHA256)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(io.LimitReader(resp.Body, max))
 }
 
 func retryableS3(err error) bool {

@@ -146,7 +146,7 @@ func TestUserBackupShipsToRemote(t *testing.T) {
 		t.Fatal(err)
 	}
 	keys := fake.keys()
-	if len(keys) != 1 || !strings.HasSuffix(keys[0], item.ID+".reetbackup") {
+	if len(keys) != 1 || !(strings.HasSuffix(keys[0], item.ID+".gz.enc") || strings.HasSuffix(keys[0], item.ID+".enc")) {
 		t.Fatalf("remote keys: %v", keys)
 	}
 	items, unreachable, err := svc.Items(context.Background(), user.ID)
@@ -708,5 +708,225 @@ func TestShipMissingBackfillsANewDestination(t *testing.T) {
 	}
 	if len(out.Sent) == 0 || len(c.keys()) != 1 {
 		t.Fatalf("the new destination was not backfilled: %+v %v", out, c.keys())
+	}
+}
+
+func (f *fakeS3) object(key string) []byte {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]byte(nil), f.store[key]...)
+}
+
+func TestANewRemoteCopyIsExactlyOneObject(t *testing.T) {
+	fake := newFakeS3(t)
+	svc, st, user := testService(t, fake)
+	if _, err := svc.CreateRemote(user.ID, RemoteInput{
+		Name: ptr("mine"), Endpoint: ptr(fake.server.URL), Bucket: ptr("bucket"), AccessKey: ptr("key"),
+		SecretKey: ptr("secret"), PathStyle: rawBool(true), Keep: ptrInt(5),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	addSkill(t, st, user.ID, "owner/repo/object")
+	item, err := svc.RunUser(context.Background(), user.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := fake.keys()
+	if len(keys) != 1 || !strings.HasSuffix(keys[0], item.ID+".gz.enc") {
+		t.Fatalf("remote keys = %v, want one .gz.enc object", keys)
+	}
+	object := fake.object(keys[0])
+	if !bytes.HasPrefix(object, []byte(ObjectMagic)) {
+		t.Fatalf("object does not start with %q", ObjectMagic)
+	}
+	m, payload, err := DecodeObject(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.CopyID != item.ID || m.Compression != CompressionGzip || m.Target != targetOf(user.ID) {
+		t.Fatalf("manifest = %+v", m)
+	}
+	if m.PayloadSize != int64(len(payload)) || m.KeyFingerprint == "" {
+		t.Fatalf("manifest sizes = %+v", m)
+	}
+	if strings.Contains(string(object[:HeaderLength(object)]), "secret") {
+		t.Fatal("the clear manifest carries a secret")
+	}
+}
+
+func TestOldPairAndLegacyCopiesStillListFetchRestoreAndDelete(t *testing.T) {
+	fake := newFakeS3(t)
+	svc, st, user := testService(t, nil)
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{Keep: 5, Destination: store.DestinationLocal}); err != nil {
+		t.Fatal(err)
+	}
+	addSkill(t, st, user.ID, "owner/repo/old")
+	item, err := svc.RunUser(context.Background(), user.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := os.ReadFile(filepath.Join(svc.cfg.Dir, item.ID+".reetbackup"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := ManifestOf(sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawManifest, _ := json.Marshal(m)
+	if err := svc.DeleteLocal(user.ID, item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateRemote(user.ID, RemoteInput{
+		Name: ptr("mine"), Endpoint: ptr(fake.server.URL), Bucket: ptr("bucket"), Prefix: ptr("pre"),
+		AccessKey: ptr("key"), SecretKey: ptr("secret"), PathStyle: rawBool(true), Keep: ptrInt(5),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dir := listingPrefix("pre/", "user", user.ID)
+	fake.mu.Lock()
+	fake.store[dir+item.ID+".sealed"] = sealed
+	fake.store[dir+item.ID+".json"] = rawManifest
+	fake.store[dir+"instance-20260910T030004Z-aaaaaaaa.reetbackup"] = sealed
+	fake.mu.Unlock()
+	items, unreachable, err := svc.Items(context.Background(), user.ID)
+	if err != nil || len(unreachable) != 0 {
+		t.Fatalf("items: %v %v", unreachable, err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items = %+v, want the old pair and the legacy copy", items)
+	}
+	if err := st.RemoveFor(user.ID, "owner/repo/old"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RestoreUser(context.Background(), user.ID, item.ID); err != nil {
+		t.Fatalf("restore from the old pair: %v", err)
+	}
+	if _, ok, _ := st.GetFor(user.ID, "owner/repo/old"); !ok {
+		t.Fatal("the old pair did not restore the shelf")
+	}
+	if err := svc.DeleteRemoteCopy(context.Background(), user.ID, "mine", item.ID); err != nil {
+		t.Fatal(err)
+	}
+	fake.mu.Lock()
+	_, sealedThere := fake.store[dir+item.ID+".sealed"]
+	_, jsonThere := fake.store[dir+item.ID+".json"]
+	fake.mu.Unlock()
+	if sealedThere || jsonThere {
+		t.Fatal("deleting the old copy left one of its two objects behind")
+	}
+}
+
+func TestARemoteOnlyCopyIsFetchedAndRestored(t *testing.T) {
+	fake := newFakeS3(t)
+	svc, st, user := testService(t, fake)
+	if _, err := svc.CreateRemote(user.ID, RemoteInput{
+		Name: ptr("mine"), Endpoint: ptr(fake.server.URL), Bucket: ptr("bucket"), AccessKey: ptr("key"),
+		SecretKey: ptr("secret"), PathStyle: rawBool(true), Keep: ptrInt(5),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{Keep: 5, Destination: store.DestinationRemote}); err != nil {
+		t.Fatal(err)
+	}
+	addSkill(t, st, user.ID, "owner/repo/remote")
+	item, err := svc.RunUser(context.Background(), user.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Local || len(item.Remotes) != 1 {
+		t.Fatalf("remote-only item = %+v", item)
+	}
+	if err := st.RemoveFor(user.ID, "owner/repo/remote"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RestoreUser(context.Background(), user.ID, item.ID); err != nil {
+		t.Fatalf("restore only from the destination: %v", err)
+	}
+	if _, ok, _ := st.GetFor(user.ID, "owner/repo/remote"); !ok {
+		t.Fatal("the remote copy did not restore the shelf")
+	}
+}
+
+func TestRetentionRemovesTheOldestByParsedNameAndTime(t *testing.T) {
+	fake := newFakeS3(t)
+	svc, _, user := testService(t, nil)
+	if _, err := svc.CreateRemote(user.ID, RemoteInput{
+		Name: ptr("mine"), Endpoint: ptr(fake.server.URL), Bucket: ptr("bucket"), Prefix: ptr("pre"),
+		AccessKey: ptr("key"), SecretKey: ptr("secret"), PathStyle: rawBool(true), Keep: ptrInt(2),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prefix := listingPrefix("pre/", "user", user.ID)
+	fake.mu.Lock()
+	for _, id := range []string{
+		"user-1-20260910T030004Z-aaaaaaaa",
+		"user-1-20260911T030004Z-bbbbbbbb",
+		"user-1-20260912T030004Z-cccccccc",
+	} {
+		fake.store[prefix+id+".gz.enc"] = []byte("x")
+	}
+	fake.mu.Unlock()
+	if _, err := svc.PruneNow(context.Background(), user.ID); err != nil {
+		t.Fatal(err)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if _, ok := fake.store[prefix+"user-1-20260910T030004Z-aaaaaaaa.gz.enc"]; ok {
+		t.Fatal("the oldest copy survived retention")
+	}
+	if len(fake.store) != 2 {
+		t.Fatalf("objects left = %v", fake.store)
+	}
+}
+
+func TestADestinationPassphraseSealsAgainAndAFetchUnwrapsIt(t *testing.T) {
+	fake := newFakeS3(t)
+	svc, st, user := testService(t, nil)
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{Keep: 5, Destination: store.DestinationLocal}); err != nil {
+		t.Fatal(err)
+	}
+	addSkill(t, st, user.ID, "owner/repo/passphrase")
+	item, err := svc.RunUser(context.Background(), user.ID, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := os.ReadFile(filepath.Join(svc.cfg.Dir, item.ID+".reetbackup"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sm, err := ManifestOf(sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	om, err := svc.objectManifestOf(sm, sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, err := sealObject(om, sealed, "the destination passphrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := DecodeObject(object); err != nil {
+		t.Fatal(err)
+	}
+	r := runtimeRemote{BackupRemote: store.BackupRemote{Name: "mine", Keep: 5},
+		S3: S3{Endpoint: fake.server.URL, Bucket: "bucket", AccessKey: "key", SecretKey: "secret", Passphrase: "the destination passphrase"}}
+	cl, err := newS3Client(r.S3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := ObjectKey("", om.Target, om.CopyID, om.Compression)
+	if err := cl.PutObjectRetry(context.Background(), key, object); err != nil {
+		t.Fatal(err)
+	}
+	ref := CopyRef{Key: key, Target: om.Target, Name: item.ID, Layout: LayoutObject}
+	got, err := svc.fetchRemotePayload(context.Background(), r, ref)
+	if err != nil || !bytes.Equal(got, sealed) {
+		t.Fatalf("fetch with the destination passphrase: %d bytes, %v", len(got), err)
+	}
+	r.S3.Passphrase = "the wrong destination passphrase"
+	if _, err := svc.fetchRemotePayload(context.Background(), r, ref); err == nil || !strings.Contains(err.Error(), "passphrase") {
+		t.Fatalf("a wrong destination passphrase was not named: %v", err)
 	}
 }

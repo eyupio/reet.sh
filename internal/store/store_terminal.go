@@ -83,7 +83,7 @@ func (s *Store) migrateTerminal() error {
 			return err
 		}
 	}
-	return nil
+	return s.migrateAttention()
 }
 
 func (s *Store) migrateTerminalTables() error {
@@ -326,16 +326,26 @@ type TerminalSession struct {
 	Structured bool `json:"structured,omitempty"`
 	// ACPSessionID is OpenCode's own session id, the handle for reopening a
 	// chat's stored history. It is empty until the machine reports it.
-	ACPSessionID string `json:"acpSessionId,omitempty"`
+	ACPSessionID      string `json:"acpSessionId,omitempty"`
+	ActivityAt        int64  `json:"activityAt,omitempty"`
+	BellAt            int64  `json:"bellAt,omitempty"`
+	SeenAt            int64  `json:"-"`
+	Attention         string `json:"attention,omitempty"`
+	AttentionSource   string `json:"attentionSource,omitempty"`
+	ChangedSinceSeen  bool   `json:"changedSinceSeen,omitempty"`
+	AttentionObserved bool   `json:"-"`
+	NoAttention       bool   `json:"-"`
 }
 
-const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}')`
+const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,activity_at,bell_at,attention_observed,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}')`
 
 func readTerminal(row interface{ Scan(...any) error }) (TerminalSession, error) {
 	var t TerminalSession
 	var exit sql.NullInt64
 	var project sql.NullString
-	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.ACPSessionID, &t.RemoveHistory)
+	var attentionObserved int
+	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.ACPSessionID, &t.ActivityAt, &t.BellAt, &attentionObserved, &t.RemoveHistory)
+	t.AttentionObserved = attentionObserved != 0
 	if exit.Valid {
 		n := int(exit.Int64)
 		t.ExitCode = &n
@@ -352,23 +362,37 @@ func terminalForTx(tx *sql.Tx, uid int64, agentID, sessionID string) (TerminalSe
 	return readTerminal(tx.QueryRow(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE id=? AND agent_id=? AND user_id=?`, sessionID, agentID, uid))
 }
 func (s *Store) TerminalSessionFor(uid int64, sessionID string) (TerminalSession, error) {
-	return readTerminal(s.db.QueryRow(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, sessionID, uid, uid))
+	t, err := readTerminal(s.db.QueryRow(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, sessionID, uid, uid))
+	if err != nil {
+		return t, err
+	}
+	s.populateAttention(uid, &t, time.Now())
+	return t, nil
 }
 func (s *Store) TerminalSessionsFor(uid int64) ([]TerminalSession, error) {
 	rows, err := s.db.Query(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE user_id=? AND NOT EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id) AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer') ORDER BY state IN ('creating','running','end_requested') DESC,updated_at DESC,id LIMIT 100`, uid, uid)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := []TerminalSession{}
 	for rows.Next() {
 		t, err := readTerminal(rows)
 		if err != nil {
+			rows.Close()
 			return nil, err
 		}
 		out = append(out, t)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	nowTime := time.Now()
+	for i := range out {
+		s.populateAttention(uid, &out[i], nowTime)
+	}
+	return out, nil
 }
 
 // ArchiveTerminalFor hides only confirmed closed sessions from browser history.

@@ -36,6 +36,7 @@ func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/v2/terminal/sessions/{id}", s.terminal(s.terminalRename))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/end", s.terminal(s.terminalEnd))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/archive", s.terminalAccess(s.terminalArchive, true))
+	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/seen", s.terminalAccess(s.terminalSessionSeen, true))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/attachments", s.terminal(s.terminalAttachment))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/uploads", s.terminal(s.terminalUpload))
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/history", s.terminal(s.terminalHistory))
@@ -198,10 +199,14 @@ func (s *server) terminalMachineYolo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) terminalSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, err := s.st.TerminalSessionsFor(s.uid(r))
+	uid := s.uid(r)
+	sessions, err := s.st.TerminalSessionsFor(uid)
 	if err != nil {
 		terminalError(w, err)
 		return
+	}
+	for i := range sessions {
+		s.terminals.ApplyChatAttention(uid, &sessions[i])
 	}
 	writeJSON(w, 200, map[string]any{"sessions": sessions})
 }

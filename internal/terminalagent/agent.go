@@ -93,10 +93,16 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						return
 					}
 					for _, s := range sessions {
-						state := terminalproto.SessionChanged{State: s.State, ExitCode: s.ExitCode}
+						state := terminalproto.SessionChanged{
+							State:      s.State,
+							ExitCode:   s.ExitCode,
+							ActivityAt: s.ActivityAt,
+							BellAt:     s.BellAt,
+							ExitStatus: s.ExitCode,
+						}.ForFeatures(headers.Get(terminalproto.FeatureHeader))
 						old, known := observed[s.ID]
 						sameCode := old.ExitCode == nil && state.ExitCode == nil || old.ExitCode != nil && state.ExitCode != nil && *old.ExitCode == *state.ExitCode
-						if !initial && (!known || old.State != state.State || !sameCode) {
+						if !initial && (!known || old.State != state.State || !sameCode || old.ActivityAt != state.ActivityAt || old.BellAt != state.BellAt) {
 							if send(ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: s.ID, Generation: generation, Body: state}) != nil {
 								return
 							}
@@ -490,7 +496,15 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						return sessions[i].UpdatedAt > sessions[j].UpdatedAt
 					})
 					for _, s := range sessions {
-						snapshot.Sessions = append(snapshot.Sessions, terminalproto.SessionSnapshot{ID: s.ID, Title: s.Title, State: s.State, ExitCode: s.ExitCode})
+						snapshot.Sessions = append(snapshot.Sessions, terminalproto.SessionSnapshot{
+							ID:         s.ID,
+							Title:      s.Title,
+							State:      s.State,
+							ExitCode:   s.ExitCode,
+							ActivityAt: s.ActivityAt,
+							BellAt:     s.BellAt,
+							ExitStatus: s.ExitCode,
+						}.ForFeatures(headers.Get(terminalproto.FeatureHeader)))
 					}
 				}
 				reply.Body = reconcileSnapshot(snapshot.Sessions, chats.snapshots())
@@ -506,14 +520,28 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					return respond(err)
 				}
 				// Only a worktree create's session has a worktree to report.
-				reply.Body = terminalproto.SessionChanged{State: s.State, ExitCode: s.ExitCode, WorktreePath: s.WorktreePath, WorktreeRepo: s.WorktreeRepo}
+				reply.Body = terminalproto.SessionChanged{
+					State:        s.State,
+					ExitCode:     s.ExitCode,
+					ActivityAt:   s.ActivityAt,
+					BellAt:       s.BellAt,
+					ExitStatus:   s.ExitCode,
+					WorktreePath: s.WorktreePath,
+					WorktreeRepo: s.WorktreeRepo,
+				}.ForFeatures(headers.Get(terminalproto.FeatureHeader))
 				return respond(nil)
 			case *terminalproto.End:
 				s, err := m.End(callCtx, msg.RequestID, msg.SessionID)
 				if err != nil {
 					return respond(err)
 				}
-				reply.Body = terminalproto.SessionChanged{State: s.State, ExitCode: s.ExitCode}
+				reply.Body = terminalproto.SessionChanged{
+					State:      s.State,
+					ExitCode:   s.ExitCode,
+					ActivityAt: s.ActivityAt,
+					BellAt:     s.BellAt,
+					ExitStatus: s.ExitCode,
+				}.ForFeatures(headers.Get(terminalproto.FeatureHeader))
 				return respond(nil)
 			case *terminalproto.Attach:
 				if !terminalproto.ValidID(op.StreamToken) {

@@ -69,7 +69,7 @@ func (m *Manager) command(ctx context.Context, limit int, args ...string) ([]byt
 }
 
 func (m *Manager) defaults(ctx context.Context) error {
-	for _, args := range [][]string{{"set-option", "-g", "remain-on-exit", "on"}, {"set-option", "-g", "update-environment", ""}} {
+	for _, args := range [][]string{{"set-option", "-g", "remain-on-exit", "on"}, {"set-option", "-g", "update-environment", ""}, {"set-option", "-g", "monitor-bell", "on"}} {
 		if _, err := m.command(ctx, 0, args...); err != nil {
 			return err
 		}

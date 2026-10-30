@@ -36,6 +36,8 @@ type ManagedSession struct {
 	State           terminalproto.SessionState `json:"state"`
 	CreatedAt       int64                      `json:"createdAt"`
 	UpdatedAt       int64                      `json:"updatedAt"`
+	ActivityAt      int64                      `json:"activityAt,omitempty"`
+	BellAt          int64                      `json:"bellAt,omitempty"`
 	ExitCode        *int                       `json:"exitCode"`
 	PaneID          string                     `json:"paneId,omitempty"`
 	CreateRequestID string                     `json:"createRequestId"`
@@ -121,7 +123,7 @@ func (m *Manager) validateRegistry(r hostRegistry) error {
 		return ErrRegistry
 	}
 	for id, s := range r.Sessions {
-		if id != s.ID || !terminalproto.ValidID(id) || !terminalproto.ValidID(s.CreateRequestID) || !terminalproto.ValidTitle(s.Title) || !s.State.Valid() || s.CreatedAt <= 0 || s.UpdatedAt < s.CreatedAt || s.ExitCode != nil && (s.State != terminalproto.Exited || *s.ExitCode < 0 || *s.ExitCode > 255) || s.PaneID != "" && !paneID.MatchString(s.PaneID) {
+		if id != s.ID || !terminalproto.ValidID(id) || !terminalproto.ValidID(s.CreateRequestID) || !terminalproto.ValidTitle(s.Title) || !s.State.Valid() || s.CreatedAt <= 0 || s.UpdatedAt < s.CreatedAt || s.ActivityAt < 0 || s.BellAt < 0 || s.ExitCode != nil && (s.State != terminalproto.Exited || *s.ExitCode < 0 || *s.ExitCode > 255) || s.PaneID != "" && !paneID.MatchString(s.PaneID) {
 			return ErrRegistry
 		}
 		if op, ok := r.Operations[receiptKey("create", s.CreateRequestID)]; !ok || op.SessionID != id {

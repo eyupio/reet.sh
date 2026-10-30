@@ -176,7 +176,7 @@ try {
   // and MCP, which no agent reports yet.
   await expect(studio.locator('.pill')).toHaveText(['Agents 2', 'Skills —', 'MCP —'])
   await expect(studio.locator('.pill').first()).toHaveAttribute('title', /claude, codex/)
-  await expect(strip(page).getByRole('button', {name:'New session on studio'})).toBeVisible()
+  await expect(strip(page).getByRole('button', {name:'New on studio'})).toBeVisible()
   const desk = card(page,'desk')
   await expect(desk.locator('.os')).toHaveText('macOS')
   await expect(desk.locator('.skills')).toHaveText('2 skills out of date')
@@ -193,9 +193,9 @@ try {
   await context.close()
  }
 
- // A project's + and New session here start at once (never only moving the bar's project), and a machine's + or menu's
- // New session asks which project on that machine to start, or a terminal session.
- if (run('a project + starts at once and a machine + asks what to start')) {
+  // A project's + and New session here start at once (never only moving the bar's project), and a machine's + offers a
+  // session, a new project and a terminal, with New session asking which project on that machine to start.
+  if (run('a project + starts at once and a machine + asks what to start')) {
   const {context,page,errors,box} = await home()
   await page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:200, contentType:'text/html', body:'<title>t</title>'}))
   await page.goto(base)
@@ -211,8 +211,11 @@ try {
   await expect.poll(() => box.createdBody?.projectId ?? null).toBe('fp1')
   await expect(page).toHaveURL(/\/sessions\?/)
   await page.goto(base)
-  // The machine's + asks what to start there: its own projects, not another machine's, and a terminal.
-  await strip(page).getByRole('button',{name:'New session on studio'}).click()
+  // The machine's + offers what to start there; New session asks which of its own projects, not another machine's.
+  await strip(page).getByRole('button',{name:'New on studio'}).click()
+  const create = page.getByRole('menu',{name:'studio'})
+  await expect(create.getByRole('menuitem')).toHaveText(['New session…','New project…','New terminal'])
+  await create.getByRole('menuitem',{name:'New session…'}).click()
   const chooser = page.getByRole('dialog',{name:'Start on studio',exact:true})
   await expect(chooser).toBeVisible()
   await expect(chooser.getByRole('button',{name:/^Store rewrite/})).toBeVisible()
@@ -223,10 +226,10 @@ try {
   expect(box.createdBody.tool).toBeUndefined()
   await expect(page).toHaveURL(/\/sessions\?/)
   await page.goto(base)
-  // A right-click on the machine opens its menu (New session, New terminal, Open on Machines, Skills & sync).
+  // A right-click on the machine opens the full menu (New session, New project, New terminal, Open on Machines, Skills & sync).
   await strip(page).getByRole('link',{name:/^studio, /}).click({button:'right'})
   const menu = page.getByRole('menu',{name:'studio'})
-  await expect(menu.getByRole('menuitem')).toHaveText(['New session…','New terminal','Open on Machines','Skills & sync'])
+  await expect(menu.getByRole('menuitem')).toHaveText(['New session…','New project…','New terminal','Open on Machines','Skills & sync'])
   await menu.getByRole('menuitem',{name:'New terminal'}).click()
   await expect.poll(() => box.createdBody?.title ?? null).toBe('Shell')
   expect(box.createdBody.tool).toBeUndefined()
@@ -235,7 +238,26 @@ try {
   await context.close()
  }
 
- // A lost terminal reply keeps the request id: asking again recovers the same create instead of starting a second shell.
+ // New project on a machine opens Add a project with that machine already chosen, even when another machine is the one it
+ // would browse by default. Escape gives focus back to the + that opened it and saves nothing.
+ if (run('a machine New project opens Add a project on that machine')) {
+  const {context,page,errors,box} = await home()
+  await page.goto(base)
+  const plus = strip(page).getByRole('button',{name:'New on desk'})
+  await plus.click()
+  await page.getByRole('menu',{name:'desk'}).getByRole('menuitem',{name:'New project…'}).click()
+  const d = page.getByRole('dialog',{name:'Add a project',exact:true})
+  await expect(d).toBeVisible()
+  await expect(d.getByRole('combobox',{name:'Machine'})).toHaveValue('a2')
+  await expect(d.locator('.machine-row')).toContainText('desk')
+  await expect(d.locator('.machine-row')).toContainText('· offline')
+  await page.keyboard.press('Escape')
+  await expect(d).toBeHidden()
+  await expect(plus).toBeFocused()
+  expect(box.writes).toHaveLength(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
  if (run('a lost terminal reply is retried with the same request id')) {
   const posts = []
   const {context,page,errors,box} = await home({routes:{
@@ -251,11 +273,13 @@ try {
   }})
   await page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:200, contentType:'text/html', body:'<title>t</title>'}))
   await page.goto(base)
-  await strip(page).getByRole('button',{name:'New session on studio'}).click()
+  await strip(page).getByRole('button',{name:'New on studio'}).click()
+  await page.getByRole('menu',{name:'studio'}).getByRole('menuitem',{name:'New session…'}).click()
   await page.getByRole('dialog',{name:'Start on studio',exact:true}).getByRole('button',{name:/^Terminal session/}).click()
   await expect.poll(() => posts.length).toBe(1)
   await expect(page.getByText(/may have started/)).toBeVisible()
-  await strip(page).getByRole('button',{name:'New session on studio'}).click()
+  await strip(page).getByRole('button',{name:'New on studio'}).click()
+  await page.getByRole('menu',{name:'studio'}).getByRole('menuitem',{name:'New session…'}).click()
   await page.getByRole('dialog',{name:'Start on studio',exact:true}).getByRole('button',{name:/^Terminal session/}).click()
   await expect.poll(() => posts.length).toBe(2)
   expect(posts[1].requestId).toBe(posts[0].requestId)

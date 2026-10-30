@@ -336,13 +336,10 @@ func (h *chatHost) publish(cs *chatSession, event opencodeacp.Event) {
 	_ = h.send(h.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
 		Generation: h.generation, Body: &wire})
 	if cs.yolo && event.Kind == "permission" && event.PermissionID != "" {
-		// YOLO answers this once, for the person; the resolved event lets the
-		// controller record it and the chat show what was allowed.
-		if err := cs.process.Allow(event.PermissionID, true); err == nil {
-			allow := true
-			_ = h.send(h.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
-				Generation: h.generation, Body: &terminalproto.ACPEvent{Kind: "permission_resolved", PermissionID: event.PermissionID, Allow: &allow}})
-		}
+		// YOLO answers this once, for the person. The process emits the real
+		// permission_resolved (which may be a rejection when no allow-once
+		// option exists), and that is what the controller audits.
+		_ = cs.process.Allow(event.PermissionID, true)
 	}
 	if event.Kind == "status" && event.State == "ended" {
 		h.ended(cs, 0)

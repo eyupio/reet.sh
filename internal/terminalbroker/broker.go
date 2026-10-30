@@ -533,6 +533,17 @@ func (b *Broker) yoloAllowed() bool {
 	return err == nil && v == "1"
 }
 
+// auditYoloLaunch records the one successful YOLO launch for a session,
+// including when the create reply was lost and a retry recovered it.
+func (b *Broker) auditYoloLaunch(uid int64, agent string, in terminalproto.Create, s store.TerminalSession) {
+	if !in.Yolo {
+		return
+	}
+	_ = b.st.AddEventOnceFor(uid, "machine", "yolo-launch", "", map[string]string{
+		"machine": agent, "tool": in.Tool, "session": s.ID, "worktree": s.WorktreePath,
+	})
+}
+
 func launchRequested(in terminalproto.Create) bool {
 	return in.Base != "" || in.Effort != "" || in.Yolo || in.Resume || in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != "" || worktreeRequested(in)
 }
@@ -673,6 +684,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 				return s, false, err
 			}
 			s, err = b.st.TerminalSessionFor(uid, s.ID)
+			if err == nil && s.State != terminalproto.Creating && s.State != terminalproto.Lost {
+				b.auditYoloLaunch(uid, agent, in, s)
+			}
 			return s, err == nil && s.State != terminalproto.Creating && s.State != terminalproto.Lost, err
 		}
 		if s.State == terminalproto.Lost {
@@ -695,6 +709,10 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 					}
 				}
 			}
+			return s, false, nil
+		}
+		if s.State != terminalproto.Creating {
+			b.auditYoloLaunch(uid, agent, in, s)
 		}
 		return s, false, nil
 	}
@@ -750,10 +768,8 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	if err == nil && refusal != nil {
 		err = refusal
 	}
-	if err == nil && refusal == nil && in.Yolo {
-		_ = b.st.AddEventFor(uid, "machine", "yolo-launch", "", map[string]string{
-			"machine": agent, "tool": in.Tool, "session": s.ID, "worktree": s.WorktreePath,
-		})
+	if err == nil && refusal == nil {
+		b.auditYoloLaunch(uid, agent, in, s)
 	}
 	return s, err == nil && s.State != terminalproto.Creating && s.State != terminalproto.Lost, err
 }

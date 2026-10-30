@@ -41,10 +41,15 @@ func (f *fakeChat) Cancel() error {
 	f.mu.Unlock()
 	return nil
 }
-func (f *fakeChat) Allow(_ string, allow bool) error {
+func (f *fakeChat) Allow(id string, allow bool) error {
 	f.mu.Lock()
 	f.allow = append(f.allow, allow)
+	onEvent := f.onEvent
 	f.mu.Unlock()
+	if onEvent != nil {
+		answer := allow
+		onEvent(opencodeacp.Event{Kind: "permission_resolved", PermissionID: id, Allow: &answer})
+	}
 	return nil
 }
 func (f *fakeChat) SessionID() string     { return "ses_fake000000000000000000000001" }

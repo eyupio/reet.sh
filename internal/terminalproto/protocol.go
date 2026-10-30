@@ -426,7 +426,7 @@ const (
 	// ACPUnavailable means the machine did not negotiate acp-v1 or has no
 	// supported OpenCode to start.
 	ACPUnavailable ResultCode = "acp_unavailable"
-	// ACPVersion means OpenCode is installed but is not exactly 1.19.5.
+	// ACPVersion means OpenCode is missing or older than the verified floor.
 	ACPVersion ResultCode = "acp_version"
 	// ACPTrustRequired means the folder has .opencode plugins and the start
 	// did not carry the person's trust confirmation.

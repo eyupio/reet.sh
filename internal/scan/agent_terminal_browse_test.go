@@ -43,7 +43,7 @@ func browseEnrollment(t *testing.T) (string, agentConfig) {
 // browseThrough sends one browse to the connector this enrollment makes.
 func browseThrough(t *testing.T, config string, c agentConfig) terminalproto.BrowseResult {
 	t.Helper()
-	factory := terminalControl(config, c)
+	factory := terminalControl(t.Context(), config, c)
 	if factory == nil {
 		t.Fatal("no terminal control")
 	}

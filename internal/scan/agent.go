@@ -353,7 +353,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 		go func() {
 			defer close(monitorDone)
 			if err := agenthealth.RunAgent(ctx, agenthealth.AgentConfig{
-				TerminalSession:  terminalControl(*config, c),
+				TerminalSession:  terminalControl(ctx, *config, c),
 				LaunchTools:      launchTools,
 				GitAvailable:     gitAvailable,
 				BrowseAllowed:    browseAllowed(*config, c),

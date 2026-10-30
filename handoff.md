@@ -181,10 +181,12 @@ After the reet TUI slices:
   panel, replacing the context panel while it is open; Close ends it. The agent TUI/reet TUI stays in the main column.
 - **reet TUI history is in memory, but OpenCode keeps it.** The controller keeps at most 1,000 events / 256 KiB per reet session and
   writes no transcript. A closed reet session can be reopened with Continue in reet TUI with history… as a new row that runs
-  `session/load`; the old row stays. A server restart clears the live ring; archiving drops it. A lost machine connection
-  kills every reet process group; a reconnect marks the live session lost, and its stored id can still be reopened if
+  `session/load`; the old row stays. A server restart clears the live ring; archiving drops it. A control connection loss
+  detaches chats without killing them; the next connection adopts the running process, reconciles it as running, and drains
+  the bounded queue of events produced while detached. Restarting the agent ends them; a stored id can still be reopened if
   OpenCode's own store survives. Pending approvals are not restored; replayed tools are shown interrupted.
-- **OpenCode 1.19.5 only.** The connector refuses another version before starting a process. The seven conditions in
+- **OpenCode 1.19.5 or newer.** The connector refuses an older version before starting a process; the ACP handshake must
+  also name `OpenCode` and speak protocol 1. The seven conditions in
   [structured-sessions.md](docs/structured-sessions.md) are mandatory; a repository with `.opencode` plugins needs the
   Start dialog's trust confirmation. Always allow is never offered, and a diff or command too large for one control frame
   cannot be allowed.
@@ -320,7 +322,7 @@ once / Deny only, and only with all seven conditions:
   replays before its result. Store the `acpSessionId`, never a transcript. `CanResumeACPSessionFor` restricts the id to
   this account's closed structured sessions on that machine. Replayed pending tools are marked interrupted; pending
   approvals are not restored. The old row stays in history.
-- **reet TUI:** the machine-side `internal/opencodeacp` starts exactly `opencode-ai@1.19.5` with
+- **reet TUI:** the machine-side `internal/acpagent` starts `opencode acp` at or above `1.19.5` with
   `OPENCODE_CONFIG_CONTENT`, `OPENCODE_DISABLE_PROJECT_CONFIG=1`, a random `OPENCODE_SERVER_PASSWORD`, `task: deny` and
   the environment allowlist. It answers `fs/write_text_file` with success without writing (OpenCode already wrote the
   file), checks mode `build`, offers `once`/`reject` only, closes its own cards on cancel/timeout, and kills the process
@@ -372,7 +374,7 @@ once / Deny only, and only with all seven conditions:
 | Typed private transport and broker | `internal/terminalproto`, `internal/terminalagent`, `internal/terminalbroker`, `internal/privateconn` |
 | Terminal API and records | `internal/api/terminal.go`, `internal/store/store_terminal.go` |
 | Terminal UI and connection state | `web/src/lib/terminal/TerminalWorkspace.svelte`, `TerminalPane.svelte`, `api.ts`, `connection.ts` |
-| OpenCode in the reet TUI | `internal/opencodeacp` (process, config, env, permissions), `internal/terminalagent/chat.go` (dispatch), `internal/terminalbroker/chat.go` (ring/commands), `internal/api/terminal_chat.go` (SSE and POSTs), `web/src/lib/chat.ts` and `terminal/ChatPane.svelte` |
+| OpenCode in the reet TUI | `internal/acpagent` (agent spec, process, config, env, permissions), `internal/terminalagent/chat.go` (dispatch), `internal/terminalbroker/chat.go` (ring/commands), `internal/api/terminal_chat.go` (SSE and POSTs), `web/src/lib/chat.ts` and `terminal/ChatPane.svelte` |
 | Controller enablement | `cmd/reet/terminal.go`, `internal/terminalcontrol`, `docs/terminal-controller-commands.md` |
 | Machine health | `internal/agenthealth`, `internal/store/store_remote_health.go`, `internal/api/health.go` |
 | Notifications | `internal/notify`, `internal/store/store_notify.go`, `internal/api/notifications.go`, `web/src/lib/Notifications.svelte` |

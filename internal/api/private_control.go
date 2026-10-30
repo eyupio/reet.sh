@@ -29,13 +29,14 @@ var privateControlFeatures = agreedControlFeatures(terminalproto.Capabilities{Ag
 // privateControl upgrades the exact private control route, authenticates the
 // enrollment, assigns a connection generation, and then services typed control
 // messages. The listener context, not a header, proves the transport.
-// isPeerReply lists the terminal-facing replies the broker may receive.
+// isPeerReply lists the terminal and chat messages the broker may receive.
 // Health, probe and hello messages are handled before this check.
 func isPeerReply(body terminalproto.Body) bool {
 	switch body.(type) {
 	case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.SessionChanged,
 		*terminalproto.WorktreeState, *terminalproto.WorktreeResult,
-		*terminalproto.BrowseResult, *terminalproto.BranchesResult, *terminalproto.ModelsResult:
+		*terminalproto.BrowseResult, *terminalproto.BranchesResult, *terminalproto.ModelsResult,
+		*terminalproto.ACPEvent:
 		return true
 	}
 	return false

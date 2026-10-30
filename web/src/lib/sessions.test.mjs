@@ -173,7 +173,7 @@ test('session header: agent · model · started, and the decisions line', () => 
   assert.equal(decisionsLine({ yolo: true, structured: true }), 'YOLO: reet answers yes, this once, to each request.')
   assert.equal(decisionsLine({ yolo: true, structured: false }), 'YOLO: the agent asked not to be prompted; the launch is audited.')
   assert.equal(decisionsLine({ structured: true }), 'Asked in the chat: Allow once or Deny.')
-  assert.deepEqual(continueChatLaunch({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site', projectId: 'p1' }), { tool: 'opencode', dir: '/home/u/site', structured: true, trust: true, resumeAcp: 'ses_1', projectId: 'p1' })
+  assert.deepEqual(continueChatLaunch({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site', projectId: 'p1', model: 'anthropic/claude-sonnet-4-5' }), { tool: 'opencode', dir: '/home/u/site', model: 'anthropic/claude-sonnet-4-5', structured: true, trust: true, resumeAcp: 'ses_1', projectId: 'p1' })
   assert.equal(continueChatLaunch({ structured: true, acpSessionId: 'ses_1', state: 'running', dir: '/home/u/site' }), null)
   assert.deepEqual(continueChatLaunch({ structured: true, acpSessionId: 'ses_1', state: 'exited' }), { tool: 'opencode', structured: true, trust: true, resumeAcp: 'ses_1' })
   assert.equal(continueChatLaunch({ structured: true, state: 'exited', dir: '/home/u/site' }), null)

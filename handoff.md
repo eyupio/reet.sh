@@ -41,8 +41,15 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
   `attention-v1` terminal sessions and structured reet TUI sessions, Home's **Needs you** queue, the bell popover,
   `(N)` document title prefix, polite live-region announcements, and Codex's YOLO preset updated to
   `--ask-for-approval never`).
-- **Next stage:** other Program 2 slices (which need their own probes); Agents home PRs D, A, B, C, E, F, G, H are
-  all implemented.
+- **Merged PR:** [#270](https://github.com/eyupio/reet.sh/pull/270) added reet TUI model choice and provider-error
+  recovery. OpenCode's `stream error` log is surfaced when a provider rejects a model, and the shared model picker lets a
+  reet TUI session use a selected model while preserving OpenCode's configured default. F shipped: the account's Allow YOLO setting (`GET`/`PUT
+  /api/v2/settings/yolo`, owners and admins change it), the machine's `reet terminal yolo
+  on|off|status` switch and `yolo` capability, reviewed options for Codex/OpenCode/Cline, controller
+  gates and audit, structured `allow_once` answers, the confirmation dialog and badges. #266 fixed the
+  launch audit on a mismatched worktree and kept generic machine refusals from counting as started.
+- **Next stage:** other Program 2 slices still need their own probes; Agents home PRs D, A, B, C, E, F, G, H are
+  implemented, with G on this branch.
 - **Do first:** for the next PR, check its final head with the REST forms
   (`gh api repos/eyupio/reet.sh/pulls/<n>` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
   `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). Merge only when every check is green and Codex has

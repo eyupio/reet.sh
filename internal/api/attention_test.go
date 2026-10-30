@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -136,5 +137,72 @@ func TestStructuredChatPermissionResolvedRestoresWorkingAttention(t *testing.T) 
 	got = readOne()
 	if got.Attention != "working" || got.AttentionSource != "chat" {
 		t.Fatalf("after permission resolved got %+v", got)
+	}
+
+	// Completing the turn moves attention to finished; marking it seen dismisses
+	// it, and a later connector reconciliation that advances UpdatedAt must not
+	// resurrect the dismissed finished state.
+	send(terminalproto.ACPEvent{Kind: "status", State: "idle"})
+	got = readOne()
+	if got.Attention != "finished" || !got.ChangedSinceSeen {
+		t.Fatalf("after idle got %+v", got)
+	}
+	f.srv.s.publicURL = "https://reet.example"
+	seenReq := httptest.NewRequest(http.MethodPost, "/api/v2/terminal/sessions/"+session+"/seen", strings.NewReader(`{}`))
+	seenReq.Header.Set("Content-Type", "application/json")
+	seenReq.Header.Set("Origin", "https://reet.example")
+	seenReq.AddCookie(&http.Cookie{Name: sessionCookie, Value: f.cookie})
+	seenRec := httptest.NewRecorder()
+	f.srv.ServeHTTP(seenRec, seenReq)
+	if seenRec.Code != http.StatusOK {
+		t.Fatalf("POST seen: %d %s", seenRec.Code, seenRec.Body.String())
+	}
+	time.Sleep(5 * time.Millisecond)
+	if err := f.st.ObserveTerminalStateFor(f.uid, f.agent.ID, session, f.peer.Generation, terminalproto.Running, nil); err != nil {
+		t.Fatal(err)
+	}
+	got = readOne()
+	if got.Attention != "quiet" || got.ChangedSinceSeen {
+		t.Fatalf("after reconcile following seen got %+v", got)
+	}
+
+	// If a new permission arrives and the controller restarts (replacing the in-memory
+	// broker), reconciliation restores chat attention tracking and accepts subsequent
+	// ACP events without requiring a browser to open the chat stream first.
+	send(terminalproto.ACPEvent{Kind: "status", State: "working"})
+	send(terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-9876543210", Title: "git status", Command: "git status"})
+	send(terminalproto.ACPEvent{Kind: "status", State: "waiting"})
+
+	restarted := terminalbroker.New(f.st)
+	t.Cleanup(restarted.Close)
+	f.srv.s.terminals = restarted
+	var peer2 *terminalbroker.Peer
+	peer2, err := restarted.Connect(f.uid, f.agent.ID, f.peer.Generation+1, true, func(_ context.Context, m terminalproto.Message) error {
+		if _, ok := m.Body.(terminalproto.Reconcile); ok {
+			reply := m
+			reply.Body = &terminalproto.Reconcile{
+				Complete: true,
+				Sessions: []terminalproto.SessionSnapshot{{ID: session, Title: "Chat", State: terminalproto.Running}},
+			}
+			return peer2.Receive(reply)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = readOne()
+	if got.Attention != "waiting" || !got.ChangedSinceSeen {
+		t.Fatalf("after controller restart got %+v", got)
+	}
+	if err := peer2.Receive(terminalproto.Message{
+		Version: 1, RequestID: terminalbroker.ID(), SessionID: session, Generation: peer2.Generation,
+		Body: &terminalproto.ACPEvent{Kind: "permission_resolved", PermissionID: "permission-9876543210", Allow: &allow},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got = readOne()
+	if got.Attention != "working" || got.AttentionSource != "chat" {
+		t.Fatalf("after resolving permission on restarted controller got %+v", got)
 	}
 }

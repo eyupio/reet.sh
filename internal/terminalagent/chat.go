@@ -42,6 +42,11 @@ type chatSession struct {
 	yolo      bool
 	ended     sync.Once
 
+	activityAt int64
+	bellAt     int64
+	lastStatus *terminalproto.ACPEvent
+	pending    []terminalproto.ACPEvent
+
 	// outbox holds events produced while no control connection is attached,
 	// oldest first. It is bounded by the same event and byte ceilings as the
 	// controller's ring, and sheds the oldest first.
@@ -169,6 +174,9 @@ func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func
 		return &chatHost{sup: s, link: link}
 	}
 	s.link = link
+	for _, cs := range s.sessions {
+		seedRecoveredChatEvents(cs)
+	}
 	s.mu.Unlock()
 
 	h := &chatHost{sup: s, link: link}
@@ -374,7 +382,11 @@ func (h *chatHost) snapshot(sessionID string) (terminalproto.SessionSnapshot, bo
 	if cs == nil {
 		return terminalproto.SessionSnapshot{}, false
 	}
-	return terminalproto.SessionSnapshot{ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit, ACPSessionID: reportedACP(cs.acpID, h.link.history)}, true
+	return terminalproto.SessionSnapshot{
+		ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit,
+		ACPSessionID: reportedACP(cs.acpID, h.link.history),
+		ActivityAt:   cs.activityAt, BellAt: cs.bellAt,
+	}, true
 }
 
 func (h *chatHost) snapshots() []terminalproto.SessionSnapshot {
@@ -382,7 +394,11 @@ func (h *chatHost) snapshots() []terminalproto.SessionSnapshot {
 	defer h.sup.mu.Unlock()
 	out := make([]terminalproto.SessionSnapshot, 0, len(h.sup.sessions))
 	for _, cs := range h.sup.sessions {
-		out = append(out, terminalproto.SessionSnapshot{ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit, ACPSessionID: reportedACP(cs.acpID, h.link.history)})
+		out = append(out, terminalproto.SessionSnapshot{
+			ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit,
+			ACPSessionID: reportedACP(cs.acpID, h.link.history),
+			ActivityAt:   cs.activityAt, BellAt: cs.bellAt,
+		})
 	}
 	// The controller only needs live sessions to avoid marking them lost; keep
 	// ended receipts too, but never let history push a live one out.
@@ -543,6 +559,7 @@ func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 
 func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 	s.mu.Lock()
+	recordChatSessionEvent(cs, wire)
 	link := s.link
 	if link == nil || !link.live {
 		bufferChatEvent(cs, wire)
@@ -558,6 +575,108 @@ func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 		}
 		bufferChatEvent(cs, wire)
 		s.mu.Unlock()
+	}
+}
+
+func recordChatSessionEvent(cs *chatSession, wire terminalproto.ACPEvent) {
+	nowMs := time.Now().UnixMilli()
+	switch wire.Kind {
+	case "status":
+		cp := wire
+		cs.lastStatus = &cp
+		switch wire.State {
+		case "working":
+			cs.activityAt = nowMs
+		case "waiting":
+			if cs.bellAt == 0 {
+				cs.bellAt = nowMs
+			}
+		case "idle", "cancelled", "error", "ended":
+			cs.pending = nil
+			cs.bellAt = 0
+		}
+	case "permission":
+		if wire.PermissionID != "" {
+			replaced := false
+			for i := range cs.pending {
+				if cs.pending[i].PermissionID == wire.PermissionID {
+					cs.pending[i] = wire
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				cs.pending = append(cs.pending, wire)
+			}
+			if cs.bellAt == 0 {
+				cs.bellAt = nowMs
+			}
+		}
+	case "permission_resolved", "permission_cancelled":
+		if wire.PermissionID != "" {
+			out := cs.pending[:0]
+			for _, p := range cs.pending {
+				if p.PermissionID != wire.PermissionID {
+					out = append(out, p)
+				}
+			}
+			cs.pending = out
+			if len(cs.pending) == 0 {
+				cs.bellAt = 0
+				if cs.lastStatus != nil && cs.lastStatus.State == "waiting" {
+					next := "idle"
+					if cs.busy || (cs.process != nil && cs.process.Working()) {
+						next = "working"
+					}
+					cs.lastStatus = &terminalproto.ACPEvent{Kind: "status", State: next}
+				}
+			}
+		}
+	case "agent", "tool", "user":
+		cs.activityAt = nowMs
+	}
+}
+
+func seedRecoveredChatEvents(cs *chatSession) {
+	if cs.state != terminalproto.Running {
+		return
+	}
+	var prefix []terminalproto.ACPEvent
+	if cs.lastStatus != nil && (cs.lastStatus.State == "working" || cs.lastStatus.State == "waiting" || cs.lastStatus.State == "starting") {
+		hasStatus := false
+		for _, e := range cs.outbox {
+			if e.Kind == "status" {
+				hasStatus = true
+				break
+			}
+		}
+		if !hasStatus {
+			prefix = append(prefix, *cs.lastStatus)
+		}
+	}
+	for _, p := range cs.pending {
+		inOutbox := false
+		for _, e := range cs.outbox {
+			if (e.Kind == "permission" || e.Kind == "permission_resolved" || e.Kind == "permission_cancelled") && e.PermissionID == p.PermissionID {
+				inOutbox = true
+				break
+			}
+		}
+		if !inOutbox {
+			prefix = append(prefix, p)
+		}
+	}
+	if len(prefix) == 0 {
+		return
+	}
+	saved := cs.outbox
+	cs.outbox = nil
+	cs.outboxBytes = 0
+	for _, e := range prefix {
+		bufferChatEvent(cs, e)
+	}
+	for _, e := range saved {
+		bufferChatEvent(cs, e)
 	}
 }
 

@@ -215,6 +215,7 @@ func (b *Broker) start() bool {
 	return true
 }
 func (b *Broker) Connect(uid int64, agent string, generation int64, enabled bool, send Sender) (*Peer, error) {
+	b.restoreAgentChats(uid, agent)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	k := key{uid, agent}
@@ -494,6 +495,15 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 		}
 		if exists && (observed.ActivityAt > 0 || observed.BellAt > 0 || observed.ExitStatus != nil || p.b.peerSupportsAttention(p.key.uid, p.key.agent)) {
 			_ = p.b.st.ObserveTerminalAttentionFor(p.key.uid, p.key.agent, s.ID, p.Generation, observed.ActivityAt, observed.BellAt)
+		}
+		if exists && s.Structured && state.ReservesQuota() {
+			if observed.ActivityAt > s.ActivityAt {
+				s.ActivityAt = observed.ActivityAt
+			}
+			if observed.BellAt > s.BellAt {
+				s.BellAt = observed.BellAt
+			}
+			p.b.restoreChat(p.key.uid, s)
 		}
 		if exists && observed.ACPSessionID != "" {
 			if err := p.b.st.RecordTerminalACPSessionFor(p.key.uid, p.key.agent, s.ID, observed.ACPSessionID); err != nil && !errors.Is(err, store.ErrTerminalConflict) {

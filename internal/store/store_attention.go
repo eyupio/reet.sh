@@ -157,6 +157,23 @@ func (s *Store) ObserveTerminalAttentionFor(uid int64, agentID, sessionID string
 	})
 }
 
+// SetTerminalChatAttentionFor records the current activity and waiting timestamps
+// of a structured chat session without advancing updated_at.
+func (s *Store) SetTerminalChatAttentionFor(uid int64, sessionID string, activityAt, bellAt int64) error {
+	if !terminalproto.ValidID(sessionID) || activityAt < 0 || bellAt < 0 {
+		return terminalproto.ErrInvalid
+	}
+	actMs := attentionMillis(activityAt)
+	bellMs := attentionMillis(bellAt)
+	_, err := s.db.Exec(`UPDATE terminal_sessions SET
+		activity_at = CASE WHEN ? > activity_at THEN ? ELSE activity_at END,
+		bell_at = ?,
+		attention_observed = 1
+		WHERE user_id = ? AND id = ? AND structured = 1`,
+		actMs, actMs, bellMs, uid, sessionID)
+	return err
+}
+
 // MarkSessionSeenFor records when uid last saw sessionID. Each person has their
 // own seen timestamp per session.
 func (s *Store) MarkSessionSeenFor(uid int64, sessionID string, at int64) error {

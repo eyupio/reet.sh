@@ -357,6 +357,48 @@ startup, not on every launch. Next: reviewed batch apply with a pilot order, and
 `internal/terminalbroker/software.go`, `internal/api/software.go`, `web/src/lib/MachineSettings.svelte` and
 `web/src/lib/FleetSoftware.svelte`.
 
+**L3, reviewed batch apply (PR [#314](https://github.com/eyupio/reet.sh/pull/314)):** the fleet review now selects machines into an **ordered batch**. The
+controller rebuilds each plan from stored evidence and freezes it; a machine that cannot apply (no plan, a live
+OpenCode session, no `software-apply-v1`, already at the target, or held by another active batch) is excluded with its
+reason shown. A batch applies one machine at a time in position order and stops at the first failure; a stopped batch
+offers **Retry**, **Skip and continue** or **Abandon batch**. A refused plan whose machine already shows the target
+version, and a member left running by a controller restart, are reconciled as applied. At most one batch is active per
+signed-in person; a machine is in at most one. New durable tables `software_batches` / `software_batch_members`
+(`internal/store/store_software.go`), a `softwarerun` orchestrator modelled on `projectrun`
+(`internal/softwarerun/run.go`), and routes `POST/GET /api/v2/software/batches…` with retry/skip/abandon
+(`internal/api/software.go`). Progress is polled; `FleetSoftware.svelte` carries selection, accessible up/down ordering,
+one confirmation sheet and the live batch panel. Audit: `software-batch` at start and each terminal state, plus
+`software-batch-retry`, `-skip` and `-abandon`. Tests cover the store guards and transitions, the orchestrator's order,
+stop, retry, skip, offline code and reconciliation, and the API routes and audit. Checks run: `go vet ./...`; `go test`
+for `store`, `softwarerun` and the whole `api` package (210 s); `npm --prefix web run check` (includes
+`software.test.mjs`) and `npm --prefix web run build`. Not run: a live machine apply and the browser e2e suites.
+**Still not in this slice:** batching rollback/remove. Read `internal/softwarerun/run.go`,
+`internal/store/store_software.go`, `internal/api/software.go` and `web/src/lib/FleetSoftware.svelte`.
+
+**L4, controller-side artifact mirror (same PR):** an opt-in admin setting (`software_mirror_enabled`) and an
+Admin → **Software artifact mirror** section (owner/admin) with the toggle, cached size and **Cache the reviewed
+artifact now**. `internal/softwaremirror/mirror.go` downloads the pinned archive once on demand (single-flight),
+verifies its size, sha256 and sha512 and the extracted binary's sha256 and size with `agentsoftware.CheckTarball`,
+then fsyncs and atomically renames it to a content-addressed file; a partial file is never served, and GC at
+controller start keeps only the reviewed digest. The archive sha256 and size joined the pinned table
+(`internal/agentsoftware/artifact.go`). Machines fetch it over the existing private connection at
+`/private/v1/software/artifact/<archive sha256>` (exact-path allowlist, machine credentials, any enrolled machine in
+the account, four concurrent serves, exact `Content-Length`); the route 404s when the mirror is off or the digest is
+unknown. The connector derives the path from its own pinned table, tries the registry first and the mirror only when
+that fails, verifies the same pinned artifact either way, and reports `registry`, `mirror` or `registry+mirror` in the
+apply result. Timeouts: registry leg 5 minutes, mirror leg 15, connector apply 20, broker 21, orchestrator and
+per-machine API 22. `FleetSoftware.svelte` carries the mirror status line. Tests cover the mirror's cache, single-flight,
+corrupt/truncated files and GC; the connector's fallback and both-failed reporting; and the settings, cache action and
+private route (enabled, disabled, unknown digest, wrong credential). Checks run: `go vet ./...`; `go test` for
+`agentsoftware`, `softwaremirror`, `terminalhost`, `terminalagent`, `store`, `softwarerun` and the whole `api` package;
+`npm --prefix web run check` and `npm --prefix web run build`. Not run: a live registry download into a real mirror, a live
+machine fallback, or the browser e2e suites. **Publication state (verified, not inferred):** branch
+`feat/software-batches-mirror` is pushed and PR #314 is open; nothing is merged, released or deployed. **Next:** the
+roadmap's next directions (structured chats across agents, richer run orchestration); batching rollback/remove and
+mirror resilience are later follow-ons. Read
+`internal/softwaremirror/mirror.go`, `internal/api/software_mirror.go`, `internal/api/private.go`,
+`internal/terminalhost/software_apply.go` and `internal/terminalagent/agent.go`.
+
 ## Agents home redesign (27–30 October 2026)
 
 ### Resume here (after Needs you and the approvals slice, 31 October 2026)
@@ -397,9 +439,9 @@ startup, not on every launch. Next: reviewed batch apply with a pilot order, and
   launch audit on a mismatched worktree and kept generic machine refusals from counting as started.
 - **Next stage:** L2 install/update is in [#289](https://github.com/eyupio/reet.sh/pull/289); rollback/remove and
   restart recovery in [#291](https://github.com/eyupio/reet.sh/pull/291) (stacked on #289); the plan-only fleet review
-  is in [#292](https://github.com/eyupio/reet.sh/pull/292) (stacked on #291), with a one-machine-at-a-time apply. Next:
-  reviewed batch apply with a pilot order, and a controller-side artifact mirror. Program 2, slice 4 (elicitation and
-  rich input cards) still needs its own probe.
+  is in [#292](https://github.com/eyupio/reet.sh/pull/292) (stacked on #291), with a one-machine-at-a-time apply; the
+  reviewed batch apply (L3) and the controller-side artifact mirror (L4) are built and awaiting review. Program 2,
+  slice 4 (elicitation and rich input cards) still needs its own probe.
 - **Do first:** for the next PR, check its final head with the REST forms
   (`gh api repos/eyupio/reet.sh/pulls/<n>` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
   `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). Merge only when every check is green and Codex has

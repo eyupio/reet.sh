@@ -109,6 +109,15 @@ func (s *server) privateHandler() http.Handler {
 			}
 			s.privateTerminalData(w, r)
 		default:
+			if strings.HasPrefix(r.URL.Path, "/private/v1/software/artifact/") {
+				if r.Method != http.MethodGet {
+					w.Header().Set("Allow", http.MethodGet)
+					writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+					return
+				}
+				s.privateSoftwareArtifact(w, r)
+				return
+			}
 			http.NotFound(w, r)
 		}
 	})

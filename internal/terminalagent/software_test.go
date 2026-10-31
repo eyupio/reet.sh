@@ -5,9 +5,11 @@ package terminalagent
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -30,7 +32,7 @@ func appliedSoftwareResult(t *testing.T) terminalproto.SoftwareApplyResult {
 
 func TestSoftwareApplyNeedsNegotiation(t *testing.T) {
 	original := applySoftware
-	applySoftware = func(context.Context, string, terminalproto.SoftwareApply, func(string) (string, error)) terminalproto.SoftwareApplyResult {
+	applySoftware = func(context.Context, string, terminalproto.SoftwareApply, func(string) (string, error), ...terminalhost.SoftwareSource) terminalproto.SoftwareApplyResult {
 		t.Fatal("ran without software-apply-v1")
 		return terminalproto.SoftwareApplyResult{}
 	}
@@ -45,9 +47,12 @@ func TestSoftwareApplyNeedsNegotiation(t *testing.T) {
 func TestSoftwareApplyRunsAsideAndAnswers(t *testing.T) {
 	original := applySoftware
 	called := make(chan terminalproto.SoftwareApply, 1)
-	applySoftware = func(_ context.Context, home string, req terminalproto.SoftwareApply, _ func(string) (string, error)) terminalproto.SoftwareApplyResult {
+	applySoftware = func(_ context.Context, home string, req terminalproto.SoftwareApply, _ func(string) (string, error), sources ...terminalhost.SoftwareSource) terminalproto.SoftwareApplyResult {
 		if home == "" {
 			t.Error("apply had no home")
+		}
+		if len(sources) != 1 || sources[0].Client == nil || !strings.HasSuffix(sources[0].Path, agentsoftware.OpenCodeLinuxX64.ArchiveSHA256) {
+			t.Errorf("mirror source = %+v", sources)
 		}
 		called <- req
 		return appliedSoftwareResult(t)
@@ -83,7 +88,7 @@ func TestSoftwareApplyRunsAsideAndAnswers(t *testing.T) {
 
 func TestSoftwareApplyConsentOff(t *testing.T) {
 	original := applySoftware
-	applySoftware = func(context.Context, string, terminalproto.SoftwareApply, func(string) (string, error)) terminalproto.SoftwareApplyResult {
+	applySoftware = func(context.Context, string, terminalproto.SoftwareApply, func(string) (string, error), ...terminalhost.SoftwareSource) terminalproto.SoftwareApplyResult {
 		t.Fatal("ran with consent off")
 		return terminalproto.SoftwareApplyResult{}
 	}

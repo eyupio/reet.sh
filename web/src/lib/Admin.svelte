@@ -4,8 +4,8 @@
   import { groupLabel } from './machines'
   import PageHeader from './PageHeader.svelte'
   import {
-    createInvite, deleteAdminUser, getAdminSso, getAdminStatus, getRollup, getYoloSetting, listAdminUsers, resetUserPassword, revokeUserTokens,
-    saveAdminSettings, setYoloSetting, transferOwner, updateAdminUser, type AdminStatus, type Rollup, type RollupSkill, type UserMeta, type YoloSetting,
+    cacheSoftwareMirror, createInvite, deleteAdminUser, getAdminSso, getAdminStatus, getRollup, getSoftwareMirror, getYoloSetting, listAdminUsers, resetUserPassword, revokeUserTokens,
+    saveAdminSettings, setSoftwareMirror, setYoloSetting, transferOwner, updateAdminUser, type AdminStatus, type Rollup, type RollupSkill, type SoftwareMirrorStatus, type UserMeta, type YoloSetting,
   } from './api'
   import AdminEmail from './AdminEmail.svelte'
   import AdminNotifications from './AdminNotifications.svelte'
@@ -16,6 +16,7 @@
   import { eventLabel, eventTitle } from './events'
   import { elapsed } from './time'
   import { adminRows, type AdminSso } from './sso'
+  import { bytes } from './terminal/health'
 
   let {
     onerror, role = 'owner', accounts = false, currentEmail = '',
@@ -57,6 +58,10 @@
   let yolo = $state<YoloSetting | null>(null)
   let yoloSaving = $state(false)
   let yoloNotice = $state('')
+  let mirror = $state<SoftwareMirrorStatus | null>(null)
+  let mirrorSaving = $state(false)
+  let mirrorCaching = $state(false)
+  let mirrorNotice = $state('')
   let users = $state<UserMeta[]>([])
   let usersError = $state('')
   let ssoStatus = $state<AdminSso | null>(null)
@@ -85,6 +90,7 @@
       form = { ...r.settings }
       error = ''
       try { yolo = await getYoloSetting() } catch { yolo = null }
+      try { mirror = await getSoftwareMirror() } catch { mirror = null }
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
       onerror?.(e)
@@ -352,6 +358,41 @@
       onerror?.(e)
     } finally {
       yoloSaving = false
+    }
+  }
+
+  async function saveMirror(event: Event) {
+    if (!mirror) return
+    const input = event.currentTarget as HTMLInputElement
+    const enabled = input.checked
+    mirrorSaving = true
+    mirrorNotice = ''
+    error = ''
+    try {
+      mirror = await setSoftwareMirror(enabled)
+      mirrorNotice = enabled ? 'Machines may fetch the reviewed artifact from this controller.' : 'The artifact mirror is off.'
+    } catch (e) {
+      input.checked = mirror.enabled
+      error = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      mirrorSaving = false
+    }
+  }
+
+  async function cacheMirror() {
+    if (!mirror || mirrorCaching) return
+    mirrorCaching = true
+    mirrorNotice = ''
+    error = ''
+    try {
+      mirror = await cacheSoftwareMirror()
+      mirrorNotice = 'The reviewed artifact is cached.'
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      mirrorCaching = false
     }
   }
 
@@ -755,6 +796,17 @@
       <p class="muted">Lets people start a session where the agent doesn't ask before acting. Each session still needs its own confirmation.</p>
       <label class="check"><input type="checkbox" checked={yolo.allowed} disabled={yoloSaving} onchange={saveYolo} /> Allow YOLO</label>
       <p class="muted" role="status">{yoloNotice || (yolo.changedBy ? `Last changed by ${yolo.changedBy}.` : 'Off unless an owner or admin allows it.')}</p>
+    </section>
+    {/if}
+    {#if (role === 'owner' || role === 'admin') && mirror}
+    <section class="block" aria-labelledby="admin-software-mirror">
+      <h2 id="admin-software-mirror">Software artifact mirror</h2>
+      <p class="muted">Lets machines that cannot reach registry.npmjs.org download the one reviewed OpenCode artifact from this controller. Every machine still verifies the pinned checksum before it installs anything.</p>
+      <label class="check"><input type="checkbox" checked={mirror.enabled} disabled={mirrorSaving || mirrorCaching} onchange={saveMirror} /> Serve the reviewed artifact to machines</label>
+      <p class="muted" role="status">{mirrorNotice || (mirror.cached ? `Cached ${mirror.version ?? 'the reviewed version'} (${bytes(mirror.size ?? 0)}).` : 'Not cached yet.')}</p>
+      {#if !mirror.cached}
+        <button class="btn" type="button" disabled={mirrorCaching || mirrorSaving} onclick={() => void cacheMirror()}>{mirrorCaching ? 'Caching…' : 'Cache the reviewed artifact now'}</button>
+      {/if}
     </section>
     {/if}
     {#if confirmAction}

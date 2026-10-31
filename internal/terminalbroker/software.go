@@ -11,7 +11,7 @@ import (
 // SoftwareApplyTimeout bounds one install or update. The connector's own
 // download deadline is shorter, so a timeout is reported rather than raced by
 // a late install.
-var SoftwareApplyTimeout = 6 * time.Minute
+var SoftwareApplyTimeout = 21 * time.Minute
 
 var (
 	// ErrSoftwareApplyUnsupported means the machine did not negotiate

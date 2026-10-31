@@ -73,6 +73,11 @@ func resolveRelease(ctx context.Context, client *http.Client, api, tag string) (
 	if err != nil {
 		return "", err
 	}
+	// The dev channel name is its own tag. Its release lists every build ever
+	// published, so the API response grows without bound and must not be needed.
+	if tag == "dev" {
+		return tag, nil
+	}
 	endpoint := api + "/tags/" + tag
 	if tag == "latest" {
 		endpoint = api + "/latest"

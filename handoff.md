@@ -26,6 +26,42 @@ implemented baseline, S/A/W/L task lists, start-agent-session protocol notes, Pr
 delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief) are in
 [handoff-history.md](handoff-history.md), under "Moved from handoff.md on 27 October 2026".
 
+## SC2 — Structured adapter probe checkpoint (31 October 2026)
+
+**Scope:** separate probe PR based on SC1; no new runtime adapter is enabled.
+Branch `feat/structured-adapter-probes`, stacked on
+[SC1 PR #300](https://github.com/eyupio/reet.sh/pull/300). See
+[the probe report](docs/research/structured-adapters/probe-report.md) and its
+narrowed protocol fixtures. This is partial SC2 evidence, not completion of the
+first additional-agent integration.
+
+**Observed:** Claude adapter 0.99.1 / SDK 0.3.312 / native Claude Code 2.1.312,
+and Codex adapter 1.13.1 / CLI 0.156.1, on Linux x86-64 with Node 22.23.4.
+Adapter tarball SHA-512 values match recorded registry metadata. Both real
+adapters initialized and created UUID-style sessions with fs/terminal delegation
+disabled; Codex needed explicit synthetic-key ACP authentication. Claude Bash
+and Write allow/deny controlled actual marker-file effects against a local stub;
+form negotiation enabled AskUserQuestion and a typed answer completed the turn.
+Write's typed content diff needs normalization before reet can review/allow it.
+
+**Checks:** runnable standard-library Python probes, syntax/formatting and
+recorded wire fixtures; actual candidate process versions and stub-backed
+permission/question assertions. SC1's complete Go race suite, vet, web
+check/build, MCP and browser checks passed separately. No live provider, real
+credentials, physical phone or cross-OS verification was used here.
+
+**Next unchecked task:** finish Claude's trust/override, cancellation/process
+retirement, history/load, model and subagent probes; then add adapter-specific
+UUID validation and bounded edit normalization. Keep unverified candidates and
+form capability disabled. Codex tool/approval/provider/error paths need their own
+stub probes. Read `scripts/probe-structured-adapters.py`,
+`scripts/probe-claude-turn.py`, the report, `internal/acpagent/session.go` and
+`internal/terminalproto/acp_agents.go`.
+
+**Publication:** separate PR proposed; nothing merged, released or deployed.
+This handoff must be updated with the PR link, checks and remaining gates when
+publishing or extending the checkpoint.
+
 ## SC1 — Per-agent structured chat capabilities (31 October 2026)
 
 **Task ID and scope:** SC1, negotiated per-agent chat availability and feature

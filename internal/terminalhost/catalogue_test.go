@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -37,6 +40,37 @@ func TestOldControllerSeesOnlyFourTools(t *testing.T) {
 	// their prompt, model, and permission arguments.
 	if got := InstalledTools(look, true); !reflect.DeepEqual(got, []string{"claude", "cline", "codex", "gemini", "opencode"}) {
 		t.Fatal("unconfirmed preset advertised", got)
+	}
+}
+
+func TestInstalledToolsForHomeCountsAManagedCopy(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".reet", "software", "opencode")
+	dir := filepath.Join(root, "versions", "1.19.5")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("binary")
+	if err := os.WriteFile(filepath.Join(dir, "opencode"), body, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	receipt := agentsoftware.Receipt{Tool: "opencode", Version: "1.19.5", Tarball: agentsoftware.OpenCodeLinuxX64.URL,
+		SHA512: "x", BinarySHA256: "y", BinarySize: int64(len(body)), InstalledAt: 1}
+	data, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(dir, "receipt.json"), filepath.Join(root, "receipt.json")} {
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := InstalledToolsForHome(home, fakeLookPath(), true)
+	if !reflect.DeepEqual(got, []string{"opencode"}) {
+		t.Fatalf("managed copy not launchable: %v", got)
+	}
+	if got := InstalledTools(fakeLookPath(), true); len(got) != 0 {
+		t.Fatalf("PATH-only listing changed: %v", got)
 	}
 }
 

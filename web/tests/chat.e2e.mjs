@@ -6,7 +6,7 @@ const A = 'connector-laptop000000001', S = 'session-chat000000000000001', S2 = '
 const now = Date.now()
 const session = { id: S, agentId: A, title: 'OpenCode · site', state: 'running', createdAt: now, updatedAt: now, exitCode: null, tool: 'opencode', model: '', effort: '', yolo: false, projectId: null, dir: SITE, structured: true }
 const closedSession = { ...session, id: S2, state: 'exited', exitCode: 0, model: 'anthropic/claude-sonnet-4-5', acpSessionId: 'ses_fake000000000000000000000001' }
-const machine = { agentId: A, host: 'dev-laptop', ready: true, serverEnabled: true, capabilities: { protocolVersion: 1, terminalControl: true, os: 'linux', osUser: 'dev', terminalEnabled: true, healthEnabled: true, readiness: 'ready', launch: true, agentsV2: true, models: true, acp: true, acpHistory: true, uploads: true, tools: ['opencode'] } }
+const machine = { agentId: A, host: 'dev-laptop', ready: true, serverEnabled: true, capabilities: { protocolVersion: 1, terminalControl: true, os: 'linux', osUser: 'dev', terminalEnabled: true, healthEnabled: true, readiness: 'ready', launch: true, agentsV2: true, models: true, acp: true, acpHistory: true, acpImages: true, uploads: true, tools: ['opencode'] } }
 
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const { context, page, state, errors } = await openWorkspace(browser, {
@@ -106,7 +106,7 @@ try {
   await page.getByRole('textbox', { name: 'Message OpenCode' }).fill('look at this shot')
   await page.getByRole('button', { name: 'Send', exact: true }).click()
   await expect.poll(() => state.upload).toBe('image/png')
-  await expect.poll(() => state.prompt).toEqual({ text: 'look at this shot\n\nImage: /home/dev/launch-uploads/shot.png' })
+  await expect.poll(() => state.prompt).toEqual({ text: 'look at this shot', images: ['/home/dev/launch-uploads/shot.png'] })
   await page.evaluate(() => window.__chatStream.emit('chat', { seq: 7, kind: 'status', state: 'working' }))
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
@@ -143,7 +143,7 @@ try {
   expect(state.resume.prompt).toBeUndefined()
   expect(state.resume.model).toBe('anthropic/claude-sonnet-4-5')
   expect(errors).toEqual([])
-  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled, agent chunks stream, a command approval is Allow once or Deny, a message sends, an attached image uploads and its path joins the prompt, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id.')
+  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled, agent chunks stream, a command approval is Allow once or Deny, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id.')
 } finally {
   await context.close()
   await browser.close()

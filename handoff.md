@@ -30,7 +30,8 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 
 The binary now has a terminal interface: `reet` in a terminal opens a menu over Doctor,
 Healthcheck, Scan, Sync, Backups, Setups, Upgrade, Install, Connect machine, Version, Terminal
-status and Agent status, and `--tui` opens a screen directly. Scan is a native `huh` form with dry-run, prune and reconcile; Sync
+status, and `--tui` opens a screen directly. Setups also previews and applies a restore and rolls back the
+newest completed restore for a profile, all through the same `setup` commands. Scan is a native `huh` form with dry-run, prune and reconcile; Sync
 previews a target and applies a hash-checked plan; Backups lists, takes and restores copies through
 the shared `backup.RestoreInstance`; Setups creates, pushes and pulls profiles through the shared
 `setup.HTTPRemote`; Upgrade runs the same verified, backed-up, rollback-capable upgrade as the text
@@ -166,6 +167,13 @@ startup, not on every launch. Next: reviewed batch apply with a pilot order, and
 ## Agents home redesign (27–30 October 2026)
 
 ### Resume here (after Needs you and the approvals slice, 31 October 2026)
+
+- **Chat images (in progress, branch `cline/6t9b2yrw`):** the reet TUI now passes a pasted, dropped or chosen image to
+  OpenCode the way AOE does: the browser uploads it to the machine, `POST /chat/prompt` carries the upload path, and the
+  connector embeds the bytes as an ACP image content block (`acp-image-v1`, `acpImages` capability). The agent sees the
+  image itself, not a path it must open with a tool. At most eight images per prompt; older connectors keep the path-as-text
+  fallback. Unit tests cover the protocol, ACP child content blocks, connector upload-root validation and the API; the mocked
+  chat e2e at 1360x900 and 390x844 passes. Not checked: a live OpenCode model turn with an image, or Safari.
 
 **#272 (inline approvals) merged as `362ffd9`; #269 (Needs you) as `52afc9d`;
 #270 (reet TUI model choice and provider error recovery) as `1717b7a`;

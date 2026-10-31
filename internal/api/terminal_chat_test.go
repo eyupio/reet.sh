@@ -17,6 +17,7 @@ func chatCaps() terminalproto.Capabilities {
 	caps := launchCaps("opencode")
 	caps.ACP = true
 	caps.ACPHistory = true
+	caps.ACPImages = true
 	caps.ShellDir = true
 	return caps
 }
@@ -75,6 +76,51 @@ func TestChatCreatePromptAndSSE(t *testing.T) {
 	}
 	if !strings.Contains(text.String(), "event: reset") || !strings.Contains(text.String(), `"kind":"user"`) || !strings.Contains(text.String(), `"kind":"agent"`) {
 		t.Fatalf("stream:\n%s", text.String())
+	}
+}
+
+func TestChatPromptImagesNeedTheMachineAndTheLimit(t *testing.T) {
+	f := launchAPIFixture(t, chatCaps())
+	code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{
+		"tool": "opencode", "structured": true, "trust": true, "dir": "/tmp",
+	}))
+	if code != 200 {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	session, _ := out["id"].(string)
+	path := "/home/dev/launch-uploads/agent/shot.png"
+	if code, _, body := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/chat/prompt", map[string]any{"text": "", "images": []string{path}}); code != 200 {
+		t.Fatalf("image-only prompt: %d %s", code, body)
+	}
+	f.mu.Lock()
+	prompts := append([]terminalproto.ACPPrompt(nil), f.prompts...)
+	f.mu.Unlock()
+	if len(prompts) != 1 || len(prompts[0].Images) != 1 || prompts[0].Images[0] != path || prompts[0].Text != "" {
+		t.Fatalf("prompt wire: %+v", prompts)
+	}
+	many := make([]string, terminalproto.MaxACPImages+1)
+	for i := range many {
+		many[i] = path
+	}
+	if code, _, _ := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/chat/prompt", map[string]any{"text": "look", "images": many}); code != 400 {
+		t.Fatalf("too many images: %d", code)
+	}
+	if code, _, _ := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/chat/prompt", map[string]any{"text": "look", "images": []string{"relative.png"}}); code != 400 {
+		t.Fatalf("relative image: %d", code)
+	}
+
+	oldCaps := chatCaps()
+	oldCaps.ACPImages = false
+	g := launchAPIFixture(t, oldCaps)
+	code, out, body = g.create(t, launchBody(g.agent.ID, terminalbroker.ID(), map[string]any{
+		"tool": "opencode", "structured": true, "trust": true, "dir": "/tmp",
+	}))
+	if code != 200 {
+		t.Fatalf("create without acp-image-v1: %d %s", code, body)
+	}
+	session, _ = out["id"].(string)
+	if code, _, body := g.do(t, g.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/chat/prompt", map[string]any{"text": "", "images": []string{path}}); code != http.StatusConflict {
+		t.Fatalf("image without acp-image-v1: %d %s", code, body)
 	}
 }
 

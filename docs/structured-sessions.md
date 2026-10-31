@@ -83,11 +83,14 @@ feature, and the older controller's strict decoder never sees the new fields.
 
 ## Images
 
-In the reet TUI, **Attach image** (or paste/drop) sends the file through reet's launch-upload path before the prompt. The machine
-stores it under its private `launch-uploads/` folder and the prompt carries the absolute path as text; it is not an embedded
-ACP image. The limits and sweep are the same as the launch bar's: PNG, JPEG, GIF or WebP, 5 MiB each, 20 files and 50 MiB
-together, removed by the existing 24-hour sweep. An agent that needs to look at the image opens that path with its own read
-tool, and that tool may ask for approval. A path may be gone after the sweep or when OpenCode's history is reopened later.
+In the reet TUI, **Attach image** (or paste/drop) uploads the file to the machine over the launch-upload route, then sends
+the image with the prompt the way AOE does: the connector reads its own uploaded file and embeds the bytes as an ACP image
+content block. The agent sees the image itself, not a path it has to open with a tool, so no extra read approval is needed.
+The prompt can be images alone. Limits are PNG, JPEG, GIF or WebP, 5 MiB each and at most eight in one prompt. Uploads live
+under the machine's private `launch-uploads/` folder and are removed by the existing 24-hour sweep.
+
+A connector that predates `acp-image-v1` keeps the old behaviour: the prompt carries the absolute path as text, and an
+agent that needs the image opens it with its own read tool. The controller never sends the image fields to such a machine.
 
 ## Approvals
 
@@ -121,7 +124,8 @@ person's answer both appear in the reet TUI.
   the newest matching error from OpenCode's local store and shows it instead of leaving a silently empty turn. A provider
   error OpenCode writes to its log during a silent turn is read the same way; the connector shows it and stops that turn
   rather than leaving "still working" until the deadline.
-- **Images are paths.** Attachments go through the launch-upload path and the prompt names the file; no image bytes are
-  embedded in ACP. Modes, MCP servers, resume of a live turn and other agents are not in this slice.
+- **Images are embedded when the machine supports it.** An `acp-image-v1` machine embeds the uploaded image in the ACP prompt
+  (at most eight per prompt); an older machine names the path as text. Modes, MCP servers, resume of a live turn and other
+  agents are not in this slice.
 - **No physical phone, Safari or live provider run** was part of the checks. The fake ACP child covers the protocol; the
   real 1.19.5 binary opened and then loaded a session in a throwaway HOME, but no model turn was sent.

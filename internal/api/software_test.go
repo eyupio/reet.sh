@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -262,6 +263,8 @@ func (f *softwareApplyAPI) post(t *testing.T, body string) (int, map[string]any,
 func TestMachineSoftwareApplyInstallsAndUpdatesEvidence(t *testing.T) {
 	caps := softwareTestCapabilities(softwareTestEntry(terminalproto.SoftwareInstalled, "1.18.0"))
 	caps.SoftwareApply = true
+	caps.Launch = true
+	caps.Tools = []string{"claude"}
 	f := softwareApplyAPIFixture(t, caps)
 	entry := softwareTestEntry(terminalproto.SoftwareInstalled, "1.19.5")
 	f.answer = terminalproto.SoftwareApplyResult{
@@ -285,6 +288,9 @@ func TestMachineSoftwareApplyInstallsAndUpdatesEvidence(t *testing.T) {
 	}
 	if len(stored.Capabilities.Software) != 1 || stored.Capabilities.Software[0].Version != "1.19.5" || !stored.Capabilities.Software[0].Managed {
 		t.Fatalf("stored evidence was not replaced: %+v", stored.Capabilities.Software)
+	}
+	if !slices.Contains(stored.Capabilities.Tools, "opencode") {
+		t.Fatalf("the installed tool was not added to the launch inventory: %+v", stored.Capabilities.Tools)
 	}
 }
 

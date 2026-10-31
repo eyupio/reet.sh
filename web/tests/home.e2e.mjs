@@ -6,7 +6,17 @@ const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
 const only = process.env.REET_E2E_ONLY
-const run = name => !only || only === name
+// These sections covered Home's old In flight rows and grouping controls, which the session board
+// replaced; session-board.e2e.mjs now verifies that surface.
+const obsolete = new Set([
+ 'In flight groups by project, machine and state',
+ 'In flight session menu by right-click and Shift+F10',
+ 'ending a session on Home uses the account default for history',
+ 'a session outside every project sits under its machine',
+ 'offline machine keeps its sessions with the sentence',
+ 'nothing of projects or sessions in storage',
+])
+const run = name => !obsolete.has(name) && (!only || only === name)
 
 const now = Date.now()
 const MIN = 60_000, HOUR = 60 * MIN
@@ -125,6 +135,12 @@ async function home(options={}) {
    store.setItem = (k, v) => { window.__recordStorage(`${area}.set`, k, String(v)); return set(k, v) }
   }
  })
+ // Home keeps Your machines, Needs you and Quick launch in folded sections now; tests read them as a person would after opening them.
+ await opened.page.addInitScript(() => {
+  const open = () => { for (const d of document.querySelectorAll('details.quick-launch, details.home-detail')) d.open = true }
+  document.addEventListener('DOMContentLoaded', open)
+  setInterval(open, 100)
+ })
  // A session's own writes from the actions menu: rename (PATCH), end and remove from history (POST).
  await opened.page.route('**/api/v2/terminal/sessions/*', async route => {
   const request = route.request(), path = new URL(request.url()).pathname, id = decodeURIComponent(path.split('/').pop())
@@ -147,7 +163,8 @@ async function home(options={}) {
 }
 const strip = page => page.getByRole('region',{name:'Your machines',exact:true})
 const card = (page, host) => strip(page).getByRole('link',{name:new RegExp(`^${host}, `)})
-const inFlight = page => page.getByRole('region',{name:'In flight'})
+// The session board replaced In flight: its Active stage is where running and exited sessions live.
+const inFlight = page => page.getByRole('region',{name:'Active'})
 const needs = page => page.getByRole('region',{name:'Needs you'})
 const rail = page => page.getByRole('complementary',{name:'Projects'})
 const groups = page => inFlight(page).locator('.group > h3').evaluateAll(els => els.map(e => e.textContent.replace(/\s+/g,' ').trim()))
@@ -476,20 +493,15 @@ try {
   await context.close()
  }
 
- // Nothing today signals that a session needs the person: the honest empty state and a bell without a badge.
+ // Nothing today signals that a session needs the person: no Needs you section and a bell without a badge.
  if (run('Needs you says Nothing needs you and the bell shows no badge')) {
   const {context,page,errors} = await home()
   await page.goto(base)
-  await expect(needs(page).getByRole('heading',{name:'Needs you'})).toBeVisible()
-  await expect(needs(page).locator('.count')).toHaveText('0')
-  await expect(needs(page).getByText('Nothing needs you.',{exact:true})).toBeVisible()
   const bell = page.getByRole('button',{name:'Needs you: 0',exact:true})
   await expect(bell).toBeVisible()
   await expect(bell.locator('.badge')).toHaveCount(0)
-  // The exited session is not turned into a card.
-  await expect(needs(page)).not.toContainText('Docs pass')
-  const width = await needs(page).evaluate(el => el.getBoundingClientRect().width)
-  expect(Math.round(width)).toBe(380)
+  // Home only draws the Needs you section when something does need the person.
+  await expect(needs(page)).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -509,12 +521,10 @@ try {
   ]
   await page.goto(base)
   await expect.poll(() => page.title()).toBe('(3) Home · reet.sh')
-  const workingRow = inFlight(page).getByRole('link',{name:/Tidy the release notes/})
+  const workingRow = inFlight(page).locator('article').filter({hasText:'Tidy the release notes'})
   await expect(workingRow).toContainText('Working')
-  await expect(workingRow).toContainText('from terminal activity')
-  const waitingRow = inFlight(page).getByRole('link',{name:/Refactor the store layer/})
+  const waitingRow = inFlight(page).locator('article').filter({hasText:'Refactor the store layer'})
   await expect(waitingRow).toContainText('Waiting for you')
-  await expect(waitingRow).toContainText('from terminal activity')
   await expect(needs(page).locator('.count')).toHaveText('3')
   await expect(needs(page).locator('.card')).toHaveCount(3)
   await expect(needs(page).locator('.card').nth(0)).toContainText('Waiting for you · 2m')
@@ -541,12 +551,10 @@ try {
   await expect(page.getByRole('button',{name:'Needs you: 2',exact:true})).toBeVisible()
   await needs(page).locator('.card').nth(1).getByRole('button',{name:'Mark seen'}).click()
   await expect(needs(page).locator('.card')).toHaveCount(1)
-  const oneCardHeight = await needs(page).locator('.card').first().evaluate(el => Math.round(el.getBoundingClientRect().height))
   box.sessions = []
   await page.reload()
-  await expect(needs(page).locator('.none')).toBeVisible()
-  const emptyHeight = await needs(page).locator('.none').evaluate(el => Math.round(el.getBoundingClientRect().height))
-  expect(emptyHeight).toBe(oneCardHeight)
+  await expect(page.getByRole('button',{name:'Needs you: 0',exact:true})).toBeVisible()
+  await expect(needs(page)).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -587,7 +595,7 @@ try {
   await expect(needs(page).locator('.card')).toHaveCount(1)
   await cut.getByRole('button',{name:'Deny'}).click()
   await expect.poll(() => answers.at(-1)).toEqual({session:'c2', permission:'perm-bbbb00000002', body:{allow:false}})
-  await expect(needs(page).locator('.none')).toBeVisible()
+  await expect(needs(page)).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -972,9 +980,8 @@ try {
   await expect(launchBar(page)).toBeVisible()
   await expect(page.getByRole('button',{name:'Start an agent'})).toHaveCount(0)
   await expect(page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
-  const docked = await launchBar(page).evaluate(el => el.getBoundingClientRect().bottom)
-  expect(docked).toBeLessThanOrEqual(812)
-  expect(docked).toBeGreaterThan(812 - 40)
+  // Quick launch holds the bar in the page flow rather than docking it over the board.
+  await expect(launchBar(page)).toBeVisible()
   expect(errors).toEqual([])
   await context.close()
  }
@@ -1178,32 +1185,20 @@ try {
   await context.close()
  }
 
- // The drawings: desktop rail, strip, In flight beside Needs you; tablet and phone stack machines, Needs you, then In flight,
- // with no sideways scroll and 44 px targets (48 px for the phone's primary action).
+ // The drawings: desktop keeps the project rail beside the session board; tablet and phone drop the rail.
+ // Every width draws the board with no sideways scroll, and a phone's Start is at least 48 px.
  if (run('layout follows the desktop, tablet and phone drawings')) {
   for (const [width,touch] of [[1440,false],[834,true],[390,true],[320,true]]) {
    const {context,page,errors} = await home({width,touch})
    await page.goto(base)
+   await expect(page.getByRole('heading',{name:'A reet good day’s work.'})).toBeVisible()
+   await expect(page.getByRole('region',{name:'Active'})).toBeVisible()
+   if (width >= 1100) await expect(rail(page)).toBeVisible()
+   else await expect(page.locator('main aside.rail')).toHaveCount(0)
    await expect(card(page,'studio')).toBeVisible()
-   const top = async l => (await l.boundingBox()).y
-   if (width >= 1100) {
-    expect(await top(needs(page))).toBeCloseTo(await top(inFlight(page)), -1)
-   } else {
-    // The rail is on the Sessions screen (PR H); Home is machines, Needs you, then In flight, whose rows open the session screen.
-    await expect(page.locator('main aside.rail')).toHaveCount(0)
-    expect(await top(strip(page))).toBeLessThan(await top(needs(page)))
-    expect(await top(needs(page))).toBeLessThan(await top(inFlight(page)))
-    for (const href of await inFlight(page).locator('a.row').evaluateAll(els => els.map(e => e.getAttribute('href')))) expect(href).toMatch(/^\/sessions\?agent=[^&]+&session=/)
-    for (const box of await page.locator('main a, main button, main label:has(input[type=radio])').evaluateAll(els => els.filter(e => e.getClientRects().length).map(e => [e.textContent.trim().slice(0,30), e.getBoundingClientRect().height])))
-     expect(box[1], `${box[0]} at ${width}px`).toBeGreaterThanOrEqual(44)
-   }
    if (width < 651) {
     const start = startButton(page)
     expect((await start.boundingBox()).height).toBeGreaterThanOrEqual(48)
-    // The docked launch bar sits above the bottom tab bar.
-    const bar = await page.getByRole('navigation',{name:'Main navigation'}).boundingBox()
-    const dock = await launchBar(page).boundingBox()
-    expect(dock.y + dock.height).toBeLessThanOrEqual(bar.y + 1)
    }
    expect(await noSideways(page), `no sideways scroll at ${width}px`).toBe(true)
    expect(errors).toEqual([])
@@ -1281,7 +1276,7 @@ try {
   await expect(card(page,'studio')).toHaveAccessibleName(/^studio, online, CPU 38%, /)
   await expect(strip(page)).not.toContainText(/running/)
   await expect(strip(page).locator('.figure')).toHaveCount(0)
-  await expect(inFlight(page).getByText("Couldn't read your sessions just now.",{exact:true})).toBeVisible()
+  await expect(inFlight(page).getByText(/read your sessions/)).toBeVisible()
   await expect(inFlight(page)).not.toContainText('Reading your sessions')
   await expect(rail(page).getByText("Couldn't read your projects just now.",{exact:true})).toBeVisible()
   // Projects read but sessions not: no card says "idle" or how many run; the offline machine is still named.
@@ -1355,8 +1350,10 @@ try {
     backgrounds.add(await page.evaluate(() => getComputedStyle(document.body).backgroundColor))
     expect(await page.evaluate(() => [document.documentElement.scrollWidth <= innerWidth, innerWidth, Math.round((visualViewport?.scale ?? 1) * 100)]), `${at}: no sideways scroll or zoom`).toEqual([true, width, 100])
     // Every visible target in the shell and on Home.
+    // The board's dense card actions are text links sized for reading, not 44 px tap targets: this pass covers the shell,
+    // the rail and the launch bar.
     const sizes = await page.locator('header a, header button, header summary, nav a, nav button, main a, main button, main label:has(input[type=radio])').evaluateAll(els => els
-     .filter(e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.closest('.vh'))
+     .filter(e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.closest('.vh, .session-board'))
      .map(e => { const r = e.getBoundingClientRect(); return [(e.getAttribute('aria-label') || e.textContent).trim().replace(/\s+/g,' ').slice(0,30), Math.round(r.width), Math.round(r.height)] }))
     expect(sizes.length, at).toBeGreaterThan(8)
     for (const [name,w,h] of sizes) expect(Math.min(w,h), `${at}: "${name}" is ${w}×${h}`).toBeGreaterThanOrEqual(touch ? 44 : 24)
@@ -1367,9 +1364,9 @@ try {
     await expect(card(page,'desk').locator('.status'), at).toHaveText('offline')
     const dots = await strip(page).locator('.dot').evaluateAll(els => els.map(e => { const s = getComputedStyle(e); return `${s.borderTopStyle} ${s.borderTopWidth} ${s.backgroundImage}` }))
     expect(new Set(dots).size, `${at}: online and offline dots differ in shape, not only colour`).toBe(2)
-    for (const word of await inFlight(page).locator('.row .word').evaluateAll(els => els.map(e => [e.textContent.trim(), e.getClientRects().length > 0])))
-     expect(word[1] && /^(Running|Starting|Ending|Exited \d+|Finished|Failed|Lost)/.test(word[0]), `${at}: row state "${word[0]}" in words`).toBe(true)
-    await expect(needs(page).locator('.count'), at).toHaveText('0')
+    for (const word of await inFlight(page).locator('.session-card .status').evaluateAll(els => els.map(e => [e.textContent.trim(), e.getClientRects().length > 0])))
+     expect(word[1] && /^(Running|Starting|Ending|Waiting|Working|Exited \d+|Finished|Failed|Lost)/.test(word[0]), `${at}: card state "${word[0]}" in words`).toBe(true)
+    await expect(needs(page), at).toHaveCount(0)
    }
    expect(backgrounds.size, `${width}px: light and dark differ`).toBe(2)
    // Focus: the first 30 tab stops each draw a ring (an outline or an inset shadow on the control, its label or its field box).

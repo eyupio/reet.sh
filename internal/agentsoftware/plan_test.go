@@ -32,6 +32,17 @@ func missing() terminalproto.SoftwareEntry {
 	}
 }
 
+func TestUnsupportedArchitectureHasNoPlan(t *testing.T) {
+	for _, entry := range []terminalproto.SoftwareEntry{installed("1.18.0"), missing(), systemInstall("1.18.0")} {
+		entry.Arch = "arm64"
+		for _, action := range []Action{Install, Update, Rollback, Remove} {
+			if _, err := For(entry, action, "studio", 0); !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("%s on %s accepted: %v", action, entry.Arch, err)
+			}
+		}
+	}
+}
+
 func TestUpdatePlanNamesTheReviewedVersionAndRunsNothing(t *testing.T) {
 	plan, err := For(installed("1.18.0"), Update, "studio", 0)
 	if err != nil {

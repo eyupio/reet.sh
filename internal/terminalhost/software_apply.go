@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/agentsoftware"
@@ -28,7 +29,7 @@ var (
 // changed since the person approved the plan.
 func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareApply, lookPath func(string) (string, error)) terminalproto.SoftwareApplyResult {
 	result := terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action}
-	if req.Tool != agentsoftware.OpenCodeTool {
+	if req.Tool != agentsoftware.OpenCodeTool || runtime.GOOS != agentsoftware.SupportedPlatform || runtime.GOARCH != agentsoftware.SupportedArch {
 		result.State, result.Reason = terminalproto.SoftwareApplyRefused, terminalproto.SoftwareApplyUnsupported
 		return result
 	}

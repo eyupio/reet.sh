@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -263,12 +264,41 @@ func (s *server) machineSoftwareApply(w http.ResponseWriter, r *http.Request) {
 		if latest, err := s.st.RemoteCapabilitiesFor(uid, agentID); err == nil && latest.Generation == caps.Generation {
 			merged := latest.Capabilities
 			merged.Software = mergeSoftwareEntry(merged.Software, *result.Entry)
+			// An install can make a tool launchable that PATH never had, and a
+			// remove can take the last copy away. Refresh the launch inventory
+			// now instead of waiting for the next health read.
+			if merged.Launch {
+				merged.Tools = mergeLaunchableTool(merged.Tools, result.Entry.Tool, result.Entry.State)
+			}
 			if merged.Validate() == nil {
 				_ = s.st.UpdateRemoteCapabilitiesFor(uid, agentID, latest.InstanceID, latest.Generation, merged)
 			}
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"plan": plan, "result": result})
+}
+
+func mergeLaunchableTool(tools []string, tool string, state terminalproto.SoftwareState) []string {
+	switch state {
+	case terminalproto.SoftwareInstalled:
+		for _, existing := range tools {
+			if existing == tool {
+				return tools
+			}
+		}
+		out := append(append([]string{}, tools...), tool)
+		sort.Strings(out)
+		return out
+	case terminalproto.SoftwareMissing:
+		out := make([]string, 0, len(tools))
+		for _, existing := range tools {
+			if existing != tool {
+				out = append(out, existing)
+			}
+		}
+		return out
+	}
+	return tools
 }
 
 func mergeSoftwareEntry(entries []terminalproto.SoftwareEntry, entry terminalproto.SoftwareEntry) []terminalproto.SoftwareEntry {

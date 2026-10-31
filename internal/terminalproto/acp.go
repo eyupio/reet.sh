@@ -15,6 +15,11 @@ const ACPFeature = "acp-v1"
 // rejects those fields, so they are never sent without this feature.
 const ACPHistoryFeature = "acp-history-v1"
 
+// ACPImageFeature lets a controller send images with a prompt. The machine
+// reads the uploaded files and embeds their bytes in the ACP prompt, the way
+// AOE does, so the agent sees the image itself rather than a file path.
+const ACPImageFeature = "acp-image-v1"
+
 // ACPToolDetailsFeature lets a new controller accept the extra fields a tool row shows (command, path, diff and its
 // counts, and the duration). A connector on an older controller keeps sending the plain tool event.
 const ACPToolDetailsFeature = "acp-tool-details-v1"
@@ -29,6 +34,11 @@ const (
 	MaxACPEventBytes = 10 << 10
 	// MaxACPLocations bounds the paths a tool call reports.
 	MaxACPLocations = 8
+	// MaxACPImages bounds the images one prompt may carry. The machine reads
+	// each path from its private upload folder and embeds the bytes.
+	MaxACPImages = 8
+	// MaxACPImagePathBytes bounds one upload path sent with a prompt.
+	MaxACPImagePathBytes = 1024
 )
 
 // SupportsACP reports whether the peer advertised acp-v1.
@@ -55,6 +65,16 @@ func SupportsACPToolDetails(features string) bool {
 func SupportsACPHistory(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == ACPHistoryFeature {
+			return true
+		}
+	}
+	return false
+}
+
+// SupportsACPImages reports whether the peer negotiated acp-image-v1.
+func SupportsACPImages(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ACPImageFeature {
 			return true
 		}
 	}
@@ -131,14 +151,35 @@ func (e ACPEvent) valid() bool {
 }
 
 // ACPPrompt sends one message to a chat. A chat turn is one prompt; a second
-// prompt while it is working is refused.
+// prompt while it is working is refused. Images lists upload paths the machine
+// reads and embeds as ACP image content blocks; it never passes the path to
+// the agent. They are sent only when acp-image-v1 was negotiated.
 type ACPPrompt struct {
-	Text string `json:"text"`
+	Text   string   `json:"text"`
+	Images []string `json:"images,omitempty"`
 }
 
 func (ACPPrompt) kind() string { return "acp_prompt" }
 func (p ACPPrompt) valid() bool {
-	return validChatText(p.Text, MaxChatPromptBytes) && strings.TrimSpace(p.Text) != ""
+	if !validChatText(p.Text, MaxChatPromptBytes) || !validACPImagePaths(p.Images) {
+		return false
+	}
+	return strings.TrimSpace(p.Text) != "" || len(p.Images) > 0
+}
+
+// validACPImagePaths accepts absolute upload paths inside the size bounds. The
+// machine additionally checks that every path is inside its own upload roots;
+// a controller cannot use this field to read an arbitrary file.
+func validACPImagePaths(paths []string) bool {
+	if len(paths) > MaxACPImages {
+		return false
+	}
+	for _, path := range paths {
+		if !strings.HasPrefix(path, "/") || len(path) > MaxACPImagePathBytes || !plainText(path, MaxACPImagePathBytes) {
+			return false
+		}
+	}
+	return true
 }
 
 // ACPCancel asks the machine to stop the current turn. The machine also closes
@@ -228,6 +269,11 @@ func ACPEventSize(e ACPEvent) bool {
 
 // ValidChatPrompt exposes the exact prompt rule to controller handlers.
 func ValidChatPrompt(text string) bool { return (ACPPrompt{Text: text}).valid() }
+
+// ValidACPPrompt is ValidChatPrompt with the image paths a prompt may carry.
+func ValidACPPrompt(text string, images []string) bool {
+	return (ACPPrompt{Text: text, Images: images}).valid()
+}
 
 // ValidPermissionID accepts the machine-generated approval id in a URL.
 func ValidPermissionID(s string) bool { return validACPID(s) }

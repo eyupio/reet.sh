@@ -18,9 +18,11 @@ const (
 	OpenCodeReviewedVersion = "1.19.5"
 	// OpenCodeTool is the launch catalogue id this package installs.
 	OpenCodeTool = "opencode"
-	// SupportedPlatform is the first operating system whose layout reet has
-	// verified.
+	// SupportedPlatform and SupportedArch are the first operating system and
+	// architecture whose layout reet has verified. The artifact table is the
+	// Linux x64 build, so another architecture is never planned or installed.
 	SupportedPlatform = "linux"
+	SupportedArch     = "amd64"
 )
 
 // Action is the maintenance decision a plan names.
@@ -62,7 +64,7 @@ type Plan struct {
 // number of live sessions of this tool on the machine; the controller refuses
 // to apply while any run, and the plan says so.
 func For(entry terminalproto.SoftwareEntry, action Action, host string, running int) (Plan, error) {
-	if !action.Valid() || entry.Tool != OpenCodeTool || entry.Platform != SupportedPlatform {
+	if !action.Valid() || entry.Tool != OpenCodeTool || entry.Platform != SupportedPlatform || entry.Arch != SupportedArch {
 		return Plan{}, ErrUnsupported
 	}
 	if entry.State != terminalproto.SoftwareInstalled && entry.State != terminalproto.SoftwareMissing {

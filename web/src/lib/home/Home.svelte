@@ -199,6 +199,8 @@
     try {
       const found = await folderProjectForLegacy(id, bounded())
       if (!found || life.signal.aborted) return
+      // An old /projects/<id> handoff is a launch handoff: reveal the bar, as /?project=<id> does.
+      quickLaunch = true
       chosen = found
       history.replaceState(history.state, '', `/?project=${encodeURIComponent(found)}`)
     } catch { /* no folder project was made from it: Home stays at / */ }
@@ -353,10 +355,8 @@
   .home-detail[open] > summary { margin-bottom: 14px; }
   .attention-detail > summary { color: var(--warn); }
   .quick-launch :global(.launch) { position: relative; bottom: auto; margin: 0; }
-  /* On a phone the open keyboard needs the prompt above it; the section is in the page flow otherwise. */
-  @media (max-width: 650px) {
-    .quick-launch :global(.launch.lifted) { position: fixed; left: 0; right: 0; bottom: var(--lift, 0px); margin: 0 12px; z-index: 5; }
-  }
+  /* A bar in the Quick launch flow cannot use `bottom` for the phone keyboard; lift it with a transform instead. */
+  .quick-launch :global(.launch.lifted) { transform: translateY(calc(-1 * var(--lift, 0px))); }
   /* The live regions are always present, so a sentence put into one is announced; empty, they take no room. */
   .live:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
 

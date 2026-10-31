@@ -261,7 +261,7 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		}()
 	}
 	at := time.Now().UnixMilli()
-	s := ManagedSession{ID: sessionID, Title: in.Title, State: terminalproto.Creating, CreatedAt: at, UpdatedAt: at, CreateRequestID: requestID}
+	s := ManagedSession{ID: sessionID, Title: in.Title, Tool: in.Tool, State: terminalproto.Creating, CreatedAt: at, UpdatedAt: at, CreateRequestID: requestID}
 	if in.Worktree != "" {
 		s.WorktreePath, s.WorktreeRepo = worktree.Path, filepath.Base(filepath.Dir(worktree.Path))
 	}

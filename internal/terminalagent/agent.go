@@ -20,6 +20,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/eyupio/reet.sh/internal/agenthealth"
+	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/privateconn"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -66,6 +67,13 @@ var (
 // softwareSlot serialises software applies on this connector process, not just
 // one connection, so two controllers cannot install at once.
 var softwareSlot = make(chan struct{}, 1)
+
+// softwareGate coordinates a software apply with new OpenCode sessions. An
+// apply holds it for writing from before the download until the installation
+// is recorded; the terminal and structured-chat launch paths hold it for
+// reading while they create an OpenCode session. That closes the window
+// between the controller's live-session check and the installation changing.
+var softwareGate sync.RWMutex
 
 // modelListCacheEntry is one tool's last listing and when it was made.
 type modelListCacheEntry struct {
@@ -229,8 +237,15 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					return send(callCtx, reply)
 				}
 			}
-			switch msg.Body.(type) {
-			case *terminalproto.ACPPrompt, *terminalproto.ACPCancel, *terminalproto.ACPPermission:
+			switch body := msg.Body.(type) {
+			case *terminalproto.ACPPrompt:
+				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+				if len(body.Images) > 0 && !terminalproto.SupportsACPImages(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+			case *terminalproto.ACPCancel, *terminalproto.ACPPermission:
 				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
 				}
@@ -380,6 +395,24 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplyBusy},
 					terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyFailed, Reason: terminalproto.SoftwareApplyTimedOut},
 					func(ctx context.Context) terminalproto.Body {
+						softwareGate.Lock()
+						defer softwareGate.Unlock()
+						// The controller checked before sending, but a session could
+						// have started since. Nothing else can now: every OpenCode
+						// launch waits on this gate.
+						live := chats.sup.liveTool(agentsoftware.OpenCodeTool)
+						if m != nil {
+							if sessions, err := m.List(ctx); err == nil {
+								for _, session := range sessions {
+									if session.Tool == agentsoftware.OpenCodeTool && session.State.ReservesQuota() {
+										live++
+									}
+								}
+							}
+						}
+						if live > 0 {
+							return terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplySessions}
+						}
 						return applySoftware(ctx, opts.Home, req, exec.LookPath)
 					})
 			case *terminalproto.Upload:
@@ -493,7 +526,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					return nil
 				}
 			case *terminalproto.ACPPrompt:
-				if err := chats.prompt(msg.SessionID, op.Text); err != nil {
+				if err := chats.prompt(msg.SessionID, op.Text, op.Images); err != nil {
 					return respond(err)
 				}
 				reply.Body = terminalproto.Result{Code: terminalproto.OK}
@@ -564,6 +597,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						defer cancel()
 						_ = send(noteCtx, note)
 					})
+				}
+				if op.Tool == agentsoftware.OpenCodeTool {
+					softwareGate.RLock()
+					defer softwareGate.RUnlock()
 				}
 				s, err := m.Create(createCtx, msg.RequestID, msg.SessionID, *op)
 				if err != nil {
@@ -905,6 +942,8 @@ func code(err error) terminalproto.ResultCode {
 		return terminalproto.Conflict
 	case errors.Is(err, terminalhost.ErrSessionMissing):
 		return terminalproto.NotFound
+	case errors.Is(err, errAttachmentUnavailable):
+		return terminalproto.Failed
 	default:
 		return terminalproto.Unavailable
 	}

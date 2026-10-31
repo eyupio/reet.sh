@@ -3,6 +3,7 @@ package terminalhost
 import (
 	"sort"
 
+	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -86,6 +87,17 @@ func ListsModels(tool string) bool {
 // InstalledTools lists sorted, confirmed preset ids found on PATH. With no v2
 // argument it retains the old four-tool contract for existing callers.
 func InstalledTools(lookPath func(string) (string, error), v2 ...bool) []string {
+	return installedTools("", lookPath, v2...)
+}
+
+// InstalledToolsForHome lists the same preset ids, also counting a
+// reet-managed copy under home that is not on PATH. A managed installation is
+// launchable even when the system has no copy.
+func InstalledToolsForHome(home string, lookPath func(string) (string, error), v2 ...bool) []string {
+	return installedTools(home, lookPath, v2...)
+}
+
+func installedTools(home string, lookPath func(string) (string, error), v2 ...bool) []string {
 	extended := len(v2) > 0 && v2[0]
 	out := []string{}
 	for id, p := range launchPresets {
@@ -94,6 +106,12 @@ func InstalledTools(lookPath func(string) (string, error), v2 ...bool) []string 
 		}
 		if _, ok := resolveBinary(p, lookPath); ok {
 			out = append(out, id)
+			continue
+		}
+		if home != "" {
+			if _, found, err := agentsoftware.ManagedBinary(home, id); err == nil && found {
+				out = append(out, id)
+			}
 		}
 	}
 	sort.Strings(out)

@@ -1,16 +1,16 @@
 <script lang="ts">
- import { onMount, tick } from 'svelte'
+ import { onDestroy, onMount, tick } from 'svelte'
  import { applyChatEvent, diffCounts, displayPath, formatDuration, initialChat, inlineSegments, isWorking, pendingPermissions, proseBlocks, resetChat, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState } from '../chat'
  import { copyText } from '../clipboard'
  import { chatAnswer, chatCancel, chatPrompt, chatURL, launchUpload, terminalClosed, type TerminalSession } from './api'
- import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
+ import { chatPromptParts, formatImageSize, imageFiles, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, uploadsSupported = false, uploadsOff = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean } = $props()
+ let { session, uploadsSupported = false, uploadsOff = false, acpImages = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean } = $props()
 
  const MAX_CHAT_BYTES = 2000
  let chat: ChatState = $state(initialChat())
  let draft = $state(''), feedback = $state(''), sending = $state(false), uploading = $state(false), answering = $state('')
- let images = $state<{ id: number; file: File }[]>([]), imageSeq = 0, attachNote = $state('')
+ let images = $state<{ id: number; file: File; preview: string }[]>([]), imageSeq = 0, attachNote = $state('')
  let fileInput: HTMLInputElement | undefined = $state()
  let log: HTMLElement | undefined = $state()
  let source: EventSource | undefined
@@ -30,6 +30,7 @@
  const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This reet session has ended.' : pending.length ? 'Waiting for your approval.' : working ? 'OpenCode is working…' : chat.status.state === 'error' ? 'OpenCode stopped with an error.' : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
  const statusDetail = $derived(pending.length ? '' : chat.status.detail)
  const canAttach = $derived(uploadsSupported && !uploadsOff && !ended)
+ const imageLimit = $derived(acpImages ? MAX_EMBEDDED_IMAGES : MAX_IMAGES)
 
  function closeStream() { source?.close(); source = undefined }
  function stopFlush() {
@@ -79,9 +80,9 @@
   for (const file of files) {
    const check = validateImage(file)
    if (!check.ok) { refused = check.reason === 'type' ? 'Use PNG, JPEG, GIF or WebP images.' : check.reason === 'size' ? 'Each image must be 5 MB or smaller.' : 'That image is empty.'; continue }
-   if (images.length >= MAX_IMAGES) { refused = `Attach at most ${MAX_IMAGES} images.`; break }
+   if (images.length >= imageLimit) { refused = `Attach at most ${imageLimit} images.`; break }
    if (total + file.size > MAX_IMAGE_TOTAL_BYTES) { refused = 'Those images are more than 50 MB together.'; break }
-   images = [...images, { id: ++imageSeq, file }]
+   images = [...images, { id: ++imageSeq, file, preview: URL.createObjectURL(file) }]
    total += file.size
   }
   attachNote = refused
@@ -103,26 +104,31 @@
   if (!files.length) return
   event.preventDefault(); noteImages(files)
  }
- function removeImage(id: number) { images = images.filter(item => item.id !== id); attachNote = '' }
+ function removeImage(id: number) { const item = images.find(image => image.id === id); if (item) URL.revokeObjectURL(item.preview); images = images.filter(image => image.id !== id); attachNote = '' }
  async function send() {
   const text = draft.trim()
   if ((!text && !images.length) || sending || uploading || working || ended || chat.connection === 'reconnecting') return
   if (images.length && !canAttach) { feedback = uploadsOff ? 'Image uploads are off on that machine.' : 'That machine does not accept images.'; return }
   if (new TextEncoder().encode(text).length > MAX_CHAT_BYTES) { feedback = 'That message is too long. Keep it under 2,000 bytes.'; return }
   uploading = images.length > 0; sending = true; feedback = ''
+  const sendingImages = images.slice()
   try {
-   const references: string[] = []
-   if (images.length) {
+   const uploads: { path: string; reference: string }[] = []
+   if (sendingImages.length) {
     attachNote = ''
-    for (let i = 0; i < images.length; i++) {
-     if (images.length > 1) attachNote = `Uploading image ${i + 1} of ${images.length}…`
-     references.push((await launchUpload(session.agentId, images[i].file, AbortSignal.timeout(30000))).reference)
+    for (let i = 0; i < sendingImages.length; i++) {
+     if (sendingImages.length > 1) attachNote = `Uploading image ${i + 1} of ${sendingImages.length}…`
+     uploads.push(await launchUpload(session.agentId, sendingImages[i].file, AbortSignal.timeout(30000)))
     }
    }
-   const message = imagePrompt(text, references)
-   if (new TextEncoder().encode(message).length > MAX_CHAT_BYTES) { feedback = 'That message and its image paths are too long. Keep the message under 2,000 bytes.'; return }
-   await chatPrompt(session.id, message)
-   draft = ''; images = []; attachNote = ''; nearBottom = true; await scrollToEnd()
+   const body = chatPromptParts(text, uploads, acpImages)
+   if (new TextEncoder().encode(body.text).length > MAX_CHAT_BYTES) { feedback = 'That message and its image paths are too long. Keep the message under 2,000 bytes.'; return }
+   await chatPrompt(session.id, body.text, body.images)
+   // Only the images in this message go: one attached while the first send was
+   // still settling must stay in the composer.
+   const sent = new Set(sendingImages.map(image => image.id))
+   for (const image of sendingImages) URL.revokeObjectURL(image.preview)
+   draft = ''; images = images.filter(image => !sent.has(image.id)); attachNote = ''; nearBottom = true; await scrollToEnd()
   }
   catch (e) { feedback = e instanceof Error ? e.message : 'That message was not sent.' }
   finally { uploading = false; sending = false }
@@ -183,6 +189,7 @@
   stream.onerror = () => { if (alive) chat = { ...chat, connection: 'reconnecting' } }
   return () => { alive = false; pendingEvents = []; stopFlush(); if (copyTimer !== undefined) clearTimeout(copyTimer); closeStream() }
  })
+ onDestroy(() => { for (const image of images) URL.revokeObjectURL(image.preview) })
 </script>
 
 {#snippet inline(text: string)}
@@ -325,20 +332,20 @@
  {#if ended}
   <p class="composer-note">This reet session has ended. Its live history is not kept after the machine connection closes.</p>
  {:else}
-  <div class="composer">
+  <div class="composer" onpaste={pasted}>
    {#if images.length}
     <ul class="attachments" aria-label="Images to attach">
      {#each images as image (image.id)}
-      <li><span>{image.file.name} · {formatImageSize(image.file.size)}</span><button type="button" aria-label={`Remove ${image.file.name}`} disabled={uploading} onclick={() => removeImage(image.id)}>×</button></li>
+      <li><img src={image.preview} alt="" /><span>{image.file.name} · {formatImageSize(image.file.size)}</span><button type="button" aria-label={`Remove ${image.file.name}`} disabled={uploading} onclick={() => removeImage(image.id)}>×</button></li>
      {/each}
     </ul>
    {/if}
    {#if attachNote}<p class="notice" class:bad={/off|does not|at most|more than|Use PNG|Each image|empty/.test(attachNote)}>{attachNote}</p>{/if}
    <label class="vh" for={`${session.id}-chat-prompt`}>Message OpenCode</label>
-   <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:value={draft} rows="2" maxlength="2000" placeholder={working ? 'OpenCode is working…' : 'Ask OpenCode to change this project…'} onkeydown={keydown} onpaste={pasted} disabled={sending || uploading || working || chat.connection === 'reconnecting'}></textarea>
+   <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:value={draft} rows="2" maxlength="2000" placeholder={working ? 'OpenCode is working…' : 'Ask OpenCode to change this project…'} onkeydown={keydown} disabled={sending || uploading || working || chat.connection === 'reconnecting'}></textarea>
    <div class="composer-bar">
     <div class="composer-tools">
-     {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image" disabled={sending || uploading || working} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
+     {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image" disabled={sending || uploading || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
      <span class="hint">Enter to send · Shift + Enter for a new line</span>
     </div>
     <div class="composer-actions">
@@ -474,6 +481,7 @@
  .stop { color: var(--bad); }
  .attachments { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
  .attachments li { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 5px 4px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-sunk); font-size: 12px; color: var(--ink-soft); }
+ .attachments li img { width: 28px; height: 28px; flex: none; border-radius: 5px; object-fit: cover; }
  .attachments li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
  .attachments button { min-width: 26px; min-height: 26px; border: 0; background: none; color: var(--muted); font-size: 15px; cursor: pointer; }
  .composer-note { margin: 0 14px 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--muted); font-size: 12px; }

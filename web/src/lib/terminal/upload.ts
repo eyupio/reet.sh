@@ -1,6 +1,9 @@
 export const MAX_IMAGE_BYTES = 5 << 20
 export const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 export const MAX_IMAGES = 20
+/** ACP prompts carry at most eight image content blocks (the same ceiling the
+ *  reference agent UI uses); more than that fall back to readable paths. */
+export const MAX_EMBEDDED_IMAGES = 8
 export const MAX_IMAGE_TOTAL_BYTES = 50 << 20
 
 export type ImageValidation = { ok: true } | { ok: false; reason: 'type' | 'size' | 'empty' }
@@ -41,6 +44,19 @@ export function imagePrompt(prompt: string, references: string[]): string {
   const line = refs.length === 1 ? `Image: ${refs[0]}` : `Images: ${refs.join(' ')}`
   const text = String(prompt ?? '').replace(/\s+$/, '')
   return text ? `${text}\n\n${line}` : line
+}
+
+export interface UploadedImage {
+  path: string
+  reference: string
+}
+
+/** The prompt body sent to a structured chat. A machine that negotiated
+ *  acp-image-v1 receives the upload paths and embeds the images in the prompt;
+ *  an older machine gets the path as text, as before. */
+export function chatPromptParts(text: string, uploads: UploadedImage[], embedImages: boolean): { text: string; images: string[] } {
+  if (embedImages && uploads.length && uploads.length <= MAX_EMBEDDED_IMAGES) return { text, images: uploads.map(upload => upload.path) }
+  return { text: imagePrompt(text, uploads.map(upload => upload.reference)), images: [] }
 }
 
 

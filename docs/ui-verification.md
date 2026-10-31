@@ -1560,6 +1560,23 @@ recorded on that session. Thinking remains OpenCode's own.
 - `go test ./internal/acpagent ./internal/terminalagent ./internal/terminalbroker` passed; `go build ./...` passed.
 - Not checked: a physical phone, Safari, a live provider turn, or a model that OpenCode lists but cannot run.
 
+## reet TUI pasted images — 31 October 2026
+
+The reet TUI composer now passes a pasted, dropped or chosen image to OpenCode the way AOE does. The browser uploads it
+through the existing machine upload route; the prompt carries the upload path only when the machine negotiated
+`acp-image-v1`; the connector reads its own file and sends it as an ACP image content block. An older connector keeps the
+path-as-text prompt. The chip shows a thumbnail, at most eight images are embedded per prompt, and an image-only message
+is allowed. A send that is still settling no longer removes an image attached after it.
+
+Checks:
+- `go test ./internal/terminalproto ./internal/terminalbroker`, `go test ./internal/acpagent -skip TestCloseKillsOrphanedGroupMembers`,
+  `go test ./internal/terminalagent -skip TestModels ./internal/api` passed; `go vet` and `go build ./internal/...` passed.
+  New coverage: image-only prompt validation, ACP child receives `type: image`, `mimeType` and base64 data, connector
+  refuses a path outside its upload roots and a non-image, API gating on `acpImages` and the eight-image limit.
+- `npm --prefix web run check` passed (unit tests plus `svelte-check` 0 errors/0 warnings); `npm --prefix web run build` passed.
+- `web/tests/chat.e2e.mjs` passed at 1360 × 900 and 390 × 844: a chosen image uploaded once and the prompt body carried
+  `images: ["/home/dev/launch-uploads/shot.png"]` with no path in the text.
+- Not checked: a live OpenCode model turn with an image (OpenCode is not installed here), Safari or a physical phone.
 ## reet TUI transcript polish — 31 October 2026
 
 The reet TUI transcript was rebuilt around one-line tool rows: a state dot, kind icon and label, the command or the path

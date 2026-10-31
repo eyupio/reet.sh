@@ -4,6 +4,9 @@ import { launchActivity, toolName } from './agentLaunch'
 type Detail = {
   host?: string
   name?: string
+  action?: string
+  version?: string
+  reason?: string
   username?: string
   published?: boolean
   from?: string
@@ -95,6 +98,11 @@ export function eventLabel(e: Event): string {
     case 'project-remove': return d.name ? `Removed project ${d.name}; its folder on ${d.host || 'its machine'} is untouched` : 'Removed a project'
     case 'folder-browse': return d.path ? `Browsed folders from ${d.path}${typeof d.pages === 'number' ? ` (${d.pages} ${d.pages === 1 ? 'page' : 'pages'})` : ''}` : 'Browsed folders on a machine'
     case 'worktree-remove': return `Removed a worktree on ${d.host || 'a machine'}${d.branch ? `; the branch ${d.branch} is kept` : ''}`
+    case 'software-apply':
+      if (d.state !== 'applied') return `Tried to ${d.action || 'change'} OpenCode on ${d.host || 'a machine'}${d.reason ? ` (${String(d.reason).replaceAll('_', ' ')})` : ''}`
+      if (d.action === 'remove') return `Removed reet's managed OpenCode from ${d.host || 'a machine'}`
+      if (d.action === 'rollback') return `Rolled OpenCode back to${d.version ? ` ${d.version}` : ''} on ${d.host || 'a machine'}`
+      return `${d.action === 'install' ? 'Installed' : 'Updated'} OpenCode${d.version ? ` ${d.version}` : ''} on ${d.host || 'a machine'}`
     case 'sync-agent-update': return `Queued a reet update for ${d.name || 'a machine'}`
     case 'sync-agent-auto-update': return `Queued a reet update for ${d.name || 'a machine'} automatically`
     case 'add':
@@ -324,6 +332,7 @@ const CATEGORY_ACTIONS: Record<string, EventCategory> = {
   'model-favourite-removed': 'agents',
   'model-favourite-default': 'agents',
   'worktree-remove': 'agents',
+  'software-apply': 'agents',
   'merge-machines': 'agents',
   'forget-machine': 'agents',
   'projects-migrated': 'projects',

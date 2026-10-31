@@ -2,11 +2,12 @@
   import EnvironmentSync from './EnvironmentSync.svelte'
   import PageHeader from './PageHeader.svelte'
   import ProjectsBar from './ProjectsBar.svelte'
+  import FleetSoftware from './FleetSoftware.svelte'
   import { createToken } from './api'
   import { describeError } from './contentReview'
   import { onMount, type Component } from 'svelte'
   let { canWrite, accounts, monitoring=false, compare = false, userId=0, onsignedout, ontitle }: { canWrite: boolean; accounts: boolean; monitoring?:boolean; compare?: boolean;userId?:number; onsignedout?: (e: unknown) => void; ontitle?: (title: string) => void } = $props()
-  let token = $state(''), name = $state('machine token'), busy = $state(false), error = $state('')
+  let token = $state(''), name = $state('machine token'), busy = $state(false), error = $state(''), softwareOpen = $state(false)
   // A session address (?session=, ?agent= or view=terminal) opens the workspace. A bare /sessions reaches this page only for
   // someone without Sessions (a viewer, a token or an open instance), who gets the Machines page itself.
   const query = new URLSearchParams(location.search)
@@ -26,7 +27,7 @@
   }
 </script>
 {#if !terminals}<PageHeader eyebrow={compare || !focus ? 'Machines' : 'Machine'} title={compare ? "Sync" : focus || "Your machines, connected."} lede={compare ? "Choose skills and machines, then sync. Turn on Keep synced to let reet maintain them automatically." : focus ? "Inspect this machine's agent scopes, health and saved skill sets, or continue in its terminal." : "Connect a machine, inspect its skills and agents, and open a terminal to put them to work."} />{/if}
-{#if !terminals}<nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare&&!terminals ? 'page' : undefined}>Inventory &amp; connection</a><a class="btn quiet" href="/sync" aria-current={compare ? 'page' : undefined}>Sync</a></nav>{/if}
+{#if !terminals}<nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare&&!terminals ? 'page' : undefined}>Inventory &amp; connection</a><a class="btn quiet" href="/sync" aria-current={compare ? 'page' : undefined}>Sync</a>{#if accounts && canWrite}<button class="btn quiet" type="button" onclick={() => (softwareOpen = true)}>Software</button>{/if}</nav>{/if}
 {#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView {userId} {ontitle} />{:else}<p role="status">{error||'Loading terminal workspace…'}</p>{/if}{:else}
 <EnvironmentSync {canWrite} {accounts} monitorAccess={monitoring} terminalAccess={accounts&&canWrite} {token} {onsignedout} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
   {#snippet tokenSetup()}
@@ -39,6 +40,7 @@
   {/snippet}
 </EnvironmentSync>
 {/if}
+{#if softwareOpen}<FleetSoftware onclose={() => (softwareOpen = false)} />{/if}
 {#if !terminals && !compare && accounts && canWrite}
   <details class="projects-drawer">
     <summary>Projects</summary>

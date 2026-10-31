@@ -34,15 +34,17 @@ func terminalControl(ctx context.Context, config string, c agentConfig) agenthea
 	return terminalagent.FactoryWithChats(opts, terminalagent.NewChatSupervisor(ctx, opts))
 }
 
-// launchTools reports the agent CLIs found on this connector's PATH from its
-// built-in launch presets.
-func launchTools() []string { return terminalhost.InstalledTools(exec.LookPath, true) }
+// launchTools reports the agent CLIs this connector can start: those on PATH
+// and any reet-managed copy it installed, from its built-in launch presets.
+func launchTools(home string) []string {
+	return terminalhost.InstalledToolsForHome(home, exec.LookPath, true)
+}
 
 // softwareInventory reports the installation evidence reet can show without
 // running an installer. OpenCode is the first reviewed install method; the
 // entry is reported even when it is missing so a plan can name the install.
-func softwareInventory() []terminalproto.SoftwareEntry {
-	return []terminalproto.SoftwareEntry{terminalhost.InspectSoftware("opencode", exec.LookPath)}
+func softwareInventory(home string) []terminalproto.SoftwareEntry {
+	return []terminalproto.SoftwareEntry{terminalhost.InspectSoftware(home, "opencode", exec.LookPath)}
 }
 
 // gitAvailable reports whether git is on this connector's PATH (as an

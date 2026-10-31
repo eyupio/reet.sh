@@ -299,7 +299,16 @@ export function installCombobox() {
     if (current?.anchor === t) { if (t.selectionStart === t.selectionEnd && (e as MouseEvent).offsetX > t.clientWidth - 28) close(false); return }
     queueMicrotask(() => { if (document.activeElement === t || t.matches(':focus-within')) open(t) })
   }, true)
-  document.addEventListener('focusin', e => { const t = e.target; if (comboInput(t) && !t.readOnly && !t.disabled && fine() && current?.anchor !== t) open(t) })
+  // Tabbing into the field opens it. A field that receives focus any other way (a dialog focusing its first field as it opens)
+  // stays closed, so the first Escape reaches the dialog instead of an unasked-for list. Clicking and typing open it themselves.
+  let tabbed = false
+  document.addEventListener('keydown', e => { tabbed = e.key === 'Tab' }, true)
+  document.addEventListener('pointerdown', () => { tabbed = false }, true)
+  document.addEventListener('focusin', e => {
+    const t = e.target, viaTab = tabbed
+    tabbed = false
+    if (viaTab && comboInput(t) && !t.readOnly && !t.disabled && fine() && current?.anchor !== t) open(t)
+  })
   document.addEventListener('input', e => { const t = e.target; if (comboInput(t) && !current && !t.readOnly && !t.disabled) open(t) })
   document.addEventListener('focusout', e => {
     const t = e.target

@@ -1,0 +1,119 @@
+package api
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/eyupio/reet.sh/internal/store"
+)
+
+func TestSessionBacklogAPIAuthorizationAndValidation(t *testing.T) {
+	f := projectFixture(t)
+	path := "/api/v2/session-backlog"
+	input := map[string]any{"title": "Polish the board", "prompt": "Make the filters clearer", "agentId": f.agent.ID, "projectId": "", "dir": "/home/tester/site", "tool": "claude", "model": "sonnet", "effort": "", "images": []any{}, "version": 0}
+	code, out, raw := f.do(t, f.cookie, "POST", path, input)
+	if code != 201 {
+		t.Fatalf("create: %d %s", code, raw)
+	}
+	id := out["id"].(string)
+	if code, _, raw = f.do(t, f.cookie, "GET", path, nil); code != 200 || !strings.Contains(raw, id) {
+		t.Fatalf("list: %d %s", code, raw)
+	}
+	if code, _, raw = f.do(t, "", "GET", path, nil); code != 401 {
+		t.Fatalf("signed out: %d %s", code, raw)
+	}
+	viewer, err := f.st.CreateUser("backlog-viewer@example.test", "Backlog viewer", "viewer", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _, raw = f.do(t, terminalLogin(t, f.st, viewer.ID), "GET", path, nil); code != 403 {
+		t.Fatalf("viewer: %d %s", code, raw)
+	}
+	other, err := f.st.CreateUser("other-backlog@example.test", "Other backlog", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _, raw = f.do(t, terminalLogin(t, f.st, other.ID), "GET", path+"/"+id, nil); code != 404 {
+		t.Fatalf("cross account: %d %s", code, raw)
+	}
+	if code, raw = f.raw(t, "POST", path, `{}`, f.cookie, "https://other.example", ""); code != 403 {
+		t.Fatalf("origin: %d %s", code, raw)
+	}
+	for _, change := range []map[string]any{
+		{"agentId": "not-my-machine"}, {"model": "-bad"}, {"effort": "extreme"}, {"dir": "relative"}, {"tool": "unknown"}, {"prompt": strings.Repeat("a", 2001)},
+		{"images": []store.DraftImage{{Name: "fake.png", Data: "data:image/png;base64,aGVsbG8="}}}, {"projectId": "not-my-project"},
+	} {
+		bad := map[string]any{}
+		for k, v := range input {
+			bad[k] = v
+		}
+		for k, v := range change {
+			bad[k] = v
+		}
+		if code, _, raw = f.do(t, f.cookie, "POST", path, bad); code != 422 {
+			t.Fatalf("%v: %d %s", change, code, raw)
+		}
+	}
+	if code, _, raw = f.do(t, f.cookie, "POST", path, `{"unexpected":true}`); code != 400 {
+		t.Fatalf("unknown fields: %d %s", code, raw)
+	}
+	input["version"] = 1
+	if code, _, raw = f.do(t, f.cookie, "PUT", path+"/"+id, input); code != 200 {
+		t.Fatalf("update: %d %s", code, raw)
+	}
+	if code, _, raw = f.do(t, f.cookie, "PUT", path+"/"+id, input); code != 409 {
+		t.Fatalf("stale update: %d %s", code, raw)
+	}
+	if code, _, raw = f.do(t, f.cookie, "DELETE", path+"/"+id, map[string]int{"version": 2}); code != 200 {
+		t.Fatalf("delete: %d %s", code, raw)
+	}
+}
+
+func TestSessionBacklogStartUsesOneFrozenTerminalRequest(t *testing.T) {
+	f := launchAPIFixture(t, launchCaps("claude"))
+	d, err := f.st.SaveSessionDraftFor(f.uid, store.SessionDraft{Title: "Polish the board", Prompt: "Make the filters clearer", AgentID: f.agent.ID, Dir: "/home/tester/site", Tool: "claude", Model: "sonnet"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v2/session-backlog/" + d.ID + "/start"
+	input := map[string]any{"version": d.Version, "prompt": d.Prompt}
+	code, first, raw := f.do(t, f.cookie, "POST", path, input)
+	if code != 200 {
+		t.Fatalf("start: %d %s", code, raw)
+	}
+	input["prompt"] = "A different retry prompt"
+	code, second, raw := f.do(t, f.cookie, "POST", path, input)
+	if code != 200 || first["id"] != second["id"] {
+		t.Fatalf("retry: %d %s", code, raw)
+	}
+	if sent := f.sent(); len(sent) != 1 || sent[0].Prompt != d.Prompt || sent[0].Model != "sonnet" || sent[0].Dir != d.Dir {
+		t.Fatalf("dispatches: %+v", sent)
+	}
+	list, err := f.st.SessionDraftsFor(f.uid)
+	if err != nil || len(list) != 1 || list[0].SessionID != first["id"] {
+		t.Fatalf("link to actual session: %+v %v", list, err)
+	}
+	if len(launchEvents(t, f.st, f.uid)) != 1 {
+		t.Fatal("retry audited twice")
+	}
+}
+
+func TestSessionBacklogRefusedStartCanBeEditedAgain(t *testing.T) {
+	f := launchAPIFixture(t, launchCaps("codex"))
+	d, err := f.st.SaveSessionDraftFor(f.uid, store.SessionDraft{Title: "Polish the board", Prompt: "Make the filters clearer", AgentID: f.agent.ID, Tool: "claude"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/session-backlog/"+d.ID+"/start", map[string]any{"version": d.Version, "prompt": d.Prompt})
+	if code != 422 {
+		t.Fatalf("refusal: %d %s", code, raw)
+	}
+	reloaded, err := f.st.SessionDraftFor(f.uid, d.ID)
+	if err != nil || reloaded.PreparedPrompt != "" {
+		t.Fatalf("remained frozen after refusal: %+v %v", reloaded, err)
+	}
+	reloaded.Tool = "codex"
+	if _, err := f.st.SaveSessionDraftFor(f.uid, reloaded, false); err != nil {
+		t.Fatal("cannot correct refused draft", err)
+	}
+}

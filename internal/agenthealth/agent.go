@@ -58,6 +58,7 @@ type AgentConfig struct {
 	acpHistory        bool
 	acpModel          bool
 	acpImages         bool
+	acpApproval       bool
 	shellDir          bool
 	attention         bool
 	progress          bool
@@ -712,6 +713,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpHistory = terminalproto.SupportsACPHistory(advertised)
 	cfg.acpModel = terminalproto.SupportsACPModel(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
+	cfg.acpApproval = terminalproto.SupportsACPApproval(advertised)
 	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
 	cfg.attention = terminalproto.SupportsAttention(advertised)
 	cfg.progress = terminalproto.SupportsProgress(advertised)
@@ -770,6 +772,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpImages {
 		features = append(features, terminalproto.ACPImageFeature)
+	}
+	if cfg.acpApproval {
+		features = append(features, terminalproto.ACPApprovalFeature)
 	}
 	if cfg.shellDir {
 		features = append(features, terminalproto.ShellDirFeature)
@@ -883,6 +888,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ACPHistory:      acp && cfg.acpHistory,
 		ACPModel:        acp && cfg.acpModel,
 		ACPImages:       acp && cfg.acpImages,
+		ACPApproval:     acp && cfg.acpApproval,
 		ShellDir:        cfg.shellDir && control && enabled,
 		Attention:       cfg.attention && control,
 		Branches:        cfg.branches && worktree && enabled,

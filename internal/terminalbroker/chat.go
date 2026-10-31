@@ -32,6 +32,9 @@ var (
 	// ErrACPImageUnavailable means an uploaded image could not be read, for
 	// example because the 24-hour sweep removed it before the prompt arrived.
 	ErrACPImageUnavailable = errors.New("that image is no longer available on the machine")
+	// ErrACPApprovalUnsupported means the machine's connector predates
+	// acp-approval-v1, so it cannot switch a live chat's approval mode.
+	ErrACPApprovalUnsupported = errors.New("that machine cannot switch a live chat's approval mode")
 )
 
 // ACPTrustError means the folder has OpenCode plugins and the start did not
@@ -376,6 +379,20 @@ func (l *chatLog) subscribe() (snapshot []ChatEvent, truncated bool, events <-ch
 	return snapshot, truncated, ch, cancel
 }
 
+// permissionEvent finds a card still in the ring, so a for-session answer can
+// remember exactly what the person saw.
+func (l *chatLog) permissionEvent(permissionID string) (terminalproto.ACPEvent, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i := len(l.events) - 1; i >= 0; i-- {
+		event := l.events[i].ACPEvent
+		if event.Kind == "permission" && event.PermissionID == permissionID {
+			return event, true
+		}
+	}
+	return terminalproto.ACPEvent{}, false
+}
+
 func (l *chatLog) close() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -478,6 +495,73 @@ func (b *Broker) publishChat(uid int64, session string, event terminalproto.ACPE
 			})
 		}
 	}
+	if event.Kind == "permission" && event.PermissionID != "" {
+		// A person can allow one command, file or tool for the rest of the
+		// chat. The controller answers that repeat itself; the machine still
+		// emits the real permission_resolved, which is what the person sees.
+		if key := permissionKey(event); key != "" && b.sessionAllowed(uid, session, key) {
+			b.autoAnswer(uid, session, event.PermissionID)
+		}
+	}
+}
+
+// permissionKey names the narrowest repeatable thing a card asks for. It is
+// empty when a card has nothing stable to match, so it is never remembered.
+func permissionKey(event terminalproto.ACPEvent) string {
+	if event.ToolKind == "" {
+		return ""
+	}
+	if event.Command != "" {
+		return event.ToolKind + "\x00" + event.Command
+	}
+	if event.Path != "" {
+		return event.ToolKind + "\x00" + event.Path
+	}
+	return ""
+}
+
+func (b *Broker) sessionAllowed(uid int64, session, key string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.approvals[chatKey{uid, session}][key]
+}
+
+func (b *Broker) allowForSession(uid int64, session, key string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	keys := b.approvals[chatKey{uid, session}]
+	if keys == nil {
+		keys = map[string]bool{}
+		b.approvals[chatKey{uid, session}] = keys
+	}
+	keys[key] = true
+}
+
+func (b *Broker) autoAnswer(uid int64, session, permissionID string) {
+	if !b.start() {
+		return
+	}
+	go func() {
+		defer b.wg.Done()
+		s, err := b.structuredSession(uid, session)
+		if err != nil {
+			return
+		}
+		p, err := b.peer(uid, s.AgentID, true)
+		if err != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), chatCallTimeout)
+		defer cancel()
+		reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session,
+			Body: &terminalproto.ACPPermission{PermissionID: permissionID, Allow: true}}, chatCallTimeout)
+		if chatAck(reply, err) != nil {
+			return
+		}
+		_ = b.st.AddEventFor(uid, "machine", "session-allow", "", map[string]string{
+			"machine": s.AgentID, "tool": s.Tool, "session": session, "permission": permissionID,
+		})
+	}()
 }
 
 // SubscribeChat returns the current ring and a subscription. The caller must
@@ -496,6 +580,7 @@ func (b *Broker) closeChat(uid int64, session string) {
 	key := chatKey{uid, session}
 	l := b.chats[key]
 	delete(b.chats, key)
+	delete(b.approvals, key)
 	b.mu.Unlock()
 	if l != nil {
 		l.close()
@@ -596,7 +681,7 @@ func (b *Broker) CancelChat(ctx context.Context, uid int64, session string) erro
 	return chatAck(reply, err)
 }
 
-func (b *Broker) PermissionChat(ctx context.Context, uid int64, session, permissionID string, allow bool) error {
+func (b *Broker) PermissionChat(ctx context.Context, uid int64, session, permissionID string, allow, forSession bool) error {
 	s, err := b.structuredSession(uid, session)
 	if err != nil {
 		return err
@@ -604,6 +689,13 @@ func (b *Broker) PermissionChat(ctx context.Context, uid int64, session, permiss
 	p, err := b.peer(uid, s.AgentID, true)
 	if err != nil {
 		return err
+	}
+	if allow && forSession {
+		if event, ok := b.chatLog(uid, session).permissionEvent(permissionID); ok {
+			if key := permissionKey(event); key != "" {
+				b.allowForSession(uid, session, key)
+			}
+		}
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session,
 		Body: &terminalproto.ACPPermission{PermissionID: permissionID, Allow: allow}}, chatCallTimeout)
@@ -619,6 +711,54 @@ func (b *Broker) PermissionChat(ctx context.Context, uid int64, session, permiss
 		}
 	}
 	return ErrACPClosed
+}
+
+// SetChatYolo switches a live chat between asking the person and answering
+// every permission itself. Turning YOLO on keeps every gate a launch does: the
+// account setting, the agent's reviewed option and the machine's acceptance.
+func (b *Broker) SetChatYolo(ctx context.Context, uid int64, session string, yolo bool) error {
+	s, err := b.structuredSession(uid, session)
+	if err != nil {
+		return err
+	}
+	if yolo {
+		if !b.yoloAllowed() {
+			return ErrYoloNotAllowed
+		}
+		if !terminalproto.ToolTakesYolo(s.Tool) {
+			return ErrYoloRefused
+		}
+	}
+	p, err := b.peer(uid, s.AgentID, true)
+	if err != nil {
+		return err
+	}
+	caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID)
+	if err != nil || caps.Generation != p.Generation {
+		return ErrOffline
+	}
+	if !caps.Capabilities.ACPApproval {
+		return ErrACPApprovalUnsupported
+	}
+	if yolo && !caps.Capabilities.Yolo {
+		return ErrYoloRefused
+	}
+	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session,
+		Body: &terminalproto.ACPMode{Yolo: yolo}}, chatCallTimeout)
+	if err := chatAck(reply, err); err != nil {
+		return err
+	}
+	if err := b.st.SetTerminalYoloFor(uid, session, yolo); err != nil {
+		return err
+	}
+	mode := "ask"
+	if yolo {
+		mode = "yolo"
+	}
+	_ = b.st.AddEventFor(uid, "machine", "yolo-mode", "", map[string]string{
+		"machine": s.AgentID, "tool": s.Tool, "session": session, "mode": mode,
+	})
+	return nil
 }
 
 // chatCallTimeout bounds a chat command's acknowledgement. The model turn is

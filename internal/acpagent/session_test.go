@@ -844,6 +844,36 @@ func TestResumePlanModeRefused(t *testing.T) {
 	}
 }
 
+func TestAllowAllPendingAnswersTheCardOnScreen(t *testing.T) {
+	opts, got := options(t, "permission", testVersion)
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "write a file") }()
+	event := got.next(t)
+	for event.Kind != "permission" {
+		event = got.next(t)
+	}
+	if err := session.AllowAllPending(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	for e := range got.wait {
+		if e.Kind == "permission_resolved" {
+			if e.Allow == nil || !*e.Allow {
+				t.Fatalf("resolved %+v", e)
+			}
+			return
+		}
+	}
+	t.Fatal("no resolution")
+}
+
 func TestSwitchModelPreservesSessionAndFailureKeepsModel(t *testing.T) {
 	opts, _ := options(t, "", testVersion)
 	s, err := Start(context.Background(), opts)

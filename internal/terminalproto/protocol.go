@@ -150,6 +150,9 @@ type Capabilities struct {
 	ACPModel   bool `json:"acpModel,omitempty"`
 	// ACPImages is sent only when acp-image-v1 was negotiated as well.
 	ACPImages bool `json:"acpImages,omitempty"`
+	// ACPApproval is sent only when acp-approval-v1 was negotiated; a live
+	// chat can then switch between asking and YOLO.
+	ACPApproval bool `json:"acpApproval,omitempty"`
 	// ShellDir is sent only when shell-dir-v1 was negotiated; a plain shell
 	// may then start in a chosen folder.
 	ShellDir bool `json:"shellDir,omitempty"`
@@ -203,7 +206,7 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.Models && !c.TerminalControl || c.ModelsOff && (c.Models || !c.TerminalControl) {
 		return ErrInvalid
 	}
-	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ACPModel && !c.ACP || c.ACPImages && !c.ACP || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
+	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ACPImages && !c.ACP || c.ACPApproval && !c.ACP || c.ACPModel && !c.ACP || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
 		return ErrInvalid
 	}
 	if len(c.Software) > 0 && (!c.TerminalControl || !ValidSoftware(c.Software)) {
@@ -532,7 +535,7 @@ func (m Message) Validate() error {
 		return ErrInvalid
 	}
 	kind := m.Body.kind()
-	session := kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed" || kind == "upload" || kind == "acp_prompt" || kind == "acp_model" || kind == "acp_cancel" || kind == "acp_permission" || kind == "acp_event"
+	session := kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed" || kind == "upload" || kind == "acp_prompt" || kind == "acp_cancel" || kind == "acp_permission" || kind == "acp_mode" || kind == "acp_model" || kind == "acp_event"
 	attachment := kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "history" || kind == "command_history" || kind == "upload" || kind == "result" && m.AttachmentID != ""
 	if session && !ValidID(m.SessionID) || !session && m.SessionID != "" && (kind != "result" || !ValidID(m.SessionID)) {
 		return ErrInvalid
@@ -637,6 +640,8 @@ func Decode(data []byte) (Message, error) {
 		b = &ACPCancel{}
 	case "acp_permission":
 		b = &ACPPermission{}
+	case "acp_mode":
+		b = &ACPMode{}
 	case "acp_event":
 		b = &ACPEvent{}
 	default:

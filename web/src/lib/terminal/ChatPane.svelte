@@ -8,7 +8,14 @@
  let { session, uploadsSupported = false, uploadsOff = false, acpImages = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean } = $props()
 
  let chat: ChatState = $state(initialChat())
- let selectedModel = $state(session.model ?? ''), currentModel = $state(session.model ?? ''), changingModel = $state(false)
+ let selectedModel = $state(''), currentModel = $state(''), changingModel = $state(false)
+ let modelSession = '', modelValue = ''
+ $effect(() => {
+  const id = session.id, model = session.model ?? ''
+  if (id === modelSession && model === modelValue) return
+  modelSession = id; modelValue = model
+  selectedModel = model; currentModel = model
+ })
  let models = $state<string[]>([]), modelNote = $state('')
  const failed = $derived(chat.status.state === 'error')
  const guidance = $derived(/credit|quota|usage limit|billing|balance|insufficient_quota/i.test(chat.status.detail)
@@ -155,10 +162,10 @@
   try { await chatCancel(session.id) }
   catch (e) { feedback = e instanceof Error ? e.message : 'That reet session could not be stopped.' }
  }
- async function answer(permissionId: string, allow: boolean) {
+ async function answer(permissionId: string, allow: boolean, forSession = false) {
   if (answering) return
   answering = permissionId; feedback = ''
-  try { await chatAnswer(session.id, permissionId, allow) }
+  try { await chatAnswer(session.id, permissionId, allow, forSession) }
   catch (e) { feedback = e instanceof Error ? e.message : 'That answer was not sent.' }
   finally { answering = '' }
  }
@@ -232,7 +239,7 @@
  {#if feedback}<p class="notice bad" role="alert">{feedback}</p>{/if}
  <div class="log" role="log" bind:this={log} onscroll={onScroll}>
   {#if chat.items.length === 0}
-   <div class="empty"><h3>Ask OpenCode to change this project.</h3><p>It asks before it edits a file or runs a command. Approvals are one use only.</p></div>
+   <div class="empty"><h3>Ask OpenCode to change this project.</h3><p>It asks before it edits a file or runs a command. Allow once for one card, or allow that command or file for the rest of this session.</p></div>
   {/if}
   {#each chat.items as item (item.key)}
    {#if item.kind === 'user'}
@@ -349,6 +356,9 @@
       <div class="approval-actions">
        <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, false)}>Deny</button>
        <button type="button" class="btn primary" disabled={!!answering || item.truncated} onclick={() => void answer(item.permissionId, true)}>Allow once</button>
+       {#if (item.command || item.path) && !item.truncated}
+        <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, true, true)}>{item.command ? 'Allow this command for this session' : 'Allow this file for this session'}</button>
+       {/if}
       </div>
      {/if}
     </div>

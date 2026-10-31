@@ -45,6 +45,22 @@ terminal that does not answer OSC 11 no longer delays every command; the palette
 ahead of its earlier lower priority; it is scoped to the binary's existing commands, not a second
 control room. The planned terminal-interface slices are complete; install, agent enrollment and the longer setup restore/rollback flows remain text commands.
 
+## Live approval modes (31 October 2026)
+
+- **A live structured chat can switch Ask me ↔ YOLO.** New `acp-approval-v1` (`ACPApproval` capability,
+  `acp_mode` body) lets the controller change a running chat without restarting it. The connector sets its
+  own auto-answer, answers cards already waiting, and keeps the local YOLO switch gate. The controller keeps
+  the launch gates (account Allow YOLO, machine `yolo`, agent option), updates `terminal_sessions.yolo`, and
+  audits `yolo-mode`; the session header and actions menu carry the switch, with the existing confirmation
+  dialog in switching form. Docs: [structured sessions](docs/structured-sessions.md).
+- **Ask me can allow a command or file for this session.** A card with a command or path adds
+  **Allow this command/file for this session**. The controller remembers the exact tool kind plus command or
+  path for that chat, answers repeats itself, audits each as `session-allow`, and forgets on chat end,
+  archive or restart. It never sends the agent's `allow_always`. `PermissionChat` takes `forSession`; the
+  route body adds `forSession`; the card shows the third button.
+- **Checks:** `go test` on terminalproto, acpagent, terminalagent, terminalbroker, store, agenthealth and api;
+  `npm --prefix web run check`; `npm --prefix web run build`.
+
 ## Agent software inventory and plan (31 October 2026)
 
 **Task ID and scope:** L1, first slice — observe OpenCode on Linux and show a reviewed install, update or remove

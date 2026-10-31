@@ -5,7 +5,7 @@ terminal: OpenCode streams messages and tool calls, and reet shows an approval c
 Terminal sessions are unchanged.
 
 Slice 1 is deliberately narrow: OpenCode only, trusted folders only, and **Allow once** or **Deny** only. Always allow is
-not offered. The probe is [OpenCode `opencode acp` hands-on probe](research/probe-report.md); the plan is
+not offered; later slices add a per-session command/file allowance and a live Ask me ↔ YOLO switch, both described below. The probe is [OpenCode `opencode acp` hands-on probe](research/probe-report.md); the plan is
 [Program 2, slice 1](superpowers/plans/2026-10-29-program-2-slice-1.md).
 
 ## Starting one
@@ -42,7 +42,8 @@ folder, as the connector's user. All seven conditions are mandatory:
    top level and for `build`, `plan`, `general` and `explore`; `task` and `webfetch` are denied; `default_agent` is `build`.
    `OPENCODE_DISABLE_PROJECT_CONFIG=1` ignores the repository's config. The inherited environment is scrubbed of every
    `OPENCODE_*`, so `OPENCODE_PERMISSION`, `OPENCODE_CONFIG` and `OPENCODE_CONFIG_DIR` cannot override it. After
-   `session/new`, the connector refuses to continue unless the mode is `build`. Mode switching is not offered.
+   `session/new`, the connector refuses to continue unless the mode is `build`. OpenCode's own agent-mode switching is not
+   offered; approval mode (Ask me or YOLO) is separate and can switch while a chat runs.
 2. **A random server password.** Each process gets a fresh `OPENCODE_SERVER_PASSWORD`, so another local process cannot
    approve permissions through OpenCode's local HTTP API. A tool the person approves runs as the same user and can read its
    own environment, including that password; this is accepted for slice 1.
@@ -96,11 +97,28 @@ agent that needs the image opens it with its own read tool. The controller never
 
 The card names the tool, the folder and, for a command, the full command text; for an edit it shows the whole-file diff
 from the permission request. The machine cuts a diff or command that is too large for one control frame and marks the card
-truncated; **Allow once** is disabled then, and only **Deny** is available. The browser offers no Always allow, and the
-machine ignores any ACP `allow_always` option. An unknown answer is treated as Deny.
+truncated; **Allow** actions are disabled then, and only **Deny** is available. The browser never sends the agent's own
+`allow_always` option. An unknown answer is treated as Deny.
 
-A card is for one tool call. Answering it closes it; a later call asks again. The agent's completion update and the
-person's answer both appear in the reet TUI.
+A card offers **Allow once**, **Deny**, and, when the card names a command or a path, **Allow this command/file for this
+session**. The last choice is remembered by the controller for that chat only, by exact command or path and tool kind:
+a repeat is answered automatically, every automatic answer is audited as `session-allow`, and the approval is forgotten
+when the chat ends, is archived or the controller restarts. It never widens to other commands or files, and it is never
+sent to the agent as `allow_always`.
+
+A card is for one tool call. Answering it closes it; a later call asks again unless the person allowed that exact
+command or file for the session. The agent's completion update and the person's answer both appear in the reet TUI.
+
+## Switching Ask me and YOLO while it runs
+
+A structured session's header shows **Ask me** and **YOLO** for a live chat on a machine that negotiated
+`acp-approval-v1`. Switching to YOLO asks for the same per-session confirmation as a launch and passes the same gates:
+the account's Allow YOLO setting, the machine's `yolo` capability and the agent's reviewed YOLO option. The controller
+then sends `acp_mode`; the connector sets its own auto-answer for this chat and answers any card already waiting. The
+store's `yolo` flag, the YOLO badge and the audit (`yolo-mode`, then `yolo-allow` for each answer) follow. Switching back
+to Ask me stops the auto-answer immediately. A connector older than `acp-approval-v1` reports no `acpApproval` capability,
+so the switch is not offered; terminal sessions keep the mode they launched with. A refusal is sentence-shaped and leaves
+the mode as it was.
 
 ## Limits
 
@@ -120,12 +138,15 @@ person's answer both appear in the reet TUI.
 - **The model is chosen at launch.** **Agent default** uses OpenCode's configured model. A chosen model is passed in
   `OPENCODE_CONFIG_CONTENT` and must match the model OpenCode reports after `session/new`; a mismatch refuses the start.
   Thinking remains OpenCode's own. Continuing a chat keeps the model recorded on the closed session.
+- **Approval mode can change while a structured chat runs**, on a connector that negotiated `acp-approval-v1`. The
+  per-session approval card and the Ask me/YOLO switch are described above. A terminal session cannot change the flags
+  it was launched with.
 - **Dropped provider errors are recovered.** When OpenCode ends a turn without streaming any progress, the connector reads
   the newest matching error from OpenCode's local store and shows it instead of leaving a silently empty turn. A provider
   error OpenCode writes to its log during a silent turn is read the same way; the connector shows it and stops that turn
   rather than leaving "still working" until the deadline.
 - **Images are embedded when the machine supports it.** An `acp-image-v1` machine embeds the uploaded image in the ACP prompt
-  (at most eight per prompt); an older machine names the path as text. Modes, MCP servers, resume of a live turn and other
+  (at most eight per prompt); an older machine names the path as text. OpenCode's agent modes, MCP servers, resume of a live turn and other
   agents are not in this slice.
 - **No physical phone, Safari or live provider run** was part of the checks. The fake ACP child covers the protocol; the
   real 1.19.5 binary opened and then loaded a session in a throwaway HOME, but no model turn was sent.

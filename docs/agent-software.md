@@ -91,6 +91,15 @@ the version it came from so an update can reverse it. A remove deletes only
 reet's managed tree (including the versions it kept); configuration, history and
 credentials live outside it, and a system installation is never touched.
 
+## After a restart
+
+On connector start, reet reconciles its managed tree: it removes staging files
+and version directories an interrupted apply left behind, verifies the current
+binary, restores the kept previous version if the current one is broken, and
+clears a rollback target that no longer verifies. A broken current with no valid
+previous stays `managed_broken` and is reported rather than hidden or replaced
+by a system copy. This runs once at start, never during an apply.
+
 Refusals and failures use `409`/`502`/`504` with a code such as
 `software_changed`, `software_sessions_running`, `software_download_failed`,
 `software_checksum_failed` or `software_install_failed`; the message says what
@@ -115,9 +124,8 @@ dialog; remove additionally needs the machine's name typed. Activity records a
   `registry.npmjs.org`. A controller-side mirror for offline machines is future
   work.
 - Apply is synchronous with a five-minute download/install deadline; a slow link
-  can time out and nothing is changed. Fleet-wide apply, a controller-side
-  artifact mirror and interruption recovery after a connector restart are future
-  work.
+  can time out and nothing is changed. Fleet-wide apply and a controller-side
+  artifact mirror are future work.
 - Integrity is verified at install. A launch checks the binary's recorded size,
   not its full hash, on every run.
 - The checks use fake artifacts and temporary homes; no physical machine, live

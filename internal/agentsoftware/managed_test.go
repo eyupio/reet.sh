@@ -163,3 +163,142 @@ func TestInstallRejectsUnsafeNames(t *testing.T) {
 		t.Fatal("accepted a relative home")
 	}
 }
+
+func TestRecoverManagedCleansLeftoversAndKeepsCurrentAndPrevious(t *testing.T) {
+	home := t.TempDir()
+	if _, err := InstallStaged(home, "opencode", "1.18.0", stagedFixture(t, "older")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InstallStaged(home, "opencode", "1.19.5", stagedFixture(t, "newer")); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := Root(home, "opencode")
+	if err := os.MkdirAll(filepath.Join(root, "tmp"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tmp", "stale.tgz"), []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".receipt-stale"), []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	partial := filepath.Join(root, "versions", "1.19.9", "bin")
+	if err := os.MkdirAll(partial, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(partial, "opencode"), []byte("partial"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "versions", "1.19.5", ".opencode-stale"), []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RecoverManaged(home, "opencode"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "tmp")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("staging directory survived: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "versions", "1.19.9")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("partial version survived: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".receipt-stale")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("receipt temp file survived: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "versions", "1.19.5", ".opencode-stale")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("binary temp file survived: %v", err)
+	}
+	if _, receipt, found, err := Current(home, "opencode"); err != nil || !found || receipt.Version != "1.19.5" || receipt.Previous != "1.18.0" {
+		t.Fatalf("current after cleanup: %+v %v %v", receipt, found, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "versions", "1.18.0", "opencode")); err != nil {
+		t.Fatalf("previous version removed: %v", err)
+	}
+}
+
+func TestRecoverManagedRestoresPreviousWhenCurrentIsBroken(t *testing.T) {
+	home := t.TempDir()
+	if _, err := InstallStaged(home, "opencode", "1.18.0", stagedFixture(t, "older")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InstallStaged(home, "opencode", "1.19.5", stagedFixture(t, "newer")); err != nil {
+		t.Fatal(err)
+	}
+	path, _, _, err := Current(home, "opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecoverManaged(home, "opencode"); err != nil {
+		t.Fatal(err)
+	}
+	if _, receipt, found, err := Current(home, "opencode"); err != nil || !found || receipt.Version != "1.18.0" || receipt.Previous != "" {
+		t.Fatalf("restored current: %+v %v %v", receipt, found, err)
+	}
+}
+
+func TestRecoverManagedReportsABrokenCurrentWithoutAPrevious(t *testing.T) {
+	home := t.TempDir()
+	if _, err := InstallStaged(home, "opencode", "1.19.5", stagedFixture(t, "binary")); err != nil {
+		t.Fatal(err)
+	}
+	path, _, _, err := Current(home, "opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecoverManaged(home, "opencode"); !errors.Is(err, ErrManagedBroken) {
+		t.Fatalf("recovery error = %v", err)
+	}
+	if _, _, found, err := Current(home, "opencode"); !errors.Is(err, ErrManagedBroken) || found {
+		t.Fatalf("broken current was hidden: found=%v err=%v", found, err)
+	}
+}
+
+func TestRecoverManagedClearsAnInvalidPrevious(t *testing.T) {
+	home := t.TempDir()
+	if _, err := InstallStaged(home, "opencode", "1.18.0", stagedFixture(t, "older")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InstallStaged(home, "opencode", "1.19.5", stagedFixture(t, "newer")); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := Root(home, "opencode")
+	previous := filepath.Join(root, "versions", "1.18.0", "opencode")
+	if err := os.Truncate(previous, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecoverManaged(home, "opencode"); err != nil {
+		t.Fatal(err)
+	}
+	if _, receipt, _, err := Current(home, "opencode"); err != nil || receipt.Previous != "" {
+		t.Fatalf("invalid previous not cleared: %+v %v", receipt, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "versions", "1.18.0")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid previous survived: %v", err)
+	}
+}
+
+func TestRecoverManagedRemovesVersionsWithoutACurrentReceipt(t *testing.T) {
+	home := t.TempDir()
+	if _, err := InstallStaged(home, "opencode", "1.19.5", stagedFixture(t, "binary")); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := Root(home, "opencode")
+	if err := os.Remove(filepath.Join(root, "receipt.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecoverManaged(home, "opencode"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, found, err := Current(home, "opencode"); err != nil || found {
+		t.Fatalf("orphan version became current: found=%v err=%v", found, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "versions")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("versions survived without a current receipt: %v", err)
+	}
+}

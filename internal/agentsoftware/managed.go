@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -316,4 +317,116 @@ func verifyFile(path string, receipt Receipt) error {
 		return ErrManagedBroken
 	}
 	return nil
+}
+
+// RecoverManaged reconciles the managed tree after a crash or an interrupted
+// apply. It runs at connector start, never during an apply: it removes staging
+// files and version directories reet did not finish, verifies the current copy,
+// restores the previous version when the current one is broken, and clears a
+// rollback target that is no longer valid. A broken current with no valid
+// previous is reported, not hidden.
+func RecoverManaged(home, tool string) error {
+	root, err := Root(home, tool)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil || !info.IsDir() {
+		return ErrManagedBroken
+	}
+	_ = os.RemoveAll(filepath.Join(root, "tmp"))
+	versionsDir := filepath.Join(root, "versions")
+	current, found, err := readReceipt(filepath.Join(root, "receipt.json"))
+	if err != nil {
+		return err
+	}
+	if !found {
+		// No completed install: version directories are leftovers from an
+		// interrupted first install.
+		return os.RemoveAll(versionsDir)
+	}
+	if err := verifyReceiptVersion(root, current); err != nil {
+		restored, restoreErr := restorePrevious(root, current)
+		if restoreErr != nil {
+			return ErrManagedBroken
+		}
+		current = restored
+	}
+	if current.Previous != "" {
+		previous, found, err := readReceipt(filepath.Join(filepath.Join(root, "versions"), current.Previous, "receipt.json"))
+		if err != nil || !found || verifyReceiptVersion(root, previous) != nil {
+			current.Previous = ""
+			if err := writeReceipt(filepath.Join(root, "receipt.json"), current); err != nil {
+				return err
+			}
+		}
+	}
+	keep := map[string]bool{current.Version: true}
+	if current.Previous != "" {
+		keep[current.Previous] = true
+	}
+	entries, err := os.ReadDir(versionsDir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !keep[entry.Name()] {
+			_ = os.RemoveAll(filepath.Join(versionsDir, entry.Name()))
+		}
+	}
+	removeTemps(root)
+	for version := range keep {
+		removeTemps(filepath.Join(versionsDir, version))
+	}
+	return nil
+}
+
+func verifyReceiptVersion(root string, receipt Receipt) error {
+	dir, err := versionDir(root, receipt.Version)
+	if err != nil {
+		return err
+	}
+	if _, found, err := readReceipt(filepath.Join(dir, "receipt.json")); err != nil || !found {
+		return ErrManagedBroken
+	}
+	return verifyFile(filepath.Join(dir, "opencode"), receipt)
+}
+
+func restorePrevious(root string, current Receipt) (Receipt, error) {
+	if current.Previous == "" {
+		return Receipt{}, ErrNoRollback
+	}
+	dir, err := versionDir(root, current.Previous)
+	if err != nil {
+		return Receipt{}, err
+	}
+	previous, found, err := readReceipt(filepath.Join(dir, "receipt.json"))
+	if err != nil || !found || previous.Version != current.Previous {
+		return Receipt{}, ErrNoRollback
+	}
+	if err := verifyFile(filepath.Join(dir, "opencode"), previous); err != nil {
+		return Receipt{}, err
+	}
+	// The broken version is not kept as a rollback target.
+	previous.Previous = ""
+	if err := writeReceipt(filepath.Join(root, "receipt.json"), previous); err != nil {
+		return Receipt{}, err
+	}
+	return previous, nil
+}
+
+func removeTemps(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, ".opencode-") || strings.HasPrefix(name, ".receipt-") {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
 }

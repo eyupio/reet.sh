@@ -137,9 +137,16 @@ routes accept both; remove/rollback are refused while an OpenCode session runs; 
 never touched, and removing takes reet's kept previous versions with its own copy. Tests cover rollback plans,
 remove effects, applied/refused results, the API actions and typed confirmation; docs and README are updated.
 
-**Still not in this slice:** no fleet-wide apply, controller-side artifact mirror, or resume after a connector restart;
-the binary is verified at install, not on every launch. Next: reviewed fleet-wide maintenance, the mirror and restart
-recovery. Read `internal/agentsoftware/{artifact,managed,plan}.go`, `internal/terminalhost/{software,software_apply}.go`,
+**L2d, on `feat/agent-software-remove-rollback` (with L2c):** `agentsoftware.RecoverManaged` runs once when the
+connector starts. It removes staging files and unfinished version directories, verifies the current binary, restores
+the kept previous version when the current is broken (clearing the broken rollback target), clears a previous target
+that no longer verifies, and reports a broken current with no valid previous as `managed_broken` rather than hiding it
+or falling back to a system copy. Tests cover leftovers, a broken current with a good previous, a broken current with
+no previous, an invalid previous, and orphan versions without a current receipt. Docs: [docs/agent-software.md](docs/agent-software.md).
+
+**Still not in this slice:** no fleet-wide apply or controller-side artifact mirror; the binary is verified at install
+and at startup, not on every launch. Next: reviewed fleet-wide maintenance and the mirror. Read
+`internal/agentsoftware/{artifact,managed,plan}.go`, `internal/terminalhost/{software,software_apply}.go`,
 `internal/terminalbroker/software.go`, `internal/api/software.go` and `web/src/lib/MachineSettings.svelte`.
 
 ## Agents home redesign (27–30 October 2026)
@@ -173,10 +180,10 @@ recovery. Read `internal/agentsoftware/{artifact,managed,plan}.go`, `internal/te
   on|off|status` switch and `yolo` capability, reviewed options for Codex/OpenCode/Cline, controller
   gates and audit, structured `allow_once` answers, the confirmation dialog and badges. #266 fixed the
   launch audit on a mismatched worktree and kept generic machine refusals from counting as started.
-- **Next stage:** L2 install/update is in [#289](https://github.com/eyupio/reet.sh/pull/289) and rollback/remove in
-  [#291](https://github.com/eyupio/reet.sh/pull/291) (stacked on #289). Next: reviewed fleet-wide maintenance, a
-  controller-side artifact mirror and restart recovery. Program 2, slice 4 (elicitation and rich input cards) still
-  needs its own probe.
+- **Next stage:** L2 install/update is in [#289](https://github.com/eyupio/reet.sh/pull/289); rollback/remove and
+  restart recovery are in [#291](https://github.com/eyupio/reet.sh/pull/291) (stacked on #289). Next: reviewed
+  fleet-wide maintenance and a controller-side artifact mirror. Program 2, slice 4 (elicitation and rich input cards)
+  still needs its own probe.
 - **Do first:** for the next PR, check its final head with the REST forms
   (`gh api repos/eyupio/reet.sh/pulls/<n>` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
   `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). Merge only when every check is green and Codex has

@@ -17,6 +17,8 @@ type Open = {
   active: number
   source: () => Item[]
   pick: (item: Item) => void
+  /** True while a suggestion list opened by itself (a field was focused) and the person has not used it yet. */
+  passive: boolean
   cleanup: () => void
 }
 
@@ -146,7 +148,7 @@ function choose(o: Open, i: number) {
   close()
 }
 
-function open(anchor: HTMLSelectElement | HTMLInputElement, seed = '') {
+function open(anchor: HTMLSelectElement | HTMLInputElement, seed = '', passive = false) {
   if (current?.anchor === anchor) return
   close(false)
   const inputMode = anchor instanceof HTMLInputElement
@@ -189,6 +191,7 @@ function open(anchor: HTMLSelectElement | HTMLInputElement, seed = '') {
       anchor.dispatchEvent(new Event('input', { bubbles: true }))
       anchor.dispatchEvent(new Event('change', { bubbles: true }))
     },
+    passive: passive && inputMode,
     cleanup: () => {},
   }
   const refresh = (resetActive: boolean) => {
@@ -216,14 +219,17 @@ function open(anchor: HTMLSelectElement | HTMLInputElement, seed = '') {
     const el = (e.target as HTMLElement).closest<HTMLElement>('.cbx-option')
     return el ? Number(el.dataset.i) : -1
   }
-  root.addEventListener('mousedown', e => { if (e.target !== filter) e.preventDefault() })
+  root.addEventListener('mousedown', e => { o.passive = false; if (e.target !== filter) e.preventDefault() })
   list.addEventListener('click', e => { const i = onOption(e); if (i >= 0) choose(o, i) })
   list.addEventListener('mousemove', e => { const i = onOption(e); if (i >= 0 && i !== o.active && !o.shown[i].disabled) setActive(o, i) })
 
   const keys = (e: KeyboardEvent) => {
     const k = e.key
+    // A list that opened on its own, untouched, must not swallow Escape: the person is leaving the dialog around the field.
+    if (k === 'Escape' && o.passive) { close(false); return }
     if (k === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return }
     if (k === 'Tab') { close(false); return }
+    if (k === 'ArrowDown' || k === 'ArrowUp') o.passive = false
     if (k === 'ArrowDown') { e.preventDefault(); setActive(o, o.active < 0 ? step(o, -1, 1) : step(o, o.active, 1)); return }
     if (k === 'ArrowUp') { e.preventDefault(); setActive(o, o.active < 0 ? step(o, 0, -1) : step(o, o.active, -1)); return }
     if (!inputMode && k === 'Home') { e.preventDefault(); setActive(o, step(o, -1, 1)); return }
@@ -233,7 +239,7 @@ function open(anchor: HTMLSelectElement | HTMLInputElement, seed = '') {
       else if (!inputMode) e.preventDefault()
     }
   }
-  const typed = () => refresh(true)
+  const typed = () => { o.passive = false; refresh(true) }
   const keyTarget: HTMLElement = filter ?? anchor
   keyTarget.addEventListener('keydown', keys, true)
   ;(filter ?? anchor).addEventListener('input', typed)
@@ -296,19 +302,10 @@ export function installCombobox() {
   document.addEventListener('mousedown', e => {
     const t = e.target
     if (!comboInput(t) || t.disabled || t.readOnly) return
-    if (current?.anchor === t) { if (t.selectionStart === t.selectionEnd && (e as MouseEvent).offsetX > t.clientWidth - 28) close(false); return }
+    if (current?.anchor === t) { current.passive = false; if (t.selectionStart === t.selectionEnd && (e as MouseEvent).offsetX > t.clientWidth - 28) close(false); return }
     queueMicrotask(() => { if (document.activeElement === t || t.matches(':focus-within')) open(t) })
   }, true)
-  // Tabbing into the field opens it. A field that receives focus any other way (a dialog focusing its first field as it opens)
-  // stays closed, so the first Escape reaches the dialog instead of an unasked-for list. Clicking and typing open it themselves.
-  let tabbed = false
-  document.addEventListener('keydown', e => { tabbed = e.key === 'Tab' }, true)
-  document.addEventListener('pointerdown', () => { tabbed = false }, true)
-  document.addEventListener('focusin', e => {
-    const t = e.target, viaTab = tabbed
-    tabbed = false
-    if (viaTab && comboInput(t) && !t.readOnly && !t.disabled && fine() && current?.anchor !== t) open(t)
-  })
+  document.addEventListener('focusin', e => { const t = e.target; if (comboInput(t) && !t.readOnly && !t.disabled && fine() && current?.anchor !== t) open(t, '', true) })
   document.addEventListener('input', e => { const t = e.target; if (comboInput(t) && !current && !t.readOnly && !t.disabled) open(t) })
   document.addEventListener('focusout', e => {
     const t = e.target

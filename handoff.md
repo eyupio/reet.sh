@@ -71,6 +71,25 @@ provider redirects, background traffic off, `ClaudeSessionMeta`. Not registered.
 gates (descriptor + launch + history); for Codex, re-run with a working
 sandbox to see whether any approval request exists, and cancel on a running command; then SC3.
 
+## SC3 — Typed agent questions, machine core (31 October 2026)
+
+**Scope:** `internal/acpagent` only; no wire, API or UI change and no agent enabled. See the SC3 progress
+note in [the plan](docs/structured-chat-plan.md).
+
+**Added:** a normalized `Question` model (text, single select, multi select), a strict `elicitation/create`
+parser that refuses unsupported forms whole, an authoritative answer validator (`Question.Validate`,
+`DecodeAnswers`), and session handling with single-use IDs, deadlines, a pending cap and cancellation on turn
+cancel, close and exit. `Options.Questions` is off in every launch, `initialize` does not advertise
+`elicitation.form`, and the connector drops `question*` events.
+
+**Checks:** `go vet`, `gofmt`, `go build ./...` and `go test -race` for `acpagent`, `terminalagent` and
+`terminalproto`; two deliberate mutations (any choice accepted, answered question not consumed) failed the
+tests. No browser, phone, real provider or live adapter was used.
+
+**Next unchecked task:** private-protocol messages and negotiation, the controller answer route with
+account checks, then the chat card and Needs-you summary; request-scoped (pre-session) questions and
+old-peer/concurrent-tab/phone fixtures. Do not advertise the form capability before those.
+
 ## SC2 — Structured adapter probe checkpoint (31 October 2026)
 
 **Scope:** separate probe PR targeting main; no new runtime adapter is enabled.

@@ -88,6 +88,7 @@ type Session struct {
 	model        string
 	promptImages bool
 	tools        map[string]string
+	toolStart    map[string]time.Time
 	done         chan struct{}
 	doneOnce     sync.Once
 
@@ -160,7 +161,8 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		return nil, ErrExited
 	}
 	s := &Session{opts: opts, binary: binary, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr,
-		calls: map[int64]chan rpcResult{}, pending: map[string]*pendingPermission{}, tools: map[string]string{}, done: make(chan struct{})}
+		calls: map[int64]chan rpcResult{}, pending: map[string]*pendingPermission{}, tools: map[string]string{},
+		toolStart: map[string]time.Time{}, done: make(chan struct{})}
 	go s.readLoop()
 	go func() {
 		_ = cmd.Wait()
@@ -468,8 +470,20 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 		}
 	case "tool_call", "tool_call_update":
 		s.markProgress()
+		durationMs := int64(0)
 		if u.ToolCallID != "" {
+			now := time.Now()
 			s.mu.Lock()
+			start, started := s.toolStart[u.ToolCallID]
+			if !started {
+				s.toolStart[u.ToolCallID] = now
+			}
+			if u.Status == "completed" || u.Status == "failed" || u.Status == "cancelled" {
+				if started {
+					durationMs = now.Sub(start).Milliseconds()
+				}
+				delete(s.toolStart, u.ToolCallID)
+			}
 			s.tools[u.ToolCallID] = u.Status
 			s.mu.Unlock()
 		}
@@ -480,7 +494,13 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 				locations = append(locations, location.Path)
 			}
 		}
-		s.emit(Event{Kind: "tool", ToolCallID: u.ToolCallID, Title: u.Title, ToolKind: u.Kind, Status: u.Status, Text: text, Locations: locations})
+		details := toolDetails(u.RawInput, u.RawOutput)
+		if len(locations) > 0 && details.path == "" {
+			details.path = locations[0]
+		}
+		s.emit(Event{Kind: "tool", ToolCallID: u.ToolCallID, Title: u.Title, ToolKind: u.Kind, Status: u.Status, Text: text,
+			Command: details.command, Path: details.path, Diff: details.diff, Additions: details.additions, Deletions: details.deletions,
+			DurationMs: durationMs, Locations: locations})
 	case "agent_thought_chunk":
 		text := contentText(u.Content)
 		if text != "" {
@@ -494,6 +514,59 @@ func (s *Session) markProgress() {
 	s.mu.Lock()
 	s.turnProgress = true
 	s.mu.Unlock()
+}
+
+// toolDetails pulls the parts a tool row shows (its command, target path and diff summary) out of the adapter's raw
+// input and output. Adapters differ: anything absent is left empty and the browser falls back to the title.
+type toolDetailsValue struct {
+	command, path, diff  string
+	additions, deletions int
+}
+
+func toolDetails(rawInput, rawOutput json.RawMessage) toolDetailsValue {
+	var detail toolDetailsValue
+	if len(rawInput) > 0 {
+		var input struct {
+			Command  string `json:"command"`
+			FilePath string `json:"filePath"`
+			Filepath string `json:"filepath"`
+			Path     string `json:"path"`
+		}
+		if json.Unmarshal(rawInput, &input) == nil {
+			detail.command = input.Command
+			detail.path = firstNonEmpty(input.FilePath, input.Filepath, input.Path)
+		}
+	}
+	if len(rawOutput) > 0 {
+		var output struct {
+			Metadata struct {
+				FileDiff struct {
+					Patch     string `json:"patch"`
+					File      string `json:"file"`
+					Additions int    `json:"additions"`
+					Deletions int    `json:"deletions"`
+				} `json:"filediff"`
+			} `json:"metadata"`
+		}
+		if json.Unmarshal(rawOutput, &output) == nil {
+			detail.diff = output.Metadata.FileDiff.Patch
+			detail.additions = max(0, output.Metadata.FileDiff.Additions)
+			detail.deletions = max(0, output.Metadata.FileDiff.Deletions)
+			if detail.path == "" {
+				detail.path = output.Metadata.FileDiff.File
+			}
+		}
+	}
+	return detail
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func contentText(raw json.RawMessage) string {

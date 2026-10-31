@@ -21,6 +21,18 @@ because there is no shell to attach to. Closing the tab or **End session** ends 
 control connection detaches it without killing the agent; the next connection adopts the running session and drains events
 queued while it was away. Restarting the agent process ends its chats.
 
+## The transcript
+
+Every tool call is one row: a state dot, its kind (**Bash**, **Read**, **Edit**, **Search**…), the command or the file path
+relative to the session's folder, and the line count, duration and status. Where the connector can read them it also shows
+the added and removed line counts; opening the row reveals the full command, output or unified diff and any reported paths.
+A failed row opens on its error; the rest stay folded so a long turn reads as a list rather than a wall of output.
+
+The connector sends those tool details only to a controller that negotiated **`acp-tool-details-v1`**; an older controller
+receives the plain tool event and the row falls back to its title and location. Thinking is a quiet, foldable aside that
+stops running when the turn waits, finishes or stops. An agent message keeps its headings, lists and quotes, and its fenced code is rendered in its own block; an approval
+remains the one card that asks for an answer.
+
 ## The seven conditions
 
 The controller never runs OpenCode. The connector starts `opencode acp` as its own process, one per reet session, in the session's
@@ -95,6 +107,10 @@ person's answer both appear in the reet TUI.
 - **History is in memory.** The controller keeps at most 1,000 events / 256 KiB per reet session and does not write a transcript.
   A closed reet TUI session can be reopened from OpenCode's own store with Continue in reet TUI with history…; the live event ring still
   resets on a server restart, and archiving a session drops its controller-side ring.
+- **The browser's log is bounded too.** The reet TUI keeps at most 400 items / 256 KiB of the conversation, drops the
+  oldest first and says when earlier messages are no longer shown; an approval still waiting for an answer is never
+  dropped. A continued chat replaying a long OpenCode history therefore stays responsive instead of building an
+  unbounded page.
 - **A control connection loss does not end a reet session.** The connector owns one process per reet session for the life of
   the agent process. A reconnect adopts the running sessions, includes them in reconciliation, and drains the bounded event
   queue produced while detached. Restarting the agent ends them; their stored OpenCode ids can still be reopened if that

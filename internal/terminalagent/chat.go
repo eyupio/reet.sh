@@ -93,6 +93,7 @@ type chatLink struct {
 	generation int64
 	send       func(context.Context, terminalproto.Message) error
 	history    bool
+	details    bool
 	live       bool
 }
 
@@ -163,18 +164,18 @@ type chatHost struct {
 // attachChats attaches a control connection to a supervisor. A nil supervisor
 // creates a connection-scoped one, which keeps unit tests and any caller that
 // does not own a process yet isolated.
-func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalhost.ManagerOptions, generation int64, send func(context.Context, terminalproto.Message) error, history bool) *chatHost {
+func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalhost.ManagerOptions, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool) *chatHost {
 	var s *chatSupervisor
 	if supervisor != nil {
 		s = supervisor.s
 	} else {
 		s = newChatSupervisor(ctx, opts)
 	}
-	return s.attach(ctx, generation, send, history)
+	return s.attach(ctx, generation, send, history, details)
 }
 
-func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history bool) *chatHost {
-	link := &chatLink{generation: generation, send: send, history: history}
+func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool) *chatHost {
+	link := &chatLink{generation: generation, send: send, history: history, details: details}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -219,6 +220,9 @@ func (s *chatSupervisor) flush(h *chatHost) {
 		cs.outboxBytes -= chatEventBytes(event)
 		s.mu.Unlock()
 
+		if !h.link.details {
+			event = withoutToolDetails(event)
+		}
 		err := h.link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
 			Generation: h.link.generation, Body: &event})
 		if err != nil {
@@ -653,6 +657,9 @@ func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 		return
 	}
 	s.mu.Unlock()
+	if !link.details {
+		wire = withoutToolDetails(wire)
+	}
 	if err := link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
 		Generation: link.generation, Body: &wire}); err != nil {
 		s.mu.Lock()
@@ -783,13 +790,23 @@ func chatEventBytes(event terminalproto.ACPEvent) int {
 	return len(event.Kind) + len(event.MessageID) + len(event.ToolCallID) + len(event.PermissionID) +
 		len(event.Title) + len(event.ToolKind) + len(event.Status) + len(event.State) + len(event.Text) +
 		len(event.Command) + len(event.Path) + len(event.Diff) + len(event.Reason) + len(event.Detail) +
-		len(strings.Join(event.Locations, ""))
+		len(strings.Join(event.Locations, "")) + 48 // the numeric detail fields and their JSON separators
+}
+
+// withoutToolDetails is the plain tool event an older controller can decode: its strict decoder rejects unknown fields.
+func withoutToolDetails(event terminalproto.ACPEvent) terminalproto.ACPEvent {
+	if event.Kind == "tool" {
+		event.Command, event.Path, event.Diff = "", "", ""
+		event.Additions, event.Deletions, event.DurationMs = 0, 0, 0
+	}
+	return event
 }
 
 func wireEvent(event acpagent.Event) (terminalproto.ACPEvent, bool) {
 	wire := terminalproto.ACPEvent{Kind: event.Kind, MessageID: event.MessageID, ToolCallID: event.ToolCallID,
 		PermissionID: event.PermissionID, Title: event.Title, ToolKind: event.ToolKind, Status: event.Status,
 		State: event.State, Text: event.Text, Command: event.Command, Path: event.Path, Diff: event.Diff,
+		Additions: event.Additions, Deletions: event.Deletions, DurationMs: event.DurationMs,
 		Locations: event.Locations, Allow: event.Allow, Bad: event.Bad, Truncated: event.Truncated,
 		Reason: event.Reason, Detail: event.Detail}
 	if len(wire.Diff) > 9<<10 {
@@ -806,6 +823,10 @@ func wireEvent(event acpagent.Event) (terminalproto.ACPEvent, bool) {
 	}
 	if len(wire.Path) > 1<<10 {
 		wire.Path = cutText(wire.Path, 1<<10)
+	}
+	if len(wire.Title) > 200 {
+		wire.Title = cutText(wire.Title, 200)
+		wire.Truncated = true
 	}
 	if len(wire.Locations) > 4 {
 		wire.Locations = wire.Locations[:4]

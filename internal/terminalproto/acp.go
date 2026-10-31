@@ -20,6 +20,10 @@ const ACPHistoryFeature = "acp-history-v1"
 // AOE does, so the agent sees the image itself rather than a file path.
 const ACPImageFeature = "acp-image-v1"
 
+// ACPToolDetailsFeature lets a new controller accept the extra fields a tool row shows (command, path, diff and its
+// counts, and the duration). A connector on an older controller keeps sending the plain tool event.
+const ACPToolDetailsFeature = "acp-tool-details-v1"
+
 const (
 	// MaxChatPromptBytes bounds one chat message. 2,000 bytes is the largest
 	// text whose JSON encoding is certain to fit the 16 KiB control frame, even
@@ -41,6 +45,16 @@ const (
 func SupportsACP(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == ACPFeature {
+			return true
+		}
+	}
+	return false
+}
+
+// SupportsACPToolDetails reports whether the peer negotiated acp-tool-details-v1.
+func SupportsACPToolDetails(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ACPToolDetailsFeature {
 			return true
 		}
 	}
@@ -73,7 +87,8 @@ func SupportsACPImages(features string) bool {
 //
 //	user                 one complete user message (Text)
 //	agent                one agent message chunk (MessageID, Text)
-//	tool                 a tool call state (ToolCallID, Title, ToolKind, Status, Text, Locations)
+//	tool                 a tool call state (ToolCallID, Title, ToolKind, Status, Text, Command, Path, Diff,
+//	                     Additions, Deletions, DurationMs, Locations)
 //	notice               a line for the person (Text, Bad)
 //	status               a turn or connection state (State, Detail)
 //	permission           an approval card (PermissionID, ToolCallID, Title, ToolKind, Command, Path, Diff, Truncated)
@@ -92,6 +107,9 @@ type ACPEvent struct {
 	Command      string   `json:"command,omitempty"`
 	Path         string   `json:"path,omitempty"`
 	Diff         string   `json:"diff,omitempty"`
+	Additions    int      `json:"additions,omitempty"`
+	Deletions    int      `json:"deletions,omitempty"`
+	DurationMs   int64    `json:"durationMs,omitempty"`
 	Locations    []string `json:"locations,omitempty"`
 	Allow        *bool    `json:"allow,omitempty"`
 	Bad          bool     `json:"bad,omitempty"`
@@ -111,7 +129,9 @@ func (e ACPEvent) valid() bool {
 	case "tool":
 		return validACPID(e.ToolCallID) && e.PermissionID == "" && e.Allow == nil && validChatText(e.Title, 200) &&
 			validToolKind(e.ToolKind) && validToolStatus(e.Status) && validChatText(e.Text, MaxACPEventBytes) &&
-			validLocations(e.Locations)
+			validChatText(e.Command, 6<<10) && validChatText(e.Path, MaxDirBytes) && validChatText(e.Diff, 9<<10) &&
+			e.Additions >= 0 && e.Additions <= 1<<20 && e.Deletions >= 0 && e.Deletions <= 1<<20 &&
+			e.DurationMs >= 0 && e.DurationMs <= 24*60*60*1000 && validLocations(e.Locations)
 	case "notice":
 		return e.MessageID == "" && e.ToolCallID == "" && e.PermissionID == "" && e.Allow == nil && e.Text != "" && validChatText(e.Text, MaxACPEventBytes)
 	case "status":

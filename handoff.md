@@ -29,12 +29,13 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 ## Terminal interface (30 October 2026)
 
 The binary now has a terminal interface: `reet` in a terminal opens a menu over Doctor,
-Healthcheck, Scan, Sync, Backups, Setups, Upgrade, Version, Terminal status and Agent status, and
-`--tui` opens a screen directly. Scan is a native `huh` form with dry-run, prune and reconcile; Sync
+Healthcheck, Scan, Sync, Backups, Setups, Upgrade, Install, Version, Terminal status and Agent
+status, and `--tui` opens a screen directly. Scan is a native `huh` form with dry-run, prune and reconcile; Sync
 previews a target and applies a hash-checked plan; Backups lists, takes and restores copies through
 the shared `backup.RestoreInstance`; Setups creates, pushes and pulls profiles through the shared
 `setup.HTTPRemote`; Upgrade runs the same verified, backed-up, rollback-capable upgrade as the text
-command behind an explicit confirmation. It is
+command behind an explicit confirmation. Install runs the same managed installer behind an explicit
+confirmation, with a dry run. It is
 built with Bubble Tea v2 under `internal/tui`, reads the same report values as the text commands,
 and does not touch the store or the web app. v2 removes the v1 startup background query, so a
 terminal that does not answer OSC 11 no longer delays every command; the palette comes from

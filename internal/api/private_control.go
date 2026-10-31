@@ -16,7 +16,7 @@ import (
 // agreedControlFeatures is the feature list this connection negotiates: every
 // private control feature, with agents-v2 only for a machine that claims it.
 func agreedControlFeatures(c terminalproto.Capabilities) string {
-	features := []string{terminalproto.CommandHistoryFeature, terminalproto.LaunchFeature, terminalproto.ResumeFeature, terminalproto.WorktreeFeature, terminalproto.BrowseFeature, terminalproto.BranchesFeature, terminalproto.ClipboardFeature, terminalproto.UploadFeature, terminalproto.ModelsFeature, terminalproto.ACPFeature, terminalproto.ACPHistoryFeature, terminalproto.ACPImageFeature, terminalproto.ShellDirFeature, terminalproto.AttentionFeature}
+	features := []string{terminalproto.CommandHistoryFeature, terminalproto.LaunchFeature, terminalproto.ResumeFeature, terminalproto.WorktreeFeature, terminalproto.BrowseFeature, terminalproto.BranchesFeature, terminalproto.ClipboardFeature, terminalproto.UploadFeature, terminalproto.ModelsFeature, terminalproto.ACPFeature, terminalproto.ACPHistoryFeature, terminalproto.ACPToolDetailsFeature, terminalproto.ACPImageFeature, terminalproto.ShellDirFeature, terminalproto.AttentionFeature}
 	if c.AgentsV2 {
 		features = append(features, terminalproto.AgentsFeature)
 	}

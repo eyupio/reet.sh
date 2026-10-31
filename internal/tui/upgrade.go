@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 
 	"github.com/eyupio/reet.sh/internal/lifecycle"
 )
@@ -36,7 +36,7 @@ func defaultUpgradeRelease(opts Options) string {
 	return "latest"
 }
 
-func buildUpgradeForm(values *upgradeFormValues, current string) *huh.Form {
+func buildUpgradeForm(values *upgradeFormValues, current string, dark bool) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().Title("Current").Description(current),
@@ -57,7 +57,7 @@ func buildUpgradeForm(values *upgradeFormValues, current string) *huh.Form {
 				Negative("Cancel").
 				Value(&values.Confirm),
 		),
-	).WithTheme(huh.ThemeCharm()).WithShowHelp(true)
+	).WithTheme(formTheme(dark)).WithShowHelp(true)
 }
 
 func (m model) renderUpgrade() string {

@@ -1,6 +1,13 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"os"
+	"strconv"
+	"strings"
+
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
+)
 
 type styles struct {
 	header        lipgloss.Style
@@ -16,7 +23,26 @@ type styles struct {
 	spinner       lipgloss.Style
 }
 
-func newStyles(plain bool) styles {
+// tuiDark chooses a palette without asking the terminal. The background query
+// is what made Bubble Tea v1 slow to start on terminals that do not answer
+// OSC 11; the terminal interface never sends it.
+func tuiDark() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("REET_TUI_BACKGROUND"))) {
+	case "light":
+		return false
+	case "dark":
+		return true
+	}
+	if value := os.Getenv("COLORFGBG"); value != "" {
+		parts := strings.Split(value, ";")
+		if n, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+			return n < 8
+		}
+	}
+	return true
+}
+
+func newStyles(plain, dark bool) styles {
 	if plain {
 		return styles{
 			header:        lipgloss.NewStyle().Bold(true),
@@ -32,11 +58,12 @@ func newStyles(plain bool) styles {
 			spinner:       lipgloss.NewStyle(),
 		}
 	}
-	orange := lipgloss.AdaptiveColor{Light: "#C2410C", Dark: "#FB923C"}
-	green := lipgloss.AdaptiveColor{Light: "#15803D", Dark: "#4ADE80"}
-	amber := lipgloss.AdaptiveColor{Light: "#B45309", Dark: "#FBBF24"}
-	red := lipgloss.AdaptiveColor{Light: "#B91C1C", Dark: "#F87171"}
-	muted := lipgloss.AdaptiveColor{Light: "#6B7280", Dark: "#9CA3AF"}
+	ld := lipgloss.LightDark(dark)
+	orange := ld(lipgloss.Color("#C2410C"), lipgloss.Color("#FB923C"))
+	green := ld(lipgloss.Color("#15803D"), lipgloss.Color("#4ADE80"))
+	amber := ld(lipgloss.Color("#B45309"), lipgloss.Color("#FBBF24"))
+	red := ld(lipgloss.Color("#B91C1C"), lipgloss.Color("#F87171"))
+	muted := ld(lipgloss.Color("#6B7280"), lipgloss.Color("#9CA3AF"))
 	return styles{
 		header:        lipgloss.NewStyle().Bold(true).Foreground(orange),
 		footer:        lipgloss.NewStyle().Foreground(muted),
@@ -50,4 +77,10 @@ func newStyles(plain bool) styles {
 		fail:          lipgloss.NewStyle().Foreground(red),
 		spinner:       lipgloss.NewStyle().Foreground(orange),
 	}
+}
+
+// formTheme pins the form palette to the background we detected. The form's
+// own detection is ignored because the interface never queries the terminal.
+func formTheme(dark bool) huh.Theme {
+	return huh.ThemeFunc(func(bool) *huh.Styles { return huh.ThemeCharm(dark) })
 }

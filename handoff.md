@@ -105,7 +105,7 @@ cancel, close and exit. `Options.Questions` is off in every launch, `initialize`
 `terminalproto`; two deliberate mutations (any choice accepted, answered question not consumed) failed the
 tests. No browser, phone, real provider or live adapter was used.
 
-**Wire stage (local branch `feat/sc3-question-wire`, stacked on the machine core):** `acp-question-v1`, the
+**Wire stage:** `acp-question-v1`, the
 question events and `acp_question_answer`, `question_invalid`, connector routing, `AnswerQuestionChat` and
 the `/chat/questions/{id}` route. Still off by default; see the plan.
 

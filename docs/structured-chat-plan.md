@@ -164,7 +164,10 @@ the feature gate, and the concurrent-tab, replay and phone-width browser fixture
 Done in the browser: the `question` card in the chat view (reducer, draft checks, answer call, accessible controls,
 decided summary), covered by `chat.test.mjs` and `chat.e2e.mjs`. Also done: the Needs-you summary (the broker keeps a bounded
 queue of open questions and publishes the first, truncated, with a count of the rest; Home and the bell show it with
-"Answer in chat"). Also done: a browser fixture for a concurrent tab answering first (the late answer is refused as gone and the stream's resolution closes the card) and for a replayed resolved card coming back decided. Still not done: questions asked before the session exists, the old-peer fixture, and the
+"Answer in chat"). A connector test refuses a question answer unless the connection negotiated both `acp-v1` and
+`acp-question-v1`. A browser fixture covers a concurrent tab answering first (the late answer is refused as gone and the
+stream's resolution closes the card) and a replayed resolved card coming back decided. Still not done: questions asked
+before the session exists, the old-peer fixture, and the
 touch-device and screen-reader checks. Nothing sends a question yet.
 
 ## SC4 — Integrate the second adapter

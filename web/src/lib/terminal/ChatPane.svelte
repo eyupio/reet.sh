@@ -1,6 +1,6 @@
 <script lang="ts">
  import { onDestroy, onMount, tick } from 'svelte'
- import { applyChatEvent, checkQuestionDraft, diffCounts, displayPath, emptyDraft, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, pendingPermissions, pendingQuestions, proseBlocks, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QuestionAnswers, type QuestionDraft } from '../chat'
+ import { applyChatEvent, checkQuestionDraft, diffCounts, displayPath, emptyDraft, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, proseBlocks, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
  import { chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
@@ -199,10 +199,10 @@
  function draftOf(item: QuestionItem): QuestionDraft { return drafts[item.questionId] ?? emptyDraft(item.question) }
  function setField(item: QuestionItem, key: string, value: string | string[]) {
   drafts[item.questionId] = { ...draftOf(item), [key]: value }
-  if (questionErrors[item.questionId]?.[key]) { const { [key]: _fixed, ...rest } = questionErrors[item.questionId]; questionErrors[item.questionId] = rest }
+  if (own(questionErrors[item.questionId], key)) { const { [key]: _fixed, ...rest } = questionErrors[item.questionId]; questionErrors[item.questionId] = rest }
  }
  function toggleChoice(item: QuestionItem, key: string, value: string, on: boolean) {
-  const current = draftOf(item)[key]
+  const current = own(draftOf(item), key)
   const list = Array.isArray(current) ? current : []
   setField(item, key, on ? [...list.filter(v => v !== value), value] : list.filter(v => v !== value))
  }
@@ -426,7 +426,7 @@
     </div>
    {:else if item.kind === 'question'}
     {@const draft = draftOf(item)}
-    {@const errors = questionErrors[item.questionId] ?? {}}
+    {@const errors = questionErrors[item.questionId]}
     {@const busy = asking === item.questionId}
     <form class="approval question" class:decided={item.decision} role="group" aria-labelledby={`${item.key}-message`} data-question={item.questionId} novalidate
      onsubmit={event => { event.preventDefault(); void respondQuestion(item, 'accept') }}>
@@ -440,7 +440,7 @@
       <p class="decision">{questionDecision(item)}</p>
       {#if item.decision === 'answered' && sentAnswers[item.questionId]}
        <dl class="question-summary">
-        {#each summarizeAnswers(item.question, sentAnswers[item.questionId]) as line (line.label)}
+        {#each summarizeAnswers(item.question, sentAnswers[item.questionId]) as line (line.key)}
          <dt>{line.label}</dt><dd>{line.text}</dd>
         {/each}
        </dl>
@@ -448,16 +448,16 @@
      {:else}
       {#each item.question.fields as field (field.key)}
        {@const id = `${item.key}-${field.key}`}
-       {@const invalid = !!errors[field.key]}
+       {@const invalid = !!own(errors, field.key)}
        {@const describedBy = [field.description ? `${id}-help` : '', invalid ? `${id}-error` : ''].filter(Boolean).join(' ') || undefined}
        {#if field.kind === 'text'}
         <div class="qfield">
          <label class="qlegend" for={id}>{fieldLabel(field)}{#if !field.required}{' '}<span class="qopt">(optional)</span>{/if}</label>
          {#if field.description}<p class="qhelp" id={`${id}-help`}>{field.description}</p>{/if}
-         <textarea {id} rows="2" value={typeof draft[field.key] === 'string' ? draft[field.key] : ''} disabled={busy}
+         <textarea {id} rows="2" value={typeof own(draft, field.key) === 'string' ? own(draft, field.key) : ''} disabled={busy}
           aria-invalid={invalid ? 'true' : undefined} aria-describedby={describedBy} aria-required={field.required ? 'true' : undefined}
           oninput={event => setField(item, field.key, (event.currentTarget as HTMLTextAreaElement).value)}></textarea>
-         {#if invalid}<p class="qerror" id={`${id}-error`}>{errors[field.key]}</p>{/if}
+         {#if invalid}<p class="qerror" id={`${id}-error`}>{own(errors, field.key)}</p>{/if}
         </div>
        {:else}
         <fieldset class="qfield" tabindex="-1" data-invalid={invalid ? 'true' : undefined} aria-describedby={describedBy} disabled={busy}>
@@ -467,12 +467,12 @@
          {#each field.options ?? [] as option (option.value)}
           <label class="qoption">
            <input type={field.kind === 'single' ? 'radio' : 'checkbox'} name={id} value={option.value}
-            checked={field.kind === 'single' ? draft[field.key] === option.value : Array.isArray(draft[field.key]) && (draft[field.key] as string[]).includes(option.value)}
+            checked={field.kind === 'single' ? own(draft, field.key) === option.value : Array.isArray(own(draft, field.key)) && (own(draft, field.key) as string[]).includes(option.value)}
             onchange={event => field.kind === 'single' ? setField(item, field.key, option.value) : toggleChoice(item, field.key, option.value, (event.currentTarget as HTMLInputElement).checked)} />
            <span><span class="qlabel">{option.label}</span>{#if option.description}<span class="qdesc">{option.description}</span>{/if}</span>
           </label>
          {/each}
-         {#if invalid}<p class="qerror" id={`${id}-error`}>{errors[field.key]}</p>{/if}
+         {#if invalid}<p class="qerror" id={`${id}-error`}>{own(errors, field.key)}</p>{/if}
         </fieldset>
        {/if}
       {/each}

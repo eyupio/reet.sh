@@ -206,16 +206,16 @@ test('the draft check gives feedback and builds the answers to send', () => {
   const empty = checkQuestionDraft(q, emptyDraft(q))
   assert.equal(empty.ok, false)
   assert.deepEqual(Object.keys(empty.errors), ['question_0'])
-  assert.deepEqual(empty.answers, {})
+  assert.deepEqual({ ...empty.answers }, {})
 
   const ok = checkQuestionDraft(q, { question_0: 'a', tags: ['x', 'z'], note: '  hi  ' })
   assert.equal(ok.ok, true)
-  assert.deepEqual(ok.answers, { question_0: 'a', tags: ['x', 'z'], note: '  hi  ' })
+  assert.deepEqual({ ...ok.answers }, { question_0: 'a', tags: ['x', 'z'], note: '  hi  ' })
 
   // Optional fields left empty are not sent.
   const minimal = checkQuestionDraft(q, { question_0: 'b', tags: [], note: '   ' })
   assert.equal(minimal.ok, true)
-  assert.deepEqual(minimal.answers, { question_0: 'b' })
+  assert.deepEqual({ ...minimal.answers }, { question_0: 'b' })
 
   for (const [name, draft, field] of [
     ['unoffered choice', { question_0: 'zzz' }, 'question_0'],
@@ -243,7 +243,35 @@ test('a required multi select needs at least one choice, an optional empty one i
 test('answers are summarized by label for the transcript', () => {
   const q = readQuestion(sampleQuestion())
   assert.deepEqual(summarizeAnswers(q, { question_0: 'a', tags: ['x', 'z'], note: 'hi' }), [
-    { label: 'Probe', text: 'Option A' }, { label: 'tags', text: 'X, Z' }, { label: 'Other', text: 'hi' },
+    { key: 'question_0', label: 'Probe', text: 'Option A' }, { key: 'tags', label: 'tags', text: 'X, Z' }, { key: 'note', label: 'Other', text: 'hi' },
   ])
   assert.deepEqual(summarizeAnswers(q, {}), [])
+})
+
+test('field keys that collide with object internals are ordinary names', () => {
+  for (const key of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
+    const q = readQuestion({ message: 'm', fields: [
+      { key, kind: 'text', required: true, maxLength: 50 },
+      { key: `${key}_pick`, kind: 'single', required: true, options: [{ value: 'a', label: 'A' }] },
+    ] })
+    const empty = checkQuestionDraft(q, emptyDraft(q))
+    assert.equal(empty.ok, false, key)
+    assert.ok(Object.hasOwn(empty.errors, key), `${key}: a missing required answer is reported`)
+    const draft = { ...emptyDraft(q), [key]: 'hello', [`${key}_pick`]: 'a' }
+    const filled = checkQuestionDraft(q, draft)
+    assert.equal(filled.ok, true, `${key}: ${JSON.stringify(filled.errors)}`)
+    assert.deepEqual(Object.keys(filled.answers).sort(), [key, `${key}_pick`].sort(), key)
+    assert.equal(Object.getOwnPropertyDescriptor(filled.answers, key)?.value, 'hello', key)
+    // It survives being sent as JSON, the way the request body is built.
+    assert.equal(JSON.parse(JSON.stringify(filled.answers))[key], 'hello', key)
+    assert.deepEqual(summarizeAnswers(q, filled.answers).map(line => line.text), ['hello', 'A'], key)
+  }
+})
+
+test('fields that share a title stay distinct in the summary', () => {
+  const q = readQuestion({ message: 'm', fields: [{ key: 'a', title: 'Choice', kind: 'text' }, { key: 'b', title: 'Choice', kind: 'text' }] })
+  const lines = summarizeAnswers(q, { a: 'x', b: 'y' })
+  assert.deepEqual(lines.map(line => line.key), ['a', 'b'])
+  assert.equal(new Set(lines.map(line => line.key)).size, 2)
+  assert.deepEqual(lines.map(line => line.text), ['x', 'y'])
 })

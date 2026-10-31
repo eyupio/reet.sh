@@ -286,6 +286,13 @@ export type QuestionAnswers = Record<string, string | string[]>
 export type QuestionCheck = { ok: boolean; errors: Record<string, string>; answers: QuestionAnswers }
 
 const MAX_TEXT_BYTES = 2000
+// Field keys come from the agent, so a key such as "__proto__" or "constructor" must be an ordinary name: dictionaries are
+// built without a prototype, and reads take only own properties.
+function dict<T>(): Record<string, T> { return Object.create(null) as Record<string, T> }
+/** The value stored under an agent-provided key, or undefined when that key was never set on this object itself. */
+export function own<T>(record: Record<string, T> | undefined, key: string): T | undefined {
+  return record && Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined
+}
 function byteLength(text: string): number { return new TextEncoder().encode(text).length }
 
 /** The label a field is shown with: its title, else its key. */
@@ -296,10 +303,10 @@ export function fieldLabel(field: ChatQuestionField): string { return field.titl
  * checks every answer again and is the authority. An optional field left empty is left out, as the machine does.
  */
 export function checkQuestionDraft(question: ChatQuestion, draft: QuestionDraft): QuestionCheck {
-  const errors: Record<string, string> = {}
-  const answers: QuestionAnswers = {}
+  const errors = dict<string>()
+  const answers: QuestionAnswers = dict<string | string[]>()
   for (const field of question.fields) {
-    const value = draft[field.key]
+    const value = own(draft, field.key)
     if (field.kind === 'text') {
       const text = typeof value === 'string' ? value : ''
       if (!text.trim()) { if (field.required) errors[field.key] = 'Write an answer.'; continue }
@@ -327,19 +334,19 @@ export function checkQuestionDraft(question: ChatQuestion, draft: QuestionDraft)
 
 /** A draft with every field empty, in the shape the form binds to. */
 export function emptyDraft(question: ChatQuestion): QuestionDraft {
-  const draft: QuestionDraft = {}
+  const draft: QuestionDraft = dict<string | string[]>()
   for (const f of question.fields) draft[f.key] = f.kind === 'multi' ? [] : ''
   return draft
 }
 
 /** The answers a person gave, with option labels in place of values, for the transcript. */
-export function summarizeAnswers(question: ChatQuestion, answers: QuestionAnswers): { label: string; text: string }[] {
-  const out: { label: string; text: string }[] = []
+export function summarizeAnswers(question: ChatQuestion, answers: QuestionAnswers): { key: string; label: string; text: string }[] {
+  const out: { key: string; label: string; text: string }[] = []
   for (const f of question.fields) {
-    const value = answers[f.key]
+    const value = own(answers, f.key)
     if (value === undefined) continue
     const labelOf = (v: string) => f.options?.find(o => o.value === v)?.label ?? v
-    out.push({ label: fieldLabel(f), text: Array.isArray(value) ? value.map(labelOf).join(', ') : labelOf(value) })
+    out.push({ key: f.key, label: fieldLabel(f), text: Array.isArray(value) ? value.map(labelOf).join(', ') : labelOf(value) })
   }
   return out
 }

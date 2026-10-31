@@ -95,8 +95,12 @@ reason, sentence}`; the browser adds the relative age.
 
 - Favourites are per account, at most 50, ordered, validated by the model-name
   rule and `ValidToolV2`. A favourite can be the **default for this agent**
-  (at most one per agent). A picker can star/unstar, reorder with a version check
-  and set or clear the agent default.
+  (at most one per agent). Every model picker offers **Make default** beside the
+  star, so the agent default can be set or cleared wherever a model is chosen
+  (Home's launch bar, Start an agent, Add project/Project settings and
+  Settings › Agents). The server still stores one default per agent, and picking
+  a model that is not yet a favourite stars it first. The favourites manager
+  keeps its checkbox and order controls.
 - The account profile gains `defaultTool`, `defaultModel` and `defaultEffort`
   for sessions outside a project. A model needs its agent; an effort needs an
   agent whose preset takes one. An existing profile row with a model but no agent
@@ -134,7 +138,7 @@ The models UI now exists wherever a model or a default is chosen:
 - **Home's launch bar** opens on the project, account and favourite defaults,
   reads the chosen machine's list automatically, and shows the agent default,
   favourites, Recent, the machine list by provider, reet's suggestions and
-  Other…, with a star and an honest status/Refresh line.
+  Other…, with a star, Make default and an honest status/Refresh line.
 - **Start an agent** uses the same picker, applies the project or account
   defaults when it has one, and offers **Thinking** for an agent that takes it
   (Cline). A read or star failure only changes the status line and never
@@ -143,7 +147,8 @@ The models UI now exists wherever a model or a default is chosen:
   Cline), model and thinking with the picker for that project's machine.
 - **Settings › Agents** holds the account defaults for sessions without a
   project, the base-branch/worktree defaults, and the favourites manager (order,
-  removal, add from any machine's cached list, and a default for an agent).
+  removal, add from any machine's cached list, and a default for an agent). Its
+  model picker offers Make default too.
 - **Machines → a machine's Settings → Agents** lists the installed launchable
   agents and the model state last read: “42 read 3 h ago”, “not supported”,
   “couldn't read: timed out”, “off”, “offline” or “update”. **Refresh** asks the

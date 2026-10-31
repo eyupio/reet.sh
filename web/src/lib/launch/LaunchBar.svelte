@@ -2,9 +2,9 @@
   import { onMount, tick, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { shell } from '../dialogShell'
-  import { UnauthorizedError, addModelFavourite, getYoloSetting, listModelFavourites, removeModelFavourite, type YoloSetting } from '../api'
+  import { UnauthorizedError, addModelFavourite, getYoloSetting, listModelFavourites, removeModelFavourite, setModelFavouriteDefault, type YoloSetting } from '../api'
   import { CATALOGUE, agentChoices } from '../catalogue'
-  import { favouriteKey, modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
+  import { defaultLabel, favouriteKey, modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
   import { afterLaunch, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
@@ -381,6 +381,31 @@
     })
     await favouriteQueue
   }
+  async function toggleDefault(model: string, isDefault: boolean) {
+    const tool = choice?.agent
+    if (!tool || !model) return
+    const key = favouriteKey(tool, model)
+    const before = favourites.find(f => favouriteKey(f.tool, f.model) === key) ?? null
+    favouritesLoadSeq++
+    favouriteNote = ''
+    // Setting a default keeps the model starred; clearing leaves the favourite in place.
+    favourites = [...favourites.filter(f => !(isDefault && f.tool === tool && f.agentDefault)), { tool, model, agentDefault: !isDefault }]
+      .filter((f, i, all) => all.findIndex(x => favouriteKey(x.tool, x.model) === favouriteKey(f.tool, f.model)) === i)
+    favouriteQueue = favouriteQueue.then(async () => {
+      try {
+        if (!isDefault && !before) await addModelFavourite(tool, model)
+        const answer = await setModelFavouriteDefault(tool, isDefault ? '' : model)
+        if (!life.signal.aborted && answer?.favourites) favourites = answer.favourites
+      } catch (e) {
+        if (life.signal.aborted) return
+        if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+        if (before) favourites = [...favourites.filter(f => favouriteKey(f.tool, f.model) !== key), before]
+        else favourites = favourites.filter(f => favouriteKey(f.tool, f.model) !== key)
+        favouriteNote = e instanceof TerminalError && e.message ? e.message : 'Couldn’t update the agent default just now. Try again.'
+      }
+    })
+    await favouriteQueue
+  }
   function modelOptionsFor(): SlotOption[] {
     if (!choice) return []
     const tool = choice.agent
@@ -391,6 +416,7 @@
       host: multiMachine ? '' : modelHost, agentName: toolName(tool),
     }).map(o => o.value === '' ? o : {
       ...o, starLabel: starLabel(tool, o.value, !!o.starred), onstar: () => { void toggleStar(o.value, !!o.starred) },
+      defaultLabel: defaultLabel(tool, o.value, !!o.isDefault), ondefault: () => { void toggleDefault(o.value, !!o.isDefault) },
     })
   }
 

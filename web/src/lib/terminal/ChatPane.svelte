@@ -393,7 +393,7 @@
   <div class="composer" onpaste={pasted}>
    <div class="model-controls" data-keeps-focus>
     <label for={`${session.id}-model`}>Model</label>
-    <input id={`${session.id}-model`} list={`${session.id}-models`} bind:value={selectedModel} disabled={working || sending || changingModel || chat.connection !== 'open'} placeholder="provider/model" />
+    <input id={`${session.id}-model`} data-combo-list={`${session.id}-models`} bind:value={selectedModel} disabled={working || sending || changingModel || chat.connection !== 'open'} placeholder="provider/model" />
     <datalist id={`${session.id}-models`}>{#each models as model}<option value={model}></option>{/each}</datalist>
     <button type="button" class="btn" disabled={working || sending || changingModel || !selectedModel.trim() || selectedModel === currentModel || chat.connection !== 'open'} onclick={() => void changeModel()}>{changingModel ? 'Changing…' : 'Change model'}</button>
     <button type="button" class="btn" disabled={!selectedModel.trim() || favouriteBusy || chat.connection !== 'open'} aria-label={defaultLabel(tool, selectedModel.trim(), selectedIsDefault)} onclick={() => void toggleDefault()}>{favouriteBusy ? 'Saving…' : selectedIsDefault ? 'Clear default' : 'Make default'}</button>

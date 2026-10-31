@@ -306,7 +306,7 @@ reet setup profile push work</code></pre>
           {:else}<p>Coverage not recorded</p>{/if}
           <div class="scope-controls">
             <label>Machine scope<select bind:value={scopeMachine}><option value="">Global exclusions only</option>{#each Object.keys(latest.overrides?.machines ?? {}) as machine}<option value={machine}>{machine}</option>{/each}</select></label>
-            <label>Destination project<input bind:value={scopeProject} list="setup-project-scopes" placeholder="/absolute/path (optional)" autocomplete="off" /></label><datalist id="setup-project-scopes">{#each Object.keys(latest.overrides?.projects ?? {}) as project}<option value={project}></option>{/each}</datalist>
+            <label>Destination project<input bind:value={scopeProject} data-combo-list="setup-project-scopes" placeholder="/absolute/path (optional)" autocomplete="off" /></label><datalist id="setup-project-scopes">{#each Object.keys(latest.overrides?.projects ?? {}) as project}<option value={project}></option>{/each}</datalist>
           </div>
           <p class="muted small">Snapshot location and destination health are not checked by this page. File restore is supported for selected components; cross-OS recovery and runtime behaviour remain unverified.</p>
         </section>

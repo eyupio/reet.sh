@@ -90,3 +90,17 @@ textarea { width: 100%; resize: vertical; }
   /* The launch prompt has the keyboard up: the top bar steps aside as well (shell/AppShell.svelte). */
   html[data-chrome-aside] .site-header { display: none; }
 }
+
+/* Searchable dropdown list (see lib/combobox.ts): the one list every select and suggestion field opens. */
+.cbx { position: fixed; inset: auto; margin: 0; z-index: 1000; display: flex; flex-direction: column; gap: 6px; padding: 6px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--card-raised, var(--card)); color: var(--ink); box-shadow: 0 12px 30px var(--scrim); font-size: 14px; line-height: 1.3; }
+.cbx-filter { flex: none; width: 100%; min-height: 38px; padding: 6px 10px; }
+.cbx-list { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.cbx-group { position: sticky; top: 0; padding: 6px 10px 2px; background: var(--card-raised, var(--card)); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.cbx-option { padding: 7px 10px; min-height: 34px; display: flex; align-items: center; border-radius: 8px; cursor: pointer; overflow-wrap: anywhere; }
+.cbx-option.active { background: var(--line-soft, var(--tint)); }
+.cbx-option[aria-selected='true'] { box-shadow: inset 3px 0 0 var(--accent-text, var(--accent)); font-weight: 600; }
+.cbx-option[aria-disabled='true'] { color: var(--muted); cursor: default; }
+.cbx-empty { margin: 0; padding: 8px 10px; font-size: 12px; color: var(--muted); }
+@media (pointer: coarse) { .cbx-option { min-height: 48px; font-size: 15px; } .cbx-filter { font-size: 16px; min-height: 44px; } }
+/* Fields that suggest values get the same chevron a select has. */
+input[data-combo-list] { padding-right: 32px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 4.5l4 4 4-4' fill='none' stroke='%238a8a8a' stroke-width='1.5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; background-size: 12px; }

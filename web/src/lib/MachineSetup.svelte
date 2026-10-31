@@ -354,7 +354,7 @@
           <p>Install the reet binary once. It includes the scanner and the machine agent. No separate server is needed on this machine.</p>
         </header>
         <div class="fields">
-          <label>Machine name<input bind:this={nameInput} bind:value={host} list="known-machine-names" maxlength="200" placeholder="e.g. studio-laptop" autocomplete="off" aria-invalid={nameError ? 'true' : undefined} aria-describedby={nameError ? 'machine-name-error' : undefined} oninput={() => (nameError = '')} /></label>
+          <label>Machine name<input bind:this={nameInput} bind:value={host} data-combo-list="known-machine-names" maxlength="200" placeholder="e.g. studio-laptop" autocomplete="off" aria-invalid={nameError ? 'true' : undefined} aria-describedby={nameError ? 'machine-name-error' : undefined} oninput={() => (nameError = '')} /></label>
           <label>Release<select bind:value={channel} onchange={() => (channelTouched = true)}><option value="stable">Latest stable</option><option value="dev">Dev — latest main</option></select></label>
         </div>
         <datalist id="known-machine-names">{#each machines as machine}<option value={machine.host}></option>{/each}</datalist>

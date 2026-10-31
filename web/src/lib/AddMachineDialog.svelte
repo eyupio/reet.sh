@@ -230,7 +230,7 @@
    <h3 id={`${titleId}-name`}><span class="num" aria-hidden="true">1</span>Name it</h3>
    <form onsubmit={(event) => { event.preventDefault(); touched = true }}>
     <label for={`${titleId}-field`}>Machine name</label>
-    <input id={`${titleId}-field`} bind:this={nameInput} bind:value={name} list={`${titleId}-known`} autocomplete="off" spellcheck="false" placeholder="e.g. studio-laptop"
+    <input id={`${titleId}-field`} bind:this={nameInput} bind:value={name} data-combo-list={`${titleId}-known`} autocomplete="off" spellcheck="false" placeholder="e.g. studio-laptop"
      aria-invalid={shown ? 'true' : undefined} aria-describedby={shown ? `${titleId}-hint ${titleId}-reason` : `${titleId}-hint`}
      oninput={() => (touched = true)} onblur={() => (touched = true)} />
     <datalist id={`${titleId}-known`}>{#each machines as machine (machine.host)}<option value={machine.host}></option>{/each}</datalist>

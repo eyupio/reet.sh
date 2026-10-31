@@ -159,7 +159,7 @@ sets `questions`. Not done: the chat card, the Needs-you summary (the broker kee
 entry for questions yet), request-scoped (pre-session) questions, a dispatcher-level test of
 the feature gate, and the concurrent-tab, replay and phone-width browser fixtures.
 
-### SC3 progress: the chat card (31 October 2026, local)
+### SC3 progress: the chat card (31 October 2026)
 
 Done in the browser: the `question` card in the chat view (reducer, draft checks, answer call, accessible controls,
 decided summary), covered by `chat.test.mjs` and `chat.e2e.mjs`. Still not done: the Needs-you summary and the broker

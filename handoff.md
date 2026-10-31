@@ -109,8 +109,7 @@ tests. No browser, phone, real provider or live adapter was used.
 question events and `acp_question_answer`, `question_invalid`, connector routing, `AnswerQuestionChat` and
 the `/chat/questions/{id}` route. Still off by default; see the plan.
 
-**Chat card (local branch `feat/sc3-question-card`, stacked on the wire stage):** the browser card for typed
-questions, with unit and browser tests; see `docs/ui-verification.md`.
+**Chat card:** the browser card for typed questions, with unit and browser tests; see `docs/ui-verification.md`.
 
 **Next unchecked task:** the Needs-you summary (and the broker queue entry behind it); request-scoped (pre-session) questions and
 old-peer/concurrent-tab/phone fixtures. Do not advertise the form capability before those.

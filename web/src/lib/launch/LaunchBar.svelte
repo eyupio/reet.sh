@@ -99,6 +99,8 @@
     return () => clearInterval(timer)
   })
   const patience = $derived(waited >= 20 ? 'Still working. Slow machines can take a little longer.' : waited >= 5 ? 'This can take up to 30 seconds. Please keep this page open.' : '')
+  // The one line under the headline: what the machine reports, else the patience note once a start is slow, else the step's own reassurance.
+  const launchSub = $derived(phase === 'start' && stages.length ? `${STAGES[stages[stages.length - 1].stage] ?? stages[stages.length - 1].stage}…` : patience || (phase === 'open' ? 'Nearly there.' : phase === 'upload' ? 'Large images take a moment.' : 'Hold on, this takes a few seconds.'))
   // One attempt: the request id, the run token and every field, kept while its outcome is unknown so Retry asks about the same
   // start and a lost reply can never start a second agent. Dropped only when the server has definitely answered.
   // A start in several projects keeps its one run request (request id and every field) the same way.
@@ -1067,34 +1069,32 @@
       <button type="button" class="change" aria-haspopup="dialog" onclick={(e) => openChange(e.currentTarget)}>Change</button>
     </div>
   </fieldset>
-  {#if working}<div class="progress" aria-hidden="true"><span></span></div>{/if}
   {#if working}
-    <ol class="steps" aria-label="Start progress">
-      {#each steps as step, i (step.key)}
-        <li class:done={i < stepAt} class:now={i === stepAt} aria-current={i === stepAt ? 'step' : undefined}>
-          <span class="dot" aria-hidden="true">{#if i < stepAt}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>{:else if i === stepAt}<span class="spinner"></span>{/if}</span>
-          <span class="label">{step.label}{#if i < stepAt}<span class="sr"> done</span>{/if}</span>
-          {#if step.key === 'start' && i === stepAt && stages.length}
-            <ol class="stages" aria-label="On the machine">
-              {#each stages as s, j (s.stage)}
-                <li class:now={j === stages.length - 1}>{STAGES[s.stage] ?? s.stage}{#if j === stages.length - 1 && stages.length > 0}…{:else}<span class="sr"> done</span>{/if}</li>
-              {/each}
-            </ol>
-          {/if}
-        </li>
-      {/each}
-    </ol>
+    <!-- One place says where a start is: the bar is covered by this panel for the whole start, so the person watches a single thing. -->
+    <div class="launching" role="status" aria-live="polite" aria-label="Start progress">
+      <div class="orbit" aria-hidden="true"><span class="ring"></span><span class="core"></span></div>
+      <div class="launch-copy">
+        <p class="launch-now">{steps[stepAt]?.label ?? 'Starting'}…</p>
+        <p class="launch-sub">{#key launchSub}<span>{launchSub}</span>{/key}</p>
+      </div>
+      <p class="launch-count" aria-hidden="true">Step {stepAt + 1} of {steps.length}</p>
+      <ol class="track" aria-label="Steps">
+        {#each steps as step, i (step.key)}
+          <li class:done={i < stepAt} class:now={i === stepAt} aria-current={i === stepAt ? 'step' : undefined}><span class="sr">{step.label}{i < stepAt ? ' done' : ''}</span></li>
+        {/each}
+      </ol>
+    </div>
   {/if}
   <div class="go">
     {#if operation && !busy}<button type="button" class="discard" onclick={discard}>Discard this request</button>{/if}
     <button type="submit" class="start" bind:this={startButton} disabled={busy || leaving || !choice || (!operation && (reason !== null || !!imagesReason || (choice?.approvals === 'yolo' && !!yoloWhy)))} aria-busy={busy || leaving}
       aria-label={operation ? 'Try the same request again' : 'Start the session'} aria-describedby={shownStatus ? `${id}-status` : undefined}>
-      {#if working}<span class="spinner" aria-hidden="true"></span><span class="word working-word">{leaving ? 'Opening…' : 'Starting…'}</span>{:else}
+      {#if working}<span class="word working-word">{leaving ? 'Opening…' : 'Starting…'}</span>{:else}
       <svg class="arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
       <span class="word">{operation ? 'Try the same request again' : 'Start'}</span>{/if}{#if !operation && !working}<kbd aria-hidden="true">{mac ? '↵' : 'Enter'}</kbd>{/if}
     </button>
   </div>
-  <p class="status" class:bad={failed} id={`${id}-status`} role="status" aria-live="polite" aria-atomic="true">{#if working}<span class="spinner small" aria-hidden="true"></span>{/if}{shownStatus}{#if working && patience} <span class="patience">{patience}</span>{/if}</p>
+  <p class="status" class:bad={failed} id={`${id}-status`} role="status" aria-live="polite" aria-atomic="true">{shownStatus}</p>
 </form>
 
 {#if open && choice}
@@ -1202,6 +1202,8 @@
  .titled { margin: 0; max-width: 100%; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .status { grid-column: 1 / -1; grid-row: 5; margin: 0; padding: 0 18px 12px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
   .status:empty { display: none; }
+  /* While a start runs the panel above says it; the line stays for screen readers only so nothing reads twice. */
+  .launch.working .status { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .status.bad { color: var(--bad); }
 
   textarea {
@@ -1230,34 +1232,33 @@
   .start:disabled { opacity: 0.55; cursor: default; }
   .launch.working .start:disabled { opacity: 1; cursor: progress; }
   .launch.working .ask, .launch.working .under { opacity: 0.6; transition: opacity 0.2s; }
-  .spinner { flex: none; width: 16px; height: 16px; border: 2px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; border-radius: 50%; animation: launch-spin 0.8s linear infinite; }
-  .spinner.small { display: inline-block; width: 12px; height: 12px; margin-right: 8px; vertical-align: -1px; color: var(--accent-text); }
-  .steps { grid-column: 1 / -1; grid-row: 3; list-style: none; margin: 0; padding: 4px 18px 12px; display: flex; flex-wrap: wrap; gap: 6px 22px; }
-  .steps li { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--faint); transition: color 0.25s; }
-  .steps li.now { color: var(--ink); font-weight: 600; }
-  .steps li.done { color: var(--muted); }
-  .dot { flex: none; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid currentColor; box-sizing: border-box; }
-  .steps li.now .dot { border-color: transparent; color: var(--accent-text); }
-  .steps li.done .dot { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); animation: step-pop 0.25s var(--ease-out); }
-  .dot svg { width: 11px; height: 11px; }
-  .dot .spinner { width: 16px; height: 16px; }
-  .steps li { flex-wrap: wrap; }
-  .stages { flex-basis: 100%; list-style: none; margin: 2px 0 0 26px; padding: 0 0 0 10px; border-left: 2px solid var(--line-soft); display: flex; flex-direction: column; gap: 2px; font-weight: 400; }
-  .stages li { display: block; font-size: 12px; color: var(--faint); }
-  .stages li.now { color: var(--ink); }
-  .stages li:not(.now)::before { content: '✓ '; color: var(--accent-text); }
+  .launch.working { min-height: 128px; }
+  .launching {
+    position: absolute; inset: 0; z-index: 3; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; align-content: center; gap: 4px 16px; padding: 18px 22px 22px;
+    border-radius: 16px; background: var(--card-raised); animation: launch-in 0.22s var(--ease-out);
+  }
+  .orbit { position: relative; width: 44px; height: 44px; flex: none; }
+  .orbit .ring { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0 25%, var(--accent) 100%); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), var(--ink) calc(100% - 3px)); mask: radial-gradient(farthest-side, transparent calc(100% - 4px), var(--ink) calc(100% - 3px)); animation: launch-spin 1.1s linear infinite; }
+  .orbit .core { position: absolute; inset: 14px; border-radius: 50%; background: var(--accent); animation: launch-breathe 1.8s ease-in-out infinite; }
+  .launch-copy { min-width: 0; }
+  .launch-now { margin: 0; font: 600 17px/1.3 var(--serif, var(--sans)); color: var(--ink); overflow-wrap: anywhere; }
+  .launch-sub { margin: 2px 0 0; min-height: 1.5em; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .launch-sub span { display: inline-block; animation: launch-in 0.25s var(--ease-out); }
+  .launch-count { margin: 0; font: 500 12px var(--sans); letter-spacing: .04em; color: var(--faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .track { grid-column: 1 / -1; list-style: none; margin: 10px 0 0; padding: 0; display: flex; gap: 6px; }
+  .track li { display: block; flex: 1 1 0; min-width: 0; min-height: 0; margin: 0; padding: 0; height: 4px; border-radius: 4px; background: var(--line-soft); overflow: hidden; position: relative; }
+  .track li.done { background: var(--accent); transition: background 0.3s; }
+  .track li.now::after { content: ''; position: absolute; inset: 0; width: 45%; border-radius: 4px; background: var(--accent); animation: launch-slide 1.3s ease-in-out infinite; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  @keyframes step-pop { from { transform: scale(0.6); } to { transform: scale(1); } }
-  @media (max-width: 560px) { .steps { flex-direction: column; padding: 4px 16px 12px; } }
-  @media (prefers-reduced-motion: reduce) { .steps li.done .dot { animation: none; } }
-  .patience { color: var(--muted); }
-  .progress { position: absolute; inset: 0 16px auto; height: 3px; overflow: hidden; border-radius: 0 0 3px 3px; background: var(--line-soft); }
-  .progress span { display: block; width: 40%; height: 100%; border-radius: 3px; background: var(--accent); animation: launch-slide 1.3s ease-in-out infinite; }
+  @keyframes launch-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  @keyframes launch-breathe { 50% { transform: scale(0.7); opacity: 0.7; } }
+  @media (max-width: 560px) { .launching { grid-template-columns: auto minmax(0, 1fr); padding: 16px; } .launch-count { display: none; } .orbit { width: 36px; height: 36px; } .orbit .core { inset: 11px; } }
   @keyframes launch-spin { to { transform: rotate(360deg); } }
-  @keyframes launch-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+  @keyframes launch-slide { from { transform: translateX(-100%); } to { transform: translateX(230%); } }
   @media (prefers-reduced-motion: reduce) {
-    .spinner { animation-duration: 2.4s; }
-    .progress span { width: 100%; animation: none; opacity: 0.6; }
+    .orbit .ring { animation-duration: 3s; }
+    .orbit .core, .launching, .launch-sub span { animation: none; }
+    .track li.now::after { width: 100%; animation: none; opacity: 0.55; }
   }
   /* The press the other buttons give (app.css .btn), only when motion is welcome. */
   @media (prefers-reduced-motion: no-preference) {

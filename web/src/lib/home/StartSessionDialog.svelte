@@ -153,7 +153,10 @@
   }
   function pickMachine(value: string) { dir = ''; browse = false; choice = withHome(choice, value, profile, { machines }) }
   const dirProblem = $derived(mode === 'folder' && dir ? validateDir(dir) : null)
-  const key = () => [choice.prompt, title, mode === 'folder' ? dir : '', choice.worktree, choice.branch].join('\u0000')
+  // Everything that shapes the request: a kept request is reused only while none of it has changed.
+  const key = () => JSON.stringify([choice, title, mode === 'folder' ? dir : '', attachments.map(a => a.id)])
+  // Trust is for one folder: a different folder asks again.
+  function setDir(value: string) { dir = value; if (choice.trust) { const { trust: _t, ...rest } = choice; choice = rest } }
 
   function pickProject(value: string) {
     const next = projects.find(p => p.id === value)
@@ -261,8 +264,8 @@
               {#each machines as m}<option value={m.agentId}>{m.host}{m.ready ? '' : ' · offline'}</option>{/each}
             </select></label>
           <label class="field"><span>Folder <small>Leave empty for the machine’s home folder</small></span>
-            <div class="folder"><input aria-label="Folder" bind:value={dir} placeholder="/home/you/project" /><button type="button" class="btn" disabled={!machine?.ready || !machine.capabilities?.browse || machine.capabilities.browseOff} onclick={() => browse = !browse}>Browse</button></div></label>
-          {#if browse && machine}<FolderBrowser agentId={machine.agentId} host={machine.host} session={id} start={dir} chosen={dir} serial={job => job()} onuse={picked => { dir = picked.path; browse = false }} />{/if}
+            <div class="folder"><input aria-label="Folder" value={dir} oninput={e => setDir(e.currentTarget.value)} placeholder="/home/you/project" /><button type="button" class="btn" disabled={!machine?.ready || !machine.capabilities?.browse || machine.capabilities.browseOff} onclick={() => browse = !browse}>Browse</button></div></label>
+          {#if browse && machine}<FolderBrowser agentId={machine.agentId} host={machine.host} session={id} start={dir} chosen={dir} serial={job => job()} onuse={picked => { setDir(picked.path); browse = false }} />{/if}
           {/if}
           {#if showCheckout}
             <div class="settings checkout">

@@ -216,6 +216,27 @@ try {
   await expect.poll(() => state.questionCalls.at(-1)).toEqual({ id: 'q3', body: { action: 'cancel' } })
   await page.evaluate(() => window.__chatStream.emit('chat', { seq: 14, kind: 'question_cancelled', questionId: 'q3', reason: 'timeout' }))
   await expect(third.getByText('Closed: the question timed out.')).toBeVisible()
+  // Another tab answers first: this tab's late answer is refused as gone, the card says so, and the resolution that
+  // arrives on the stream closes it. The same card replayed from history (a reset then the stored events) comes back
+  // decided, never as a live form.
+  await page.unroute(`**/api/v2/terminal/sessions/${S}/chat/questions/*`)
+  await page.route(`**/api/v2/terminal/sessions/${S}/chat/questions/*`, route => route.fulfill({ status: 409, json: { error: 'That question is no longer waiting.' } }))
+  await page.evaluate(form => window.__chatStream.emit('chat', { seq: 16, kind: 'question', questionId: 'q5', question: { ...form, message: 'Raced question?' } }), form)
+  const raced = page.getByRole('group', { name: 'Raced question?' })
+  await raced.getByRole('button', { name: 'Skip', exact: true }).click()
+  await expect(raced.getByRole('alert')).toContainText('no longer waiting')
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 17, kind: 'question_resolved', questionId: 'q5', reason: 'accept' }))
+  await expect(raced.getByText('Answered.')).toBeVisible()
+  await expect(raced.getByRole('button', { name: 'Skip', exact: true })).toHaveCount(0)
+  await page.evaluate(form => {
+    window.__chatStream.emit('reset', { truncated: false })
+    window.__chatStream.emit('chat', { seq: 1, kind: 'question', questionId: 'q6', question: { ...form, message: 'Replayed question?' } })
+    window.__chatStream.emit('chat', { seq: 2, kind: 'question_resolved', questionId: 'q6', reason: 'decline' })
+  }, form)
+  const replayed = page.getByRole('group', { name: 'Replayed question?' })
+  await expect(replayed.getByText('Skipped.')).toBeVisible()
+  await expect(replayed.getByRole('button', { name: 'Send answer', exact: true })).toHaveCount(0)
+  await page.evaluate(() => window.__chatStream.emit('reset', { truncated: false }))
   // A malformed question is ignored; it never leaves a card the person cannot answer.
   await page.evaluate(() => window.__chatStream.emit('chat', { seq: 15, kind: 'question', questionId: 'q4', question: { message: 'Broken', fields: [{ key: 'k', kind: 'number' }] } }))
   await expect(page.getByRole('group', { name: 'Broken' })).toHaveCount(0)

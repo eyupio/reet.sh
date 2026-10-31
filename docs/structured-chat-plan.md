@@ -165,8 +165,10 @@ Done in the browser: the `question` card in the chat view (reducer, draft checks
 decided summary), covered by `chat.test.mjs` and `chat.e2e.mjs`. Also done: the Needs-you summary (the broker keeps a bounded
 queue of open questions and publishes the first, truncated, with a count of the rest; Home and the bell show it with
 "Answer in chat"). A connector test refuses a question answer unless the connection negotiated both `acp-v1` and
-`acp-question-v1`. A question asked before the chat is ready is cancelled with its own notice and never held or attached
-(holding startup questions is deferred). Still not done: the concurrent-tab and old-peer fixtures (in review) and the
+`acp-question-v1`. A browser fixture covers a concurrent tab answering first (the late answer is refused as gone and the
+stream's resolution closes the card) and a replayed resolved card coming back decided. A question asked before the chat
+is ready is cancelled with its own notice and never held or attached (holding startup questions is deferred). Still not
+done: the old-peer fixture (in review) and the
 touch-device and screen-reader checks. Nothing sends a question yet.
 
 ## SC4 — Integrate the second adapter

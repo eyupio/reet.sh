@@ -9,6 +9,7 @@ export type SoftwareOperation = 'plan_install' | 'plan_update' | 'plan_remove'
 export type SoftwareEntry = { tool: string; state: 'installed' | 'missing' | 'unknown' | 'unsupported'; version?: string; manager?: string; package?: string; path?: string; platform?: string; arch?: string; source?: string; evidence?: string; managed?: boolean; previous?: string; operations?: SoftwareOperation[]; reason?: string; checkedAt: number }
 export type SoftwarePlan = { host: string; tool: string; action: 'install' | 'update' | 'rollback' | 'remove'; state: 'ready' | 'noop'; package: string; current: string; target: string; source: string; command: string; steps: string[]; effects: string[]; executes: boolean; sentence: string; checkedAt: number }
 export type SoftwareApplyResult = { tool: string; action: 'install' | 'update' | 'rollback' | 'remove'; state: 'applied' | 'refused' | 'failed'; version?: string; previous?: string; reason?: string; entry?: SoftwareEntry }
+export type FleetSoftwareRow = { agentId: string; host: string; state: 'update' | 'install' | 'none' | 'unknown'; action?: 'install' | 'update'; version?: string; previous?: string; managed?: boolean; target?: string; source?: string; sessionsRunning: number; canApply: boolean; sentence: string }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission }
 export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpHistory?: boolean; shellDir?: boolean; attention?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
@@ -127,6 +128,10 @@ export async function machineSoftwarePlan(agentId: string, tool: string, action:
 /** Apply one reviewed install or update. The controller re-checks the evidence and the connector verifies the artifact. */
 export async function applyMachineSoftware(agentId: string, tool: string, action: 'install' | 'update' | 'rollback' | 'remove', signal?: AbortSignal): Promise<{ plan: SoftwarePlan; result: SoftwareApplyResult }> {
   return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/software/apply`, { method: 'POST', body: JSON.stringify({ tool, action }), signal })).json()
+}
+/** The plan-only fleet review: one stored-evidence row per machine, no machine reads. */
+export async function fleetSoftwarePlans(signal?: AbortSignal): Promise<FleetSoftwareRow[]> {
+  return (await (await terminalRequest('/api/v2/software/plans', { signal })).json()).machines
 }
 export type TerminalControllerStatus={configured:boolean;available:boolean;reason:string}
 export async function terminalControllerStatus(signal?:AbortSignal):Promise<TerminalControllerStatus>{return (await terminalRequest('/api/v2/terminal/status',{signal})).json()}

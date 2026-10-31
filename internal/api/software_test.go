@@ -415,3 +415,75 @@ func TestMachineSoftwareApplyRollsBackAndRemoves(t *testing.T) {
 		t.Fatalf("stored remove evidence: %+v %v", stored.Capabilities.Software, err)
 	}
 }
+
+func TestFleetSoftwarePlansReadStoredEvidence(t *testing.T) {
+	srv, st, a, _, _ := privateFixture(t, AuthAccounts, "")
+	uid, _ := st.DefaultOwner()
+	cookie := terminalLogin(t, st, uid)
+
+	updateCaps := softwareTestCapabilities(softwareTestEntry(terminalproto.SoftwareInstalled, "1.18.0"))
+	updateCaps.SoftwareApply = true
+	record, err := st.BeginRemoteConnectionFor(uid, a.ID, terminalbroker.ID(), updateCaps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, _, err := st.ReserveTerminalCreateFor(uid, a.ID, terminalbroker.ID(), record.Generation, terminalproto.Create{Title: "Agent run", Cols: 80, Rows: 24, Tool: "opencode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ObserveTerminalStateFor(uid, a.ID, session.ID, record.Generation, terminalproto.Running, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	noneEntry := softwareTestEntry(terminalproto.SoftwareInstalled, "1.19.5")
+	noneEntry.Previous = "1.18.0"
+	add := func(host string, caps terminalproto.Capabilities) {
+		agent, _, err := st.EnrollSyncAgent(uid, host, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.BeginRemoteConnectionFor(uid, agent.ID, terminalbroker.ID(), caps); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("current", softwareTestCapabilities(noneEntry))
+	add("bare", softwareTestCapabilities(softwareTestEntry(terminalproto.SoftwareMissing, "")))
+	add("system", softwareTestCapabilities(softwareTestSystemEntry("1.18.0")))
+	add("older", terminalproto.Capabilities{ProtocolVersion: terminalproto.Version, OS: "linux", OSUser: "me", TerminalEnabled: true, TerminalControl: true, HealthEnabled: true, Readiness: terminalproto.Ready})
+
+	r := httptest.NewRequest(http.MethodGet, "/api/v2/software/plans", nil)
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("plans: %d %s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Machines []fleetSoftwareRow `json:"machines"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Machines) != 5 {
+		t.Fatalf("machines = %+v", out.Machines)
+	}
+	byHost := map[string]fleetSoftwareRow{}
+	for _, row := range out.Machines {
+		byHost[row.Host] = row
+	}
+	if row := byHost["laptop"]; row.State != "update" || row.Version != "1.18.0" || row.SessionsRunning != 1 || !row.CanApply || row.Target != "1.19.5" {
+		t.Fatalf("laptop row = %+v", row)
+	}
+	if row := byHost["current"]; row.State != "none" || !strings.Contains(row.Sentence, "rollback") {
+		t.Fatalf("current row = %+v", row)
+	}
+	if row := byHost["bare"]; row.State != "install" || row.Target != "1.19.5" {
+		t.Fatalf("bare row = %+v", row)
+	}
+	if row := byHost["system"]; row.State != "install" || !strings.Contains(row.Sentence, "alongside") {
+		t.Fatalf("system row = %+v", row)
+	}
+	if row := byHost["older"]; row.State != "unknown" || !strings.Contains(row.Sentence, "Update reet") {
+		t.Fatalf("older row = %+v", row)
+	}
+}

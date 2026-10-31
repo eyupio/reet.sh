@@ -91,6 +91,16 @@ the version it came from so an update can reverse it. A remove deletes only
 reet's managed tree (including the versions it kept); configuration, history and
 credentials live outside it, and a system installation is never touched.
 
+## Fleet review
+
+Machines → **Software** opens a review across enrolled machines. Each row is
+built from stored evidence and names the machine's version, the plan it would run
+(install, update, none or needs attention), the target and source, and whether an
+OpenCode session would make reet refuse the apply. The review reads no machine.
+**Apply plan** runs the same per-machine request for that one machine after a
+confirmation; other machines are untouched, and there is no batch apply. Rollback
+and remove stay in a machine's Settings.
+
 ## After a restart
 
 On connector start, reet reconciles its managed tree: it removes staging files
@@ -124,8 +134,8 @@ dialog; remove additionally needs the machine's name typed. Activity records a
   `registry.npmjs.org`. A controller-side mirror for offline machines is future
   work.
 - Apply is synchronous with a five-minute download/install deadline; a slow link
-  can time out and nothing is changed. Fleet-wide apply and a controller-side
-  artifact mirror are future work.
+  can time out and nothing is changed. The fleet review applies one machine at a
+  time; batch apply and a controller-side artifact mirror are future work.
 - Integrity is verified at install. A launch checks the binary's recorded size,
   not its full hash, on every run.
 - The checks use fake artifacts and temporary homes; no physical machine, live

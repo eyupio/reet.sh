@@ -23,6 +23,7 @@ const (
 func (s *server) registerSoftwareRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/machines/{agentId}/software/plan", s.terminal(s.sameOriginRead(s.machineSoftwarePlan)))
 	mux.HandleFunc("POST /api/v2/machines/{agentId}/software/apply", s.terminal(s.machineSoftwareApply))
+	mux.HandleFunc("GET /api/v2/software/plans", s.terminal(s.sameOriginRead(s.fleetSoftwarePlans)))
 }
 
 type softwarePlanView struct {
@@ -316,4 +317,104 @@ func softwareApplyRefusal(result terminalproto.SoftwareApplyResult) (int, string
 	default:
 		return http.StatusInternalServerError, "software_install_failed", "That machine couldn't install the reviewed artifact. The earlier version, if any, was kept."
 	}
+}
+
+// fleetSoftwareRow is one machine's summary for the plan-only fleet review. It
+// is built from stored evidence; the review never contacts a machine.
+type fleetSoftwareRow struct {
+	AgentID         string `json:"agentId"`
+	Host            string `json:"host"`
+	State           string `json:"state"`
+	Action          string `json:"action,omitempty"`
+	Version         string `json:"version,omitempty"`
+	Previous        string `json:"previous,omitempty"`
+	Managed         bool   `json:"managed,omitempty"`
+	Target          string `json:"target,omitempty"`
+	Source          string `json:"source,omitempty"`
+	SessionsRunning int    `json:"sessionsRunning"`
+	CanApply        bool   `json:"canApply"`
+	Sentence        string `json:"sentence"`
+}
+
+func (s *server) fleetSoftwarePlans(w http.ResponseWriter, r *http.Request) {
+	uid := s.uid(r)
+	agents, err := s.st.SyncAgentsFor(uid)
+	if err != nil {
+		terminalError(w, err)
+		return
+	}
+	running := map[string]int{}
+	if sessions, err := s.st.TerminalSessionsFor(uid); err == nil {
+		for _, session := range sessions {
+			if session.Tool == agentsoftware.OpenCodeTool && session.State.ReservesQuota() {
+				running[session.AgentID]++
+			}
+		}
+	}
+	rows := make([]fleetSoftwareRow, 0, len(agents))
+	for _, agent := range agents {
+		row := fleetSoftwareRow{AgentID: agent.ID, Host: agent.Host, SessionsRunning: running[agent.ID]}
+		caps, err := s.st.RemoteCapabilitiesFor(uid, agent.ID)
+		if errors.Is(err, store.ErrRemoteNotFound) {
+			row.State, row.Sentence = "unknown", sentenceSoftwareUpdate
+			rows = append(rows, row)
+			continue
+		}
+		if err != nil {
+			row.State, row.Sentence = "unknown", "reet couldn't read that machine's software."
+			rows = append(rows, row)
+			continue
+		}
+		row.CanApply = caps.Capabilities.SoftwareApply
+		var entry *terminalproto.SoftwareEntry
+		for i := range caps.Capabilities.Software {
+			if caps.Capabilities.Software[i].Tool == agentsoftware.OpenCodeTool {
+				entry = &caps.Capabilities.Software[i]
+				break
+			}
+		}
+		if entry == nil {
+			row.State, row.Sentence = "unknown", "reet has no OpenCode evidence for this machine."
+			if len(caps.Capabilities.Software) == 0 {
+				row.Sentence = sentenceSoftwareUpdate
+			}
+			rows = append(rows, row)
+			continue
+		}
+		row.Version, row.Previous, row.Managed = entry.Version, entry.Previous, entry.Managed
+		action := agentsoftware.Action("")
+		switch {
+		case entry.State == terminalproto.SoftwareInstalled && entry.Managed && entry.Version != agentsoftware.OpenCodeReviewedVersion:
+			action = agentsoftware.Update
+		case entry.State == terminalproto.SoftwareInstalled && entry.Managed:
+			row.State, row.Sentence = "none", "OpenCode is already the reviewed version."
+			if entry.Previous != "" {
+				row.Sentence += " A rollback is available in Settings."
+			}
+		case entry.State == terminalproto.SoftwareInstalled && !entry.Managed:
+			action = agentsoftware.Install
+		case entry.State == terminalproto.SoftwareMissing:
+			action = agentsoftware.Install
+		default:
+			row.State, row.Sentence = "unknown", "reet couldn't read how OpenCode is installed."
+		}
+		if row.State == "unknown" && action == "" {
+			rows = append(rows, row)
+			continue
+		}
+		if action == "" {
+			rows = append(rows, row)
+			continue
+		}
+		plan, planErr := agentsoftware.For(*entry, action, agent.Host, row.SessionsRunning)
+		if planErr != nil {
+			row.State, row.Sentence = "unknown", "No reviewed plan is available for this machine."
+			rows = append(rows, row)
+			continue
+		}
+		row.State, row.Action = string(action), string(action)
+		row.Target, row.Source, row.Sentence = plan.Target, plan.Source, plan.Sentence
+		rows = append(rows, row)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"machines": rows})
 }

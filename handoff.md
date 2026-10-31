@@ -144,10 +144,24 @@ that no longer verifies, and reports a broken current with no valid previous as 
 or falling back to a system copy. Tests cover leftovers, a broken current with a good previous, a broken current with
 no previous, an invalid previous, and orphan versions without a current receipt. Docs: [docs/agent-software.md](docs/agent-software.md).
 
-**Still not in this slice:** no fleet-wide apply or controller-side artifact mirror; the binary is verified at install
-and at startup, not on every launch. Next: reviewed fleet-wide maintenance and the mirror. Read
+**L2e, on `feat/fleet-software-review` ([#292](https://github.com/eyupio/reet.sh/pull/292), commit `b06585d`, stacked on #291):** a **plan-only fleet review**. `GET
+/api/v2/software/plans` builds one row per enrolled machine from stored evidence (version, managed/system/missing,
+action, target, source, running sessions, whether the machine can apply, sentence) without contacting a machine.
+Machines → **Software** opens the review dialog; rows can be selected locally, the footer says cross-machine apply is
+not available yet, and each machine's Settings remains the place to apply. Tests cover the aggregate rows and the
+label/warning helpers.
+
+**L2f, on the same branch:** the fleet review can now **apply one machine at a time**. Each actionable row has
+**Apply plan** when the machine reports `software-apply-v1` and no OpenCode session runs; it opens one confirmation
+dialog and calls the existing per-machine apply endpoint. Other rows are untouched; there is no batch selection. The
+row shows the outcome and the list refreshes from stored evidence; rollback/remove stay in Settings. Tests cover the
+review label/warning and the new can-apply rule.
+
+**Still not in this slice:** no batch apply or controller-side artifact mirror; the binary is verified at install and at
+startup, not on every launch. Next: reviewed batch apply with a pilot order, and the mirror. Read
 `internal/agentsoftware/{artifact,managed,plan}.go`, `internal/terminalhost/{software,software_apply}.go`,
-`internal/terminalbroker/software.go`, `internal/api/software.go` and `web/src/lib/MachineSettings.svelte`.
+`internal/terminalbroker/software.go`, `internal/api/software.go`, `web/src/lib/MachineSettings.svelte` and
+`web/src/lib/FleetSoftware.svelte`.
 
 ## Agents home redesign (27–30 October 2026)
 
@@ -181,9 +195,10 @@ and at startup, not on every launch. Next: reviewed fleet-wide maintenance and t
   gates and audit, structured `allow_once` answers, the confirmation dialog and badges. #266 fixed the
   launch audit on a mismatched worktree and kept generic machine refusals from counting as started.
 - **Next stage:** L2 install/update is in [#289](https://github.com/eyupio/reet.sh/pull/289); rollback/remove and
-  restart recovery are in [#291](https://github.com/eyupio/reet.sh/pull/291) (stacked on #289). Next: reviewed
-  fleet-wide maintenance and a controller-side artifact mirror. Program 2, slice 4 (elicitation and rich input cards)
-  still needs its own probe.
+  restart recovery in [#291](https://github.com/eyupio/reet.sh/pull/291) (stacked on #289); the plan-only fleet review
+  is in [#292](https://github.com/eyupio/reet.sh/pull/292) (stacked on #291), with a one-machine-at-a-time apply. Next:
+  reviewed batch apply with a pilot order, and a controller-side artifact mirror. Program 2, slice 4 (elicitation and
+  rich input cards) still needs its own probe.
 - **Do first:** for the next PR, check its final head with the REST forms
   (`gh api repos/eyupio/reet.sh/pulls/<n>` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
   `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). Merge only when every check is green and Codex has

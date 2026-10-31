@@ -199,6 +199,8 @@
     try {
       const found = await folderProjectForLegacy(id, bounded())
       if (!found || life.signal.aborted) return
+      // An old /projects/<id> handoff is a launch handoff: reveal the bar, as /?project=<id> does.
+      quickLaunch = true
       chosen = found
       history.replaceState(history.state, '', `/?project=${encodeURIComponent(found)}`)
     } catch { /* no folder project was made from it: Home stays at / */ }

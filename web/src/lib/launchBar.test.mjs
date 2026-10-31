@@ -14,7 +14,7 @@ const models = asURL(compile('./models.ts').replace("from './catalogue'", `from 
 const source = compile('./launchBar.ts')
   .replace("from './catalogue'", `from '${catalogue}'`)
   .replace("from './agentLaunch'", `from '${agentLaunch}'`)
-  .replace("from './terminal/api'", `from '${terminalApi}'`)
+  .replaceAll("from './terminal/api'", `from '${terminalApi}'`)
   .replace("from './models'", `from '${models}'`)
 const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText, yoloGates, yoloCanStart } = await import(asURL(source))
 const { refusalText } = await import(agentLaunch)
@@ -437,4 +437,20 @@ test('without acp OpenCode stays a terminal and history is absent', () => {
   const explicitTerminal = withProject({ ...start, chat: false }, openProject, profile, { machines: [acp] })
   assert.equal(explicitTerminal.chat, false)
   assert.equal(withHome(choice({ agent: 'opencode' }), 'm-studio', profile, { machines: [acp] }).chat, true)
+})
+
+test('explicit per-agent chat descriptors govern defaults and crafted launch choices', () => {
+ const chatProject = project('chat-project', 'chat', 'chat-machine')
+ const target = machine('chat-machine', 'chat-host', { tools: ['opencode', 'codex'], acp: true, acpAgents: [] })
+ const defaults = { defaultTool: 'opencode', worktreesByDefault: false }
+ const opts = { machines: [target] }
+ assert.equal(initialChoice([chatProject], defaults, opts).chat, undefined)
+ const selected = choice({ agent: 'opencode', model: '', projectIds: [chatProject.id], worktree: false, chat: true, trust: true })
+ assert.match(startable(selected, [chatProject], [target]), /does not offer/)
+ target.capabilities.acpAgents = [{ tool: 'opencode', adapter: 'opencode', state: 'available' }]
+ assert.equal(initialChoice([chatProject], defaults, opts).chat, true)
+ assert.equal(startable(selected, [chatProject], [target]), null)
+ assert.match(startable({ ...selected, agent: 'codex' }, [chatProject], [target]), /does not offer/)
+ target.capabilities.acpAgents[0].state = 'incompatible'
+ assert.match(startable(selected, [chatProject], [target]), /does not offer/)
 })

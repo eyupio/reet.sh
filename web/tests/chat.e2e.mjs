@@ -8,6 +8,10 @@ const session = { id: S, agentId: A, title: 'OpenCode · site', state: 'running'
 const closedSession = { ...session, id: S2, state: 'exited', exitCode: 0, model: 'anthropic/claude-sonnet-4-5', acpSessionId: 'ses_fake000000000000000000000001' }
 const machine = { agentId: A, host: 'dev-laptop', ready: true, serverEnabled: true, capabilities: { protocolVersion: 1, terminalControl: true, os: 'linux', osUser: 'dev', terminalEnabled: true, healthEnabled: true, readiness: 'ready', launch: true, agentsV2: true, models: true, acp: true, acpHistory: true, acpImages: true, uploads: true, tools: ['opencode'] } }
 
+const useDescriptors = process.env.REET_CHAT_DESCRIPTORS === '1'
+const availableChat = { tool: 'opencode', adapter: 'opencode', state: 'available', minimumVersion: '1.19.5', history: true, images: true, model: true, approval: false }
+if (useDescriptors) machine.capabilities.acpAgents = [availableChat]
+
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const { context, page, state, errors } = await openWorkspace(browser, {
   width: 1360, height: 900, touch: false, terminalStatus: active, terminalMachines: [machine],
@@ -48,6 +52,19 @@ await page.addInitScript(() => {
   window.EventSource = FakeEventSource
 })
 try {
+  if (useDescriptors) {
+    for (const unavailable of [[], [{ ...availableChat, state: 'missing' }], [{ ...availableChat, state: 'unverified' }], [{ ...availableChat, state: 'incompatible' }]]) {
+      machine.capabilities.acpAgents = unavailable
+      await page.goto(`${base}/sessions?agent=${A}`)
+      await page.getByRole('button', { name: 'New agent session', exact: true }).click()
+      const unavailableDialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })
+      await unavailableDialog.getByRole('radio', { name: 'OpenCode', exact: true }).check()
+      await expect(unavailableDialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveCount(0)
+      await expect(unavailableDialog.getByText('This machine does not currently offer the reet TUI for OpenCode.', { exact: false })).toBeVisible()
+      await unavailableDialog.getByRole('button', { name: 'Close', exact: true }).click()
+    }
+    machine.capabilities.acpAgents = [availableChat]
+  }
   await page.goto(`${base}/sessions?agent=${A}`)
   await page.getByRole('button', { name: 'New agent session', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })

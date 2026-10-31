@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/eyupio/reet.sh/internal/acpagent"
 	"github.com/eyupio/reet.sh/internal/agenthealth"
 	"github.com/eyupio/reet.sh/internal/terminalagent"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
@@ -167,4 +168,41 @@ func modelsConsent(config string, c agentConfig) error {
 		return errors.New("model listing disabled locally")
 	}
 	return nil
+}
+
+// structuredAgents reports reviewed and candidate adapter availability without
+// executing a CLI. Only the OpenCode integration is reviewed in this stage.
+func structuredAgents(home string) []terminalproto.ACPAgent {
+	tools := launchTools(home)
+	installed := func(tool string) bool {
+		for _, t := range tools {
+			if t == tool {
+				return true
+			}
+		}
+		return false
+	}
+	evidence := terminalhost.InspectSoftware(home, "opencode", exec.LookPath)
+	version := ""
+	if evidence.State == terminalproto.SoftwareInstalled {
+		version = evidence.Version
+	}
+	entries := []terminalproto.ACPAgent{}
+	for _, tool := range []string{"claude", "codex", "gemini", "opencode"} {
+		found := installed(tool)
+		if tool == "claude" || tool == "codex" {
+			command := tool + "-acp"
+			if tool == "claude" {
+				command = "claude-agent-acp"
+			}
+			path, err := exec.LookPath(command)
+			found = err == nil && filepath.IsAbs(path)
+		}
+		v := ""
+		if tool == "opencode" {
+			v = version
+		}
+		entries = append(entries, acpagent.Describe(tool, found, v))
+	}
+	return entries
 }

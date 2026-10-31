@@ -1562,7 +1562,7 @@ recorded on that session. Thinking remains OpenCode's own.
 
 ## reet TUI pasted images — 31 October 2026
 
-The reet TUI composer now passes a pasted, dropped or chosen image to OpenCode the way AOE does. The browser uploads it
+The reet TUI composer now passes a pasted, dropped or chosen image to OpenCode as embedded image content. The browser uploads it
 through the existing machine upload route; the prompt carries the upload path only when the machine negotiated
 `acp-image-v1`; the connector reads its own file and sends it as an ACP image content block. An older connector keeps the
 path-as-text prompt. The chip shows a thumbnail, at most eight images are embedded per prompt, and an image-only message
@@ -1595,3 +1595,18 @@ one soft card with an icon-only attach control, a keyboard hint and Send/Stop.
   passed, including tool-detail parsing, durations, the negotiated feature and the plain fallback for an older controller.
 - Checked in dark and light palettes at 1440 px and 420 px. Not checked: a physical phone, Safari or Firefox, a screen
   reader, or a live provider turn with a very large diff.
+
+
+## Per-agent structured chat availability — 31 October 2026
+
+The launch dialog, Home launch bar, continuation and live controls now read the
+selected agent's structured descriptor, with OpenCode-only fallback for old
+machines. An explicit empty/missing/unverified/incompatible descriptor cannot
+turn back into a chat through the older machine-wide flag. The unavailable
+OpenCode hint offers its own terminal interface without implying that every
+refusal can be repaired by updating reet.
+
+`chat.e2e.mjs` passed with legacy flags and with `REET_CHAT_DESCRIPTORS=1`;
+the latter also checks each refused state. Both exercise chat start, approvals,
+images, phone width and continuation. No physical phone or live provider was
+used; the screen still uses the existing layout and controls.

@@ -11,7 +11,7 @@ export type SoftwarePlan = { host: string; tool: string; action: 'install' | 'up
 export type SoftwareApplyResult = { tool: string; action: 'install' | 'update' | 'rollback' | 'remove'; state: 'applied' | 'refused' | 'failed'; version?: string; previous?: string; reason?: string; entry?: SoftwareEntry }
 export type FleetSoftwareRow = { agentId: string; host: string; state: 'update' | 'install' | 'none' | 'unknown'; action?: 'install' | 'update'; version?: string; previous?: string; managed?: boolean; target?: string; source?: string; sessionsRunning: number; canApply: boolean; sentence: string }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission }
-export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -352,3 +352,16 @@ export type ApprovalMode = 'ask' | 'yolo'
 export async function setApprovalMode(id: string, mode: ApprovalMode): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/approval-mode`, { method: 'POST', body: JSON.stringify({ mode }) }) }
 
 export async function chatModel(id: string, model: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/model`, { method: 'POST', body: JSON.stringify({ model }) }) }
+
+/** Local adapter evidence; available still checks --version and identity at launch. */
+export type StructuredAgent = { tool: string; adapter: string; state: 'available' | 'missing' | 'unverified' | 'incompatible'; version?: string; minimumVersion?: string; history?: boolean; images?: boolean; model?: boolean; approval?: boolean }
+
+/** Explicit descriptors override legacy booleans; only reviewed tools may start. */
+export function structuredAgent(caps: Capabilities | undefined, tool: string | undefined): StructuredAgent | null {
+ if (!caps?.acp || tool !== 'opencode') return null
+ if (caps.acpAgents !== undefined) {
+  if (!Array.isArray(caps.acpAgents)) return null
+  return caps.acpAgents.find(a => a.tool === tool && a.adapter === 'opencode' && a.state === 'available') ?? null
+ }
+ return { tool, adapter: 'opencode', state: 'available', history: caps.acpHistory === true, images: caps.acpImages === true, model: caps.acpModel === true, approval: caps.acpApproval === true }
+}

@@ -566,3 +566,40 @@ func TestSetTerminalYoloForStructuredSessionOnly(t *testing.T) {
 		t.Fatalf("plain shell accepted: %v", err)
 	}
 }
+
+func TestACPResumeIsBoundToStoredToolAndFolder(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	id := "ses_toolbound000000000001"
+	dir := "/home/tester/site"
+	got, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RecordTerminalACPSessionFor(uid, a.ID, got.ID, id); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.ObserveTerminalStateFor(uid, a.ID, got.ID, c.Generation, terminalproto.Exited, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		uid              int64
+		agent, tool, dir string
+		want             bool
+	}{
+		{uid, a.ID, "opencode", dir, true},
+		{uid, a.ID, "opencode", dir + "/other", false},
+		{uid + 1, a.ID, "opencode", dir, false},
+		{uid, syncID(), "opencode", dir, false},
+	} {
+		ok, err := s.CanResumeACPToolSessionFor(tc.uid, tc.agent, tc.tool, id, tc.dir)
+		if err != nil || ok != tc.want {
+			t.Fatalf("%+v: %v %v", tc, ok, err)
+		}
+	}
+	if _, err = s.db.Exec(`UPDATE terminal_sessions SET tool='codex' WHERE id=?`, got.ID); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.CanResumeACPToolSessionFor(uid, a.ID, "opencode", id, dir); err != nil || ok {
+		t.Fatalf("another tool's history matched: %v %v", ok, err)
+	}
+}

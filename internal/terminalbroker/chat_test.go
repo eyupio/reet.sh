@@ -280,3 +280,28 @@ func TestChatModelSwitchKeepsHistoryAndRecordsModel(t *testing.T) {
 		t.Fatal("other user switched model")
 	}
 }
+
+func TestStructuredCreateHonoursExplicitDescriptorRefusal(t *testing.T) {
+	for _, state := range []string{"missing", "unverified", "incompatible", "empty"} {
+		t.Run(state, func(t *testing.T) {
+			b, p, uid, agent := chatFixture(t)
+			record, err := b.st.RemoteCapabilitiesFor(uid, agent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entries := []terminalproto.ACPAgent{}
+			if state != "empty" {
+				entries = append(entries, terminalproto.ACPAgent{Tool: "opencode", Adapter: "opencode", MinimumVersion: "1.19.5", State: state})
+			}
+			caps := record.Capabilities
+			caps.ACPAgents = &entries
+			if err := b.st.UpdateRemoteCapabilitiesFor(uid, agent, record.InstanceID, p.Generation, caps); err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = b.CreateSession(context.Background(), uid, agent, ID(), terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true})
+			if !errors.Is(err, ErrACPUnsupported) {
+				t.Fatalf("descriptor refusal: %v", err)
+			}
+		})
+	}
+}

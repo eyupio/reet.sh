@@ -17,6 +17,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
 
 const findSkills = "https://www.skills.sh/vercel-labs/skills/find-skills"
@@ -28,7 +29,7 @@ type listResp struct {
 
 func newSrv(t *testing.T, f meta.Fetcher, token string) *httptest.Server {
 	t.Helper()
-	s, err := store.Open(t.TempDir())
+	s, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +40,7 @@ func newSrv(t *testing.T, f meta.Fetcher, token string) *httptest.Server {
 
 func newAccountsSrvStore(t *testing.T, token string) (*httptest.Server, *store.Store) {
 	t.Helper()
-	s, err := store.Open(t.TempDir())
+	s, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -639,7 +640,7 @@ func TestAccountsSetupWithoutBootstrap(t *testing.T) {
 }
 
 func TestAuthNoneAllowsRequests(t *testing.T) {
-	s, err := store.Open(t.TempDir())
+	s, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1105,7 +1106,7 @@ func TestAdminRollupAndPrivacy(t *testing.T) {
 }
 
 func TestSignupOptInContactAndMemberRole(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

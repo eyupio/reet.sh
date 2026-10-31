@@ -12,6 +12,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
 
 func TestEnrolledAgentPreviewApprovalApply(t *testing.T) {
@@ -27,7 +28,7 @@ func TestEnrolledAgentPreviewApprovalApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +115,7 @@ func TestEnrolledAgentPreviewApprovalApply(t *testing.T) {
 func TestAgentDropsResultTheControllerRefuses(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("REET_TOKEN", "")
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +162,7 @@ func TestEnrolledAgentAutoSyncAppliesAdditivePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

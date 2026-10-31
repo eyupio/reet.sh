@@ -184,11 +184,7 @@ func TestMachineMergePreservesInventoriesReferencesAndAliases(t *testing.T) {
 }
 
 func TestMachineMergeConflictingReferencesRollsBack(t *testing.T) {
-	s, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := newStore(t)
 	owner, _ := s.DefaultOwner()
 	for _, host := range []string{"old", "preferred"} {
 		if err := s.TouchEnvironmentFor(owner, host, "agents", "", ""); err != nil {

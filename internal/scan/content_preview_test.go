@@ -20,6 +20,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/skillpreview"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
 
 type previewController struct {
@@ -33,7 +34,7 @@ type previewController struct {
 
 func newPreviewController(t *testing.T) *previewController {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,7 +23,7 @@ func mustRef(t *testing.T, in string) ref.Ref {
 
 func newStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(t.TempDir())
+	s, err := openTemplateStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -28,8 +28,8 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 
 ## SC2 — Structured adapter probe checkpoint (31 October 2026)
 
-**Scope:** separate probe PR based on SC1; no new runtime adapter is enabled.
-Branch `feat/structured-adapter-probes`, stacked on
+**Scope:** separate probe PR targeting main; no new runtime adapter is enabled.
+Branch `feat/structured-adapter-probes`, following the merged
 [SC1 PR #300](https://github.com/eyupio/reet.sh/pull/300). See
 [the probe report](docs/research/structured-adapters/probe-report.md) and its
 narrowed protocol fixtures. This is partial SC2 evidence, not completion of the
@@ -58,10 +58,14 @@ stub probes. Read `scripts/probe-structured-adapters.py`,
 `scripts/probe-claude-turn.py`, the report, `internal/acpagent/session.go` and
 `internal/terminalproto/acp_agents.go`.
 
-**Publication:** [PR #301](https://github.com/eyupio/reet.sh/pull/301) is open
-against `feat/structured-agent-capabilities`, checkpoint commit `76941ec`.
-Retarget to main after #300 merges. Nothing merged, released or deployed.
-Keep this handoff current with subsequent checks and remaining integration gates.
+**Publication:** [PR #301](https://github.com/eyupio/reet.sh/pull/301) records this
+checkpoint against main, following SC1's verified merge `e902b869`.
+Its canonical PR record carries the current merge status; this checkpoint does
+not enable an adapter or perform a release/deployment. Current main was merged
+into the probe branch to resolve the handoff conflict after SC1 was squash-merged.
+The resulting diff contains only the five SC2 report/fixture/helper/handoff files.
+Syntax, fixture, link and whitespace checks passed after resolution; CI on the
+resolved head must pass before merging. Preserve all remaining integration gates.
 
 ## SC1 — Per-agent structured chat capabilities (31 October 2026)
 
@@ -106,9 +110,10 @@ read [the plan](docs/structured-chat-plan.md), `internal/acpagent/{spec,describe
 and `web/src/lib/StartAgentDialog.svelte`. Do not enable a candidate before its
 callback, permission, trust, provider and history contracts are observed.
 
-**Publication state:** PR #300 is open; nothing merged, released or deployed.
-SC2 runs on a separate branch and must have its own PR and updated handoff;
-its probes and adapter code do not belong in #300.
+**Publication state:** [PR #300](https://github.com/eyupio/reet.sh/pull/300)
+merged as `e902b869cecc4b2194a8bc778c8271ec2172c654`.
+SC2 remains the separate probe checkpoint in PR #301 with its own handoff.
+No release or deployment is performed by these continuation tasks.
 
 ## Terminal interface (30 October 2026)
 

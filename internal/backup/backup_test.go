@@ -18,13 +18,14 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
 
 const testKey = "0123456789abcdef0123456789abcdef"
 
 func testService(t *testing.T, remote *fakeS3) (*Service, *store.Store, store.User) {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

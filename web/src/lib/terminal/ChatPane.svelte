@@ -3,6 +3,8 @@
  import { applyChatEvent, diffCounts, displayPath, formatDuration, initialChat, inlineSegments, isWorking, pendingPermissions, proseBlocks, resetChat, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState } from '../chat'
  import { copyText } from '../clipboard'
  import { chatAnswer, chatCancel, chatModel, machineModels, chatPrompt, chatURL, launchUpload, terminalClosed, type TerminalSession } from './api'
+ import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
+ import { defaultLabel, type ModelFavourite } from '../models'
  import { chatPromptParts, formatImageSize, imageFiles, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
  let { session, uploadsSupported = false, uploadsOff = false, acpImages = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean } = $props()
@@ -17,6 +19,11 @@
   selectedModel = model; currentModel = model
  })
  let models = $state<string[]>([]), modelNote = $state('')
+ let favourites = $state<ModelFavourite[]>([]), favouriteBusy = $state(false), favouriteNote = $state('')
+ const tool = $derived(session.tool || 'opencode')
+ const agentDefault = $derived(favourites.find(f => f.tool === tool && f.agentDefault)?.model ?? '')
+ const selectedIsDefault = $derived(!!selectedModel.trim() && selectedModel.trim() === agentDefault)
+ const selectedIsFavourite = $derived(favourites.some(f => f.tool === tool && f.model === selectedModel.trim()))
  const failed = $derived(chat.status.state === 'error')
  const guidance = $derived(/credit|quota|usage limit|billing|balance|insufficient_quota/i.test(chat.status.detail)
   ? 'This model has reached its usage or credit limit. Choose another model below, or add credits with your provider, then send a message to continue.'
@@ -31,6 +38,20 @@
   try { await chatModel(session.id, selectedModel); currentModel = selectedModel; modelNote = `Model changed to ${selectedModel}. Send a message to continue.` }
   catch (e) { feedback = e instanceof Error ? e.message : 'The model could not be changed. Try again.' }
   finally { changingModel = false }
+ }
+ async function toggleDefault() {
+  const model = selectedModel.trim()
+  if (!model || favouriteBusy) return
+  const wasDefault = selectedIsDefault
+  favouriteBusy = true; favouriteNote = ''
+  try {
+   if (!wasDefault && !selectedIsFavourite) await addModelFavourite(tool, model)
+   const answer = await setModelFavouriteDefault(tool, wasDefault ? '' : model)
+   if (answer?.favourites) favourites = answer.favourites
+   favouriteNote = wasDefault ? `Cleared the default for ${tool}.` : `New ${tool} sessions use ${model}.`
+  } catch (e) {
+   favouriteNote = e instanceof Error ? e.message : 'Couldn’t update the agent default just now. Try again.'
+  } finally { favouriteBusy = false }
  }
  const MAX_CHAT_BYTES = 2000
  let draft = $state(''), feedback = $state(''), sending = $state(false), uploading = $state(false), answering = $state('')
@@ -207,6 +228,7 @@
  onMount(() => {
   const life = new AbortController()
   void machineModels(session.agentId, session.tool || 'opencode', life.signal).then(result => { models = result.models.map(model => model.id) }).catch(() => { if (!life.signal.aborted) modelNote = 'Model list unavailable. Enter a model ID configured on this machine.' })
+  void listModelFavourites(life.signal).then(answer => { if (!life.signal.aborted) favourites = answer.favourites }).catch(() => {})
   const stream = new EventSource(chatURL(session.id))
   source = stream
   stream.addEventListener('reset', readReset)
@@ -374,8 +396,10 @@
     <input id={`${session.id}-model`} list={`${session.id}-models`} bind:value={selectedModel} disabled={working || sending || changingModel || chat.connection !== 'open'} placeholder="provider/model" />
     <datalist id={`${session.id}-models`}>{#each models as model}<option value={model}></option>{/each}</datalist>
     <button type="button" class="btn" disabled={working || sending || changingModel || !selectedModel.trim() || selectedModel === currentModel || chat.connection !== 'open'} onclick={() => void changeModel()}>{changingModel ? 'Changing…' : 'Change model'}</button>
+    <button type="button" class="btn" disabled={!selectedModel.trim() || favouriteBusy || chat.connection !== 'open'} aria-label={defaultLabel(tool, selectedModel.trim(), selectedIsDefault)} onclick={() => void toggleDefault()}>{favouriteBusy ? 'Saving…' : selectedIsDefault ? 'Clear default' : 'Make default'}</button>
    </div>
    {#if modelNote}<p class="notice" role="status">{modelNote}</p>{/if}
+   {#if favouriteNote}<p class="notice" role="status">{favouriteNote}</p>{/if}
    {#if images.length}
     <ul class="attachments" aria-label="Images to attach">
      {#each images as image (image.id)}

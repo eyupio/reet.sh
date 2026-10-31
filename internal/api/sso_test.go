@@ -15,6 +15,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/oidc"
 	"github.com/eyupio/reet.sh/internal/oidc/oidctest"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
 
 type ssoEnv struct {
@@ -40,7 +41,7 @@ const ownerPassword = "owner password 123"
 func newSSOEnv(t *testing.T, o ssoOpts) *ssoEnv {
 	t.Helper()
 	e := &ssoEnv{t: t, idp: oidctest.New(t)}
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

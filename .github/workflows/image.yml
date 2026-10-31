@@ -43,11 +43,16 @@ jobs:
           if command -v tmux >/dev/null; then tmux -V; exit 0; fi
           if [ "$(id -u)" = 0 ]; then as_root=""; elif command -v sudo >/dev/null; then as_root="sudo"; else
             echo "::error::tmux is missing and this runner is neither root nor has sudo to install it."; exit 1; fi
-          $as_root apt-get update && $as_root apt-get install -y tmux
+          # Use the host's package index when it has one; refresh it only as a fallback.
+          if ! $as_root apt-get install -y --no-install-recommends tmux; then
+            $as_root apt-get update
+            $as_root apt-get install -y --no-install-recommends tmux
+          fi
           tmux -V
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - uses: actions/setup-node@v4
         with:
           node-version: 22

@@ -33,6 +33,19 @@ const { context, page, state, errors } = await openWorkspace(browser, {
     },
     '/api/v2/folder-projects': { projects: [], savedWaiting: 0 },
     [`/api/v2/machines/${A}/models`]: { tool: 'opencode', state: 'listed', models: [{ id: 'anthropic/claude-sonnet-4-5', provider: 'anthropic' }], more: false, source: 'opencode models', version: '', fetchedAt: now, checkedAt: now, reason: '', sentence: '' },
+    '/api/v2/profile/model-favourites': req => {
+      if (req.method() === 'POST') {
+        state.favourite = req.postDataJSON()
+        state.favourites = [{ tool: state.favourite.tool, model: state.favourite.model, agentDefault: false }]
+        return { version: 2, favourites: state.favourites }
+      }
+      return { version: 1, favourites: state.favourites ?? [] }
+    },
+    '/api/v2/profile/model-favourites/default': req => {
+      state.modelDefault = req.postDataJSON()
+      state.favourites = (state.favourites ?? []).map(f => ({ ...f, agentDefault: f.tool === state.modelDefault.tool && f.model === state.modelDefault.model && !!state.modelDefault.model }))
+      return { version: 3, favourites: state.favourites }
+    },
     [`/api/v2/terminal/sessions/${S}/chat/prompt`]: req => { state.prompt = req.postDataJSON(); return { sent: true } },
     [`/api/v2/terminal/sessions/${S}/chat/cancel`]: () => { state.cancelled = true; return { cancelled: true } },
     [`/api/v2/terminal/sessions/${S}/chat/permissions/p1`]: req => { state.answer = req.postDataJSON(); return { answered: true } },
@@ -132,6 +145,19 @@ try {
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
   expect(state.create).toMatchObject({ structured: true, trust: true, tool: 'opencode', model: 'anthropic/claude-sonnet-4-5', prompt: 'fix the failing build' })
   expect(state.create.effort).toBeUndefined()
+
+  // The live chat's model switch offers Make default, stars a chosen model that is not yet a favourite, and Clear default removes it.
+  const modelInput = page.locator('.model-controls input')
+  await modelInput.fill('anthropic/claude-sonnet-4-5')
+  await page.getByRole('button', { name: 'Make anthropic/claude-sonnet-4-5 the default for OpenCode', exact: true }).click()
+  await expect.poll(() => state.favourite).toEqual({ tool: 'opencode', model: 'anthropic/claude-sonnet-4-5' })
+  await expect.poll(() => state.modelDefault).toEqual({ tool: 'opencode', model: 'anthropic/claude-sonnet-4-5' })
+  await expect(page.getByText('New opencode sessions use anthropic/claude-sonnet-4-5.')).toBeVisible()
+  await page.getByRole('button', { name: 'Clear anthropic/claude-sonnet-4-5 as the default for OpenCode', exact: true }).click()
+  await expect.poll(() => state.modelDefault).toEqual({ tool: 'opencode', model: '' })
+  await expect(page.getByText('Cleared the default for opencode.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Make anthropic/claude-sonnet-4-5 the default for OpenCode', exact: true })).toBeVisible()
+
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('textbox', { name: 'Message OpenCode' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)

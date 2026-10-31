@@ -1,11 +1,16 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import { shell } from '../dialogShell'
-  import { UnauthorizedError } from '../api'
+  import { UnauthorizedError, listModelFavourites, type Skill } from '../api'
   import { agentChoices } from '../catalogue'
-  import { notStartedText, refusalText, toolName } from '../agentLaunch'
+  import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
+  import { effortChoices, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
+  import { installPrompt } from '../install'
+  import { insertSkillPrompt } from '../skillPrompt'
+  import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
+  import SkillPromptPicker from './SkillPromptPicker.svelte'
   import { initialChoice, startable, toCreate, withAgent, withProject, type LaunchChoice, type LaunchCreate, type LaunchDefaults } from '../launchBar'
-  import { createTerminal, structuredAgent, TerminalError, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { createTerminal, machineModels, structuredAgent, TerminalError, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
 
   // Starts a session straight from the Active column. The interface choice is the launch bar's own: the reet TUI is the default
   // wherever the machine offers it, and the agent's own TUI is one click away. Everything else (defaults, refusals, the one
@@ -34,6 +39,44 @@
   const hasChat = $derived(!!structuredAgent(machine?.capabilities, choice.agent))
   const chat = $derived(hasChat && choice.chat === true)
   const why = $derived(startable(choice, projects, machines, profile))
+
+  // Model, effort and skills, as in the plan dialog. The model list is read from the machine the project lives on.
+  const efforts = $derived(effortChoices(choice.agent))
+  const takesEffort = $derived(!chat && efforts.length > 1)
+  let favourites = $state<ModelFavourite[]>([])
+  let modelRead = $state<{ key: string; machine: MachineModels | null; loading: boolean }>({ key: '', machine: null, loading: false })
+  const modelKey = $derived(machine && choice.agent ? `${machine.agentId}\u0000${choice.agent}` : '')
+  const modelMachine = $derived(modelRead.key === modelKey ? modelRead.machine : null)
+  const modelLine = $derived.by(() => {
+    if (!modelKey) return ''
+    if (modelRead.key === modelKey && modelRead.loading) return `Reading ${machine?.host ?? 'the machine'}’s models…`
+    const info = modelStatus(modelMachine, machine?.host ?? '')
+    return [info.sentence, info.age ? `Read ${info.age}.` : ''].filter(Boolean).join(' ')
+  })
+  let modelOpen = $state(false), effortOpen = $state(false), skillOpen = $state(false), touch = $state(false)
+  let modelButton = $state<HTMLButtonElement>(), effortButton = $state<HTMLButtonElement>(), skillButton = $state<HTMLButtonElement>(), promptInput = $state<HTMLTextAreaElement>()
+  $effect(() => {
+    const key = modelKey, target = machine?.agentId ?? '', agent = choice.agent
+    if (!key || !target || !machine?.ready || !machine.capabilities?.models || machine.capabilities.modelsOff) return
+    if (untrack(() => modelRead.key === key)) return
+    modelRead = { key, machine: null, loading: true }
+    machineModels(target, agent, life.signal).then(
+      next => { if (!life.signal.aborted && modelRead.key === key) modelRead = { key, machine: next, loading: false } },
+      () => { if (!life.signal.aborted && modelRead.key === key) modelRead = { key, machine: null, loading: false } })
+  })
+  const modelChoices = (): SlotOption[] => modelOptions({
+    tool: choice.agent, current: cleanModel(choice.model), machine: modelMachine, favourites, recent: [], suggestions: modelSuggestions(choice.agent),
+    selectedModel: cleanModel(choice.model), host: machine?.host ?? '', agentName: toolName(choice.agent),
+  })
+  const effortOptions = (): SlotOption[] => efforts.map(value => ({ value, label: value || 'Agent default' }))
+  function useSkill(skill: Skill) {
+    const text = installPrompt(skill)
+    if (!text) { message = 'That skill has no source to run it from. Link one on the Skills page.'; return }
+    const at = promptInput?.selectionStart ?? choice.prompt.length, end = promptInput?.selectionEnd ?? at
+    const inserted = insertSkillPrompt(choice.prompt, text, at, end)
+    choice = { ...choice, prompt: inserted.text }
+    void tick().then(() => { promptInput?.focus(); promptInput?.setSelectionRange(inserted.caret, inserted.caret) })
+  }
 
   function pickProject(value: string) {
     const next = projects.find(p => p.id === value)
@@ -68,7 +111,10 @@
     } finally { busy = false }
   }
   function close() { if (!busy) { dialog?.close(); onclose() } }
-  onMount(() => { dialog?.showModal(); return () => { life.abort(); dialog?.close() } })
+  onMount(() => {
+    touch = matchMedia('(pointer: coarse)').matches
+    listModelFavourites(life.signal).then(a => { if (!life.signal.aborted) favourites = a.favourites ?? [] }, () => { /* a help only */ })
+    dialog?.showModal(); return () => { life.abort(); dialog?.close() } })
 </script>
 
 <dialog bind:this={dialog} use:shell={{ sheet: 'bottom' }} aria-labelledby={`${id}-title`} oncancel={e => { e.preventDefault(); close() }}>
@@ -102,8 +148,15 @@
             </div>
             <small>{chat ? 'A native chat with approvals, history and images.' : `${toolName(choice.agent)}’s own terminal interface.`}</small>
           </div>
+          <div class="settings">
+            <div class="field"><span>Model</span>
+              <button type="button" class="picker" bind:this={modelButton} aria-label={`Model: ${choice.model || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={modelOpen} onclick={() => modelOpen = !modelOpen}><span class="value">{choice.model || 'Agent default'}</span><span class="chev" aria-hidden="true">▾</span></button></div>
+            <div class="field"><span>Effort</span>
+              <button type="button" class="picker" bind:this={effortButton} aria-label={`Effort: ${choice.effort || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={effortOpen} disabled={!takesEffort} title={takesEffort ? '' : `${toolName(choice.agent)} chooses its own effort.`} onclick={() => effortOpen = !effortOpen}><span class="value">{takesEffort ? choice.effort || 'Agent default' : 'This agent decides'}</span>{#if takesEffort}<span class="chev" aria-hidden="true">▾</span>{/if}</button></div>
+          </div>
           <label class="field"><span>Prompt <small>Optional</small></span>
-            <textarea aria-label="Prompt" rows="4" bind:value={choice.prompt} placeholder="What should the agent do?"></textarea></label>
+            <textarea bind:this={promptInput} aria-label="Prompt" rows="4" bind:value={choice.prompt} placeholder="What should the agent do?"></textarea></label>
+          <div class="tools"><button type="button" class="skill-add" bind:this={skillButton} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button></div>
           {#if chat}
             <label class="trust"><input type="checkbox" checked={choice.trust === true} onchange={e => choice = { ...choice, trust: e.currentTarget.checked }} />I trust this folder. OpenCode plugins in it may run.</label>
           {/if}
@@ -116,6 +169,19 @@
       <button class="btn primary" disabled={busy || !projects.length || !!why}>{busy ? 'Starting…' : 'Start'}</button>
     </footer>
   </form>
+  {#if modelOpen}
+    <SlotPicker label="Model" options={modelChoices()} value={cleanModel(choice.model)} sheet={touch} opener={modelButton ?? null}
+      filter="Filter models" status={modelLine}
+      other={{ label: 'Other…', field: 'Model name', validate: validateModel }}
+      onpick={value => { choice = { ...choice, model: value }; modelOpen = false }} onclose={() => modelOpen = false} />
+  {/if}
+  {#if effortOpen}
+    <SlotPicker label="Effort" options={effortOptions()} value={choice.effort} sheet={touch} opener={effortButton ?? null}
+      onpick={value => { choice = { ...choice, effort: value as LaunchChoice['effort'] }; effortOpen = false }} onclose={() => effortOpen = false} />
+  {/if}
+  {#if skillOpen}
+    <SkillPromptPicker opener={skillButton ?? null} sheet={touch} oninsert={useSkill} onclose={() => skillOpen = false} />
+  {/if}
 </dialog>
 
 <style>
@@ -137,8 +203,16 @@
   .mode button { padding: 8px 14px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--muted); font: 500 12px var(--sans); cursor: pointer; }
   .mode button.on { background: var(--card); color: var(--ink); border-color: var(--line); }
   .mode button:disabled { opacity: .5; cursor: default; }
+  .settings { display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; }
+  .picker { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); color: var(--ink); font: 400 13px var(--sans); text-align: left; cursor: pointer; }
+  .picker:disabled { opacity: .55; cursor: default; }
+  .picker .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .picker .chev { flex: none; color: var(--muted); }
+  .tools { margin: -8px 0 14px; }
+  .skill-add { border: 0; background: none; padding: 7px 0; color: var(--accent-text); font: 600 11px var(--sans); cursor: pointer; }
+  .skill-add:hover { text-decoration: underline; }
   .trust { display: flex; align-items: center; gap: 8px; font-size: 12px; }
   .note, .none { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
   footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; border-top: 1px solid var(--line); }
-  @media (max-width: 650px) { select, textarea { font-size: 16px; } header, .body, footer { padding-left: 16px; padding-right: 16px; } }
+  @media (max-width: 650px) { select, textarea, .picker { font-size: 16px; } .settings { grid-template-columns: 1fr; gap: 0; } .skill-add { min-height: 44px; } header, .body, footer { padding-left: 16px; padding-right: 16px; } }
 </style>

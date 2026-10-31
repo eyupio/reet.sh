@@ -12,7 +12,7 @@ const agentLaunch = asURL(compile('./agentLaunch.ts').replace("from './catalogue
 const home = asURL(compile('./home.ts'))
 const colour = asURL(compile('./projectColour.ts'))
 const api = asURL(compile('./terminal/api.ts'))
-const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './catalogue'", `from '${catalogue}'`).replace("from './projectColour'", `from '${colour}'`).replace("from './terminal/api'", `from '${api}'`)
+const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './catalogue'", `from '${catalogue}'`).replace("from './projectColour'", `from '${colour}'`).replaceAll("from './terminal/api'", `from '${api}'`)
 const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList } = await import(asURL(source))
 
 const NOW = 1_800_000_000_000
@@ -173,13 +173,13 @@ test('session header: agent · model · started, and the decisions line', () => 
   assert.equal(decisionsLine({ yolo: true, structured: true }), 'YOLO: reet answers yes, this once, to each request.')
   assert.equal(decisionsLine({ yolo: true, structured: false }), 'YOLO: the agent asked not to be prompted; the launch is audited.')
   assert.equal(decisionsLine({ structured: true }), 'Asked in the chat: Allow once or Deny.')
-  assert.deepEqual(continueChatLaunch({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site', projectId: 'p1', model: 'anthropic/claude-sonnet-4-5' }), { tool: 'opencode', dir: '/home/u/site', model: 'anthropic/claude-sonnet-4-5', structured: true, trust: true, resumeAcp: 'ses_1', projectId: 'p1' })
-  assert.equal(continueChatLaunch({ structured: true, acpSessionId: 'ses_1', state: 'running', dir: '/home/u/site' }), null)
-  assert.deepEqual(continueChatLaunch({ structured: true, acpSessionId: 'ses_1', state: 'exited' }), { tool: 'opencode', structured: true, trust: true, resumeAcp: 'ses_1' })
+  assert.deepEqual(continueChatLaunch({ tool: 'opencode', structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site', projectId: 'p1', model: 'anthropic/claude-sonnet-4-5' }), { tool: 'opencode', dir: '/home/u/site', model: 'anthropic/claude-sonnet-4-5', structured: true, trust: true, resumeAcp: 'ses_1', projectId: 'p1' })
+  assert.equal(continueChatLaunch({ tool: 'opencode', structured: true, acpSessionId: 'ses_1', state: 'running', dir: '/home/u/site' }), null)
+  assert.deepEqual(continueChatLaunch({ tool: 'opencode', structured: true, acpSessionId: 'ses_1', state: 'exited' }), { tool: 'opencode', structured: true, trust: true, resumeAcp: 'ses_1' })
   assert.equal(continueChatLaunch({ structured: true, state: 'exited', dir: '/home/u/site' }), null)
-  assert.equal(canContinueChat({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: { acp: true, acpHistory: true } }), true)
-  assert.equal(canContinueChat({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: { acp: true } }), false)
-  assert.equal(canContinueChat({ structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: {} }), false)
+  assert.equal(canContinueChat({ tool: 'opencode', structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: { acp: true, acpHistory: true } }), true)
+  assert.equal(canContinueChat({ tool: 'opencode', structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: { acp: true } }), false)
+  assert.equal(canContinueChat({ tool: 'opencode', structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: {} }), false)
 })
 
 test('changed files: at most twenty paths and the total', () => {
@@ -187,4 +187,19 @@ test('changed files: at most twenty paths and the total', () => {
   assert.deepEqual(changedList({ changed: 30, paths }), { shown: paths.slice(0, 20), total: 30, more: 10 })
   assert.deepEqual(changedList({ changed: 2, paths: ['a', 'b'] }), { shown: ['a', 'b'], total: 2, more: 0 })
   assert.deepEqual(changedList({ changed: 0, paths: [] }), { shown: [], total: 0, more: 0 })
+})
+
+test('chat descriptors override legacy flags and continuation retains the stored agent', () => {
+ const s = { structured: true, tool: 'opencode', acpSessionId: 'ses_stored', state: 'exited', dir: '/home/u/site' }
+ const capabilities = { acp: true, acpHistory: true, acpAgents: [] }
+ assert.equal(canContinueChat(s, { capabilities }), false)
+ capabilities.acpAgents = [{ tool: 'opencode', adapter: 'opencode', state: 'available', history: false }]
+ assert.equal(canContinueChat(s, { capabilities }), false)
+ capabilities.acpAgents[0].history = true
+ assert.equal(canContinueChat(s, { capabilities }), true)
+ assert.equal(continueChatLaunch({ ...s, tool: 'codex' }), null)
+ for (const state of ['missing', 'unverified', 'incompatible']) {
+  capabilities.acpAgents[0].state = state
+  assert.equal(canContinueChat(s, { capabilities }), false)
+ }
 })

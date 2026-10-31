@@ -6,6 +6,8 @@ These are directions, not commitments: there are no dates.
 
 Next, in this order:
 
+- **Structured chats across agents.** OpenCode's reet TUI is available. Per-agent capability reporting and tool-bound continuation prepare the next integration without enabling unverified adapters. Next: verify Claude Code and Codex ACP adapters, then add typed agent questions and extend recovery. See the [implementation plan](structured-chat-plan.md).
+
 - **Reviewed batch agent maintenance.** reet installs, updates, rolls back and removes its own OpenCode copy on Linux from one verified 1.19.5 artifact, keeps it beside any system installation, recovers after a restart, and reviews each machine's plan side by side, applying one pilot machine at a time. Next: a reviewed batch across machines with a pilot order, and a controller-side artifact mirror for offline machines.
 
 Later:

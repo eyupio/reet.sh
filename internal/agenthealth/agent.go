@@ -54,6 +54,7 @@ type AgentConfig struct {
 	software          bool
 	softwareApply     bool
 	yoloAllowed       bool
+	acpAgents         bool
 	acp               bool
 	acpHistory        bool
 	acpModel          bool
@@ -82,6 +83,8 @@ type AgentConfig struct {
 	// Software reports installation evidence for agent CLIs on this machine.
 	// It is a read-only observation; nil reports none.
 	Software func() []terminalproto.SoftwareEntry
+	// StructuredAgents observes installed adapter support without starting a chat.
+	StructuredAgents func() []terminalproto.ACPAgent
 	// GitAvailable reports whether git is on this connector's PATH, for run
 	// worktrees. Nil means the connector cannot make worktrees.
 	GitAvailable func() bool
@@ -710,6 +713,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.software = terminalproto.SupportsSoftware(advertised)
 	cfg.softwareApply = terminalproto.SupportsSoftwareApply(advertised)
 	cfg.acp = terminalproto.SupportsACP(advertised)
+	cfg.acpAgents = terminalproto.SupportsACPAgents(advertised)
 	cfg.acpHistory = terminalproto.SupportsACPHistory(advertised)
 	cfg.acpModel = terminalproto.SupportsACPModel(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
@@ -763,6 +767,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acp {
 		features = append(features, terminalproto.ACPFeature)
+	}
+	if cfg.acpAgents {
+		features = append(features, terminalproto.ACPAgentsFeature)
 	}
 	if cfg.acpModel {
 		features = append(features, terminalproto.ACPModelFeature)
@@ -867,7 +874,32 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 	if cfg.software && cfg.Software != nil && control {
 		software = softwareEntries(cfg)
 	}
+	var chatAgents *[]terminalproto.ACPAgent
+	if cfg.acpAgents && cfg.acp && control && enabled {
+		entries := []terminalproto.ACPAgent{}
+		if cfg.StructuredAgents != nil {
+			seen := map[string]bool{}
+			for _, entry := range cfg.StructuredAgents() {
+				if !entry.Valid() || seen[entry.Tool] || len(entries) >= terminalproto.MaxACPAgents {
+					continue
+				}
+				seen[entry.Tool] = true
+				if entry.State == "available" {
+					if !acp || !slices.Contains(tools, entry.Tool) {
+						continue
+					}
+					entry.History = entry.History && cfg.acpHistory
+					entry.Images = entry.Images && cfg.acpImages
+					entry.Model = entry.Model && cfg.acpModel
+					entry.Approval = entry.Approval && cfg.acpApproval
+				}
+				entries = append(entries, entry)
+			}
+		}
+		chatAgents = &entries
+	}
 	return terminalproto.Capabilities{
+		ACPAgents: chatAgents,
 		Launch:    launch,
 		Resume:    launch && cfg.resume,
 		AgentsV2:  cfg.agentsV2,

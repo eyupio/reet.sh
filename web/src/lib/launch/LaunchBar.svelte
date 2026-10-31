@@ -1,4 +1,5 @@
 <script lang="ts">
+ import { structuredAgent } from '../terminal/api'
   import { onMount, tick, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { shell } from '../dialogShell'
@@ -133,7 +134,7 @@
     const current = choice, all = machines
     if (!current || locked || current.agent !== 'opencode' || current.chat !== undefined) return
     const host = current.projectIds.length === 1 ? projects?.find(p => p.id === current.projectIds[0])?.host : current.homeMachine
-    if (all?.find(m => m.agentId === host)?.capabilities?.acp) choice = { ...current, chat: true }
+    if (structuredAgent(all?.find(m => m.agentId === host)?.capabilities, current.agent)) choice = { ...current, chat: true }
   })
   // Favourites are a help, not a prerequisite: the bar opens on the project/account defaults and the favourite
   // marked for the agent only fills a model that neither of those set. A late favourites read therefore cannot hold up

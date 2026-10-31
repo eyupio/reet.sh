@@ -1,6 +1,6 @@
 import type { Profile, YoloSetting } from './api'
 import type { BranchesResult, FolderProject, LaunchRequest, TerminalMachine, TerminalSession } from './terminal/api'
-import { readiness } from './terminal/api'
+import { readiness, structuredAgent } from './terminal/api'
 import { CATALOGUE, agentChoices } from './catalogue'
 import { resolveLaunchDefaults, type ModelFavourite } from './models'
 import { cleanModel, codeSentence, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
@@ -43,7 +43,7 @@ export type LaunchResolveOptions = { machines?: LaunchMachine[]; favourites?: Mo
 
 /** Whether this agent on this machine can run a native chat. */
 const supportsChat = (agent: string, host: string | undefined, machines: LaunchMachine[] | undefined): boolean =>
-  agent === 'opencode' && !!machines?.find(m => m.agentId === host)?.capabilities?.acp
+  !!structuredAgent(machines?.find(m => m.agentId === host)?.capabilities, agent)
 
 const UPDATE_FOR_OPTION = 'Update reet on that machine to use that option.'
 const NO_OPTION = "That agent doesn't take that option."
@@ -277,7 +277,7 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
     if (model) return model
     const target = machines.find(x => x.agentId === (picked[0]?.host ?? choice.homeMachine ?? ''))
     if (readiness(target)) return readiness(target)!
-    if (!target?.capabilities?.acp) return 'Update reet on that machine to start the reet TUI.'
+    if (!target?.capabilities || !structuredAgent(target.capabilities, choice.agent)) return 'This machine does not offer the reet TUI for that agent.'
     if (choice.approvals === 'yolo' && !target.capabilities.yolo) return `${target.host} doesn't accept YOLO sessions.`
     return null
   }

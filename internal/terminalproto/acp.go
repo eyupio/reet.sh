@@ -26,8 +26,8 @@ func SupportsACPModel(features string) bool {
 }
 
 // ACPImageFeature lets a controller send images with a prompt. The machine
-// reads the uploaded files and embeds their bytes in the ACP prompt, the way
-// AOE does, so the agent sees the image itself rather than a file path.
+// reads the uploaded files and embeds their bytes in the ACP prompt so the
+// agent sees the image itself rather than a file path.
 const ACPImageFeature = "acp-image-v1"
 
 // ACPToolDetailsFeature lets a new controller accept the extra fields a tool row shows (command, path, diff and its

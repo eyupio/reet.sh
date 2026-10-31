@@ -145,6 +145,8 @@ type Capabilities struct {
 	ModelsOff      bool     `json:"modelsOff,omitempty"`
 	// ACP is sent only on a connection that negotiated acp-v1.
 	ACP bool `json:"acp,omitempty"`
+	// ACPAgents is present only after acp-agents-v1 negotiation.
+	ACPAgents *[]ACPAgent `json:"acpAgents,omitempty"`
 	// ACPHistory is sent only when acp-history-v1 was negotiated as well.
 	ACPHistory bool `json:"acpHistory,omitempty"`
 	ACPModel   bool `json:"acpModel,omitempty"`
@@ -174,14 +176,21 @@ type Capabilities struct {
 }
 
 func (c Capabilities) Validate() error {
+	var features []string
 	if c.AgentsV2 {
-		return c.ValidateFor(AgentsFeature)
+		features = append(features, AgentsFeature)
 	}
-	return c.ValidateFor("")
+	if c.ACPAgents != nil {
+		features = append(features, ACPAgentsFeature)
+	}
+	return c.ValidateFor(strings.Join(features, ","))
 }
 
 // ValidateFor validates capabilities against the features negotiated by the peer.
 func (c Capabilities) ValidateFor(features string) error {
+	if c.ACPAgents != nil && !SupportsACPAgents(features) || !c.validACPAgents() {
+		return ErrInvalid
+	}
 	if (c.AgentsV2 || c.OSVersion != "") && !SupportsAgents(features) || !plainText(c.OSVersion, 128) {
 		return ErrInvalid
 	}
@@ -358,13 +367,13 @@ func (c Create) Validate() error {
 	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) || !c.validLaunch() || !c.validWorktree() || c.Base != "" && (c.Worktree == "" || !validRefName(c.Base)) {
 		return ErrInvalid
 	}
-	if c.Structured && (c.Tool != "opencode" || c.Worktree != "" || c.Project != "" || c.Base != "" || c.Effort != "" || c.Resume) {
+	if c.Structured && (!ReviewedChatTool(c.Tool) || c.Worktree != "" || c.Project != "" || c.Base != "" || c.Effort != "" || c.Resume) {
 		return ErrInvalid
 	}
 	if c.Trust && !c.Structured {
 		return ErrInvalid
 	}
-	if c.ResumeACP != "" && (!c.Structured || !ValidACPSessionID(c.ResumeACP)) {
+	if c.ResumeACP != "" && (!c.Structured || !ValidACPSessionIDFor(c.Tool, c.ResumeACP)) {
 		return ErrInvalid
 	}
 	return nil

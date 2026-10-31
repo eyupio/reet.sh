@@ -599,7 +599,7 @@ func (b *Broker) structuredSession(uid int64, session string) (store.TerminalSes
 	if err != nil {
 		return s, err
 	}
-	if !s.Structured {
+	if !s.Structured || !terminalproto.ReviewedChatTool(s.Tool) {
 		return s, ErrACPUnsupported
 	}
 	if s.State != terminalproto.Running {
@@ -625,7 +625,7 @@ func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string
 		if err != nil || caps.Generation != p.Generation {
 			return ErrOffline
 		}
-		if !caps.Capabilities.ACPImages {
+		if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !ok || !chat.Images {
 			return ErrACPImagesUnsupported
 		}
 	}
@@ -737,7 +737,7 @@ func (b *Broker) SetChatYolo(ctx context.Context, uid int64, session string, yol
 	if err != nil || caps.Generation != p.Generation {
 		return ErrOffline
 	}
-	if !caps.Capabilities.ACPApproval {
+	if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !ok || !chat.Approval {
 		return ErrACPApprovalUnsupported
 	}
 	if yolo && !caps.Capabilities.Yolo {
@@ -781,7 +781,7 @@ func (b *Broker) ModelChat(ctx context.Context, uid int64, session, model string
 	if err != nil || caps.Generation != p.Generation {
 		return ErrOffline
 	}
-	if !caps.Capabilities.ACPModel {
+	if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !ok || !chat.Model {
 		return ErrACPModelUnsupported
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &terminalproto.ACPModel{Model: model}}, chatCallTimeout)

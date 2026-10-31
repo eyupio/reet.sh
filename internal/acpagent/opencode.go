@@ -19,9 +19,9 @@ import (
 )
 
 // OpenCode's ACP adapter is the native `opencode acp` server. The floor is the
-// version AOE verifies for reliable edit/think classification and permission
-// context; a newer release is accepted because the handshake still names and
-// versions the agent.
+// version covered by reet's local probe for edit/think classification and
+// permission context; a newer release is accepted because the handshake still
+// names and versions the agent.
 var OpenCode = Spec{
 	Key:          "opencode",
 	Command:      "opencode",
@@ -111,8 +111,8 @@ func openCodePlugins(dir string) ([]string, error) {
 }
 
 // openCodePromptError recovers the provider error OpenCode stores locally when
-// its ACP prompt response only reports a completed turn. It mirrors AOE's
-// recovery from OpenCode's SQLite store.
+// its ACP prompt response only reports a completed turn. It reads the local
+// OpenCode store for the matching session and turn.
 func openCodePromptError(home, sessionID string, afterMS int64) string {
 	if home == "" || sessionID == "" {
 		return ""

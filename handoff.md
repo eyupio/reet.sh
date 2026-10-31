@@ -26,6 +26,53 @@ implemented baseline, S/A/W/L task lists, start-agent-session protocol notes, Pr
 delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief) are in
 [handoff-history.md](handoff-history.md), under "Moved from handoff.md on 27 October 2026".
 
+## SC1 — Per-agent structured chat capabilities (31 October 2026)
+
+**Task ID and scope:** SC1, negotiated per-agent chat availability and feature
+reporting, descriptor-aware launch/continuation, and tool-bound history ownership.
+OpenCode remains the only reviewed structured integration; no new adapter runs.
+
+**Branch / base / PR:** `feat/structured-agent-capabilities`, from main `c77f389`,
+[PR #300](https://github.com/eyupio/reet.sh/pull/300), implementation commit `c9f5b52`.
+Earlier uncommitted installation/research work remains in its original checkout;
+this branch includes only the chat contract, its tests and related documentation.
+
+**Behaviour added:** `acp-agents-v1` negotiates a bounded `acpAgents` list. Entries
+report tool, adapter, minimum/observed installation version and
+available/missing/unverified/incompatible states. Available features are masked
+by negotiated history/images/model/approval support. The connector reads
+installation metadata and resolves binaries without executing them. An available
+entry still checks executable version and ACP identity/version at launch.
+
+Explicit descriptors are authoritative, including an empty list. Older peers
+omit them and retain OpenCode-only fallback. Controller and browser launch,
+continuation and feature controls use the selected agent's descriptor. A
+connector cannot enable an unreviewed tool by advertising it. Native session ID
+validation dispatches by tool, preserving OpenCode's existing namespace, and the
+resume query now binds the tool alongside account, machine, folder and closed
+session state. There is no schema migration or controller transcript storage.
+
+**Checks and limitations:** protocol/collector/profile, ownership, broker and API
+regressions were added, plus launch/continuation unit cases and a descriptor mode
+in `chat.e2e.mjs`. Web check/build and both legacy/descriptor chat browser modes
+passed, including the launch dialog's desktop/tablet/phone light/dark matrix.
+Full `go vet ./...`, all 16 MCP tests, and focused race regressions for launch
+refusal, API feature gating and tool/account/machine/folder history binding
+passed. The complete `go test -race -timeout=60m ./...` suite also passed;
+API took 1,160.6 seconds and store 1,078.2 seconds on this host. The container's
+non-reaping PID 1 needs a test-only subreaper for orphan-exit checks, and socket fixtures need
+network permission. No real provider, physical phone or new adapter was run.
+
+**Exact next unchecked task:** SC2's Claude Code and Codex ACP adapter probes;
+read [the plan](docs/structured-chat-plan.md), `internal/acpagent/{spec,describe,session}.go`,
+`internal/terminalproto/acp_agents.go`, `internal/scan/agent_terminal_control.go`
+and `web/src/lib/StartAgentDialog.svelte`. Do not enable a candidate before its
+callback, permission, trust, provider and history contracts are observed.
+
+**Publication state:** PR #300 is open; nothing merged, released or deployed.
+SC2 runs on a separate branch and must have its own PR and updated handoff;
+its probes and adapter code do not belong in #300.
+
 ## Terminal interface (30 October 2026)
 
 The binary now has a terminal interface: `reet` in a terminal opens a menu over Doctor,
@@ -185,7 +232,7 @@ startup, not on every launch. Next: reviewed batch apply with a pilot order, and
 ### Resume here (after Needs you and the approvals slice, 31 October 2026)
 
 - **Chat images (in progress, branch `cline/6t9b2yrw`):** the reet TUI now passes a pasted, dropped or chosen image to
-  OpenCode the way AOE does: the browser uploads it to the machine, `POST /chat/prompt` carries the upload path, and the
+  OpenCode as embedded image content: the browser uploads it to the machine, `POST /chat/prompt` carries the upload path, and the
   connector embeds the bytes as an ACP image content block (`acp-image-v1`, `acpImages` capability). The agent sees the
   image itself, not a path it must open with a tool. At most eight images per prompt; older connectors keep the path-as-text
   fallback. Unit tests cover the protocol, ACP child content blocks, connector upload-root validation and the API; the mocked

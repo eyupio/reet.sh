@@ -57,6 +57,10 @@ type Spec struct {
 	// EnvAllowlist names additional inherited variables the adapter may
 	// read (provider credentials), on top of the infrastructure allowlist.
 	EnvAllowlist []string
+	// SessionMeta is sent as _meta on session/new and session/load. A profile
+	// uses it for adapter options that must be fixed by reet, never by the
+	// repository. Nil sends no _meta.
+	SessionMeta map[string]any
 	// Trust reports the files in dir that the agent would execute before a
 	// chat starts. Nil means this adapter has no repository trust surface.
 	Trust func(dir string) ([]string, error)
@@ -72,6 +76,29 @@ type Spec struct {
 	// silent and has not reported anything over ACP. It is consulted by the
 	// silence watchdog, never for a turn that streamed progress.
 	RecoverLive func(home, sessionID string, afterMS int64) string
+}
+
+// ClaudeSessionMeta is the measured option set for the Claude Code ACP adapter
+// (SC2 probe, 31 October 2026): only the user's own settings are read, so a
+// repository's .claude/settings.json and settings.local.json cannot add hooks,
+// widen permissions or change the mode. Without it the adapter reads user,
+// project and local settings and runs a repository's hooks with no approval card.
+// It is not attached to any registered profile: Claude stays disabled.
+var ClaudeSessionMeta = map[string]any{
+	"claudeCode": map[string]any{"options": map[string]any{"settingSources": []string{"user"}}},
+}
+
+// sessionRequest builds the session/new or session/load call for a launch.
+func sessionRequest(spec Spec, dir, resume string) (string, map[string]any) {
+	method, params := "session/new", map[string]any{"cwd": dir, "mcpServers": []any{}}
+	if resume != "" {
+		method = "session/load"
+		params["sessionId"] = resume
+	}
+	if spec.SessionMeta != nil {
+		params["_meta"] = spec.SessionMeta
+	}
+	return method, params
 }
 
 func (s Spec) displayName() string {

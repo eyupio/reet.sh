@@ -12,8 +12,11 @@ import argparse, http.server, json, os, selectors, shlex, shutil, signal, subpro
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
-parser.add_argument("scenario", choices=["trust", "cancel", "load", "model", "subagent"])
+parser.add_argument("scenario", choices=["trust", "cancel", "load", "model", "subagent", "subagent-nested"])
 parser.add_argument("--workspace", type=Path, required=True)
+parser.add_argument("--setting-sources", default="", help="comma list sent as _meta.claudeCode.options.settingSources; empty sends none")
+parser.add_argument("--drop", action="append", default=[], help="environment variable to remove from the adapter environment")
+parser.add_argument("--add", action="append", default=[], help="KEY=VALUE to add to the adapter environment")
 parser.add_argument("--node", default=shutil.which("node"))
 args = parser.parse_args()
 if args.node is None:
@@ -26,11 +29,12 @@ for p in ["home/.claude", "project/.claude", "config", "cache", "data"]:
 project = run / "project"
 marker = project / "probe-marker.txt"
 hook_marker = project / "hook-ran.txt"
+child_input = {"command": "printf nested > nested-marker.txt", "description": "Nested probe marker"}
 records = []
 state = {"slow": False}
 tool_name = "Bash"
 tool_input = {"command": "printf reet-probe > " + shlex.quote(str(marker)), "description": "Isolated probe marker"}
-if args.scenario == "subagent":
+if args.scenario in ("subagent", "subagent-nested"):
     tool_name = "Task"
     tool_input = {"description": "probe", "prompt": "Do nothing and report done.", "subagent_type": "general-purpose"}
 if args.scenario in ("load", "model"):
@@ -92,6 +96,10 @@ class Stub(http.server.BaseHTTPRequestHandler):
             time.sleep(20)  # a turn the client has to cancel
         use_tool = not completed and not child and (args.scenario != "load" or "history" not in first)
         content = {"type": "tool_use", "id": "toolu_probe", "name": tool_name, "input": tool_input} if use_tool else {"type": "text", "text": "Probe completed."}
+        if child and not completed and args.scenario == "subagent-nested":
+            # The subagent itself asks to run a command.
+            content = {"type": "tool_use", "id": "toolu_child", "name": "Bash", "input": child_input}
+            use_tool = True
         message = {"id": "msg_probe", "type": "message", "role": "assistant", "model": body.get("model", "claude-sonnet-4-5"),
                    "content": [content], "stop_reason": "tool_use" if use_tool else "end_turn", "stop_sequence": None,
                    "usage": {"input_tokens": 100, "output_tokens": 20}}
@@ -130,6 +138,12 @@ env_base = {
     "DISABLE_TELEMETRY": "1",
     "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false",
 }
+for key in args.drop:
+    env_base.pop(key, None)
+for pair in args.add:
+    key, _, value = pair.partition("=")
+    env_base[key] = value
+summary_env = sorted(env_base)
 entry = root / "claude/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
 
 
@@ -232,13 +246,17 @@ def prompt(agent, ident, native, text, timeout=60):
     return agent.call(ident, "session/prompt", {"sessionId": native, "prompt": [{"type": "text", "text": text}]}, timeout)
 
 
-summary = {"scenario": args.scenario}
+summary = {"scenario": args.scenario, "environmentKeys": summary_env, "dropped": args.drop}
 agents = []
 try:
     a = Agent("first", "allow")
     agents.append(a)
     summary["initialize"] = a.init().get("result", {})
-    created = a.call(2, "session/new", {"cwd": str(project), "mcpServers": []})
+    new_params = {"cwd": str(project), "mcpServers": []}
+    if args.setting_sources:
+        new_params["_meta"] = {"claudeCode": {"options": {"settingSources": args.setting_sources.split(",")}}}
+    summary["settingSources"] = args.setting_sources or "(adapter default: user,project,local)"
+    created = a.call(2, "session/new", new_params)
     native = created["result"]["sessionId"]
     summary["new"] = {k: created["result"].get(k) for k in ("sessionId", "modes", "models", "configOptions")}
 
@@ -300,10 +318,12 @@ try:
         summary["setConfigMode"] = a.call(9, "session/set_config_option", {"sessionId": native, "configId": "mode", "value": "plan"})
         prompt(a, 6, native, "Reet ACP probe: write the marker, then finish.")
         summary["servedModels"] = sorted({r.get("model") for r in records if r.get("model")})
-    elif args.scenario == "subagent":
+    elif args.scenario in ("subagent", "subagent-nested"):
         done = prompt(a, 3, native, "Reet ACP probe: delegate to a subagent, then finish.")
         summary["turn"] = done.get("result")
-        summary["permissions"] = [{"kind": p["toolCall"].get("kind"), "title": p["toolCall"].get("title"), "rawInput": p["toolCall"].get("rawInput")} for p in a.permissions]
+        summary["permissions"] = [{"kind": p["toolCall"].get("kind"), "title": p["toolCall"].get("title"), "rawInput": p["toolCall"].get("rawInput"), "toolCallId": p["toolCall"].get("toolCallId"), "meta": p["toolCall"].get("_meta")} for p in a.permissions]
+        summary["nestedMarkerExists"] = (project / "nested-marker.txt").exists()
+        summary["childToolCalls"] = [n["params"]["update"] for n in a.notifications if n.get("method") == "session/update" and n["params"]["update"].get("sessionUpdate") == "tool_call" and (n["params"]["update"].get("_meta") or {}).get("claudeCode", {}).get("parentToolUseId")]
         summary["updateKinds"] = sorted({n["params"]["update"].get("sessionUpdate") for n in a.notifications if n.get("method") == "session/update"})
         summary["httpTools"] = sorted({t for r in records if "tools" in r for t in r["tools"] or []})[:40]
     summary["httpRequests"] = sum("http" in r for r in records)

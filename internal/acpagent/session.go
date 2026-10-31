@@ -92,6 +92,7 @@ type Session struct {
 	toolStart    map[string]time.Time
 	done         chan struct{}
 	doneOnce     sync.Once
+	retired      bool
 
 	turnMu       sync.Mutex
 	working      bool
@@ -215,11 +216,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	newCtx, newCancel := context.WithTimeout(ctx, 45*time.Second)
 	defer newCancel()
 	opened := opts.Resume == ""
-	method, params := "session/new", map[string]any{"cwd": opts.Dir, "mcpServers": []any{}}
-	if !opened {
-		method = "session/load"
-		params = map[string]any{"sessionId": opts.Resume, "cwd": opts.Dir, "mcpServers": []any{}}
-	}
+	method, params := sessionRequest(spec, opts.Dir, opts.Resume)
 	raw, err = s.request(newCtx, method, params)
 	if err != nil {
 		s.Close()
@@ -611,6 +608,22 @@ type permissionContent struct {
 	NewText *string `json:"newText"`
 }
 
+// subagentSummary renders a subagent delegation for review: its type and the
+// bounded prompt. It returns "" when there is no prompt to review.
+func subagentSummary(kind, prompt string) (string, bool) {
+	if strings.TrimSpace(prompt) == "" {
+		return "", false
+	}
+	text := prompt
+	if kind != "" {
+		text = "[" + cutUTF8(kind, 64) + "] " + prompt
+	}
+	if len(text) > maxDiffBytes {
+		return cutUTF8(text, maxDiffBytes), true
+	}
+	return text, false
+}
+
 // maxDiffBytes bounds a rendered permission diff.
 const maxDiffBytes = 10 << 10
 
@@ -663,14 +676,21 @@ type permissionParams struct {
 		Locations  []struct {
 			Path string `json:"path"`
 		} `json:"locations"`
+		Meta struct {
+			ClaudeCode struct {
+				ParentToolUseID string `json:"parentToolUseId"`
+			} `json:"claudeCode"`
+		} `json:"_meta"`
 		Content  []permissionContent `json:"content"`
 		RawInput struct {
-			Command     string `json:"command"`
-			Description string `json:"description"`
-			Diff        string `json:"diff"`
-			FilePath    string `json:"filepath"`
-			SnakePath   string `json:"file_path"`
-			ParentDir   string `json:"parentDir"`
+			Command      string `json:"command"`
+			Description  string `json:"description"`
+			Diff         string `json:"diff"`
+			FilePath     string `json:"filepath"`
+			SnakePath    string `json:"file_path"`
+			Prompt       string `json:"prompt"`
+			SubagentType string `json:"subagent_type"`
+			ParentDir    string `json:"parentDir"`
 		} `json:"rawInput"`
 	} `json:"toolCall"`
 	Options []struct {
@@ -728,6 +748,14 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 	if params.ToolCall.Kind == "execute" && params.ToolCall.RawInput.Command == "" {
 		truncated = true
 	}
+	command := params.ToolCall.RawInput.Command
+	if params.ToolCall.Kind == "think" {
+		// Claude reports a subagent delegation as kind "think". The person must
+		// see what the subagent is told before it may run tools on their behalf.
+		var cut bool
+		command, cut = subagentSummary(params.ToolCall.RawInput.SubagentType, params.ToolCall.RawInput.Prompt)
+		truncated = truncated || cut || command == ""
+	}
 	path := params.ToolCall.RawInput.FilePath
 	if path == "" {
 		path = params.ToolCall.RawInput.SnakePath
@@ -758,15 +786,25 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 		s.emit(Event{Kind: "notice", Text: "The approval request timed out, so " + s.opts.Agent.displayName() + " was stopped.", Bad: true})
 		_ = s.sendCancel()
 	})
-	title := params.ToolCall.Title
-	if title == "" {
-		title = s.opts.Agent.displayName() + " tool call"
-	}
+	title := permissionTitle(params.ToolCall.Title, params.ToolCall.Meta.ClaudeCode.ParentToolUseID, s.opts.Agent.displayName())
 	s.emit(Event{Kind: "status", State: "waiting", Detail: "Waiting for your approval."})
 	s.emit(Event{Kind: "permission", PermissionID: permissionID, ToolCallID: params.ToolCall.ToolCallID,
-		Title: title, ToolKind: params.ToolCall.Kind, Command: params.ToolCall.RawInput.Command,
+		Title: title, ToolKind: params.ToolCall.Kind, Command: command,
 		Path: path, Diff: diff, Locations: locations, Truncated: truncated,
 		Text: params.ToolCall.RawInput.Description})
+}
+
+// permissionTitle names the card. A subagent's own tool call is a separate
+// approval from the delegation that started it (SC2 probe); say so, so it is not
+// mistaken for the parent's.
+func permissionTitle(title, parent, agent string) string {
+	if title == "" {
+		title = agent + " tool call"
+	}
+	if parent != "" {
+		title = "Subagent: " + title
+	}
+	return title
 }
 
 func permissionID() (string, error) {
@@ -1165,6 +1203,32 @@ func (s *Session) killGroup() {
 	}
 }
 
+// retireGroup kills the process group and waits, up to timeout, until no live
+// member remains. Leader exit alone is not retirement (SC2 probe: a group member
+// outlived its leader after SIGTERM). It returns false if the group is still
+// alive, so a caller must not start a replacement as if the old agent were gone.
+func retireGroup(pgid int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		if !groupAlive(pgid) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// GroupRetired reports whether Close confirmed that every process the agent
+// started is gone. It is false before Close and when retirement timed out.
+func (s *Session) GroupRetired() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.retired
+}
+
 func (s *Session) ended() {
 	s.doneOnce.Do(func() {
 		s.mu.Lock()
@@ -1211,7 +1275,13 @@ func (s *Session) Close() {
 	closed := s.closed
 	s.mu.Unlock()
 	if closed {
-		s.killGroup()
+		retired := true
+		if s.cmd != nil && s.cmd.Process != nil {
+			retired = retireGroup(s.cmd.Process.Pid, 2*time.Second)
+		}
+		s.mu.Lock()
+		s.retired = retired
+		s.mu.Unlock()
 		return
 	}
 	_ = s.sendCancel()
@@ -1234,8 +1304,15 @@ func (s *Session) Close() {
 	case <-time.After(3 * time.Second):
 	}
 	// Wait may return when the leader exits even if a child it started is
-	// still alive; the group kill is the backstop either way.
-	s.killGroup()
+	// still alive; the group kill is the backstop either way, and Close
+	// records whether the group was confirmed gone.
+	retired := true
+	if s.cmd != nil && s.cmd.Process != nil {
+		retired = retireGroup(s.cmd.Process.Pid, 2*time.Second)
+	}
+	s.mu.Lock()
+	s.retired = retired
+	s.mu.Unlock()
 }
 
 // SetModel changes the model without replacing the ACP session or its history.
@@ -1251,13 +1328,34 @@ func (s *Session) SetModel(ctx context.Context, model string) error {
 	if strings.TrimSpace(model) == "" {
 		return ErrModel
 	}
-	_, err := s.request(ctx, "session/set_config_option", map[string]string{"sessionId": id, "configId": "model", "value": model})
+	raw, err := s.request(ctx, "session/set_config_option", map[string]string{"sessionId": id, "configId": "model", "value": model})
 	if err != nil {
 		return err
 	}
+	// Report an applied state only after the agent acknowledges it. The Claude
+	// adapter accepts an unknown model and silently resets to its default, so a
+	// response that carries the option list is authoritative. A response without
+	// one (OpenCode) keeps the requested value, as before.
+	applied := model
+	var result struct {
+		ConfigOptions []struct {
+			ID           string `json:"id"`
+			CurrentValue string `json:"currentValue"`
+		} `json:"configOptions"`
+	}
+	if json.Unmarshal(raw, &result) == nil {
+		for _, option := range result.ConfigOptions {
+			if option.ID == "model" && option.CurrentValue != "" {
+				applied = option.CurrentValue
+			}
+		}
+	}
 	s.mu.Lock()
-	s.model = model
+	s.model = applied
 	s.mu.Unlock()
-	s.emit(Event{Kind: "status", State: "idle", Detail: model})
+	s.emit(Event{Kind: "status", State: "idle", Detail: applied})
+	if applied != model {
+		return ErrModel
+	}
 	return nil
 }

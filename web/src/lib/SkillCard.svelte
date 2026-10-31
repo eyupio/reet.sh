@@ -344,7 +344,7 @@
           {#if tags.length === 0}<p class="tag-help">No tags on this skill yet.</p>{/if}
           <form onsubmit={addTag}>
             <label class="vh" for="tag-{skill.id}">Add a tag to {skill.name}</label>
-            <input id="tag-{skill.id}" bind:this={tagInput} list="tag-options-{skill.id}" bind:value={tagDraft}
+            <input id="tag-{skill.id}" bind:this={tagInput} data-combo-list="tag-options-{skill.id}" bind:value={tagDraft}
               placeholder="Choose or create a tag" autocomplete="off" disabled={tagBusy} aria-describedby="tag-help-{skill.id}" />
             <datalist id="tag-options-{skill.id}">
               {#each availableTags as name}<option value={name}></option>{/each}

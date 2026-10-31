@@ -41,7 +41,7 @@
     {#if tagOpen}
       <form onsubmit={addTag}>
         <label class="vh" for="bulk-tag">Tag selected skills</label>
-        <input id="bulk-tag" bind:this={tagInput} list="bulk-tag-options" bind:value={tagDraft} placeholder="Tag name" autocomplete="off" />
+        <input id="bulk-tag" bind:this={tagInput} data-combo-list="bulk-tag-options" bind:value={tagDraft} placeholder="Tag name" autocomplete="off" />
         <datalist id="bulk-tag-options">
           {#each tagOptions as name}<option value={name}></option>{/each}
         </datalist>

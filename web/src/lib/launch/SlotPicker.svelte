@@ -137,7 +137,7 @@ export type SlotOption = { value: string; label: string; description?: string; d
   function measure() {
     if (sheet || !from) return
     const r = from.getBoundingClientRect()
-    const width = Math.min(360, innerWidth - 16)
+    const width = Math.min(Math.max(420, r.width), innerWidth - 16)
     place = { bottom: innerHeight - r.top + 6, left: Math.max(8, Math.min(r.left, innerWidth - width - 8)), width, max: Math.max(160, r.top - 16) }
   }
   function outside(event: PointerEvent) {
@@ -250,7 +250,7 @@ export type SlotOption = { value: string; label: string; description?: string; d
 
 <style>
   .pop {
-    position: fixed; z-index: 30; display: flex; flex-direction: column; gap: 6px; padding: 6px; overflow: auto;
+    position: fixed; z-index: 30; display: flex; flex-direction: column; gap: 6px; padding: 6px; overflow: hidden;
     border: 1px solid var(--line-strong); border-radius: 12px; background: var(--card-raised); box-shadow: 0 12px 30px var(--scrim);
     color: var(--ink); font-size: 14px; line-height: 1.3;
   }
@@ -280,6 +280,7 @@ export type SlotOption = { value: string; label: string; description?: string; d
   }
   .status-action:disabled { opacity: .45; cursor: default; }
   .heading { position: sticky; top: 0; z-index: 1; background: var(--card-raised); pointer-events: none; }
+  .list { flex: 1 1 auto; }
   .option {
     display: flex; flex-direction: column; gap: 1px; min-height: 34px; justify-content: center; padding: 6px 10px; border-radius: 8px;
     color: var(--ink); cursor: pointer;
@@ -289,16 +290,16 @@ export type SlotOption = { value: string; label: string; description?: string; d
   .option[aria-selected='true'] { box-shadow: inset 3px 0 0 var(--accent-text); font-weight: 600; }
   .option[aria-disabled='true'] { cursor: default; }
   .option[aria-disabled='true'] .name { color: var(--muted); }
-  .description { font-size: 12px; line-height: 1.35; color: var(--ink-soft); overflow-wrap: anywhere; }
-  .detail { font: 12px/1.3 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+  .description { font-size: 12px; line-height: 1.35; color: var(--ink-soft); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .detail { font: 12px/1.3 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .reason { font-size: 12px; color: var(--ink-soft); font-weight: 400; overflow-wrap: anywhere; }
   .name { overflow-wrap: anywhere; }
   .filter, .other input {
     width: 100%; min-width: 0; min-height: 36px; padding: 6px 10px; font: inherit; font-size: 14px; color: var(--ink);
     background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
   }
-  .filter { position: sticky; top: 0; z-index: 2; background: var(--card-raised); }
-  .heading { top: 36px; }
+  .filter { flex: none; }
+  .heading { top: 0; }
   .other { display: grid; gap: 4px; padding: 4px; }
   .other label { font-size: 12px; font-weight: 600; color: var(--muted); }
   .other-row { display: flex; gap: 6px; }
@@ -323,6 +324,5 @@ export type SlotOption = { value: string; label: string; description?: string; d
     .option { min-height: 48px; padding: 8px 12px; font-size: 15px; }
     .filter, .other input { min-height: 44px; font-size: 16px; }
     .use, .star, .make-default, .status-action { min-width: 44px; min-height: 44px; }
-    .heading { top: 44px; }
   }
 </style>

@@ -8,7 +8,14 @@
  let { session, uploadsSupported = false, uploadsOff = false, acpImages = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean } = $props()
 
  let chat: ChatState = $state(initialChat())
- let selectedModel = $state(session.model ?? ''), currentModel = $state(session.model ?? ''), changingModel = $state(false)
+ let selectedModel = $state(''), currentModel = $state(''), changingModel = $state(false)
+ let modelSession = '', modelValue = ''
+ $effect(() => {
+  const id = session.id, model = session.model ?? ''
+  if (id === modelSession && model === modelValue) return
+  modelSession = id; modelValue = model
+  selectedModel = model; currentModel = model
+ })
  let models = $state<string[]>([]), modelNote = $state('')
  const failed = $derived(chat.status.state === 'error')
  const guidance = $derived(/credit|quota|usage limit|billing|balance|insufficient_quota/i.test(chat.status.detail)

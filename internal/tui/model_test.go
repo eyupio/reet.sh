@@ -360,3 +360,28 @@ func TestUpgradeFormOpensAndResultRenders(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallFormOpensAndResultRenders(t *testing.T) {
+	m := testModel()
+	next, _ := m.open(ScreenInstall)
+	m = next.(model)
+	if !m.formActive() || m.installForm == nil {
+		t.Fatal("install form did not open")
+	}
+	m.installValues = &installFormValues{
+		Mode: "binary", Dir: "/tmp/bin", DataDir: "/tmp/data", Addr: "127.0.0.1:8080", Confirm: true, DryRun: true,
+	}
+	next, cmd := m.startInstall()
+	m = next.(model)
+	if !m.loading || cmd == nil {
+		t.Fatal("install did not start")
+	}
+	next, _ = m.Update(resultMsg{page: ScreenInstall, value: installOutcome{output: "Dry run plan\n", dryRun: true}})
+	m = next.(model)
+	view := m.View().Content
+	for _, want := range []string{"Dry run plan", "Dry run: nothing changed"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+}

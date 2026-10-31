@@ -506,6 +506,8 @@ func (r Result) valid() bool {
 			return r.Reason != "" && validWorktreeDetail(r.Detail)
 		case ACPUnavailable, ACPVersion, ACPTrustRequired:
 			return validChatText(r.Detail, 500)
+		case QuestionInvalid:
+			return validChatText(r.Detail, 200)
 		default:
 			return false
 		}

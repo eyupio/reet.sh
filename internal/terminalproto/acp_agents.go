@@ -30,7 +30,8 @@ type ACPAgent struct {
 	Model          bool   `json:"model,omitempty"`
 	Approval       bool   `json:"approval,omitempty"`
 	// Questions reports typed agent questions. No reviewed adapter offers them
-	// yet, so an available entry must leave it false.
+	// yet, so the connector's descriptor builder never sets it; a controller
+	// still honours it only on a connection that negotiated acp-question-v1.
 	Questions bool `json:"questions,omitempty"`
 }
 
@@ -45,7 +46,7 @@ func (a ACPAgent) Valid() bool {
 	}
 	switch a.State {
 	case "available":
-		return ReviewedChatTool(a.Tool) && a.Adapter == "opencode" && a.MinimumVersion != "" && !a.Questions
+		return ReviewedChatTool(a.Tool) && a.Adapter == "opencode" && a.MinimumVersion != ""
 	case "missing", "unverified", "incompatible":
 		return !a.History && !a.Images && !a.Model && !a.Approval && !a.Questions
 	}

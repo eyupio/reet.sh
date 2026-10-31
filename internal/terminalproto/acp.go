@@ -490,6 +490,10 @@ type ACPQuestionAnswer struct {
 	Answers    json.RawMessage `json:"answers,omitempty"`
 }
 
+// Valid reports whether the answer has a well-formed shape and size. The machine
+// still validates the content against the question it holds.
+func (a ACPQuestionAnswer) Valid() bool { return a.valid() }
+
 func (ACPQuestionAnswer) kind() string { return "acp_question_answer" }
 func (a ACPQuestionAnswer) valid() bool {
 	if !validACPID(a.QuestionID) {
@@ -497,7 +501,7 @@ func (a ACPQuestionAnswer) valid() bool {
 	}
 	switch a.Action {
 	case "accept":
-		return len(a.Answers) > 0 && len(a.Answers) <= MaxACPQuestionAnswerBytes && a.Answers[0] == '{' && json.Valid(a.Answers)
+		return len(a.Answers) > 0 && len(a.Answers) <= MaxACPQuestionAnswerBytes && a.Answers[0] == '{' && json.Valid(a.Answers) && uniqueKeys(a.Answers)
 	case "decline", "cancel":
 		return len(a.Answers) == 0
 	}

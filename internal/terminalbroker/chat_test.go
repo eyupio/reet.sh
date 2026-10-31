@@ -14,6 +14,12 @@ import (
 
 func chatFixture(t *testing.T) (*Broker, *Peer, int64, string) {
 	t.Helper()
+	return chatFixtureWith(t, nil)
+}
+
+// chatFixtureWith lets a test script the machine's reply to a question answer.
+func chatFixtureWith(t *testing.T, answerReply func(*terminalproto.ACPQuestionAnswer) terminalproto.Result) (*Broker, *Peer, int64, string) {
+	t.Helper()
 	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
@@ -50,6 +56,11 @@ func chatFixture(t *testing.T) (*Broker, *Peer, int64, string) {
 		case terminalproto.End:
 			delete(sessions, m.SessionID)
 			reply.Body = terminalproto.SessionChanged{State: terminalproto.Ended}
+		case *terminalproto.ACPQuestionAnswer:
+			reply.Body = terminalproto.Result{Code: terminalproto.OK}
+			if answerReply != nil {
+				reply.Body = answerReply(op)
+			}
 		case terminalproto.ACPPrompt, terminalproto.ACPCancel, terminalproto.ACPPermission:
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
 		default:

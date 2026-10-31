@@ -98,6 +98,8 @@ func TestQuestionBodiesAreRejected(t *testing.T) {
 		"accept no answers":        &ACPQuestionAnswer{QuestionID: questionID, Action: "accept"},
 		"accept array":             &ACPQuestionAnswer{QuestionID: questionID, Action: "accept", Answers: json.RawMessage(`["a"]`)},
 		"accept bad json":          &ACPQuestionAnswer{QuestionID: questionID, Action: "accept", Answers: json.RawMessage(`{"a":`)},
+		"accept duplicate keys":    &ACPQuestionAnswer{QuestionID: questionID, Action: "accept", Answers: json.RawMessage(`{"a":"1","a":"2"}`)},
+		"accept nested duplicate":  &ACPQuestionAnswer{QuestionID: questionID, Action: "accept", Answers: json.RawMessage(`{"a":{"b":1,"b":2}}`)},
 		"accept oversized":         &ACPQuestionAnswer{QuestionID: questionID, Action: "accept", Answers: json.RawMessage(`{"a":"` + strings.Repeat("y", MaxACPQuestionAnswerBytes) + `"}`)},
 		"decline with answers":     &ACPQuestionAnswer{QuestionID: questionID, Action: "decline", Answers: json.RawMessage(`{}`)},
 		"cancel with answers":      &ACPQuestionAnswer{QuestionID: questionID, Action: "cancel", Answers: json.RawMessage(`{}`)},
@@ -146,5 +148,28 @@ func TestQuestionCapabilityRequiresChat(t *testing.T) {
 func TestQuestionFeatureNegotiation(t *testing.T) {
 	if !SupportsACPQuestion("acp-v1, acp-question-v1") || SupportsACPQuestion("acp-v1,acp-approval-v1") || SupportsACPQuestion("") {
 		t.Fatal("feature parsing")
+	}
+}
+
+func TestQuestionInvalidResultCarriesABoundedDetail(t *testing.T) {
+	good := Result{Code: QuestionInvalid, Detail: "answer rejected for question_0: that choice was not offered"}
+	data, err := Encode(Message{Version: Version, RequestID: "request-0123456789", SessionID: "session-0123456789", Generation: 1, Body: good})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(data); err != nil {
+		t.Fatal(err)
+	}
+	for name, bad := range map[string]Result{
+		"too long":               {Code: QuestionInvalid, Detail: strings.Repeat("x", 201)},
+		"nul":                    {Code: QuestionInvalid, Detail: "a\x00b"},
+		"detail on another code": {Code: Conflict, Detail: "nope"},
+	} {
+		if bad.valid() {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+	if !(Result{Code: QuestionInvalid}).valid() {
+		t.Fatal("a bare question_invalid should be valid")
 	}
 }

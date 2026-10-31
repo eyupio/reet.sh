@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ func (s *server) registerTerminalChatRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/model", s.terminal(s.terminalChatModel))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/cancel", s.terminal(s.terminalChatCancel))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/permissions/{permissionId}", s.terminal(s.terminalChatPermission))
+	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/questions/{questionId}", s.terminal(s.terminalChatQuestion))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/approval-mode", s.terminal(s.terminalChatApprovalMode))
 }
 
@@ -156,6 +158,36 @@ func (s *server) terminalChatPermission(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, 200, map[string]bool{"answered": true})
 }
 
+// terminalChatQuestion answers a typed agent question. The body is
+// {"action":"accept","answers":{...}}, {"action":"decline"} or {"action":"cancel"}.
+// The machine validates the answers against the question it holds; a rejected
+// answer is a 422 that leaves the question waiting.
+func (s *server) terminalChatQuestion(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.terminalChatTarget(w, r); !ok {
+		return
+	}
+	var in struct {
+		Action  string          `json:"action"`
+		Answers json.RawMessage `json:"answers"`
+	}
+	if !terminalJSON(w, r, &in) {
+		return
+	}
+	questionID := r.PathValue("questionId")
+	if !terminalproto.ValidQuestionID(questionID) {
+		writeErr(w, 400, "invalid terminal request")
+		return
+	}
+	if bytes.Equal(bytes.TrimSpace(in.Answers), []byte("null")) {
+		in.Answers = nil
+	}
+	if err := s.terminals.AnswerQuestionChat(r.Context(), s.uid(r), r.PathValue("id"), questionID, in.Action, in.Answers); err != nil {
+		s.terminalChatError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"answered": true})
+}
+
 func (s *server) terminalChatApprovalMode(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.terminalChatTarget(w, r); !ok {
 		return
@@ -205,6 +237,14 @@ func (s *server) terminalChatError(w http.ResponseWriter, err error) {
 		writeErr(w, 409, "that image is no longer available on the machine; attach it again")
 	case errors.Is(err, terminalbroker.ErrACPApprovalUnsupported):
 		writeErr(w, 409, "update reet on that machine to switch approval mode")
+	case errors.Is(err, terminalbroker.ErrACPQuestionUnsupported):
+		writeErr(w, 409, "that machine or agent cannot answer questions from reet")
+	case errors.Is(err, terminalbroker.ErrQuestionGone):
+		writeErrCode(w, 409, "question_gone", "", "That question is no longer waiting.", "")
+	case errors.As(err, new(*terminalbroker.QuestionInvalidError)):
+		var invalid *terminalbroker.QuestionInvalidError
+		errors.As(err, &invalid)
+		writeErrCode(w, 422, "question_invalid", "", "That answer was not accepted: "+invalid.Detail, "Check the highlighted answers and send them again.")
 	case errors.Is(err, terminalbroker.ErrYoloNotAllowed):
 		writeErr(w, 403, "an owner or admin can allow YOLO for this account in Settings")
 	case errors.Is(err, terminalbroker.ErrYoloRefused):

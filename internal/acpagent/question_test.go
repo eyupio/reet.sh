@@ -212,3 +212,21 @@ func TestDecodeAnswersRefusesDuplicatesAndNonObjects(t *testing.T) {
 		t.Fatalf("empty object: %v %v", got, err)
 	}
 }
+
+func TestFormOverTheWireBoundParsesButIsNotWireValid(t *testing.T) {
+	var properties []string
+	for f := 0; f < 6; f++ {
+		var options []string
+		for o := 0; o < 12; o++ {
+			options = append(options, fmt.Sprintf(`{"const":"v%02d%02d","title":"%s"}`, f, o, strings.Repeat("t", 150)))
+		}
+		properties = append(properties, fmt.Sprintf(`"question_%d":{"type":"string","oneOf":[%s]}`, f, strings.Join(options, ",")))
+	}
+	q, _, err := parseQuestion(form(`{"type":"object","properties":{` + strings.Join(properties, ",") + `}}`))
+	if err != nil {
+		t.Fatalf("the machine parser should accept it: %v", err)
+	}
+	if q.Wire().Valid() {
+		t.Fatal("a form over the control-frame bound was wire valid")
+	}
+}

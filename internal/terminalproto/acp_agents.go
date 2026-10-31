@@ -29,6 +29,9 @@ type ACPAgent struct {
 	Images         bool   `json:"images,omitempty"`
 	Model          bool   `json:"model,omitempty"`
 	Approval       bool   `json:"approval,omitempty"`
+	// Questions reports typed agent questions. No reviewed adapter offers them
+	// yet, so an available entry must leave it false.
+	Questions bool `json:"questions,omitempty"`
 }
 
 // ReviewedChatTool is the closed set with a verified structured integration.
@@ -42,9 +45,9 @@ func (a ACPAgent) Valid() bool {
 	}
 	switch a.State {
 	case "available":
-		return ReviewedChatTool(a.Tool) && a.Adapter == "opencode" && a.MinimumVersion != ""
+		return ReviewedChatTool(a.Tool) && a.Adapter == "opencode" && a.MinimumVersion != "" && !a.Questions
 	case "missing", "unverified", "incompatible":
-		return !a.History && !a.Images && !a.Model && !a.Approval
+		return !a.History && !a.Images && !a.Model && !a.Approval && !a.Questions
 	}
 	return false
 }
@@ -69,7 +72,7 @@ func (c Capabilities) validACPAgents() bool {
 					installed = true
 				}
 			}
-			if !c.ACP || !installed || a.History && !c.ACPHistory || a.Images && !c.ACPImages || a.Model && !c.ACPModel || a.Approval && !c.ACPApproval {
+			if !c.ACP || !installed || a.History && !c.ACPHistory || a.Images && !c.ACPImages || a.Model && !c.ACPModel || a.Approval && !c.ACPApproval || a.Questions && !c.ACPQuestions {
 				return false
 			}
 		}

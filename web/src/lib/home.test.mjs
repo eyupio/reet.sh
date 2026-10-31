@@ -271,6 +271,29 @@ test('a waiting chat card carries its earliest approval, and a terminal card car
   assert.deepEqual(cards.find(c => c.sessionId === 'c2').approval, { permissionId: 'p9', title: 'A tool call', command: '', path: '', truncated: true, queued: 0 })
 })
 
+test('a waiting chat with a question is labelled as one and carries its preview, an approval wins when both wait', () => {
+  const cards = needsYou([
+    session('q1', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - MIN, changedSinceSeen: true, pendingQuestion: { questionId: 'qa', message: 'Which approach?', queued: 1 } }),
+    session('q2', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - 2 * MIN, changedSinceSeen: true, pendingQuestion: { questionId: 'qb', message: '', truncated: true } }),
+    session('b1', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - 3 * MIN, changedSinceSeen: true, pendingPermission: { permissionId: 'p1', title: 'go test' }, pendingQuestion: { questionId: 'qc', message: 'And this?' } }),
+    session('p1', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - 4 * MIN, changedSinceSeen: true, pendingPermission: { permissionId: 'p2', title: 'ls' } }),
+  ], NOW)
+  const byId = id => cards.find(c => c.sessionId === id)
+  assert.equal(byId('q1').label, 'Question for you')
+  assert.deepEqual(byId('q1').question, { questionId: 'qa', message: 'Which approach?', truncated: false, queued: 1 })
+  assert.equal(byId('q1').approval, undefined)
+  assert.equal(byId('q2').question.message, 'The agent asked a question')
+  assert.equal(byId('q2').question.truncated, true)
+  // An approval is answered first; the question is still carried so the card can say it is waiting.
+  assert.equal(byId('b1').label, 'Waiting for you')
+  assert.equal(byId('b1').approval.permissionId, 'p1')
+  assert.equal(byId('b1').question.questionId, 'qc')
+  assert.equal(byId('p1').label, 'Waiting for you')
+  assert.equal(byId('p1').question, undefined)
+  // A question that was already seen is not a card.
+  assert.deepEqual(needsYou([session('q3', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', changedSinceSeen: false, pendingQuestion: { questionId: 'qd', message: 'x' } })], NOW), [])
+})
+
 test('bell count equals queue length', () => {
   const owners = new Map([['s1', { id: 'p1', name: 'site' }]])
   const machines = [machine('a1', 'studio')]

@@ -340,6 +340,18 @@ type TerminalSession struct {
 	// PendingPermission is the earliest unanswered tool approval of a structured
 	// chat that is waiting, so Home can answer it without opening the chat.
 	PendingPermission *PendingPermission `json:"pendingPermission,omitempty"`
+	// PendingQuestion is the earliest unanswered typed question of a structured chat that is waiting. Home shows it
+	// and sends the person to the chat to answer: a question needs its whole card, not a button.
+	PendingQuestion *PendingQuestion `json:"pendingQuestion,omitempty"`
+}
+
+// PendingQuestion is the card-sized view of one unanswered question: a bounded preview of what was asked. Queued counts
+// the questions behind it.
+type PendingQuestion struct {
+	QuestionID string `json:"questionId"`
+	Message    string `json:"message"`
+	Truncated  bool   `json:"truncated,omitempty"`
+	Queued     int    `json:"queued,omitempty"`
 }
 
 // PendingPermission is the card-sized view of one unanswered approval. Queued

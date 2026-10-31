@@ -57,6 +57,8 @@ export type NeedCard = {
   worktreeTarget: { agentId: string; project: string; repo: string; run: string } | null
   /** The earliest unanswered tool approval of a waiting reet TUI chat: answered from the card without opening it. */
   approval?: { permissionId: string; title: string; command: string; path: string; truncated: boolean; queued: number }
+  /** The earliest unanswered typed question: shown as a preview, answered in the chat where its whole card is. */
+  question?: { questionId: string; message: string; truncated: boolean; queued: number }
 }
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR
@@ -305,6 +307,10 @@ function approvalOf(p: NonNullable<TerminalSession['pendingPermission']>): NonNu
   return { permissionId: p.permissionId, title: p.title || 'A tool call', command: p.command ?? '', path: p.path ?? '', truncated: !!p.truncated, queued: p.queued ?? 0 }
 }
 
+function questionOf(q: NonNullable<TerminalSession['pendingQuestion']>): NonNullable<NeedCard['question']> {
+  return { questionId: q.questionId, message: q.message || 'The agent asked a question', truncated: !!q.truncated, queued: q.queued ?? 0 }
+}
+
 function needWorktreeTarget(s: Pick<TerminalSession, 'agentId' | 'worktreePath' | 'worktreeRepo' | 'worktreeBranch'>): NeedCard['worktreeTarget'] {
   if (!s.worktreePath || !s.worktreeRepo) return null
   const parts = s.worktreePath.split('/').filter(Boolean)
@@ -335,9 +341,11 @@ export function needsYou(
     const href = `/sessions?agent=${encodeURIComponent(s.agentId)}&session=${encodeURIComponent(s.id)}`
     if (s.attention === 'waiting' && s.changedSinceSeen) {
       const at = s.bellAt && s.bellAt > 0 ? s.bellAt : s.updatedAt
+      // A question is answered in the chat, where its whole card is; an approval, when both wait, is answered first.
+      const asking = !s.pendingPermission?.permissionId && !!s.pendingQuestion?.questionId
       out.push({
         kind: 'waiting',
-        label: 'Waiting for you',
+        label: asking ? 'Question for you' : 'Waiting for you',
         tone: 'warn',
         sessionId: s.id,
         agentId: s.agentId,
@@ -349,6 +357,7 @@ export function needsYou(
         markSeen: false,
         worktreeTarget: null,
         ...(s.pendingPermission?.permissionId ? { approval: approvalOf(s.pendingPermission) } : {}),
+        ...(s.pendingQuestion?.questionId ? { question: questionOf(s.pendingQuestion) } : {}),
       })
       continue
     }

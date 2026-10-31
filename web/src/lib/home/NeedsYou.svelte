@@ -57,8 +57,11 @@
           <span class="title">{card.title}</span>
           {#if metaLine(card)}<span class="meta">{metaLine(card)}</span>{/if}
           {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} />{/if}
+          {#if card.question}
+            <p class="ask">{card.question.message}{#if card.question.queued > 0}<span class="more"> · {card.question.queued} more waiting</span>{/if}</p>
+          {/if}
           <div class="actions">
-            <a class="btn open" href={card.href} onclick={() => void onseen?.(card.sessionId)}>Open</a>
+            <a class="btn open" href={card.href} onclick={() => void onseen?.(card.sessionId)}>{card.question && !card.approval ? 'Answer in chat' : 'Open'}</a>
             {#if card.markSeen}
               <button type="button" class="btn seen" onclick={() => void onseen?.(card.sessionId)}>Mark seen</button>
             {/if}
@@ -93,6 +96,8 @@
   .kind.good { color: var(--good); }
   .title { font-size: 14px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
   .meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .ask { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; max-height: 6.5em; overflow: hidden; }
+  .ask .more { color: var(--muted); }
   .actions { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
   .btn {
     display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 12px;

@@ -3,9 +3,12 @@ package terminalbroker
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
+	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -176,4 +179,80 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+func attentionOf(t *testing.T, b *Broker, uid int64, id string) store.TerminalSession {
+	t.Helper()
+	record, err := b.st.TerminalSessionFor(uid, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.ApplyChatAttention(uid, &record)
+	return record
+}
+
+func TestWaitingQuestionsAreSummarizedForNeedsYou(t *testing.T) {
+	b, p, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	if got := attentionOf(t, b, uid, s.ID); got.PendingQuestion != nil {
+		t.Fatalf("a session with no question has a summary: %+v", got.PendingQuestion)
+	}
+	first := brokerQuestion()
+	first.Message = "Which approach should I take for the failing build?"
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "question", QuestionID: brokerQuestionID, Question: first})
+	got := attentionOf(t, b, uid, s.ID)
+	if got.Attention != "waiting" || got.PendingQuestion == nil || got.PendingQuestion.QuestionID != brokerQuestionID ||
+		got.PendingQuestion.Message != first.Message || got.PendingQuestion.Queued != 0 || got.PendingQuestion.Truncated {
+		t.Fatalf("summary: %+v attention %q", got.PendingQuestion, got.Attention)
+	}
+	if got.PendingPermission != nil {
+		t.Fatalf("a question became an approval: %+v", got.PendingPermission)
+	}
+
+	// A second question queues behind the first; the earliest is the one shown.
+	second := brokerQuestion()
+	second.Message = "Second?"
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "question", QuestionID: "question-second0123456789", Question: second})
+	got = attentionOf(t, b, uid, s.ID)
+	if got.PendingQuestion.QuestionID != brokerQuestionID || got.PendingQuestion.Queued != 1 {
+		t.Fatalf("queue: %+v", got.PendingQuestion)
+	}
+	// Answering the first moves the summary to the second.
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "question_resolved", QuestionID: brokerQuestionID, Reason: "accept"})
+	got = attentionOf(t, b, uid, s.ID)
+	if got.PendingQuestion == nil || got.PendingQuestion.QuestionID != "question-second0123456789" || got.PendingQuestion.Queued != 0 {
+		t.Fatalf("after the first was answered: %+v", got.PendingQuestion)
+	}
+	// A turn that stops closes whatever is still waiting.
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "status", State: "idle"})
+	if got = attentionOf(t, b, uid, s.ID); got.PendingQuestion != nil || got.Attention == "waiting" {
+		t.Fatalf("after the turn stopped: %+v attention %q", got.PendingQuestion, got.Attention)
+	}
+	// The closed question must not come back when the session next waits for something else.
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-0123456789", Title: "run tests", ToolKind: "execute", Command: "go test ./..."})
+	got = attentionOf(t, b, uid, s.ID)
+	if got.Attention != "waiting" || got.PendingPermission == nil || got.PendingQuestion != nil {
+		t.Fatalf("a stale question resurfaced: question %+v permission %+v", got.PendingQuestion, got.PendingPermission)
+	}
+}
+
+func TestLongQuestionPreviewIsBoundedAndMarked(t *testing.T) {
+	b, p, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	long := brokerQuestion()
+	long.Message = strings.Repeat("é", 400) // multibyte, so the cut must land on a rune boundary
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "question", QuestionID: brokerQuestionID, Question: long})
+	got := attentionOf(t, b, uid, s.ID)
+	if got.PendingQuestion == nil || !got.PendingQuestion.Truncated || len(got.PendingQuestion.Message) > 250 || !utf8.ValidString(got.PendingQuestion.Message) {
+		t.Fatalf("preview: %+v", got.PendingQuestion)
+	}
+}
+
+func TestQuestionSummaryIsNotShownToAnotherAccount(t *testing.T) {
+	b, p, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	receive(t, p, s.ID, terminalproto.ACPEvent{Kind: "question", QuestionID: brokerQuestionID, Question: brokerQuestion()})
+	if _, err := b.st.TerminalSessionFor(uid+1, s.ID); err == nil {
+		t.Fatal("another account can read the session record that carries the summary")
+	}
 }

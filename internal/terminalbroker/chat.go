@@ -89,16 +89,18 @@ type ChatEvent struct {
 }
 
 type chatLog struct {
-	mu          sync.Mutex
-	events      []ChatEvent
-	seq         int64
-	bytes       int
-	truncated   bool
-	subs        map[int]chan ChatEvent
-	nextSub     int
-	running     bool
-	pending     map[string]struct{}
-	queue       []terminalproto.ACPEvent
+	mu        sync.Mutex
+	events    []ChatEvent
+	seq       int64
+	bytes     int
+	truncated bool
+	subs      map[int]chan ChatEvent
+	nextSub   int
+	running   bool
+	pending   map[string]struct{}
+	queue     []terminalproto.ACPEvent
+	// questions are the typed questions still waiting, oldest first, for the Needs you summary.
+	questions   []terminalproto.ACPEvent
 	waitingAt   int64
 	updatedAt   int64
 	completedAt int64
@@ -153,6 +155,7 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 			l.running = false
 			clear(l.pending)
 			l.queue = nil
+			l.questions = nil
 			l.waitingAt = 0
 			if wasRunning || l.lastState == "working" || l.lastState == "waiting" {
 				l.lastState = "finished"
@@ -168,12 +171,14 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 			l.running = false
 			clear(l.pending)
 			l.queue = nil
+			l.questions = nil
 			l.waitingAt = 0
 			l.lastState = "quiet"
 		case "error":
 			l.running = false
 			clear(l.pending)
 			l.queue = nil
+			l.questions = nil
 			l.waitingAt = 0
 			l.lastState = "failed"
 			if l.completedAt == 0 {
@@ -183,6 +188,7 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 			l.running = false
 			clear(l.pending)
 			l.queue = nil
+			l.questions = nil
 			l.waitingAt = 0
 			if l.lastState != "failed" {
 				l.lastState = "finished"
@@ -221,6 +227,17 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 			_, exists := l.pending[key]
 			hadPending := len(l.pending) > 0
 			l.pending[key] = struct{}{}
+			replaced := false
+			for i := range l.questions {
+				if l.questions[i].QuestionID == event.QuestionID {
+					l.questions[i] = event
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				l.questions = append(l.questions, event)
+			}
 			if l.waitingAt == 0 || (!exists && hadPending) {
 				l.waitingAt = nowMs
 			}
@@ -229,6 +246,13 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 	case "question_resolved", "question_cancelled":
 		if event.QuestionID != "" {
 			delete(l.pending, "q:"+event.QuestionID)
+			kept := l.questions[:0]
+			for _, queued := range l.questions {
+				if queued.QuestionID != event.QuestionID {
+					kept = append(kept, queued)
+				}
+			}
+			l.questions = kept
 			if len(l.pending) == 0 {
 				l.waitingAt = 0
 				if l.lastState == "waiting" {
@@ -332,6 +356,11 @@ func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
 				Command: cmd, Path: first.Path, Truncated: first.Truncated || shortened,
 				Queued: len(l.queue) - 1,
 			}
+		}
+		if len(l.questions) > 0 && l.questions[0].Question != nil {
+			first := l.questions[0]
+			message, shortened := previewText(first.Question.Message, 240)
+			s.PendingQuestion = &store.PendingQuestion{QuestionID: first.QuestionID, Message: message, Truncated: shortened, Queued: len(l.questions) - 1}
 		}
 		if l.waitingAt > s.BellAt {
 			s.BellAt = l.waitingAt

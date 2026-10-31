@@ -5,12 +5,15 @@ package terminalhost
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/agentsoftware"
+	"github.com/eyupio/reet.sh/internal/privateconn"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -18,16 +21,33 @@ var (
 	// softwareArtifact is the one archive this connector will install. Tests
 	// replace it with a local archive; production never accepts another URL.
 	softwareArtifact = agentsoftware.OpenCodeLinuxX64
-	// softwareApplyTimeout bounds one download plus install. The controller
-	// gives the request a little longer so a timeout can be reported.
-	softwareApplyTimeout = 5 * time.Minute
+	// softwareApplyTimeout bounds one download plus install, including a slow
+	// fall back to the controller's mirror. The controller gives the request a
+	// little longer so a timeout can be reported.
+	softwareApplyTimeout  = 20 * time.Minute
+	softwareRegistryLimit = 5 * time.Minute
+	softwareMirrorLimit   = 15 * time.Minute
 )
+
+// SoftwareSource is the controller's artifact mirror as this connector may use
+// it. Path is derived from the connector's own pinned table, never accepted as
+// a URL from the controller; the private client carries the enrollment.
+type SoftwareSource struct {
+	Client *http.Client
+	// BaseURL is the connector's private origin; empty means the built-in one.
+	BaseURL string
+	// Path is derived from the connector's pinned digest.
+	Path string
+	// Header carries the machine's enrollment; the mirror route rejects a
+	// request without it.
+	Header http.Header
+}
 
 // ApplySoftware downloads the reviewed artifact, verifies it, installs it under
 // reet's own folder and reports the fresh evidence. Rollback and remove act
 // only on a reet-managed copy. It refuses when the observed installation
 // changed since the person approved the plan.
-func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareApply, lookPath func(string) (string, error)) terminalproto.SoftwareApplyResult {
+func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareApply, lookPath func(string) (string, error), sources ...SoftwareSource) terminalproto.SoftwareApplyResult {
 	result := terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action}
 	if req.Tool != agentsoftware.OpenCodeTool || runtime.GOOS != agentsoftware.SupportedPlatform || runtime.GOARCH != agentsoftware.SupportedArch {
 		result.State, result.Reason = terminalproto.SoftwareApplyRefused, terminalproto.SoftwareApplyUnsupported
@@ -98,11 +118,13 @@ func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareA
 	defer os.RemoveAll(dir)
 	runCtx, cancel := context.WithTimeout(ctx, softwareApplyTimeout)
 	defer cancel()
-	staged, err := agentsoftware.StageTarball(runCtx, nil, dir, softwareArtifact)
+	staged, source, err := stageSoftware(runCtx, dir, sources)
 	if err != nil {
+		result.Source = source
 		result.State, result.Reason = terminalproto.SoftwareApplyFailed, softwareFailure(err)
 		return result
 	}
+	result.Source = source
 	defer os.Remove(staged.Path)
 	if runCtx.Err() != nil {
 		result.State, result.Reason = terminalproto.SoftwareApplyFailed, terminalproto.SoftwareApplyTimedOut
@@ -128,6 +150,39 @@ func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareA
 	}
 	result.State, result.Version, result.Previous, result.Entry = terminalproto.SoftwareApplyApplied, receipt.Version, receipt.Previous, &entry
 	return result
+}
+
+// stageSoftware tries the registry first and the controller's mirror only when
+// the registry download fails. Both verify the same pinned artifact; the source
+// is reported so the controller can say what was tried.
+func stageSoftware(ctx context.Context, dir string, sources []SoftwareSource) (agentsoftware.Staged, string, error) {
+	registryCtx, cancel := context.WithTimeout(ctx, softwareRegistryLimit)
+	staged, err := agentsoftware.StageTarball(registryCtx, nil, dir, softwareArtifact)
+	cancel()
+	if err == nil {
+		return staged, "registry", nil
+	}
+	mirrorTried := false
+	for _, source := range sources {
+		if source.Client == nil || source.Path == "" {
+			continue
+		}
+		mirrorTried = true
+		mirrorCtx, cancel := context.WithTimeout(ctx, softwareMirrorLimit)
+		base := source.BaseURL
+		if base == "" {
+			base = privateconn.Origin
+		}
+		staged, mirrorErr := agentsoftware.StageTarballFrom(mirrorCtx, source.Client, dir, softwareArtifact, strings.TrimRight(base, "/")+source.Path, source.Header)
+		cancel()
+		if mirrorErr == nil {
+			return staged, "mirror", nil
+		}
+	}
+	if mirrorTried {
+		return agentsoftware.Staged{}, "registry+mirror", err
+	}
+	return agentsoftware.Staged{}, "registry", err
 }
 
 func softwareFailure(err error) terminalproto.SoftwareApplyReason {

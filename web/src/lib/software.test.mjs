@@ -6,7 +6,7 @@ import ts from 'typescript'
 const { outputText } = ts.transpileModule(readFileSync(new URL('./software.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 })
-const { fleetSoftwareCanApply, fleetSoftwareLabel, fleetSoftwareWarning, softwareLine, softwarePlanActions } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { batchCanAbandon, batchFailedMember, batchMemberAction, batchMemberLabel, batchMemberNote, batchStateLabel, fleetSoftwareCanApply, fleetSoftwareLabel, fleetSoftwareWarning, softwareLine, softwarePlanActions } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
 const installed = { tool: 'opencode', state: 'installed', version: '1.19.5', manager: 'reet', package: 'opencode-ai', path: '/home/me/.reet/software/opencode/versions/1.19.5/opencode', platform: 'linux', arch: 'amd64', source: 'verified_tarball', managed: true, operations: ['plan_update', 'plan_remove'], checkedAt: 1 }
 const missing = { tool: 'opencode', state: 'missing', package: 'opencode-ai', source: 'npm', platform: 'linux', arch: 'amd64', reason: 'not_installed', operations: ['plan_install'], checkedAt: 1 }
@@ -56,4 +56,35 @@ test('the fleet review only applies a ready single machine', () => {
   assert.equal(fleetSoftwareCanApply({ ...update, canApply: false }), false)
   assert.equal(fleetSoftwareCanApply({ ...update, state: 'none' }), false)
   assert.equal(fleetSoftwareCanApply({ ...update, state: 'unknown' }), false)
+})
+
+test('batch members name their frozen action and state', () => {
+  assert.equal(batchMemberAction({ action: 'update', target: '1.19.5' }), 'Update to 1.19.5')
+  assert.equal(batchMemberAction({ action: 'install', target: '1.19.5' }), 'Install 1.19.5')
+  assert.equal(batchMemberAction({ action: 'install', target: '1.19.5', version: '1.18.0' }), 'Install 1.19.5')
+  assert.equal(batchMemberAction({}), '')
+  assert.equal(batchMemberLabel({ state: 'applied', version: '1.19.5' }), 'Applied 1.19.5')
+  assert.equal(batchMemberLabel({ state: 'applied' }), 'Applied')
+  assert.equal(batchMemberLabel({ state: 'running' }), 'Applying')
+  assert.equal(batchMemberLabel({ state: 'pending' }), 'Waiting')
+  assert.equal(batchMemberLabel({ state: 'excluded' }), 'Not included')
+})
+
+test('batch notes explain codes and prefer an exclusion reason', () => {
+  assert.match(batchMemberNote({ code: 'offline' }), /wasn't connected/)
+  assert.match(batchMemberNote({ code: 'checksum_failed' }), /checksum/)
+  assert.match(batchMemberNote({ code: 'in_another_batch' }), /another batch/)
+  assert.equal(batchMemberNote({ code: 'offline', reason: 'That machine is already in another batch.' }), 'That machine is already in another batch.')
+  assert.equal(batchMemberNote({}), '')
+  assert.equal(batchMemberNote({ code: 'not_a_real_code' }), '')
+})
+
+test('batch state and abandon rules follow what is running', () => {
+  assert.equal(batchStateLabel('running'), 'Applying')
+  assert.equal(batchStateLabel('stopped'), 'Stopped on a failure')
+  assert.equal(batchCanAbandon({ state: 'stopped', members: [{ state: 'failed' }, { state: 'pending' }] }), true)
+  assert.equal(batchCanAbandon({ state: 'running', members: [{ state: 'running' }] }), false)
+  assert.equal(batchCanAbandon({ state: 'done', members: [{ state: 'applied' }] }), false)
+  assert.equal(batchCanAbandon({ state: 'abandoned', members: [] }), false)
+  assert.equal(batchFailedMember({ members: [{ state: 'applied' }, { state: 'failed' }, { state: 'pending' }] })?.state, 'failed')
 })

@@ -4,10 +4,12 @@
 
 export type ChatEvent = {
   seq: number
-  kind: 'user' | 'agent' | 'tool' | 'notice' | 'status' | 'permission' | 'permission_resolved' | 'permission_cancelled'
+  kind: 'user' | 'agent' | 'tool' | 'notice' | 'status' | 'permission' | 'permission_resolved' | 'permission_cancelled' | 'question' | 'question_resolved' | 'question_cancelled'
   messageId?: string
   toolCallId?: string
   permissionId?: string
+  questionId?: string
+  question?: ChatQuestion
   title?: string
   toolKind?: string
   status?: string
@@ -27,10 +29,28 @@ export type ChatEvent = {
   detail?: string
 }
 
+// A typed agent question, as the controller sends it. The machine validates every answer against the question it
+// holds; the checks below only give the person feedback before they send.
+export type ChatQuestionOption = { value: string; label: string; description?: string }
+export type ChatQuestionField = {
+  key: string
+  title?: string
+  description?: string
+  kind: 'text' | 'single' | 'multi'
+  required?: boolean
+  options?: ChatQuestionOption[]
+  minItems?: number
+  maxItems?: number
+  maxLength?: number
+}
+export type ChatQuestion = { message: string; fields: ChatQuestionField[] }
+export type QuestionDecision = 'answered' | 'declined' | 'cancelled'
+
 export type ChatItem =
   | { kind: 'user' | 'agent' | 'notice'; key: string; text: string; bad?: boolean }
   | { kind: 'tool'; key: string; toolCallId: string; title: string; toolKind: string; status: string; text: string; command: string; path: string; diff: string; additions: number; deletions: number; durationMs: number; locations: string[] }
   | { kind: 'permission'; key: string; permissionId: string; title: string; toolKind: string; command: string; path: string; diff: string; locations: string[]; truncated: boolean; decision?: 'allowed' | 'denied' | 'cancelled'; reason?: string }
+  | { kind: 'question'; key: string; questionId: string; toolCallId: string; question: ChatQuestion; decision?: QuestionDecision; reason?: string }
 
 export type ChatState = {
   items: ChatItem[]
@@ -64,13 +84,18 @@ export function pendingPermissions(state: ChatState): Extract<ChatItem, { kind: 
   return state.items.filter((item): item is Extract<ChatItem, { kind: 'permission' }> => item.kind === 'permission' && !item.decision)
 }
 
+export function pendingQuestions(state: ChatState): Extract<ChatItem, { kind: 'question' }>[] {
+  return state.items.filter((item): item is Extract<ChatItem, { kind: 'question' }> => item.kind === 'question' && !item.decision)
+}
+
 function cancelPending(items: ChatItem[], reason: string): ChatItem[] {
-  return items.map(item => item.kind === 'permission' && !item.decision ? { ...item, decision: 'cancelled' as const, reason } : item)
+  return items.map(item => (item.kind === 'permission' || item.kind === 'question') && !item.decision ? { ...item, decision: 'cancelled' as const, reason } : item)
 }
 
 function itemChars(item: ChatItem): number {
   if (item.kind === 'tool') return item.title.length + item.text.length + item.locations.join('').length
   if (item.kind === 'permission') return item.title.length + item.command.length + item.path.length + item.diff.length + item.locations.join('').length
+  if (item.kind === 'question') return questionChars(item.question)
   return item.text.length
 }
 
@@ -81,7 +106,7 @@ export function trimChat(items: ChatItem[], truncated: boolean): { items: ChatIt
   let cut = 0
   while (cut < items.length && (items.length - cut > MAX_ITEMS || total > MAX_TEXT)) {
     const item = items[cut]
-    if (item.kind === 'permission' && !item.decision) break
+    if ((item.kind === 'permission' || item.kind === 'question') && !item.decision) break
     total -= itemChars(item); cut++; truncated = true
   }
   return cut ? { items: items.slice(cut), truncated } : { items, truncated }
@@ -179,9 +204,144 @@ function reduceChatEvent(state: ChatState, event: ChatEvent): ChatState {
       if (!event.permissionId) return next
       return { ...next, items: state.items.map(item => item.kind === 'permission' && item.permissionId === event.permissionId ? { ...item, decision: 'cancelled', reason: event.reason } : item) }
     }
+    case 'question': {
+      if (!event.questionId) return next
+      const question = readQuestion(event.question)
+      if (!question) return next
+      const at = state.items.findIndex(item => item.kind === 'question' && item.questionId === event.questionId)
+      const prompt: Extract<ChatItem, { kind: 'question' }> = {
+        kind: 'question', key: `q${event.questionId}`, questionId: event.questionId, toolCallId: event.toolCallId ?? '', question,
+      }
+      if (at >= 0) {
+        const items = state.items.slice()
+        const old = state.items[at] as Extract<ChatItem, { kind: 'question' }>
+        items[at] = { ...prompt, decision: old.decision, reason: old.reason }
+        return { ...next, items }
+      }
+      return { ...next, items: [...state.items, prompt] }
+    }
+    case 'question_resolved': {
+      if (!event.questionId) return next
+      const decision: QuestionDecision = event.reason === 'decline' ? 'declined' : 'answered'
+      return { ...next, items: state.items.map(item => item.kind === 'question' && item.questionId === event.questionId ? { ...item, decision } : item) }
+    }
+    case 'question_cancelled': {
+      if (!event.questionId) return next
+      return { ...next, items: state.items.map(item => item.kind === 'question' && item.questionId === event.questionId ? { ...item, decision: 'cancelled', reason: event.reason } : item) }
+    }
     default:
       return next
   }
+}
+
+// The controller validates a question before it sends one, but a malformed event must not break the whole chat view.
+// Anything that is not a well-formed form is ignored, so the person is never shown a card they cannot answer.
+const MAX_FIELDS = 8, MAX_OPTIONS = 12
+export function readQuestion(raw: unknown): ChatQuestion | null {
+  if (!raw || typeof raw !== 'object') return null
+  const q = raw as Partial<ChatQuestion>
+  if (typeof q.message !== 'string' || !q.message || !Array.isArray(q.fields) || !q.fields.length || q.fields.length > MAX_FIELDS) return null
+  const keys = new Set<string>()
+  const fields: ChatQuestionField[] = []
+  for (const f of q.fields as Partial<ChatQuestionField>[]) {
+    if (!f || typeof f.key !== 'string' || !f.key || keys.has(f.key)) return null
+    if (f.kind !== 'text' && f.kind !== 'single' && f.kind !== 'multi') return null
+    keys.add(f.key)
+    const field: ChatQuestionField = { key: f.key, kind: f.kind, required: !!f.required }
+    if (typeof f.title === 'string' && f.title) field.title = f.title
+    if (typeof f.description === 'string' && f.description) field.description = f.description
+    if (f.kind === 'text') {
+      field.maxLength = Number.isInteger(f.maxLength) && f.maxLength! > 0 ? f.maxLength : 2000
+    } else {
+      if (!Array.isArray(f.options) || !f.options.length || f.options.length > MAX_OPTIONS) return null
+      const seen = new Set<string>()
+      const options: ChatQuestionOption[] = []
+      for (const o of f.options as Partial<ChatQuestionOption>[]) {
+        if (!o || typeof o.value !== 'string' || !o.value || seen.has(o.value) || typeof o.label !== 'string' || !o.label) return null
+        seen.add(o.value)
+        options.push(o.description ? { value: o.value, label: o.label, description: String(o.description) } : { value: o.value, label: o.label })
+      }
+      field.options = options
+      if (f.kind === 'multi') {
+        field.minItems = Number.isInteger(f.minItems) && f.minItems! > 0 ? f.minItems : 0
+        field.maxItems = Number.isInteger(f.maxItems) && f.maxItems! > 0 ? Math.min(f.maxItems!, options.length) : options.length
+      }
+    }
+    fields.push(field)
+  }
+  return { message: q.message, fields }
+}
+
+function questionChars(q: ChatQuestion): number {
+  let total = q.message.length
+  for (const f of q.fields) {
+    total += f.key.length + (f.title?.length ?? 0) + (f.description?.length ?? 0)
+    for (const o of f.options ?? []) total += o.value.length + o.label.length + (o.description?.length ?? 0)
+  }
+  return total
+}
+
+export type QuestionDraft = Record<string, string | string[]>
+export type QuestionAnswers = Record<string, string | string[]>
+export type QuestionCheck = { ok: boolean; errors: Record<string, string>; answers: QuestionAnswers }
+
+const MAX_TEXT_BYTES = 2000
+function byteLength(text: string): number { return new TextEncoder().encode(text).length }
+
+/** The label a field is shown with: its title, else its key. */
+export function fieldLabel(field: ChatQuestionField): string { return field.title || field.key }
+
+/**
+ * Check a person's draft against the question and build the answers to send. This is feedback only: the machine
+ * checks every answer again and is the authority. An optional field left empty is left out, as the machine does.
+ */
+export function checkQuestionDraft(question: ChatQuestion, draft: QuestionDraft): QuestionCheck {
+  const errors: Record<string, string> = {}
+  const answers: QuestionAnswers = {}
+  for (const field of question.fields) {
+    const value = draft[field.key]
+    if (field.kind === 'text') {
+      const text = typeof value === 'string' ? value : ''
+      if (!text.trim()) { if (field.required) errors[field.key] = 'Write an answer.'; continue }
+      const limit = Math.min(field.maxLength ?? MAX_TEXT_BYTES, MAX_TEXT_BYTES)
+      if (byteLength(text) > limit) { errors[field.key] = `Shorten this to ${limit} bytes or fewer.`; continue }
+      answers[field.key] = text
+    } else if (field.kind === 'single') {
+      const choice = typeof value === 'string' ? value : ''
+      if (!choice) { if (field.required) errors[field.key] = 'Choose one.'; continue }
+      if (!field.options?.some(o => o.value === choice)) { errors[field.key] = 'Choose one of the options.'; continue }
+      answers[field.key] = choice
+    } else {
+      const choices = Array.isArray(value) ? value : []
+      const min = field.required ? Math.max(1, field.minItems ?? 0) : (field.minItems ?? 0)
+      const max = field.maxItems ?? field.options?.length ?? 0
+      if (!choices.length && !field.required) continue // left empty, so it is not answered, as the machine reads it
+      if (choices.length < min) { errors[field.key] = `Choose at least ${min}.`; continue }
+      if (choices.length > max) { errors[field.key] = `Choose at most ${max}.`; continue }
+      if (new Set(choices).size !== choices.length || choices.some(c => !field.options?.some(o => o.value === c))) { errors[field.key] = 'Choose from the options.'; continue }
+      answers[field.key] = choices
+    }
+  }
+  return { ok: Object.keys(errors).length === 0, errors, answers }
+}
+
+/** A draft with every field empty, in the shape the form binds to. */
+export function emptyDraft(question: ChatQuestion): QuestionDraft {
+  const draft: QuestionDraft = {}
+  for (const f of question.fields) draft[f.key] = f.kind === 'multi' ? [] : ''
+  return draft
+}
+
+/** The answers a person gave, with option labels in place of values, for the transcript. */
+export function summarizeAnswers(question: ChatQuestion, answers: QuestionAnswers): { label: string; text: string }[] {
+  const out: { label: string; text: string }[] = []
+  for (const f of question.fields) {
+    const value = answers[f.key]
+    if (value === undefined) continue
+    const labelOf = (v: string) => f.options?.find(o => o.value === v)?.label ?? v
+    out.push({ label: fieldLabel(f), text: Array.isArray(value) ? value.map(labelOf).join(', ') : labelOf(value) })
+  }
+  return out
 }
 
 function clampCount(value: number | undefined): number {

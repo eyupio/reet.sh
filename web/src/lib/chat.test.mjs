@@ -124,3 +124,126 @@ test('prose markdown is split into safe blocks and inline spans', async () => {
     { kind: 'text', text: ' it' },
   ])
 })
+
+// --- typed agent questions -------------------------------------------------------------------------------------------
+import { checkQuestionDraft, emptyDraft, pendingQuestions, readQuestion, summarizeAnswers, trimChat, MAX_ITEMS } from './chat.ts'
+
+const sampleQuestion = () => ({
+  message: 'Which option?',
+  fields: [
+    { key: 'question_0', title: 'Probe', kind: 'single', required: true, options: [{ value: 'a', label: 'Option A', description: 'First' }, { value: 'b', label: 'Option B' }] },
+    { key: 'tags', kind: 'multi', minItems: 1, maxItems: 2, options: [{ value: 'x', label: 'X' }, { value: 'y', label: 'Y' }, { value: 'z', label: 'Z' }] },
+    { key: 'note', title: 'Other', kind: 'text', maxLength: 10 },
+  ],
+})
+
+test('a question card is pending until it is answered, declined or cancelled', () => {
+  let state = initialChat()
+  state = applyChatEvent(state, event(1, { kind: 'question', questionId: 'q1', toolCallId: 't1', question: sampleQuestion() }))
+  assert.equal(pendingQuestions(state).length, 1)
+  assert.equal(state.items[0].toolCallId, 't1')
+  // A replay of the same card keeps one item and its decision.
+  state = applyChatEvent(state, event(2, { kind: 'question', questionId: 'q1', question: sampleQuestion() }))
+  assert.equal(state.items.length, 1)
+  state = applyChatEvent(state, event(3, { kind: 'question_resolved', questionId: 'q1', reason: 'accept' }))
+  assert.equal(state.items[0].decision, 'answered')
+  assert.equal(pendingQuestions(state).length, 0)
+  state = applyChatEvent(state, event(4, { kind: 'question', questionId: 'q2', question: sampleQuestion() }))
+  state = applyChatEvent(state, event(5, { kind: 'question_resolved', questionId: 'q2', reason: 'decline' }))
+  assert.equal(state.items[1].decision, 'declined')
+  state = applyChatEvent(state, event(6, { kind: 'question', questionId: 'q3', question: sampleQuestion() }))
+  state = applyChatEvent(state, event(7, { kind: 'question_cancelled', questionId: 'q3', reason: 'timeout' }))
+  assert.deepEqual([state.items[2].decision, state.items[2].reason], ['cancelled', 'timeout'])
+})
+
+test('a stopped turn closes waiting questions as it closes waiting approvals', () => {
+  let state = initialChat()
+  state = applyChatEvent(state, event(1, { kind: 'question', questionId: 'q1', question: sampleQuestion() }))
+  state = applyChatEvent(state, event(2, { kind: 'permission', permissionId: 'p1', title: 'write' }))
+  state = applyChatEvent(state, event(3, { kind: 'status', state: 'cancelled' }))
+  assert.equal(pendingQuestions(state).length, 0)
+  assert.equal(pendingPermissions(state).length, 0)
+  assert.equal(state.items[0].decision, 'cancelled')
+})
+
+test('a malformed question event is ignored rather than breaking the chat', () => {
+  let state = initialChat()
+  const bad = [
+    undefined, null, 'x', {}, { message: '' , fields: [] }, { message: 'm', fields: [] },
+    { message: 'm', fields: [{ key: 'k', kind: 'number' }] },
+    { message: 'm', fields: [{ key: 'k', kind: 'single', options: [] }] },
+    { message: 'm', fields: [{ key: 'k', kind: 'single', options: [{ value: 'a', label: 'A' }, { value: 'a', label: 'B' }] }] },
+    { message: 'm', fields: [{ key: 'k', kind: 'text' }, { key: 'k', kind: 'text' }] },
+    { message: 'm', fields: Array.from({ length: 9 }, (_, i) => ({ key: `f${i}`, kind: 'text' })) },
+    { message: 'm', fields: [{ key: 'k', kind: 'single', options: Array.from({ length: 13 }, (_, i) => ({ value: `v${i}`, label: 'l' })) }] },
+  ]
+  bad.forEach((question, i) => {
+    const next = applyChatEvent(state, event(i + 1, { kind: 'question', questionId: 'q1', question }))
+    assert.equal(next.items.length, 0, `accepted ${JSON.stringify(question)}`)
+    state = next
+  })
+  assert.equal(applyChatEvent(state, event(99, { kind: 'question', question: sampleQuestion() })).items.length, 0, 'a card without an id')
+  assert.equal(readQuestion(sampleQuestion()).fields[2].maxLength, 10)
+})
+
+test('a waiting question is never trimmed away', () => {
+  let state = initialChat()
+  state = applyChatEvent(state, event(1, { kind: 'question', questionId: 'q1', question: sampleQuestion() }))
+  for (let i = 0; i < MAX_ITEMS + 20; i++) state = applyChatEvent(state, event(i + 2, { kind: 'notice', text: `n${i}` }))
+  // Like a waiting approval, the card holds the trim until it is decided, so it can always be answered.
+  assert.equal(pendingQuestions(state).length, 1)
+  assert.equal(state.items[0].kind, 'question')
+  state = applyChatEvent(state, event(9999, { kind: 'question_resolved', questionId: 'q1', reason: 'accept' }))
+  state = applyChatEvent(state, event(10000, { kind: 'notice', text: 'after' }))
+  assert.equal(state.items.length <= MAX_ITEMS, true, 'the log trims again once the question is decided')
+  assert.equal(state.truncated, true)
+  const decided = trimChat([{ kind: 'question', key: 'q', questionId: 'q', toolCallId: '', question: sampleQuestion(), decision: 'answered' }, ...Array.from({ length: MAX_ITEMS }, (_, i) => ({ kind: 'notice', key: `n${i}`, text: 'x' }))], false)
+  assert.equal(decided.items.some(item => item.kind === 'question'), false, 'a decided question can be trimmed')
+})
+
+test('the draft check gives feedback and builds the answers to send', () => {
+  const q = readQuestion(sampleQuestion())
+  const empty = checkQuestionDraft(q, emptyDraft(q))
+  assert.equal(empty.ok, false)
+  assert.deepEqual(Object.keys(empty.errors), ['question_0'])
+  assert.deepEqual(empty.answers, {})
+
+  const ok = checkQuestionDraft(q, { question_0: 'a', tags: ['x', 'z'], note: '  hi  ' })
+  assert.equal(ok.ok, true)
+  assert.deepEqual(ok.answers, { question_0: 'a', tags: ['x', 'z'], note: '  hi  ' })
+
+  // Optional fields left empty are not sent.
+  const minimal = checkQuestionDraft(q, { question_0: 'b', tags: [], note: '   ' })
+  assert.equal(minimal.ok, true)
+  assert.deepEqual(minimal.answers, { question_0: 'b' })
+
+  for (const [name, draft, field] of [
+    ['unoffered choice', { question_0: 'zzz' }, 'question_0'],
+    ['too many items', { question_0: 'a', tags: ['x', 'y', 'z'] }, 'tags'],
+    ['repeated item', { question_0: 'a', tags: ['x', 'x'] }, 'tags'],
+    ['unoffered item', { question_0: 'a', tags: ['q'] }, 'tags'],
+    ['text too long', { question_0: 'a', note: '12345678901' }, 'note'],
+    ['multibyte over the byte limit', { question_0: 'a', note: '日本語日' }, 'note'],
+  ]) {
+    const result = checkQuestionDraft(q, draft)
+    assert.equal(result.ok, false, name)
+    assert.ok(result.errors[field], `${name}: ${JSON.stringify(result.errors)}`)
+  }
+})
+
+test('a required multi select needs at least one choice, an optional empty one is skipped', () => {
+  const q = readQuestion({ message: 'm', fields: [{ key: 'k', kind: 'multi', required: true, options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] }] })
+  assert.match(checkQuestionDraft(q, { k: [] }).errors.k, /at least 1/)
+  assert.equal(checkQuestionDraft(q, { k: ['a'] }).ok, true)
+  const optional = readQuestion({ message: 'm', fields: [{ key: 'k', kind: 'multi', minItems: 2, options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] }] })
+  assert.equal(checkQuestionDraft(optional, { k: [] }).ok, true)
+  assert.match(checkQuestionDraft(optional, { k: ['a'] }).errors.k, /at least 2/)
+})
+
+test('answers are summarized by label for the transcript', () => {
+  const q = readQuestion(sampleQuestion())
+  assert.deepEqual(summarizeAnswers(q, { question_0: 'a', tags: ['x', 'z'], note: 'hi' }), [
+    { label: 'Probe', text: 'Option A' }, { label: 'tags', text: 'X, Z' }, { label: 'Other', text: 'hi' },
+  ])
+  assert.deepEqual(summarizeAnswers(q, {}), [])
+})

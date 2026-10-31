@@ -1610,3 +1610,23 @@ refusal can be repaired by updating reet.
 the latter also checks each refused state. Both exercise chat start, approvals,
 images, phone width and continuation. No physical phone or live provider was
 used; the screen still uses the existing layout and controls.
+
+
+## Typed agent question card — 31 October 2026
+
+The chat shows a typed agent question as a card beside the approval cards: labelled radios, checkboxes and a text
+area, a message, and three actions (Send answer, Skip, Cancel question). Skip lets the agent carry on without an
+answer; Cancel stops its tool call. The browser checks an answer before sending it (a required choice, a multi-select
+limit, a text limit in bytes) and moves focus to the first problem, but the machine checks again and is the authority:
+its refusal shows on the card, keeps the person's choices and leaves the question open. A decided card keeps a summary
+of what was sent. A malformed question event is ignored rather than shown. Nothing sends a question yet: no agent offers
+them, so this is the browser half of the feature only.
+
+`chat.e2e.mjs` passed with legacy flags and with `REET_CHAT_DESCRIPTORS=1`, now including: an empty required choice
+blocked with focus moved to it and no request sent, a three-of-two multi select blocked, a 422 refusal shown on the card
+with the choices kept, the accepted request body (an empty optional text left out), the answered summary, Skip and Cancel
+bodies, the timed-out state, a malformed question ignored, and the card fitting 390 px with every control inside the
+viewport. Unit tests in `chat.test.mjs` cover the reducer, trimming and the draft check. Checked by screenshot in light
+and dark at 1100 px and 390 px. Not checked: a physical phone or touch device (the larger coarse-pointer targets come
+from the same rule as the approval buttons and are not exercised here), Safari or Firefox, a screen reader, or a live
+agent question.

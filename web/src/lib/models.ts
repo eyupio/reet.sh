@@ -23,6 +23,7 @@ export type ModelOption = {
   disabled?: boolean
   reason?: string
   starred?: boolean
+  isDefault?: boolean
 }
 export type ModelOptionsInput = {
   tool: string
@@ -112,6 +113,7 @@ export function modelOptions({
     const missing = !!machine?.models?.length && !machine.models.some(entry => entry.id === favourite.model)
     add({
       value: favourite.model, label: favourite.model, group: 'Favourites', starred: true,
+      ...(favourite.agentDefault ? { isDefault: true } : {}),
       ...(missing ? { detail: missingDetail } : {}),
     })
   }
@@ -230,4 +232,8 @@ export function favouriteKey(tool: string, model: string): string {
 
 export function starLabel(tool: string, model: string, starred: boolean): string {
   return `${starred ? 'Unstar' : 'Star'} ${model} for ${agentNameOf(tool)}`
+}
+
+export function defaultLabel(tool: string, model: string, isDefault: boolean): string {
+  return isDefault ? `Clear ${model} as the default for ${agentNameOf(tool)}` : `Make ${model} the default for ${agentNameOf(tool)}`
 }

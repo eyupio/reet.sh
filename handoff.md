@@ -100,7 +100,7 @@ yet); (5) **any signed-in writer** may apply (the plan binding and audit are the
 and update** are exposed in this slice, with automatic restore on a failed verification; (7) **one confirmation
 dialog** with the machine, version, source and effects.
 
-**L2a, implemented on `feat/agent-software-apply` (stacked on #282):** `internal/agentsoftware/artifact.go` holds the
+**L2a and L2b, on `feat/agent-software-apply` ([#289](https://github.com/eyupio/reet.sh/pull/289), commits `552ed51` and `2742911`, rebased onto `main` after #282 merged):** `internal/agentsoftware/artifact.go` holds the
 one reviewed archive (URL, sha512, binary sha256 and size, the single `package/bin/opencode` member) and
 `StageTarball`, which downloads it with a bounded response, verifies the archive checksum, extracts only the member
 and verifies the binary's hash and size; it never executes anything. `managed.go` owns
@@ -165,9 +165,10 @@ reet-managed copies, an explicit rollback action, and reviewed fleet-wide mainte
   on|off|status` switch and `yolo` capability, reviewed options for Codex/OpenCode/Cline, controller
   gates and audit, structured `allow_once` answers, the confirmation dialog and badges. #266 fixed the
   launch audit on a mismatched worktree and kept generic machine refusals from counting as started.
-- **Next stage:** L1 inventory/plan is in [#282](https://github.com/eyupio/reet.sh/pull/282) and L2 install/update is
-  on `feat/agent-software-apply` (stacked on #282). Next: remove only reet-managed copies, an explicit rollback action
-  and reviewed fleet-wide maintenance. Program 2, slice 4 (elicitation and rich input cards) still needs its own probe.
+- **Next stage:** L2 install/update is on `feat/agent-software-apply`
+  ([#289](https://github.com/eyupio/reet.sh/pull/289)); L1 is merged in #282. Next: remove only reet-managed copies, an
+  explicit rollback action and reviewed fleet-wide maintenance. Program 2, slice 4 (elicitation and rich input cards)
+  still needs its own probe.
 - **Do first:** for the next PR, check its final head with the REST forms
   (`gh api repos/eyupio/reet.sh/pulls/<n>` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
   `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). Merge only when every check is green and Codex has

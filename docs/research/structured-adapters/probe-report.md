@@ -261,7 +261,7 @@ variables. With the loopback stub, removing any one of `XDG_CONFIG_HOME`, `XDG_D
 `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION` left the turn, approval card and file effect
 unchanged, and so did removing all ten together, or `PATH`, or `ANTHROPIC_API_KEY`
 (the stub does not check credentials, so a missing-credential error shape is **not**
-observed). `--version` prints `0.99.1` in about 0.1 s. `initialize` reports no
+observed). `--version` prints `0.99.1` in about 0.4 s (the version probe allows 2 s). `initialize` reports no
 `authMethods`. The adapter source (read, not run) handles `ANTHROPIC_API_KEY`,
 `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK` and
 `CLAUDE_CODE_USE_VERTEX`, so those can redirect or replace the credential.

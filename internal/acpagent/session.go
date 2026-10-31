@@ -598,6 +598,58 @@ func toolText(raw json.RawMessage) string {
 	return ""
 }
 
+// permissionContent is one typed content block of a tool call. Claude's adapter
+// describes an edit as {type:"diff", path, oldText, newText} instead of
+// OpenCode's rawInput.diff string.
+type permissionContent struct {
+	Type    string  `json:"type"`
+	Path    string  `json:"path"`
+	OldText *string `json:"oldText"`
+	NewText *string `json:"newText"`
+}
+
+// maxDiffBytes bounds a rendered permission diff.
+const maxDiffBytes = 10 << 10
+
+// typedDiff renders the first typed diff block as a bounded, line-prefixed
+// patch (old lines "-", new lines "+"). It makes no attempt to align lines, so
+// it never hides a change; ok is false when no usable block exists, which keeps
+// the card unapprovable. truncated reports that the bound cut the text.
+func typedDiff(blocks []permissionContent) (diff, path string, truncated, ok bool) {
+	for _, b := range blocks {
+		if b.Type != "diff" || b.NewText == nil || b.Path == "" {
+			continue
+		}
+		var sb strings.Builder
+		sb.WriteString("--- " + b.Path + "\n+++ " + b.Path + "\n")
+		write := func(prefix string, text string) {
+			for _, line := range strings.SplitAfter(text, "\n") {
+				if line == "" || sb.Len() > maxDiffBytes {
+					continue
+				}
+				// Bound each line's copy so a huge single line cannot allocate more.
+				if len(line) > maxDiffBytes {
+					line = line[:maxDiffBytes]
+				}
+				sb.WriteString(prefix + line)
+				if !strings.HasSuffix(line, "\n") {
+					sb.WriteString("\n")
+				}
+			}
+		}
+		if b.OldText != nil {
+			write("-", *b.OldText)
+		}
+		write("+", *b.NewText)
+		out := sb.String()
+		if len(out) > maxDiffBytes {
+			out, truncated = cutUTF8(out, maxDiffBytes), true
+		}
+		return out, b.Path, truncated, true
+	}
+	return "", "", false, false
+}
+
 type permissionParams struct {
 	SessionID string `json:"sessionId"`
 	ToolCall  struct {
@@ -608,11 +660,13 @@ type permissionParams struct {
 		Locations  []struct {
 			Path string `json:"path"`
 		} `json:"locations"`
+		Content  []permissionContent `json:"content"`
 		RawInput struct {
 			Command     string `json:"command"`
 			Description string `json:"description"`
 			Diff        string `json:"diff"`
 			FilePath    string `json:"filepath"`
+			SnakePath   string `json:"file_path"`
 			ParentDir   string `json:"parentDir"`
 		} `json:"rawInput"`
 	} `json:"toolCall"`
@@ -652,8 +706,14 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 	}
 	diff := params.ToolCall.RawInput.Diff
 	truncated := false
-	if len(diff) > 10<<10 {
-		diff = cutUTF8(diff, 10<<10)
+	typedPath := ""
+	if diff == "" && params.ToolCall.Kind == "edit" {
+		var ok bool
+		diff, typedPath, truncated, ok = typedDiff(params.ToolCall.Content)
+		_ = ok
+	}
+	if len(diff) > maxDiffBytes {
+		diff = cutUTF8(diff, maxDiffBytes)
 		truncated = true
 	}
 	// A card the person cannot review must not offer Allow once. The probe
@@ -666,6 +726,12 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 		truncated = true
 	}
 	path := params.ToolCall.RawInput.FilePath
+	if path == "" {
+		path = params.ToolCall.RawInput.SnakePath
+	}
+	if path == "" {
+		path = typedPath
+	}
 	if path == "" && len(params.ToolCall.Locations) > 0 {
 		path = params.ToolCall.Locations[0].Path
 	}

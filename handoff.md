@@ -26,6 +26,30 @@ implemented baseline, S/A/W/L task lists, start-agent-session protocol notes, Pr
 delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief) are in
 [handoff-history.md](handoff-history.md), under "Moved from handoff.md on 27 October 2026".
 
+## SC2 — Claude lifecycle probes and ID/diff hardening (31 October 2026)
+
+**Scope:** follow-up to PR #301; no adapter is enabled. Branch `ccr-4cc5980a-dt7hki`.
+
+**Added:** `scripts/probe-claude-lifecycle.py` (trust, cancel, load, model, subagent);
+adapter-aware native ID validation (`nativeIDMatches`: `ses_` for OpenCode, canonical
+lower-case UUID for Claude/Codex, still gated by `ReviewedChatTool`); and `typedDiff` in
+`internal/acpagent/session.go`, which turns Claude's `{type:"diff"}` content into the
+existing bounded 10 KiB diff and reads `rawInput.file_path`. A missing or unusable diff
+still leaves an edit card unapprovable. Results are in the
+[probe report](docs/research/structured-adapters/probe-report.md).
+
+**Findings that block enabling Claude:** a repository's own hooks run without an approval
+card; leader exit did not retire the whole process group; `session/load` ignores `cwd`;
+an unknown model value is silently reset; subagent calls arrive as kind `think`.
+
+**Checks:** `go vet` and `go test` for `internal/acpagent` and `internal/terminalproto`,
+gofmt, `py_compile`, and a real run of every scenario against the pinned adapter with
+the loopback stub. The full race suite, web checks and browser fixtures were not re-run:
+no web or protocol-shape change. No real provider, phone or other OS.
+
+**Next unchecked task:** launch profile that disables repository hooks (or a trust
+prompt), group-wide retirement with SIGKILL escalation, a `think` card, then Codex probes.
+
 ## SC2 — Structured adapter probe checkpoint (31 October 2026)
 
 **Scope:** separate probe PR targeting main; no new runtime adapter is enabled.

@@ -139,6 +139,7 @@ python3 scripts/probe-claude-turn.py allow --tool Bash --workspace "$probe_dir"
 python3 scripts/probe-claude-turn.py deny --tool Write --workspace "$probe_dir"
 python3 scripts/probe-claude-turn.py allow --tool Write --workspace "$probe_dir"
 python3 scripts/probe-claude-turn.py allow --tool AskUserQuestion --workspace "$probe_dir"
+for s in trust cancel load model subagent; do python3 scripts/probe-claude-lifecycle.py $s --workspace "$probe_dir"; done
 ```
 
 The scripts install nothing. They require Python 3, Node 22+, the preinstalled
@@ -158,17 +159,66 @@ a product change. Formatting and syntax checks passed; the scripts and their
 assertions were run against the real pinned candidates. No physical phone,
 macOS, Windows, genuine provider authentication or paid turn was checked.
 
+## Claude lifecycle probes (second checkpoint)
+
+Run with `scripts/probe-claude-lifecycle.py <trust|cancel|load|model|subagent>`
+against the same pinned adapter 0.99.1 / SDK 0.3.312 and the loopback stub, on
+Linux x86-64 with Node 22. Same limits as above: no real provider, credentials,
+phone or other OS.
+
+- **Repository trust (observed).** A project `.claude/settings.json` with
+  `permissions.allow: ["Bash(*)"]` and `defaultMode: "bypassPermissions"`, plus a
+  `settings.local.json` allow, did **not** suppress the approval request while the
+  user settings asked for Bash: one `session/request_permission` arrived and the
+  marker appeared only after Allow once. The same repository's `PreToolUse` hook,
+  however, **ran** (a marker file written by the hook) with hooks enabled. A
+  repository can therefore execute commands through its own hooks without a
+  reet approval card. Enabling Claude requires launching with project hooks
+  disabled or a documented trust gate; this probe did not find a safe flag-free
+  way to rely on the adapter alone. Other override paths (managed settings,
+  `--settings`, MCP servers declared by the project) remain unprobed.
+- **Cancellation and retirement (observed).** `session/cancel` sent in place of a
+  permission answer ended the turn with `stopReason: "cancelled"` and no file
+  effect. A cancel sent during a slow upstream request returned `stopReason:
+  "end_turn"` within about two seconds, not `cancelled`, so reet must not read
+  `end_turn` as proof the work was stopped. After SIGTERM to the adapter's process
+  group, one group member was still alive after the leader exited; leader exit is
+  not group retirement, so reet must confirm the whole group is gone and escalate.
+- **History (observed).** A second adapter process in the same home loaded the
+  session by ID and replayed `user_message_chunk`, `tool_call`,
+  `tool_call_update` and `agent_message_chunk`. `session/load` with a **different
+  `cwd` succeeded**: the adapter does not bind history to the folder, so reet's
+  account/machine/tool/folder binding is the only guard. An unknown UUID returned
+  `-32002 Resource not found`. `session/list` returns IDs, `cwd`, title and
+  `updatedAt`; it was not used to authorise anything.
+- **Model and mode (observed).** `session/new` reports no `models` field, only
+  `configOptions` for `mode` (default, acceptEdits, plan, auto) and `model`
+  (aliases such as `default`, `opus`, `sonnet`, `haiku` plus a full ID); later
+  responses added `effort`, `fast` and `ultracode` options, so the option list
+  changes. `session/set_model` is not implemented (`-32601`). `session/set_config_option`
+  with a valid alias returned the updated list with the new `currentValue`; an
+  **unknown model value was accepted and silently reset to `default`**. An unknown
+  mode through `session/set_mode` was rejected (`-32602`). Report an applied state
+  only after reading `currentValue` back. The stub-served model name followed the
+  resulting option, not the request.
+- **Subagents (observed, narrow).** The model tool catalogue lists `Agent` (not
+  `Task`). A stubbed `Task`/subagent call produced one permission request with
+  kind `think`, the subagent description as title and `description`, `prompt`,
+  `subagent_type` in `rawInput`; the subagent's own work in this stub did nothing,
+  so nested tool permission was not exercised. reet's parser has no card for kind
+  `think`; it must show the prompt or refuse.
+
 ## Integration gates still open
 
-SC2 is a probe checkpoint, not a completed additional-agent integration. Before
-enabling Claude, finish repository trust/permission override tests, cancellation
-and process retirement, stored-history replay/ownership, model/config behaviour,
-subagent permissions and required environment checks. Add adapter-aware UUID
-validation and bounded typed edit-diff normalization without weakening OpenCode.
+Claude remains disabled. Done in this checkpoint: adapter-aware UUID validation
+(gated behind the reviewed-tool list) and bounded typed edit-diff normalization.
+Still required before enabling: a launch that disables repository hooks (or an
+explicit trust prompt), group-wide process retirement with confirmation,
+applied-state model/mode controls, a card for `think` tool calls, nested subagent
+permissions, required-environment checks and the SC3 question contract.
 Keep question support disabled until the SC3 contract is implemented.
 
 For Codex, additionally verify native provider configuration and real stub-backed
 tool/approval/error/cancel paths. Its handshake or synthetic authentication alone
 is insufficient to enable it. Candidate order: Claude first, conditional on these
-gates; Codex remains a separately verified integration. Record the next results
-and limitations in this report and the PR's handoff before widening scope.
+gates; Codex remains a separately verified integration.

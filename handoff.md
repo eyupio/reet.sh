@@ -58,9 +58,9 @@ in `chat.e2e.mjs`. Web check/build and both legacy/descriptor chat browser modes
 passed, including the launch dialog's desktop/tablet/phone light/dark matrix.
 Full `go vet ./...`, all 16 MCP tests, and focused race regressions for launch
 refusal, API feature gating and tool/account/machine/folder history binding
-passed. The repository-wide race suite is still running at this checkpoint;
-its result is pending, not assumed green. The container's non-reaping PID 1
-needs a test-only subreaper for orphan-exit checks, and socket fixtures need
+passed. The complete `go test -race -timeout=60m ./...` suite also passed;
+API took 1,160.6 seconds and store 1,078.2 seconds on this host. The container's
+non-reaping PID 1 needs a test-only subreaper for orphan-exit checks, and socket fixtures need
 network permission. No real provider, physical phone or new adapter was run.
 
 **Exact next unchecked task:** SC2's Claude Code and Codex ACP adapter probes;

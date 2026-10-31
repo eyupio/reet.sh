@@ -199,7 +199,7 @@ func TestPreviewTextBoundsAndFlagsTruncation(t *testing.T) {
 func TestChatModelSwitchKeepsHistoryAndRecordsModel(t *testing.T) {
 	b, _, uid, agent := chatFixture(t)
 	s := chatSession(t, b, uid, agent)
-	if err := b.PromptChat(t.Context(), uid, s.ID, "hello"); err != nil {
+	if err := b.PromptChat(t.Context(), uid, s.ID, "hello", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.ModelChat(t.Context(), uid, s.ID, "provider/other"); err != nil {

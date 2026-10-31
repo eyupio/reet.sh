@@ -98,8 +98,51 @@ built from stored evidence and names the machine's version, the plan it would ru
 (install, update, none or needs attention), the target and source, and whether an
 OpenCode session would make reet refuse the apply. The review reads no machine.
 **Apply plan** runs the same per-machine request for that one machine after a
-confirmation; other machines are untouched, and there is no batch apply. Rollback
-and remove stay in a machine's Settings.
+confirmation; other machines are untouched. Rollback and remove stay in a
+machine's Settings.
+
+## Batch apply
+
+The rows a machine can apply now also carry a checkbox. Chosen machines form an
+ordered batch; up and down move a machine in the order, and **Review batch** shows
+the machines, their actions, targets and sources before anything runs. The
+controller rebuilds each plan from stored evidence and freezes it, so a machine
+whose evidence no longer supports its plan is left out with the reason shown.
+
+A batch applies to one machine at a time, in that order, and stops at the first
+failure. A stopped batch names the failed machine and offers **Retry**, **Skip and
+continue**, or **Abandon batch**. A machine already at the target version (for
+example after a lost reply) is reconciled as applied instead of failing. A member
+left running by a controller restart is tried again and reconciled the same way.
+At most one batch is active per signed-in person, and a machine can be in only one.
+
+The batch is a durable record: `POST /api/v2/software/batches` creates it from an
+idempotent `requestId` and an ordered `agents` list, `GET
+/api/v2/software/batches/{id}` reads it, and `…/members/{position}/retry`,
+`…/members/{position}/skip` and `…/abandon` move it on. Progress is read by
+polling. Activity records a `software-batch` event at the start and at each
+terminal state, plus `software-batch-retry`, `-skip` and `-abandon`.
+
+## Controller artifact mirror
+
+A machine normally downloads the reviewed archive from
+`registry.npmjs.org`. When the controller's **Software artifact mirror** is on
+(Admin → **Software artifact mirror**, owner or admin), a machine that cannot
+reach the registry falls back to the controller over its private connection. The
+controller downloads the archive once on demand, verifies its recorded sha256 and
+sha512 and the extracted binary's sha256 and size against the same pinned table
+the connector uses, and writes it to a content-addressed file only after the
+whole verification passes. A partial or corrupt file is never served, and
+concurrent requests share one download.
+
+The machine asks for the digest in its own pinned table, never a URL the
+controller chose; it verifies the archive and binary again before installing.
+The registry is tried first, the mirror only if that fails. The result reports
+`registry` or `mirror`; when both were tried and failed it reports both and the
+refusal says so. Admins can **Cache the reviewed artifact now** to prepare the
+mirror before a machine needs it. The cache keeps only the reviewed digest,
+garbage-collects anything else at controller start, and is excluded from
+backups because it can be fetched again.
 
 ## After a restart
 
@@ -130,12 +173,15 @@ dialog; remove additionally needs the machine's name typed. Activity records a
   or unsupported.
 - 1.19.5 is the only reviewed version; a newer release is not assumed
   compatible. No registry version lookup is made.
-- The connector downloads the artifact, so the machine needs access to
-  `registry.npmjs.org`. A controller-side mirror for offline machines is future
-  work.
-- Apply is synchronous with a five-minute download/install deadline; a slow link
-  can time out and nothing is changed. The fleet review applies one machine at a
-  time; batch apply and a controller-side artifact mirror are future work.
+- The connector downloads the artifact from `registry.npmjs.org`, or from the
+  controller's mirror when that is on and the registry is unreachable. The
+  controller must reach the registry to cache the artifact; a machine with
+  neither access still cannot apply it.
+- Apply is synchronous. The registry download is capped at five minutes and the
+  mirror leg at fifteen, inside a twenty-minute apply; a slow link can time out
+  and nothing is changed. The fleet review applies one machine at a time; a batch
+  applies install and update only, one machine at a time. The connector does not
+  resume a partial download, and the mirror serves one reviewed version.
 - Integrity is verified at install. A launch checks the binary's recorded size,
   not its full hash, on every run.
 - The checks use fake artifacts and temporary homes; no physical machine, live

@@ -302,6 +302,9 @@ type SoftwareApplyResult struct {
 	Previous string              `json:"previous,omitempty"`
 	Reason   SoftwareApplyReason `json:"reason,omitempty"`
 	Entry    *SoftwareEntry      `json:"entry,omitempty"`
+	// Source is where the archive came from: "registry", "mirror", or
+	// "registry+mirror" when both were tried and neither worked.
+	Source string `json:"source,omitempty"`
 }
 
 func (SoftwareApplyResult) kind() string { return "software_apply_result" }

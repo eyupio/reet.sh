@@ -85,6 +85,8 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (path === '/api/v2/profile') return json({ user: owner, sessionCount: 3, accounts: true, profile: { theme: 'system', timezone: 'Europe/London', dateFormat: '', shelfView: 'list', cardsExpanded: false, hostedPrefix: 'reet-', updatedAt: now } })
     if (path === '/api/v2/profile/model-favourites') return json({ version: 0, favourites: [] })
     if (path === '/api/v2/settings/yolo') return json({ allowed: true, changedBy: 'Owner', changedAt: now })
+    if (path === '/api/v2/settings/software-mirror' && method === 'GET') return json({ enabled: false, cached: false })
+    if (path === '/api/v2/software/batches/active') return json(null)
     if (/^\/api\/v2\/machines\/[^/]+\/models$/.test(path)) return json({ tool: url.searchParams.get('tool') || 'opencode', state: 'listed', models: [{ id: 'anthropic/claude-sonnet-4-5', provider: 'anthropic' }, { id: 'openai/gpt-5', provider: 'openai' }], more: false, source: 'opencode models', version: '', fetchedAt: now, checkedAt: now, reason: '', sentence: '' })
     if (/^\/api\/v2\/machines\/[^/]+\/models\/refresh$/.test(path)) return json({ tool: 'opencode', state: 'listed', models: [{ id: 'anthropic/claude-sonnet-4-5', provider: 'anthropic' }, { id: 'openai/gpt-5', provider: 'openai' }], more: false, source: 'opencode models', version: '', fetchedAt: now, checkedAt: now, reason: '', sentence: '' })
     if (path === '/api/version') return json({ version: 'v1.4.2', commit: 'fixture' })

@@ -71,6 +71,27 @@ func NewClient(address string) (*Client, error) {
 // must not be replaced; the client never falls back to ordinary networking.
 func (c *Client) HTTPClient() *http.Client { return c.http }
 
+// WithHeaderTimeout returns a copy of base whose transport waits up to
+// timeout for response headers instead of the control-plane default. It is for
+// a request the controller may legitimately take a long time to start
+// answering, such as a cold artifact cache. The copy dials through the same
+// private connection and, like base, never falls back to ordinary networking;
+// a base that is not a private client is returned unchanged.
+func WithHeaderTimeout(base *http.Client, timeout time.Duration) *http.Client {
+	if base == nil {
+		return nil
+	}
+	transport, ok := base.Transport.(*http.Transport)
+	if !ok {
+		return base
+	}
+	clone := transport.Clone()
+	clone.ResponseHeaderTimeout = timeout
+	copied := *base
+	copied.Transport = clone
+	return &copied
+}
+
 func (c *Client) dial(ctx context.Context, _, _ string) (net.Conn, error) {
 	if c.closed.Load() {
 		return nil, net.ErrClosed

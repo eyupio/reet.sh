@@ -121,6 +121,13 @@ func TestFakeACP(t *testing.T) {
 				mode = "plan"
 			}
 			session = "ses_fake_1"
+			if scenario == "question-early" {
+				// Asked while the chat is still starting, before session/new has answered.
+				send(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "elicitation/create", "params": map[string]any{
+					"mode": "form", "sessionId": session, "message": "Too early?",
+					"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{"a": map[string]any{"type": "string", "title": "A"}}}}})
+				time.Sleep(50 * time.Millisecond)
+			}
 			reply(message.ID, map[string]any{"sessionId": session, "configOptions": []map[string]any{
 				{"id": "model", "currentValue": "stub/model"},
 				{"id": "mode", "currentValue": mode},

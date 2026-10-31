@@ -166,8 +166,9 @@ decided summary), covered by `chat.test.mjs` and `chat.e2e.mjs`. Also done: the 
 queue of open questions and publishes the first, truncated, with a count of the rest; Home and the bell show it with
 "Answer in chat"). A connector test refuses a question answer unless the connection negotiated both `acp-v1` and
 `acp-question-v1`. Old-peer fixtures cover an old peer's capabilities carrying no questions, and a machine or agent
-offering only half being refused before anything is sent or stored. Still not done: questions asked before the session
-exists, the concurrent-tab fixture, and the
+offering only half being refused before anything is sent or stored. A question asked before the chat is ready is
+cancelled with its own notice and never held or attached (holding startup questions is deferred). Still not done: the
+concurrent-tab fixture (in review) and the
 touch-device and screen-reader checks. Nothing sends a question yet.
 
 ## SC4 — Integrate the second adapter

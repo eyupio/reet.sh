@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -20,22 +21,26 @@ import (
 // checksum or member name from the controller: this table is the whole set of
 // things it will download.
 type Artifact struct {
-	URL          string
-	SHA512       string // base64, as npm records it without the sha512- prefix
-	BinarySHA256 string // hex
-	BinarySize   int64
-	Member       string // the one regular file extracted from the archive
+	URL           string
+	ArchiveSHA256 string // hex, the content address a controller mirror serves under
+	ArchiveSize   int64
+	SHA512        string // base64, as npm records it without the sha512- prefix
+	BinarySHA256  string // hex
+	BinarySize    int64
+	Member        string // the one regular file extracted from the archive
 }
 
 // OpenCodeLinuxX64 is the archive the probe verified for OpenCode 1.19.5. The
 // platform package contains only package.json and the binary; the binary is a
 // single-file Bun executable.
 var OpenCodeLinuxX64 = Artifact{
-	URL:          "https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.19.5.tgz",
-	SHA512:       "i1qh7VooLGML9xX6ud93y0JA8j/1aPeDYRKjsmYXrJX1TjIWHgBBMkEbEJPZthpWbsJg//XfBgR6Kb7+NPaJiQ==",
-	BinarySHA256: "7df4e4136301f16589b0f30bf91a61380fca5f8ef22dd36570f5ebe1d4ec802c",
-	BinarySize:   214386864,
-	Member:       "package/bin/opencode",
+	URL:           "https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.19.5.tgz",
+	ArchiveSHA256: "2d7cfc303decc6cbbcdb22ff1be258b03ce2b5eae57583545afc8f12c01dd5e0",
+	ArchiveSize:   79136190,
+	SHA512:        "i1qh7VooLGML9xX6ud93y0JA8j/1aPeDYRKjsmYXrJX1TjIWHgBBMkEbEJPZthpWbsJg//XfBgR6Kb7+NPaJiQ==",
+	BinarySHA256:  "7df4e4136301f16589b0f30bf91a61380fca5f8ef22dd36570f5ebe1d4ec802c",
+	BinarySize:    214386864,
+	Member:        "package/bin/opencode",
 }
 
 // MaxArtifactBytes bounds one downloaded archive. The reviewed binary is about
@@ -65,15 +70,26 @@ type Staged struct {
 // executes the binary or an installer. dir holds both temporary files and must
 // be on the same filesystem as the eventual install for an atomic rename.
 func StageTarball(ctx context.Context, client *http.Client, dir string, artifact Artifact) (Staged, error) {
-	if dir == "" || artifact.URL == "" || artifact.Member == "" || artifact.SHA512 == "" || artifact.BinarySHA256 == "" || artifact.BinarySize <= 0 {
+	return StageTarballFrom(ctx, client, dir, artifact, artifact.URL, nil)
+}
+
+// StageTarballFrom is StageTarball from url instead of artifact.URL. A
+// controller mirror serves the same archive under a different address; the
+// archive and member are still verified against artifact. header, when set,
+// is sent with the request; the mirror needs the machine's enrollment.
+func StageTarballFrom(ctx context.Context, client *http.Client, dir string, artifact Artifact, url string, header http.Header) (Staged, error) {
+	if dir == "" || url == "" || artifact.Member == "" || artifact.SHA512 == "" || artifact.BinarySHA256 == "" || artifact.BinarySize <= 0 {
 		return Staged{}, ErrArtifactShape
 	}
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Minute}
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, artifact.URL, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return Staged{}, ErrArtifactDownload
+	}
+	for name, values := range header {
+		request.Header[name] = append([]string(nil), values...)
 	}
 	response, err := client.Do(request)
 	if err != nil {
@@ -171,4 +187,65 @@ func stageBinary(dir string, reader io.Reader, artifact Artifact) (Staged, error
 		return Staged{}, err
 	}
 	return Staged{Path: path, SHA512: artifact.SHA512, BinarySHA256: artifact.BinarySHA256, Size: artifact.BinarySize, Artifact: artifact}, nil
+}
+
+// CheckTarball verifies a downloaded archive at path against artifact: its
+// size, sha256 and sha512, and the one member's type, size and sha256. It
+// writes nothing.
+func CheckTarball(path string, artifact Artifact) error {
+	if artifact.ArchiveSHA256 == "" || artifact.ArchiveSize <= 0 || artifact.Member == "" || artifact.SHA512 == "" || artifact.BinarySHA256 == "" || artifact.BinarySize <= 0 {
+		return ErrArtifactShape
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h256, h512 := sha256.New(), sha512.New()
+	written, err := io.Copy(io.MultiWriter(h256, h512), io.LimitReader(f, artifact.ArchiveSize+1))
+	if err != nil {
+		return ErrArtifactDownload
+	}
+	if written != artifact.ArchiveSize {
+		return ErrArtifactShape
+	}
+	if !strings.EqualFold(hex.EncodeToString(h256.Sum(nil)), artifact.ArchiveSHA256) {
+		return ErrArtifactChecksum
+	}
+	if base64.StdEncoding.EncodeToString(h512.Sum(nil)) != artifact.SHA512 {
+		return ErrArtifactChecksum
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	compressed, err := gzip.NewReader(f)
+	if err != nil {
+		return ErrArtifactShape
+	}
+	defer compressed.Close()
+	entries := tar.NewReader(compressed)
+	for {
+		header, err := entries.Next()
+		if errors.Is(err, io.EOF) {
+			return ErrArtifactShape
+		}
+		if err != nil {
+			return ErrArtifactShape
+		}
+		if header.Name != artifact.Member {
+			continue
+		}
+		if header.Typeflag != tar.TypeReg || header.Size != artifact.BinarySize {
+			return ErrArtifactShape
+		}
+		hash := sha256.New()
+		n, err := io.Copy(hash, io.LimitReader(entries, artifact.BinarySize+1))
+		if err != nil {
+			return ErrArtifactShape
+		}
+		if n != artifact.BinarySize || !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), artifact.BinarySHA256) {
+			return ErrArtifactChecksum
+		}
+		return nil
+	}
 }

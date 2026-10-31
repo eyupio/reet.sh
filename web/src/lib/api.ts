@@ -412,6 +412,17 @@ export async function getAdminStatus(): Promise<AdminStatus> {
 export async function saveAdminSettings(settings: { refreshEnabled?: boolean; topicsEnabled?: boolean; linkListsEnabled?: boolean; rollupIndividual?: boolean; pruneServerEnvironmentsDays?: number; instanceName?: string }): Promise<void> {
   await req('/api/admin/settings', { method: 'PATCH', body: json(settings) })
 }
+export type SoftwareMirrorStatus = { enabled: boolean; cached: boolean; size?: number; digest?: string; version?: string; changedBy?: string; changedAt?: number }
+export async function getSoftwareMirror(): Promise<SoftwareMirrorStatus> {
+  return (await req('/api/v2/settings/software-mirror')).json()
+}
+export async function setSoftwareMirror(enabled: boolean): Promise<SoftwareMirrorStatus> {
+  return (await req('/api/v2/settings/software-mirror', { method: 'PUT', body: json({ enabled }) })).json()
+}
+export async function cacheSoftwareMirror(): Promise<SoftwareMirrorStatus> {
+  return (await req('/api/v2/settings/software-mirror/cache', { method: 'POST' })).json()
+}
+
 export type YoloSetting = { allowed: boolean; changedBy?: string; changedAt?: number }
 export async function getYoloSetting(): Promise<YoloSetting> {
   return (await req('/api/v2/settings/yolo')).json()

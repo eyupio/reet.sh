@@ -335,6 +335,8 @@ func serve() error {
 	}
 	// Project runs interrupted by the last stop continue their pending members.
 	h.ResumeProjectRuns(ctx)
+	// Software batches interrupted by the last stop continue their pending machines.
+	h.ResumeSoftwareBatches(ctx)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", h)
 	mux.Handle("/quick", h)

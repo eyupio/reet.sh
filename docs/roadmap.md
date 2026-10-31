@@ -8,14 +8,16 @@ Next, in this order:
 
 - **Structured chats across agents.** OpenCode's reet TUI is available. Per-agent capability reporting and tool-bound continuation prepare the next integration without enabling unverified adapters. Claude Code's adapter has been probed (approvals, questions, cancellation, history, models) but stays disabled until its repository-hook and process-retirement gaps are closed. Next: close those gaps, verify the Codex adapter, then add typed agent questions and extend recovery. See the [implementation plan](structured-chat-plan.md).
 
-- **Reviewed batch agent maintenance.** reet installs, updates, rolls back and removes its own OpenCode copy on Linux from one verified 1.19.5 artifact, keeps it beside any system installation, recovers after a restart, and reviews each machine's plan side by side, applying one pilot machine at a time. Next: a reviewed batch across machines with a pilot order, and a controller-side artifact mirror for offline machines.
+- **Richer run orchestration.** More control over agent runs than opening a terminal session and continuing it later.
 
 Later:
 
-- **Richer run orchestration.** More control over agent runs than opening a terminal session and continuing it later.
 - **Fleet-wide agent configuration.** Configure agents across the whole fleet from one place. Today skills and setups are synced and restored per machine, with a reviewed plan before anything changes.
+- **Batch maintenance for every action.** Extend the reviewed batch beyond install and update to rollback and remove, keeping the destructive actions behind typed confirmation.
+- **Mirror resilience.** Resume a partial download and let an account prefer the controller's artifact mirror over the registry; today the registry is tried first and a download is not resumed.
 
 Copy and paste (text and images), structured OpenCode chats, YOLO sessions, **Needs you** (`attention-v1`), inline
-approvals on Home, **agent software** (OpenCode install/update/rollback/remove and restart recovery, with a fleet review
-and pilot apply) and **model defaults** (Make default in every model picker, live model switching and clearer provider
-errors) have shipped; see the merged pull requests.
+approvals on Home, **agent software** (OpenCode install/update/rollback/remove and restart recovery, with a fleet review,
+a reviewed batch apply with a pilot order, one-machine-at-a-time apply, and a controller-side artifact mirror for
+machines without registry access) and **model defaults** (Make default in every
+model picker, live model switching and clearer provider errors) have shipped; see the merged pull requests.

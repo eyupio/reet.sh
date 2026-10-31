@@ -7,10 +7,11 @@
   import { effortChoices, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
   import { installPrompt } from '../install'
   import { insertSkillPrompt } from '../skillPrompt'
+  import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from '../terminal/upload'
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import SkillPromptPicker from './SkillPromptPicker.svelte'
   import { initialChoice, startable, toCreate, withAgent, withProject, type LaunchChoice, type LaunchCreate, type LaunchDefaults } from '../launchBar'
-  import { createTerminal, machineModels, structuredAgent, TerminalError, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { createTerminal, launchUpload, machineModels, refusalSentence, structuredAgent, TerminalError, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
 
   // Starts a session straight from the Active column. The interface choice is the launch bar's own: the reet TUI is the default
   // wherever the machine offers it, and the agent's own TUI is one click away. Everything else (defaults, refusals, the one
@@ -25,7 +26,7 @@
   let dialog = $state<HTMLDialogElement>()
   let busy = $state(false), message = $state('')
   // Kept while a start's outcome is unknown, so Retry asks about the same request and cannot start a second agent.
-  let request: (LaunchCreate & { structured: boolean }) | null = null
+  let request: (LaunchCreate & { structured: boolean }) | null = null, requestPrompt = ''
   const first = (): LaunchChoice => {
     const options = { machines }
     const start = initialChoice(projects, profile, options)
@@ -78,6 +79,43 @@
     void tick().then(() => { promptInput?.focus(); promptInput?.setSelectionRange(inserted.caret, inserted.caret) })
   }
 
+  // Images pasted, dropped or chosen before a start live only in this page; each is uploaded to the machine as the session
+  // starts and its path joins the opening prompt (the launch bar's way).
+  type Attachment = { id: number; file: File; preview: string }
+  let attachments = $state<Attachment[]>([]), attachmentSeq = 0
+  const imagesReason = $derived.by(() => {
+    if (!attachments.length) return ''
+    if (!machine?.capabilities) return ''
+    if (!machine.capabilities.uploads) return machine.capabilities.uploadsOff ? 'Image uploads are off on this machine.' : 'Update reet on that machine to attach images.'
+    return ''
+  })
+  function addImages(files: File[]) {
+    if (busy || !files.length) return
+    const accepted: Attachment[] = [], reasons: string[] = []
+    let count = attachments.length, bytes = attachments.reduce((t, a) => t + a.file.size, 0)
+    for (const file of files) {
+      if (count >= MAX_IMAGES) { reasons.push(`Attach at most ${MAX_IMAGES} images.`); break }
+      if (bytes + file.size > MAX_IMAGE_TOTAL_BYTES) { reasons.push('Those images are larger than 50 MiB together.'); break }
+      const check = validateImage({ type: file.type, size: file.size })
+      if (!check.ok) { reasons.push(check.reason === 'empty' ? 'That image is empty.' : check.reason === 'size' ? 'That image is larger than 5 MiB.' : 'Attach a PNG, JPEG, GIF or WebP image.'); continue }
+      accepted.push({ id: ++attachmentSeq, file, preview: URL.createObjectURL(file) })
+      count++; bytes += file.size
+    }
+    if (accepted.length) attachments = [...attachments, ...accepted]
+    message = reasons.length === 1 ? reasons[0] : reasons.length ? `${reasons.length} images were refused. ${reasons[0]}` : ''
+  }
+  function removeImage(id: number) {
+    const item = attachments.find(x => x.id === id)
+    if (item) URL.revokeObjectURL(item.preview)
+    attachments = attachments.filter(x => x.id !== id)
+    message = ''
+  }
+  function pasted(event: ClipboardEvent) {
+    const files = imageFiles(event.clipboardData?.items)
+    if (!files.length) return
+    event.preventDefault(); addImages(files)
+  }
+
   function pickProject(value: string) {
     const next = projects.find(p => p.id === value)
     if (next) choice = withProject(choice, next, profile, { machines })
@@ -88,16 +126,37 @@
   async function start(event: SubmitEvent) {
     event.preventDefault()
     if (busy || why) { if (why) message = why; return }
-    if (!request || request.launch.prompt !== (choice.prompt || undefined)) {
-      const made = toCreate(choice, project, crypto.randomUUID(), crypto.randomUUID().replaceAll('-', ''), profile)
-      request = { ...made, structured: !!made.launch.structured }
+    if (imagesReason) { message = imagesReason; return }
+    let made: LaunchCreate | null = null
+    if (!request || requestPrompt !== choice.prompt) made = toCreate(choice, project, crypto.randomUUID(), crypto.randomUUID().replaceAll('-', ''), profile)
+    if (made && attachments.length) {
+      // The images go to the machine before the session exists; their paths join the opening prompt.
+      busy = true
+      const references: string[] = []
+      try {
+        for (let i = 0; i < attachments.length; i++) {
+          message = attachments.length === 1 ? 'Attaching the image…' : `Attaching image ${i + 1} of ${attachments.length}…`
+          references.push((await launchUpload(made.agentId, attachments[i].file, life.signal)).reference)
+        }
+      } catch (e) {
+        busy = false
+        if (life.signal.aborted) return
+        if (e instanceof TerminalError && e.status === 401) { onsignedout(new UnauthorizedError()); return }
+        message = `Couldn't attach that image. ${refusalSentence(e)}`
+        return
+      }
+      if (life.signal.aborted) return
+      made.launch.prompt = imagePrompt(made.launch.prompt ?? '', references)
     }
-    const op = request
+    if (made) { request = { ...made, structured: !!made.launch.structured }; requestPrompt = choice.prompt }
+    const op = request!
     busy = true; message = `Starting ${toolName(op.launch.tool)}…`
     try {
       const session = await createTerminal(op.agentId, op.requestId, op.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(op.structured ? 60000 : 15000)]), op.launch)
       if (life.signal.aborted) return
       request = null
+      for (const a of attachments) URL.revokeObjectURL(a.preview)
+      attachments = []
       const notStarted = notStartedText(session.state)
       if (notStarted) { message = notStarted; return }
       onstarted(session)
@@ -114,7 +173,7 @@
   onMount(() => {
     touch = matchMedia('(pointer: coarse)').matches
     listModelFavourites(life.signal).then(a => { if (!life.signal.aborted) favourites = a.favourites ?? [] }, () => { /* a help only */ })
-    dialog?.showModal(); return () => { life.abort(); dialog?.close() } })
+    dialog?.showModal(); return () => { life.abort(); dialog?.close(); for (const a of attachments) URL.revokeObjectURL(a.preview) } })
 </script>
 
 <dialog bind:this={dialog} use:shell={{ sheet: 'bottom' }} aria-labelledby={`${id}-title`} oncancel={e => { e.preventDefault(); close() }}>
@@ -155,18 +214,26 @@
               <button type="button" class="picker" bind:this={effortButton} aria-label={`Effort: ${choice.effort || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={effortOpen} disabled={!takesEffort} title={takesEffort ? '' : `${toolName(choice.agent)} chooses its own effort.`} onclick={() => effortOpen = !effortOpen}><span class="value">{takesEffort ? choice.effort || 'Agent default' : 'This agent decides'}</span>{#if takesEffort}<span class="chev" aria-hidden="true">▾</span>{/if}</button></div>
           </div>
           <label class="field"><span>Prompt <small>Optional</small></span>
-            <textarea bind:this={promptInput} aria-label="Prompt" rows="4" bind:value={choice.prompt} placeholder="What should the agent do?"></textarea></label>
-          <div class="tools"><button type="button" class="skill-add" bind:this={skillButton} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button></div>
+            <textarea bind:this={promptInput} aria-label="Prompt" rows="4" bind:value={choice.prompt} onpaste={pasted} placeholder="What should the agent do?"></textarea></label>
+          <div class="tools"><button type="button" class="skill-add" bind:this={skillButton} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button>
+            <label class="attach">＋ Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={e => { addImages(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }} /></label></div>
+          {#if attachments.length}
+            <ul class="attachments" aria-label="Images to attach">
+              {#each attachments as item (item.id)}
+                <li><img src={item.preview} alt="" /><span>{item.file.name || 'image'} · {formatImageSize(item.file.size)}</span><button type="button" aria-label={`Remove ${item.file.name || 'image'}`} onclick={() => removeImage(item.id)}>×</button></li>
+              {/each}
+            </ul>
+          {/if}
           {#if chat}
             <label class="trust"><input type="checkbox" checked={choice.trust === true} onchange={e => choice = { ...choice, trust: e.currentTarget.checked }} />I trust this folder. OpenCode plugins in it may run.</label>
           {/if}
         </fieldset>
       {/if}
-      {#if message || (why && projects.length)}<p class="note" role="status">{message || why}</p>{/if}
+      {#if message || imagesReason || (why && projects.length)}<p class="note" role="status">{message || imagesReason || why}</p>{/if}
     </div>
     <footer data-shell-foot>
       <button type="button" class="btn" onclick={close} disabled={busy}>Cancel</button>
-      <button class="btn primary" disabled={busy || !projects.length || !!why}>{busy ? 'Starting…' : 'Start'}</button>
+      <button class="btn primary" disabled={busy || !projects.length || !!why || !!imagesReason}>{busy ? 'Starting…' : 'Start'}</button>
     </footer>
   </form>
   {#if modelOpen}
@@ -208,7 +275,15 @@
   .picker:disabled { opacity: .55; cursor: default; }
   .picker .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .picker .chev { flex: none; color: var(--muted); }
-  .tools { margin: -8px 0 14px; }
+  .tools { margin: -8px 0 14px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  .attach { position: relative; padding: 7px 0; color: var(--accent-text); font: 600 11px var(--sans); cursor: pointer; }
+  .attach input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+  .attach:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; padding: 0; list-style: none; }
+  .attachments li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font-size: 11px; max-width: 100%; }
+  .attachments img { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; }
+  .attachments span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .attachments button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; min-width: 28px; }
   .skill-add { border: 0; background: none; padding: 7px 0; color: var(--accent-text); font: 600 11px var(--sans); cursor: pointer; }
   .skill-add:hover { text-decoration: underline; }
   .trust { display: flex; align-items: center; gap: 8px; font-size: 12px; }

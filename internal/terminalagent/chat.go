@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -17,10 +18,16 @@ import (
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
+// errAttachmentUnavailable means a prompt named an image the machine cannot
+// safely read from its own upload folders.
+var errAttachmentUnavailable = errors.New("that image is not available on this machine")
+
 // chatProcess is the part of an ACP chat the connector drives. Tests use it to
 // exercise the dispatch without a real agent install.
 type chatProcess interface {
 	Prompt(context.Context, string) error
+	PromptWithAttachments(context.Context, string, []acpagent.Attachment) error
+	ImagesSupported() bool
 	Cancel() error
 	Allow(string, bool) error
 	SessionID() string
@@ -363,7 +370,7 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 	}()
 	if in.Prompt != "" {
 		h.sup.publish(cs, acpagent.Event{Kind: "user", Text: in.Prompt})
-		h.startPrompt(cs, in.Prompt)
+		h.startPrompt(cs, in.Prompt, nil)
 	}
 	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(acpID, h.link.history)}, nil
 }
@@ -421,7 +428,7 @@ func (h *chatHost) find(sessionID string) *chatSession {
 	return h.sup.sessions[sessionID]
 }
 
-func (h *chatHost) startPrompt(cs *chatSession, text string) bool {
+func (h *chatHost) startPrompt(cs *chatSession, text string, images []acpagent.Attachment) bool {
 	h.sup.mu.Lock()
 	if cs.busy || cs.state != terminalproto.Running {
 		h.sup.mu.Unlock()
@@ -433,12 +440,16 @@ func (h *chatHost) startPrompt(cs *chatSession, text string) bool {
 	go func() {
 		defer h.sup.wg.Done()
 		defer func() { h.sup.mu.Lock(); cs.busy = false; h.sup.mu.Unlock() }()
-		_ = cs.process.Prompt(h.sup.ctx, text)
+		if len(images) > 0 {
+			_ = cs.process.PromptWithAttachments(h.sup.ctx, text, images)
+		} else {
+			_ = cs.process.Prompt(h.sup.ctx, text)
+		}
 	}()
 	return true
 }
 
-func (h *chatHost) prompt(sessionID, text string) error {
+func (h *chatHost) prompt(sessionID, text string, paths []string) error {
 	cs := h.find(sessionID)
 	if cs == nil {
 		return terminalhost.ErrSessionMissing
@@ -449,10 +460,85 @@ func (h *chatHost) prompt(sessionID, text string) error {
 	if state != terminalproto.Running {
 		return terminalhost.ErrOperationConflict
 	}
-	if !h.startPrompt(cs, text) {
+	var images []acpagent.Attachment
+	if len(paths) > 0 {
+		if cs.process == nil || !cs.process.ImagesSupported() {
+			return errAttachmentUnavailable
+		}
+		var err error
+		images, err = h.sup.readAttachments(paths)
+		if err != nil {
+			return err
+		}
+	}
+	if !h.startPrompt(cs, text, images) {
 		return terminalhost.ErrOperationConflict
 	}
 	return nil
+}
+
+// attachmentRoots are the only folders a prompt may read an image from. Both
+// are private to this connector; a controller can never use an image path to
+// read another file on the machine.
+func (s *chatSupervisor) attachmentRoots() []string {
+	if s.opts.Layout.Dir == "" || !filepath.IsAbs(s.opts.Layout.Dir) {
+		return nil
+	}
+	return []string{
+		filepath.Join(s.opts.Layout.Dir, "launch-uploads"),
+		filepath.Join(s.opts.Layout.Dir, "uploads"),
+	}
+}
+
+// readAttachments turns upload paths into the bytes embedded in an ACP prompt.
+// It refuses a path outside the upload roots, a symlink escape, a non-image,
+// or a file over the upload limit before the agent sees any of it.
+func (s *chatSupervisor) readAttachments(paths []string) ([]acpagent.Attachment, error) {
+	roots := s.attachmentRoots()
+	if len(roots) == 0 {
+		return nil, errAttachmentUnavailable
+	}
+	images := make([]acpagent.Attachment, 0, len(paths))
+	for _, path := range paths {
+		clean := filepath.Clean(path)
+		if !filepath.IsAbs(clean) {
+			return nil, errAttachmentUnavailable
+		}
+		resolved, err := filepath.EvalSymlinks(clean)
+		if err != nil {
+			return nil, errAttachmentUnavailable
+		}
+		if !underAnyRoot(resolved, roots) {
+			return nil, errAttachmentUnavailable
+		}
+		info, err := os.Stat(resolved)
+		if err != nil || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > terminalproto.MaxUploadBytes {
+			return nil, errAttachmentUnavailable
+		}
+		data, err := os.ReadFile(resolved)
+		if err != nil || int64(len(data)) != info.Size() {
+			return nil, errAttachmentUnavailable
+		}
+		mime, _, ok := terminalproto.SniffUploadMIME(data)
+		if !ok {
+			return nil, errAttachmentUnavailable
+		}
+		images = append(images, acpagent.Attachment{MIME: mime, Data: data})
+	}
+	return images, nil
+}
+
+func underAnyRoot(path string, roots []string) bool {
+	for _, root := range roots {
+		resolved, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(path, resolved+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *chatHost) cancel(sessionID string) error {

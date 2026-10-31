@@ -54,6 +54,7 @@ type AgentConfig struct {
 	yoloAllowed       bool
 	acp               bool
 	acpHistory        bool
+	acpImages         bool
 	shellDir          bool
 	attention         bool
 	OnConnection      func(bool)
@@ -700,6 +701,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.models = terminalproto.SupportsModels(advertised)
 	cfg.acp = terminalproto.SupportsACP(advertised)
 	cfg.acpHistory = terminalproto.SupportsACPHistory(advertised)
+	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
 	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
 	cfg.attention = terminalproto.SupportsAttention(advertised)
 }
@@ -751,6 +753,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpHistory {
 		features = append(features, terminalproto.ACPHistoryFeature)
+	}
+	if cfg.acpImages {
+		features = append(features, terminalproto.ACPImageFeature)
 	}
 	if cfg.shellDir {
 		features = append(features, terminalproto.ShellDirFeature)
@@ -837,6 +842,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ModelsOff:       cfg.models && control && enabled && !cfg.modelsAllowed,
 		ACP:             acp,
 		ACPHistory:      acp && cfg.acpHistory,
+		ACPImages:       acp && cfg.acpImages,
 		ShellDir:        cfg.shellDir && control && enabled,
 		Attention:       cfg.attention && control,
 		Branches:        cfg.branches && worktree && enabled,

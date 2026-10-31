@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -23,6 +24,9 @@ var (
 	// ErrACPHistoryUnsupported means the machine's connector predates
 	// acp-history-v1, so it cannot report or resume an OpenCode session id.
 	ErrACPHistoryUnsupported = errors.New("that machine cannot reopen chat history")
+	// ErrACPImagesUnsupported means the machine's connector predates
+	// acp-image-v1, so it cannot pass an image to the agent with a prompt.
+	ErrACPImagesUnsupported = errors.New("that machine cannot send images with a chat message")
 )
 
 // ACPTrustError means the folder has OpenCode plugins and the start did not
@@ -514,8 +518,8 @@ func (b *Broker) structuredSession(uid int64, session string) (store.TerminalSes
 	return s, nil
 }
 
-func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string) error {
-	if !terminalproto.ValidChatPrompt(text) {
+func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string, images []string) error {
+	if !terminalproto.ValidACPPrompt(text, images) {
 		return terminalproto.ErrInvalid
 	}
 	s, err := b.structuredSession(uid, session)
@@ -526,8 +530,21 @@ func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string
 	if err != nil {
 		return err
 	}
-	b.chatLog(uid, session).publish(terminalproto.ACPEvent{Kind: "user", Text: text})
-	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &terminalproto.ACPPrompt{Text: text}}, chatCallTimeout)
+	if len(images) > 0 {
+		caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID)
+		if err != nil || caps.Generation != p.Generation {
+			return ErrOffline
+		}
+		if !caps.Capabilities.ACPImages {
+			return ErrACPImagesUnsupported
+		}
+	}
+	shown := text
+	if strings.TrimSpace(shown) == "" && len(images) > 0 {
+		shown = "Image attached."
+	}
+	b.chatLog(uid, session).publish(terminalproto.ACPEvent{Kind: "user", Text: shown})
+	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &terminalproto.ACPPrompt{Text: text, Images: images}}, chatCallTimeout)
 	if ack := chatAck(reply, err); ack != nil {
 		text := "That message was not sent to OpenCode."
 		var lost errReplyLost

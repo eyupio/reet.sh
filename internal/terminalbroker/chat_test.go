@@ -93,7 +93,7 @@ func TestChatPromptPublishesUserAndAcceptsMachineEvent(t *testing.T) {
 	if len(snapshot) != 0 {
 		t.Fatalf("new chat has %d events", len(snapshot))
 	}
-	if err := b.PromptChat(t.Context(), uid, s.ID, "hello"); err != nil {
+	if err := b.PromptChat(t.Context(), uid, s.ID, "hello", nil); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -124,11 +124,11 @@ func TestChatRejectsPlainSessionsAndOtherAccounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.PromptChat(t.Context(), uid, plain.ID, "hello"); !errors.Is(err, ErrACPUnsupported) {
+	if err := b.PromptChat(t.Context(), uid, plain.ID, "hello", nil); !errors.Is(err, ErrACPUnsupported) {
 		t.Fatalf("plain: %v", err)
 	}
 	s := chatSession(t, b, uid, agent)
-	if err := b.PromptChat(t.Context(), uid+1, s.ID, "hello"); err == nil {
+	if err := b.PromptChat(t.Context(), uid+1, s.ID, "hello", nil); err == nil {
 		t.Fatal("other account accepted")
 	}
 }

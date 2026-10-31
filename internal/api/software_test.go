@@ -137,6 +137,14 @@ func TestMachineSoftwarePlanRefusals(t *testing.T) {
 	if code != http.StatusConflict || reason != "software_action_mismatch" {
 		t.Fatalf("install when installed: %d %s", code, reason)
 	}
+	code, reason, _ = call("tool=claude&action=update")
+	if code != http.StatusConflict || reason != "software_unsupported" {
+		t.Fatalf("known tool without evidence: %d %s", code, reason)
+	}
+	code, reason, _ = call("tool=vim&action=update")
+	if code != http.StatusBadRequest || reason != "software_tool_invalid" {
+		t.Fatalf("unknown tool: %d %s", code, reason)
+	}
 
 	other := httptest.NewRequest(http.MethodGet, "/api/v2/machines/missing/software/plan?action=update", nil)
 	other.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})

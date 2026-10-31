@@ -40,6 +40,10 @@ func (s *server) machineSoftwarePlan(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, http.StatusBadRequest, "software_action_invalid", "", "Choose install, update or remove.", "")
 		return
 	}
+	if !terminalproto.ValidTool(tool) {
+		writeErrCode(w, http.StatusBadRequest, "software_tool_invalid", "", "reet doesn't know that agent.", "")
+		return
+	}
 
 	var host string
 	found := false
@@ -73,7 +77,11 @@ func (s *server) machineSoftwarePlan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if entry == nil {
-		writeErrCode(w, http.StatusConflict, "software_unsupported", "", sentenceSoftwareUpdate, "")
+		if len(caps.Capabilities.Software) == 0 {
+			writeErrCode(w, http.StatusConflict, "software_unsupported", "", sentenceSoftwareUpdate, "")
+			return
+		}
+		writeErrCode(w, http.StatusConflict, "software_unsupported", "", "reet has no reviewed plan for that agent.", "")
 		return
 	}
 	switch entry.State {

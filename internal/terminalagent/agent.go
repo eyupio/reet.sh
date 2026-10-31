@@ -249,6 +249,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
 				}
+			case *terminalproto.ACPMode:
+				if !terminalproto.SupportsACPApproval(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
 			}
 			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Tool == "" && create.Dir != "" && !terminalproto.SupportsShellDir(headers.Get(terminalproto.FeatureHeader)) {
 				reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
@@ -548,6 +552,12 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				return send(callCtx, reply)
 			case *terminalproto.ACPPermission:
 				if err := chats.permission(msg.SessionID, op.PermissionID, op.Allow); err != nil {
+					return respond(err)
+				}
+				reply.Body = terminalproto.Result{Code: terminalproto.OK}
+				return send(callCtx, reply)
+			case *terminalproto.ACPMode:
+				if err := chats.mode(msg.SessionID, op.Yolo); err != nil {
 					return respond(err)
 				}
 				reply.Body = terminalproto.Result{Code: terminalproto.OK}

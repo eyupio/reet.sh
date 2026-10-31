@@ -37,7 +37,10 @@ type Broker struct {
 	tickets map[string]ticket
 	bridges map[string]*Bridge
 	chats   map[chatKey]*chatLog
-	closed  bool
+	// approvals holds the permission signatures a person allowed for the rest
+	// of one chat. It is controller state only and never reaches the machine.
+	approvals map[chatKey]map[string]bool
+	closed    bool
 	// lateRemoved hears of a remove whose ok answer came after its call.
 	lateRemoved func(uid int64, target WorktreeTarget, result terminalproto.WorktreeResult)
 	// lateReplies counts browse and branches answers that came after their
@@ -144,7 +147,7 @@ func ID() string {
 	return hex.EncodeToString(b[:])
 }
 func New(st *store.Store) *Broker {
-	return &Broker{st: st, peers: map[key]*Peer{}, tickets: map[string]ticket{}, bridges: map[string]*Bridge{}, chats: map[chatKey]*chatLog{}}
+	return &Broker{st: st, peers: map[key]*Peer{}, tickets: map[string]ticket{}, bridges: map[string]*Bridge{}, chats: map[chatKey]*chatLog{}, approvals: map[chatKey]map[string]bool{}}
 }
 
 func (b *Broker) Revoke(uid int64, agent string) {
@@ -200,6 +203,7 @@ func (b *Broker) Close() {
 		logs = append(logs, l)
 	}
 	b.chats = map[chatKey]*chatLog{}
+	b.approvals = map[chatKey]map[string]bool{}
 	b.mu.Unlock()
 	for _, l := range logs {
 		l.close()

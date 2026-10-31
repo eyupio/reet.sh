@@ -708,6 +708,24 @@ func permissionID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
+// AllowAllPending answers every card still waiting with Allow once. It is used
+// when a live chat is switched to YOLO: the person has asked reet to stop
+// interrupting, including for the card already on screen.
+func (s *Session) AllowAllPending() error {
+	s.mu.Lock()
+	ids := make([]string, 0, len(s.pending))
+	for id := range s.pending {
+		ids = append(ids, id)
+	}
+	s.mu.Unlock()
+	for _, id := range ids {
+		if err := s.Allow(id, true); err != nil && !errors.Is(err, ErrNoPermission) {
+			return err
+		}
+	}
+	return nil
+}
+
 // Allow answers one card. allow true is Allow once; false is Deny. There is no
 // Always allow, and no answer is remembered for the next tool call.
 func (s *Session) Allow(id string, allow bool) error {

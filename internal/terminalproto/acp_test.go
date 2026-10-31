@@ -19,6 +19,7 @@ func TestACPBodiesRoundTrip(t *testing.T) {
 		"cancel":            &ACPCancel{},
 		"model":             &ACPModel{Model: "ollama-cloud/deepseek-v4"},
 		"permission":        &ACPPermission{PermissionID: "permission-0123456789", Allow: true},
+		"approval mode":     &ACPMode{Yolo: true},
 		"agent":             &ACPEvent{Kind: "agent", MessageID: "msg_1", Text: "hello"},
 		"tool":              &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Status: "completed", Text: "done", Command: "echo ok", Path: "/home/u/a", Diff: "@@ -1 +1 @@\n-a\n+b", Additions: 1, Deletions: 1, DurationMs: 12, Locations: []string{"/home/u/a"}},
 		"permission event":  &ACPEvent{Kind: "permission", PermissionID: "permission-0123456789", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Command: "echo ok", Path: "/home/u/a", Diff: "@@ -0,0 +1 @@\n+x", Truncated: false},
@@ -121,9 +122,19 @@ func TestACPCapabilityNeedsTerminal(t *testing.T) {
 	if c.Validate() != nil {
 		t.Fatal("acp images with acp refused")
 	}
+	c.ACPApproval = true
+	if c.Validate() != nil {
+		t.Fatal("acp approval with terminal control refused")
+	}
 	c.ACP = false
 	if c.Validate() == nil {
 		t.Fatal("acp images without acp accepted")
+	}
+	if c.Validate() == nil {
+		t.Fatal("acp approval without acp accepted")
+	}
+	if !SupportsACPApproval("acp-v1, acp-approval-v1") || SupportsACPApproval("acp-v1") {
+		t.Fatal("approval feature negotiation")
 	}
 }
 

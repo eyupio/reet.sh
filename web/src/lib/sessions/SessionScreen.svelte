@@ -1,13 +1,16 @@
 <script lang="ts">
   import { onMount, tick, type Snippet } from 'svelte'
-  import { getSyncState, type SyncState } from '../api'
+  import { getSyncState, getYoloSetting, type SyncState, type YoloSetting } from '../api'
   import { copyText } from '../clipboard'
   import WorktreeDialog from '../WorktreeDialog.svelte'
   import { fleetCards, stateWord, type FleetCard } from '../home'
   import type { RunMember } from '../projects'
   import { headerMeta, offlineSentence, tabFromMenu, worktreeTargetOf } from '../sessions'
   import { toolName } from '../agentLaunch'
-  import { markSessionSeen, terminalClosed, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { CATALOGUE } from '../catalogue'
+  import YoloDialog from '../launch/YoloDialog.svelte'
+  import { yoloCanStart, type YoloGate } from '../launchBar'
+  import { markSessionSeen, setApprovalMode, terminalClosed, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
 
   // The session screen: the strip of open sessions, the session's header (title, agent · model · started, the state in words
@@ -80,6 +83,34 @@
   const serverOff = $derived(machines.find(m => m.agentId === session.agentId)?.serverEnabled === false)
   const live = $derived(!terminalClosed(session.state))
 
+  // Approvals: a structured chat can switch between asking for every card and YOLO, which answers each one itself.
+  // The account setting, the machine's acceptance and the agent's reviewed option are the same gates as a launch.
+  let approvalMode = $state<ApprovalMode>('ask'), modeFor = ''
+  let yoloSetting = $state<YoloSetting | null | undefined>(undefined)
+  let yoloOpen = $state(false), modeBusy = $state(false)
+  const machineCaps = $derived(machines.find(m => m.agentId === session.agentId)?.capabilities)
+  const canSwitchApproval = $derived(!!session.structured && live && !!machineCaps?.acpApproval)
+  const agentTakesYolo = $derived(!!session.tool && !!CATALOGUE.find(agent => agent.id === session.tool)?.yolo)
+  const switchGates = $derived<YoloGate[]>([
+    { label: 'Your account allows YOLO', ok: yoloSetting?.allowed === true,
+      detail: yoloSetting?.allowed === true ? (yoloSetting.changedBy ? `set by ${yoloSetting.changedBy}` : 'set by an owner') : yoloSetting === null ? 'Couldn’t read the account setting. Reload the page and try again.' : yoloSetting ? 'An owner or admin can allow YOLO for this account in Settings.' : 'Reading the account setting…' },
+    { label: `${host} accepts YOLO sessions`, ok: !!machineCaps?.yolo,
+      detail: machineCaps?.yolo ? 'checked a moment ago' : `${host} doesn't accept YOLO sessions.` },
+    { label: 'This agent has an option reet can use', ok: agentTakesYolo,
+      detail: agentTakesYolo ? 'the option is recorded for this session' : 'This agent has no option reet can use for that.' },
+    { label: 'This chat can switch while it runs', ok: !!machineCaps?.acpApproval,
+      detail: machineCaps?.acpApproval ? 'update reet on the machine if this is ever refused' : 'Update reet on that machine to switch a live chat.' },
+  ])
+  $effect(() => {
+    if (session.id !== modeFor) { modeFor = session.id; approvalMode = session.yolo ? 'yolo' : 'ask' }
+  })
+  onMount(() => {
+    if (!session.structured) return
+    const life = new AbortController()
+    void getYoloSetting().then(value => { if (!life.signal.aborted) yoloSetting = value }).catch(() => { if (!life.signal.aborted) yoloSetting = null })
+    return () => life.abort()
+  })
+
   // Details: the context panel over the terminal under 1100 px (and in theatre view). Escape closes it and focus returns.
   let detailsOpen = $state(false), detailsButton = $state<HTMLButtonElement>()
   // The panel lies over the terminal (a sheet) while Details is shown, i.e. with under 1100 px of room or in theatre view.
@@ -136,6 +167,27 @@
   function openSideTerminal() { if (!onside) return; closeMenu(false); onside() }
 
   let notice = $state<{ text: string; bad?: boolean } | null>(null)
+  async function setMode(next: ApprovalMode) {
+    if (modeBusy || next === approvalMode) return
+    modeBusy = true; notice = null
+    try {
+      await setApprovalMode(session.id, next)
+      approvalMode = next
+      onrefresh()
+    } catch (e) {
+      notice = { text: e instanceof Error && e.message ? e.message : 'That approval mode was not changed.', bad: true }
+    } finally { modeBusy = false }
+  }
+  function askMode() { if (approvalMode === 'yolo') void setMode('ask') }
+  function yoloMode() {
+    if (approvalMode === 'yolo' || modeBusy) return
+    yoloOpen = true
+  }
+  function turnOnYolo() {
+    if (!yoloCanStart(switchGates)) return
+    yoloOpen = false
+    void setMode('yolo')
+  }
   async function copyBranch() {
     const branch = session.worktreeBranch
     closeMenu()
@@ -170,7 +222,13 @@
         <p class="where-phone">{[project, host].filter(Boolean).join(' · ')}</p>
       </div>
       <span class="pill {word.tone}" title={source}><span class="dot" aria-hidden="true"></span>{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
-      {#if session.yolo}<span class="badge yolo">YOLO</span>{/if}
+      {#if canSwitchApproval}
+        <div class="approvals" role="group" aria-label="Approvals">
+          <button type="button" aria-pressed={approvalMode === 'ask'} disabled={busy || modeBusy} onclick={askMode}>Ask me</button>
+          <button type="button" aria-pressed={approvalMode === 'yolo'} disabled={busy || modeBusy}
+            title={yoloCanStart(switchGates) ? 'Answer every approval for this session' : 'Read why YOLO is not ready here'} onclick={yoloMode}>YOLO</button>
+        </div>
+      {:else if session.yolo}<span class="badge yolo">YOLO</span>{/if}
       <div class="view" role="group" aria-label="View">
         <button type="button" class="chat" aria-pressed={chatView} aria-disabled={!chatView} aria-describedby={chatView ? undefined : `${id}-chat-why`} title={chatView ? undefined : CHAT_WHY}>reet TUI</button>
         <button type="button" aria-pressed={!chatView} aria-disabled={chatView} aria-describedby={chatView ? `${id}-terminal-why` : undefined} title={chatView ? TERMINAL_WHY : undefined}>{terminalLabel}</button>
@@ -202,6 +260,9 @@
     {#if oncontinue}<button role="menuitem" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue in reet TUI with history…' : 'Continue session…'}</button>{/if}
     {#if onterminal}<button role="menuitem" disabled={busy} onclick={openTerminal}>Open a terminal here…</button>{/if}
     {#if onside}<button role="menuitem" disabled={busy} onclick={openSideTerminal}>Open a terminal beside this session…</button>{/if}
+    {#if canSwitchApproval}
+      <button role="menuitem" disabled={busy || modeBusy} onclick={() => { closeMenu(false); if (approvalMode === 'yolo') askMode(); else yoloMode() }}>{approvalMode === 'yolo' ? 'Switch to Ask me' : 'Turn on YOLO…'}</button>
+    {/if}
     <button role="menuitem" disabled={busy || serverOff} onclick={() => act('rename')}>Rename…</button>
     <button role="menuitem" onclick={theatreView}>{theatre ? 'Exit theatre view' : 'Theatre view'}</button>
     {#if session.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}
@@ -212,6 +273,10 @@
 {/if}
 {#if removing}
   <WorktreeDialog member={removing} {host} opener={menuButton ?? null} onremoved={onrefresh} {onsignedout} onclose={() => (removing = null)} />
+{/if}
+{#if yoloOpen}
+  <YoloDialog gates={switchGates} tool={session.tool ?? ''} structured machine={host} switching
+    onstart={turnOnYolo} oncancel={() => (yoloOpen = false)} />
 {/if}
 
 <style>
@@ -242,6 +307,13 @@
   .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
   .badge { flex: none; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 99px; font-size: 12px; line-height: 22px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }
+  .approvals { flex: none; display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .approvals button { padding: 7px 12px; border: 0; background: none; color: var(--muted); font: 400 13px var(--sans); cursor: pointer; }
+  .approvals button[aria-pressed=true] { color: var(--ink); font-weight: 600; }
+  .approvals button[aria-pressed=true]:first-child { background: var(--line-soft); }
+  .approvals button[aria-pressed=true]:last-child { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+  .approvals button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+  .approvals button:disabled { opacity: .5; cursor: default; }
   .view { flex: none; display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
   .view button { padding: 7px 16px; border: 0; background: none; color: var(--muted); font: 400 14px var(--sans); cursor: pointer; }
   .view button[aria-pressed=true] { background: var(--line-soft); color: var(--ink); font-weight: 500; cursor: default; }
@@ -261,7 +333,7 @@
   .menu [role=menuitem]:disabled { opacity: .45; cursor: default; }
   .menu .danger { color: var(--bad); }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  @media (pointer: coarse) { .menu [role=menuitem] { min-height: 44px; } .more { width: 44px; height: 44px; } .view button { min-height: 44px; } }
+  @media (pointer: coarse) { .menu [role=menuitem] { min-height: 44px; } .more { width: 44px; height: 44px; } .view button, .approvals button { min-height: 44px; } }
   /* Under 1100 px of room (a narrower window, or the sessions panel docked beside it), and in theatre view, the context panel
      waits behind Details and opens over the terminal's edge, so the terminal keeps most of the width. */
   @container session-screen (max-width: 1099px) {
@@ -290,6 +362,7 @@
     .pill { height: 28px; padding: 0 10px; gap: 6px; font-size: 12px; }
     .pill .lk { display: none; }
     .badge { font-size: 11px; line-height: 18px; padding: 0 6px; }
+    .approvals { display: none; }
     .details { padding: 0 10px; }
   }
   /* A phone held sideways keeps its few rows for the terminal: the pane's own header names the session. H3 lays it out. */

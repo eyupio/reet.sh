@@ -18,6 +18,7 @@ func chatCaps() terminalproto.Capabilities {
 	caps.ACP = true
 	caps.ACPHistory = true
 	caps.ACPImages = true
+	caps.ACPApproval = true
 	caps.ShellDir = true
 	return caps
 }
@@ -47,6 +48,18 @@ func TestChatCreatePromptAndSSE(t *testing.T) {
 	}
 	if code, _, body := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/chat/permissions/permission-0123456789", map[string]bool{"allow": false}); code != 200 {
 		t.Fatalf("deny: %d %s", code, body)
+	}
+	if code, _, body := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/chat/permissions/permission-0123456789", map[string]any{"allow": true, "forSession": true}); code != 200 {
+		t.Fatalf("allow for session: %d %s", code, body)
+	}
+	if code, _, body := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/chat/approval-mode", map[string]string{"mode": "yolo"}); code != http.StatusForbidden {
+		t.Fatalf("yolo without the account setting: %d %s", code, body)
+	}
+	if code, _, body := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/chat/approval-mode", map[string]string{"mode": "ask"}); code != 200 {
+		t.Fatalf("ask mode: %d %s", code, body)
+	}
+	if code, _, _ := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/chat/approval-mode", map[string]string{"mode": "sometimes"}); code != http.StatusBadRequest {
+		t.Fatalf("invalid mode: %d", code)
 	}
 	if code, _, body := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/chat/cancel", map[string]bool{}); code != 200 {
 		t.Fatalf("cancel: %d %s", code, body)

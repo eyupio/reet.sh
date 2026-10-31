@@ -853,6 +853,25 @@ func (s *Store) RecordTerminalACPSessionFor(uid int64, agentID, sessionID, acpSe
 	})
 }
 
+// SetTerminalYoloFor records a live structured session's current approval
+// mode. The broker asks the machine before writing it; a refusal leaves the
+// record as it was.
+func (s *Store) SetTerminalYoloFor(uid int64, sessionID string, yolo bool) error {
+	if !terminalproto.ValidID(sessionID) {
+		return terminalproto.ErrInvalid
+	}
+	r, err := s.db.Exec(`UPDATE terminal_sessions SET yolo=?,updated_at=? WHERE id=? AND user_id=? AND structured=1 AND state IN ('creating','running','end_requested') AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, yolo, now(), sessionID, uid, uid)
+	if err != nil {
+		return err
+	}
+	if n, err := r.RowsAffected(); err != nil {
+		return err
+	} else if n != 1 {
+		return ErrRemoteNotFound
+	}
+	return nil
+}
+
 func (s *Store) RenameTerminalFor(uid int64, sessionID, title string) error {
 	if !terminalproto.ValidTitle(title) {
 		return terminalproto.ErrInvalid

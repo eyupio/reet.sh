@@ -584,6 +584,31 @@ func (h *chatHost) cancel(sessionID string) error {
 	return cs.process.Cancel()
 }
 
+func (h *chatHost) mode(sessionID string, yolo bool) error {
+	cs := h.find(sessionID)
+	if cs == nil {
+		return terminalhost.ErrSessionMissing
+	}
+	h.sup.mu.Lock()
+	if cs.process == nil || cs.state != terminalproto.Running {
+		h.sup.mu.Unlock()
+		return terminalhost.ErrOperationConflict
+	}
+	if yolo && (h.sup.opts.YoloConsent == nil || h.sup.opts.YoloConsent() != nil) {
+		h.sup.mu.Unlock()
+		return terminalhost.ErrYoloRefused
+	}
+	cs.yolo = yolo
+	process := cs.process
+	h.sup.mu.Unlock()
+	if yolo {
+		if allower, ok := process.(interface{ AllowAllPending() error }); ok {
+			_ = allower.AllowAllPending()
+		}
+	}
+	return nil
+}
+
 func (h *chatHost) permission(sessionID, permissionID string, allow bool) error {
 	cs := h.find(sessionID)
 	if cs == nil {
@@ -664,11 +689,14 @@ func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 		return
 	}
 	s.deliver(cs, wire)
-	if cs.yolo && event.Kind == "permission" && event.PermissionID != "" && cs.process != nil {
+	s.mu.Lock()
+	yolo, process := cs.yolo, cs.process
+	s.mu.Unlock()
+	if yolo && event.Kind == "permission" && event.PermissionID != "" && process != nil {
 		// YOLO answers this once, for the person. The process emits the real
 		// permission_resolved (which may be a rejection when no allow-once
 		// option exists), and that is what the controller audits.
-		_ = cs.process.Allow(event.PermissionID, true)
+		_ = process.Allow(event.PermissionID, true)
 	}
 	if event.Kind == "status" && event.State == "ended" {
 		s.ended(cs, 0)

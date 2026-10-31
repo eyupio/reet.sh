@@ -473,10 +473,15 @@ const (
 	// ACPTrustRequired means the folder has .opencode plugins and the start
 	// did not carry the person's trust confirmation.
 	ACPTrustRequired ResultCode = "acp_trust_required"
+	// QuestionInvalid means an answer failed the machine's validation. The
+	// question is still waiting, so the person can correct and resubmit. Detail
+	// says which field and why. It is sent only to a controller that negotiated
+	// acp-question-v1.
+	QuestionInvalid ResultCode = "question_invalid"
 )
 
 func (c ResultCode) Valid() bool {
-	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == LaunchOptionUnsupported || c == YoloRefused || c == WorktreeChanged || c == WorktreeRefused || c == UploadsOff || c == UploadBusy || c == ACPUnavailable || c == ACPVersion || c == ACPTrustRequired
+	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == LaunchOptionUnsupported || c == YoloRefused || c == WorktreeChanged || c == WorktreeRefused || c == UploadsOff || c == UploadBusy || c == ACPUnavailable || c == ACPVersion || c == ACPTrustRequired || c == QuestionInvalid
 }
 
 type Result struct {

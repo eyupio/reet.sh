@@ -139,7 +139,8 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			}()
 		}
 		chats := attachChats(supervisor, ctx, opts, generation, send, terminalproto.SupportsACPHistory(headers.Get(terminalproto.FeatureHeader)),
-			terminalproto.SupportsACPToolDetails(headers.Get(terminalproto.FeatureHeader)))
+			terminalproto.SupportsACPToolDetails(headers.Get(terminalproto.FeatureHeader)),
+			terminalproto.SupportsACPQuestion(headers.Get(terminalproto.FeatureHeader)))
 		attachments := map[string]*terminalhost.Attachment{}
 		// worktreeSlot allows one worktree status or remove at a time on this
 		// machine. It runs on its own goroutine so the dispatcher, and the
@@ -251,6 +252,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				}
 			case *terminalproto.ACPMode:
 				if !terminalproto.SupportsACPApproval(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+			case *terminalproto.ACPQuestionAnswer:
+				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) || !terminalproto.SupportsACPQuestion(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
 				}
 			}
@@ -555,6 +560,13 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					return respond(err)
 				}
 				reply.Body = terminalproto.Result{Code: terminalproto.OK}
+				return send(callCtx, reply)
+			case *terminalproto.ACPQuestionAnswer:
+				answer, err := chats.question(msg.SessionID, op)
+				if err != nil {
+					return respond(err)
+				}
+				reply.Body = answer
 				return send(callCtx, reply)
 			case *terminalproto.ACPMode:
 				if err := chats.mode(msg.SessionID, op.Yolo); err != nil {

@@ -1,4 +1,4 @@
-package main
+package setup
 
 import (
 	"encoding/json"
@@ -7,15 +7,13 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
-
-	"github.com/eyupio/reet.sh/internal/setup"
 )
 
-func testProfile() setup.SetupProfile {
-	return setup.SetupProfile{SchemaVersion: 1, Name: "work", Revisions: []setup.SetupProfileRevision{{
+func testProfile() SetupProfile {
+	return SetupProfile{SchemaVersion: 1, Name: "work", Revisions: []SetupProfileRevision{{
 		Revision: 1, CreatedAt: time.Now().UTC(), SnapshotID: "setup-20261022T120000Z-abcdef01",
 		SnapshotDigest: "digest", TakenAt: time.Now().UTC(),
-		Preview: setup.SnapshotPreview{SchemaVersion: 1, OS: "linux", Architecture: "amd64"},
+		Preview: SnapshotPreview{SchemaVersion: 1, OS: "linux", Architecture: "amd64"},
 	}}}
 }
 
@@ -32,7 +30,7 @@ func TestProfileRemotePushAndPull(t *testing.T) {
 				http.NotFound(w, r)
 				return
 			}
-			var got setup.SetupProfile
+			var got SetupProfile
 			if err := json.NewDecoder(r.Body).Decode(&got); err != nil || got.Name != "work" {
 				http.Error(w, "bad profile", http.StatusBadRequest)
 				return
@@ -49,7 +47,7 @@ func TestProfileRemotePushAndPull(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	remote := profileRemote{}
+	remote := HTTPRemote{}
 	if err := remote.Push(server.URL, "tok", profile); err != nil {
 		t.Fatal(err)
 	}
@@ -70,8 +68,8 @@ func TestProfileRemoteUnauthorizedSentinel(t *testing.T) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}))
 	defer server.Close()
-	err := (profileRemote{}).Push(server.URL, "bad", testProfile())
-	if err == nil || !errors.Is(err, setup.ErrProfileUnauthorized) {
+	err := (HTTPRemote{}).Push(server.URL, "bad", testProfile())
+	if err == nil || !errors.Is(err, ErrProfileUnauthorized) {
 		t.Fatalf("wrong unauthorized error: %v", err)
 	}
 }

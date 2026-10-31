@@ -1,4 +1,4 @@
-package main
+package setup
 
 import (
 	"bytes"
@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/profilehistory"
-	"github.com/eyupio/reet.sh/internal/setup"
 )
 
-type profileRemote struct{}
+// HTTPRemote pushes and pulls named setup profiles through the controller API.
+type HTTPRemote struct{}
 
 func profileEndpoint(server, name string) (string, error) {
 	server = strings.TrimRight(strings.TrimSpace(server), "/")
@@ -51,7 +51,7 @@ func profileRequest(method, endpoint, token string, body []byte) ([]byte, error)
 			return nil, profilehistory.ErrConflict
 		}
 		if resp.StatusCode == http.StatusUnauthorized {
-			return nil, fmt.Errorf("%w: server replied 401 Unauthorized; use a personal API token from Account on the target server via REET_TOKEN or --token", setup.ErrProfileUnauthorized)
+			return nil, fmt.Errorf("%w: server replied 401 Unauthorized; use a personal API token from Account on the target server via REET_TOKEN or --token", ErrProfileUnauthorized)
 		}
 		if message == "" {
 			return nil, fmt.Errorf("server replied %s", resp.Status)
@@ -61,7 +61,7 @@ func profileRequest(method, endpoint, token string, body []byte) ([]byte, error)
 	return data, nil
 }
 
-func (profileRemote) Push(server, token string, profile setup.SetupProfile) error {
+func (HTTPRemote) Push(server, token string, profile SetupProfile) error {
 	endpoint, err := profileEndpoint(server, profile.Name)
 	if err != nil {
 		return err
@@ -74,18 +74,18 @@ func (profileRemote) Push(server, token string, profile setup.SetupProfile) erro
 	return err
 }
 
-func (profileRemote) Pull(server, token, name string) (setup.SetupProfile, error) {
+func (HTTPRemote) Pull(server, token, name string) (SetupProfile, error) {
 	endpoint, err := profileEndpoint(server, name)
 	if err != nil {
-		return setup.SetupProfile{}, err
+		return SetupProfile{}, err
 	}
 	data, err := profileRequest(http.MethodGet, endpoint, token, nil)
 	if err != nil {
-		return setup.SetupProfile{}, err
+		return SetupProfile{}, err
 	}
-	profile, err := setup.ParseSetupProfile(data, name)
+	profile, err := ParseSetupProfile(data, name)
 	if err != nil {
-		return setup.SetupProfile{}, fmt.Errorf("server returned an invalid setup profile: %w", err)
+		return SetupProfile{}, fmt.Errorf("server returned an invalid setup profile: %w", err)
 	}
 	return profile, nil
 }

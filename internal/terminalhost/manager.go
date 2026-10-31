@@ -191,6 +191,7 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	// Resolve the agent and folder before any intent is saved: a refused launch
 	// (ErrLaunchUnavailable, reported as launch_failed) leaves no registry entry,
 	// no receipt and no tmux session. A plain create keeps today's arguments.
+	reportStage(ctx, terminalproto.StageResolving)
 	dir, argv := m.home, []string(nil)
 	if in.Tool != "" {
 		if dir, err = ResolveDir(m.home, in.Dir); err != nil {
@@ -239,6 +240,7 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	var worktree Worktree
 	started := false
 	if in.Worktree != "" {
+		reportStage(ctx, terminalproto.StageWorktree)
 		if worktree, err = PrepareWorktree(ctx, m.home, dir, in.Project, in.Worktree, in.Base, m.git); err != nil {
 			return ManagedSession{}, err
 		}
@@ -264,6 +266,7 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	if err := m.allowed(); err != nil {
 		return s, err
 	}
+	reportStage(ctx, terminalproto.StageStarting)
 	args := append([]string{"new-session", "-d", "-s", m.name(sessionID), "-x", integer(in.Cols), "-y", integer(in.Rows), "-c", tmuxLiteral(dir), "-e", "HOME=" + m.home}, argv...)
 	for i := range args {
 		args[i] = tmuxArgument(args[i])
@@ -276,6 +279,7 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		return s, err
 	}
 	started = true
+	reportStage(ctx, terminalproto.StageConfirming)
 	if err := m.reconcileLocked(ctx, &r); err != nil {
 		return s, err
 	}

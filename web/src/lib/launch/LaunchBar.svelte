@@ -63,6 +63,16 @@
   let explicitModel = $state(false)
   let explicitEffort = $state(false)
   let busy = $state(false), leaving = $state(false), message = $state(''), failed = $state(false)
+  // How long the current start has been going, so a slow machine reads as working rather than stuck.
+  const working = $derived(busy || leaving)
+  let waited = $state(0)
+  $effect(() => {
+    if (!working) { waited = 0; return }
+    const began = Date.now()
+    const timer = setInterval(() => (waited = Math.floor((Date.now() - began) / 1000)), 1000)
+    return () => clearInterval(timer)
+  })
+  const patience = $derived(waited >= 20 ? 'Still working. Slow machines can take a little longer.' : waited >= 5 ? 'This can take up to 30 seconds. Please keep this page open.' : '')
   // One attempt: the request id, the run token and every field, kept while its outcome is unknown so Retry asks about the same
   // start and a lost reply can never start a second agent. Dropped only when the server has definitely answered.
   // A start in several projects keeps its one run request (request id and every field) the same way.
@@ -949,7 +959,7 @@
   </div>
 {/snippet}
 
-<form class="launch" aria-label="Start a session" bind:this={form} style:--lift={`${lift}px`} class:lifted={lift > 0}
+<form class="launch" aria-label="Start a session" bind:this={form} style:--lift={`${lift}px`} class:lifted={lift > 0} class:working aria-busy={working}
   onsubmit={(event) => { event.preventDefault(); void start() }} ondragover={dragOver} ondrop={dropped}>
   <fieldset disabled={locked || !choice}>
     <div class="ask">
@@ -1005,15 +1015,17 @@
       <button type="button" class="change" aria-haspopup="dialog" onclick={(e) => openChange(e.currentTarget)}>Change</button>
     </div>
   </fieldset>
+  {#if working}<div class="progress" aria-hidden="true"><span></span></div>{/if}
   <div class="go">
     {#if operation && !busy}<button type="button" class="discard" onclick={discard}>Discard this request</button>{/if}
     <button type="submit" class="start" bind:this={startButton} disabled={busy || leaving || !choice || (!operation && (reason !== null || !!imagesReason || (choice?.approvals === 'yolo' && !!yoloWhy)))} aria-busy={busy || leaving}
       aria-label={operation ? 'Try the same request again' : 'Start the session'} aria-describedby={shownStatus ? `${id}-status` : undefined}>
+      {#if working}<span class="spinner" aria-hidden="true"></span><span class="word working-word">{leaving ? 'Opening…' : 'Starting…'}</span>{:else}
       <svg class="arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
-      <span class="word">{operation ? 'Try the same request again' : 'Start'}</span>{#if !operation}<kbd aria-hidden="true">{mac ? '↵' : 'Enter'}</kbd>{/if}
+      <span class="word">{operation ? 'Try the same request again' : 'Start'}</span>{/if}{#if !operation && !working}<kbd aria-hidden="true">{mac ? '↵' : 'Enter'}</kbd>{/if}
     </button>
   </div>
-  <p class="status" class:bad={failed} id={`${id}-status`} role="status" aria-live="polite" aria-atomic="true">{shownStatus}</p>
+  <p class="status" class:bad={failed} id={`${id}-status`} role="status" aria-live="polite" aria-atomic="true">{#if working}<span class="spinner small" aria-hidden="true"></span>{/if}{shownStatus}{#if working && patience} <span class="patience">{patience}</span>{/if}</p>
 </form>
 
 {#if open && choice}
@@ -1147,6 +1159,19 @@
     background: var(--accent); color: var(--accent-ink); font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap;
   }
   .start:disabled { opacity: 0.55; cursor: default; }
+  .launch.working .start:disabled { opacity: 1; cursor: progress; }
+  .launch.working .ask, .launch.working .under { opacity: 0.6; transition: opacity 0.2s; }
+  .spinner { flex: none; width: 16px; height: 16px; border: 2px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; border-radius: 50%; animation: launch-spin 0.8s linear infinite; }
+  .spinner.small { display: inline-block; width: 12px; height: 12px; margin-right: 8px; vertical-align: -1px; color: var(--accent-text); }
+  .patience { color: var(--muted); }
+  .progress { position: absolute; inset: 0 16px auto; height: 3px; overflow: hidden; border-radius: 0 0 3px 3px; background: var(--line-soft); }
+  .progress span { display: block; width: 40%; height: 100%; border-radius: 3px; background: var(--accent); animation: launch-slide 1.3s ease-in-out infinite; }
+  @keyframes launch-spin { to { transform: rotate(360deg); } }
+  @keyframes launch-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation-duration: 2.4s; }
+    .progress span { width: 100%; animation: none; opacity: 0.6; }
+  }
   /* The press the other buttons give (app.css .btn), only when motion is welcome. */
   @media (prefers-reduced-motion: no-preference) {
     .start, .chip, .discard { transition: background-color 0.15s, border-color 0.15s, transform 160ms var(--ease-out); }

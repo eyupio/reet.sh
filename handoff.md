@@ -47,8 +47,11 @@ gofmt, `py_compile`, and a real run of every scenario against the pinned adapter
 the loopback stub. The full race suite, web checks and browser fixtures were not re-run:
 no web or protocol-shape change. No real provider, phone or other OS.
 
-**Next unchecked task:** launch profile that disables repository hooks (or a trust
-prompt), group-wide retirement with SIGKILL escalation, a `think` card, then Codex probes.
+**Hooks gate (local, not pushed):** `Spec.SessionMeta` is sent as `_meta` on session/new and
+session/load; `ClaudeSessionMeta` pins `settingSources` to `["user"]`, verified to stop a
+repository hook while approvals still appear. No Claude profile is registered yet.
+
+**Next unchecked task:** group-wide retirement with SIGKILL escalation, a `think` card, then Codex probes.
 
 ## SC2 — Structured adapter probe checkpoint (31 October 2026)
 

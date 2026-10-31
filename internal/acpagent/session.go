@@ -214,11 +214,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	newCtx, newCancel := context.WithTimeout(ctx, 45*time.Second)
 	defer newCancel()
 	opened := opts.Resume == ""
-	method, params := "session/new", map[string]any{"cwd": opts.Dir, "mcpServers": []any{}}
-	if !opened {
-		method = "session/load"
-		params = map[string]any{"sessionId": opts.Resume, "cwd": opts.Dir, "mcpServers": []any{}}
-	}
+	method, params := sessionRequest(spec, opts.Dir, opts.Resume)
 	raw, err = s.request(newCtx, method, params)
 	if err != nil {
 		s.Close()

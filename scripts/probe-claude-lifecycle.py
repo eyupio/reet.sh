@@ -14,6 +14,7 @@ from pathlib import Path
 parser = argparse.ArgumentParser()
 parser.add_argument("scenario", choices=["trust", "cancel", "load", "model", "subagent"])
 parser.add_argument("--workspace", type=Path, required=True)
+parser.add_argument("--setting-sources", default="", help="comma list sent as _meta.claudeCode.options.settingSources; empty sends none")
 parser.add_argument("--node", default=shutil.which("node"))
 args = parser.parse_args()
 if args.node is None:
@@ -238,7 +239,11 @@ try:
     a = Agent("first", "allow")
     agents.append(a)
     summary["initialize"] = a.init().get("result", {})
-    created = a.call(2, "session/new", {"cwd": str(project), "mcpServers": []})
+    new_params = {"cwd": str(project), "mcpServers": []}
+    if args.setting_sources:
+        new_params["_meta"] = {"claudeCode": {"options": {"settingSources": args.setting_sources.split(",")}}}
+    summary["settingSources"] = args.setting_sources or "(adapter default: user,project,local)"
+    created = a.call(2, "session/new", new_params)
     native = created["result"]["sessionId"]
     summary["new"] = {k: created["result"].get(k) for k in ("sessionId", "modes", "models", "configOptions")}
 

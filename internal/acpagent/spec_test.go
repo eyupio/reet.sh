@@ -2,7 +2,10 @@
 
 package acpagent
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestSemverFloor(t *testing.T) {
 	for _, tc := range []struct {
@@ -50,5 +53,24 @@ func TestProviderAllowlistIsPerAgent(t *testing.T) {
 	}
 	if allowed["OPENCODE_CONFIG"] || allowed["SSH_AUTH_SOCK"] {
 		t.Fatal("unsafe key allowlisted")
+	}
+}
+
+func TestSessionRequestMeta(t *testing.T) {
+	method, params := sessionRequest(Spec{}, "/p", "")
+	if _, has := params["_meta"]; method != "session/new" || has || params["sessionId"] != nil {
+		t.Fatalf("plain new %s %v", method, params)
+	}
+	method, params = sessionRequest(Spec{SessionMeta: ClaudeSessionMeta}, "/p", "abc")
+	if method != "session/load" || params["sessionId"] != "abc" || params["cwd"] != "/p" {
+		t.Fatalf("load %s %v", method, params)
+	}
+	raw, err := json.Marshal(params["_meta"])
+	if err != nil || string(raw) != `{"claudeCode":{"options":{"settingSources":["user"]}}}` {
+		t.Fatalf("meta %s %v", raw, err)
+	}
+	// The registered OpenCode profile is unchanged and Claude is not registered.
+	if _, ok := Lookup("claude"); ok || OpenCode.SessionMeta != nil {
+		t.Fatal("profiles changed")
 	}
 }

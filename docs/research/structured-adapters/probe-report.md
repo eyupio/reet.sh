@@ -175,7 +175,13 @@ phone or other OS.
   repository can therefore execute commands through its own hooks without a
   reet approval card. Enabling Claude requires launching with project hooks
   disabled or a documented trust gate; this probe did not find a safe flag-free
-  way to rely on the adapter alone. Other override paths (managed settings,
+  way to rely on the adapter alone. **Mitigation (observed):** sending
+  `_meta.claudeCode.options.settingSources: ["user"]` on `session/new` (probe flag
+  `--setting-sources user`) stopped the repository hook (`hookRan: false`) while the
+  approval card still appeared; the adapter default (`user,project,local`) ran it.
+  reet carries this as `acpagent.ClaudeSessionMeta`, sent on new and load, so a
+  repository's own settings and CLAUDE-style project config are not read: that is
+  a deliberate context cost. Other override paths (managed settings,
   `--settings`, MCP servers declared by the project) remain unprobed.
 - **Cancellation and retirement (observed).** `session/cancel` sent in place of a
   permission answer ended the turn with `stopReason: "cancelled"` and no file
@@ -210,10 +216,9 @@ phone or other OS.
 
 ## Integration gates still open
 
-Claude remains disabled. Done in this checkpoint: adapter-aware UUID validation
+Claude remains disabled. Done in this checkpoint: the repository-hooks gate (`ClaudeSessionMeta`), adapter-aware UUID validation
 (gated behind the reviewed-tool list) and bounded typed edit-diff normalization.
-Still required before enabling: a launch that disables repository hooks (or an
-explicit trust prompt), group-wide process retirement with confirmation,
+Still required before enabling: group-wide process retirement with confirmation,
 applied-state model/mode controls, a card for `think` tool calls, nested subagent
 permissions, required-environment checks and the SC3 question contract.
 Keep question support disabled until the SC3 contract is implemented.

@@ -216,7 +216,7 @@
   }
   function close() {
     if (busy || reading) return
-    if (original !== initial()) { confirmClose = true; return }
+    if (original !== initial()) { confirmClose = true; void tick().then(() => { const b = dialog?.querySelector<HTMLElement>('.discard'); b?.scrollIntoView({ block: 'nearest' }); b?.querySelector<HTMLElement>('button')?.focus() }); return }
     onclose()
   }
   async function attach(files: File[]) {
@@ -256,7 +256,7 @@
     </header>
     <div class="body" data-shell-body>
       {#if confirmClose}
-        <div class="discard" role="alert"><strong>Discard your unsaved changes?</strong><div><button type="button" class="btn" onclick={() => confirmClose = false}>Keep editing</button><button type="button" class="btn" onclick={onclose}>Discard changes</button></div></div>
+        <div class="discard" role="alert" style="position: sticky; top: 0; z-index: 3"><strong>Discard your unsaved changes?</strong><div><button type="button" class="btn" onclick={() => confirmClose = false}>Keep editing</button><button type="button" class="btn" onclick={onclose}>Discard changes</button></div></div>
       {/if}
       <fieldset disabled={busy || reading}>
         <label class="field"><span>Session title <small>Optional · suggested from your prompt</small></span><input aria-label="Session title" bind:value={title} oninput={() => titleTouched = true} maxlength="80" placeholder="A short name for this piece of work" /></label>
@@ -347,7 +347,7 @@
   footer { display: flex; align-items: center; gap: 8px; padding: 18px 28px; border-top: 1px solid var(--line); background: var(--bg); }
   footer > span { flex: 1; font-size: 11px; color: var(--muted); }
   .error, .discard { border: 1px solid var(--warn); padding: 12px; border-radius: 8px; color: var(--warn); font-size: 13px; }
-  .discard { margin-bottom: 18px; }.discard div { display: flex; gap: 8px; margin-top: 10px; }
+  .discard { margin-bottom: 18px; background: var(--card); }.discard div { display: flex; gap: 8px; margin-top: 10px; }
   .over { color: var(--bad); }
   @media (max-width: 650px) { input, textarea, select, .picker { font-size: 16px; } header, .body, footer { padding: 18px; } h2 { font-size: 23px; } .settings { grid-template-columns: 1fr; gap: 0; } .field small { display: block; margin: 2px 0 0; } footer > span { display: none; } footer { justify-content: flex-end; } .skill-add { min-height: 44px; } }
 </style>

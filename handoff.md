@@ -47,8 +47,48 @@ gofmt, `py_compile`, and a real run of every scenario against the pinned adapter
 the loopback stub. The full race suite, web checks and browser fixtures were not re-run:
 no web or protocol-shape change. No real provider, phone or other OS.
 
-**Next unchecked task:** launch profile that disables repository hooks (or a trust
-prompt), group-wide retirement with SIGKILL escalation, a `think` card, then Codex probes.
+**Hooks gate (local, not pushed):** `Spec.SessionMeta` is sent as `_meta` on session/new and
+session/load; `ClaudeSessionMeta` pins `settingSources` to `["user"]`, verified to stop a
+repository hook while approvals still appear. No Claude profile is registered yet.
+
+**Also local:** `retireGroup`/`GroupRetired` (group SIGKILL, confirmed via /proc, zombie-aware) and
+the `think` subagent card (`subagentSummary`). Tests: group_test.go, session_test.go.
+
+**Also local:** `Session.SetModel` reads the model option back from `session/set_config_option`
+and returns `ErrModel` (recording the real value) when the agent reports a different one; a
+response without an option list keeps the old behaviour. Test: `TestSetModelReportsAppliedState`.
+
+**Subagents and Codex (local):** nested subagent calls raise their own approval with a
+`parentToolUseId`; reet labels them "Subagent:". Codex probe (`scripts/probe-codex-turn.py`)
+showed no per-command approval request in any mode and a provider error disguised as
+`end_turn`; Codex stays disabled. See the probe report.
+
+**Environment (local):** `acpagent.ClaudeCandidate` (unregistered) holds the measured launch profile:
+adapter command, name/version floor, `default` mode required, credential-only allowlist, no
+provider redirects, background traffic off, `ClaudeSessionMeta`. Not registered.
+
+**Next unchecked task:** Claude missing/real-credential behaviour and registering the profile behind the
+gates (descriptor + launch + history); for Codex, re-run with a working
+sandbox to see whether any approval request exists, and cancel on a running command; then SC3.
+
+## SC3 — Typed agent questions, machine core (31 October 2026)
+
+**Scope:** `internal/acpagent` only; no wire, API or UI change and no agent enabled. See the SC3 progress
+note in [the plan](docs/structured-chat-plan.md).
+
+**Added:** a normalized `Question` model (text, single select, multi select), a strict `elicitation/create`
+parser that refuses unsupported forms whole, an authoritative answer validator (`Question.Validate`,
+`DecodeAnswers`), and session handling with single-use IDs, deadlines, a pending cap and cancellation on turn
+cancel, close and exit. `Options.Questions` is off in every launch, `initialize` does not advertise
+`elicitation.form`, and the connector drops `question*` events.
+
+**Checks:** `go vet`, `gofmt`, `go build ./...` and `go test -race` for `acpagent`, `terminalagent` and
+`terminalproto`; two deliberate mutations (any choice accepted, answered question not consumed) failed the
+tests. No browser, phone, real provider or live adapter was used.
+
+**Next unchecked task:** private-protocol messages and negotiation, the controller answer route with
+account checks, then the chat card and Needs-you summary; request-scoped (pre-session) questions and
+old-peer/concurrent-tab/phone fixtures. Do not advertise the form capability before those.
 
 ## SC3 — Typed agent questions, machine core (31 October 2026)
 

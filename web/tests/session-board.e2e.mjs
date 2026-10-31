@@ -109,14 +109,16 @@ try {
   expect(box.starts).toHaveLength(1)
   expect(app.errors).toEqual([])
   await app.context.close()
-  for (const [width, theme, touch] of [[1440, 'dark', false], [390, 'light', true], [768, 'light', true]]) {
+  for (const [width, theme, touch] of [[1440, 'dark', false], [390, 'light', true], [320, 'light', true], [768, 'light', true]]) {
     const app = await workspace(width, theme, touch)
     await app.page.screenshot({ path: `../work/screenshots/session-board-${width}-${theme}.png`, fullPage: true })
     expect(await app.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    if(width===390) { await app.page.getByRole('button',{name:/^Active/}).click(); await app.page.screenshot({path:'../work/screenshots/session-mobile-focus.png',fullPage:false}) }
+    if(touch) expect(await app.page.evaluate(()=>innerWidth)).toBe(width)
+    if(width===390) { expect(await app.page.getByRole('searchbox',{name:'Search sessions'}).evaluate(el=>parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16); await app.page.getByRole('button',{name:/^Active/}).click(); await app.page.screenshot({path:'../work/screenshots/session-mobile-focus.png',fullPage:false}) }
     await app.page.getByRole('button', { name: 'New session', exact: true }).click()
     await expect(app.page.getByRole('dialog')).toBeVisible()
     expect(await app.page.getByRole('dialog').evaluate(el => el.getBoundingClientRect().right <= innerWidth)).toBe(true)
+    if(width===390) expect(await app.page.getByRole('dialog').getByRole('textbox',{name:'Prompt',exact:true}).evaluate(el=>parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16)
     await app.page.screenshot({ path: `../work/screenshots/session-composer-${width}-${theme}.png`, fullPage: false })
     expect(app.errors).toEqual([])
     await app.context.close()

@@ -177,5 +177,5 @@
   .error, .discard { border: 1px solid var(--warn); padding: 12px; border-radius: 8px; color: var(--warn); font-size: 13px; }
   .discard { margin-bottom: 18px; }.discard div { display: flex; gap: 8px; margin-top: 10px; }
   .over { color: var(--bad); }
-  @media (max-width: 650px) { header, .body, footer { padding: 18px; } h2 { font-size: 23px; } .settings { grid-template-columns: 1fr; gap: 0; } .field small { display: block; margin: 2px 0 0; } footer > span { display: none; } footer { justify-content: flex-end; } }
+  @media (max-width: 650px) { input, textarea, select { font-size: 16px; } header, .body, footer { padding: 18px; } h2 { font-size: 23px; } .settings { grid-template-columns: 1fr; gap: 0; } .field small { display: block; margin: 2px 0 0; } footer > span { display: none; } footer { justify-content: flex-end; } }
 </style>

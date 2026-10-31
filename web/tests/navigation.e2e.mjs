@@ -16,7 +16,7 @@ try {
  if (run('writer desktop shows five tabs with Home current')) {
   const {context,page,errors} = await open({width:1440})
   await page.goto(base)
-  await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'A reet good day’s work.',exact:true})).toBeVisible()
   expect(await page.title()).toBe('Home · reet.sh')
   const top = await tabs(page).getByRole('link').allInnerTexts()
   expect(top.map(t=>t.trim())).toEqual(['Home','Sessions','Machines','Skills'])
@@ -97,7 +97,7 @@ try {
   for (const width of [320,390]) {
    const {context,page,errors} = await open({width,touch:true})
    await page.goto(base)
-   await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
+   await expect(page.getByRole('heading',{name:'A reet good day’s work.',exact:true})).toBeVisible()
    const bar = tabs(page)
    const items = await bar.locator(':scope a, :scope button').allInnerTexts()
    expect(items.map(t=>t.trim())).toEqual(['Home','Sessions','Machines','More'])
@@ -440,7 +440,7 @@ try {
  if (run('theme')) {
   const {context,page,state} = await open({width:1440})
   await page.goto(base)
-  await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'A reet good day’s work.',exact:true})).toBeVisible()
   await page.locator('summary[aria-label^="Account menu"]').click()
   const group = page.locator('.panel').getByRole('group',{name:'Theme'})
   await expect(group.getByRole('button',{name:'Light'})).toHaveAttribute('aria-pressed','true')
@@ -476,7 +476,7 @@ try {
   for (const [width,maxHeight] of [[375,100],[651,72],[1001,72],[1024,72],[1100,72],[1180,72]]) {
    const {context,page} = await open({width,unread:12})
    await page.goto(base)
-   await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
+   await expect(page.getByRole('heading',{name:'A reet good day’s work.',exact:true})).toBeVisible()
    const m = await page.evaluate(()=>({overflow:document.documentElement.scrollWidth-innerWidth,height:document.querySelector('.site-header').getBoundingClientRect().height}))
    expect(m.overflow, `header overflow at ${width}px`).toBeLessThanOrEqual(0)
    expect(m.height, `header height at ${width}px`).toBeLessThanOrEqual(maxHeight)
@@ -490,7 +490,7 @@ try {
   page.on('request',r=>{if(r.resourceType()==='font')fonts.push(r.url())})
   page.on('requestfailed',r=>{if(r.resourceType()==='font')failed.push(r.url())})
   await page.goto(base)
-  await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'A reet good day’s work.',exact:true})).toBeVisible()
   await page.evaluate(()=>document.fonts.ready)
   const loaded = await page.evaluate(()=>[...document.fonts].filter(f=>f.status==='loaded').map(f=>`${f.family.replace(/"/g,'')} ${f.weight}`))
   for (const face of ['Fraunces 600','IBM Plex Sans 400']) expect(loaded, `${face} loaded`).toContain(face)

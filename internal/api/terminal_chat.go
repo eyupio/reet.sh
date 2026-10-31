@@ -104,16 +104,17 @@ func (s *server) terminalChatPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Text string `json:"text"`
+		Text   string   `json:"text"`
+		Images []string `json:"images"`
 	}
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	if !terminalproto.ValidChatPrompt(in.Text) {
+	if !terminalproto.ValidACPPrompt(in.Text, in.Images) {
 		writeErr(w, 400, "invalid terminal request")
 		return
 	}
-	if err := s.terminals.PromptChat(r.Context(), s.uid(r), r.PathValue("id"), in.Text); err != nil {
+	if err := s.terminals.PromptChat(r.Context(), s.uid(r), r.PathValue("id"), in.Text, in.Images); err != nil {
 		s.terminalChatError(w, err)
 		return
 	}
@@ -175,6 +176,10 @@ func (s *server) terminalChatError(w http.ResponseWriter, err error) {
 		writeErr(w, 404, "that reet session is not available")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported), errors.Is(err, terminalbroker.ErrACPClosed):
 		writeErr(w, 409, "that reet session is not running")
+	case errors.Is(err, terminalbroker.ErrACPImagesUnsupported):
+		writeErr(w, 409, "update reet on that machine to send images with a chat message")
+	case errors.Is(err, terminalbroker.ErrACPImageUnavailable):
+		writeErr(w, 409, "that image is no longer available on the machine; attach it again")
 	case errors.Is(err, terminalbroker.ErrACPBusy):
 		writeErr(w, 409, "that reet session is already working")
 	case errors.Is(err, terminalbroker.ErrOffline):

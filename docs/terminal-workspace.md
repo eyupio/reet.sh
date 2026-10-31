@@ -93,7 +93,8 @@ beside it). Its parts:
   ends that shell. The side panel replaces the context panel while it is open.
 - **The reet TUI pane** for a structured OpenCode session ([structured sessions](structured-sessions.md)): the streamed
   conversation, tool calls, approval cards with **Allow once** and **Deny**, a composer (Enter sends, Shift+Enter adds a
-  line), **Attach image** (uploaded as a machine path), **Stop**, and the watchdog's "still working" notice. A closed reet
+  line), **Attach image** (pasted, dropped or chosen; the machine embeds it in the prompt when it negotiated
+  `acp-image-v1`, otherwise the prompt names the uploaded path), **Stop**, and the watchdog's "still working" notice. A closed reet
   session's menu offers **Continue in reet TUI with history…**, which opens a new reet TUI and loads OpenCode's stored
   conversation. It asks before an edit or command; there is no shell in this
   session. It has no terminal or session tabs on a phone; the usual slim header and End actions stay.

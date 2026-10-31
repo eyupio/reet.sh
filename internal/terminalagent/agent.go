@@ -217,8 +217,15 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					return send(callCtx, reply)
 				}
 			}
-			switch msg.Body.(type) {
-			case *terminalproto.ACPPrompt, *terminalproto.ACPModel, *terminalproto.ACPCancel, *terminalproto.ACPPermission:
+			switch body := msg.Body.(type) {
+			case *terminalproto.ACPPrompt:
+				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+				if len(body.Images) > 0 && !terminalproto.SupportsACPImages(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+			case *terminalproto.ACPModel, *terminalproto.ACPCancel, *terminalproto.ACPPermission:
 				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
 				}
@@ -460,7 +467,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					return nil
 				}
 			case *terminalproto.ACPPrompt:
-				if err := chats.prompt(msg.SessionID, op.Text); err != nil {
+				if err := chats.prompt(msg.SessionID, op.Text, op.Images); err != nil {
 					return respond(err)
 				}
 				reply.Body = terminalproto.Result{Code: terminalproto.OK}
@@ -881,6 +888,8 @@ func code(err error) terminalproto.ResultCode {
 		return terminalproto.Conflict
 	case errors.Is(err, terminalhost.ErrSessionMissing):
 		return terminalproto.NotFound
+	case errors.Is(err, errAttachmentUnavailable):
+		return terminalproto.Failed
 	default:
 		return terminalproto.Unavailable
 	}

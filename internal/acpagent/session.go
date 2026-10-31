@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -27,9 +28,19 @@ var (
 	ErrNoPermission = errors.New("that approval is no longer waiting")
 	ErrExited       = errors.New("the agent exited")
 	ErrTimeout      = errors.New("the chat turn timed out")
+	// ErrImages means the agent did not advertise image prompts, so an image
+	// cannot be attached to this chat.
+	ErrImages = errors.New("the agent does not accept images")
 )
 
 const maxLineBytes = 1 << 20
+
+// Attachment is one image embedded in an ACP prompt. The bytes come from the
+// connector's private upload folder; no path is sent to the agent.
+type Attachment struct {
+	MIME string
+	Data []byte
+}
 
 type rpcMessage struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -67,18 +78,19 @@ type Session struct {
 	stdout io.ReadCloser
 	stderr *cappedBuffer
 
-	mu        sync.Mutex
-	writeMu   sync.Mutex
-	nextID    int64
-	calls     map[int64]chan rpcResult
-	pending   map[string]*pendingPermission
-	closed    bool
-	acpID     string
-	model     string
-	tools     map[string]string
-	toolStart map[string]time.Time
-	done      chan struct{}
-	doneOnce  sync.Once
+	mu           sync.Mutex
+	writeMu      sync.Mutex
+	nextID       int64
+	calls        map[int64]chan rpcResult
+	pending      map[string]*pendingPermission
+	closed       bool
+	acpID        string
+	model        string
+	promptImages bool
+	tools        map[string]string
+	toolStart    map[string]time.Time
+	done         chan struct{}
+	doneOnce     sync.Once
 
 	turnMu       sync.Mutex
 	working      bool
@@ -164,6 +176,11 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 			Name    string `json:"name"`
 			Version string `json:"version"`
 		} `json:"agentInfo"`
+		AgentCapabilities struct {
+			PromptCapabilities struct {
+				Image bool `json:"image"`
+			} `json:"promptCapabilities"`
+		} `json:"agentCapabilities"`
 	}
 	raw, err := s.request(initCtx, "initialize", map[string]any{
 		"protocolVersion": ProtocolVersion,
@@ -181,6 +198,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		s.Close()
 		return nil, ErrExited
 	}
+	s.promptImages = initResult.AgentCapabilities.PromptCapabilities.Image
 	if initResult.ProtocolVersion != ProtocolVersion {
 		s.Close()
 		return nil, &VersionError{Agent: spec.displayName(), Found: fmt.Sprintf("ACP protocol %d", initResult.ProtocolVersion), Required: fmt.Sprintf("ACP protocol %d", ProtocolVersion)}
@@ -274,6 +292,14 @@ func (s *Session) Model() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.model
+}
+
+// ImagesSupported reports whether the agent advertised image prompts at
+// initialize. The connector uses it to refuse an image before a turn starts.
+func (s *Session) ImagesSupported() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.promptImages
 }
 
 func (s *Session) emit(event Event) {
@@ -493,7 +519,7 @@ func (s *Session) markProgress() {
 // toolDetails pulls the parts a tool row shows (its command, target path and diff summary) out of the adapter's raw
 // input and output. Adapters differ: anything absent is left empty and the browser falls back to the title.
 type toolDetailsValue struct {
-	command, path, diff string
+	command, path, diff  string
 	additions, deletions int
 }
 
@@ -823,9 +849,25 @@ func (s *Session) markInterrupted() {
 	}
 }
 
-// Prompt runs one turn. It blocks until the turn ends; the connector calls it
-// in its own goroutine so control messages (cancel, approval) stay responsive.
+// Prompt runs one turn with text only. It blocks until the turn ends.
 func (s *Session) Prompt(ctx context.Context, text string) error {
+	return s.PromptWithAttachments(ctx, text, nil)
+}
+
+// PromptWithAttachments runs one turn with text and optional images. It
+// blocks until the turn ends; the connector calls it in its own goroutine so
+// control messages (cancel, approval) stay responsive. Images are embedded as
+// ACP image content blocks, so the agent sees the image itself instead of a
+// path it has to open with a tool.
+func (s *Session) PromptWithAttachments(ctx context.Context, text string, images []Attachment) error {
+	if len(images) > 0 {
+		s.mu.Lock()
+		allowed := s.promptImages
+		s.mu.Unlock()
+		if !allowed {
+			return ErrImages
+		}
+	}
 	s.turnMu.Lock()
 	if s.working {
 		s.turnMu.Unlock()
@@ -947,9 +989,19 @@ func (s *Session) Prompt(ctx context.Context, text string) error {
 	}()
 	requestCtx, cancel := context.WithTimeout(ctx, s.opts.turnTimeout()+30*time.Second)
 	defer cancel()
+	prompt := make([]map[string]string, 0, 1+len(images))
+	if text != "" {
+		prompt = append(prompt, map[string]string{"type": "text", "text": text})
+	}
+	for _, image := range images {
+		prompt = append(prompt, map[string]string{
+			"type": "image", "mimeType": image.MIME,
+			"data": base64.StdEncoding.EncodeToString(image.Data),
+		})
+	}
 	raw, err := s.request(requestCtx, "session/prompt", map[string]any{
 		"sessionId": acpID,
-		"prompt":    []map[string]string{{"type": "text", "text": text}},
+		"prompt":    prompt,
 	})
 	if err != nil {
 		s.mu.Lock()

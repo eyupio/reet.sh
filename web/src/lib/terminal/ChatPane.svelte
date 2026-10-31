@@ -1,11 +1,15 @@
 <script lang="ts">
  import { onDestroy, onMount, tick } from 'svelte'
+ import { fade, fly } from 'svelte/transition'
  import { applyChatEvent, diffCounts, displayPath, formatDuration, initialChat, inlineSegments, isWorking, pendingPermissions, proseBlocks, resetChat, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState } from '../chat'
  import { copyText } from '../clipboard'
  import { chatAnswer, chatCancel, chatModel, machineModels, chatPrompt, chatURL, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
  import { defaultLabel, type ModelFavourite } from '../models'
- import { chatPromptParts, formatImageSize, imageFiles, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
+ import Toast from '../Toast.svelte'
+ import ImageLightbox from './ImageLightbox.svelte'
+ import { loadThumb, makeThumb, saveThumb } from './thumbs'
+ import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
  let { session, uploadsSupported = false, uploadsOff = false, acpImages = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean } = $props()
 
@@ -19,7 +23,12 @@
   selectedModel = model; currentModel = model
  })
  let models = $state<string[]>([]), modelNote = $state('')
- let favourites = $state<ModelFavourite[]>([]), favouriteBusy = $state(false), favouriteNote = $state('')
+ let favourites = $state<ModelFavourite[]>([]), favouriteBusy = $state(false)
+ // Confirmations (model changed, default saved) say it once and fade away: the star and the model field already show the result.
+ let toast = $state<{ id: number; text: string; bad: boolean } | null>(null), toastSeq = 0
+ function flash(text: string, bad = false) {
+  toast = { id: ++toastSeq, text, bad }
+ }
  const tool = $derived(session.tool || 'opencode')
  const agentDefault = $derived(favourites.find(f => f.tool === tool && f.agentDefault)?.model ?? '')
  const selectedIsDefault = $derived(!!selectedModel.trim() && selectedModel.trim() === agentDefault)
@@ -34,8 +43,8 @@
   : 'Check the error details below. You can choose another model or resolve the provider issue, then send a message to continue.')
  async function changeModel() {
   if (!selectedModel || changingModel || working || ended) return
-  changingModel = true; feedback = ''; modelNote = ''
-  try { await chatModel(session.id, selectedModel); currentModel = selectedModel; modelNote = `Model changed to ${selectedModel}. Send a message to continue.` }
+  changingModel = true; feedback = ''; modelNote = ''; if (toast && !toast.bad) toast = null
+  try { await chatModel(session.id, selectedModel); currentModel = selectedModel; flash(`Model changed to ${selectedModel}.`) }
   catch (e) { feedback = e instanceof Error ? e.message : 'The model could not be changed. Try again.' }
   finally { changingModel = false }
  }
@@ -43,20 +52,46 @@
   const model = selectedModel.trim()
   if (!model || favouriteBusy) return
   const wasDefault = selectedIsDefault
-  favouriteBusy = true; favouriteNote = ''
+  favouriteBusy = true
   try {
    if (!wasDefault && !selectedIsFavourite) await addModelFavourite(tool, model)
    const answer = await setModelFavouriteDefault(tool, wasDefault ? '' : model)
    if (answer?.favourites) favourites = answer.favourites
-   favouriteNote = wasDefault ? `Cleared the default for ${tool}.` : `New ${tool} sessions use ${model}.`
+   flash(wasDefault ? `Cleared the default for ${tool}.` : `New ${tool} sessions use ${model}.`)
   } catch (e) {
-   favouriteNote = e instanceof Error ? e.message : 'Couldn’t update the agent default just now. Try again.'
+   flash(e instanceof Error ? e.message : 'Couldn’t update the agent default just now. Try again.', true)
   } finally { favouriteBusy = false }
  }
  const MAX_CHAT_BYTES = 2000
+ let dropping = $state(false)
  let draft = $state(''), feedback = $state(''), sending = $state(false), uploading = $state(false), answering = $state('')
  let images = $state<{ id: number; file: File; preview: string }[]>([]), imageSeq = 0, attachNote = $state('')
  let fileInput: HTMLInputElement | undefined = $state()
+ // What the person sent: the machine's path for each upload maps to a picture held in this browser, so a message shows the
+ // image, not its path. A message from before a reload falls back to a saved thumbnail, then to a filename chip.
+ let sentPreviews = $state<Record<string, { url: string; name: string }>>({})
+ const sentUrls: string[] = []
+ // With embedded images the echo carries no path; the text sent and its uploads wait here for the echo to arrive.
+ let echoes: { text: string; refs: string[] }[] = []
+ let bound = $state<Record<string, string[]>>({})
+ const boundKeys = new Set<string>()
+ let lightbox = $state<{ items: { url: string; name: string }[]; index: number } | null>(null)
+ function previewFor(ref: string): { url: string; name: string } | null { return sentPreviews[ref] ?? loadThumb(ref) }
+ function attachmentsOf(item: { key: string; text: string }): { text: string; refs: string[] } {
+  const refs = bound[item.key]
+  return refs ? { text: item.text, refs } : splitImageRefs(item.text)
+ }
+ function openPreview(items: { url: string; name: string }[], index: number) { if (items.length) lightbox = { items, index } }
+ $effect(() => {
+  for (const item of chat.items) {
+   if (item.kind !== 'user' || boundKeys.has(item.key)) continue
+   boundKeys.add(item.key)
+   const at = echoes.findIndex(echo => echo.text === item.text.trim())
+   if (at < 0) continue
+   const [echo] = echoes.splice(at, 1)
+   bound = { ...bound, [item.key]: echo.refs }
+  }
+ })
  let log: HTMLElement | undefined = $state()
  let source: EventSource | undefined
  let alive = true, nearBottom = true
@@ -166,13 +201,23 @@
      uploads.push(await launchUpload(session.agentId, sendingImages[i].file, AbortSignal.timeout(30000)))
     }
    }
+   const keep: Record<string, { url: string; name: string }> = {}
+   uploads.forEach((upload, i) => {
+    const image = sendingImages[i]
+    for (const ref of [upload.path, upload.reference]) if (ref) keep[ref] = { url: image.preview, name: image.file.name }
+    void makeThumb(image.file).then(data => saveThumb(upload.path || upload.reference, image.file.name, data))
+   })
+   sentPreviews = { ...sentPreviews, ...keep }
    const body = chatPromptParts(text, uploads, acpImages)
    if (new TextEncoder().encode(body.text).length > MAX_CHAT_BYTES) { feedback = 'That message and its image paths are too long. Keep the message under 2,000 bytes.'; return }
-   await chatPrompt(session.id, body.text, body.images)
+   const echo = body.images.length ? { text: body.text.trim(), refs: uploads.map(upload => upload.path || upload.reference) } : null
+   if (echo) echoes.push(echo)
+   try { await chatPrompt(session.id, body.text, body.images) }
+   catch (e) { if (echo) echoes = echoes.filter(item => item !== echo); throw e }
    // Only the images in this message go: one attached while the first send was
    // still settling must stay in the composer.
    const sent = new Set(sendingImages.map(image => image.id))
-   for (const image of sendingImages) URL.revokeObjectURL(image.preview)
+   for (const image of sendingImages) sentUrls.push(image.preview)
    draft = ''; images = images.filter(image => !sent.has(image.id)); attachNote = ''; nearBottom = true; await scrollToEnd()
   }
   catch (e) { feedback = e instanceof Error ? e.message : 'That message was not sent.' }
@@ -237,14 +282,14 @@
   stream.onerror = () => { if (alive) chat = { ...chat, connection: 'reconnecting' } }
   return () => { alive = false; life.abort(); pendingEvents = []; stopFlush(); if (copyTimer !== undefined) clearTimeout(copyTimer); closeStream() }
  })
- onDestroy(() => { for (const image of images) URL.revokeObjectURL(image.preview) })
+ onDestroy(() => { for (const image of images) URL.revokeObjectURL(image.preview); for (const url of sentUrls) URL.revokeObjectURL(url) })
 </script>
 
 {#snippet inline(text: string)}
  {#each inlineSegments(text) as part, n (n)}{#if part.kind === 'code'}<code>{part.text}</code>{:else if part.kind === 'strong'}<strong>{part.text}</strong>{:else}{part.text}{/if}{/each}
 {/snippet}
 
-<section class="chat-pane" aria-label={`reet TUI in ${session.title}`} ondragover={(event) => { if (canAttach) event.preventDefault() }} ondrop={dropped}>
+<section class="chat-pane" aria-label={`reet TUI in ${session.title}`} ondragover={(event) => { if (canAttach) { event.preventDefault(); dropping = true } }} ondragleave={(event) => { if (event.currentTarget === event.target || !(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) dropping = false }} ondrop={(event) => { dropping = false; dropped(event) }}>
  <div class="chat-status" role="status" aria-live="polite">
   <span class="status-dot" class:busy={working} class:wait={pending.length > 0} class:down={chat.connection === 'reconnecting'} aria-hidden="true"></span>
   <strong>{statusWord}</strong>
@@ -265,7 +310,23 @@
   {/if}
   {#each chat.items as item (item.key)}
    {#if item.kind === 'user'}
-    <div class="row user"><div class="bubble user">{item.text}</div></div>
+    {@const att = attachmentsOf(item)}
+    {@const shown = att.refs.map(ref => ({ ref, preview: previewFor(ref) }))}
+    {@const gallery = shown.flatMap(entry => entry.preview ? [entry.preview] : [])}
+    <div class="row user"><div class="bubble user" class:has-images={shown.length > 0}>
+     {#if shown.length}
+      <div class="thumbs" class:single={shown.length === 1}>
+       {#each shown as entry (entry.ref)}
+        {#if entry.preview}
+         <button type="button" class="thumb" aria-label={`Preview ${entry.preview.name}`} title="Click to enlarge" onclick={() => openPreview(gallery, gallery.indexOf(entry.preview!))}><img src={entry.preview.url} alt={entry.preview.name} loading="lazy" /><span class="zoom" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg></span></button>
+        {:else}
+         <span class="thumb ghost" title={entry.ref}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5" /><circle cx="9" cy="10" r="1.6" /><path d="M21 16l-5-5-8 9" /></svg><span>{baseName(entry.ref) || 'Image'}</span></span>
+        {/if}
+       {/each}
+      </div>
+     {/if}
+     {#if att.text}<div class="said">{att.text}</div>{/if}
+    </div></div>
    {:else if item.kind === 'agent'}
     <div class="row agent">
      <div class="bubble agent">
@@ -390,39 +451,52 @@
  {#if ended}
   <p class="composer-note">This reet session has ended. Its live history is not kept after the machine connection closes.</p>
  {:else}
-  <div class="composer" onpaste={pasted}>
-   <div class="model-controls" data-keeps-focus>
-    <label for={`${session.id}-model`}>Model</label>
-    <input id={`${session.id}-model`} data-combo-list={`${session.id}-models`} bind:value={selectedModel} disabled={working || sending || changingModel || chat.connection !== 'open'} placeholder="provider/model" />
-    <datalist id={`${session.id}-models`}>{#each models as model}<option value={model}></option>{/each}</datalist>
-    <button type="button" class="btn" disabled={working || sending || changingModel || !selectedModel.trim() || selectedModel === currentModel || chat.connection !== 'open'} onclick={() => void changeModel()}>{changingModel ? 'Changing…' : 'Change model'}</button>
-    <button type="button" class="btn" disabled={!selectedModel.trim() || favouriteBusy || chat.connection !== 'open'} aria-label={defaultLabel(tool, selectedModel.trim(), selectedIsDefault)} onclick={() => void toggleDefault()}>{favouriteBusy ? 'Saving…' : selectedIsDefault ? 'Clear default' : 'Make default'}</button>
-   </div>
+  <div class="composer" onpaste={pasted} class:dropping={dropping}>
    {#if modelNote}<p class="notice" role="status">{modelNote}</p>{/if}
-   {#if favouriteNote}<p class="notice" role="status">{favouriteNote}</p>{/if}
    {#if images.length}
     <ul class="attachments" aria-label="Images to attach">
-     {#each images as image (image.id)}
-      <li><img src={image.preview} alt="" /><span>{image.file.name} · {formatImageSize(image.file.size)}</span><button type="button" aria-label={`Remove ${image.file.name}`} disabled={uploading} onclick={() => removeImage(image.id)}>×</button></li>
+     {#each images as image, i (image.id)}
+      <li in:fly={{ y: 8, duration: 160 }}>
+       <button type="button" class="tile" aria-label={`Preview ${image.file.name}`} title={`${image.file.name} · ${formatImageSize(image.file.size)}`} onclick={() => openPreview(images.map(item => ({ url: item.preview, name: item.file.name })), i)}><img src={image.preview} alt="" /></button>
+       <span class="tile-name">{image.file.name} · {formatImageSize(image.file.size)}</span>
+       <button type="button" class="tile-remove" aria-label={`Remove ${image.file.name}`} disabled={uploading} onclick={() => removeImage(image.id)}>×</button>
+      </li>
      {/each}
     </ul>
    {/if}
    {#if attachNote}<p class="notice" class:bad={/off|does not|at most|more than|Use PNG|Each image|empty/.test(attachNote)}>{attachNote}</p>{/if}
    <label class="vh" for={`${session.id}-chat-prompt`}>Message OpenCode</label>
-   <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:value={draft} rows="2" maxlength="2000" placeholder={working ? 'OpenCode is working…' : 'Ask OpenCode to change this project…'} onkeydown={keydown} disabled={sending || uploading || changingModel || working || chat.connection === 'reconnecting'}></textarea>
-   <div class="composer-bar">
-    <div class="composer-tools">
-     {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image" disabled={sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
-     <span class="hint">Enter to send · Shift + Enter for a new line</span>
-    </div>
-    <div class="composer-actions">
-     {#if working}<button type="button" class="btn stop" onclick={() => void stop()}>Stop</button>{/if}
+   <div class="field" class:busy={working}>
+    <span class="field-prompt" aria-hidden="true">›</span>
+    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:value={draft} rows="2" maxlength="2000" placeholder={working ? 'OpenCode is working…' : 'Ask OpenCode to change this project…'} onkeydown={keydown} disabled={sending || uploading || changingModel || working || chat.connection === 'reconnecting'}></textarea>
+    <div class="field-actions">
+     {#if working}<button type="button" class="btn stop" onclick={() => void stop()}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>Stop</button>{/if}
      <button type="button" class="btn primary send" disabled={sending || uploading || changingModel || working || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : 'Send'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg></button>
     </div>
+   </div>
+   <div class="composer-bar">
+    <div class="composer-tools">
+     {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image · or paste or drop one" disabled={sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
+     <div class="model-controls" data-keeps-focus>
+      <label for={`${session.id}-model`}>Model</label>
+      <input id={`${session.id}-model`} data-combo-list={`${session.id}-models`} bind:value={selectedModel} disabled={working || sending || changingModel || chat.connection !== 'open'} placeholder="provider/model" spellcheck="false" autocomplete="off" />
+      <datalist id={`${session.id}-models`}>{#each models as model}<option value={model}></option>{/each}</datalist>
+      {#if selectedModel.trim() && selectedModel !== currentModel}
+       <button type="button" class="btn change" transition:fade={{ duration: 120 }} disabled={working || sending || changingModel || chat.connection !== 'open'} onclick={() => void changeModel()}>{changingModel ? 'Changing…' : 'Change model'}</button>
+      {/if}
+      <button type="button" class="star" class:on={selectedIsDefault} disabled={!selectedModel.trim() || favouriteBusy || chat.connection !== 'open'} aria-pressed={selectedIsDefault} aria-label={defaultLabel(tool, selectedModel.trim(), selectedIsDefault)} title={selectedIsDefault ? `Default for new ${tool} sessions. Click to clear.` : `Make this the default for new ${tool} sessions`} onclick={() => void toggleDefault()}>
+       <svg viewBox="0 0 24 24" fill={selectedIsDefault ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z" /></svg>
+       <span class="star-word">{favouriteBusy ? 'Saving…' : selectedIsDefault ? 'Default' : 'Make default'}</span>
+      </button>
+     </div>
+    </div>
+    <span class="hint">Enter to send · Shift + Enter for a new line</span>
    </div>
    {#if canAttach}<input class="vh" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={picked} />{/if}
   </div>
  {/if}
+ {#if toast}{#key toast.id}<Toast message={toast.text} placement="right" tone={toast.bad ? 'bad' : 'ok'} duration={toast.bad ? 7000 : 3600} ondismiss={() => (toast = null)} />{/key}{/if}
+ {#if lightbox}<ImageLightbox items={lightbox.items} index={lightbox.index} onclose={() => (lightbox = null)} />{/if}
 </section>
 
 <style>
@@ -430,9 +504,20 @@
  .error-panel > strong { color: var(--bad); font-size: 1rem; }
  .error-panel p { margin: 8px 0; line-height: 1.5; }
  .error-panel summary { cursor: pointer; }
- .model-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
- .model-controls input { flex: 1; min-width: 120px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
- .model-controls button { min-height: 44px; }
+ /* The model is a quiet control in the composer's toolbar: a labelled field, a star for the default, and Change model only once the value differs. */
+ .model-controls { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; max-width: 30rem; }
+ .model-controls label { flex: none; font: 600 10px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--faint); }
+ .model-controls input { flex: 1 1 8rem; min-width: 0; height: 30px; padding: 0 9px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg-sunk); color: var(--ink-soft); font: 12px var(--mono); text-overflow: ellipsis; transition: border-color .15s, background .15s; }
+ .model-controls input:hover:not(:disabled) { border-color: var(--line); }
+ .model-controls input:focus-visible { outline: none; border-color: var(--accent-text); background: var(--card); color: var(--ink); }
+ .model-controls input:disabled { opacity: .6; }
+ .model-controls .change { flex: none; min-height: 30px; padding: 0 10px; font-size: 12px; }
+ .star { display: inline-flex; align-items: center; gap: 5px; flex: none; height: 30px; padding: 0 9px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--muted); font: 500 12px var(--sans); cursor: pointer; transition: color .15s, background .15s, border-color .15s; }
+ .star svg { width: 15px; height: 15px; }
+ .star:hover:not(:disabled) { background: var(--tint); color: var(--ink); }
+ .star.on { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+ .star:disabled { opacity: .5; cursor: default; }
+ .star:focus-visible, .tile:focus-visible, .thumb:focus-visible, .tile-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
  .chat-pane { display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--bg); container: chat-pane / inline-size; }
  .chat-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 18px; border-bottom: 1px solid var(--line-soft); font-size: 12px; color: var(--muted); background: var(--bg); }
  .chat-status strong { font-weight: 500; color: var(--ink); }
@@ -537,27 +622,54 @@
  .approval-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
  .approval-actions .btn { min-height: 36px; padding: 0 13px; font-size: 13px; }
  .decision { margin: 0; font-size: 12px; color: var(--muted); }
- /* Composer: one soft card with the field, attachments and the send controls. */
- .composer { display: flex; flex-direction: column; gap: 6px; margin: 0 14px 12px; padding: 7px 7px 7px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
- .composer:focus-within { border-color: var(--line-strong); }
- .composer-input { min-height: 42px; max-height: 10rem; padding: 7px 0 4px; border: 0; background: none; color: var(--ink); font-size: 14px; line-height: 1.5; resize: none; }
+ /* Composer: a raised card holding one clearly bounded input well, then a toolbar. The well is the only place that looks typeable. */
+ .composer { position: relative; display: flex; flex-direction: column; gap: 8px; margin: 0 14px 12px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--card-raised, var(--card)); box-shadow: var(--shadow-dock, var(--shadow)); transition: border-color .15s, box-shadow .15s; }
+ .composer.dropping { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
+ .field { display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 12px; border: 1.5px solid var(--line-strong); border-radius: 12px; background: var(--bg-sunk); transition: border-color .15s, box-shadow .15s, background .15s; }
+ .field:hover { border-color: color-mix(in srgb, var(--ink) 30%, var(--line-strong)); }
+ .field:focus-within { border-color: var(--accent); background: var(--bg); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+ .field.busy { border-style: dashed; }
+ .field-prompt { align-self: flex-start; padding-top: 7px; font: 600 18px/1.3 var(--mono); color: var(--accent-text); user-select: none; }
+ .composer-input { flex: 1; min-width: 0; min-height: 44px; max-height: 12rem; padding: 7px 0 4px; border: 0; background: none; color: var(--ink); font-size: 14.5px; line-height: 1.5; resize: none; field-sizing: content; }
+ .composer-input::placeholder { color: var(--muted); }
  .composer-input:focus-visible { outline: none; }
- .composer-bar { display: flex; align-items: center; gap: 8px; min-width: 0; }
- .composer-tools { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
- .hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--faint); }
- .icon-btn { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 7px; background: none; color: var(--muted); cursor: pointer; }
+ .field-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+ .field-actions .btn { min-height: 36px; padding: 0 14px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+ .composer-bar { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 0 2px; }
+ .composer-tools { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+ .hint { flex: none; font-size: 11px; color: var(--faint); white-space: nowrap; }
+ .icon-btn { display: grid; place-items: center; flex: none; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; }
  .icon-btn:hover:not(:disabled) { background: var(--tint); color: var(--ink); }
  .icon-btn:disabled { opacity: .5; cursor: default; }
- .icon-btn svg { width: 16px; height: 16px; }
- .composer-actions { display: flex; align-items: center; gap: 6px; flex: none; }
- .composer-actions .btn { min-height: 34px; padding: 0 12px; font-size: 12.5px; }
- .send svg { width: 14px; height: 14px; }
+ .icon-btn svg { width: 17px; height: 17px; }
+ .send svg, .stop svg { width: 14px; height: 14px; }
  .stop { color: var(--bad); }
- .attachments { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
- .attachments li { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 5px 4px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-sunk); font-size: 12px; color: var(--ink-soft); }
- .attachments li img { width: 28px; height: 28px; flex: none; border-radius: 5px; object-fit: cover; }
- .attachments li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
- .attachments button { min-width: 26px; min-height: 26px; border: 0; background: none; color: var(--muted); font-size: 15px; cursor: pointer; }
+ .attachments { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
+ .attachments li { position: relative; display: flex; flex-direction: column; gap: 4px; width: 84px; }
+ .tile { display: block; width: 84px; height: 84px; padding: 0; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; background: var(--bg-sunk); cursor: zoom-in; transition: transform .15s var(--ease-out), border-color .15s; }
+ .tile:hover { border-color: var(--accent); transform: translateY(-1px); }
+ .tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
+ .tile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--muted); }
+ .tile-remove { position: absolute; top: -6px; right: -6px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--card-raised, var(--card)); color: var(--ink); font-size: 14px; line-height: 1; cursor: pointer; box-shadow: var(--shadow); }
+ .tile-remove:hover:not(:disabled) { background: var(--bad); border-color: var(--bad); color: var(--accent-ink); }
+ .tile-remove:disabled { opacity: .5; cursor: default; }
+ /* Images in a sent message: thumbnails that open larger. */
+ .bubble.user.has-images { display: flex; flex-direction: column; gap: 8px; padding: 6px; }
+ .bubble.user.has-images .said { padding: 2px 6px 4px; }
+ .thumbs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+ .thumb { position: relative; display: block; width: 112px; height: 112px; padding: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg-sunk); cursor: zoom-in; transition: transform .15s var(--ease-out), box-shadow .15s; }
+ .thumbs.single .thumb { width: 240px; max-width: 100%; height: auto; max-height: 240px; }
+ .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+ .thumbs.single .thumb img { height: auto; max-height: 240px; object-fit: contain; }
+ .thumb:hover { transform: scale(1.015); box-shadow: 0 4px 14px color-mix(in srgb, var(--ink) 18%, transparent); }
+ .thumb .zoom { position: absolute; right: 6px; bottom: 6px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; background: color-mix(in srgb, var(--ink) 72%, transparent); color: var(--bg); opacity: 0; transition: opacity .15s; }
+ .thumb:hover .zoom, .thumb:focus-visible .zoom { opacity: 1; }
+ .thumb .zoom svg { width: 13px; height: 13px; }
+ .thumb.ghost { display: inline-flex; align-items: center; gap: 7px; width: auto; height: auto; max-width: 100%; padding: 7px 10px; cursor: default; color: var(--muted); font: 12px var(--mono); }
+ .thumb.ghost:hover { transform: none; box-shadow: none; }
+ .thumb.ghost svg { width: 16px; height: 16px; flex: none; }
+ .thumb.ghost span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ @media (prefers-reduced-motion: reduce) { .tile, .thumb { transition: none; } .tile:hover, .thumb:hover { transform: none; } }
  .composer-note { margin: 0 14px 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--muted); font-size: 12px; }
  .vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
  /* Narrow panes keep the target and state; line counts and durations give their room first. */
@@ -568,7 +680,9 @@
   .tool-head { grid-template-columns: 8px 16px auto minmax(0, 1fr) auto 14px; gap: 7px; padding: 6px 8px; }
   .meta { display: none; }
   .hint { display: none; }
-  .composer { margin: 0 10px 10px; }
+  .composer { margin: 0 8px 8px; padding: 8px; }
+  .model-controls label { display: none; }
+  .star-word { display: none; }
   .think-preview { font-size: 11.5px; }
  }
  @media (max-width: 650px) {
@@ -576,14 +690,17 @@
   .row.user .bubble { max-width: 92%; }
   .bubble.agent { font-size: 13.5px; }
   .tool-head { min-height: 42px; }
-  .composer-actions .btn { min-height: 40px; }
+  .field-actions .btn { min-height: 40px; }
   .icon-btn { width: 36px; height: 36px; }
+  .composer-bar { flex-wrap: wrap; }
  }
  @media (pointer: coarse) {
   .tool-head { min-height: 44px; }
   .think-head { min-height: 40px; }
   .approval-actions .btn { min-height: 46px; flex: 1 1 0; }
   .copy { min-height: 32px; padding: 0 10px; font-size: 12px; }
-  .attachments button { min-width: 40px; min-height: 40px; }
+  .tile-remove { width: 30px; height: 30px; top: -8px; right: -8px; }
+  .star { height: 36px; }
+  .model-controls input { height: 36px; }
  }
 </style>

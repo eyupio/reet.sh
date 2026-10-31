@@ -93,3 +93,13 @@ test('a chat prompt embeds images only when the machine accepts them', () => {
   const many = Array.from({ length: 9 }, (_, i) => ({ path: `/tmp/${i}.png`, reference: `/tmp/${i}.png` }))
   assert.deepEqual(u.chatPromptParts('look', many, true), { text: `look\n\nImages: ${many.map(x => x.reference).join(' ')}`, images: [] })
 })
+
+test('a sent message splits back into its words and the image paths it carries', () => {
+  assert.deepEqual(u.splitImageRefs('hello'), { text: 'hello', refs: [] })
+  assert.deepEqual(u.splitImageRefs('Image: /a/b/img-1.png'), { text: '', refs: ['/a/b/img-1.png'] })
+  assert.deepEqual(u.splitImageRefs('can you see this image?\n\nImage: /root/.config/reet/img-6d5.png'), { text: 'can you see this image?', refs: ['/root/.config/reet/img-6d5.png'] })
+  assert.deepEqual(u.splitImageRefs('look\n\nImages: /tmp/a.png /tmp/b.JPG /tmp/c.webp'), { text: 'look', refs: ['/tmp/a.png', '/tmp/b.JPG', '/tmp/c.webp'] })
+  assert.deepEqual(u.splitImageRefs('Image: is a word here'), { text: 'Image: is a word here', refs: [] })
+  assert.deepEqual(u.splitImageRefs(u.imagePrompt('fix it', ['/x/y.png'])), { text: 'fix it', refs: ['/x/y.png'] })
+  assert.equal(u.baseName('/a/b/shot.png'), 'shot.png')
+})

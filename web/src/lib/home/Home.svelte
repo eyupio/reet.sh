@@ -353,6 +353,10 @@
   .home-detail[open] > summary { margin-bottom: 14px; }
   .attention-detail > summary { color: var(--warn); }
   .quick-launch :global(.launch) { position: relative; bottom: auto; margin: 0; }
+  /* On a phone the open keyboard needs the prompt above it; the section is in the page flow otherwise. */
+  @media (max-width: 650px) {
+    .quick-launch :global(.launch.lifted) { position: fixed; left: 0; right: 0; bottom: var(--lift, 0px); margin: 0 12px; z-index: 5; }
+  }
   /* The live regions are always present, so a sentence put into one is announced; empty, they take no room. */
   .live:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
 

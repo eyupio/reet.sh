@@ -56,3 +56,30 @@ export function loadThumb(path: string): { url: string; name: string } | null {
   const hit = read().map[path]
   return hit ? { url: hit.u, name: hit.n } : null
 }
+
+// Which uploads belong to which message. An embedded-image message replays as text only, so the link is kept here.
+const BIND_KEY = 'reet.chat.bind.v1'
+const MAX_BINDINGS = 200
+let bindings: Record<string, string[]> | undefined
+
+function readBindings(): Record<string, string[]> {
+  if (bindings) return bindings
+  try {
+    const parsed = JSON.parse(localStorage.getItem(BIND_KEY) ?? '')
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return (bindings = parsed)
+  } catch { /* nothing stored, or storage is unavailable */ }
+  return (bindings = {})
+}
+
+export function saveBinding(session: string, key: string, refs: string[]) {
+  const all = { ...readBindings(), [`${session}/${key}`]: refs }
+  const keys = Object.keys(all)
+  for (const old of keys.slice(0, Math.max(0, keys.length - MAX_BINDINGS))) delete all[old]
+  bindings = all
+  try { localStorage.setItem(BIND_KEY, JSON.stringify(all)) } catch { /* optional */ }
+}
+
+export function loadBinding(session: string, key: string): string[] | null {
+  const refs = readBindings()[`${session}/${key}`]
+  return Array.isArray(refs) ? refs : null
+}

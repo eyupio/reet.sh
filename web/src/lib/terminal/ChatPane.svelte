@@ -8,7 +8,7 @@
  import { defaultLabel, type ModelFavourite } from '../models'
  import Toast from '../Toast.svelte'
  import ImageLightbox from './ImageLightbox.svelte'
- import { loadThumb, makeThumb, saveThumb } from './thumbs'
+ import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
  let { session, uploadsSupported = false, uploadsOff = false, acpImages = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean } = $props()
@@ -75,11 +75,13 @@
  let echoes: { text: string; refs: string[] }[] = []
  let bound = $state<Record<string, string[]>>({})
  const boundKeys = new Set<string>()
+ const IMAGE_ONLY_ECHO = 'Image attached.'
  let lightbox = $state<{ items: { url: string; name: string }[]; index: number } | null>(null)
  function previewFor(ref: string): { url: string; name: string } | null { return sentPreviews[ref] ?? loadThumb(ref) }
  function attachmentsOf(item: { key: string; text: string }): { text: string; refs: string[] } {
-  const refs = bound[item.key]
-  return refs ? { text: item.text, refs } : splitImageRefs(item.text)
+  const refs = bound[item.key] ?? loadBinding(session.id, item.key)
+  // The broker shows an image-only message as this placeholder; the thumbnails say it better.
+  return refs ? { text: item.text.trim() === IMAGE_ONLY_ECHO ? '' : item.text, refs } : splitImageRefs(item.text)
  }
  function openPreview(items: { url: string; name: string }[], index: number) { if (items.length) lightbox = { items, index } }
  $effect(() => {
@@ -90,6 +92,7 @@
    if (at < 0) continue
    const [echo] = echoes.splice(at, 1)
    bound = { ...bound, [item.key]: echo.refs }
+   saveBinding(session.id, item.key, echo.refs)
   }
  })
  let log: HTMLElement | undefined = $state()
@@ -211,7 +214,7 @@
    sentPreviews = { ...sentPreviews, ...keep }
    const body = chatPromptParts(text, uploads, acpImages)
    if (new TextEncoder().encode(body.text).length > MAX_CHAT_BYTES) { feedback = 'That message and its image paths are too long. Keep the message under 2,000 bytes.'; return }
-   const echo = body.images.length ? { text: body.text.trim(), refs: uploads.map(upload => upload.path || upload.reference) } : null
+   const echo = body.images.length ? { text: body.text.trim() || IMAGE_ONLY_ECHO, refs: uploads.map(upload => upload.path || upload.reference) } : null
    if (echo) echoes.push(echo)
    try { await chatPrompt(session.id, body.text, body.images) }
    catch (e) { if (echo) echoes = echoes.filter(item => item !== echo); throw e }

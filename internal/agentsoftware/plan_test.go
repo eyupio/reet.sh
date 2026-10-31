@@ -107,3 +107,42 @@ func TestPlanRefusesUnreviewedEvidence(t *testing.T) {
 		t.Fatalf("unknown action error = %v", err)
 	}
 }
+
+func withPrevious(version, previous string) terminalproto.SoftwareEntry {
+	entry := installed(version)
+	entry.Previous = previous
+	return entry
+}
+
+func TestRollbackPlanNamesTheKeptVersion(t *testing.T) {
+	plan, err := For(withPrevious("1.19.5", "1.18.0"), Rollback, "studio", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.State != "ready" || plan.Current != "1.19.5" || plan.Target != "1.18.0" {
+		t.Fatalf("unexpected rollback plan: %+v", plan)
+	}
+	if !strings.Contains(plan.Sentence, "roll") || plan.Executes {
+		t.Fatalf("rollback sentence or executes wrong: %+v", plan)
+	}
+	if _, err := For(installed("1.19.5"), Rollback, "studio", 0); !errors.Is(err, ErrNoRollback) {
+		t.Fatalf("rollback without a previous version error = %v", err)
+	}
+	if _, err := For(systemInstall("1.19.5"), Rollback, "studio", 0); !errors.Is(err, ErrAction) {
+		t.Fatalf("rollback of a system copy error = %v", err)
+	}
+}
+
+func TestRemovePlanMentionsTheSystemCopyAndPreviousVersions(t *testing.T) {
+	plan, err := For(withPrevious("1.19.5", "1.18.0"), Remove, "studio", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(plan.Effects, " | ")
+	if !strings.Contains(joined, "outside reet is untouched") || !strings.Contains(joined, "kept previous versions") {
+		t.Fatalf("remove effects: %v", plan.Effects)
+	}
+	if _, err := For(systemInstall("1.19.5"), Remove, "studio", 0); !errors.Is(err, ErrAction) {
+		t.Fatalf("remove of a system copy error = %v", err)
+	}
+}

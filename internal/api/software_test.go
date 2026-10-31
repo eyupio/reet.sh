@@ -325,9 +325,9 @@ func TestMachineSoftwareApplyRefusals(t *testing.T) {
 		t.Fatalf("changed refusal: %d %s", code, raw)
 	}
 
-	code, out, raw = f.post(t, `{"tool":"opencode","action":"remove"}`)
+	code, out, raw = f.post(t, `{"tool":"opencode","action":"run"}`)
 	if code != http.StatusBadRequest || out["code"] != "software_action_invalid" {
-		t.Fatalf("remove refusal: %d %s", code, raw)
+		t.Fatalf("unknown action refusal: %d %s", code, raw)
 	}
 
 	withoutApply := softwareTestCapabilities(softwareTestEntry(terminalproto.SoftwareInstalled, "1.18.0"))
@@ -336,5 +336,154 @@ func TestMachineSoftwareApplyRefusals(t *testing.T) {
 	code, out, raw = g.post(t, `{"tool":"opencode","action":"update"}`)
 	if code != http.StatusConflict || out["code"] != "software_apply_unsupported" {
 		t.Fatalf("capability refusal: %d %s", code, raw)
+	}
+}
+
+func TestMachineSoftwarePlanRollbackAndRemove(t *testing.T) {
+	srv, st, a, _, _ := privateFixture(t, AuthAccounts, "")
+	uid, _ := st.DefaultOwner()
+	cookie := terminalLogin(t, st, uid)
+	entry := softwareTestEntry(terminalproto.SoftwareInstalled, "1.19.5")
+	entry.Previous = "1.18.0"
+	caps := softwareTestCapabilities(entry)
+	if _, err := st.BeginRemoteConnectionFor(uid, a.ID, terminalbroker.ID(), caps); err != nil {
+		t.Fatal(err)
+	}
+	get := func(query string) (int, map[string]any, string) {
+		r := httptest.NewRequest(http.MethodGet, "/api/v2/machines/"+a.ID+"/software/plan?"+query, nil)
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, r)
+		out := map[string]any{}
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+		return w.Code, out, w.Body.String()
+	}
+	code, out, raw := get("tool=opencode&action=rollback")
+	if code != http.StatusOK || out["target"] != "1.18.0" || out["action"] != "rollback" {
+		t.Fatalf("rollback plan: %d %s", code, raw)
+	}
+	code, out, raw = get("tool=opencode&action=remove")
+	if code != http.StatusOK || out["action"] != "remove" || out["target"] != "" {
+		t.Fatalf("remove plan: %d %s", code, raw)
+	}
+
+	withoutPrevious := softwareTestCapabilities(softwareTestEntry(terminalproto.SoftwareInstalled, "1.19.5"))
+	if _, err := st.BeginRemoteConnectionFor(uid, a.ID, terminalbroker.ID(), withoutPrevious); err != nil {
+		t.Fatal(err)
+	}
+	code, out, raw = get("tool=opencode&action=rollback")
+	if code != http.StatusConflict || out["code"] != "software_no_rollback" {
+		t.Fatalf("rollback without a previous version: %d %s", code, raw)
+	}
+}
+
+func TestMachineSoftwareApplyRollsBackAndRemoves(t *testing.T) {
+	caps := softwareTestCapabilities(softwareTestEntry(terminalproto.SoftwareInstalled, "1.19.5"))
+	caps.Software[0].Previous = "1.18.0"
+	caps.SoftwareApply = true
+	f := softwareApplyAPIFixture(t, caps)
+
+	rolledEntry := softwareTestEntry(terminalproto.SoftwareInstalled, "1.18.0")
+	rolledEntry.Previous = "1.19.5"
+	f.answer = terminalproto.SoftwareApplyResult{
+		Tool: "opencode", Action: terminalproto.SoftwareActionRollback, State: terminalproto.SoftwareApplyApplied,
+		Version: "1.18.0", Previous: "1.19.5", Entry: &rolledEntry,
+	}
+	code, out, raw := f.post(t, `{"tool":"opencode","action":"rollback"}`)
+	if code != http.StatusOK || out["result"].(map[string]any)["state"] != "applied" {
+		t.Fatalf("rollback apply: %d %s", code, raw)
+	}
+	if len(f.asked) != 1 || f.asked[0].ExpectedPrevious != "1.18.0" || f.asked[0].ExpectedVersion != "1.19.5" {
+		t.Fatalf("rollback request evidence: %+v", f.asked)
+	}
+	stored, err := f.st.RemoteCapabilitiesFor(f.uid, f.agent)
+	if err != nil || len(stored.Capabilities.Software) != 1 || stored.Capabilities.Software[0].Version != "1.18.0" {
+		t.Fatalf("stored rollback evidence: %+v %v", stored.Capabilities.Software, err)
+	}
+
+	missingEntry := softwareTestEntry(terminalproto.SoftwareMissing, "")
+	f.answer = terminalproto.SoftwareApplyResult{
+		Tool: "opencode", Action: terminalproto.SoftwareActionRemove, State: terminalproto.SoftwareApplyApplied,
+		Entry: &missingEntry,
+	}
+	code, out, raw = f.post(t, `{"tool":"opencode","action":"remove"}`)
+	if code != http.StatusOK || out["result"].(map[string]any)["state"] != "applied" {
+		t.Fatalf("remove apply: %d %s", code, raw)
+	}
+	stored, err = f.st.RemoteCapabilitiesFor(f.uid, f.agent)
+	if err != nil || len(stored.Capabilities.Software) != 1 || stored.Capabilities.Software[0].State != terminalproto.SoftwareMissing {
+		t.Fatalf("stored remove evidence: %+v %v", stored.Capabilities.Software, err)
+	}
+}
+
+func TestFleetSoftwarePlansReadStoredEvidence(t *testing.T) {
+	srv, st, a, _, _ := privateFixture(t, AuthAccounts, "")
+	uid, _ := st.DefaultOwner()
+	cookie := terminalLogin(t, st, uid)
+
+	updateCaps := softwareTestCapabilities(softwareTestEntry(terminalproto.SoftwareInstalled, "1.18.0"))
+	updateCaps.SoftwareApply = true
+	record, err := st.BeginRemoteConnectionFor(uid, a.ID, terminalbroker.ID(), updateCaps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, _, err := st.ReserveTerminalCreateFor(uid, a.ID, terminalbroker.ID(), record.Generation, terminalproto.Create{Title: "Agent run", Cols: 80, Rows: 24, Tool: "opencode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ObserveTerminalStateFor(uid, a.ID, session.ID, record.Generation, terminalproto.Running, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	noneEntry := softwareTestEntry(terminalproto.SoftwareInstalled, "1.19.5")
+	noneEntry.Previous = "1.18.0"
+	add := func(host string, caps terminalproto.Capabilities) {
+		agent, _, err := st.EnrollSyncAgent(uid, host, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.BeginRemoteConnectionFor(uid, agent.ID, terminalbroker.ID(), caps); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("current", softwareTestCapabilities(noneEntry))
+	add("bare", softwareTestCapabilities(softwareTestEntry(terminalproto.SoftwareMissing, "")))
+	add("system", softwareTestCapabilities(softwareTestSystemEntry("1.18.0")))
+	add("older", terminalproto.Capabilities{ProtocolVersion: terminalproto.Version, OS: "linux", OSUser: "me", TerminalEnabled: true, TerminalControl: true, HealthEnabled: true, Readiness: terminalproto.Ready})
+
+	r := httptest.NewRequest(http.MethodGet, "/api/v2/software/plans", nil)
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("plans: %d %s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Machines []fleetSoftwareRow `json:"machines"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Machines) != 5 {
+		t.Fatalf("machines = %+v", out.Machines)
+	}
+	byHost := map[string]fleetSoftwareRow{}
+	for _, row := range out.Machines {
+		byHost[row.Host] = row
+	}
+	if row := byHost["laptop"]; row.State != "update" || row.Version != "1.18.0" || row.SessionsRunning != 1 || !row.CanApply || row.Target != "1.19.5" {
+		t.Fatalf("laptop row = %+v", row)
+	}
+	if row := byHost["current"]; row.State != "none" || !strings.Contains(row.Sentence, "rollback") {
+		t.Fatalf("current row = %+v", row)
+	}
+	if row := byHost["bare"]; row.State != "install" || row.Target != "1.19.5" {
+		t.Fatalf("bare row = %+v", row)
+	}
+	if row := byHost["system"]; row.State != "install" || !strings.Contains(row.Sentence, "alongside") {
+		t.Fatalf("system row = %+v", row)
+	}
+	if row := byHost["older"]; row.State != "unknown" || !strings.Contains(row.Sentence, "Update reet") {
+		t.Fatalf("older row = %+v", row)
 	}
 }

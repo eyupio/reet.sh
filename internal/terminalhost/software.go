@@ -30,6 +30,7 @@ func InspectSoftware(home, tool string, lookPath func(string) (string, error)) t
 		entry.State, entry.Version = terminalproto.SoftwareInstalled, receipt.Version
 		entry.Manager, entry.Package, entry.Source = "reet", "opencode-ai", "verified_tarball"
 		entry.Path, entry.Evidence, entry.Managed = path, "verified_sha256", true
+		entry.Previous = receipt.Previous
 		entry.Operations = []terminalproto.SoftwareOperation{terminalproto.SoftwarePlanUpdate, terminalproto.SoftwarePlanRemove}
 		return entry
 	}

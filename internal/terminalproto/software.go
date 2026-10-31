@@ -71,14 +71,15 @@ func (r SoftwareReason) Valid() bool {
 type SoftwareAction string
 
 const (
-	SoftwareActionInstall SoftwareAction = "install"
-	SoftwareActionUpdate  SoftwareAction = "update"
-	SoftwareActionRemove  SoftwareAction = "remove"
+	SoftwareActionInstall  SoftwareAction = "install"
+	SoftwareActionUpdate   SoftwareAction = "update"
+	SoftwareActionRollback SoftwareAction = "rollback"
+	SoftwareActionRemove   SoftwareAction = "remove"
 )
 
 func (a SoftwareAction) Valid() bool {
 	switch a {
-	case SoftwareActionInstall, SoftwareActionUpdate, SoftwareActionRemove:
+	case SoftwareActionInstall, SoftwareActionUpdate, SoftwareActionRollback, SoftwareActionRemove:
 		return true
 	}
 	return false
@@ -117,7 +118,9 @@ type SoftwareEntry struct {
 	Evidence string        `json:"evidence,omitempty"`
 	// Managed is true only for an installation reet staged itself. An
 	// installation reet did not make stays inspect-only.
-	Managed    bool                `json:"managed,omitempty"`
+	Managed bool `json:"managed,omitempty"`
+	// Previous is the earlier managed version kept for rollback, when one is.
+	Previous   string              `json:"previous,omitempty"`
 	Operations []SoftwareOperation `json:"operations,omitempty"`
 	Reason     SoftwareReason      `json:"reason,omitempty"`
 	CheckedAt  int64               `json:"checkedAt"`
@@ -134,6 +137,9 @@ func (e SoftwareEntry) Valid() bool {
 		return false
 	}
 	if e.Managed && e.State != SoftwareInstalled {
+		return false
+	}
+	if e.Previous != "" && (!e.Managed || e.State != SoftwareInstalled || !validVersionText(e.Previous)) {
 		return false
 	}
 	if len(e.Operations) > 3 {
@@ -156,6 +162,23 @@ func (e SoftwareEntry) Valid() bool {
 		return e.Reason != "" && e.Reason != SoftwareNotInstalled
 	}
 	return false
+}
+
+func validVersionText(value string) bool {
+	if value == "" {
+		return true
+	}
+	if len(value) > 64 {
+		return false
+	}
+	for _, r := range value {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '.', r == '-', r == '+':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // ValidSoftware checks a whole inventory and its encoded size.
@@ -196,24 +219,29 @@ func SupportsSoftwareApply(features string) bool {
 // tool, action and the evidence the person approved; the connector owns the
 // artifact URL, checksums and command.
 type SoftwareApply struct {
-	Tool            string         `json:"tool"`
-	Action          SoftwareAction `json:"action"`
-	ExpectedState   SoftwareState  `json:"expectedState"`
-	ExpectedVersion string         `json:"expectedVersion,omitempty"`
-	ExpectedManaged bool           `json:"expectedManaged,omitempty"`
+	Tool             string         `json:"tool"`
+	Action           SoftwareAction `json:"action"`
+	ExpectedState    SoftwareState  `json:"expectedState"`
+	ExpectedVersion  string         `json:"expectedVersion,omitempty"`
+	ExpectedPrevious string         `json:"expectedPrevious,omitempty"`
+	ExpectedManaged  bool           `json:"expectedManaged,omitempty"`
 }
 
 func (SoftwareApply) kind() string { return "software_apply" }
 
 func (s SoftwareApply) valid() bool {
-	if !ValidTool(s.Tool) || !s.Action.Valid() || !s.ExpectedState.Valid() || !plainText(s.ExpectedVersion, 64) {
+	if !ValidTool(s.Tool) || !s.Action.Valid() || !s.ExpectedState.Valid() || !plainText(s.ExpectedVersion, 64) || !validVersionText(s.ExpectedPrevious) {
 		return false
 	}
 	switch s.Action {
 	case SoftwareActionInstall:
 		return s.ExpectedState == SoftwareMissing || s.ExpectedState == SoftwareInstalled && !s.ExpectedManaged
 	case SoftwareActionUpdate:
-		return s.ExpectedState == SoftwareInstalled && s.ExpectedManaged
+		return s.ExpectedState == SoftwareInstalled && s.ExpectedManaged && s.ExpectedVersion != ""
+	case SoftwareActionRollback:
+		return s.ExpectedState == SoftwareInstalled && s.ExpectedManaged && s.ExpectedVersion != "" && s.ExpectedPrevious != ""
+	case SoftwareActionRemove:
+		return s.ExpectedState == SoftwareInstalled && s.ExpectedManaged && s.ExpectedVersion != ""
 	}
 	return false
 }
@@ -237,24 +265,27 @@ func (s SoftwareApplyState) Valid() bool {
 type SoftwareApplyReason string
 
 const (
-	SoftwareApplyUnsupported SoftwareApplyReason = "unsupported"
-	SoftwareApplyChanged     SoftwareApplyReason = "changed"
-	SoftwareApplyBusy        SoftwareApplyReason = "busy"
-	SoftwareApplySessions    SoftwareApplyReason = "sessions_running"
-	SoftwareApplyDownload    SoftwareApplyReason = "download_failed"
-	SoftwareApplyChecksum    SoftwareApplyReason = "checksum_failed"
-	SoftwareApplyInstall     SoftwareApplyReason = "install_failed"
-	SoftwareApplyNotManaged  SoftwareApplyReason = "not_managed"
-	SoftwareApplyOff         SoftwareApplyReason = "off"
-	SoftwareApplyTimedOut    SoftwareApplyReason = "timed_out"
-	SoftwareApplyUnreadable  SoftwareApplyReason = "unreadable"
+	SoftwareApplyUnsupported  SoftwareApplyReason = "unsupported"
+	SoftwareApplyChanged      SoftwareApplyReason = "changed"
+	SoftwareApplyBusy         SoftwareApplyReason = "busy"
+	SoftwareApplySessions     SoftwareApplyReason = "sessions_running"
+	SoftwareApplyDownload     SoftwareApplyReason = "download_failed"
+	SoftwareApplyChecksum     SoftwareApplyReason = "checksum_failed"
+	SoftwareApplyInstall      SoftwareApplyReason = "install_failed"
+	SoftwareApplyRemoveFailed SoftwareApplyReason = "remove_failed"
+	SoftwareApplyRollback     SoftwareApplyReason = "rollback_failed"
+	SoftwareApplyNoRollback   SoftwareApplyReason = "no_rollback"
+	SoftwareApplyNotManaged   SoftwareApplyReason = "not_managed"
+	SoftwareApplyOff          SoftwareApplyReason = "off"
+	SoftwareApplyTimedOut     SoftwareApplyReason = "timed_out"
+	SoftwareApplyUnreadable   SoftwareApplyReason = "unreadable"
 )
 
 func (r SoftwareApplyReason) Valid() bool {
 	switch r {
 	case SoftwareApplyUnsupported, SoftwareApplyChanged, SoftwareApplyBusy, SoftwareApplySessions,
-		SoftwareApplyDownload, SoftwareApplyChecksum, SoftwareApplyInstall, SoftwareApplyNotManaged,
-		SoftwareApplyOff, SoftwareApplyTimedOut, SoftwareApplyUnreadable:
+		SoftwareApplyDownload, SoftwareApplyChecksum, SoftwareApplyInstall, SoftwareApplyRemoveFailed, SoftwareApplyRollback, SoftwareApplyNoRollback,
+		SoftwareApplyNotManaged, SoftwareApplyOff, SoftwareApplyTimedOut, SoftwareApplyUnreadable:
 		return true
 	}
 	return false
@@ -281,9 +312,18 @@ func (r SoftwareApplyResult) valid() bool {
 		return false
 	}
 	if r.State == SoftwareApplyApplied {
-		if r.Reason != "" || r.Entry == nil || !r.Entry.Valid() || r.Entry.State != SoftwareInstalled ||
-			r.Entry.Version != r.Version {
+		if r.Reason != "" || r.Entry == nil || !r.Entry.Valid() {
 			return false
+		}
+		switch r.Action {
+		case SoftwareActionRemove:
+			if r.Version != "" || r.Entry.Managed || r.Entry.State == SoftwareInstalled && r.Entry.Managed {
+				return false
+			}
+		case SoftwareActionInstall, SoftwareActionUpdate, SoftwareActionRollback:
+			if r.Entry.State != SoftwareInstalled || !r.Entry.Managed || r.Entry.Version != r.Version || r.Version == "" {
+				return false
+			}
 		}
 	} else if !r.Reason.Valid() || r.Entry != nil {
 		return false

@@ -1,4 +1,5 @@
-import type { SoftwareEntry } from './terminal/api'
+import type { FleetSoftwareRow, SoftwareEntry } from './terminal/api'
+export type SoftwarePlanAction = 'install' | 'update' | 'rollback' | 'remove'
 
 /** One line of installation evidence, including what is absent and why. */
 export function softwareLine(entry: SoftwareEntry): string {
@@ -12,10 +13,39 @@ export function softwareLine(entry: SoftwareEntry): string {
   }
 }
 
-/** The plan a person can review for this evidence, or none. */
-export function softwarePlanAction(entry: SoftwareEntry): 'install' | 'update' | '' {
+/** The plans a person can review for this evidence, in a stable order. */
+export function softwarePlanActions(entry: SoftwareEntry): SoftwarePlanAction[] {
   const operations = entry.operations ?? []
-  if (operations.includes('plan_install') && (entry.state === 'missing' || (entry.state === 'installed' && !entry.managed))) return 'install'
-  if (entry.state === 'installed' && entry.managed && operations.includes('plan_update')) return 'update'
+  if (operations.includes('plan_install') && (entry.state === 'missing' || (entry.state === 'installed' && !entry.managed))) return ['install']
+  if (entry.state !== 'installed' || !entry.managed) return []
+  const actions: SoftwarePlanAction[] = []
+  if (operations.includes('plan_update')) actions.push('update')
+  if (entry.previous) actions.push('rollback')
+  if (operations.includes('plan_remove')) actions.push('remove')
+  return actions
+}
+
+/** One line for a machine in the plan-only fleet review. */
+export function fleetSoftwareLabel(row: Pick<FleetSoftwareRow, 'state' | 'version' | 'target'>): string {
+  switch (row.state) {
+    case 'update': return `Update to ${row.target ?? 'the reviewed version'}`
+    case 'install': return row.version ? `Install ${row.target ?? 'the reviewed version'} alongside` : `Install ${row.target ?? 'the reviewed version'}`
+    case 'none': return 'Up to date'
+    default: return 'Needs attention'
+  }
+}
+
+/** What stops this machine's plan from being applied, or '' when nothing does. */
+export function fleetSoftwareWarning(row: Pick<FleetSoftwareRow, 'state' | 'sessionsRunning' | 'canApply'>): string {
+  if (row.state === 'none' || row.state === 'unknown') return ''
+  if (row.sessionsRunning > 0) {
+    return `${row.sessionsRunning} OpenCode ${row.sessionsRunning === 1 ? 'session is' : 'sessions are'} running; reet refuses to apply until ${row.sessionsRunning === 1 ? 'it stops' : 'they stop'}.`
+  }
+  if (!row.canApply) return 'Update reet on this machine to apply.'
   return ''
+}
+
+/** True when the fleet review may apply this row's plan right now. */
+export function fleetSoftwareCanApply(row: Pick<FleetSoftwareRow, 'state' | 'sessionsRunning' | 'canApply'>): boolean {
+  return (row.state === 'install' || row.state === 'update') && row.canApply && row.sessionsRunning === 0
 }

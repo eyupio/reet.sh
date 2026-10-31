@@ -128,11 +128,40 @@ is never updated or removed. Docs: [docs/agent-software.md](docs/agent-software.
 software/private-control tests in `api`; `npm --prefix web run check` and `npm run build` passed; `go vet ./...` and
 `git diff --check` passed. The full `api` race package was not run on this loaded host; CI is the gate.
 
-**Still not in this slice:** no remove, explicit rollback action, fleet-wide apply, controller-side artifact mirror,
-or resume after a connector restart; the binary is verified at install, not on every launch. Next: remove only
-reet-managed copies, an explicit rollback action, and reviewed fleet-wide maintenance. Read
+**L2c, on `feat/agent-software-remove-rollback` ([#291](https://github.com/eyupio/reet.sh/pull/291), commit `e9657dd`, stacked on #289):** explicit **rollback** and **remove**, both only
+for a reet-managed copy. `SoftwareEntry.Previous` carries the kept version; `SoftwareActionRollback` and
+`SoftwareActionRemove` extend the apply request/result; `ApplySoftware` verifies the evidence, calls
+`RollbackManaged`/`RemoveManaged`, verifies the result and reports the fresh entry. The controller's plan and apply
+routes accept both; remove/rollback are refused while an OpenCode session runs; the UI lists the supported plans
+(install/update/rollback/remove) and remove needs the machine's name typed in the confirmation dialog. A system copy is
+never touched, and removing takes reet's kept previous versions with its own copy. Tests cover rollback plans,
+remove effects, applied/refused results, the API actions and typed confirmation; docs and README are updated.
+
+**L2d, on `feat/agent-software-remove-rollback` (with L2c):** `agentsoftware.RecoverManaged` runs once when the
+connector starts. It removes staging files and unfinished version directories, verifies the current binary, restores
+the kept previous version when the current is broken (clearing the broken rollback target), clears a previous target
+that no longer verifies, and reports a broken current with no valid previous as `managed_broken` rather than hiding it
+or falling back to a system copy. Tests cover leftovers, a broken current with a good previous, a broken current with
+no previous, an invalid previous, and orphan versions without a current receipt. Docs: [docs/agent-software.md](docs/agent-software.md).
+
+**L2e, on `feat/fleet-software-review` ([#292](https://github.com/eyupio/reet.sh/pull/292), commit `b06585d`, stacked on #291):** a **plan-only fleet review**. `GET
+/api/v2/software/plans` builds one row per enrolled machine from stored evidence (version, managed/system/missing,
+action, target, source, running sessions, whether the machine can apply, sentence) without contacting a machine.
+Machines → **Software** opens the review dialog; rows can be selected locally, the footer says cross-machine apply is
+not available yet, and each machine's Settings remains the place to apply. Tests cover the aggregate rows and the
+label/warning helpers.
+
+**L2f, on the same branch:** the fleet review can now **apply one machine at a time**. Each actionable row has
+**Apply plan** when the machine reports `software-apply-v1` and no OpenCode session runs; it opens one confirmation
+dialog and calls the existing per-machine apply endpoint. Other rows are untouched; there is no batch selection. The
+row shows the outcome and the list refreshes from stored evidence; rollback/remove stay in Settings. Tests cover the
+review label/warning and the new can-apply rule.
+
+**Still not in this slice:** no batch apply or controller-side artifact mirror; the binary is verified at install and at
+startup, not on every launch. Next: reviewed batch apply with a pilot order, and the mirror. Read
 `internal/agentsoftware/{artifact,managed,plan}.go`, `internal/terminalhost/{software,software_apply}.go`,
-`internal/terminalbroker/software.go`, `internal/api/software.go` and `web/src/lib/MachineSettings.svelte`.
+`internal/terminalbroker/software.go`, `internal/api/software.go`, `web/src/lib/MachineSettings.svelte` and
+`web/src/lib/FleetSoftware.svelte`.
 
 ## Agents home redesign (27–30 October 2026)
 
@@ -165,10 +194,11 @@ reet-managed copies, an explicit rollback action, and reviewed fleet-wide mainte
   on|off|status` switch and `yolo` capability, reviewed options for Codex/OpenCode/Cline, controller
   gates and audit, structured `allow_once` answers, the confirmation dialog and badges. #266 fixed the
   launch audit on a mismatched worktree and kept generic machine refusals from counting as started.
-- **Next stage:** L2 install/update is on `feat/agent-software-apply`
-  ([#289](https://github.com/eyupio/reet.sh/pull/289)); L1 is merged in #282. Next: remove only reet-managed copies, an
-  explicit rollback action and reviewed fleet-wide maintenance. Program 2, slice 4 (elicitation and rich input cards)
-  still needs its own probe.
+- **Next stage:** L2 install/update is in [#289](https://github.com/eyupio/reet.sh/pull/289); rollback/remove and
+  restart recovery in [#291](https://github.com/eyupio/reet.sh/pull/291) (stacked on #289); the plan-only fleet review
+  is in [#292](https://github.com/eyupio/reet.sh/pull/292) (stacked on #291), with a one-machine-at-a-time apply. Next:
+  reviewed batch apply with a pilot order, and a controller-side artifact mirror. Program 2, slice 4 (elicitation and
+  rich input cards) still needs its own probe.
 - **Do first:** for the next PR, check its final head with the REST forms
   (`gh api repos/eyupio/reet.sh/pulls/<n>` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
   `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). Merge only when every check is green and Codex has

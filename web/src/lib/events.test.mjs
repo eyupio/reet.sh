@@ -41,6 +41,8 @@ test('project activity reads as plain sentences and never names a prompt', () =>
   assert.equal(eventLabel(event('worktree-remove', { machine: 'a1', host: 'studio', path: '/home/me/.reet/worktrees/site/app/abc', branch: 'reet/site-abc' })), 'Removed a worktree on studio; the branch reet/site-abc is kept')
   assert.equal(eventLabel(event('software-apply', { host: 'studio', action: 'update', state: 'applied', version: '1.19.5' })), 'Updated OpenCode 1.19.5 on studio')
   assert.equal(eventLabel(event('software-apply', { host: 'studio', action: 'update', state: 'refused', reason: 'changed' })), 'Tried to update OpenCode on studio (changed)')
+  assert.equal(eventLabel(event('software-apply', { host: 'studio', action: 'rollback', state: 'applied', version: '1.18.0' })), 'Rolled OpenCode back to 1.18.0 on studio')
+  assert.equal(eventLabel(event('software-apply', { host: 'studio', action: 'remove', state: 'applied' })), "Removed reet's managed OpenCode from studio")
 })
 test('folder project activity reads as plain sentences and never names a prompt', () => {
   assert.equal(eventLabel(event('projects-migrated', { project: 'Shop', folderProjects: ['a', 'b'] })), 'Moved saved Project Shop into the rail as 2 projects')

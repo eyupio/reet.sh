@@ -84,6 +84,9 @@ func profileDir(dir string) (string, error) {
 	return filepath.Join(dir, "profiles"), nil
 }
 
+// ValidProfileName reports whether name can be used for a setup profile.
+func ValidProfileName(name string) bool { return validProfileName(name) }
+
 func validProfileName(name string) bool {
 	if name == "" || len(name) > 64 || name[0] == '-' {
 		return false

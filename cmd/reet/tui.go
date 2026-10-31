@@ -175,6 +175,43 @@ func runTUI(screen string, args []string, version, commit string) error {
 		}
 		opts.Start = tui.ScreenBackup
 		opts.BackupDataDir = *dir
+	case "setup":
+		action := ""
+		rest := args
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			action = rest[0]
+			rest = rest[1:]
+		}
+		if action != "" && action != "profile" {
+			return fmt.Errorf("reet setup %s --tui is not available yet; use reet setup profile --tui", action)
+		}
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			if rest[0] == "list" {
+				rest = rest[1:]
+			} else {
+				return fmt.Errorf("reet setup profile %s --tui is not available; use reet setup profile --tui", rest[0])
+			}
+		}
+		fs := flag.NewFlagSet("reet setup profile --tui", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		dir := fs.String("dir", "", "read profiles here (default REET_SETUP_DIR or the user config directory)")
+		server := fs.String("server", os.Getenv("REET_URL"), "controller URL (default REET_URL)")
+		token := fs.String("token", "", "personal API token (default saved token or REET_TOKEN)")
+		envFile := fs.String("env-file", "", "read REET_TOKEN from an explicit env file")
+		if err := fs.Parse(rest); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("unexpected setup arguments")
+		}
+		opts.Start = tui.ScreenSetup
+		opts.SetupDir = *dir
+		opts.SetupServer = *server
+		opts.SetupToken = *token
+		opts.SetupTokenFile = *envFile
 	case "version":
 		if len(args) != 0 {
 			return errors.New("unexpected version arguments")

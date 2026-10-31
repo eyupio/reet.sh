@@ -18,6 +18,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/health"
 	"github.com/eyupio/reet.sh/internal/lifecycle"
 	"github.com/eyupio/reet.sh/internal/scan"
+	"github.com/eyupio/reet.sh/internal/setup"
 	"github.com/eyupio/reet.sh/internal/terminalcontrol"
 )
 
@@ -31,6 +32,7 @@ const (
 	ScreenScan     ScreenID = "scan"
 	ScreenSync     ScreenID = "sync"
 	ScreenBackup   ScreenID = "backup"
+	ScreenSetup    ScreenID = "setup"
 	ScreenVersion  ScreenID = "version"
 	ScreenTerminal ScreenID = "terminal"
 	ScreenAgent    ScreenID = "agent"
@@ -73,6 +75,11 @@ type Options struct {
 
 	BackupDataDir string
 
+	SetupDir       string
+	SetupServer    string
+	SetupToken     string
+	SetupTokenFile string
+
 	In      io.Reader
 	Out     io.Writer
 	NoColor bool
@@ -106,6 +113,7 @@ var homeItems = []homeItem{
 	{ScreenScan, "Scan", "Report installed skills to a controller"},
 	{ScreenSync, "Sync", "Preview and apply a saved target"},
 	{ScreenBackup, "Backups", "List, take and restore instance copies"},
+	{ScreenSetup, "Setups", "Create, push and pull setup profiles"},
 	{ScreenVersion, "Version", "Build and runtime details"},
 	{ScreenTerminal, "Terminal status", "Controller terminal availability"},
 	{ScreenAgent, "Agent status", "This machine's enrollment and daemon"},
@@ -157,6 +165,17 @@ type model struct {
 	backupCursor        int
 	backupMessage       string
 	backupSet           bool
+
+	setupForm       *huh.Form
+	setupFormKind   string
+	setupNewValues  *setupNewValues
+	setupPushValues *setupPushValues
+	setupPullValues *setupPullValues
+	setupProfiles   setup.SetupProfileList
+	setupSnapshots  setup.SetupSnapshotList
+	setupCursor     int
+	setupMessage    string
+	setupSet        bool
 }
 
 func newModel(opts Options) model {
@@ -214,6 +233,9 @@ func (m model) load(page ScreenID) tea.Cmd {
 		case ScreenBackup:
 			value, err := loadBackups(opts)
 			return resultMsg{page: page, value: value, err: err}
+		case ScreenSetup:
+			value, err := loadSetup(opts)
+			return resultMsg{page: page, value: value, err: err}
 		}
 		return resultMsg{page: page, err: fmt.Errorf("unknown screen %s", page)}
 	}
@@ -243,6 +265,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.setContent()
 					return m, nil
 				}
+				if m.page == ScreenSetup {
+					m.setupForm = nil
+					m.setContent()
+					return m, nil
+				}
 				return m.open(ScreenHome)
 			}
 		}
@@ -260,6 +287,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.startSync(false)
 			case ScreenBackup:
 				return m.finishBackupForm()
+			case ScreenSetup:
+				return m.finishSetupForm()
 			}
 		case huh.StateAborted:
 			return m.open(ScreenHome)
@@ -336,6 +365,51 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.open(ScreenSync)
 		}
 	}
+	if m.page == ScreenSetup {
+		switch msg.String() {
+		case "n":
+			newest := ""
+			if len(m.setupSnapshots.Snapshots) > 0 {
+				newest = m.setupSnapshots.Snapshots[0].ID
+			}
+			m.setupNewValues = &setupNewValues{}
+			m.setupFormKind = "new"
+			m.setupForm = buildNewSetupForm(m.setupNewValues, newest)
+			m.resize()
+			m.setContent()
+			return m, m.setupForm.Init()
+		case "p":
+			if len(m.setupProfiles.Profiles) > 0 {
+				name := m.setupProfiles.Profiles[m.setupCursor].Name
+				m.setupPushValues = defaultSetupPushValues(m.opts, name)
+				m.setupFormKind = "push"
+				m.setupForm = buildPushSetupForm(m.setupPushValues)
+				m.resize()
+				m.setContent()
+				return m, m.setupForm.Init()
+			}
+		case "u":
+			m.setupPullValues = defaultSetupPullValues(m.opts)
+			m.setupFormKind = "pull"
+			m.setupForm = buildPullSetupForm(m.setupPullValues)
+			m.resize()
+			m.setContent()
+			return m, m.setupForm.Init()
+		case "r":
+			m.err = nil
+			m.loading = true
+			m.setContent()
+			return m, tea.Batch(m.spinner.Tick, m.load(ScreenSetup))
+		case "up", "k":
+			if m.setupCursor > 0 {
+				m.setupCursor--
+			}
+		case "down", "j":
+			if m.setupCursor < len(m.setupProfiles.Profiles)-1 {
+				m.setupCursor++
+			}
+		}
+	}
 	if m.page == ScreenBackup {
 		switch msg.String() {
 		case "n":
@@ -396,6 +470,7 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 	m.scanForm = nil
 	m.syncForm = nil
 	m.backupForm = nil
+	m.setupForm = nil
 	if page == ScreenScan {
 		if m.scanValues == nil {
 			m.scanValues = defaultScanValues(m.opts)
@@ -473,6 +548,21 @@ func (m *model) apply(msg resultMsg) {
 				}
 			}
 		}
+	case ScreenSetup:
+		if value, ok := msg.value.(setupOutcome); ok {
+			m.setupProfiles = value.profiles
+			m.setupSnapshots = value.snapshots
+			m.setupMessage = value.message
+			if value.listSet {
+				m.setupSet = true
+			}
+			if m.setupCursor >= len(m.setupProfiles.Profiles) {
+				m.setupCursor = len(m.setupProfiles.Profiles) - 1
+				if m.setupCursor < 0 {
+					m.setupCursor = 0
+				}
+			}
+		}
 	}
 }
 
@@ -487,6 +577,8 @@ func (m model) activeForm() *huh.Form {
 		return m.syncForm
 	case ScreenBackup:
 		return m.backupForm
+	case ScreenSetup:
+		return m.setupForm
 	}
 	return nil
 }
@@ -501,6 +593,8 @@ func (m *model) setForm(form *huh.Form) {
 		m.syncForm = form
 	case ScreenBackup:
 		m.backupForm = form
+	case ScreenSetup:
+		m.setupForm = form
 	}
 }
 
@@ -556,7 +650,7 @@ func (m *model) resize() {
 	if height < 5 {
 		height = 5
 	}
-	for _, form := range []*huh.Form{m.scanForm, m.syncForm, m.backupForm} {
+	for _, form := range []*huh.Form{m.scanForm, m.syncForm, m.backupForm, m.setupForm} {
 		if form != nil {
 			form.WithWidth(width)
 			form.WithHeight(height)
@@ -632,7 +726,17 @@ func (m model) renderFooter() string {
 			keys = "n new · x restore · ↑/↓ select · r refresh · esc back · q quit"
 		}
 	}
-	if m.loading && m.page != ScreenScan && m.page != ScreenSync && m.page != ScreenBackup {
+	if m.page == ScreenSetup {
+		switch {
+		case m.formActive():
+			keys = "enter next/submit · esc cancel · ctrl+c quit"
+		case m.loading:
+			keys = "working… · ctrl+c quit"
+		default:
+			keys = "n new · p push · u pull · ↑/↓ select · r refresh · esc back · q quit"
+		}
+	}
+	if m.loading && m.page != ScreenScan && m.page != ScreenSync && m.page != ScreenBackup && m.page != ScreenSetup {
 		keys = "loading… · q quit"
 	}
 	return m.styles.footer.Width(m.width).Render("  " + keys)
@@ -661,7 +765,7 @@ func (m model) renderPage() string {
 	if m.loading {
 		return "\n  " + m.spinner.View() + " " + m.styles.muted.Render(pageLoading(m.page)) + "\n"
 	}
-	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) && !(m.page == ScreenSync && m.syncSet) && !(m.page == ScreenBackup && m.backupSet) {
+	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) && !(m.page == ScreenSync && m.syncSet) && !(m.page == ScreenBackup && m.backupSet) && !(m.page == ScreenSetup && m.setupSet) {
 		return "\n  " + m.styles.fail.Render("Error: "+m.err.Error()) + "\n\n  " + m.styles.muted.Render("Press r to try again, or esc for the menu.") + "\n"
 	}
 	switch m.page {
@@ -671,6 +775,8 @@ func (m model) renderPage() string {
 		return m.renderSync()
 	case ScreenBackup:
 		return m.renderBackup()
+	case ScreenSetup:
+		return m.renderSetup()
 	case ScreenDoctor:
 		return m.renderDoctor()
 	case ScreenHealth:
@@ -697,6 +803,8 @@ func pageTitle(page ScreenID) string {
 		return "Sync"
 	case ScreenBackup:
 		return "Backups"
+	case ScreenSetup:
+		return "Setups"
 	case ScreenVersion:
 		return "Version"
 	case ScreenTerminal:
@@ -719,6 +827,8 @@ func pageLoading(page ScreenID) string {
 		return "Reading the sync target…"
 	case ScreenBackup:
 		return "Reading local backups…"
+	case ScreenSetup:
+		return "Reading setup profiles…"
 	case ScreenTerminal:
 		return "Reading terminal status…"
 	case ScreenAgent:

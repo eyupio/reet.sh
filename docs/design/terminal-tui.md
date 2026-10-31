@@ -1,6 +1,6 @@
 # Terminal interface
 
-Status: read-only screens, Scan, Sync and Backup shipped; Setup and Upgrade follow.
+Status: read-only screens, Scan, Sync, Backup and Setup shipped; Upgrade follows.
 
 The `reet` binary has a terminal interface built with
 [Bubble Tea](https://github.com/charmbracelet/bubbletea). It is a face on the
@@ -18,6 +18,7 @@ local deployment and the controllers those commands already use.
 | `reet scan --tui [--server URL] [--env NAME] [--dry-run]` | Scan |
 | `reet sync --tui [--server URL] [--target ID] [--apply]` | Sync |
 | `reet backup --tui [--data-dir PATH]` | Backups |
+| `reet setup profile --tui [--dir PATH]` | Setups |
 | `reet version --tui` | Version |
 | `reet terminal status --tui [--data-dir PATH]` | Terminal status |
 | `reet agent status --tui [--config PATH]` | Agent status |
@@ -50,6 +51,11 @@ and services never start the interface; they run exactly as before. `serve`,
   warning, and **r** to refresh. The restore keeps the previous database beside
   the new one and uses the same shared `backup.RestoreInstance` as the text
   command.
+- **Setups.** The local setup profiles and snapshot count. **n** saves a profile
+  from a snapshot (name, snapshot ID or path, optional passphrase), **p** pushes
+  the selected profile to a controller, **u** pulls one by name, and **r**
+  refreshes. Saving without a passphrase records the clear header only; a
+  passphrase opens the snapshot to record preview and software evidence.
 - **Version.** Binary version, source commit, Go version and platform.
 - **Terminal status.** Whether terminal access is enabled, available and
   running, the saved public URL and authentication mode, and why it is blocked.
@@ -107,5 +113,4 @@ plane and, in later slices, a launcher.
 
 ## Next slices
 
-1. Setup: create, push and pull a setup profile.
-2. Upgrade: check, confirm, back up, verify and roll back on a failed restart.
+1. Upgrade: check, confirm, back up, verify and roll back on a failed restart.

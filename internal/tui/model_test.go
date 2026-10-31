@@ -9,6 +9,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/lifecycle"
 	"github.com/eyupio/reet.sh/internal/scan"
+	"github.com/eyupio/reet.sh/internal/setup"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -261,5 +262,78 @@ func TestStartBackupAndRestoreShowLoading(t *testing.T) {
 	m = next.(model)
 	if !m.loading || cmd == nil {
 		t.Fatal("restore did not start")
+	}
+}
+
+func TestSetupScreenRendersAndFormsOpen(t *testing.T) {
+	m := testModel()
+	next, _ := m.open(ScreenSetup)
+	m = next.(model)
+	if !m.loading {
+		t.Fatal("setup screen did not load")
+	}
+	outcome := setupOutcome{
+		listSet: true,
+		profiles: setup.SetupProfileList{
+			Dir: "/tmp/setups/profiles",
+			Profiles: []setup.SetupProfileSummary{{
+				Name: "work", Revision: 2, SnapshotID: "setup-20261031T000000Z-abcdef",
+			}},
+		},
+		snapshots: setup.SetupSnapshotList{Snapshots: []setup.SetupSnapshotHeader{{ID: "setup-20261031T000000Z-abcdef"}}},
+	}
+	next, _ = m.Update(resultMsg{page: ScreenSetup, value: outcome})
+	m = next.(model)
+	view := m.View()
+	for _, want := range []string{"work", "setup-20261031T000000Z-abcdef", "Snapshots 1"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m = next.(model)
+	if !m.formActive() || m.setupForm == nil {
+		t.Fatal("new profile form did not open")
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(model)
+	if m.setupForm != nil || m.page != ScreenSetup {
+		t.Fatalf("form did not close: form=%v page=%q", m.setupForm != nil, m.page)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	m = next.(model)
+	if !m.formActive() || m.setupForm == nil {
+		t.Fatal("push form did not open")
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	m = next.(model)
+	if !m.formActive() || m.setupForm == nil {
+		t.Fatal("pull form did not open")
+	}
+}
+
+func TestStartSetupActionsShowLoading(t *testing.T) {
+	m := testModel()
+	next, _ := m.open(ScreenSetup)
+	m = next.(model)
+	m.setupNewValues = &setupNewValues{Name: "work", Snapshot: "snapshot-1"}
+	next, cmd := m.startSetupNew()
+	m = next.(model)
+	if !m.loading || cmd == nil {
+		t.Fatal("save did not start")
+	}
+	m.setupPushValues = &setupPushValues{Name: "work", Server: "https://example.test"}
+	next, cmd = m.startSetupPush()
+	m = next.(model)
+	if !m.loading || cmd == nil {
+		t.Fatal("push did not start")
+	}
+	m.setupPullValues = &setupPullValues{Name: "work", Server: "https://example.test"}
+	next, cmd = m.startSetupPull()
+	m = next.(model)
+	if !m.loading || cmd == nil {
+		t.Fatal("pull did not start")
 	}
 }

@@ -8,11 +8,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/health"
@@ -34,6 +34,7 @@ const (
 	ScreenBackup   ScreenID = "backup"
 	ScreenSetup    ScreenID = "setup"
 	ScreenUpgrade  ScreenID = "upgrade"
+	ScreenInstall  ScreenID = "install"
 	ScreenVersion  ScreenID = "version"
 	ScreenTerminal ScreenID = "terminal"
 	ScreenAgent    ScreenID = "agent"
@@ -84,6 +85,15 @@ type Options struct {
 	UpgradeVersion  string
 	UpgradeStateDir string
 
+	InstallMode     string
+	InstallDir      string
+	InstallDataDir  string
+	InstallAddr     string
+	InstallVersion  string
+	InstallStateDir string
+	InstallNoStart  bool
+	InstallDryRun   bool
+
 	In      io.Reader
 	Out     io.Writer
 	NoColor bool
@@ -97,7 +107,7 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.Out == nil {
 		opts.Out = os.Stdout
 	}
-	programOpts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithAltScreen(), tea.WithOutput(opts.Out)}
+	programOpts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithOutput(opts.Out)}
 	if opts.In != nil {
 		programOpts = append(programOpts, tea.WithInput(opts.In))
 	}
@@ -119,6 +129,7 @@ var homeItems = []homeItem{
 	{ScreenBackup, "Backups", "List, take and restore instance copies"},
 	{ScreenSetup, "Setups", "Create, push and pull setup profiles"},
 	{ScreenUpgrade, "Upgrade", "Check, verify and install a release"},
+	{ScreenInstall, "Install", "Set up a managed deployment"},
 	{ScreenVersion, "Version", "Build and runtime details"},
 	{ScreenTerminal, "Terminal status", "Controller terminal availability"},
 	{ScreenAgent, "Agent status", "This machine's enrollment and daemon"},
@@ -135,6 +146,7 @@ type model struct {
 	styles styles
 
 	width, height int
+	dark          bool
 	page          ScreenID
 	cursor        int
 	loading       bool
@@ -186,34 +198,48 @@ type model struct {
 	upgradeValues *upgradeFormValues
 	upgradeOutput string
 	upgradeDone   bool
+
+	installForm   *huh.Form
+	installValues *installFormValues
+	installOutput string
+	installDone   bool
+	installDryRun bool
 }
 
 func newModel(opts Options) model {
 	if opts.Start == "" {
 		opts.Start = ScreenHome
 	}
+	dark := tuiDark()
+	st := newStyles(opts.NoColor, dark)
 	sp := spinner.New()
 	sp.Spinner = spinner.Line
-	sp.Style = newStyles(opts.NoColor).spinner
+	sp.Style = st.spinner
 	m := model{
 		opts:     opts,
-		styles:   newStyles(opts.NoColor),
+		styles:   st,
+		dark:     dark,
 		page:     opts.Start,
 		loading:  opts.Start != ScreenHome && opts.Start != ScreenVersion && opts.Start != ScreenScan,
-		viewport: viewport.New(80, 20),
+		viewport: viewport.New(viewport.WithWidth(80), viewport.WithHeight(20)),
 		spinner:  sp,
 	}
+	m.viewport.SoftWrap = true
 	if opts.Start == ScreenScan {
 		m.scanValues = defaultScanValues(opts)
-		m.scanForm = buildScanForm(m.scanValues)
+		m.scanForm = buildScanForm(m.scanValues, m.dark)
 	}
 	if opts.Start == ScreenSync {
 		m.syncValues = defaultSyncValues(opts)
-		m.syncForm = buildSyncForm(m.syncValues)
+		m.syncForm = buildSyncForm(m.syncValues, m.dark)
 	}
 	if opts.Start == ScreenUpgrade {
 		m.upgradeValues = &upgradeFormValues{Release: defaultUpgradeRelease(opts)}
-		m.upgradeForm = buildUpgradeForm(m.upgradeValues, opts.Version+" ("+shortCommit(opts.Commit)+")")
+		m.upgradeForm = buildUpgradeForm(m.upgradeValues, opts.Version+" ("+shortCommit(opts.Commit)+")", m.dark)
+	}
+	if opts.Start == ScreenInstall {
+		m.installValues = defaultInstallValues(opts)
+		m.installForm = buildInstallForm(m.installValues, m.dark)
 	}
 	return m
 }
@@ -269,7 +295,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if form := m.activeForm(); form != nil {
-		if key, ok := msg.(tea.KeyMsg); ok {
+		if key, ok := msg.(tea.KeyPressMsg); ok {
 			switch key.String() {
 			case "ctrl+c":
 				return m, tea.Quit
@@ -305,6 +331,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.finishSetupForm()
 			case ScreenUpgrade:
 				return m.finishUpgradeForm()
+			case ScreenInstall:
+				return m.finishInstallForm()
 			}
 		case huh.StateAborted:
 			return m.open(ScreenHome)
@@ -313,7 +341,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.BackgroundColorMsg:
+		m.dark = msg.IsDark()
+		m.styles = newStyles(m.opts.NoColor, m.dark)
+		m.setContent()
+		return m, nil
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -340,7 +373,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
@@ -387,6 +420,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.open(ScreenUpgrade)
 		}
 	}
+	if m.page == ScreenInstall {
+		switch msg.String() {
+		case "r":
+			return m.open(ScreenInstall)
+		}
+	}
 	if m.page == ScreenSetup {
 		switch msg.String() {
 		case "n":
@@ -396,7 +435,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.setupNewValues = &setupNewValues{}
 			m.setupFormKind = "new"
-			m.setupForm = buildNewSetupForm(m.setupNewValues, newest)
+			m.setupForm = buildNewSetupForm(m.setupNewValues, newest, m.dark)
 			m.resize()
 			m.setContent()
 			return m, m.setupForm.Init()
@@ -405,7 +444,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				name := m.setupProfiles.Profiles[m.setupCursor].Name
 				m.setupPushValues = defaultSetupPushValues(m.opts, name)
 				m.setupFormKind = "push"
-				m.setupForm = buildPushSetupForm(m.setupPushValues)
+				m.setupForm = buildPushSetupForm(m.setupPushValues, m.dark)
 				m.resize()
 				m.setContent()
 				return m, m.setupForm.Init()
@@ -413,7 +452,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "u":
 			m.setupPullValues = defaultSetupPullValues(m.opts)
 			m.setupFormKind = "pull"
-			m.setupForm = buildPullSetupForm(m.setupPullValues)
+			m.setupForm = buildPullSetupForm(m.setupPullValues, m.dark)
 			m.resize()
 			m.setContent()
 			return m, m.setupForm.Init()
@@ -437,7 +476,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "n":
 			m.backupNewValues = &newBackupValues{}
 			m.backupFormKind = "new"
-			m.backupForm = buildNewBackupForm(m.backupNewValues)
+			m.backupForm = buildNewBackupForm(m.backupNewValues, m.dark)
 			m.resize()
 			m.setContent()
 			return m, m.backupForm.Init()
@@ -446,7 +485,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.backupRestoreID = m.backupItems[m.backupCursor].ID
 				m.backupRestoreValues = &restoreFormValues{}
 				m.backupFormKind = "restore"
-				m.backupForm = buildRestoreForm(m.backupRestoreID, m.backupRestoreValues)
+				m.backupForm = buildRestoreForm(m.backupRestoreID, m.backupRestoreValues, m.dark)
 				m.resize()
 				m.setContent()
 				return m, m.backupForm.Init()
@@ -494,11 +533,12 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 	m.backupForm = nil
 	m.setupForm = nil
 	m.upgradeForm = nil
+	m.installForm = nil
 	if page == ScreenScan {
 		if m.scanValues == nil {
 			m.scanValues = defaultScanValues(m.opts)
 		}
-		m.scanForm = buildScanForm(m.scanValues)
+		m.scanForm = buildScanForm(m.scanValues, m.dark)
 		m.scanSet = false
 		m.loading = false
 		m.resize()
@@ -509,7 +549,7 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 		if m.syncValues == nil {
 			m.syncValues = defaultSyncValues(m.opts)
 		}
-		m.syncForm = buildSyncForm(m.syncValues)
+		m.syncForm = buildSyncForm(m.syncValues, m.dark)
 		m.syncSet = false
 		m.syncApplied = false
 		m.loading = false
@@ -519,13 +559,24 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 	}
 	if page == ScreenUpgrade {
 		m.upgradeValues = &upgradeFormValues{Release: defaultUpgradeRelease(m.opts)}
-		m.upgradeForm = buildUpgradeForm(m.upgradeValues, m.opts.Version+" ("+shortCommit(m.opts.Commit)+")")
+		m.upgradeForm = buildUpgradeForm(m.upgradeValues, m.opts.Version+" ("+shortCommit(m.opts.Commit)+")", m.dark)
 		m.upgradeOutput = ""
 		m.upgradeDone = false
 		m.loading = false
 		m.resize()
 		m.setContent()
 		return m, m.upgradeForm.Init()
+	}
+	if page == ScreenInstall {
+		m.installValues = defaultInstallValues(m.opts)
+		m.installForm = buildInstallForm(m.installValues, m.dark)
+		m.installOutput = ""
+		m.installDone = false
+		m.installDryRun = false
+		m.loading = false
+		m.resize()
+		m.setContent()
+		return m, m.installForm.Init()
 	}
 	m.loading = page != ScreenHome && page != ScreenVersion
 	m.setContent()
@@ -601,6 +652,12 @@ func (m *model) apply(msg resultMsg) {
 			m.upgradeOutput = value.output
 			m.upgradeDone = msg.err == nil
 		}
+	case ScreenInstall:
+		if value, ok := msg.value.(installOutcome); ok {
+			m.installOutput = value.output
+			m.installDryRun = value.dryRun
+			m.installDone = msg.err == nil
+		}
 	}
 }
 
@@ -619,6 +676,8 @@ func (m model) activeForm() *huh.Form {
 		return m.setupForm
 	case ScreenUpgrade:
 		return m.upgradeForm
+	case ScreenInstall:
+		return m.installForm
 	}
 	return nil
 }
@@ -637,6 +696,8 @@ func (m *model) setForm(form *huh.Form) {
 		m.setupForm = form
 	case ScreenUpgrade:
 		m.upgradeForm = form
+	case ScreenInstall:
+		m.installForm = form
 	}
 }
 
@@ -679,23 +740,24 @@ func (m *model) resize() {
 	if body < 3 {
 		body = 3
 	}
-	m.viewport.Width = m.width - 2
-	if m.viewport.Width < 10 {
-		m.viewport.Width = 10
+	width := m.width - 2
+	if width < 10 {
+		width = 10
 	}
-	m.viewport.Height = body
-	width := m.width - 4
-	if width < 20 {
-		width = 20
+	m.viewport.SetWidth(width)
+	m.viewport.SetHeight(body)
+	formWidth := m.width - 4
+	if formWidth < 20 {
+		formWidth = 20
 	}
-	height := m.height - 5
-	if height < 5 {
-		height = 5
+	formHeight := m.height - 5
+	if formHeight < 5 {
+		formHeight = 5
 	}
-	for _, form := range []*huh.Form{m.scanForm, m.syncForm, m.backupForm, m.setupForm, m.upgradeForm} {
+	for _, form := range []*huh.Form{m.scanForm, m.syncForm, m.backupForm, m.setupForm, m.upgradeForm, m.installForm} {
 		if form != nil {
-			form.WithWidth(width)
-			form.WithHeight(height)
+			form.WithWidth(formWidth)
+			form.WithHeight(formHeight)
 		}
 	}
 	m.setContent()
@@ -708,11 +770,13 @@ func (m *model) setContent() {
 	m.viewport.SetContent(m.renderPage())
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	if m.width == 0 {
-		return ""
+		return tea.NewView("")
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), m.renderBody(), m.renderFooter())
+	view := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), m.renderBody(), m.renderFooter()))
+	view.AltScreen = true
+	return view
 }
 
 func (m model) renderBody() string {
@@ -788,7 +852,17 @@ func (m model) renderFooter() string {
 			keys = "r run again · esc back · q quit"
 		}
 	}
-	if m.loading && m.page != ScreenScan && m.page != ScreenSync && m.page != ScreenBackup && m.page != ScreenSetup && m.page != ScreenUpgrade {
+	if m.page == ScreenInstall {
+		switch {
+		case m.formActive():
+			keys = "enter next/submit · esc cancel · ctrl+c quit"
+		case m.loading:
+			keys = "installing… · ctrl+c quit"
+		default:
+			keys = "r run again · esc back · q quit"
+		}
+	}
+	if m.loading && m.page != ScreenScan && m.page != ScreenSync && m.page != ScreenBackup && m.page != ScreenSetup && m.page != ScreenUpgrade && m.page != ScreenInstall {
 		keys = "loading… · q quit"
 	}
 	return m.styles.footer.Width(m.width).Render("  " + keys)
@@ -798,6 +872,7 @@ func (m model) renderHome() string {
 	var b strings.Builder
 	b.WriteString("\n  " + m.styles.muted.Render("Get your toolkit reet.") + "\n\n")
 	b.WriteString("  " + m.styles.muted.Render(fmt.Sprintf("reet %s (%s)", m.opts.Version, shortCommit(m.opts.Commit))) + "\n\n")
+	showDescriptions := m.width >= 60
 	for i, item := range homeItems {
 		title := m.styles.item.Render(fmt.Sprintf("%-16s", item.title))
 		marker := "  "
@@ -805,7 +880,11 @@ func (m model) renderHome() string {
 			marker = m.styles.selected.Render("› ")
 			title = m.styles.selectedTitle.Render(fmt.Sprintf("%-16s", item.title))
 		}
-		b.WriteString("  " + marker + title + m.styles.muted.Render(item.description) + "\n")
+		if showDescriptions {
+			b.WriteString("  " + marker + title + m.styles.muted.Render(item.description) + "\n")
+		} else {
+			b.WriteString("  " + marker + title + "\n")
+		}
 	}
 	return b.String()
 }
@@ -817,7 +896,7 @@ func (m model) renderPage() string {
 	if m.loading {
 		return "\n  " + m.spinner.View() + " " + m.styles.muted.Render(pageLoading(m.page)) + "\n"
 	}
-	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) && !(m.page == ScreenSync && m.syncSet) && !(m.page == ScreenBackup && m.backupSet) && !(m.page == ScreenSetup && m.setupSet) && !(m.page == ScreenUpgrade && (m.upgradeOutput != "" || m.upgradeDone)) {
+	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) && !(m.page == ScreenSync && m.syncSet) && !(m.page == ScreenBackup && m.backupSet) && !(m.page == ScreenSetup && m.setupSet) && !(m.page == ScreenUpgrade && (m.upgradeOutput != "" || m.upgradeDone)) && !(m.page == ScreenInstall && (m.installOutput != "" || m.installDone)) {
 		return "\n  " + m.styles.fail.Render("Error: "+m.err.Error()) + "\n\n  " + m.styles.muted.Render("Press r to try again, or esc for the menu.") + "\n"
 	}
 	switch m.page {
@@ -831,6 +910,8 @@ func (m model) renderPage() string {
 		return m.renderSetup()
 	case ScreenUpgrade:
 		return m.renderUpgrade()
+	case ScreenInstall:
+		return m.renderInstall()
 	case ScreenDoctor:
 		return m.renderDoctor()
 	case ScreenHealth:
@@ -861,6 +942,8 @@ func pageTitle(page ScreenID) string {
 		return "Setups"
 	case ScreenUpgrade:
 		return "Upgrade"
+	case ScreenInstall:
+		return "Install"
 	case ScreenVersion:
 		return "Version"
 	case ScreenTerminal:
@@ -887,6 +970,8 @@ func pageLoading(page ScreenID) string {
 		return "Reading setup profiles…"
 	case ScreenUpgrade:
 		return "Upgrading…"
+	case ScreenInstall:
+		return "Installing…"
 	case ScreenTerminal:
 		return "Reading terminal status…"
 	case ScreenAgent:

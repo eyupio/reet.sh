@@ -212,6 +212,35 @@ func runTUI(screen string, args []string, version, commit string) error {
 		opts.SetupServer = *server
 		opts.SetupToken = *token
 		opts.SetupTokenFile = *envFile
+	case "install", "init":
+		fs := flag.NewFlagSet("reet install --tui", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		mode := fs.String("mode", "binary", "binary, native (user service), or compose")
+		dir := fs.String("dir", lifecycle.BinaryDefault(), "binary installation directory")
+		dataDir := fs.String("data-dir", lifecycle.DataDefault(), "server database directory")
+		addr := fs.String("addr", "127.0.0.1:8080", "server HOST:PORT")
+		version := fs.String("version", os.Getenv("REET_VERSION"), "Compose release (default: latest)")
+		stateDir := fs.String("state-dir", lifecycle.StateDefault(), "deployment configuration directory")
+		noStart := fs.Bool("no-start", false, "write configuration without starting the server")
+		dry := fs.Bool("dry-run", false, "show the plan without changing the deployment")
+		if err := fs.Parse(args); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("unexpected install arguments")
+		}
+		opts.Start = tui.ScreenInstall
+		opts.InstallMode = *mode
+		opts.InstallDir = *dir
+		opts.InstallDataDir = *dataDir
+		opts.InstallAddr = *addr
+		opts.InstallVersion = *version
+		opts.InstallStateDir = *stateDir
+		opts.InstallNoStart = *noStart
+		opts.InstallDryRun = *dry
 	case "upgrade":
 		fs := flag.NewFlagSet("reet upgrade --tui", flag.ContinueOnError)
 		fs.SetOutput(os.Stderr)

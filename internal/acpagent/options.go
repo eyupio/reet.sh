@@ -72,6 +72,9 @@ type Event struct {
 	Command      string
 	Path         string
 	Diff         string
+	Additions    int
+	Deletions    int
+	DurationMs   int64
 	Locations    []string
 	Allow        *bool
 	Bad          bool

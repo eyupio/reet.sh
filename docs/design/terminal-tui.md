@@ -1,6 +1,6 @@
 # Terminal interface
 
-Status: all planned screens shipped: read-only status, Scan, Sync, Backup, Setup and Upgrade.
+Status: read-only status, Scan, Sync, Backup, Setup, Upgrade and Install shipped; agent enrollment and setup restore/rollback follow.
 
 The `reet` binary has a terminal interface built with
 [Bubble Tea](https://github.com/charmbracelet/bubbletea). It is a face on the
@@ -20,6 +20,7 @@ local deployment and the controllers those commands already use.
 | `reet backup --tui [--data-dir PATH]` | Backups |
 | `reet setup profile --tui [--dir PATH]` | Setups |
 | `reet upgrade --tui [--version TAG] [--state-dir PATH]` | Upgrade |
+| `reet install --tui [--mode binary\|native\|compose] [--dry-run]` | Install |
 | `reet version --tui` | Version |
 | `reet terminal status --tui [--data-dir PATH]` | Terminal status |
 | `reet agent status --tui [--config PATH]` | Agent status |
@@ -63,6 +64,11 @@ and services never start the interface; they run exactly as before. `serve`,
   up SQLite, replace the binary, restart and verify, and roll back on failure.
   The output is kept on screen; the process still runs the previous build until
   it is restarted.
+- **Install.** A form for binary, native or Compose mode, install and data
+  directories, address, Compose release, start-now and dry-run, behind an
+  explicit confirmation. It runs the same managed installer as the text command
+  with no prompts and keeps the output on screen. A dry run shows the plan and
+  changes nothing.
 - **Version.** Binary version, source commit, Go version and platform.
 - **Terminal status.** Whether terminal access is enabled, available and
   running, the saved public URL and authentication mode, and why it is blocked.
@@ -87,16 +93,18 @@ Keys: `↑`/`↓` or `j`/`k` move, `enter` opens, `esc` returns, `r` reloads,
   reason; their text renderers remain in the command packages.
 - Forms use `huh` with the same model, so a form is a screen like any other:
   `esc` cancels back to the menu and `ctrl+c` quits.
-- Colours use the reet orange with adaptive light and dark values. `NO_COLOR`
-  and `TERM=dumb` use plain styles. `REET_NO_ANIMATION` is respected by the text
-  commands' spinner; the terminal interface's spinner is part of its loading
-  state.
+- Colours use the reet orange with light and dark values. The interface never
+  sends the OSC 11 background query: it reads `REET_TUI_BACKGROUND=light|dark`,
+  then `COLORFGBG`, and otherwise assumes dark. Bubble Tea v2 removes the v1
+  startup query, so a terminal that does not answer it starts immediately.
+  `NO_COLOR` and `TERM=dumb` use plain styles. `REET_NO_ANIMATION` is respected
+  by the text commands' spinner; the terminal interface's spinner is part of its
+  loading state.
 
 ## Dependencies
 
-Bubble Tea, Bubbles and Lip Gloss are MIT-licensed, pure Go and already the
-smallest well-tested way to get keyboard handling, a viewport and adaptive
-colour. A stripped hello-world grows from 1.51 MB to 3.57 MB with these three
+Bubble Tea v2, Bubbles v2, Lip Gloss v2 and `huh` v2 are MIT-licensed, pure Go
+and the smallest well-tested way to get keyboard handling, a viewport and forms. A stripped hello-world grows from 1.51 MB to 3.57 MB with these three
 packages on Go 1.27. `huh` supplies the forms. The project keeps
 "one Go binary, one SQLite file"; this is a deliberate exception, not a new
 runtime.
@@ -118,8 +126,7 @@ Claude inside a pane without a PTY and terminal-emulator stack. Live agent
 terminals stay in the browser and tmux; the terminal interface is the control
 plane and, in later slices, a launcher.
 
-## Limits of the first release
+## Next slices
 
-The screens cover the binary's own commands. Installation (`reet install`),
-agent enrollment and the longer setup restore/rollback flows remain text
-commands; they are not hidden from the interface, just not rebuilt as forms.
+Agent enrollment and the longer setup restore/rollback flows remain text
+commands; they are not hidden from the interface, just not rebuilt as forms yet.

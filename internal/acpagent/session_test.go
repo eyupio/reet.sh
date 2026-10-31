@@ -949,3 +949,37 @@ func TestTypedDiffRefusesUnusableAndBounds(t *testing.T) {
 		t.Fatalf("single line bound: %v %d", truncated, len(diff))
 	}
 }
+
+func TestCloseConfirmsGroupRetired(t *testing.T) {
+	opts, _ := options(t, "permission", testVersion)
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.GroupRetired() {
+		t.Fatal("retired before Close")
+	}
+	session.Close()
+	if !session.GroupRetired() {
+		t.Fatal("Close did not confirm the group gone")
+	}
+}
+
+func TestSubagentSummary(t *testing.T) {
+	text, cut := subagentSummary("general-purpose", "Do the thing")
+	if text != "[general-purpose] Do the thing" || cut {
+		t.Fatalf("summary %q %v", text, cut)
+	}
+	if text, _ := subagentSummary("x", "  \n"); text != "" {
+		t.Fatalf("blank prompt reviewable: %q", text)
+	}
+	text, cut = subagentSummary("", strings.Repeat("p", maxDiffBytes*2))
+	if !cut || len(text) > maxDiffBytes {
+		t.Fatalf("bound %v %d", cut, len(text))
+	}
+	var params permissionParams
+	raw := `{"toolCall":{"kind":"think","title":"probe","rawInput":{"description":"probe","prompt":"Do nothing","subagent_type":"general-purpose"}}}`
+	if err := json.Unmarshal([]byte(raw), &params); err != nil || params.ToolCall.RawInput.Prompt != "Do nothing" || params.ToolCall.RawInput.SubagentType != "general-purpose" {
+		t.Fatalf("decode %+v %v", params, err)
+	}
+}

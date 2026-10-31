@@ -218,8 +218,10 @@ phone or other OS.
 
 Claude remains disabled. Done in this checkpoint: the repository-hooks gate (`ClaudeSessionMeta`), adapter-aware UUID validation
 (gated behind the reviewed-tool list) and bounded typed edit-diff normalization.
-Still required before enabling: group-wide process retirement with confirmation,
-applied-state model/mode controls, a card for `think` tool calls, nested subagent
+Also done (local): `Session.Close` now kills the group and confirms no live member remains
+(`GroupRetired`, zombie-aware on Linux), and a `think` permission shows the subagent type
+and bounded prompt in the command field, staying unapprovable without a prompt.
+Still required before enabling: applied-state model/mode controls, nested subagent
 permissions, required-environment checks and the SC3 question contract.
 Keep question support disabled until the SC3 contract is implemented.
 

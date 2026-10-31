@@ -51,7 +51,11 @@ no web or protocol-shape change. No real provider, phone or other OS.
 session/load; `ClaudeSessionMeta` pins `settingSources` to `["user"]`, verified to stop a
 repository hook while approvals still appear. No Claude profile is registered yet.
 
-**Next unchecked task:** group-wide retirement with SIGKILL escalation, a `think` card, then Codex probes.
+**Also local:** `retireGroup`/`GroupRetired` (group SIGKILL, confirmed via /proc, zombie-aware) and
+the `think` subagent card (`subagentSummary`). Tests: group_test.go, session_test.go.
+
+**Next unchecked task:** applied-state model/mode controls, nested subagent permissions
+(needs a stub whose subagent runs a tool), required-environment checks, then Codex probes.
 
 ## SC2 — Structured adapter probe checkpoint (31 October 2026)
 

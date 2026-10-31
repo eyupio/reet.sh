@@ -396,6 +396,8 @@ once / Deny only, and only with all seven conditions:
     count; compare with a layout measured in the same browser.
   - The real-browser Go harness needs `LANG=C.UTF-8 LC_ALL=C.UTF-8` locally, or terminal.e2e's UTF-8 split check fails.
   - CI does not run workflows while a PR conflicts with main.
+  - `home.e2e.mjs` opens the `details.home-detail` sections after each navigation; the old In flight tests were
+    removed when #288 replaced the component with the SessionBoard, which `session-board.e2e.mjs` covers.
   - `mcp/test/oauth.test.mjs` needs its fixture built first in CI (the warm-up step in `image.yml`).
 - **Merges:** the owner merges other PRs while one is open (#228–#241 during this work). Always `git fetch origin main`
   and merge it before pushing.

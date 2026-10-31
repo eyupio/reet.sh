@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -318,55 +317,19 @@ func backupRestore(args []string, out io.Writer) error {
 		st.Close()
 		return err
 	}
-	m, payload, err := svc.DownloadWithPassword(context.Background(), 0, id, password)
+	result, err := backup.RestoreInstance(context.Background(), svc, data, id, password, st.Close)
 	if errors.Is(err, backup.ErrPasswordRequired) && password == "" {
 		password, err = clientconfig.Require("", "copy password (--password-file)", true, os.Stdin, os.Stderr)
 		if err == nil {
-			m, payload, err = svc.DownloadWithPassword(context.Background(), 0, id, password)
+			result, err = backup.RestoreInstance(context.Background(), svc, data, id, password, st.Close)
 		}
 	}
 	if err != nil {
-		st.Close()
 		return err
 	}
-	st.Close()
-	if m.Kind != "instance" {
-		return errors.New("that is not an instance backup")
-	}
-	temp, err := os.CreateTemp(data, ".reet-restore-*.db")
-	if err != nil {
-		return err
-	}
-	tempName := temp.Name()
-	temp.Close()
-	defer os.Remove(tempName)
-	if err := os.WriteFile(tempName, payload, 0o600); err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	if err := store.CheckDatabaseFile(ctx, tempName); err != nil {
-		return fmt.Errorf("the backup does not pass an integrity check: %w", err)
-	}
-	live := filepath.Join(data, "reet.db")
-	if _, err := os.Stat(live); err == nil {
-		aside := live + ".before-restore-" + time.Now().UTC().Format("20060102T150405Z")
-		if err := os.Rename(live, aside); err != nil {
-			return err
-		}
-		fmt.Fprintf(out, "The database that was live is now %s.\n", aside)
-	}
-	for _, suffix := range []string{"-wal", "-shm"} {
-		_ = os.Remove(live + suffix)
-	}
-	if err := os.Rename(tempName, live); err != nil {
-		return err
-	}
-	if err := os.Chmod(live, 0o600); err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "Restored %s. Start reet again; it will open the restored database.\n", id)
+	fmt.Fprint(out, result.Message)
 	return nil
+
 }
 
 func humanBytes(n int64) string {

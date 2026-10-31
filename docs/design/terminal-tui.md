@@ -1,6 +1,6 @@
 # Terminal interface
 
-Status: read-only screens, Scan and Sync shipped; Backup, Setup and Upgrade follow.
+Status: read-only screens, Scan, Sync and Backup shipped; Setup and Upgrade follow.
 
 The `reet` binary has a terminal interface built with
 [Bubble Tea](https://github.com/charmbracelet/bubbletea). It is a face on the
@@ -17,6 +17,7 @@ local deployment and the controllers those commands already use.
 | `reet healthcheck --tui [--url URL \| --local]` | Healthcheck |
 | `reet scan --tui [--server URL] [--env NAME] [--dry-run]` | Scan |
 | `reet sync --tui [--server URL] [--target ID] [--apply]` | Sync |
+| `reet backup --tui [--data-dir PATH]` | Backups |
 | `reet version --tui` | Version |
 | `reet terminal status --tui [--data-dir PATH]` | Terminal status |
 | `reet agent status --tui [--config PATH]` | Agent status |
@@ -44,6 +45,11 @@ and services never start the interface; they run exactly as before. `serve`,
   changes), `r` previews again and `e` edits the form. `--apply` goes straight
   to the apply step after the preview. Apply still requires this machine to be
   enrolled, as the text command does.
+- **Backups.** The local instance copies, with **n** to take one after a
+  confirmation, **x** to restore the selected copy after a password field and a
+  warning, and **r** to refresh. The restore keeps the previous database beside
+  the new one and uses the same shared `backup.RestoreInstance` as the text
+  command.
 - **Version.** Binary version, source commit, Go version and platform.
 - **Terminal status.** Whether terminal access is enabled, available and
   running, the saved public URL and authentication mode, and why it is blocked.
@@ -101,6 +107,5 @@ plane and, in later slices, a launcher.
 
 ## Next slices
 
-1. Backup: take, verify and restore with passphrase handling.
-2. Setup: create, push and pull a setup profile.
-3. Upgrade: check, confirm, back up, verify and roll back on a failed restart.
+1. Setup: create, push and pull a setup profile.
+2. Upgrade: check, confirm, back up, verify and roll back on a failed restart.

@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/lifecycle"
 	"github.com/eyupio/reet.sh/internal/scan"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -211,5 +212,54 @@ func TestSyncAutoApplyAfterPreview(t *testing.T) {
 	m = next.(model)
 	if !m.loading || cmd == nil || m.opts.SyncApply {
 		t.Fatalf("auto apply did not start: loading=%t cmd=%v apply=%t", m.loading, cmd != nil, m.opts.SyncApply)
+	}
+}
+
+func TestBackupScreenRendersAndFormsOpen(t *testing.T) {
+	m := testModel()
+	next, _ := m.open(ScreenBackup)
+	m = next.(model)
+	if !m.loading {
+		t.Fatal("backup screen did not load")
+	}
+	items := []backup.Item{{ID: "instance-20261031T000000Z-abcdef", TakenAt: 1_800_000_000_000, Bytes: 1024, Local: true}}
+	next, _ = m.Update(resultMsg{page: ScreenBackup, value: backupOutcome{items: items, listSet: true}})
+	m = next.(model)
+	view := m.View()
+	for _, want := range []string{"instance-20261031T000000Z-abcdef", "1.0 KB", "n new backup"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m = next.(model)
+	if !m.formActive() || m.backupForm == nil {
+		t.Fatal("new backup form did not open")
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(model)
+	if m.backupForm != nil || m.page != ScreenBackup {
+		t.Fatalf("form did not close: form=%v page=%q", m.backupForm != nil, m.page)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = next.(model)
+	if !m.formActive() || m.backupForm == nil || m.backupRestoreID != items[0].ID {
+		t.Fatalf("restore form did not open: form=%v id=%q", m.backupForm != nil, m.backupRestoreID)
+	}
+}
+
+func TestStartBackupAndRestoreShowLoading(t *testing.T) {
+	m := testModel()
+	next, _ := m.open(ScreenBackup)
+	m = next.(model)
+	next, cmd := m.startBackup()
+	m = next.(model)
+	if !m.loading || cmd == nil {
+		t.Fatal("backup did not start")
+	}
+	next, cmd = m.startRestore("instance-1", "")
+	m = next.(model)
+	if !m.loading || cmd == nil {
+		t.Fatal("restore did not start")
 	}
 }

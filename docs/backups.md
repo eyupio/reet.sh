@@ -201,6 +201,16 @@ ones age out by retention.
 Every copy also carries the SHA-256 of its payload inside its unsealed header,
 so a damaged file fails before a restore begins.
 
+## From the terminal interface
+
+Run `reet backup --tui` on the machine for the same local list, take and
+restore actions. **n** takes a copy after a confirmation, **x** restores the
+selected copy after a password field and a warning, and **r** refreshes the
+list. The terminal interface uses `REET_DATA_DIR` (or `--data-dir`) so the
+copies and key stay with the database it is showing. It never skips the
+warning: a restore replaces the live database, and the previous one is kept
+beside it.
+
 ## Restoring the instance
 
 The server cannot swap the database it is serving from. Stop reet, then on its
@@ -220,6 +230,8 @@ writes the restored database in place. Start reet again afterwards. Nothing is
 deleted, so the database you replaced can be put back by hand.
 
 A copy that exists only at a destination is downloaded by the same command.
+The terminal interface's restore form does the same checks and keeps the same
+`reet.db.before-restore-<timestamp>` copy.
 
 ### A machine rebuilt from nothing
 

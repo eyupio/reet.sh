@@ -151,9 +151,15 @@ Machines → **Software** opens the review dialog; rows can be selected locally,
 not available yet, and each machine's Settings remains the place to apply. Tests cover the aggregate rows and the
 label/warning helpers.
 
-**Still not in this slice:** no cross-machine apply or controller-side artifact mirror; the binary is verified at
-install and at startup, not on every launch. Next: reviewed cross-machine apply with a pilot machine, and the mirror.
-Read `internal/agentsoftware/{artifact,managed,plan}.go`, `internal/terminalhost/{software,software_apply}.go`,
+**L2f, on the same branch:** the fleet review can now **apply one machine at a time**. Each actionable row has
+**Apply plan** when the machine reports `software-apply-v1` and no OpenCode session runs; it opens one confirmation
+dialog and calls the existing per-machine apply endpoint. Other rows are untouched; there is no batch selection. The
+row shows the outcome and the list refreshes from stored evidence; rollback/remove stay in Settings. Tests cover the
+review label/warning and the new can-apply rule.
+
+**Still not in this slice:** no batch apply or controller-side artifact mirror; the binary is verified at install and at
+startup, not on every launch. Next: reviewed batch apply with a pilot order, and the mirror. Read
+`internal/agentsoftware/{artifact,managed,plan}.go`, `internal/terminalhost/{software,software_apply}.go`,
 `internal/terminalbroker/software.go`, `internal/api/software.go`, `web/src/lib/MachineSettings.svelte` and
 `web/src/lib/FleetSoftware.svelte`.
 
@@ -190,9 +196,9 @@ Read `internal/agentsoftware/{artifact,managed,plan}.go`, `internal/terminalhost
   launch audit on a mismatched worktree and kept generic machine refusals from counting as started.
 - **Next stage:** L2 install/update is in [#289](https://github.com/eyupio/reet.sh/pull/289); rollback/remove and
   restart recovery in [#291](https://github.com/eyupio/reet.sh/pull/291) (stacked on #289); the plan-only fleet review
-  is in [#292](https://github.com/eyupio/reet.sh/pull/292) (stacked on #291). Next: reviewed cross-machine apply with a
-  pilot machine, and a controller-side artifact mirror. Program 2, slice 4 (elicitation and rich input cards) still
-  needs its own probe.
+  is in [#292](https://github.com/eyupio/reet.sh/pull/292) (stacked on #291), with a one-machine-at-a-time apply. Next:
+  reviewed batch apply with a pilot order, and a controller-side artifact mirror. Program 2, slice 4 (elicitation and
+  rich input cards) still needs its own probe.
 - **Do first:** for the next PR, check its final head with the REST forms
   (`gh api repos/eyupio/reet.sh/pulls/<n>` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
   `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). Merge only when every check is green and Codex has

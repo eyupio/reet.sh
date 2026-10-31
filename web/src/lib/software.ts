@@ -44,3 +44,8 @@ export function fleetSoftwareWarning(row: Pick<FleetSoftwareRow, 'state' | 'sess
   if (!row.canApply) return 'Update reet on this machine to apply.'
   return ''
 }
+
+/** True when the fleet review may apply this row's plan right now. */
+export function fleetSoftwareCanApply(row: Pick<FleetSoftwareRow, 'state' | 'sessionsRunning' | 'canApply'>): boolean {
+  return (row.state === 'install' || row.state === 'update') && row.canApply && row.sessionsRunning === 0
+}

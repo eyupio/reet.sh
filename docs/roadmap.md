@@ -6,7 +6,7 @@ These are directions, not commitments: there are no dates.
 
 Next, in this order:
 
-- **Fleet-wide agent maintenance.** reet now installs, updates, rolls back and removes its own OpenCode copy on Linux from one verified 1.19.5 artifact, keeps it beside any system installation, recovers after a restart, and reviews each machine's plan side by side without applying. Next: reviewed cross-machine apply with a pilot, and a controller-side artifact mirror for offline machines.
+- **Fleet-wide agent maintenance.** reet now installs, updates, rolls back and removes its own OpenCode copy on Linux from one verified 1.19.5 artifact, keeps it beside any system installation, recovers after a restart, and reviews each machine's plan side by side, applying one pilot machine at a time. Next: reviewed batch apply across machines, and a controller-side artifact mirror for offline machines.
 
 Later:
 

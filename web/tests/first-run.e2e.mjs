@@ -1,4 +1,4 @@
-// First-run and phone-width contract: the menu stays on screen, setup ends on Control, unknown routes say so,
+// First-run and phone-width contract: the menu stays on screen, setup ends on Home, unknown routes say so,
 // auth screens fit a phone, and touch devices are not handed a keyboard on load.
 import { chromium, expect } from '@playwright/test'
 import { openWorkspace } from './helpers/workspace.mjs'
@@ -35,7 +35,7 @@ try {
   await page.getByLabel('Confirm password',{exact:true}).fill('correct-horse-battery')
   await page.getByRole('button',{name:'Create account'}).click()
   await page.waitForURL(`${base}/`)
-  await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'A reet good day’s work.',exact:true})).toBeVisible()
   expect(await page.title()).toBe('Home · reet.sh')
   expect(errors).toEqual([])
   await context.close()
@@ -46,7 +46,7 @@ try {
   const {context,page} = await open({width:1440})
   await page.goto(`${base}${path}`)
   await page.waitForURL(`${base}/`)
-  await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'A reet good day’s work.',exact:true})).toBeVisible()
   await context.close()
  }
 
@@ -58,7 +58,7 @@ try {
   expect(await page.title()).toContain('Page not found')
   await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toHaveCount(0)
   await page.getByRole('link',{name:'Back to Home'}).click()
-  await expect(page.getByRole('region',{name:'Your machines',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'A reet good day’s work.',exact:true})).toBeVisible()
   await page.goto(`${base}/skills`)
   await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toBeVisible()
   await context.close()

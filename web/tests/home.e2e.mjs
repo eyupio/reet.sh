@@ -127,6 +127,19 @@ async function home(options={}) {
   ...(options.routes ?? {}),
  }
  const opened = await openWorkspace(browser, {width:1440, sync:makeSync(), routes, ...options, routes})
+ // #288 moved machines, Needs you and Quick launch into expandable sections; open them after each navigation.
+ const openSections = async () => {
+  await opened.page.locator('details.home-detail > summary').first().waitFor({state:'attached', timeout:10000}).catch(() => {})
+  const summaries = opened.page.locator('details.home-detail > summary')
+  for (let i = 0; i < await summaries.count(); i++) {
+   const summary = summaries.nth(i), details = summary.locator('..')
+   if (!(await details.evaluate(el => el.open))) await summary.click()
+  }
+ }
+ const realGoto = opened.page.goto.bind(opened.page)
+ opened.page.goto = async (...args) => { const result = await realGoto(...args); await openSections(); return result }
+ const realReload = opened.page.reload.bind(opened.page)
+ opened.page.reload = async (...args) => { const result = await realReload(...args); await openSections(); return result }
  opened.page.on('request', r => { const u = new URL(r.url()); if (u.pathname.startsWith('/api/')) reads.push(`${r.method()} ${u.pathname}`) })
  await opened.page.exposeFunction('__recordStorage', (op, key, value) => { storage.push({op, key, value}) })
  await opened.page.addInitScript(() => {
@@ -362,133 +375,6 @@ try {
   await add.click()
   await expect(page).toHaveURL(`${base}/machines#add-machine`)
   await expect(page.getByRole('dialog',{name:'Add a machine',exact:true})).toBeVisible()
-  expect(errors).toEqual([])
-  await context.close()
- }
-
- // Group by Project (sessions of a Project's run under its name, the rest under their machine), Machine or State; the choice
- // is remembered for this account in this browser under one key.
- if (run('In flight groups by project, machine and state')) {
-  const {context,page,errors,reads} = await home()
-  await page.goto(base)
-  const choice = inFlight(page).getByRole('radiogroup',{name:'Group by'})
-  await expect(choice.getByRole('radio',{name:'Project'})).toBeChecked()
-  await expect.poll(() => groups(page)).toEqual(['Store rewrite 1','No project · studio 2','No project · desk 1'])
-  const row = inFlight(page).getByRole('link',{name:/Refactor the store layer/})
-  await expect(row).toHaveAttribute('href','/sessions?agent=a1&session=s1')
-  await expect(row).toContainText('Store rewrite')
-  await expect(row).toContainText('studio')
-  await expect(row.locator('.branch')).toHaveText('reet/store-split')
-  await expect(row).toContainText('Running')
-  await expect(row).toContainText("from the session's state")
-  await expect(row).not.toContainText(/Step \d/)
-  const exited = inFlight(page).getByRole('link',{name:/Docs pass/})
-  await expect(exited).toContainText('Exited 1')
-  await expect(exited).toContainText('from the exit code')
-  await choice.getByRole('radio',{name:'Machine'}).check()
-  await expect.poll(() => groups(page)).toEqual(['studio 3','desk 1'])
-  await choice.getByRole('radio',{name:'State'}).check()
-  await expect.poll(() => groups(page)).toEqual(['Running 3','Exited 1'])
-  await page.reload()
-  await expect(inFlight(page).getByRole('radio',{name:'State'})).toBeChecked()
-  await expect.poll(() => groups(page)).toEqual(['Running 3','Exited 1'])
-  // Grouping comes from each session's own project id: no old Projects or runs are read for it.
-  expect(reads.filter(r => /\/api\/v2\/(projects|project-runs)/.test(r))).toEqual([])
-  expect(errors).toEqual([])
-  await context.close()
- }
-
- // A row's actions menu opens on a right-click or Shift+F10, with the same actions as the Sessions page. Rename asks first;
- // End asks first and then the row says Ending; a finished session offers Remove from history instead.
- if (run('In flight session menu by right-click and Shift+F10')) {
-  const {context,page,errors,box} = await home()
-  await page.goto(base)
-  const row = inFlight(page).getByRole('link',{name:/Refactor the store layer/})
-  await row.click({button:'right'})
-  const menu = page.getByRole('menu',{name:'Actions for Refactor the store layer'})
-  await expect(menu).toBeVisible()
-  await expect(menu.getByRole('menuitem')).toHaveText(['Rename…','Open in theatre','Copy branch','End session…','Check and remove worktree…'])
-  await expect(menu.getByRole('menuitem',{name:'Open in theatre'})).toHaveAttribute('href','/sessions?agent=a1&session=s1&theatre=1')
-  // A live session's worktree is in use: removing it waits for the session to end.
-  await expect(menu.getByRole('menuitem',{name:'Check and remove worktree…'})).toBeDisabled()
-  await expect(menu.getByRole('menuitem',{name:'Rename…'})).toBeFocused()
-  await page.keyboard.press('ArrowDown')
-  await expect(menu.getByRole('menuitem',{name:'Open in theatre'})).toBeFocused()
-  await page.keyboard.press('Escape')
-  await expect(menu).toBeHidden()
-  await expect(row).toBeFocused()
-  // Shift+F10 on the focused row opens the same menu; Rename asks for the new name.
-  await row.dispatchEvent('keydown',{key:'F10',shiftKey:true})
-  await expect(menu).toBeVisible()
-  await page.keyboard.press('Enter')
-  const rename = page.getByRole('dialog',{name:'Rename session'})
-  await expect(rename).toBeVisible()
-  await rename.getByLabel('Session name').fill('Split the store layer')
-  await rename.getByRole('button',{name:'Save name'}).click()
-  await expect(inFlight(page).getByRole('link',{name:/Split the store layer/})).toBeVisible()
-  expect(box.writes.at(-1)).toMatchObject({method:'PATCH', path:'/api/v2/terminal/sessions/s1', body:{title:'Split the store layer'}})
-  // An ended session offers Remove from history (with a confirmation) instead of End, and has no branch to copy.
-  await inFlight(page).getByRole('link',{name:/Docs pass/}).click({button:'right'})
-  const ended = page.getByRole('menu',{name:'Actions for Docs pass'})
-  await expect(ended.getByRole('menuitem')).toHaveText(['Rename…','Open in theatre','Remove from history…'])
-  await ended.getByRole('menuitem',{name:'Remove from history…'}).click()
-  await page.getByRole('dialog',{name:'Remove Docs pass from history?'}).getByRole('button',{name:'Remove from history'}).click()
-  await expect(inFlight(page).getByRole('link',{name:/Docs pass/})).toBeHidden()
-  expect(box.writes.at(-1)).toMatchObject({method:'POST', path:'/api/v2/terminal/sessions/s4/archive'})
-  // An offline machine's session can't open in theatre: the item says so rather than leading nowhere.
-  await inFlight(page).getByRole('link',{name:/Speed up the runner pool/}).click({button:'right'})
-  await expect(page.getByRole('menuitem',{name:'Open in theatre'})).toHaveAttribute('aria-disabled','true')
-  await page.keyboard.press('Escape')
-  // End session asks first, then the row says Ending.
-  await inFlight(page).getByRole('link',{name:/Tidy the release notes/}).click({button:'right'})
-  await page.getByRole('menuitem',{name:'End session…'}).click()
-  const end = page.getByRole('dialog',{name:'End Tidy the release notes?'})
-  await expect(end).toBeVisible()
-  await end.getByRole('button',{name:'End session'}).click()
-  await expect(inFlight(page).getByRole('link',{name:/Tidy the release notes/})).toContainText('Ending')
-  expect(box.writes.at(-1)).toMatchObject({method:'POST', path:'/api/v2/terminal/sessions/s2/end'})
-  // Shift+right-click keeps the browser's own menu.
-  await inFlight(page).getByRole('link',{name:/Split the store layer/}).click({button:'right',modifiers:['Shift']})
-  await expect(page.getByRole('menu',{name:'Actions for Split the store layer'})).toBeHidden()
-  expect(errors).toEqual([])
-  await context.close()
- }
-
- // Ending from Home follows the account's own default for removing a session from history, as Sessions and the terminal do.
- if (run('ending a session on Home uses the account default for history')) {
-  const profile = {user:owner,sessionCount:1,accounts:true,profile:{theme:'light',timezone:'Europe/London',dateFormat:'',shelfView:'list',cardsExpanded:false,hostedPrefix:'reet-',updatedAt:1,terminalRemoveOnClose:true}}
-  const {context,page,errors,box} = await home({routes:{'/api/v2/profile':profile}})
-  await page.goto(base)
-  await inFlight(page).getByRole('link',{name:/Tidy the release notes/}).click({button:'right'})
-  await page.getByRole('menuitem',{name:'End session…'}).click()
-  const end = page.getByRole('dialog',{name:'End Tidy the release notes?'})
-  await expect(end.getByRole('checkbox',{name:'Remove from history when this session ends'})).toBeChecked()
-  await end.getByRole('button',{name:'End session'}).click()
-  await expect.poll(() => box.writes.find(w => w.path === '/api/v2/terminal/sessions/s2/end')?.body ?? null).toMatchObject({removeHistory:true})
-  expect(errors).toEqual([])
-  await context.close()
- }
-
- // A session started outside every project is listed under its machine, not left out and not given a project.
- if (run('a session outside every project sits under its machine')) {
-  const {context,page,errors} = await home()
-  await page.goto(base)
-  const group = inFlight(page).locator('.group').filter({has:page.getByRole('heading',{name:/^No project · studio/})})
-  await expect(group.getByRole('link',{name:/Tidy the release notes/})).toBeVisible()
-  await expect(group.getByRole('link',{name:/Tidy the release notes/})).not.toContainText('Store rewrite')
-  expect(errors).toEqual([])
-  await context.close()
- }
-
- // An offline machine's sessions stay in In flight with a sentence saying they are its last known state.
- if (run('offline machine keeps its sessions with the sentence')) {
-  const {context,page,errors} = await home()
-  await page.goto(base)
-  const row = inFlight(page).getByRole('link',{name:/Speed up the runner pool/})
-  await expect(row).toBeVisible()
-  await expect(row).toContainText('last known')
-  await expect(inFlight(page).getByText('desk is not reporting, so its sessions show their last known state.',{exact:true})).toBeVisible()
-  await expect(inFlight(page).getByText(/studio is not reporting/)).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
  }

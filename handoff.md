@@ -32,7 +32,8 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 reporting, descriptor-aware launch/continuation, and tool-bound history ownership.
 OpenCode remains the only reviewed structured integration; no new adapter runs.
 
-**Branch / base:** `feat/structured-agent-capabilities`, from main `c77f389`.
+**Branch / base / PR:** `feat/structured-agent-capabilities`, from main `c77f389`,
+[PR #300](https://github.com/eyupio/reet.sh/pull/300), implementation commit `c9f5b52`.
 Earlier uncommitted installation/research work remains in its original checkout;
 this branch includes only the chat contract, its tests and related documentation.
 
@@ -54,8 +55,12 @@ session state. There is no schema migration or controller transcript storage.
 **Checks and limitations:** protocol/collector/profile, ownership, broker and API
 regressions were added, plus launch/continuation unit cases and a descriptor mode
 in `chat.e2e.mjs`. Web check/build and both legacy/descriptor chat browser modes
-passed. Full Go/MCP results are recorded in the PR; the container's non-reaping
-PID 1 needs a test-only subreaper for orphan-exit checks, and socket fixtures need
+passed, including the launch dialog's desktop/tablet/phone light/dark matrix.
+Full `go vet ./...`, all 16 MCP tests, and focused race regressions for launch
+refusal, API feature gating and tool/account/machine/folder history binding
+passed. The repository-wide race suite is still running at this checkpoint;
+its result is pending, not assumed green. The container's non-reaping PID 1
+needs a test-only subreaper for orphan-exit checks, and socket fixtures need
 network permission. No real provider, physical phone or new adapter was run.
 
 **Exact next unchecked task:** SC2's Claude Code and Codex ACP adapter probes;
@@ -64,7 +69,9 @@ read [the plan](docs/structured-chat-plan.md), `internal/acpagent/{spec,describe
 and `web/src/lib/StartAgentDialog.svelte`. Do not enable a candidate before its
 callback, permission, trust, provider and history contracts are observed.
 
-**Publication state:** PR proposed; nothing merged, released or deployed.
+**Publication state:** PR #300 is open; nothing merged, released or deployed.
+SC2 runs on a separate branch and must have its own PR and updated handoff;
+its probes and adapter code do not belong in #300.
 
 ## Terminal interface (30 October 2026)
 

@@ -8,7 +8,7 @@
   import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
   import { afterLaunch, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
-  import { createTerminal, getFolderProject, getSelectionRun, launchUpload, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
+  import { createTerminal, getFolderProject, getSelectionRun, launchProgress, launchUpload, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
     type BranchesResult, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from '../terminal/upload'
   import { memberLine, runPending, STARTED_MEANS, type ProjectRun } from '../projects'
@@ -75,6 +75,19 @@
     list.push({ key: 'start', label: picked.length > 1 ? 'Starting agents on your machines' : `Starting ${choice ? toolName(choice.agent) : 'the agent'} on ${operation?.kind === 'one' ? operation.host : pickedHosts[0] ?? 'your machine'}` })
     list.push({ key: 'open', label: 'Opening your session' })
     return list
+  })
+  // The stages the machine itself reports while it starts the agent (newer machines only; an older one reports none and
+  // the step stays a single line). Read about once a second, and only a hint: the start's outcome never depends on it.
+  const STAGES: Record<string, string> = { resolving: 'Checking the folder and agent', worktree: 'Preparing a git worktree', starting: 'Launching the agent', confirming: 'Confirming it is running' }
+  let stages = $state<{ stage: string; at: number }[]>([])
+  $effect(() => {
+    if (phase !== 'start' || operation?.kind !== 'one') { stages = []; return }
+    const { agentId, requestId } = operation
+    const poll = new AbortController()
+    const read = async () => { try { const next = await launchProgress(agentId, requestId, poll.signal); if (!poll.signal.aborted && next.length >= stages.length) stages = next } catch { /* a hint only */ } }
+    void read()
+    const timer = setInterval(() => void read(), 1000)
+    return () => { clearInterval(timer); poll.abort() }
   })
   const stepAt = $derived(Math.max(0, steps.findIndex(step => step.key === phase)))
   let waited = $state(0)
@@ -1034,6 +1047,13 @@
         <li class:done={i < stepAt} class:now={i === stepAt} aria-current={i === stepAt ? 'step' : undefined}>
           <span class="dot" aria-hidden="true">{#if i < stepAt}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>{:else if i === stepAt}<span class="spinner"></span>{/if}</span>
           <span class="label">{step.label}{#if i < stepAt}<span class="sr"> done</span>{/if}</span>
+          {#if step.key === 'start' && i === stepAt && stages.length}
+            <ol class="stages" aria-label="On the machine">
+              {#each stages as s, j (s.stage)}
+                <li class:now={j === stages.length - 1}>{STAGES[s.stage] ?? s.stage}{#if j === stages.length - 1 && stages.length > 0}…{:else}<span class="sr"> done</span>{/if}</li>
+              {/each}
+            </ol>
+          {/if}
         </li>
       {/each}
     </ol>
@@ -1194,6 +1214,11 @@
   .steps li.done .dot { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); animation: step-pop 0.25s var(--ease-out); }
   .dot svg { width: 11px; height: 11px; }
   .dot .spinner { width: 16px; height: 16px; }
+  .steps li { flex-wrap: wrap; }
+  .stages { flex-basis: 100%; list-style: none; margin: 2px 0 0 26px; padding: 0 0 0 10px; border-left: 2px solid var(--line-soft); display: flex; flex-direction: column; gap: 2px; font-weight: 400; }
+  .stages li { display: block; font-size: 12px; color: var(--faint); }
+  .stages li.now { color: var(--ink); }
+  .stages li:not(.now)::before { content: '✓ '; color: var(--accent-text); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   @keyframes step-pop { from { transform: scale(0.6); } to { transform: scale(1); } }
   @media (max-width: 560px) { .steps { flex-direction: column; padding: 4px 16px 12px; } }

@@ -297,6 +297,10 @@ var schemaV12 = []string{
 	`CREATE TRIGGER IF NOT EXISTS public_list_update_requires_source BEFORE UPDATE OF list_id,skill_id ON list_skills WHEN (SELECT visibility FROM lists WHERE id=NEW.list_id)='public' AND (SELECT source_type FROM skills WHERE id=NEW.skill_id)='local' BEGIN SELECT RAISE(ABORT,'link local skills to an install source before publishing'); END`,
 }
 
+// Dir is the controller data directory, where the database and other server
+// files live.
+func (s *Store) Dir() string { return s.dir }
+
 // Open opens (creating if needed) the database in dir.
 func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -399,6 +403,10 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 	if err := st.migrateSessionBacklog(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := st.migrateSoftwareBatches(); err != nil {
 		db.Close()
 		return nil, err
 	}

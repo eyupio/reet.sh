@@ -40,11 +40,13 @@ func fakeArtifact(t *testing.T, binary []byte) (*httptest.Server, agentsoftware.
 		t.Fatal(err)
 	}
 	sum := sha512.Sum512(buffer.Bytes())
+	archiveSum := sha256.Sum256(buffer.Bytes())
 	binarySum := sha256.Sum256(binary)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(buffer.Bytes()) }))
 	t.Cleanup(server.Close)
 	return server, agentsoftware.Artifact{
-		URL: server.URL + "/opencode.tgz", SHA512: base64.StdEncoding.EncodeToString(sum[:]),
+		URL: server.URL + "/opencode.tgz", ArchiveSHA256: hex.EncodeToString(archiveSum[:]), ArchiveSize: int64(buffer.Len()),
+		SHA512:       base64.StdEncoding.EncodeToString(sum[:]),
 		BinarySHA256: hex.EncodeToString(binarySum[:]), BinarySize: int64(len(binary)), Member: "package/bin/opencode",
 	}
 }
@@ -207,5 +209,64 @@ func TestApplySoftwareRefusesAChangedRollback(t *testing.T) {
 	}, missingLookPath)
 	if result.State != terminalproto.SoftwareApplyRefused || result.Reason != terminalproto.SoftwareApplyChanged {
 		t.Fatalf("changed rollback: %+v", result)
+	}
+}
+
+func TestApplySoftwareFallsBackToTheControllerMirror(t *testing.T) {
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "registry unavailable", http.StatusBadGateway)
+	}))
+	t.Cleanup(registry.Close)
+	mirrorServer, artifact := fakeArtifact(t, []byte("reviewed binary"))
+	artifact.URL = registry.URL + "/opencode.tgz"
+	original := softwareArtifact
+	softwareArtifact = artifact
+	t.Cleanup(func() { softwareArtifact = original })
+
+	home := t.TempDir()
+	result := ApplySoftware(context.Background(), home, terminalproto.SoftwareApply{
+		Tool: "opencode", Action: terminalproto.SoftwareActionInstall, ExpectedState: terminalproto.SoftwareMissing,
+	}, missingLookPath, SoftwareSource{
+		Client:  mirrorServer.Client(),
+		BaseURL: mirrorServer.URL,
+		Path:    "/private/v1/software/artifact/" + artifact.ArchiveSHA256,
+	})
+	if result.State != terminalproto.SoftwareApplyApplied || result.Source != "mirror" {
+		t.Fatalf("mirror fallback result: %+v", result)
+	}
+	if _, _, found, err := agentsoftware.Current(home, "opencode"); err != nil || !found {
+		t.Fatalf("managed install missing: found=%v err=%v", found, err)
+	}
+}
+
+func TestApplySoftwareReportsBothSourcesWhenBothFail(t *testing.T) {
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "registry unavailable", http.StatusBadGateway)
+	}))
+	t.Cleanup(registry.Close)
+	_, artifact := fakeArtifact(t, []byte("reviewed binary"))
+	artifact.URL = registry.URL + "/opencode.tgz"
+	original := softwareArtifact
+	softwareArtifact = artifact
+	t.Cleanup(func() { softwareArtifact = original })
+
+	// A mirror that answers 404, like a controller with the mirror off.
+	closed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.NotFound(w, nil)
+	}))
+	t.Cleanup(closed.Close)
+	home := t.TempDir()
+	result := ApplySoftware(context.Background(), home, terminalproto.SoftwareApply{
+		Tool: "opencode", Action: terminalproto.SoftwareActionInstall, ExpectedState: terminalproto.SoftwareMissing,
+	}, missingLookPath, SoftwareSource{
+		Client:  closed.Client(),
+		BaseURL: closed.URL,
+		Path:    "/private/v1/software/artifact/" + artifact.ArchiveSHA256,
+	})
+	if result.State != terminalproto.SoftwareApplyFailed || result.Reason != terminalproto.SoftwareApplyDownload || result.Source != "registry+mirror" {
+		t.Fatalf("both-failed result: %+v", result)
+	}
+	if _, _, found, _ := agentsoftware.Current(home, "opencode"); found {
+		t.Fatal("a failed download left a managed install")
 	}
 }

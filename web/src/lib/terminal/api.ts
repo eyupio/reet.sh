@@ -10,6 +10,10 @@ export type SoftwareEntry = { tool: string; state: 'installed' | 'missing' | 'un
 export type SoftwarePlan = { host: string; tool: string; action: 'install' | 'update' | 'rollback' | 'remove'; state: 'ready' | 'noop'; package: string; current: string; target: string; source: string; command: string; steps: string[]; effects: string[]; executes: boolean; sentence: string; checkedAt: number }
 export type SoftwareApplyResult = { tool: string; action: 'install' | 'update' | 'rollback' | 'remove'; state: 'applied' | 'refused' | 'failed'; version?: string; previous?: string; reason?: string; entry?: SoftwareEntry }
 export type FleetSoftwareRow = { agentId: string; host: string; state: 'update' | 'install' | 'none' | 'unknown'; action?: 'install' | 'update'; version?: string; previous?: string; managed?: boolean; target?: string; source?: string; sessionsRunning: number; canApply: boolean; sentence: string }
+export type SoftwareBatchState = 'pending' | 'running' | 'stopped' | 'done' | 'abandoned'
+export type SoftwareBatchMemberState = 'pending' | 'running' | 'applied' | 'failed' | 'skipped' | 'excluded'
+export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
+export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission }
 export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
@@ -132,6 +136,23 @@ export async function applyMachineSoftware(agentId: string, tool: string, action
 /** The plan-only fleet review: one stored-evidence row per machine, no machine reads. */
 export async function fleetSoftwarePlans(signal?: AbortSignal): Promise<FleetSoftwareRow[]> {
   return (await (await terminalRequest('/api/v2/software/plans', { signal })).json()).machines
+}
+/** Create an ordered batch from the chosen machines. The controller rebuilds and freezes each plan. */
+export async function createSoftwareBatch(requestId: string, tool: string, agents: string[], signal?: AbortSignal): Promise<SoftwareBatch> {
+  return (await terminalRequest('/api/v2/software/batches', { method: 'POST', body: JSON.stringify({ requestId, tool, agents }), signal })).json()
+}
+/** Read one batch as it is now. */
+export async function softwareBatch(batchId: string, signal?: AbortSignal): Promise<SoftwareBatch> {
+  return (await terminalRequest(`/api/v2/software/batches/${encodeURIComponent(batchId)}`, { signal })).json()
+}
+export async function retrySoftwareBatchMember(batchId: string, position: number, signal?: AbortSignal): Promise<SoftwareBatch> {
+  return (await terminalRequest(`/api/v2/software/batches/${encodeURIComponent(batchId)}/members/${position}/retry`, { method: 'POST', signal })).json()
+}
+export async function skipSoftwareBatchMember(batchId: string, position: number, signal?: AbortSignal): Promise<SoftwareBatch> {
+  return (await terminalRequest(`/api/v2/software/batches/${encodeURIComponent(batchId)}/members/${position}/skip`, { method: 'POST', signal })).json()
+}
+export async function abandonSoftwareBatch(batchId: string, signal?: AbortSignal): Promise<SoftwareBatch> {
+  return (await terminalRequest(`/api/v2/software/batches/${encodeURIComponent(batchId)}/abandon`, { method: 'POST', signal })).json()
 }
 export type TerminalControllerStatus={configured:boolean;available:boolean;reason:string}
 export async function terminalControllerStatus(signal?:AbortSignal):Promise<TerminalControllerStatus>{return (await terminalRequest('/api/v2/terminal/status',{signal})).json()}

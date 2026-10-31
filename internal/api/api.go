@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/agenthealth"
+	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/agentupdate"
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/backup"
@@ -33,6 +34,8 @@ import (
 	"github.com/eyupio/reet.sh/internal/projectrun"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/sealed"
+	"github.com/eyupio/reet.sh/internal/softwaremirror"
+	"github.com/eyupio/reet.sh/internal/softwarerun"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
 )
@@ -72,6 +75,9 @@ type server struct {
 	healthHub         *agenthealth.Hub
 	terminals         *terminalbroker.Broker
 	runs              *projectrun.Orchestrator
+	softwareRuns      *softwarerun.Orchestrator
+	mirror            *softwaremirror.Mirror
+	mirrorServes      chan struct{}
 	resumeDone        chan struct{} // closed when ResumeProjectRuns' watcher ends
 	remoteTerminals   bool
 	terminalOverride  atomic.Pointer[bool]
@@ -253,6 +259,9 @@ func (s *Server) Close() error {
 	if s.s.runs != nil {
 		s.s.runs.Close()
 	}
+	if s.s.softwareRuns != nil {
+		s.s.softwareRuns.Close()
+	}
 	if s.s.terminals != nil {
 		s.s.terminals.Close()
 	}
@@ -300,6 +309,12 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	s.terminals = terminalbroker.New(st)
 	s.terminals.OnLateWorktreeRemoval(s.auditLateWorktreeRemoval)
 	s.runs = s.newProjectRuns()
+	s.softwareRuns = s.newSoftwareRuns()
+	if dir := st.Dir(); dir != "" {
+		s.mirror = softwaremirror.New(filepath.Join(dir, "software", "artifacts"), agentsoftware.OpenCodeLinuxX64)
+		_ = s.mirror.GC()
+	}
+	s.mirrorServes = make(chan struct{}, 4)
 	s.configurePrivate()
 	return s
 }

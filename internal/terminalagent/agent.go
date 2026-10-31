@@ -417,7 +417,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						if live > 0 {
 							return terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplySessions}
 						}
-						return applySoftware(ctx, opts.Home, req, exec.LookPath)
+						return applySoftware(ctx, opts.Home, req, exec.LookPath, terminalhost.SoftwareSource{
+							Client: client,
+							Path:   "/private/v1/software/artifact/" + agentsoftware.OpenCodeLinuxX64.ArchiveSHA256,
+						})
 					})
 			case *terminalproto.Upload:
 				// Uploads are served only on a generation that negotiated

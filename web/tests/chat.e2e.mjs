@@ -146,6 +146,80 @@ try {
   expect(state.create).toMatchObject({ structured: true, trust: true, tool: 'opencode', model: 'anthropic/claude-sonnet-4-5', prompt: 'fix the failing build' })
   expect(state.create.effort).toBeUndefined()
 
+  // A typed agent question: labelled controls, feedback before sending, the machine's refusal kept on the card, and
+  // Skip and Cancel as different answers from Send.
+  state.questionCalls = []
+  let questionRefusals = 1
+  await page.route(`**/api/v2/terminal/sessions/${S}/chat/questions/*`, async route => {
+    const request = route.request()
+    state.questionCalls.push({ id: new URL(request.url()).pathname.split('/').pop(), body: request.postDataJSON() })
+    if (state.questionCalls.at(-1).body.action === 'accept' && questionRefusals-- > 0) {
+      await route.fulfill({ status: 422, json: { error: 'That answer was not accepted: answer rejected for approach: that choice was not offered', code: 'question_invalid' } })
+      return
+    }
+    await route.fulfill({ status: 200, json: { answered: true } })
+  })
+  const form = {
+    message: 'Which approach should I take?',
+    fields: [
+      { key: 'approach', title: 'Approach', kind: 'single', required: true, options: [{ value: 'a', label: 'Approach A', description: 'The quick one' }, { value: 'b', label: 'Approach B' }] },
+      { key: 'checks', title: 'Checks to run', kind: 'multi', maxItems: 2, options: [{ value: 'x', label: 'Lint' }, { value: 'y', label: 'Unit tests' }, { value: 'z', label: 'Build' }] },
+      { key: 'note', title: 'Anything else', kind: 'text', maxLength: 200 },
+    ],
+  }
+  await page.evaluate(form => window.__chatStream.emit('chat', { seq: 9, kind: 'question', questionId: 'q1', toolCallId: 'c3', question: form }), form)
+  const question = page.getByRole('group', { name: 'Which approach should I take?' })
+  await expect(question).toBeVisible()
+  await expect(page.getByText('Waiting for your answer.')).toBeVisible()
+  await expect(question.getByRole('radio', { name: /^Approach A/ })).toBeVisible()
+  await expect(question.getByRole('textbox', { name: /Anything else/ })).toBeVisible()
+  // An empty required choice is caught before anything is sent, and focus moves to it.
+  await question.getByRole('button', { name: 'Send answer', exact: true }).click()
+  await expect(question.getByText('Choose one.')).toBeVisible()
+  expect(await page.evaluate(() => document.activeElement?.getAttribute('data-invalid'))).toBe('true')
+  expect(state.questionCalls.length).toBe(0)
+  await question.getByRole('radio', { name: /^Approach A/ }).check()
+  await expect(question.getByText('Choose one.')).toHaveCount(0)
+  // The limit on a multi select is checked too.
+  for (const name of ['Lint', 'Unit tests', 'Build']) await question.getByRole('checkbox', { name }).check()
+  await question.getByRole('button', { name: 'Send answer', exact: true }).click()
+  await expect(question.getByText('Choose at most 2.')).toBeVisible()
+  expect(state.questionCalls.length).toBe(0)
+  await question.getByRole('checkbox', { name: 'Build' }).uncheck()
+  // The machine refuses once: its reason shows on the card, the question stays open and the choices are kept.
+  await question.getByRole('button', { name: 'Send answer', exact: true }).click()
+  await expect(question.getByRole('alert')).toContainText('That answer was not accepted')
+  await expect(question.getByRole('radio', { name: /^Approach A/ })).toBeChecked()
+  await expect(question.getByRole('checkbox', { name: 'Unit tests' })).toBeChecked()
+  await expect(question.getByRole('button', { name: 'Send answer', exact: true })).toBeEnabled()
+  await question.getByRole('button', { name: 'Send answer', exact: true }).click()
+  await expect.poll(() => state.questionCalls.length).toBe(2)
+  // An empty optional text answer is left out rather than sent blank.
+  expect(state.questionCalls[1]).toEqual({ id: 'q1', body: { action: 'accept', answers: { approach: 'a', checks: ['x', 'y'] } } })
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 10, kind: 'question_resolved', questionId: 'q1', reason: 'accept' }))
+  await expect(question.getByText('Answered.')).toBeVisible()
+  await expect(question.getByText('Approach A', { exact: true })).toBeVisible()
+  await expect(question.getByText('Lint, Unit tests')).toBeVisible()
+  await expect(question.getByRole('button', { name: 'Send answer', exact: true })).toHaveCount(0)
+  await expect(page.getByText('Waiting for your answer.')).toHaveCount(0)
+
+  // Skip lets the agent carry on; Cancel stops its tool call; a timeout closes the card with its reason.
+  await page.evaluate(form => window.__chatStream.emit('chat', { seq: 11, kind: 'question', questionId: 'q2', question: { ...form, message: 'Second question?' } }), form)
+  const second = page.getByRole('group', { name: 'Second question?' })
+  await second.getByRole('button', { name: 'Skip', exact: true }).click()
+  await expect.poll(() => state.questionCalls.at(-1)).toEqual({ id: 'q2', body: { action: 'decline' } })
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 12, kind: 'question_resolved', questionId: 'q2', reason: 'decline' }))
+  await expect(second.getByText('Skipped.')).toBeVisible()
+  await page.evaluate(form => window.__chatStream.emit('chat', { seq: 13, kind: 'question', questionId: 'q3', question: { ...form, message: 'Third question?' } }), form)
+  const third = page.getByRole('group', { name: 'Third question?' })
+  await third.getByRole('button', { name: 'Cancel question', exact: true }).click()
+  await expect.poll(() => state.questionCalls.at(-1)).toEqual({ id: 'q3', body: { action: 'cancel' } })
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 14, kind: 'question_cancelled', questionId: 'q3', reason: 'timeout' }))
+  await expect(third.getByText('Closed: the question timed out.')).toBeVisible()
+  // A malformed question is ignored; it never leaves a card the person cannot answer.
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 15, kind: 'question', questionId: 'q4', question: { message: 'Broken', fields: [{ key: 'k', kind: 'number' }] } }))
+  await expect(page.getByRole('group', { name: 'Broken' })).toHaveCount(0)
+
   // The live chat's model switch offers Make default, stars a chosen model that is not yet a favourite, and Clear default removes it.
   const modelInput = page.locator('.model-controls input')
   await modelInput.fill('anthropic/claude-sonnet-4-5')
@@ -161,6 +235,19 @@ try {
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('textbox', { name: 'Message OpenCode' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  // The question card fits a phone: no sideways scroll and every control stays inside the viewport. (Its larger touch
+  // targets come from the same coarse-pointer rule as the approval buttons; this mouse-driven run does not exercise it.)
+  await page.evaluate(form => window.__chatStream.emit('chat', { seq: 30, kind: 'question', questionId: 'q9', question: { ...form, message: 'Phone question with a fairly long line of text that has to wrap inside the card?' } }), form)
+  const phoneQuestion = page.getByRole('group', { name: /^Phone question/ })
+  await expect(phoneQuestion).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  for (const name of ['Cancel question', 'Skip', 'Send answer']) {
+    const box = await phoneQuestion.getByRole('button', { name, exact: true }).boundingBox()
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(390)
+  }
+  const textbox = await phoneQuestion.getByRole('textbox', { name: /Anything else/ }).boundingBox()
+  expect(textbox.x + textbox.width).toBeLessThanOrEqual(390)
   await page.evaluate(() => window.__chatStream.emit('reset', { truncated: true }))
   await expect(page.getByText('Earlier messages in this reet session are no longer available.')).toBeVisible()
 
@@ -186,7 +273,7 @@ try {
   expect(state.resume.prompt).toBeUndefined()
   expect(state.resume.model).toBe('anthropic/claude-sonnet-4-5')
   expect(errors).toEqual([])
-  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled, agent chunks stream, a command approval is Allow once or Deny, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id.')
+  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled, agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id.')
 } finally {
   await context.close()
   await browser.close()

@@ -105,11 +105,13 @@ cancel, close and exit. `Options.Questions` is off in every launch, `initialize`
 `terminalproto`; two deliberate mutations (any choice accepted, answered question not consumed) failed the
 tests. No browser, phone, real provider or live adapter was used.
 
-**Wire stage (local branch `feat/sc3-question-wire`, stacked on the machine core):** `acp-question-v1`, the
+**Wire stage:** `acp-question-v1`, the
 question events and `acp_question_answer`, `question_invalid`, connector routing, `AnswerQuestionChat` and
 the `/chat/questions/{id}` route. Still off by default; see the plan.
 
-**Next unchecked task:** the chat card and Needs-you summary; request-scoped (pre-session) questions and
+**Chat card:** the browser card for typed questions, with unit and browser tests; see `docs/ui-verification.md`.
+
+**Next unchecked task:** the Needs-you summary (and the broker queue entry behind it); request-scoped (pre-session) questions and
 old-peer/concurrent-tab/phone fixtures. Do not advertise the form capability before those.
 
 ## SC2 — Structured adapter probe checkpoint (31 October 2026)

@@ -1,13 +1,30 @@
 <script lang="ts">
  import { onMount, tick } from 'svelte'
  import { applyChatEvent, initialChat, isWorking, pendingPermissions, resetChat, type ChatEvent, type ChatState } from '../chat'
- import { chatAnswer, chatCancel, chatPrompt, chatURL, launchUpload, terminalClosed, type TerminalSession } from './api'
+ import { chatAnswer, chatCancel, chatModel, machineModels, chatPrompt, chatURL, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
  let { session, uploadsSupported = false, uploadsOff = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean } = $props()
 
- const MAX_CHAT_BYTES = 2000
  let chat: ChatState = $state(initialChat())
+ let selectedModel = $state(session.model ?? ''), currentModel = $state(session.model ?? ''), changingModel = $state(false)
+ let models = $state<string[]>([]), modelNote = $state('')
+ const failed = $derived(chat.status.state === 'error')
+ const guidance = $derived(/credit|quota|usage limit|billing|balance|insufficient_quota/i.test(chat.status.detail)
+  ? 'This model has reached its usage or credit limit. Choose another model below, or add credits with your provider, then send a message to continue.'
+  : /rate.?limit|too many requests|429/i.test(chat.status.detail)
+  ? 'Wait for the provider’s rate limit to reset, or choose another model below, then send your message again.'
+  : /unauthori|api.?key|authentication|401|403/i.test(chat.status.detail)
+  ? 'Check this provider’s credentials on the session’s machine, or choose a model from another configured provider below.'
+  : 'Check the error details below. You can choose another model or resolve the provider issue, then send a message to continue.')
+ async function changeModel() {
+  if (!selectedModel || changingModel || working || ended) return
+  changingModel = true; feedback = ''; modelNote = ''
+  try { await chatModel(session.id, selectedModel); currentModel = selectedModel; modelNote = `Model changed to ${selectedModel}. Send a message to continue.` }
+  catch (e) { feedback = e instanceof Error ? e.message : 'The model could not be changed. Try again.' }
+  finally { changingModel = false }
+ }
+ const MAX_CHAT_BYTES = 2000
  let draft = $state(''), feedback = $state(''), sending = $state(false), uploading = $state(false), answering = $state('')
  let images = $state<{ id: number; file: File }[]>([]), imageSeq = 0, attachNote = $state('')
  let fileInput: HTMLInputElement | undefined = $state()
@@ -77,7 +94,7 @@
  function removeImage(id: number) { images = images.filter(item => item.id !== id); attachNote = '' }
  async function send() {
   const text = draft.trim()
-  if ((!text && !images.length) || sending || uploading || working || ended || chat.connection === 'reconnecting') return
+  if ((!text && !images.length) || sending || uploading || changingModel || working || ended || chat.connection === 'reconnecting') return
   if (images.length && !canAttach) { feedback = uploadsOff ? 'Image uploads are off on that machine.' : 'That machine does not accept images.'; return }
   if (new TextEncoder().encode(text).length > MAX_CHAT_BYTES) { feedback = 'That message is too long. Keep it under 2,000 bytes.'; return }
   uploading = images.length > 0; sending = true; feedback = ''
@@ -115,13 +132,15 @@
   event.preventDefault(); void send()
  }
  onMount(() => {
+  const life = new AbortController()
+  void machineModels(session.agentId, session.tool || 'opencode', life.signal).then(result => { models = result.models.map(model => model.id) }).catch(() => { if (!life.signal.aborted) modelNote = 'Model list unavailable. Enter a model ID configured on this machine.' })
   const stream = new EventSource(chatURL(session.id))
   source = stream
   stream.addEventListener('reset', readReset)
   stream.addEventListener('chat', readEvent)
   stream.onopen = () => { chat = { ...chat, connection: 'open' } }
   stream.onerror = () => { if (alive) chat = { ...chat, connection: 'reconnecting' } }
-  return () => { alive = false; closeStream() }
+  return () => { alive = false; life.abort(); closeStream() }
  })
 </script>
 
@@ -129,8 +148,15 @@
  <div class="chat-status" role="status" aria-live="polite">
   <span class="dot" class:busy={working} class:wait={pending.length > 0} class:down={chat.connection === 'reconnecting'} aria-hidden="true"></span>
   <strong>{statusWord}</strong>
-  {#if statusDetail}<span class="detail">{statusDetail}</span>{/if}
+  {#if statusDetail && !failed}<span class="detail">{statusDetail}</span>{/if}
  </div>
+ {#if failed}
+  <div class="error-panel" role="alert">
+   <strong>OpenCode could not continue</strong>
+   <p>{guidance}</p>
+   {#if statusDetail}<details open><summary>Error details</summary><p>{statusDetail}</p></details>{/if}
+  </div>
+ {/if}
  {#if chat.truncated}<p class="notice bad">Earlier messages in this reet session are no longer available.</p>{/if}
  {#if feedback}<p class="notice bad" role="alert">{feedback}</p>{/if}
  <div class="log" role="log" bind:this={log} onscroll={onScroll}>
@@ -173,6 +199,13 @@
   <p class="composer-note">This reet session has ended. Its live history is not kept after the machine connection closes.</p>
  {:else}
   <div class="composer">
+   <div class="model-controls" data-keeps-focus>
+    <label for={`${session.id}-model`}>Model</label>
+    <input id={`${session.id}-model`} list={`${session.id}-models`} bind:value={selectedModel} disabled={working || sending || changingModel || chat.connection !== 'open'} placeholder="provider/model" />
+    <datalist id={`${session.id}-models`}>{#each models as model}<option value={model}></option>{/each}</datalist>
+    <button type="button" class="btn" disabled={working || sending || changingModel || !selectedModel.trim() || selectedModel === currentModel || chat.connection !== 'open'} onclick={() => void changeModel()}>{changingModel ? 'Changing…' : 'Change model'}</button>
+   </div>
+   {#if modelNote}<p class="notice" role="status">{modelNote}</p>{/if}
    {#if images.length}
     <ul class="attachments" aria-label="Images to attach">
      {#each images as image (image.id)}
@@ -182,11 +215,11 @@
    {/if}
    {#if attachNote}<p class="notice" class:bad={/off|does not|at most|more than|Use PNG|Each image|empty/.test(attachNote)}>{attachNote}</p>{/if}
    <label class="vh" for={`${session.id}-chat-prompt`}>Message OpenCode</label>
-   <textarea id={`${session.id}-chat-prompt`} bind:value={draft} rows="2" maxlength="2000" placeholder={working ? 'OpenCode is working…' : 'Ask OpenCode to change this project…'} onkeydown={keydown} onpaste={pasted} disabled={sending || uploading || working || chat.connection === 'reconnecting'}></textarea>
+   <textarea id={`${session.id}-chat-prompt`} bind:value={draft} rows="2" maxlength="2000" placeholder={working ? 'OpenCode is working…' : 'Ask OpenCode to change this project…'} onkeydown={keydown} onpaste={pasted} disabled={sending || uploading || changingModel || working || chat.connection === 'reconnecting'}></textarea>
    <div class="composer-actions">
-    {#if canAttach}<button type="button" class="btn" disabled={sending || uploading || working || images.length >= MAX_IMAGES} onclick={() => fileInput?.click()}>Attach image</button>{/if}
+    {#if canAttach}<button type="button" class="btn" disabled={sending || uploading || changingModel || working || images.length >= MAX_IMAGES} onclick={() => fileInput?.click()}>Attach image</button>{/if}
     {#if working}<button type="button" class="btn" onclick={() => void stop()}>Stop</button>{/if}
-    <button type="button" class="btn primary" disabled={sending || uploading || working || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : 'Send'}</button>
+    <button type="button" class="btn primary" disabled={sending || uploading || changingModel || working || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : 'Send'}</button>
    </div>
    {#if canAttach}<input class="vh" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={picked} />{/if}
   </div>
@@ -194,6 +227,13 @@
 </section>
 
 <style>
+ .error-panel { flex: none; margin: 12px 16px; padding: 16px; border: 2px solid var(--bad); border-radius: 10px; background: color-mix(in srgb, var(--bad) 12%, var(--bg)); color: var(--ink); overflow-wrap: anywhere; max-height: 35vh; overflow: auto; }
+ .error-panel > strong { color: var(--bad); font-size: 1rem; }
+ .error-panel p { margin: 8px 0; line-height: 1.5; }
+ .error-panel summary { cursor: pointer; }
+ .model-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+ .model-controls input { flex: 1; min-width: 120px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
+ .model-controls button { min-height: 44px; }
  .chat-pane { display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--bg); }
  .chat-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 16px; border-bottom: 1px solid var(--line); font-size: .8rem; color: var(--ink-soft); }
  .chat-status strong { font-weight: 600; color: var(--ink); }

@@ -15,6 +15,7 @@ func TestACPBodiesRoundTrip(t *testing.T) {
 	for name, body := range map[string]Body{
 		"prompt":           &ACPPrompt{Text: "fix the failing build"},
 		"cancel":           &ACPCancel{},
+		"model":            &ACPModel{Model: "ollama-cloud/deepseek-v4"},
 		"permission":       &ACPPermission{PermissionID: "permission-0123456789", Allow: true},
 		"agent":            &ACPEvent{Kind: "agent", MessageID: "msg_1", Text: "hello"},
 		"tool":             &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Status: "in_progress", Text: "done", Locations: []string{"/home/u/a"}},
@@ -38,6 +39,8 @@ func TestACPBodiesRoundTrip(t *testing.T) {
 func TestACPRejectsUnboundedOrUnknownBodies(t *testing.T) {
 	tooLong := strings.Repeat("a", MaxChatPromptBytes+1)
 	for name, body := range map[string]Body{
+		"empty model":      &ACPModel{},
+		"invalid model":    &ACPModel{Model: "a\x00b"},
 		"empty prompt":     &ACPPrompt{Text: " "},
 		"long prompt":      &ACPPrompt{Text: tooLong},
 		"nul prompt":       &ACPPrompt{Text: "a\x00b"},
@@ -119,5 +122,14 @@ func TestACPResumeFields(t *testing.T) {
 	}
 	if (Reconcile{Complete: true, Sessions: []SessionSnapshot{{ID: "session-0123456789", Title: "Chat", State: Running, ACPSessionID: "bad"}}}).valid() {
 		t.Fatal("bad snapshot id accepted")
+	}
+}
+
+func TestACPModelFeature(t *testing.T) {
+	if SupportsACPModel(ACPFeature) || SupportsACPModel("not-"+ACPModelFeature) {
+		t.Fatal("model switching must be negotiated separately")
+	}
+	if !SupportsACPModel(ACPFeature + "," + ACPModelFeature) {
+		t.Fatal("model feature missing")
 	}
 }

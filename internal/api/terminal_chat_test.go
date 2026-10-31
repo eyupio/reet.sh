@@ -169,3 +169,27 @@ func TestPlainTerminalInAFolderNeedsTheFeature(t *testing.T) {
 		t.Fatalf("old machine: %d %v %s", code, out, body)
 	}
 }
+
+func TestChatModelSwitch(t *testing.T) {
+	for _, supported := range []bool{true, false} {
+		caps := chatCaps()
+		caps.ACPModel = supported
+		f := launchAPIFixture(t, caps)
+		code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "opencode", "structured": true, "trust": true, "dir": "/tmp"}))
+		if code != 200 {
+			t.Fatalf("create: %d %s", code, body)
+		}
+		session := out["id"].(string)
+		path := "/api/v2/terminal/sessions/" + session + "/chat/model"
+		code, _, body = f.do(t, f.cookie, "POST", path, map[string]string{"model": "provider/other"})
+		if supported && code != 200 {
+			t.Fatalf("switch: %d %s", code, body)
+		}
+		if !supported && (code != 409 || !strings.Contains(body, "Update reet")) {
+			t.Fatalf("old machine: %d %s", code, body)
+		}
+		if code, _, body := f.do(t, f.cookie, "POST", path, map[string]string{"model": ""}); code != 400 {
+			t.Fatalf("empty model: %d %s", code, body)
+		}
+	}
+}

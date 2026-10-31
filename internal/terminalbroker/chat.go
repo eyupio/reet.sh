@@ -13,10 +13,12 @@ import (
 )
 
 var (
-	ErrACPUnsupported = errors.New("that machine does not support OpenCode chats")
-	ErrACPVersion     = errors.New("the machine needs OpenCode 1.19.5 or newer for chats")
-	ErrACPBusy        = errors.New("the chat is already working")
-	ErrACPClosed      = errors.New("the chat is not running")
+	ErrACPUnsupported      = errors.New("that machine does not support OpenCode chats")
+	ErrACPVersion          = errors.New("the machine needs OpenCode 1.19.5 or newer for chats")
+	ErrACPModelRejected    = errors.New("The model could not be changed. Choose a model configured on this machine and check its provider credentials, then try again.")
+	ErrACPModelUnsupported = errors.New("Update reet on this machine to switch models during a session.")
+	ErrACPBusy             = errors.New("the chat is already working")
+	ErrACPClosed           = errors.New("the chat is not running")
 	// ErrACPResumeNotFound means the requested OpenCode session is not one of
 	// this account's closed chats on that machine.
 	ErrACPResumeNotFound = errors.New("that chat history is not available")
@@ -598,3 +600,32 @@ func (b *Broker) PermissionChat(ctx context.Context, uid int64, session, permiss
 // chatCallTimeout bounds a chat command's acknowledgement. The model turn is
 // not waited for; its events arrive on the same control connection.
 var chatCallTimeout = 10 * time.Second
+
+func (b *Broker) ModelChat(ctx context.Context, uid int64, session, model string) error {
+	if model == "" || !terminalproto.ValidModel(model) {
+		return terminalproto.ErrInvalid
+	}
+	s, err := b.structuredSession(uid, session)
+	if err != nil {
+		return err
+	}
+	p, err := b.peer(uid, s.AgentID, true)
+	if err != nil {
+		return err
+	}
+	caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID)
+	if err != nil || caps.Generation != p.Generation {
+		return ErrOffline
+	}
+	if !caps.Capabilities.ACPModel {
+		return ErrACPModelUnsupported
+	}
+	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &terminalproto.ACPModel{Model: model}}, chatCallTimeout)
+	if result, ok := reply.Body.(*terminalproto.Result); err == nil && ok && result.Code != terminalproto.OK && result.Code != terminalproto.Conflict && result.Code != terminalproto.NotFound {
+		return ErrACPModelRejected
+	}
+	if err := chatAck(reply, err); err != nil {
+		return err
+	}
+	return b.st.RecordTerminalModelFor(uid, session, model)
+}

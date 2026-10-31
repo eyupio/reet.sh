@@ -217,7 +217,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				}
 			}
 			switch msg.Body.(type) {
-			case *terminalproto.ACPPrompt, *terminalproto.ACPCancel, *terminalproto.ACPPermission:
+			case *terminalproto.ACPPrompt, *terminalproto.ACPModel, *terminalproto.ACPCancel, *terminalproto.ACPPermission:
 				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
 				}
@@ -460,6 +460,15 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				}
 			case *terminalproto.ACPPrompt:
 				if err := chats.prompt(msg.SessionID, op.Text); err != nil {
+					return respond(err)
+				}
+				reply.Body = terminalproto.Result{Code: terminalproto.OK}
+				return send(callCtx, reply)
+			case *terminalproto.ACPModel:
+				if !terminalproto.SupportsACPModel(headers.Get(terminalproto.FeatureHeader)) {
+					return respond(terminalhost.ErrOperationConflict)
+				}
+				if err := chats.setModel(callCtx, msg.SessionID, op.Model); err != nil {
 					return respond(err)
 				}
 				reply.Body = terminalproto.Result{Code: terminalproto.OK}

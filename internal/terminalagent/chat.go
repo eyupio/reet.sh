@@ -803,3 +803,27 @@ func cutText(s string, max int) string {
 	}
 	return s[:max]
 }
+
+func (h *chatHost) setModel(ctx context.Context, sessionID, model string) error {
+	cs := h.find(sessionID)
+	if cs == nil {
+		return terminalhost.ErrSessionMissing
+	}
+	h.sup.mu.Lock()
+	if cs.busy || cs.state != terminalproto.Running {
+		h.sup.mu.Unlock()
+		return terminalhost.ErrOperationConflict
+	}
+	cs.busy = true
+	h.sup.mu.Unlock()
+	defer func() { h.sup.mu.Lock(); cs.busy = false; h.sup.mu.Unlock() }()
+	process, ok := cs.process.(interface {
+		SetModel(context.Context, string) error
+	})
+	if !ok {
+		return terminalhost.ErrOperationConflict
+	}
+	changeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	return process.SetModel(changeCtx, model)
+}

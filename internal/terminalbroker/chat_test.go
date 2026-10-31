@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -22,7 +23,7 @@ func chatFixture(t *testing.T) (*Broker, *Peer, int64, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", HealthEnabled: true, TerminalEnabled: true, TerminalControl: true, Launch: true, Tools: []string{"opencode"}, Readiness: terminalproto.Ready, ACP: true, ACPHistory: true}
+	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", HealthEnabled: true, TerminalEnabled: true, TerminalControl: true, Launch: true, Tools: []string{"opencode"}, Readiness: terminalproto.Ready, ACP: true, ACPHistory: true, ACPApproval: true}
 	record, err := st.BeginRemoteConnectionFor(uid, a.ID, ID(), caps)
 	if err != nil {
 		t.Fatal(err)
@@ -165,6 +166,35 @@ func TestChatResumeMustBelongToAClosedChat(t *testing.T) {
 	}
 }
 
+func TestPermissionKeyIsNarrow(t *testing.T) {
+	if got := permissionKey(terminalproto.ACPEvent{ToolKind: "execute", Command: "npm test", Path: "/a"}); got != "execute\x00npm test" {
+		t.Fatalf("command key %q", got)
+	}
+	if got := permissionKey(terminalproto.ACPEvent{ToolKind: "edit", Path: "/a"}); got != "edit\x00/a" {
+		t.Fatalf("path key %q", got)
+	}
+	if permissionKey(terminalproto.ACPEvent{ToolKind: "edit"}) != "" || permissionKey(terminalproto.ACPEvent{Command: "x"}) != "" {
+		t.Fatal("unmatchable card remembered")
+	}
+}
+
+func TestSetChatYoloChecksGatesAndTurnsOff(t *testing.T) {
+	b, _, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	if err := b.SetChatYolo(t.Context(), uid, s.ID, true); !errors.Is(err, ErrYoloNotAllowed) {
+		t.Fatalf("account gate: %v", err)
+	}
+	if err := b.st.SetSetting("terminal_allow_yolo", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.SetChatYolo(t.Context(), uid, s.ID, true); !errors.Is(err, ErrYoloRefused) {
+		t.Fatalf("machine gate: %v", err)
+	}
+	if err := b.SetChatYolo(t.Context(), uid, s.ID, false); err != nil {
+		t.Fatalf("turning off: %v", err)
+	}
+}
+
 func TestChatCloseClosesSubscribers(t *testing.T) {
 	b, _, uid, agent := chatFixture(t)
 	s := chatSession(t, b, uid, agent)
@@ -193,5 +223,37 @@ func TestPreviewTextBoundsAndFlagsTruncation(t *testing.T) {
 	got, truncated = previewText(text, 8)
 	if got != "hello …" || !truncated {
 		t.Fatalf("rune boundary command: got %q, truncated=%v", got, truncated)
+	}
+}
+
+func TestPermissionChatRemembersACommandForTheSession(t *testing.T) {
+	b, p, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	first := terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-0123456789", ToolKind: "execute", Command: "go test ./..."}
+	if err := p.Receive(terminalproto.Message{Version: 1, RequestID: ID(), SessionID: s.ID, Generation: p.Generation, Body: &first}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.PermissionChat(t.Context(), uid, s.ID, first.PermissionID, true, true); err != nil {
+		t.Fatal(err)
+	}
+	second := terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-9876543210", ToolKind: "execute", Command: "go test ./..."}
+	if err := p.Receive(terminalproto.Message{Version: 1, RequestID: ID(), SessionID: s.ID, Generation: p.Generation, Body: &second}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		events, err := b.st.ListEventsFor(uid, 100, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, event := range events {
+			if event.Action == "session-allow" {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("a repeated command was not answered and audited for the session")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

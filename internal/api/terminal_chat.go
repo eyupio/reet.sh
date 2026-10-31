@@ -17,6 +17,7 @@ func (s *server) registerTerminalChatRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/prompt", s.terminal(s.terminalChatPrompt))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/cancel", s.terminal(s.terminalChatCancel))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/permissions/{permissionId}", s.terminal(s.terminalChatPermission))
+	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/approval-mode", s.terminal(s.terminalChatApprovalMode))
 }
 
 func (s *server) terminalChatSession(r *http.Request) (store.TerminalSession, bool) {
@@ -136,7 +137,8 @@ func (s *server) terminalChatPermission(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var in struct {
-		Allow bool `json:"allow"`
+		Allow      bool `json:"allow"`
+		ForSession bool `json:"forSession"`
 	}
 	if !terminalJSON(w, r, &in) {
 		return
@@ -146,11 +148,32 @@ func (s *server) terminalChatPermission(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 400, "invalid terminal request")
 		return
 	}
-	if err := s.terminals.PermissionChat(r.Context(), s.uid(r), r.PathValue("id"), permissionID, in.Allow); err != nil {
+	if err := s.terminals.PermissionChat(r.Context(), s.uid(r), r.PathValue("id"), permissionID, in.Allow, in.ForSession); err != nil {
 		s.terminalChatError(w, err)
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"answered": true})
+}
+
+func (s *server) terminalChatApprovalMode(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.terminalChatTarget(w, r); !ok {
+		return
+	}
+	var in struct {
+		Mode string `json:"mode"`
+	}
+	if !terminalJSON(w, r, &in) {
+		return
+	}
+	if in.Mode != "ask" && in.Mode != "yolo" {
+		writeErr(w, 400, "invalid terminal request")
+		return
+	}
+	if err := s.terminals.SetChatYolo(r.Context(), s.uid(r), r.PathValue("id"), in.Mode == "yolo"); err != nil {
+		s.terminalChatError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"mode": in.Mode})
 }
 
 func (s *server) terminalChatTarget(w http.ResponseWriter, r *http.Request) (store.TerminalSession, bool) {
@@ -177,6 +200,12 @@ func (s *server) terminalChatError(w http.ResponseWriter, err error) {
 		writeErr(w, 409, "update reet on that machine to send images with a chat message")
 	case errors.Is(err, terminalbroker.ErrACPImageUnavailable):
 		writeErr(w, 409, "that image is no longer available on the machine; attach it again")
+	case errors.Is(err, terminalbroker.ErrACPApprovalUnsupported):
+		writeErr(w, 409, "update reet on that machine to switch approval mode")
+	case errors.Is(err, terminalbroker.ErrYoloNotAllowed):
+		writeErr(w, 403, "an owner or admin can allow YOLO for this account in Settings")
+	case errors.Is(err, terminalbroker.ErrYoloRefused):
+		writeErr(w, 403, "that machine or this agent does not allow YOLO")
 	case errors.Is(err, terminalbroker.ErrACPBusy):
 		writeErr(w, 409, "that reet session is already working")
 	case errors.Is(err, terminalbroker.ErrOffline):

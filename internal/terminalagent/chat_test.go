@@ -19,16 +19,17 @@ import (
 )
 
 type fakeChat struct {
-	mu        sync.Mutex
-	onEvent   func(acpagent.Event)
-	done      chan struct{}
-	closed    chan struct{}
-	closeOnce sync.Once
-	allow     []bool
-	prompted  string
-	images    []acpagent.Attachment
-	busy      bool
-	cancelled bool
+	mu         sync.Mutex
+	onEvent    func(acpagent.Event)
+	done       chan struct{}
+	closed     chan struct{}
+	closeOnce  sync.Once
+	allow      []bool
+	prompted   string
+	images     []acpagent.Attachment
+	busy       bool
+	cancelled  bool
+	allPending int
 }
 
 func (f *fakeChat) Prompt(ctx context.Context, text string) error {
@@ -67,6 +68,12 @@ func (f *fakeChat) Allow(id string, allow bool) error {
 		answer := allow
 		onEvent(acpagent.Event{Kind: "permission_resolved", PermissionID: id, Allow: &answer})
 	}
+	return nil
+}
+func (f *fakeChat) AllowAllPending() error {
+	f.mu.Lock()
+	f.allPending++
+	f.mu.Unlock()
 	return nil
 }
 func (f *fakeChat) SessionID() string { return "ses_fake000000000000000000000001" }
@@ -118,6 +125,41 @@ func testChatHost(t *testing.T) (*chatHost, *fakeChat, *sent) {
 	}
 	_ = dir
 	return h, proc, out
+}
+
+func TestChatHostSwitchesApprovalMode(t *testing.T) {
+	h, proc, _ := testChatHost(t)
+	h.sup.opts.YoloConsent = func() error { return nil }
+	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
+		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.mode("session-0123456789", true); err != nil {
+		t.Fatal(err)
+	}
+	proc.mu.Lock()
+	pending := proc.allPending
+	proc.mu.Unlock()
+	if pending != 1 {
+		t.Fatalf("pending cards answered: %d", pending)
+	}
+	proc.onEvent(acpagent.Event{Kind: "permission", PermissionID: "permission-0123456789", Title: "run tests"})
+	proc.mu.Lock()
+	allowed := len(proc.allow)
+	proc.mu.Unlock()
+	if allowed != 1 {
+		t.Fatalf("allow after switch: %d", allowed)
+	}
+	if err := h.mode("session-0123456789", false); err != nil {
+		t.Fatal(err)
+	}
+	proc.onEvent(acpagent.Event{Kind: "permission", PermissionID: "permission-0123456790", Title: "run tests again"})
+	proc.mu.Lock()
+	defer proc.mu.Unlock()
+	if len(proc.allow) != 1 {
+		t.Fatalf("ask mode answered without the person: %v", proc.allow)
+	}
 }
 
 func TestChatHostYoloAllowsOnce(t *testing.T) {

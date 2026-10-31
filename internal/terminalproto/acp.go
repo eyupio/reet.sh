@@ -24,6 +24,11 @@ const ACPImageFeature = "acp-image-v1"
 // counts, and the duration). A connector on an older controller keeps sending the plain tool event.
 const ACPToolDetailsFeature = "acp-tool-details-v1"
 
+// ACPApprovalFeature lets a controller switch a live chat between asking the
+// person and answering every permission itself (YOLO). A controller without it
+// never sends acp_mode, and a connector without it refuses the request.
+const ACPApprovalFeature = "acp-approval-v1"
+
 const (
 	// MaxChatPromptBytes bounds one chat message. 2,000 bytes is the largest
 	// text whose JSON encoding is certain to fit the 16 KiB control frame, even
@@ -55,6 +60,16 @@ func SupportsACP(features string) bool {
 func SupportsACPToolDetails(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == ACPToolDetailsFeature {
+			return true
+		}
+	}
+	return false
+}
+
+// SupportsACPApproval reports whether the peer negotiated acp-approval-v1.
+func SupportsACPApproval(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ACPApprovalFeature {
 			return true
 		}
 	}
@@ -198,6 +213,15 @@ type ACPPermission struct {
 
 func (ACPPermission) kind() string  { return "acp_permission" }
 func (p ACPPermission) valid() bool { return validACPID(p.PermissionID) }
+
+// ACPMode switches a live chat's approval behaviour. Yolo true answers every
+// permission with allow once; false goes back to asking the person.
+type ACPMode struct {
+	Yolo bool `json:"yolo"`
+}
+
+func (ACPMode) kind() string { return "acp_mode" }
+func (ACPMode) valid() bool  { return true }
 
 func validACPID(s string) bool {
 	if len(s) < 2 || len(s) > 128 {

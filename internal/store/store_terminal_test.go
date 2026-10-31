@@ -540,3 +540,29 @@ func TestStructuredACPSessionIDRecordsAndResumesOnlyClosed(t *testing.T) {
 		t.Fatalf("closed chat not resumable: %v %v", ok, err)
 	}
 }
+
+func TestSetTerminalYoloForStructuredSessionOnly(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	chat, created, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: "/tmp"})
+	if err != nil || !created {
+		t.Fatalf("reserve chat: %v %v", created, err)
+	}
+	if err := s.SetTerminalYoloFor(uid, chat.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.TerminalSessionFor(uid, chat.ID)
+	if err != nil || !got.Yolo {
+		t.Fatalf("yolo after set: %+v %v", got, err)
+	}
+	if err := s.SetTerminalYoloFor(uid, chat.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.TerminalSessionFor(uid, chat.ID)
+	if got.Yolo {
+		t.Fatal("yolo did not clear")
+	}
+	shell := createTerminal(t, s, uid, a, c)
+	if err := s.SetTerminalYoloFor(uid, shell.ID, true); !errors.Is(err, ErrRemoteNotFound) {
+		t.Fatalf("plain shell accepted: %v", err)
+	}
+}

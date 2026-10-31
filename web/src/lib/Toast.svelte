@@ -1,12 +1,15 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
 
-  let { message, actionLabel, onaction, ondismiss, duration = 8000 }: {
+  let { message, actionLabel, onaction, ondismiss, duration = 8000, placement = 'center', tone = '' }: {
     message: string
     actionLabel?: string
     onaction?: () => void | Promise<void>
     ondismiss: () => void
     duration?: number
+    /** 'right' is the usual corner toast; 'center' is the original bottom-centre one. */
+    placement?: 'center' | 'right'
+    tone?: '' | 'ok' | 'bad'
   } = $props()
 
   let leaving = $state(false)
@@ -65,6 +68,9 @@
 <div
   class="toast"
   class:leaving
+  class:right={placement === 'right'}
+  class:ok={tone === 'ok'}
+  class:bad={tone === 'bad'}
   role="status"
   aria-live="polite"
   onmouseenter={pause}
@@ -72,6 +78,7 @@
   onfocusin={pause}
   onfocusout={resume}
 >
+  {#if tone}<span class="mark" aria-hidden="true">{#if tone === 'ok'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 7v6M12 17h.01" /></svg>{/if}</span>{/if}
   <span class="msg">{message}</span>
   {#if actionLabel && onaction}
     <button type="button" class="action" onclick={act} disabled={acting}>{acting ? 'Working…' : actionLabel}</button>
@@ -91,6 +98,13 @@
     background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--accent);
     border-radius: 12px; box-shadow: 0 18px 50px -20px rgb(0 0 0 / 0.4);
   }
+  .toast.right { left: auto; right: 24px; transform: none; max-width: min(380px, calc(100vw - 32px)); }
+  .toast.ok { border-left-color: var(--good); }
+  .toast.bad { border-left-color: var(--bad); }
+  .mark { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: var(--accent-ink); background: var(--accent); }
+  .ok .mark { background: var(--good); }
+  .bad .mark { background: var(--bad); }
+  .mark svg { width: 13px; height: 13px; }
   .msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .action {
     flex: none; background: none; border: 0; padding: 6px 8px; min-height: 36px;
@@ -108,11 +122,13 @@
     .action, .close { min-height: 44px; }
     .close { width: 44px; height: 44px; }
   }
-  @media (max-width: 560px) { .toast { bottom: calc(16px + var(--bottom-chrome, 0px)); } }
+  @media (max-width: 560px) { .toast { bottom: calc(16px + var(--bottom-chrome, 0px)); } .toast.right { right: 16px; } }
   @media (prefers-reduced-motion: no-preference) {
     .toast { transition: opacity 180ms ease, transform 180ms var(--ease-out); }
     .toast.leaving { opacity: 0; transform: translate(-50%, 8px); }
+    .toast.right.leaving { transform: translateX(12px); }
     @starting-style {
+      .toast.right { opacity: 0; transform: translateX(16px); }
       .toast { opacity: 0; transform: translate(-50%, 8px); }
     }
   }

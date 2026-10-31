@@ -46,6 +46,24 @@ export function imagePrompt(prompt: string, references: string[]): string {
   return text ? `${text}\n\n${line}` : line
 }
 
+const IMAGE_REF_LINE = /(?:^|\n+)[ \t]*Images?: ((?:\S+\.(?:png|jpe?g|gif|webp)(?:[ \t]+|$))+)$/i
+
+/** The inverse of imagePrompt: a sent message that ends in an `Image:` / `Images:` line is the words plus the uploaded
+ *  paths. The chat shows the paths as thumbnails rather than as text. */
+export function splitImageRefs(text: string): { text: string; refs: string[] } {
+  const source = String(text ?? '')
+  const match = IMAGE_REF_LINE.exec(source)
+  if (!match) return { text: source, refs: [] }
+  const refs = match[1].trim().split(/\s+/).filter(Boolean)
+  return { text: source.slice(0, match.index).replace(/\s+$/, ''), refs }
+}
+
+/** The last path segment, for a label where the whole upload path would be noise. */
+export function baseName(path: string): string {
+  const parts = String(path ?? '').split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] ?? ''
+}
+
 export interface UploadedImage {
   path: string
   reference: string

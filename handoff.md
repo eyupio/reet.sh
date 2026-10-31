@@ -45,7 +45,8 @@ control room. The planned terminal-interface slices are complete; install, agent
 **Task ID and scope:** L1, first slice — observe OpenCode on Linux and show a reviewed install, update or remove
 plan; nothing is downloaded or executed.
 
-**Branch / commit / PR:** `feat/agent-software-inventory`, commit `ec2a5d3`, [#282](https://github.com/eyupio/reet.sh/pull/282).
+**Branch / commit / PR:** `feat/agent-software-inventory`, commits `ec2a5d3`, `c4be69c`, `42bbded` and `7db0bec`,
+[#282](https://github.com/eyupio/reet.sh/pull/282).
 
 **Behaviour added:** a new `software-v1` private-control feature. A negotiating connector reports one
 `terminalproto.SoftwareEntry` for OpenCode in its capabilities: state (`installed`, `missing`, `unknown`,
@@ -66,7 +67,9 @@ machine.
 `npm --prefix web run build` passed; `go vet ./...` passed; `go test` passed for `terminalproto`, `terminalhost`,
 `agenthealth`, `agentsoftware`, `scan` and the whole `api` package (176 s); `go test -race` passed for the first five
 packages and for the software/private-control tests in `api`; `git diff --check` passed. The full `api` race package
-timed out at 20 minutes on this shared host (other long Go suites were running), so CI is the gate for it.
+timed out at 20 minutes on this shared host (other long Go suites were running), so CI is the gate for it. The
+terminal-browser and phone-zoom jobs surfaced two pre-existing timing checks (`skill-content.e2e.mjs`'s records
+section and `home.e2e.mjs`'s Start/Opening word), stabilised in `7db0bec` without changing product behaviour.
 
 **Platform or live-environment checks not performed:** no physical machine, real npm run or live OpenCode install
 was changed; macOS, Windows, other package managers, other CLIs and any live registry version lookup are out of scope.

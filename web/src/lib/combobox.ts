@@ -194,6 +194,8 @@ function open(anchor: HTMLSelectElement | HTMLInputElement, seed = '') {
   const refresh = (resetActive: boolean) => {
     o.items = o.source()
     o.shown = matching(o.items, inputMode ? anchor.value : filter!.value, inputMode)
+    // A suggestion field with nothing to suggest shows no list at all (so Escape still reaches the dialog around it).
+    if (inputMode && o.shown.length === 0) { close(false); return }
     const selected = o.shown.findIndex(i => i.selected && !i.disabled)
     render(o)
     setActive(o, resetActive ? (inputMode ? (selected >= 0 && anchor.value ? selected : -1) : selected >= 0 && !filter!.value ? selected : step(o, -1, 1)) : o.active)
@@ -208,6 +210,7 @@ function open(anchor: HTMLSelectElement | HTMLInputElement, seed = '') {
   anchor.setAttribute('aria-controls', list.id)
   current = o
   refresh(true)
+  if (current !== o) return
 
   const onOption = (e: Event) => {
     const el = (e.target as HTMLElement).closest<HTMLElement>('.cbx-option')

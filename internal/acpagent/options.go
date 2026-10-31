@@ -18,6 +18,10 @@ type Options struct {
 	Home   string
 	Model  string
 	Trust  bool
+	// Questions lets the session accept typed agent questions (elicitation/create).
+	// It is off in every launch today: the form capability is not advertised to
+	// the adapter, and a question that arrives anyway is cancelled.
+	Questions bool
 	// Resume is the agent's own session id to load instead of creating a new
 	// session. The load replay is delivered through OnEvent.
 	Resume string
@@ -64,23 +68,27 @@ type Event struct {
 	MessageID    string
 	ToolCallID   string
 	PermissionID string
-	Title        string
-	ToolKind     string
-	Status       string
-	State        string
-	Text         string
-	Command      string
-	Path         string
-	Diff         string
-	Additions    int
-	Deletions    int
-	DurationMs   int64
-	Locations    []string
-	Allow        *bool
-	Bad          bool
-	Truncated    bool
-	Reason       string
-	Detail       string
+	// QuestionID and Question carry a typed question (kind "question"). The
+	// connector does not forward these kinds yet.
+	QuestionID string
+	Question   *Question
+	Title      string
+	ToolKind   string
+	Status     string
+	State      string
+	Text       string
+	Command    string
+	Path       string
+	Diff       string
+	Additions  int
+	Deletions  int
+	DurationMs int64
+	Locations  []string
+	Allow      *bool
+	Bad        bool
+	Truncated  bool
+	Reason     string
+	Detail     string
 }
 
 func boolPtr(v bool) *bool { return &v }

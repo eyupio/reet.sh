@@ -4,9 +4,9 @@
   import type { Machine, ReleaseInfo, SyncAgent } from './api'
   import { agentBuild, channelBuild } from './machines'
   import { CATALOGUE } from './catalogue'
-  import { softwareLine, softwarePlanAction } from './software'
+  import { softwareLine, softwarePlanActions, type SoftwarePlanAction } from './software'
   import { formatAge, type MachineModels } from './models'
-  import { allModels, machineModels, machineSoftwarePlan, refreshMachineModels, type SoftwareEntry, type SoftwarePlan, type TerminalMachine } from './terminal/api'
+  import { allModels, applyMachineSoftware, machineModels, machineSoftwarePlan, refreshMachineModels, type SoftwareEntry, type SoftwarePlan, type TerminalMachine } from './terminal/api'
 
   // A machine's policies live here rather than beside the buttons that act on
   // it, so a card says what is happening and this dialog says how it is set.
@@ -57,10 +57,50 @@
 
   type PlanRead = { loading: boolean; plan: SoftwarePlan | null; error: string }
   let plans = $state<Record<string, PlanRead>>({})
-  const softwareEntries: SoftwareEntry[] = $derived(terminal?.capabilities?.software ?? [])
+  let localEntries = $state<Record<string, SoftwareEntry>>({})
+  let applying = $state('')
+  let applyError = $state<Record<string, string>>({})
+  let notice = $state<Record<string, string>>({})
+  let confirm = $state<{ tool: string; action: SoftwarePlanAction; plan: SoftwarePlan } | null>(null)
+  let confirmText = $state('')
+  let confirmDialog = $state<HTMLDialogElement>()
+  const softwareEntries: SoftwareEntry[] = $derived((terminal?.capabilities?.software ?? []).map(entry => localEntries[entry.tool] ?? entry))
+  const canApply = $derived(terminal?.capabilities?.softwareApply === true)
   function catalogueName(tool: string): string { return CATALOGUE.find(item => item.id === tool)?.name ?? tool }
-  function planAction(entry: SoftwareEntry): 'install' | 'update' | '' { return softwarePlanAction(entry) }
-  async function review(tool: string, action: 'install' | 'update') {
+  function openApply(tool: string, action: SoftwarePlanAction, plan: SoftwarePlan) {
+    applyError[tool] = ''
+    notice[tool] = ''
+    confirmText = ''
+    confirm = { tool, action, plan }
+    confirmDialog?.showModal()
+  }
+  function confirmReady(): boolean {
+    return !!confirm && (confirm.action !== 'remove' || confirmText.trim().toLowerCase() === machine.host.toLowerCase())
+  }
+  async function applyConfirm() {
+    if (!terminal || !confirm || applying) return
+    const { tool, action } = confirm
+    applying = tool
+    applyError[tool] = ''
+    try {
+      const answer = await applyMachineSoftware(terminal.agentId, tool, action)
+      if (answer.result.entry) localEntries[tool] = answer.result.entry
+      notice[tool] = action === 'install'
+        ? `Installed OpenCode ${answer.result.version} on ${machine.host}.`
+        : action === 'update'
+          ? `Updated OpenCode to ${answer.result.version} on ${machine.host}.`
+          : action === 'rollback'
+            ? `Rolled OpenCode back to ${answer.result.version} on ${machine.host}.`
+            : `Removed reet's managed OpenCode on ${machine.host}.`
+      confirmDialog?.close()
+      plans[tool] = { loading: false, plan: null, error: '' }
+    } catch (error) {
+      applyError[tool] = error instanceof Error ? error.message : "That install didn't finish."
+    } finally {
+      applying = ''
+    }
+  }
+  async function review(tool: string, action: SoftwarePlanAction) {
     if (!terminal || plans[tool]?.loading) return
     plans[tool] = { loading: true, plan: plans[tool]?.plan ?? null, error: '' }
     try {
@@ -240,12 +280,13 @@
         <h3 id={`${id}-software`}>Software</h3>
         <p class="hint">Installation evidence reet can see. A plan names the reviewed version and is never run from here.</p>
         {#each softwareEntries as entry (entry.tool)}
-          {@const action = planAction(entry)}
+          {@const actions = softwarePlanActions(entry)}
           {@const read = plans[entry.tool]}
           <div class="row software" data-software={entry.tool} data-software-state={entry.state}>
             <div class="copy">
               <strong>{catalogueName(entry.tool)}{#if entry.state === 'installed' && entry.version}<code> {entry.version}</code>{/if}</strong>
               <small class="software-detail">{softwareLine(entry)}</small>
+              {#if notice[entry.tool]}<small class="plan-notice">{notice[entry.tool]}</small>{/if}
               {#if read?.loading}<small aria-live="polite">Reading the plan…</small>{/if}
               {#if read?.error}<small class="plan-error">{read.error}</small>{/if}
               {#if read?.plan}
@@ -254,12 +295,27 @@
                   <p>{plan.sentence}</p>
                   {#if plan.steps.length}<ol>{#each plan.steps as step}<li>{step}</li>{/each}</ol>{/if}
                   {#each plan.effects as effect}<small>{effect}</small>{/each}
+                  {#if plan.source}<small class="plan-source">Source: <code>{plan.source}</code></small>{/if}
                   {#if plan.command}<code class="plan-command">{plan.command}</code>{/if}
+                  {#if plan.state === 'ready' && canApply}
+                    <button class="btn plan-apply" type="button" disabled={!!applying || read?.loading} onclick={() => openApply(entry.tool, plan.action, plan)}>
+                      {applying === entry.tool ? 'Applying…' : `Apply ${plan.action}`}
+                    </button>
+                  {:else if plan.state === 'ready'}
+                    <small class="hint">Update reet on {machine.host} to apply this plan.</small>
+                  {/if}
+                  {#if applyError[entry.tool]}<small class="plan-error">{applyError[entry.tool]}</small>{/if}
                 </div>
               {/if}
             </div>
-            {#if action}
-              <button class="btn" type="button" disabled={read?.loading} onclick={() => void review(entry.tool, action)}>Review {action} plan</button>
+            {#if actions.length}
+              <div class="plan-actions">
+                {#each actions as action (action)}
+                  <button class="btn" type="button" disabled={read?.loading} onclick={() => void review(entry.tool, action)}>
+                    Review {action} plan
+                  </button>
+                {/each}
+              </div>
             {/if}
           </div>
         {/each}
@@ -285,6 +341,34 @@
         <button class="btn danger" type="button" disabled={busy} onclick={onforget}>Forget machine…</button>
       </div>
     </section>
+  </div>
+</dialog>
+
+<dialog bind:this={confirmDialog} class="confirm" aria-labelledby={`${id}-confirm-title`} onclose={() => { confirm = null; confirmText = '' }}>
+  <div class="confirm-body">
+    <h2 id={`${id}-confirm-title`}>Apply this {confirm?.action}?</h2>
+    {#if confirm}
+      <p>{confirm.plan.sentence}</p>
+      <dl>
+        <dt>Machine</dt><dd>{machine.host}</dd>
+        <dt>Version</dt><dd>{confirm.plan.target || confirm.plan.current}</dd>
+        <dt>Source</dt><dd><code>{confirm.plan.source}</code></dd>
+      </dl>
+      {#each confirm.plan.effects as effect}<p class="hint">{effect}</p>{/each}
+      {#if confirm.action === 'remove'}
+        <p class="hint">This removes reet's managed copy and every version it kept. Any OpenCode installed outside reet is untouched.</p>
+        <label class="typed-confirm">Type <code>{machine.host}</code> to confirm
+          <input bind:value={confirmText} autocomplete="off" spellcheck="false" placeholder={machine.host} />
+        </label>
+      {:else}
+        <p class="hint">reet downloads the artifact, verifies its recorded checksum, and only then makes it current.</p>
+      {/if}
+      {#if applyError[confirm.tool]}<p class="plan-error">{applyError[confirm.tool]}</p>{/if}
+    {/if}
+    <div class="confirm-actions">
+      <button class="btn" type="button" onclick={() => confirmDialog?.close()} disabled={!!applying}>Cancel</button>
+      <button class="btn primary" type="button" onclick={() => void applyConfirm()} disabled={!!applying || !confirmReady()}>{applying ? 'Applying…' : 'Apply now'}</button>
+    </div>
   </div>
 </dialog>
 
@@ -314,6 +398,23 @@
   .plan ol { display: grid; gap: 4px; padding-left: 18px; }
   .plan-command { font: 12px/1.4 var(--mono, monospace); overflow-wrap: anywhere; }
   .plan-error { color: var(--bad); }
+  .plan-source { overflow-wrap: anywhere; }
+  .plan-source code { font-size: 0.72rem; }
+  .plan-notice { color: var(--good); }
+  .plan-apply { align-self: start; margin-top: 2px; }
+  .plan-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+  .typed-confirm { display: grid; gap: 6px; color: var(--muted); font-size: 0.82rem; }
+  .typed-confirm input { height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: 14px var(--mono, monospace); }
+  .confirm { width: min(520px, calc(100vw - 32px)); border-radius: 16px; }
+  .confirm-body { display: grid; gap: 12px; padding: clamp(20px, 4vw, 28px); }
+  .confirm h2 { margin: 0; font: 500 clamp(1.3rem, 3vw, 1.7rem)/1.15 var(--serif); letter-spacing: -0.02em; }
+  .confirm p { margin: 0; color: var(--ink); font-size: 0.88rem; line-height: 1.55; }
+  .confirm dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 0.82rem; }
+  .confirm dt { color: var(--muted); }
+  .confirm dd { margin: 0; overflow-wrap: anywhere; }
+  .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+  .confirm-actions .btn { min-height: 38px; padding: 8px 14px; }
+  .confirm-actions .primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
   .row .btn { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.8rem; }
   .btn.danger { color: var(--bad); }
   .switch { position: relative; flex: none; width: 42px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); cursor: pointer; }

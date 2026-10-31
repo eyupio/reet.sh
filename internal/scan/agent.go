@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/agenthealth"
+	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/filelock"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -338,6 +339,9 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	ctx, cancelAgent := context.WithCancel(ctx)
 	defer cancelAgent()
 	state := &agentRuntime{started: time.Now().UnixMilli(), version: version, supervised: *supervised, servicePrefix: *servicePrefix}
+	if err := agentsoftware.RecoverManaged(c.Home, agentsoftware.OpenCodeTool); err != nil && !errors.Is(err, agentsoftware.ErrNotManaged) {
+		log.Printf("managed software recovery: %v", err)
+	}
 	if !*once {
 		closeControl, err := serveAgentControl(*config, state, cancelAgent)
 		if err != nil {
@@ -363,8 +367,8 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			defer close(monitorDone)
 			if err := agenthealth.RunAgent(ctx, agenthealth.AgentConfig{
 				TerminalSession:  terminalControl(ctx, *config, c),
-				LaunchTools:      launchTools,
-				Software:         softwareInventory,
+				LaunchTools:      func() []string { return launchTools(c.Home) },
+				Software:         func() []terminalproto.SoftwareEntry { return softwareInventory(c.Home) },
 				GitAvailable:     gitAvailable,
 				BrowseAllowed:    browseAllowed(*config, c),
 				ClipboardAllowed: clipboardAllowed(*config, c),

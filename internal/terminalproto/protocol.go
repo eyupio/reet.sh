@@ -158,13 +158,16 @@ type Capabilities struct {
 	TerminalControl bool `json:"terminalControl,omitempty"`
 	// Software is sent only when software-v1 was negotiated; it observes
 	// installed agent software and never asks for a change.
-	Software        []SoftwareEntry `json:"software,omitempty"`
-	ProtocolVersion int             `json:"protocolVersion"`
-	OS              string          `json:"os"`
-	OSUser          string          `json:"osUser"`
-	TerminalEnabled bool            `json:"terminalEnabled"`
-	HealthEnabled   bool            `json:"healthEnabled"`
-	Readiness       Readiness       `json:"readiness"`
+	Software []SoftwareEntry `json:"software,omitempty"`
+	// SoftwareApply is sent only when software-apply-v1 was negotiated and
+	// terminal access is on; the machine may then run one reviewed artifact.
+	SoftwareApply   bool      `json:"softwareApply,omitempty"`
+	ProtocolVersion int       `json:"protocolVersion"`
+	OS              string    `json:"os"`
+	OSUser          string    `json:"osUser"`
+	TerminalEnabled bool      `json:"terminalEnabled"`
+	HealthEnabled   bool      `json:"healthEnabled"`
+	Readiness       Readiness `json:"readiness"`
 }
 
 func (c Capabilities) Validate() error {
@@ -204,6 +207,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if len(c.Software) > 0 && (!c.TerminalControl || !ValidSoftware(c.Software)) {
+		return ErrInvalid
+	}
+	if c.SoftwareApply && !c.TerminalControl {
 		return ErrInvalid
 	}
 	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {
@@ -613,6 +619,10 @@ func Decode(data []byte) (Message, error) {
 		b = &Models{}
 	case "models_result":
 		b = &ModelsResult{}
+	case "software_apply":
+		b = &SoftwareApply{}
+	case "software_apply_result":
+		b = &SoftwareApplyResult{}
 	case "result":
 		b = &Result{}
 	case "session_changed":

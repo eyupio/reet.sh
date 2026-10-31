@@ -3,8 +3,12 @@
 package terminalhost
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -12,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -251,5 +256,26 @@ func TestListModelsTrimsToTheReplyLimit(t *testing.T) {
 	}
 	if len(r.Models) == 0 || len(r.Models) >= 400 {
 		t.Fatalf("trimmed to %d entries", len(r.Models))
+	}
+}
+
+func TestListModelsPrefersTheManagedCopy(t *testing.T) {
+	home := t.TempDir()
+	script := []byte("#!/bin/sh\necho anthropic/managed-model\n")
+	stagedPath := filepath.Join(t.TempDir(), "opencode")
+	if err := os.WriteFile(stagedPath, script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(script)
+	staged := agentsoftware.Staged{
+		Path: stagedPath, SHA512: "archive-sha", BinarySHA256: hex.EncodeToString(sum[:]),
+		Size: int64(len(script)), Artifact: agentsoftware.Artifact{URL: "https://registry.example/opencode.tgz"},
+	}
+	if _, err := agentsoftware.InstallStaged(home, "opencode", "1.19.5", staged); err != nil {
+		t.Fatal(err)
+	}
+	result := ListModels(context.Background(), "opencode", func(string) (string, error) { return "", exec.ErrNotFound }, home)
+	if result.Reason != "" || len(result.Models) != 1 || result.Models[0].ID != "anthropic/managed-model" {
+		t.Fatalf("managed model list: %+v", result)
 	}
 }

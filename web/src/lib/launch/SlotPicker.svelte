@@ -1,6 +1,6 @@
 <script lang="ts" module>
   /** One choice in a slot's list. A disabled one stays in the list (it can be focused and read) with its reason beside it. */
-  export type SlotOption = { value: string; label: string; detail?: string; group?: string; disabled?: boolean; reason?: string; starred?: boolean; starLabel?: string; onstar?: () => void }
+  export type SlotOption = { value: string; label: string; description?: string; detail?: string; group?: string; disabled?: boolean; reason?: string; starred?: boolean; starLabel?: string; onstar?: () => void }
 </script>
 
 <script lang="ts">
@@ -153,6 +153,7 @@
     <div class="option" role="option" tabindex="-1" data-value={o.value} aria-selected={o.value === value && o.value !== OTHER}
       aria-disabled={o.disabled ? 'true' : undefined} onclick={() => choose(o)} onkeydown={() => {}}>
       <span class="name">{o.label}</span>
+      {#if o.description}<span class="description">{o.description}</span>{/if}
       {#if o.detail}<span class="detail">{o.detail}</span>{/if}
       {#if o.reason}<span class="reason">{o.reason}</span>{/if}
     </div>
@@ -261,6 +262,7 @@
   .option[aria-selected='true'] { box-shadow: inset 3px 0 0 var(--accent-text); font-weight: 600; }
   .option[aria-disabled='true'] { cursor: default; }
   .option[aria-disabled='true'] .name { color: var(--muted); }
+  .description { font-size: 12px; line-height: 1.35; color: var(--ink-soft); overflow-wrap: anywhere; }
   .detail { font: 12px/1.3 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
   .reason { font-size: 12px; color: var(--ink-soft); font-weight: 400; overflow-wrap: anywhere; }
   .name { overflow-wrap: anywhere; }

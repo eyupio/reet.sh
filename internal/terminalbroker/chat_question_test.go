@@ -256,3 +256,47 @@ func TestQuestionSummaryIsNotShownToAnotherAccount(t *testing.T) {
 		t.Fatal("another account can read the session record that carries the summary")
 	}
 }
+
+// An older machine or connector offers only half of the contract. A machine
+// without its agent flag is refused before anything is sent; the opposite
+// combination is refused when the capabilities are stored. Either way an
+// answer never reaches a peer that cannot parse it.
+func TestAnswerQuestionIsRefusedWhenOnlyHalfIsOffered(t *testing.T) {
+	for name, tc := range map[string]struct{ machine, agent bool }{
+		"machine only": {true, false},
+		"agent only":   {false, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			sent := 0
+			b, p, uid, agent := chatFixtureWith(t, func(*terminalproto.ACPQuestionAnswer) terminalproto.Result {
+				sent++
+				return terminalproto.Result{Code: terminalproto.OK}
+			})
+			s := chatSession(t, b, uid, agent)
+			record, err := b.st.RemoteCapabilitiesFor(uid, agent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			caps := record.Capabilities
+			caps.ACPQuestions = tc.machine
+			entries := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", MinimumVersion: "1.19.5", State: "available",
+				History: true, Model: true, Approval: true, Questions: tc.agent}}
+			caps.ACPAgents = &entries
+			err = b.st.UpdateRemoteCapabilitiesFor(uid, agent, record.InstanceID, p.Generation, caps)
+			if !tc.machine {
+				// An agent claiming questions on a machine that offers none is not even stored.
+				if err == nil {
+					t.Fatal("an inconsistent capability set was stored")
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if err := b.AnswerQuestionChat(t.Context(), uid, s.ID, brokerQuestionID, "decline", nil); !errors.Is(err, ErrACPQuestionUnsupported) {
+				t.Fatalf("got %v", err)
+			}
+			if sent != 0 {
+				t.Fatalf("%d answers reached the machine", sent)
+			}
+		})
+	}
+}

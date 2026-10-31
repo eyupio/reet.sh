@@ -1365,9 +1365,10 @@ try{
  postsBefore=receiptPosts().length
  await attempt()
  await expect(dialog.getByRole('alert')).toContainText("Couldn't reach reet")
- expect(receiptPosts()).toHaveLength(postsBefore+1)
- await expect(records).toHaveCount(0)
- await expect(records.getByRole('listitem')).toHaveCount(1,{timeout:SECOND})
+  expect(receiptPosts()).toHaveLength(postsBefore+1)
+  // The record is not listed yet. The section itself may already say the read failed, which is not a listed record.
+  await expect(records.getByRole('listitem')).toHaveCount(0)
+  await expect(records.getByRole('listitem')).toHaveCount(1,{timeout:SECOND})
  // The message about the lost reply gives way to one that says what happened.
  await expect(dialog.getByRole('alert')).toHaveCount(0)
  await expect(dialog.locator('.live')).toContainText('That ownership was recorded.')

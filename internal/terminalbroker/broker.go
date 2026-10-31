@@ -43,6 +43,8 @@ type Broker struct {
 	// lateReplies counts browse and branches answers that came after their
 	// request gave up; they are dropped, never treated as protocol errors.
 	lateReplies atomic.Int64
+	// progress holds the launch stages machines report while a create runs.
+	progress launchProgress
 }
 type Peer struct {
 	b            *Broker
@@ -337,6 +339,12 @@ func (b *Broker) Ready(uid int64, agent string) bool {
 func (p *Peer) Receive(m terminalproto.Message) error {
 	if m.Generation != p.Generation {
 		return ErrConflict
+	}
+	// A launch stage is not the call's answer, though it carries the call's
+	// request id: it is noted and never reaches the waiting call.
+	if note, ok := m.Body.(*terminalproto.LaunchProgress); ok {
+		p.b.progress.note(p.key.uid, p.key.agent, m.RequestID, note.Stage, time.Now())
+		return nil
 	}
 	p.mu.Lock()
 	ch := p.calls[m.RequestID]

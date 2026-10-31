@@ -5,8 +5,11 @@ export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 
 export type AttentionState = 'starting' | 'working' | 'quiet' | 'waiting' | 'finished' | 'failed'
 export type AttentionSource = 'terminal' | 'chat'
 export type PendingPermission = { permissionId: string; title?: string; toolKind?: string; command?: string; path?: string; truncated?: boolean; queued?: number }
+export type SoftwareOperation = 'plan_install' | 'plan_update' | 'plan_remove'
+export type SoftwareEntry = { tool: string; state: 'installed' | 'missing' | 'unknown' | 'unsupported'; version?: string; manager?: string; package?: string; path?: string; platform?: string; arch?: string; source?: string; evidence?: string; operations?: SoftwareOperation[]; reason?: string; checkedAt: number }
+export type SoftwarePlan = { host: string; tool: string; action: 'install' | 'update' | 'remove'; state: 'ready' | 'noop'; package: string; current: string; target: string; command: string; steps: string[]; effects: string[]; executes: boolean; sentence: string; checkedAt: number }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission }
-export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpHistory?: boolean; shellDir?: boolean; attention?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpHistory?: boolean; shellDir?: boolean; attention?: boolean; software?: SoftwareEntry[]; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -115,6 +118,11 @@ export type AllModels = { machines: (Omit<MachineModels, 'tool'> & { agentId: st
 export async function allModels(tool: string, signal?: AbortSignal): Promise<AllModels> {
   return (await terminalRequest(`/api/v2/models?${modelsQuery(tool)}`, { signal })).json()
 }
+/** A reviewable OpenCode maintenance plan from stored evidence. Nothing runs. */
+export async function machineSoftwarePlan(agentId: string, tool: string, action: 'install' | 'update' | 'remove', signal?: AbortSignal): Promise<SoftwarePlan> {
+  const query = new URLSearchParams({ tool, action }).toString()
+  return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/software/plan?${query}`, { signal })).json()
+}
 export type TerminalControllerStatus={configured:boolean;available:boolean;reason:string}
 export async function terminalControllerStatus(signal?:AbortSignal):Promise<TerminalControllerStatus>{return (await terminalRequest('/api/v2/terminal/status',{signal})).json()}
 export async function terminalSessions(signal?: AbortSignal): Promise<TerminalSession[]> { return (await (await terminalRequest('/api/v2/terminal/sessions', { signal })).json()).sessions }
@@ -130,6 +138,10 @@ export async function createTerminal(agentId: string, requestId: string, title: 
   return (await terminalRequest('/api/v2/terminal/sessions', { method: 'POST', signal, body: JSON.stringify(body) })).json()
 }
 export async function terminalTicket(session: string, cols: number, rows: number, takeover: boolean, signal?: AbortSignal): Promise<string> { return (await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(session)}/attachments`, { method: 'POST', body: JSON.stringify({ cols, rows, takeover }), signal })).json()).ticket }
+/** The launch stages a machine has reported for a create still running; empty when it reports none (an older machine). */
+export async function launchProgress(agentId: string, requestId: string, signal?: AbortSignal): Promise<{ stage: string; at: number }[]> {
+  return (await (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/launch-progress/${encodeURIComponent(requestId)}`, { signal })).json()).stages ?? []
+}
 export async function machineHealth(signal?: AbortSignal): Promise<HealthResponse> { return (await terminalRequest('/api/v2/machines/health', { signal })).json() }
 export async function machineYolo(agentId: string, signal?: AbortSignal): Promise<{ accepts: boolean; checkedAt: number }> { return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/yolo`, { signal })).json() }
 export async function renameTerminal(id: string, title: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify({title}) }) }

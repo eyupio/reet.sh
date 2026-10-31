@@ -1,6 +1,6 @@
 # Terminal interface
 
-Status: all planned screens shipped: read-only status, Scan, Sync, Backup, Setup and Upgrade.
+Status: read-only status, Scan, Sync, Backup, Setup, Upgrade, Install and agent enrollment shipped; setup restore/rollback follow.
 
 The `reet` binary has a terminal interface built with
 [Bubble Tea](https://github.com/charmbracelet/bubbletea). It is a face on the
@@ -20,6 +20,8 @@ local deployment and the controllers those commands already use.
 | `reet backup --tui [--data-dir PATH]` | Backups |
 | `reet setup profile --tui [--dir PATH]` | Setups |
 | `reet upgrade --tui [--version TAG] [--state-dir PATH]` | Upgrade |
+| `reet install --tui [--mode binary\|native\|compose] [--dry-run]` | Install |
+| `reet agent enroll --tui [--server URL] [--env NAME] [--allow-apply]` | Connect machine |
 | `reet version --tui` | Version |
 | `reet terminal status --tui [--data-dir PATH]` | Terminal status |
 | `reet agent status --tui [--config PATH]` | Agent status |
@@ -63,6 +65,15 @@ and services never start the interface; they run exactly as before. `serve`,
   up SQLite, replace the binary, restart and verify, and roll back on failure.
   The output is kept on screen; the process still runs the previous build until
   it is restarted.
+- **Install.** A form for binary, native or Compose mode, install and data
+  directories, address, Compose release, start-now and dry-run, behind an
+  explicit confirmation. It runs the same managed installer as the text command
+  with no prompts and keeps the output on screen. A dry run shows the plan and
+  changes nothing.
+- **Connect machine.** A form for controller URL, token, environment name,
+  projects and the local allow-apply switch, behind an explicit confirmation.
+  It writes the same private enrollment as `reet agent enroll`, with terminal
+  setup left for its own opt-in. `Agent status` then shows the daemon.
 - **Version.** Binary version, source commit, Go version and platform.
 - **Terminal status.** Whether terminal access is enabled, available and
   running, the saved public URL and authentication mode, and why it is blocked.
@@ -120,8 +131,7 @@ Claude inside a pane without a PTY and terminal-emulator stack. Live agent
 terminals stay in the browser and tmux; the terminal interface is the control
 plane and, in later slices, a launcher.
 
-## Limits of the first release
+## Next slices
 
-The screens cover the binary's own commands. Installation (`reet install`),
-agent enrollment and the longer setup restore/rollback flows remain text
-commands; they are not hidden from the interface, just not rebuilt as forms.
+The longer setup restore/rollback flows remain text commands; they are not hidden
+from the interface, just not rebuilt as forms yet.

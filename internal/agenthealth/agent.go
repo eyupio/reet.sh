@@ -51,12 +51,14 @@ type AgentConfig struct {
 	uploadsAllowed    bool
 	models            bool
 	modelsAllowed     bool
+	software          bool
 	yoloAllowed       bool
 	acp               bool
 	acpHistory        bool
 	acpModel          bool
 	shellDir          bool
 	attention         bool
+	progress          bool
 	OnConnection      func(bool)
 	TerminalSession   TerminalFactory
 	control           func(context.Context, terminalproto.Message) error
@@ -74,6 +76,9 @@ type AgentConfig struct {
 	// LaunchTools lists the agent CLIs this connector can start, from its
 	// built-in presets. Nil means the connector cannot start agents.
 	LaunchTools func() []string
+	// Software reports installation evidence for agent CLIs on this machine.
+	// It is a read-only observation; nil reports none.
+	Software func() []terminalproto.SoftwareEntry
 	// GitAvailable reports whether git is on this connector's PATH, for run
 	// worktrees. Nil means the connector cannot make worktrees.
 	GitAvailable func() bool
@@ -699,11 +704,13 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
 	cfg.models = terminalproto.SupportsModels(advertised)
+	cfg.software = terminalproto.SupportsSoftware(advertised)
 	cfg.acp = terminalproto.SupportsACP(advertised)
 	cfg.acpHistory = terminalproto.SupportsACPHistory(advertised)
 	cfg.acpModel = terminalproto.SupportsACPModel(advertised)
 	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
 	cfg.attention = terminalproto.SupportsAttention(advertised)
+	cfg.progress = terminalproto.SupportsProgress(advertised)
 }
 
 // setTerminalFeatures tells the terminal dispatcher which negotiated
@@ -763,6 +770,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	if cfg.attention {
 		features = append(features, terminalproto.AttentionFeature)
 	}
+	if cfg.progress {
+		features = append(features, terminalproto.ProgressFeature)
+	}
 	return strings.Join(features, ",")
 }
 
@@ -777,6 +787,24 @@ func launchTools(cfg AgentConfig) []string {
 	}
 	sort.Strings(tools)
 	return tools
+}
+
+// softwareEntries keeps only valid, unique observations within the protocol's
+// bound. It never asks the supplier for anything a second time.
+func softwareEntries(cfg AgentConfig) []terminalproto.SoftwareEntry {
+	var entries []terminalproto.SoftwareEntry
+	seen := make(map[string]bool)
+	for _, entry := range cfg.Software() {
+		if !entry.Valid() || seen[entry.Tool] {
+			continue
+		}
+		seen[entry.Tool] = true
+		entries = append(entries, entry)
+		if len(entries) == terminalproto.MaxSoftwareEntries {
+			break
+		}
+	}
+	return entries
 }
 
 func capabilities(cfg AgentConfig) terminalproto.Capabilities {
@@ -823,6 +851,10 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 	// browse also the local folder-browse switch on, branches worktrees.
 	control := cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin")
 	acp := cfg.acp && control && enabled && slices.Contains(tools, "opencode")
+	var software []terminalproto.SoftwareEntry
+	if cfg.software && cfg.Software != nil && control {
+		software = softwareEntries(cfg)
+	}
 	return terminalproto.Capabilities{
 		Launch:    launch,
 		Resume:    launch && cfg.resume,
@@ -846,6 +878,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ShellDir:        cfg.shellDir && control && enabled,
 		Attention:       cfg.attention && control,
 		Branches:        cfg.branches && worktree && enabled,
+		Software:        software,
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),
 		ProtocolVersion: terminalproto.Version,

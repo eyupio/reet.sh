@@ -31,6 +31,7 @@ func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/terminal/machines", s.terminal(s.terminalMachines))
 	mux.HandleFunc("GET /api/v2/machines/{agentId}/yolo", s.terminalAccess(s.terminalMachineYolo, true))
 	mux.HandleFunc("POST /api/v2/machines/{agentId}/uploads", s.terminal(s.terminalLaunchUpload))
+	mux.HandleFunc("GET /api/v2/machines/{agentId}/launch-progress/{requestId}", s.terminal(s.terminalLaunchProgress))
 	mux.HandleFunc("GET /api/v2/terminal/sessions", s.terminal(s.terminalSessions))
 	mux.HandleFunc("POST /api/v2/terminal/sessions", s.terminal(s.terminalCreate))
 	mux.HandleFunc("PATCH /api/v2/terminal/sessions/{id}", s.terminal(s.terminalRename))
@@ -196,6 +197,24 @@ func (s *server) terminalMachineYolo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"accepts": c.Capabilities.Yolo, "checkedAt": c.ObservedAt})
+}
+
+// terminalLaunchProgress reads the stages the machine has reported for one of
+// this account's creates that is still running. It is a hint for the page's
+// progress view and always answers 200: no stages means the machine reports none.
+func (s *server) terminalLaunchProgress(w http.ResponseWriter, r *http.Request) {
+	request := r.PathValue("requestId")
+	type stage struct {
+		Stage string `json:"stage"`
+		At    int64  `json:"at"`
+	}
+	stages := []stage{}
+	if terminalproto.ValidID(request) {
+		for _, step := range s.terminals.LaunchProgress(s.uid(r), r.PathValue("agentId"), request) {
+			stages = append(stages, stage{string(step.Stage), step.At.UnixMilli()})
+		}
+	}
+	writeJSON(w, 200, map[string]any{"stages": stages})
 }
 
 func (s *server) terminalSessions(w http.ResponseWriter, r *http.Request) {

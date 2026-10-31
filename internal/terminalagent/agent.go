@@ -118,7 +118,8 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				}
 			}()
 		}
-		chats := attachChats(supervisor, ctx, opts, generation, send, terminalproto.SupportsACPHistory(headers.Get(terminalproto.FeatureHeader)))
+		chats := attachChats(supervisor, ctx, opts, generation, send, terminalproto.SupportsACPHistory(headers.Get(terminalproto.FeatureHeader)),
+			terminalproto.SupportsACPToolDetails(headers.Get(terminalproto.FeatureHeader)))
 		attachments := map[string]*terminalhost.Attachment{}
 		// worktreeSlot allows one worktree status or remove at a time on this
 		// machine. It runs on its own goroutine so the dispatcher, and the
@@ -529,7 +530,18 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			}
 			switch op := msg.Body.(type) {
 			case *terminalproto.Create:
-				s, err := m.Create(callCtx, msg.RequestID, msg.SessionID, *op)
+				createCtx := callCtx
+				if terminalproto.SupportsProgress(headers.Get(terminalproto.FeatureHeader)) {
+					// Each stage is told to the controller as it begins, before this create's one answer.
+					createCtx = terminalhost.WithProgress(callCtx, func(stage terminalproto.LaunchStage) {
+						note := msg
+						note.Body = terminalproto.LaunchProgress{Stage: stage}
+						noteCtx, cancel := context.WithTimeout(callCtx, time.Second)
+						defer cancel()
+						_ = send(noteCtx, note)
+					})
+				}
+				s, err := m.Create(createCtx, msg.RequestID, msg.SessionID, *op)
 				if err != nil {
 					return respond(err)
 				}

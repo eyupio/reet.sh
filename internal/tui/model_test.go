@@ -360,3 +360,64 @@ func TestUpgradeFormOpensAndResultRenders(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallFormOpensAndResultRenders(t *testing.T) {
+	m := testModel()
+	next, _ := m.open(ScreenInstall)
+	m = next.(model)
+	if !m.formActive() || m.installForm == nil {
+		t.Fatal("install form did not open")
+	}
+	m.installValues = &installFormValues{
+		Mode: "binary", Dir: "/tmp/bin", DataDir: "/tmp/data", Addr: "127.0.0.1:8080", Confirm: true, DryRun: true,
+	}
+	next, cmd := m.startInstall()
+	m = next.(model)
+	if !m.loading || cmd == nil {
+		t.Fatal("install did not start")
+	}
+	next, _ = m.Update(resultMsg{page: ScreenInstall, value: installOutcome{output: "Dry run plan\n", dryRun: true}})
+	m = next.(model)
+	view := m.View().Content
+	for _, want := range []string{"Dry run plan", "Dry run: nothing changed"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestEnrollFormOpensAndResultRenders(t *testing.T) {
+	m := testModel()
+	next, _ := m.open(ScreenEnroll)
+	m = next.(model)
+	if !m.formActive() || m.enrollForm == nil {
+		t.Fatal("enroll form did not open")
+	}
+	m.enrollValues = &enrollFormValues{Server: "https://example.test", Host: "laptop", Confirm: true}
+	next, cmd := m.startEnroll()
+	m = next.(model)
+	if !m.loading || cmd == nil {
+		t.Fatal("enroll did not start")
+	}
+	next, _ = m.Update(resultMsg{page: ScreenEnroll, value: enrollOutcome{output: "Enrolled laptop.\n"}})
+	m = next.(model)
+	view := m.View().Content
+	for _, want := range []string{"Enrolled laptop", "Enrollment saved"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestEnrollProjectsSplitsCommasAndNewlines(t *testing.T) {
+	got := enrollProjects(" /one, /two\n/three ,, ")
+	want := []string{"/one", "/two", "/three"}
+	if len(got) != len(want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	}
+}

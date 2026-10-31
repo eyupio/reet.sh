@@ -152,14 +152,17 @@ type Capabilities struct {
 	// may then start in a chosen folder.
 	ShellDir bool `json:"shellDir,omitempty"`
 	// Attention is sent only when attention-v1 was negotiated.
-	Attention       bool      `json:"attention,omitempty"`
-	TerminalControl bool      `json:"terminalControl,omitempty"`
-	ProtocolVersion int       `json:"protocolVersion"`
-	OS              string    `json:"os"`
-	OSUser          string    `json:"osUser"`
-	TerminalEnabled bool      `json:"terminalEnabled"`
-	HealthEnabled   bool      `json:"healthEnabled"`
-	Readiness       Readiness `json:"readiness"`
+	Attention       bool `json:"attention,omitempty"`
+	TerminalControl bool `json:"terminalControl,omitempty"`
+	// Software is sent only when software-v1 was negotiated; it observes
+	// installed agent software and never asks for a change.
+	Software        []SoftwareEntry `json:"software,omitempty"`
+	ProtocolVersion int             `json:"protocolVersion"`
+	OS              string          `json:"os"`
+	OSUser          string          `json:"osUser"`
+	TerminalEnabled bool            `json:"terminalEnabled"`
+	HealthEnabled   bool            `json:"healthEnabled"`
+	Readiness       Readiness       `json:"readiness"`
 }
 
 func (c Capabilities) Validate() error {
@@ -196,6 +199,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ACPModel && !c.ACP || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
+		return ErrInvalid
+	}
+	if len(c.Software) > 0 && (!c.TerminalControl || !ValidSoftware(c.Software)) {
 		return ErrInvalid
 	}
 	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {
@@ -609,6 +615,8 @@ func Decode(data []byte) (Message, error) {
 		b = &Result{}
 	case "session_changed":
 		b = &SessionChanged{}
+	case "launch_progress":
+		b = &LaunchProgress{}
 	case "acp_prompt":
 		b = &ACPPrompt{}
 	case "acp_model":

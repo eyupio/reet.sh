@@ -212,6 +212,35 @@ func runTUI(screen string, args []string, version, commit string) error {
 		opts.SetupServer = *server
 		opts.SetupToken = *token
 		opts.SetupTokenFile = *envFile
+	case "install", "init":
+		fs := flag.NewFlagSet("reet install --tui", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		mode := fs.String("mode", "binary", "binary, native (user service), or compose")
+		dir := fs.String("dir", lifecycle.BinaryDefault(), "binary installation directory")
+		dataDir := fs.String("data-dir", lifecycle.DataDefault(), "server database directory")
+		addr := fs.String("addr", "127.0.0.1:8080", "server HOST:PORT")
+		version := fs.String("version", os.Getenv("REET_VERSION"), "Compose release (default: latest)")
+		stateDir := fs.String("state-dir", lifecycle.StateDefault(), "deployment configuration directory")
+		noStart := fs.Bool("no-start", false, "write configuration without starting the server")
+		dry := fs.Bool("dry-run", false, "show the plan without changing the deployment")
+		if err := fs.Parse(args); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("unexpected install arguments")
+		}
+		opts.Start = tui.ScreenInstall
+		opts.InstallMode = *mode
+		opts.InstallDir = *dir
+		opts.InstallDataDir = *dataDir
+		opts.InstallAddr = *addr
+		opts.InstallVersion = *version
+		opts.InstallStateDir = *stateDir
+		opts.InstallNoStart = *noStart
+		opts.InstallDryRun = *dry
 	case "upgrade":
 		fs := flag.NewFlagSet("reet upgrade --tui", flag.ContinueOnError)
 		fs.SetOutput(os.Stderr)
@@ -265,23 +294,56 @@ func runTUI(screen string, args []string, version, commit string) error {
 		if err != nil {
 			return err
 		}
-		if action != "status" {
-			return fmt.Errorf("reet agent %s --tui is not available yet; use reet agent status --tui", action)
-		}
-		fs := flag.NewFlagSet("reet agent status --tui", flag.ContinueOnError)
-		fs.SetOutput(os.Stderr)
-		config := fs.String("config", "", "private machine enrollment file (default: user config directory)")
-		if err := fs.Parse(rest); err != nil {
-			if errors.Is(err, flag.ErrHelp) {
-				return nil
+		switch action {
+		case "status":
+			fs := flag.NewFlagSet("reet agent status --tui", flag.ContinueOnError)
+			fs.SetOutput(os.Stderr)
+			config := fs.String("config", "", "private machine enrollment file (default: user config directory)")
+			if err := fs.Parse(rest); err != nil {
+				if errors.Is(err, flag.ErrHelp) {
+					return nil
+				}
+				return err
 			}
-			return err
+			if fs.NArg() != 0 {
+				return errors.New("unexpected agent arguments")
+			}
+			opts.Start = tui.ScreenAgent
+			opts.AgentConfig = *config
+		case "enroll":
+			fs := flag.NewFlagSet("reet agent enroll --tui", flag.ContinueOnError)
+			fs.SetOutput(os.Stderr)
+			server := fs.String("server", os.Getenv("REET_URL"), "controller URL")
+			token := fs.String("token", "", "personal token for enrollment (env REET_TOKEN)")
+			envFile := fs.String("env-file", "", "read enrollment REET_TOKEN from an explicit env file")
+			host := fs.String("env", os.Getenv("REET_ENV"), "stable machine name")
+			config := fs.String("config", "", "private machine enrollment file")
+			allow := fs.Bool("allow-apply", false, "allow this installation to execute approved plans")
+			var projects []string
+			fs.Func("project", "absolute project directory to track (repeatable)", func(value string) error {
+				projects = append(projects, value)
+				return nil
+			})
+			if err := fs.Parse(rest); err != nil {
+				if errors.Is(err, flag.ErrHelp) {
+					return nil
+				}
+				return err
+			}
+			if fs.NArg() != 0 {
+				return errors.New("unexpected agent enroll arguments")
+			}
+			opts.Start = tui.ScreenEnroll
+			opts.EnrollServer = *server
+			opts.EnrollToken = *token
+			opts.EnrollTokenFile = *envFile
+			opts.EnrollHost = *host
+			opts.EnrollConfig = *config
+			opts.EnrollAllowApply = *allow
+			opts.EnrollProjects = strings.Join(projects, ",")
+		default:
+			return fmt.Errorf("reet agent %s --tui is not available yet; use reet agent status --tui or reet agent enroll --tui", action)
 		}
-		if fs.NArg() != 0 {
-			return errors.New("unexpected agent arguments")
-		}
-		opts.Start = tui.ScreenAgent
-		opts.AgentConfig = *config
 	default:
 		return fmt.Errorf("reet %s --tui is not available yet", screen)
 	}

@@ -122,6 +122,35 @@ func runTUI(screen string, args []string, version, commit string) error {
 		opts.ScanPrune = *prune
 		opts.ScanReconcile = *reconcile
 		opts.ScanDryRun = *dry
+	case "sync":
+		fs := flag.NewFlagSet("reet sync --tui", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		server := fs.String("server", os.Getenv("REET_URL"), "controller URL (default REET_URL)")
+		token := fs.String("token", "", "personal API token (default saved token or REET_TOKEN)")
+		envFile := fs.String("env-file", "", "read REET_TOKEN from an explicit env file")
+		target := fs.String("target", "", "target ID from Account")
+		envName := fs.String("env", os.Getenv("REET_ENV"), "local environment name (default hostname)")
+		config := fs.String("config", "", "private machine enrollment file")
+		dir := fs.String("dir", "", "project directory (default current directory)")
+		apply := fs.Bool("apply", false, "apply after the preview")
+		if err := fs.Parse(args); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("unexpected sync arguments")
+		}
+		opts.Start = tui.ScreenSync
+		opts.SyncServer = *server
+		opts.SyncToken = *token
+		opts.SyncTokenFile = *envFile
+		opts.SyncTarget = *target
+		opts.SyncEnv = *envName
+		opts.SyncConfig = *config
+		opts.SyncDir = *dir
+		opts.SyncApply = *apply
 	case "version":
 		if len(args) != 0 {
 			return errors.New("unexpected version arguments")

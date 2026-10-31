@@ -8,6 +8,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/lifecycle"
 	"github.com/eyupio/reet.sh/internal/scan"
+	"github.com/eyupio/reet.sh/internal/store"
 )
 
 func testModel() model {
@@ -140,5 +141,75 @@ func TestScanDirsSplitsCommasAndNewlines(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %q, want %q", got, want)
 		}
+	}
+}
+
+func TestSyncFormOpensAndEscapeReturnsHome(t *testing.T) {
+	m := testModel()
+	next, _ := m.open(ScreenSync)
+	m = next.(model)
+	if m.page != ScreenSync || !m.formActive() || m.syncForm == nil {
+		t.Fatalf("page=%q form=%v loading=%t", m.page, m.syncForm != nil, m.loading)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(model)
+	if m.page != ScreenHome {
+		t.Fatalf("page = %q, want home", m.page)
+	}
+}
+
+func TestSyncPreviewRendersAndApplyStarts(t *testing.T) {
+	m := testModel()
+	next, _ := m.open(ScreenSync)
+	m = next.(model)
+	next, _ = m.startSync(false)
+	m = next.(model)
+	report := scan.SyncReport{
+		PlanSet: true,
+		Hash:    "plan-hash",
+		Plan: scan.SyncPlan{
+			Directory: "/home/sam/.claude/skills",
+			Revision:  "rev-one",
+			Actions: []scan.SyncAction{{
+				Add:   true,
+				Skill: store.SyncSkill{Slug: "beta", Source: "owner/repo"},
+			}},
+		},
+	}
+	next, _ = m.Update(resultMsg{page: ScreenSync, value: syncOutcome{report: report}})
+	m = next.(model)
+	view := m.View()
+	for _, want := range []string{"INSTALL", "beta", "Preview only", "a applies"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = next.(model)
+	if !m.loading || cmd == nil {
+		t.Fatal("apply did not start")
+	}
+}
+
+func TestSyncAutoApplyAfterPreview(t *testing.T) {
+	m := newModel(Options{Version: "v1.2.3", Commit: "abcdef1", SyncApply: true})
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = next.(model)
+	next, _ = m.open(ScreenSync)
+	m = next.(model)
+	next, _ = m.startSync(false)
+	m = next.(model)
+	report := scan.SyncReport{
+		PlanSet: true,
+		Hash:    "plan-hash",
+		Plan: scan.SyncPlan{Actions: []scan.SyncAction{{
+			Add:   true,
+			Skill: store.SyncSkill{Slug: "beta"},
+		}}},
+	}
+	next, cmd := m.Update(resultMsg{page: ScreenSync, value: syncOutcome{report: report}})
+	m = next.(model)
+	if !m.loading || cmd == nil || m.opts.SyncApply {
+		t.Fatalf("auto apply did not start: loading=%t cmd=%v apply=%t", m.loading, cmd != nil, m.opts.SyncApply)
 	}
 }

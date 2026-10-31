@@ -1,6 +1,6 @@
 # Terminal interface
 
-Status: read-only screens and the Scan form shipped; Sync, Backup, Setup and Upgrade follow.
+Status: read-only screens, Scan and Sync shipped; Backup, Setup and Upgrade follow.
 
 The `reet` binary has a terminal interface built with
 [Bubble Tea](https://github.com/charmbracelet/bubbletea). It is a face on the
@@ -16,6 +16,7 @@ local deployment and the controllers those commands already use.
 | `reet doctor --tui` | Doctor |
 | `reet healthcheck --tui [--url URL \| --local]` | Healthcheck |
 | `reet scan --tui [--server URL] [--env NAME] [--dry-run]` | Scan |
+| `reet sync --tui [--server URL] [--target ID] [--apply]` | Sync |
 | `reet version --tui` | Version |
 | `reet terminal status --tui [--data-dir PATH]` | Terminal status |
 | `reet agent status --tui [--config PATH]` | Agent status |
@@ -37,6 +38,12 @@ and services never start the interface; they run exactly as before. `serve`,
   skills and, unless it is a dry run, reports them; the result shows every
   finding and the controller's counts, skips and errors. `r` runs the same form
   again, `e` edits it and `esc` returns to the menu.
+- **Sync.** A form for target, controller, token, environment and project
+  directory. It previews first and shows every install, replace and remove;
+  `a` applies exactly that plan (the hash is checked again before any file
+  changes), `r` previews again and `e` edits the form. `--apply` goes straight
+  to the apply step after the preview. Apply still requires this machine to be
+  enrolled, as the text command does.
 - **Version.** Binary version, source commit, Go version and platform.
 - **Terminal status.** Whether terminal access is enabled, available and
   running, the saved public URL and authentication mode, and why it is blocked.
@@ -94,7 +101,6 @@ plane and, in later slices, a launcher.
 
 ## Next slices
 
-1. Sync: preview, review and apply with the same confirmation rules.
-2. Backup: take, verify and restore with passphrase handling.
-3. Setup: create, push and pull a setup profile.
-4. Upgrade: check, confirm, back up, verify and roll back on a failed restart.
+1. Backup: take, verify and restore with passphrase handling.
+2. Setup: create, push and pull a setup profile.
+3. Upgrade: check, confirm, back up, verify and roll back on a failed restart.

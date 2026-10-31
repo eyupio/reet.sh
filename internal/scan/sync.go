@@ -25,7 +25,8 @@ import (
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
-type syncAction struct {
+// SyncAction is one install, replace or remove in a sync plan.
+type SyncAction struct {
 	BeforeDigest string          `json:"beforeDigest,omitempty"`
 	Add          bool            `json:"add"`
 	Replace      bool            `json:"replace,omitempty"`
@@ -35,7 +36,7 @@ type SyncPlan struct {
 	Target    string       `json:"target"`
 	Directory string       `json:"directory"`
 	Revision  string       `json:"revision"`
-	Actions   []syncAction `json:"actions"`
+	Actions   []SyncAction `json:"actions"`
 	Backups   []string     `json:"backups,omitempty"`
 }
 
@@ -49,6 +50,7 @@ type syncOptions struct {
 	verifyEnrollment bool
 	approvedHash     string
 	cwd              string
+	onTarget         func(store.SyncTarget)
 	onPlan           func(SyncPlan)
 	onProgress       func(string, string)
 	onBackup         func(string)
@@ -87,7 +89,7 @@ func syncSource(sk store.SyncSkill) (string, error) {
 	return "", fmt.Errorf("%s has no supported install source; link it before syncing", sk.Name)
 }
 
-func planSync(desired []store.SyncSkill, actual []Found) ([]syncAction, error) {
+func planSync(desired []store.SyncSkill, actual []Found) ([]SyncAction, error) {
 	want, have := map[string]store.SyncSkill{}, map[string]Found{}
 	for _, sk := range desired {
 		if _, err := syncSource(sk); err != nil {
@@ -104,17 +106,17 @@ func planSync(desired []store.SyncSkill, actual []Found) ([]syncAction, error) {
 		}
 		have[sk.Name] = sk
 	}
-	actions := []syncAction{}
+	actions := []SyncAction{}
 	for name, sk := range want {
 		installed, ok := have[name]
 		if !ok {
-			actions = append(actions, syncAction{Add: true, Skill: sk})
+			actions = append(actions, SyncAction{Add: true, Skill: sk})
 			continue
 		}
 		if installed.Source == "" {
 			// The local copy has no provenance. Replace it with the reviewed
 			// source-linked skill; apply moves the old folder into the backup.
-			actions = append(actions, syncAction{Add: true, Replace: true, Skill: sk, BeforeDigest: installed.Digest})
+			actions = append(actions, SyncAction{Add: true, Replace: true, Skill: sk, BeforeDigest: installed.Digest})
 			continue
 		}
 		if canonicalSource(installed.Source) != canonicalSource(sk.Source) {
@@ -126,7 +128,7 @@ func planSync(desired []store.SyncSkill, actual []Found) ([]syncAction, error) {
 			if sk.Source == "" {
 				return nil, fmt.Errorf("%s is a local-only skill; back it up and remove it manually before mirroring", name)
 			}
-			actions = append(actions, syncAction{Skill: store.SyncSkill{Slug: name, Name: name, Source: sk.Source}})
+			actions = append(actions, SyncAction{Skill: store.SyncSkill{Slug: name, Name: name, Source: sk.Source}})
 		}
 	}
 	sort.Slice(actions, func(i, j int) bool {
@@ -268,6 +270,9 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	if err != nil {
 		return err
 	}
+	if options.onTarget != nil {
+		options.onTarget(target)
+	}
 	if !strings.EqualFold(*host, target.Target.Host) && !slices.ContainsFunc(target.HostAliases, func(alias string) bool { return strings.EqualFold(alias, *host) }) {
 		return fmt.Errorf("this command is for %s, not %s; run it on the target machine", target.Target.Host, *host)
 	}
@@ -334,7 +339,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		return errors.New("custom XDG_CONFIG_HOME requires manual sync")
 	}
 	targetPath := ""
-	collect := func() ([]syncAction, error) {
+	collect := func() ([]SyncAction, error) {
 		inventory := CollectScan(home, cwd, nil, *host)
 		if err := inventory.Err(); err != nil {
 			return nil, fmt.Errorf("scan incomplete; no changes allowed: %w", err)

@@ -28,6 +28,7 @@ const (
 	ScreenDoctor   ScreenID = "doctor"
 	ScreenHealth   ScreenID = "healthcheck"
 	ScreenScan     ScreenID = "scan"
+	ScreenSync     ScreenID = "sync"
 	ScreenVersion  ScreenID = "version"
 	ScreenTerminal ScreenID = "terminal"
 	ScreenAgent    ScreenID = "agent"
@@ -58,6 +59,15 @@ type Options struct {
 	ScanPrune     bool
 	ScanReconcile bool
 	ScanDryRun    bool
+
+	SyncServer    string
+	SyncToken     string
+	SyncTokenFile string
+	SyncTarget    string
+	SyncEnv       string
+	SyncConfig    string
+	SyncDir       string
+	SyncApply     bool
 
 	In      io.Reader
 	Out     io.Writer
@@ -90,6 +100,7 @@ var homeItems = []homeItem{
 	{ScreenDoctor, "Doctor", "Check this installation"},
 	{ScreenHealth, "Healthcheck", "Check a server's /healthz"},
 	{ScreenScan, "Scan", "Report installed skills to a controller"},
+	{ScreenSync, "Sync", "Preview and apply a saved target"},
 	{ScreenVersion, "Version", "Build and runtime details"},
 	{ScreenTerminal, "Terminal status", "Controller terminal availability"},
 	{ScreenAgent, "Agent status", "This machine's enrollment and daemon"},
@@ -125,6 +136,12 @@ type model struct {
 	scanValues *scanFormValues
 	scanReport scan.Report
 	scanSet    bool
+
+	syncForm    *huh.Form
+	syncValues  *syncFormValues
+	syncReport  scan.SyncReport
+	syncApplied bool
+	syncSet     bool
 }
 
 func newModel(opts Options) model {
@@ -146,12 +163,16 @@ func newModel(opts Options) model {
 		m.scanValues = defaultScanValues(opts)
 		m.scanForm = buildScanForm(m.scanValues)
 	}
+	if opts.Start == ScreenSync {
+		m.syncValues = defaultSyncValues(opts)
+		m.syncForm = buildSyncForm(m.syncValues)
+	}
 	return m
 }
 
 func (m model) Init() tea.Cmd {
-	if m.formActive() {
-		return m.scanForm.Init()
+	if form := m.activeForm(); form != nil {
+		return form.Init()
 	}
 	if m.loading {
 		return tea.Batch(m.spinner.Tick, m.load(m.page))
@@ -185,15 +206,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.resize()
-		if m.formActive() {
-			updated, cmd := m.scanForm.Update(msg)
-			m.scanForm = updated.(*huh.Form)
+		if form := m.activeForm(); form != nil {
+			updated, cmd := form.Update(msg)
+			m.setForm(updated.(*huh.Form))
 			m.setContent()
 			return m, cmd
 		}
 		return m, nil
 	}
-	if m.formActive() {
+	if form := m.activeForm(); form != nil {
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
 			case "ctrl+c":
@@ -202,12 +223,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.open(ScreenHome)
 			}
 		}
-		updated, cmd := m.scanForm.Update(msg)
-		m.scanForm = updated.(*huh.Form)
-		switch m.scanForm.State {
+		updated, cmd := form.Update(msg)
+		form = updated.(*huh.Form)
+		m.setForm(form)
+		switch form.State {
 		case huh.StateCompleted:
-			m.scanForm = nil
-			return m.startScan()
+			if m.page == ScreenScan {
+				m.scanForm = nil
+				return m.startScan()
+			}
+			m.syncForm = nil
+			return m.startSync(false)
 		case huh.StateAborted:
 			return m.open(ScreenHome)
 		}
@@ -233,6 +259,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		m.apply(msg)
 		m.setContent()
+		if msg.page == ScreenSync && m.opts.SyncApply && !m.syncApplied && m.err == nil && len(m.syncReport.Plan.Actions) > 0 {
+			m.opts.SyncApply = false
+			return m.startSync(true)
+		}
 		return m, nil
 	}
 	return m, nil
@@ -267,6 +297,18 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.open(ScreenScan)
 		}
 	}
+	if m.page == ScreenSync {
+		switch msg.String() {
+		case "a":
+			if m.syncSet && !m.syncApplied && m.err == nil && len(m.syncReport.Plan.Actions) > 0 {
+				return m.startSync(true)
+			}
+		case "r":
+			return m.startSync(false)
+		case "e":
+			return m.open(ScreenSync)
+		}
+	}
 	switch msg.String() {
 	case "q":
 		return m, tea.Quit
@@ -290,6 +332,8 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 	m.page = page
 	m.cursor = 0
 	m.err = nil
+	m.scanForm = nil
+	m.syncForm = nil
 	if page == ScreenScan {
 		if m.scanValues == nil {
 			m.scanValues = defaultScanValues(m.opts)
@@ -301,7 +345,18 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 		m.setContent()
 		return m, m.scanForm.Init()
 	}
-	m.scanForm = nil
+	if page == ScreenSync {
+		if m.syncValues == nil {
+			m.syncValues = defaultSyncValues(m.opts)
+		}
+		m.syncForm = buildSyncForm(m.syncValues)
+		m.syncSet = false
+		m.syncApplied = false
+		m.loading = false
+		m.resize()
+		m.setContent()
+		return m, m.syncForm.Init()
+	}
 	m.loading = page != ScreenHome && page != ScreenVersion
 	m.setContent()
 	if !m.loading {
@@ -336,11 +391,37 @@ func (m *model) apply(msg resultMsg) {
 			m.scanReport = report
 			m.scanSet = true
 		}
+	case ScreenSync:
+		if value, ok := msg.value.(syncOutcome); ok {
+			m.syncReport = value.report
+			m.syncApplied = value.applied
+			m.syncSet = value.report.PlanSet
+		}
 	}
 }
 
-func (m model) formActive() bool {
-	return m.page == ScreenScan && m.scanForm != nil && !m.loading
+func (m model) activeForm() *huh.Form {
+	if m.loading {
+		return nil
+	}
+	switch m.page {
+	case ScreenScan:
+		return m.scanForm
+	case ScreenSync:
+		return m.syncForm
+	}
+	return nil
+}
+
+func (m model) formActive() bool { return m.activeForm() != nil }
+
+func (m *model) setForm(form *huh.Form) {
+	switch m.page {
+	case ScreenScan:
+		m.scanForm = form
+	case ScreenSync:
+		m.syncForm = form
+	}
 }
 
 func (m model) startScan() (tea.Model, tea.Cmd) {
@@ -387,17 +468,19 @@ func (m *model) resize() {
 		m.viewport.Width = 10
 	}
 	m.viewport.Height = body
-	if m.scanForm != nil {
-		width := m.width - 4
-		if width < 20 {
-			width = 20
+	width := m.width - 4
+	if width < 20 {
+		width = 20
+	}
+	height := m.height - 5
+	if height < 5 {
+		height = 5
+	}
+	for _, form := range []*huh.Form{m.scanForm, m.syncForm} {
+		if form != nil {
+			form.WithWidth(width)
+			form.WithHeight(height)
 		}
-		height := m.height - 5
-		if height < 5 {
-			height = 5
-		}
-		m.scanForm.WithWidth(width)
-		m.scanForm.WithHeight(height)
 	}
 	m.setContent()
 }
@@ -445,7 +528,21 @@ func (m model) renderFooter() string {
 			keys = "r run again · e edit · esc back · q quit"
 		}
 	}
-	if m.loading && m.page != ScreenScan {
+	if m.page == ScreenSync {
+		switch {
+		case m.formActive():
+			keys = "enter next/submit · esc cancel · ctrl+c quit"
+		case m.loading:
+			keys = "syncing… · ctrl+c quit"
+		case m.syncApplied:
+			keys = "r preview again · e edit · esc back · q quit"
+		case len(m.syncReport.Plan.Actions) > 0:
+			keys = "a apply · r preview again · e edit · esc back"
+		default:
+			keys = "r preview again · e edit · esc back · q quit"
+		}
+	}
+	if m.loading && m.page != ScreenScan && m.page != ScreenSync {
 		keys = "loading… · q quit"
 	}
 	return m.styles.footer.Width(m.width).Render("  " + keys)
@@ -468,18 +565,20 @@ func (m model) renderHome() string {
 }
 
 func (m model) renderPage() string {
-	if m.formActive() {
-		return m.scanForm.View()
+	if form := m.activeForm(); form != nil {
+		return form.View()
 	}
 	if m.loading {
 		return "\n  " + m.spinner.View() + " " + m.styles.muted.Render(pageLoading(m.page)) + "\n"
 	}
-	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) {
+	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) && !(m.page == ScreenSync && m.syncSet) {
 		return "\n  " + m.styles.fail.Render("Error: "+m.err.Error()) + "\n\n  " + m.styles.muted.Render("Press r to try again, or esc for the menu.") + "\n"
 	}
 	switch m.page {
 	case ScreenScan:
 		return m.renderScan()
+	case ScreenSync:
+		return m.renderSync()
 	case ScreenDoctor:
 		return m.renderDoctor()
 	case ScreenHealth:
@@ -502,6 +601,8 @@ func pageTitle(page ScreenID) string {
 		return "Healthcheck"
 	case ScreenScan:
 		return "Scan"
+	case ScreenSync:
+		return "Sync"
 	case ScreenVersion:
 		return "Version"
 	case ScreenTerminal:
@@ -520,6 +621,8 @@ func pageLoading(page ScreenID) string {
 		return "Checking server health…"
 	case ScreenScan:
 		return "Scanning installed skills…"
+	case ScreenSync:
+		return "Reading the sync target…"
 	case ScreenTerminal:
 		return "Reading terminal status…"
 	case ScreenAgent:

@@ -29,13 +29,13 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 ## Terminal interface (30 October 2026)
 
 The binary now has a terminal interface: `reet` in a terminal opens a menu over Doctor,
-Healthcheck, Scan, Version, Terminal status and Agent status, and `--tui` opens a screen directly.
-Scan is a native `huh` form with dry-run, prune and reconcile; it reports through the shared
-`scan.RunReport` value. It is
+Healthcheck, Scan, Sync, Version, Terminal status and Agent status, and `--tui` opens a screen
+directly. Scan is a native `huh` form with dry-run, prune and reconcile; Sync previews a target and
+applies a hash-checked plan. Both report through shared `scan` values. It is
 built with Bubble Tea under `internal/tui`, reads the same report values as the text commands, and
 does not touch the store or the web app. This deliberately moves the "full terminal TUI" note below
 ahead of its earlier lower priority; it is scoped to the binary's existing commands, not a second
-control room. Native forms and actions follow in slices for sync, backup, setup and upgrade.
+control room. Native forms and actions follow in slices for backup, setup and upgrade.
 
 ## Agents home redesign (27–30 October 2026)
 

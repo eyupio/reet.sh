@@ -23,19 +23,69 @@ var (
 )
 
 // ApplySoftware downloads the reviewed artifact, verifies it, installs it under
-// reet's own folder and reports the fresh evidence. It refuses when the
-// observed installation changed since the person approved the plan, and it
-// never touches an installation reet did not make.
+// reet's own folder and reports the fresh evidence. Rollback and remove act
+// only on a reet-managed copy. It refuses when the observed installation
+// changed since the person approved the plan.
 func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareApply, lookPath func(string) (string, error)) terminalproto.SoftwareApplyResult {
 	result := terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action}
-	if req.Tool != agentsoftware.OpenCodeTool || req.Action != terminalproto.SoftwareActionInstall && req.Action != terminalproto.SoftwareActionUpdate {
+	if req.Tool != agentsoftware.OpenCodeTool {
+		result.State, result.Reason = terminalproto.SoftwareApplyRefused, terminalproto.SoftwareApplyUnsupported
+		return result
+	}
+	switch req.Action {
+	case terminalproto.SoftwareActionInstall, terminalproto.SoftwareActionUpdate,
+		terminalproto.SoftwareActionRollback, terminalproto.SoftwareActionRemove:
+	default:
 		result.State, result.Reason = terminalproto.SoftwareApplyRefused, terminalproto.SoftwareApplyUnsupported
 		return result
 	}
 	fresh := InspectSoftware(home, req.Tool, lookPath)
-	if fresh.State != req.ExpectedState || fresh.Managed != req.ExpectedManaged ||
-		req.Action == terminalproto.SoftwareActionUpdate && fresh.Version != req.ExpectedVersion {
+	if fresh.State != req.ExpectedState || fresh.Managed != req.ExpectedManaged {
 		result.State, result.Reason = terminalproto.SoftwareApplyRefused, terminalproto.SoftwareApplyChanged
+		return result
+	}
+	switch req.Action {
+	case terminalproto.SoftwareActionUpdate, terminalproto.SoftwareActionRemove:
+		if fresh.Version != req.ExpectedVersion {
+			result.State, result.Reason = terminalproto.SoftwareApplyRefused, terminalproto.SoftwareApplyChanged
+			return result
+		}
+	case terminalproto.SoftwareActionRollback:
+		if fresh.Version != req.ExpectedVersion || fresh.Previous != req.ExpectedPrevious {
+			result.State, result.Reason = terminalproto.SoftwareApplyRefused, terminalproto.SoftwareApplyChanged
+			return result
+		}
+	}
+
+	switch req.Action {
+	case terminalproto.SoftwareActionRollback:
+		receipt, err := agentsoftware.RollbackManaged(home, req.Tool)
+		if errors.Is(err, agentsoftware.ErrNoRollback) {
+			result.State, result.Reason = terminalproto.SoftwareApplyRefused, terminalproto.SoftwareApplyNoRollback
+			return result
+		}
+		if err != nil || receipt.Version != req.ExpectedPrevious {
+			result.State, result.Reason = terminalproto.SoftwareApplyFailed, terminalproto.SoftwareApplyRollback
+			return result
+		}
+		entry := InspectSoftware(home, req.Tool, lookPath)
+		if entry.State != terminalproto.SoftwareInstalled || !entry.Managed || entry.Version != req.ExpectedPrevious {
+			result.State, result.Reason = terminalproto.SoftwareApplyFailed, terminalproto.SoftwareApplyRollback
+			return result
+		}
+		result.State, result.Version, result.Previous, result.Entry = terminalproto.SoftwareApplyApplied, entry.Version, req.ExpectedVersion, &entry
+		return result
+	case terminalproto.SoftwareActionRemove:
+		if err := agentsoftware.RemoveManaged(home, req.Tool); err != nil {
+			result.State, result.Reason = terminalproto.SoftwareApplyFailed, terminalproto.SoftwareApplyRemoveFailed
+			return result
+		}
+		entry := InspectSoftware(home, req.Tool, lookPath)
+		if entry.State == terminalproto.SoftwareInstalled && entry.Managed {
+			result.State, result.Reason = terminalproto.SoftwareApplyFailed, terminalproto.SoftwareApplyRemoveFailed
+			return result
+		}
+		result.State, result.Entry = terminalproto.SoftwareApplyApplied, &entry
 		return result
 	}
 
@@ -66,7 +116,7 @@ func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareA
 	if err != nil || !found || current.Version != agentsoftware.OpenCodeReviewedVersion {
 		// A failed verification must not leave the failed version current when
 		// an earlier managed version can be restored.
-		_, _ = agentsoftware.Rollback(home, req.Tool)
+		_, _ = agentsoftware.RollbackManaged(home, req.Tool)
 		result.State, result.Reason = terminalproto.SoftwareApplyFailed, terminalproto.SoftwareApplyInstall
 		return result
 	}

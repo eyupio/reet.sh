@@ -43,7 +43,7 @@ func (s *server) machineSoftwarePlan(w http.ResponseWriter, r *http.Request) {
 	}
 	action := agentsoftware.Action(strings.TrimSpace(r.URL.Query().Get("action")))
 	if !action.Valid() {
-		writeErrCode(w, http.StatusBadRequest, "software_action_invalid", "", "Choose install, update or remove.", "")
+		writeErrCode(w, http.StatusBadRequest, "software_action_invalid", "", "Choose install, update, rollback or remove.", "")
 		return
 	}
 	if !terminalproto.ValidTool(tool) {
@@ -114,6 +114,10 @@ func (s *server) machineSoftwarePlan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	plan, err := agentsoftware.For(*entry, action, host, running)
+	if errors.Is(err, agentsoftware.ErrNoRollback) {
+		writeErrCode(w, http.StatusConflict, "software_no_rollback", "", "No earlier reet-managed version is kept on "+host+".", "")
+		return
+	}
 	if errors.Is(err, agentsoftware.ErrAction) {
 		writeErrCode(w, http.StatusConflict, "software_action_mismatch", "", "That action doesn't match what is installed on "+host+".", "")
 		return
@@ -147,8 +151,8 @@ func (s *server) machineSoftwareApply(w http.ResponseWriter, r *http.Request) {
 		tool = agentsoftware.OpenCodeTool
 	}
 	action := agentsoftware.Action(strings.TrimSpace(in.Action))
-	if action != agentsoftware.Install && action != agentsoftware.Update {
-		writeErrCode(w, http.StatusBadRequest, "software_action_invalid", "", "Choose install or update.", "")
+	if action != agentsoftware.Install && action != agentsoftware.Update && action != agentsoftware.Rollback && action != agentsoftware.Remove {
+		writeErrCode(w, http.StatusBadRequest, "software_action_invalid", "", "Choose install, update, rollback or remove.", "")
 		return
 	}
 	if !terminalproto.ValidTool(tool) {
@@ -208,6 +212,10 @@ func (s *server) machineSoftwareApply(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	plan, err := agentsoftware.For(*entry, action, host, running)
+	if errors.Is(err, agentsoftware.ErrNoRollback) {
+		writeErrCode(w, http.StatusConflict, "software_no_rollback", "", "No earlier reet-managed version is kept on "+host+".", "")
+		return
+	}
 	if errors.Is(err, agentsoftware.ErrAction) {
 		writeErrCode(w, http.StatusConflict, "software_action_mismatch", "", "That action doesn't match what is installed on "+host+".", "")
 		return
@@ -223,7 +231,7 @@ func (s *server) machineSoftwareApply(w http.ResponseWriter, r *http.Request) {
 
 	request := terminalproto.SoftwareApply{
 		Tool: tool, Action: action, ExpectedState: entry.State,
-		ExpectedVersion: entry.Version, ExpectedManaged: entry.Managed,
+		ExpectedVersion: entry.Version, ExpectedPrevious: entry.Previous, ExpectedManaged: entry.Managed,
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 7*time.Minute)
 	defer cancel()
@@ -283,6 +291,12 @@ func softwareApplyRefusal(result terminalproto.SoftwareApplyResult) (int, string
 	switch result.Reason {
 	case terminalproto.SoftwareApplyChanged:
 		return http.StatusConflict, "software_changed", "The machine's installation changed since you reviewed the plan. Review it again."
+	case terminalproto.SoftwareApplyNoRollback:
+		return http.StatusConflict, "software_no_rollback", "No earlier reet-managed version is kept on that machine."
+	case terminalproto.SoftwareApplyRollback:
+		return http.StatusInternalServerError, "software_rollback_failed", "That machine couldn't roll back to the kept version. Nothing was changed."
+	case terminalproto.SoftwareApplyRemoveFailed:
+		return http.StatusInternalServerError, "software_remove_failed", "That machine couldn't remove its managed copy. Nothing was changed."
 	case terminalproto.SoftwareApplyBusy:
 		return http.StatusConflict, "software_busy", "That machine is already installing an agent. Try again in a moment."
 	case terminalproto.SoftwareApplySessions:

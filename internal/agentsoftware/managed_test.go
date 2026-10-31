@@ -59,7 +59,7 @@ func TestInstallCurrentRollbackAndRemove(t *testing.T) {
 		t.Fatalf("current after second install: %q %+v", path, receipt)
 	}
 
-	rolled, err := Rollback(home, "opencode")
+	rolled, err := RollbackManaged(home, "opencode")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,10 +123,10 @@ func TestRollbackWithoutPrevious(t *testing.T) {
 	if _, err := InstallStaged(home, "opencode", "1.19.5", stagedFixture(t, "binary")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Rollback(home, "opencode"); !errors.Is(err, ErrNoRollback) {
+	if _, err := RollbackManaged(home, "opencode"); !errors.Is(err, ErrNoRollback) {
 		t.Fatalf("rollback error = %v", err)
 	}
-	if _, err := Rollback(t.TempDir(), "opencode"); !errors.Is(err, ErrNotManaged) {
+	if _, err := RollbackManaged(t.TempDir(), "opencode"); !errors.Is(err, ErrNotManaged) {
 		t.Fatalf("rollback without a managed install error = %v", err)
 	}
 }

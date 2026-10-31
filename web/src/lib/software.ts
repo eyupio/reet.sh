@@ -1,4 +1,5 @@
 import type { SoftwareEntry } from './terminal/api'
+export type SoftwarePlanAction = 'install' | 'update' | 'rollback' | 'remove'
 
 /** One line of installation evidence, including what is absent and why. */
 export function softwareLine(entry: SoftwareEntry): string {
@@ -12,10 +13,14 @@ export function softwareLine(entry: SoftwareEntry): string {
   }
 }
 
-/** The plan a person can review for this evidence, or none. */
-export function softwarePlanAction(entry: SoftwareEntry): 'install' | 'update' | '' {
+/** The plans a person can review for this evidence, in a stable order. */
+export function softwarePlanActions(entry: SoftwareEntry): SoftwarePlanAction[] {
   const operations = entry.operations ?? []
-  if (operations.includes('plan_install') && (entry.state === 'missing' || (entry.state === 'installed' && !entry.managed))) return 'install'
-  if (entry.state === 'installed' && entry.managed && operations.includes('plan_update')) return 'update'
-  return ''
+  if (operations.includes('plan_install') && (entry.state === 'missing' || (entry.state === 'installed' && !entry.managed))) return ['install']
+  if (entry.state !== 'installed' || !entry.managed) return []
+  const actions: SoftwarePlanAction[] = []
+  if (operations.includes('plan_update')) actions.push('update')
+  if (entry.previous) actions.push('rollback')
+  if (operations.includes('plan_remove')) actions.push('remove')
+  return actions
 }

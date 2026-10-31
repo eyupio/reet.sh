@@ -6,7 +6,7 @@ These are directions, not commitments: there are no dates.
 
 Next, in this order:
 
-- **Agent removal, explicit rollback and fleet-wide maintenance.** reet now installs and updates OpenCode on Linux from one verified 1.19.5 artifact, keeping its own copy beside a system installation. Next: remove only reet-managed copies, an explicit rollback action, and reviewed fleet-wide maintenance.
+- **Fleet-wide agent maintenance.** reet now installs, updates, rolls back and removes its own OpenCode copy on Linux from one verified 1.19.5 artifact, keeping it beside any system installation. Next: reviewed maintenance across the fleet, a controller-side artifact mirror for offline machines, and recovery after a connector restart.
 
 Later:
 

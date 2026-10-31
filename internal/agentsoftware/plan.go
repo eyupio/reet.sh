@@ -27,9 +27,10 @@ const (
 type Action = terminalproto.SoftwareAction
 
 const (
-	Install = terminalproto.SoftwareActionInstall
-	Update  = terminalproto.SoftwareActionUpdate
-	Remove  = terminalproto.SoftwareActionRemove
+	Install  = terminalproto.SoftwareActionInstall
+	Update   = terminalproto.SoftwareActionUpdate
+	Rollback = terminalproto.SoftwareActionRollback
+	Remove   = terminalproto.SoftwareActionRemove
 )
 
 var (
@@ -110,6 +111,21 @@ func For(entry terminalproto.SoftwareEntry, action Action, host string, running 
 		}
 		plan.Effects = runningEffects(host, running, "update")
 		plan.Sentence = fmt.Sprintf("reet will replace its managed OpenCode %s on %s with the reviewed %s; the previous version stays for rollback.", entry.Version, host, OpenCodeReviewedVersion)
+	case Rollback:
+		if entry.State != terminalproto.SoftwareInstalled || !entry.Managed {
+			return Plan{}, ErrAction
+		}
+		if entry.Previous == "" {
+			return Plan{}, ErrNoRollback
+		}
+		plan.Target = entry.Previous
+		plan.Steps = []string{
+			fmt.Sprintf("Make the kept OpenCode %s current again on %s.", entry.Previous, host),
+			"Verify the kept binary's sha256 before it becomes current.",
+			fmt.Sprintf("Keep %s so the rollback can be reversed by an update.", entry.Version),
+		}
+		plan.Effects = runningEffects(host, running, "roll back")
+		plan.Sentence = fmt.Sprintf("reet will roll its managed OpenCode on %s back from %s to %s. The earlier version is verified first.", host, entry.Version, entry.Previous)
 	case Remove:
 		if entry.State != terminalproto.SoftwareInstalled || !entry.Managed {
 			return Plan{}, ErrAction
@@ -120,7 +136,10 @@ func For(entry terminalproto.SoftwareEntry, action Action, host string, running 
 			"Configuration, history and credentials stay on the machine.",
 		}
 		plan.Effects = runningEffects(host, running, "remove")
-		plan.Sentence = fmt.Sprintf("reet's managed OpenCode %s would be removed from %s. Configuration and history stay.", entry.Version, host)
+		plan.Effects = append(plan.Effects,
+			"Any OpenCode installed outside reet is untouched.",
+			"reet's kept previous versions are removed with its own copy.")
+		plan.Sentence = fmt.Sprintf("reet's managed OpenCode %s would be removed from %s. Configuration and history stay, and a system copy is untouched.", entry.Version, host)
 	default:
 		return Plan{}, ErrUnsupported
 	}

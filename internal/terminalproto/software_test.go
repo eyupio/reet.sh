@@ -170,3 +170,48 @@ func TestSupportsSoftwareApplyToken(t *testing.T) {
 		t.Fatal("did not accept software-apply-v1")
 	}
 }
+
+func TestSoftwareApplyRollbackAndRemoveValidation(t *testing.T) {
+	rollback := SoftwareApply{Tool: "opencode", Action: SoftwareActionRollback, ExpectedState: SoftwareInstalled, ExpectedVersion: "1.19.5", ExpectedPrevious: "1.18.0", ExpectedManaged: true}
+	if !rollback.valid() {
+		t.Fatal("valid rollback request rejected")
+	}
+	remove := SoftwareApply{Tool: "opencode", Action: SoftwareActionRemove, ExpectedState: SoftwareInstalled, ExpectedVersion: "1.19.5", ExpectedManaged: true}
+	if !remove.valid() {
+		t.Fatal("valid remove request rejected")
+	}
+	for name, request := range map[string]SoftwareApply{
+		"rollback without a previous": {Tool: "opencode", Action: SoftwareActionRollback, ExpectedState: SoftwareInstalled, ExpectedVersion: "1.19.5", ExpectedManaged: true},
+		"rollback a system copy":      {Tool: "opencode", Action: SoftwareActionRollback, ExpectedState: SoftwareInstalled, ExpectedVersion: "1.19.5", ExpectedPrevious: "1.18.0"},
+		"remove without a version":    {Tool: "opencode", Action: SoftwareActionRemove, ExpectedState: SoftwareInstalled, ExpectedManaged: true},
+		"remove a system copy":        {Tool: "opencode", Action: SoftwareActionRemove, ExpectedState: SoftwareInstalled, ExpectedVersion: "1.19.5"},
+	} {
+		if request.valid() {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+}
+
+func TestSoftwareApplyResultForRemove(t *testing.T) {
+	missing := SoftwareEntry{Tool: "opencode", State: SoftwareMissing, Package: "opencode-ai", Source: "npm", Platform: "linux", Arch: "amd64", Reason: SoftwareNotInstalled, Operations: []SoftwareOperation{SoftwarePlanInstall}, CheckedAt: 1}
+	applied := SoftwareApplyResult{Tool: "opencode", Action: SoftwareActionRemove, State: SoftwareApplyApplied, Entry: &missing}
+	if !applied.valid() {
+		t.Fatal("applied remove result rejected")
+	}
+	applied.Version = "1.19.5"
+	if applied.valid() {
+		t.Fatal("applied remove result with a version accepted")
+	}
+	applied.Version = ""
+	managed := installedSoftware("opencode")
+	managed.Managed = true
+	applied.Entry = &managed
+	if applied.valid() {
+		t.Fatal("applied remove result with a managed entry accepted")
+	}
+	managed.Version = "1.18.0"
+	rolled := SoftwareApplyResult{Tool: "opencode", Action: SoftwareActionRollback, State: SoftwareApplyApplied, Version: "1.18.0", Previous: "1.19.0", Entry: &managed}
+	if !rolled.valid() {
+		t.Fatal("applied rollback result rejected")
+	}
+}

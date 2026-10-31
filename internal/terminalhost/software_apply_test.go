@@ -96,7 +96,7 @@ func TestApplySoftwareInstallsAndUpdates(t *testing.T) {
 	if _, receipt, found, err := agentsoftware.Current(updateHome, "opencode"); err != nil || !found || receipt.Version != agentsoftware.OpenCodeReviewedVersion {
 		t.Fatalf("current after update: %+v %v %v", receipt, found, err)
 	}
-	if _, err := agentsoftware.Rollback(updateHome, "opencode"); err != nil {
+	if _, err := agentsoftware.RollbackManaged(updateHome, "opencode"); err != nil {
 		t.Fatalf("rollback after update: %v", err)
 	}
 }
@@ -149,5 +149,63 @@ func TestApplySoftwareInstallsAlongsideASystemCopy(t *testing.T) {
 	}
 	if _, receipt, found, err := agentsoftware.Current(home, "opencode"); err != nil || !found || receipt.Version != agentsoftware.OpenCodeReviewedVersion {
 		t.Fatalf("managed copy after alongside install: %+v %v %v", receipt, found, err)
+	}
+}
+
+func TestApplySoftwareRollsBackAndRemovesAReetManagedCopy(t *testing.T) {
+	home := t.TempDir()
+	installManagedVersion(t, home, "1.18.0", "older managed binary")
+	installManagedVersion(t, home, "1.19.5", "newer managed binary")
+
+	result := ApplySoftware(context.Background(), home, terminalproto.SoftwareApply{
+		Tool: "opencode", Action: terminalproto.SoftwareActionRollback, ExpectedState: terminalproto.SoftwareInstalled,
+		ExpectedVersion: "1.19.5", ExpectedPrevious: "1.18.0", ExpectedManaged: true,
+	}, missingLookPath)
+	if result.State != terminalproto.SoftwareApplyApplied || result.Version != "1.18.0" || result.Previous != "1.19.5" {
+		t.Fatalf("rollback result: %+v", result)
+	}
+	if _, receipt, found, err := agentsoftware.Current(home, "opencode"); err != nil || !found || receipt.Version != "1.18.0" {
+		t.Fatalf("current after rollback: %+v %v %v", receipt, found, err)
+	}
+
+	result = ApplySoftware(context.Background(), home, terminalproto.SoftwareApply{
+		Tool: "opencode", Action: terminalproto.SoftwareActionRemove, ExpectedState: terminalproto.SoftwareInstalled,
+		ExpectedVersion: "1.18.0", ExpectedManaged: true,
+	}, missingLookPath)
+	if result.State != terminalproto.SoftwareApplyApplied || result.Version != "" || result.Entry == nil || result.Entry.State != terminalproto.SoftwareMissing {
+		t.Fatalf("remove result: %+v", result)
+	}
+	if _, _, found, _ := agentsoftware.Current(home, "opencode"); found {
+		t.Fatal("managed copy stayed after remove")
+	}
+}
+
+func TestApplySoftwareRemoveLeavesASystemCopy(t *testing.T) {
+	home := t.TempDir()
+	systemBinary := writeNodePackage(t, t.TempDir(), "opencode-ai", "1.18.0")
+	installManagedVersion(t, home, "1.19.5", "managed binary")
+	lookPath := func(string) (string, error) { return systemBinary, nil }
+
+	result := ApplySoftware(context.Background(), home, terminalproto.SoftwareApply{
+		Tool: "opencode", Action: terminalproto.SoftwareActionRemove, ExpectedState: terminalproto.SoftwareInstalled,
+		ExpectedVersion: "1.19.5", ExpectedManaged: true,
+	}, lookPath)
+	if result.State != terminalproto.SoftwareApplyApplied || result.Entry == nil || result.Entry.Managed || result.Entry.State != terminalproto.SoftwareInstalled {
+		t.Fatalf("remove beside a system copy: %+v", result)
+	}
+	if _, err := os.Stat(systemBinary); err != nil {
+		t.Fatalf("the system copy was changed: %v", err)
+	}
+}
+
+func TestApplySoftwareRefusesAChangedRollback(t *testing.T) {
+	home := t.TempDir()
+	installManagedVersion(t, home, "1.19.5", "managed binary")
+	result := ApplySoftware(context.Background(), home, terminalproto.SoftwareApply{
+		Tool: "opencode", Action: terminalproto.SoftwareActionRollback, ExpectedState: terminalproto.SoftwareInstalled,
+		ExpectedVersion: "1.19.5", ExpectedPrevious: "1.18.0", ExpectedManaged: true,
+	}, missingLookPath)
+	if result.State != terminalproto.SoftwareApplyRefused || result.Reason != terminalproto.SoftwareApplyChanged {
+		t.Fatalf("changed rollback: %+v", result)
 	}
 }

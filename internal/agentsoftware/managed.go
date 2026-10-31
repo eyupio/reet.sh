@@ -149,10 +149,10 @@ func InstallStaged(home, tool, version string, staged Staged) (Receipt, error) {
 	return receipt, nil
 }
 
-// Rollback makes the previous managed version current again. It verifies the
+// RollbackManaged makes the previous managed version current again. It verifies the
 // kept binary's full hash before recording it, and says so when there is no
 // previous reet-managed version.
-func Rollback(home, tool string) (Receipt, error) {
+func RollbackManaged(home, tool string) (Receipt, error) {
 	root, err := Root(home, tool)
 	if err != nil {
 		return Receipt{}, err

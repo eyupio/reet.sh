@@ -6,9 +6,9 @@ export type AttentionState = 'starting' | 'working' | 'quiet' | 'waiting' | 'fin
 export type AttentionSource = 'terminal' | 'chat'
 export type PendingPermission = { permissionId: string; title?: string; toolKind?: string; command?: string; path?: string; truncated?: boolean; queued?: number }
 export type SoftwareOperation = 'plan_install' | 'plan_update' | 'plan_remove'
-export type SoftwareEntry = { tool: string; state: 'installed' | 'missing' | 'unknown' | 'unsupported'; version?: string; manager?: string; package?: string; path?: string; platform?: string; arch?: string; source?: string; evidence?: string; managed?: boolean; operations?: SoftwareOperation[]; reason?: string; checkedAt: number }
-export type SoftwarePlan = { host: string; tool: string; action: 'install' | 'update' | 'remove'; state: 'ready' | 'noop'; package: string; current: string; target: string; source: string; command: string; steps: string[]; effects: string[]; executes: boolean; sentence: string; checkedAt: number }
-export type SoftwareApplyResult = { tool: string; action: 'install' | 'update'; state: 'applied' | 'refused' | 'failed'; version?: string; previous?: string; reason?: string; entry?: SoftwareEntry }
+export type SoftwareEntry = { tool: string; state: 'installed' | 'missing' | 'unknown' | 'unsupported'; version?: string; manager?: string; package?: string; path?: string; platform?: string; arch?: string; source?: string; evidence?: string; managed?: boolean; previous?: string; operations?: SoftwareOperation[]; reason?: string; checkedAt: number }
+export type SoftwarePlan = { host: string; tool: string; action: 'install' | 'update' | 'rollback' | 'remove'; state: 'ready' | 'noop'; package: string; current: string; target: string; source: string; command: string; steps: string[]; effects: string[]; executes: boolean; sentence: string; checkedAt: number }
+export type SoftwareApplyResult = { tool: string; action: 'install' | 'update' | 'rollback' | 'remove'; state: 'applied' | 'refused' | 'failed'; version?: string; previous?: string; reason?: string; entry?: SoftwareEntry }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission }
 export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpHistory?: boolean; shellDir?: boolean; attention?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
@@ -120,12 +120,12 @@ export async function allModels(tool: string, signal?: AbortSignal): Promise<All
   return (await terminalRequest(`/api/v2/models?${modelsQuery(tool)}`, { signal })).json()
 }
 /** A reviewable OpenCode maintenance plan from stored evidence. Nothing runs. */
-export async function machineSoftwarePlan(agentId: string, tool: string, action: 'install' | 'update' | 'remove', signal?: AbortSignal): Promise<SoftwarePlan> {
+export async function machineSoftwarePlan(agentId: string, tool: string, action: 'install' | 'update' | 'rollback' | 'remove', signal?: AbortSignal): Promise<SoftwarePlan> {
   const query = new URLSearchParams({ tool, action }).toString()
   return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/software/plan?${query}`, { signal })).json()
 }
 /** Apply one reviewed install or update. The controller re-checks the evidence and the connector verifies the artifact. */
-export async function applyMachineSoftware(agentId: string, tool: string, action: 'install' | 'update', signal?: AbortSignal): Promise<{ plan: SoftwarePlan; result: SoftwareApplyResult }> {
+export async function applyMachineSoftware(agentId: string, tool: string, action: 'install' | 'update' | 'rollback' | 'remove', signal?: AbortSignal): Promise<{ plan: SoftwarePlan; result: SoftwareApplyResult }> {
   return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/software/apply`, { method: 'POST', body: JSON.stringify({ tool, action }), signal })).json()
 }
 export type TerminalControllerStatus={configured:boolean;available:boolean;reason:string}

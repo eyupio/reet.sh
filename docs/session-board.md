@@ -40,9 +40,12 @@ their bodies. An account can hold 100 unlaunched items and 32 MB of saved JSON
 content, including base64 image encoding. Saved images are sent through the
 existing machine upload route when Start is pressed, and their machine paths
 are appended to the prompt. The complete launch prompt must fit the existing
-2,000-byte limit. Model suggestions come from the selected machine when it is
-available, with the existing catalogue as fallback. Effort follows the agent
-catalogue, rather than inventing unsupported CLI options.
+2,000-byte limit. Model and effort use the same shared picker as the launch bar:
+the machine's list, favourites, suggestions, `Other…`, and an honest status line,
+with effort offered only for an agent whose catalogue row takes it. The prompt
+also has **Use a skill**, which searches the account's shelf and inserts that
+skill's ready-to-run prompt at the caret. The inserted text is ordinary prompt
+text, so the person can edit it, add around it, or delete it.
 
 Start checks machine readiness, installed agents, image-upload capability, and
 project identity. The server freezes the launch parameters before dispatch and

@@ -9,6 +9,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/agentupdate"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
 
 func releaseFixture(t *testing.T, dev, latest string) *agentupdate.Checker {
@@ -24,7 +25,7 @@ func releaseFixture(t *testing.T, dev, latest string) *agentupdate.Checker {
 }
 
 func TestAgentBuildAndAutoUpdateVisibility(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +95,7 @@ func TestAgentBuildAndAutoUpdateVisibility(t *testing.T) {
 }
 
 func TestAutoUpdateLeavesNewerReleaseBuildsAlone(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +126,7 @@ func TestAutoUpdateLeavesNewerReleaseBuildsAlone(t *testing.T) {
 }
 
 func TestAnAgentNarratesItsUpdateAndARollbackSettlesIt(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

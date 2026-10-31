@@ -37,7 +37,10 @@ func DataDefault() string {
 	}
 	return filepath.Join(p, ".local", "share", "reet")
 }
-func binaryDefault() string { p, _ := os.UserHomeDir(); return filepath.Join(p, ".local", "bin") }
+func binaryDefault() string { return BinaryDefault() }
+
+// BinaryDefault is the CLI installation directory for a binary-mode install.
+func BinaryDefault() string { p, _ := os.UserHomeDir(); return filepath.Join(p, ".local", "bin") }
 func absolute(p string) (string, error) {
 	if p == "" {
 		return "", fmt.Errorf("path cannot be empty")

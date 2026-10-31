@@ -15,6 +15,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("scenario", choices=["trust", "cancel", "load", "model", "subagent", "subagent-nested"])
 parser.add_argument("--workspace", type=Path, required=True)
 parser.add_argument("--setting-sources", default="", help="comma list sent as _meta.claudeCode.options.settingSources; empty sends none")
+parser.add_argument("--drop", action="append", default=[], help="environment variable to remove from the adapter environment")
+parser.add_argument("--add", action="append", default=[], help="KEY=VALUE to add to the adapter environment")
 parser.add_argument("--node", default=shutil.which("node"))
 args = parser.parse_args()
 if args.node is None:
@@ -136,6 +138,12 @@ env_base = {
     "DISABLE_TELEMETRY": "1",
     "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false",
 }
+for key in args.drop:
+    env_base.pop(key, None)
+for pair in args.add:
+    key, _, value = pair.partition("=")
+    env_base[key] = value
+summary_env = sorted(env_base)
 entry = root / "claude/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
 
 
@@ -238,7 +246,7 @@ def prompt(agent, ident, native, text, timeout=60):
     return agent.call(ident, "session/prompt", {"sessionId": native, "prompt": [{"type": "text", "text": text}]}, timeout)
 
 
-summary = {"scenario": args.scenario}
+summary = {"scenario": args.scenario, "environmentKeys": summary_env, "dropped": args.drop}
 agents = []
 try:
     a = Agent("first", "allow")

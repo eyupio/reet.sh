@@ -63,7 +63,12 @@ response without an option list keeps the old behaviour. Test: `TestSetModelRepo
 showed no per-command approval request in any mode and a provider error disguised as
 `end_turn`; Codex stays disabled. See the probe report.
 
-**Next unchecked task:** Claude required-environment checks; for Codex, re-run with a working
+**Environment (local):** `acpagent.ClaudeCandidate` (unregistered) holds the measured launch profile:
+adapter command, name/version floor, `default` mode required, credential-only allowlist, no
+provider redirects, background traffic off, `ClaudeSessionMeta`. Not registered.
+
+**Next unchecked task:** Claude missing/real-credential behaviour and registering the profile behind the
+gates (descriptor + launch + history); for Codex, re-run with a working
 sandbox to see whether any approval request exists, and cancel on a running command; then SC3.
 
 ## SC2 — Structured adapter probe checkpoint (31 October 2026)

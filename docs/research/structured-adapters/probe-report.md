@@ -252,6 +252,26 @@ container has no `bwrap`, so the Codex sandbox could not be shown to be active.
   ("no longer supported"), and a bad user config kills the process during initialize.
   Codex also warns it will not create helper binaries under a temp directory.
 
+## Claude environment (observed)
+
+`probe-claude-lifecycle.py --drop VAR --add KEY=VAL` removes or adds adapter environment
+variables. With the loopback stub, removing any one of `XDG_CONFIG_HOME`, `XDG_DATA_HOME`,
+`XDG_CACHE_HOME`, `LANG`, `CLAUDE_CONFIG_DIR`, `ANTHROPIC_MODEL`,
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_AUTOUPDATER`, `DISABLE_TELEMETRY` or
+`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION` left the turn, approval card and file effect
+unchanged, and so did removing all ten together, or `PATH`, or `ANTHROPIC_API_KEY`
+(the stub does not check credentials, so a missing-credential error shape is **not**
+observed). `--version` prints `0.99.1` in about 0.1 s. `initialize` reports no
+`authMethods`. The adapter source (read, not run) handles `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK` and
+`CLAUDE_CODE_USE_VERTEX`, so those can redirect or replace the credential.
+`acpagent.ClaudeCandidate` (unregistered) therefore inherits only `ANTHROPIC_API_KEY` and
+`CLAUDE_CODE_OAUTH_TOKEN` on top of the infrastructure allowlist, never provider
+redirects or `CLAUDE_CONFIG_DIR`, sets the four background-traffic switches, requires the
+adapter's `default` (Manual) mode and carries `ClaudeSessionMeta`. Unverified: real
+login credentials under the real home, proxy variables, a missing-credential error,
+Bedrock/Vertex.
+
 ## Integration gates still open
 
 Claude remains disabled. Done in this checkpoint: the repository-hooks gate (`ClaudeSessionMeta`), adapter-aware UUID validation
@@ -260,8 +280,9 @@ Also done (local): `Session.Close` now kills the group and confirms no live memb
 (`GroupRetired`, zombie-aware on Linux), and a `think` permission shows the subagent type
 and bounded prompt in the command field, staying unapprovable without a prompt.
 Also done (local): `SetModel` reads the applied model back and refuses a silent reset;
-subagent cards are labelled. Still required before enabling Claude: required-environment
-checks and the SC3 question contract.
+subagent cards are labelled. Also done (local): the Claude environment profile (`ClaudeCandidate`). Still required before
+enabling Claude: a real-credential/missing-credential check, registering the profile behind
+the descriptor and launch gates, and the SC3 question contract.
 Keep question support disabled until the SC3 contract is implemented.
 
 For Codex, additionally establish whether a per-command approval exists with a working

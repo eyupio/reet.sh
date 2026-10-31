@@ -4,6 +4,7 @@ package acpagent
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -72,5 +73,32 @@ func TestSessionRequestMeta(t *testing.T) {
 	// The registered OpenCode profile is unchanged and Claude is not registered.
 	if _, ok := Lookup("claude"); ok || OpenCode.SessionMeta != nil {
 		t.Fatal("profiles changed")
+	}
+}
+
+func TestClaudeCandidateEnvironment(t *testing.T) {
+	env := agentEnvironment(ClaudeCandidate, "/home/u", []string{
+		"PATH=/bin", "HOME=/elsewhere", "LANG=C.UTF-8",
+		"ANTHROPIC_API_KEY=sk-ant-test", "CLAUDE_CODE_OAUTH_TOKEN=tok",
+		"ANTHROPIC_BASE_URL=https://evil.example", "ANTHROPIC_AUTH_TOKEN=x", "CLAUDE_CODE_USE_BEDROCK=1",
+		"CLAUDE_CODE_USE_VERTEX=1", "CLAUDE_CONFIG_DIR=/tmp/other", "ANTHROPIC_MODEL=x",
+		"OPENAI_API_KEY=sk-other", "SSH_AUTH_SOCK=/tmp/ssh", "GH_TOKEN=secret",
+	}, LaunchEnv{})
+	joined := "\n" + strings.Join(env, "\n") + "\n"
+	for _, bad := range []string{"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_", "CLAUDE_CONFIG_DIR", "ANTHROPIC_MODEL", "OPENAI_API_KEY", "SSH_AUTH_SOCK", "GH_TOKEN", "HOME=/elsewhere"} {
+		if strings.Contains(joined, bad) {
+			t.Fatalf("kept %s:\n%s", bad, joined)
+		}
+	}
+	for _, good := range []string{"\nHOME=/home/u\n", "\nANTHROPIC_API_KEY=sk-ant-test\n", "\nCLAUDE_CODE_OAUTH_TOKEN=tok\n", "\nDISABLE_TELEMETRY=1\n", "\nDISABLE_AUTOUPDATER=1\n"} {
+		if !strings.Contains(joined, good) {
+			t.Fatalf("missing %q:\n%s", good, joined)
+		}
+	}
+	if ClaudeCandidate.RequireMode != "default" || ClaudeCandidate.SessionMeta == nil {
+		t.Fatal("approval contract not pinned")
+	}
+	if _, registered := Lookup("claude"); registered {
+		t.Fatal("candidate must stay unregistered")
 	}
 }

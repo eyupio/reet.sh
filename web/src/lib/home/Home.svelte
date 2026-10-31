@@ -4,19 +4,18 @@
   import { createTerminal, folderProjectList, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { notStartedText, refusalText } from '../agentLaunch'
-  import { announceWaiting, attentionCount, fleetCards, handedProjects, reporting, inFlight, needsYou, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type GroupBy, type HomeSession, type NeedCard } from '../home'
+  import { announceWaiting, attentionCount, fleetCards, handedProjects, reporting, needsYou, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type HomeSession, type NeedCard } from '../home'
   import type { LaunchDefaults } from '../launchBar'
   import LaunchBar from '../launch/LaunchBar.svelte'
   import FleetStrip from './FleetStrip.svelte'
-  import InFlight from './InFlight.svelte'
+  import SessionBoard from './SessionBoard.svelte'
   import NeedsYou from './NeedsYou.svelte'
   import ProjectRailHost from './ProjectRailHost.svelte'
   import NewSessionDialog from './NewSessionDialog.svelte'
 
-  // Home on today's data. A writer in accounts mode gets the project rail, the fleet strip, In flight, Needs you and the docked
-  // launch bar; everyone else signed in gets the fleet strip alone (R16). Everything comes from the existing loaders and
-  // is read again every 15 seconds while the page is in view. A read that fails keeps what was last read and says so. Nothing
-  // about Projects, sessions or machines goes into browser storage; the one stored value is the Group by choice.
+  // Writers get the persistent session board, project rail and quick launch bar.
+  // SessionBoard owns backlog reads; these loaders supply sessions and the fleet.
+  // Both refresh every 15 seconds and retain the last successful read on failure.
   let { userId, writer, canAdd, accounts, moved = false, legacyProject = '', onsignedout, onattention }: {
     userId: number
     /** A writer in accounts mode: the full Home. Otherwise the read-only Home. */
@@ -36,17 +35,6 @@
   const POLL_MS = 15_000
   // The Machines page opens Add a machine (or the connect steps) when it arrives with this fragment.
   const machinesAt = (fragment: string) => `/machines#${fragment}`
-  const GROUPS: GroupBy[] = ['project', 'machine', 'state']
-  // svelte-ignore state_referenced_locally
-  const groupKey = `reet.home.groupBy.${userId}`
-  function storedGroup(): GroupBy {
-    try { const v = localStorage.getItem(groupKey); return GROUPS.includes(v as GroupBy) ? v as GroupBy : 'project' } catch { return 'project' }
-  }
-  let groupBy = $state<GroupBy>(storedGroup())
-  function choose(next: GroupBy) {
-    groupBy = next
-    try { localStorage.setItem(groupKey, next) } catch { /* the choice lasts for this page only */ }
-  }
 
   let health = $state<MachineHealth[] | undefined>()
   let sessions = $state<HomeSession[] | undefined>()
@@ -62,6 +50,7 @@
   // The account's choice for a session that ends: remove it from history too. Read with the launch defaults.
   let removeDefault = $state(false)
   let bar = $state<LaunchBar>()
+  let quickLaunch = $state(!!new URLSearchParams(location.search).get('project'))
   let now = $state(Date.now())
   let problem = $state('')
   let readOnce = false
@@ -71,10 +60,6 @@
   const emptySync: SyncState = { environments: [], targets: [], agents: [], jobs: [] }
   const cards = $derived(fleetCards(health ?? [], sessions ?? [], sync ?? emptySync, now, terminals ?? []))
   const owners = $derived(sessionOwners(sessions ?? [], projects ?? []))
-  const projectColours = $derived(new Map((projects ?? []).map(p => [p.id, p.colour])))
-  const groups = $derived(inFlight(sessions ?? [], owners, health ?? [], groupBy, now))
-  const shownMachines = $derived(new Set(groups.flatMap(g => g.sessions.map(s => s.agentId))))
-  const offline = $derived(cards.filter(c => !reporting(c) && shownMachines.has(c.agentId)).map(c => ({ agentId: c.agentId, host: c.name })))
   const running = $derived(projectRunning(sessions ?? []))
   const worktrees = $derived(projectWorktrees(sessions ?? []))
   const machineReporting = $derived(new Map(cards.map(c => [c.agentId, reporting(c)])))
@@ -173,7 +158,7 @@
   // marks the project the sentence names.
   // The project the launch bar names ('' for none: the home folder or several projects); null until the bar has a choice.
   let launchProject = $state<string | null>(null)
-  function chooseProject(project: FolderProject) { bar?.choose(project) }
+  function chooseProject(project: FolderProject) { quickLaunch = true; void tick().then(() => bar?.choose(project)) }
   // Select in the rail: the chosen projects, in rail order, are the launch bar's projects (Start in several projects). Only
   // this page holds them; nothing goes to browser storage. The Sessions screen (a tablet or phone, where the rail lives)
   // hands its choice over in the address, as project ids only (`/?projects=<id>,<id>`).
@@ -240,6 +225,7 @@
   function newProjectOn(card: FleetCard, opener: HTMLElement) { notice = null; void host?.openAdd(opener, card.agentId) }
   function startProjectNow(project: FolderProject) {
     chooser = null
+    quickLaunch = true
     if (!bar) { notice = { text: 'Home is still opening. Try again in a moment.', bad: true }; return }
     void bar.startProject(project)
   }
@@ -317,24 +303,30 @@
   {/if}
   <div class="column">
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
-    <FleetStrip {cards} sessions={writer && sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
-      onnew={writer ? newSessionOn : undefined} onproject={writer ? newProjectOn : undefined} onterminal={writer ? startTerminalOn : undefined} />
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
-      <div class="work">
-        <NeedsYou cards={needs} onseen={markSeen} onanswered={answered} />
-        <InFlight {groups} {owners} machines={health ?? []} {offline} {now} loaded={sessions !== undefined} failed={sessionsFailed} {groupBy} onchoose={choose} {projectColours}
-          terminals={terminals ?? []} {removeDefault} onchanged={() => load(true)} onnotice={(n) => (notice = n)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
-      </div>
+      <SessionBoard {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault}
+        onchanged={() => load(true)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
+      {#if needs.length}
+        <details class="home-detail attention-detail"><summary>Needs you <span>{needs.length}</span></summary><NeedsYou cards={needs} onseen={markSeen} onanswered={answered} /></details>
+      {/if}
+      <details class="home-detail"><summary>Your machines <span>{cards.filter(reporting).length} of {cards.length} connected</span></summary>
+        <FleetStrip {cards} sessions={sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
+          onnew={newSessionOn} onproject={newProjectOn} onterminal={startTerminalOn} />
+      </details>
       {#if chooser && writer}
         <NewSessionDialog host={chooser.card.name} agentId={chooser.card.agentId} machine={terminals?.find(m => m.agentId === chooser?.card.agentId)} machinesLoaded={terminals !== undefined} projects={projects ?? []}
           loaded={projects !== undefined} onproject={startProjectNow}
           onterminal={() => { const target = chooser; if (target) void startTerminalOn(target.card, target.opener) }}
           onclose={() => { const opener = chooser?.opener; chooser = null; opener?.focus() }} />
       {/if}
+      <details class="home-detail quick-launch" bind:open={quickLaunch}><summary>Quick launch <span>Start an agent now</span></summary>
       <LaunchBar bind:this={bar} {projects} {projectsFailed} machines={terminals} sessions={sessions} {profile} initialProject={chosen} selection={selecting ? selected : []}
         ready={projects !== undefined && (sessions !== undefined || sessionsFailed) && profileRead}
         onproject={(id) => (launchProject = id)} onstarted={started} onrun={() => void load(true)} onrundone={() => { if (selecting) setSelecting(false) }} onleavefailed={leaveFailed} onaddproject={openAdd} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
+      </details>
+    {:else}
+      <FleetStrip {cards} sessions={false} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined} />
     {/if}
   </div>
 </div>
@@ -353,19 +345,20 @@
   .problem { border-color: var(--warn); }
   .notice { border-color: var(--good); }
   .notice.bad { border-color: var(--bad); }
+  .home-detail { border-top: 1px solid var(--line); padding: 14px 0; }
+  .home-detail > summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--ink-soft); }
+  .home-detail > summary span { font-weight: 400; color: var(--muted); margin-left: 8px; font-size: 11px; }
+  .home-detail[open] > summary { margin-bottom: 14px; }
+  .attention-detail > summary { color: var(--warn); }
+  .quick-launch :global(.launch) { position: relative; bottom: auto; margin: 0; }
   /* The live regions are always present, so a sentence put into one is announced; empty, they take no room. */
   .live:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
-  .work { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
-  .work > :global(.needs) { grid-column: 2; grid-row: 1; }
-  .work > :global(.flight) { grid-column: 1; grid-row: 1; }
 
   @media (max-width: 1239px) { .home.writer { grid-template-columns: 56px minmax(0, 1fr); } }
   /* Tablet: machines, Needs you, then In flight, one column; the project rail is on the Sessions screen. */
   @media (max-width: 1099px) {
     .home { font-size: 15px; --top: 65px; }
     .home.writer { grid-template-columns: minmax(0, 1fr); }
-    .work { grid-template-columns: minmax(0, 1fr); }
-    .work > :global(.needs), .work > :global(.flight) { grid-column: 1; grid-row: auto; }
   }
   /* Phone: one column with 16 px gutters; the launch bar sits above the tab bar. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {

@@ -89,6 +89,8 @@ type server struct {
 	// Folder-project writes per account (folder_projects.go).
 	folderWritesMu sync.Mutex
 	folderWrites   *auth.Limiter
+	// Bounded lock stripes serialize start/recovery of one backlog request.
+	backlogStarts [64]sync.Mutex
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -406,6 +408,7 @@ func (s *server) routes() http.Handler {
 	s.registerModelRoutes(mux)
 	s.registerProjectRoutes(mux)
 	s.registerFolderProjectRoutes(mux)
+	s.registerSessionBacklogRoutes(mux)
 	s.registerProjectRunRoutes(mux)
 	mux.HandleFunc("GET /quick", s.requireWriter(s.quick))
 	return mux

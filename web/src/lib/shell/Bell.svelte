@@ -62,9 +62,12 @@
             <span class="kind {card.tone}">{card.label} · {card.age}</span>
             <span class="title">{card.title}</span>
             {#if card.where}<span class="where">{card.where}</span>{/if}
+            {#if card.question && !card.approval}
+              <span class="ask">{card.question.message}{#if card.question.queued > 0}<span class="more"> · {card.question.queued} more waiting</span>{/if}</span>
+            {/if}
             {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} compact />{/if}
             <div class="actions">
-              <a class="btn open" href={card.href} onclick={() => { close(); void onseen?.(card.sessionId) }}>Open</a>
+              <a class="btn open" href={card.href} onclick={() => { close(); void onseen?.(card.sessionId) }}>{card.question && !card.approval ? 'Answer in chat' : 'Open'}</a>
               {#if card.markSeen}
                 <button type="button" class="btn seen" onclick={() => void onseen?.(card.sessionId)}>Mark seen</button>
               {/if}
@@ -106,6 +109,8 @@
   .kind.warn { color: var(--warn); }
   .kind.bad { color: var(--bad); }
   .kind.good { color: var(--good); }
+  .ask { font-size: 12px; color: var(--ink); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .ask .more { color: var(--muted); }
   .title { font-size: 13px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
   .where { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
   .actions { display: flex; align-items: center; gap: 8px; margin-top: 2px; }

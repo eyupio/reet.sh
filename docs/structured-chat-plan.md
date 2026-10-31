@@ -162,8 +162,9 @@ the feature gate, and the concurrent-tab, replay and phone-width browser fixture
 ### SC3 progress: the chat card (31 October 2026)
 
 Done in the browser: the `question` card in the chat view (reducer, draft checks, answer call, accessible controls,
-decided summary), covered by `chat.test.mjs` and `chat.e2e.mjs`. Still not done: the Needs-you summary and the broker
-queue entry behind it, questions asked before the session exists, the concurrent-tab and old-peer fixtures, and the
+decided summary), covered by `chat.test.mjs` and `chat.e2e.mjs`. Also done: the Needs-you summary (the broker keeps a bounded
+queue of open questions and publishes the first, truncated, with a count of the rest; Home and the bell show it with
+"Answer in chat"). Still not done: questions asked before the session exists, the concurrent-tab and old-peer fixtures, and the
 touch-device and screen-reader checks. Nothing sends a question yet.
 
 ## SC4 — Integrate the second adapter

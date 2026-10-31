@@ -486,6 +486,43 @@ try {
   await context.close()
  }
 
+ // A waiting chat with a typed question shows what was asked and sends the person to the chat to answer it: the card has
+ // no inline answer, because a question needs its whole card. An approval, when both wait, is still answered first.
+ if (run('Needs you questions: a preview and Answer in chat')) {
+  const {context,page,errors,box} = await home()
+  box.sessions = [
+   session('q1','a1','Fix the build','running',{structured:true,attention:'waiting',attentionSource:'chat',bellAt:now-MIN,changedSinceSeen:true,pendingQuestion:{questionId:'question-aaaa00000001',message:'Which approach should I take for the failing build?',queued:1}}),
+   session('q2','a1','Rewrite the docs','running',{structured:true,attention:'waiting',attentionSource:'chat',bellAt:now-2*MIN,changedSinceSeen:true,pendingQuestion:{questionId:'question-bbbb00000002',message:'x'.repeat(240)+'…',truncated:true}}),
+   session('c3','a1','Run the tests','running',{structured:true,attention:'waiting',attentionSource:'chat',bellAt:now-3*MIN,changedSinceSeen:true,pendingPermission:{permissionId:'perm-cccc00000003',title:'go test',command:'go test ./...'},pendingQuestion:{questionId:'question-cccc00000003',message:'And this one?'}}),
+  ]
+  await page.goto(base)
+  await expect(needs(page).locator('.card')).toHaveCount(3)
+  const first = needs(page).locator('.card',{hasText:'Fix the build'})
+  await expect(first).toContainText('Question for you')
+  await expect(first).toContainText('Which approach should I take for the failing build?')
+  await expect(first).toContainText('1 more waiting')
+  await expect(first.getByRole('button',{name:'Allow once'})).toHaveCount(0)
+  const answer = first.getByRole('link',{name:'Answer in chat',exact:true})
+  await expect(answer).toHaveAttribute('href',/session=q1/)
+  // A long question is bounded so the card stays one card, not a page.
+  const long = needs(page).locator('.card',{hasText:'Rewrite the docs'})
+  expect((await long.locator('.ask').boundingBox()).height).toBeLessThan(120)
+  // When an approval waits too it is answered first, and the card says so by keeping its usual label and Open link.
+  const both = needs(page).locator('.card',{hasText:'Run the tests'})
+  await expect(both).toContainText('Waiting for you')
+  await expect(both.getByRole('button',{name:'Allow once'})).toBeEnabled()
+  await expect(both.getByRole('link',{name:'Open',exact:true})).toBeVisible()
+  // The bell carries the same summaries.
+  await page.getByRole('button',{name:'Needs you: 3',exact:true}).click()
+  const pop = page.getByRole('banner').getByRole('region',{name:'Needs you'})
+  await expect(pop.getByRole('link',{name:'Answer in chat',exact:true})).toHaveCount(2)
+  await page.keyboard.press('Escape')
+  await answer.click()
+  await expect(page).toHaveURL(/session=q1/)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // The rail lists the folder projects: repository diamond or folder icon, name, machine tag, base branch, state in words and
  // worktrees in use. Choosing a card puts that project in the launch bar's sentence and moves to the prompt; the card menu
  // has New session here, Edit, Worktrees, Move up and down, and Remove from reet (confirmed).

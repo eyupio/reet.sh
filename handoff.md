@@ -47,8 +47,29 @@ gofmt, `py_compile`, and a real run of every scenario against the pinned adapter
 the loopback stub. The full race suite, web checks and browser fixtures were not re-run:
 no web or protocol-shape change. No real provider, phone or other OS.
 
-**Next unchecked task:** launch profile that disables repository hooks (or a trust
-prompt), group-wide retirement with SIGKILL escalation, a `think` card, then Codex probes.
+**Hooks gate (local, not pushed):** `Spec.SessionMeta` is sent as `_meta` on session/new and
+session/load; `ClaudeSessionMeta` pins `settingSources` to `["user"]`, verified to stop a
+repository hook while approvals still appear. No Claude profile is registered yet.
+
+**Also local:** `retireGroup`/`GroupRetired` (group SIGKILL, confirmed via /proc, zombie-aware) and
+the `think` subagent card (`subagentSummary`). Tests: group_test.go, session_test.go.
+
+**Also local:** `Session.SetModel` reads the model option back from `session/set_config_option`
+and returns `ErrModel` (recording the real value) when the agent reports a different one; a
+response without an option list keeps the old behaviour. Test: `TestSetModelReportsAppliedState`.
+
+**Subagents and Codex (local):** nested subagent calls raise their own approval with a
+`parentToolUseId`; reet labels them "Subagent:". Codex probe (`scripts/probe-codex-turn.py`)
+showed no per-command approval request in any mode and a provider error disguised as
+`end_turn`; Codex stays disabled. See the probe report.
+
+**Environment (local):** `acpagent.ClaudeCandidate` (unregistered) holds the measured launch profile:
+adapter command, name/version floor, `default` mode required, credential-only allowlist, no
+provider redirects, background traffic off, `ClaudeSessionMeta`. Not registered.
+
+**Next unchecked task:** Claude missing/real-credential behaviour and registering the profile behind the
+gates (descriptor + launch + history); for Codex, re-run with a working
+sandbox to see whether any approval request exists, and cancel on a running command; then SC3.
 
 ## SC2 — Structured adapter probe checkpoint (31 October 2026)
 

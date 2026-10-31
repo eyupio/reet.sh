@@ -93,6 +93,11 @@ func TestFakeACP(t *testing.T) {
 			_ = json.Unmarshal(message.Params, &params)
 			if params.ConfigID != "model" || params.SessionID != session || params.Value == "reject" {
 				send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32602, "message": "invalid model"}})
+			} else if params.Value == "silently-reset" {
+				// The Claude adapter accepts an unknown model and resets to default.
+				reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "model", "currentValue": "default"}}})
+			} else if params.Value == "echo-list" {
+				reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": "build"}, {"id": "model", "currentValue": "echo-list"}}})
 			} else {
 				reply(message.ID, map[string]any{})
 			}
@@ -947,5 +952,76 @@ func TestTypedDiffRefusesUnusableAndBounds(t *testing.T) {
 	diff, _, truncated, _ = typedDiff([]permissionContent{{Type: "diff", Path: "/x", NewText: &one}})
 	if !truncated || len(diff) > maxDiffBytes+4 {
 		t.Fatalf("single line bound: %v %d", truncated, len(diff))
+	}
+}
+
+func TestCloseConfirmsGroupRetired(t *testing.T) {
+	opts, _ := options(t, "permission", testVersion)
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.GroupRetired() {
+		t.Fatal("retired before Close")
+	}
+	session.Close()
+	if !session.GroupRetired() {
+		t.Fatal("Close did not confirm the group gone")
+	}
+}
+
+func TestSubagentSummary(t *testing.T) {
+	text, cut := subagentSummary("general-purpose", "Do the thing")
+	if text != "[general-purpose] Do the thing" || cut {
+		t.Fatalf("summary %q %v", text, cut)
+	}
+	if text, _ := subagentSummary("x", "  \n"); text != "" {
+		t.Fatalf("blank prompt reviewable: %q", text)
+	}
+	text, cut = subagentSummary("", strings.Repeat("p", maxDiffBytes*2))
+	if !cut || len(text) > maxDiffBytes {
+		t.Fatalf("bound %v %d", cut, len(text))
+	}
+	var params permissionParams
+	raw := `{"toolCall":{"kind":"think","title":"probe","rawInput":{"description":"probe","prompt":"Do nothing","subagent_type":"general-purpose"}}}`
+	if err := json.Unmarshal([]byte(raw), &params); err != nil || params.ToolCall.RawInput.Prompt != "Do nothing" || params.ToolCall.RawInput.SubagentType != "general-purpose" {
+		t.Fatalf("decode %+v %v", params, err)
+	}
+}
+
+func TestSetModelReportsAppliedState(t *testing.T) {
+	opts, _ := options(t, "permission", testVersion)
+	s, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.SetModel(context.Background(), "echo-list"); err != nil || s.Model() != "echo-list" {
+		t.Fatalf("acknowledged model: %v %q", err, s.Model())
+	}
+	if err := s.SetModel(context.Background(), "silently-reset"); !errors.Is(err, ErrModel) || s.Model() != "default" {
+		t.Fatalf("silent reset: %v %q", err, s.Model())
+	}
+}
+
+func TestSubagentPermissionCarriesParentLink(t *testing.T) {
+	// Shape captured from the nested subagent probe.
+	const raw = `{"sessionId":"s","toolCall":{"toolCallId":"toolu_child","kind":"execute","title":"printf nested",
+		"_meta":{"claudeCode":{"toolName":"Bash","parentToolUseId":"toolu_probe"}},"rawInput":{"command":"printf nested"}}}`
+	var params permissionParams
+	if err := json.Unmarshal([]byte(raw), &params); err != nil || params.ToolCall.Meta.ClaudeCode.ParentToolUseID != "toolu_probe" {
+		t.Fatalf("decode %+v %v", params, err)
+	}
+}
+
+func TestPermissionTitle(t *testing.T) {
+	for _, tc := range []struct{ title, parent, want string }{
+		{"ls", "", "ls"},
+		{"", "", "Claude Code tool call"},
+		{"ls", "toolu_1", "Subagent: ls"},
+	} {
+		if got := permissionTitle(tc.title, tc.parent, "Claude Code"); got != tc.want {
+			t.Fatalf("%+v -> %q", tc, got)
+		}
 	}
 }

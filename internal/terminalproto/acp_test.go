@@ -17,7 +17,7 @@ func TestACPBodiesRoundTrip(t *testing.T) {
 		"cancel":           &ACPCancel{},
 		"permission":       &ACPPermission{PermissionID: "permission-0123456789", Allow: true},
 		"agent":            &ACPEvent{Kind: "agent", MessageID: "msg_1", Text: "hello"},
-		"tool":             &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Status: "in_progress", Text: "done", Locations: []string{"/home/u/a"}},
+		"tool":             &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Status: "completed", Text: "done", Command: "echo ok", Path: "/home/u/a", Diff: "@@ -1 +1 @@\n-a\n+b", Additions: 1, Deletions: 1, DurationMs: 12, Locations: []string{"/home/u/a"}},
 		"permission event": &ACPEvent{Kind: "permission", PermissionID: "permission-0123456789", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Command: "echo ok", Path: "/home/u/a", Diff: "@@ -0,0 +1 @@\n+x", Truncated: false},
 		"resolved":         &ACPEvent{Kind: "permission_resolved", PermissionID: "permission-0123456789", Allow: &allow},
 		"cancelled":        &ACPEvent{Kind: "permission_cancelled", PermissionID: "permission-0123456789", Reason: "timeout"},
@@ -38,14 +38,17 @@ func TestACPBodiesRoundTrip(t *testing.T) {
 func TestACPRejectsUnboundedOrUnknownBodies(t *testing.T) {
 	tooLong := strings.Repeat("a", MaxChatPromptBytes+1)
 	for name, body := range map[string]Body{
-		"empty prompt":     &ACPPrompt{Text: " "},
-		"long prompt":      &ACPPrompt{Text: tooLong},
-		"nul prompt":       &ACPPrompt{Text: "a\x00b"},
-		"unknown event":    &ACPEvent{Kind: "raw"},
-		"agent no id":      &ACPEvent{Kind: "agent", Text: "x"},
-		"permission empty": &ACPEvent{Kind: "permission", PermissionID: "permission-0123456789"},
-		"bad status":       &ACPEvent{Kind: "status", State: "nope"},
-		"bad permission":   &ACPPermission{PermissionID: "x"},
+		"empty prompt":       &ACPPrompt{Text: " "},
+		"long prompt":        &ACPPrompt{Text: tooLong},
+		"nul prompt":         &ACPPrompt{Text: "a\x00b"},
+		"unknown event":      &ACPEvent{Kind: "raw"},
+		"agent no id":        &ACPEvent{Kind: "agent", Text: "x"},
+		"permission empty":   &ACPEvent{Kind: "permission", PermissionID: "permission-0123456789"},
+		"bad status":         &ACPEvent{Kind: "status", State: "nope"},
+		"bad permission":     &ACPPermission{PermissionID: "x"},
+		"negative additions": &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Additions: -1},
+		"negative duration":  &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", DurationMs: -1},
+		"long tool diff":     &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Diff: strings.Repeat("d", 9<<10+1)},
 	} {
 		if _, err := Encode(acpMessage(body)); err == nil {
 			t.Errorf("%s accepted", name)

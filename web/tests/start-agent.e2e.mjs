@@ -489,7 +489,23 @@ try{
  const add=page.getByRole('dialog',{name:'Add a machine',exact:true})
  await expect(add).toBeVisible()
  await expect(dialog()).toHaveCount(0)
+ // The name field's suggestions open by themselves as it is focused; until the person uses them, Escape must still
+ // reach the dialog. Once they have typed, the first Escape closes only the list and the second closes the dialog.
+ await add.getByRole('textbox',{name:'Machine name'}).fill('dev')
+ await expect(page.locator('.cbx-list')).toBeVisible()
  await page.keyboard.press('Escape')
+ await expect(page.locator('.cbx-list')).toHaveCount(0)
+ await expect(add).toBeVisible()
+ await page.keyboard.press('Escape')
+ await expect(add).toHaveCount(0)
+ await expect(cardEntry('dev-laptop')).toBeFocused()
+ // Opened again untouched, one Escape closes both the suggestions and the dialog.
+ await cardEntry('dev-laptop').click()
+ await parts(dialog()).notListed.click()
+ await expect(add).toBeVisible()
+ await expect(page.locator('.cbx-list')).toBeVisible()
+ await page.keyboard.press('Escape')
+ await expect(add).toHaveCount(0)
  await expect(cardEntry('dev-laptop')).toBeFocused()
  // The simplest start: only the tool is sent, and the Terminals page opens on the new session.
  await cardEntry('dev-laptop').click()

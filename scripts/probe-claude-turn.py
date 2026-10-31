@@ -261,6 +261,18 @@ def request(identifier, method, params):
                             }
                         )
                     elif m["method"] == "session/request_permission":
+                        raw = m["params"].get("toolCall", {}).get("rawInput", {})
+                        expected = (
+                            args.tool == "Bash" and raw.get("command") == command
+                        ) or (
+                            args.tool == "Write"
+                            and raw.get("file_path") == str(marker)
+                            and raw.get("content") == "reet-probe"
+                        )
+                        if not expected:
+                            raise RuntimeError(
+                                "unexpected permission request; refusing to approve it"
+                            )
                         desired = (
                             "allow_once" if args.decision == "allow" else "reject_once"
                         )

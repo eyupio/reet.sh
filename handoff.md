@@ -58,9 +58,10 @@ stub probes. Read `scripts/probe-structured-adapters.py`,
 `scripts/probe-claude-turn.py`, the report, `internal/acpagent/session.go` and
 `internal/terminalproto/acp_agents.go`.
 
-**Publication:** separate PR proposed; nothing merged, released or deployed.
-This handoff must be updated with the PR link, checks and remaining gates when
-publishing or extending the checkpoint.
+**Publication:** [PR #301](https://github.com/eyupio/reet.sh/pull/301) is open
+against `feat/structured-agent-capabilities`, checkpoint commit `76941ec`.
+Retarget to main after #300 merges. Nothing merged, released or deployed.
+Keep this handoff current with subsequent checks and remaining integration gates.
 
 ## SC1 — Per-agent structured chat capabilities (31 October 2026)
 

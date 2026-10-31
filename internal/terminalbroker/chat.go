@@ -64,13 +64,19 @@ type ChatEvent struct {
 }
 
 type chatLog struct {
-	mu        sync.Mutex
-	events    []ChatEvent
-	seq       int64
-	bytes     int
-	truncated bool
-	subs      map[int]chan ChatEvent
-	nextSub   int
+	mu          sync.Mutex
+	events      []ChatEvent
+	seq         int64
+	bytes       int
+	truncated   bool
+	subs        map[int]chan ChatEvent
+	nextSub     int
+	running     bool
+	pending     map[string]struct{}
+	waitingAt   int64
+	updatedAt   int64
+	completedAt int64
+	lastState   string
 }
 
 const (
@@ -79,15 +85,120 @@ const (
 	maxChatSubs   = 32
 )
 
-func newChatLog() *chatLog { return &chatLog{subs: map[int]chan ChatEvent{}} }
+func newChatLog() *chatLog {
+	return &chatLog{subs: map[int]chan ChatEvent{}, pending: map[string]struct{}{}}
+}
 
 func (l *chatLog) publish(event terminalproto.ACPEvent) {
 	data, err := json.Marshal(event)
 	if err != nil || len(data) > maxChatBytes {
 		return
 	}
+	nowMs := time.Now().UnixMilli()
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.updatedAt = nowMs
+	switch event.Kind {
+	case "user":
+		l.updatedAt = nowMs
+		l.completedAt = 0
+		l.running = true
+		l.lastState = "working"
+	case "status":
+		switch event.State {
+		case "starting":
+			l.running = false
+			l.lastState = "starting"
+			l.completedAt = 0
+		case "working":
+			l.running = true
+			if len(l.pending) == 0 {
+				l.lastState = "working"
+			}
+			l.completedAt = 0
+		case "waiting":
+			l.running = true
+			l.lastState = "waiting"
+			if l.waitingAt == 0 {
+				l.waitingAt = nowMs
+			}
+		case "idle":
+			wasRunning := l.running
+			l.running = false
+			clear(l.pending)
+			l.waitingAt = 0
+			if wasRunning || l.lastState == "working" || l.lastState == "waiting" {
+				l.lastState = "finished"
+				if l.completedAt == 0 {
+					l.completedAt = nowMs
+				}
+			} else if l.lastState == "finished" {
+				// preserve existing completion
+			} else if l.lastState == "" || l.lastState == "starting" {
+				l.lastState = "quiet"
+			}
+		case "cancelled":
+			l.running = false
+			clear(l.pending)
+			l.waitingAt = 0
+			l.lastState = "quiet"
+		case "error":
+			l.running = false
+			clear(l.pending)
+			l.waitingAt = 0
+			l.lastState = "failed"
+			if l.completedAt == 0 {
+				l.completedAt = nowMs
+			}
+		case "ended":
+			l.running = false
+			clear(l.pending)
+			l.waitingAt = 0
+			if l.lastState != "failed" {
+				l.lastState = "finished"
+				if l.completedAt == 0 {
+					l.completedAt = nowMs
+				}
+			}
+		}
+	case "permission":
+		if event.PermissionID != "" {
+			_, exists := l.pending[event.PermissionID]
+			hadPending := len(l.pending) > 0
+			l.pending[event.PermissionID] = struct{}{}
+			if l.waitingAt == 0 || (!exists && hadPending) {
+				l.waitingAt = nowMs
+			}
+			l.lastState = "waiting"
+		}
+	case "permission_resolved", "permission_cancelled":
+		if event.PermissionID != "" {
+			delete(l.pending, event.PermissionID)
+			if len(l.pending) == 0 {
+				l.waitingAt = 0
+				if l.lastState == "waiting" {
+					if l.running {
+						l.lastState = "working"
+					} else {
+						l.lastState = "quiet"
+					}
+				}
+			}
+		}
+	}
+	if event.Kind == "permission" && event.PermissionID != "" {
+		for i := range l.events {
+			if l.events[i].Kind == "permission" && l.events[i].PermissionID == event.PermissionID {
+				return
+			}
+		}
+	}
+	if event.Kind == "status" && len(l.events) > 0 {
+		last := l.events[len(l.events)-1]
+		if last.Kind == "status" && last.State == event.State && last.Detail == event.Detail {
+			return
+		}
+	}
 	l.seq++
 	l.events = append(l.events, ChatEvent{Seq: l.seq, ACPEvent: event})
 	l.bytes += len(data)
@@ -105,6 +216,76 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 			delete(l.subs, id)
 			close(ch)
 		}
+	}
+}
+
+// ApplyChatAttention overlays live structured-chat attention state onto a
+// session record when the session is a structured OpenCode chat.
+func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
+	if s == nil || !s.Structured {
+		return
+	}
+	s.AttentionSource = "chat"
+	var l *chatLog
+	if s.State.ReservesQuota() {
+		l = b.restoreChat(uid, *s)
+	} else {
+		b.mu.Lock()
+		l = b.chats[chatKey{uid, s.ID}]
+		b.mu.Unlock()
+	}
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if (len(l.pending) > 0 || l.lastState == "waiting") && s.State == terminalproto.Running {
+		s.Attention = "waiting"
+		if l.waitingAt > s.BellAt {
+			s.BellAt = l.waitingAt
+		}
+		if s.BellAt > 0 {
+			s.ChangedSinceSeen = s.BellAt > s.SeenAt
+		} else {
+			s.ChangedSinceSeen = true
+		}
+		return
+	}
+	if l.running && s.State == terminalproto.Running {
+		s.Attention = "working"
+		if l.updatedAt > s.ActivityAt {
+			s.ActivityAt = l.updatedAt
+		}
+		return
+	}
+	if l.lastState == "failed" {
+		s.Attention = "failed"
+		at := l.completedAt
+		if at == 0 {
+			at = s.UpdatedAt
+		}
+		s.UpdatedAt = at
+		s.ChangedSinceSeen = at > s.SeenAt
+		return
+	}
+	if l.lastState == "finished" {
+		at := l.completedAt
+		if at == 0 {
+			at = s.UpdatedAt
+		}
+		s.UpdatedAt = at
+		if s.State == terminalproto.Running && at <= s.SeenAt {
+			s.Attention = "quiet"
+			s.ChangedSinceSeen = false
+			return
+		}
+		s.Attention = "finished"
+		s.ChangedSinceSeen = at > s.SeenAt
+		return
+	}
+	if s.State == terminalproto.Running {
+		s.Attention = "quiet"
+		s.ChangedSinceSeen = false
 	}
 }
 
@@ -162,12 +343,79 @@ func (b *Broker) chatLog(uid int64, session string) *chatLog {
 	return l
 }
 
+func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
+	if !s.Structured {
+		return nil
+	}
+	l := b.chatLog(uid, s.ID)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.seq == 0 {
+		if s.BellAt > 0 && l.waitingAt == 0 {
+			l.waitingAt = s.BellAt
+			l.lastState = "waiting"
+			l.running = true
+			if s.ActivityAt > l.updatedAt {
+				l.updatedAt = s.ActivityAt
+			}
+			if s.BellAt > l.updatedAt {
+				l.updatedAt = s.BellAt
+			}
+		} else if s.ChatStatus == "finished" {
+			l.lastState = "finished"
+			l.completedAt = s.CompletedAt
+			l.updatedAt = s.CompletedAt
+			l.running = false
+		} else if s.ChatStatus == "failed" {
+			l.lastState = "failed"
+			l.completedAt = s.CompletedAt
+			l.updatedAt = s.CompletedAt
+			l.running = false
+		} else if s.ChatStatus == "working" {
+			l.lastState = "working"
+			l.running = true
+			if s.ActivityAt > 0 {
+				l.updatedAt = s.ActivityAt
+			}
+		} else if s.ActivityAt > 0 && l.lastState == "" {
+			l.updatedAt = s.ActivityAt
+			if time.Since(time.UnixMilli(s.ActivityAt)) <= 30*time.Second {
+				l.running = true
+				l.lastState = "working"
+			}
+		}
+	}
+	return l
+}
+
+func (b *Broker) restoreAgentChats(uid int64, agent string) {
+	if b.st == nil {
+		return
+	}
+	sessions, err := b.st.TerminalSessionsFor(uid)
+	if err != nil {
+		return
+	}
+	for _, s := range sessions {
+		if s.AgentID == agent && s.Structured && s.State.ReservesQuota() {
+			b.restoreChat(uid, s)
+		}
+	}
+}
+
 func (b *Broker) publishChat(uid int64, session string, event terminalproto.ACPEvent) {
 	b.mu.Lock()
 	l := b.chats[chatKey{uid, session}]
 	b.mu.Unlock()
 	if l != nil {
 		l.publish(event)
+		if b.st != nil && (event.Kind == "status" || event.Kind == "permission" || event.Kind == "permission_resolved" || event.Kind == "permission_cancelled" || event.Kind == "user") {
+			l.mu.Lock()
+			actAt, waitAt := l.updatedAt, l.waitingAt
+			st, compAt := l.lastState, l.completedAt
+			l.mu.Unlock()
+			_ = b.st.SetTerminalChatAttentionFor(uid, session, actAt, waitAt, st, compAt)
+		}
 	}
 	if event.Kind == "permission_resolved" && event.Allow != nil && *event.Allow {
 		if s, err := b.st.TerminalSessionFor(uid, session); err == nil && s.Yolo {

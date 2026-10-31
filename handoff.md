@@ -42,42 +42,29 @@ control room. The planned terminal-interface slices are complete; install, agent
 
 ## Agents home redesign (27–30 October 2026)
 
-### Resume here (after YOLO, 30 October 2026)
+### Resume here (Needs you / PR G, 30 October 2026)
 
-**#266 (YOLO audit follow-up) merged as `99b3fd0`; #264 (YOLO sessions) as `9cf82f4`;
+**#270 (reet TUI model choice and provider error recovery) merged as `1717b7a`;
+#266 (YOLO audit follow-up) as `99b3fd0`; #264 (YOLO sessions) as `9cf82f4`;
 #261 (reet TUI naming and terminal views) as `329f978`; #260 (Home reet TUI) as `2b35802`;
 #258 (reet TUI history, continue, images) as `2ee12f6`; #256 (OpenCode in the reet TUI) as `7555da2`;
 #255 (models UI) as `32866ad`; #252 as `3be0eaf`; #247 as `16da0bb`; #245 as `1371cb5`;
 #242 as `961d530`; #231 as `7886511`.**
 
-- **Branch and PR:** [#270](https://github.com/eyupio/reet.sh/pull/270) is open for the reet TUI model choice and
-  provider-error recovery (`fix/reet-tui-model-and-provider-errors`). F shipped: the account's Allow YOLO setting (`GET`/`PUT
+- **Branch and PR:** [#269](https://github.com/eyupio/reet.sh/pull/269) on `ccr-attention` implements PR G (`attention-v1`
+  terminal activity and bell reporting, per-person `terminal_session_seen` store and `POST /api/v2/terminal/sessions/{id}/seen`,
+  attention derivation for both `attention-v1` terminal sessions and structured reet TUI sessions, recovering completed-turn
+  attention across controller restarts, Home's **Needs you** queue, the bell popover, `(N)` document title prefix, polite
+  live-region announcements, and Codex's YOLO preset updated to `--ask-for-approval never`).
+- **Merged PR:** [#270](https://github.com/eyupio/reet.sh/pull/270) added reet TUI model choice and provider-error
+  recovery. OpenCode's `stream error` log is surfaced when a provider rejects a model, and the shared model picker lets a
+  reet TUI session use a selected model while preserving OpenCode's configured default. F shipped: the account's Allow YOLO setting (`GET`/`PUT
   /api/v2/settings/yolo`, owners and admins change it), the machine's `reet terminal yolo
   on|off|status` switch and `yolo` capability, reviewed options for Codex/OpenCode/Cline, controller
   gates and audit, structured `allow_once` answers, the confirmation dialog and badges. #266 fixed the
   launch audit on a mismatched worktree and kept generic machine refusals from counting as started.
-- **ACP provider errors — [#270](https://github.com/eyupio/reet.sh/pull/270) (30 October 2026):** OpenCode 1.19.5 can leave a
-  silent turn when its provider rejects the configured model (for example the free-model usage limit);
-  the adapter writes the error to its log but never sends it over ACP. The silence watchdog now reads
-  the newest matching `stream error` line for the session and stops the turn with that error instead of
-  showing only "still working" until the ten-minute deadline. Files: `internal/acpagent/spec.go`
-  (`RecoverLive`), `opencode.go` (log reader), `session.go` (watchdog and cancellation), both test files
-  and `docs/structured-sessions.md`. Checks: `go test ./internal/acpagent ./internal/terminalagent
-  ./internal/terminalbroker` and `-race` on the first two.
-- **reet TUI model choice — [#270](https://github.com/eyupio/reet.sh/pull/270) (30 October 2026):** Home's sentence and
-  **Start an agent** now show the shared Model picker for a reet TUI chat. **Agent default** sends
-  nothing and keeps OpenCode's configured model; a chosen model is sent in the create and must match
-  the model OpenCode reports after `session/new`. Continue in reet TUI carries the model recorded on
-  the closed session. Thinking remains OpenCode's own. Files: `web/src/lib/launchBar.ts`,
-  `web/src/lib/launch/LaunchBar.svelte`, `web/src/lib/StartAgentDialog.svelte`,
-  `web/src/lib/sessions.ts`, their tests and `web/tests/{launch,chat}.e2e.mjs`; docs and
-  `docs/ui-verification.md`. Checks: `npm --prefix web run check`, `npm --prefix web run build`,
-  `launch.e2e.mjs`, `chat.e2e.mjs`, `start-agent.e2e.mjs`.
-- **Next stage:** G (Needs you) is the next roadmap item. Other Program 2 slices still need their own
-  probes; model work is done.
-- **Before G:** change Codex's YOLO option from `--dangerously-bypass-approvals-and-sandbox` to
-  `--ask-for-approval never`, keeping Codex's own sandbox as the research and the note below require,
-  then update the catalogue test.
+- **Next stage:** other Program 2 slices still need their own probes; Agents home PRs D, A, B, C, E, F, G, H are
+  implemented, with G on this branch.
 - **Do first:** for the next PR, check its final head with the REST forms
   (`gh api repos/eyupio/reet.sh/pulls/<n>` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
   `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). Merge only when every check is green and Codex has
@@ -96,7 +83,7 @@ them in `docs/ui-verification.md`). The plan is
 [docs/superpowers/plans/2026-10-26-agents-home.md](docs/superpowers/plans/2026-10-26-agents-home.md); the **rulings R1–R22**
 are binding and live in the spec's [Rulings](docs/superpowers/specs/2026-10-26-agents-home-design.md#rulings) section.
 **Quicker plan, agreed 27 October 2026:** the fidelity polish (P) was folded into C and E, YOLO (F) and attention (G) were
-left out of the first pass, and the Program 2 spike ran in parallel. F shipped in #264/#266; G is next.
+left out of the first pass, and the Program 2 spike ran in parallel. F shipped in #264/#266; G is on `ccr-attention`.
 
 | PR | What | State |
 | --- | --- | --- |
@@ -107,7 +94,7 @@ left out of the first pass, and the Program 2 spike ran in parallel. F shipped i
 | C | Agent catalogue and launch fields (`agents-v2`, named worktree base, effort, tool on the listing, `osVersion`), Cline with safe arguments, chrome polish | merged, [#226](https://github.com/eyupio/reet.sh/pull/226) as `540d247` (no Codex review: quota exhausted; merged on green CI, no exception comment) |
 | E | Launch bar on Home, Start in several projects, fixes from the #226 review; read [docs/start-agent-session.md](docs/start-agent-session.md#on-home-the-launch-bar) | merged, [#227](https://github.com/eyupio/reet.sh/pull/227) as `fe3e9b7` (owner exception, recorded on the PR) |
 | F | YOLO (off by default, per session, audited, machines can refuse), with the account Allow YOLO setting, machine switch and capability, reviewed preset options, confirmation dialog and badges | merged, [#264](https://github.com/eyupio/reet.sh/pull/264) as `9cf82f4`; follow-up [#266](https://github.com/eyupio/reet.sh/pull/266) as `99b3fd0`; plan `docs/superpowers/plans/2026-10-26-agents-home.md` (Task F) |
-| G | Attention and Needs you | **next**; Needs you stays an honest empty state until then |
+| G | Attention (`attention-v1`), per-person seen state (`POST /api/v2/terminal/sessions/{id}/seen`), Home's Needs you queue, bell popover, title count and live-region announcements | implemented on `ccr-attention`; plan `docs/superpowers/plans/2026-10-26-agents-home.md` (Task G) |
 | H | `/sessions` (the Sessions page), the session screen, tablet and phone layouts, the last redirects, the phone rail on Sessions | merged, [#231](https://github.com/eyupio/reet.sh/pull/231) as `7886511` (owner's decision; no Codex review possible: quota exhausted). H1 `f0bffe5` Sessions page and Control's address retired (`/control` → `/`, `/terminals` → `/sessions`), fixes `048e431` (session colours, **Saved commands** button: owner ruling), `b85338a`; H2 `f74001f` session screen (tabs, header with the state pill, Chat \| Terminal with Chat disabled, context panel), fixes `f026cfb`, `c02fec6`; H3 `7581ad0` tablet and phone layouts (no rail on narrow Home, the rail on Sessions, slim phone header, `keyboardChrome('session')`), fixes `a984b5e` (44 px tablet targets, cases moved to `sessions-phone.e2e.mjs`), `3f1e89b` (separator grip); `521c406` CI fix (first-terminal checklist off `/sync`); merges of main `9c88a46` (#232, #233), `ae763c8` (#234) and `57d8f53` (#235, #236); H4 `1a5018d` (research copied into `docs/research/`), `c349a2b` (the matrix, phone target fixes, docs, this handoff), `1ff4230` (the research notes name the reference tool by role); final fix wave after the broad review `b53c7dd` (`/sessions/`, viewers at a session address), `adec499` (steady Sessions rows, menu focus, the connection in the phone header, tablet swatches and grip, context panel, tab tooltip, New → `/#launch`), `dd31068` (dead code), `8e6ce3e` (checks that went with Control, steadier phone tests), `6778211` (start-agent expects the Machines title) and the docs commit after them |
 | Copy/paste | Terminal paste sanitiser and bracket-aware review, copy screen/last lines/all, Select text sheet, copy-on-select, gated OSC 52 (`clipboard-v1`), image attach/paste/drop with `upload-v1` and private per-session storage | merged, [#242](https://github.com/eyupio/reet.sh/pull/242) as `961d530` (owner's instruction; Codex quota exhausted). C1 `81b0e74`, C2 `dc93c39`, C3 `93e7e37`, C4 `7a75e8a`, C5 `f90e1e3`, U1 `64b2240`, U2 `497eda7`, U3 `cb606bc`, fence `1614b44`, U4 `4e9ac2f`, U5 `b209152`, review fixes `81b9e34`, `aa532b6`; the final CodeQL response/headers work and this follow-up are in #245 |
 | Copy/paste follow-up | `Exited` cleanup, running 24 h sweep, two concurrent uploads and third refusal at the connector, lost-reply timeout, Scrollback-mid-upload wording, this handoff | merged, [#245](https://github.com/eyupio/reet.sh/pull/245) as `1371cb5` (owner approval; Codex re-review clean) |
@@ -243,7 +230,7 @@ Before this PR:
 - `/sessions` with `session`, `agent` or `view=terminal` in the address is the workspace; bare `/sessions` is the list.
   The app has no client-side router: links are full page loads.
 - Sessions outside a project are grouped "Other on <machine>" only (the listing has no folder to match a project by).
-  The **Needs you** filter matches nothing until G. Check and remove worktree is offered only when the worktree path and
+  The **Needs you** filter on `/sessions` matches sessions currently in `needsYou`. Check and remove worktree is offered only when the worktree path and
   branch name the run.
 - `railState` puts "N running" ahead of "machine offline", so a project on a machine that is not reporting shows its
   last known count without saying so.
@@ -280,9 +267,11 @@ Still true from earlier PRs:
 
 ### Queued work (decided, not started)
 
-**1. Program 2, slice 2: reet TUI history, continue and images** (this PR). Input: the slice 1 probe, the real
-`session/load` result (configOptions, mode `build`, replay before the result), and the Home launch-upload path.
-Slice 1 is merged in #256; its conditions and limits remain binding.
+**1. Program 2, slice 3: Inline approval cards in Home's Needs you column.** Surface pending reet TUI permission
+requests (`permission` events with `permissionId`, `title`, `command`, `diff`, `truncated`) on `GET /api/v2/terminal/sessions`
+so Home's **Needs you** column and the bell popover render the command/edit approval cards with inline **Allow once** and
+**Deny** actions (`POST /api/v2/terminal/sessions/{id}/chat/permissions/{permissionId}`) alongside **Open**. Slices 1 and
+2 are merged in #256 and #258; their seven conditions and limits remain binding:
 [docs/research/probe-report.md](docs/research/probe-report.md),
 [reference-tool-frontend-research.md](docs/research/reference-tool-frontend-research.md) and
 [reference-tool-agents-research.md](docs/research/reference-tool-agents-research.md). Owner decision: trusted workspaces only, OpenCode, Allow

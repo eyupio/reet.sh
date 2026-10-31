@@ -5,7 +5,7 @@
   import { createToken } from './api'
   import { describeError } from './contentReview'
   import { onMount, type Component } from 'svelte'
-  let { canWrite, accounts, monitoring=false, compare = false, userId=0, onsignedout }: { canWrite: boolean; accounts: boolean; monitoring?:boolean; compare?: boolean;userId?:number; onsignedout?: (e: unknown) => void } = $props()
+  let { canWrite, accounts, monitoring=false, compare = false, userId=0, onsignedout, ontitle }: { canWrite: boolean; accounts: boolean; monitoring?:boolean; compare?: boolean;userId?:number; onsignedout?: (e: unknown) => void; ontitle?: (title: string) => void } = $props()
   let token = $state(''), name = $state('machine token'), busy = $state(false), error = $state('')
   // A session address (?session=, ?agent= or view=terminal) opens the workspace. A bare /sessions reaches this page only for
   // someone without Sessions (a viewer, a token or an open instance), who gets the Machines page itself.
@@ -15,7 +15,7 @@
   const terminals = (location.pathname === '/sessions' && (query.has('session') || query.has('agent')) || query.get('view') === 'terminal') && accounts && canWrite
   // svelte-ignore state_referenced_locally
   const focus = compare ? '' : (new URLSearchParams(location.search).get('machine') ?? '')
-  let TerminalView = $state<Component<{userId?:number}>>()
+  let TerminalView = $state<Component<{userId?:number; ontitle?: (title: string) => void}>>()
   onMount(()=>{let disposed=false;if(terminals&&accounts&&canWrite)void import('./terminal/TerminalWorkspace.svelte').then(module=>{if(!disposed)TerminalView=module.default}).catch(()=>{if(!disposed)error='Could not load the terminal workspace. Refresh this page to retry.'});return()=>{disposed=true}})
   async function connectToken() {
     if (busy) return
@@ -27,7 +27,7 @@
 </script>
 {#if !terminals}<PageHeader eyebrow={compare || !focus ? 'Machines' : 'Machine'} title={compare ? "Sync" : focus || "Your machines, connected."} lede={compare ? "Choose skills and machines, then sync. Turn on Keep synced to let reet maintain them automatically." : focus ? "Inspect this machine's agent scopes, health and saved skill sets, or continue in its terminal." : "Connect a machine, inspect its skills and agents, and open a terminal to put them to work."} />{/if}
 {#if !terminals}<nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare&&!terminals ? 'page' : undefined}>Inventory &amp; connection</a><a class="btn quiet" href="/sync" aria-current={compare ? 'page' : undefined}>Sync</a></nav>{/if}
-{#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView {userId} />{:else}<p role="status">{error||'Loading terminal workspace…'}</p>{/if}{:else}
+{#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView {userId} {ontitle} />{:else}<p role="status">{error||'Loading terminal workspace…'}</p>{/if}{:else}
 <EnvironmentSync {canWrite} {accounts} monitorAccess={monitoring} terminalAccess={accounts&&canWrite} {token} {onsignedout} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
   {#snippet tokenSetup()}
     {#if accounts && canWrite}

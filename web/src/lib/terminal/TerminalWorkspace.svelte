@@ -24,7 +24,7 @@
   import { chromeFocus } from '../shell/chrome.svelte'
   import { ALWAYS_DOCKED, MINI_WIDTH, keepOpen, PANEL_DEFAULT, changeMode, chevronNext, clampPanelWidth, defaultLayout, defaultPanelWidth, dragWidth, isPhone, keyWidth, layoutRecord, panelDocks, panelMode, readLayout, screenShortSide, widestPanel, type PanelMode } from './panelLayout'
 
-  let {userId=0}:{userId?:number}=$props()
+  let {userId=0,ontitle}:{userId?:number;ontitle?:(title:string)=>void}=$props()
   // svelte-ignore state_referenced_locally
   const preferenceKey=`reet-terminal-layout:${userId}`
   let layoutLoaded=false
@@ -130,9 +130,15 @@
   const currentProjectId = $derived(session?.projectId ?? '')
   // The tab names the work: the session, then its project (or its machine when it has none), then reet.
   const tabTitle = $derived(sessionTabTitle(session, projects?.find(p => p.id === session?.projectId)?.name, machine?.host))
-  // The tab names the work, not just the page: two reet tabs are told apart by the session they hold. Setting it here, rather
-  // than in another <svelte:head>, keeps one <title> in the document.
-  $effect(() => { document.title = tabTitle })
+  // The tab names the work, not just the page: two reet tabs are told apart by the session they hold. Coordinating it
+  // with the document title owner keeps session names aligned with global attention counts.
+  $effect(() => {
+    if (ontitle) {
+      ontitle(tabTitle)
+      return () => { ontitle('') }
+    }
+    document.title = tabTitle
+  })
   $effect(()=>{if(machineSearchOpen||machinePrompt)machineSearchInput?.focus()})
   // The session screen's tabs (R20): the sessions opened in this browser tab since it loaded, in memory only, at most eight.
   // A session that leaves the listing (removed from history) leaves the strip.

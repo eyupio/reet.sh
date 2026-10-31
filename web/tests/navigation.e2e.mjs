@@ -55,11 +55,24 @@ try {
  // Jump finds sessions, folder projects and machines the workspace already has, and opens the matching page (a project on
  // Home, chosen).
  if (run('jump')) {
-  const session = {id:'s1',agentId:'a',title:'Refactor the store layer',state:'running',createdAt:Date.now(),updatedAt:Date.now(),exitCode:null}
+  let seen = false
+  const session = {id:'s1',agentId:'a',projectId:'fp1',title:'Refactor the store layer',state:'ended',exitCode:0,attention:'finished',attentionAt:Date.now()-30000,changedSinceSeen:true,createdAt:Date.now(),updatedAt:Date.now()}
   const project = {id:'fp1',host:'a',machine:'studio',dir:'/home/dev/store',name:'Store rewrite',isRepo:true,baseBranch:'',worktreeDefault:'inherit',defaultTool:'',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1}
   const {context,page,errors} = await open({width:1440,terminalStatus:active,terminalMachines:[terminalMachine('a','studio',true)],
-   routes:{'/api/v2/terminal/sessions':{sessions:[session]},'/api/v2/folder-projects':{projects:[project],savedWaiting:0}}})
+   routes:{'/api/v2/terminal/sessions':()=>({sessions:[{...session,changedSinceSeen:!seen}]}),'/api/v2/terminal/sessions/s1/seen':()=>{seen=true;return{seenAt:Date.now()}},'/api/v2/folder-projects':{projects:[project],savedWaiting:0}}})
   await page.goto(`${base}/skills`)
+  // The bell and document title reflect Needs you on non-Home pages too, and Mark seen clears them.
+  const bell = page.getByRole('button',{name:'Needs you: 1',exact:true})
+  await expect(bell).toBeVisible()
+  expect(await page.title()).toBe('(1) Skills · reet.sh')
+  await bell.click()
+  const panel = page.getByRole('banner').getByRole('region',{name:'Needs you'})
+  await expect(panel.getByText('Refactor the store layer',{exact:true})).toBeVisible()
+  await expect(panel.getByText('Store rewrite · studio',{exact:true})).toBeVisible()
+  await panel.getByRole('button',{name:'Mark seen'}).click()
+  await expect(page.getByRole('button',{name:'Needs you: 0',exact:true})).toBeVisible()
+  expect(await page.title()).toBe('Skills · reet.sh')
+  await page.keyboard.press('Escape')
   const jump = page.getByRole('combobox',{name:'Jump to a session, project or machine'})
   await jump.fill('store')
   const results = page.getByRole('listbox',{name:'Jump results'})

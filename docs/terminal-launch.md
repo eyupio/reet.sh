@@ -273,7 +273,7 @@ confirmed `--thinking` option; other presets have no effort mapping until their
 exact CLI arguments have captured help evidence. An
 unsupported mapping answers `launch_option_unsupported`; it never silently
 ignores the choice. YOLO maps to a reviewed option only for Codex
-(`--dangerously-bypass-approvals-and-sandbox`), OpenCode (`--auto`) and Cline
+(`--ask-for-approval never`), OpenCode (`--auto`) and Cline
 (`--yolo --tui`); every other preset refuses it with
 `launch_option_unsupported`. A machine switch (`reet terminal yolo off`) refuses
 it with `yolo_refused`, and the account setting must allow it first.

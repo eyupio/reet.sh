@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { getProfile, getSyncState, UnauthorizedError, type SyncState } from '../api'
-  import { createTerminal, folderProjectList, machineHealth, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
+  import { createTerminal, folderProjectList, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { notStartedText, refusalText } from '../agentLaunch'
-  import { attentionCount, fleetCards, handedProjects, reporting, inFlight, needsYou, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type GroupBy, type HomeSession } from '../home'
+  import { announceWaiting, attentionCount, fleetCards, handedProjects, reporting, inFlight, needsYou, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type GroupBy, type HomeSession, type NeedCard } from '../home'
   import type { LaunchDefaults } from '../launchBar'
   import LaunchBar from '../launch/LaunchBar.svelte'
   import FleetStrip from './FleetStrip.svelte'
@@ -29,8 +29,8 @@
     /** The saved Project id an old /projects/<id> address named: its folder project is looked up and chosen. */
     legacyProject?: string
     onsignedout: (e: unknown) => void
-    /** The Needs you count, for the bell. */
-    onattention?: (count: number) => void
+    /** The Needs you count and cards, for the bell and document title. */
+    onattention?: (count: number, cards: NeedCard[], onseen: (sessionId: string) => Promise<void>) => void
   } = $props()
 
   const POLL_MS = 15_000
@@ -78,8 +78,33 @@
   const running = $derived(projectRunning(sessions ?? []))
   const worktrees = $derived(projectWorktrees(sessions ?? []))
   const machineReporting = $derived(new Map(cards.map(c => [c.agentId, reporting(c)])))
-  const needs = $derived(needsYou(sessions ?? [], now))
-  $effect(() => { onattention?.(attentionCount(needs)) })
+  const needs = $derived(needsYou(sessions ?? [], now, owners, health ?? []))
+
+  async function markSeen(sessionId: string) {
+    sessions = (sessions ?? []).map(s => s.id === sessionId ? { ...s, changedSinceSeen: false, attention: s.attention === 'waiting' ? 'working' : s.attention } : s)
+    try {
+      await markSessionSeen(sessionId, bounded())
+      void load(true)
+    } catch (e) {
+      if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()) }
+    }
+  }
+
+  $effect(() => { onattention?.(attentionCount(needs), needs, markSeen) })
+
+  // Polite live region for transitions into Waiting for you, throttled to at most once per session per minute.
+  let waitingNotice = $state('')
+  let previousWaiting: Set<string> | null = null
+  const lastWaitingAnnounced = new Map<string, number>()
+  $effect(() => {
+    if (sessions === undefined) return
+    const currentWaiting = new Set(needs.filter(c => c.kind === 'waiting').map(c => c.sessionId))
+    if (previousWaiting !== null) {
+      const text = announceWaiting(needs, previousWaiting, lastWaitingAnnounced, Date.now())
+      if (text) waitingNotice = text
+    }
+    previousWaiting = currentWaiting
+  })
 
   // Only a refusal of the credential this sign-in uses means it is signed out: the token rides the sync read, the cookie (an
   // accounts-mode sign-in) every read. The health read is cookie-only, so a single-token or open instance never makes it.
@@ -293,9 +318,9 @@
     <FleetStrip {cards} sessions={writer && sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
       onnew={writer ? newSessionOn : undefined} onproject={writer ? newProjectOn : undefined} onterminal={writer ? startTerminalOn : undefined} />
     {#if writer}
-      <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}</div>
+      <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
       <div class="work">
-        <NeedsYou cards={needs} />
+        <NeedsYou cards={needs} onseen={markSeen} />
         <InFlight {groups} {owners} machines={health ?? []} {offline} {now} loaded={sessions !== undefined} failed={sessionsFailed} {groupBy} onchoose={choose} {projectColours}
           terminals={terminals ?? []} {removeDefault} onchanged={() => load(true)} onnotice={(n) => (notice = n)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       </div>

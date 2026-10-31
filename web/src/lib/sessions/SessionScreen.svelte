@@ -7,7 +7,7 @@
   import type { RunMember } from '../projects'
   import { headerMeta, offlineSentence, tabFromMenu, worktreeTargetOf } from '../sessions'
   import { toolName } from '../agentLaunch'
-  import { terminalClosed, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { markSessionSeen, terminalClosed, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
 
   // The session screen: the strip of open sessions, the session's header (title, agent · model · started, the state in words
@@ -37,6 +37,17 @@
     const life = new AbortController()
     void getSyncState(life.signal).then(state => { sync = state }).catch(() => { if (!life.signal.aborted) sync = null })
     return () => life.abort()
+  })
+
+  // Opening a session marks it seen on the controller so its Needs you card clears across devices.
+  let lastMarkedId = ''
+  $effect(() => {
+    const sid = session.id
+    if (!sid || (sid === lastMarkedId && !session.changedSinceSeen && session.attention !== 'waiting')) return
+    lastMarkedId = sid
+    if (session.changedSinceSeen || session.attention === 'waiting') {
+      void markSessionSeen(sid).catch(() => {})
+    }
   })
 
   const host = $derived(machines.find(m => m.agentId === session.agentId)?.host || health.find(m => m.agentId === session.agentId)?.host || 'Unavailable machine')

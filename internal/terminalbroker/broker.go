@@ -215,6 +215,7 @@ func (b *Broker) start() bool {
 	return true
 }
 func (b *Broker) Connect(uid int64, agent string, generation int64, enabled bool, send Sender) (*Peer, error) {
+	b.restoreAgentChats(uid, agent)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	k := key{uid, agent}
@@ -248,7 +249,14 @@ func (p *Peer) observe() {
 				continue
 			}
 			s := m.Body.(*terminalproto.SessionChanged)
-			err := p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, m.SessionID, p.Generation, s.State, s.ExitCode)
+			code := s.ExitCode
+			if code == nil && s.ExitStatus != nil {
+				code = s.ExitStatus
+			}
+			err := p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, m.SessionID, p.Generation, s.State, code)
+			if err == nil && (s.ActivityAt > 0 || s.BellAt > 0 || s.ExitStatus != nil || p.b.peerSupportsAttention(p.key.uid, p.key.agent)) {
+				_ = p.b.st.ObserveTerminalAttentionFor(p.key.uid, p.key.agent, m.SessionID, p.Generation, s.ActivityAt, s.BellAt)
+			}
 			if err == nil && s.ACPSessionID != "" {
 				err = p.b.st.RecordTerminalACPSessionFor(p.key.uid, p.key.agent, m.SessionID, s.ACPSessionID)
 			}
@@ -260,6 +268,11 @@ func (p *Peer) observe() {
 			_ = p.b.recordWorktree(p.key.uid, p.key.agent, m.SessionID, s)
 		}
 	}
+}
+
+func (b *Broker) peerSupportsAttention(uid int64, agent string) bool {
+	c, err := b.st.RemoteCapabilitiesFor(uid, agent)
+	return err == nil && c.Capabilities.Attention
 }
 func (p *Peer) Done() <-chan struct{} { return p.done }
 func (p *Peer) closeLocked() {
@@ -417,12 +430,23 @@ func (p *Peer) callWithin(ctx context.Context, m terminalproto.Message, limit ti
 	if err := p.send(ctx, m); err != nil {
 		return m, ErrOffline
 	}
-	select {
-	case result := <-ch:
+	answered := func(result terminalproto.Message) (terminalproto.Message, error) {
 		if result.SessionID != m.SessionID || result.AttachmentID != m.AttachmentID || result.AttachmentGeneration != m.AttachmentGeneration {
 			return m, ErrConflict
 		}
 		return result, nil
+	}
+	// A reply the machine sent before the connection went may already be waiting. It is not a lost reply, so read it
+	// before the select, where a connection closing at the same moment would otherwise turn an answered request into
+	// an uncertain one.
+	select {
+	case result := <-ch:
+		return answered(result)
+	default:
+	}
+	select {
+	case result := <-ch:
+		return answered(result)
 	case <-p.done:
 		return m, errReplyLost{}
 	case <-ctx.Done():
@@ -473,9 +497,24 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 		if exists {
 			state = observed.State
 			code = observed.ExitCode
+			if code == nil && observed.ExitStatus != nil {
+				code = observed.ExitStatus
+			}
 		}
 		if err := p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, s.ID, p.Generation, state, code); err != nil {
 			return err
+		}
+		if exists && (observed.ActivityAt > 0 || observed.BellAt > 0 || observed.ExitStatus != nil || p.b.peerSupportsAttention(p.key.uid, p.key.agent)) {
+			_ = p.b.st.ObserveTerminalAttentionFor(p.key.uid, p.key.agent, s.ID, p.Generation, observed.ActivityAt, observed.BellAt)
+		}
+		if exists && s.Structured && state.ReservesQuota() {
+			if observed.ActivityAt > s.ActivityAt {
+				s.ActivityAt = observed.ActivityAt
+			}
+			if observed.BellAt > s.BellAt {
+				s.BellAt = observed.BellAt
+			}
+			p.b.restoreChat(p.key.uid, s)
 		}
 		if exists && observed.ACPSessionID != "" {
 			if err := p.b.st.RecordTerminalACPSessionFor(p.key.uid, p.key.agent, s.ID, observed.ACPSessionID); err != nil && !errors.Is(err, store.ErrTerminalConflict) {
@@ -735,7 +774,14 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	}
 	var refusal error
 	if state, ok := reply.Body.(*terminalproto.SessionChanged); ok {
-		err = b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, state.State, state.ExitCode)
+		code := state.ExitCode
+		if code == nil && state.ExitStatus != nil {
+			code = state.ExitStatus
+		}
+		err = b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, state.State, code)
+		if err == nil && (state.ActivityAt > 0 || state.BellAt > 0 || state.ExitStatus != nil || b.peerSupportsAttention(uid, agent)) {
+			_ = b.st.ObserveTerminalAttentionFor(uid, agent, s.ID, p.Generation, state.ActivityAt, state.BellAt)
+		}
 		if err == nil && state.ACPSessionID != "" {
 			err = b.st.RecordTerminalACPSessionFor(uid, agent, s.ID, state.ACPSessionID)
 		}

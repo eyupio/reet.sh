@@ -6,7 +6,7 @@ import ts from 'typescript'
 const source = readFileSync(new URL('./home.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const h = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
-const { fleetCards, sessionOwners, inFlight, rowSubtitle, stateWord, needsYou, attentionCount, reporting, sessionTabTitle } = h
+const { fleetCards, sessionOwners, inFlight, rowSubtitle, stateWord, needsYou, attentionCount, announceWaiting, reporting, sessionTabTitle, titleWithAttention } = h
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000, HOUR = 60 * MIN
@@ -44,6 +44,13 @@ test('the Sessions tab names the session and its project, or its machine', () =>
   assert.equal(sessionTabTitle(undefined), 'Sessions · reet.sh')
   assert.equal(sessionTabTitle({ title: 'Build', projectId: 'p1' }, 'reet'), 'Build · reet · reet.sh')
   assert.equal(sessionTabTitle({ title: 'Build', projectId: null }, '', 'studio'), 'Build · studio · reet.sh')
+})
+
+test('titleWithAttention prefixes positive attention counts to the document title', () => {
+  assert.equal(titleWithAttention('Home · reet.sh', 0), 'Home · reet.sh')
+  assert.equal(titleWithAttention('Home · reet.sh', 3), '(3) Home · reet.sh')
+  assert.equal(titleWithAttention(sessionTabTitle({ title: 'Build', projectId: 'p1' }, 'reet'), 1), '(1) Build · reet · reet.sh')
+  assert.equal(titleWithAttention(sessionTabTitle(undefined), 2), '(2) Sessions · reet.sh')
 })
 
 test('cpu null shows No reading, labelled CPU', () => {
@@ -250,6 +257,39 @@ test('needs you is empty and the count is 0', () => {
   assert.deepEqual(cards, [])
   assert.equal(attentionCount(cards), 0)
   assert.equal(attentionCount([{ kind: 'x' }, { kind: 'y' }]), 2)
+})
+
+test('bell count equals queue length', () => {
+  const owners = new Map([['s1', { id: 'p1', name: 'site' }]])
+  const machines = [machine('a1', 'studio')]
+  const sessions = [
+    session('s1', 'a1', 'running', { attention: 'waiting', attentionSource: 'terminal', bellAt: NOW - 2 * MIN, changedSinceSeen: true }),
+    session('s2', 'a1', 'exited', { exitCode: 2, attention: 'failed', attentionSource: 'terminal', updatedAt: NOW - 5 * MIN, changedSinceSeen: true }),
+    session('s3', 'a1', 'exited', { exitCode: 0, attention: 'finished', attentionSource: 'terminal', updatedAt: NOW - 10 * MIN, changedSinceSeen: true, ...tree('web') }),
+    session('s4', 'a1', 'exited', { exitCode: 0, attention: 'finished', attentionSource: 'terminal', updatedAt: NOW - 15 * MIN, changedSinceSeen: false }),
+    session('s4b', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - 3 * MIN }),
+    session('s5', 'a1', 'running', { attention: 'working', attentionSource: 'terminal', changedSinceSeen: true }),
+  ]
+  const cards = needsYou(sessions, NOW, owners, machines)
+  assert.deepEqual(cards.map(c => [c.sessionId, c.kind, c.label, c.where, c.age, c.markSeen]), [
+    ['s1', 'waiting', 'Waiting for you', 'site · studio', '2m', false],
+    ['s2', 'failed', 'Exited with an error', 'studio', '5m', true],
+    ['s3', 'review', 'Ready to review', 'studio', '10m', true],
+  ])
+  assert.equal(attentionCount(cards), 3)
+  assert.deepEqual(stateWord(sessions[0]), { word: 'Waiting for you', source: 'from terminal activity', tone: 'warn' })
+  assert.deepEqual(stateWord(sessions[5]), { word: 'Working', source: 'from terminal activity', tone: 'good' })
+  assert.deepEqual(stateWord(session('s6', 'a1', 'running', { attention: 'quiet', attentionSource: 'terminal' })), { word: 'Quiet', source: 'from terminal activity', tone: 'muted' })
+  assert.deepEqual(stateWord(session('s7', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat' })), { word: 'Waiting for you', source: 'from the chat', tone: 'warn' })
+})
+
+test('announce at most once a minute', () => {
+  const last = new Map()
+  const card = { kind: 'waiting', sessionId: 's1', title: 'Add browse-v1', where: 'site · studio' }
+  assert.equal(announceWaiting([card], new Set(), last, NOW), 'Add browse-v1 is waiting for you (site · studio).')
+  assert.equal(announceWaiting([card], new Set(['s1']), last, NOW + 5_000), '')
+  assert.equal(announceWaiting([card], new Set(), last, NOW + 30_000), '')
+  assert.equal(announceWaiting([card], new Set(), last, NOW + MIN), 'Add browse-v1 is waiting for you (site · studio).')
 })
 
 test('no record word claims health or verification', () => {

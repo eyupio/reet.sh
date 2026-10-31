@@ -1517,6 +1517,29 @@ the session menu's **Continue in reet TUI with history…** item for a closed se
 - Not checked: a live model turn, a physical phone, Safari, an image actually read by a model, or OpenCode's history after
   its store is deleted. Pending approvals are not restored; replayed tools are shown interrupted.
 
+## Attention (`attention-v1`) and Needs you (PR G) — 30 October 2026
+
+Machines that negotiate `attention-v1` configure tmux (`monitor-activity on`, `monitor-bell on`, `bell-action any`,
+`activity-action none`) and report `SessionActivity{ActivityAt, BellAt}` at most once every 5 seconds per session, plus
+immediately when a new bell fires. The controller derives `attention` (`starting`, `working`, `quiet`, `waiting`,
+`finished`, `failed`), `attentionSource` (`terminal`) and `changedSinceSeen` per person (`terminal_session_seen` in SQLite;
+`POST /api/v2/terminal/sessions/{id}/seen`). Structured reet TUI sessions also report `waiting` while a permission is
+pending and `working` while a model turn is in flight. Codex's YOLO preset uses `--ask-for-approval never` so Codex keeps
+its own sandbox.
+
+On the web, `needsYou` builds cards for `waiting` ("Waiting for you"), `finished` ("Ready to review", querying
+`worktreeStatus` once per `(sessionId, at)` when the session has a worktree) and `failed` ("Exited with an error"), newest
+first. `attentionCount` drives the header bell badge and prefixes `(N)` to `document.title`; a polite live region announces
+transitions into Waiting at most once per session per minute. Opening a session on `/sessions` or clicking **Mark seen**
+calls the seen route. The empty state ("Nothing needs you.") and a single card share one height (133 px desktop, 145 px
+tablet/phone), and the bell popover stays above the launch bar at 1360 px.
+
+Checks:
+- `go test -race -count=1 ./internal/terminalproto/ ./internal/terminalhost/ ./internal/terminalagent/ ./internal/store/ ./internal/terminalbroker/ ./internal/api/` passed (`TestConfigureTmuxSetsMonitorActivityAndBell`, `TestAttentionCoalescedToFiveSeconds`, `TestBellReportedImmediatelyOnce`, `TestNoAttentionWithoutFeature`, `TestAttentionWorkingThenQuiet`, `TestAttentionWaitingOnlyAfterBell`, `TestAttentionExitStatus`, `TestSeenIsPerPerson`, `TestOldPeerSessionsHaveNoAttention`).
+- `npm --prefix web run check` and `npm --prefix web run build` passed (0 errors, 0 warnings); `home.test.mjs` covers `bell count equals queue length` and `announce at most once a minute` (with a mutation check on `attentionCount` caught and restored byte-identically).
+- `web/tests/home.e2e.mjs` (including 4 consecutive runs of `Needs you queue, bell popover, title count, Mark seen and terminal activity source`), `web/tests/navigation.e2e.mjs` and `web/tests/sessions.e2e.mjs` passed against headless Chromium.
+- Not checked: a physical phone, Safari or Firefox, or a screen reader announcing the polite live region.
+
 ## reet TUI model choice — 30 October 2026
 
 The reet TUI now takes a model like the agent terminal UI does. Home's launch sentence gained a **Model** slot for an

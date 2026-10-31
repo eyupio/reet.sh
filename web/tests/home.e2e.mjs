@@ -140,6 +140,7 @@ async function home(options={}) {
   const s = box.sessions.find(x => x.id === id)
   if (kind === 'end' && s) s.state = 'end_requested'
   if (kind === 'archive') box.sessions = box.sessions.filter(x => x.id !== id)
+  if (kind === 'seen' && s) { s.changedSinceSeen = false; if (s.attention === 'waiting') s.attention = 'working' }
   return route.fulfill({json:{}})
  })
  return {...opened, reads, storage, box}
@@ -489,6 +490,63 @@ try {
   await expect(needs(page)).not.toContainText('Docs pass')
   const width = await needs(page).evaluate(el => el.getBoundingClientRect().width)
   expect(Math.round(width)).toBe(380)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('Needs you queue, bell popover, title count, Mark seen and terminal activity source')) {
+  const {context,page,errors,box} = await home({width:1360, routes:{
+   '/api/v2/terminal/worktrees/status': request => {
+    box.writes.push({method:request.method(), path:'/api/v2/terminal/worktrees/status', body:request.postDataJSON()})
+    return {changed:3, unpushed:1, branch:'reet/store-split'}
+   },
+  }})
+  box.sessions = [
+   session('s1','a1','Refactor the store layer','running',{projectId:'fp1',attention:'waiting',attentionSource:'terminal',bellAt:now-2*MIN,changedSinceSeen:true}),
+   session('s2','a1','Tidy the release notes','running',{attention:'working',attentionSource:'terminal',activityAt:now-5_000}),
+   session('s3','a1','Split the worktree','exited',{exitCode:0,projectId:'fp1',attention:'finished',attentionSource:'terminal',updatedAt:now-10*MIN,changedSinceSeen:true,worktreePath:'/home/dev/.reet/worktrees/store/store/split',worktreeRepo:'store',worktreeBranch:'reet/store-split'}),
+   session('s4','a1','Docs pass','exited',{exitCode:2,attention:'failed',attentionSource:'terminal',updatedAt:now-HOUR,changedSinceSeen:true}),
+  ]
+  await page.goto(base)
+  await expect.poll(() => page.title()).toBe('(3) Home · reet.sh')
+  const workingRow = inFlight(page).getByRole('link',{name:/Tidy the release notes/})
+  await expect(workingRow).toContainText('Working')
+  await expect(workingRow).toContainText('from terminal activity')
+  const waitingRow = inFlight(page).getByRole('link',{name:/Refactor the store layer/})
+  await expect(waitingRow).toContainText('Waiting for you')
+  await expect(waitingRow).toContainText('from terminal activity')
+  await expect(needs(page).locator('.count')).toHaveText('3')
+  await expect(needs(page).locator('.card')).toHaveCount(3)
+  await expect(needs(page).locator('.card').nth(0)).toContainText('Waiting for you · 2m')
+  await expect(needs(page).locator('.card').nth(1)).toContainText('Ready to review · 10m')
+  await expect(needs(page).locator('.card').nth(1)).toContainText('3 files changed · Store rewrite · studio')
+  await expect(needs(page).locator('.card').nth(2)).toContainText('Exited with an error · 1h')
+  const bell = page.getByRole('button',{name:'Needs you: 3',exact:true})
+  await expect(bell.locator('.badge')).toHaveText('3')
+  await bell.click()
+  const pop = page.getByRole('banner').getByRole('region',{name:'Needs you'})
+  await expect(pop).toBeVisible()
+  await expect(pop.locator('.item')).toHaveCount(3)
+  const [popBottom, barTop] = await page.evaluate(() => [
+   document.querySelector('header .bell .panel').getBoundingClientRect().bottom,
+   document.querySelector('form[aria-label="Start a session"]').getBoundingClientRect().top,
+  ])
+  expect(popBottom).toBeLessThan(barTop)
+  await page.keyboard.press('Escape')
+  await needs(page).locator('.card').nth(1).getByRole('button',{name:'Mark seen'}).click()
+  await expect.poll(() => box.writes.some(w => w.path === '/api/v2/terminal/sessions/s3/seen')).toBe(true)
+  await expect(needs(page).locator('.count')).toHaveText('2')
+  await expect(needs(page).locator('.card')).toHaveCount(2)
+  await expect.poll(() => page.title()).toBe('(2) Home · reet.sh')
+  await expect(page.getByRole('button',{name:'Needs you: 2',exact:true})).toBeVisible()
+  await needs(page).locator('.card').nth(1).getByRole('button',{name:'Mark seen'}).click()
+  await expect(needs(page).locator('.card')).toHaveCount(1)
+  const oneCardHeight = await needs(page).locator('.card').first().evaluate(el => Math.round(el.getBoundingClientRect().height))
+  box.sessions = []
+  await page.reload()
+  await expect(needs(page).locator('.none')).toBeVisible()
+  const emptyHeight = await needs(page).locator('.none').evaluate(el => Math.round(el.getBoundingClientRect().height))
+  expect(emptyHeight).toBe(oneCardHeight)
   expect(errors).toEqual([])
   await context.close()
  }

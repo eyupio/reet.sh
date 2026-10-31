@@ -237,3 +237,26 @@ func TestTerminalTicketCannotCrossConnectionGenerations(t *testing.T) {
 		t.Fatal("old generation ticket accepted", err)
 	}
 }
+
+// A reply the machine sent just before its connection dropped is an answer, not an uncertain request. The peer closing
+// between the send and the read must not turn a finished call into errReplyLost.
+func TestACallReadsAReplyThatRacedTheConnectionClose(t *testing.T) {
+	for range 20 {
+		_, p, _, _ := fixture(t)
+		original := p.send
+		p.send = func(ctx context.Context, m terminalproto.Message) error {
+			if err := original(ctx, m); err != nil {
+				return err
+			}
+			p.Close()
+			return nil
+		}
+		reply, err := p.call(t.Context(), terminalproto.Message{Body: terminalproto.Reconcile{}})
+		if err != nil {
+			t.Fatalf("an answered call was reported as lost: %v", err)
+		}
+		if r, ok := reply.Body.(*terminalproto.Reconcile); !ok || !r.Complete {
+			t.Fatalf("want a complete reconcile, got %+v", reply.Body)
+		}
+	}
+}

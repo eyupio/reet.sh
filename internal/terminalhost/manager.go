@@ -476,6 +476,14 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 			}
 			if alive {
 				s.State = terminalproto.Running
+				if actAt, bellAt, attErr := m.readAttention(ctx, id); attErr == nil {
+					if actAt > s.ActivityAt {
+						s.ActivityAt = actAt
+					}
+					if bellAt > s.BellAt {
+						s.BellAt = bellAt
+					}
+				}
 			} else {
 				s.State = terminalproto.Exited
 				if len(panes) == 1 {
@@ -483,14 +491,20 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 				}
 			}
 		}
-		if s.State != previous.State || s.PaneID != previous.PaneID {
-			s.UpdatedAt = updatedAt(s)
+		stateChanged := s.State != previous.State || s.PaneID != previous.PaneID
+		attentionChanged := s.ActivityAt != previous.ActivityAt || s.BellAt != previous.BellAt
+		if stateChanged || attentionChanged {
+			if stateChanged {
+				s.UpdatedAt = updatedAt(s)
+			}
 			r.Sessions[id] = s
 			changed = true
-			for key, op := range r.Operations {
-				if op.SessionID == id && (op.Kind == "create" || !s.State.ReservesQuota()) {
-					op.Complete = true
-					r.Operations[key] = op
+			if stateChanged {
+				for key, op := range r.Operations {
+					if op.SessionID == id && (op.Kind == "create" || !s.State.ReservesQuota()) {
+						op.Complete = true
+						r.Operations[key] = op
+					}
 				}
 			}
 		}

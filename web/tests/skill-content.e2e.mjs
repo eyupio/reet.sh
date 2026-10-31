@@ -851,8 +851,12 @@ try{
  // check is returned, so there is still only one.
  dropCreate='after';previewsBroken=true
  const sentLost=checkPosts().length,dbBefore=previewsDb.length
+ const listReadsBeforeLost=requests.filter(r=>r.method==='GET'&&r.path===POSTS).length
  await again.click()
  await expect(dialog.getByRole('alert')).toContainText("Couldn't reach reet")
+ // The shell looks for the dropped check by its key once the reply is lost. Wait for that read to be answered while the
+ // checks are still unreadable: if the next line turns them on first, the read adopts the check and Check again goes.
+ await expect.poll(()=>requests.filter(r=>r.method==='GET'&&r.path===POSTS).length).toBe(listReadsBeforeLost+1)
  expect(checkPosts()).toHaveLength(sentLost+1)
  const lostKey=checkPosts()[sentLost].body.requestKey
  previewsBroken=false
@@ -869,8 +873,11 @@ try{
  // check can be resumed (not adopted silently).
  dropCreate='before';previewsBroken=true
  const sentBusy=checkPosts().length
+ const listReadsBeforeBusy=requests.filter(r=>r.method==='GET'&&r.path===POSTS).length
  await again.click()
  await expect(dialog.getByRole('alert')).toContainText("Couldn't reach reet")
+ // As above, let the dropped reply's check-up finish before the checks can be read again and the next press can be made.
+ await expect.poll(()=>requests.filter(r=>r.method==='GET'&&r.path===POSTS).length).toBe(listReadsBeforeBusy+1)
  const busyKey=checkPosts()[sentBusy].body.requestKey
  previewsBroken=false
  const elsewhere=mkPreview(mine(),'made-elsewhere-0123456789');previewsDb.push(elsewhere)

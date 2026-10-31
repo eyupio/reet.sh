@@ -149,7 +149,9 @@ type Capabilities struct {
 	ACPHistory bool `json:"acpHistory,omitempty"`
 	// ShellDir is sent only when shell-dir-v1 was negotiated; a plain shell
 	// may then start in a chosen folder.
-	ShellDir        bool      `json:"shellDir,omitempty"`
+	ShellDir bool `json:"shellDir,omitempty"`
+	// Attention is sent only when attention-v1 was negotiated.
+	Attention       bool      `json:"attention,omitempty"`
 	TerminalControl bool      `json:"terminalControl,omitempty"`
 	ProtocolVersion int       `json:"protocolVersion"`
 	OS              string    `json:"os"`
@@ -192,7 +194,7 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.Models && !c.TerminalControl || c.ModelsOff && (c.Models || !c.TerminalControl) {
 		return ErrInvalid
 	}
-	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ShellDir && !c.TerminalControl {
+	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
 		return ErrInvalid
 	}
 	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {
@@ -251,10 +253,13 @@ func (h Hello) valid() bool {
 }
 
 type SessionSnapshot struct {
-	ID       string       `json:"id"`
-	Title    string       `json:"title"`
-	State    SessionState `json:"state"`
-	ExitCode *int         `json:"exitCode"`
+	ID         string       `json:"id"`
+	Title      string       `json:"title"`
+	State      SessionState `json:"state"`
+	ExitCode   *int         `json:"exitCode"`
+	ActivityAt int64        `json:"activityAt,omitempty"`
+	BellAt     int64        `json:"bellAt,omitempty"`
+	ExitStatus *int         `json:"exitStatus,omitempty"`
 	// ACPSessionID is set only for a structured chat, so the controller can
 	// reopen it after a connection loss.
 	ACPSessionID string `json:"acpSessionId,omitempty"`
@@ -262,6 +267,13 @@ type SessionSnapshot struct {
 
 func validExit(state SessionState, code *int) bool {
 	return code == nil || state == Exited && *code >= 0 && *code <= 255
+}
+
+func validSnapshotAttention(s SessionSnapshot) bool {
+	if !validAttentionTime(s.ActivityAt) || !validAttentionTime(s.BellAt) || !validExit(s.State, s.ExitStatus) {
+		return false
+	}
+	return s.ExitCode == nil || s.ExitStatus == nil || *s.ExitCode == *s.ExitStatus
 }
 
 type Reconcile struct {
@@ -276,7 +288,7 @@ func (r Reconcile) valid() bool {
 	}
 	seen := map[string]bool{}
 	for _, s := range r.Sessions {
-		if !ValidID(s.ID) || !ValidTitle(s.Title) || !s.State.Valid() || !validExit(s.State, s.ExitCode) || s.ACPSessionID != "" && !ValidACPSessionID(s.ACPSessionID) || seen[s.ID] {
+		if !ValidID(s.ID) || !ValidTitle(s.Title) || !s.State.Valid() || !validExit(s.State, s.ExitCode) || !validSnapshotAttention(s) || s.ACPSessionID != "" && !ValidACPSessionID(s.ACPSessionID) || seen[s.ID] {
 			return false
 		}
 		seen[s.ID] = true
@@ -467,8 +479,11 @@ func (r Result) valid() bool {
 }
 
 type SessionChanged struct {
-	State    SessionState `json:"state"`
-	ExitCode *int         `json:"exitCode"`
+	State      SessionState `json:"state"`
+	ExitCode   *int         `json:"exitCode"`
+	ActivityAt int64        `json:"activityAt,omitempty"`
+	BellAt     int64        `json:"bellAt,omitempty"`
+	ExitStatus *int         `json:"exitStatus,omitempty"`
 	// WorktreePath and WorktreeRepo say where a worktree create made the
 	// worktree: its folder and the repository name status and remove need.
 	// They are set together, only in answer to a worktree create (which only
@@ -483,6 +498,12 @@ type SessionChanged struct {
 func (SessionChanged) kind() string { return "session_changed" }
 func (s SessionChanged) valid() bool {
 	if (s.WorktreePath == "") != (s.WorktreeRepo == "") || s.WorktreePath != "" && (!validDir(s.WorktreePath) || !validRepoName(s.WorktreeRepo)) {
+		return false
+	}
+	if !validAttentionTime(s.ActivityAt) || !validAttentionTime(s.BellAt) || !validExit(s.State, s.ExitStatus) {
+		return false
+	}
+	if s.ExitCode != nil && s.ExitStatus != nil && *s.ExitCode != *s.ExitStatus {
 		return false
 	}
 	return s.State.Valid() && validExit(s.State, s.ExitCode) && (s.ACPSessionID == "" || ValidACPSessionID(s.ACPSessionID))

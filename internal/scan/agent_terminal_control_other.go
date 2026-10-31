@@ -13,7 +13,7 @@ func terminalControl(string, agentConfig) agenthealth.TerminalFactory { return n
 var launchTools func() []string
 
 // softwareInventory is nil where the connector cannot inspect agent software.
-var softwareInventory func() []terminalproto.SoftwareEntry
+var softwareInventory func(string) []terminalproto.SoftwareEntry
 
 // gitAvailable is nil where the connector cannot make run worktrees.
 var gitAvailable func() bool

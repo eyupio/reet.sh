@@ -97,8 +97,12 @@ try {
   await page.getByRole('textbox', { name: 'Message OpenCode' }).fill('now run the linter')
   await page.getByRole('button', { name: 'Send', exact: true }).click()
   await expect.poll(() => state.prompt).toEqual({ text: 'now run the linter' })
-  await page.locator('input[type=file]').setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) })
-  await expect(page.getByText('shot.png')).toBeVisible()
+  const [chooser] = await Promise.all([
+   page.waitForEvent('filechooser'),
+   page.locator('.composer').getByRole('button', { name: 'Attach image' }).click(),
+  ])
+  await chooser.setFiles({ name: 'shot.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) })
+  await expect(page.locator('.composer .attachments')).toContainText('shot.png')
   await page.getByRole('textbox', { name: 'Message OpenCode' }).fill('look at this shot')
   await page.getByRole('button', { name: 'Send', exact: true }).click()
   await expect.poll(() => state.upload).toBe('image/png')

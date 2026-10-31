@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os/exec"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/eyupio/reet.sh/internal/agenthealth"
+	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/privateconn"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -41,11 +43,17 @@ var (
 	// answered timed_out and its slot freed. ListModels kills its process at
 	// 10 s; this leaves room for the reply and process reaping.
 	modelsAnswerAfter = 12 * time.Second
+	// softwareAnswerAfter is when an apply that has not returned is answered
+	// timed_out. The download itself stops at softwareApplyTimeout, which is
+	// shorter, so an answer never races a late install.
+	softwareAnswerAfter = 5*time.Minute + 30*time.Second
 	// modelListFloor is the shortest interval between two real listings for
 	// the same tool. Within it the connector answers its last result.
 	modelListFloor = 60 * time.Second
 	// listModels is the host listing; tests replace it so no binary runs.
 	listModels = (*terminalhost.Manager).ListModels
+	// applySoftware is the host install; tests replace it so no download runs.
+	applySoftware = terminalhost.ApplySoftware
 	// browsesRunning, branchesRunning and modelsRunning count the aside work
 	// alive in this process, including work already answered at its deadline
 	// and still stuck. They are process-wide so reconnecting cannot multiply
@@ -53,7 +61,19 @@ var (
 	browsesRunning  atomic.Int32
 	branchesRunning atomic.Int32
 	modelsRunning   atomic.Int32
+	softwareRunning atomic.Int32
 )
+
+// softwareSlot serialises software applies on this connector process, not just
+// one connection, so two controllers cannot install at once.
+var softwareSlot = make(chan struct{}, 1)
+
+// softwareGate coordinates a software apply with new OpenCode sessions. An
+// apply holds it for writing from before the download until the installation
+// is recorded; the terminal and structured-chat launch paths hold it for
+// reading while they create an OpenCode session. That closes the window
+// between the controller's live-session check and the installation changing.
+var softwareGate sync.RWMutex
 
 // modelListCacheEntry is one tool's last listing and when it was made.
 type modelListCacheEntry struct {
@@ -360,6 +380,45 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						modelsMu.Unlock()
 						return r
 					})
+			case *terminalproto.SoftwareApply:
+				// An apply is served only on software-apply-v1, and only while the
+				// local terminal access consent is on. The connector owns the
+				// artifact and the command; the request only names them.
+				if !terminalproto.SupportsSoftwareApply(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+				if op.Tool != "opencode" || !terminalproto.ValidToolV2(op.Tool) {
+					return terminalproto.ErrInvalid
+				}
+				if !allowed(opts.Consent) {
+					reply.Body = terminalproto.SoftwareApplyResult{Tool: op.Tool, Action: op.Action, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplyOff}
+					return send(callCtx, reply)
+				}
+				req := *op
+				return aside(callCtx, reply, softwareSlot, &softwareRunning, softwareAnswerAfter,
+					terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplyBusy},
+					terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyFailed, Reason: terminalproto.SoftwareApplyTimedOut},
+					func(ctx context.Context) terminalproto.Body {
+						softwareGate.Lock()
+						defer softwareGate.Unlock()
+						// The controller checked before sending, but a session could
+						// have started since. Nothing else can now: every OpenCode
+						// launch waits on this gate.
+						live := chats.sup.liveTool(agentsoftware.OpenCodeTool)
+						if m != nil {
+							if sessions, err := m.List(ctx); err == nil {
+								for _, session := range sessions {
+									if session.Tool == agentsoftware.OpenCodeTool && session.State.ReservesQuota() {
+										live++
+									}
+								}
+							}
+						}
+						if live > 0 {
+							return terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplySessions}
+						}
+						return applySoftware(ctx, opts.Home, req, exec.LookPath)
+					})
 			case *terminalproto.Upload:
 				// Uploads are served only on a generation that negotiated
 				// upload-v1. Without it the message is a protocol error and
@@ -548,6 +607,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						defer cancel()
 						_ = send(noteCtx, note)
 					})
+				}
+				if op.Tool == agentsoftware.OpenCodeTool {
+					softwareGate.RLock()
+					defer softwareGate.RUnlock()
 				}
 				s, err := m.Create(createCtx, msg.RequestID, msg.SessionID, *op)
 				if err != nil {

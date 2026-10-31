@@ -39,8 +39,9 @@ installed agents, ongoing sessions, reusable AI setups, skills and reviewed sync
 Terminals are a core way to use agents; do not describe the entire product as a
 remote-terminal app. Show how a known setup can help bring another machine into
 the fleet. Distinguish shipped controls, including observed agent software and a
-reviewable plan, from planned verified agent installation, updates, removal,
-richer orchestration and fleet-wide agent configuration.
+verified install, update, rollback or removal of reet's own artifact, from
+planned fleet-wide maintenance, richer orchestration and fleet-wide agent
+configuration.
 
 Keep the Yorkshire welcome visible in the main experience: “Ey up” at entry and
 a natural “reet good toolkit” or “proper control” in supporting copy. Keep the

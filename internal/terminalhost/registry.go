@@ -33,6 +33,7 @@ var (
 type ManagedSession struct {
 	ID              string                     `json:"id"`
 	Title           string                     `json:"title"`
+	Tool            string                     `json:"tool,omitempty"`
 	State           terminalproto.SessionState `json:"state"`
 	CreatedAt       int64                      `json:"createdAt"`
 	UpdatedAt       int64                      `json:"updatedAt"`

@@ -5,6 +5,7 @@ package terminalagent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/acpagent"
+	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -159,6 +161,43 @@ func TestChatHostSwitchesApprovalMode(t *testing.T) {
 	defer proc.mu.Unlock()
 	if len(proc.allow) != 1 {
 		t.Fatalf("ask mode answered without the person: %v", proc.allow)
+	}
+}
+
+func TestChatPrefersTheManagedOpenCodeBinary(t *testing.T) {
+	h, _, _ := testChatHost(t)
+	home := h.sup.opts.Home
+	root := filepath.Join(home, ".reet", "software", "opencode")
+	dir := filepath.Join(root, "versions", "1.19.5")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	managed := filepath.Join(dir, "opencode")
+	body := []byte("binary")
+	if err := os.WriteFile(managed, body, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	receipt := agentsoftware.Receipt{Tool: "opencode", Version: "1.19.5", Tarball: agentsoftware.OpenCodeLinuxX64.URL,
+		SHA512: "x", BinarySHA256: "y", BinarySize: int64(len(body)), InstalledAt: 1}
+	data, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(dir, "receipt.json"), filepath.Join(root, "receipt.json")} {
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var binary string
+	h.sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
+		binary = opts.Binary
+		return &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}, nil
+	}
+	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: home}); err != nil {
+		t.Fatal(err)
+	}
+	if binary != managed {
+		t.Fatalf("chat used %q, want the managed %q", binary, managed)
 	}
 }
 

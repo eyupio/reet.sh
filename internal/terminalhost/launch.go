@@ -60,6 +60,12 @@ func resolveBinary(p launchPreset, lookPath func(string) (string, error)) (strin
 // plain shell. The model and prompt are each exactly one argument element; the
 // prompt is guarded by "--" or by its flag so it can never be read as a flag.
 func LaunchArgv(in terminalproto.Create, lookPath func(string) (string, error)) ([]string, error) {
+	return launchArgv(in, lookPath, "")
+}
+
+// launchArgv is LaunchArgv with an optional reet-managed binary. A managed
+// path is used instead of PATH, so a system copy is never run in its place.
+func launchArgv(in terminalproto.Create, lookPath func(string) (string, error), managed string) ([]string, error) {
 	p, ok := launchPresets[in.Tool]
 	if in.Tool != "" && !ok {
 		return nil, launchUnavailable("unknown tool")
@@ -70,7 +76,10 @@ func LaunchArgv(in terminalproto.Create, lookPath func(string) (string, error)) 
 	if in.Tool == "" {
 		return nil, nil
 	}
-	path, ok := resolveBinary(p, lookPath)
+	path, ok := managed, managed != ""
+	if !ok {
+		path, ok = resolveBinary(p, lookPath)
+	}
 	if !ok {
 		return nil, launchUnavailable("tool not installed")
 	}

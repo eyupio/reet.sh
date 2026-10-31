@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/eyupio/reet.sh/internal/acpagent"
+	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -40,6 +41,7 @@ type chatStarter func(context.Context, acpagent.Options) (chatProcess, error)
 
 type chatSession struct {
 	id, title string
+	tool      string
 	acpID     string
 	state     terminalproto.SessionState
 	exit      *int
@@ -260,6 +262,10 @@ func (s *chatSupervisor) detach(h *chatHost) {
 }
 
 func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (terminalproto.SessionChanged, error) {
+	if in.Tool == agentsoftware.OpenCodeTool {
+		softwareGate.RLock()
+		defer softwareGate.RUnlock()
+	}
 	h.sup.mu.Lock()
 	if h.sup.closed {
 		h.sup.mu.Unlock()
@@ -302,7 +308,7 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrYoloRefused
 	}
-	cs := &chatSession{id: sessionID, title: in.Title, state: terminalproto.Creating, yolo: in.Yolo}
+	cs := &chatSession{id: sessionID, title: in.Title, tool: in.Tool, state: terminalproto.Creating, yolo: in.Yolo}
 	h.sup.sessions[sessionID] = cs
 	h.sup.requests[requestID] = sessionID
 	h.sup.starting[requestID] = sessionID
@@ -326,7 +332,14 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 	if !ok {
 		return terminalproto.SessionChanged{}, acpagent.ErrUnsupported
 	}
+	// A managed installation is preferred over PATH, the same as a terminal
+	// launch, so an install reviewed for this tool is the one a chat runs.
 	binary, err := h.sup.lookPath(spec.Command)
+	if managed, found, managedErr := agentsoftware.ManagedBinary(h.sup.opts.Home, in.Tool); managedErr != nil {
+		return terminalproto.SessionChanged{}, &acpagent.VersionError{Agent: spec.DisplayName, Required: spec.MinVersion, Reason: "reet's managed installation is broken"}
+	} else if found {
+		binary, err = managed, nil
+	}
 	if err != nil {
 		return terminalproto.SessionChanged{}, &acpagent.VersionError{Agent: spec.DisplayName, Required: spec.MinVersion, Reason: "the agent is not installed"}
 	}
@@ -424,6 +437,21 @@ func (h *chatHost) snapshots() []terminalproto.SessionSnapshot {
 		out = out[:32]
 	}
 	return out
+}
+
+// liveTool counts this process's live sessions for one tool, across every
+// connection. A software apply uses it to refuse while an OpenCode session
+// still needs the installation it is replacing.
+func (s *chatSupervisor) liveTool(tool string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, cs := range s.sessions {
+		if cs.tool == tool && cs.state.ReservesQuota() {
+			n++
+		}
+	}
+	return n
 }
 
 func (h *chatHost) find(sessionID string) *chatSession {

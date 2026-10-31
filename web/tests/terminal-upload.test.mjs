@@ -82,3 +82,14 @@ test('an image path joins the opening prompt as words the agent can open', () =>
   assert.equal(u.imagePrompt('', ['/tmp/a.png', '/tmp/b.png']), 'Images: /tmp/a.png /tmp/b.png')
   assert.equal(u.imagePrompt('fix\n', ['/tmp/a.png']), 'fix\n\nImage: /tmp/a.png')
 })
+
+test('a chat prompt embeds images only when the machine accepts them', () => {
+  const uploads = [{ path: '/home/u/.reet/launch-uploads/a/shot.png', reference: '/home/u/.reet/launch-uploads/a/shot.png' }]
+  assert.deepEqual(u.chatPromptParts('what is wrong?', uploads, true), { text: 'what is wrong?', images: ['/home/u/.reet/launch-uploads/a/shot.png'] })
+  assert.deepEqual(u.chatPromptParts('', uploads, true), { text: '', images: ['/home/u/.reet/launch-uploads/a/shot.png'] })
+  assert.deepEqual(u.chatPromptParts('what is wrong?', uploads, false), { text: 'what is wrong?\n\nImage: /home/u/.reet/launch-uploads/a/shot.png', images: [] })
+  assert.deepEqual(u.chatPromptParts('', [], true), { text: '', images: [] })
+  assert.deepEqual(u.chatPromptParts('hello', [], false), { text: 'hello', images: [] })
+  const many = Array.from({ length: 9 }, (_, i) => ({ path: `/tmp/${i}.png`, reference: `/tmp/${i}.png` }))
+  assert.deepEqual(u.chatPromptParts('look', many, true), { text: `look\n\nImages: ${many.map(x => x.reference).join(' ')}`, images: [] })
+})

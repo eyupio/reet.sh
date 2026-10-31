@@ -4,7 +4,9 @@ package acpagent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,7 +78,12 @@ func TestFakeACP(t *testing.T) {
 			if scenario == "wrong-protocol" {
 				protocol = 2
 			}
-			reply(message.ID, map[string]any{"protocolVersion": protocol, "agentInfo": map[string]string{"name": name, "version": version}})
+			capabilities := map[string]any{"promptCapabilities": map[string]bool{"image": true}}
+			if scenario == "no-images" {
+				capabilities = map[string]any{"promptCapabilities": map[string]bool{"image": false}}
+			}
+			reply(message.ID, map[string]any{"protocolVersion": protocol, "agentInfo": map[string]string{"name": name, "version": version},
+				"agentCapabilities": capabilities})
 		case "session/load":
 			var params struct {
 				SessionID string `json:"sessionId"`
@@ -112,13 +119,33 @@ func TestFakeACP(t *testing.T) {
 			var params struct {
 				SessionID string `json:"sessionId"`
 				Prompt    []struct {
-					Text string `json:"text"`
+					Type     string `json:"type"`
+					Text     string `json:"text"`
+					MIMEType string `json:"mimeType"`
+					Data     string `json:"data"`
 				} `json:"prompt"`
 			}
 			_ = json.Unmarshal(message.Params, &params)
 			session = params.SessionID
 			promptID = message.ID
 			switch scenario {
+			case "image":
+				ok := false
+				for _, block := range params.Prompt {
+					if block.Type != "image" || block.MIMEType != "image/png" || len(block.Text) != 0 {
+						continue
+					}
+					data, err := base64.StdEncoding.DecodeString(block.Data)
+					if err == nil && bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n")) {
+						ok = true
+					}
+				}
+				text := "image missing"
+				if ok {
+					text = "image ok"
+				}
+				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_image", "content": map[string]string{"type": "text", "text": text}})
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
 			case "basic":
 				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_1", "content": map[string]string{"type": "text", "text": "hello "}})
 				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_1", "content": map[string]string{"type": "text", "text": "there"}})
@@ -239,6 +266,17 @@ func (e *events) has(kind string) bool {
 	defer e.mu.Unlock()
 	for _, event := range e.all {
 		if event.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *events) text(text string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, event := range e.all {
+		if event.Text == text {
 			return true
 		}
 	}
@@ -428,6 +466,38 @@ func TestPluginsNeedTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	session.Close()
+}
+
+func TestPromptEmbedsImagesAndHonoursTheCapability(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\n")
+	opts, got := options(t, "image", testVersion)
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if !session.ImagesSupported() {
+		t.Fatal("image capability was not read")
+	}
+	if err := session.PromptWithAttachments(context.Background(), "what is wrong?", []Attachment{{MIME: "image/png", Data: png}}); err != nil {
+		t.Fatal(err)
+	}
+	if !got.text("image ok") {
+		t.Fatal("the image content block did not reach the agent")
+	}
+
+	opts, _ = options(t, "no-images", testVersion)
+	session, err = Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if session.ImagesSupported() {
+		t.Fatal("a false capability was read as true")
+	}
+	if err := session.PromptWithAttachments(context.Background(), "look", []Attachment{{MIME: "image/png", Data: png}}); !errors.Is(err, ErrImages) {
+		t.Fatalf("image without the capability: %v", err)
+	}
 }
 
 func TestWatchdogAndFSMirror(t *testing.T) {

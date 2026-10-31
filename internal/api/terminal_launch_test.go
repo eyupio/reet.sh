@@ -35,7 +35,9 @@ type launchAPI struct {
 	worktrees []terminalproto.Body
 	// late, when set, receives a worktree request that got no answer.
 	late func(terminalproto.Message)
-	peer *terminalbroker.Peer
+	// prompts records every ACP prompt, including its image paths.
+	prompts []terminalproto.ACPPrompt
+	peer    *terminalbroker.Peer
 }
 
 func (f *launchAPI) sent() []terminalproto.Create {
@@ -72,6 +74,16 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 			}
 		case terminalproto.End:
 			reply.Body = terminalproto.SessionChanged{State: terminalproto.Ended}
+		case *terminalproto.ACPPrompt:
+			f.mu.Lock()
+			f.prompts = append(f.prompts, *op)
+			f.mu.Unlock()
+			reply.Body = terminalproto.Result{Code: terminalproto.OK}
+		case terminalproto.ACPPrompt:
+			f.mu.Lock()
+			f.prompts = append(f.prompts, op)
+			f.mu.Unlock()
+			reply.Body = terminalproto.Result{Code: terminalproto.OK}
 		case terminalproto.WorktreeStatus, terminalproto.WorktreeRemove:
 			f.mu.Lock()
 			f.worktrees = append(f.worktrees, op)

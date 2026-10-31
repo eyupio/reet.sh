@@ -3,9 +3,12 @@
 package terminalagent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -23,13 +26,19 @@ type fakeChat struct {
 	closeOnce sync.Once
 	allow     []bool
 	prompted  string
+	images    []acpagent.Attachment
 	busy      bool
 	cancelled bool
 }
 
 func (f *fakeChat) Prompt(ctx context.Context, text string) error {
+	return f.PromptWithAttachments(ctx, text, nil)
+}
+
+func (f *fakeChat) PromptWithAttachments(ctx context.Context, text string, images []acpagent.Attachment) error {
 	f.mu.Lock()
 	f.prompted = text
+	f.images = images
 	f.busy = true
 	f.mu.Unlock()
 	select {
@@ -41,6 +50,8 @@ func (f *fakeChat) Prompt(ctx context.Context, text string) error {
 	f.mu.Unlock()
 	return ctx.Err()
 }
+
+func (f *fakeChat) ImagesSupported() bool { return true }
 func (f *fakeChat) Cancel() error {
 	f.mu.Lock()
 	f.cancelled = true
@@ -167,7 +178,7 @@ func TestChatHostCreatePromptPermissionEnd(t *testing.T) {
 	if snap, ok := h.snapshot("session-0123456789"); !ok || snap.State != terminalproto.Running {
 		t.Fatalf("snapshot: %+v %v", snap, ok)
 	}
-	if err := h.prompt("session-0123456789", "hello"); err != nil {
+	if err := h.prompt("session-0123456789", "hello", nil); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
@@ -183,7 +194,7 @@ func TestChatHostCreatePromptPermissionEnd(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if err := h.prompt("session-0123456789", "again"); !errors.Is(err, terminalhost.ErrOperationConflict) {
+	if err := h.prompt("session-0123456789", "again", nil); !errors.Is(err, terminalhost.ErrOperationConflict) {
 		t.Fatalf("busy prompt: %v", err)
 	}
 	proc.onEvent(acpagent.Event{Kind: "permission", PermissionID: "permission-0123456789", Title: "write", ToolKind: "edit", Path: "/home/u/a", Diff: "@@ -0,0 +1 @@\n+x"})
@@ -379,7 +390,7 @@ func TestChatSurvivesReconnectAndFlushesDetachedEvents(t *testing.T) {
 	if !second.chatText("while away") {
 		t.Fatalf("buffered event was not delivered after reattach: %+v", second.msgs)
 	}
-	if err := b.prompt("session-0123456789", "again"); err != nil {
+	if err := b.prompt("session-0123456789", "again", nil); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(time.Second)
@@ -544,6 +555,82 @@ func TestChatStartupCompletesOnTheReplacementLink(t *testing.T) {
 		t.Fatalf("snapshot: %+v %v", snapshot, ok)
 	}
 	sup.Close()
+}
+
+func TestChatPromptReadsOnlyUploadedImages(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	root := t.TempDir()
+	sup := newChatSupervisor(ctx, terminalhost.ManagerOptions{Home: t.TempDir(), Layout: terminalhost.Layout{Dir: root}})
+	dir := filepath.Join(root, "launch-uploads", "agent-0123456789")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	png := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 8)...)
+	path := filepath.Join(dir, "shot.png")
+	if err := os.WriteFile(path, png, 0600); err != nil {
+		t.Fatal(err)
+	}
+	images, err := sup.readAttachments([]string{path})
+	if err != nil || len(images) != 1 || images[0].MIME != "image/png" || !bytes.Equal(images[0].Data, png) {
+		t.Fatalf("read uploaded image: %+v %v", images, err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "shot.png")
+	if err := os.WriteFile(outside, png, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sup.readAttachments([]string{outside}); !errors.Is(err, errAttachmentUnavailable) {
+		t.Fatalf("outside upload root: %v", err)
+	}
+	if _, err := sup.readAttachments([]string{dir + "/../shot.png"}); !errors.Is(err, errAttachmentUnavailable) {
+		t.Fatalf("traversal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "not.png"), []byte("not an image"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sup.readAttachments([]string{filepath.Join(dir, "not.png")}); !errors.Is(err, errAttachmentUnavailable) {
+		t.Fatalf("non-image: %v", err)
+	}
+}
+
+func TestChatPromptPassesImageBytesToACP(t *testing.T) {
+	h, proc, _ := testChatHost(t)
+	root := t.TempDir()
+	h.sup.opts.Layout.Dir = root
+	dir := filepath.Join(root, "launch-uploads", "agent-0123456789")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	png := []byte("\x89PNG\r\n\x1a\n")
+	path := filepath.Join(dir, "shot.png")
+	if err := os.WriteFile(path, png, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
+		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.prompt("session-0123456789", "", []string{path}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		proc.mu.Lock()
+		images := append([]acpagent.Attachment(nil), proc.images...)
+		proc.mu.Unlock()
+		if len(images) == 1 {
+			if images[0].MIME != "image/png" || !bytes.Equal(images[0].Data, png) {
+				t.Fatalf("prompt image: %+v", images[0])
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the image never reached the chat process")
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func toolDetailHost(t *testing.T, details bool) (*chatHost, *fakeChat, *sent) {

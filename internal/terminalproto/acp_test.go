@@ -13,16 +13,18 @@ func TestACPBodiesRoundTrip(t *testing.T) {
 	allow := true
 	pending := true
 	for name, body := range map[string]Body{
-		"prompt":           &ACPPrompt{Text: "fix the failing build"},
-		"cancel":           &ACPCancel{},
-		"permission":       &ACPPermission{PermissionID: "permission-0123456789", Allow: true},
-		"agent":            &ACPEvent{Kind: "agent", MessageID: "msg_1", Text: "hello"},
-		"tool":             &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Status: "completed", Text: "done", Command: "echo ok", Path: "/home/u/a", Diff: "@@ -1 +1 @@\n-a\n+b", Additions: 1, Deletions: 1, DurationMs: 12, Locations: []string{"/home/u/a"}},
-		"permission event": &ACPEvent{Kind: "permission", PermissionID: "permission-0123456789", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Command: "echo ok", Path: "/home/u/a", Diff: "@@ -0,0 +1 @@\n+x", Truncated: false},
-		"resolved":         &ACPEvent{Kind: "permission_resolved", PermissionID: "permission-0123456789", Allow: &allow},
-		"cancelled":        &ACPEvent{Kind: "permission_cancelled", PermissionID: "permission-0123456789", Reason: "timeout"},
-		"status":           &ACPEvent{Kind: "status", State: "working", Detail: "Still working"},
-		"notice":           &ACPEvent{Kind: "notice", Text: "hello", Bad: pending},
+		"prompt":            &ACPPrompt{Text: "fix the failing build"},
+		"prompt images":     &ACPPrompt{Text: "what is wrong?", Images: []string{"/home/u/.reet/launch-uploads/a/shot.png"}},
+		"prompt image only": &ACPPrompt{Images: []string{"/home/u/.reet/launch-uploads/a/shot.png"}},
+		"cancel":            &ACPCancel{},
+		"permission":        &ACPPermission{PermissionID: "permission-0123456789", Allow: true},
+		"agent":             &ACPEvent{Kind: "agent", MessageID: "msg_1", Text: "hello"},
+		"tool":              &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Status: "completed", Text: "done", Command: "echo ok", Path: "/home/u/a", Diff: "@@ -1 +1 @@\n-a\n+b", Additions: 1, Deletions: 1, DurationMs: 12, Locations: []string{"/home/u/a"}},
+		"permission event":  &ACPEvent{Kind: "permission", PermissionID: "permission-0123456789", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Command: "echo ok", Path: "/home/u/a", Diff: "@@ -0,0 +1 @@\n+x", Truncated: false},
+		"resolved":          &ACPEvent{Kind: "permission_resolved", PermissionID: "permission-0123456789", Allow: &allow},
+		"cancelled":         &ACPEvent{Kind: "permission_cancelled", PermissionID: "permission-0123456789", Reason: "timeout"},
+		"status":            &ACPEvent{Kind: "status", State: "working", Detail: "Still working"},
+		"notice":            &ACPEvent{Kind: "notice", Text: "hello", Bad: pending},
 	} {
 		data, err := Encode(acpMessage(body))
 		if err != nil {
@@ -37,10 +39,18 @@ func TestACPBodiesRoundTrip(t *testing.T) {
 
 func TestACPRejectsUnboundedOrUnknownBodies(t *testing.T) {
 	tooLong := strings.Repeat("a", MaxChatPromptBytes+1)
+	tooManyImages := make([]string, MaxACPImages+1)
+	for i := range tooManyImages {
+		tooManyImages[i] = "/home/u/.reet/launch-uploads/a/shot.png"
+	}
 	for name, body := range map[string]Body{
 		"empty prompt":       &ACPPrompt{Text: " "},
 		"long prompt":        &ACPPrompt{Text: tooLong},
 		"nul prompt":         &ACPPrompt{Text: "a\x00b"},
+		"relative image":     &ACPPrompt{Text: "look", Images: []string{"shot.png"}},
+		"nul image":          &ACPPrompt{Text: "look", Images: []string{"/tmp/a\x00.png"}},
+		"long image path":    &ACPPrompt{Text: "look", Images: []string{"/" + strings.Repeat("a", MaxACPImagePathBytes)}},
+		"too many images":    &ACPPrompt{Text: "look", Images: tooManyImages},
 		"unknown event":      &ACPEvent{Kind: "raw"},
 		"agent no id":        &ACPEvent{Kind: "agent", Text: "x"},
 		"permission empty":   &ACPEvent{Kind: "permission", PermissionID: "permission-0123456789"},
@@ -53,6 +63,18 @@ func TestACPRejectsUnboundedOrUnknownBodies(t *testing.T) {
 		if _, err := Encode(acpMessage(body)); err == nil {
 			t.Errorf("%s accepted", name)
 		}
+	}
+}
+
+func TestACPPromptAllowsAnImageWithoutText(t *testing.T) {
+	if !ValidACPPrompt("", []string{"/home/u/.reet/launch-uploads/a/shot.png"}) {
+		t.Fatal("image-only prompt refused")
+	}
+	if ValidACPPrompt("", nil) {
+		t.Fatal("empty prompt accepted")
+	}
+	if !SupportsACPImages(ACPFeature+","+ACPImageFeature) || SupportsACPImages(ACPFeature) {
+		t.Fatal("acp-image-v1 feature parsing is wrong")
 	}
 }
 
@@ -91,6 +113,14 @@ func TestACPCapabilityNeedsTerminal(t *testing.T) {
 	c.TerminalControl = true
 	if c.Validate() != nil {
 		t.Fatal("acp with terminal control refused")
+	}
+	c.ACPImages = true
+	if c.Validate() != nil {
+		t.Fatal("acp images with acp refused")
+	}
+	c.ACP = false
+	if c.Validate() == nil {
+		t.Fatal("acp images without acp accepted")
 	}
 }
 

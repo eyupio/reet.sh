@@ -147,6 +147,8 @@ type Capabilities struct {
 	ACP bool `json:"acp,omitempty"`
 	// ACPHistory is sent only when acp-history-v1 was negotiated as well.
 	ACPHistory bool `json:"acpHistory,omitempty"`
+	// ACPImages is sent only when acp-image-v1 was negotiated as well.
+	ACPImages bool `json:"acpImages,omitempty"`
 	// ShellDir is sent only when shell-dir-v1 was negotiated; a plain shell
 	// may then start in a chosen folder.
 	ShellDir bool `json:"shellDir,omitempty"`
@@ -197,7 +199,7 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.Models && !c.TerminalControl || c.ModelsOff && (c.Models || !c.TerminalControl) {
 		return ErrInvalid
 	}
-	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
+	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ACPImages && !c.ACP || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
 		return ErrInvalid
 	}
 	if len(c.Software) > 0 && (!c.TerminalControl || !ValidSoftware(c.Software)) {

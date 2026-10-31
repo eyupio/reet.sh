@@ -94,6 +94,13 @@ merged, released or deployed.
 
 ### Resume here (after Needs you and the approvals slice, 31 October 2026)
 
+- **Chat images (in progress, branch `cline/6t9b2yrw`):** the reet TUI now passes a pasted, dropped or chosen image to
+  OpenCode the way AOE does: the browser uploads it to the machine, `POST /chat/prompt` carries the upload path, and the
+  connector embeds the bytes as an ACP image content block (`acp-image-v1`, `acpImages` capability). The agent sees the
+  image itself, not a path it must open with a tool. At most eight images per prompt; older connectors keep the path-as-text
+  fallback. Unit tests cover the protocol, ACP child content blocks, connector upload-root validation and the API; the mocked
+  chat e2e at 1360x900 and 390x844 passes. Not checked: a live OpenCode model turn with an image, or Safari.
+
 **#272 (inline approvals) merged as `362ffd9`; #269 (Needs you) as `52afc9d`;
 #270 (reet TUI model choice and provider error recovery) as `1717b7a`;
 #266 (YOLO audit follow-up) as `99b3fd0`; #264 (YOLO sessions) as `9cf82f4`;

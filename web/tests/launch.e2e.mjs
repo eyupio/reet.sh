@@ -88,6 +88,12 @@ async function launch(options={}) {
 // Deterministic in place of a fixed wait: the page's pending work runs (a macrotask after Svelte's effects), then a request
 // sent after any the page has made is answered, so whatever the page sent before it has been recorded by the routes.
 const settled = page => page.evaluate(async () => { await new Promise(r => setTimeout(r, 0)); await fetch('/api/__e2e/sync') })
+// Home keeps its launch bar in a collapsed Quick launch section; open it as a person would before reading the bar.
+const openQuick = async page => {
+ const section = page.locator('details.quick-launch')
+ await section.waitFor({state:'attached', timeout:5000})
+ if (!(await section.evaluate(d => d.open))) { const summary = section.locator('summary'); await summary.scrollIntoViewIfNeeded(); await summary.click() }
+}
 const bar = page => page.getByRole('form',{name:'Start a session'})
 const prompt = page => bar(page).getByRole('textbox',{name:'Describe the job'})
 const startButton = page => bar(page).getByRole('button',{name:/^(Start the session|Try the same request again)$/})
@@ -134,7 +140,7 @@ try {
    },
   }
   const {context,page,errors,box} = await launch({projects:[...fprojects(), blog()], routes})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   const rail = page.locator('aside.rail')
   await rail.getByRole('button',{name:'Projects menu'}).click()
@@ -200,7 +206,7 @@ try {
   const runs = []
   const routes = {'/api/v2/folder-projects/runs': request => { runs.push(request.postDataJSON()); return {status:502, json:{error:'bad gateway'}} }}
   const {context,page,errors,box} = await launch({projects:[...fprojects(), blog()], routes})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   const rail = page.locator('aside.rail')
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   await rail.getByRole('button',{name:'Projects menu'}).click()
@@ -226,7 +232,7 @@ try {
   let release = () => {}, reads = 0
   const profile = {user:{id:1,name:'Sam',email:'sam@example.test',role:'owner'},sessionCount:1,accounts:true,profile:{theme:'light',timezone:'Europe/London',dateFormat:'',shelfView:'list',cardsExpanded:false,hostedPrefix:'reet-',updatedAt:1}}
   const held = await launch({projects:[...fprojects(), blog()], routes:{'/api/v2/profile': () => reads++ === 0 ? profile : new Promise(r => { release = () => r(profile) })}})
-  await held.page.goto(base)
+  await held.page.goto(base); await openQuick(held.page)
   const heldRail = held.page.locator('aside.rail')
   await heldRail.getByRole('button',{name:'Projects menu'}).click()
   await held.page.getByRole('menuitem',{name:'Select projects'}).click()
@@ -250,7 +256,7 @@ try {
    return {status:409, json:{code:'run_in_progress', error:'One of those projects is still starting. Wait for it to finish, then start again.'}}
   }}
   const {context,page,errors,box} = await launch({projects:[...fprojects(), blog()], routes})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   const rail = page.locator('aside.rail')
   await rail.getByRole('button',{name:'Projects menu'}).click()
   await page.getByRole('menuitem',{name:'Select projects'}).click()
@@ -308,7 +314,7 @@ try {
   expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect(phone.box.storage.filter(e => /fp\d/.test(e.value) || /fp\d/.test(e.key))).toEqual([])
   // One chosen project with a very long name: the phone summary names it, wraps, and keeps Start on the screen.
-  await phone.page.goto(`${base}/?project=fp1`)
+  await phone.page.goto(`${base}/?project=fp1`); await openQuick(phone.page)
   await expect(phone.page.locator('.summary-text')).toContainText('the-store-rewrite-with-a-very-long-project-name-indeed')
   const one = await startButton(phone.page).boundingBox()
   expect(one.x + one.width).toBeLessThanOrEqual(320)
@@ -322,7 +328,7 @@ try {
   expect(phone.errors).toEqual([])
   await phone.context.close()
   const strip = await launch({width:1180, height:800, projects:[...fprojects(), blog()]})
-  await strip.page.goto(base)
+  await strip.page.goto(base); await openQuick(strip.page)
   const panel = strip.page.getByRole('button',{name:/^Open the project rail/})
   await panel.click()
   await strip.page.locator('aside.rail').getByRole('button',{name:'Projects menu'}).click()
@@ -344,17 +350,17 @@ try {
  // order), then takes `projects` out of the address (the rest stays), so a reload does not choose them again.
  if (run('projects handed over in the address')) {
   const {context,page,errors} = await launch({projects:[...fprojects(), blog()]})
-  await page.goto(`${base}/?projects=fp4,gone,fp1,fp4&from=sessions#top`)
+  await page.goto(`${base}/?projects=fp4,gone,fp1,fp4&from=sessions#top`); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toContain('on 2 projects')
   await expect(page.locator('aside.rail').getByRole('checkbox',{checked:true})).toHaveCount(2)
   await expect(page.locator('aside.rail').getByRole('checkbox',{name:/^Store rewrite/})).toHaveAttribute('aria-checked','true')
   await expect(page.locator('aside.rail').getByRole('checkbox',{name:/^Blog/})).toHaveAttribute('aria-checked','true')
   await expect.poll(() => page.evaluate(() => location.pathname + location.search + location.hash)).toBe('/?from=sessions#top')
-  await page.reload()
+  await page.reload(); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   await expect(page.locator('aside.rail').getByRole('checkbox')).toHaveCount(0)
   // One id names one project: the bar names it.
-  await page.goto(`${base}/?projects=fp3`)
+  await page.goto(`${base}/?projects=fp3`); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toContain('on Site at studio')
   expect(errors).toEqual([])
   await context.close()
@@ -364,7 +370,7 @@ try {
   const projects = fprojects().map(p => p.id === 'fp3' ? {...p, defaultTool:'codex', defaultModel:'gpt-5-codex', worktreeDefault:'no', hasStarterPrompt:true} : p)
   const routes = {'/api/v2/folder-projects/fp3': () => ({...projects.find(p => p.id === 'fp3'), starterPrompt:'Tidy the site build and say what changed'})}
   const {context,page,errors,box} = await launch({projects, routes})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   const rail = page.locator('aside.rail')
   await rail.locator('.card').filter({hasText:'Site'}).click()
@@ -392,7 +398,7 @@ try {
  // made while the request was kept, is applied without wiping the sentence that says why nothing started.
  if (run('a refusal after a kept request survives the same selection')) {
   const {context,page,errors,box} = await launch({answer:(body, n) => n === 1 ? {status:502, json:{error:'bad gateway'}} : {status:422, json:{error:'tool unavailable', code:'tool_unavailable'}}})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   await startButton(page).click()
   await expect(startButton(page)).toHaveAccessibleName('Try the same request again')
@@ -424,7 +430,7 @@ try {
    '/api/v2/folder-projects/runs/run-1': () => { reads++; return selectionRun([runMember(0,'fp1','Store rewrite','started',{sessionId:'s-store'}), reads < 3 ? runMember(1,'fp3','Site','pending') : runMember(1,'fp3','Site','started',{sessionId:'s-site'})]) },
   }
   const {context,page,errors} = await launch({routes})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   const rail = page.locator('aside.rail')
   await rail.getByRole('button',{name:'Projects menu'}).click()
   await page.getByRole('menuitem',{name:'Select projects'}).click()
@@ -445,7 +451,7 @@ try {
   }
   const later = await launch({routes:failedRuns})
   await later.page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:204, body:''}))
-  await later.page.goto(base)
+  await later.page.goto(base); await openQuick(later.page)
   const lrail = later.page.locator('aside.rail')
   await lrail.getByRole('button',{name:'Projects menu'}).click()
   await later.page.getByRole('menuitem',{name:'Select projects'}).click()
@@ -472,7 +478,7 @@ try {
  // and keeps what the bar already said.
  if (run('choosing a project while the bar is locked says why')) {
   const {context,page,errors} = await launch({answer:() => ({status:502, json:{error:'bad gateway'}})})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await startButton(page).click()
   await expect(startButton(page)).toHaveAccessibleName('Try the same request again')
   const rail = page.locator('aside.rail')
@@ -496,7 +502,7 @@ try {
  // The rail marks no card while the bar names the home folder, even when the address named a project.
  if (run('the rail marks no card for the home folder')) {
   const {context,page,errors} = await launch()
-  await page.goto(`${base}/?project=fp3`)
+  await page.goto(`${base}/?project=fp3`); await openQuick(page)
   const rail = page.locator('aside.rail')
   await expect.poll(() => sentenceText(page)).toContain('on Site at studio')
   await expect(rail.locator('.card[aria-current="true"]')).toHaveCount(1)
@@ -518,7 +524,7 @@ try {
    return {current:'main', default:'main', branches:['main','develop'], more:false}
   }}
   const {context,page,errors} = await launch({routes})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect.poll(() => reads).toBe(1)
   await slot(page,'Branch').click()
   const list = page.getByRole('listbox',{name:'Branch'})
@@ -540,12 +546,12 @@ try {
  if (run('YOLO reason is visible')) {
   const why = 'An owner or admin can allow YOLO for this account in Settings.'
   const desk = await launch({yolo:{allowed:false}})
-  await desk.page.goto(base)
+  await desk.page.goto(base); await openQuick(desk.page)
   await expect(bar(desk.page).locator('label', {hasText:'YOLO'})).toHaveAttribute('title', why)
   expect(desk.errors).toEqual([])
   await desk.context.close()
   const {context,page,errors} = await launch({width:390, height:844, touch:true, yolo:{allowed:false}})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await bar(page).getByRole('button',{name:'Change',exact:true}).click()
   const sheet = page.getByRole('dialog',{name:'Change the launch'})
   await expect(sheet.getByText(why,{exact:true})).toBeVisible()
@@ -556,7 +562,7 @@ try {
  // YOLO confirms before the control moves, sends the flag once, and is back on Ask me after the start.
  if (run('YOLO confirms and starts')) {
   const {context,page,errors,box} = await launch()
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await pick(page,'Agent','Cline')
   await bar(page).getByRole('radiogroup',{name:'Approvals'}).getByRole('radio',{name:'YOLO'}).click()
   const dialog = page.getByRole('alertdialog',{name:'Start this session on YOLO?'})
@@ -574,7 +580,7 @@ try {
  // The session screen's + arrives at /#launch: the prompt takes focus and the address forgets the fragment.
  if (run('arriving from a session tab focuses the prompt')) {
   const {context,page,errors} = await launch()
-  await page.goto(`${base}/#launch`)
+  await page.goto(`${base}/#launch`); await openQuick(page)
   await expect(bar(page).getByLabel('Describe the job')).toBeFocused()
   expect(new URL(page.url()).hash).toBe('')
   expect(errors).toEqual([])
@@ -584,7 +590,7 @@ try {
  // Select started on the 56 px strip (1100 to 1239 px) can be stopped there too.
  if (run('Stop selecting on the strip')) {
   const {context,page,errors} = await launch({width:1180, height:800, projects:[...fprojects(), blog()]})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   const strip = page.locator('aside.rail .strip')
   await page.getByRole('button',{name:/^Open the project rail/}).click()
   await page.locator('aside.rail').getByRole('button',{name:'Projects menu'}).click()
@@ -604,7 +610,7 @@ try {
  // Projects that can't be read leave the bar with a reason, not silently disabled.
  if (run('projects never read: the bar says why')) {
   const {context,page,errors} = await launch({routes:{'/api/v2/folder-projects': () => ({status:500, json:{error:'down'}})}})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect(bar(page).locator('.status')).toHaveText("Couldn't read your projects just now. Start waits until they have been read; Home tries again every 15 seconds.")
   await expect(startButton(page)).toBeDisabled()
   expect(errors).toEqual([])
@@ -615,7 +621,7 @@ try {
  if (run('a removed project leaves a kept request as it was')) {
   const {context,page,errors,box} = await launch({answer:() => ({status:502, json:{error:'bad gateway'}})})
   await page.clock.install()
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   const said = 'Run Claude Code with default on Store rewrite at studio from main in a fresh worktree'
   await expect.poll(() => sentenceText(page)).toBe(said)
   await startButton(page).click()
@@ -644,7 +650,7 @@ try {
   }
   const {context,page,errors} = await launch({projects:[...fprojects(), blog()], routes})
   await page.clock.install()
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   const rail = page.locator('aside.rail')
   await rail.getByRole('button',{name:'Projects menu'}).click()
   await page.getByRole('menuitem',{name:'Select projects'}).click()
@@ -673,7 +679,7 @@ try {
    session('s3','a1','Plain shell',{createdAt:now-MIN}),
   ]
   const {context,page,errors,box} = await launch({sessions})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect(bar(page)).toBeVisible()
   await expect(page.getByRole('button',{name:'Start an agent',exact:true})).toHaveCount(0)
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
@@ -704,7 +710,7 @@ try {
  if (run('profile defaults open the bar')) {
   const routes = {'/api/v2/profile': () => accountProfile({defaultTool:'cline', defaultModel:'anthropic/claude-sonnet-4-5', defaultEffort:'medium'})}
   const {context,page,errors,box} = await launch({routes})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toBe('Run Cline with anthropic/claude-sonnet-4-5 on Store rewrite at studio from main in a fresh worktree · thinking medium')
   await expect(slot(page,'Agent')).toHaveAccessibleName('Agent: Cline')
   await expect(slot(page,'Model')).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
@@ -731,7 +737,7 @@ try {
    },
   }
   const {context,page,errors} = await launch({projects, routes})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toContain('Run OpenCode')
   await slot(page,'Model').click()
   const models = page.getByRole('listbox',{name:'Model'})
@@ -751,7 +757,7 @@ try {
  // Several projects on different machines have no single list: favourites and suggestions, with the honest note.
  if (run('several machines say models differ')) {
   const {context,page,errors} = await launch()
-  await page.goto(`${base}/?projects=fp1,fp2`)
+  await page.goto(`${base}/?projects=fp1,fp2`); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toContain('on 2 projects')
   await slot(page,'Model').click()
   const models = page.getByRole('listbox',{name:'Model'})
@@ -782,7 +788,7 @@ try {
    return {status:200, json:{}}
   }}
   const {context,page,errors} = await launch({routes})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await slot(page,'Model').click()
   const models = page.getByRole('listbox',{name:'Model'})
   await expect(models.getByRole('option').nth(1)).toHaveAccessibleName(/^opus/)
@@ -803,7 +809,7 @@ try {
  // Other… still lets a person name any model the validator accepts.
  if (run('Other still names a model')) {
   const {context,page,errors,box} = await launch()
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await slot(page,'Model').click()
   const models = page.getByRole('listbox',{name:'Model'})
   await models.getByRole('option',{name:'Other…'}).click()
@@ -821,7 +827,7 @@ try {
  if (run('a failed model read never blocks a start')) {
   const routes = {'/api/v2/machines/a1/models': () => ({status:500, json:{error:'down'}})}
   const {context,page,errors,box} = await launch({routes})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await slot(page,'Model').click()
   const models = page.getByRole('listbox',{name:'Model'})
   await expect(models.locator('..').getByRole('status')).toContainText('Couldn’t read studio’s models just now. Favourites and suggestions still work.')
@@ -846,7 +852,7 @@ try {
     '/api/v2/machines/a1/models': () => cached,
    }
    const {context,page,errors} = await launch({routes})
-   await page.goto(base)
+   await page.goto(base); await openQuick(page)
    await slot(page,'Model').click()
    const list = page.getByRole('listbox',{name:'Model'})
    await expect(list.locator('..').getByRole('status')).toContainText('studio is offline')
@@ -859,7 +865,7 @@ try {
   }
   for (const [state, words] of [['update','Update reet'], ['off','switched off']]) {
    const {context,page,errors} = await launch({routes:{'/api/v2/machines/a1/models': () => modelList({state, models:[]})}})
-   await page.goto(base)
+   await page.goto(base); await openQuick(page)
    await slot(page,'Model').click()
    const list = page.getByRole('listbox',{name:'Model'})
    await expect(list.locator('..').getByRole('status'), state).toContainText(words)
@@ -873,7 +879,7 @@ try {
  // Typing a model that is not in the list offers Use ‘x’, which opens Other prefilled.
  if (run('a typed model offers Use and prefills Other')) {
   const {context,page,errors} = await launch()
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await slot(page,'Model').click()
   const list = page.getByRole('listbox',{name:'Model'})
   await page.getByLabel('Filter models').fill('acme/custom-model')
@@ -890,7 +896,7 @@ try {
  // S on a focused model stars it, the row keeps focus when it moves to Favourites, and the change is announced.
  if (run('starring by keyboard keeps focus and announces')) {
   const {context,page,errors} = await launch()
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await slot(page,'Model').click()
   const list = page.getByRole('listbox',{name:'Model'})
   await list.getByRole('option',{name:'anthropic/claude-sonnet-4-5'}).focus()
@@ -907,7 +913,7 @@ try {
  // A failed favourites read leaves suggestions and Start working.
  if (run('a failed favourites read never blocks the bar')) {
   const {context,page,errors,box} = await launch({routes:{'/api/v2/profile/model-favourites': () => ({status:500, json:{error:'down'}})}})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await slot(page,'Model').click()
   const list = page.getByRole('listbox',{name:'Model'})
   await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^sonnet/})).toBeVisible()
@@ -923,7 +929,7 @@ try {
  if (run('tablet and phone model picker')) {
   for (const [width, height, touch, touchSize] of [[834,1112,true,true], [390,844,true,false]]) {
    const {context,page,errors} = await launch({width, height, touch})
-   await page.goto(base)
+   await page.goto(base); await openQuick(page)
    await bar(page).getByRole('button',{name:'Change',exact:true}).click()
    const sheet = page.getByRole('dialog',{name:'Change the launch'})
    await expect(sheet).toBeVisible()
@@ -956,7 +962,7 @@ try {
  // in the bar: Escape on its slot, Tab on the next slot, never on the page's first control.
  if (run('Tab and Escape from a slot list keep focus in the bar')) {
   const {context,page,errors,box} = await launch()
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   await slot(page,'Agent').click()
   const agents = page.getByRole('listbox',{name:'Agent'})
@@ -983,7 +989,7 @@ try {
 
  if (run('each slot opens and sets its value')) {
   const {context,page,errors,box} = await launch()
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   // Escape closes a list and gives focus back to its slot; arrow keys move through the options.
   await slot(page,'Agent').click()
@@ -1010,7 +1016,7 @@ try {
   await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[0]).toMatchObject({agentId:'a1', tool:'gemini', model:'gemini-2.5-flash', dir:'/home/dev/site', projectId:'fp3', project:'site', base:'develop'})
   // Cline takes effort; the checkout has no branch slot and says where it works.
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await pick(page,'Agent','Cline')
   await expect(slot(page,'Thinking')).toHaveAccessibleName('Thinking: default')
   await pick(page,'Thinking','high')
@@ -1046,7 +1052,7 @@ try {
   // The first project is the one on the unready machine: the opening choice names it, not the last launch.
   const projects = [fprojects()[1], fprojects()[0], fprojects()[2]]
   const {context,page,errors,box} = await launch({projects})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   const reason = 'The machine is reconnecting. Existing shells will be kept.'
   // The first project is on desk: Start waits, and says why.
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Notes at desk')
@@ -1072,7 +1078,7 @@ try {
  if (run('starter prompt is offered, never filled')) {
   const projects = fprojects().map(p => p.id === 'fp1' ? {...p, hasStarterPrompt:true} : p)
   const {context,page,errors,box} = await launch({projects})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   const chip = bar(page).getByRole('button',{name:'Use the starter prompt',exact:true})
   await expect(chip).toBeVisible()
   await expect(prompt(page)).toHaveValue('')
@@ -1080,7 +1086,7 @@ try {
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[0]).not.toHaveProperty('prompt')
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await chip.click()
   await expect(prompt(page)).toHaveValue('Fix the failing tests in the store package')
   await expect(prompt(page)).toBeFocused()
@@ -1103,7 +1109,7 @@ try {
  // A reply that never came: the bar says so, keeps the same request (id, run token and every field) and Retry sends exactly it.
  if (run('lost reply retries the same request')) {
   const {context,page,errors,box} = await launch({answer:(body, n) => n === 1 ? {status:502, json:{error:'bad gateway'}} : session('new-1', body.agentId, body.title)})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await prompt(page).fill('Fix the failing tests')
   await startButton(page).click()
   await expect(bar(page).locator('.status')).toContainText("We didn't hear back, so the agent may have started.")
@@ -1124,7 +1130,7 @@ try {
  // A refusal: nothing started, so the bar unlocks with the sentence and the next press is a new request. Discard drops a held one.
  if (run('a refusal unlocks the bar with its sentence')) {
   const {context,page,errors,box} = await launch({answer:(body, n) => n === 1 ? {status:422, json:{error:'tool unavailable', code:'tool_unavailable'}} : n === 2 ? {status:502, json:{error:'down'}} : session('new-3', body.agentId, body.title)})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await startButton(page).click()
   await expect(bar(page).locator('.status')).toHaveText("reet doesn't start this agent yet.")
   await expect(startButton(page)).toHaveAccessibleName('Start the session')
@@ -1146,7 +1152,7 @@ try {
  if (run('a project folder named -x launches with dir unchanged')) {
   const projects = [fproject('fpx','-x','a1','/home/dev/-x'), ...fprojects()]
   const {context,page,errors,box} = await launch({projects})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on -x at studio in a fresh worktree'.replace('in a fresh', 'from main in a fresh'))
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?/)
@@ -1160,7 +1166,7 @@ try {
   let release
   const held = new Promise(r => { release = r })
   const {context,page,errors,box} = await launch({answer:async body => { await held; return session('new-held', body.agentId, body.title) }})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await prompt(page).fill('Fix the failing tests')
   await prompt(page).press('Control+Enter')
   await expect(bar(page).locator('.status')).toHaveText('Starting Claude Code on studio…')
@@ -1181,7 +1187,7 @@ try {
  // Enter sends from a keyboard; Shift+Enter adds a line.
  if (run('Enter sends and Shift+Enter adds a line')) {
   const {context,page,errors,box} = await launch()
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await prompt(page).fill('Fix the failing tests')
   await prompt(page).press('Shift+Enter')
   await expect(prompt(page)).toHaveValue('Fix the failing tests\n')
@@ -1205,7 +1211,7 @@ try {
     'X-Reet-Upload-Reference': encodeURIComponent(reference),
    }})
   })
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await prompt(page).fill('Fix the failing tests')
   await page.evaluate(() => {
    const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], 'shot.png', {type:'image/png'})
@@ -1229,7 +1235,7 @@ try {
  // On touch no key sends (R8): Enter and Ctrl+Enter add a line, and only Start sends.
  if (run('Enter never sends on touch')) {
   const {context,page,errors,box} = await launch({width:390, height:844, touch:true})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await prompt(page).fill('Fix the failing tests')
   await prompt(page).press('Enter')
   await prompt(page).press('Control+Enter')
@@ -1248,7 +1254,7 @@ try {
  // A phone held sideways (844 × 390, touch) takes the phone's layout: one summary line with one Change, never the tablet's too.
  if (run('landscape phone shows one Change')) {
   const {context,page,errors} = await launch({width:844, height:390, touch:true})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect(bar(page).locator('.summary-text')).toHaveText('Claude Code on Store rewrite at studio · main · fresh worktree')
   await expect(bar(page).getByRole('button',{name:'Change',exact:true})).toHaveCount(1)
   expect(await bar(page).locator('button.change').evaluateAll(list => list.filter(b => b.getClientRects().length > 0).map(b => b.parentElement.className.split(' ')[0]))).toEqual(['summary'])
@@ -1262,7 +1268,7 @@ try {
  // and Approvals.
  if (run('phone Change sheet')) {
   const {context,page,errors,box} = await launch({width:390, height:844, touch:true})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   const start = startButton(page)
   const size = await start.boundingBox()
   expect([Math.round(size.width), Math.round(size.height)]).toEqual([48, 48])
@@ -1303,7 +1309,7 @@ try {
   // At 320 px a long project name wraps the summary; Start stays on the screen.
   const long = fprojects().map(p => p.id === 'fp1' ? {...p, name:'the-store-rewrite-with-a-very-long-project-name-indeed'} : p)
   const narrow = await launch({width:320, height:700, touch:true, projects:long})
-  await narrow.page.goto(base)
+  await narrow.page.goto(base); await openQuick(narrow.page)
   await expect(narrow.page.locator('.summary-text')).toContainText('the-store-rewrite-with-a-very-long-project-name-indeed')
   const s = await startButton(narrow.page).boundingBox()
   expect(s.x + s.width).toBeLessThanOrEqual(320)
@@ -1326,12 +1332,13 @@ try {
     Object.defineProperty(window, 'visualViewport', {configurable:true, get:() => visual})
     window.__keyboard = value => { height = value; events.dispatchEvent(new Event('resize')) }
    })
-   await page.goto(base)
+   await page.goto(base); await openQuick(page)
    const tabs = page.getByRole('navigation',{name:'Main navigation'})
    await expect(tabs).toBeVisible()
    const field = prompt(page)
    expect(await field.evaluate(el => parseFloat(getComputedStyle(el).fontSize)), 'prompt is 16px so focusing never zooms').toBeGreaterThanOrEqual(16)
-   // The dock sits above the tab bar.
+   // The launch section sits above the fixed tab bar once it is brought into view.
+   await bar(page).scrollIntoViewIfNeeded()
    const dock = await bar(page).boundingBox(), tabBox = await tabs.boundingBox()
    expect(dock.y + dock.height).toBeLessThanOrEqual(tabBox.y + 1)
    const top = page.locator('.shell-bar')
@@ -1360,7 +1367,7 @@ try {
  // sessions list.
  if (run('nothing in storage')) {
   const {context,page,errors,box} = await launch()
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await pick(page,'Agent','Codex')
   await pick(page,'Model','gpt-5-codex')
   await pick(page,'Branch','develop')
@@ -1382,7 +1389,7 @@ try {
  if (run('Change sheet works with a mouse')) {
   for (const width of [390, 600, 834]) {
    const {context,page,errors,box} = await launch({width, height:width === 834 ? 1112 : 844})
-   await page.goto(base)
+   await page.goto(base); await openQuick(page)
    const change = bar(page).getByRole('button',{name:'Change',exact:true})
    await change.click()
    const sheet = page.getByRole('dialog',{name:'Change the launch'})
@@ -1433,7 +1440,7 @@ try {
  // A tablet's sentence is the drawing's: no model or worktree inline; both are in the Change sheet.
  if (run('tablet sentence matches the drawing')) {
   const {context,page,errors} = await launch({width:834, height:1112, touch:true})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   const visible = () => bar(page).locator('.sentence').evaluate(el => [...el.querySelectorAll('.part')].filter(p => p.getClientRects().length).map(p => p.textContent.trim()).join(' '))
   await expect.poll(visible).toBe('Run Claude Code on Store rewrite at studio from main')
   await expect(slot(page,'Model')).toBeHidden()
@@ -1456,7 +1463,7 @@ try {
   let reads = 0
   const {context,page,errors,box} = await launch({routes:{'/api/v2/terminal/machines': () => reads++ === 0 ? {status:500, json:{error:'down'}} : {machines:tmachines()}}})
   await page.clock.install()
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toContain('Store rewrite')
   await expect(startButton(page)).toBeDisabled()
   await expect(bar(page).locator('.status')).toHaveText('Start waits until your machines have been read.')
@@ -1476,9 +1483,9 @@ try {
  if (run('focus is never hidden under the bar')) {
   const many = [...fprojects(), ...['wiki','api','docs','blog'].map((n, i) => fproject(`fq${i}`, n, 'a1', `/home/dev/${n}`, {position:3 + i}))]
   const sessions = Array.from({length:12}, (_, i) => session(`r${i}`, 'a1', `Session number ${i}`, {tool:'claude', projectId:'fp1'}))
-  for (const [width, height, touch, target] of [[834, 1112, true, '.flight a.row'], [1360, 800, false, '.flight a.row']]) {
+  for (const [width, height, touch, target] of [[834, 1112, true, '.session-card h4 a'], [1360, 800, false, '.session-card h4 a']]) {
    const {context,page,errors} = await launch({width, height, touch, projects:many, sessions})
-   await page.goto(base)
+   await page.goto(base); await openQuick(page)
    await expect(bar(page)).toBeVisible()
    await page.locator(target).last().waitFor()
    const last = await page.locator(target).count()
@@ -1490,8 +1497,9 @@ try {
    }
    const hidden = await page.locator(target).nth(last - 1).evaluate(el => { const r = el.getBoundingClientRect(), f = document.querySelector('form[aria-label="Start a session"]').getBoundingClientRect(); return el === document.activeElement ? r.bottom > f.top + 1 : 'not focused' })
    expect(hidden, `${width}px`).toBe(false)
-   // In flight's last row and Needs you can be scrolled clear of the docked bar.
-   for (const [what, el] of [['In flight', page.locator('.flight a.row').last()], ['Needs you', page.getByRole('region',{name:'Needs you'})]]) {
+   // The session board's last card and Needs you, when shown, can be scrolled clear of the bar.
+   for (const [what, el] of [['Session board', page.locator('.session-card h4 a').last()], ['Needs you', page.getByRole('region',{name:'Needs you'})]]) {
+    if (await el.count() === 0) continue
     await expect(el, `${width}px ${what}`).toBeAttached()
     await el.evaluate(e => e.scrollIntoView({block:'end'}))
     const clear = await el.evaluate(e => { const r = e.getBoundingClientRect(), f = document.querySelector('form[aria-label="Start a session"]').getBoundingClientRect(); return r.bottom <= f.top + 1 })
@@ -1505,7 +1513,7 @@ try {
  // The title is shown before sending, made from the prompt's first line.
  if (run('title preview')) {
   const {context,page,errors,box} = await launch()
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect(bar(page).getByText(/^Titled /)).toHaveCount(0)
   await prompt(page).fill('Fix the failing tests\nThen tidy up')
   await expect(bar(page).getByText('Titled “Fix the failing tests”',{exact:true})).toBeVisible()
@@ -1524,7 +1532,7 @@ try {
    // The first read is the app's own; Home's is the second.
    const {context,page,errors,box} = await launch({routes:{'/api/v2/profile': () => reads++ === 0 ? profile : how === 'fails' ? {status:500, json:{error:'down'}} : new Promise(r => { release = () => r({status:500, json:{error:'late'}}) })}})
    await page.clock.install()
-   await page.goto(base)
+   await page.goto(base); await openQuick(page)
    if (how === 'hangs') { await expect.poll(() => reads).toBe(2); await page.clock.runFor(11_000) }
    await expect(startButton(page), how).toBeEnabled()
    await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
@@ -1542,7 +1550,7 @@ try {
   const acp = tmachines().map(m => ({...m, capabilities:caps({tools:['opencode'], acp:true, acpHistory:true})}))
   const projects = [{...fprojects()[0], defaultTool:'opencode'}]
   const {context,page,errors,box} = await launch({projects, routes:{'/api/v2/terminal/machines':()=>({machines:acp})}})
-  await page.goto(base)
+  await page.goto(base); await openQuick(page)
   await expect.poll(() => sentenceText(page)).toContain('Run OpenCode in reet TUI with default')
   await expect(slot(page,'TUI')).toHaveAccessibleName('TUI: reet TUI')
   await expect(slot(page,'Model')).toHaveAccessibleName('Model: default')

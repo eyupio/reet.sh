@@ -23,15 +23,18 @@ type App struct {
 	Version, Commit string
 	In              io.Reader
 	Out             io.Writer
-	client          *http.Client
-	interactiveRun  func(context.Context, string, ...string) error
-	run             runner
-	executable      func() (string, error)
-	api, downloads  string
+	// Progress receives transient progress lines. It defaults to os.Stderr so
+	// structured stdout stays clean; the terminal interface discards it.
+	Progress       io.Writer
+	client         *http.Client
+	interactiveRun func(context.Context, string, ...string) error
+	run            runner
+	executable     func() (string, error)
+	api, downloads string
 }
 
 func New(version, commit string, in io.Reader, out io.Writer) *App {
-	return &App{Version: version, Commit: commit, In: in, Out: out, interactiveRun: interactiveCommand(in, out), client: defaultClient(), run: execute, executable: os.Executable, api: releaseAPI, downloads: "https://github.com/eyupio/reet.sh/releases/download"}
+	return &App{Version: version, Commit: commit, In: in, Out: out, Progress: os.Stderr, interactiveRun: interactiveCommand(in, out), client: defaultClient(), run: execute, executable: os.Executable, api: releaseAPI, downloads: "https://github.com/eyupio/reet.sh/releases/download"}
 }
 func (a *App) Run(command string, args []string) error {
 	switch command {
@@ -382,7 +385,7 @@ func (a *App) upgrade(args []string) error {
 		}
 	}
 	ctx := context.Background()
-	stopStatus := cliui.Start(os.Stderr, "Checking release channel")
+	stopStatus := cliui.Start(a.Progress, "Checking release channel")
 	resolved, err := resolveRelease(ctx, a.client, a.api, *tag)
 	stopStatus()
 	if err != nil {
@@ -420,7 +423,7 @@ func (a *App) upgrade(args []string) error {
 		return err
 	}
 	defer os.RemoveAll(stage)
-	stopStatus = cliui.Start(os.Stderr, "Downloading and verifying update")
+	stopStatus = cliui.Start(a.Progress, "Downloading and verifying update")
 	candidate, err := fetchBinary(ctx, a.client, a.downloads, resolved, stage)
 	stopStatus()
 	if err != nil {

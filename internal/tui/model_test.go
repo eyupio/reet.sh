@@ -337,3 +337,26 @@ func TestStartSetupActionsShowLoading(t *testing.T) {
 		t.Fatal("pull did not start")
 	}
 }
+
+func TestUpgradeFormOpensAndResultRenders(t *testing.T) {
+	m := testModel()
+	next, _ := m.open(ScreenUpgrade)
+	m = next.(model)
+	if !m.formActive() || m.upgradeForm == nil {
+		t.Fatal("upgrade form did not open")
+	}
+	m.upgradeValues = &upgradeFormValues{Release: "latest", Confirm: true}
+	next, cmd := m.startUpgrade()
+	m = next.(model)
+	if !m.loading || cmd == nil {
+		t.Fatal("upgrade did not start")
+	}
+	next, _ = m.Update(resultMsg{page: ScreenUpgrade, value: upgradeOutcome{output: "Upgraded. Previous binary: /tmp/reet.previous\n"}})
+	m = next.(model)
+	view := m.View()
+	for _, want := range []string{"Upgraded. Previous binary", "previous build"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+}

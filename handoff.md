@@ -29,15 +29,16 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 ## Terminal interface (30 October 2026)
 
 The binary now has a terminal interface: `reet` in a terminal opens a menu over Doctor,
-Healthcheck, Scan, Sync, Backups, Setups, Version, Terminal status and Agent status, and `--tui`
-opens a screen directly. Scan is a native `huh` form with dry-run, prune and reconcile; Sync
+Healthcheck, Scan, Sync, Backups, Setups, Upgrade, Version, Terminal status and Agent status, and
+`--tui` opens a screen directly. Scan is a native `huh` form with dry-run, prune and reconcile; Sync
 previews a target and applies a hash-checked plan; Backups lists, takes and restores copies through
 the shared `backup.RestoreInstance`; Setups creates, pushes and pulls profiles through the shared
-`setup.HTTPRemote`. It is
+`setup.HTTPRemote`; Upgrade runs the same verified, backed-up, rollback-capable upgrade as the text
+command behind an explicit confirmation. It is
 built with Bubble Tea under `internal/tui`, reads the same report values as the text commands, and
 does not touch the store or the web app. This deliberately moves the "full terminal TUI" note below
 ahead of its earlier lower priority; it is scoped to the binary's existing commands, not a second
-control room. The Upgrade flow follows in the final slice.
+control room. The planned terminal-interface slices are complete; install, agent enrollment and the longer setup restore/rollback flows remain text commands.
 
 ## Agents home redesign (27–30 October 2026)
 

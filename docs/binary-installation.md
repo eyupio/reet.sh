@@ -105,6 +105,7 @@ Linux uses `systemctl --user` and needs a working user service manager; use `log
 
 ```sh
 reet upgrade --check                 # look up the current published tag only
+reet upgrade --tui                   # the same managed upgrade in the terminal interface
 reet upgrade --dry-run               # download, checksum and inspect the candidate
 reet upgrade                         # preserve dev; otherwise latest stable; confirmation required
 reet upgrade --version dev           # explicitly select the rolling main build

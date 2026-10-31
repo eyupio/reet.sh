@@ -904,3 +904,48 @@ func TestSwitchModelPreservesSessionAndFailureKeepsModel(t *testing.T) {
 	s.working = false
 	s.turnMu.Unlock()
 }
+
+func TestTypedDiffFromClaudeWrite(t *testing.T) {
+	// Shape captured from the Claude adapter's Write permission request.
+	const raw = `{"sessionId":"0b9f6a1c-3d2e-4f5a-8b7c-1234567890ab","toolCall":{"toolCallId":"t1","kind":"edit",
+		"rawInput":{"file_path":"/p/m.txt","content":"reet-probe"},
+		"content":[{"type":"diff","path":"/p/m.txt","oldText":null,"newText":"reet-probe"}]}}`
+	var params permissionParams
+	if err := json.Unmarshal([]byte(raw), &params); err != nil {
+		t.Fatal(err)
+	}
+	diff, path, truncated, ok := typedDiff(params.ToolCall.Content)
+	if !ok || truncated || path != "/p/m.txt" || params.ToolCall.RawInput.SnakePath != "/p/m.txt" ||
+		diff != "--- /p/m.txt\n+++ /p/m.txt\n+reet-probe\n" {
+		t.Fatalf("diff %q path %q ok %v", diff, path, ok)
+	}
+	old, next := "a\nb\n", "a\nc\n"
+	diff, _, _, ok = typedDiff([]permissionContent{{Type: "diff", Path: "/x", OldText: &old, NewText: &next}})
+	if !ok || !strings.Contains(diff, "-b\n") || !strings.Contains(diff, "+c\n") {
+		t.Fatalf("replace diff %q", diff)
+	}
+}
+
+func TestTypedDiffRefusesUnusableAndBounds(t *testing.T) {
+	text := "x"
+	for name, blocks := range map[string][]permissionContent{
+		"none":        nil,
+		"wrong type":  {{Type: "text", Path: "/x", NewText: &text}},
+		"no new text": {{Type: "diff", Path: "/x"}},
+		"no path":     {{Type: "diff", NewText: &text}},
+	} {
+		if _, _, _, ok := typedDiff(blocks); ok {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+	big := strings.Repeat("line of text\n", 5000)
+	diff, _, truncated, ok := typedDiff([]permissionContent{{Type: "diff", Path: "/x", NewText: &big}})
+	if !ok || !truncated || len(diff) > maxDiffBytes+4 {
+		t.Fatalf("bound: ok=%v truncated=%v len=%d", ok, truncated, len(diff))
+	}
+	one := strings.Repeat("y", 1<<20)
+	diff, _, truncated, _ = typedDiff([]permissionContent{{Type: "diff", Path: "/x", NewText: &one}})
+	if !truncated || len(diff) > maxDiffBytes+4 {
+		t.Fatalf("single line bound: %v %d", truncated, len(diff))
+	}
+}

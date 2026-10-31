@@ -95,3 +95,27 @@ func TestACPAgentsRejectInvalidClaims(t *testing.T) {
 		t.Fatal("tool identifier namespace")
 	}
 }
+
+func TestNativeIDNamespacesAreDisjointAndGated(t *testing.T) {
+	const uuid = "0b9f6a1c-3d2e-4f5a-8b7c-1234567890ab"
+	for id, want := range map[string]map[string]bool{
+		uuid:                                    {"opencode": false, "claude": true, "codex": true},
+		"ses_fake0001":                          {"opencode": true, "claude": false, "codex": false},
+		strings.ToUpper(uuid):                   {"claude": false, "codex": false},
+		"0b9f6a1c-3d2e-4f5a-8b7c-1234567890a":   {"claude": false},
+		"0b9f6a1c-3d2e-4f5a-8b7c-1234567890abc": {"claude": false},
+		"0b9f6a1c_3d2e-4f5a-8b7c-1234567890ab":  {"claude": false},
+		"0b9f6a1c-3d2e-4f5a-8b7c-1234567890ag":  {"codex": false},
+		"../" + uuid[3:]:                        {"claude": false},
+	} {
+		for tool, ok := range want {
+			if nativeIDMatches(tool, id) != ok {
+				t.Fatalf("nativeIDMatches(%q, %q) != %v", tool, id, ok)
+			}
+		}
+	}
+	// Formats are measured, but no candidate is reviewed, so none may validate.
+	if ValidACPSessionIDFor("claude", uuid) || ValidACPSessionIDFor("codex", uuid) || nativeIDMatches("gemini", uuid) {
+		t.Fatal("unreviewed tool accepted")
+	}
+}

@@ -172,7 +172,7 @@ launch still checks executable/handshake identity and version. The native ID
 validator now dispatches by tool while retaining OpenCode's existing namespace.
 No additional agent namespace is admitted before its adapter probe.
 
-Next: SC2's candidate adapter probes. Live OpenCode model/approval switching,
+Next: SC2's remaining integration gates (see the probe report); Claude's lifecycle probes, UUID validation and typed edit-diff normalization are done. Live OpenCode model/approval switching,
 embedded images and managed software maintenance have already shipped on main;
 SC3–SC5 must extend those contracts rather than restart their implementations.
 SC5's broader process recovery and generic controls remain future work.

@@ -98,5 +98,42 @@ func (c Capabilities) ChatAgent(tool string) (ACPAgent, bool) {
 // ValidACPSessionIDFor retains each reviewed adapter's identifier contract.
 // Unknown tools cannot borrow OpenCode's native history namespace.
 func ValidACPSessionIDFor(tool, id string) bool {
-	return ReviewedChatTool(tool) && ValidACPSessionID(id)
+	return ReviewedChatTool(tool) && nativeIDMatches(tool, id)
+}
+
+// nativeIDMatches checks the identifier namespace measured for each candidate
+// adapter. It is deliberately independent of ReviewedChatTool so the formats
+// can be tested before a candidate is enabled; ValidACPSessionIDFor still
+// refuses every unreviewed tool. Namespaces are disjoint: one agent's id never
+// validates for another.
+func nativeIDMatches(tool, id string) bool {
+	switch tool {
+	case "opencode":
+		return ValidACPSessionID(id)
+	case "claude", "codex":
+		return validUUIDSessionID(id)
+	}
+	return false
+}
+
+// validUUIDSessionID accepts the canonical lower-case 8-4-4-4-12 form observed
+// from the Claude and Codex ACP adapters (SC2 probe report).
+func validUUIDSessionID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		switch i {
+		case 8, 13, 18, 23:
+			if s[i] != '-' {
+				return false
+			}
+		default:
+			c := s[i]
+			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+				return false
+			}
+		}
+	}
+	return true
 }

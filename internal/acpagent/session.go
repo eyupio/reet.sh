@@ -83,6 +83,7 @@ type Session struct {
 	nextID       int64
 	calls        map[int64]chan rpcResult
 	pending      map[string]*pendingPermission
+	questions    map[string]*pendingQuestion
 	closed       bool
 	acpID        string
 	model        string
@@ -407,6 +408,8 @@ func (s *Session) handle(message rpcMessage) {
 			s.handleUpdate(message.Params)
 		case "session/request_permission":
 			s.handlePermission(message.ID, message.Params)
+		case "elicitation/create":
+			s.handleElicitation(message.ID, message.Params)
 		case "fs/write_text_file":
 			// The agent has already written the file itself. The client fs call is
 			// a mirror, never a gate; answering without writing avoids a double
@@ -872,6 +875,7 @@ func (s *Session) stopTurn() error {
 }
 
 func (s *Session) cancelCards() {
+	s.cancelQuestions("cancelled")
 	s.mu.Lock()
 	pending := make([]string, 0, len(s.pending))
 	for id := range s.pending {
@@ -1178,8 +1182,12 @@ func (s *Session) ended() {
 		}
 		s.pending = map[string]*pendingPermission{}
 		s.mu.Unlock()
+		questionIDs := s.dropQuestionsAfterExit()
 		// This last state is delivered after closed is set: the connector still
 		// needs to close the person's cards and say the chat ended.
+		for _, id := range questionIDs {
+			s.emitFinal(Event{Kind: "question_cancelled", QuestionID: id, Reason: "ended"})
+		}
 		for _, id := range pending {
 			s.emitFinal(Event{Kind: "permission_cancelled", PermissionID: id, Reason: "ended"})
 		}
@@ -1216,6 +1224,7 @@ func (s *Session) Close() {
 	for _, id := range pending {
 		_ = s.resolve(id, "cancelled", "closed")
 	}
+	s.cancelQuestions("closed")
 	_ = s.stdin.Close()
 	if s.cmd.Process != nil {
 		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGTERM)

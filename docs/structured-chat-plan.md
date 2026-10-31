@@ -124,6 +124,21 @@ concurrent tabs; pre-session requests; timeout/cancel/disconnect; old-peer
 negotiation; replayed resolved cards; keyboard and phone-width browser fixtures.
 Do not advertise elicitation.form in a partial integration before these gates.
 
+### SC3 progress: machine core (31 October 2026, local)
+
+Done in `internal/acpagent`: a normalized `Question` model (text, single select, multi
+select), a strict `elicitation/create` parser that refuses the whole form for anything
+outside that subset (URL mode, numbers, booleans, patterns, formats, defaults, unknown
+keywords, oversized or non-plain text), an authoritative answer validator (`Question.Validate`,
+`DecodeAnswers` rejecting duplicate keys), and session handling with single-use
+connector-generated IDs, deadlines, a pending cap, and cancellation on turn cancel, close and
+exit. Invalid input leaves the question waiting. Accept, decline and cancel are distinct.
+`Options.Questions` is off in every launch, `initialize` still does not advertise
+`elicitation.form`, and the connector drops `question*` events, so nothing user-visible
+changes. Not done: private-protocol messages and negotiation, the controller answer route with
+account checks, the chat card and Needs-you summary, request-scoped (pre-session) questions,
+and old-peer/concurrent-tab/phone fixtures. Do not advertise the form capability before those.
+
 ## SC4 — Integrate the second adapter
 
 Use SC1's capability contract and the existing view with another independently

@@ -172,6 +172,18 @@ func TestFakeACP(t *testing.T) {
 						"rawInput":  map[string]string{"filepath": "/tmp/hello.txt", "diff": "@@ -0,0 +1 @@\n+hello\n"}},
 					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "always", "kind": "allow_always", "name": "Always allow"}, {"optionId": "reject", "kind": "reject_once", "name": "Reject"}},
 				}})
+			case "question", "question-bad", "question-off":
+				properties := map[string]any{
+					"question_0": map[string]any{"type": "string", "title": "Probe", "oneOf": []map[string]string{
+						{"const": "Option A", "title": "Option A", "description": "First"}, {"const": "Option B", "title": "Option B"}}},
+					"question_0_custom": map[string]any{"type": "string", "title": "Other"},
+				}
+				if scenario == "question-bad" {
+					properties["question_0_custom"] = map[string]any{"type": "string", "pattern": "^a$"}
+				}
+				send(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "elicitation/create", "params": map[string]any{
+					"mode": "form", "sessionId": session, "toolCallId": "toolu_q", "message": "Which probe option?",
+					"requestedSchema": map[string]any{"type": "object", "properties": properties, "required": []string{"question_0"}}}})
 			case "tool-details":
 				update(session, "tool_call", map[string]any{"toolCallId": "call_run", "title": "go test ./...", "kind": "execute", "status": "pending",
 					"rawInput": map[string]string{"command": "go test ./..."}})
@@ -235,6 +247,15 @@ func TestFakeACP(t *testing.T) {
 						status = "failed"
 					}
 					update(session, "tool_call_update", map[string]any{"toolCallId": "call_1", "title": "write hello.txt", "kind": "edit", "status": status})
+					reply(promptID, map[string]any{"stopReason": "end_turn"})
+					promptID = nil
+				} else if strings.HasPrefix(scenario, "question") {
+					// Echo exactly what the agent received so the test can assert it.
+					var raw struct {
+						Result json.RawMessage `json:"result"`
+					}
+					_ = json.Unmarshal(in.Bytes(), &raw)
+					update(session, "agent_message_chunk", map[string]any{"messageId": "msg_q", "content": map[string]string{"type": "text", "text": string(raw.Result)}})
 					reply(promptID, map[string]any{"stopReason": "end_turn"})
 					promptID = nil
 				} else if scenario == "fs" {

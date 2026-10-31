@@ -1304,13 +1304,34 @@ func (s *Session) SetModel(ctx context.Context, model string) error {
 	if strings.TrimSpace(model) == "" {
 		return ErrModel
 	}
-	_, err := s.request(ctx, "session/set_config_option", map[string]string{"sessionId": id, "configId": "model", "value": model})
+	raw, err := s.request(ctx, "session/set_config_option", map[string]string{"sessionId": id, "configId": "model", "value": model})
 	if err != nil {
 		return err
 	}
+	// Report an applied state only after the agent acknowledges it. The Claude
+	// adapter accepts an unknown model and silently resets to its default, so a
+	// response that carries the option list is authoritative. A response without
+	// one (OpenCode) keeps the requested value, as before.
+	applied := model
+	var result struct {
+		ConfigOptions []struct {
+			ID           string `json:"id"`
+			CurrentValue string `json:"currentValue"`
+		} `json:"configOptions"`
+	}
+	if json.Unmarshal(raw, &result) == nil {
+		for _, option := range result.ConfigOptions {
+			if option.ID == "model" && option.CurrentValue != "" {
+				applied = option.CurrentValue
+			}
+		}
+	}
 	s.mu.Lock()
-	s.model = model
+	s.model = applied
 	s.mu.Unlock()
-	s.emit(Event{Kind: "status", State: "idle", Detail: model})
+	s.emit(Event{Kind: "status", State: "idle", Detail: applied})
+	if applied != model {
+		return ErrModel
+	}
 	return nil
 }

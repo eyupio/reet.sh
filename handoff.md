@@ -54,7 +54,11 @@ repository hook while approvals still appear. No Claude profile is registered ye
 **Also local:** `retireGroup`/`GroupRetired` (group SIGKILL, confirmed via /proc, zombie-aware) and
 the `think` subagent card (`subagentSummary`). Tests: group_test.go, session_test.go.
 
-**Next unchecked task:** applied-state model/mode controls, nested subagent permissions
+**Also local:** `Session.SetModel` reads the model option back from `session/set_config_option`
+and returns `ErrModel` (recording the real value) when the agent reports a different one; a
+response without an option list keeps the old behaviour. Test: `TestSetModelReportsAppliedState`.
+
+**Next unchecked task:** applied-state mode controls (none are offered yet), nested subagent permissions
 (needs a stub whose subagent runs a tool), required-environment checks, then Codex probes.
 
 ## SC2 — Structured adapter probe checkpoint (31 October 2026)

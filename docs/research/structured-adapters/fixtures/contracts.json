@@ -1,0 +1,388 @@
+{
+  "captureNotes": "Measured protocol fields and file effects, narrowed from full traces. ${PROBE_ROOT} replaces temporary path prefixes. Usage in full traces is synthetic stub output, not provider billing.",
+  "claude": {
+    "agentInfo": {
+      "name": "@agentclientprotocol/claude-agent-acp",
+      "title": "Claude Agent",
+      "version": "0.99.1"
+    },
+    "agentCapabilities": {
+      "_meta": {
+        "claudeCode": {
+          "promptQueueing": true
+        },
+        "authStatus": {}
+      },
+      "promptCapabilities": {
+        "image": true,
+        "embeddedContext": true
+      },
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true
+      },
+      "auth": {
+        "logout": {}
+      },
+      "providers": {},
+      "loadSession": true,
+      "sessionCapabilities": {
+        "additionalDirectories": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "list": {},
+        "resume": {},
+        "systemPrompt": {
+          "mode": {
+            "override": {}
+          }
+        }
+      }
+    },
+    "sessionId": "9f1fda9e-446b-4735-a4a0-d2e1d167292e",
+    "currentModeId": "default",
+    "modeIds": [
+      "default",
+      "acceptEdits",
+      "plan",
+      "auto",
+      "bypassPermissions"
+    ],
+    "configOptions": [
+      {
+        "id": "mode",
+        "category": "mode",
+        "currentValue": "default"
+      },
+      {
+        "id": "model",
+        "category": "model",
+        "currentValue": "default"
+      },
+      {
+        "id": "effort",
+        "category": "thought_level",
+        "currentValue": "default"
+      },
+      {
+        "id": "fast",
+        "category": "model_config",
+        "currentValue": "off"
+      },
+      {
+        "id": "ultracode",
+        "category": "model_config",
+        "currentValue": "off"
+      }
+    ],
+    "syntheticAuthentication": [],
+    "lockSHA256": "037e667dc322945923443bbc7aa1241c2dba19fcf7cc12815861d998ef971cd0"
+  },
+  "codex": {
+    "agentInfo": {
+      "name": "@agentclientprotocol/codex-acp",
+      "title": "Codex",
+      "version": "1.13.1"
+    },
+    "agentCapabilities": {
+      "auth": {
+        "logout": {}
+      },
+      "providers": {},
+      "loadSession": true,
+      "promptCapabilities": {
+        "embeddedContext": true,
+        "image": true
+      },
+      "sessionCapabilities": {
+        "resume": {},
+        "list": {},
+        "close": {},
+        "delete": {},
+        "fork": {},
+        "additionalDirectories": {},
+        "subagents": {}
+      },
+      "mcpCapabilities": {
+        "acp": false,
+        "http": true,
+        "sse": false
+      },
+      "_meta": {
+        "authStatus": {}
+      }
+    },
+    "sessionId": "01a1926c-aa4d-7cd2-8558-3591bae1c7f2",
+    "currentModeId": "agent",
+    "modeIds": [
+      "read-only",
+      "agent",
+      "agent-full-access"
+    ],
+    "configOptions": [
+      {
+        "id": "mode",
+        "category": "mode",
+        "currentValue": "agent"
+      },
+      {
+        "id": "collaboration_mode",
+        "category": "collaboration_mode",
+        "currentValue": "default"
+      },
+      {
+        "id": "model",
+        "category": "model",
+        "currentValue": "gpt-6-astra"
+      },
+      {
+        "id": "reasoning_effort",
+        "category": "thought_level",
+        "currentValue": "low"
+      },
+      {
+        "id": "fast-mode",
+        "category": "model_config",
+        "currentValue": "off"
+      }
+    ],
+    "syntheticAuthentication": [
+      {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {}
+      }
+    ],
+    "lockSHA256": "fd0a84daaa722f520d173f57f3e70e9d65151ef5ed46c5964e427cd7f9f22447"
+  },
+  "claude-deny": {
+    "stopReason": "end_turn",
+    "markerExists": false,
+    "permissions": [
+      {
+        "toolCall": {
+          "toolCallId": "toolu_probe",
+          "name": "Bash",
+          "status": "pending",
+          "rawInput": {
+            "command": "printf reet-probe > ${PROBE_ROOT}/claude-turn-deny/project/probe-marker.txt",
+            "description": "Write an isolated probe marker"
+          },
+          "title": "printf reet-probe > ${PROBE_ROOT}/claude-turn-deny/project/probe-marker.txt",
+          "kind": "execute",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "Write an isolated probe marker"
+              }
+            }
+          ],
+          "locations": [
+            {
+              "path": "${PROBE_ROOT}/claude-turn-deny/project/probe-marker.txt"
+            }
+          ]
+        },
+        "options": [
+          {
+            "optionId": "allow-once",
+            "name": "Yes",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "reject",
+            "name": "No",
+            "kind": "reject_once"
+          }
+        ],
+        "sessionId": "03793bba-3e07-4834-b9bb-0774c7c995e3"
+      }
+    ]
+  },
+  "claude-allow": {
+    "stopReason": "end_turn",
+    "markerExists": true,
+    "permissions": [
+      {
+        "toolCall": {
+          "toolCallId": "toolu_probe",
+          "name": "Bash",
+          "status": "pending",
+          "rawInput": {
+            "command": "printf reet-probe > ${PROBE_ROOT}/claude-turn-allow/project/probe-marker.txt",
+            "description": "Write an isolated probe marker"
+          },
+          "title": "printf reet-probe > ${PROBE_ROOT}/claude-turn-allow/project/probe-marker.txt",
+          "kind": "execute",
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "Write an isolated probe marker"
+              }
+            }
+          ],
+          "locations": [
+            {
+              "path": "${PROBE_ROOT}/claude-turn-allow/project/probe-marker.txt"
+            }
+          ]
+        },
+        "options": [
+          {
+            "optionId": "allow-once",
+            "name": "Yes",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "reject",
+            "name": "No",
+            "kind": "reject_once"
+          }
+        ],
+        "sessionId": "c96243f3-74fc-430b-8189-00d50fb0c8e1"
+      }
+    ]
+  },
+  "claude-write-deny": {
+    "stopReason": "end_turn",
+    "markerExists": false,
+    "permissions": [
+      {
+        "toolCall": {
+          "toolCallId": "toolu_probe",
+          "name": "Write",
+          "status": "pending",
+          "rawInput": {
+            "file_path": "${PROBE_ROOT}/claude-turn-write-deny/project/probe-marker.txt",
+            "content": "reet-probe"
+          },
+          "title": "Write probe-marker.txt",
+          "kind": "edit",
+          "content": [
+            {
+              "type": "diff",
+              "path": "${PROBE_ROOT}/claude-turn-write-deny/project/probe-marker.txt",
+              "oldText": null,
+              "newText": "reet-probe"
+            }
+          ],
+          "locations": [
+            {
+              "path": "${PROBE_ROOT}/claude-turn-write-deny/project/probe-marker.txt"
+            }
+          ]
+        },
+        "options": [
+          {
+            "optionId": "allow-once",
+            "name": "Yes",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "reject",
+            "name": "No",
+            "kind": "reject_once"
+          }
+        ],
+        "sessionId": "e5023e2a-5ab6-4f86-ba9b-da27b762a171"
+      }
+    ],
+    "elicitation": []
+  },
+  "claude-write-allow": {
+    "stopReason": "end_turn",
+    "markerExists": true,
+    "permissions": [
+      {
+        "toolCall": {
+          "toolCallId": "toolu_probe",
+          "name": "Write",
+          "status": "pending",
+          "rawInput": {
+            "file_path": "${PROBE_ROOT}/claude-turn-write-allow/project/probe-marker.txt",
+            "content": "reet-probe"
+          },
+          "title": "Write probe-marker.txt",
+          "kind": "edit",
+          "content": [
+            {
+              "type": "diff",
+              "path": "${PROBE_ROOT}/claude-turn-write-allow/project/probe-marker.txt",
+              "oldText": null,
+              "newText": "reet-probe"
+            }
+          ],
+          "locations": [
+            {
+              "path": "${PROBE_ROOT}/claude-turn-write-allow/project/probe-marker.txt"
+            }
+          ]
+        },
+        "options": [
+          {
+            "optionId": "allow-once",
+            "name": "Yes",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "reject",
+            "name": "No",
+            "kind": "reject_once"
+          }
+        ],
+        "sessionId": "6a57edeb-f887-4b4d-881d-f47ff6b8edd6"
+      }
+    ],
+    "elicitation": []
+  },
+  "claude-question": {
+    "stopReason": "end_turn",
+    "markerExists": false,
+    "permissions": [],
+    "elicitation": [
+      {
+        "mode": "form",
+        "sessionId": "607bb147-623e-40f5-a744-0feb79fa4afd",
+        "toolCallId": "toolu_probe",
+        "message": "Which probe option?",
+        "requestedSchema": {
+          "type": "object",
+          "properties": {
+            "question_0": {
+              "type": "string",
+              "title": "Probe",
+              "oneOf": [
+                {
+                  "const": "Option A",
+                  "title": "Option A",
+                  "description": "First synthetic option"
+                },
+                {
+                  "const": "Option B",
+                  "title": "Option B",
+                  "description": "Second synthetic option"
+                }
+              ]
+            },
+            "question_0_custom": {
+              "type": "string",
+              "title": "Other",
+              "description": "Type your own answer, or add a note to the option you chose above (optional)."
+            }
+          }
+        }
+      }
+    ]
+  },
+  "claude-turn-deny-catalogue": {
+    "AskUserQuestionAdvertised": false
+  },
+  "claude-turn-askuserquestion-allow-catalogue": {
+    "AskUserQuestionAdvertised": true
+  }
+}

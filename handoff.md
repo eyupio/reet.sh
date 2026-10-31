@@ -26,6 +26,47 @@ implemented baseline, S/A/W/L task lists, start-agent-session protocol notes, Pr
 delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief) are in
 [handoff-history.md](handoff-history.md), under "Moved from handoff.md on 27 October 2026".
 
+## SC2 — Structured adapter probe checkpoint (31 October 2026)
+
+**Scope:** separate probe PR targeting main; no new runtime adapter is enabled.
+Branch `feat/structured-adapter-probes`, following the merged
+[SC1 PR #300](https://github.com/eyupio/reet.sh/pull/300). See
+[the probe report](docs/research/structured-adapters/probe-report.md) and its
+narrowed protocol fixtures. This is partial SC2 evidence, not completion of the
+first additional-agent integration.
+
+**Observed:** Claude adapter 0.99.1 / SDK 0.3.312 / native Claude Code 2.1.312,
+and Codex adapter 1.13.1 / CLI 0.156.1, on Linux x86-64 with Node 22.23.4.
+Adapter tarball SHA-512 values match recorded registry metadata. Both real
+adapters initialized and created UUID-style sessions with fs/terminal delegation
+disabled; Codex needed explicit synthetic-key ACP authentication. Claude Bash
+and Write allow/deny controlled actual marker-file effects against a local stub;
+form negotiation enabled AskUserQuestion and a typed answer completed the turn.
+Write's typed content diff needs normalization before reet can review/allow it.
+
+**Checks:** runnable standard-library Python probes, syntax/formatting and
+recorded wire fixtures; actual candidate process versions and stub-backed
+permission/question assertions. SC1's complete Go race suite, vet, web
+check/build, MCP and browser checks passed separately. No live provider, real
+credentials, physical phone or cross-OS verification was used here.
+
+**Next unchecked task:** finish Claude's trust/override, cancellation/process
+retirement, history/load, model and subagent probes; then add adapter-specific
+UUID validation and bounded edit normalization. Keep unverified candidates and
+form capability disabled. Codex tool/approval/provider/error paths need their own
+stub probes. Read `scripts/probe-structured-adapters.py`,
+`scripts/probe-claude-turn.py`, the report, `internal/acpagent/session.go` and
+`internal/terminalproto/acp_agents.go`.
+
+**Publication:** [PR #301](https://github.com/eyupio/reet.sh/pull/301) records this
+checkpoint against main, following SC1's verified merge `e902b869`.
+Its canonical PR record carries the current merge status; this checkpoint does
+not enable an adapter or perform a release/deployment. Current main was merged
+into the probe branch to resolve the handoff conflict after SC1 was squash-merged.
+The resulting diff contains only the five SC2 report/fixture/helper/handoff files.
+Syntax, fixture, link and whitespace checks passed after resolution; CI on the
+resolved head must pass before merging. Preserve all remaining integration gates.
+
 ## SC1 — Per-agent structured chat capabilities (31 October 2026)
 
 **Task ID and scope:** SC1, negotiated per-agent chat availability and feature
@@ -69,9 +110,10 @@ read [the plan](docs/structured-chat-plan.md), `internal/acpagent/{spec,describe
 and `web/src/lib/StartAgentDialog.svelte`. Do not enable a candidate before its
 callback, permission, trust, provider and history contracts are observed.
 
-**Publication state:** PR #300 is open; nothing merged, released or deployed.
-SC2 runs on a separate branch and must have its own PR and updated handoff;
-its probes and adapter code do not belong in #300.
+**Publication state:** [PR #300](https://github.com/eyupio/reet.sh/pull/300)
+merged as `e902b869cecc4b2194a8bc778c8271ec2172c654`.
+SC2 remains the separate probe checkpoint in PR #301 with its own handoff.
+No release or deployment is performed by these continuation tasks.
 
 ## Terminal interface (30 October 2026)
 

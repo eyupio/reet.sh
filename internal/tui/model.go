@@ -8,11 +8,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/health"
@@ -97,7 +97,7 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.Out == nil {
 		opts.Out = os.Stdout
 	}
-	programOpts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithAltScreen(), tea.WithOutput(opts.Out)}
+	programOpts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithOutput(opts.Out)}
 	if opts.In != nil {
 		programOpts = append(programOpts, tea.WithInput(opts.In))
 	}
@@ -135,6 +135,7 @@ type model struct {
 	styles styles
 
 	width, height int
+	dark          bool
 	page          ScreenID
 	cursor        int
 	loading       bool
@@ -192,28 +193,32 @@ func newModel(opts Options) model {
 	if opts.Start == "" {
 		opts.Start = ScreenHome
 	}
+	dark := tuiDark()
+	st := newStyles(opts.NoColor, dark)
 	sp := spinner.New()
 	sp.Spinner = spinner.Line
-	sp.Style = newStyles(opts.NoColor).spinner
+	sp.Style = st.spinner
 	m := model{
 		opts:     opts,
-		styles:   newStyles(opts.NoColor),
+		styles:   st,
+		dark:     dark,
 		page:     opts.Start,
 		loading:  opts.Start != ScreenHome && opts.Start != ScreenVersion && opts.Start != ScreenScan,
-		viewport: viewport.New(80, 20),
+		viewport: viewport.New(viewport.WithWidth(80), viewport.WithHeight(20)),
 		spinner:  sp,
 	}
+	m.viewport.SoftWrap = true
 	if opts.Start == ScreenScan {
 		m.scanValues = defaultScanValues(opts)
-		m.scanForm = buildScanForm(m.scanValues)
+		m.scanForm = buildScanForm(m.scanValues, m.dark)
 	}
 	if opts.Start == ScreenSync {
 		m.syncValues = defaultSyncValues(opts)
-		m.syncForm = buildSyncForm(m.syncValues)
+		m.syncForm = buildSyncForm(m.syncValues, m.dark)
 	}
 	if opts.Start == ScreenUpgrade {
 		m.upgradeValues = &upgradeFormValues{Release: defaultUpgradeRelease(opts)}
-		m.upgradeForm = buildUpgradeForm(m.upgradeValues, opts.Version+" ("+shortCommit(opts.Commit)+")")
+		m.upgradeForm = buildUpgradeForm(m.upgradeValues, opts.Version+" ("+shortCommit(opts.Commit)+")", m.dark)
 	}
 	return m
 }
@@ -269,7 +274,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if form := m.activeForm(); form != nil {
-		if key, ok := msg.(tea.KeyMsg); ok {
+		if key, ok := msg.(tea.KeyPressMsg); ok {
 			switch key.String() {
 			case "ctrl+c":
 				return m, tea.Quit
@@ -313,7 +318,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.BackgroundColorMsg:
+		m.dark = msg.IsDark()
+		m.styles = newStyles(m.opts.NoColor, m.dark)
+		m.setContent()
+		return m, nil
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -340,7 +350,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
@@ -396,7 +406,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.setupNewValues = &setupNewValues{}
 			m.setupFormKind = "new"
-			m.setupForm = buildNewSetupForm(m.setupNewValues, newest)
+			m.setupForm = buildNewSetupForm(m.setupNewValues, newest, m.dark)
 			m.resize()
 			m.setContent()
 			return m, m.setupForm.Init()
@@ -405,7 +415,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				name := m.setupProfiles.Profiles[m.setupCursor].Name
 				m.setupPushValues = defaultSetupPushValues(m.opts, name)
 				m.setupFormKind = "push"
-				m.setupForm = buildPushSetupForm(m.setupPushValues)
+				m.setupForm = buildPushSetupForm(m.setupPushValues, m.dark)
 				m.resize()
 				m.setContent()
 				return m, m.setupForm.Init()
@@ -413,7 +423,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "u":
 			m.setupPullValues = defaultSetupPullValues(m.opts)
 			m.setupFormKind = "pull"
-			m.setupForm = buildPullSetupForm(m.setupPullValues)
+			m.setupForm = buildPullSetupForm(m.setupPullValues, m.dark)
 			m.resize()
 			m.setContent()
 			return m, m.setupForm.Init()
@@ -437,7 +447,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "n":
 			m.backupNewValues = &newBackupValues{}
 			m.backupFormKind = "new"
-			m.backupForm = buildNewBackupForm(m.backupNewValues)
+			m.backupForm = buildNewBackupForm(m.backupNewValues, m.dark)
 			m.resize()
 			m.setContent()
 			return m, m.backupForm.Init()
@@ -446,7 +456,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.backupRestoreID = m.backupItems[m.backupCursor].ID
 				m.backupRestoreValues = &restoreFormValues{}
 				m.backupFormKind = "restore"
-				m.backupForm = buildRestoreForm(m.backupRestoreID, m.backupRestoreValues)
+				m.backupForm = buildRestoreForm(m.backupRestoreID, m.backupRestoreValues, m.dark)
 				m.resize()
 				m.setContent()
 				return m, m.backupForm.Init()
@@ -498,7 +508,7 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 		if m.scanValues == nil {
 			m.scanValues = defaultScanValues(m.opts)
 		}
-		m.scanForm = buildScanForm(m.scanValues)
+		m.scanForm = buildScanForm(m.scanValues, m.dark)
 		m.scanSet = false
 		m.loading = false
 		m.resize()
@@ -509,7 +519,7 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 		if m.syncValues == nil {
 			m.syncValues = defaultSyncValues(m.opts)
 		}
-		m.syncForm = buildSyncForm(m.syncValues)
+		m.syncForm = buildSyncForm(m.syncValues, m.dark)
 		m.syncSet = false
 		m.syncApplied = false
 		m.loading = false
@@ -519,7 +529,7 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 	}
 	if page == ScreenUpgrade {
 		m.upgradeValues = &upgradeFormValues{Release: defaultUpgradeRelease(m.opts)}
-		m.upgradeForm = buildUpgradeForm(m.upgradeValues, m.opts.Version+" ("+shortCommit(m.opts.Commit)+")")
+		m.upgradeForm = buildUpgradeForm(m.upgradeValues, m.opts.Version+" ("+shortCommit(m.opts.Commit)+")", m.dark)
 		m.upgradeOutput = ""
 		m.upgradeDone = false
 		m.loading = false
@@ -679,23 +689,24 @@ func (m *model) resize() {
 	if body < 3 {
 		body = 3
 	}
-	m.viewport.Width = m.width - 2
-	if m.viewport.Width < 10 {
-		m.viewport.Width = 10
+	width := m.width - 2
+	if width < 10 {
+		width = 10
 	}
-	m.viewport.Height = body
-	width := m.width - 4
-	if width < 20 {
-		width = 20
+	m.viewport.SetWidth(width)
+	m.viewport.SetHeight(body)
+	formWidth := m.width - 4
+	if formWidth < 20 {
+		formWidth = 20
 	}
-	height := m.height - 5
-	if height < 5 {
-		height = 5
+	formHeight := m.height - 5
+	if formHeight < 5 {
+		formHeight = 5
 	}
 	for _, form := range []*huh.Form{m.scanForm, m.syncForm, m.backupForm, m.setupForm, m.upgradeForm} {
 		if form != nil {
-			form.WithWidth(width)
-			form.WithHeight(height)
+			form.WithWidth(formWidth)
+			form.WithHeight(formHeight)
 		}
 	}
 	m.setContent()
@@ -708,11 +719,13 @@ func (m *model) setContent() {
 	m.viewport.SetContent(m.renderPage())
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	if m.width == 0 {
-		return ""
+		return tea.NewView("")
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), m.renderBody(), m.renderFooter())
+	view := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), m.renderBody(), m.renderFooter()))
+	view.AltScreen = true
+	return view
 }
 
 func (m model) renderBody() string {
@@ -798,6 +811,7 @@ func (m model) renderHome() string {
 	var b strings.Builder
 	b.WriteString("\n  " + m.styles.muted.Render("Get your toolkit reet.") + "\n\n")
 	b.WriteString("  " + m.styles.muted.Render(fmt.Sprintf("reet %s (%s)", m.opts.Version, shortCommit(m.opts.Commit))) + "\n\n")
+	showDescriptions := m.width >= 60
 	for i, item := range homeItems {
 		title := m.styles.item.Render(fmt.Sprintf("%-16s", item.title))
 		marker := "  "
@@ -805,7 +819,11 @@ func (m model) renderHome() string {
 			marker = m.styles.selected.Render("› ")
 			title = m.styles.selectedTitle.Render(fmt.Sprintf("%-16s", item.title))
 		}
-		b.WriteString("  " + marker + title + m.styles.muted.Render(item.description) + "\n")
+		if showDescriptions {
+			b.WriteString("  " + marker + title + m.styles.muted.Render(item.description) + "\n")
+		} else {
+			b.WriteString("  " + marker + title + "\n")
+		}
 	}
 	return b.String()
 }

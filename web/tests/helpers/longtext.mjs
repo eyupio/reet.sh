@@ -115,6 +115,7 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (path === '/api/v2/admin/notifications/defaults') return json({ defaults })
     if (path === '/api/events') return json({ events })
     if (path === '/api/ignored') return json({ ignored: [{ id: 'x/y/z', name: 'old-skill', reason: 'Not useful', at: now }] })
+    if (path === '/api/v2/session-backlog' && method === 'GET') return json({ drafts: [] })
     if (path === '/api/v2/folder-projects' && method === 'GET') return json({ projects: folderProjects, savedWaiting: 0 })
     let f = path.match(/^\/api\/v2\/folder-projects\/([^/]+)$/); if (f) return json({ ...(folderProjects.find(p => p.id === f[1]) || folderProjects[0]), starterPrompt: 'Read the README and tidy the tests' })
     if (/^\/api\/v2\/machines\/[^/]+\/browse$/.test(path)) return json({ path: '/home/dev', home: '/home/dev', parent: '', repo: 'none', repoTop: '', entries: [{ name: 'work', dir: true, repoRoot: false, hidden: false }, { name: 'a_really_long_folder_name_without_any_spaces_at_all_for_the_list', dir: true, repoRoot: true, hidden: false }], more: false, partial: false, scanned: 2, omitted: 0 })

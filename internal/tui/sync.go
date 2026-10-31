@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 
 	"github.com/eyupio/reet.sh/internal/scan"
 )
@@ -48,7 +48,7 @@ func defaultSyncValues(opts Options) *syncFormValues {
 	}
 }
 
-func buildSyncForm(values *syncFormValues) *huh.Form {
+func buildSyncForm(values *syncFormValues, dark bool) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
@@ -79,7 +79,7 @@ func buildSyncForm(values *syncFormValues) *huh.Form {
 				Description("Only for a project target; defaults to the current directory.").
 				Value(&values.Dir),
 		),
-	).WithTheme(huh.ThemeCharm()).WithShowHelp(true)
+	).WithTheme(formTheme(dark)).WithShowHelp(true)
 }
 
 func (m model) renderSync() string {

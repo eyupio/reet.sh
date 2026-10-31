@@ -305,7 +305,9 @@ redirected output, containers and services are unaffected.
 
 Interactive terminals show the reet wordmark and burnt-orange progress indicators
 for update checks/downloads and remote health checks. Set `REET_NO_ANIMATION=1` to
-stop animation, or `NO_COLOR=1` for plain output. Redirected output and JSON stay
+stop animation, or `NO_COLOR=1` for plain output. The terminal interface picks
+its light or dark palette from `REET_TUI_BACKGROUND=light|dark`, then
+`COLORFGBG`, and never queries the terminal for its background. Redirected output and JSON stay
 free of banners and animation. See [CLI defaults](docs/binary-installation.md#saved-cli-defaults).
 
 ### Local AI agent setup discovery

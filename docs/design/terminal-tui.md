@@ -87,16 +87,18 @@ Keys: `↑`/`↓` or `j`/`k` move, `enter` opens, `esc` returns, `r` reloads,
   reason; their text renderers remain in the command packages.
 - Forms use `huh` with the same model, so a form is a screen like any other:
   `esc` cancels back to the menu and `ctrl+c` quits.
-- Colours use the reet orange with adaptive light and dark values. `NO_COLOR`
-  and `TERM=dumb` use plain styles. `REET_NO_ANIMATION` is respected by the text
-  commands' spinner; the terminal interface's spinner is part of its loading
-  state.
+- Colours use the reet orange with light and dark values. The interface never
+  sends the OSC 11 background query: it reads `REET_TUI_BACKGROUND=light|dark`,
+  then `COLORFGBG`, and otherwise assumes dark. Bubble Tea v2 removes the v1
+  startup query, so a terminal that does not answer it starts immediately.
+  `NO_COLOR` and `TERM=dumb` use plain styles. `REET_NO_ANIMATION` is respected
+  by the text commands' spinner; the terminal interface's spinner is part of its
+  loading state.
 
 ## Dependencies
 
-Bubble Tea, Bubbles and Lip Gloss are MIT-licensed, pure Go and already the
-smallest well-tested way to get keyboard handling, a viewport and adaptive
-colour. A stripped hello-world grows from 1.51 MB to 3.57 MB with these three
+Bubble Tea v2, Bubbles v2, Lip Gloss v2 and `huh` v2 are MIT-licensed, pure Go
+and the smallest well-tested way to get keyboard handling, a viewport and forms. A stripped hello-world grows from 1.51 MB to 3.57 MB with these three
 packages on Go 1.27. `huh` supplies the forms. The project keeps
 "one Go binary, one SQLite file"; this is a deliberate exception, not a new
 runtime.

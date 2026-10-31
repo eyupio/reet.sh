@@ -173,3 +173,29 @@ func TestQuestionInvalidResultCarriesABoundedDetail(t *testing.T) {
 		t.Fatal("a bare question_invalid should be valid")
 	}
 }
+
+// A peer that predates typed questions sends no acpQuestions field and no
+// per-agent questions flag: it decodes with questions off, and a descriptor that
+// claims questions on a machine that does not offer them is refused.
+func TestOldPeerCapabilitiesHaveNoQuestions(t *testing.T) {
+	old := chatCapabilities()
+	data, err := json.Marshal(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "acpQuestions") || strings.Contains(string(data), `"questions"`) {
+		t.Fatalf("questions are off but still on the wire: %s", data)
+	}
+	var back Capabilities
+	if err := json.Unmarshal(data, &back); err != nil || back.ACPQuestions || (*back.ACPAgents)[0].Questions {
+		t.Fatalf("an old peer decoded with questions: %+v %v", back, err)
+	}
+	if err := back.ValidateFor(ACPFeature + "," + ACPAgentsFeature); err != nil {
+		t.Fatal(err)
+	}
+	claim := chatCapabilities()
+	(*claim.ACPAgents)[0].Questions = true
+	if claim.ValidateFor(ACPFeature+","+ACPAgentsFeature) == nil {
+		t.Fatal("an agent claimed questions on a machine that does not offer them")
+	}
+}

@@ -40,6 +40,48 @@ does not touch the store or the web app. This deliberately moves the "full termi
 ahead of its earlier lower priority; it is scoped to the binary's existing commands, not a second
 control room. The planned terminal-interface slices are complete; install, agent enrollment and the longer setup restore/rollback flows remain text commands.
 
+## Agent software inventory and plan (31 October 2026)
+
+**Task ID and scope:** L1, first slice — observe OpenCode on Linux and show a reviewed install, update or remove
+plan; nothing is downloaded or executed.
+
+**Branch / commit / PR:** `feat/agent-software-inventory`, commit `ec2a5d3`, [#282](https://github.com/eyupio/reet.sh/pull/282).
+
+**Behaviour added:** a new `software-v1` private-control feature. A negotiating connector reports one
+`terminalproto.SoftwareEntry` for OpenCode in its capabilities: state (`installed`, `missing`, `unknown`,
+`unsupported`), exact version, package, manager/source evidence, executable path, platform/arch, the plan operations
+the evidence supports and `checkedAt`. The connector reads a bounded `package.json` beside the resolved executable
+through `setup.InspectInstallations`; it never runs OpenCode, npm or an installer. `GET
+/api/v2/machines/{agentId}/software/plan?tool=opencode&action=install|update|remove` builds a plan from stored
+evidence (current/target version, exact command, steps, running-session effects, always `executes: false`); the only
+reviewed target is the pinned 1.19.5. Machines → Settings → **Software** shows the evidence and the plan inline, with
+no Apply action. Read [docs/agent-software.md](docs/agent-software.md).
+
+**Compatibility / migration behaviour:** an older controller does not advertise `software-v1`, so a new connector
+sends no inventory; an older connector reports none. No schema migration — the inventory rides in the capabilities
+JSON already stored per connection. The plan route reads stored evidence and session rows only and never contacts the
+machine.
+
+**Checks actually run and their results:** `npm --prefix web run check` (includes `software.test.mjs`) and
+`npm --prefix web run build` passed; `go vet ./...` passed; `go test` passed for `terminalproto`, `terminalhost`,
+`agenthealth`, `agentsoftware`, `scan` and the whole `api` package (176 s); `go test -race` passed for the first five
+packages and for the software/private-control tests in `api`; `git diff --check` passed. The full `api` race package
+timed out at 20 minutes on this shared host (other long Go suites were running), so CI is the gate for it.
+
+**Platform or live-environment checks not performed:** no physical machine, real npm run or live OpenCode install
+was changed; macOS, Windows, other package managers, other CLIs and any live registry version lookup are out of scope.
+
+**Known limitations or unresolved decisions:** inventory refreshes on reconnect or a local switch change, not on a
+timer; 1.19.5 is the only reviewed version and a newer release is not assumed ACP-compatible; execution, rollback
+and interruption recovery are not implemented.
+
+**Exact next unchecked task and first files to read:** L2 — verified single-machine maintenance with rollback, still
+plan-first. Read `internal/agentsoftware/plan.go`, `internal/terminalhost/software.go`, `internal/api/software.go`,
+`internal/scan/agent.go`, `web/src/lib/MachineSettings.svelte` and [docs/agent-software.md](docs/agent-software.md).
+
+**Publication / deployment state (verified, not inferred):** the branch is pushed and PR #282 is open; nothing is
+merged, released or deployed.
+
 ## Agents home redesign (27–30 October 2026)
 
 ### Resume here (after Needs you and the approvals slice, 31 October 2026)
@@ -71,9 +113,9 @@ control room. The planned terminal-interface slices are complete; install, agent
   on|off|status` switch and `yolo` capability, reviewed options for Codex/OpenCode/Cline, controller
   gates and audit, structured `allow_once` answers, the confirmation dialog and badges. #266 fixed the
   launch audit on a mismatched worktree and kept generic machine refusals from counting as started.
-- **Next stage:** start agent installation, updates and removal with the bounded inventory/plan-only slice (L1 in
-  [handoff-history.md](handoff-history.md): one CLI, one OS and one install method first; no execution). Program 2, slice 4
-  (elicitation and rich input cards) needs its own probe before any UI is promised.
+- **Next stage:** L1 inventory and plan shipped in [#282](https://github.com/eyupio/reet.sh/pull/282) (open); next is
+  L2, verified single-machine maintenance with rollback. Program 2, slice 4 (elicitation and rich input cards) needs
+  its own probe before any UI is promised.
 - **Do first:** for the next PR, check its final head with the REST forms
   (`gh api repos/eyupio/reet.sh/pulls/<n>` and `gh api repos/eyupio/reet.sh/commits/<head sha>/check-runs`;
   `gh pr view`/`gh pr checks` use GraphQL, refused with 403 here). Merge only when every check is green and Codex has
@@ -277,11 +319,11 @@ Still true from earlier PRs:
 
 ### Queued work (decided; next up)
 
-**1. Agent installation, updates and removal.** The next roadmap item; start with L1 (agent software inventory and
-plan-only maintenance) in [handoff-history.md](handoff-history.md): one supported AI CLI, one OS and one install method
-first, capability evidence for exact version, manager, executable path and platform, unrecognised installations
-inspect-only, and reviewable install/update/remove plans that execute nothing. No generic curl-to-shell installer or
-arbitrary controller shell command.
+**1. Verified agent maintenance (L2).** L1 inventory and plan-only maintenance for OpenCode on Linux is in
+[#282](https://github.com/eyupio/reet.sh/pull/282) (see the section above). Next: execute a reviewed install, update
+or remove with a staged/verified artifact or a specifically supported package-manager adapter, an explicit decision
+about running sessions, a journal/rollback route and verification of the resulting version. No generic curl-to-shell
+installer or arbitrary controller shell command.
 
 **2. Program 2, slice 3: Inline approval cards in Home's Needs you column.** Merged in
 [PR #272](https://github.com/eyupio/reet.sh/pull/272) as `362ffd9` (retargeted to `main`; owner exception because the

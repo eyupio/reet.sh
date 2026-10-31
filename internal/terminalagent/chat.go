@@ -20,7 +20,7 @@ import (
 
 // errAttachmentUnavailable means a prompt named an image the machine cannot
 // safely read from its own upload folders.
-var errAttachmentUnavailable = errors.New("that image is not available on this machine")
+var errAttachmentUnavailable = errors.New("that image could not be attached to the chat")
 
 // chatProcess is the part of an ACP chat the connector drives. Tests use it to
 // exercise the dispatch without a real agent install.

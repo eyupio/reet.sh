@@ -27,6 +27,9 @@ var (
 	// ErrACPImagesUnsupported means the machine's connector predates
 	// acp-image-v1, so it cannot pass an image to the agent with a prompt.
 	ErrACPImagesUnsupported = errors.New("that machine cannot send images with a chat message")
+	// ErrACPImageUnavailable means an uploaded image could not be read, for
+	// example because the 24-hour sweep removed it before the prompt arrived.
+	ErrACPImageUnavailable = errors.New("that image is no longer available on the machine")
 )
 
 // ACPTrustError means the folder has OpenCode plugins and the start did not
@@ -545,7 +548,11 @@ func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string
 	}
 	b.chatLog(uid, session).publish(terminalproto.ACPEvent{Kind: "user", Text: shown})
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &terminalproto.ACPPrompt{Text: text, Images: images}}, chatCallTimeout)
-	if ack := chatAck(reply, err); ack != nil {
+	ack := chatAck(reply, err)
+	if r, ok := reply.Body.(*terminalproto.Result); ok && r.Code == terminalproto.Failed {
+		ack = ErrACPImageUnavailable
+	}
+	if ack != nil {
 		text := "That message was not sent to OpenCode."
 		var lost errReplyLost
 		if errors.As(err, &lost) {

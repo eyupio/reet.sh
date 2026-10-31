@@ -74,9 +74,8 @@ feature, and the older controller's strict decoder never sees the new fields.
 In the reet TUI, **Attach image** (or paste/drop) uploads the file to the machine over the launch-upload route, then sends
 the image with the prompt the way AOE does: the connector reads its own uploaded file and embeds the bytes as an ACP image
 content block. The agent sees the image itself, not a path it has to open with a tool, so no extra read approval is needed.
-The prompt can be images alone. Limits are PNG, JPEG, GIF or WebP, 5 MiB each and at most eight in one prompt; a larger
-batch falls back to machine paths as text. Uploads live under the machine's private `launch-uploads/` folder and are removed
-by the existing 24-hour sweep.
+The prompt can be images alone. Limits are PNG, JPEG, GIF or WebP, 5 MiB each and at most eight in one prompt. Uploads live
+under the machine's private `launch-uploads/` folder and are removed by the existing 24-hour sweep.
 
 A connector that predates `acp-image-v1` keeps the old behaviour: the prompt carries the absolute path as text, and an
 agent that needs the image opens it with its own read tool. The controller never sends the image fields to such a machine.

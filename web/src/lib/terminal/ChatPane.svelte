@@ -82,20 +82,24 @@
   if (images.length && !canAttach) { feedback = uploadsOff ? 'Image uploads are off on that machine.' : 'That machine does not accept images.'; return }
   if (new TextEncoder().encode(text).length > MAX_CHAT_BYTES) { feedback = 'That message is too long. Keep it under 2,000 bytes.'; return }
   uploading = images.length > 0; sending = true; feedback = ''
+  const sendingImages = images.slice()
   try {
    const uploads: { path: string; reference: string }[] = []
-   if (images.length) {
+   if (sendingImages.length) {
     attachNote = ''
-    for (let i = 0; i < images.length; i++) {
-     if (images.length > 1) attachNote = `Uploading image ${i + 1} of ${images.length}…`
-     uploads.push(await launchUpload(session.agentId, images[i].file, AbortSignal.timeout(30000)))
+    for (let i = 0; i < sendingImages.length; i++) {
+     if (sendingImages.length > 1) attachNote = `Uploading image ${i + 1} of ${sendingImages.length}…`
+     uploads.push(await launchUpload(session.agentId, sendingImages[i].file, AbortSignal.timeout(30000)))
     }
    }
    const body = chatPromptParts(text, uploads, acpImages)
    if (new TextEncoder().encode(body.text).length > MAX_CHAT_BYTES) { feedback = 'That message and its image paths are too long. Keep the message under 2,000 bytes.'; return }
    await chatPrompt(session.id, body.text, body.images)
-   for (const image of images) URL.revokeObjectURL(image.preview)
-   draft = ''; images = []; attachNote = ''; nearBottom = true; await scrollToEnd()
+   // Only the images in this message go: one attached while the first send was
+   // still settling must stay in the composer.
+   const sent = new Set(sendingImages.map(image => image.id))
+   for (const image of sendingImages) URL.revokeObjectURL(image.preview)
+   draft = ''; images = images.filter(image => !sent.has(image.id)); attachNote = ''; nearBottom = true; await scrollToEnd()
   }
   catch (e) { feedback = e instanceof Error ? e.message : 'That message was not sent.' }
   finally { uploading = false; sending = false }

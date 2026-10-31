@@ -867,6 +867,8 @@ func code(err error) terminalproto.ResultCode {
 		return terminalproto.Conflict
 	case errors.Is(err, terminalhost.ErrSessionMissing):
 		return terminalproto.NotFound
+	case errors.Is(err, errAttachmentUnavailable):
+		return terminalproto.Failed
 	default:
 		return terminalproto.Unavailable
 	}

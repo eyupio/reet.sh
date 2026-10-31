@@ -4,8 +4,9 @@
   import type { Machine, ReleaseInfo, SyncAgent } from './api'
   import { agentBuild, channelBuild } from './machines'
   import { CATALOGUE } from './catalogue'
+  import { softwareLine, softwarePlanAction } from './software'
   import { formatAge, type MachineModels } from './models'
-  import { allModels, machineModels, refreshMachineModels, type TerminalMachine } from './terminal/api'
+  import { allModels, machineModels, machineSoftwarePlan, refreshMachineModels, type SoftwareEntry, type SoftwarePlan, type TerminalMachine } from './terminal/api'
 
   // A machine's policies live here rather than beside the buttons that act on
   // it, so a card says what is happening and this dialog says how it is set.
@@ -53,6 +54,22 @@
     return CATALOGUE.filter(item => item.enabled && ids.has(item.id))
   })
   const canRefresh = $derived(!!terminal && terminal.ready && !!terminal.capabilities?.models && !terminal.capabilities?.modelsOff)
+
+  type PlanRead = { loading: boolean; plan: SoftwarePlan | null; error: string }
+  let plans = $state<Record<string, PlanRead>>({})
+  const softwareEntries: SoftwareEntry[] = $derived(terminal?.capabilities?.software ?? [])
+  function catalogueName(tool: string): string { return CATALOGUE.find(item => item.id === tool)?.name ?? tool }
+  function planAction(entry: SoftwareEntry): 'install' | 'update' | '' { return softwarePlanAction(entry) }
+  async function review(tool: string, action: 'install' | 'update') {
+    if (!terminal || plans[tool]?.loading) return
+    plans[tool] = { loading: true, plan: plans[tool]?.plan ?? null, error: '' }
+    try {
+      plans[tool] = { loading: false, plan: await machineSoftwarePlan(terminal.agentId, tool, action), error: '' }
+    } catch (error) {
+      plans[tool] = { loading: false, plan: plans[tool]?.plan ?? null, error: error instanceof Error ? error.message : "Couldn't build that plan just now." }
+    }
+  }
+
   const refreshHint = $derived.by(() => {
     if (!installed.length || canRefresh) return ''
     if (!terminal) return `${machine.host} is not connected for terminals. Refresh will be available when it connects.`
@@ -218,6 +235,37 @@
       {/if}
     </section>
 
+    {#if softwareEntries.length}
+      <section aria-labelledby={`${id}-software`}>
+        <h3 id={`${id}-software`}>Software</h3>
+        <p class="hint">Installation evidence reet can see. A plan names the reviewed version and is never run from here.</p>
+        {#each softwareEntries as entry (entry.tool)}
+          {@const action = planAction(entry)}
+          {@const read = plans[entry.tool]}
+          <div class="row software" data-software={entry.tool} data-software-state={entry.state}>
+            <div class="copy">
+              <strong>{catalogueName(entry.tool)}{#if entry.state === 'installed' && entry.version}<code> {entry.version}</code>{/if}</strong>
+              <small class="software-detail">{softwareLine(entry)}</small>
+              {#if read?.loading}<small aria-live="polite">Reading the plan…</small>{/if}
+              {#if read?.error}<small class="plan-error">{read.error}</small>{/if}
+              {#if read?.plan}
+                {@const plan = read.plan}
+                <div class="plan" data-plan-state={plan.state}>
+                  <p>{plan.sentence}</p>
+                  {#if plan.steps.length}<ol>{#each plan.steps as step}<li>{step}</li>{/each}</ol>{/if}
+                  {#each plan.effects as effect}<small>{effect}</small>{/each}
+                  {#if plan.command}<code class="plan-command">{plan.command}</code>{/if}
+                </div>
+              {/if}
+            </div>
+            {#if action}
+              <button class="btn" type="button" disabled={read?.loading} onclick={() => void review(entry.tool, action)}>Review {action} plan</button>
+            {/if}
+          </div>
+        {/each}
+      </section>
+    {/if}
+
     <section aria-labelledby={`${id}-access`}>
       <h3 id={`${id}-access`}>Access</h3>
       {#if agent}
@@ -260,6 +308,12 @@
   .copy code { font-size: 0.74rem; }
   .hint { margin: 4px 0 0; color: var(--muted); font-size: 0.76rem; line-height: 1.5; }
   .model-state { overflow-wrap: anywhere; }
+  .software-detail { overflow-wrap: anywhere; }
+  .plan { display: grid; gap: 6px; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+  .plan p, .plan ol { margin: 0; }
+  .plan ol { display: grid; gap: 4px; padding-left: 18px; }
+  .plan-command { font: 12px/1.4 var(--mono, monospace); overflow-wrap: anywhere; }
+  .plan-error { color: var(--bad); }
   .row .btn { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.8rem; }
   .btn.danger { color: var(--bad); }
   .switch { position: relative; flex: none; width: 42px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); cursor: pointer; }

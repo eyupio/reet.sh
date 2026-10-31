@@ -6,6 +6,8 @@ These are directions, not commitments: there are no dates.
 
 Next, in this order:
 
+- **Structured chats across agents.** OpenCode's reet TUI is available. Per-agent capability reporting and tool-bound continuation prepare the next integration without enabling unverified adapters. Claude Code's adapter has been probed (approvals, questions, cancellation, history, models) but stays disabled until its repository-hook and process-retirement gaps are closed. Next: close those gaps, verify the Codex adapter, then add typed agent questions and extend recovery. See the [implementation plan](structured-chat-plan.md).
+
 - **Richer run orchestration.** More control over agent runs than opening a terminal session and continuing it later.
 
 Later:

@@ -8,6 +8,33 @@ Slice 1 is deliberately narrow: OpenCode only, trusted folders only, and **Allow
 not offered; later slices add a per-session command/file allowance and a live Ask me ↔ YOLO switch, both described below. The probe is [OpenCode `opencode acp` hands-on probe](research/probe-report.md); the plan is
 [Program 2, slice 1](superpowers/plans/2026-10-29-program-2-slice-1.md).
 
+## Per-agent availability
+
+A connector that negotiates `acp-agents-v1` reports an `acpAgents` list alongside
+its older `acp` flags. Each entry names the tool, adapter command, minimum
+version, installation version when readable, state and supported chat features
+(history, embedded images, live model and approval changes). It refreshes with
+the connection's capabilities rather than querying a package registry.
+
+- `available`: reet has a reviewed integration and resolves its executable.
+  An unknown installation version can still be available: starting the chat
+  checks `--version` and ACP's reported identity/version before sending a prompt.
+- `missing`: the executable needed for that integration is absent.
+- `unverified`: an adapter is present but reet has not verified its integration.
+- `incompatible`: readable installation evidence does not meet the reviewed floor.
+
+OpenCode is the only available integration in this stage. Claude Code, Codex
+and Gemini entries describe missing or unverified support; installing an adapter
+alone does not enable its chat. No CLI is executed to build these descriptors,
+and availability does not establish a successful model turn or authentication.
+
+An explicit list is authoritative: a missing tool or an empty list does not fall
+back to machine-wide flags. Older peers omit the list and retain the OpenCode-only
+behaviour. New descriptors are never sent to an older controller. Launches and
+history continuation both enforce the per-agent result; stored history must also
+belong to the same account, machine, tool and folder, from a closed reet session.
+No transcript, database migration or new execution control is introduced.
+
 ## Starting one
 
 In **Start an agent**, choose OpenCode on a machine that advertises `acp`. The **Session** choice is **reet TUI** by
@@ -65,7 +92,7 @@ folder, as the connector's user. All seven conditions are mandatory:
    when the reet TUI is chosen. An unreadable `.opencode` refuses the reet TUI rather than hiding a plugin.
 7. **The version floor.** The connector runs `opencode --version` and requires at least `1.19.5` before it starts a process.
    ACP's `initialize` must also report protocol 1, the agent name `OpenCode`, and a version at or above the floor; a newer
-   release is accepted, but lowering the floor needs a fresh probe. This is the same shape AOE uses for its adapters.
+   release is accepted, but lowering the floor needs a fresh probe.
 
 ## Reopening a reet session and history
 
@@ -85,7 +112,7 @@ feature, and the older controller's strict decoder never sees the new fields.
 ## Images
 
 In the reet TUI, **Attach image** (or paste/drop) uploads the file to the machine over the launch-upload route, then sends
-the image with the prompt the way AOE does: the connector reads its own uploaded file and embeds the bytes as an ACP image
+the image with the prompt: the connector reads its own uploaded file and embeds the bytes as an ACP image
 content block. The agent sees the image itself, not a path it has to open with a tool, so no extra read approval is needed.
 The prompt can be images alone. Limits are PNG, JPEG, GIF or WebP, 5 MiB each and at most eight in one prompt. Uploads live
 under the machine's private `launch-uploads/` folder and are removed by the existing 24-hour sweep.

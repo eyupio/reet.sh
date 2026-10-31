@@ -15,7 +15,7 @@ export type SoftwareBatchMemberState = 'pending' | 'running' | 'applied' | 'fail
 export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
 export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission }
-export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -369,7 +369,25 @@ export function chatURL(id: string): string { return `/api/v2/terminal/sessions/
 export async function chatPrompt(id: string, text: string, images: string[] = []): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/prompt`, { method: 'POST', body: JSON.stringify(images.length ? { text, images } : { text }) }) }
 export async function chatCancel(id: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/cancel`, { method: 'POST', body: '{}' }) }
 export async function chatAnswer(id: string, permissionId: string, allow: boolean, forSession = false): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/permissions/${encodeURIComponent(permissionId)}`, { method: 'POST', body: JSON.stringify(forSession ? { allow, forSession: true } : { allow }) }) }
+/** accept sends answers; decline skips the question and lets the agent continue; cancel stops the agent's tool call. */
+export type QuestionAction = 'accept' | 'decline' | 'cancel'
+export async function chatQuestionAnswer(id: string, questionId: string, action: QuestionAction, answers?: Record<string, string | string[]>): Promise<void> {
+  await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/questions/${encodeURIComponent(questionId)}`, { method: 'POST', body: JSON.stringify(action === 'accept' ? { action, answers: answers ?? {} } : { action }) })
+}
 export type ApprovalMode = 'ask' | 'yolo'
 export async function setApprovalMode(id: string, mode: ApprovalMode): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/approval-mode`, { method: 'POST', body: JSON.stringify({ mode }) }) }
 
 export async function chatModel(id: string, model: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/model`, { method: 'POST', body: JSON.stringify({ model }) }) }
+
+/** Local adapter evidence; available still checks --version and identity at launch. */
+export type StructuredAgent = { tool: string; adapter: string; state: 'available' | 'missing' | 'unverified' | 'incompatible'; version?: string; minimumVersion?: string; history?: boolean; images?: boolean; model?: boolean; approval?: boolean }
+
+/** Explicit descriptors override legacy booleans; only reviewed tools may start. */
+export function structuredAgent(caps: Capabilities | undefined, tool: string | undefined): StructuredAgent | null {
+ if (!caps?.acp || tool !== 'opencode') return null
+ if (caps.acpAgents !== undefined) {
+  if (!Array.isArray(caps.acpAgents)) return null
+  return caps.acpAgents.find(a => a.tool === tool && a.adapter === 'opencode' && a.state === 'available') ?? null
+ }
+ return { tool, adapter: 'opencode', state: 'available', history: caps.acpHistory === true, images: caps.acpImages === true, model: caps.acpModel === true, approval: caps.acpApproval === true }
+}

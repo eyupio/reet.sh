@@ -26,8 +26,8 @@ func SupportsACPModel(features string) bool {
 }
 
 // ACPImageFeature lets a controller send images with a prompt. The machine
-// reads the uploaded files and embeds their bytes in the ACP prompt, the way
-// AOE does, so the agent sees the image itself rather than a file path.
+// reads the uploaded files and embeds their bytes in the ACP prompt so the
+// agent sees the image itself rather than a file path.
 const ACPImageFeature = "acp-image-v1"
 
 // ACPToolDetailsFeature lets a new controller accept the extra fields a tool row shows (command, path, diff and its
@@ -38,6 +38,13 @@ const ACPToolDetailsFeature = "acp-tool-details-v1"
 // person and answering every permission itself (YOLO). A controller without it
 // never sends acp_mode, and a connector without it refuses the request.
 const ACPApprovalFeature = "acp-approval-v1"
+
+// ACPQuestionFeature lets a controller answer typed agent questions
+// (acp_question_answer) and lets a connector send question events. Questions
+// are a different mechanism from approvals: a card for a tool permission never
+// becomes a question. A peer without it never sees either, and a connector
+// refuses an answer when it was not negotiated.
+const ACPQuestionFeature = "acp-question-v1"
 
 const (
 	// MaxChatPromptBytes bounds one chat message. 2,000 bytes is the largest
@@ -86,6 +93,16 @@ func SupportsACPApproval(features string) bool {
 	return false
 }
 
+// SupportsACPQuestion reports whether the peer negotiated acp-question-v1.
+func SupportsACPQuestion(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ACPQuestionFeature {
+			return true
+		}
+	}
+	return false
+}
+
 // SupportsACPHistory reports whether the peer negotiated acp-history-v1.
 func SupportsACPHistory(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
@@ -119,6 +136,9 @@ func SupportsACPImages(features string) bool {
 //	permission           an approval card (PermissionID, ToolCallID, Title, ToolKind, Command, Path, Diff, Truncated)
 //	permission_resolved  the person's answer (PermissionID, Allow)
 //	permission_cancelled the card closed without an answer (PermissionID, Reason)
+//	question             a typed agent question (QuestionID, ToolCallID, Question); only with acp-question-v1
+//	question_resolved    the person's answer was delivered (QuestionID, Reason is accept or decline)
+//	question_cancelled   the question closed without an answer (QuestionID, Reason)
 type ACPEvent struct {
 	Kind         string   `json:"kind"`
 	MessageID    string   `json:"messageId,omitempty"`
@@ -141,11 +161,22 @@ type ACPEvent struct {
 	Truncated    bool     `json:"truncated,omitempty"`
 	Reason       string   `json:"reason,omitempty"`
 	Detail       string   `json:"detail,omitempty"`
+	// QuestionID and Question carry a typed question. They are meaningful only on
+	// the question kinds and must be absent on every other kind.
+	QuestionID string       `json:"questionId,omitempty"`
+	Question   *ACPQuestion `json:"question,omitempty"`
 }
 
 func (ACPEvent) kind() string { return "acp_event" }
 
 func (e ACPEvent) valid() bool {
+	switch e.Kind {
+	case "question", "question_resolved", "question_cancelled":
+		return e.validQuestionEvent()
+	}
+	if e.QuestionID != "" || e.Question != nil {
+		return false
+	}
 	switch e.Kind {
 	case "user":
 		return e.MessageID == "" && e.ToolCallID == "" && e.PermissionID == "" && e.Allow == nil && validChatText(e.Text, MaxACPEventBytes) && e.Text != ""
@@ -332,3 +363,150 @@ func ValidACPSessionID(s string) bool {
 	}
 	return true
 }
+
+// Question bounds. They are the machine's own limits (internal/acpagent) held to
+// the control frame: a form that does not fit is refused by the machine, never
+// truncated, so a person never answers a different question than the agent asked.
+const (
+	MaxACPQuestionFields      = 8
+	MaxACPQuestionOptions     = 12
+	MaxACPQuestionMessage     = 1000
+	MaxACPQuestionLabel       = 200
+	MaxACPQuestionDescription = 500
+	MaxACPQuestionKey         = 64
+	MaxACPQuestionValue       = 200
+	MaxACPQuestionTextAnswer  = 2000
+	MaxACPQuestionAnswerBytes = 8 << 10
+	// MaxACPQuestionWireBytes bounds a question as JSON, leaving room for the
+	// event envelope inside the control frame.
+	MaxACPQuestionWireBytes = 12 << 10
+)
+
+// ACPQuestionOption is one choice. Value is what the agent receives.
+type ACPQuestionOption struct {
+	Value       string `json:"value"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+// ACPQuestionField is one answerable field. Kind is text, single or multi.
+type ACPQuestionField struct {
+	Key         string              `json:"key"`
+	Title       string              `json:"title,omitempty"`
+	Description string              `json:"description,omitempty"`
+	Kind        string              `json:"kind"`
+	Required    bool                `json:"required,omitempty"`
+	Options     []ACPQuestionOption `json:"options,omitempty"`
+	MinItems    int                 `json:"minItems,omitempty"`
+	MaxItems    int                 `json:"maxItems,omitempty"`
+	MaxLength   int                 `json:"maxLength,omitempty"`
+}
+
+// ACPQuestion is the normalized form a person answers.
+type ACPQuestion struct {
+	Message string             `json:"message"`
+	Fields  []ACPQuestionField `json:"fields"`
+}
+
+// Valid reports whether the question fits the protocol's bounds, including the
+// control-frame size. The machine refuses a question that does not.
+func (q ACPQuestion) Valid() bool { return q.valid() }
+
+func (q ACPQuestion) valid() bool {
+	if q.Message == "" || !validChatText(q.Message, MaxACPQuestionMessage) ||
+		len(q.Fields) == 0 || len(q.Fields) > MaxACPQuestionFields {
+		return false
+	}
+	keys := map[string]bool{}
+	for _, f := range q.Fields {
+		if f.Key == "" || keys[f.Key] || !plainText(f.Key, MaxACPQuestionKey) ||
+			!validChatText(f.Title, MaxACPQuestionLabel) || !validChatText(f.Description, MaxACPQuestionDescription) {
+			return false
+		}
+		keys[f.Key] = true
+		switch f.Kind {
+		case "text":
+			if len(f.Options) != 0 || f.MinItems != 0 || f.MaxItems != 0 || f.MaxLength < 1 || f.MaxLength > MaxACPQuestionTextAnswer {
+				return false
+			}
+		case "single", "multi":
+			if f.MaxLength != 0 || !validQuestionOptions(f.Options) {
+				return false
+			}
+			if f.Kind == "single" && (f.MinItems != 0 || f.MaxItems != 0) {
+				return false
+			}
+			if f.Kind == "multi" && (f.MinItems < 0 || f.MaxItems < 1 || f.MaxItems > len(f.Options) || f.MinItems > f.MaxItems) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	data, err := json.Marshal(q)
+	return err == nil && len(data) <= MaxACPQuestionWireBytes
+}
+
+func validQuestionOptions(options []ACPQuestionOption) bool {
+	if len(options) == 0 || len(options) > MaxACPQuestionOptions {
+		return false
+	}
+	values := map[string]bool{}
+	for _, o := range options {
+		if o.Value == "" || values[o.Value] || !plainText(o.Value, MaxACPQuestionValue) ||
+			o.Label == "" || !validChatText(o.Label, MaxACPQuestionLabel) || !validChatText(o.Description, MaxACPQuestionDescription) {
+			return false
+		}
+		values[o.Value] = true
+	}
+	return true
+}
+
+// validQuestionEvent checks the three question kinds. Every field that belongs to
+// another kind must be empty, so a question event cannot smuggle an approval card.
+func (e ACPEvent) validQuestionEvent() bool {
+	if !validACPID(e.QuestionID) || e.PermissionID != "" || e.MessageID != "" || e.Title != "" || e.ToolKind != "" ||
+		e.Status != "" || e.State != "" || e.Text != "" || e.Command != "" || e.Path != "" || e.Diff != "" ||
+		e.Additions != 0 || e.Deletions != 0 || e.DurationMs != 0 || len(e.Locations) != 0 || e.Allow != nil ||
+		e.Bad || e.Truncated || e.Detail != "" {
+		return false
+	}
+	switch e.Kind {
+	case "question":
+		return e.Question != nil && e.Question.valid() && (e.ToolCallID == "" || validACPID(e.ToolCallID)) && e.Reason == ""
+	case "question_resolved":
+		return e.Question == nil && e.ToolCallID == "" && (e.Reason == "accept" || e.Reason == "decline")
+	}
+	return e.Question == nil && e.ToolCallID == "" && validChatText(e.Reason, 100)
+}
+
+// ACPQuestionAnswer answers one pending question. Action is accept, decline or
+// cancel; Answers is a JSON object of field key to value and is present only for
+// accept. The machine validates it against the question it holds; this check is
+// only about shape and size.
+type ACPQuestionAnswer struct {
+	QuestionID string          `json:"questionId"`
+	Action     string          `json:"action"`
+	Answers    json.RawMessage `json:"answers,omitempty"`
+}
+
+// Valid reports whether the answer has a well-formed shape and size. The machine
+// still validates the content against the question it holds.
+func (a ACPQuestionAnswer) Valid() bool { return a.valid() }
+
+func (ACPQuestionAnswer) kind() string { return "acp_question_answer" }
+func (a ACPQuestionAnswer) valid() bool {
+	if !validACPID(a.QuestionID) {
+		return false
+	}
+	switch a.Action {
+	case "accept":
+		return len(a.Answers) > 0 && len(a.Answers) <= MaxACPQuestionAnswerBytes && a.Answers[0] == '{' && json.Valid(a.Answers) && uniqueKeys(a.Answers)
+	case "decline", "cancel":
+		return len(a.Answers) == 0
+	}
+	return false
+}
+
+// ValidQuestionID accepts the machine-generated question id in a URL.
+func ValidQuestionID(s string) bool { return validACPID(s) }

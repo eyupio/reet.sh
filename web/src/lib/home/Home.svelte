@@ -310,7 +310,7 @@
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
       <SessionBoard {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault}
-        onchanged={() => load(true)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
+        onchanged={() => load(true)} onstarted={started} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       {#if needs.length}
         <details class="home-detail attention-detail"><summary>Needs you <span>{needs.length}</span></summary><NeedsYou cards={needs} onseen={markSeen} onanswered={answered} /></details>
       {/if}

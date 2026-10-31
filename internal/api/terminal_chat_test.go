@@ -252,3 +252,32 @@ func TestChatModelSwitch(t *testing.T) {
 		}
 	}
 }
+
+func TestChatDescriptorFeaturesOverrideMachineWideFlags(t *testing.T) {
+	caps := chatCaps()
+	caps.ACPModel = true
+	entries := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", History: true}}
+	caps.ACPAgents = &entries
+	f := launchAPIFixture(t, caps)
+	code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "opencode", "structured": true, "trust": true, "dir": "/tmp"}))
+	if code != 200 {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	session := out["id"].(string)
+	for _, tc := range []struct {
+		path string
+		body any
+	}{
+		{"prompt", map[string]any{"text": "look", "images": []string{"/home/dev/launch-uploads/shot.png"}}},
+		{"model", map[string]string{"model": "provider/model"}},
+		{"approval-mode", map[string]string{"mode": "ask"}},
+	} {
+		code, _, body := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/chat/"+tc.path, tc.body)
+		if code != http.StatusConflict {
+			t.Fatalf("%s ignored descriptor: %d %s", tc.path, code, body)
+		}
+	}
+	if code, _, body := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/chat/prompt", map[string]string{"text": "plain prompt"}); code != 200 {
+		t.Fatalf("plain prompt: %d %s", code, body)
+	}
+}

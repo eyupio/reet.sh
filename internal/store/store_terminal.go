@@ -817,11 +817,17 @@ func (s *Store) FailTerminalCreateWithResultFor(uid int64, agentID, requestID st
 // one of this account's closed structured sessions on agentID. It stops a
 // crafted resumeAcp from loading another project's OpenCode history.
 func (s *Store) CanResumeACPSessionFor(uid int64, agentID, acpSessionID, dir string) (bool, error) {
-	if !terminalproto.ValidID(agentID) || !terminalproto.ValidACPSessionID(acpSessionID) || dir != "" && !terminalproto.ValidDir(dir) {
+	return s.CanResumeACPToolSessionFor(uid, agentID, "opencode", acpSessionID, dir)
+}
+
+// CanResumeACPToolSessionFor binds a native history handle to the tool as well
+// as the account, machine, folder and closed structured session that owns it.
+func (s *Store) CanResumeACPToolSessionFor(uid int64, agentID, tool, acpSessionID, dir string) (bool, error) {
+	if !terminalproto.ValidID(agentID) || !terminalproto.ValidACPSessionIDFor(tool, acpSessionID) || dir != "" && !terminalproto.ValidDir(dir) {
 		return false, terminalproto.ErrInvalid
 	}
 	var ok bool
-	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM terminal_sessions WHERE user_id=? AND agent_id=? AND structured=1 AND state IN ('ended','exited','lost') AND acp_session_id=? AND dir=?)`, uid, agentID, acpSessionID, dir).Scan(&ok)
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM terminal_sessions WHERE user_id=? AND agent_id=? AND tool=? AND structured=1 AND state IN ('ended','exited','lost') AND acp_session_id=? AND dir=?)`, uid, agentID, tool, acpSessionID, dir).Scan(&ok)
 	return ok, err
 }
 
@@ -839,7 +845,7 @@ func (s *Store) RecordTerminalACPSessionFor(uid int64, agentID, sessionID, acpSe
 		if err != nil {
 			return err
 		}
-		if !t.Structured {
+		if !t.Structured || !terminalproto.ValidACPSessionIDFor(t.Tool, acpSessionID) {
 			return ErrTerminalConflict
 		}
 		if t.ACPSessionID == acpSessionID {

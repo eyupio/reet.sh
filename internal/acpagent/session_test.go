@@ -93,6 +93,11 @@ func TestFakeACP(t *testing.T) {
 			_ = json.Unmarshal(message.Params, &params)
 			if params.ConfigID != "model" || params.SessionID != session || params.Value == "reject" {
 				send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32602, "message": "invalid model"}})
+			} else if params.Value == "silently-reset" {
+				// The Claude adapter accepts an unknown model and resets to default.
+				reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "model", "currentValue": "default"}}})
+			} else if params.Value == "echo-list" {
+				reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": "build"}, {"id": "model", "currentValue": "echo-list"}}})
 			} else {
 				reply(message.ID, map[string]any{})
 			}
@@ -172,6 +177,29 @@ func TestFakeACP(t *testing.T) {
 						"rawInput":  map[string]string{"filepath": "/tmp/hello.txt", "diff": "@@ -0,0 +1 @@\n+hello\n"}},
 					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "always", "kind": "allow_always", "name": "Always allow"}, {"optionId": "reject", "kind": "reject_once", "name": "Reject"}},
 				}})
+			case "question", "question-bad", "question-off", "question-big":
+				properties := map[string]any{
+					"question_0": map[string]any{"type": "string", "title": "Probe", "oneOf": []map[string]string{
+						{"const": "Option A", "title": "Option A", "description": "First"}, {"const": "Option B", "title": "Option B"}}},
+					"question_0_custom": map[string]any{"type": "string", "title": "Other"},
+				}
+				if scenario == "question-big" {
+					// Valid for the machine parser (under 16 KiB) but over the wire bound.
+					properties = map[string]any{}
+					for f := 0; f < 6; f++ {
+						var options []map[string]string
+						for o := 0; o < 12; o++ {
+							options = append(options, map[string]string{"const": fmt.Sprintf("v%02d%02d", f, o), "title": strings.Repeat("t", 150)})
+						}
+						properties[fmt.Sprintf("question_%d", f)] = map[string]any{"type": "string", "oneOf": options}
+					}
+				}
+				if scenario == "question-bad" {
+					properties["question_0_custom"] = map[string]any{"type": "string", "pattern": "^a$"}
+				}
+				send(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "elicitation/create", "params": map[string]any{
+					"mode": "form", "sessionId": session, "toolCallId": "toolu_q", "message": "Which probe option?",
+					"requestedSchema": map[string]any{"type": "object", "properties": properties, "required": []string{"question_0"}}}})
 			case "tool-details":
 				update(session, "tool_call", map[string]any{"toolCallId": "call_run", "title": "go test ./...", "kind": "execute", "status": "pending",
 					"rawInput": map[string]string{"command": "go test ./..."}})
@@ -235,6 +263,15 @@ func TestFakeACP(t *testing.T) {
 						status = "failed"
 					}
 					update(session, "tool_call_update", map[string]any{"toolCallId": "call_1", "title": "write hello.txt", "kind": "edit", "status": status})
+					reply(promptID, map[string]any{"stopReason": "end_turn"})
+					promptID = nil
+				} else if strings.HasPrefix(scenario, "question") {
+					// Echo exactly what the agent received so the test can assert it.
+					var raw struct {
+						Result json.RawMessage `json:"result"`
+					}
+					_ = json.Unmarshal(in.Bytes(), &raw)
+					update(session, "agent_message_chunk", map[string]any{"messageId": "msg_q", "content": map[string]string{"type": "text", "text": string(raw.Result)}})
 					reply(promptID, map[string]any{"stopReason": "end_turn"})
 					promptID = nil
 				} else if scenario == "fs" {
@@ -903,4 +940,120 @@ func TestSwitchModelPreservesSessionAndFailureKeepsModel(t *testing.T) {
 	s.turnMu.Lock()
 	s.working = false
 	s.turnMu.Unlock()
+}
+
+func TestTypedDiffFromClaudeWrite(t *testing.T) {
+	// Shape captured from the Claude adapter's Write permission request.
+	const raw = `{"sessionId":"0b9f6a1c-3d2e-4f5a-8b7c-1234567890ab","toolCall":{"toolCallId":"t1","kind":"edit",
+		"rawInput":{"file_path":"/p/m.txt","content":"reet-probe"},
+		"content":[{"type":"diff","path":"/p/m.txt","oldText":null,"newText":"reet-probe"}]}}`
+	var params permissionParams
+	if err := json.Unmarshal([]byte(raw), &params); err != nil {
+		t.Fatal(err)
+	}
+	diff, path, truncated, ok := typedDiff(params.ToolCall.Content)
+	if !ok || truncated || path != "/p/m.txt" || params.ToolCall.RawInput.SnakePath != "/p/m.txt" ||
+		diff != "--- /p/m.txt\n+++ /p/m.txt\n+reet-probe\n" {
+		t.Fatalf("diff %q path %q ok %v", diff, path, ok)
+	}
+	old, next := "a\nb\n", "a\nc\n"
+	diff, _, _, ok = typedDiff([]permissionContent{{Type: "diff", Path: "/x", OldText: &old, NewText: &next}})
+	if !ok || !strings.Contains(diff, "-b\n") || !strings.Contains(diff, "+c\n") {
+		t.Fatalf("replace diff %q", diff)
+	}
+}
+
+func TestTypedDiffRefusesUnusableAndBounds(t *testing.T) {
+	text := "x"
+	for name, blocks := range map[string][]permissionContent{
+		"none":        nil,
+		"wrong type":  {{Type: "text", Path: "/x", NewText: &text}},
+		"no new text": {{Type: "diff", Path: "/x"}},
+		"no path":     {{Type: "diff", NewText: &text}},
+	} {
+		if _, _, _, ok := typedDiff(blocks); ok {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+	big := strings.Repeat("line of text\n", 5000)
+	diff, _, truncated, ok := typedDiff([]permissionContent{{Type: "diff", Path: "/x", NewText: &big}})
+	if !ok || !truncated || len(diff) > maxDiffBytes+4 {
+		t.Fatalf("bound: ok=%v truncated=%v len=%d", ok, truncated, len(diff))
+	}
+	one := strings.Repeat("y", 1<<20)
+	diff, _, truncated, _ = typedDiff([]permissionContent{{Type: "diff", Path: "/x", NewText: &one}})
+	if !truncated || len(diff) > maxDiffBytes+4 {
+		t.Fatalf("single line bound: %v %d", truncated, len(diff))
+	}
+}
+
+func TestCloseConfirmsGroupRetired(t *testing.T) {
+	opts, _ := options(t, "permission", testVersion)
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.GroupRetired() {
+		t.Fatal("retired before Close")
+	}
+	session.Close()
+	if !session.GroupRetired() {
+		t.Fatal("Close did not confirm the group gone")
+	}
+}
+
+func TestSubagentSummary(t *testing.T) {
+	text, cut := subagentSummary("general-purpose", "Do the thing")
+	if text != "[general-purpose] Do the thing" || cut {
+		t.Fatalf("summary %q %v", text, cut)
+	}
+	if text, _ := subagentSummary("x", "  \n"); text != "" {
+		t.Fatalf("blank prompt reviewable: %q", text)
+	}
+	text, cut = subagentSummary("", strings.Repeat("p", maxDiffBytes*2))
+	if !cut || len(text) > maxDiffBytes {
+		t.Fatalf("bound %v %d", cut, len(text))
+	}
+	var params permissionParams
+	raw := `{"toolCall":{"kind":"think","title":"probe","rawInput":{"description":"probe","prompt":"Do nothing","subagent_type":"general-purpose"}}}`
+	if err := json.Unmarshal([]byte(raw), &params); err != nil || params.ToolCall.RawInput.Prompt != "Do nothing" || params.ToolCall.RawInput.SubagentType != "general-purpose" {
+		t.Fatalf("decode %+v %v", params, err)
+	}
+}
+
+func TestSetModelReportsAppliedState(t *testing.T) {
+	opts, _ := options(t, "permission", testVersion)
+	s, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.SetModel(context.Background(), "echo-list"); err != nil || s.Model() != "echo-list" {
+		t.Fatalf("acknowledged model: %v %q", err, s.Model())
+	}
+	if err := s.SetModel(context.Background(), "silently-reset"); !errors.Is(err, ErrModel) || s.Model() != "default" {
+		t.Fatalf("silent reset: %v %q", err, s.Model())
+	}
+}
+
+func TestSubagentPermissionCarriesParentLink(t *testing.T) {
+	// Shape captured from the nested subagent probe.
+	const raw = `{"sessionId":"s","toolCall":{"toolCallId":"toolu_child","kind":"execute","title":"printf nested",
+		"_meta":{"claudeCode":{"toolName":"Bash","parentToolUseId":"toolu_probe"}},"rawInput":{"command":"printf nested"}}}`
+	var params permissionParams
+	if err := json.Unmarshal([]byte(raw), &params); err != nil || params.ToolCall.Meta.ClaudeCode.ParentToolUseID != "toolu_probe" {
+		t.Fatalf("decode %+v %v", params, err)
+	}
+}
+
+func TestPermissionTitle(t *testing.T) {
+	for _, tc := range []struct{ title, parent, want string }{
+		{"ls", "", "ls"},
+		{"", "", "Claude Code tool call"},
+		{"ls", "toolu_1", "Subagent: ls"},
+	} {
+		if got := permissionTitle(tc.title, tc.parent, "Claude Code"); got != tc.want {
+			t.Fatalf("%+v -> %q", tc, got)
+		}
+	}
 }

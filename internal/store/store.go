@@ -303,14 +303,10 @@ func (s *Store) Dir() string { return s.dir }
 
 // Open opens (creating if needed) the database in dir.
 func Open(dir string) (*Store, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-	db, err := sql.Open("sqlite", filepath.Join(dir, "reet.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	db, err := openDB(dir)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, err
@@ -428,6 +424,29 @@ func Open(dir string) (*Store, error) {
 		}
 	}
 	return st, nil
+}
+
+// OpenWithoutMigrations opens a database that already has the current schema. It does
+// not create or migrate anything, so it is only for tests that copy a fully
+// migrated template into place; production code must use Open.
+func OpenWithoutMigrations(dir string) (*Store, error) {
+	db, err := openDB(dir)
+	if err != nil {
+		return nil, err
+	}
+	return &Store{db: db, dir: dir}, nil
+}
+
+func openDB(dir string) (*sql.DB, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite", filepath.Join(dir, "reet.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	return db, nil
 }
 
 func ensureColumn(db *sql.DB, name, ddl string) error {

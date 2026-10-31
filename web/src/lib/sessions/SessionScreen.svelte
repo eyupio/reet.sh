@@ -10,7 +10,7 @@
   import { CATALOGUE } from '../catalogue'
   import YoloDialog from '../launch/YoloDialog.svelte'
   import { yoloCanStart, type YoloGate } from '../launchBar'
-  import { markSessionSeen, setApprovalMode, terminalClosed, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { structuredAgent, markSessionSeen, setApprovalMode, terminalClosed, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
 
   // The session screen: the strip of open sessions, the session's header (title, agent · model · started, the state in words
@@ -89,7 +89,7 @@
   let yoloSetting = $state<YoloSetting | null | undefined>(undefined)
   let yoloOpen = $state(false), modeBusy = $state(false)
   const machineCaps = $derived(machines.find(m => m.agentId === session.agentId)?.capabilities)
-  const canSwitchApproval = $derived(!!session.structured && live && !!machineCaps?.acpApproval)
+  const canSwitchApproval = $derived(!!session.structured && live && !!structuredAgent(machineCaps, session.tool)?.approval)
   const agentTakesYolo = $derived(!!session.tool && !!CATALOGUE.find(agent => agent.id === session.tool)?.yolo)
   const switchGates = $derived<YoloGate[]>([
     { label: 'Your account allows YOLO', ok: yoloSetting?.allowed === true,
@@ -98,8 +98,8 @@
       detail: machineCaps?.yolo ? 'checked a moment ago' : `${host} doesn't accept YOLO sessions.` },
     { label: 'This agent has an option reet can use', ok: agentTakesYolo,
       detail: agentTakesYolo ? 'the option is recorded for this session' : 'This agent has no option reet can use for that.' },
-    { label: 'This chat can switch while it runs', ok: !!machineCaps?.acpApproval,
-      detail: machineCaps?.acpApproval ? 'update reet on the machine if this is ever refused' : 'Update reet on that machine to switch a live chat.' },
+    { label: 'This chat can switch while it runs', ok: !!structuredAgent(machineCaps, session.tool)?.approval,
+      detail: structuredAgent(machineCaps, session.tool)?.approval ? 'update reet on the machine if this is ever refused' : 'Update reet on that machine to switch a live chat.' },
   ])
   $effect(() => {
     if (session.id !== modeFor) { modeFor = session.id; approvalMode = session.yolo ? 'yolo' : 'ask' }

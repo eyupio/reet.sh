@@ -14,6 +14,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/mail"
 	"github.com/eyupio/reet.sh/internal/notify"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
 
 type mailTestSealer struct{}
@@ -36,7 +37,7 @@ type mailSrv struct {
 
 func newMailSrv(t *testing.T) mailSrv {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,11 +6,7 @@ import (
 )
 
 func TestAudienceAccessMembershipExclusionsAndPersonal(t *testing.T) {
-	s, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := newStore(t)
 	owner, _ := s.DefaultOwner()
 	creator, _ := s.CreateUser("creator@example.com", "Creator", "member", "hash")
 	alice, _ := s.CreateUser("alice@example.com", "Alice", "member", "hash")
@@ -85,11 +81,7 @@ func TestAudienceAccessMembershipExclusionsAndPersonal(t *testing.T) {
 	}
 }
 func TestPublicCommunityIsExplicitAndRedacted(t *testing.T) {
-	s, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := newStore(t)
 	owner, _ := s.DefaultOwner()
 	r := mustRef(t, "o/r/public-skill")
 	secret := "PERSONAL SECRET"
@@ -138,11 +130,7 @@ func TestPublicCommunityIsExplicitAndRedacted(t *testing.T) {
 	}
 }
 func TestAudienceValidationAtomicityAndGroupBoundaries(t *testing.T) {
-	s, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := newStore(t)
 	owner, _ := s.DefaultOwner()
 	a, _ := s.CreateUser("a@example.com", "A", "member", "hash")
 	b, _ := s.CreateUser("b@example.com", "B", "member", "hash")
@@ -186,11 +174,7 @@ func TestAudienceValidationAtomicityAndGroupBoundaries(t *testing.T) {
 }
 
 func TestPublicListsRequireLinkedSourcesAndKeepAudienceOnFailure(t *testing.T) {
-	s, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := newStore(t)
 	owner, _ := s.DefaultOwner()
 	local, err := s.UpsertLocalFor(owner, "my-local-skill", Patch{})
 	if err != nil {
@@ -213,11 +197,7 @@ func TestPublicListsRequireLinkedSourcesAndKeepAudienceOnFailure(t *testing.T) {
 	}
 }
 func TestDeletingGroupRevokesInheritedAccessButKeepsLists(t *testing.T) {
-	s, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := newStore(t)
 	creator, _ := s.CreateUser("group-owner@example.com", "Owner", "member", "hash")
 	person, _ := s.CreateUser("group-member@example.com", "Member", "member", "hash")
 	org, _ := s.CreateGroup(creator.ID, "member", "Org", "organisation", 0)

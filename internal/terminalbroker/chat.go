@@ -35,7 +35,19 @@ var (
 	// ErrACPApprovalUnsupported means the machine's connector predates
 	// acp-approval-v1, so it cannot switch a live chat's approval mode.
 	ErrACPApprovalUnsupported = errors.New("that machine cannot switch a live chat's approval mode")
+	// ErrACPQuestionUnsupported means the machine's connector or this agent does
+	// not offer typed questions, so there is nothing to answer.
+	ErrACPQuestionUnsupported = errors.New("that machine cannot answer this agent's questions")
+	// ErrQuestionGone means the question is no longer waiting: it was answered,
+	// cancelled, timed out, or never existed for this chat.
+	ErrQuestionGone = errors.New("that question is no longer waiting")
 )
+
+// QuestionInvalidError is an answer the machine refused. The question is still
+// waiting, so the person can correct it. Detail names the field and why.
+type QuestionInvalidError struct{ Detail string }
+
+func (e *QuestionInvalidError) Error() string { return "that answer was not accepted: " + e.Detail }
 
 // ACPTrustError means the folder has OpenCode plugins and the start did not
 // carry the person's trust confirmation.
@@ -200,6 +212,34 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 			}
 			l.lastState = "waiting"
 		}
+	case "question":
+		// A question counts as waiting like an approval card does, so the chat
+		// shows as needing the person. It has no queue entry: the Needs you
+		// summary for questions is a later stage.
+		if event.QuestionID != "" {
+			key := "q:" + event.QuestionID
+			_, exists := l.pending[key]
+			hadPending := len(l.pending) > 0
+			l.pending[key] = struct{}{}
+			if l.waitingAt == 0 || (!exists && hadPending) {
+				l.waitingAt = nowMs
+			}
+			l.lastState = "waiting"
+		}
+	case "question_resolved", "question_cancelled":
+		if event.QuestionID != "" {
+			delete(l.pending, "q:"+event.QuestionID)
+			if len(l.pending) == 0 {
+				l.waitingAt = 0
+				if l.lastState == "waiting" {
+					if l.running {
+						l.lastState = "working"
+					} else {
+						l.lastState = "quiet"
+					}
+				}
+			}
+		}
 	case "permission_resolved", "permission_cancelled":
 		if event.PermissionID != "" {
 			delete(l.pending, event.PermissionID)
@@ -225,6 +265,13 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 	if event.Kind == "permission" && event.PermissionID != "" {
 		for i := range l.events {
 			if l.events[i].Kind == "permission" && l.events[i].PermissionID == event.PermissionID {
+				return
+			}
+		}
+	}
+	if event.Kind == "question" && event.QuestionID != "" {
+		for i := range l.events {
+			if l.events[i].Kind == "question" && l.events[i].QuestionID == event.QuestionID {
 				return
 			}
 		}
@@ -480,7 +527,7 @@ func (b *Broker) publishChat(uid int64, session string, event terminalproto.ACPE
 	b.mu.Unlock()
 	if l != nil {
 		l.publish(event)
-		if b.st != nil && (event.Kind == "status" || event.Kind == "permission" || event.Kind == "permission_resolved" || event.Kind == "permission_cancelled" || event.Kind == "user") {
+		if b.st != nil && (event.Kind == "status" || event.Kind == "permission" || event.Kind == "permission_resolved" || event.Kind == "permission_cancelled" || event.Kind == "question" || event.Kind == "question_resolved" || event.Kind == "question_cancelled" || event.Kind == "user") {
 			l.mu.Lock()
 			actAt, waitAt := l.updatedAt, l.waitingAt
 			st, compAt := l.lastState, l.completedAt
@@ -599,7 +646,7 @@ func (b *Broker) structuredSession(uid int64, session string) (store.TerminalSes
 	if err != nil {
 		return s, err
 	}
-	if !s.Structured {
+	if !s.Structured || !terminalproto.ReviewedChatTool(s.Tool) {
 		return s, ErrACPUnsupported
 	}
 	if s.State != terminalproto.Running {
@@ -625,7 +672,7 @@ func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string
 		if err != nil || caps.Generation != p.Generation {
 			return ErrOffline
 		}
-		if !caps.Capabilities.ACPImages {
+		if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !ok || !chat.Images {
 			return ErrACPImagesUnsupported
 		}
 	}
@@ -713,6 +760,53 @@ func (b *Broker) PermissionChat(ctx context.Context, uid int64, session, permiss
 	return ErrACPClosed
 }
 
+// AnswerQuestionChat delivers the person's answer to a typed agent question. It
+// is scoped to the caller's own chat, requires the machine and the agent to
+// offer questions, and leaves validation to the machine, which holds the
+// question. A rejected answer is a *QuestionInvalidError and the question keeps
+// waiting. Answer content is never logged; only the action is audited.
+func (b *Broker) AnswerQuestionChat(ctx context.Context, uid int64, session, questionID, action string, answers json.RawMessage) error {
+	body := &terminalproto.ACPQuestionAnswer{QuestionID: questionID, Action: action, Answers: answers}
+	if !body.Valid() {
+		return terminalproto.ErrInvalid
+	}
+	s, err := b.structuredSession(uid, session)
+	if err != nil {
+		return err
+	}
+	p, err := b.peer(uid, s.AgentID, true)
+	if err != nil {
+		return err
+	}
+	caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID)
+	if err != nil || caps.Generation != p.Generation {
+		return ErrOffline
+	}
+	if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !ok || !chat.Questions || !caps.Capabilities.ACPQuestions {
+		return ErrACPQuestionUnsupported
+	}
+	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: body}, chatCallTimeout)
+	if err != nil {
+		return err
+	}
+	result, ok := reply.Body.(*terminalproto.Result)
+	if !ok {
+		return ErrACPClosed
+	}
+	switch result.Code {
+	case terminalproto.OK:
+		_ = b.st.AddEventFor(uid, "machine", "question-answer", "", map[string]string{
+			"machine": s.AgentID, "tool": s.Tool, "session": session, "action": action,
+		})
+		return nil
+	case terminalproto.QuestionInvalid:
+		return &QuestionInvalidError{Detail: result.Detail}
+	case terminalproto.Conflict:
+		return ErrQuestionGone
+	}
+	return ErrACPClosed
+}
+
 // SetChatYolo switches a live chat between asking the person and answering
 // every permission itself. Turning YOLO on keeps every gate a launch does: the
 // account setting, the agent's reviewed option and the machine's acceptance.
@@ -737,7 +831,7 @@ func (b *Broker) SetChatYolo(ctx context.Context, uid int64, session string, yol
 	if err != nil || caps.Generation != p.Generation {
 		return ErrOffline
 	}
-	if !caps.Capabilities.ACPApproval {
+	if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !ok || !chat.Approval {
 		return ErrACPApprovalUnsupported
 	}
 	if yolo && !caps.Capabilities.Yolo {
@@ -781,7 +875,7 @@ func (b *Broker) ModelChat(ctx context.Context, uid int64, session, model string
 	if err != nil || caps.Generation != p.Generation {
 		return ErrOffline
 	}
-	if !caps.Capabilities.ACPModel {
+	if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !ok || !chat.Model {
 		return ErrACPModelUnsupported
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &terminalproto.ACPModel{Model: model}}, chatCallTimeout)

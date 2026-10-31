@@ -96,7 +96,10 @@ type chatLink struct {
 	send       func(context.Context, terminalproto.Message) error
 	history    bool
 	details    bool
-	live       bool
+	// questions is acp-question-v1 on this connection. Question events are sent
+	// only when it is set: an older controller's strict decoder rejects them.
+	questions bool
+	live      bool
 }
 
 // ChatSupervisor is the process-scoped ACP session owner. The connector creates
@@ -166,18 +169,18 @@ type chatHost struct {
 // attachChats attaches a control connection to a supervisor. A nil supervisor
 // creates a connection-scoped one, which keeps unit tests and any caller that
 // does not own a process yet isolated.
-func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalhost.ManagerOptions, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool) *chatHost {
+func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalhost.ManagerOptions, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, questions ...bool) *chatHost {
 	var s *chatSupervisor
 	if supervisor != nil {
 		s = supervisor.s
 	} else {
 		s = newChatSupervisor(ctx, opts)
 	}
-	return s.attach(ctx, generation, send, history, details)
+	return s.attach(ctx, generation, send, history, details, questions...)
 }
 
-func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool) *chatHost {
-	link := &chatLink{generation: generation, send: send, history: history, details: details}
+func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, questions ...bool) *chatHost {
+	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(questions) > 0 && questions[0]}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -624,6 +627,39 @@ func (h *chatHost) permission(sessionID, permissionID string, allow bool) error 
 	return err
 }
 
+// question delivers the person's answer to a waiting typed question. An answer
+// that fails validation is reported as question_invalid and leaves the question
+// waiting; an answer to a question that is no longer waiting is a conflict.
+func (h *chatHost) question(sessionID string, a *terminalproto.ACPQuestionAnswer) (terminalproto.Result, error) {
+	cs := h.find(sessionID)
+	if cs == nil {
+		return terminalproto.Result{}, terminalhost.ErrSessionMissing
+	}
+	answerer, ok := cs.process.(questionAnswerer)
+	if !ok {
+		return terminalproto.Result{}, terminalhost.ErrOperationConflict
+	}
+	resolution := acpagent.QuestionResolution{Action: acpagent.QuestionAction(a.Action)}
+	if a.Action == "accept" {
+		answers, err := acpagent.DecodeAnswers(a.Answers)
+		if err != nil {
+			return terminalproto.Result{Code: terminalproto.QuestionInvalid, Detail: err.Error()}, nil
+		}
+		resolution.Answers = answers
+	}
+	err := answerer.AnswerQuestion(a.QuestionID, resolution)
+	var invalid *acpagent.AnswerError
+	switch {
+	case err == nil:
+		return terminalproto.Result{Code: terminalproto.OK}, nil
+	case errors.As(err, &invalid):
+		return terminalproto.Result{Code: terminalproto.QuestionInvalid, Detail: cutText(invalid.Error(), 200)}, nil
+	case errors.Is(err, acpagent.ErrNoQuestion):
+		return terminalproto.Result{}, terminalhost.ErrOperationConflict
+	}
+	return terminalproto.Result{}, err
+}
+
 func (h *chatHost) end(sessionID string) (terminalproto.SessionChanged, error) {
 	h.sup.mu.Lock()
 	cs := h.sup.sessions[sessionID]
@@ -683,10 +719,37 @@ func (s *chatSupervisor) ended(cs *chatSession, code int) {
 
 func (h *chatHost) close() { h.sup.detach(h) }
 
+// questionAnswerer is the part of a chat process that can resolve a typed
+// question. It is optional: only a process that can ask questions has it.
+type questionAnswerer interface {
+	AnswerQuestion(string, acpagent.QuestionResolution) error
+}
+
+func isQuestionKind(kind string) bool {
+	return kind == "question" || kind == "question_resolved" || kind == "question_cancelled"
+}
+
 func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 	wire, ok := wireEvent(event)
 	if !ok {
+		if event.Kind == "question" && event.QuestionID != "" {
+			s.cancelQuestion(cs, event.QuestionID)
+		}
 		return
+	}
+	if isQuestionKind(wire.Kind) {
+		s.mu.Lock()
+		link := s.link
+		usable := link != nil && link.live && link.questions
+		s.mu.Unlock()
+		if !usable {
+			// Nobody connected can answer, and an older controller would reject the
+			// event. A question is never buffered for later: cancel it now.
+			if wire.Kind == "question" {
+				s.cancelQuestion(cs, wire.QuestionID)
+			}
+			return
+		}
 	}
 	s.deliver(cs, wire)
 	s.mu.Lock()
@@ -701,6 +764,22 @@ func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 	if event.Kind == "status" && event.State == "ended" {
 		s.ended(cs, 0)
 	}
+}
+
+// cancelQuestion answers a question with a cancellation. It runs off the event
+// path because resolving it emits another event.
+func (s *chatSupervisor) cancelQuestion(cs *chatSession, questionID string) {
+	s.mu.Lock()
+	process := cs.process
+	s.mu.Unlock()
+	answerer, ok := process.(questionAnswerer)
+	if !ok || !s.addWork() {
+		return
+	}
+	go func() {
+		defer s.wg.Done()
+		_ = answerer.AnswerQuestion(questionID, acpagent.QuestionResolution{Action: acpagent.QuestionCancel})
+	}()
 }
 
 func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
@@ -864,7 +943,11 @@ func wireEvent(event acpagent.Event) (terminalproto.ACPEvent, bool) {
 		State: event.State, Text: event.Text, Command: event.Command, Path: event.Path, Diff: event.Diff,
 		Additions: event.Additions, Deletions: event.Deletions, DurationMs: event.DurationMs,
 		Locations: event.Locations, Allow: event.Allow, Bad: event.Bad, Truncated: event.Truncated,
-		Reason: event.Reason, Detail: event.Detail}
+		Reason: event.Reason, Detail: event.Detail, QuestionID: event.QuestionID}
+	if event.Question != nil {
+		question := event.Question.Wire()
+		wire.Question = &question
+	}
 	if len(wire.Diff) > 9<<10 {
 		wire.Diff = cutText(wire.Diff, 9<<10)
 		wire.Truncated = true

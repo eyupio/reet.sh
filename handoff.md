@@ -26,6 +26,183 @@ implemented baseline, S/A/W/L task lists, start-agent-session protocol notes, Pr
 delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief) are in
 [handoff-history.md](handoff-history.md), under "Moved from handoff.md on 27 October 2026".
 
+## SC2 — Claude lifecycle probes and ID/diff hardening (31 October 2026)
+
+**Scope:** follow-up to PR #301; no adapter is enabled. Branch `ccr-4cc5980a-dt7hki`.
+
+**Added:** `scripts/probe-claude-lifecycle.py` (trust, cancel, load, model, subagent);
+adapter-aware native ID validation (`nativeIDMatches`: `ses_` for OpenCode, canonical
+lower-case UUID for Claude/Codex, still gated by `ReviewedChatTool`); and `typedDiff` in
+`internal/acpagent/session.go`, which turns Claude's `{type:"diff"}` content into the
+existing bounded 10 KiB diff and reads `rawInput.file_path`. A missing or unusable diff
+still leaves an edit card unapprovable. Results are in the
+[probe report](docs/research/structured-adapters/probe-report.md).
+
+**Findings that block enabling Claude:** a repository's own hooks run without an approval
+card; leader exit did not retire the whole process group; `session/load` ignores `cwd`;
+an unknown model value is silently reset; subagent calls arrive as kind `think`.
+
+**Checks:** `go vet` and `go test` for `internal/acpagent` and `internal/terminalproto`,
+gofmt, `py_compile`, and a real run of every scenario against the pinned adapter with
+the loopback stub. The full race suite, web checks and browser fixtures were not re-run:
+no web or protocol-shape change. No real provider, phone or other OS.
+
+**Hooks gate (local, not pushed):** `Spec.SessionMeta` is sent as `_meta` on session/new and
+session/load; `ClaudeSessionMeta` pins `settingSources` to `["user"]`, verified to stop a
+repository hook while approvals still appear. No Claude profile is registered yet.
+
+**Also local:** `retireGroup`/`GroupRetired` (group SIGKILL, confirmed via /proc, zombie-aware) and
+the `think` subagent card (`subagentSummary`). Tests: group_test.go, session_test.go.
+
+**Also local:** `Session.SetModel` reads the model option back from `session/set_config_option`
+and returns `ErrModel` (recording the real value) when the agent reports a different one; a
+response without an option list keeps the old behaviour. Test: `TestSetModelReportsAppliedState`.
+
+**Subagents and Codex (local):** nested subagent calls raise their own approval with a
+`parentToolUseId`; reet labels them "Subagent:". Codex probe (`scripts/probe-codex-turn.py`)
+showed no per-command approval request in any mode and a provider error disguised as
+`end_turn`; Codex stays disabled. See the probe report.
+
+**Environment (local):** `acpagent.ClaudeCandidate` (unregistered) holds the measured launch profile:
+adapter command, name/version floor, `default` mode required, credential-only allowlist, no
+provider redirects, background traffic off, `ClaudeSessionMeta`. Not registered.
+
+**Next unchecked task:** Claude missing/real-credential behaviour and registering the profile behind the
+gates (descriptor + launch + history); for Codex, re-run with a working
+sandbox to see whether any approval request exists, and cancel on a running command; then SC3.
+
+## SC3 — Typed agent questions, machine core (31 October 2026)
+
+**Scope:** `internal/acpagent` only; no wire, API or UI change and no agent enabled. See the SC3 progress
+note in [the plan](docs/structured-chat-plan.md).
+
+**Added:** a normalized `Question` model (text, single select, multi select), a strict `elicitation/create`
+parser that refuses unsupported forms whole, an authoritative answer validator (`Question.Validate`,
+`DecodeAnswers`), and session handling with single-use IDs, deadlines, a pending cap and cancellation on turn
+cancel, close and exit. `Options.Questions` is off in every launch, `initialize` does not advertise
+`elicitation.form`, and the connector drops `question*` events.
+
+**Checks:** `go vet`, `gofmt`, `go build ./...` and `go test -race` for `acpagent`, `terminalagent` and
+`terminalproto`; two deliberate mutations (any choice accepted, answered question not consumed) failed the
+tests. No browser, phone, real provider or live adapter was used.
+
+**Next unchecked task:** private-protocol messages and negotiation, the controller answer route with
+account checks, then the chat card and Needs-you summary; request-scoped (pre-session) questions and
+old-peer/concurrent-tab/phone fixtures. Do not advertise the form capability before those.
+
+## SC3 — Typed agent questions, machine core (31 October 2026)
+
+**Scope:** `internal/acpagent` only; no wire, API or UI change and no agent enabled. See the SC3 progress
+note in [the plan](docs/structured-chat-plan.md).
+
+**Added:** a normalized `Question` model (text, single select, multi select), a strict `elicitation/create`
+parser that refuses unsupported forms whole, an authoritative answer validator (`Question.Validate`,
+`DecodeAnswers`), and session handling with single-use IDs, deadlines, a pending cap and cancellation on turn
+cancel, close and exit. `Options.Questions` is off in every launch, `initialize` does not advertise
+`elicitation.form`, and the connector drops `question*` events.
+
+**Checks:** `go vet`, `gofmt`, `go build ./...` and `go test -race` for `acpagent`, `terminalagent` and
+`terminalproto`; two deliberate mutations (any choice accepted, answered question not consumed) failed the
+tests. No browser, phone, real provider or live adapter was used.
+
+**Wire stage:** `acp-question-v1`, the
+question events and `acp_question_answer`, `question_invalid`, connector routing, `AnswerQuestionChat` and
+the `/chat/questions/{id}` route. Still off by default; see the plan.
+
+**Chat card:** the browser card for typed questions, with unit and browser tests; see `docs/ui-verification.md`.
+
+**Next unchecked task:** the Needs-you summary (and the broker queue entry behind it); request-scoped (pre-session) questions and
+old-peer/concurrent-tab/phone fixtures. Do not advertise the form capability before those.
+
+## SC2 — Structured adapter probe checkpoint (31 October 2026)
+
+**Scope:** separate probe PR targeting main; no new runtime adapter is enabled.
+Branch `feat/structured-adapter-probes`, following the merged
+[SC1 PR #300](https://github.com/eyupio/reet.sh/pull/300). See
+[the probe report](docs/research/structured-adapters/probe-report.md) and its
+narrowed protocol fixtures. This is partial SC2 evidence, not completion of the
+first additional-agent integration.
+
+**Observed:** Claude adapter 0.99.1 / SDK 0.3.312 / native Claude Code 2.1.312,
+and Codex adapter 1.13.1 / CLI 0.156.1, on Linux x86-64 with Node 22.23.4.
+Adapter tarball SHA-512 values match recorded registry metadata. Both real
+adapters initialized and created UUID-style sessions with fs/terminal delegation
+disabled; Codex needed explicit synthetic-key ACP authentication. Claude Bash
+and Write allow/deny controlled actual marker-file effects against a local stub;
+form negotiation enabled AskUserQuestion and a typed answer completed the turn.
+Write's typed content diff needs normalization before reet can review/allow it.
+
+**Checks:** runnable standard-library Python probes, syntax/formatting and
+recorded wire fixtures; actual candidate process versions and stub-backed
+permission/question assertions. SC1's complete Go race suite, vet, web
+check/build, MCP and browser checks passed separately. No live provider, real
+credentials, physical phone or cross-OS verification was used here.
+
+**Next unchecked task:** finish Claude's trust/override, cancellation/process
+retirement, history/load, model and subagent probes; then add adapter-specific
+UUID validation and bounded edit normalization. Keep unverified candidates and
+form capability disabled. Codex tool/approval/provider/error paths need their own
+stub probes. Read `scripts/probe-structured-adapters.py`,
+`scripts/probe-claude-turn.py`, the report, `internal/acpagent/session.go` and
+`internal/terminalproto/acp_agents.go`.
+
+**Publication:** [PR #301](https://github.com/eyupio/reet.sh/pull/301) records this
+checkpoint against main, following SC1's verified merge `e902b869`.
+Its canonical PR record carries the current merge status; this checkpoint does
+not enable an adapter or perform a release/deployment. Current main was merged
+into the probe branch to resolve the handoff conflict after SC1 was squash-merged.
+The resulting diff contains only the five SC2 report/fixture/helper/handoff files.
+Syntax, fixture, link and whitespace checks passed after resolution; CI on the
+resolved head must pass before merging. Preserve all remaining integration gates.
+
+## SC1 — Per-agent structured chat capabilities (31 October 2026)
+
+**Task ID and scope:** SC1, negotiated per-agent chat availability and feature
+reporting, descriptor-aware launch/continuation, and tool-bound history ownership.
+OpenCode remains the only reviewed structured integration; no new adapter runs.
+
+**Branch / base / PR:** `feat/structured-agent-capabilities`, from main `c77f389`,
+[PR #300](https://github.com/eyupio/reet.sh/pull/300), implementation commit `c9f5b52`.
+Earlier uncommitted installation/research work remains in its original checkout;
+this branch includes only the chat contract, its tests and related documentation.
+
+**Behaviour added:** `acp-agents-v1` negotiates a bounded `acpAgents` list. Entries
+report tool, adapter, minimum/observed installation version and
+available/missing/unverified/incompatible states. Available features are masked
+by negotiated history/images/model/approval support. The connector reads
+installation metadata and resolves binaries without executing them. An available
+entry still checks executable version and ACP identity/version at launch.
+
+Explicit descriptors are authoritative, including an empty list. Older peers
+omit them and retain OpenCode-only fallback. Controller and browser launch,
+continuation and feature controls use the selected agent's descriptor. A
+connector cannot enable an unreviewed tool by advertising it. Native session ID
+validation dispatches by tool, preserving OpenCode's existing namespace, and the
+resume query now binds the tool alongside account, machine, folder and closed
+session state. There is no schema migration or controller transcript storage.
+
+**Checks and limitations:** protocol/collector/profile, ownership, broker and API
+regressions were added, plus launch/continuation unit cases and a descriptor mode
+in `chat.e2e.mjs`. Web check/build and both legacy/descriptor chat browser modes
+passed, including the launch dialog's desktop/tablet/phone light/dark matrix.
+Full `go vet ./...`, all 16 MCP tests, and focused race regressions for launch
+refusal, API feature gating and tool/account/machine/folder history binding
+passed. The complete `go test -race -timeout=60m ./...` suite also passed;
+API took 1,160.6 seconds and store 1,078.2 seconds on this host. The container's
+non-reaping PID 1 needs a test-only subreaper for orphan-exit checks, and socket fixtures need
+network permission. No real provider, physical phone or new adapter was run.
+
+**Exact next unchecked task:** SC2's Claude Code and Codex ACP adapter probes;
+read [the plan](docs/structured-chat-plan.md), `internal/acpagent/{spec,describe,session}.go`,
+`internal/terminalproto/acp_agents.go`, `internal/scan/agent_terminal_control.go`
+and `web/src/lib/StartAgentDialog.svelte`. Do not enable a candidate before its
+callback, permission, trust, provider and history contracts are observed.
+
+**Publication state:** [PR #300](https://github.com/eyupio/reet.sh/pull/300)
+merged as `e902b869cecc4b2194a8bc778c8271ec2172c654`.
+SC2 remains the separate probe checkpoint in PR #301 with its own handoff.
+No release or deployment is performed by these continuation tasks.
+
 ## Terminal interface (30 October 2026)
 
 The binary now has a terminal interface: `reet` in a terminal opens a menu over Doctor,
@@ -180,7 +357,7 @@ startup, not on every launch. Next: reviewed batch apply with a pilot order, and
 `internal/terminalbroker/software.go`, `internal/api/software.go`, `web/src/lib/MachineSettings.svelte` and
 `web/src/lib/FleetSoftware.svelte`.
 
-**L3, reviewed batch apply (uncommitted):** the fleet review now selects machines into an **ordered batch**. The
+**L3, reviewed batch apply (PR [#314](https://github.com/eyupio/reet.sh/pull/314)):** the fleet review now selects machines into an **ordered batch**. The
 controller rebuilds each plan from stored evidence and freezes it; a machine that cannot apply (no plan, a live
 OpenCode session, no `software-apply-v1`, already at the target, or held by another active batch) is excluded with its
 reason shown. A batch applies one machine at a time in position order and stops at the first failure; a stopped batch
@@ -198,7 +375,7 @@ for `store`, `softwarerun` and the whole `api` package (210 s); `npm --prefix we
 **Still not in this slice:** batching rollback/remove. Read `internal/softwarerun/run.go`,
 `internal/store/store_software.go`, `internal/api/software.go` and `web/src/lib/FleetSoftware.svelte`.
 
-**L4, controller-side artifact mirror (uncommitted):** an opt-in admin setting (`software_mirror_enabled`) and an
+**L4, controller-side artifact mirror (same PR):** an opt-in admin setting (`software_mirror_enabled`) and an
 Admin → **Software artifact mirror** section (owner/admin) with the toggle, cached size and **Cache the reviewed
 artifact now**. `internal/softwaremirror/mirror.go` downloads the pinned archive once on demand (single-flight),
 verifies its size, sha256 and sha512 and the extracted binary's sha256 and size with `agentsoftware.CheckTarball`,
@@ -215,7 +392,10 @@ corrupt/truncated files and GC; the connector's fallback and both-failed reporti
 private route (enabled, disabled, unknown digest, wrong credential). Checks run: `go vet ./...`; `go test` for
 `agentsoftware`, `softwaremirror`, `terminalhost`, `terminalagent`, `store`, `softwarerun` and the whole `api` package;
 `npm --prefix web run check` and `npm --prefix web run build`. Not run: a live registry download into a real mirror, a live
-machine fallback, or the browser e2e suites. **Next:** batching rollback/remove, or Program 2 slice 4. Read
+machine fallback, or the browser e2e suites. **Publication state (verified, not inferred):** branch
+`feat/software-batches-mirror` is pushed and PR #314 is open; nothing is merged, released or deployed. **Next:** the
+roadmap's next directions (structured chats across agents, richer run orchestration); batching rollback/remove and
+mirror resilience are later follow-ons. Read
 `internal/softwaremirror/mirror.go`, `internal/api/software_mirror.go`, `internal/api/private.go`,
 `internal/terminalhost/software_apply.go` and `internal/terminalagent/agent.go`.
 
@@ -224,7 +404,7 @@ machine fallback, or the browser e2e suites. **Next:** batching rollback/remove,
 ### Resume here (after Needs you and the approvals slice, 31 October 2026)
 
 - **Chat images (in progress, branch `cline/6t9b2yrw`):** the reet TUI now passes a pasted, dropped or chosen image to
-  OpenCode the way AOE does: the browser uploads it to the machine, `POST /chat/prompt` carries the upload path, and the
+  OpenCode as embedded image content: the browser uploads it to the machine, `POST /chat/prompt` carries the upload path, and the
   connector embeds the bytes as an ACP image content block (`acp-image-v1`, `acpImages` capability). The agent sees the
   image itself, not a path it must open with a tool. At most eight images per prompt; older connectors keep the path-as-text
   fallback. Unit tests cover the protocol, ACP child content blocks, connector upload-root validation and the API; the mocked

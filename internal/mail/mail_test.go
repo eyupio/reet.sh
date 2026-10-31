@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
 
 type badSealer struct{}
@@ -30,7 +31,7 @@ func (plainSealer) OpenSecret(v string) (string, error) {
 
 func openStore(t *testing.T) *store.Store {
 	t.Helper()
-	s, err := store.Open(t.TempDir())
+	s, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

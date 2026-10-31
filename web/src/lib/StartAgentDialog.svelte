@@ -6,6 +6,7 @@
  import { defaultLabel, effortChoices, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
  import { createTerminal, getFolderProject, machineModels, readiness, refreshMachineModels, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
  import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
+ import { structuredAgent } from './terminal/api'
  import SlotPicker, { type SlotOption } from './launch/SlotPicker.svelte'
 
  // Start an agent CLI in a new terminal session on one machine. One screen, one press. The page names a tool id, a model, a
@@ -133,7 +134,7 @@
  // Any model value the picker gives is sent as chosen; a project/account default needs no static hint.
  const model = $derived(modelChoice === OTHER ? cleanModel(modelOther) : cleanModel(modelChoice))
  const effortOptions = $derived(effortChoices(chosenTool))
- const chatCapable = $derived(chosenTool === 'opencode' && !!machine?.capabilities?.acp)
+ const chatCapable = $derived(!!structuredAgent(machine?.capabilities, chosenTool))
  // OpenCode is a chat by default when the machine offers ACP; the checkbox is
  // the explicit terminal escape hatch. A machine or agent change starts over.
  let chatKey = ''
@@ -496,8 +497,8 @@
     {/each}
    </fieldset>
 
-   {#if chosenTool === 'opencode' && machine && !machine.capabilities?.acp}
-    <p class="hint">This machine's reet agent can't start the reet TUI. This starts the OpenCode TUI; update reet on the machine to use the reet TUI.</p>
+   {#if chosenTool === 'opencode' && machine && !chatCapable}
+    <p class="hint">This machine does not currently offer the reet TUI for OpenCode. This starts the OpenCode TUI instead.</p>
    {/if}
 
    {#if chatCapable}

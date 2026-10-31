@@ -1,8 +1,10 @@
 <script lang="ts">
  import { onDestroy, onMount, tick } from 'svelte'
- import { applyChatEvent, diffCounts, displayPath, formatDuration, initialChat, inlineSegments, isWorking, pendingPermissions, proseBlocks, resetChat, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState } from '../chat'
+ import { applyChatEvent, checkQuestionDraft, diffCounts, displayPath, emptyDraft, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, proseBlocks, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
- import { chatAnswer, chatCancel, chatModel, machineModels, chatPrompt, chatURL, launchUpload, terminalClosed, type TerminalSession } from './api'
+ import { chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, launchUpload, terminalClosed, type TerminalSession } from './api'
+ import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
+ import { defaultLabel, type ModelFavourite } from '../models'
  import { chatPromptParts, formatImageSize, imageFiles, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
  let { session, uploadsSupported = false, uploadsOff = false, acpImages = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean } = $props()
@@ -17,6 +19,11 @@
   selectedModel = model; currentModel = model
  })
  let models = $state<string[]>([]), modelNote = $state('')
+ let favourites = $state<ModelFavourite[]>([]), favouriteBusy = $state(false), favouriteNote = $state('')
+ const tool = $derived(session.tool || 'opencode')
+ const agentDefault = $derived(favourites.find(f => f.tool === tool && f.agentDefault)?.model ?? '')
+ const selectedIsDefault = $derived(!!selectedModel.trim() && selectedModel.trim() === agentDefault)
+ const selectedIsFavourite = $derived(favourites.some(f => f.tool === tool && f.model === selectedModel.trim()))
  const failed = $derived(chat.status.state === 'error')
  const guidance = $derived(/credit|quota|usage limit|billing|balance|insufficient_quota/i.test(chat.status.detail)
   ? 'This model has reached its usage or credit limit. Choose another model below, or add credits with your provider, then send a message to continue.'
@@ -31,6 +38,20 @@
   try { await chatModel(session.id, selectedModel); currentModel = selectedModel; modelNote = `Model changed to ${selectedModel}. Send a message to continue.` }
   catch (e) { feedback = e instanceof Error ? e.message : 'The model could not be changed. Try again.' }
   finally { changingModel = false }
+ }
+ async function toggleDefault() {
+  const model = selectedModel.trim()
+  if (!model || favouriteBusy) return
+  const wasDefault = selectedIsDefault
+  favouriteBusy = true; favouriteNote = ''
+  try {
+   if (!wasDefault && !selectedIsFavourite) await addModelFavourite(tool, model)
+   const answer = await setModelFavouriteDefault(tool, wasDefault ? '' : model)
+   if (answer?.favourites) favourites = answer.favourites
+   favouriteNote = wasDefault ? `Cleared the default for ${tool}.` : `New ${tool} sessions use ${model}.`
+  } catch (e) {
+   favouriteNote = e instanceof Error ? e.message : 'Couldn’t update the agent default just now. Try again.'
+  } finally { favouriteBusy = false }
  }
  const MAX_CHAT_BYTES = 2000
  let draft = $state(''), feedback = $state(''), sending = $state(false), uploading = $state(false), answering = $state('')
@@ -51,8 +72,9 @@
  const ended = $derived(terminalClosed(session.state) || chat.status.state === 'ended')
  const working = $derived(isWorking(chat))
  const pending = $derived(pendingPermissions(chat))
- const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This reet session has ended.' : pending.length ? 'Waiting for your approval.' : working ? 'OpenCode is working…' : chat.status.state === 'error' ? 'OpenCode stopped with an error.' : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
- const statusDetail = $derived(pending.length ? '' : chat.status.detail)
+ const asked = $derived(pendingQuestions(chat))
+ const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This reet session has ended.' : pending.length ? 'Waiting for your approval.' : asked.length ? 'Waiting for your answer.' : working ? 'OpenCode is working…' : chat.status.state === 'error' ? 'OpenCode stopped with an error.' : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
+ const statusDetail = $derived(pending.length || asked.length ? '' : chat.status.detail)
  const canAttach = $derived(uploadsSupported && !uploadsOff && !ended)
  const imageLimit = $derived(acpImages ? MAX_EMBEDDED_IMAGES : MAX_IMAGES)
 
@@ -169,6 +191,45 @@
   catch (e) { feedback = e instanceof Error ? e.message : 'That answer was not sent.' }
   finally { answering = '' }
  }
+ // A typed question. The draft is what the person has typed so far; the machine checks every answer again and is the
+ // authority, so a refusal from it is shown on the card and the question stays open.
+ type QuestionItem = Extract<ChatItem, { kind: 'question' }>
+ let drafts = $state<Record<string, QuestionDraft>>({}), questionErrors = $state<Record<string, Record<string, string>>>({})
+ let questionNote = $state<Record<string, string>>({}), sentAnswers = $state<Record<string, QuestionAnswers>>({}), asking = $state('')
+ function draftOf(item: QuestionItem): QuestionDraft { return drafts[item.questionId] ?? emptyDraft(item.question) }
+ function setField(item: QuestionItem, key: string, value: string | string[]) {
+  drafts[item.questionId] = { ...draftOf(item), [key]: value }
+  if (own(questionErrors[item.questionId], key)) { const { [key]: _fixed, ...rest } = questionErrors[item.questionId]; questionErrors[item.questionId] = rest }
+ }
+ function toggleChoice(item: QuestionItem, key: string, value: string, on: boolean) {
+  const current = own(draftOf(item), key)
+  const list = Array.isArray(current) ? current : []
+  setField(item, key, on ? [...list.filter(v => v !== value), value] : list.filter(v => v !== value))
+ }
+ async function respondQuestion(item: QuestionItem, action: 'accept' | 'decline' | 'cancel') {
+  if (asking) return
+  questionNote[item.questionId] = ''
+  let answers: QuestionAnswers | undefined
+  if (action === 'accept') {
+   const check = checkQuestionDraft(item.question, draftOf(item))
+   questionErrors[item.questionId] = check.errors
+   if (!check.ok) {
+    await tick()
+    document.querySelector<HTMLElement>(`[data-question="${CSS.escape(item.questionId)}"] [aria-invalid="true"], [data-invalid="true"]`)?.focus()
+    return
+   }
+   answers = check.answers
+  }
+  asking = item.questionId
+  try { await chatQuestionAnswer(session.id, item.questionId, action, answers); if (answers) sentAnswers[item.questionId] = answers }
+  catch (e) { questionNote[item.questionId] = e instanceof Error ? e.message : 'That answer was not sent.' }
+  finally { asking = '' }
+ }
+ function questionDecision(item: QuestionItem): string {
+  if (item.decision === 'answered') return 'Answered.'
+  if (item.decision === 'declined') return 'Skipped.'
+  return item.reason === 'timeout' ? 'Closed: the question timed out.' : 'Closed without an answer.'
+ }
  function keydown(event: KeyboardEvent) {
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
   event.preventDefault(); void send()
@@ -207,6 +268,7 @@
  onMount(() => {
   const life = new AbortController()
   void machineModels(session.agentId, session.tool || 'opencode', life.signal).then(result => { models = result.models.map(model => model.id) }).catch(() => { if (!life.signal.aborted) modelNote = 'Model list unavailable. Enter a model ID configured on this machine.' })
+  void listModelFavourites(life.signal).then(answer => { if (!life.signal.aborted) favourites = answer.favourites }).catch(() => {})
   const stream = new EventSource(chatURL(session.id))
   source = stream
   stream.addEventListener('reset', readReset)
@@ -362,6 +424,66 @@
       </div>
      {/if}
     </div>
+   {:else if item.kind === 'question'}
+    {@const draft = draftOf(item)}
+    {@const errors = questionErrors[item.questionId]}
+    {@const busy = asking === item.questionId}
+    <form class="approval question" class:decided={item.decision} role="group" aria-labelledby={`${item.key}-message`} data-question={item.questionId} novalidate
+     onsubmit={event => { event.preventDefault(); void respondQuestion(item, 'accept') }}>
+     <div class="approval-head">
+      <span class="ticon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01" /></svg></span>
+      <span class="kind">Question</span>
+      <span class="state">{item.decision ? 'Answered' : 'Needs you'}</span>
+     </div>
+     <p class="question-message" id={`${item.key}-message`}>{item.question.message}</p>
+     {#if item.decision}
+      <p class="decision">{questionDecision(item)}</p>
+      {#if item.decision === 'answered' && sentAnswers[item.questionId]}
+       <dl class="question-summary">
+        {#each summarizeAnswers(item.question, sentAnswers[item.questionId]) as line (line.key)}
+         <dt>{line.label}</dt><dd>{line.text}</dd>
+        {/each}
+       </dl>
+      {/if}
+     {:else}
+      {#each item.question.fields as field (field.key)}
+       {@const id = `${item.key}-${field.key}`}
+       {@const invalid = !!own(errors, field.key)}
+       {@const describedBy = [field.description ? `${id}-help` : '', invalid ? `${id}-error` : ''].filter(Boolean).join(' ') || undefined}
+       {#if field.kind === 'text'}
+        <div class="qfield">
+         <label class="qlegend" for={id}>{fieldLabel(field)}{#if !field.required}{' '}<span class="qopt">(optional)</span>{/if}</label>
+         {#if field.description}<p class="qhelp" id={`${id}-help`}>{field.description}</p>{/if}
+         <textarea {id} rows="2" value={typeof own(draft, field.key) === 'string' ? own(draft, field.key) : ''} disabled={busy}
+          aria-invalid={invalid ? 'true' : undefined} aria-describedby={describedBy} aria-required={field.required ? 'true' : undefined}
+          oninput={event => setField(item, field.key, (event.currentTarget as HTMLTextAreaElement).value)}></textarea>
+         {#if invalid}<p class="qerror" id={`${id}-error`}>{own(errors, field.key)}</p>{/if}
+        </div>
+       {:else}
+        <fieldset class="qfield" tabindex="-1" data-invalid={invalid ? 'true' : undefined} aria-describedby={describedBy} disabled={busy}>
+         <legend class="qlegend">{fieldLabel(field)}{#if !field.required}{' '}<span class="qopt">(optional)</span>{/if}</legend>
+         {#if field.description}<p class="qhelp" id={`${id}-help`}>{field.description}</p>{/if}
+         {#if field.kind === 'multi' && (field.maxItems ?? 0) > 0 && (field.maxItems ?? 0) < (field.options?.length ?? 0)}<p class="qhelp">Choose up to {field.maxItems}.</p>{/if}
+         {#each field.options ?? [] as option (option.value)}
+          <label class="qoption">
+           <input type={field.kind === 'single' ? 'radio' : 'checkbox'} name={id} value={option.value}
+            checked={field.kind === 'single' ? own(draft, field.key) === option.value : Array.isArray(own(draft, field.key)) && (own(draft, field.key) as string[]).includes(option.value)}
+            onchange={event => field.kind === 'single' ? setField(item, field.key, option.value) : toggleChoice(item, field.key, option.value, (event.currentTarget as HTMLInputElement).checked)} />
+           <span><span class="qlabel">{option.label}</span>{#if option.description}<span class="qdesc">{option.description}</span>{/if}</span>
+          </label>
+         {/each}
+         {#if invalid}<p class="qerror" id={`${id}-error`}>{own(errors, field.key)}</p>{/if}
+        </fieldset>
+       {/if}
+      {/each}
+      {#if questionNote[item.questionId]}<p class="notice bad" role="alert">{questionNote[item.questionId]}</p>{/if}
+      <div class="approval-actions">
+       <button type="button" class="btn" disabled={!!asking} title="Stops what the agent was doing" onclick={() => void respondQuestion(item, 'cancel')}>Cancel question</button>
+       <button type="button" class="btn" disabled={!!asking} title="Let the agent carry on without an answer" onclick={() => void respondQuestion(item, 'decline')}>Skip</button>
+       <button type="submit" class="btn primary" disabled={!!asking}>{busy ? 'Sending…' : 'Send answer'}</button>
+      </div>
+     {/if}
+    </form>
    {/if}
   {/each}
  </div>
@@ -371,11 +493,13 @@
   <div class="composer" onpaste={pasted}>
    <div class="model-controls" data-keeps-focus>
     <label for={`${session.id}-model`}>Model</label>
-    <input id={`${session.id}-model`} list={`${session.id}-models`} bind:value={selectedModel} disabled={working || sending || changingModel || chat.connection !== 'open'} placeholder="provider/model" />
+    <input id={`${session.id}-model`} data-combo-list={`${session.id}-models`} bind:value={selectedModel} disabled={working || sending || changingModel || chat.connection !== 'open'} placeholder="provider/model" />
     <datalist id={`${session.id}-models`}>{#each models as model}<option value={model}></option>{/each}</datalist>
     <button type="button" class="btn" disabled={working || sending || changingModel || !selectedModel.trim() || selectedModel === currentModel || chat.connection !== 'open'} onclick={() => void changeModel()}>{changingModel ? 'Changing…' : 'Change model'}</button>
+    <button type="button" class="btn" disabled={!selectedModel.trim() || favouriteBusy || chat.connection !== 'open'} aria-label={defaultLabel(tool, selectedModel.trim(), selectedIsDefault)} onclick={() => void toggleDefault()}>{favouriteBusy ? 'Saving…' : selectedIsDefault ? 'Clear default' : 'Make default'}</button>
    </div>
    {#if modelNote}<p class="notice" role="status">{modelNote}</p>{/if}
+   {#if favouriteNote}<p class="notice" role="status">{favouriteNote}</p>{/if}
    {#if images.length}
     <ul class="attachments" aria-label="Images to attach">
      {#each images as image (image.id)}
@@ -513,6 +637,23 @@
  .approval-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
  .approval-actions .btn { min-height: 36px; padding: 0 13px; font-size: 13px; }
  .decision { margin: 0; font-size: 12px; color: var(--muted); }
+ .question-message { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+ .qfield { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; }
+ .qfield:focus { outline: none; }
+ .qlegend { padding: 0; font: 500 12.5px var(--sans); color: var(--ink); }
+ .qopt { font-weight: 400; color: var(--muted); }
+ .qhelp { margin: 0; font-size: 12px; color: var(--muted); }
+ .qoption { display: flex; align-items: flex-start; gap: 9px; min-height: 32px; padding: 4px 2px; cursor: pointer; }
+ .qoption input { flex: none; margin: 3px 0 0; accent-color: var(--accent, currentColor); }
+ .qlabel { display: block; font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+ .qdesc { display: block; margin-top: 1px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+ .qfield textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--sans); resize: vertical; }
+ .qfield textarea[aria-invalid='true'] { border-color: var(--bad); }
+ fieldset.qfield[data-invalid='true'] { padding: 8px 10px; border: 1px solid var(--bad); border-radius: 7px; }
+ .qerror { margin: 0; font-size: 12px; color: var(--bad); }
+ .question-summary { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 0; font-size: 12.5px; }
+ .question-summary dt { color: var(--muted); }
+ .question-summary dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
  /* Composer: one soft card with the field, attachments and the send controls. */
  .composer { display: flex; flex-direction: column; gap: 6px; margin: 0 14px 12px; padding: 7px 7px 7px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
  .composer:focus-within { border-color: var(--line-strong); }
@@ -559,6 +700,7 @@
   .tool-head { min-height: 44px; }
   .think-head { min-height: 40px; }
   .approval-actions .btn { min-height: 46px; flex: 1 1 0; }
+  .qoption { min-height: 44px; align-items: center; }
   .copy { min-height: 32px; padding: 0 10px; font-size: 12px; }
   .attachments button { min-width: 40px; min-height: 40px; }
  }

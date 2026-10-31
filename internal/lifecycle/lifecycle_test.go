@@ -504,9 +504,6 @@ func TestUpgradePreservesChannelAndSeparatesBuildFromRecord(t *testing.T) {
 			a.client = &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
 				requests++
 				endpoint := "/latest"
-				if tc.want == "dev" {
-					endpoint = "/tags/dev"
-				}
 				if tc.explicit == "v1.0.0" {
 					endpoint = "/tags/v1.0.0"
 				}
@@ -523,7 +520,11 @@ func TestUpgradePreservesChannelAndSeparatesBuildFromRecord(t *testing.T) {
 				t.Fatal(err)
 			}
 			out := a.Out.(*bytes.Buffer).String()
-			if requests != 1 || !strings.Contains(out, "Running CLI: "+tc.running+" (old)") || !strings.Contains(out, "Requested: "+tc.want) {
+			wantRequests := 1
+			if tc.want == "dev" {
+				wantRequests = 0 // dev resolves without the release API
+			}
+			if requests != wantRequests || !strings.Contains(out, "Running CLI: "+tc.running+" (old)") || !strings.Contains(out, "Requested: "+tc.want) {
 				t.Fatalf("wrong preview: %s", out)
 			}
 			if tc.recorded != "" && !strings.Contains(out, "Recorded deployment version: "+tc.recorded) {
@@ -599,7 +600,7 @@ func TestUpgradeVersionEnvironmentPrecedence(t *testing.T) {
 				if err == nil || requests != 0 {
 					t.Fatalf("invalid environment accepted: %v", err)
 				}
-			} else if err != nil || requests != 1 {
+			} else if wantRequests := map[bool]int{true: 0, false: 1}[tc.want == "dev"]; err != nil || requests != wantRequests {
 				t.Fatalf("upgrade: %v requests=%d", err, requests)
 			}
 			if contents(t, binary) != "old binary" {
@@ -669,5 +670,19 @@ func TestDevDownloadUsesOneImmutableBuild(t *testing.T) {
 	client.Transport = transport(func(r *http.Request) (*http.Response, error) { return response(503, ""), nil })
 	if _, err := fetchBinary(context.Background(), client, "https://example.invalid", "dev", t.TempDir()); err == nil {
 		t.Fatal("pointer outage silently fell back to mutable archives")
+	}
+}
+
+// The dev release accumulates one asset set per build, so its API response
+// outgrows any fixed cap. The channel name is already the tag, so resolving it
+// must not depend on that response.
+func TestResolveDevDoesNotQueryReleaseAPI(t *testing.T) {
+	client := &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
+		t.Fatalf("dev must not query the release API: %s", r.URL)
+		return nil, nil
+	})}
+	got, err := resolveRelease(context.Background(), client, "https://api.example.invalid/releases", "dev")
+	if err != nil || got != "dev" {
+		t.Fatalf("got %q, %v", got, err)
 	}
 }

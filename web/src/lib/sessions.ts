@@ -1,4 +1,4 @@
-import { terminalClosed, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
+import { structuredAgent, terminalClosed, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
 import { groupSessions, sessionOwners, type Group, type GroupBy } from './home'
 import { toolName } from './agentLaunch'
 import { CATALOGUE } from './catalogue'
@@ -141,8 +141,8 @@ export function continueLaunch(s: Pick<TerminalSession, 'state' | 'tool' | 'mode
 
 /** A closed structured chat reopens as a new row that asks the machine to load OpenCode's stored history. The old row
  *  stays in history. */
-export function continueChatLaunch(s: Pick<TerminalSession, 'state' | 'structured' | 'acpSessionId' | 'dir' | 'projectId' | 'model'>): LaunchRequest | null {
-  if (!s.structured || !s.acpSessionId || !terminalClosed(s.state)) return null
+export function continueChatLaunch(s: Pick<TerminalSession, 'state' | 'tool' | 'structured' | 'acpSessionId' | 'dir' | 'projectId' | 'model'>): LaunchRequest | null {
+  if (!s.structured || !s.acpSessionId || !terminalClosed(s.state) || s.tool !== 'opencode') return null
   const launch: LaunchRequest = { tool: 'opencode', structured: true, trust: true, resumeAcp: s.acpSessionId }
   if (s.model) launch.model = s.model
   if (s.dir) launch.dir = s.dir
@@ -151,8 +151,8 @@ export function continueChatLaunch(s: Pick<TerminalSession, 'state' | 'structure
 }
 
 /** A chat can be reopened only on a machine that still advertises acp. */
-export function canContinueChat(s: Pick<TerminalSession, 'state' | 'structured' | 'acpSessionId' | 'dir' | 'projectId' | 'model'>, machine: Pick<TerminalMachine, 'capabilities'> | undefined): boolean {
-  return continueChatLaunch(s) !== null && machine?.capabilities?.acp === true && machine?.capabilities?.acpHistory === true
+export function canContinueChat(s: Pick<TerminalSession, 'state' | 'tool' | 'structured' | 'acpSessionId' | 'dir' | 'projectId' | 'model'>, machine: Pick<TerminalMachine, 'capabilities'> | undefined): boolean {
+  return continueChatLaunch(s) !== null && structuredAgent(machine?.capabilities, s.tool)?.history === true
 }
 
 /** Whether a closed session can be continued: a reviewed resume command for its agent, a machine that negotiated

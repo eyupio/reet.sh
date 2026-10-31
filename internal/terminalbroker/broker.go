@@ -622,7 +622,7 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	if terminalproto.PromptNeedsWords(in.Tool, in.Prompt) {
 		return store.TerminalSession{}, false, ErrPromptUnsupported
 	}
-	if in.Structured && in.Tool != "opencode" {
+	if in.Structured && !terminalproto.ReviewedChatTool(in.Tool) {
 		return store.TerminalSession{}, false, ErrACPUnsupported
 	}
 	if in.Yolo {
@@ -644,7 +644,7 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		// replay of an existing request skips this: its row is the evidence.
 		_, lookupErr := b.st.TerminalOperationFor(uid, agent, "create", request)
 		if errors.Is(lookupErr, store.ErrRemoteNotFound) {
-			ok, err := b.st.CanResumeACPSessionFor(uid, agent, in.ResumeACP, in.Dir)
+			ok, err := b.st.CanResumeACPToolSessionFor(uid, agent, in.Tool, in.ResumeACP, in.Dir)
 			if err != nil {
 				return store.TerminalSession{}, false, err
 			}
@@ -664,7 +664,7 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if err != nil || caps.Generation != p.Generation {
 			return store.TerminalSession{}, false, ErrOffline
 		}
-		if !caps.Capabilities.ACPHistory {
+		if chat, ok := caps.Capabilities.ChatAgent(in.Tool); !ok || !chat.History {
 			return store.TerminalSession{}, false, ErrACPHistoryUnsupported
 		}
 	}
@@ -701,10 +701,10 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if worktreeRequested(in) && !caps.Capabilities.Worktree {
 			return store.TerminalSession{}, false, ErrWorktreeUnsupported
 		}
-		if in.Structured && !caps.Capabilities.ACP {
+		if _, ok := caps.Capabilities.ChatAgent(in.Tool); in.Structured && !ok {
 			return store.TerminalSession{}, false, ErrACPUnsupported
 		}
-		if in.ResumeACP != "" && !caps.Capabilities.ACPHistory {
+		if chat, ok := caps.Capabilities.ChatAgent(in.Tool); in.ResumeACP != "" && (!ok || !chat.History) {
 			return store.TerminalSession{}, false, ErrACPHistoryUnsupported
 		}
 		if in.Tool == "" && in.Dir != "" {

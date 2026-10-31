@@ -15,6 +15,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/privateconn"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -33,7 +34,7 @@ func (*fakePrivateTransport) Close() error { return nil }
 
 func privateFixture(t *testing.T, mode AuthMode, token string) (*Server, *store.Store, store.SyncAgent, string, string) {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

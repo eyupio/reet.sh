@@ -7,10 +7,11 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
 
 func TestSyncControlsRequireAccountAndEnrollment(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

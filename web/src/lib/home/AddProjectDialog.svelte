@@ -4,8 +4,8 @@
   import { shell } from '../dialogShell'
   import { canAutoFocus } from '../focus'
   import { MAX_PROMPT_BYTES, cleanModel, modelSuggestions, toolChoices, toolName, validateModel, validatePrompt } from '../agentLaunch'
-  import { UnauthorizedError, addModelFavourite, listModelFavourites, removeModelFavourite } from '../api'
-  import { effortChoices, favouriteKey, modelOptions, modelStatus, starLabel, type MachineModels, type ModelFavourite } from '../models'
+  import { UnauthorizedError, addModelFavourite, listModelFavourites, removeModelFavourite, setModelFavouriteDefault } from '../api'
+  import { defaultLabel, effortChoices, favouriteKey, modelOptions, modelStatus, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import { repoMessage, topFolder, validateFolderInput } from '../folderBrowser'
   import { browseFolder, createFolderProject, getFolderProject, listBranches, machineModels, readiness, refusalSentence, updateFolderProject, TerminalError,
@@ -272,6 +272,31 @@
       else favouriteNote = 'Couldn’t read your favourite models just now.'
     }
   }
+  async function toggleDefault(value: string, isDefault: boolean) {
+    const tool = defaultTool
+    if (!tool || !value) return
+    const key = favouriteKey(tool, value)
+    const before = favourites.find(f => favouriteKey(f.tool, f.model) === key) ?? null
+    const mutation = ++favouriteMutationSeq
+    favouritesLoadSeq++
+    favouriteNote = ''
+    favourites = [...favourites.filter(f => !(isDefault && f.tool === tool && f.agentDefault)), { tool, model: value, agentDefault: !isDefault }]
+      .filter((f, i, all) => all.findIndex(x => favouriteKey(x.tool, x.model) === favouriteKey(f.tool, f.model)) === i)
+    favouriteQueue = favouriteQueue.then(async () => {
+      try {
+        if (!isDefault && !before) await addModelFavourite(tool, value)
+        const answer = await setModelFavouriteDefault(tool, isDefault ? '' : value)
+        if (!life.signal.aborted && mutation === favouriteMutationSeq && answer?.favourites) favourites = answer.favourites
+      } catch (e) {
+        if (life.signal.aborted) return
+        if (e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+        if (before) favourites = [...favourites.filter(f => favouriteKey(f.tool, f.model) !== key), before]
+        else favourites = favourites.filter(f => favouriteKey(f.tool, f.model) !== key)
+        favouriteNote = e instanceof TerminalError && e.message ? e.message : 'Couldn’t update the agent default just now. Try again.'
+      }
+    })
+    await favouriteQueue
+  }
   function modelOptionsFor(): SlotOption[] {
     if (!defaultTool) return []
     return modelOptions({
@@ -281,6 +306,7 @@
     }).map(o => o.value === '' ? o : {
       ...o, starLabel: starLabel(defaultTool, o.value, !!o.starred),
       onstar: () => { void toggleStar(o.value, !!o.starred) },
+      defaultLabel: defaultLabel(defaultTool, o.value, !!o.isDefault), ondefault: () => { void toggleDefault(o.value, !!o.isDefault) },
     })
   }
   let favouriteQueue: Promise<void> = Promise.resolve()

@@ -8,7 +8,7 @@
   import { CATALOGUE } from './catalogue'
   import { cleanModel, modelSuggestions, toolName, validateModel } from './agentLaunch'
   import {
-    dedupeModels, effortChoices, favouriteKey, modelOptions, starLabel,
+    dedupeModels, defaultLabel, effortChoices, favouriteKey, modelOptions, starLabel,
     type MachineModels, type ModelFavourite,
   } from './models'
   import SlotPicker, { type SlotOption } from './launch/SlotPicker.svelte'
@@ -254,11 +254,34 @@
     }
   }
 
+  async function toggleDefault(tool: string, model: string, isDefault: boolean) {
+    if (!canWrite || favBusy || !tool || !model) return
+    const previous = snapshotFavourites()
+    const key = favouriteKey(tool, model)
+    const before = favourites.find(f => favouriteKey(f.tool, f.model) === key) ?? null
+    favourites = [...favourites.filter(f => !(isDefault && f.tool === tool && f.agentDefault)), { tool, model, agentDefault: !isDefault }]
+      .filter((f, i, all) => all.findIndex(x => favouriteKey(x.tool, x.model) === favouriteKey(f.tool, f.model)) === i)
+    favBusy = 'default'; favMessage = ''; favNotice = ''
+    try {
+      if (!isDefault && !before) await addModelFavourite(tool, model)
+      const answer = await setModelFavouriteDefault(tool, isDefault ? '' : model)
+      if (life.signal.aborted) return
+      applyFavourites(answer)
+      favNotice = isDefault ? `Cleared the default for ${toolName(tool)}.` : `New sessions that pick ${toolName(tool)} use ${model}.`
+    } catch (e) {
+      if (!life.signal.aborted) await favouriteProblem(e, previous)
+    } finally {
+      if (!life.signal.aborted) favBusy = ''
+    }
+  }
+
   function withStars(tool: string, options: ReturnType<typeof modelOptions>): SlotOption[] {
     return options.map(option => option.value === '' ? option : {
       ...option,
       starLabel: starLabel(tool, option.value, !!option.starred),
       onstar: () => { void toggleStar(tool, option.value, !!option.starred) },
+      defaultLabel: defaultLabel(tool, option.value, !!option.isDefault),
+      ondefault: () => { void toggleDefault(tool, option.value, !!option.isDefault) },
     })
   }
 

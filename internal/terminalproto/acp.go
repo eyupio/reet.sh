@@ -14,6 +14,16 @@ const ACPFeature = "acp-v1"
 // resume fields. A slice-1 controller negotiated acp-v1 but its strict decoder
 // rejects those fields, so they are never sent without this feature.
 const ACPHistoryFeature = "acp-history-v1"
+const ACPModelFeature = "acp-model-v1"
+
+func SupportsACPModel(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ACPModelFeature {
+			return true
+		}
+	}
+	return false
+}
 
 // ACPImageFeature lets a controller send images with a prompt. The machine
 // reads the uploaded files and embeds their bytes in the ACP prompt, the way
@@ -196,6 +206,13 @@ func validACPImagePaths(paths []string) bool {
 	}
 	return true
 }
+
+type ACPModel struct {
+	Model string `json:"model"`
+}
+
+func (ACPModel) kind() string  { return "acp_model" }
+func (p ACPModel) valid() bool { return p.Model != "" && ValidModel(p.Model) }
 
 // ACPCancel asks the machine to stop the current turn. The machine also closes
 // any card it still holds, because OpenCode does not withdraw it.

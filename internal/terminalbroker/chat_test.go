@@ -23,7 +23,7 @@ func chatFixture(t *testing.T) (*Broker, *Peer, int64, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", HealthEnabled: true, TerminalEnabled: true, TerminalControl: true, Launch: true, Tools: []string{"opencode"}, Readiness: terminalproto.Ready, ACP: true, ACPHistory: true, ACPApproval: true}
+	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", HealthEnabled: true, TerminalEnabled: true, TerminalControl: true, Launch: true, Tools: []string{"opencode"}, Readiness: terminalproto.Ready, ACP: true, ACPHistory: true, ACPApproval: true, ACPModel: true}
 	record, err := st.BeginRemoteConnectionFor(uid, a.ID, ID(), caps)
 	if err != nil {
 		t.Fatal(err)
@@ -255,5 +255,28 @@ func TestPermissionChatRemembersACommandForTheSession(t *testing.T) {
 			t.Fatal("a repeated command was not answered and audited for the session")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestChatModelSwitchKeepsHistoryAndRecordsModel(t *testing.T) {
+	b, _, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	if err := b.PromptChat(t.Context(), uid, s.ID, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ModelChat(t.Context(), uid, s.ID, "provider/other"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := b.st.TerminalSessionFor(uid, s.ID)
+	if err != nil || updated.Model != "provider/other" || updated.ACPSessionID != s.ACPSessionID {
+		t.Fatalf("updated session: %+v %v", updated, err)
+	}
+	history, _, _, cancel := b.SubscribeChat(uid, s.ID)
+	defer cancel()
+	if len(history) != 1 || history[0].Text != "hello" {
+		t.Fatalf("history lost: %+v", history)
+	}
+	if err := b.ModelChat(t.Context(), uid+1, s.ID, "provider/other"); err == nil {
+		t.Fatal("other user switched model")
 	}
 }

@@ -1,9 +1,9 @@
 <script lang="ts">
  import { onMount, tick, untrack } from 'svelte'
  import { shell } from './dialogShell'
- import { UnauthorizedError, addModelFavourite, getProfile, listModelFavourites, removeModelFavourite, type Machine } from './api'
+ import { UnauthorizedError, addModelFavourite, getProfile, listModelFavourites, removeModelFavourite, setModelFavouriteDefault, type Machine } from './api'
  import { CATALOGUE } from './catalogue'
- import { effortChoices, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
+ import { defaultLabel, effortChoices, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
  import { createTerminal, getFolderProject, machineModels, readiness, refreshMachineModels, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
  import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
  import SlotPicker, { type SlotOption } from './launch/SlotPicker.svelte'
@@ -276,6 +276,31 @@
   })
   await favouriteQueue
  }
+ async function toggleDefault(value: string, isDefault: boolean) {
+  const agent = chosenTool
+  if (!agent || !value) return
+  const key = favouriteKey(agent, value)
+  const beforeEntry = favourites.find(f => favouriteKey(f.tool, f.model) === key) ?? null
+  const mutation = ++favouriteMutationSeq
+  favouritesLoadSeq++
+  favouriteNote = ''
+  favourites = [...favourites.filter(f => !(isDefault && f.tool === agent && f.agentDefault)), { tool: agent, model: value, agentDefault: !isDefault }]
+   .filter((f, i, all) => all.findIndex(x => favouriteKey(x.tool, x.model) === favouriteKey(f.tool, f.model)) === i)
+  favouriteQueue = favouriteQueue.then(async () => {
+   try {
+    if (!isDefault && !beforeEntry) await addModelFavourite(agent, value)
+    const answer = await setModelFavouriteDefault(agent, isDefault ? '' : value)
+    if (!life.signal.aborted && mutation === favouriteMutationSeq && answer?.favourites) favourites = answer.favourites
+   } catch (e) {
+    if (life.signal.aborted) return
+    if (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+    if (beforeEntry) favourites = [...favourites.filter(f => favouriteKey(f.tool, f.model) !== key), beforeEntry]
+    else favourites = favourites.filter(f => favouriteKey(f.tool, f.model) !== key)
+    favouriteNote = (e as { message?: string })?.message ? (e as Error).message : 'Couldn’t update the agent default just now. Try again.'
+   }
+  })
+  await favouriteQueue
+ }
  function modelOptionsFor(): SlotOption[] {
   if (!chosenTool) return []
   return modelOptions({
@@ -283,6 +308,7 @@
    selectedModel: model, host: machine?.host ?? '', agentName: toolName(chosenTool),
   }).map(o => o.value === '' ? o : {
    ...o, starLabel: starLabel(chosenTool, o.value, !!o.starred), onstar: () => { void toggleStar(o.value, !!o.starred) },
+   defaultLabel: defaultLabel(chosenTool, o.value, !!o.isDefault), ondefault: () => { void toggleDefault(o.value, !!o.isDefault) },
   })
  }
  function openPicker() { if (locked || !chosenTool) return; pickerOpen = true }

@@ -11,7 +11,7 @@ const catalogue = asURL(compile('./catalogue.ts'))
 const modelSource = compile('./models.ts').replace("from './catalogue'", `from '${catalogue}'`)
 const {
   providerOf, dedupeModels, recentModels, modelOptions, resolveLaunchDefaults,
-  modelStatus, formatAge, effortChoices, moveFavourite, favouriteKey, starLabel,
+  modelStatus, formatAge, effortChoices, moveFavourite, favouriteKey, starLabel, defaultLabel,
 } = await import(asURL(modelSource))
 const terminal = await import(asURL(compile('./terminal/api.ts').replace("from '../projects'", `from '${asURL('export {}')}'`)))
 const api = await import(asURL(compile('./api.ts')))
@@ -87,6 +87,7 @@ test('model options keep the documented group order and deduplicate across group
   const favs = options.filter(o => o.group === 'Favourites')
   assert.deepEqual(favs.map(o => o.value), ['anthropic/claude-opus-4', 'anthropic/not-listed'])
   assert.deepEqual(favs.map(o => o.starred), [true, true])
+  assert.deepEqual(favs.map(o => !!o.isDefault), [false, true])
   assert.equal(favs[0].detail, undefined)
   assert.equal(favs[1].detail, 'not in studio’s list')
 
@@ -250,6 +251,8 @@ test('effort choices, favourite moves, keys and star labels', () => {
   assert.equal(starLabel('opencode', 'anthropic/sonnet', false), 'Star anthropic/sonnet for OpenCode')
   assert.equal(starLabel('claude', 'sonnet', true), 'Unstar sonnet for Claude Code')
   assert.equal(starLabel('custom-tool', 'model', false), 'Star model for custom-tool')
+  assert.equal(defaultLabel('opencode', 'anthropic/sonnet', false), 'Make anthropic/sonnet the default for OpenCode')
+  assert.equal(defaultLabel('claude', 'sonnet', true), 'Clear sonnet as the default for Claude Code')
 })
 
 const calls = []

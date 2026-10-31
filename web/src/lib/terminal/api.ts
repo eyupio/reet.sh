@@ -350,3 +350,5 @@ export async function chatCancel(id: string): Promise<void> { await terminalRequ
 export async function chatAnswer(id: string, permissionId: string, allow: boolean, forSession = false): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/permissions/${encodeURIComponent(permissionId)}`, { method: 'POST', body: JSON.stringify(forSession ? { allow, forSession: true } : { allow }) }) }
 export type ApprovalMode = 'ask' | 'yolo'
 export async function setApprovalMode(id: string, mode: ApprovalMode): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/approval-mode`, { method: 'POST', body: JSON.stringify({ mode }) }) }
+
+export async function chatModel(id: string, model: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/model`, { method: 'POST', body: JSON.stringify({ model }) }) }

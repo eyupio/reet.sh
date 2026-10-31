@@ -1,6 +1,6 @@
 <script lang="ts" module>
   /** One choice in a slot's list. A disabled one stays in the list (it can be focused and read) with its reason beside it. */
-  export type SlotOption = { value: string; label: string; description?: string; detail?: string; group?: string; disabled?: boolean; reason?: string; starred?: boolean; starLabel?: string; onstar?: () => void }
+export type SlotOption = { value: string; label: string; description?: string; detail?: string; group?: string; disabled?: boolean; reason?: string; starred?: boolean; starLabel?: string; onstar?: () => void; isDefault?: boolean; defaultLabel?: string; ondefault?: () => void }
 </script>
 
 <script lang="ts">
@@ -84,6 +84,15 @@
     const next = row?.querySelector<HTMLElement>('[role=option]') ?? list
     next?.focus()
   }
+  async function makeDefault(o: SlotOption) {
+    const value = o.value
+    o.ondefault?.()
+    announcement = o.isDefault ? `Cleared the default for ${o.label}` : `Made ${o.label} the default`
+    await tick()
+    const row = [...(list?.querySelectorAll<HTMLElement>('.option-row') ?? [])].find(item => item.querySelector<HTMLElement>('[role=option]')?.dataset.value === value)
+    const next = row?.querySelector<HTMLElement>('[role=option]') ?? list
+    next?.focus()
+  }
   function keys(event: KeyboardEvent) {
     if ((event.target as HTMLElement)?.closest('.star')) {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() }
@@ -100,6 +109,10 @@
     else if ((event.key.toLowerCase() === 's' || event.key === 'S') && at >= 0) {
       const star = all[at].parentElement?.querySelector<HTMLButtonElement>('button.star')
       if (star) { event.preventDefault(); star.click() }
+    }
+    else if ((event.key.toLowerCase() === 'd' || event.key === 'D') && at >= 0) {
+      const setDefault = all[at].parentElement?.querySelector<HTMLButtonElement>('button.make-default')
+      if (setDefault) { event.preventDefault(); setDefault.click() }
     }
     else if (event.key === 'Tab' && !sheet) tabOut()
   }
@@ -163,6 +176,14 @@
         title={o.starLabel ?? (o.starred ? `Unstar ${o.label}` : `Star ${o.label}`)}
         onclick={(event) => { event.stopPropagation(); void star(o) }}>
         <span aria-hidden="true">{o.starred ? '★' : '☆'}</span>
+      </button>
+    {/if}
+    {#if o.ondefault}
+      <button type="button" class="make-default" aria-pressed={o.isDefault ? 'true' : 'false'}
+        aria-label={o.defaultLabel ?? (o.isDefault ? `Clear ${o.label} as the default` : `Make ${o.label} the default`)}
+        title={o.defaultLabel ?? (o.isDefault ? `Clear ${o.label} as the default` : `Make ${o.label} the default`)}
+        onclick={(event) => { event.stopPropagation(); void makeDefault(o) }}>
+        <span aria-hidden="true">{o.isDefault ? 'Default' : 'Make default'}</span>
       </button>
     {/if}
   </div>
@@ -247,6 +268,12 @@
   }
   .star[aria-pressed=true] { color: var(--accent-text); border-color: var(--line); }
   .star:hover { background: var(--tint); border-color: var(--line); }
+  .make-default {
+    flex-shrink: 0; min-height: 34px; padding: 4px 8px; border: 1px solid transparent; border-radius: 8px;
+    background: transparent; color: var(--muted); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer;
+  }
+  .make-default[aria-pressed=true] { color: var(--accent-text); border-color: var(--line); font-weight: 600; }
+  .make-default:hover { background: var(--tint); border-color: var(--line); }
   .status-action {
     margin-left: 8px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px;
     background: var(--card); color: var(--accent-text); font: inherit; font-size: .7rem; cursor: pointer;
@@ -295,7 +322,7 @@
   @media (pointer: coarse) {
     .option { min-height: 48px; padding: 8px 12px; font-size: 15px; }
     .filter, .other input { min-height: 44px; font-size: 16px; }
-    .use, .star, .status-action { min-width: 44px; min-height: 44px; }
+    .use, .star, .make-default, .status-action { min-width: 44px; min-height: 44px; }
     .heading { top: 44px; }
   }
 </style>

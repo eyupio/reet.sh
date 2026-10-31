@@ -15,6 +15,7 @@ import (
 func (s *server) registerTerminalChatRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/chat", s.terminal(s.terminalChat))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/prompt", s.terminal(s.terminalChatPrompt))
+	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/model", s.terminal(s.terminalChatModel))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/cancel", s.terminal(s.terminalChatCancel))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/permissions/{permissionId}", s.terminal(s.terminalChatPermission))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/approval-mode", s.terminal(s.terminalChatApprovalMode))
@@ -192,6 +193,8 @@ func (s *server) terminalChatTarget(w http.ResponseWriter, r *http.Request) (sto
 
 func (s *server) terminalChatError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, terminalbroker.ErrACPModelRejected), errors.Is(err, terminalbroker.ErrACPModelUnsupported):
+		writeErr(w, 409, err.Error())
 	case errors.Is(err, store.ErrRemoteNotFound):
 		writeErr(w, 404, "that reet session is not available")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported), errors.Is(err, terminalbroker.ErrACPClosed):
@@ -215,4 +218,25 @@ func (s *server) terminalChatError(w http.ResponseWriter, err error) {
 	default:
 		writeErr(w, 502, "the reet session could not complete that request")
 	}
+}
+
+func (s *server) terminalChatModel(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.terminalChatTarget(w, r); !ok {
+		return
+	}
+	var in struct {
+		Model string `json:"model"`
+	}
+	if !terminalJSON(w, r, &in) {
+		return
+	}
+	if in.Model == "" || !terminalproto.ValidModel(in.Model) {
+		writeErr(w, 400, "Choose a valid model.")
+		return
+	}
+	if err := s.terminals.ModelChat(r.Context(), s.uid(r), r.PathValue("id"), in.Model); err != nil {
+		s.terminalChatError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"changed": true})
 }

@@ -930,3 +930,12 @@ func (s *Store) RecordTerminalWorktreeFor(uid int64, agentID, sessionID, path, r
 		return err
 	})
 }
+
+// RecordTerminalModelFor records a model only after the running agent accepted it.
+func (s *Store) RecordTerminalModelFor(uid int64, sessionID, model string) error {
+	if model == "" || !terminalproto.ValidModel(model) {
+		return terminalproto.ErrInvalid
+	}
+	_, err := s.db.Exec(`UPDATE terminal_sessions SET model=?,updated_at=? WHERE id=? AND user_id=? AND structured=1`, model, now(), sessionID, uid)
+	return err
+}

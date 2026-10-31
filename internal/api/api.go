@@ -406,6 +406,7 @@ func (s *server) routes() http.Handler {
 	s.registerTerminalRoutes(mux)
 	s.registerBrowseRoutes(mux)
 	s.registerModelRoutes(mux)
+	s.registerSoftwareRoutes(mux)
 	s.registerProjectRoutes(mux)
 	s.registerFolderProjectRoutes(mux)
 	s.registerSessionBacklogRoutes(mux)

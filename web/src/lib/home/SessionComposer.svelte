@@ -1,30 +1,66 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { shell } from '../dialogShell'
+  import { onMount, tick, untrack } from 'svelte'
+  import { addModelFavourite, listModelFavourites, removeModelFavourite, type Skill } from '../api'
+  import { cleanModel, modelSuggestions, toolName, validateDir, validateModel, validatePrompt } from '../agentLaunch'
   import { CATALOGUE } from '../catalogue'
+  import { shell } from '../dialogShell'
+  import { installPrompt } from '../install'
   import { defaultTitle } from '../launchBar'
-  import { modelSuggestions, validateDir, validateModel, validatePrompt } from '../agentLaunch'
-  import { resolveLaunchDefaults } from '../models'
-  import { machineModels, type FolderProject, type TerminalMachine } from '../terminal/api'
+  import { effortChoices, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { saveDraft } from '../sessionBacklog'
+  import { insertSkillPrompt } from '../skillPrompt'
+  import { machineModels, refreshMachineModels, type FolderProject, type TerminalMachine } from '../terminal/api'
+  import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import type { DraftImage, SessionDraft } from '../sessionBoard'
   import type { LaunchDefaults } from '../launchBar'
   import FolderBrowser from './FolderBrowser.svelte'
+  import SkillPromptPicker from './SkillPromptPicker.svelte'
 
   let { draft = null, projects, machines, profile, initialProject = '', onsaved, onclose, onerror }: {
     draft?: SessionDraft | null; projects: FolderProject[]; machines: TerminalMachine[]; profile: LaunchDefaults
     initialProject?: string; onsaved: (draft: SessionDraft) => void; onclose: () => void; onerror: (e: unknown) => void
   } = $props()
   const id = $props.id()
-  let dialog: HTMLDialogElement
+  let dialog: HTMLDialogElement, promptInput = $state<HTMLTextAreaElement>()
   let title = $state(''), prompt = $state(''), projectId = $state(''), agentId = $state(''), dir = $state('')
   let tool = $state(''), model = $state(''), effort = $state(''), mode = $state<'project' | 'folder'>('project')
   let images = $state<DraftImage[]>([]), busy = $state(false), reading = $state(false), message = $state('')
-  let browse = $state(false), suggestions = $state<string[]>([])
-  let titleTouched = $state(false)
+  let browse = $state(false), titleTouched = $state(false)
+  let modelButton = $state<HTMLButtonElement>(), effortButton = $state<HTMLButtonElement>(), skillButton = $state<HTMLButtonElement>()
+  let modelOpen = $state(false), effortOpen = $state(false), skillOpen = $state(false), touch = $state(false)
+  let modelKey = $state(''), modelRead = $state<MachineModels | null>(null), modelLoading = $state(false), modelReadError = $state('')
+  let favourites = $state<ModelFavourite[]>([]), favouriteNote = $state('')
+  let favouriteQueue: Promise<void> = Promise.resolve(), favouriteMutationSeq = 0, favouritesLoadSeq = 0
+  const life = new AbortController()
   const enabled = CATALOGUE.filter(a => a.enabled)
   const machine = $derived(machines.find(m => m.agentId === agentId))
   const bytes = $derived(new TextEncoder().encode(prompt).length)
+  const modelTargetKey = $derived(agentId && tool ? `${agentId}\u0000${tool}` : '')
+  const modelMachine = $derived(modelKey === modelTargetKey ? modelRead : null)
+  const efforts = $derived(effortChoices(tool))
+  const takesEffort = $derived(efforts.length > 1)
+  const modelStatusInfo = $derived.by(() => {
+    const host = machine?.host ?? ''
+    if (!machine) return modelStatus(null, host)
+    const blank = (state: MachineModels['state']): MachineModels => ({ tool, state, models: [], more: false, source: '', version: '', fetchedAt: null, checkedAt: null, reason: '', sentence: '' })
+    if (!machine.ready) return modelStatus(modelMachine ? { ...modelMachine, state: 'offline', sentence: '' } : blank('offline'), host)
+    if (machine.capabilities?.modelsOff) return modelStatus(modelMachine ? { ...modelMachine, state: 'off', sentence: '' } : blank('off'), host)
+    if (machine.capabilities && !machine.capabilities.models) return modelStatus(modelMachine ? { ...modelMachine, state: 'update', sentence: '' } : blank('update'), host)
+    if (!modelMachine) return modelStatus(null, host)
+    return modelStatus(modelMachine, host)
+  })
+  const modelStatusLine = $derived.by(() => {
+    if (!modelTargetKey) return ''
+    if (modelLoading) return `Reading ${machine?.host || 'the machine'}’s models…`
+    const failure = modelKey === modelTargetKey ? modelReadError : ''
+    const ageWord = modelMachine?.state === 'failed' ? 'Checked' : 'Read'
+    const line = [failure || modelStatusInfo.sentence, !failure && modelStatusInfo.age ? `${ageWord} ${modelStatusInfo.age}.` : ''].filter(Boolean).join(' ')
+    return [line, favouriteNote].filter(Boolean).join(' ')
+  })
+  const modelStatusAction = $derived.by(() => {
+    if (!modelTargetKey || !modelStatusInfo.canRefresh || !machine?.ready || !machine.capabilities?.models || machine.capabilities.modelsOff) return undefined
+    return { label: 'Refresh', onclick: () => void refreshModels(), disabled: modelLoading }
+  })
   const initial = () => JSON.stringify({ title, prompt, projectId, agentId, dir, tool, model, effort, mode, images })
   let original = '', confirmClose = $state(false)
 
@@ -46,25 +82,138 @@
     if (!titleTouched) title = defaultTitle(prompt)
   })
   $effect(() => {
-    const agent = tool, target = agentId
-    suggestions = modelSuggestions(agent)
-    let current = true
-    if (target && agent && machine?.ready) machineModels(target, agent).then(result => {
-      if (current) suggestions = [...new Set([...result.models.map(m => m.id), ...modelSuggestions(agent)])]
-    }, () => {})
-    return () => { current = false }
+    const key = modelTargetKey, target = agentId, agent = tool
+    if (!key || !target || !agent || !machine?.ready) { modelLoading = false; return }
+    if (untrack(() => modelKey === key && (modelLoading || modelRead))) return
+    untrack(() => { void readModels(target, agent, key) })
   })
   onMount(() => {
+    touch = matchMedia('(pointer: coarse)').matches
+    void loadFavourites()
     if (draft) {
       title = draft.title; prompt = draft.prompt; projectId = draft.projectId; agentId = draft.agentId; dir = draft.dir
       tool = draft.tool; model = draft.model; effort = draft.effort; images = [...(draft.images ?? [])]
+      if (!CATALOGUE.find(agent => agent.id === tool)?.effort) effort = ''
       mode = projectId ? 'project' : 'folder'; titleTouched = true
     } else {
       projectId = initialProject || projects[0]?.id || ''; mode = projectId ? 'project' : 'folder'
       if (projectId) chooseProject(); else { agentId = machines[0]?.agentId ?? ''; defaults() }
     }
     original = initial(); dialog.showModal()
+    return () => life.abort()
   })
+
+  function failedModels(agent: string, sentence: string, previous: MachineModels | null): MachineModels {
+    return previous
+      ? { ...previous, state: 'failed', sentence, checkedAt: Date.now() }
+      : { tool: agent, state: 'failed', models: [], more: false, source: '', version: '', fetchedAt: null, checkedAt: Date.now(), reason: '', sentence }
+  }
+  async function readModels(target: string, agent: string, key: string) {
+    modelLoading = true
+    modelReadError = ''
+    try {
+      const next = await machineModels(target, agent, life.signal)
+      if (life.signal.aborted || modelTargetKey !== key) return
+      modelRead = next
+      modelKey = key
+    } catch {
+      if (life.signal.aborted || modelTargetKey !== key) return
+      const sentence = `Couldn’t read ${machine?.host || 'the machine'}’s models just now. Favourites and suggestions still work.`
+      modelRead = failedModels(agent, sentence, modelRead)
+      modelKey = key
+      modelReadError = sentence
+    } finally {
+      if (!life.signal.aborted && modelTargetKey === key) modelLoading = false
+    }
+  }
+  async function refreshModels() {
+    const key = modelTargetKey, target = agentId, agent = tool
+    if (!key || !target || !agent || modelLoading) return
+    const before = modelKey === key ? modelRead : null
+    modelLoading = true
+    modelReadError = ''
+    try {
+      const next = await refreshMachineModels(target, agent, life.signal)
+      if (life.signal.aborted || modelTargetKey !== key) return
+      modelRead = next.state === 'offline' && before ? { ...next, models: before.models, fetchedAt: before.fetchedAt } : next
+      modelKey = key
+    } catch (e) {
+      if (life.signal.aborted || modelTargetKey !== key) return
+      const sentence = (e as { status?: number })?.status === 429 ? 'Slow down a moment, then try again. The last list is still here.'
+        : (e as { status?: number })?.status === 409 ? 'Another read is already running. Try again in a moment. The last list is still here.'
+        : `Couldn’t refresh ${machine?.host || 'the machine'}’s models. The last list is still here.`
+      modelRead = before
+      modelKey = key
+      modelReadError = sentence
+    } finally {
+      if (!life.signal.aborted && modelTargetKey === key) modelLoading = false
+    }
+  }
+  async function loadFavourites() {
+    const seq = ++favouritesLoadSeq
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const answer = await Promise.race([
+        listModelFavourites(life.signal),
+        new Promise<never>((_, no) => { timer = setTimeout(() => no(new Error('timeout')), 10_000) }),
+      ])
+      if (!life.signal.aborted && seq === favouritesLoadSeq) { favourites = answer.favourites ?? []; favouriteNote = '' }
+    } catch {
+      if (!life.signal.aborted && seq === favouritesLoadSeq) favouriteNote = 'Couldn’t read your favourite models just now.'
+    } finally { clearTimeout(timer) }
+  }
+  async function toggleStar(value: string, starred: boolean) {
+    const agent = tool
+    if (!agent || !value) return
+    const key = favouriteKey(agent, value)
+    const beforeEntry = favourites.find(f => favouriteKey(f.tool, f.model) === key) ?? null
+    const mutation = ++favouriteMutationSeq
+    favouritesLoadSeq++
+    favouriteNote = ''
+    favourites = starred ? favourites.filter(f => favouriteKey(f.tool, f.model) !== key) : beforeEntry ? favourites : [...favourites, { tool: agent, model: value, agentDefault: false }]
+    favouriteQueue = favouriteQueue.then(async () => {
+      try {
+        if (starred) await removeModelFavourite(agent, value)
+        else {
+          const answer = await addModelFavourite(agent, value)
+          if (!life.signal.aborted && mutation === favouriteMutationSeq && answer?.favourites) favourites = answer.favourites
+        }
+      } catch (e) {
+        if (life.signal.aborted) return
+        favourites = favourites.filter(f => favouriteKey(f.tool, f.model) !== key)
+        if (beforeEntry) favourites = [...favourites, beforeEntry]
+        favouriteNote = (e as { message?: string })?.message ? (e as Error).message : 'Couldn’t update your favourites just now. Try again.'
+      }
+    })
+    await favouriteQueue
+  }
+  function modelOptionsFor(): SlotOption[] {
+    if (!tool) return []
+    return modelOptions({
+      tool, current: cleanModel(model), machine: modelMachine, favourites, recent: [], suggestions: modelSuggestions(tool),
+      selectedModel: cleanModel(model), host: machine?.host ?? '', agentName: toolName(tool),
+    }).map(option => option.value === '' ? option : {
+      ...option, starLabel: starLabel(tool, option.value, !!option.starred), onstar: () => { void toggleStar(option.value, !!option.starred) },
+    })
+  }
+  function effortOptionsFor(): SlotOption[] {
+    return efforts.map(value => ({ value, label: value || 'Agent default' }))
+  }
+  function useSkill(skill: Skill) {
+    const text = installPrompt(skill)
+    if (!text) { message = 'That skill has no source to run it from. Link one on the Skills page.'; return }
+    const start = promptInput?.selectionStart ?? prompt.length
+    const end = promptInput?.selectionEnd ?? start
+    const inserted = insertSkillPrompt(prompt, text, start, end)
+    const firstPrompt = prompt.trim() === '' && !titleTouched
+    prompt = inserted.text
+    if (firstPrompt) { title = skill.name; titleTouched = true }
+    void tick().then(() => {
+      if (!promptInput) return
+      promptInput.focus()
+      promptInput.setSelectionRange(inserted.caret, inserted.caret)
+    })
+  }
   function close() {
     if (busy || reading) return
     if (original !== initial()) { confirmClose = true; return }
@@ -111,8 +260,8 @@
       {/if}
       <fieldset disabled={busy || reading}>
         <label class="field"><span>Session title <small>Optional · suggested from your prompt</small></span><input aria-label="Session title" bind:value={title} oninput={() => titleTouched = true} maxlength="80" placeholder="A short name for this piece of work" /></label>
-        <label class="field"><span>Prompt <em>Required</em></span><textarea aria-label="Prompt" bind:value={prompt} rows="6" required placeholder="What should the agent do? Include the context, the outcome you want, and anything it should keep in mind." onpaste={e => { const files = Array.from(e.clipboardData?.files ?? []); if (files.length) { e.preventDefault(); void attach(files) } }}></textarea></label>
-        <div class="prompt-foot"><label class="attach">＋ Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={reading} onchange={e => { void attach(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }} /></label><span class:over={bytes > 2000}>{bytes.toLocaleString()} / 2,000 bytes</span></div>
+        <label class="field"><span>Prompt <em>Required</em></span><textarea bind:this={promptInput} aria-label="Prompt" bind:value={prompt} rows="6" required placeholder="What should the agent do? Include the context, the outcome you want, and anything it should keep in mind." onpaste={e => { const files = Array.from(e.clipboardData?.files ?? []); if (files.length) { e.preventDefault(); void attach(files) } }}></textarea></label>
+        <div class="prompt-foot"><div class="prompt-actions"><label class="attach">＋ Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={reading} onchange={e => { void attach(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }} /></label><button type="button" class="skill-add" bind:this={skillButton} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button></div><span class:over={bytes > 2000}>{bytes.toLocaleString()} / 2,000 bytes</span></div>
         {#if images.length}<div class="images">{#each images as image, i}<div class="image"><img src={image.data} alt={image.name} /><span>{image.name}</span><button type="button" aria-label={`Remove ${image.name}`} onclick={() => images = images.filter((_, index) => index !== i)}>×</button></div>{/each}</div>{/if}
         <div class="section-title">Where should it work?</div>
         <div class="mode" role="group" aria-label="Session location"><button type="button" class:on={mode === 'project'} onclick={() => changeMode('project')}>In a project</button><button type="button" class:on={mode === 'folder'} onclick={() => changeMode('folder')}>Machine & folder</button></div>
@@ -127,14 +276,28 @@
         {/if}
         <div class="section-title">Who’s on the job?</div>
         <div class="settings"><label class="field"><span>Agent</span><select aria-label="Agent" bind:value={tool} onchange={() => { model = ''; effort = '' }}>{#each enabled as agent}<option value={agent.id}>{agent.name}</option>{/each}</select></label>
-        <label class="field"><span>Model</span><input aria-label="Model" bind:value={model} list={`${id}-models`} placeholder="Agent default" maxlength="100" /><datalist id={`${id}-models`}>{#each suggestions as suggestion}<option value={suggestion}></option>{/each}</datalist></label>
-        <label class="field"><span>Effort</span><select aria-label="Effort" bind:value={effort} disabled={!CATALOGUE.find(a => a.id === tool)?.effort}><option value="">Agent default</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label></div>
+        <div class="field"><span>Model</span><button type="button" class="picker" bind:this={modelButton} aria-label={`Model: ${model || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={modelOpen} disabled={busy || reading || !tool} onclick={() => modelOpen = !modelOpen}><span class="value">{model || 'Agent default'}</span><span class="chev" aria-hidden="true">▾</span></button></div>
+        <div class="field"><span>Effort</span><button type="button" class="picker" bind:this={effortButton} aria-label={`Effort: ${effort || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={effortOpen} disabled={busy || reading || !takesEffort} title={takesEffort ? '' : `${toolName(tool)} chooses its own effort.`} onclick={() => effortOpen = !effortOpen}><span class="value">{takesEffort ? effort || 'Agent default' : 'This agent decides'}</span>{#if takesEffort}<span class="chev" aria-hidden="true">▾</span>{/if}</button></div></div>
+        {#if !takesEffort}<p class="hint effort-hint">{toolName(tool)} chooses its own effort level.</p>{/if}
         <p class="hint">{machine && !machine.ready ? 'This machine is offline. You can save now and start when it reconnects.' : 'Saving to the backlog keeps everything ready for later.'} Uses the agent’s normal approval settings.</p>
       </fieldset>
       {#if message}<p class="error" role="alert">{message}</p>{/if}
     </div>
     <footer data-shell-foot><span>{reading ? 'Reading images…' : 'Your prompt and images are saved to your account.'}</span><button type="button" class="btn" onclick={close} disabled={busy || reading}>Cancel</button><button class="btn primary" disabled={busy || reading || bytes > 2000 || !machines.length}>{busy ? 'Saving…' : draft ? 'Save changes' : 'Add to backlog'}</button></footer>
   </form>
+  {#if modelOpen}
+    <SlotPicker label="Model" options={modelOptionsFor()} value={model} sheet={touch} opener={modelButton ?? null}
+      filter="Filter models" status={modelStatusLine} statusAction={modelStatusAction}
+      other={{ label: 'Other…', field: 'Model name', validate: validateModel }}
+      onpick={value => { model = value; modelOpen = false }} onclose={() => modelOpen = false} />
+  {/if}
+  {#if effortOpen}
+    <SlotPicker label="Effort" options={effortOptionsFor()} value={effort} sheet={touch} opener={effortButton ?? null}
+      onpick={value => { effort = value; effortOpen = false }} onclose={() => effortOpen = false} />
+  {/if}
+  {#if skillOpen}
+    <SkillPromptPicker opener={skillButton ?? null} sheet={touch} oninsert={useSkill} onclose={() => skillOpen = false} />
+  {/if}
 </dialog>
 
 <style>
@@ -153,7 +316,11 @@
   .field em { font-size: 10px; font-style: normal; font-weight: 400; color: var(--muted); margin-left: 8px; }
   input, textarea, select { width: 100%; box-sizing: border-box; font-size: 13px; font-weight: 400; color: var(--ink); }
   textarea { resize: vertical; min-height: 130px; line-height: 1.65; }
-  .prompt-foot { display: flex; justify-content: space-between; align-items: center; margin-top: -10px; color: var(--muted); font-size: 11px; }
+  .prompt-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: -10px; color: var(--muted); font-size: 11px; }
+  .prompt-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; min-width: 0; }
+  .skill-add { border: 0; background: none; padding: 7px 0; color: var(--accent-text); font: 600 11px var(--sans); cursor: pointer; }
+  .skill-add:hover { text-decoration: underline; }
+  .skill-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   .attach { position: relative; padding: 7px 0; color: var(--accent-text); font-weight: 600; cursor: pointer; }
   .attach input { position: absolute; width: 100%; height: 100%; inset: 0; opacity: 0; cursor: pointer; }
   .attach:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
@@ -171,11 +338,16 @@
   .folder { display: flex; gap: 8px; }
   .folder input { flex: 1; min-width: 0; }
   .settings { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 12px; }
+  .picker { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); color: var(--ink); font: 400 13px var(--sans); text-align: left; cursor: pointer; }
+  .picker:disabled { opacity: .55; cursor: default; }
+  .picker .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .picker .chev { flex: none; color: var(--muted); }
   .hint { font-size: 12px; color: var(--muted); margin: 0; line-height: 1.6; }
+  .effort-hint { margin: -9px 0 12px; }
   footer { display: flex; align-items: center; gap: 8px; padding: 18px 28px; border-top: 1px solid var(--line); background: var(--bg); }
   footer > span { flex: 1; font-size: 11px; color: var(--muted); }
   .error, .discard { border: 1px solid var(--warn); padding: 12px; border-radius: 8px; color: var(--warn); font-size: 13px; }
   .discard { margin-bottom: 18px; }.discard div { display: flex; gap: 8px; margin-top: 10px; }
   .over { color: var(--bad); }
-  @media (max-width: 650px) { input, textarea, select { font-size: 16px; } header, .body, footer { padding: 18px; } h2 { font-size: 23px; } .settings { grid-template-columns: 1fr; gap: 0; } .field small { display: block; margin: 2px 0 0; } footer > span { display: none; } footer { justify-content: flex-end; } }
+  @media (max-width: 650px) { input, textarea, select, .picker { font-size: 16px; } header, .body, footer { padding: 18px; } h2 { font-size: 23px; } .settings { grid-template-columns: 1fr; gap: 0; } .field small { display: block; margin: 2px 0 0; } footer > span { display: none; } footer { justify-content: flex-end; } .skill-add { min-height: 44px; } }
 </style>

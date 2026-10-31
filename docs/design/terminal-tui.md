@@ -1,6 +1,6 @@
 # Terminal interface
 
-Status: read-only status, Scan, Sync, Backup, Setup, Upgrade, Install and agent enrollment shipped; setup restore/rollback follow.
+Status: all planned screens shipped: read-only status, Scan, Sync, Backup, Setup, Upgrade, Install, agent enrollment and setup restore/rollback.
 
 The `reet` binary has a terminal interface built with
 [Bubble Tea](https://github.com/charmbracelet/bubbletea). It is a face on the
@@ -58,7 +58,10 @@ and services never start the interface; they run exactly as before. `serve`,
   from a snapshot (name, snapshot ID or path, optional passphrase), **p** pushes
   the selected profile to a controller, **u** pulls one by name, and **r**
   refreshes. Saving without a passphrase records the clear header only; a
-  passphrase opens the snapshot to record preview and software evidence.
+  passphrase opens the snapshot to record preview and software evidence. **t**
+  previews a restore of the selected profile and **a** applies exactly that plan;
+  **b** rolls back the newest completed restore for that profile. Both use a
+  temporary passphrase file and the same `setup` commands as the text CLI.
 - **Upgrade.** The running version and a release field (`latest`, `dev` or a tag)
   behind an explicit confirmation. Applying runs the same managed upgrade as the
   text command with no prompts: check, download and verify, stop the server, back
@@ -131,7 +134,7 @@ Claude inside a pane without a PTY and terminal-emulator stack. Live agent
 terminals stay in the browser and tmux; the terminal interface is the control
 plane and, in later slices, a launcher.
 
-## Next slices
+## Scope
 
-The longer setup restore/rollback flows remain text commands; they are not hidden
-from the interface, just not rebuilt as forms yet.
+The planned terminal-interface work is complete. The screens cover the binary's
+own commands; nothing in the web app or the server changed to make them work.

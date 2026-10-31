@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -419,5 +420,70 @@ func TestEnrollProjectsSplitsCommasAndNewlines(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %q, want %q", got, want)
 		}
+	}
+}
+
+func TestSetupRestorePreviewApplyAndRollbackForms(t *testing.T) {
+	m := testModel()
+	next, _ := m.open(ScreenSetup)
+	m = next.(model)
+	next, _ = m.Update(resultMsg{page: ScreenSetup, value: setupOutcome{
+		listSet:   true,
+		profiles:  setup.SetupProfileList{Dir: "/tmp/setups/profiles", Profiles: []setup.SetupProfileSummary{{Name: "work", Revision: 1, SnapshotID: "snap-1"}}},
+		snapshots: setup.SetupSnapshotList{Snapshots: []setup.SetupSnapshotHeader{{ID: "snap-1"}}},
+	}})
+	m = next.(model)
+	next, _ = m.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
+	m = next.(model)
+	if !m.formActive() || m.setupFormKind != "restore" {
+		t.Fatalf("restore form: active=%v kind=%q", m.formActive(), m.setupFormKind)
+	}
+	m.setupRestoreValues = &setupRestoreValues{Profile: "work", Passphrase: "a long enough passphrase"}
+	next, cmd := m.startSetupRestore(false)
+	m = next.(model)
+	if !m.loading || cmd == nil || !m.setupActionSet || !m.setupActionRestore {
+		t.Fatal("restore preview did not start")
+	}
+	next, _ = m.Update(resultMsg{page: ScreenSetup, value: setupActionOutcome{output: "PLAN\n", restore: true}})
+	m = next.(model)
+	view := m.View().Content
+	for _, want := range []string{"PLAN", "a applies this plan"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+	next, cmd = m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	m = next.(model)
+	if !m.loading || cmd == nil {
+		t.Fatal("restore apply did not start")
+	}
+	next2, _ := m.open(ScreenSetup)
+	m = next2.(model)
+	next, _ = m.Update(resultMsg{page: ScreenSetup, value: setupOutcome{
+		listSet:  true,
+		profiles: setup.SetupProfileList{Dir: "/tmp/setups/profiles", Profiles: []setup.SetupProfileSummary{{Name: "work", Revision: 1, SnapshotID: "snap-1"}}},
+	}})
+	m = next.(model)
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
+	m = next.(model)
+	if !m.formActive() || m.setupFormKind != "rollback" {
+		t.Fatalf("rollback form: active=%v kind=%q", m.formActive(), m.setupFormKind)
+	}
+}
+
+func TestSetupPassphraseFile(t *testing.T) {
+	if _, _, err := setupPassphraseFile("short"); err == nil {
+		t.Fatal("short passphrase accepted")
+	}
+	path, cleanup, err := setupPassphraseFile("a long enough passphrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("temp passphrase file not removed")
 	}
 }

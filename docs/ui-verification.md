@@ -1630,3 +1630,17 @@ viewport. Unit tests in `chat.test.mjs` cover the reducer, trimming and the draf
 and dark at 1100 px and 390 px. Not checked: a physical phone or touch device (the larger coarse-pointer targets come
 from the same rule as the approval buttons and are not exercised here), Safari or Firefox, a screen reader, or a live
 agent question.
+
+## Escape from a dialog whose field has suggestions — 31 October 2026
+
+A suggestion field (a text input with a `data-combo-list`) opens its list on focus. When a dialog focuses such a field as
+it opens (the Add a machine dialog focuses the machine name), that list opens by itself, and Escape was consumed by the
+list so the dialog stayed open and focus never returned to the card that opened it. A list that opened on its own and has
+not been used (no typing, arrow keys or clicks) now closes without swallowing Escape, so one Escape closes the dialog and
+focus returns. Once the person has used the list, Escape closes only the list and a second Escape closes the dialog, as
+before.
+
+`start-agent.e2e.mjs` covers both: untouched, one Escape closes the dialog and returns focus; after typing, the first Escape
+closes only the list and the second closes the dialog. It failed on `main` before this change and fails again with the change
+reverted. `add-project`, `add-project-edit`, `home`, `navigation`, `chat` and `phone-layout` browser tests also passed. Not
+checked: a touch device (suggestions only open on focus for a fine pointer), Safari or Firefox, a screen reader.

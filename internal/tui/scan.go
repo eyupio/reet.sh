@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/charmbracelet/huh"
+	"charm.land/huh/v2"
 
 	"github.com/eyupio/reet.sh/internal/scan"
 )
@@ -40,7 +40,7 @@ func defaultScanValues(opts Options) *scanFormValues {
 	}
 }
 
-func buildScanForm(values *scanFormValues) *huh.Form {
+func buildScanForm(values *scanFormValues, dark bool) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
@@ -75,7 +75,7 @@ func buildScanForm(values *scanFormValues) *huh.Form {
 				Description("Merge an older hostname into this environment first.").
 				Value(&values.Reconcile),
 		),
-	).WithTheme(huh.ThemeCharm()).WithShowHelp(true)
+	).WithTheme(formTheme(dark)).WithShowHelp(true)
 }
 
 func scanDirs(value string) []string {

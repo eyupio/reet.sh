@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/lifecycle"
@@ -24,12 +24,12 @@ func TestHomeNavigationAndOpen(t *testing.T) {
 	if m.page != ScreenHome {
 		t.Fatalf("page = %q, want home", m.page)
 	}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = next.(model)
 	if m.cursor != 1 {
 		t.Fatalf("cursor = %d, want 1", m.cursor)
 	}
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(model)
 	if m.page != ScreenHealth || !m.loading || cmd == nil {
 		t.Fatalf("page=%q loading=%t cmd=%v", m.page, m.loading, cmd != nil)
@@ -56,7 +56,7 @@ func TestDoctorResultRendersChecks(t *testing.T) {
 	if m.loading {
 		t.Fatal("doctor screen still loading")
 	}
-	view := m.View()
+	view := m.View().Content
 	for _, want := range []string{"[PASS]", "[WARN]", "binary", "No database yet", "Start the server."} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
@@ -68,14 +68,14 @@ func TestEscapeReturnsHomeAndRefreshReloads(t *testing.T) {
 	m := testModel()
 	next, _ := m.open(ScreenAgent)
 	m = next.(model)
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = next.(model)
 	if m.page != ScreenHome {
 		t.Fatalf("page = %q, want home", m.page)
 	}
 	next, _ = m.open(ScreenDoctor)
 	m = next.(model)
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
 	m = next.(model)
 	if !m.loading || cmd == nil {
 		t.Fatal("refresh did not start a load")
@@ -86,7 +86,7 @@ func TestVersionScreenRendersWithoutLoading(t *testing.T) {
 	m := newModel(Options{Version: "v1.2.3", Commit: "abcdef1234", Start: ScreenVersion})
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = next.(model)
-	view := m.View()
+	view := m.View().Content
 	for _, want := range []string{"v1.2.3", "abcdef1234", "Platform"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
@@ -101,7 +101,7 @@ func TestScanFormOpensAndEscapeReturnsHome(t *testing.T) {
 	if m.page != ScreenScan || !m.formActive() || m.scanForm == nil {
 		t.Fatalf("page=%q form=%v loading=%t", m.page, m.scanForm != nil, m.loading)
 	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = next.(model)
 	if m.page != ScreenHome {
 		t.Fatalf("page = %q, want home", m.page)
@@ -125,7 +125,7 @@ func TestScanResultRendersFindingsAndDryRun(t *testing.T) {
 	}
 	next, _ = m.Update(resultMsg{page: ScreenScan, value: report})
 	m = next.(model)
-	view := m.View()
+	view := m.View().Content
 	for _, want := range []string{"Scan", "alpha", "dry run", "1 skills found"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
@@ -153,7 +153,7 @@ func TestSyncFormOpensAndEscapeReturnsHome(t *testing.T) {
 	if m.page != ScreenSync || !m.formActive() || m.syncForm == nil {
 		t.Fatalf("page=%q form=%v loading=%t", m.page, m.syncForm != nil, m.loading)
 	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = next.(model)
 	if m.page != ScreenHome {
 		t.Fatalf("page = %q, want home", m.page)
@@ -180,13 +180,13 @@ func TestSyncPreviewRendersAndApplyStarts(t *testing.T) {
 	}
 	next, _ = m.Update(resultMsg{page: ScreenSync, value: syncOutcome{report: report}})
 	m = next.(model)
-	view := m.View()
+	view := m.View().Content
 	for _, want := range []string{"INSTALL", "beta", "Preview only", "a applies"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
 		}
 	}
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	m = next.(model)
 	if !m.loading || cmd == nil {
 		t.Fatal("apply did not start")
@@ -226,23 +226,23 @@ func TestBackupScreenRendersAndFormsOpen(t *testing.T) {
 	items := []backup.Item{{ID: "instance-20261031T000000Z-abcdef", TakenAt: 1_800_000_000_000, Bytes: 1024, Local: true}}
 	next, _ = m.Update(resultMsg{page: ScreenBackup, value: backupOutcome{items: items, listSet: true}})
 	m = next.(model)
-	view := m.View()
+	view := m.View().Content
 	for _, want := range []string{"instance-20261031T000000Z-abcdef", "1.0 KB", "n new backup"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
 		}
 	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	m = next.(model)
 	if !m.formActive() || m.backupForm == nil {
 		t.Fatal("new backup form did not open")
 	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = next.(model)
 	if m.backupForm != nil || m.page != ScreenBackup {
 		t.Fatalf("form did not close: form=%v page=%q", m.backupForm != nil, m.page)
 	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = next.(model)
 	if !m.formActive() || m.backupForm == nil || m.backupRestoreID != items[0].ID {
 		t.Fatalf("restore form did not open: form=%v id=%q", m.backupForm != nil, m.backupRestoreID)
@@ -284,30 +284,30 @@ func TestSetupScreenRendersAndFormsOpen(t *testing.T) {
 	}
 	next, _ = m.Update(resultMsg{page: ScreenSetup, value: outcome})
 	m = next.(model)
-	view := m.View()
+	view := m.View().Content
 	for _, want := range []string{"work", "setup-20261031T000000Z-abcdef", "Snapshots 1"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
 		}
 	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	m = next.(model)
 	if !m.formActive() || m.setupForm == nil {
 		t.Fatal("new profile form did not open")
 	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = next.(model)
 	if m.setupForm != nil || m.page != ScreenSetup {
 		t.Fatalf("form did not close: form=%v page=%q", m.setupForm != nil, m.page)
 	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'p', Text: "p"})
 	m = next.(model)
 	if !m.formActive() || m.setupForm == nil {
 		t.Fatal("push form did not open")
 	}
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = next.(model)
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	next, _ = m.Update(tea.KeyPressMsg{Code: 'u', Text: "u"})
 	m = next.(model)
 	if !m.formActive() || m.setupForm == nil {
 		t.Fatal("pull form did not open")
@@ -353,7 +353,7 @@ func TestUpgradeFormOpensAndResultRenders(t *testing.T) {
 	}
 	next, _ = m.Update(resultMsg{page: ScreenUpgrade, value: upgradeOutcome{output: "Upgraded. Previous binary: /tmp/reet.previous\n"}})
 	m = next.(model)
-	view := m.View()
+	view := m.View().Content
 	for _, want := range []string{"Upgraded. Previous binary", "previous build"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)

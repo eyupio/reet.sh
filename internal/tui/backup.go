@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 
 	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -29,7 +29,7 @@ type restoreFormValues struct {
 	Confirm  bool
 }
 
-func buildNewBackupForm(values *newBackupValues) *huh.Form {
+func buildNewBackupForm(values *newBackupValues, dark bool) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewConfirm().
@@ -39,10 +39,10 @@ func buildNewBackupForm(values *newBackupValues) *huh.Form {
 				Negative("Cancel").
 				Value(&values.Confirm),
 		),
-	).WithTheme(huh.ThemeCharm()).WithShowHelp(true)
+	).WithTheme(formTheme(dark)).WithShowHelp(true)
 }
 
-func buildRestoreForm(id string, values *restoreFormValues) *huh.Form {
+func buildRestoreForm(id string, values *restoreFormValues, dark bool) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
@@ -57,7 +57,7 @@ func buildRestoreForm(id string, values *restoreFormValues) *huh.Form {
 				Negative("Cancel").
 				Value(&values.Confirm),
 		),
-	).WithTheme(huh.ThemeCharm()).WithShowHelp(true)
+	).WithTheme(formTheme(dark)).WithShowHelp(true)
 }
 
 func backupDataDir(opts Options) string {

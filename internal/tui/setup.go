@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/setup"
@@ -55,7 +55,7 @@ func defaultSetupPullValues(opts Options) *setupPullValues {
 	return &setupPullValues{Server: setupServer(opts), Token: opts.SetupToken}
 }
 
-func buildNewSetupForm(values *setupNewValues, newest string) *huh.Form {
+func buildNewSetupForm(values *setupNewValues, newest string, dark bool) *huh.Form {
 	if values.Snapshot == "" {
 		values.Snapshot = newest
 	}
@@ -91,10 +91,10 @@ func buildNewSetupForm(values *setupNewValues, newest string) *huh.Form {
 				EchoMode(huh.EchoModePassword).
 				Value(&values.Passphrase),
 		),
-	).WithTheme(huh.ThemeCharm()).WithShowHelp(true)
+	).WithTheme(formTheme(dark)).WithShowHelp(true)
 }
 
-func buildPushSetupForm(values *setupPushValues) *huh.Form {
+func buildPushSetupForm(values *setupPushValues, dark bool) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().Title("Profile").Description(values.Name),
@@ -108,10 +108,10 @@ func buildPushSetupForm(values *setupPushValues) *huh.Form {
 				EchoMode(huh.EchoModePassword).
 				Value(&values.Token),
 		),
-	).WithTheme(huh.ThemeCharm()).WithShowHelp(true)
+	).WithTheme(formTheme(dark)).WithShowHelp(true)
 }
 
-func buildPullSetupForm(values *setupPullValues) *huh.Form {
+func buildPullSetupForm(values *setupPullValues, dark bool) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
@@ -134,7 +134,7 @@ func buildPullSetupForm(values *setupPullValues) *huh.Form {
 				EchoMode(huh.EchoModePassword).
 				Value(&values.Token),
 		),
-	).WithTheme(huh.ThemeCharm()).WithShowHelp(true)
+	).WithTheme(formTheme(dark)).WithShowHelp(true)
 }
 
 func loadSetup(opts Options) (setupOutcome, error) {

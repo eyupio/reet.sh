@@ -651,7 +651,7 @@
             <p class="hint defaults-hint">Used when you start a session in this project. You can still change it.</p>
             <div class="field">
               <label class="label" for={`${id}-branch`}>Default base branch</label>
-              <input id={`${id}-branch`} bind:value={baseBranch} list={`${id}-branches`} placeholder="The repository's default" autocomplete="off" spellcheck="false" maxlength="255" />
+              <input id={`${id}-branch`} bind:value={baseBranch} data-combo-list={`${id}-branches`} placeholder="The repository's default" autocomplete="off" spellcheck="false" maxlength="255" />
               <datalist id={`${id}-branches`}>{#each branches as b (b)}<option value={b}></option>{/each}</datalist>
               {#if branchNote}<p class="hint branch-note">{branchNote}</p>{/if}
             </div>

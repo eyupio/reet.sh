@@ -425,7 +425,11 @@ func TestPrivateControlStreamsProbesAndHealth(t *testing.T) {
 		if code != 200 || json.Unmarshal([]byte(body), &health) != nil {
 			t.Fatalf("health API: %d %s", code, body)
 		}
-		if len(health.Machines) == 1 && health.Machines[0].Connection != nil && health.Machines[0].Connection.RTTMillis != nil && len(health.History) > 0 {
+		// History is bucketed by minute, and the probe's round-trip sample can create its bucket before the health report
+		// (which carries the CPU reading asserted below) has been processed. Wait for the data the test asserts on, not
+		// merely for any history, or a slow machine reads the bucket half-filled.
+		if len(health.Machines) == 1 && health.Machines[0].Connection != nil && health.Machines[0].Connection.RTTMillis != nil &&
+			len(health.History) > 0 && health.History[0].Summary.CPUPercent.Valid == 1 && health.History[0].RTTP50Millis != nil {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -465,7 +469,10 @@ func TestPrivateControlStreamsProbesAndHealth(t *testing.T) {
 		if code != 200 || json.Unmarshal([]byte(body), &health) != nil {
 			t.Fatalf("health API: %d %s", code, body)
 		}
-		if len(health.Machines) == 1 && health.Machines[0].Capabilities != nil && health.Machines[0].Capabilities.TerminalEnabled && health.Machines[0].Connection != nil && health.Machines[0].Connection.Generation == reply.Generation {
+		// The machine's stored capabilities and the live connection's copy update separately; wait for the copy asserted
+		// below as well, or a slow machine reads the connection's capabilities before the new hello has reached them.
+		if len(health.Machines) == 1 && health.Machines[0].Capabilities != nil && health.Machines[0].Capabilities.TerminalEnabled && health.Machines[0].Connection != nil &&
+			health.Machines[0].Connection.Generation == reply.Generation && health.Machines[0].Connection.Capabilities.Readiness == terminalproto.Ready {
 			break
 		}
 		if time.Now().After(deadline) {

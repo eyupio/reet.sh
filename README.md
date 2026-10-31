@@ -50,7 +50,7 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 - **An organised session workspace.** Filter across machines, sort and group, colour-code sessions, drag to reorder, resize or collapse the sidebar. Right-click or use keyboard-accessible row actions to rename, disconnect, stop and remove closed history. Layout stays in this browser, separately per account.
 - **OpenCode in the reet TUI.** Start OpenCode in reet's own native view instead of its terminal UI on a machine with OpenCode 1.19.5 or newer, accepting ACP; streamed messages, tool calls, a model choice, Allow once / Deny approval cards, attachments as machine paths, and reopen a closed reet session with its stored history. Trusted folders only. See [structured sessions](docs/structured-sessions.md).
 - **Agent software evidence and a reviewable plan.** On a Linux machine, Settings → **Software** shows OpenCode's exact installed version, package evidence, executable path and platform, or says it is not installed. reet can show a reviewed install, update or remove plan against its pinned 1.19.5, with the effect on running sessions; it never downloads or runs one. See [agent software](docs/agent-software.md).
-- **A terminal interface.** Run `reet` in a terminal for a menu over Doctor, Healthcheck, Scan, Sync, Backups, Setups, Upgrade, Install, Version, Terminal status and Agent status, or add `--tui` to one of those commands to open its screen directly. Scan is a full form: environment, controller, token, extra folders, dry run, prune and reconcile. Sync previews a saved target and shows every install, replace and remove before `a` applies that exact plan. Backups lists local copies, takes one after a confirmation and restores the selected copy after a warning. Setups creates, pushes and pulls setup profiles. Upgrade checks, verifies, backs up and replaces a managed install, with the same rollback as the text command. Install sets up a binary, native service or Compose deployment, with a dry run that changes nothing. It is compiled into the same static binary, with no separate executable or assets. Redirected output, containers and services are unchanged. [Terminal interface](docs/design/terminal-tui.md).
+- **A terminal interface.** Run `reet` in a terminal for a menu over Doctor, Healthcheck, Scan, Sync, Backups, Setups, Upgrade, Install, Connect machine, Version, Terminal status and Agent status, or add `--tui` to one of those commands to open its screen directly. Scan is a full form: environment, controller, token, extra folders, dry run, prune and reconcile. Sync previews a saved target and shows every install, replace and remove before `a` applies that exact plan. Backups lists local copies, takes one after a confirmation and restores the selected copy after a warning. Setups creates, pushes and pulls setup profiles. Upgrade checks, verifies, backs up and replaces a managed install, with the same rollback as the text command. Install sets up a binary, native service or Compose deployment, with a dry run that changes nothing. Connect machine enrolls this installation with a controller, with allow-apply off by default. It is compiled into the same static binary, with no separate executable or assets. Redirected output, containers and services are unchanged. [Terminal interface](docs/design/terminal-tui.md).
 
 - **Comfortable remote terminals.** Four colour palettes, font/cursor controls, search, clipboard and guarded paste. Search a machine’s saved Bash/Zsh history to paste/edit or explicitly review and rerun a command. Keep a separate account command library for reusable snippets, inserted without an extra Enter. Stopping can remove history after the machine confirms closure; set its default in Account → Profile.
 - **One or all machines.** In Sync, choose a library, list, published collection or reported machine scope as the source; select one destination or All machines, then adjust individual scopes. Differences are shown per destination. Saving desired state is separate from previewing and approving changes.
@@ -296,11 +296,12 @@ explicit `--token` or `--env-file` selection overrides it. Forget it with
 `reet configure --forget-token`.
 
 Run `reet` with no command in a terminal for the terminal interface: a menu over
-Doctor, Healthcheck, Scan, Sync, Backups, Setups, Upgrade, Install, Version,
-Terminal status and Agent status. Add `--tui` to one of those commands to open
-its screen directly, for example `reet doctor --tui`, `reet scan --tui`, `reet
-sync --tui`, `reet backup --tui`, `reet setup profile --tui`, `reet upgrade
---tui`, `reet install --tui` or `reet agent status --tui`. `REET_NO_TUI=1` keeps the old no-command behaviour, and
+Doctor, Healthcheck, Scan, Sync, Backups, Setups, Upgrade, Install, Connect
+machine, Version, Terminal status and Agent status. Add `--tui` to one of those
+commands to open its screen directly, for example `reet doctor --tui`, `reet
+scan --tui`, `reet sync --tui`, `reet backup --tui`, `reet setup profile --tui`,
+`reet upgrade --tui`, `reet install --tui`, `reet agent enroll --tui` or `reet
+agent status --tui`. `REET_NO_TUI=1` keeps the old no-command behaviour, and
 redirected output, containers and services are unaffected.
 
 Interactive terminals show the reet wordmark and burnt-orange progress indicators

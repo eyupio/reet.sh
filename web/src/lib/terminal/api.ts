@@ -138,6 +138,10 @@ export async function createTerminal(agentId: string, requestId: string, title: 
   return (await terminalRequest('/api/v2/terminal/sessions', { method: 'POST', signal, body: JSON.stringify(body) })).json()
 }
 export async function terminalTicket(session: string, cols: number, rows: number, takeover: boolean, signal?: AbortSignal): Promise<string> { return (await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(session)}/attachments`, { method: 'POST', body: JSON.stringify({ cols, rows, takeover }), signal })).json()).ticket }
+/** The launch stages a machine has reported for a create still running; empty when it reports none (an older machine). */
+export async function launchProgress(agentId: string, requestId: string, signal?: AbortSignal): Promise<{ stage: string; at: number }[]> {
+  return (await (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/launch-progress/${encodeURIComponent(requestId)}`, { signal })).json()).stages ?? []
+}
 export async function machineHealth(signal?: AbortSignal): Promise<HealthResponse> { return (await terminalRequest('/api/v2/machines/health', { signal })).json() }
 export async function machineYolo(agentId: string, signal?: AbortSignal): Promise<{ accepts: boolean; checkedAt: number }> { return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/yolo`, { signal })).json() }
 export async function renameTerminal(id: string, title: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify({title}) }) }

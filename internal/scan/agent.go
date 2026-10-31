@@ -145,6 +145,12 @@ func agentRequestContext(ctx context.Context, c agentConfig, path string, body a
 func RunAgent(args []string, out io.Writer, version string) error {
 	return runAgentInput(args, os.Stdin, out, version)
 }
+
+// RunAgentInput is RunAgent with an explicit input stream, for callers that
+// must not prompt on the process terminal.
+func RunAgentInput(args []string, in io.Reader, out io.Writer, version string) error {
+	return runAgentInput(args, in, out, version)
+}
 func runAgentInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
 		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill [--config PATH]; run backgrounds by default; --foreground for debugging")

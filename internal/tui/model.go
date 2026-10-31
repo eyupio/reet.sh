@@ -35,6 +35,7 @@ const (
 	ScreenSetup    ScreenID = "setup"
 	ScreenUpgrade  ScreenID = "upgrade"
 	ScreenInstall  ScreenID = "install"
+	ScreenEnroll   ScreenID = "enroll"
 	ScreenVersion  ScreenID = "version"
 	ScreenTerminal ScreenID = "terminal"
 	ScreenAgent    ScreenID = "agent"
@@ -94,6 +95,14 @@ type Options struct {
 	InstallNoStart  bool
 	InstallDryRun   bool
 
+	EnrollServer     string
+	EnrollToken      string
+	EnrollTokenFile  string
+	EnrollHost       string
+	EnrollProjects   string
+	EnrollAllowApply bool
+	EnrollConfig     string
+
 	In      io.Reader
 	Out     io.Writer
 	NoColor bool
@@ -130,6 +139,7 @@ var homeItems = []homeItem{
 	{ScreenSetup, "Setups", "Create, push and pull setup profiles"},
 	{ScreenUpgrade, "Upgrade", "Check, verify and install a release"},
 	{ScreenInstall, "Install", "Set up a managed deployment"},
+	{ScreenEnroll, "Connect machine", "Enroll this machine with a controller"},
 	{ScreenVersion, "Version", "Build and runtime details"},
 	{ScreenTerminal, "Terminal status", "Controller terminal availability"},
 	{ScreenAgent, "Agent status", "This machine's enrollment and daemon"},
@@ -204,6 +214,11 @@ type model struct {
 	installOutput string
 	installDone   bool
 	installDryRun bool
+
+	enrollForm   *huh.Form
+	enrollValues *enrollFormValues
+	enrollOutput string
+	enrollDone   bool
 }
 
 func newModel(opts Options) model {
@@ -240,6 +255,10 @@ func newModel(opts Options) model {
 	if opts.Start == ScreenInstall {
 		m.installValues = defaultInstallValues(opts)
 		m.installForm = buildInstallForm(m.installValues, m.dark)
+	}
+	if opts.Start == ScreenEnroll {
+		m.enrollValues = defaultEnrollValues(opts)
+		m.enrollForm = buildEnrollForm(m.enrollValues, m.dark)
 	}
 	return m
 }
@@ -333,6 +352,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.finishUpgradeForm()
 			case ScreenInstall:
 				return m.finishInstallForm()
+			case ScreenEnroll:
+				return m.finishEnrollForm()
 			}
 		case huh.StateAborted:
 			return m.open(ScreenHome)
@@ -424,6 +445,12 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "r":
 			return m.open(ScreenInstall)
+		}
+	}
+	if m.page == ScreenEnroll {
+		switch msg.String() {
+		case "r":
+			return m.open(ScreenEnroll)
 		}
 	}
 	if m.page == ScreenSetup {
@@ -534,6 +561,7 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 	m.setupForm = nil
 	m.upgradeForm = nil
 	m.installForm = nil
+	m.enrollForm = nil
 	if page == ScreenScan {
 		if m.scanValues == nil {
 			m.scanValues = defaultScanValues(m.opts)
@@ -577,6 +605,16 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 		m.resize()
 		m.setContent()
 		return m, m.installForm.Init()
+	}
+	if page == ScreenEnroll {
+		m.enrollValues = defaultEnrollValues(m.opts)
+		m.enrollForm = buildEnrollForm(m.enrollValues, m.dark)
+		m.enrollOutput = ""
+		m.enrollDone = false
+		m.loading = false
+		m.resize()
+		m.setContent()
+		return m, m.enrollForm.Init()
 	}
 	m.loading = page != ScreenHome && page != ScreenVersion
 	m.setContent()
@@ -658,6 +696,11 @@ func (m *model) apply(msg resultMsg) {
 			m.installDryRun = value.dryRun
 			m.installDone = msg.err == nil
 		}
+	case ScreenEnroll:
+		if value, ok := msg.value.(enrollOutcome); ok {
+			m.enrollOutput = value.output
+			m.enrollDone = msg.err == nil
+		}
 	}
 }
 
@@ -678,6 +721,8 @@ func (m model) activeForm() *huh.Form {
 		return m.upgradeForm
 	case ScreenInstall:
 		return m.installForm
+	case ScreenEnroll:
+		return m.enrollForm
 	}
 	return nil
 }
@@ -698,6 +743,8 @@ func (m *model) setForm(form *huh.Form) {
 		m.upgradeForm = form
 	case ScreenInstall:
 		m.installForm = form
+	case ScreenEnroll:
+		m.enrollForm = form
 	}
 }
 
@@ -754,7 +801,7 @@ func (m *model) resize() {
 	if formHeight < 5 {
 		formHeight = 5
 	}
-	for _, form := range []*huh.Form{m.scanForm, m.syncForm, m.backupForm, m.setupForm, m.upgradeForm, m.installForm} {
+	for _, form := range []*huh.Form{m.scanForm, m.syncForm, m.backupForm, m.setupForm, m.upgradeForm, m.installForm, m.enrollForm} {
 		if form != nil {
 			form.WithWidth(formWidth)
 			form.WithHeight(formHeight)
@@ -862,7 +909,17 @@ func (m model) renderFooter() string {
 			keys = "r run again · esc back · q quit"
 		}
 	}
-	if m.loading && m.page != ScreenScan && m.page != ScreenSync && m.page != ScreenBackup && m.page != ScreenSetup && m.page != ScreenUpgrade && m.page != ScreenInstall {
+	if m.page == ScreenEnroll {
+		switch {
+		case m.formActive():
+			keys = "enter next/submit · esc cancel · ctrl+c quit"
+		case m.loading:
+			keys = "enrolling… · ctrl+c quit"
+		default:
+			keys = "r run again · esc back · q quit"
+		}
+	}
+	if m.loading && m.page != ScreenScan && m.page != ScreenSync && m.page != ScreenBackup && m.page != ScreenSetup && m.page != ScreenUpgrade && m.page != ScreenInstall && m.page != ScreenEnroll {
 		keys = "loading… · q quit"
 	}
 	return m.styles.footer.Width(m.width).Render("  " + keys)
@@ -896,7 +953,7 @@ func (m model) renderPage() string {
 	if m.loading {
 		return "\n  " + m.spinner.View() + " " + m.styles.muted.Render(pageLoading(m.page)) + "\n"
 	}
-	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) && !(m.page == ScreenSync && m.syncSet) && !(m.page == ScreenBackup && m.backupSet) && !(m.page == ScreenSetup && m.setupSet) && !(m.page == ScreenUpgrade && (m.upgradeOutput != "" || m.upgradeDone)) && !(m.page == ScreenInstall && (m.installOutput != "" || m.installDone)) {
+	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) && !(m.page == ScreenSync && m.syncSet) && !(m.page == ScreenBackup && m.backupSet) && !(m.page == ScreenSetup && m.setupSet) && !(m.page == ScreenUpgrade && (m.upgradeOutput != "" || m.upgradeDone)) && !(m.page == ScreenInstall && (m.installOutput != "" || m.installDone)) && !(m.page == ScreenEnroll && (m.enrollOutput != "" || m.enrollDone)) {
 		return "\n  " + m.styles.fail.Render("Error: "+m.err.Error()) + "\n\n  " + m.styles.muted.Render("Press r to try again, or esc for the menu.") + "\n"
 	}
 	switch m.page {
@@ -912,6 +969,8 @@ func (m model) renderPage() string {
 		return m.renderUpgrade()
 	case ScreenInstall:
 		return m.renderInstall()
+	case ScreenEnroll:
+		return m.renderEnroll()
 	case ScreenDoctor:
 		return m.renderDoctor()
 	case ScreenHealth:
@@ -944,6 +1003,8 @@ func pageTitle(page ScreenID) string {
 		return "Upgrade"
 	case ScreenInstall:
 		return "Install"
+	case ScreenEnroll:
+		return "Connect machine"
 	case ScreenVersion:
 		return "Version"
 	case ScreenTerminal:
@@ -972,6 +1033,8 @@ func pageLoading(page ScreenID) string {
 		return "Upgrading…"
 	case ScreenInstall:
 		return "Installing…"
+	case ScreenEnroll:
+		return "Enrolling…"
 	case ScreenTerminal:
 		return "Reading terminal status…"
 	case ScreenAgent:

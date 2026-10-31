@@ -58,6 +58,7 @@ type AgentConfig struct {
 	acpImages         bool
 	shellDir          bool
 	attention         bool
+	progress          bool
 	OnConnection      func(bool)
 	TerminalSession   TerminalFactory
 	control           func(context.Context, terminalproto.Message) error
@@ -709,6 +710,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
 	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
 	cfg.attention = terminalproto.SupportsAttention(advertised)
+	cfg.progress = terminalproto.SupportsProgress(advertised)
 }
 
 // setTerminalFeatures tells the terminal dispatcher which negotiated
@@ -767,6 +769,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.attention {
 		features = append(features, terminalproto.AttentionFeature)
+	}
+	if cfg.progress {
+		features = append(features, terminalproto.ProgressFeature)
 	}
 	return strings.Join(features, ",")
 }

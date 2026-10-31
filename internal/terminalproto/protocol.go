@@ -616,6 +616,8 @@ func Decode(data []byte) (Message, error) {
 		b = &Result{}
 	case "session_changed":
 		b = &SessionChanged{}
+	case "launch_progress":
+		b = &LaunchProgress{}
 	case "acp_prompt":
 		b = &ACPPrompt{}
 	case "acp_cancel":

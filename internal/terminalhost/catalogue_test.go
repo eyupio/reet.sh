@@ -443,3 +443,15 @@ func TestOnlyOpenCodeHasAConfirmedModelListing(t *testing.T) {
 	}
 	t.Fatal("OpenCode has no model listing row")
 }
+
+func TestLaunchArgvPrefersAManagedBinary(t *testing.T) {
+	in := terminalproto.Create{Tool: "opencode", Title: "run", Cols: 80, Rows: 24}
+	managed := "/home/me/.reet/software/opencode/versions/1.19.5/opencode"
+	argv, err := launchArgv(in, fakeLookPath("opencode"), managed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(argv) == 0 || argv[0] != managed {
+		t.Fatalf("launch did not use the managed binary: %v", argv)
+	}
+}

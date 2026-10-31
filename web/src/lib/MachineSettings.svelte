@@ -6,7 +6,7 @@
   import { CATALOGUE } from './catalogue'
   import { softwareLine, softwarePlanAction } from './software'
   import { formatAge, type MachineModels } from './models'
-  import { allModels, machineModels, machineSoftwarePlan, refreshMachineModels, type SoftwareEntry, type SoftwarePlan, type TerminalMachine } from './terminal/api'
+  import { allModels, applyMachineSoftware, machineModels, machineSoftwarePlan, refreshMachineModels, type SoftwareEntry, type SoftwarePlan, type TerminalMachine } from './terminal/api'
 
   // A machine's policies live here rather than beside the buttons that act on
   // it, so a card says what is happening and this dialog says how it is set.
@@ -57,9 +57,40 @@
 
   type PlanRead = { loading: boolean; plan: SoftwarePlan | null; error: string }
   let plans = $state<Record<string, PlanRead>>({})
-  const softwareEntries: SoftwareEntry[] = $derived(terminal?.capabilities?.software ?? [])
+  let localEntries = $state<Record<string, SoftwareEntry>>({})
+  let applying = $state('')
+  let applyError = $state<Record<string, string>>({})
+  let notice = $state<Record<string, string>>({})
+  let confirm = $state<{ tool: string; action: 'install' | 'update'; plan: SoftwarePlan } | null>(null)
+  let confirmDialog = $state<HTMLDialogElement>()
+  const softwareEntries: SoftwareEntry[] = $derived((terminal?.capabilities?.software ?? []).map(entry => localEntries[entry.tool] ?? entry))
+  const canApply = $derived(terminal?.capabilities?.softwareApply === true)
   function catalogueName(tool: string): string { return CATALOGUE.find(item => item.id === tool)?.name ?? tool }
   function planAction(entry: SoftwareEntry): 'install' | 'update' | '' { return softwarePlanAction(entry) }
+  function openApply(tool: string, action: 'install' | 'update', plan: SoftwarePlan) {
+    applyError[tool] = ''
+    notice[tool] = ''
+    confirm = { tool, action, plan }
+    confirmDialog?.showModal()
+  }
+  async function applyConfirm() {
+    if (!terminal || !confirm || applying) return
+    const { tool, action } = confirm
+    applying = tool
+    applyError[tool] = ''
+    try {
+      const answer = await applyMachineSoftware(terminal.agentId, tool, action)
+      if (answer.result.entry) localEntries[tool] = answer.result.entry
+      notice[tool] = `${action === 'install' ? 'Installed' : 'Updated'} OpenCode ${answer.result.version} on ${machine.host}.`
+      confirmDialog?.close()
+      plans[tool] = { loading: false, plan: answer.plan, error: '' }
+      await review(tool, action)
+    } catch (error) {
+      applyError[tool] = error instanceof Error ? error.message : "That install didn't finish."
+    } finally {
+      applying = ''
+    }
+  }
   async function review(tool: string, action: 'install' | 'update') {
     if (!terminal || plans[tool]?.loading) return
     plans[tool] = { loading: true, plan: plans[tool]?.plan ?? null, error: '' }
@@ -254,7 +285,17 @@
                   <p>{plan.sentence}</p>
                   {#if plan.steps.length}<ol>{#each plan.steps as step}<li>{step}</li>{/each}</ol>{/if}
                   {#each plan.effects as effect}<small>{effect}</small>{/each}
+                  {#if plan.source}<small class="plan-source">Source: <code>{plan.source}</code></small>{/if}
                   {#if plan.command}<code class="plan-command">{plan.command}</code>{/if}
+                  {#if notice[entry.tool]}<small class="plan-notice">{notice[entry.tool]}</small>{/if}
+                  {#if plan.state === 'ready' && action && canApply}
+                    <button class="btn plan-apply" type="button" disabled={!!applying || read?.loading} onclick={() => openApply(entry.tool, action, plan)}>
+                      {applying === entry.tool ? 'Applying…' : `Apply ${action}`}
+                    </button>
+                  {:else if plan.state === 'ready' && action}
+                    <small class="hint">Update reet on {machine.host} to apply this plan.</small>
+                  {/if}
+                  {#if applyError[entry.tool]}<small class="plan-error">{applyError[entry.tool]}</small>{/if}
                 </div>
               {/if}
             </div>
@@ -288,6 +329,27 @@
   </div>
 </dialog>
 
+<dialog bind:this={confirmDialog} class="confirm" aria-labelledby={`${id}-confirm-title`} onclose={() => { confirm = null }}>
+  <div class="confirm-body">
+    <h2 id={`${id}-confirm-title`}>Apply this {confirm?.action}?</h2>
+    {#if confirm}
+      <p>{confirm.plan.sentence}</p>
+      <dl>
+        <dt>Machine</dt><dd>{machine.host}</dd>
+        <dt>Version</dt><dd>{confirm.plan.target || confirm.plan.current}</dd>
+        <dt>Source</dt><dd><code>{confirm.plan.source}</code></dd>
+      </dl>
+      {#each confirm.plan.effects as effect}<p class="hint">{effect}</p>{/each}
+      <p class="hint">reet downloads the artifact, verifies its recorded checksum, and only then makes it current.</p>
+      {#if applyError[confirm.tool]}<p class="plan-error">{applyError[confirm.tool]}</p>{/if}
+    {/if}
+    <div class="confirm-actions">
+      <button class="btn" type="button" onclick={() => confirmDialog?.close()} disabled={!!applying}>Cancel</button>
+      <button class="btn primary" type="button" onclick={() => void applyConfirm()} disabled={!!applying}>{applying ? 'Applying…' : 'Apply now'}</button>
+    </div>
+  </div>
+</dialog>
+
 <style>
   dialog { width: min(640px, calc(100vw - 32px)); max-height: min(88vh, 760px); padding: 0; border: 1px solid var(--line); border-radius: 18px; background: var(--card); color: var(--ink); box-shadow: 0 30px 90px rgb(0 0 0 / 0.28); }
   dialog::backdrop { background: rgb(20 18 16 / 0.45); backdrop-filter: blur(2px); }
@@ -314,6 +376,20 @@
   .plan ol { display: grid; gap: 4px; padding-left: 18px; }
   .plan-command { font: 12px/1.4 var(--mono, monospace); overflow-wrap: anywhere; }
   .plan-error { color: var(--bad); }
+  .plan-source { overflow-wrap: anywhere; }
+  .plan-source code { font-size: 0.72rem; }
+  .plan-notice { color: var(--good); }
+  .plan-apply { align-self: start; margin-top: 2px; }
+  .confirm { width: min(520px, calc(100vw - 32px)); border-radius: 16px; }
+  .confirm-body { display: grid; gap: 12px; padding: clamp(20px, 4vw, 28px); }
+  .confirm h2 { margin: 0; font: 500 clamp(1.3rem, 3vw, 1.7rem)/1.15 var(--serif); letter-spacing: -0.02em; }
+  .confirm p { margin: 0; color: var(--ink); font-size: 0.88rem; line-height: 1.55; }
+  .confirm dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 0.82rem; }
+  .confirm dt { color: var(--muted); }
+  .confirm dd { margin: 0; overflow-wrap: anywhere; }
+  .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+  .confirm-actions .btn { min-height: 38px; padding: 8px 14px; }
+  .confirm-actions .primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
   .row .btn { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.8rem; }
   .btn.danger { color: var(--bad); }
   .switch { position: relative; flex: none; width: 42px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); cursor: pointer; }

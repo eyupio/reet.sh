@@ -41,8 +41,8 @@ func launchTools() []string { return terminalhost.InstalledTools(exec.LookPath, 
 // softwareInventory reports the installation evidence reet can show without
 // running an installer. OpenCode is the first reviewed install method; the
 // entry is reported even when it is missing so a plan can name the install.
-func softwareInventory() []terminalproto.SoftwareEntry {
-	return []terminalproto.SoftwareEntry{terminalhost.InspectSoftware("opencode", exec.LookPath)}
+func softwareInventory(home string) []terminalproto.SoftwareEntry {
+	return []terminalproto.SoftwareEntry{terminalhost.InspectSoftware(home, "opencode", exec.LookPath)}
 }
 
 // gitAvailable reports whether git is on this connector's PATH (as an

@@ -55,11 +55,30 @@ const (
 	SoftwareUnreadable          SoftwareReason = "unreadable"
 	SoftwarePackageUnknown      SoftwareReason = "package_unknown"
 	SoftwarePlatformUnsupported SoftwareReason = "platform_unsupported"
+	SoftwareManagedBroken       SoftwareReason = "managed_broken"
 )
 
 func (r SoftwareReason) Valid() bool {
 	switch r {
-	case SoftwareNotInstalled, SoftwareUnsupportedTool, SoftwareUnreadable, SoftwarePackageUnknown, SoftwarePlatformUnsupported:
+	case SoftwareNotInstalled, SoftwareUnsupportedTool, SoftwareUnreadable, SoftwarePackageUnknown, SoftwarePlatformUnsupported, SoftwareManagedBroken:
+		return true
+	}
+	return false
+}
+
+// SoftwareAction is the maintenance decision a plan can name. It is not a
+// command the controller may supply to the connector.
+type SoftwareAction string
+
+const (
+	SoftwareActionInstall SoftwareAction = "install"
+	SoftwareActionUpdate  SoftwareAction = "update"
+	SoftwareActionRemove  SoftwareAction = "remove"
+)
+
+func (a SoftwareAction) Valid() bool {
+	switch a {
+	case SoftwareActionInstall, SoftwareActionUpdate, SoftwareActionRemove:
 		return true
 	}
 	return false
@@ -86,16 +105,19 @@ func (o SoftwareOperation) Valid() bool {
 // SoftwareEntry is one tool's installation evidence. It deliberately carries no
 // package-manager output, command history or configuration contents.
 type SoftwareEntry struct {
-	Tool       string              `json:"tool"`
-	State      SoftwareState       `json:"state"`
-	Version    string              `json:"version,omitempty"`
-	Manager    string              `json:"manager,omitempty"`
-	Package    string              `json:"package,omitempty"`
-	Path       string              `json:"path,omitempty"`
-	Platform   string              `json:"platform,omitempty"`
-	Arch       string              `json:"arch,omitempty"`
-	Source     string              `json:"source,omitempty"`
-	Evidence   string              `json:"evidence,omitempty"`
+	Tool     string        `json:"tool"`
+	State    SoftwareState `json:"state"`
+	Version  string        `json:"version,omitempty"`
+	Manager  string        `json:"manager,omitempty"`
+	Package  string        `json:"package,omitempty"`
+	Path     string        `json:"path,omitempty"`
+	Platform string        `json:"platform,omitempty"`
+	Arch     string        `json:"arch,omitempty"`
+	Source   string        `json:"source,omitempty"`
+	Evidence string        `json:"evidence,omitempty"`
+	// Managed is true only for an installation reet staged itself. An
+	// installation reet did not make stays inspect-only.
+	Managed    bool                `json:"managed,omitempty"`
 	Operations []SoftwareOperation `json:"operations,omitempty"`
 	Reason     SoftwareReason      `json:"reason,omitempty"`
 	CheckedAt  int64               `json:"checkedAt"`
@@ -109,6 +131,9 @@ func (e SoftwareEntry) Valid() bool {
 		return false
 	}
 	if e.Reason != "" && (!e.Reason.Valid() || e.State == SoftwareInstalled) {
+		return false
+	}
+	if e.Managed && e.State != SoftwareInstalled {
 		return false
 	}
 	if len(e.Operations) > 3 {
@@ -147,4 +172,122 @@ func ValidSoftware(entries []SoftwareEntry) bool {
 	}
 	data, err := json.Marshal(entries)
 	return err == nil && len(data) <= MaxSoftwareReplyBytes
+}
+
+// SoftwareApplyFeature lets a connector accept one reviewed install or update.
+// It is separate from software-v1: observing evidence and changing a machine
+// are different permissions.
+const SoftwareApplyFeature = "software-apply-v1"
+
+// MaxSoftwareApplyReplyBytes keeps the result, including the new entry, inside
+// a control frame with its envelope.
+const MaxSoftwareApplyReplyBytes = 8 << 10
+
+func SupportsSoftwareApply(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == SoftwareApplyFeature {
+			return true
+		}
+	}
+	return false
+}
+
+// SoftwareApply asks for one reviewed action. The controller supplies only the
+// tool, action and the evidence the person approved; the connector owns the
+// artifact URL, checksums and command.
+type SoftwareApply struct {
+	Tool            string         `json:"tool"`
+	Action          SoftwareAction `json:"action"`
+	ExpectedState   SoftwareState  `json:"expectedState"`
+	ExpectedVersion string         `json:"expectedVersion,omitempty"`
+	ExpectedManaged bool           `json:"expectedManaged,omitempty"`
+}
+
+func (SoftwareApply) kind() string { return "software_apply" }
+
+func (s SoftwareApply) valid() bool {
+	if !ValidTool(s.Tool) || !s.Action.Valid() || !s.ExpectedState.Valid() || !plainText(s.ExpectedVersion, 64) {
+		return false
+	}
+	switch s.Action {
+	case SoftwareActionInstall:
+		return s.ExpectedState == SoftwareMissing || s.ExpectedState == SoftwareInstalled && !s.ExpectedManaged
+	case SoftwareActionUpdate:
+		return s.ExpectedState == SoftwareInstalled && s.ExpectedManaged
+	}
+	return false
+}
+
+type SoftwareApplyState string
+
+const (
+	SoftwareApplyApplied SoftwareApplyState = "applied"
+	SoftwareApplyRefused SoftwareApplyState = "refused"
+	SoftwareApplyFailed  SoftwareApplyState = "failed"
+)
+
+func (s SoftwareApplyState) Valid() bool {
+	switch s {
+	case SoftwareApplyApplied, SoftwareApplyRefused, SoftwareApplyFailed:
+		return true
+	}
+	return false
+}
+
+type SoftwareApplyReason string
+
+const (
+	SoftwareApplyUnsupported SoftwareApplyReason = "unsupported"
+	SoftwareApplyChanged     SoftwareApplyReason = "changed"
+	SoftwareApplyBusy        SoftwareApplyReason = "busy"
+	SoftwareApplySessions    SoftwareApplyReason = "sessions_running"
+	SoftwareApplyDownload    SoftwareApplyReason = "download_failed"
+	SoftwareApplyChecksum    SoftwareApplyReason = "checksum_failed"
+	SoftwareApplyInstall     SoftwareApplyReason = "install_failed"
+	SoftwareApplyNotManaged  SoftwareApplyReason = "not_managed"
+	SoftwareApplyOff         SoftwareApplyReason = "off"
+	SoftwareApplyTimedOut    SoftwareApplyReason = "timed_out"
+	SoftwareApplyUnreadable  SoftwareApplyReason = "unreadable"
+)
+
+func (r SoftwareApplyReason) Valid() bool {
+	switch r {
+	case SoftwareApplyUnsupported, SoftwareApplyChanged, SoftwareApplyBusy, SoftwareApplySessions,
+		SoftwareApplyDownload, SoftwareApplyChecksum, SoftwareApplyInstall, SoftwareApplyNotManaged,
+		SoftwareApplyOff, SoftwareApplyTimedOut, SoftwareApplyUnreadable:
+		return true
+	}
+	return false
+}
+
+// SoftwareApplyResult is the outcome of one request. An applied result carries
+// the fresh evidence for the tool so the controller can replace its cached
+// entry; a refused or failed result carries a closed reason and no entry.
+type SoftwareApplyResult struct {
+	Tool     string              `json:"tool"`
+	Action   SoftwareAction      `json:"action"`
+	State    SoftwareApplyState  `json:"state"`
+	Version  string              `json:"version,omitempty"`
+	Previous string              `json:"previous,omitempty"`
+	Reason   SoftwareApplyReason `json:"reason,omitempty"`
+	Entry    *SoftwareEntry      `json:"entry,omitempty"`
+}
+
+func (SoftwareApplyResult) kind() string { return "software_apply_result" }
+
+func (r SoftwareApplyResult) valid() bool {
+	if !ValidTool(r.Tool) || !r.Action.Valid() || !r.State.Valid() ||
+		!plainText(r.Version, 64) || !plainText(r.Previous, 64) {
+		return false
+	}
+	if r.State == SoftwareApplyApplied {
+		if r.Reason != "" || r.Entry == nil || !r.Entry.Valid() || r.Entry.State != SoftwareInstalled ||
+			r.Entry.Version != r.Version {
+			return false
+		}
+	} else if !r.Reason.Valid() || r.Entry != nil {
+		return false
+	}
+	data, err := json.Marshal(r)
+	return err == nil && len(data) <= MaxSoftwareApplyReplyBytes
 }

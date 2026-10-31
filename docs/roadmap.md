@@ -6,7 +6,7 @@ These are directions, not commitments: there are no dates.
 
 Next, in this order:
 
-- **Verified agent installation, updates and removal.** reet now reports OpenCode's installation evidence on Linux and shows a reviewed install, update or remove plan against its pinned 1.19.5. It does not run one yet; verified execution with rollback comes next.
+- **Agent removal, explicit rollback and fleet-wide maintenance.** reet now installs and updates OpenCode on Linux from one verified 1.19.5 artifact, keeping its own copy beside a system installation. Next: remove only reet-managed copies, an explicit rollback action, and reviewed fleet-wide maintenance.
 
 Later:
 

@@ -42,7 +42,7 @@ type Receipt struct {
 // by remove or rollback, and a person's configuration and history never live
 // here.
 func Root(home, tool string) (string, error) {
-	if !filepath.IsAbs(home) || !terminalproto.ValidTool(tool) {
+	if !filepath.IsAbs(home) || !terminalproto.ValidToolV2(tool) {
 		return "", fmt.Errorf("%w: invalid home or tool", ErrNotManaged)
 	}
 	return filepath.Join(home, ".reet", "software", tool), nil

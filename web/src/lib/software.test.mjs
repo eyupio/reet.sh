@@ -8,11 +8,11 @@ const { outputText } = ts.transpileModule(readFileSync(new URL('./software.ts', 
 })
 const { softwareLine, softwarePlanAction } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
-const installed = { tool: 'opencode', state: 'installed', version: '1.19.5', manager: 'node_package', package: 'opencode-ai', path: '/usr/local/bin/opencode', platform: 'linux', arch: 'amd64', source: 'package.json', operations: ['plan_update', 'plan_remove'], checkedAt: 1 }
+const installed = { tool: 'opencode', state: 'installed', version: '1.19.5', manager: 'reet', package: 'opencode-ai', path: '/home/me/.reet/software/opencode/versions/1.19.5/opencode', platform: 'linux', arch: 'amd64', source: 'verified_tarball', managed: true, operations: ['plan_update', 'plan_remove'], checkedAt: 1 }
 const missing = { tool: 'opencode', state: 'missing', package: 'opencode-ai', source: 'npm', platform: 'linux', arch: 'amd64', reason: 'not_installed', operations: ['plan_install'], checkedAt: 1 }
 
 test('installed line names the manager, source and path', () => {
-  assert.equal(softwareLine(installed), 'node_package · package.json · /usr/local/bin/opencode')
+  assert.equal(softwareLine(installed), 'Managed by reet · verified 1.19.5 · /home/me/.reet/software/opencode/versions/1.19.5/opencode')
 })
 
 test('missing line names the reviewed package and source', () => {
@@ -27,6 +27,7 @@ test('unknown and unsupported installation lines are distinct', () => {
 test('the plan action follows the evidence and its operations', () => {
   assert.equal(softwarePlanAction(installed), 'update')
   assert.equal(softwarePlanAction(missing), 'install')
+  assert.equal(softwarePlanAction({ ...installed, managed: false, operations: ['plan_install'] }), 'install')
   assert.equal(softwarePlanAction({ ...installed, operations: [] }), '')
   assert.equal(softwarePlanAction({ ...missing, operations: ['plan_update'] }), '')
   assert.equal(softwarePlanAction({ ...installed, state: 'unknown', operations: ['plan_update'] }), '')

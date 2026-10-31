@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -197,7 +198,13 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		if dir, err = ResolveDir(m.home, in.Dir); err != nil {
 			return ManagedSession{}, err
 		}
-		if argv, err = LaunchArgv(in, m.lookPath); err != nil {
+		managed := ""
+		if path, found, managedErr := agentsoftware.ManagedBinary(m.home, in.Tool); managedErr != nil {
+			return ManagedSession{}, launchUnavailable("managed installation is broken")
+		} else if found {
+			managed = path
+		}
+		if argv, err = launchArgv(in, m.lookPath, managed); err != nil {
 			return ManagedSession{}, err
 		}
 	} else if in.Dir != "" {

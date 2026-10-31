@@ -78,3 +78,32 @@ func TestSoftwareCapabilityDropsInvalidAndDuplicateEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSoftwareApplyCapabilityNeedsNegotiationAndTerminalAccess(t *testing.T) {
+	cfg := AgentConfig{
+		TerminalSession: testTerminalFactory,
+		Software: func() []terminalproto.SoftwareEntry {
+			return []terminalproto.SoftwareEntry{testSoftwareEntry("opencode", "1.19.5")}
+		},
+	}
+	negotiateFeatures(&cfg, terminalproto.SoftwareFeature)
+	if caps := capabilitiesFor(cfg, true, terminalproto.Ready); caps.SoftwareApply {
+		t.Fatal("apply capability without software-apply-v1")
+	}
+	negotiateFeatures(&cfg, terminalproto.SoftwareFeature+","+terminalproto.SoftwareApplyFeature)
+	caps := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if !caps.SoftwareApply {
+		t.Fatal("apply capability not reported")
+	}
+	if err := caps.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if caps := capabilitiesFor(cfg, false, terminalproto.DisabledLocally); caps.SoftwareApply {
+		t.Fatal("apply capability with terminal access off")
+	}
+	noControl := AgentConfig{Software: cfg.Software}
+	negotiateFeatures(&noControl, terminalproto.SoftwareFeature+","+terminalproto.SoftwareApplyFeature)
+	if caps := capabilitiesFor(noControl, true, terminalproto.Ready); caps.SoftwareApply {
+		t.Fatal("apply capability without terminal control")
+	}
+}

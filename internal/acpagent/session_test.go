@@ -133,6 +133,20 @@ func TestFakeACP(t *testing.T) {
 						"rawInput":  map[string]string{"filepath": "/tmp/hello.txt", "diff": "@@ -0,0 +1 @@\n+hello\n"}},
 					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "always", "kind": "allow_always", "name": "Always allow"}, {"optionId": "reject", "kind": "reject_once", "name": "Reject"}},
 				}})
+			case "tool-details":
+				update(session, "tool_call", map[string]any{"toolCallId": "call_run", "title": "go test ./...", "kind": "execute", "status": "pending",
+					"rawInput": map[string]string{"command": "go test ./..."}})
+				update(session, "tool_call", map[string]any{"toolCallId": "call_edit", "title": "notes.txt", "kind": "edit", "status": "pending",
+					"locations": []map[string]string{{"path": "/work/notes.txt"}}})
+				time.Sleep(8 * time.Millisecond)
+				update(session, "tool_call_update", map[string]any{"toolCallId": "call_run", "title": "go test ./...", "kind": "execute", "status": "completed",
+					"rawInput": map[string]string{"command": "go test ./..."},
+					"content":  []map[string]any{{"type": "content", "content": map[string]string{"type": "text", "text": "ok"}}}})
+				update(session, "tool_call_update", map[string]any{"toolCallId": "call_edit", "title": "notes.txt", "kind": "edit", "status": "completed",
+					"locations": []map[string]string{{"path": "/work/notes.txt"}},
+					"rawInput":  map[string]string{"filePath": "/work/notes.txt"},
+					"rawOutput": map[string]any{"metadata": map[string]any{"filediff": map[string]any{"patch": "@@ -1 +1 @@\n-alpha\n+ALPHA\n", "file": "/work/notes.txt", "additions": 1, "deletions": 1}}}})
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
 			case "watchdog":
 				time.Sleep(120 * time.Millisecond)
 				reply(promptID, map[string]any{"stopReason": "end_turn"})
@@ -278,6 +292,42 @@ func TestPermissionAllowDeny(t *testing.T) {
 				t.Fatal("no resolution")
 			}
 		})
+	}
+}
+
+func TestToolDetailsForTheRow(t *testing.T) {
+	opts, got := options(t, "tool-details", testVersion)
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.Prompt(context.Background(), "run the tests and edit the notes"); err != nil {
+		t.Fatal(err)
+	}
+	var run, edit Event
+	deadline := time.After(3 * time.Second)
+	for run.ToolCallID == "" || edit.ToolCallID == "" {
+		select {
+		case event := <-got.wait:
+			if event.Kind != "tool" || event.Status != "completed" {
+				continue
+			}
+			switch event.ToolCallID {
+			case "call_run":
+				run = event
+			case "call_edit":
+				edit = event
+			}
+		case <-deadline:
+			t.Fatalf("tool details not seen: run=%+v edit=%+v", run, edit)
+		}
+	}
+	if run.Command != "go test ./..." || run.DurationMs <= 0 {
+		t.Fatalf("run details %+v", run)
+	}
+	if edit.Path != "/work/notes.txt" || !strings.Contains(edit.Diff, "-alpha") || edit.Additions != 1 || edit.Deletions != 1 || edit.DurationMs <= 0 {
+		t.Fatalf("edit details %+v", edit)
 	}
 }
 

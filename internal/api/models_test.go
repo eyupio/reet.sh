@@ -13,6 +13,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -39,7 +40,7 @@ func modelsCaps() terminalproto.Capabilities {
 
 func modelsAPIFixture(t *testing.T, caps terminalproto.Capabilities) *modelsAPI {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

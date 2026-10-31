@@ -13,7 +13,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/eyupio/reet.sh/internal/api"
 	"github.com/eyupio/reet.sh/internal/meta"
-	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
 
 func TestStandaloneTerminalSetupUsesRealTTYAndPreservesDeclinedConsent(t *testing.T) {
@@ -54,7 +54,7 @@ func TestEnrollmentActuallyOffersTerminalSetupAndCanSkipIt(t *testing.T) {
 	for _, skip := range []bool{false, true} {
 		t.Run(map[bool]string{false: "guided", true: "skip"}[skip], func(t *testing.T) {
 			t.Setenv("REET_TOKEN", "")
-			st, err := store.Open(t.TempDir())
+			st, err := storetest.Open(t)
 			if err != nil {
 				t.Fatal(err)
 			}

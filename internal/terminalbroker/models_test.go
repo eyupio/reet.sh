@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -33,7 +34,7 @@ func modelsCapabilities() terminalproto.Capabilities {
 
 func modelsFixture(t *testing.T, caps terminalproto.Capabilities) *modelsPeer {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

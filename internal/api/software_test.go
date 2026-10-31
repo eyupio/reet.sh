@@ -11,6 +11,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -195,7 +196,7 @@ type softwareApplyAPI struct {
 
 func softwareApplyAPIFixture(t *testing.T, caps terminalproto.Capabilities) *softwareApplyAPI {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

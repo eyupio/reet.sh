@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 func chatFixture(t *testing.T) (*Broker, *Peer, int64, string) {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

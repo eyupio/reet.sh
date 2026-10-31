@@ -150,11 +150,7 @@ func TestProjectEnvironmentIDsDoNotCollide(t *testing.T) {
 }
 
 func TestMachinesGroupAgentsDeduplicateSkillsAndScopeFilters(t *testing.T) {
-	s, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
+	s := newStore(t)
 	owner, _ := s.DefaultOwner()
 	other, err := s.CreateUser("machine-other@example.com", "Other", "member", "hash")
 	if err != nil {

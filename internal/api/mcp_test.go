@@ -19,12 +19,13 @@ import (
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func mcpAccounts(t *testing.T) (*httptest.Server, *store.Store, *http.Client, int64) {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
 	}

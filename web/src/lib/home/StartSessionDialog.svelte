@@ -10,7 +10,7 @@
   import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from '../terminal/upload'
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import SkillPromptPicker from './SkillPromptPicker.svelte'
-  import { initialChoice, startable, toCreate, withAgent, withProject, type LaunchChoice, type LaunchCreate, type LaunchDefaults } from '../launchBar'
+  import { defaultTitle, initialChoice, startable, toCreate, withAgent, withProject, type LaunchChoice, type LaunchCreate, type LaunchDefaults } from '../launchBar'
   import { createTerminal, launchUpload, machineModels, refusalSentence, structuredAgent, TerminalError, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
 
   // Starts a session straight from the Active column. The interface choice is the launch bar's own: the reet TUI is the default
@@ -24,9 +24,9 @@
   const id = $props.id()
   const life = new AbortController()
   let dialog = $state<HTMLDialogElement>()
-  let busy = $state(false), message = $state('')
+  let busy = $state(false), message = $state(''), title = $state(''), titleTouched = $state(false)
   // Kept while a start's outcome is unknown, so Retry asks about the same request and cannot start a second agent.
-  let request: (LaunchCreate & { structured: boolean }) | null = null, requestPrompt = ''
+  let request: (LaunchCreate & { structured: boolean }) | null = null, requestKey = ''
   const first = (): LaunchChoice => {
     const options = { machines }
     const start = initialChoice(projects, profile, options)
@@ -116,6 +116,9 @@
     event.preventDefault(); addImages(files)
   }
 
+  // The title follows the prompt's first line until the person types their own.
+  $effect(() => { if (!titleTouched) title = defaultTitle(choice.prompt) })
+
   function pickProject(value: string) {
     const next = projects.find(p => p.id === value)
     if (next) choice = withProject(choice, next, profile, { machines })
@@ -128,7 +131,10 @@
     if (busy || why) { if (why) message = why; return }
     if (imagesReason) { message = imagesReason; return }
     let made: LaunchCreate | null = null
-    if (!request || requestPrompt !== choice.prompt) made = toCreate(choice, project, crypto.randomUUID(), crypto.randomUUID().replaceAll('-', ''), profile)
+    if (!request || requestKey !== `${choice.prompt}\u0000${title}`) {
+      made = toCreate(choice, project, crypto.randomUUID(), crypto.randomUUID().replaceAll('-', ''), profile)
+      if (title.trim()) made.title = title.trim()
+    }
     if (made && attachments.length) {
       // The images go to the machine before the session exists; their paths join the opening prompt.
       busy = true
@@ -148,7 +154,7 @@
       if (life.signal.aborted) return
       made.launch.prompt = imagePrompt(made.launch.prompt ?? '', references)
     }
-    if (made) { request = { ...made, structured: !!made.launch.structured }; requestPrompt = choice.prompt }
+    if (made) { request = { ...made, structured: !!made.launch.structured }; requestKey = `${choice.prompt}\u0000${title}` }
     const op = request!
     busy = true; message = `Starting ${toolName(op.launch.tool)}…`
     try {
@@ -207,6 +213,8 @@
             </div>
             <small>{chat ? 'A native chat with approvals, history and images.' : `${toolName(choice.agent)}’s own terminal interface.`}</small>
           </div>
+          <label class="field"><span>Session title <small>Optional · suggested from your prompt</small></span>
+            <input aria-label="Session title" bind:value={title} oninput={() => titleTouched = true} maxlength="80" placeholder="A short name for this piece of work" /></label>
           <div class="settings">
             <div class="field"><span>Model</span>
               <button type="button" class="picker" bind:this={modelButton} aria-label={`Model: ${choice.model || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={modelOpen} onclick={() => modelOpen = !modelOpen}><span class="value">{choice.model || 'Agent default'}</span><span class="chev" aria-hidden="true">▾</span></button></div>
@@ -264,7 +272,7 @@
   fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
   .field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 15px; font-size: 13px; font-weight: 600; }
   .field small { font-size: 11px; font-weight: 400; color: var(--muted); }
-  select, textarea { width: 100%; box-sizing: border-box; font-size: 13px; font-weight: 400; color: var(--ink); }
+  input:not([type='checkbox']):not([type='file']), select, textarea { width: 100%; box-sizing: border-box; font-size: 13px; font-weight: 400; color: var(--ink); }
   textarea { resize: vertical; min-height: 90px; }
   .mode { display: inline-flex; align-self: flex-start; border: 1px solid var(--line); border-radius: 8px; padding: 3px; background: var(--bg-sunk); }
   .mode button { padding: 8px 14px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--muted); font: 500 12px var(--sans); cursor: pointer; }
@@ -289,5 +297,5 @@
   .trust { display: flex; align-items: center; gap: 8px; font-size: 12px; }
   .note, .none { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
   footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; border-top: 1px solid var(--line); }
-  @media (max-width: 650px) { select, textarea, .picker { font-size: 16px; } .settings { grid-template-columns: 1fr; gap: 0; } .skill-add { min-height: 44px; } header, .body, footer { padding-left: 16px; padding-right: 16px; } }
+  @media (max-width: 650px) { input:not([type='checkbox']), select, textarea, .picker { font-size: 16px; } .settings { grid-template-columns: 1fr; gap: 0; } .skill-add { min-height: 44px; } header, .body, footer { padding-left: 16px; padding-right: 16px; } }
 </style>

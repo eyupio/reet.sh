@@ -177,11 +177,22 @@ func TestFakeACP(t *testing.T) {
 						"rawInput":  map[string]string{"filepath": "/tmp/hello.txt", "diff": "@@ -0,0 +1 @@\n+hello\n"}},
 					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "always", "kind": "allow_always", "name": "Always allow"}, {"optionId": "reject", "kind": "reject_once", "name": "Reject"}},
 				}})
-			case "question", "question-bad", "question-off":
+			case "question", "question-bad", "question-off", "question-big":
 				properties := map[string]any{
 					"question_0": map[string]any{"type": "string", "title": "Probe", "oneOf": []map[string]string{
 						{"const": "Option A", "title": "Option A", "description": "First"}, {"const": "Option B", "title": "Option B"}}},
 					"question_0_custom": map[string]any{"type": "string", "title": "Other"},
+				}
+				if scenario == "question-big" {
+					// Valid for the machine parser (under 16 KiB) but over the wire bound.
+					properties = map[string]any{}
+					for f := 0; f < 6; f++ {
+						var options []map[string]string
+						for o := 0; o < 12; o++ {
+							options = append(options, map[string]string{"const": fmt.Sprintf("v%02d%02d", f, o), "title": strings.Repeat("t", 150)})
+						}
+						properties[fmt.Sprintf("question_%d", f)] = map[string]any{"type": "string", "oneOf": options}
+					}
 				}
 				if scenario == "question-bad" {
 					properties["question_0_custom"] = map[string]any{"type": "string", "pattern": "^a$"}

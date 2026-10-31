@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // Typed agent questions (SC3). An adapter asks with a form-mode
@@ -546,4 +548,22 @@ func (f QuestionField) offers(value string) bool {
 		}
 	}
 	return false
+}
+
+// Wire is the question in the private protocol's shape. Its Valid method is the
+// authority on whether the form fits the control frame.
+func (q Question) Wire() terminalproto.ACPQuestion {
+	wire := terminalproto.ACPQuestion{Message: q.Message, Fields: make([]terminalproto.ACPQuestionField, 0, len(q.Fields))}
+	for _, f := range q.Fields {
+		field := terminalproto.ACPQuestionField{Key: f.Key, Title: f.Title, Description: f.Description, Kind: string(f.Kind),
+			Required: f.Required, MinItems: f.MinItems, MaxItems: f.MaxItems, MaxLength: f.MaxLength}
+		if f.Kind == QuestionSingle {
+			field.MinItems, field.MaxItems = 0, 0
+		}
+		for _, o := range f.Options {
+			field.Options = append(field.Options, terminalproto.ACPQuestionOption{Value: o.Value, Label: o.Label, Description: o.Description})
+		}
+		wire.Fields = append(wire.Fields, field)
+	}
+	return wire
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -197,5 +198,39 @@ func TestQuestionAnswerNeedsAProcessThatCanAsk(t *testing.T) {
 	a := terminalproto.ACPQuestionAnswer{QuestionID: connectorQuestionID, Action: "decline"}
 	if _, err := h.question("session-0123456789", &a); !errors.Is(err, terminalhost.ErrOperationConflict) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// A question answer is refused at the dispatcher, before any chat is looked up,
+// unless the connection negotiated both acp-v1 and acp-question-v1.
+func TestQuestionAnswerRequiresNegotiatedFeatures(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		features string
+		refused  bool
+	}{
+		{"none", "", true},
+		{"chat only", terminalproto.ACPFeature, true},
+		{"question without chat", terminalproto.ACPQuestionFeature, true},
+		{"both", terminalproto.ACPFeature + "," + terminalproto.ACPQuestionFeature, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make(replies, 4)
+			headers := http.Header{}
+			if tc.features != "" {
+				headers.Set(terminalproto.FeatureHeader, tc.features)
+			}
+			handle, cleanup := Factory(terminalhost.ManagerOptions{})(t.Context(), http.DefaultClient, headers, 1, got.send)
+			defer cleanup()
+			msg := terminalproto.Message{Version: terminalproto.Version, Generation: 1, RequestID: "request-0123456789", SessionID: "session-0123456789",
+				Body: &terminalproto.ACPQuestionAnswer{QuestionID: connectorQuestionID, Action: "decline"}}
+			if err := msg.Validate(); err != nil {
+				t.Fatal("not a valid message", err)
+			}
+			err := handle(t.Context(), msg)
+			if tc.refused != errors.Is(err, terminalproto.ErrInvalid) {
+				t.Fatalf("features %q: err = %v, refused want %v", tc.features, err, tc.refused)
+			}
+		})
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -35,6 +36,14 @@ func ListModels(ctx context.Context, tool string, lookPath func(string) (string,
 		return result
 	}
 	binary, ok := resolveBinary(p, lookPath)
+	if home != "" {
+		if managed, found, err := agentsoftware.ManagedBinary(home, tool); err != nil {
+			result.Reason = terminalproto.ModelsUnreadable
+			return result
+		} else if found {
+			binary, ok = managed, true
+		}
+	}
 	if !ok {
 		result.Reason = terminalproto.ModelsNotInstalled
 		return result

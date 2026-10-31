@@ -52,6 +52,7 @@ type AgentConfig struct {
 	models            bool
 	modelsAllowed     bool
 	software          bool
+	softwareApply     bool
 	yoloAllowed       bool
 	acp               bool
 	acpHistory        bool
@@ -705,6 +706,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
 	cfg.models = terminalproto.SupportsModels(advertised)
 	cfg.software = terminalproto.SupportsSoftware(advertised)
+	cfg.softwareApply = terminalproto.SupportsSoftwareApply(advertised)
 	cfg.acp = terminalproto.SupportsACP(advertised)
 	cfg.acpHistory = terminalproto.SupportsACPHistory(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
@@ -879,6 +881,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		Attention:       cfg.attention && control,
 		Branches:        cfg.branches && worktree && enabled,
 		Software:        software,
+		SoftwareApply:   cfg.softwareApply && control && enabled,
 		TerminalControl: cfg.TerminalSession != nil,
 		CommandHistory:  cfg.commandHistory && cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin"),
 		ProtocolVersion: terminalproto.Version,

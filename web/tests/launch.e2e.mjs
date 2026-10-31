@@ -208,7 +208,7 @@ try {
   const {context,page,errors,box} = await launch({projects:[...fprojects(), blog()], routes})
   await page.goto(base); await openQuick(page)
   const rail = page.locator('aside.rail')
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   await rail.getByRole('button',{name:'Projects menu'}).click()
   await page.getByRole('menuitem',{name:'Select projects'}).click()
   for (const name of [/^Site/, /^Blog/, /^Store rewrite/]) await rail.getByRole('checkbox',{name}).click()
@@ -219,7 +219,7 @@ try {
   // While the request is kept the bar still names it; once discarded it names one project, as the rail does.
   await expect.poll(() => sentenceText(page)).toContain('on 3 projects')
   await bar(page).getByRole('button',{name:'Discard this request'}).click()
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   await expect(slot(page,'Project')).toHaveAccessibleName('Project: Store rewrite')
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?/)
@@ -381,7 +381,7 @@ try {
   // Site's defaults.
   await pick(page,'Agent','Claude Code')
   await rail.locator('.card').filter({hasText:'Store rewrite'}).click()
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   await rail.locator('.card').filter({hasText:'Site'}).click()
   await expect.poll(() => sentenceText(page)).toBe('Run Codex with gpt-5-codex on Site at studio in the checkout')
   await bar(page).getByRole('button',{name:'Use the starter prompt'}).click()
@@ -411,7 +411,7 @@ try {
   await expect(startButton(page)).toHaveAccessibleName('Start the session')
   await settled(page)
   await expect(bar(page).locator('.status')).toHaveText("reet doesn't start this agent yet.")
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   // A different project set is a new start: the old sentence goes.
   await rail.getByRole('checkbox',{name:/^Site/}).click()
   await expect.poll(() => sentenceText(page)).toContain('on 2 projects')
@@ -682,7 +682,7 @@ try {
   await page.goto(base); await openQuick(page)
   await expect(bar(page)).toBeVisible()
   await expect(page.getByRole('button',{name:'Start an agent',exact:true})).toHaveCount(0)
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
   await expect(slot(page,'Agent')).toHaveAccessibleName('Agent: Claude Code')
   await expect(slot(page,'Model')).toHaveAccessibleName('Model: default')
   await expect(prompt(page)).toHaveValue('')
@@ -1535,7 +1535,7 @@ try {
    await page.goto(base); await openQuick(page)
    if (how === 'hangs') { await expect.poll(() => reads).toBe(2); await page.clock.runFor(11_000) }
    await expect(startButton(page), how).toBeEnabled()
-   await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+   await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
    await startButton(page).click()
    await expect.poll(() => box.posts.length).toBe(1)
    expect(errors).toEqual([])

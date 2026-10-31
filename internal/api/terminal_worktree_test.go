@@ -464,7 +464,7 @@ func TestPrivateControlAdvertisesWorktreeBesideLaunch(t *testing.T) {
 	}
 	defer c.CloseNow()
 	features := response.Header.Get(terminalproto.FeatureHeader)
-	if features != "command-history-v1,launch-v1,resume-v1,worktree-v1,browse-v1,branches-v1,clipboard-v1,upload-v1,models-v1,acp-v1,acp-history-v1,acp-tool-details-v1,acp-image-v1,shell-dir-v1,attention-v1,software-v1,"+terminalproto.ProgressFeature+","+terminalproto.AgentsFeature || !terminalproto.SupportsResume(features) || !terminalproto.SupportsWorktree(features) || !terminalproto.SupportsClipboard(features) || !terminalproto.SupportsUpload(features) || !terminalproto.SupportsModels(features) || !terminalproto.SupportsACPImages(features) || !terminalproto.SupportsAttention(features) || !terminalproto.SupportsSoftware(features) {
+	if features != "command-history-v1,launch-v1,resume-v1,worktree-v1,browse-v1,branches-v1,clipboard-v1,upload-v1,models-v1,acp-v1,acp-history-v1,acp-tool-details-v1,acp-image-v1,shell-dir-v1,attention-v1,software-v1,software-apply-v1,"+terminalproto.ProgressFeature+","+terminalproto.AgentsFeature || !terminalproto.SupportsResume(features) || !terminalproto.SupportsWorktree(features) || !terminalproto.SupportsClipboard(features) || !terminalproto.SupportsUpload(features) || !terminalproto.SupportsModels(features) || !terminalproto.SupportsACPImages(features) || !terminalproto.SupportsAttention(features) || !terminalproto.SupportsSoftware(features) || !terminalproto.SupportsSoftwareApply(features) {
 		t.Fatal("features", features)
 	}
 }

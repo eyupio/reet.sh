@@ -151,6 +151,30 @@ func runTUI(screen string, args []string, version, commit string) error {
 		opts.SyncConfig = *config
 		opts.SyncDir = *dir
 		opts.SyncApply = *apply
+	case "backup":
+		action := "list"
+		rest := args
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			action = rest[0]
+			rest = rest[1:]
+		}
+		if action != "list" {
+			return fmt.Errorf("reet backup %s --tui is not available yet; use reet backup --tui", action)
+		}
+		fs := flag.NewFlagSet("reet backup --tui", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		dir := fs.String("data-dir", "", "controller data directory (default REET_DATA_DIR or ./data)")
+		if err := fs.Parse(rest); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("unexpected backup arguments")
+		}
+		opts.Start = tui.ScreenBackup
+		opts.BackupDataDir = *dir
 	case "version":
 		if len(args) != 0 {
 			return errors.New("unexpected version arguments")

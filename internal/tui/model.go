@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/health"
 	"github.com/eyupio/reet.sh/internal/lifecycle"
 	"github.com/eyupio/reet.sh/internal/scan"
@@ -29,6 +30,7 @@ const (
 	ScreenHealth   ScreenID = "healthcheck"
 	ScreenScan     ScreenID = "scan"
 	ScreenSync     ScreenID = "sync"
+	ScreenBackup   ScreenID = "backup"
 	ScreenVersion  ScreenID = "version"
 	ScreenTerminal ScreenID = "terminal"
 	ScreenAgent    ScreenID = "agent"
@@ -69,6 +71,8 @@ type Options struct {
 	SyncDir       string
 	SyncApply     bool
 
+	BackupDataDir string
+
 	In      io.Reader
 	Out     io.Writer
 	NoColor bool
@@ -101,6 +105,7 @@ var homeItems = []homeItem{
 	{ScreenHealth, "Healthcheck", "Check a server's /healthz"},
 	{ScreenScan, "Scan", "Report installed skills to a controller"},
 	{ScreenSync, "Sync", "Preview and apply a saved target"},
+	{ScreenBackup, "Backups", "List, take and restore instance copies"},
 	{ScreenVersion, "Version", "Build and runtime details"},
 	{ScreenTerminal, "Terminal status", "Controller terminal availability"},
 	{ScreenAgent, "Agent status", "This machine's enrollment and daemon"},
@@ -142,6 +147,16 @@ type model struct {
 	syncReport  scan.SyncReport
 	syncApplied bool
 	syncSet     bool
+
+	backupForm          *huh.Form
+	backupFormKind      string
+	backupRestoreID     string
+	backupNewValues     *newBackupValues
+	backupRestoreValues *restoreFormValues
+	backupItems         []backup.Item
+	backupCursor        int
+	backupMessage       string
+	backupSet           bool
 }
 
 func newModel(opts Options) model {
@@ -196,6 +211,9 @@ func (m model) load(page ScreenID) tea.Cmd {
 		case ScreenAgent:
 			value, err := loadAgent(opts)
 			return resultMsg{page: page, value: value, err: err}
+		case ScreenBackup:
+			value, err := loadBackups(opts)
+			return resultMsg{page: page, value: value, err: err}
 		}
 		return resultMsg{page: page, err: fmt.Errorf("unknown screen %s", page)}
 	}
@@ -220,6 +238,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+c":
 				return m, tea.Quit
 			case "esc":
+				if m.page == ScreenBackup {
+					m.backupForm = nil
+					m.setContent()
+					return m, nil
+				}
 				return m.open(ScreenHome)
 			}
 		}
@@ -228,12 +251,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setForm(form)
 		switch form.State {
 		case huh.StateCompleted:
-			if m.page == ScreenScan {
+			switch m.page {
+			case ScreenScan:
 				m.scanForm = nil
 				return m.startScan()
+			case ScreenSync:
+				m.syncForm = nil
+				return m.startSync(false)
+			case ScreenBackup:
+				return m.finishBackupForm()
 			}
-			m.syncForm = nil
-			return m.startSync(false)
 		case huh.StateAborted:
 			return m.open(ScreenHome)
 		}
@@ -309,6 +336,40 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.open(ScreenSync)
 		}
 	}
+	if m.page == ScreenBackup {
+		switch msg.String() {
+		case "n":
+			m.backupNewValues = &newBackupValues{}
+			m.backupFormKind = "new"
+			m.backupForm = buildNewBackupForm(m.backupNewValues)
+			m.resize()
+			m.setContent()
+			return m, m.backupForm.Init()
+		case "x":
+			if len(m.backupItems) > 0 {
+				m.backupRestoreID = m.backupItems[m.backupCursor].ID
+				m.backupRestoreValues = &restoreFormValues{}
+				m.backupFormKind = "restore"
+				m.backupForm = buildRestoreForm(m.backupRestoreID, m.backupRestoreValues)
+				m.resize()
+				m.setContent()
+				return m, m.backupForm.Init()
+			}
+		case "r":
+			m.err = nil
+			m.loading = true
+			m.setContent()
+			return m, tea.Batch(m.spinner.Tick, m.load(ScreenBackup))
+		case "up", "k":
+			if m.backupCursor > 0 {
+				m.backupCursor--
+			}
+		case "down", "j":
+			if m.backupCursor < len(m.backupItems)-1 {
+				m.backupCursor++
+			}
+		}
+	}
 	switch msg.String() {
 	case "q":
 		return m, tea.Quit
@@ -334,6 +395,7 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 	m.err = nil
 	m.scanForm = nil
 	m.syncForm = nil
+	m.backupForm = nil
 	if page == ScreenScan {
 		if m.scanValues == nil {
 			m.scanValues = defaultScanValues(m.opts)
@@ -397,6 +459,20 @@ func (m *model) apply(msg resultMsg) {
 			m.syncApplied = value.applied
 			m.syncSet = value.report.PlanSet
 		}
+	case ScreenBackup:
+		if value, ok := msg.value.(backupOutcome); ok {
+			m.backupItems = value.items
+			m.backupMessage = value.message
+			if value.listSet {
+				m.backupSet = true
+			}
+			if m.backupCursor >= len(m.backupItems) {
+				m.backupCursor = len(m.backupItems) - 1
+				if m.backupCursor < 0 {
+					m.backupCursor = 0
+				}
+			}
+		}
 	}
 }
 
@@ -409,6 +485,8 @@ func (m model) activeForm() *huh.Form {
 		return m.scanForm
 	case ScreenSync:
 		return m.syncForm
+	case ScreenBackup:
+		return m.backupForm
 	}
 	return nil
 }
@@ -421,6 +499,8 @@ func (m *model) setForm(form *huh.Form) {
 		m.scanForm = form
 	case ScreenSync:
 		m.syncForm = form
+	case ScreenBackup:
+		m.backupForm = form
 	}
 }
 
@@ -476,7 +556,7 @@ func (m *model) resize() {
 	if height < 5 {
 		height = 5
 	}
-	for _, form := range []*huh.Form{m.scanForm, m.syncForm} {
+	for _, form := range []*huh.Form{m.scanForm, m.syncForm, m.backupForm} {
 		if form != nil {
 			form.WithWidth(width)
 			form.WithHeight(height)
@@ -542,7 +622,17 @@ func (m model) renderFooter() string {
 			keys = "r preview again · e edit · esc back · q quit"
 		}
 	}
-	if m.loading && m.page != ScreenScan && m.page != ScreenSync {
+	if m.page == ScreenBackup {
+		switch {
+		case m.formActive():
+			keys = "enter next/submit · esc cancel · ctrl+c quit"
+		case m.loading:
+			keys = "working… · ctrl+c quit"
+		default:
+			keys = "n new · x restore · ↑/↓ select · r refresh · esc back · q quit"
+		}
+	}
+	if m.loading && m.page != ScreenScan && m.page != ScreenSync && m.page != ScreenBackup {
 		keys = "loading… · q quit"
 	}
 	return m.styles.footer.Width(m.width).Render("  " + keys)
@@ -571,7 +661,7 @@ func (m model) renderPage() string {
 	if m.loading {
 		return "\n  " + m.spinner.View() + " " + m.styles.muted.Render(pageLoading(m.page)) + "\n"
 	}
-	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) && !(m.page == ScreenSync && m.syncSet) {
+	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) && !(m.page == ScreenSync && m.syncSet) && !(m.page == ScreenBackup && m.backupSet) {
 		return "\n  " + m.styles.fail.Render("Error: "+m.err.Error()) + "\n\n  " + m.styles.muted.Render("Press r to try again, or esc for the menu.") + "\n"
 	}
 	switch m.page {
@@ -579,6 +669,8 @@ func (m model) renderPage() string {
 		return m.renderScan()
 	case ScreenSync:
 		return m.renderSync()
+	case ScreenBackup:
+		return m.renderBackup()
 	case ScreenDoctor:
 		return m.renderDoctor()
 	case ScreenHealth:
@@ -603,6 +695,8 @@ func pageTitle(page ScreenID) string {
 		return "Scan"
 	case ScreenSync:
 		return "Sync"
+	case ScreenBackup:
+		return "Backups"
 	case ScreenVersion:
 		return "Version"
 	case ScreenTerminal:
@@ -623,6 +717,8 @@ func pageLoading(page ScreenID) string {
 		return "Scanning installed skills…"
 	case ScreenSync:
 		return "Reading the sync target…"
+	case ScreenBackup:
+		return "Reading local backups…"
 	case ScreenTerminal:
 		return "Reading terminal status…"
 	case ScreenAgent:

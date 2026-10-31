@@ -89,6 +89,33 @@ plan-first. Read `internal/agentsoftware/plan.go`, `internal/terminalhost/softwa
 **Publication / deployment state (verified, not inferred):** the branch is pushed and PR #282 is open; nothing is
 merged, released or deployed.
 
+## Agent software execution (L2, 31 October 2026)
+
+**Owner decisions, 31 October 2026:** (1) use a **verified staged artifact** — download the pinned
+`opencode-linux-x64@1.19.5` tarball, verify its recorded sha512 and binary sha256/size, and install from it, never from
+an installer script; (2) a pre-existing OpenCode that reet did not install is **inspect-only** — reet installs its own
+managed copy alongside and launches prefer it; (3) **refuse** install/update/remove while any live OpenCode session
+runs on that machine.
+
+**L2a, implemented on `feat/agent-software-apply` (stacked on #282):** `internal/agentsoftware/artifact.go` holds the
+one reviewed archive (URL, sha512, binary sha256 and size, the single `package/bin/opencode` member) and
+`StageTarball`, which downloads it with a bounded response, verifies the archive checksum, extracts only the member
+and verifies the binary's hash and size; it never executes anything. `managed.go` owns
+`~/.reet/software/<tool>/versions/<version>/opencode` with a per-version receipt and a current receipt, an atomic
+install from a staged file, a hash-verified rollback to the kept previous version, and a remove that deletes only the
+managed tree (configuration and history live outside it). A system install has no receipt and is never updated or
+removed. Tests use a fake tarball and a local HTTP server: checksum failure, wrong member, symlink member, traversal
+entries, install/current/rollback/remove, broken binary, no previous version, and a user config file surviving removal.
+Checks: `go test -race ./internal/agentsoftware`, `go vet ./internal/agentsoftware`, `go build ./...`.
+
+**Not in L2a:** no controller request, connector dispatch, API, UI, launch preference or audit yet; the store cannot be
+reached from the browser, and the binary is verified at install, not on every launch. Next is L2b: a `software-apply-v1`
+control request bound to the reviewed artifact and the observed plan, a connector apply handler that refuses while any
+live OpenCode session runs, a controller operation record/audit and result, a fresh software inventory after apply, and
+the confirmation/apply UI. Read `internal/agentsoftware/{artifact,managed}.go`, `internal/terminalagent/agent.go`,
+`internal/terminalbroker/models.go` (the request/response pattern), `internal/api/software.go` and
+`web/src/lib/MachineSettings.svelte`.
+
 ## Agents home redesign (27–30 October 2026)
 
 ### Resume here (after Needs you and the approvals slice, 31 October 2026)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -73,6 +74,7 @@ type chatLog struct {
 	nextSub     int
 	running     bool
 	pending     map[string]struct{}
+	queue       []terminalproto.ACPEvent
 	waitingAt   int64
 	updatedAt   int64
 	completedAt int64
@@ -126,6 +128,7 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 			wasRunning := l.running
 			l.running = false
 			clear(l.pending)
+			l.queue = nil
 			l.waitingAt = 0
 			if wasRunning || l.lastState == "working" || l.lastState == "waiting" {
 				l.lastState = "finished"
@@ -140,11 +143,13 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 		case "cancelled":
 			l.running = false
 			clear(l.pending)
+			l.queue = nil
 			l.waitingAt = 0
 			l.lastState = "quiet"
 		case "error":
 			l.running = false
 			clear(l.pending)
+			l.queue = nil
 			l.waitingAt = 0
 			l.lastState = "failed"
 			if l.completedAt == 0 {
@@ -153,6 +158,7 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 		case "ended":
 			l.running = false
 			clear(l.pending)
+			l.queue = nil
 			l.waitingAt = 0
 			if l.lastState != "failed" {
 				l.lastState = "finished"
@@ -166,6 +172,17 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 			_, exists := l.pending[event.PermissionID]
 			hadPending := len(l.pending) > 0
 			l.pending[event.PermissionID] = struct{}{}
+			replaced := false
+			for i := range l.queue {
+				if l.queue[i].PermissionID == event.PermissionID {
+					l.queue[i] = event
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				l.queue = append(l.queue, event)
+			}
 			if l.waitingAt == 0 || (!exists && hadPending) {
 				l.waitingAt = nowMs
 			}
@@ -174,6 +191,13 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 	case "permission_resolved", "permission_cancelled":
 		if event.PermissionID != "" {
 			delete(l.pending, event.PermissionID)
+			kept := l.queue[:0]
+			for _, queued := range l.queue {
+				if queued.PermissionID != event.PermissionID {
+					kept = append(kept, queued)
+				}
+			}
+			l.queue = kept
 			if len(l.pending) == 0 {
 				l.waitingAt = 0
 				if l.lastState == "waiting" {
@@ -241,6 +265,15 @@ func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
 	defer l.mu.Unlock()
 	if (len(l.pending) > 0 || l.lastState == "waiting") && s.State == terminalproto.Running {
 		s.Attention = "waiting"
+		if len(l.queue) > 0 {
+			first := l.queue[0]
+			cmd, shortened := previewText(first.Command, 240)
+			s.PendingPermission = &store.PendingPermission{
+				PermissionID: first.PermissionID, Title: first.Title, ToolKind: first.ToolKind,
+				Command: cmd, Path: first.Path, Truncated: first.Truncated || shortened,
+				Queued: len(l.queue) - 1,
+			}
+		}
 		if l.waitingAt > s.BellAt {
 			s.BellAt = l.waitingAt
 		}
@@ -287,6 +320,18 @@ func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
 		s.Attention = "quiet"
 		s.ChangedSinceSeen = false
 	}
+}
+
+// previewText bounds a command shown on a Home card; the full text stays in the chat.
+// It reports whether the preview was shortened so callers can mark it truncated.
+func previewText(s string, max int) (string, bool) {
+	if len(s) <= max {
+		return s, false
+	}
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
+	}
+	return s[:max] + "…", true
 }
 
 func mustJSON(event terminalproto.ACPEvent) []byte {

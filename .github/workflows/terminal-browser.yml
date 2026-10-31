@@ -17,9 +17,10 @@ concurrency:
 jobs:
   terminal-browser:
     runs-on: zoomies-linux-x64
-    # The UI fixtures take about 8 minutes and the real-binary step then compiles Go from a cold cache; 15 was enough on
-    # the GitHub-hosted runners but cancelled the job mid-compile on the Zoomies runners.
-    timeout-minutes: 30
+    # The UI fixtures take about 9 minutes and the real-binary step then compiles Go from a cold cache; 15 was enough on
+    # the GitHub-hosted runners but cancelled the job mid-compile on the Zoomies runners. Setup itself has since taken ten
+    # minutes on a slow host, so the whole job needs headroom beyond the fixtures rather than a timeout spent on setup.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -113,7 +114,9 @@ jobs:
   # and 10 s; CI's times differ, so read them from the job log, not from here.)
   phone-zoom:
     runs-on: zoomies-linux-x64
-    timeout-minutes: 10
+    # Setup alone has taken ten minutes on a slow host; the four fixtures then need about two. Do not let a slow download
+    # cancel the tests before they start.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

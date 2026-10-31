@@ -1,10 +1,12 @@
 <script lang="ts">
   import { attentionCount, type NeedCard } from '../home'
   import { worktreeStatus } from '../terminal/api'
+  import Approval from '../shell/Approval.svelte'
 
-  let { cards, onseen }: {
+  let { cards, onseen, onanswered }: {
     cards: NeedCard[]
     onseen?: (sessionId: string) => void | Promise<void>
+    onanswered?: () => void | Promise<void>
   } = $props()
 
   const id = $props.id()
@@ -54,6 +56,7 @@
           <span class="kind {card.tone}">{card.label} · {card.age}</span>
           <span class="title">{card.title}</span>
           {#if metaLine(card)}<span class="meta">{metaLine(card)}</span>{/if}
+          {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} />{/if}
           <div class="actions">
             <a class="btn open" href={card.href} onclick={() => void onseen?.(card.sessionId)}>Open</a>
             {#if card.markSeen}

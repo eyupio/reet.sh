@@ -130,12 +130,42 @@ func TestStructuredChatPermissionResolvedRestoresWorkingAttention(t *testing.T) 
 	if got.Attention != "waiting" || got.AttentionSource != "chat" || !got.ChangedSinceSeen {
 		t.Fatalf("while permission pending got %+v", got)
 	}
+	if p := got.PendingPermission; p == nil || p.PermissionID != "permission-0123456789" || p.Title != "go test" || p.Command != "go test" || p.Queued != 0 || p.Truncated {
+		t.Fatalf("pending permission %+v", got.PendingPermission)
+	}
+
+	// A second approval queues behind the first; the card keeps showing the earliest.
+	send(terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-queued00001", Title: "rm", Command: "rm -rf build"})
+	got = readOne()
+	if p := got.PendingPermission; p == nil || p.PermissionID != "permission-0123456789" || p.Queued != 1 {
+		t.Fatalf("queued permission %+v", got.PendingPermission)
+	}
+	allowQueued := false
+	send(terminalproto.ACPEvent{Kind: "permission_resolved", PermissionID: "permission-queued00001", Allow: &allowQueued})
+	got = readOne()
+	if p := got.PendingPermission; p == nil || p.Queued != 0 {
+		t.Fatalf("after the queued one resolved %+v", got.PendingPermission)
+	}
+
+	// A long command that exceeds the 240 byte preview threshold is marked Truncated.
+	longCmd := strings.Repeat("echo very long command; ", 15)
+	send(terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-longcmd00001", Title: "long", Command: longCmd, Truncated: false})
+	got = readOne()
+	if p := got.PendingPermission; p == nil || p.PermissionID != "permission-0123456789" || p.Queued != 1 {
+		t.Fatalf("queued permission %+v", got.PendingPermission)
+	}
 
 	allow := true
 	send(terminalproto.ACPEvent{Kind: "permission_resolved", PermissionID: "permission-0123456789", Allow: &allow})
 
 	got = readOne()
-	if got.Attention != "working" || got.AttentionSource != "chat" {
+	if p := got.PendingPermission; p == nil || p.PermissionID != "permission-longcmd00001" || !p.Truncated || !strings.HasSuffix(p.Command, "…") {
+		t.Fatalf("shortened command must be marked Truncated: %+v", got.PendingPermission)
+	}
+	send(terminalproto.ACPEvent{Kind: "permission_resolved", PermissionID: "permission-longcmd00001", Allow: &allow})
+
+	got = readOne()
+	if got.Attention != "working" || got.AttentionSource != "chat" || got.PendingPermission != nil {
 		t.Fatalf("after permission resolved got %+v", got)
 	}
 

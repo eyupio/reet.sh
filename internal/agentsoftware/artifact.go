@@ -70,13 +70,14 @@ type Staged struct {
 // executes the binary or an installer. dir holds both temporary files and must
 // be on the same filesystem as the eventual install for an atomic rename.
 func StageTarball(ctx context.Context, client *http.Client, dir string, artifact Artifact) (Staged, error) {
-	return StageTarballFrom(ctx, client, dir, artifact, artifact.URL)
+	return StageTarballFrom(ctx, client, dir, artifact, artifact.URL, nil)
 }
 
 // StageTarballFrom is StageTarball from url instead of artifact.URL. A
 // controller mirror serves the same archive under a different address; the
-// archive and member are still verified against artifact.
-func StageTarballFrom(ctx context.Context, client *http.Client, dir string, artifact Artifact, url string) (Staged, error) {
+// archive and member are still verified against artifact. header, when set,
+// is sent with the request; the mirror needs the machine's enrollment.
+func StageTarballFrom(ctx context.Context, client *http.Client, dir string, artifact Artifact, url string, header http.Header) (Staged, error) {
 	if dir == "" || url == "" || artifact.Member == "" || artifact.SHA512 == "" || artifact.BinarySHA256 == "" || artifact.BinarySize <= 0 {
 		return Staged{}, ErrArtifactShape
 	}
@@ -86,6 +87,9 @@ func StageTarballFrom(ctx context.Context, client *http.Client, dir string, arti
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return Staged{}, ErrArtifactDownload
+	}
+	for name, values := range header {
+		request.Header[name] = append([]string(nil), values...)
 	}
 	response, err := client.Do(request)
 	if err != nil {

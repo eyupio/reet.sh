@@ -423,7 +423,11 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 							return terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplySessions}
 						}
 						return applySoftware(ctx, opts.Home, req, exec.LookPath, terminalhost.SoftwareSource{
-							Client: client,
+							// The controller may need minutes to fill a cold cache
+							// before it sends headers; the shared client gives up
+							// after 10 seconds.
+							Client: privateconn.WithHeaderTimeout(client, mirrorHeaderTimeout),
+							Header: mirrorHeaders(headers),
 							Path:   "/private/v1/software/artifact/" + agentsoftware.OpenCodeLinuxX64.ArchiveSHA256,
 						})
 					})
@@ -1071,4 +1075,20 @@ func reconcileSnapshot(shells, chats []terminalproto.SessionSnapshot) terminalpr
 		sessions = sessions[:32]
 	}
 	return terminalproto.Reconcile{Complete: true, Sessions: sessions}
+}
+
+// mirrorHeaderTimeout covers the controller's cache download (15 minutes) and
+// a short wait for a serving slot.
+const mirrorHeaderTimeout = 16 * time.Minute
+
+// mirrorHeaders is the machine enrollment the mirror route authenticates. The
+// session token and feature flags are not part of it.
+func mirrorHeaders(from http.Header) http.Header {
+	out := http.Header{}
+	for _, name := range []string{"X-Reet-Agent", "X-Reet-Agent-Key", "X-Reet-Version"} {
+		if v := from.Get(name); v != "" {
+			out.Set(name, v)
+		}
+	}
+	return out
 }

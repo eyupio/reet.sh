@@ -4,6 +4,7 @@
   import { shell } from './dialogShell'
   import {
     abandonSoftwareBatch,
+    activeSoftwareBatch,
     applyMachineSoftware,
     createSoftwareBatch,
     fleetSoftwarePlans,
@@ -57,6 +58,13 @@
       rows = await fleetSoftwarePlans()
       selection = selection.filter((agentId) => rows.some((row) => row.agentId === agentId && fleetSoftwareCanApply(row)))
       try { mirror = await getSoftwareMirror() } catch { mirror = null }
+      // The dialog unmounts when closed; a batch keeps running without it.
+      if (!batch) {
+        try {
+          batch = await activeSoftwareBatch()
+          queuePoll()
+        } catch { /* the batch panel just stays hidden */ }
+      }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : "Couldn't read the fleet's software plans."
     } finally {

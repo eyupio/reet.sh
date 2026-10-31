@@ -38,6 +38,9 @@ type SoftwareSource struct {
 	BaseURL string
 	// Path is derived from the connector's pinned digest.
 	Path string
+	// Header carries the machine's enrollment; the mirror route rejects a
+	// request without it.
+	Header http.Header
 }
 
 // ApplySoftware downloads the reviewed artifact, verifies it, installs it under
@@ -170,7 +173,7 @@ func stageSoftware(ctx context.Context, dir string, sources []SoftwareSource) (a
 		if base == "" {
 			base = privateconn.Origin
 		}
-		staged, mirrorErr := agentsoftware.StageTarballFrom(mirrorCtx, source.Client, dir, softwareArtifact, strings.TrimRight(base, "/")+source.Path)
+		staged, mirrorErr := agentsoftware.StageTarballFrom(mirrorCtx, source.Client, dir, softwareArtifact, strings.TrimRight(base, "/")+source.Path, source.Header)
 		cancel()
 		if mirrorErr == nil {
 			return staged, "mirror", nil

@@ -270,3 +270,36 @@ func TestApplySoftwareReportsBothSourcesWhenBothFail(t *testing.T) {
 		t.Fatal("a failed download left a managed install")
 	}
 }
+
+func TestApplySoftwareSendsEnrollmentToTheMirror(t *testing.T) {
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "registry unavailable", http.StatusBadGateway)
+	}))
+	t.Cleanup(registry.Close)
+	backing, artifact := fakeArtifact(t, []byte("reviewed binary"))
+	artifact.URL = registry.URL + "/opencode.tgz"
+	gated := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Reet-Agent") != "agent" || r.Header.Get("X-Reet-Agent-Key") != "secret" {
+			http.Error(w, "enrollment missing", http.StatusForbidden)
+			return
+		}
+		http.Redirect(w, r, backing.URL+"/opencode.tgz", http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(gated.Close)
+	original := softwareArtifact
+	softwareArtifact = artifact
+	t.Cleanup(func() { softwareArtifact = original })
+
+	apply := func(header http.Header) terminalproto.SoftwareApplyResult {
+		return ApplySoftware(context.Background(), t.TempDir(), terminalproto.SoftwareApply{
+			Tool: "opencode", Action: terminalproto.SoftwareActionInstall, ExpectedState: terminalproto.SoftwareMissing,
+		}, missingLookPath, SoftwareSource{Client: gated.Client(), BaseURL: gated.URL, Path: "/artifact", Header: header})
+	}
+	if result := apply(nil); result.State == terminalproto.SoftwareApplyApplied {
+		t.Fatalf("a request without enrollment must not reach the mirror: %+v", result)
+	}
+	header := http.Header{"X-Reet-Agent": {"agent"}, "X-Reet-Agent-Key": {"secret"}}
+	if result := apply(header); result.State != terminalproto.SoftwareApplyApplied || result.Source != "mirror" {
+		t.Fatalf("enrolled request: %+v", result)
+	}
+}

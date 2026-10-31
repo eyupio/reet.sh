@@ -141,6 +141,10 @@ export async function fleetSoftwarePlans(signal?: AbortSignal): Promise<FleetSof
 export async function createSoftwareBatch(requestId: string, tool: string, agents: string[], signal?: AbortSignal): Promise<SoftwareBatch> {
   return (await terminalRequest('/api/v2/software/batches', { method: 'POST', body: JSON.stringify({ requestId, tool, agents }), signal })).json()
 }
+/** The batch still holding this person's place, or null. */
+export async function activeSoftwareBatch(signal?: AbortSignal): Promise<SoftwareBatch | null> {
+  return (await terminalRequest('/api/v2/software/batches/active', { signal })).json()
+}
 /** Read one batch as it is now. */
 export async function softwareBatch(batchId: string, signal?: AbortSignal): Promise<SoftwareBatch> {
   return (await terminalRequest(`/api/v2/software/batches/${encodeURIComponent(batchId)}`, { signal })).json()

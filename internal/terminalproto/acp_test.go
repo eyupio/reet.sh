@@ -17,6 +17,7 @@ func TestACPBodiesRoundTrip(t *testing.T) {
 		"prompt images":     &ACPPrompt{Text: "what is wrong?", Images: []string{"/home/u/.reet/launch-uploads/a/shot.png"}},
 		"prompt image only": &ACPPrompt{Images: []string{"/home/u/.reet/launch-uploads/a/shot.png"}},
 		"cancel":            &ACPCancel{},
+		"model":             &ACPModel{Model: "ollama-cloud/deepseek-v4"},
 		"permission":        &ACPPermission{PermissionID: "permission-0123456789", Allow: true},
 		"agent":             &ACPEvent{Kind: "agent", MessageID: "msg_1", Text: "hello"},
 		"tool":              &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Status: "completed", Text: "done", Command: "echo ok", Path: "/home/u/a", Diff: "@@ -1 +1 @@\n-a\n+b", Additions: 1, Deletions: 1, DurationMs: 12, Locations: []string{"/home/u/a"}},
@@ -44,6 +45,8 @@ func TestACPRejectsUnboundedOrUnknownBodies(t *testing.T) {
 		tooManyImages[i] = "/home/u/.reet/launch-uploads/a/shot.png"
 	}
 	for name, body := range map[string]Body{
+		"empty model":        &ACPModel{},
+		"invalid model":      &ACPModel{Model: "a\x00b"},
 		"empty prompt":       &ACPPrompt{Text: " "},
 		"long prompt":        &ACPPrompt{Text: tooLong},
 		"nul prompt":         &ACPPrompt{Text: "a\x00b"},
@@ -152,5 +155,14 @@ func TestACPResumeFields(t *testing.T) {
 	}
 	if (Reconcile{Complete: true, Sessions: []SessionSnapshot{{ID: "session-0123456789", Title: "Chat", State: Running, ACPSessionID: "bad"}}}).valid() {
 		t.Fatal("bad snapshot id accepted")
+	}
+}
+
+func TestACPModelFeature(t *testing.T) {
+	if SupportsACPModel(ACPFeature) || SupportsACPModel("not-"+ACPModelFeature) {
+		t.Fatal("model switching must be negotiated separately")
+	}
+	if !SupportsACPModel(ACPFeature + "," + ACPModelFeature) {
+		t.Fatal("model feature missing")
 	}
 }

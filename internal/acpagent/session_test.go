@@ -84,6 +84,18 @@ func TestFakeACP(t *testing.T) {
 			}
 			reply(message.ID, map[string]any{"protocolVersion": protocol, "agentInfo": map[string]string{"name": name, "version": version},
 				"agentCapabilities": capabilities})
+		case "session/set_config_option":
+			var params struct {
+				ConfigID  string `json:"configId"`
+				Value     string `json:"value"`
+				SessionID string `json:"sessionId"`
+			}
+			_ = json.Unmarshal(message.Params, &params)
+			if params.ConfigID != "model" || params.SessionID != session || params.Value == "reject" {
+				send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32602, "message": "invalid model"}})
+			} else {
+				reply(message.ID, map[string]any{})
+			}
 		case "session/load":
 			var params struct {
 				SessionID string `json:"sessionId"`
@@ -830,4 +842,35 @@ func TestResumePlanModeRefused(t *testing.T) {
 	if _, err := Start(context.Background(), opts); err == nil {
 		t.Fatal("plan mode load accepted")
 	}
+}
+
+func TestSwitchModelPreservesSessionAndFailureKeepsModel(t *testing.T) {
+	opts, _ := options(t, "", testVersion)
+	s, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	id := s.SessionID()
+	if err := s.SetModel(context.Background(), "provider/other"); err != nil {
+		t.Fatal(err)
+	}
+	if s.Model() != "provider/other" || s.SessionID() != id {
+		t.Fatal("model switch replaced history or failed")
+	}
+	if err := s.SetModel(context.Background(), "reject"); err == nil {
+		t.Fatal("accepted rejected model")
+	}
+	if s.Model() != "provider/other" {
+		t.Fatal("failed switch changed model")
+	}
+	s.turnMu.Lock()
+	s.working = true
+	s.turnMu.Unlock()
+	if err := s.SetModel(context.Background(), "provider/busy"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("busy switch: %v", err)
+	}
+	s.turnMu.Lock()
+	s.working = false
+	s.turnMu.Unlock()
 }

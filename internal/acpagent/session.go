@@ -1144,3 +1144,27 @@ func (s *Session) Close() {
 	// still alive; the group kill is the backstop either way.
 	s.killGroup()
 }
+
+// SetModel changes the model without replacing the ACP session or its history.
+func (s *Session) SetModel(ctx context.Context, model string) error {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	if s.working {
+		return ErrBusy
+	}
+	s.mu.Lock()
+	id := s.acpID
+	s.mu.Unlock()
+	if strings.TrimSpace(model) == "" {
+		return ErrModel
+	}
+	_, err := s.request(ctx, "session/set_config_option", map[string]string{"sessionId": id, "configId": "model", "value": model})
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.model = model
+	s.mu.Unlock()
+	s.emit(Event{Kind: "status", State: "idle", Detail: model})
+	return nil
+}

@@ -56,6 +56,7 @@ type AgentConfig struct {
 	yoloAllowed       bool
 	acp               bool
 	acpHistory        bool
+	acpModel          bool
 	acpImages         bool
 	shellDir          bool
 	attention         bool
@@ -709,6 +710,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.softwareApply = terminalproto.SupportsSoftwareApply(advertised)
 	cfg.acp = terminalproto.SupportsACP(advertised)
 	cfg.acpHistory = terminalproto.SupportsACPHistory(advertised)
+	cfg.acpModel = terminalproto.SupportsACPModel(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
 	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
 	cfg.attention = terminalproto.SupportsAttention(advertised)
@@ -759,6 +761,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acp {
 		features = append(features, terminalproto.ACPFeature)
+	}
+	if cfg.acpModel {
+		features = append(features, terminalproto.ACPModelFeature)
 	}
 	if cfg.acpHistory {
 		features = append(features, terminalproto.ACPHistoryFeature)
@@ -876,6 +881,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ModelsOff:       cfg.models && control && enabled && !cfg.modelsAllowed,
 		ACP:             acp,
 		ACPHistory:      acp && cfg.acpHistory,
+		ACPModel:        acp && cfg.acpModel,
 		ACPImages:       acp && cfg.acpImages,
 		ShellDir:        cfg.shellDir && control && enabled,
 		Attention:       cfg.attention && control,

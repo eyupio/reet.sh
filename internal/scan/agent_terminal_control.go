@@ -11,6 +11,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/agenthealth"
 	"github.com/eyupio/reet.sh/internal/terminalagent"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 func terminalControl(ctx context.Context, config string, c agentConfig) agenthealth.TerminalFactory {
@@ -36,6 +37,13 @@ func terminalControl(ctx context.Context, config string, c agentConfig) agenthea
 // launchTools reports the agent CLIs found on this connector's PATH from its
 // built-in launch presets.
 func launchTools() []string { return terminalhost.InstalledTools(exec.LookPath, true) }
+
+// softwareInventory reports the installation evidence reet can show without
+// running an installer. OpenCode is the first reviewed install method; the
+// entry is reported even when it is missing so a plan can name the install.
+func softwareInventory() []terminalproto.SoftwareEntry {
+	return []terminalproto.SoftwareEntry{terminalhost.InspectSoftware("opencode", exec.LookPath)}
+}
 
 // gitAvailable reports whether git is on this connector's PATH (as an
 // absolute path, the way the worktree runner finds it), for run worktrees.

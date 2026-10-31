@@ -97,7 +97,7 @@ reet install --mode compose --version dev    # Docker + Compose plugin required
 reet install --mode native --dry-run         # inspect without applying
 ```
 
-Choose one mode per deployment. Installation shows the paths and asks you to type `yes`; `--yes` supports automation. Native mode installs the binary you are running. Compose resolves a published release and pins its image digest, checking that the image and checksummed binary are from the same build. The main image reports `dev`, matching the rolling binary channel.
+Choose one mode per deployment. Run `reet install --tui` for the same installer as a form, or `reet install --dry-run --tui` to see the plan first. Installation shows the paths and asks you to type `yes`; `--yes` supports automation. Native mode installs the binary you are running. Compose resolves a published release and pins its image digest, checking that the image and checksummed binary are from the same build. The main image reports `dev`, matching the rolling binary channel.
 
 Managed installs default to `127.0.0.1:8080`, `~/.local/share/reet` for server data and the platform user configuration directory (`~/.config/reet` on Linux) for `deployment.json`. Use `--dir`, `--data-dir`, `--addr` and `--state-dir` to choose other paths. Existing database directories are retained. Server settings such as `REET_AUTH`, `REET_TOKEN`, `REET_CONTROLLER_URL`, `REET_CONTROLLER_TOKEN` and `REET_ENV` are captured from your environment into the private deployment file, without printing their values. Set them before installing. Keep configuration files and backups private.
 

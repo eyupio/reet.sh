@@ -33,6 +33,7 @@ const (
 	ScreenSync     ScreenID = "sync"
 	ScreenBackup   ScreenID = "backup"
 	ScreenSetup    ScreenID = "setup"
+	ScreenUpgrade  ScreenID = "upgrade"
 	ScreenVersion  ScreenID = "version"
 	ScreenTerminal ScreenID = "terminal"
 	ScreenAgent    ScreenID = "agent"
@@ -80,6 +81,9 @@ type Options struct {
 	SetupToken     string
 	SetupTokenFile string
 
+	UpgradeVersion  string
+	UpgradeStateDir string
+
 	In      io.Reader
 	Out     io.Writer
 	NoColor bool
@@ -114,6 +118,7 @@ var homeItems = []homeItem{
 	{ScreenSync, "Sync", "Preview and apply a saved target"},
 	{ScreenBackup, "Backups", "List, take and restore instance copies"},
 	{ScreenSetup, "Setups", "Create, push and pull setup profiles"},
+	{ScreenUpgrade, "Upgrade", "Check, verify and install a release"},
 	{ScreenVersion, "Version", "Build and runtime details"},
 	{ScreenTerminal, "Terminal status", "Controller terminal availability"},
 	{ScreenAgent, "Agent status", "This machine's enrollment and daemon"},
@@ -176,6 +181,11 @@ type model struct {
 	setupCursor     int
 	setupMessage    string
 	setupSet        bool
+
+	upgradeForm   *huh.Form
+	upgradeValues *upgradeFormValues
+	upgradeOutput string
+	upgradeDone   bool
 }
 
 func newModel(opts Options) model {
@@ -200,6 +210,10 @@ func newModel(opts Options) model {
 	if opts.Start == ScreenSync {
 		m.syncValues = defaultSyncValues(opts)
 		m.syncForm = buildSyncForm(m.syncValues)
+	}
+	if opts.Start == ScreenUpgrade {
+		m.upgradeValues = &upgradeFormValues{Release: defaultUpgradeRelease(opts)}
+		m.upgradeForm = buildUpgradeForm(m.upgradeValues, opts.Version+" ("+shortCommit(opts.Commit)+")")
 	}
 	return m
 }
@@ -289,6 +303,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.finishBackupForm()
 			case ScreenSetup:
 				return m.finishSetupForm()
+			case ScreenUpgrade:
+				return m.finishUpgradeForm()
 			}
 		case huh.StateAborted:
 			return m.open(ScreenHome)
@@ -363,6 +379,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.startSync(false)
 		case "e":
 			return m.open(ScreenSync)
+		}
+	}
+	if m.page == ScreenUpgrade {
+		switch msg.String() {
+		case "r":
+			return m.open(ScreenUpgrade)
 		}
 	}
 	if m.page == ScreenSetup {
@@ -471,6 +493,7 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 	m.syncForm = nil
 	m.backupForm = nil
 	m.setupForm = nil
+	m.upgradeForm = nil
 	if page == ScreenScan {
 		if m.scanValues == nil {
 			m.scanValues = defaultScanValues(m.opts)
@@ -493,6 +516,16 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 		m.resize()
 		m.setContent()
 		return m, m.syncForm.Init()
+	}
+	if page == ScreenUpgrade {
+		m.upgradeValues = &upgradeFormValues{Release: defaultUpgradeRelease(m.opts)}
+		m.upgradeForm = buildUpgradeForm(m.upgradeValues, m.opts.Version+" ("+shortCommit(m.opts.Commit)+")")
+		m.upgradeOutput = ""
+		m.upgradeDone = false
+		m.loading = false
+		m.resize()
+		m.setContent()
+		return m, m.upgradeForm.Init()
 	}
 	m.loading = page != ScreenHome && page != ScreenVersion
 	m.setContent()
@@ -563,6 +596,11 @@ func (m *model) apply(msg resultMsg) {
 				}
 			}
 		}
+	case ScreenUpgrade:
+		if value, ok := msg.value.(upgradeOutcome); ok {
+			m.upgradeOutput = value.output
+			m.upgradeDone = msg.err == nil
+		}
 	}
 }
 
@@ -579,6 +617,8 @@ func (m model) activeForm() *huh.Form {
 		return m.backupForm
 	case ScreenSetup:
 		return m.setupForm
+	case ScreenUpgrade:
+		return m.upgradeForm
 	}
 	return nil
 }
@@ -595,6 +635,8 @@ func (m *model) setForm(form *huh.Form) {
 		m.backupForm = form
 	case ScreenSetup:
 		m.setupForm = form
+	case ScreenUpgrade:
+		m.upgradeForm = form
 	}
 }
 
@@ -650,7 +692,7 @@ func (m *model) resize() {
 	if height < 5 {
 		height = 5
 	}
-	for _, form := range []*huh.Form{m.scanForm, m.syncForm, m.backupForm, m.setupForm} {
+	for _, form := range []*huh.Form{m.scanForm, m.syncForm, m.backupForm, m.setupForm, m.upgradeForm} {
 		if form != nil {
 			form.WithWidth(width)
 			form.WithHeight(height)
@@ -736,7 +778,17 @@ func (m model) renderFooter() string {
 			keys = "n new · p push · u pull · ↑/↓ select · r refresh · esc back · q quit"
 		}
 	}
-	if m.loading && m.page != ScreenScan && m.page != ScreenSync && m.page != ScreenBackup && m.page != ScreenSetup {
+	if m.page == ScreenUpgrade {
+		switch {
+		case m.formActive():
+			keys = "enter next/submit · esc cancel · ctrl+c quit"
+		case m.loading:
+			keys = "upgrading… · ctrl+c quit"
+		default:
+			keys = "r run again · esc back · q quit"
+		}
+	}
+	if m.loading && m.page != ScreenScan && m.page != ScreenSync && m.page != ScreenBackup && m.page != ScreenSetup && m.page != ScreenUpgrade {
 		keys = "loading… · q quit"
 	}
 	return m.styles.footer.Width(m.width).Render("  " + keys)
@@ -765,7 +817,7 @@ func (m model) renderPage() string {
 	if m.loading {
 		return "\n  " + m.spinner.View() + " " + m.styles.muted.Render(pageLoading(m.page)) + "\n"
 	}
-	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) && !(m.page == ScreenSync && m.syncSet) && !(m.page == ScreenBackup && m.backupSet) && !(m.page == ScreenSetup && m.setupSet) {
+	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) && !(m.page == ScreenSync && m.syncSet) && !(m.page == ScreenBackup && m.backupSet) && !(m.page == ScreenSetup && m.setupSet) && !(m.page == ScreenUpgrade && (m.upgradeOutput != "" || m.upgradeDone)) {
 		return "\n  " + m.styles.fail.Render("Error: "+m.err.Error()) + "\n\n  " + m.styles.muted.Render("Press r to try again, or esc for the menu.") + "\n"
 	}
 	switch m.page {
@@ -777,6 +829,8 @@ func (m model) renderPage() string {
 		return m.renderBackup()
 	case ScreenSetup:
 		return m.renderSetup()
+	case ScreenUpgrade:
+		return m.renderUpgrade()
 	case ScreenDoctor:
 		return m.renderDoctor()
 	case ScreenHealth:
@@ -805,6 +859,8 @@ func pageTitle(page ScreenID) string {
 		return "Backups"
 	case ScreenSetup:
 		return "Setups"
+	case ScreenUpgrade:
+		return "Upgrade"
 	case ScreenVersion:
 		return "Version"
 	case ScreenTerminal:
@@ -829,6 +885,8 @@ func pageLoading(page ScreenID) string {
 		return "Reading local backups…"
 	case ScreenSetup:
 		return "Reading setup profiles…"
+	case ScreenUpgrade:
+		return "Upgrading…"
 	case ScreenTerminal:
 		return "Reading terminal status…"
 	case ScreenAgent:

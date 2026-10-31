@@ -212,6 +212,27 @@ func runTUI(screen string, args []string, version, commit string) error {
 		opts.SetupServer = *server
 		opts.SetupToken = *token
 		opts.SetupTokenFile = *envFile
+	case "upgrade":
+		fs := flag.NewFlagSet("reet upgrade --tui", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		version := fs.String("version", os.Getenv("REET_VERSION"), "latest, dev or vX.Y.Z")
+		stateDir := fs.String("state-dir", lifecycle.StateDefault(), "managed deployment configuration directory")
+		check := fs.Bool("check", false, "resolve the tag without changing the installation")
+		if err := fs.Parse(args); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("unexpected upgrade arguments")
+		}
+		if *check {
+			return errors.New("use reet upgrade --check for a read-only check; reet upgrade --tui applies a release")
+		}
+		opts.Start = tui.ScreenUpgrade
+		opts.UpgradeVersion = *version
+		opts.UpgradeStateDir = *stateDir
 	case "version":
 		if len(args) != 0 {
 			return errors.New("unexpected version arguments")

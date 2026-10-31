@@ -1,6 +1,6 @@
 # Terminal interface
 
-Status: read-only screens, Scan, Sync, Backup and Setup shipped; Upgrade follows.
+Status: all planned screens shipped: read-only status, Scan, Sync, Backup, Setup and Upgrade.
 
 The `reet` binary has a terminal interface built with
 [Bubble Tea](https://github.com/charmbracelet/bubbletea). It is a face on the
@@ -19,6 +19,7 @@ local deployment and the controllers those commands already use.
 | `reet sync --tui [--server URL] [--target ID] [--apply]` | Sync |
 | `reet backup --tui [--data-dir PATH]` | Backups |
 | `reet setup profile --tui [--dir PATH]` | Setups |
+| `reet upgrade --tui [--version TAG] [--state-dir PATH]` | Upgrade |
 | `reet version --tui` | Version |
 | `reet terminal status --tui [--data-dir PATH]` | Terminal status |
 | `reet agent status --tui [--config PATH]` | Agent status |
@@ -56,6 +57,12 @@ and services never start the interface; they run exactly as before. `serve`,
   the selected profile to a controller, **u** pulls one by name, and **r**
   refreshes. Saving without a passphrase records the clear header only; a
   passphrase opens the snapshot to record preview and software evidence.
+- **Upgrade.** The running version and a release field (`latest`, `dev` or a tag)
+  behind an explicit confirmation. Applying runs the same managed upgrade as the
+  text command with no prompts: check, download and verify, stop the server, back
+  up SQLite, replace the binary, restart and verify, and roll back on failure.
+  The output is kept on screen; the process still runs the previous build until
+  it is restarted.
 - **Version.** Binary version, source commit, Go version and platform.
 - **Terminal status.** Whether terminal access is enabled, available and
   running, the saved public URL and authentication mode, and why it is blocked.
@@ -111,6 +118,8 @@ Claude inside a pane without a PTY and terminal-emulator stack. Live agent
 terminals stay in the browser and tmux; the terminal interface is the control
 plane and, in later slices, a launcher.
 
-## Next slices
+## Limits of the first release
 
-1. Upgrade: check, confirm, back up, verify and roll back on a failed restart.
+The screens cover the binary's own commands. Installation (`reet install`),
+agent enrollment and the longer setup restore/rollback flows remain text
+commands; they are not hidden from the interface, just not rebuilt as forms.

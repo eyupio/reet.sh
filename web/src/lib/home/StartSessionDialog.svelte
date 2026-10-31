@@ -12,7 +12,7 @@
   import SkillPromptPicker from './SkillPromptPicker.svelte'
   import FolderBrowser from './FolderBrowser.svelte'
   import { defaultTitle, initialChoice, startable, toCreate, withAgent, withHome, withProject, type LaunchChoice, type LaunchCreate, type LaunchDefaults } from '../launchBar'
-  import { createTerminal, launchUpload, machineModels, refusalSentence, structuredAgent, TerminalError, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { createTerminal, launchUpload, listBranches, machineModels, refusalSentence, type BranchesResult, structuredAgent, TerminalError, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
 
   // Starts a session straight from the Active column. The interface choice is the launch bar's own: the reet TUI is the default
   // wherever the machine offers it, and the agent's own TUI is one click away. Everything else (defaults, refusals, the one
@@ -125,6 +125,26 @@
   // The title follows the prompt's first line until the person types their own.
   $effect(() => { if (!titleTouched) title = defaultTitle(choice.prompt) })
 
+  // A repository starts in a fresh git worktree or in the checkout itself, from a base branch the machine lists. The reet TUI
+  // has neither (it runs in the folder as it is), so the choices only show for the agent's own terminal interface.
+  const showCheckout = $derived(mode === 'project' && !!project?.isRepo && !chat)
+  let branchRead = $state<{ key: string; result: BranchesResult | 'failed' | null }>({ key: '', result: null })
+  const branchKey = $derived(showCheckout && project && machine?.capabilities?.branches ? `${project.host}\u0000${project.dir}` : '')
+  $effect(() => {
+    const key = branchKey, p = project
+    if (!key || !p || untrack(() => branchRead.key === key)) return
+    branchRead = { key, result: null }
+    listBranches(p.host, p.dir, undefined, life.signal).then(
+      r => { if (!life.signal.aborted && branchRead.key === key) branchRead = { key, result: r } },
+      () => { if (!life.signal.aborted && branchRead.key === key) branchRead = { key, result: 'failed' } })
+  })
+  const branches = $derived(branchRead.key === branchKey && branchRead.result && branchRead.result !== 'failed' ? branchRead.result : null)
+  const branchNames = $derived.by(() => {
+    const names = branches?.branches ?? []
+    return choice.branch && !names.includes(choice.branch) ? [choice.branch, ...names] : names
+  })
+  const branchNote = $derived(!machine?.capabilities?.branches ? 'Update reet on that machine to list its branches.' : branchRead.key === branchKey && branchRead.result === 'failed' ? "Couldn't read the branches just now." : branchRead.key === branchKey && !branchRead.result ? 'Reading branches…' : '')
+
   function changeMode(next: 'project' | 'folder') {
     if (next === mode) return
     mode = next; browse = false
@@ -133,7 +153,7 @@
   }
   function pickMachine(value: string) { dir = ''; browse = false; choice = withHome(choice, value, profile, { machines }) }
   const dirProblem = $derived(mode === 'folder' && dir ? validateDir(dir) : null)
-  const key = () => [choice.prompt, title, mode === 'folder' ? dir : ''].join('\u0000')
+  const key = () => [choice.prompt, title, mode === 'folder' ? dir : '', choice.worktree, choice.branch].join('\u0000')
 
   function pickProject(value: string) {
     const next = projects.find(p => p.id === value)
@@ -244,6 +264,22 @@
             <div class="folder"><input aria-label="Folder" bind:value={dir} placeholder="/home/you/project" /><button type="button" class="btn" disabled={!machine?.ready || !machine.capabilities?.browse || machine.capabilities.browseOff} onclick={() => browse = !browse}>Browse</button></div></label>
           {#if browse && machine}<FolderBrowser agentId={machine.agentId} host={machine.host} session={id} start={dir} chosen={dir} serial={job => job()} onuse={picked => { dir = picked.path; browse = false }} />{/if}
           {/if}
+          {#if showCheckout}
+            <div class="settings checkout">
+              <label class="field"><span>Worktree</span>
+                <select aria-label="Worktree" value={choice.worktree ? 'yes' : 'no'} onchange={e => choice = { ...choice, worktree: e.currentTarget.value === 'yes' }}>
+                  <option value="yes">A fresh worktree</option><option value="no">The checkout</option>
+                </select></label>
+              {#if choice.worktree}
+                <label class="field"><span>Branch <small>The worktree starts from it</small></span>
+                  <select aria-label="Branch" value={choice.branch} onchange={e => choice = { ...choice, branch: e.currentTarget.value }}>
+                    <option value="">{branches?.current ? `The current branch (${branches.current})` : 'The current branch'}</option>
+                    {#each branchNames as b}<option value={b}>{b}</option>{/each}
+                  </select></label>
+              {/if}
+            </div>
+            {#if choice.worktree && branchNote}<p class="hint">{branchNote}</p>{/if}
+          {/if}
           <div class="section-title">Who’s on the job?</div>
           <div class="settings">
           <label class="field"><span>Agent</span>
@@ -310,6 +346,8 @@
   .mode button.on { background: var(--card); color: var(--ink); border-color: var(--line); }
   .mode button:disabled { opacity: .5; cursor: default; }
   .settings { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 12px; }
+  .checkout { grid-template-columns: 1fr 1.4fr; margin-top: 4px; }
+  .hint { font-size: 12px; color: var(--muted); margin: -6px 0 12px; }
   .section-title { margin: 24px 0 12px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; font-weight: 650; }
   .field em { font-size: 10px; font-style: normal; font-weight: 400; color: var(--muted); margin-left: 8px; }
   .prompt-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: -10px; color: var(--muted); font-size: 11px; }
@@ -336,5 +374,5 @@
   .trust { display: flex; align-items: center; gap: 8px; font-size: 12px; }
   .note, .none { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
   footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; border-top: 1px solid var(--line); }
-  @media (max-width: 650px) { input:not([type='checkbox']), select, textarea, .picker { font-size: 16px; } .settings { grid-template-columns: 1fr; gap: 0; } .skill-add { min-height: 44px; } header, .body, footer { padding-left: 16px; padding-right: 16px; } }
+  @media (max-width: 650px) { input:not([type='checkbox']), select, textarea, .picker { font-size: 16px; } .settings, .checkout { grid-template-columns: 1fr; gap: 0; } .skill-add { min-height: 44px; } header, .body, footer { padding-left: 16px; padding-right: 16px; } }
 </style>

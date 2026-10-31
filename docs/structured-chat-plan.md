@@ -139,6 +139,33 @@ changes. Not done: private-protocol messages and negotiation, the controller ans
 account checks, the chat card and Needs-you summary, request-scoped (pre-session) questions,
 and old-peer/concurrent-tab/phone fixtures. Do not advertise the form capability before those.
 
+### SC3 progress: wire, connector and controller route (31 October 2026, local)
+
+Done: the private-protocol feature `acp-question-v1` (negotiated per connection; a
+machine's `acpQuestions` capability and a per-agent `questions` descriptor flag, both
+false today); `question`, `question_resolved` and `question_cancelled` events with a
+bounded, validated `ACPQuestion` payload that must fit the control frame (the machine
+refuses a form that does not); an `acp_question_answer` message (accept, decline or cancel;
+answers are one JSON object with no duplicate keys, at most 8 KiB); a `question_invalid`
+result with a bounded detail; connector routing to `Session.AnswerQuestion`, with question
+events sent only on a connection that negotiated the feature (otherwise the question is
+cancelled, never buffered); controller `AnswerQuestionChat` scoped to the caller's own
+chat, requiring the machine and agent to offer questions, with only the action audited; the
+chat log counting a waiting question like an approval; and
+`POST /api/v2/terminal/sessions/{id}/chat/questions/{questionId}` (422 for a rejected answer,
+409 when the question is gone or not offered). Still off: `Options.Questions` is false in
+every launch, `initialize` does not advertise `elicitation.form`, and no agent descriptor
+sets `questions`. Not done: the chat card, the Needs-you summary (the broker keeps no queue
+entry for questions yet), request-scoped (pre-session) questions, a dispatcher-level test of
+the feature gate, and the concurrent-tab, replay and phone-width browser fixtures.
+
+### SC3 progress: the chat card (31 October 2026)
+
+Done in the browser: the `question` card in the chat view (reducer, draft checks, answer call, accessible controls,
+decided summary), covered by `chat.test.mjs` and `chat.e2e.mjs`. Still not done: the Needs-you summary and the broker
+queue entry behind it, questions asked before the session exists, the concurrent-tab and old-peer fixtures, and the
+touch-device and screen-reader checks. Nothing sends a question yet.
+
 ## SC4 — Integrate the second adapter
 
 Use SC1's capability contract and the existing view with another independently

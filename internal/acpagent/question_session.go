@@ -60,6 +60,11 @@ func (s *Session) handleElicitation(rpcID json.RawMessage, raw json.RawMessage) 
 	case err != nil:
 		s.refuseQuestion(rpcID)
 		return
+	case !q.Wire().Valid():
+		// It parsed, but it would not fit the control frame. Refuse it here, before
+		// registering one that the person could never see.
+		s.refuseQuestion(rpcID)
+		return
 	case acpID == "" || sessionID != acpID:
 		// A question before the session exists, or for another session, has no
 		// admitted owner in this slice; it is refused rather than attached.

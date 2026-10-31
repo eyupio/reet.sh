@@ -348,6 +348,11 @@ export function chatURL(id: string): string { return `/api/v2/terminal/sessions/
 export async function chatPrompt(id: string, text: string, images: string[] = []): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/prompt`, { method: 'POST', body: JSON.stringify(images.length ? { text, images } : { text }) }) }
 export async function chatCancel(id: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/cancel`, { method: 'POST', body: '{}' }) }
 export async function chatAnswer(id: string, permissionId: string, allow: boolean, forSession = false): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/permissions/${encodeURIComponent(permissionId)}`, { method: 'POST', body: JSON.stringify(forSession ? { allow, forSession: true } : { allow }) }) }
+/** accept sends answers; decline skips the question and lets the agent continue; cancel stops the agent's tool call. */
+export type QuestionAction = 'accept' | 'decline' | 'cancel'
+export async function chatQuestionAnswer(id: string, questionId: string, action: QuestionAction, answers?: Record<string, string | string[]>): Promise<void> {
+  await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/questions/${encodeURIComponent(questionId)}`, { method: 'POST', body: JSON.stringify(action === 'accept' ? { action, answers: answers ?? {} } : { action }) })
+}
 export type ApprovalMode = 'ask' | 'yolo'
 export async function setApprovalMode(id: string, mode: ApprovalMode): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/approval-mode`, { method: 'POST', body: JSON.stringify({ mode }) }) }
 

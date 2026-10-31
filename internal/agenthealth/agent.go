@@ -60,6 +60,7 @@ type AgentConfig struct {
 	acpModel          bool
 	acpImages         bool
 	acpApproval       bool
+	acpQuestion       bool
 	shellDir          bool
 	attention         bool
 	progress          bool
@@ -718,6 +719,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpModel = terminalproto.SupportsACPModel(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
 	cfg.acpApproval = terminalproto.SupportsACPApproval(advertised)
+	cfg.acpQuestion = terminalproto.SupportsACPQuestion(advertised)
 	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
 	cfg.attention = terminalproto.SupportsAttention(advertised)
 	cfg.progress = terminalproto.SupportsProgress(advertised)
@@ -782,6 +784,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpApproval {
 		features = append(features, terminalproto.ACPApprovalFeature)
+	}
+	if cfg.acpQuestion {
+		features = append(features, terminalproto.ACPQuestionFeature)
 	}
 	if cfg.shellDir {
 		features = append(features, terminalproto.ShellDirFeature)
@@ -892,6 +897,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 					entry.Images = entry.Images && cfg.acpImages
 					entry.Model = entry.Model && cfg.acpModel
 					entry.Approval = entry.Approval && cfg.acpApproval
+					entry.Questions = entry.Questions && cfg.acpQuestion
 				}
 				entries = append(entries, entry)
 			}
@@ -921,6 +927,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ACPModel:        acp && cfg.acpModel,
 		ACPImages:       acp && cfg.acpImages,
 		ACPApproval:     acp && cfg.acpApproval,
+		ACPQuestions:    acp && cfg.acpQuestion,
 		ShellDir:        cfg.shellDir && control && enabled,
 		Attention:       cfg.attention && control,
 		Branches:        cfg.branches && worktree && enabled,

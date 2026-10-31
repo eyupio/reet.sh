@@ -1,0 +1,60 @@
+name: Cleanup Old Dev Release Assets
+
+# release.yml adds reet_dev_<sha>_<os>_<arch>.tar.gz and checksums-<sha>.txt to
+# the rolling `dev` release on every merge and never removes any. The release's
+# API listing grows with them, and an installed agent that reads it stops being
+# able to update once it passes the agent's size cap.
+#
+# .github/scripts/release-prune-dev.sh deletes a commit's assets only when the
+# commit is old, outside the newest commits, and not the one the dev tag points
+# at. The legacy rolling names, checksums.txt and dev-build.txt are never
+# touched. It fails closed: nothing is deleted when the release or tag cannot
+# be read.
+#
+# A manual run is a dry run unless asked otherwise. Check the dry run output
+# before relying on the scheduled run, which deletes for real.
+
+on:
+  schedule:
+    - cron: "41 3 * * *" # daily at 03:41 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List what would be deleted without deleting it."
+        type: boolean
+        default: true
+      keep_days:
+        description: "Never delete a commit's assets younger than this many days."
+        type: string
+        default: "14"
+      keep_commits:
+        description: "Always keep the assets of this many newest commits."
+        type: string
+        default: "20"
+
+permissions: {}
+
+concurrency:
+  group: cleanup-releases
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Cleanup dev release
+    runs-on: zoomies-linux-x64
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test the prune
+        run: .github/scripts/release-prune-dev-test.sh
+      - name: Delete old per-commit dev assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+          KEEP_DAYS: ${{ inputs.keep_days || '14' }}
+          KEEP_COMMITS: ${{ inputs.keep_commits || '20' }}
+        run: .github/scripts/release-prune-dev.sh

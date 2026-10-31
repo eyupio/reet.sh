@@ -180,3 +180,43 @@ func TestQuestionClosesWithTheSession(t *testing.T) {
 		t.Fatalf("cancelled %+v", cancelled)
 	}
 }
+
+func TestQuestionTooBigForTheWireIsRefused(t *testing.T) {
+	_, got, done := startQuestion(t, "question-big", true)
+	if result := echoed(t, got); result["action"] != "cancel" {
+		t.Fatalf("agent received %v", result)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWireMirrorsTheQuestion(t *testing.T) {
+	q, _, err := parseQuestion(form(`{"type":"object","required":["pick"],"properties":{
+	 "pick":{"type":"string","oneOf":[{"const":"a","title":"A"},{"const":"b"}]},
+	 "tags":{"type":"array","maxItems":2,"items":{"enum":["x","y","z"]}},
+	 "note":{"type":"string","maxLength":40}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire := q.Wire()
+	if !wire.Valid() || len(wire.Fields) != 3 {
+		t.Fatalf("wire %+v", wire)
+	}
+	for _, f := range wire.Fields {
+		switch f.Key {
+		case "pick":
+			if f.Kind != "single" || !f.Required || f.MinItems != 0 || f.MaxItems != 0 || f.Options[0].Label != "A" {
+				t.Fatalf("pick %+v", f)
+			}
+		case "tags":
+			if f.Kind != "multi" || f.MaxItems != 2 || len(f.Options) != 3 {
+				t.Fatalf("tags %+v", f)
+			}
+		case "note":
+			if f.Kind != "text" || f.MaxLength != 40 {
+				t.Fatalf("note %+v", f)
+			}
+		}
+	}
+}

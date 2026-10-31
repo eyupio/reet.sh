@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/eyupio/reet.sh/internal/lifecycle"
+	"github.com/eyupio/reet.sh/internal/scan"
 )
 
 func testModel() model {
@@ -86,6 +87,58 @@ func TestVersionScreenRendersWithoutLoading(t *testing.T) {
 	for _, want := range []string{"v1.2.3", "abcdef1234", "Platform"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestScanFormOpensAndEscapeReturnsHome(t *testing.T) {
+	m := testModel()
+	next, _ := m.open(ScreenScan)
+	m = next.(model)
+	if m.page != ScreenScan || !m.formActive() || m.scanForm == nil {
+		t.Fatalf("page=%q form=%v loading=%t", m.page, m.scanForm != nil, m.loading)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(model)
+	if m.page != ScreenHome {
+		t.Fatalf("page = %q, want home", m.page)
+	}
+}
+
+func TestScanResultRendersFindingsAndDryRun(t *testing.T) {
+	m := testModel()
+	next, _ := m.open(ScreenScan)
+	m = next.(model)
+	next, cmd := m.startScan()
+	m = next.(model)
+	if !m.loading || cmd == nil {
+		t.Fatal("scan did not start")
+	}
+	report := scan.Report{
+		Host:   "laptop",
+		DryRun: true,
+		Found:  []scan.Found{{Name: "alpha", Source: "owner/repo", Agent: "claude"}},
+		Envs:   []scan.ScannedEnv{{Host: "laptop", Agent: "claude", Path: ".claude/skills"}},
+	}
+	next, _ = m.Update(resultMsg{page: ScreenScan, value: report})
+	m = next.(model)
+	view := m.View()
+	for _, want := range []string{"Scan", "alpha", "dry run", "1 skills found"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestScanDirsSplitsCommasAndNewlines(t *testing.T) {
+	got := scanDirs(" /one, /two\n/three ,, ")
+	want := []string{"/one", "/two", "/three"}
+	if len(got) != len(want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %q, want %q", got, want)
 		}
 	}
 }

@@ -112,7 +112,7 @@ Usage: reet <command> [options]
   version      Show the binary version and source commit
 
 Run reet with no command in a terminal for the menu, or add --tui to doctor,
-healthcheck, version, terminal status or agent status to open that screen.
+healthcheck, scan, version, terminal status or agent status to open that screen.
 
 Connect to an existing site:
   Open Account on your site, then Connect a machine.

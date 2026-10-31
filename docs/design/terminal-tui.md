@@ -1,6 +1,6 @@
 # Terminal interface
 
-Status: read-only screens shipped; forms and actions follow in later slices.
+Status: read-only screens and the Scan form shipped; Sync, Backup, Setup and Upgrade follow.
 
 The `reet` binary has a terminal interface built with
 [Bubble Tea](https://github.com/charmbracelet/bubbletea). It is a face on the
@@ -15,6 +15,7 @@ local deployment and the controllers those commands already use.
 | `reet` in a terminal | The menu |
 | `reet doctor --tui` | Doctor |
 | `reet healthcheck --tui [--url URL \| --local]` | Healthcheck |
+| `reet scan --tui [--server URL] [--env NAME] [--dry-run]` | Scan |
 | `reet version --tui` | Version |
 | `reet terminal status --tui [--data-dir PATH]` | Terminal status |
 | `reet agent status --tui [--config PATH]` | Agent status |
@@ -31,6 +32,11 @@ and services never start the interface; they run exactly as before. `serve`,
   check's advice. The report is the same value the text command renders.
 - **Healthcheck.** The endpoint, HTTP answer, latency and time, or the request
   error. `--url` and `--local` behave as they do on the command.
+- **Scan.** A form for environment, controller, token and extra folders, with
+  dry-run, prune and reconcile switches. Submitting collects the installed
+  skills and, unless it is a dry run, reports them; the result shows every
+  finding and the controller's counts, skips and errors. `r` runs the same form
+  again, `e` edits it and `esc` returns to the menu.
 - **Version.** Binary version, source commit, Go version and platform.
 - **Terminal status.** Whether terminal access is enabled, available and
   running, the saved public URL and authentication mode, and why it is blocked.
@@ -53,6 +59,8 @@ Keys: `↑`/`↓` or `j`/`k` move, `enter` opens, `esc` returns, `r` reloads,
 - The text commands and the terminal screens share report values. Doctor's
   `Report`/`Diagnostic` and the agent's `AgentStatus` are exported for that
   reason; their text renderers remain in the command packages.
+- Forms use `huh` with the same model, so a form is a screen like any other:
+  `esc` cancels back to the menu and `ctrl+c` quits.
 - Colours use the reet orange with adaptive light and dark values. `NO_COLOR`
   and `TERM=dumb` use plain styles. `REET_NO_ANIMATION` is respected by the text
   commands' spinner; the terminal interface's spinner is part of its loading
@@ -63,7 +71,7 @@ Keys: `↑`/`↓` or `j`/`k` move, `enter` opens, `esc` returns, `r` reloads,
 Bubble Tea, Bubbles and Lip Gloss are MIT-licensed, pure Go and already the
 smallest well-tested way to get keyboard handling, a viewport and adaptive
 colour. A stripped hello-world grows from 1.51 MB to 3.57 MB with these three
-packages on Go 1.27. `huh` is added with the first form slice. The project keeps
+packages on Go 1.27. `huh` supplies the forms. The project keeps
 "one Go binary, one SQLite file"; this is a deliberate exception, not a new
 runtime.
 
@@ -86,8 +94,7 @@ plane and, in later slices, a launcher.
 
 ## Next slices
 
-1. Scan: tool and environment selection, prune and reconcile, a report.
-2. Sync: preview, review and apply with the same confirmation rules.
-3. Backup: take, verify and restore with passphrase handling.
-4. Setup: create, push and pull a setup profile.
-5. Upgrade: check, confirm, back up, verify and roll back on a failed restart.
+1. Sync: preview, review and apply with the same confirmation rules.
+2. Backup: take, verify and restore with passphrase handling.
+3. Setup: create, push and pull a setup profile.
+4. Upgrade: check, confirm, back up, verify and roll back on a failed restart.

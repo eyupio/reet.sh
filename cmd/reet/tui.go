@@ -89,6 +89,39 @@ func runTUI(screen string, args []string, version, commit string) error {
 		opts.Start = tui.ScreenHealth
 		opts.HealthURL = *target
 		opts.HealthLocal = *local
+	case "scan":
+		fs := flag.NewFlagSet("reet scan --tui", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		server := fs.String("server", os.Getenv("REET_URL"), "controller URL (default REET_URL)")
+		token := fs.String("token", "", "personal API token (default saved token or REET_TOKEN)")
+		envFile := fs.String("env-file", "", "read REET_TOKEN from an explicit env file")
+		envName := fs.String("env", os.Getenv("REET_ENV"), "environment name for this machine (default hostname)")
+		prune := fs.Bool("prune", false, "remove stale inventory reports for scanned environments")
+		reconcile := fs.Bool("reconcile", false, "repair hostname/env aliases before scanning")
+		dry := fs.Bool("dry-run", false, "list what would be sent without sending it")
+		var dirs []string
+		fs.Func("dir", "extra skills folder to scan (repeatable)", func(value string) error {
+			dirs = append(dirs, value)
+			return nil
+		})
+		if err := fs.Parse(args); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
+		}
+		if fs.NArg() != 0 {
+			return errors.New("unexpected scan arguments")
+		}
+		opts.Start = tui.ScreenScan
+		opts.ScanServer = *server
+		opts.ScanToken = *token
+		opts.ScanTokenFile = *envFile
+		opts.ScanEnv = *envName
+		opts.ScanDirs = strings.Join(dirs, ",")
+		opts.ScanPrune = *prune
+		opts.ScanReconcile = *reconcile
+		opts.ScanDryRun = *dry
 	case "version":
 		if len(args) != 0 {
 			return errors.New("unexpected version arguments")

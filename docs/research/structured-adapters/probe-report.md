@@ -139,7 +139,7 @@ python3 scripts/probe-claude-turn.py allow --tool Bash --workspace "$probe_dir"
 python3 scripts/probe-claude-turn.py deny --tool Write --workspace "$probe_dir"
 python3 scripts/probe-claude-turn.py allow --tool Write --workspace "$probe_dir"
 python3 scripts/probe-claude-turn.py allow --tool AskUserQuestion --workspace "$probe_dir"
-for s in trust cancel load model subagent; do python3 scripts/probe-claude-lifecycle.py $s --workspace "$probe_dir"; done
+for s in trust cancel load model subagent subagent-nested; do python3 scripts/probe-claude-lifecycle.py $s --workspace "$probe_dir"; done
 ```
 
 The scripts install nothing. They require Python 3, Node 22+, the preinstalled
@@ -214,6 +214,44 @@ phone or other OS.
   so nested tool permission was not exercised. reet's parser has no card for kind
   `think`; it must show the prompt or refuse.
 
+### Claude subagents, nested (observed)
+
+`scripts/probe-claude-lifecycle.py subagent-nested`: a stub subagent asked to run
+Bash. Two separate permission requests arrived: the delegation (kind `think`) and the
+subagent's own `execute` call, whose `toolCall._meta.claudeCode.parentToolUseId` named
+the delegation's `toolCallId`. Approving the delegation did not approve the nested
+command, so ask-for-all holds inside a subagent under the tested settings. reet
+prefixes such cards "Subagent:" (`permissionTitle`); a dedicated parent field would need
+a wire change and was not made.
+
+## Codex lifecycle probes (observed, partial)
+
+`scripts/probe-codex-turn.py` against `@agentclientprotocol/codex-acp@1.13.1` with
+`@openai/codex@0.156.1`, a loopback Responses-API stub, a temporary `CODEX_HOME`, synthetic
+credentials and a `model_providers` entry in `config.toml`. Same limits as above; this
+container has no `bwrap`, so the Codex sandbox could not be shown to be active.
+
+- **Identity and auth.** Auth methods `api-key` and `chat-gpt`; a synthetic `api-key`
+  authenticate succeeded. Modes: `read-only` ("Ask for approval"), `agent` ("Approve for me",
+  the default, only asks for actions it deems unsafe) and `agent-full-access`. Models are
+  IDs with the effort embedded, such as `gpt-6-astra[low]`.
+- **Tools offered.** `exec_command`, `write_stdin`, `request_user_input`, `view_image`,
+  `multi_agent_v1`, `get_goal`, `create_goal`, `update_goal`, `web_search`. The command
+  tool is `exec_command` with a `cmd` argument, not `shell_command`.
+- **No approval request in any mode (open gap).** A harmless write ran with **no
+  `session/request_permission`** in `agent` and in `read-only`, for allow, deny and
+  cancel decisions, both inside the project and to a path outside it. Approvals are
+  sandbox- and mode-driven, not per command, so reet's "every command asks" contract is
+  not established for Codex. Whether a working sandbox changes this was not checked here.
+- **Provider failure is disguised.** A 500 from the stub made the turn end with
+  `stopReason: "end_turn"` and `usage: null` after about 25 seconds of retries; the only
+  signal was `session_info_update` with `_meta.codex.error` ("Reconnecting... n/5",
+  `willRetry`). reet must treat an `end_turn` with no content and an error update as a
+  failed turn, as it already does for OpenCode's silent provider errors.
+- **Config strictness.** `approval_policy = "untrusted"` in `config.toml` is rejected
+  ("no longer supported"), and a bad user config kills the process during initialize.
+  Codex also warns it will not create helper binaries under a temp directory.
+
 ## Integration gates still open
 
 Claude remains disabled. Done in this checkpoint: the repository-hooks gate (`ClaudeSessionMeta`), adapter-aware UUID validation
@@ -221,11 +259,15 @@ Claude remains disabled. Done in this checkpoint: the repository-hooks gate (`Cl
 Also done (local): `Session.Close` now kills the group and confirms no live member remains
 (`GroupRetired`, zombie-aware on Linux), and a `think` permission shows the subagent type
 and bounded prompt in the command field, staying unapprovable without a prompt.
-Still required before enabling: applied-state model/mode controls, nested subagent
-permissions, required-environment checks and the SC3 question contract.
+Also done (local): `SetModel` reads the applied model back and refuses a silent reset;
+subagent cards are labelled. Still required before enabling Claude: required-environment
+checks and the SC3 question contract.
 Keep question support disabled until the SC3 contract is implemented.
 
-For Codex, additionally verify native provider configuration and real stub-backed
-tool/approval/error/cancel paths. Its handshake or synthetic authentication alone
+For Codex, additionally establish whether a per-command approval exists with a working
+sandbox (none appeared here), handle the disguised provider error, and verify cancel on a
+running command. Its handshake or synthetic authentication alone
 is insufficient to enable it. Candidate order: Claude first, conditional on these
 gates; Codex remains a separately verified integration.
+
+Codex probes: `python3 scripts/probe-codex-turn.py <allow|deny|cancel|error> --tool-name exec_command --mode read-only [--outside] --workspace "$probe_dir"` (add `--discover` to list tools).

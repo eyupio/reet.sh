@@ -673,6 +673,11 @@ type permissionParams struct {
 		Locations  []struct {
 			Path string `json:"path"`
 		} `json:"locations"`
+		Meta struct {
+			ClaudeCode struct {
+				ParentToolUseID string `json:"parentToolUseId"`
+			} `json:"claudeCode"`
+		} `json:"_meta"`
 		Content  []permissionContent `json:"content"`
 		RawInput struct {
 			Command      string `json:"command"`
@@ -778,15 +783,25 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 		s.emit(Event{Kind: "notice", Text: "The approval request timed out, so " + s.opts.Agent.displayName() + " was stopped.", Bad: true})
 		_ = s.sendCancel()
 	})
-	title := params.ToolCall.Title
-	if title == "" {
-		title = s.opts.Agent.displayName() + " tool call"
-	}
+	title := permissionTitle(params.ToolCall.Title, params.ToolCall.Meta.ClaudeCode.ParentToolUseID, s.opts.Agent.displayName())
 	s.emit(Event{Kind: "status", State: "waiting", Detail: "Waiting for your approval."})
 	s.emit(Event{Kind: "permission", PermissionID: permissionID, ToolCallID: params.ToolCall.ToolCallID,
 		Title: title, ToolKind: params.ToolCall.Kind, Command: command,
 		Path: path, Diff: diff, Locations: locations, Truncated: truncated,
 		Text: params.ToolCall.RawInput.Description})
+}
+
+// permissionTitle names the card. A subagent's own tool call is a separate
+// approval from the delegation that started it (SC2 probe); say so, so it is not
+// mistaken for the parent's.
+func permissionTitle(title, parent, agent string) string {
+	if title == "" {
+		title = agent + " tool call"
+	}
+	if parent != "" {
+		title = "Subagent: " + title
+	}
+	return title
 }
 
 func permissionID() (string, error) {

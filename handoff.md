@@ -58,8 +58,13 @@ the `think` subagent card (`subagentSummary`). Tests: group_test.go, session_tes
 and returns `ErrModel` (recording the real value) when the agent reports a different one; a
 response without an option list keeps the old behaviour. Test: `TestSetModelReportsAppliedState`.
 
-**Next unchecked task:** applied-state mode controls (none are offered yet), nested subagent permissions
-(needs a stub whose subagent runs a tool), required-environment checks, then Codex probes.
+**Subagents and Codex (local):** nested subagent calls raise their own approval with a
+`parentToolUseId`; reet labels them "Subagent:". Codex probe (`scripts/probe-codex-turn.py`)
+showed no per-command approval request in any mode and a provider error disguised as
+`end_turn`; Codex stays disabled. See the probe report.
+
+**Next unchecked task:** Claude required-environment checks; for Codex, re-run with a working
+sandbox to see whether any approval request exists, and cancel on a running command; then SC3.
 
 ## SC2 — Structured adapter probe checkpoint (31 October 2026)
 

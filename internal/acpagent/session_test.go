@@ -1003,3 +1003,25 @@ func TestSetModelReportsAppliedState(t *testing.T) {
 		t.Fatalf("silent reset: %v %q", err, s.Model())
 	}
 }
+
+func TestSubagentPermissionCarriesParentLink(t *testing.T) {
+	// Shape captured from the nested subagent probe.
+	const raw = `{"sessionId":"s","toolCall":{"toolCallId":"toolu_child","kind":"execute","title":"printf nested",
+		"_meta":{"claudeCode":{"toolName":"Bash","parentToolUseId":"toolu_probe"}},"rawInput":{"command":"printf nested"}}}`
+	var params permissionParams
+	if err := json.Unmarshal([]byte(raw), &params); err != nil || params.ToolCall.Meta.ClaudeCode.ParentToolUseID != "toolu_probe" {
+		t.Fatalf("decode %+v %v", params, err)
+	}
+}
+
+func TestPermissionTitle(t *testing.T) {
+	for _, tc := range []struct{ title, parent, want string }{
+		{"ls", "", "ls"},
+		{"", "", "Claude Code tool call"},
+		{"ls", "toolu_1", "Subagent: ls"},
+	} {
+		if got := permissionTitle(tc.title, tc.parent, "Claude Code"); got != tc.want {
+			t.Fatalf("%+v -> %q", tc, got)
+		}
+	}
+}

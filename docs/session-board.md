@@ -61,8 +61,10 @@ are refused instead of overwritten. Starting additionally uses the existing
 terminal feature, authorization, capability, and audit gates. No prompt or image
 body is added to Activity or browser storage. Ordinary agent approvals apply.
 
-Quick launch remains available in an expandable section. Machine health and
-Needs you remain accessible below the board and through the existing bell.
+Quick launch remains available in an expandable section. New session links from
+Sessions and project handoffs open it automatically; launch links focus the prompt.
+Machine health and Needs you remain accessible below the board and through the
+existing bell.
 Home refreshes visible data every 15 seconds and keeps the last successful read
 when a refresh fails.
 

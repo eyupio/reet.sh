@@ -10,7 +10,7 @@ const project = (id, name, dir, host = 'm1') => ({ id, name, host, machine: host
 const projects = [project('p1', 'Reet', '/home/sam/reet'), project('p2', 'Storefront', '/home/sam/storefront'), project('p3', 'Personal site', '/Users/sam/site', 'm2')]
 const draft = (id, title, prompt, over = {}) => ({ id, title, prompt, agentId: 'm1', projectId: 'p1', dir: '/home/sam/reet', tool: 'claude', model: 'sonnet', effort: '', imageCount: 0, images: [], starting: false, version: 1, createdAt: now - 40 * minute, updatedAt: now - 20 * minute, ...over })
 const session = (id, title, over = {}) => ({ id, title, agentId: 'm1', projectId: 'p1', dir: '/home/sam/reet', state: 'running', tool: 'codex', model: 'gpt-5-codex', attention: 'working', createdAt: now - 80 * minute, updatedAt: now - 5 * minute, exitCode: null, ...over })
-async function workspace(width = 1440, theme = 'light', touch = false) {
+async function workspace(width = 1440, theme = 'light', touch = false, entry = '/') {
   const box = {
     drafts: [draft('draft-design', 'Give the settings page a proper polish', 'Refine the account settings layout. Focus on spacing, clear labels and a calmer visual hierarchy.', { imageCount: 2 }), draft('draft-tests', 'Cover the session recovery edge cases', 'Add focused coverage for a reconnect after the browser goes offline.', { tool: 'cline', model: 'anthropic/claude-sonnet', effort: 'high', projectId: 'p2', dir: '/home/sam/storefront' }), draft('draft-site', 'Bring the case studies up to date', 'Refresh the project stories and add the new screenshots.', { agentId: 'm2', projectId: 'p3', dir: '/Users/sam/site', tool: 'opencode', model: 'anthropic/claude-sonnet' })],
     sessions: [session('s1', 'Build a faster project picker'), session('s2', 'Review the checkout changes', { attention: 'waiting', tool: 'claude', model: 'opus', projectId: 'p2', dir: '/home/sam/storefront' }), session('s3', 'Tidy up the keyboard shortcuts', { state: 'exited', attention: 'finished', exitCode: 0, updatedAt: now - 35 * minute }), session('s4', 'Document the new launch options', { state: 'ended', attention: 'finished', tool: 'claude', model: 'sonnet', updatedAt: now - 90 * minute })],
@@ -48,13 +48,40 @@ async function workspace(width = 1440, theme = 'light', touch = false) {
   }
   box.drafts.forEach(d => register(d.id))
   const app = await openWorkspace(browser, { width, height: 1000, theme, touch, terminalMachines: machines, terminalStatus: { configured: true, available: true, reason: '' }, routes })
-  await app.page.goto(base)
+  await app.page.goto(new URL(entry, base).href)
   await expect(app.page.getByRole('heading', { name: 'A reet good day’s work.' })).toBeVisible()
   await expect(app.page.locator('.session-card')).toHaveCount(7)
   return { ...app, box }
 }
 try {
   await mkdir('../work/screenshots', { recursive: true })
+  // Existing Sessions links and project handoffs must reveal their launch form,
+  // while a normal Home visit keeps the board as the primary view.
+  for (const [entry, projectLabel, focused, width] of [
+    ['/', '', false, 1440],
+    ['/#launch', '', true, 1440],
+    ['/?project=p2', 'Storefront', false, 1440],
+    ['/?projects=p1,p2', '2 projects', false, 1440],
+    ['/?projects=p1,p2#launch', '2 projects', true, 1440],
+    ['/#launch', '', true, 390],
+  ]) {
+    const app = await workspace(width, 'light', width === 390, entry)
+    const section = app.page.locator('details.quick-launch')
+    await expect(section).toHaveJSProperty('open', entry !== '/')
+    if (entry !== '/') {
+      const launch = app.page.getByRole('form', { name: 'Start a session', exact: true })
+      await expect(launch).toBeVisible()
+      await expect(launch.getByRole('textbox', { name: 'Describe the job', exact: true })).toBeVisible()
+      if (focused) {
+        await expect(launch.getByRole('textbox', { name: 'Describe the job', exact: true })).toBeFocused()
+        await expect.poll(() => new URL(app.page.url()).hash).toBe('')
+      }
+      if (projectLabel === '2 projects') await expect(launch.locator('.sentence').getByText('2 projects', { exact: true })).toBeVisible()
+      else if (projectLabel) await expect(launch.getByRole('button', { name: `Project: ${projectLabel}`, exact: true })).toBeVisible()
+    }
+    expect(app.errors).toEqual([])
+    await app.context.close()
+  }
   const app = await workspace(), { page, box } = app
   page.setDefaultTimeout(7000)
   await page.screenshot({ path: '../work/screenshots/session-board-desktop.png', fullPage: true })
@@ -123,5 +150,5 @@ try {
     expect(app.errors).toEqual([])
     await app.context.close()
   }
-  console.log('Session board: stage views, combined filters, offline capture, edit, delete, start, light/dark and responsive checks passed.')
+  console.log('Session board: launch links and project handoffs, stage views, combined filters, offline capture, edit, delete, start, light/dark and responsive checks passed.')
 } finally { await browser.close() }

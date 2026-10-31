@@ -50,7 +50,9 @@
   // The account's choice for a session that ends: remove it from history too. Read with the launch defaults.
   let removeDefault = $state(false)
   let bar = $state<LaunchBar>()
-  let quickLaunch = $state(!!new URLSearchParams(location.search).get('project'))
+  // Capture launch entry points before the launch bar and project handoff clean the URL.
+  const launchParams = new URLSearchParams(location.search)
+  let quickLaunch = $state(location.hash === '#launch' || ['project', 'projects'].some(key => !!launchParams.get(key)))
   let now = $state(Date.now())
   let problem = $state('')
   let readOnce = false

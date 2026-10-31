@@ -1559,3 +1559,22 @@ recorded on that session. Thinking remains OpenCode's own.
 - `start-agent.e2e.mjs` passed unchanged, including its terminal model picker and phone sheet.
 - `go test ./internal/acpagent ./internal/terminalagent ./internal/terminalbroker` passed; `go build ./...` passed.
 - Not checked: a physical phone, Safari, a live provider turn, or a model that OpenCode lists but cannot run.
+
+## reet TUI transcript polish — 31 October 2026
+
+The reet TUI transcript was rebuilt around one-line tool rows: a state dot, kind icon and label, the command or the path
+relative to the session folder, added/removed counts, output length, duration and the state word, with the full command,
+output or diff folded underneath. Failed rows open on their error. Thinking is a quiet foldable aside; agent prose keeps its headings, lists, quotes and inline code, and fenced code gets
+its own block with a Copy action; approvals are the only cards that ask for an answer; and the composer is
+one soft card with an icon-only attach control, a keyboard hint and Send/Stop.
+
+- `npm --prefix web run check` passed (unit tests including the new transcript helpers, `svelte-check` 0 errors/0
+  warnings); `npm --prefix web run build` passed.
+- `chat.e2e.mjs` passed at 1360 × 900 and 390 × 844: a completed edit showed `Edit`, `notes.txt`, `+1`, `−1`, `179 ms`
+  and `Done`; its diff was absent until the row was opened, then showed `1 added, 1 removed`, `+ALPHA` and `-alpha`; a
+  1,200-event burst kept 400 rows and the page responsive.
+- `sessions.e2e.mjs`, `sessions-phone.e2e.mjs`, `terminal-workspace.e2e.mjs` and `home.e2e.mjs` passed.
+- `go build ./...` passed; `go test ./internal/acpagent ./internal/terminalproto ./internal/terminalagent ./internal/api`
+  passed, including tool-detail parsing, durations, the negotiated feature and the plain fallback for an older controller.
+- Checked in dark and light palettes at 1440 px and 420 px. Not checked: a physical phone, Safari or Firefox, a screen
+  reader, or a live provider turn with a very large diff.

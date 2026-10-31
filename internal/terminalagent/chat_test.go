@@ -99,7 +99,7 @@ func testChatHost(t *testing.T) (*chatHost, *fakeChat, *sent) {
 	out := &sent{}
 	proc := &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}
 	sup := newChatSupervisor(ctx, terminalhost.ManagerOptions{Home: home})
-	h := sup.attach(ctx, 1, out.send, true)
+	h := sup.attach(ctx, 1, out.send, true, true)
 	h.sup.lookPath = func(string) (string, error) { return "/bin/true", nil }
 	h.sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
 		proc.onEvent = opts.OnEvent
@@ -289,7 +289,7 @@ func TestChatHostReportsCreatingInSnapshots(t *testing.T) {
 	t.Cleanup(cancel)
 	out := &sent{}
 	sup := newChatSupervisor(ctx, terminalhost.ManagerOptions{Home: t.TempDir()})
-	h := sup.attach(ctx, 1, out.send, true)
+	h := sup.attach(ctx, 1, out.send, true, true)
 	h.sup.lookPath = func(string) (string, error) { return "/bin/true", nil }
 	gate := make(chan struct{})
 	proc := &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}
@@ -345,7 +345,7 @@ func TestChatSurvivesReconnectAndFlushesDetachedEvents(t *testing.T) {
 	}
 
 	first := &sent{}
-	a := sup.attach(ctx, 1, first.send, true)
+	a := sup.attach(ctx, 1, first.send, true, true)
 	defer a.close()
 	changed, err := a.open("request-0123456789", "session-0123456789", terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: sup.opts.Home,
@@ -371,7 +371,7 @@ func TestChatSurvivesReconnectAndFlushesDetachedEvents(t *testing.T) {
 	// The next connection adopts the same session and receives the event that
 	// was produced while nothing was attached.
 	second := &sent{}
-	b := sup.attach(ctx, 2, second.send, true)
+	b := sup.attach(ctx, 2, second.send, true, true)
 	defer b.close()
 	if snap, ok := b.snapshot("session-0123456789"); !ok || snap.State != terminalproto.Running || snap.ACPSessionID == "" {
 		t.Fatalf("snapshot after reattach: %+v %v", snap, ok)
@@ -433,7 +433,7 @@ func TestFactoryReattachesProcessScopedChat(t *testing.T) {
 		proc.onEvent = opts.OnEvent
 		return proc, nil
 	}
-	headers := http.Header{terminalproto.FeatureHeader: {terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPHistoryFeature}}
+	headers := http.Header{terminalproto.FeatureHeader: {terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPHistoryFeature + "," + terminalproto.ACPToolDetailsFeature}}
 	factory := FactoryWithChats(opts, &ChatSupervisor{s: sup})
 
 	first := &sent{}
@@ -502,7 +502,7 @@ func TestChatStartupCompletesOnTheReplacementLink(t *testing.T) {
 	}
 
 	firstOut := &sent{}
-	first := sup.attach(ctx, 1, firstOut.send, true)
+	first := sup.attach(ctx, 1, firstOut.send, true, true)
 	defer first.close()
 	opened := make(chan error, 1)
 	go func() {
@@ -525,7 +525,7 @@ func TestChatStartupCompletesOnTheReplacementLink(t *testing.T) {
 	// The connection that asked goes away while ACP startup is still running.
 	first.close()
 	secondOut := &sent{}
-	second := sup.attach(ctx, 2, secondOut.send, true)
+	second := sup.attach(ctx, 2, secondOut.send, true, true)
 	defer second.close()
 	close(gate)
 	if err := <-opened; err != nil {
@@ -544,4 +544,52 @@ func TestChatStartupCompletesOnTheReplacementLink(t *testing.T) {
 		t.Fatalf("snapshot: %+v %v", snapshot, ok)
 	}
 	sup.Close()
+}
+
+func toolDetailHost(t *testing.T, details bool) (*chatHost, *fakeChat, *sent) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	out := &sent{}
+	proc := &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}
+	sup := newChatSupervisor(ctx, terminalhost.ManagerOptions{Home: t.TempDir()})
+	h := sup.attach(ctx, 1, out.send, true, details)
+	h.sup.lookPath = func(string) (string, error) { return "/bin/true", nil }
+	h.sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
+		proc.onEvent = opts.OnEvent
+		return proc, nil
+	}
+	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
+		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return h, proc, out
+}
+
+func TestToolDetailsFollowTheNegotiatedFeature(t *testing.T) {
+	event := acpagent.Event{Kind: "tool", ToolCallID: "call_1", Title: "go test ./...", ToolKind: "execute", Status: "completed",
+		Text: "ok", Command: "go test ./...", Path: "/work", Diff: "@@ -1 +1 @@\n-a\n+b", Additions: 1, Deletions: 1, DurationMs: 12}
+	for _, details := range []bool{true, false} {
+		_, proc, out := toolDetailHost(t, details)
+		proc.onEvent(event)
+		var seen *terminalproto.ACPEvent
+		out.mu.Lock()
+		for _, m := range out.msgs {
+			if ev, ok := m.Body.(*terminalproto.ACPEvent); ok && ev.ToolCallID == "call_1" {
+				copy := *ev
+				seen = &copy
+			}
+		}
+		out.mu.Unlock()
+		if seen == nil {
+			t.Fatalf("details=%v: no tool event", details)
+		}
+		if details && (seen.Command != event.Command || seen.Path != event.Path || seen.DurationMs != 12 || seen.Additions != 1) {
+			t.Fatalf("details=%v: lost details %+v", details, seen)
+		}
+		if !details && (seen.Command != "" || seen.Path != "" || seen.Diff != "" || seen.DurationMs != 0 || seen.Additions != 0) {
+			t.Fatalf("details=%v: sent details to an old controller %+v", details, seen)
+		}
+	}
 }

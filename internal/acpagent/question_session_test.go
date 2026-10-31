@@ -220,3 +220,32 @@ func TestWireMirrorsTheQuestion(t *testing.T) {
 		}
 	}
 }
+
+func TestQuestionBeforeTheChatIsReadyIsCancelledWithNotice(t *testing.T) {
+	opts, got := options(t, "question-early", testVersion)
+	opts.Questions = true
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(session.Close)
+	notice := waitFor(t, got, kindIs("notice"))
+	if !strings.Contains(notice.Text, "before the chat was ready") {
+		t.Fatalf("notice %q", notice.Text)
+	}
+	// Nothing was registered, so there is nothing to answer and no question event.
+	if err := session.AnswerQuestion("anything", QuestionResolution{Action: QuestionDecline}); !errors.Is(err, ErrNoQuestion) {
+		t.Fatalf("got %v", err)
+	}
+	for {
+		select {
+		case event := <-got.wait:
+			if strings.HasPrefix(event.Kind, "question") {
+				t.Fatalf("a question event was published: %+v", event)
+			}
+			continue
+		case <-time.After(150 * time.Millisecond):
+		}
+		break
+	}
+}

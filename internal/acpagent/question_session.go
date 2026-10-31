@@ -65,9 +65,15 @@ func (s *Session) handleElicitation(rpcID json.RawMessage, raw json.RawMessage) 
 		// registering one that the person could never see.
 		s.refuseQuestion(rpcID)
 		return
-	case acpID == "" || sessionID != acpID:
-		// A question before the session exists, or for another session, has no
-		// admitted owner in this slice; it is refused rather than attached.
+	case acpID == "":
+		// A question asked while the chat is still starting has no admitted
+		// owner: the person cannot see the chat yet and no session id exists to
+		// bind an answer to. It is cancelled and the agent is told, never held.
+		s.respond(rpcID, cancelledQuestion(), nil)
+		s.emit(Event{Kind: "notice", Text: s.opts.Agent.displayName() + " asked a question before the chat was ready, so it was cancelled."})
+		return
+	case sessionID != acpID:
+		// A question for another session has no admitted owner either.
 		s.refuseQuestion(rpcID)
 		return
 	}

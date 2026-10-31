@@ -97,10 +97,10 @@ reason, sentence}`; the browser adds the relative age.
   rule and `ValidToolV2`. A favourite can be the **default for this agent**
   (at most one per agent). Every model picker offers **Make default** beside the
   star, so the agent default can be set or cleared wherever a model is chosen
-  (Home's launch bar, Start an agent, Add project/Project settings and
-  Settings › Agents). The server still stores one default per agent, and picking
-  a model that is not yet a favourite stars it first. The favourites manager
-  keeps its checkbox and order controls.
+  (Home's launch bar, Start an agent, Add project/Project settings,
+  Settings › Agents and a live chat's model switch). The server still stores one
+  default per agent, and picking a model that is not yet a favourite stars it
+  first. The favourites manager keeps its checkbox and order controls.
 - The account profile gains `defaultTool`, `defaultModel` and `defaultEffort`
   for sessions outside a project. A model needs its agent; an effort needs an
   agent whose preset takes one. An existing profile row with a model but no agent
@@ -149,6 +149,11 @@ The models UI now exists wherever a model or a default is chosen:
   project, the base-branch/worktree defaults, and the favourites manager (order,
   removal, add from any machine's cached list, and a default for an agent). Its
   model picker offers Make default too.
+- **A live chat's model controls** sit beside Change model: typing or choosing a
+  model offers **Make default**, which stars it first when it is not yet a
+  favourite, and **Clear default** for the model that is already the agent
+  default. The choice is the account's default for that agent, so it applies to
+  new sessions, not the one already open.
 - **Machines → a machine's Settings → Agents** lists the installed launchable
   agents and the model state last read: “42 read 3 h ago”, “not supported”,
   “couldn't read: timed out”, “off”, “offline” or “update”. **Refresh** asks the

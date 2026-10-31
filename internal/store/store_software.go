@@ -234,6 +234,21 @@ func (s *Store) SoftwareBatchFor(uid int64, batchID string) (SoftwareBatch, erro
 	return loadSoftwareBatch(s.db, uid, batchID)
 }
 
+// ActiveSoftwareBatchFor reads the person's pending, running or stopped batch,
+// or false when there is none. At most one can exist.
+func (s *Store) ActiveSoftwareBatchFor(uid int64) (SoftwareBatch, bool, error) {
+	var id string
+	err := s.db.QueryRow(`SELECT id FROM software_batches WHERE user_id=? AND state IN ('pending','running','stopped') ORDER BY created_at DESC LIMIT 1`, uid).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SoftwareBatch{}, false, nil
+	}
+	if err != nil {
+		return SoftwareBatch{}, false, err
+	}
+	batch, err := loadSoftwareBatch(s.db, uid, id)
+	return batch, err == nil, err
+}
+
 type softwareBatchQuerier interface {
 	QueryRow(query string, args ...any) *sql.Row
 	Query(query string, args ...any) (*sql.Rows, error)

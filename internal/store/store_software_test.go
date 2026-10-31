@@ -210,3 +210,21 @@ func TestResumeSoftwareBatchesResetsRunning(t *testing.T) {
 		t.Fatalf("resume: %+v", resumed)
 	}
 }
+
+func TestActiveSoftwareBatchForRestoresTheStoppedBatch(t *testing.T) {
+	s, uid, a, _ := softwareBatchFixture(t)
+	if _, ok, err := s.ActiveSoftwareBatchFor(uid); err != nil || ok {
+		t.Fatalf("no batch yet: ok=%v err=%v", ok, err)
+	}
+	created, _, err := s.CreateSoftwareBatchFor(uid, "batch_request_active", "opencode", []SoftwareBatchMemberInput{pendingMember(0, a)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := s.ActiveSoftwareBatchFor(uid)
+	if err != nil || !ok || got.ID != created.ID || len(got.Members) != 1 {
+		t.Fatalf("active batch: %+v ok=%v err=%v", got, ok, err)
+	}
+	if _, ok, err := s.ActiveSoftwareBatchFor(uid + 1); err != nil || ok {
+		t.Fatalf("another person must not see it: ok=%v err=%v", ok, err)
+	}
+}

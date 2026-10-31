@@ -29,6 +29,7 @@ func (s *server) registerSoftwareRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/machines/{agentId}/software/apply", s.terminal(s.machineSoftwareApply))
 	mux.HandleFunc("GET /api/v2/software/plans", s.terminal(s.sameOriginRead(s.fleetSoftwarePlans)))
 	mux.HandleFunc("POST /api/v2/software/batches", s.terminal(s.softwareBatchStart))
+	mux.HandleFunc("GET /api/v2/software/batches/active", s.terminal(s.sameOriginRead(s.softwareBatchActive)))
 	mux.HandleFunc("GET /api/v2/software/batches/{batchId}", s.terminal(s.sameOriginRead(s.softwareBatchGet)))
 	mux.HandleFunc("POST /api/v2/software/batches/{batchId}/members/{position}/retry", s.terminal(s.softwareBatchRetry))
 	mux.HandleFunc("POST /api/v2/software/batches/{batchId}/members/{position}/skip", s.terminal(s.softwareBatchSkip))
@@ -237,6 +238,21 @@ func (s *server) softwareBatchStart(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusCreated
 	}
 	writeJSON(w, status, batch)
+}
+
+// softwareBatchActive answers the batch still holding the person's place, or
+// null, so the dialog can offer Retry, Skip or Abandon after being reopened.
+func (s *server) softwareBatchActive(w http.ResponseWriter, r *http.Request) {
+	batch, ok, err := s.st.ActiveSoftwareBatchFor(s.uid(r))
+	if err != nil {
+		terminalError(w, err)
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusOK, nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, batch)
 }
 
 func (s *server) softwareBatchGet(w http.ResponseWriter, r *http.Request) {

@@ -204,6 +204,13 @@ type model struct {
 	setupMessage    string
 	setupSet        bool
 
+	setupRestoreValues  *setupRestoreValues
+	setupRollbackValues *setupRollbackValues
+	setupActionOutput   string
+	setupActionSet      bool
+	setupActionRestore  bool
+	setupActionApplied  bool
+
 	upgradeForm   *huh.Form
 	upgradeValues *upgradeFormValues
 	upgradeOutput string
@@ -455,6 +462,46 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.page == ScreenSetup {
 		switch msg.String() {
+		case "t":
+			if len(m.setupProfiles.Profiles) > 0 {
+				m.setupRestoreValues = &setupRestoreValues{Profile: m.setupProfiles.Profiles[m.setupCursor].Name}
+				return m.openSetupRestoreForm()
+			}
+		case "b":
+			if len(m.setupProfiles.Profiles) > 0 {
+				m.setupRollbackValues = &setupRollbackValues{Profile: m.setupProfiles.Profiles[m.setupCursor].Name}
+				return m.openSetupRollbackForm()
+			}
+		case "a":
+			if m.setupActionSet && m.setupActionRestore && !m.setupActionApplied && m.err == nil && m.setupRestoreValues != nil {
+				return m.startSetupRestore(true)
+			}
+		case "r":
+			if m.setupActionSet {
+				if m.setupActionRestore {
+					return m.startSetupRestore(false)
+				}
+				return m.startSetupRollback()
+			}
+			m.err = nil
+			m.loading = true
+			m.setContent()
+			return m, tea.Batch(m.spinner.Tick, m.load(ScreenSetup))
+		case "e":
+			if m.setupActionSet {
+				if m.setupActionRestore {
+					return m.openSetupRestoreForm()
+				}
+				return m.openSetupRollbackForm()
+			}
+		case "esc":
+			if m.setupActionSet {
+				m.setupActionSet = false
+				m.setupActionOutput = ""
+				m.err = nil
+				m.setContent()
+				return m, nil
+			}
 		case "n":
 			newest := ""
 			if len(m.setupSnapshots.Snapshots) > 0 {
@@ -483,11 +530,6 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.resize()
 			m.setContent()
 			return m, m.setupForm.Init()
-		case "r":
-			m.err = nil
-			m.loading = true
-			m.setContent()
-			return m, tea.Batch(m.spinner.Tick, m.load(ScreenSetup))
 		case "up", "k":
 			if m.setupCursor > 0 {
 				m.setupCursor--
@@ -498,6 +540,7 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+
 	if m.page == ScreenBackup {
 		switch msg.String() {
 		case "n":
@@ -572,6 +615,11 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 		m.resize()
 		m.setContent()
 		return m, m.scanForm.Init()
+	}
+	if page == ScreenSetup {
+		m.setupActionSet = false
+		m.setupActionOutput = ""
+		m.setupActionApplied = false
 	}
 	if page == ScreenSync {
 		if m.syncValues == nil {
@@ -671,6 +719,13 @@ func (m *model) apply(msg resultMsg) {
 			}
 		}
 	case ScreenSetup:
+		if value, ok := msg.value.(setupActionOutcome); ok {
+			m.setupActionOutput = value.output
+			m.setupActionRestore = value.restore
+			m.setupActionApplied = value.applied
+			m.setupActionSet = true
+			return
+		}
 		if value, ok := msg.value.(setupOutcome); ok {
 			m.setupProfiles = value.profiles
 			m.setupSnapshots = value.snapshots
@@ -885,8 +940,14 @@ func (m model) renderFooter() string {
 			keys = "enter next/submit · esc cancel · ctrl+c quit"
 		case m.loading:
 			keys = "working… · ctrl+c quit"
+		case m.setupActionSet && m.setupActionRestore && !m.setupActionApplied:
+			keys = "a apply · r preview again · e edit · esc back"
+		case m.setupActionSet && m.setupActionRestore:
+			keys = "r preview again · e edit · esc back"
+		case m.setupActionSet:
+			keys = "r again · e edit · esc back"
 		default:
-			keys = "n new · p push · u pull · ↑/↓ select · r refresh · esc back · q quit"
+			keys = "n new · p push · u pull · t restore · b rollback · ↑/↓ select · r refresh · esc back"
 		}
 	}
 	if m.page == ScreenUpgrade {
@@ -951,7 +1012,7 @@ func (m model) renderPage() string {
 		return form.View()
 	}
 	if m.loading {
-		return "\n  " + m.spinner.View() + " " + m.styles.muted.Render(pageLoading(m.page)) + "\n"
+		return "\n  " + m.spinner.View() + " " + m.styles.muted.Render(m.pageLoading(m.page)) + "\n"
 	}
 	if m.err != nil && m.page != ScreenHealth && !(m.page == ScreenScan && m.scanSet) && !(m.page == ScreenSync && m.syncSet) && !(m.page == ScreenBackup && m.backupSet) && !(m.page == ScreenSetup && m.setupSet) && !(m.page == ScreenUpgrade && (m.upgradeOutput != "" || m.upgradeDone)) && !(m.page == ScreenInstall && (m.installOutput != "" || m.installDone)) && !(m.page == ScreenEnroll && (m.enrollOutput != "" || m.enrollDone)) {
 		return "\n  " + m.styles.fail.Render("Error: "+m.err.Error()) + "\n\n  " + m.styles.muted.Render("Press r to try again, or esc for the menu.") + "\n"
@@ -964,6 +1025,9 @@ func (m model) renderPage() string {
 	case ScreenBackup:
 		return m.renderBackup()
 	case ScreenSetup:
+		if m.setupActionSet {
+			return m.renderSetupAction()
+		}
 		return m.renderSetup()
 	case ScreenUpgrade:
 		return m.renderUpgrade()
@@ -1015,7 +1079,7 @@ func pageTitle(page ScreenID) string {
 	return "Home"
 }
 
-func pageLoading(page ScreenID) string {
+func (m model) pageLoading(page ScreenID) string {
 	switch page {
 	case ScreenDoctor:
 		return "Running doctor checks…"
@@ -1028,6 +1092,9 @@ func pageLoading(page ScreenID) string {
 	case ScreenBackup:
 		return "Reading local backups…"
 	case ScreenSetup:
+		if m.setupActionSet {
+			return "Working on setup…"
+		}
 		return "Reading setup profiles…"
 	case ScreenUpgrade:
 		return "Upgrading…"

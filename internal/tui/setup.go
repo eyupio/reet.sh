@@ -288,6 +288,14 @@ func (m model) finishSetupForm() (tea.Model, tea.Cmd) {
 		return m.startSetupPush()
 	case "pull":
 		return m.startSetupPull()
+	case "restore":
+		if m.setupRestoreValues != nil {
+			return m.startSetupRestore(false)
+		}
+	case "rollback":
+		if m.setupRollbackValues != nil && m.setupRollbackValues.Confirm {
+			return m.startSetupRollback()
+		}
 	}
 	m.setContent()
 	return m, nil

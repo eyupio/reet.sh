@@ -554,7 +554,7 @@ The JSON form is versioned for scripts.
 
 ```sh
 reet setup profile            # interactive wizard
-reet setup profile --tui      # same commands in the terminal interface: create, push, pull
+reet setup profile --tui      # terminal interface: create, push, pull, restore (t) and rollback (b)
 reet setup profile save work
 reet setup profile save --password-file FILE work SNAPSHOT
 reet setup profile save --exclude-kind instructions --machine laptop work2

@@ -30,7 +30,8 @@ delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief
 
 The binary now has a terminal interface: `reet` in a terminal opens a menu over Doctor,
 Healthcheck, Scan, Sync, Backups, Setups, Upgrade, Install, Connect machine, Version, Terminal
-status and Agent status, and `--tui` opens a screen directly. Scan is a native `huh` form with dry-run, prune and reconcile; Sync
+status, and `--tui` opens a screen directly. Setups also previews and applies a restore and rolls back the
+newest completed restore for a profile, all through the same `setup` commands. Scan is a native `huh` form with dry-run, prune and reconcile; Sync
 previews a target and applies a hash-checked plan; Backups lists, takes and restores copies through
 the shared `backup.RestoreInstance`; Setups creates, pushes and pulls profiles through the shared
 `setup.HTTPRemote`; Upgrade runs the same verified, backed-up, rollback-capable upgrade as the text

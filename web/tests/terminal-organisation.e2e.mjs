@@ -273,6 +273,13 @@ try{
  await expect(sidebar.locator('.session-group h2 .need-badge').first()).toHaveText('1')
  await fold('Your sessions').click()
  await expect(sidebar.locator('#panel-sessions-body')).toHaveCount(0)
+ // Find sessions still has its field while the section is folded, and a query shows the matches.
+ await expect(sidebar.getByRole('searchbox',{name:'Find sessions'})).toBeVisible()
+ await sidebar.getByRole('searchbox',{name:'Find sessions'}).fill(sessions[0].title)
+ await expect(sidebar.locator('#panel-sessions-body')).toBeVisible()
+ await expect(sidebar.locator('.session-row').filter({hasText:sessions[0].title})).toHaveCount(1)
+ await sidebar.getByRole('searchbox',{name:'Find sessions'}).fill('')
+ await expect(sidebar.locator('#panel-sessions-body')).toHaveCount(0)
  await expect(sidebar.locator('header .need-badge')).toHaveText('1')
  await page.reload();await live();await showSidebar()
  await expect(fold('Your sessions')).toHaveAttribute('aria-expanded','false')

@@ -217,6 +217,13 @@ agent name the adapter reports at `initialize` (assumed to follow Claude's `@age
 required" until `authenticate` is called and the connector replaces `HOME`, so a ChatGPT login under the real home is not visible. The next step is a probe of those three against
 the pinned adapter, then the browser mode control.
 
+### SC4 progress: Codex Stop ends the chat when a command is running (1 November 2026)
+
+Decided by the owner: Codex's `session/cancel` ends the turn but leaves a running command alive, and the commands are children of the engine the adapter starts, so reet cannot stop just
+the command safely. `Spec.EndChatOnStopWhileToolRuns` (set for Codex only) makes Stop, when a tool is still running, say "Codex was running a command when you pressed Stop, so this chat
+was ended to be sure nothing keeps running." and end the chat, retiring the process group. A Stop with nothing running only cancels the turn. Still dark behind
+`REET_EXPERIMENTAL_CODEX_CHAT`; the browser does not offer Codex yet.
+
 ### Device and credential checks (1 November 2026)
 
 What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real

@@ -1,5 +1,6 @@
 import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../projects'
 import type { MachineModels } from '../models'
+import type { SessionSkills } from './skills'
 
 export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 'exited' | 'lost'
 export type AttentionState = 'starting' | 'working' | 'quiet' | 'waiting' | 'finished' | 'failed'
@@ -223,6 +224,8 @@ export async function removeCommand(item:TerminalCommand):Promise<void>{await te
 export type CommandHistoryEntry={command:string;source:'bash'|'zsh';timestamp?:number}
 export type CommandHistorySnapshot={entries:CommandHistoryEntry[];sources:{source:'bash'|'zsh';available:boolean;reason?:string}[];truncated:boolean;skipped:number}
 export async function commandHistory(id:string,signal?:AbortSignal):Promise<CommandHistorySnapshot>{return(await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/command-history`,{signal:signal?AbortSignal.any([signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)})).json()}
+
+export async function getSessionSkills(sessionId: string, signal?: AbortSignal): Promise<SessionSkills> { return (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(sessionId)}/skills`, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000) })).json() }
 
 // Saved Projects, kept to read: the list, their runs and a run, and the worktree status and remove a run's worktree
 // takes. Same cookie-only requests as terminals; every call gives up after 15 seconds. Nothing here changes a Project.

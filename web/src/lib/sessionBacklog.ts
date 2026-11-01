@@ -9,7 +9,7 @@ export async function listDrafts(signal?: AbortSignal): Promise<SessionDraft[]> 
 export async function getDraft(id: string, signal?: AbortSignal): Promise<SessionDraft> {
   return (await terminalRequest(at(id), { signal })).json()
 }
-export type DraftInput = Pick<SessionDraft, 'title' | 'prompt' | 'agentId' | 'projectId' | 'dir' | 'tool' | 'model' | 'effort' | 'yolo' | 'worktree' | 'base' | 'chat' | 'trust' | 'images' | 'version'>
+export type DraftInput = Pick<SessionDraft, 'title' | 'prompt' | 'agentId' | 'projectId' | 'dir' | 'tool' | 'model' | 'effort' | 'idea' | 'yolo' | 'worktree' | 'base' | 'chat' | 'trust' | 'images' | 'version'>
 export async function saveDraft(input: DraftInput, id?: string, signal?: AbortSignal): Promise<SessionDraft> {
   return (await terminalRequest(id ? at(id) : path, { method: id ? 'PUT' : 'POST', body: JSON.stringify(input), signal })).json()
 }

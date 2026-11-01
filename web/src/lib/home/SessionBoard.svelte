@@ -5,6 +5,7 @@
   import { getYoloSetting, type YoloSetting } from '../api'
   import { yoloGates } from '../launchBar'
   import YoloDialog from '../launch/YoloDialog.svelte'
+  import { IDEA_START_NOTE } from '../draftOptions'
   import { shortAge, stateWord } from '../home'
   import { listDrafts, getDraft, deleteDraft, startDraft } from '../sessionBacklog'
   import { boardItems, emptyFilters, filterBoard, filterCount, sortBoard, STAGES, type BoardView, type SessionDraft } from '../sessionBoard'
@@ -96,6 +97,7 @@
   }
   function startReason(draft: SessionDraft): string | null {
     const machine = machines.find(m => m.agentId === draft.agentId)
+    if (draft.idea) return IDEA_START_NOTE
     const why = readiness(machine)
     if (why) return why
     const choice = machine && agentChoices(machine).find(c => c.agent.id === draft.tool)
@@ -224,9 +226,9 @@
               {@const word = session ? stateWord(session) : null}
               {@const reason = draft ? startReason(draft) : null}
               <article class="session-card" class:attention={session?.attention === 'waiting'} class:starting={working === draft?.id}>
-                <div class="card-top"><span class="project-label" title={project?.name ?? item.dir}><BoardIcon name="folder" size={13}/>{project?.name || (item.projectId ? 'Removed project' : item.dir.split('/').filter(Boolean).at(-1) || 'Home folder')}</span>{#if draft?.imageCount}<span class="image-count" title={`${draft.imageCount} reference images`}><BoardIcon name="image" size={13}/>{draft.imageCount}</span>{/if}{#if session}<button class="more" aria-label={`Actions for ${item.title}`} onclick={e => void actions?.openMenu(e, session)}><BoardIcon name="more"/></button>{/if}</div>
+                <div class="card-top"><span class="project-label" title={project?.name ?? item.dir}><BoardIcon name="folder" size={13}/>{project?.name || (item.projectId ? 'Removed project' : item.dir.split('/').filter(Boolean).at(-1) || 'Home folder')}</span>{#if draft?.idea}<span class="idea-badge">Idea</span>{/if}{#if draft?.imageCount}<span class="image-count" title={`${draft.imageCount} reference images`}><BoardIcon name="image" size={13}/>{draft.imageCount}</span>{/if}{#if session}<button class="more" aria-label={`Actions for ${item.title}`} onclick={e => void actions?.openMenu(e, session)}><BoardIcon name="more"/></button>{/if}</div>
                 <h4>{#if session}<a href={sessionHref(session)}>{item.title}</a>{:else}<button onclick={e => draft && void edit(draft, e.currentTarget)} disabled={!!loadingId || !!draft?.starting}>{item.title}</button>{/if}</h4>
-                {#if draft}<p class="prompt-preview">{draft.prompt}</p>{:else if session?.worktreeBranch}<p class="branch" title={session.worktreeBranch}>↳ {session.worktreeBranch}</p>{/if}
+                {#if draft}<p class="prompt-preview">{draft.prompt || (draft.idea ? 'Just an idea so far.' : '')}</p>{:else if session?.worktreeBranch}<p class="branch" title={session.worktreeBranch}>↳ {session.worktreeBranch}</p>{/if}
                 <div class="agent-meta"><span class="agent-icon">{item.tool ? toolName(item.tool).slice(0, 1) : '›'}</span><strong>{item.tool ? toolName(item.tool) : 'Shell'}</strong><span class="model" title={item.model || 'Agent default'}>{item.model || 'Agent default'}</span>{#if item.effort}<span class="effort">{item.effort}</span>{/if}</div>
                 <div class="machine-line"><BoardIcon name="machine" size={13}/><span>{machineNames.get(item.agentId) || health.find(m => m.agentId === item.agentId)?.host || item.agentId}</span>{#if offline.has(item.agentId)}<span class="offline-label">Offline{session ? ' · last known' : ''}</span>{/if}</div>
                 <footer class="card-foot">
@@ -305,6 +307,7 @@
   .card-actions button { font: 500 10px var(--sans); padding: 4px 0; background: none; border: 0; color: var(--muted); cursor: pointer; }.card-actions .delete { font-size: 9px; }.card-actions .delete:hover { color: var(--bad); }.card-actions .start { display: flex; align-items: center; gap: 5px; background: var(--accent-wash); color: var(--accent-text); border-radius: 5px; padding: 5px 7px; }.card-actions .start:disabled { color: var(--muted); background: var(--bg-sunk); cursor: default; }.card-actions .start:not(:disabled):hover { background: var(--tint); }
   .status { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted); }.status i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }.status.good { color: var(--good); }.status.warn { color: var(--warn); }.status.bad { color: var(--bad); }
   .open-session { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 500; text-decoration: none; color: var(--muted); }.open-session:hover { color: var(--accent-text); }
+  .idea-badge { font-size: 10px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-text); border: 1px solid var(--line-strong); border-radius: 99px; padding: 1px 7px; }
   .start-note { font-size: 10px; color: var(--warn); border-top: 1px solid var(--line-soft); margin: 10px 0 0; padding-top: 8px; line-height: 1.5; }.branch { font: 10px/1.5 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .compact .prompt-preview, .compact .stage-hint, .compact .branch { display: none; }.compact .session-card { padding: 10px 12px; }.compact .stage-head { margin-bottom: 12px; }
   .empty { text-align: center; padding: 36px 12px; color: var(--muted); grid-column: 1/-1; }.empty-icon { width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin: 0 auto 17px; }.empty strong { font-size: 12px; color: var(--ink-soft); font-weight: 550; display: block; }.empty p { font-size: 11px; margin: 8px auto 14px; max-width: 240px; }.empty button { display: inline-flex; align-items: center; gap: 5px; color: var(--accent-text); font-size: 11px; border: 0; background: transparent; cursor: pointer; }

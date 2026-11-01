@@ -3,11 +3,13 @@
  import { fade, fly } from 'svelte/transition'
  import { applyChatEvent, checkQuestionDraft, diffCounts, displayPath, emptyDraft, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, proseBlocks, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
- import { chatToolName, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, launchUpload, terminalClosed, type TerminalSession } from './api'
+ import { chatToolName, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
  import { defaultLabel, type ModelFavourite } from '../models'
  import Toast from '../Toast.svelte'
  import ImageLightbox from './ImageLightbox.svelte'
+import SkillPicker from './SkillPicker.svelte'
+import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
@@ -70,6 +72,44 @@
  let draft = $state(''), feedback = $state(''), sending = $state(false), uploading = $state(false), answering = $state('')
  let images = $state<{ id: number; file: File; preview: string }[]>([]), imageSeq = 0, attachNote = $state('')
  let fileInput: HTMLInputElement | undefined = $state()
+ // The skill picker. It only ever puts an invocation into the draft; nothing is sent until the person presses Send.
+ let composerInput: HTMLTextAreaElement | undefined = $state()
+ let skillsOpen = $state(false), skillData = $state<SessionSkills | null>(null), skillsLoading = $state(false), skillsError = $state(''), skillQuery = $state('')
+ let skillsLife: AbortController | undefined, slashDismissed = false
+ async function loadSkills() {
+  skillsLife?.abort()
+  const life = skillsLife = new AbortController()
+  skillsLoading = true; skillsError = ''; skillData = null
+  try { const data = await getSessionSkills(session.id, life.signal); if (!life.signal.aborted) skillData = data }
+  catch (e) { if (!life.signal.aborted) skillsError = e instanceof Error && e.message ? e.message : 'Skills could not be read. Try again.' }
+  finally { if (!life.signal.aborted) skillsLoading = false }
+ }
+ function openSkills(query = '') {
+  if (skillsOff || skillsOpen) return
+  skillQuery = query; skillsOpen = true
+  void loadSkills()
+ }
+ async function closeSkills(dismissed = true) {
+  skillsLife?.abort(); skillsLife = undefined
+  skillsOpen = false; skillsLoading = false
+  if (dismissed && slashQuery(draft) !== null) slashDismissed = true
+  await tick()
+  composerInput?.focus()
+  composerInput?.setSelectionRange(draft.length, draft.length)
+ }
+ function typed(event: Event) {
+  const value = (event.currentTarget as HTMLTextAreaElement).value
+  const query = slashQuery(value)
+  if (query === null) { slashDismissed = false; return }
+  if (!slashDismissed) openSkills(query)
+ }
+ function pickSkill(skill: SessionSkill) {
+  if (skillsOff) { feedback = ended ? `${skillsOff} Nothing was inserted.` : chat.connection !== 'open' ? 'Connection changed. Nothing was inserted.' : 'The message box is busy. Nothing was inserted.'; void closeSkills(); return }
+  const result = applyInvocation(draft, skill.invocation, MAX_CHAT_BYTES)
+  if ('error' in result) { feedback = result.error; void closeSkills(); return }
+  feedback = ''; draft = result.draft
+  void closeSkills(false)
+ }
  // What the person sent: the machine's path for each upload maps to a picture held in this browser, so a message shows the
  // image, not its path. A message from before a reload falls back to a saved thumbnail, then to a filename chip.
  let sentPreviews = $state<Record<string, { url: string; name: string }>>({})
@@ -111,7 +151,12 @@
  let copyTimer: ReturnType<typeof setTimeout> | undefined
 
  const ended = $derived(terminalClosed(session.state) || chat.status.state === 'ended')
+ // A dismissed `/` trigger re-arms whenever the draft stops being a leading-slash token, however the draft changed.
+ $effect(() => { if (slashQuery(draft) === null) slashDismissed = false })
  const working = $derived(isWorking(chat))
+ // One value says whether the message box can take text; the textarea, the Skills button and a pick all use it, so they cannot drift apart.
+ const composerBlocked = $derived(sending || uploading || changingModel || working || chat.connection === 'reconnecting')
+ const skillsOff = $derived(ended ? 'This reet session has ended.' : chat.connection !== 'open' ? 'Skills can be inserted once reet is connected.' : sending || uploading || changingModel ? 'Skills can be inserted once the message has been sent.' : working ? 'Skills can be inserted when the agent is idle.' : '')
  const pending = $derived(pendingPermissions(chat))
  const asked = $derived(pendingQuestions(chat))
  const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This reet session has ended.' : pending.length ? 'Waiting for your approval.' : asked.length ? 'Waiting for your answer.' : working ? `${toolName} is working…` : chat.status.state === 'error' ? `${toolName} stopped with an error.` : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
@@ -327,7 +372,7 @@
   stream.addEventListener('chat', readEvent)
   stream.onopen = () => { chat = { ...chat, connection: 'open' } }
   stream.onerror = () => { if (alive) chat = { ...chat, connection: 'reconnecting' } }
-  return () => { alive = false; life.abort(); pendingEvents = []; stopFlush(); if (copyTimer !== undefined) clearTimeout(copyTimer); closeStream() }
+  return () => { alive = false; life.abort(); skillsLife?.abort(); pendingEvents = []; stopFlush(); if (copyTimer !== undefined) clearTimeout(copyTimer); closeStream() }
  })
  onDestroy(() => { for (const image of images) URL.revokeObjectURL(image.preview); for (const url of sentUrls) URL.revokeObjectURL(url) })
 </script>
@@ -581,7 +626,7 @@
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
     <span class="field-prompt" aria-hidden="true">›</span>
-    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:value={draft} rows="2" maxlength="2000" placeholder={working ? `${toolName} is working…` : `Ask ${toolName} to change this project…`} onkeydown={keydown} disabled={sending || uploading || changingModel || working || chat.connection === 'reconnecting'}></textarea>
+    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="2" maxlength="2000" placeholder={working ? `${toolName} is working…` : `Ask ${toolName} to change this project…`} onkeydown={keydown} disabled={composerBlocked}></textarea>
     <div class="field-actions">
      {#if working}<button type="button" class="btn stop" onclick={() => void stop()}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>Stop</button>{/if}
      <button type="button" class="btn primary send" disabled={sending || uploading || changingModel || working || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : 'Send'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg></button>
@@ -589,6 +634,7 @@
    </div>
    <div class="composer-bar">
     <div class="composer-tools">
+     <button type="button" class="skills-btn" aria-label="Skills" aria-haspopup="dialog" title={skillsOff || 'Insert a skill into your message'} disabled={!!skillsOff} onclick={() => openSkills()}>+ Skills</button>
      {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image · or paste or drop one" disabled={sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
      <div class="model-controls" data-keeps-focus>
       <label for={`${session.id}-model`}>Model</label>
@@ -605,6 +651,7 @@
     </div>
     <span class="hint">Enter to send · Shift + Enter for a new line</span>
    </div>
+   {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} onpick={pickSkill} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
    {#if canAttach}<input class="vh" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={picked} />{/if}
   </div>
  {/if}
@@ -772,6 +819,9 @@
  .hint { flex: none; font-size: 11px; color: var(--faint); white-space: nowrap; }
  .icon-btn { display: grid; place-items: center; flex: none; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; }
  .icon-btn:hover:not(:disabled) { background: var(--tint); color: var(--ink); }
+ .skills-btn { flex: none; height: 32px; padding: 0 10px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: 600 12px var(--sans); cursor: pointer; white-space: nowrap; }
+ .skills-btn:hover:not(:disabled) { background: var(--tint); color: var(--ink); }
+ .skills-btn:disabled { opacity: .5; cursor: default; }
  .icon-btn:disabled { opacity: .5; cursor: default; }
  .icon-btn svg { width: 17px; height: 17px; }
  .send svg, .stop svg { width: 14px; height: 14px; }
@@ -824,10 +874,12 @@
   .tool-head { min-height: 42px; }
   .field-actions .btn { min-height: 40px; }
   .icon-btn { width: 36px; height: 36px; }
+  .skills-btn { height: 36px; }
   .composer-bar { flex-wrap: wrap; }
  }
  @media (pointer: coarse) {
   .tool-head { min-height: 44px; }
+  .skills-btn, .icon-btn { min-height: 44px; min-width: 44px; }
   .think-head { min-height: 40px; }
   .approval-actions .btn { min-height: 46px; flex: 1 1 0; }
   .qoption { min-height: 44px; align-items: center; }

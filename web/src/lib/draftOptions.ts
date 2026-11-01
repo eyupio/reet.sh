@@ -1,3 +1,9 @@
+/** What an idea needs to be saved: a title or a note. The machine and folder are checked by the composer as for any item. */
+export const IDEA_START_NOTE = 'This is an idea. Open it, add a prompt and switch off Idea to start it.'
+export function ideaProblem(i: { idea: boolean; title: string; prompt: string }): string {
+  return i.idea && !i.title.trim() && !i.prompt.trim() ? 'Give the idea a title or a note.' : ''
+}
+
 /** Which launch options a backlog item can carry, from what the composer already knows. Pure, so the rules are testable. */
 export type DraftOptionInput = { tool: string; isRepo: boolean; canChat: boolean; chat: boolean }
 export type DraftOptionRules = { showChat: boolean; chat: boolean; showWorktree: boolean; showTrust: boolean }

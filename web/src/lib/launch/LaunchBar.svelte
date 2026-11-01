@@ -967,7 +967,7 @@
     if (!bar) return
     // The docked thing may be the bar itself, or the sticky Quick launch section that holds it.
     // That section exists before it is opened, so it is watched from the start, not looked up once.
-    const details = bar.closest('details.quick-launch')
+    const details = bar.closest<HTMLDetailsElement>('details.quick-launch')
     const root = document.documentElement
     const fit = () => {
       const dock = details && details.open ? details : bar

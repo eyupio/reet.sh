@@ -102,7 +102,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   if (!slashDismissed) openSkills(query)
  }
  function pickSkill(skill: SessionSkill) {
-  if (skillsOff) { feedback = 'Connection changed. Nothing was inserted.'; void closeSkills(); return }
+  if (skillsOff) { feedback = ended || chat.connection !== 'open' ? 'Connection changed. Nothing was inserted.' : 'The message box is busy. Nothing was inserted.'; void closeSkills(); return }
   const result = applyInvocation(draft, skill.invocation, MAX_CHAT_BYTES)
   if ('error' in result) { feedback = result.error; void closeSkills(); return }
   feedback = ''; draft = result.draft
@@ -149,8 +149,12 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  let copyTimer: ReturnType<typeof setTimeout> | undefined
 
  const ended = $derived(terminalClosed(session.state) || chat.status.state === 'ended')
- const skillsOff = $derived(ended ? 'This reet session has ended.' : chat.connection !== 'open' ? 'Skills can be inserted once reet is connected.' : '')
+ // A dismissed `/` trigger re-arms whenever the draft stops being a leading-slash token, however the draft changed.
+ $effect(() => { if (slashQuery(draft) === null) slashDismissed = false })
  const working = $derived(isWorking(chat))
+ // One value says whether the message box can take text; the textarea, the Skills button and a pick all use it, so they cannot drift apart.
+ const composerBlocked = $derived(sending || uploading || changingModel || working || chat.connection === 'reconnecting')
+ const skillsOff = $derived(ended ? 'This reet session has ended.' : chat.connection !== 'open' ? 'Skills can be inserted once reet is connected.' : sending || uploading || changingModel ? 'Skills can be inserted once the message has been sent.' : working ? 'Skills can be inserted when the agent is idle.' : '')
  const pending = $derived(pendingPermissions(chat))
  const asked = $derived(pendingQuestions(chat))
  const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This reet session has ended.' : pending.length ? 'Waiting for your approval.' : asked.length ? 'Waiting for your answer.' : working ? `${toolName} is working…` : chat.status.state === 'error' ? `${toolName} stopped with an error.` : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
@@ -619,7 +623,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
     <span class="field-prompt" aria-hidden="true">›</span>
-    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="2" maxlength="2000" placeholder={working ? `${toolName} is working…` : `Ask ${toolName} to change this project…`} onkeydown={keydown} disabled={sending || uploading || changingModel || working || chat.connection === 'reconnecting'}></textarea>
+    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="2" maxlength="2000" placeholder={working ? `${toolName} is working…` : `Ask ${toolName} to change this project…`} onkeydown={keydown} disabled={composerBlocked}></textarea>
     <div class="field-actions">
      {#if working}<button type="button" class="btn stop" onclick={() => void stop()}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>Stop</button>{/if}
      <button type="button" class="btn primary send" disabled={sending || uploading || changingModel || working || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : 'Send'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg></button>

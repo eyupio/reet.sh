@@ -359,6 +359,45 @@ try {
   await expect(skillsButton).toHaveAttribute('title', /connected/)
   await page.evaluate(() => window.__chatStream.onopen?.({}))
   await expect(skillsButton).toBeEnabled()
+  // The agent working: the button is disabled with a reason; a picker already open when it starts refuses the pick.
+  await composer.fill('draft while idle')
+  await skillsButton.click()
+  await expect(picker).toBeVisible()
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 20, kind: 'status', state: 'working' }))
+  await picker.getByRole('option', { name: /pdf/ }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Nothing was inserted.' })).toBeVisible()
+  await expect(picker).toHaveCount(0)
+  await expect(composer).toHaveValue('draft while idle')
+  await expect(skillsButton).toBeDisabled()
+  await expect(skillsButton).toHaveAttribute('title', /idle/)
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 21, kind: 'status', state: 'cancelled' }))
+  await expect(skillsButton).toBeEnabled()
+  // A pick during a send in flight inserts nothing and says so; the send then clears the draft as before.
+  let releasePrompt
+  const held = new Promise(resolve => { releasePrompt = resolve })
+  await page.route(`**/api/v2/terminal/sessions/${S}/chat/prompt`, async route => { await held; await route.fulfill({ status: 200, json: { sent: true } }) })
+  await composer.fill('sending this')
+  await skillsButton.click()
+  await expect(picker).toBeVisible()
+  await page.evaluate(() => [...document.querySelectorAll('button.send')].find(b => !b.disabled)?.click())
+  await expect(page.getByRole('button', { name: 'Sending…' })).toBeVisible()
+  await picker.getByRole('option', { name: /pdf/ }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Nothing was inserted.' })).toBeVisible()
+  await expect(composer).toHaveValue('sending this')
+  releasePrompt()
+  await expect(composer).toHaveValue('')
+  await expect(skillsButton).toBeEnabled()
+  await page.unroute(`**/api/v2/terminal/sessions/${S}/chat/prompt`)
+  // Escape on `/`, then Send clears the draft by code: a fresh `/` in the emptied composer opens the picker again.
+  await composer.fill('/')
+  await expect(picker).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(composer).toHaveValue('')
+  await composer.fill('/')
+  await expect(picker).toBeVisible()
+  await page.keyboard.press('Escape')
   // An empty machine says so and says its skills have not been read yet.
   state.skills = { skills: [], machineSeen: 0, host: 'dev-laptop' }
   await skillsButton.click()
@@ -373,6 +412,7 @@ try {
   await picker.getByRole('button', { name: 'Retry', exact: true }).click()
   await expect(picker.getByRole('listbox')).toHaveCount(3)
   // On a phone the picker is a bottom sheet with no sideways scroll.
+  const sendsBeforePhone = sends
   await page.setViewportSize({ width: 390, height: 844 })
   const sheet = await picker.boundingBox()
   expect(sheet.x).toBeGreaterThanOrEqual(0)
@@ -381,7 +421,7 @@ try {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.keyboard.press('Escape')
   await expect(picker).toHaveCount(0)
-  expect(sends).toBe(sendsBefore)
+  expect(sends).toBe(sendsBeforePhone)
   await page.setViewportSize({ width: 1360, height: 900 })
 
   await page.setViewportSize({ width: 390, height: 844 })

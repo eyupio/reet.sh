@@ -1,6 +1,8 @@
-# OpenCode in the reet TUI
+# OpenCode in Gaffer
 
-A structured session is **OpenCode in the reet TUI**, a conversation over the Agent Client Protocol (ACP). It is not a
+**Gaffer** is reet's native agent control interface. **Eli AI Chat** is the underlying technology intended for reuse from Zoomies; **OpenCode TUI** is the agent's original terminal interface. The reet CLI TUI is separate. A bounded Eli provider compatibility probe is documented in [the reuse review](research/eli-reuse.md); the coordinator is not enabled and live worker chat still uses ACP. Existing ACP, session ownership, permissions, streaming and lifecycle paths stay in place.
+
+A structured session is **OpenCode in Gaffer**, a conversation over the Agent Client Protocol (ACP). It is not a
 terminal: OpenCode streams messages and tool calls, and reet shows an approval card before an edit or command runs.
 Terminal sessions are unchanged.
 
@@ -37,15 +39,15 @@ No transcript, database migration or new execution control is introduced.
 
 ## Starting one
 
-In **Start an agent**, choose OpenCode on a machine that advertises `acp`. The **Session** choice is **reet TUI** by
+In **Start an agent**, choose OpenCode on a machine that advertises `acp`. The **Session** choice is **Gaffer** by
 default; choose **OpenCode TUI** for the terminal UI. The **Model** control chooses the model for the chat; leave it at
 **Agent default** to use the model configured in OpenCode. Thinking stays OpenCode's own. The opening prompt becomes the
 first message. The dialog states that the folder's `.opencode` plugins run when it starts and that history lives in
 memory.
 
-The session appears in the usual list with its title and state. Its screen opens on **reet TUI**. The header's **OpenCode
+The session appears in the usual list with its title and state. Its screen opens on **Gaffer**. The header's **OpenCode
 TUI** button switches the same live session to OpenCode's own terminal UI, and back, on a machine that negotiated
-`session-mode-v1` ([below](#switching-between-the-reet-tui-and-the-opencode-tui)); otherwise it is disabled with the reason.
+`session-mode-v1` ([below](#switching-between-gaffer-and-the-opencode-tui)); otherwise it is disabled with the reason.
 Closing the tab or **End session** ends the reet session and its process. Losing the
 control connection detaches it without killing the agent; the next connection adopts the running session and drains events
 queued while it was away. Restarting the agent process ends its chats.
@@ -89,9 +91,9 @@ folder, as the connector's user. All seven conditions are mandatory:
    opt-outs set. OpenCode reads credentials from its own auth store or from the verified provider keys reet forwards
    (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, the Google/Gemini keys, `OPENROUTER_API_KEY`, `OPENCODE_API_KEY`); no other
    inherited variable reaches it.
-6. **Trusted folders.** If `.opencode/plugin*` or `.opencode/package.json` exists, the machine refuses the reet TUI unless the
+6. **Trusted folders.** If `.opencode/plugin*` or `.opencode/package.json` exists, the machine refuses Gaffer unless the
    start carries the person's trust confirmation. The Start dialog always shows the warning and sends the confirmation
-   when the reet TUI is chosen. An unreadable `.opencode` refuses the reet TUI rather than hiding a plugin.
+   when Gaffer is chosen. An unreadable `.opencode` refuses Gaffer rather than hiding a plugin.
 7. **The version floor.** The connector runs `opencode --version` and requires at least `1.19.5` before it starts a process.
    ACP's `initialize` must also report protocol 1, the agent name `OpenCode`, and a version at or above the floor; a newer
    release is accepted, but lowering the floor needs a fresh probe.
@@ -99,21 +101,21 @@ folder, as the connector's user. All seven conditions are mandatory:
 ## Reopening a reet session and history
 
 A structured session row keeps OpenCode's own session id (`ses_…`) once the machine reports it. When a reet session is closed, its
-actions menu offers **Continue in reet TUI with history…**. That creates a **new** reet session row with `resumeAcp` set to the
+actions menu offers **Continue in Gaffer with history…**. That creates a **new** reet session row with `resumeAcp` set to the
 old id; the old row stays in history. The machine runs `session/load` with the same folder, checks mode `build`, and
-replays OpenCode's stored conversation before the new reet TUI is ready. The controller keeps no transcript: the history is
+replays OpenCode's stored conversation before the new Gaffer is ready. The controller keeps no transcript: the history is
 read from OpenCode each time, in memory, and is lost if that machine's OpenCode store is gone.
 
 Replayed tools left `pending` or `in_progress` are shown as interrupted, not as still working. Pending approvals are not restored; a new prompt starts cleanly. The controller will only load an id that belongs to one of the account's own closed
 structured sessions on that machine, so a crafted `resumeAcp` cannot read another project's OpenCode history.
 
-A connector that predates `acp-history-v1` can still run a new reet TUI, but it does not report or accept an OpenCode session
+A connector that predates `acp-history-v1` can still run a new Gaffer, but it does not report or accept an OpenCode session
 id, so its reet sessions have no Continue action. The `acpHistory` capability is sent only to a controller that negotiated the
 feature, and the older controller's strict decoder never sees the new fields.
 
 ## Images
 
-In the reet TUI, **Attach image** (or paste/drop) uploads the file to the machine over the launch-upload route, then sends
+In Gaffer, **Attach image** (or paste/drop) uploads the file to the machine over the launch-upload route, then sends
 the image with the prompt: the connector reads its own uploaded file and embeds the bytes as an ACP image
 content block. The agent sees the image itself, not a path it has to open with a tool, so no extra read approval is needed.
 The prompt can be images alone. Limits are PNG, JPEG, GIF or WebP, 5 MiB each and at most eight in one prompt. Uploads live
@@ -136,7 +138,7 @@ when the chat ends, is archived or the controller restarts. It never widens to o
 sent to the agent as `allow_always`.
 
 A card is for one tool call. Answering it closes it; a later call asks again unless the person allowed that exact
-command or file for the session. The agent's completion update and the person's answer both appear in the reet TUI.
+command or file for the session. The agent's completion update and the person's answer both appear in Gaffer.
 
 ## Switching Ask me and YOLO while it runs
 
@@ -149,35 +151,35 @@ to Ask me stops the auto-answer immediately. A connector older than `acp-approva
 so the switch is not offered; terminal sessions keep the mode they launched with. A refusal is sentence-shaped and leaves
 the mode as it was.
 
-## Switching between the reet TUI and the OpenCode TUI
+## Switching between Gaffer and the OpenCode TUI
 
-A running OpenCode session can move between the reet TUI and the OpenCode TUI under the same session row. The session
-header's **reet TUI** | **OpenCode TUI** pair shows the one in use; the other one switches (on a phone, the session's
-actions menu has **Switch to the reet TUI…** or **Switch to the OpenCode TUI…**). A confirmation says what happens: the
+A running OpenCode session can move between Gaffer and the OpenCode TUI under the same session row. The session
+header's **Gaffer** | **OpenCode TUI** pair shows the one in use; the other one switches (on a phone, the session's
+actions menu has **Switch to Gaffer…** or **Switch to the OpenCode TUI…**). A confirmation says what happens: the
 machine stops one process and starts the other on the same OpenCode conversation in the same folder, terminal scrollback
 is not kept, and the switch can take a few minutes. Until the machine answers, both buttons wait and the status line says
 **Switching to the …**; the browser sets no deadline of its own. Then the pane changes to the chat or the terminal, and
 the status pill, the **Approvals** line and the context panel's decisions follow the new mode.
 
-- **Only reet-started sessions return to the reet TUI.** Going to the reet TUI needs OpenCode's session id, which reet
-  records only for a session that started (or has been) in the reet TUI. A session started in the OpenCode TUI keeps the
-  **reet TUI** button disabled: "This session started in the OpenCode TUI, so the reet TUI cannot pick up its
+- **Only reet-started sessions return to Gaffer.** Going to Gaffer needs OpenCode's session id, which reet
+  records only for a session that started (or has been) in Gaffer. A session started in the OpenCode TUI keeps the
+  **Gaffer** button disabled: "This session started in the OpenCode TUI, so Gaffer cannot pick up its
   conversation."
 - **Idle only.** A chat with a running turn, an approval card or a question waiting does not switch: "Wait for the agent
   to finish or answer what it is asking." The controller refuses it too.
 - **`session-mode-v1` machines only.** A connector that did not negotiate it (or has no chat history for OpenCode) is
-  not asked: "Update reet on this machine to switch between the reet TUI and the OpenCode TUI." Only a running session
+  not asked: "Update reet on this machine to switch between Gaffer and the OpenCode TUI." Only a running session
   can switch.
-- **Terminal scrollback is not carried over.** The reet TUI rebuilds the conversation from OpenCode's own store with
-  `session/load`, as **Continue in reet TUI with history…** does; the OpenCode TUI opens that conversation on a fresh
+- **Terminal scrollback is not carried over.** Gaffer rebuilds the conversation from OpenCode's own store with
+  `session/load`, as **Continue in Gaffer with history…** does; the OpenCode TUI opens that conversation on a fresh
   screen.
 - **The OpenCode TUI is stopped before the chat opens.** The machine waits up to five seconds for the TUI to exit after its
   tmux session closes. A TUI that has not exited by then is sent SIGTERM and, if it is still there, SIGKILL; the chat
   opens only once its process group is gone, so two OpenCode processes never share one conversation. If a TUI survives
   even that, no chat is opened, the session ends and the switch reports that it failed.
-- **The reet TUI is as durable as any chat.** A session in the OpenCode TUI runs in tmux and survives an agent restart;
-  once switched to the reet TUI it ends if the agent process restarts (its OpenCode id can still be continued).
-- **Folder trust when returning to the reet TUI.** OpenCode project plugins run when the reet TUI opens the session. If
+- **Gaffer is as durable as any chat.** A session in the OpenCode TUI runs in tmux and survives an agent restart;
+  once switched to Gaffer it ends if the agent process restarts (its OpenCode id can still be continued).
+- **Folder trust when returning to Gaffer.** OpenCode project plugins run when Gaffer opens the session. If
   the folder has `.opencode` plugins and the request does not carry the person's trust, the machine refuses it before
   stopping anything: the OpenCode TUI keeps running untouched. The dialog then shows the plugin warning and an **I trust
   this folder** confirmation, and sends the switch again with the person's trust.
@@ -185,9 +187,9 @@ the status pill, the **Approvals** line and the context panel's decisions follow
 ## Limits
 
 - **History is in memory.** The controller keeps at most 1,000 events / 256 KiB per reet session and does not write a transcript.
-  A closed reet TUI session can be reopened from OpenCode's own store with Continue in reet TUI with history…; the live event ring still
+  A closed Gaffer session can be reopened from OpenCode's own store with Continue in Gaffer with history…; the live event ring still
   resets on a server restart, and archiving a session drops its controller-side ring.
-- **The browser's log is bounded too.** The reet TUI keeps at most 400 items / 256 KiB of the conversation, drops the
+- **The browser's log is bounded too.** Gaffer keeps at most 400 items / 256 KiB of the conversation, drops the
   oldest first and says when earlier messages are no longer shown; an approval still waiting for an answer is never
   dropped. A continued chat replaying a long OpenCode history therefore stays responsive instead of building an
   unbounded page.
@@ -201,8 +203,8 @@ the status pill, the **Approvals** line and the context panel's decisions follow
   `OPENCODE_CONFIG_CONTENT` and must match the model OpenCode reports after `session/new`; a mismatch refuses the start.
   Thinking remains OpenCode's own. Continuing a chat keeps the model recorded on the closed session.
 - **Switching TUI is for a running, idle OpenCode session** on a `session-mode-v1` machine, and only a session reet
-  started in the reet TUI can return to it. Terminal scrollback is not carried over, a switch can take a few minutes, and
-  a session in the reet TUI is lost if the agent process restarts.
+  started in Gaffer can return to it. Terminal scrollback is not carried over, a switch can take a few minutes, and
+  a session in Gaffer is lost if the agent process restarts.
 - **Approval mode can change while a structured chat runs**, on a connector that negotiated `acp-approval-v1`. The
   per-session approval card and the Ask me/YOLO switch are described above. A terminal session cannot change the flags
   it was launched with.

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gafferTooltip } from '../gafferTooltip'
  import { isChatTool, structuredAgent } from '../terminal/api'
   import { onMount, tick, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
@@ -501,7 +502,7 @@
       const offers = target ? agentChoices(target) : CATALOGUE.map(agent => ({ agent, available: agent.enabled, reason: agent.enabled ? undefined : agent.disabledReason }))
       return offers.map(o => ({ value: o.agent.id, label: o.agent.name, disabled: !o.available, reason: o.available ? undefined : o.reason }))
     }
-    if (slot === 'chat') return [{ value: 'chat', label: 'reet TUI' }, { value: 'terminal', label: `${toolName(choice.agent)} TUI` }]
+    if (slot === 'chat') return [{ value: 'chat', label: 'Gaffer' }, { value: 'terminal', label: `${toolName(choice.agent)} TUI` }]
     if (slot === 'model') return modelOptionsFor()
     if (slot === 'project') {
       const out: SlotOption[] = (projects ?? []).map(p => {
@@ -1051,7 +1052,7 @@
       <p class="sentence">
         {#each words as part, i (i)}
           {#if slotButton(part)}
-            <button type="button" class="part slot" class:tablet-hide={tabletHidden.has(i)} aria-label={`${LABELS[part.slot]}: ${part.text}`} aria-haspopup="listbox" aria-expanded={open?.slot === part.slot}
+            <button use:gafferTooltip={part.slot === 'chat' && part.text === 'Gaffer'} type="button" class="part slot" class:tablet-hide={tabletHidden.has(i)} aria-label={`${LABELS[part.slot]}: ${part.text}`} aria-haspopup="listbox" aria-expanded={open?.slot === part.slot}
               use:hit onclick={(e) => openSlot(part.slot, e.currentTarget)}><span>{part.text}</span></button>
           {:else if part.slot}
             <b class="part fixed" class:tablet-hide={tabletHidden.has(i)}>{part.text}</b>
@@ -1120,7 +1121,7 @@
       <div class="rows" data-shell-body>
         {#each words.filter(p => p.slot) as part (part.slot)}
           {#if slotButton(part)}
-            <button type="button" class="row" aria-label={`${LABELS[part.slot]}: ${part.text}`} aria-haspopup="listbox" onclick={(e) => openSlot(part.slot, e.currentTarget)}>
+            <button use:gafferTooltip={part.slot === 'chat' && part.text === 'Gaffer'} type="button" class="row" aria-label={`${LABELS[part.slot]}: ${part.text}`} aria-haspopup="listbox" onclick={(e) => openSlot(part.slot, e.currentTarget)}>
               <span class="row-label">{LABELS[part.slot]}</span><span class="row-value">{part.text}</span><span class="chev" aria-hidden="true">›</span>
             </button>
           {:else}

@@ -34,7 +34,7 @@ await page.addInitScript(() => {
   window.EventSource = FakeEventSource
 })
 try {
-  // Where the machine has not opted in (Claude only unverified), the dialog offers no reet TUI for Claude.
+  // Where the machine has not opted in (Claude only unverified), the dialog offers no Gaffer for Claude.
   machine.capabilities.acpAgents = [{ ...claudeChat, state: 'unverified' }]
   await page.goto(`${base}/sessions?agent=${A}`)
   await page.getByRole('button', { name: 'New agent session', exact: true }).first().click()
@@ -43,7 +43,7 @@ try {
   await expect(dark.getByRole('combobox', { name: 'Session', exact: true })).toHaveCount(0)
   await dark.getByRole('button', { name: 'Close', exact: true }).click()
 
-  // Opted in: the reet TUI is offered, with Claude's own copy and none of OpenCode's plugin warning.
+  // Opted in: Gaffer is offered, with Claude's own copy and none of OpenCode's plugin warning.
   machine.capabilities.acpAgents = [claudeChat]
   await page.goto(`${base}/sessions?agent=${A}`)
   await page.getByRole('button', { name: 'New agent session', exact: true }).first().click()
@@ -80,7 +80,7 @@ try {
   await page.evaluate(() => window.__chatStream.emit('chat', { seq: 5, kind: 'status', state: 'error', detail: 'stopped' }))
   await expect(page.getByRole('alert').getByText('Claude Code could not continue')).toBeVisible()
   expect(errors).toEqual([])
-  console.log('Claude chat UI passed: no reet TUI for Claude where the adapter is only unverified, Claude Code copy and no plugin warning where it is available, the create body is structured without trust, and the session screen says Claude Code with an approval card.')
+  console.log('Claude chat UI passed: no Gaffer for Claude where the adapter is only unverified, Claude Code copy and no plugin warning where it is available, the create body is structured without trust, and the session screen says Claude Code with an approval card.')
 } finally {
   await context.close()
   await browser.close()

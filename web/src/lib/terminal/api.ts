@@ -386,7 +386,7 @@ export async function chatQuestionAnswer(id: string, questionId: string, action:
 export type ApprovalMode = 'ask' | 'yolo'
 export async function setApprovalMode(id: string, mode: ApprovalMode): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/approval-mode`, { method: 'POST', body: JSON.stringify({ mode }) }) }
 
-/** Switch a running OpenCode session between the reet TUI ('chat') and the OpenCode TUI ('terminal'); 204 when done, or
+/** Switch a running OpenCode session between Gaffer ('chat') and the OpenCode TUI ('terminal'); 204 when done, or
  *  when it is already in that mode. The machine stops one process and starts the other, which can take a few minutes, so
  *  no client deadline is set. `trust` answers an `acp_trust_required` refusal (the folder has OpenCode plugins). */
 export async function setSessionMode(id: string, mode: 'terminal' | 'chat', trust = false): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/mode`, { method: 'POST', body: JSON.stringify({ mode, trust }) }) }

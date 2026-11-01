@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gafferTooltip } from '../gafferTooltip'
   import { onMount, tick, type Snippet } from 'svelte'
   import { getSyncState, getYoloSetting, type SyncState, type YoloSetting } from '../api'
   import { copyText } from '../clipboard'
@@ -15,7 +16,7 @@
   import SwitchModeDialog from './SwitchModeDialog.svelte'
 
   // The session screen: the strip of open sessions, the session's header (title, agent · model · started, the state in words
-  // with its source, YOLO, reet TUI | the agent TUI and the actions menu), the live terminal the workspace hosts here (children),
+  // with its source, YOLO, Gaffer | the agent TUI and the actions menu), the live terminal the workspace hosts here (children),
   // Approvals under it, and the context panel beside it (behind Details under 1100 px and in theatre view). A terminal
   // session shows no steps and no progress bar (R10): only its state word and where that word came from.
   let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false, chatBusy,
@@ -107,7 +108,7 @@
   $effect(() => {
     if (session.id !== modeFor) { modeFor = session.id; approvalMode = session.yolo ? 'yolo' : 'ask' }
   })
-  // Read once the screen shows a chat (when it opens as one, or when the session switches to the reet TUI).
+  // Read once the screen shows a chat (when it opens as one, or when the session switches to Gaffer).
   let yoloRead = false
   $effect(() => {
     if (!session.structured || yoloRead) return
@@ -115,7 +116,7 @@
     void getYoloSetting().then(value => { yoloSetting = value }).catch(() => { yoloSetting = null })
   })
 
-  // The reet TUI | agent TUI switch (switchModeState says where the inactive button goes and why it may not). A switch
+  // Gaffer | agent TUI switch (switchModeState says where the inactive button goes and why it may not). A switch
   // stops one process on the machine and starts the other, which can take minutes: until the machine answers, both buttons
   // wait and the status line says so. No client deadline is set; the request ends when the controller answers.
   let switching = $state<{ id: string; to: 'terminal' | 'chat' } | null>(null)
@@ -123,9 +124,9 @@
   const modeSwitching = $derived(switching?.id === session.id)
   const chatIsBusy = $derived(chatBusy ?? (session.attention === 'working' || session.attention === 'waiting'))
   const switchState = $derived(switchModeState(session, machineCaps, chatIsBusy))
-  const tuiName = (to: 'terminal' | 'chat') => to === 'chat' ? 'reet TUI' : terminalLabel
+  const tuiName = (to: 'terminal' | 'chat') => to === 'chat' ? 'Gaffer' : terminalLabel
   const canSwitch = $derived(switchState.enabled && !modeSwitching && !busy)
-  const switchWhy = $derived(modeSwitching && switching ? `Switching to the ${tuiName(switching.to)}…` : switchState.why)
+  const switchWhy = $derived(modeSwitching && switching ? `Switching to ${switching.to === 'chat' ? tuiName(switching.to) : `the ${tuiName(switching.to)}`}…` : switchState.why)
   function openSwitch(opener: HTMLElement | null) {
     if (!canSwitch) return
     switchOpener = opener
@@ -138,11 +139,11 @@
     if (!ask || switching) return
     const target = { id: session.id, to: ask.to }, name = tuiName(ask.to)
     switching = target
-    notice = { text: `Switching to the ${name}… This can take a few minutes.` }
+    notice = { text: `Switching to ${ask.to === 'chat' ? name : `the ${name}`}… This can take a few minutes.` }
     switchOpener?.focus()
     try {
       await setSessionMode(target.id, target.to, trust)
-      if (session.id === target.id) notice = { text: `Switched to the ${name}.` }
+      if (session.id === target.id) notice = { text: `Switched to ${ask.to === 'chat' ? name : `the ${name}`}.` }
       if (onmode) onmode(target.id, target.to); else onrefresh()
     } catch (e) {
       if (session.id !== target.id) return
@@ -276,9 +277,9 @@
       {:else if session.yolo}<span class="badge yolo">YOLO</span>{/if}
       <!-- The pressed button is the TUI shown; the other switches to it (aria-disabled with its reason when it cannot now). -->
       <div class="view" role="group" aria-label="View" aria-busy={modeSwitching}>
-        <button type="button" class="chat" aria-pressed={chatView} aria-disabled={chatView ? modeSwitching || undefined : !canSwitch}
+        <button use:gafferTooltip type="button" class="chat" aria-pressed={chatView} aria-disabled={chatView ? modeSwitching || undefined : !canSwitch}
           aria-describedby={!chatView && !canSwitch ? `${id}-switch-why` : undefined} title={!chatView && !canSwitch ? switchWhy : undefined}
-          onclick={event => { if (!chatView) openSwitch(event.currentTarget) }}>reet TUI</button>
+          onclick={event => { if (!chatView) openSwitch(event.currentTarget) }}>Gaffer</button>
         <button type="button" aria-pressed={!chatView} aria-disabled={chatView ? !canSwitch : modeSwitching || undefined}
           aria-describedby={chatView && !canSwitch ? `${id}-switch-why` : undefined} title={chatView && !canSwitch ? switchWhy : undefined}
           onclick={event => { if (chatView) openSwitch(event.currentTarget) }}>{terminalLabel}</button>
@@ -306,11 +307,11 @@
 {#if menuAt}
   <!-- data-keeps-focus: a reconnecting terminal never takes focus out of the open menu. -->
   <div class="menu" role="menu" aria-label={`Actions for ${session.title}`} tabindex="-1" data-keeps-focus bind:this={menu} style={`left:${menuAt.x}px;top:${menuAt.y}px`} onkeydown={menuKey}>
-    {#if oncontinue}<button role="menuitem" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue in reet TUI with history…' : 'Continue session…'}</button>{/if}
+    {#if oncontinue}<button use:gafferTooltip={!!session.structured} role="menuitem" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue in Gaffer with history…' : 'Continue session…'}</button>{/if}
     {#if onterminal}<button role="menuitem" disabled={busy} onclick={openTerminal}>Open a terminal here…</button>{/if}
     {#if onside}<button role="menuitem" disabled={busy} onclick={openSideTerminal}>Open a terminal beside this session…</button>{/if}
     {#if live && session.tool === 'opencode'}
-      <button role="menuitem" disabled={!canSwitch} title={canSwitch ? undefined : switchWhy} onclick={() => { closeMenu(false); openSwitch(menuButton ?? null) }}>Switch to the {tuiName(switchState.to)}…</button>
+      <button use:gafferTooltip={switchState.to === 'chat'} role="menuitem" disabled={!canSwitch} title={canSwitch ? undefined : switchWhy} onclick={() => { closeMenu(false); openSwitch(menuButton ?? null) }}>Switch to {switchState.to === 'chat' ? tuiName(switchState.to) : `the ${tuiName(switchState.to)}`}…</button>
     {/if}
     {#if canSwitchApproval}
       <button role="menuitem" disabled={busy || modeBusy} onclick={() => { closeMenu(false); if (approvalMode === 'yolo') askMode(); else yoloMode() }}>{approvalMode === 'yolo' ? 'Switch to Ask me' : 'Turn on YOLO…'}</button>
@@ -408,7 +409,7 @@
   .theatre.details-open .body > :global(.context-panel) { display: flex; grid-column: 1; grid-row: 3; justify-self: end; position: relative; z-index: 20; width: min(340px, 100%); box-shadow: var(--shadow); }
   .theatre.details-open .body > :global(.context-panel .close-details) { display: inline-flex; align-items: center; }
   /* Phones: one slim header (title, project · machine, the state), as the mock-up's phone session draws it; the tabs,
-     the reet TUI | agent TUI switch and the Approvals line give their rows to the terminal. H3 lays out the rest. */
+     Gaffer | agent TUI switch and the Approvals line give their rows to the terminal. H3 lays out the rest. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .view, .sub { display: none; }
     .where-phone { display: block; font-size: 12px; }

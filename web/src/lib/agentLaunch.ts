@@ -107,7 +107,7 @@ export function folderChoices(machine: { host: string } | undefined, snapshot: M
 /** One text for the dialog: what will start, that nothing runs until Start, and (with a prompt) where the prompt can be seen. */
 export function launchSentence(tool: string, dir: string, machine: string, hasPrompt: boolean, structured = false): string {
   if (structured) {
-    const start = `Starts OpenCode in the reet TUI in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start; OpenCode asks before it edits a file or runs a command.`
+    const start = `Starts OpenCode in Gaffer in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start; OpenCode asks before it edits a file or runs a command.`
     return hasPrompt ? `${start} The opening prompt is the first message. Its live history stays on the machine and in this server's memory.` : start
   }
   const start = `Starts ${nameOf(tool)} in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start.`
@@ -197,9 +197,9 @@ export function refusalText(status: number, code?: string, message?: string): st
   if (status === 422 && c === 'tool_not_installed') return "That agent isn't installed on that machine."
   if (status === 422 && c === 'folder_unavailable') return "That folder isn't available on that machine."
   if (status === 422 && c === 'prompt_unsupported') return 'Write the opening prompt as at least two words.'
-  if (c === 'acp_version') return 'The reet TUI needs OpenCode 1.19.5 or newer on that machine.'
-  if (c === 'acp_unavailable') return message || 'The reet TUI is not available on that machine.'
-  if (c === 'acp_trust_required') return message || 'This folder has OpenCode plugins. Start the reet TUI only in a folder you trust.'
+  if (c === 'acp_version') return 'Gaffer needs OpenCode 1.19.5 or newer on that machine.'
+  if (c === 'acp_unavailable') return message || 'Gaffer is not available on that machine.'
+  if (c === 'acp_trust_required') return message || 'This folder has OpenCode plugins. Start Gaffer only in a folder you trust.'
   if (c === 'acp_resume_not_found') return message || "That reet session's history is no longer available."
   if (c === 'shell_dir_unsupported') return message || 'Update reet on that machine to open a terminal in that folder.'
   if (c === 'acp_history_unsupported') return message || 'Update reet on that machine to reopen reet sessions with their history.'

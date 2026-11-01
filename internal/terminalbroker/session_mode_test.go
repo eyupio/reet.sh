@@ -247,7 +247,7 @@ func TestSwitchRefusedWithoutACPSessionID(t *testing.T) {
 		t.Fatalf("session %+v", s)
 	}
 	err = b.SwitchSessionMode(t.Context(), uid, s.ID, terminalproto.SessionModeChat, true)
-	if !errors.Is(err, ErrSessionModeNoSession) || err.Error() != "This session started in the OpenCode TUI, so the reet TUI cannot pick up its conversation." {
+	if !errors.Is(err, ErrSessionModeNoSession) || err.Error() != "This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation." {
 		t.Fatalf("err %v", err)
 	}
 	if len(machine.sent()) != 0 || row(t, b, uid, s.ID).Structured {
@@ -305,7 +305,7 @@ func TestSwitchRefusedWhenUnsupportedOrOffline(t *testing.T) {
 	b, _, uid, agent, machine := switchFixture(t, false)
 	s := switchChat(t, b, uid, agent)
 	err := b.SwitchSessionMode(t.Context(), uid, s.ID, terminalproto.SessionModeTerminal, false)
-	if !errors.Is(err, ErrSessionModeUnsupported) || err.Error() != "Update reet on this machine to switch between the reet TUI and the OpenCode TUI." {
+	if !errors.Is(err, ErrSessionModeUnsupported) || err.Error() != "Update reet on this machine to switch between Gaffer and the OpenCode TUI." {
 		t.Fatalf("unsupported: %v", err)
 	}
 	if len(machine.sent()) != 0 || !row(t, b, uid, s.ID).Structured {

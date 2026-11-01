@@ -272,7 +272,7 @@
       error=e instanceof Error?e.message:'That colour could not be saved. Try again in a moment.'
     }
   }
-  // The machine switched a session between the reet TUI and the OpenCode TUI (204, also when it was already there): the
+  // The machine switched a session between Gaffer and the OpenCode TUI (204, also when it was already there): the
   // row follows at once, so the pane swaps, and the listing is read again (an older read in flight is discarded).
   function modeSwitched(id:string,to:'terminal'|'chat'){inventoryVersion++;sessions=sessions.map(item=>item.id===id?{...item,structured:to==='chat'}:item);void refresh()}
   // A started agent lands exactly as a new shell does: it joins the list and the workspace switches to it.
@@ -471,7 +471,7 @@
           {/snippet}
           {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
           {#if terminalClosed(session.state)}<div class="workspace-notice ended-banner" role="status"><span>This session has ended. Its output stays below.</span><span class="ended-banner-actions"><button type="button" disabled={!machines.length || atQuota} onclick={event=>openAgentStart(session.agentId,event.currentTarget)}>Start a new agent session</button><button type="button" disabled={!machine?.ready || atQuota} onclick={()=>showCreate=true}>New terminal</button></span></div>{/if}
-          <!-- Keyed by the session and its mode, so a switch between the reet TUI and the OpenCode TUI mounts the other pane. -->
+          <!-- Keyed by the session and its mode, so a switch between Gaffer and the OpenCode TUI mounts the other pane. -->
           {#key session.id + ':' + (session.structured ? 'chat' : 'term')}
             {#if session.structured}
               <ChatPane {session} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} />

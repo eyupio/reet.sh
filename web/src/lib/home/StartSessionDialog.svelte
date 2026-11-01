@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gafferTooltip } from '../gafferTooltip'
   import { onMount, tick, untrack } from 'svelte'
   import { shell } from '../dialogShell'
   import { UnauthorizedError, listModelFavourites, type Skill } from '../api'
@@ -14,7 +15,7 @@
   import { defaultTitle, initialChoice, startable, toCreate, withAgent, withHome, withProject, type LaunchChoice, type LaunchCreate, type LaunchDefaults } from '../launchBar'
   import { createTerminal, launchUpload, listBranches, machineModels, refusalSentence, type BranchesResult, structuredAgent, TerminalError, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
 
-  // Starts a session straight from the Active column. The interface choice is the launch bar's own: the reet TUI is the default
+  // Starts a session straight from the Active column. The interface choice is the launch bar's own: Gaffer is the default
   // wherever the machine offers it, and the agent's own TUI is one click away. Everything else (defaults, refusals, the one
   // idempotent create) is the launch bar's logic, so both start sessions the same way.
   let { projects, machines, profile, initialProject = '', onstarted, onsignedout, onclose }: {
@@ -125,7 +126,7 @@
   // The title follows the prompt's first line until the person types their own.
   $effect(() => { if (!titleTouched) title = defaultTitle(choice.prompt) })
 
-  // A repository starts in a fresh git worktree or in the checkout itself, from a base branch the machine lists. The reet TUI
+  // A repository starts in a fresh git worktree or in the checkout itself, from a base branch the machine lists. Gaffer
   // has neither (it runs in the folder as it is), so the choices only show for the agent's own terminal interface.
   const showCheckout = $derived(mode === 'project' && !!project?.isRepo && !chat)
   let branchRead = $state<{ key: string; result: BranchesResult | 'failed' | null }>({ key: '', result: null })
@@ -297,8 +298,8 @@
           </div>
           <div class="field"><span>Interface</span>
             <div class="mode" role="group" aria-label="Interface">
-              <button type="button" class:on={chat} aria-pressed={chat} disabled={!hasChat} title={hasChat ? '' : 'This machine does not offer the reet TUI for that agent.'} onclick={() => pickTui(true)}>reet TUI</button>
-              <button type="button" class:on={!chat} aria-pressed={!chat} onclick={() => pickTui(false)}>Agent TUI</button>
+              <button use:gafferTooltip type="button" class:on={chat} aria-pressed={chat} aria-disabled={!hasChat} title={hasChat ? '' : 'This machine does not offer Gaffer for that agent.'} onclick={() => { if (hasChat) pickTui(true) }}>Gaffer</button>
+              <button type="button" class:on={!chat} aria-pressed={!chat} onclick={() => pickTui(false)}>{toolName(choice.agent)} TUI</button>
             </div>
             <small>{chat ? (choice.agent === 'opencode' ? 'A native chat with approvals, history and images.' : 'A native chat that asks before it changes anything.') : `${toolName(choice.agent)}’s own terminal interface.`}</small>
           </div>

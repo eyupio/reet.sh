@@ -2,6 +2,33 @@
 
 Prepared: 1 November 2026. Status: proposed follow-on work; implementation has not started.
 
+## Gaffer branding and Eli reuse (1 November 2026)
+
+**Gaffer** is reet's native agent control interface and the user-facing identity
+for its structured browser experience. **Eli AI Chat** is the underlying provider/chat
+technology being reused from Zoomies where compatible. **OpenCode TUI** is the
+agent's original terminal interface; reet's actual CLI TUI remains separate.
+
+Continue Eli reuse rather than creating a competing chat implementation. Preserve
+reet's existing sessions, ACP integration, streaming, permissions, trust checks,
+request IDs, capability negotiation and agent lifecycle. Additional agents remain
+subject to the structured-chat plan's verified adapter gates. Coordinator API
+providers and machine-local workers have separate credentials and authority.
+
+The Gaffer naming slice retains existing internal `reet`/`chat` identifiers and
+stored preferences. Shared HTML tooltips explain the interface on hover, focus
+and touch, including in modal dialogs. OpenCode TUI labels and behaviour remain.
+
+A bounded KZ5A contribution is recorded in [the Eli reuse review](research/eli-reuse.md):
+source/licence review, dependency matrix and a test-only fake-backed probe of the
+reused provider contract, cancellation and an offered read. No provider adapter,
+credential route, second chat UI or orchestration dispatcher is enabled. The
+coordinator will be integrated into Gaffer through the documented stages.
+
+KZ0 reconciliation and KZ5A's remaining decisions are unfinished; neither stage
+is marked complete. KZ5 and later stages retain their dependencies and acceptance
+gates. The dated baseline, original delivery record and history below are preserved.
+
 ## Purpose and relationship to the existing handoff
 
 This document develops the user's proposed durable-work direction for reet.sh:
@@ -199,7 +226,8 @@ retention because they live in the work records.
 
 ## Delivery sequence and status
 
-All stages are **not started**. Producing this handoff completes no runtime stage.
+The original handoff started no stages. The Gaffer follow-up above contributes a bounded
+KZ5A probe; KZ0 and KZ5A remain incomplete, and all other stages remain **not started**.
 KZ0 is the next task when this workstream is selected.
 
 | ID | Deliverable | Depends on | Approximate scope |
@@ -461,7 +489,7 @@ Tasks:
   budgets and interrupted publication; retain reet's own verified launch contracts.
 - Decide where the coordinator UI appears and how conversations attach to work,
   how provider access is configured, and how a proposed plan becomes versioned
-  domain data. Record the user-facing naming as a product choice.
+  domain data. Use Gaffer as the user-facing identity and Eli as the technical reuse reference.
 
 **Acceptance:** a dependency/reuse matrix, one minimal fake-backed contract probe,
 the proposed coordinator/worker boundary and a concrete KZ5 decision list.
@@ -820,7 +848,7 @@ Tasks:
   controller or connector commands.
 - Let the coordinator explain blocked attempts, conflicting reviews and missing
   evidence. Display actual agent/model/machine activity rather than a generic
-  “Eli is working” state that hides who is running.
+  “Gaffer is working” state that hides who is running.
 
 **Acceptance:** a fake-backed streamed conversation proposes a valid work plan;
 invalid/unknown routes are refused or shown unavailable; ownership/provider-data

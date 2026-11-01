@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gafferTooltip } from './gafferTooltip'
  import { onMount, tick, untrack } from 'svelte'
  import { shell } from './dialogShell'
  import { UnauthorizedError, addModelFavourite, getProfile, getYoloSetting, listModelFavourites, removeModelFavourite, setModelFavouriteDefault, type Machine, type YoloSetting } from './api'
@@ -532,21 +533,22 @@
    </fieldset>
 
    {#if chosenTool === 'opencode' && machine && !chatCapable}
-    <p class="hint">This machine does not currently offer the reet TUI for OpenCode. This starts the OpenCode TUI instead.</p>
+    <p class="hint">This machine does not currently offer Gaffer for OpenCode. This starts the OpenCode TUI instead.</p>
    {/if}
 
    {#if chatCapable}
     <div class="field chat-choice">
      <label for={`${id}-session`}>Session</label>
-     <select id={`${id}-session`} value={structured ? 'reet' : 'terminal'} onchange={(event) => { structured = (event.currentTarget as HTMLSelectElement).value === 'reet'; sessionTouched = true; edited() }}>
-      <option value="reet">reet TUI</option>
+     <button type="button" use:gafferTooltip aria-label="About Gaffer">About Gaffer</button>
+     <select use:gafferTooltip={structured} id={`${id}-session`} value={structured ? 'reet' : 'terminal'} onchange={(event) => { structured = (event.currentTarget as HTMLSelectElement).value === 'reet'; sessionTouched = true; edited() }}>
+      <option value="reet">Gaffer</option>
       <option value="terminal">{toolName(chosenTool)} TUI</option>
      </select>
      {#if structured}
       {#if chosenTool === 'claude'}
-       <p class="hint">In the reet TUI, Claude Code asks before it edits a file or runs a command. Only your own Claude settings apply; this folder's repository settings and hooks are ignored. Its live history stays in memory and ends when the machine connection does.</p>
+       <p class="hint">In Gaffer, Claude Code asks before it edits a file or runs a command. Only your own Claude settings apply; this folder's repository settings and hooks are ignored. Its live history stays in memory and ends when the machine connection does.</p>
       {:else}
-       <p class="hint">In the reet TUI, OpenCode asks before it edits a file or runs a command. Any plugins in this folder's <code>.opencode</code> run when it starts, so use a folder you trust. Its live history stays in memory and ends when the machine connection does.</p>
+       <p class="hint">In Gaffer, OpenCode asks before it edits a file or runs a command. Any plugins in this folder's <code>.opencode</code> run when it starts, so use a folder you trust. Its live history stays in memory and ends when the machine connection does.</p>
       {/if}
      {:else}
       <p class="hint">Starts the {toolName(chosenTool)} TUI in a terminal session; the agent's own prompts apply.</p>
@@ -562,7 +564,7 @@
     </button>
     {#if modelChoice === OTHER && modelError}<p class="reason" id={`${id}-model-error`}>{modelError}</p>{/if}
     <p class="hint">Suggestions are hints. The agent says itself if it doesn't know a model.</p>
-    {#if structured}<p class="hint">The reet TUI uses this model. Leave it at {chatToolName(chosenTool)}’s configured model to keep {chatToolName(chosenTool)}’s own; its thinking comes from {chatToolName(chosenTool)}.</p>{/if}
+    {#if structured}<p class="hint">Gaffer uses this model. Leave it at {chatToolName(chosenTool)}’s configured model to keep {chatToolName(chosenTool)}’s own; its thinking comes from {chatToolName(chosenTool)}.</p>{/if}
    </div>
 
    {#if !structured && effortOptions.length > 1}

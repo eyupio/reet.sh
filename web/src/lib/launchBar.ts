@@ -199,7 +199,7 @@ export function withHome(choice: LaunchChoice, agentId: string, profile: LaunchD
 export function summary(parts: SentencePart[]): string {
   const text = (slot: SentencePart['slot']) => parts.find(p => p.slot === slot)?.text ?? ''
   const out = [`${text('agent')} on ${text('project')} at ${text('machine')}`]
-  const chat = parts.some(p => p.slot === 'chat' && p.text === 'reet TUI')
+  const chat = parts.some(p => p.slot === 'chat' && p.text === 'Gaffer')
   const worktree = text('worktree')
   if (!chat && worktree === 'a fresh worktree') out.push(text('branch'), 'fresh worktree')
   else if (!chat && worktree) out.push(worktree)
@@ -240,7 +240,7 @@ export function sentence(choice: LaunchChoice, projects: LaunchProject[], machin
   const supports = choice.chat === true || supportsChat(choice.agent, chatHost, machines)
   const chat = supports && choice.chat === true
   const opening: SentencePart[] = []
-  if (supports) opening.push(word('in'), { slot: 'chat', text: chat ? 'reet TUI' : `${toolName(choice.agent)} TUI` })
+  if (supports) opening.push(word('in'), { slot: 'chat', text: chat ? 'Gaffer' : `${toolName(choice.agent)} TUI` })
   opening.push(word('with'), { slot: 'model', text: cleanModel(choice.model) || 'default' })
   const parts: SentencePart[] = [
     word('Run'), { slot: 'agent', text: toolName(choice.agent || undefined) },
@@ -271,14 +271,14 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
   const prompt = validatePrompt(choice.agent, choice.prompt)
   if (prompt) return prompt
   if (choice.chat === true) {
-    if (picked.length > 1) return 'The reet TUI starts in one folder at a time. Choose one project, or switch to the agent TUI.'
+    if (picked.length > 1) return 'Gaffer starts in one folder at a time. Choose one project, or switch to the agent TUI.'
     // The trust prompt is OpenCode's plugin warning; Claude ignores a folder's own settings, so there is nothing to confirm.
-    if (choice.agent === 'opencode' && choice.trust !== true) return 'Confirm you trust this folder before starting the reet TUI.'
+    if (choice.agent === 'opencode' && choice.trust !== true) return 'Confirm you trust this folder before starting Gaffer.'
     const model = validateModel(choice.model)
     if (model) return model
     const target = machines.find(x => x.agentId === (picked[0]?.host ?? choice.homeMachine ?? ''))
     if (readiness(target)) return readiness(target)!
-    if (!target?.capabilities || !structuredAgent(target.capabilities, choice.agent)) return 'This machine does not offer the reet TUI for that agent.'
+    if (!target?.capabilities || !structuredAgent(target.capabilities, choice.agent)) return 'This machine does not offer Gaffer for that agent.'
     if (choice.approvals === 'yolo' && !target.capabilities.yolo) return `${target.host} doesn't accept YOLO sessions.`
     return null
   }

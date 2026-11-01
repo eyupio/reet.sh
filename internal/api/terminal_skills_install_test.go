@@ -174,6 +174,8 @@ func TestTerminalSkillInstallErrorCodesAndStatuses(t *testing.T) {
 			f.raw(t, `UPDATE sync_agents SET last_seen=1 WHERE id=?`, f.agent.ID)
 		}, "reet:pdf", "laptop isn't connected to reet right now, so it can't install this skill."},
 		{"follows-source", "follows-source", 409, func(t *testing.T, f *installFx) {
+			// A saved set that follows a source; a policy row alone no longer refuses.
+			f.raw(t, `INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,'shelf','Shelf','[]','rev1',1)`, f.uid, f.env)
 			f.raw(t, `INSERT INTO sync_policies(target_id,follow_source) VALUES(?,1) ON CONFLICT(target_id) DO UPDATE SET follow_source=1`, f.env)
 		}, "reet:pdf", "laptop's skills follow another machine, so this skill would be removed the next time it syncs."},
 		{"slug-conflict", "slug-conflict", 409, func(t *testing.T, f *installFx) {
@@ -337,5 +339,35 @@ func TestTerminalSkillInstallCancel(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("no skill-install-cancel event")
+	}
+}
+
+func TestTerminalSkillInstallCancelOfAFinishedInstallSaysFinished(t *testing.T) {
+	f := installFixture(t)
+	code, raw := f.install(`{"skill":"reet:pdf"}`)
+	if code != 200 {
+		t.Fatal(code, raw)
+	}
+	job := decodeInstall(t, raw).Job
+	if code, raw := f.cancel(f.session, `{"job":"`+job+`"}`, f.cookie); code != 200 {
+		t.Fatal(code, raw)
+	}
+	code, raw = f.cancel(f.session, `{"job":"`+job+`"}`, f.cookie)
+	if code != 409 || raw != `{"error":"This install has already finished.","code":"cannot-cancel"}` {
+		t.Fatalf("got %d %s", code, raw)
+	}
+}
+
+func TestTerminalSkillInstallCancelHidesOtherErrors(t *testing.T) {
+	f := installFixture(t)
+	code, raw := f.install(`{"skill":"reet:pdf"}`)
+	if code != 200 {
+		t.Fatal(code, raw)
+	}
+	job := decodeInstall(t, raw).Job
+	f.raw(t, `ALTER TABLE skill_installs RENAME TO skill_installs_gone`)
+	code, raw = f.cancel(f.session, `{"job":"`+job+`"}`, f.cookie)
+	if code != 500 || raw != `{"error":"The install could not be cancelled. Try again.","code":"internal"}` {
+		t.Fatalf("got %d %q", code, raw)
 	}
 }

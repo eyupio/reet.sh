@@ -97,7 +97,8 @@ func (s *server) terminalSkillInstallCancel(w http.ResponseWriter, r *http.Reque
 		if errors.As(err, &ie) {
 			writeInstallError(w, err)
 		} else {
-			terminalError(w, err)
+			// A database detail is not for the person, and the machine is not reconnecting.
+			writeJSON(w, http.StatusInternalServerError, installErrorBody{Error: "The install could not be cancelled. Try again.", Code: "internal"})
 		}
 		return
 	}

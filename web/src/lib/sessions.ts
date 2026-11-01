@@ -216,7 +216,8 @@ export function switchModeState(session: TerminalSession, caps: Capabilities | u
   if (session.tool !== 'opencode') return no('The reet TUI is for a structured OpenCode session.')
   if (session.state !== 'running') return no('Only a running session can switch.')
   if (to === 'chat' && !session.acpSessionId) return no('This session started in the OpenCode TUI, so the reet TUI cannot pick up its conversation.')
-  if (caps?.sessionMode !== true || structuredAgent(caps, session.tool)?.history !== true) return no('Update reet on this machine to switch between the reet TUI and the OpenCode TUI.')
+  // The controller also requires OpenCode to be one of the machine's launch tools (Capabilities.SessionModeFor); an absent list is unknown.
+  if (caps?.sessionMode !== true || (caps.tools && !caps.tools.includes(session.tool)) || structuredAgent(caps, session.tool)?.history !== true) return no('Update reet on this machine to switch between the reet TUI and the OpenCode TUI.')
   // `opencode --session` needs the id; the controller refuses with this same sentence (session_mode_no_conversation), and
   // as there, an old machine is named first.
   if (to === 'terminal' && !session.acpSessionId) return no('This session has no saved OpenCode conversation yet, so it cannot move to the OpenCode TUI.')

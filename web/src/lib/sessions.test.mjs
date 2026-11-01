@@ -235,6 +235,10 @@ test('switchModeState: the inactive TUI button, enabled or with the reason it is
     ['an old machine outranks no saved conversation, as on the controller', fresh, old, false, { to: 'terminal', enabled: false, why: UPDATE }],
     ['no saved conversation outranks a busy chat', fresh, caps, true, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
     ['another agent has no reet TUI', { ...started, tool: 'claude' }, caps, false, { to: 'chat', enabled: false, why: 'The reet TUI is for a structured OpenCode session.' }],
+    ['OpenCode among the launch tools keeps the switch', chat, { ...caps, tools: ['claude', 'opencode'] }, false, { to: 'terminal', enabled: true, why: '' }],
+    ['OpenCode not a launch tool on the machine, to the OpenCode TUI', chat, { ...caps, tools: ['claude'] }, false, { to: 'terminal', enabled: false, why: UPDATE }],
+    ['OpenCode not a launch tool on the machine, to the reet TUI', tui, { ...caps, tools: ['claude'] }, false, { to: 'chat', enabled: false, why: UPDATE }],
+    ['an empty launch tool list is a known list without OpenCode', chat, { ...caps, tools: [] }, false, { to: 'terminal', enabled: false, why: UPDATE }],
     ['a plain shell has no reet TUI', { ...started, tool: undefined }, caps, false, { to: 'chat', enabled: false, why: 'The reet TUI is for a structured OpenCode session.' }],
   ]
   for (const [name, s, c, busy, want] of rows) assert.deepEqual(switchModeState(s, c, busy), want, name)

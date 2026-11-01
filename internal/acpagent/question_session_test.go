@@ -249,3 +249,33 @@ func TestQuestionBeforeTheChatIsReadyIsCancelledWithNotice(t *testing.T) {
 		break
 	}
 }
+
+// A question that arrives after its turn ended has no owner: it is answered as
+// cancelled and never raises a card or a waiting status on an idle chat.
+func TestQuestionAfterTheTurnEndedIsCancelled(t *testing.T) {
+	opts, got := options(t, "question-late", testVersion)
+	opts.Questions = true
+	opts.PermissionTimeout = time.Minute // a card that was wrongly raised must not time out into "cancel"
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(session.Close)
+	if err := session.Prompt(context.Background(), "go"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case event := <-got.wait:
+			if strings.HasPrefix(event.Kind, "question") || event.Kind == "status" && event.State == "waiting" {
+				t.Fatalf("a late question raised %+v", event)
+			}
+			if event.Kind == "agent" && strings.Contains(event.Text, `"action":"cancel"`) {
+				return
+			}
+		case <-deadline:
+			t.Fatal("the late question was never answered as cancelled")
+		}
+	}
+}

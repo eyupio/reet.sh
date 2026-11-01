@@ -17,6 +17,20 @@ against in [docs/ui-verification.md](docs/ui-verification.md); the research behi
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## Durable work, Eli and Kanzo follow-on handoff (1 November 2026)
+
+The staged [work orchestration handoff](docs/work-orchestration-handoff.md) is a
+companion plan for the user's durable-work direction: steps assigned across
+agents, models and machines, with revision-bound independent reviews and an
+Eli-style coordinator informed by Zoomies. It owns stages KZ0–KZ12, including
+independent Kanzo-inspired documentation/resource/refresh improvements. This file
+remains the entry point for standing rules and the active task. The core stages
+fit richer run orchestration; the current structured-chat sequence retains its
+recorded priority and capability gates until the active task is explicitly changed.
+Only the handoff and this index entry are delivered. No KZ implementation stage
+has started. When this workstream is selected, begin with KZ0 baseline reconciliation
+and record the one active slice here.
+
 **Docs tidy-up (27 October 2026).** Finished plans, specs, stage documents and audits were removed
 on 27 October 2026; they live in git history before commit `bd9e56c` (for example
 `docs/superpowers/plans|specs/2026-10-2[145]*`, `docs/agent-setup-plan.md`, `remote-machine-*` and

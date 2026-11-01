@@ -247,6 +247,11 @@ recovery cannot report against it; the browser drops events at or below its last
 default), the person is told the agent did not stop and the chat is ended, with the process group confirmed gone. A cancel the agent honours, or a later
 turn, is never touched. Covered by `TestCancelIgnoredByTheAgentEndsTheChatAfterTheGracePeriod` and `TestForceStopIsBoundToTheCancelledTurn`.
 
+**Fixed (gap 3):** a permission or question request that arrives with no running turn, or after the running turn was cancelled, belongs to no turn the
+person is waiting on. It used to raise an approval card and show an idle chat as "waiting". It is now answered as cancelled and raises nothing
+(`turnAcceptsRequests`). Covered for permissions after a turn ended, permissions during a cancel, and questions after a turn ended. **Gap 2** stays as it is: showing
+"cancelled" at once is deliberate feedback, and the force-stop bounds the worst case; output arriving after the status flips is not yet tested.
+
 **Fixed (gap 4, wording only):** the app already marks a chat the machine can no longer find as lost, and the sessions list says "Connection lost". The chat itself now says
 why it closed: a lost chat explains that reet lost contact (for example when the connection closed or the reet service on the machine restarted) and that the
 history, held only in memory, is gone, so a new chat is needed; a chat that merely exited says only that it ended, because the state cannot tell a chat that stopped on its own from one the person ended. Adopting a surviving native session after a

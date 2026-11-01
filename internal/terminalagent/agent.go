@@ -269,6 +269,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				if !terminalproto.SupportsACPApproval(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
 				}
+			case *terminalproto.ACPAgentMode:
+				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) || !terminalproto.SupportsACPAgentMode(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
 			case *terminalproto.SessionMode:
 				if !terminalproto.SupportsSessionMode(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
@@ -672,6 +676,12 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					return respond(err)
 				}
 				reply.Body = answer
+				return send(callCtx, reply)
+			case *terminalproto.ACPAgentMode:
+				if err := chats.setAgentMode(callCtx, msg.SessionID, op.Mode); err != nil {
+					return respond(err)
+				}
+				reply.Body = terminalproto.Result{Code: terminalproto.OK}
 				return send(callCtx, reply)
 			case *terminalproto.ACPMode:
 				if err := chats.mode(msg.SessionID, op.Yolo); err != nil {

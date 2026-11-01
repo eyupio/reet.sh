@@ -20,6 +20,12 @@ func chatFixture(t *testing.T) (*Broker, *Peer, int64, string) {
 // chatFixtureWith lets a test script the machine's reply to a question answer.
 func chatFixtureWith(t *testing.T, answerReply func(*terminalproto.ACPQuestionAnswer) terminalproto.Result) (*Broker, *Peer, int64, string) {
 	t.Helper()
+	return chatFixtureCaps(t, answerReply, nil)
+}
+
+// chatFixtureCaps also lets a test change the machine's capabilities before it connects.
+func chatFixtureCaps(t *testing.T, answerReply func(*terminalproto.ACPQuestionAnswer) terminalproto.Result, mutate func(*terminalproto.Capabilities)) (*Broker, *Peer, int64, string) {
+	t.Helper()
 	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
@@ -31,6 +37,9 @@ func chatFixtureWith(t *testing.T, answerReply func(*terminalproto.ACPQuestionAn
 		t.Fatal(err)
 	}
 	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", HealthEnabled: true, TerminalEnabled: true, TerminalControl: true, Launch: true, Tools: []string{"opencode"}, Readiness: terminalproto.Ready, ACP: true, ACPHistory: true, ACPApproval: true, ACPModel: true}
+	if mutate != nil {
+		mutate(&caps)
+	}
 	record, err := st.BeginRemoteConnectionFor(uid, a.ID, ID(), caps)
 	if err != nil {
 		t.Fatal(err)
@@ -315,5 +324,37 @@ func TestStructuredCreateHonoursExplicitDescriptorRefusal(t *testing.T) {
 				t.Fatalf("descriptor refusal: %v", err)
 			}
 		})
+	}
+}
+
+// A mode switch goes to the machine only for a mode the agent's descriptor lists, on a
+// machine that negotiated acp-agent-mode-v1; anything else is refused before it is sent.
+func TestSetAgentModeIsLimitedToTheDescriptorsModes(t *testing.T) {
+	b, _, uid, agent := chatFixtureCaps(t, nil, func(c *terminalproto.Capabilities) {
+		c.ACPAgentMode = true
+		agents := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", Model: true, Approval: true, Modes: []string{"read-only", "agent"}}}
+		c.ACPAgents = &agents
+	})
+	s := chatSession(t, b, uid, agent)
+	if err := b.SetAgentMode(t.Context(), uid, s.ID, "agent"); err != nil {
+		t.Fatalf("a listed mode: %v", err)
+	}
+	if err := b.SetAgentMode(t.Context(), uid, s.ID, "agent-full-access"); !errors.Is(err, ErrACPAgentModeUnsupported) {
+		t.Fatalf("a mode the descriptor does not list: %v", err)
+	}
+	if err := b.SetAgentMode(t.Context(), uid, s.ID, "Not A Mode"); !errors.Is(err, terminalproto.ErrInvalid) {
+		t.Fatalf("an invalid mode name: %v", err)
+	}
+	if err := b.SetAgentMode(t.Context(), uid+1, s.ID, "agent"); err == nil {
+		t.Fatal("another user switched the mode")
+	}
+}
+
+// Without the negotiated feature and a descriptor that lists modes there is no switch.
+func TestSetAgentModeNeedsTheFeatureAndAListedMode(t *testing.T) {
+	b, _, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	if err := b.SetAgentMode(t.Context(), uid, s.ID, "agent"); !errors.Is(err, ErrACPAgentModeUnsupported) {
+		t.Fatalf("a machine that lists no modes: %v", err)
 	}
 }

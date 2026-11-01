@@ -235,6 +235,16 @@ First of three slices for the browser mode control (this one is the session core
 switch a live chat to (Codex: `read-only` and `agent`, never `agent-full-access`). `Session.SetMode` refuses any other mode, refuses while a turn works, and reports the switch as applied
 only when the adapter's reply names the requested mode (`Session.Mode` is the last confirmed one). Nothing outside the session can call it yet, so it changes nothing for anyone.
 
+### SC4 progress: Codex mode switch on the wire (1 November 2026)
+
+Second of three slices for the browser mode control. New feature `acp-agent-mode-v1`, negotiated like the model switch: an agent's descriptor lists `modes` (the profile's `ChoosableModes`; Codex: `read-only`, `agent`) only on a
+connection that negotiated it, and `Capabilities.ACPAgentMode` is set only when some available agent lists a mode. A new `acp_agent_mode` message moves a live chat; the connector hands it to `Session.SetMode`, which
+confirms the mode with the agent. The broker (`SetAgentMode`) refuses a mode the descriptor does not list before anything is sent, and `POST /api/v2/terminal/sessions/{id}/chat/agent-mode` answers 200 with the mode only after
+the agent confirmed it, 409 when the machine or agent does not offer it or the agent did not switch. Still dark: no shipped agent lists modes unless Codex is opted in.
+
+Not in this slice, needed before the browser can show the mode: the current mode is not stored or sent to the browser (a reload would not know it), and the card wording. That is the third slice, which adds the stored mode on the
+session and the plain-language control.
+
 ### Device and credential checks (1 November 2026)
 
 What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real

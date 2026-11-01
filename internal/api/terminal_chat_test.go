@@ -542,3 +542,38 @@ func TestSessionModeEndpointRequiresWriter(t *testing.T) {
 		t.Fatalf("refused request switched the session: %d %+v %v", n, row, err)
 	}
 }
+
+func TestChatAgentModeSwitch(t *testing.T) {
+	for _, offered := range []bool{true, false} {
+		caps := chatCaps()
+		entries := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", History: true, Approval: true}}
+		if offered {
+			caps.ACPAgentMode = true
+			entries[0].Modes = []string{"read-only", "agent"}
+		}
+		caps.ACPAgents = &entries
+		f := launchAPIFixture(t, caps)
+		code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "opencode", "structured": true, "trust": true, "dir": "/tmp"}))
+		if code != 200 {
+			t.Fatalf("create: %d %s", code, body)
+		}
+		path := "/api/v2/terminal/sessions/" + out["id"].(string) + "/chat/agent-mode"
+		code, _, body = f.do(t, f.cookie, "POST", path, map[string]string{"mode": "agent"})
+		if offered && (code != 200 || !strings.Contains(body, `"mode":"agent"`)) {
+			t.Fatalf("switch: %d %s", code, body)
+		}
+		if !offered && code != 409 {
+			t.Fatalf("a machine that offers no modes: %d %s", code, body)
+		}
+		if offered {
+			if code, _, body := f.do(t, f.cookie, "POST", path, map[string]string{"mode": "agent-full-access"}); code != 409 {
+				t.Fatalf("a mode the machine does not list: %d %s", code, body)
+			}
+		}
+		for _, bad := range []string{"", "Agent Mode"} {
+			if code, _, body := f.do(t, f.cookie, "POST", path, map[string]string{"mode": bad}); code != 400 {
+				t.Fatalf("invalid mode %q: %d %s", bad, code, body)
+			}
+		}
+	}
+}

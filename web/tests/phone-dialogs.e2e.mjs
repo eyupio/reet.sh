@@ -38,12 +38,12 @@ const menu = (project, item) => async page => { await press(`More for ${project}
 const cardMenu = item => async page => { await page.getByRole('article',{name:LONGHOST}).locator('summary[aria-label^="More options"]').click(); await page.getByRole('menuitem',{name:item,exact:true}).click() }
 const TEXT = 'input:not([type=checkbox]):not([type=radio]):not([type=hidden])'
 const ended = {'/api/v2/terminal/sessions': {sessions:sessions.map(s => ({...s, state:'ended'}))}}
-// The reet TUI | OpenCode TUI switch, from the session screen's actions menu (a phone's slim header has no View group): an
+// Gaffer | OpenCode TUI switch, from the session screen's actions menu (a phone's slim header has no View group): an
 // OpenCode session reet started as a chat and moved to the OpenCode TUI, on a machine that negotiated session-mode-v1.
 const moved = {...sessions[0], id:'session-switch000000001', title:'OpenCode chat moved to its TUI', tool:'opencode', dir:'/home/dev/work/site', acpSessionId:'ses_moved00000000000000000001'}
 const switchable = {'/api/v2/terminal/sessions': {sessions:[moved, ...sessions]},
  '/api/v2/terminal/machines': {machines:tmachines.map(m => m.agentId === moved.agentId ? {...m, capabilities:{...m.capabilities, tools:[...m.capabilities.tools, 'opencode'], acp:true, acpHistory:true, sessionMode:true}} : m)}}
-const switchTui = async page => { await page.locator('.session-screen').getByRole('button', {name:'Session actions'}).click(); await page.getByRole('menuitem', {name:'Switch to the reet TUI…'}).click() }
+const switchTui = async page => { await page.locator('.session-screen').getByRole('button', {name:'Session actions'}).click(); await page.getByRole('menuitem', {name:'Switch to Gaffer…'}).click() }
 // field: the text field typed into with the keyboard open. primary: the main action, when it is not the dialog's
 // button.primary or submit button. sheet: how it sits on an upright phone.
 // upright: the dialog has no way in on a phone held sideways (there the session screen's header gives its rows to the terminal).
@@ -87,7 +87,7 @@ const DIALOGS = [
  {name:'switch tui (trust)', path:`/sessions?agent=${moved.agentId}&session=${moved.id}`, extra:switchable, upright:true, sheet:'bottom', open:async page => {
   await page.route('**/api/v2/terminal/sessions/*/mode', route => route.fulfill({status:409, json:{error:'This folder has OpenCode plugins. Start only in a folder you trust.', code:'acp_trust_required', detail:`This folder has agent extensions: .opencode/plugin/${'a_really_long_plugin_name_without_any_spaces'.repeat(2)}.ts. Start a chat only in a folder you trust.`}}))
   await switchTui(page)
-  await page.locator('dialog[open]').getByRole('button', {name:'Switch to the reet TUI'}).click()
+  await page.locator('dialog[open]').getByRole('button', {name:'Switch to Gaffer'}).click()
   await page.locator('dialog[open]').getByRole('checkbox').waitFor()
  }},
 ]

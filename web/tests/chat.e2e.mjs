@@ -14,7 +14,7 @@ if (useDescriptors) machine.capabilities.acpAgents = [availableChat]
 
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const { context, page, state, errors } = await openWorkspace(browser, {
-  width: 1360, height: 900, touch: false, terminalStatus: active, terminalMachines: [machine],
+  width: 1360, height: 900, touch: true, terminalStatus: active, terminalMachines: [machine],
   routes: {
     '/api/v2/terminal/sessions': req => {
       if (req.method() === 'POST') {
@@ -73,7 +73,7 @@ try {
       const unavailableDialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })
       await unavailableDialog.getByRole('radio', { name: 'OpenCode', exact: true }).check()
       await expect(unavailableDialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveCount(0)
-      await expect(unavailableDialog.getByText('This machine does not currently offer the reet TUI for OpenCode.', { exact: false })).toBeVisible()
+      await expect(unavailableDialog.getByText('This machine does not currently offer Gaffer for OpenCode.', { exact: false })).toBeVisible()
       await unavailableDialog.getByRole('button', { name: 'Close', exact: true }).click()
     }
     machine.capabilities.acpAgents = [availableChat]
@@ -84,6 +84,43 @@ try {
   await expect(dialog).toBeVisible()
   await dialog.getByRole('radio', { name: 'OpenCode', exact: true }).check()
   await expect(dialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue('reet')
+  const explanation = "Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI."
+  const about = dialog.getByRole('button', { name: 'About Gaffer', exact: true })
+  await about.hover()
+  const help = page.getByRole('tooltip')
+  await expect(help).toBeVisible()
+  await expect(help).toHaveText(`Gaffer${explanation}`)
+  await expect(about).toHaveAccessibleDescription(explanation)
+  const backgrounds = []
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme)
+    backgrounds.push(await help.evaluate(node => getComputedStyle(node).backgroundColor))
+    await expect(help).toBeVisible()
+  }
+  expect(backgrounds[0]).not.toBe(backgrounds[1])
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light')
+
+  const box = await help.boundingBox()
+  expect(box.x).toBeGreaterThanOrEqual(0)
+  expect(box.y).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width).toBeLessThanOrEqual(1360)
+  await page.keyboard.press('Escape')
+  await expect(help).toHaveCount(0)
+  await expect(dialog).toBeVisible()
+  await about.focus()
+  await expect(help).toBeVisible()
+  // Touch opens the same explanation without cancelling native selection or dialog actions.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await about.tap()
+  await expect(help).toBeVisible()
+  const phoneHelp = await help.boundingBox()
+  expect(phoneHelp.x).toBeGreaterThanOrEqual(0)
+  expect(phoneHelp.x + phoneHelp.width).toBeLessThanOrEqual(390)
+  expect(phoneHelp.y).toBeGreaterThanOrEqual(0)
+  expect(phoneHelp.y + phoneHelp.height).toBeLessThanOrEqual(844)
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 1360, height: 900 })
+
   await expect(dialog.getByRole('button', { name: /^Model:/ })).toHaveAccessibleName('Model: OpenCode’s configured model')
   await dialog.getByRole('button', { name: /^Model:/ }).click()
   const models = page.getByRole('listbox', { name: 'Model', exact: true })
@@ -93,11 +130,17 @@ try {
   await dialog.getByRole('textbox', { name: /Opening prompt/ }).fill('fix the failing build')
   await dialog.getByRole('button', { name: 'Start', exact: true }).click()
   await page.waitForURL(new RegExp(`session=${S}`))
-  await expect(page.getByRole('button', { name: 'reet TUI', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: 'Gaffer', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  const gaffer = page.getByRole('button', { name: 'Gaffer', exact: true })
+  await gaffer.focus()
+  await expect(page.getByRole('tooltip')).toHaveText(`Gaffer${explanation}`)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+
   // This machine has not negotiated session-mode-v1, so the OpenCode TUI is offered with the reason it cannot switch.
   await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAttribute('aria-pressed', 'false')
   await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAttribute('aria-disabled', 'true')
-  await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAccessibleDescription('Update reet on this machine to switch between the reet TUI and the OpenCode TUI.')
+  await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAccessibleDescription('Update reet on this machine to switch between Gaffer and the OpenCode TUI.')
   await page.waitForFunction(() => window.__chatStream?.url.endsWith('/chat'))
   await page.evaluate(() => window.__chatStream.emit('reset', { truncated: false }))
   await page.evaluate(() => {
@@ -826,7 +869,7 @@ try {
   // A chat that exited does not say who ended it (it may have stopped on its own or been ended by the person), only that its live history is not kept.
   await expect(page.getByText('This OpenCode chat has ended. Its live history is not kept after the machine connection closes.')).toBeVisible()
   await page.getByRole('button', { name: 'Session actions' }).click()
-  await page.getByRole('menuitem', { name: /Continue in reet TUI with history/ }).click()
+  await page.getByRole('menuitem', { name: /Continue in Gaffer with history/ }).click()
   await expect.poll(() => state.resume).toMatchObject({ structured: true, trust: true, resumeAcp: closedSession.acpSessionId, dir: SITE })
   await page.waitForURL(new RegExp(`session=${S3}`))
   // A closed chat cannot switch: the menu offers no switch and the OpenCode TUI says why (on a wider screen, where the
@@ -840,7 +883,7 @@ try {
   expect(state.resume.prompt).toBeUndefined()
   expect(state.resume.model).toBe('anthropic/claude-sonnet-4-5')
   expect(errors).toEqual([])
-  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled and its reason (the machine predates session-mode-v1), agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id and cannot switch TUI; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet, with tablet and dark-mode passes that keep it inside the viewport and readable; a published reet-hosted skill installs from the picker through confirm, wait, review, approve (only for a plain add), install and done, with cancel, retry, refusals and a phone fit.')
+  console.log('Structured OpenCode chat UI passed: the dialog offers Gaffer for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens Gaffer with the OpenCode TUI disabled and its reason (the machine predates session-mode-v1), agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id and cannot switch TUI; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet, with tablet and dark-mode passes that keep it inside the viewport and readable; a published reet-hosted skill installs from the picker through confirm, wait, review, approve (only for a plain add), install and done, with cancel, retry, refusals and a phone fit.')
 } finally {
   await context.close()
   await browser.close()

@@ -58,7 +58,7 @@ func nativeUnit(d *deployment, state string) string {
 }
 func (a *App) native(ctx context.Context, action string) (string, error) {
 	if runtime.GOOS == "linux" {
-		return a.run(ctx, "systemctl", "--user", action, "reet.service")
+		return a.command(ctx, "systemctl", "--user", action, "reet.service")
 	}
 	target := "gui/" + strconv.Itoa(os.Getuid()) + "/sh.reet.server"
 	path, err := unitPath()
@@ -67,11 +67,11 @@ func (a *App) native(ctx context.Context, action string) (string, error) {
 	}
 	switch action {
 	case "start":
-		return a.run(ctx, "launchctl", "bootstrap", "gui/"+strconv.Itoa(os.Getuid()), path)
+		return a.command(ctx, "launchctl", "bootstrap", "gui/"+strconv.Itoa(os.Getuid()), path)
 	case "stop":
-		return a.run(ctx, "launchctl", "bootout", target)
+		return a.command(ctx, "launchctl", "bootout", target)
 	case "status":
-		return a.run(ctx, "launchctl", "print", target)
+		return a.command(ctx, "launchctl", "print", target)
 	}
 	return "", fmt.Errorf("unsupported service action")
 }
@@ -81,7 +81,7 @@ func (a *App) active(ctx context.Context, d *deployment, state string) (bool, er
 		return strings.TrimSpace(s) != "", err
 	}
 	if runtime.GOOS == "linux" {
-		s, err := a.run(ctx, "systemctl", "--user", "show", "reet.service", "--property=ActiveState", "--value")
+		s, err := a.command(ctx, "systemctl", "--user", "show", "reet.service", "--property=ActiveState", "--value")
 		if err != nil {
 			return false, err
 		}
@@ -107,7 +107,7 @@ func composeArgs(state string, args ...string) []string {
 	return append(base, args...)
 }
 func (a *App) compose(ctx context.Context, state string, args ...string) (string, error) {
-	return a.run(ctx, "docker", composeArgs(state, args...)...)
+	return a.command(ctx, "docker", composeArgs(state, args...)...)
 }
 func composeConfig(d *deployment) ([]byte, error) {
 	host, port, err := net.SplitHostPort(d.Addr)
@@ -136,10 +136,10 @@ func (a *App) writeCompose(d *deployment, state string) error {
 }
 func (a *App) pull(ctx context.Context, tag string) (string, error) {
 	image := imageRepo + ":" + tag
-	if _, err := a.run(ctx, "docker", "pull", image); err != nil {
+	if _, err := a.command(ctx, "docker", "pull", image); err != nil {
 		return "", err
 	}
-	b, err := a.run(ctx, "docker", "image", "inspect", "--format", "{{json .RepoDigests}}", image)
+	b, err := a.command(ctx, "docker", "image", "inspect", "--format", "{{json .RepoDigests}}", image)
 	if err != nil {
 		return "", err
 	}
@@ -190,6 +190,13 @@ func localHealth(addr string) string {
 	return "http://" + net.JoinHostPort(host, port) + "/healthz"
 }
 func (a *App) waitHealthy(ctx context.Context, d *deployment) error {
+	return a.task(ctx, "Checking server health", false, func(ctx context.Context, observe func(string)) error {
+		observe("Waiting for the server at the expected version")
+		return a.pollHealthy(ctx, d)
+	})
+}
+
+func (a *App) pollHealthy(ctx context.Context, d *deployment) error {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	for {
@@ -203,7 +210,7 @@ func (a *App) waitHealthy(ctx context.Context, d *deployment) error {
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("server did not become healthy at the expected version; inspect service logs")
+			return fmt.Errorf("server did not become healthy at the expected version; inspect service logs: %w", ctx.Err())
 		case <-time.After(time.Second):
 		}
 	}

@@ -211,20 +211,20 @@ test('switchModeState: the inactive TUI button, enabled or with the reason it is
   const tui = { ...chat, structured: false }
   const started = { ...chat, structured: false, acpSessionId: undefined }
   const BUSY = 'Wait for the agent to finish or answer what it is asking.'
-  const NO_SESSION = 'This session started in the OpenCode TUI, so the reet TUI cannot pick up its conversation.'
-  const UPDATE = 'Update reet on this machine to switch between the reet TUI and the OpenCode TUI.'
+  const NO_SESSION = 'This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.'
+  const UPDATE = 'Update reet on this machine to switch between Gaffer and the OpenCode TUI.'
   const NOT_LIVE = 'Only a running session can switch.'
   const NO_CONVERSATION = 'This session has no saved OpenCode conversation yet, so it cannot move to the OpenCode TUI.'
   const fresh = { ...chat, acpSessionId: undefined }
   const rows = [
-    ['an idle reet TUI chat can go to the OpenCode TUI', chat, caps, false, { to: 'terminal', enabled: true, why: '' }],
+    ['an idle Gaffer chat can go to the OpenCode TUI', chat, caps, false, { to: 'terminal', enabled: true, why: '' }],
     ['a reet-started chat in the OpenCode TUI can come back', tui, caps, false, { to: 'chat', enabled: true, why: '' }],
     ['a busy chat waits', chat, caps, true, { to: 'terminal', enabled: false, why: BUSY }],
     ['busy only gates a chat: the OpenCode TUI is not watched', tui, caps, true, { to: 'chat', enabled: true, why: '' }],
     ['a session started in the OpenCode TUI has no conversation to load', started, caps, false, { to: 'chat', enabled: false, why: NO_SESSION }],
     ['no session id outranks an old machine', started, old, false, { to: 'chat', enabled: false, why: NO_SESSION }],
     ['an old machine, to the OpenCode TUI', chat, old, false, { to: 'terminal', enabled: false, why: UPDATE }],
-    ['an old machine, to the reet TUI', tui, old, false, { to: 'chat', enabled: false, why: UPDATE }],
+    ['an old machine, to Gaffer', tui, old, false, { to: 'chat', enabled: false, why: UPDATE }],
     ['no capabilities read yet', chat, undefined, false, { to: 'terminal', enabled: false, why: UPDATE }],
     ['a machine without chat history cannot load the conversation', tui, { ...caps, acpHistory: false }, false, { to: 'chat', enabled: false, why: UPDATE }],
     ['an ended chat', { ...chat, state: 'ended' }, caps, false, { to: 'terminal', enabled: false, why: NOT_LIVE }],
@@ -234,12 +234,12 @@ test('switchModeState: the inactive TUI button, enabled or with the reason it is
     ['a chat with no saved OpenCode conversation cannot open in the OpenCode TUI', fresh, caps, false, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
     ['an old machine outranks no saved conversation, as on the controller', fresh, old, false, { to: 'terminal', enabled: false, why: UPDATE }],
     ['no saved conversation outranks a busy chat', fresh, caps, true, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
-    ['another agent has no reet TUI', { ...started, tool: 'claude' }, caps, false, { to: 'chat', enabled: false, why: 'The reet TUI is for a structured OpenCode session.' }],
+    ['another agent has no Gaffer', { ...started, tool: 'claude' }, caps, false, { to: 'chat', enabled: false, why: 'Gaffer is for a structured OpenCode session.' }],
     ['OpenCode among the launch tools keeps the switch', chat, { ...caps, tools: ['claude', 'opencode'] }, false, { to: 'terminal', enabled: true, why: '' }],
     ['OpenCode not a launch tool on the machine, to the OpenCode TUI', chat, { ...caps, tools: ['claude'] }, false, { to: 'terminal', enabled: false, why: UPDATE }],
-    ['OpenCode not a launch tool on the machine, to the reet TUI', tui, { ...caps, tools: ['claude'] }, false, { to: 'chat', enabled: false, why: UPDATE }],
+    ['OpenCode not a launch tool on the machine, to Gaffer', tui, { ...caps, tools: ['claude'] }, false, { to: 'chat', enabled: false, why: UPDATE }],
     ['an empty launch tool list is a known list without OpenCode', chat, { ...caps, tools: [] }, false, { to: 'terminal', enabled: false, why: UPDATE }],
-    ['a plain shell has no reet TUI', { ...started, tool: undefined }, caps, false, { to: 'chat', enabled: false, why: 'The reet TUI is for a structured OpenCode session.' }],
+    ['a plain shell has no Gaffer', { ...started, tool: undefined }, caps, false, { to: 'chat', enabled: false, why: 'Gaffer is for a structured OpenCode session.' }],
   ]
   for (const [name, s, c, busy, want] of rows) assert.deepEqual(switchModeState(s, c, busy), want, name)
 })
@@ -249,6 +249,7 @@ test('switchWhy: the switch always says why it cannot be used now', () => {
   const on = { to: 'terminal', enabled: true, why: '' }
   assert.equal(switchWhy(on, 'OpenCode TUI', false), 'Switching to the OpenCode TUI…')
   assert.equal(switchWhy(off, 'OpenCode TUI', true), 'Switching to the OpenCode TUI…')
+  assert.equal(switchWhy(on, 'Gaffer', false), 'Switching to Gaffer…')
   assert.equal(switchWhy(off, undefined, true), 'Only a running session can switch.')
   assert.equal(switchWhy(on, undefined, true), 'Another action on this session is running.')
   assert.equal(switchWhy(on, undefined, false), '')

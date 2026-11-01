@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/clientconfig"
+	"github.com/eyupio/reet.sh/internal/cliui"
 )
 
 // Diagnostic is one doctor check. Status is pass, warn or fail.
@@ -23,8 +25,7 @@ type Diagnostic struct {
 	Advice  string `json:"advice,omitempty"`
 }
 
-// Report is what reet doctor found. It is shared by the text output and the
-// terminal UI so both always describe the same checks.
+// Report is what reet doctor found, shared by text and JSON output.
 type Report struct {
 	Version string       `json:"version"`
 	Commit  string       `json:"commit"`
@@ -36,7 +37,7 @@ type diagnostic = Diagnostic
 type report = Report
 
 // DoctorOptions selects what doctor inspects. Interactive allows the CLI to
-// prompt for a missing controller URL or token; the terminal UI never prompts.
+// prompt for a missing controller URL or token.
 type DoctorOptions struct {
 	StateDir    string
 	Server      string
@@ -47,6 +48,7 @@ type DoctorOptions struct {
 
 func (a *App) doctor(args []string) error {
 	f := flags("doctor", a.Out)
+	a.progressFlags(f)
 	stateArg := f.String("state-dir", stateDefault(), "managed deployment configuration directory")
 	asJSON := f.Bool("json", false, "machine-readable results (no credentials)")
 	tokenFile := f.String("env-file", "", "read REET_TOKEN from an explicit env file")
@@ -55,34 +57,33 @@ func (a *App) doctor(args []string) error {
 	if !ok {
 		return err
 	}
-	r, err := a.DoctorReport(DoctorOptions{
-		StateDir:    *stateArg,
-		Server:      *server,
-		TokenFile:   *tokenFile,
-		Interactive: !*asJSON,
-		JSON:        *asJSON,
-	})
-	if err != nil {
-		return err
-	}
-	if *asJSON {
-		if err := json.NewEncoder(a.Out).Encode(r); err != nil {
+	previous := a.structured
+	a.structured = *asJSON
+	defer func() { a.structured = previous }()
+	return cliui.Step(a.context(), a.In, a.Progress, "Checking installation", a.presentation(*asJSON), func(context.Context) error {
+		r, err := a.DoctorReport(DoctorOptions{StateDir: *stateArg, Server: *server, TokenFile: *tokenFile, Interactive: !*asJSON && !a.nonInteractive, JSON: *asJSON})
+		if err != nil {
 			return err
 		}
-	} else {
-		fmt.Fprintf(a.Out, "reet doctor — %s (%s)\n", r.Version, r.Commit)
-		for _, c := range r.Checks {
-			fmt.Fprintf(a.Out, "[%s] %s: %s\n", c.Status, c.Name, c.Message)
-			if c.Advice != "" {
-				fmt.Fprintln(a.Out, "  "+c.Advice)
+		if *asJSON {
+			if err := json.NewEncoder(a.Out).Encode(r); err != nil {
+				return err
 			}
+		} else {
+			fmt.Fprintf(a.Out, "reet doctor — %s (%s)\n", r.Version, r.Commit)
+			for _, c := range r.Checks {
+				fmt.Fprintf(a.Out, "[%s] %s: %s\n", c.Status, c.Name, c.Message)
+				if c.Advice != "" {
+					fmt.Fprintln(a.Out, "  "+c.Advice)
+				}
+			}
+			fmt.Fprintf(a.Out, "%d warning(s). Doctor made no configuration changes.\n", r.Warnings())
 		}
-		fmt.Fprintf(a.Out, "%d warning(s). Doctor made no configuration changes.\n", r.Warnings())
-	}
-	if r.HasFailures() {
-		return fmt.Errorf("doctor found problems requiring attention")
-	}
-	return nil
+		if r.HasFailures() {
+			return fmt.Errorf("doctor found problems requiring attention")
+		}
+		return nil
+	})
 }
 
 // HasFailures reports whether any check needs attention.
@@ -143,7 +144,7 @@ func (a *App) DoctorReport(opts DoctorOptions) (Report, error) {
 	if _, err = os.Stat(filepath.Join(state, "lifecycle.lock")); err == nil {
 		add("lock", "warn", "A lifecycle lock exists.", "Wait for install/upgrade to finish. Remove lifecycle.lock only after confirming its process is no longer running.")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(a.context(), 20*time.Second)
 	defer cancel()
 	d, err := load(state)
 	if os.IsNotExist(err) {
@@ -165,7 +166,13 @@ func (a *App) DoctorReport(opts DoctorOptions) (Report, error) {
 				add("database", "warn", "The server database does not exist yet.", "Start the server and create the owner account.")
 			} else if e != nil {
 				add("database", "fail", "Cannot access the database.", "Check ownership of the configured data directory.")
-			} else if e = checkDB(ctx, dbPath); e != nil {
+			} else if e = a.task(ctx, "Checking database integrity", opts.JSON, func(ctx context.Context, observe func(string)) error {
+				observe("Running SQLite quick_check")
+				return checkDB(ctx, dbPath)
+			}); e != nil {
+				if errors.Is(e, context.Canceled) {
+					return r, e
+				}
 				add("database", "fail", "SQLite quick_check could not complete successfully.", "Check server logs, permissions and free disk space; retain backups before attempting recovery.")
 			} else {
 				add("database", "pass", "SQLite quick_check: ok.", "")
@@ -234,11 +241,22 @@ func (a *App) DoctorReport(opts DoctorOptions) (Report, error) {
 			}
 			client := *a.client
 			client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
-			resp, e := client.Do(req)
+			var resp *http.Response
+			e = a.task(ctx, "Checking controller", opts.JSON, func(ctx context.Context, observe func(string)) error {
+				observe("Requesting controller account status")
+				var err error
+				resp, err = client.Do(req.WithContext(ctx))
+				return err
+			})
+			if resp != nil {
+				resp.Body.Close()
+			}
+			if errors.Is(e, context.Canceled) {
+				return r, e
+			}
 			if e != nil {
 				add("controller", "fail", "Cannot reach the controller.", "Check REET_URL, DNS, TLS and network access.")
 			} else {
-				resp.Body.Close()
 				switch resp.StatusCode {
 				case 200:
 					add("controller", "pass", "Controller accepted the account credentials.", "")
@@ -249,6 +267,9 @@ func (a *App) DoctorReport(opts DoctorOptions) (Report, error) {
 				}
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return r, err
 	}
 	return r, nil
 }

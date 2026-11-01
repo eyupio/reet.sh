@@ -12,12 +12,15 @@ import argparse, http.server, json, os, selectors, shlex, shutil, signal, subpro
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
-parser.add_argument("decision", choices=["allow", "deny", "cancel", "error"])
+parser.add_argument("decision", choices=["allow", "deny", "cancel", "cancel-running", "error"])
+parser.add_argument("--run-command", default="", help="run this shell command instead of the marker write (for cancel-running: a long sleep)")
 parser.add_argument("--workspace", type=Path, required=True)
 parser.add_argument("--node", default=shutil.which("node"))
 parser.add_argument("--discover", action="store_true")
+parser.add_argument("--escalate", action="store_true", help="have the model ask for sandbox_permissions=require_escalated with a justification, which is how Codex raises an approval")
 parser.add_argument("--tool-name", default="shell_command")
-parser.add_argument("--outside", action="store_true", help="write the marker outside the project directory")
+parser.add_argument("--outside", action="store_true", help="write the marker outside the project directory (still under the temporary run directory, which Codex treats as writable)")
+parser.add_argument("--marker-path", type=Path, default=None, help="write the marker to this exact path, e.g. one outside every default writable root; it is removed afterwards")
 parser.add_argument("--config-extra", default="", help="extra top-level config.toml lines, e.g. approval_policy=\"untrusted\"")
 parser.add_argument("--mode", default="", help="session config mode to select before the turn (observation only)")
 args = parser.parse_args()
@@ -29,8 +32,10 @@ run = Path(tempfile.mkdtemp(prefix="reet-codex-" + args.decision + "-", dir=root
 for p in ["home", "codex-home", "project", "config", "cache", "data"]:
     (run / p).mkdir(parents=True, exist_ok=True)
 project = run / "project"
-marker = (run / "outside-marker.txt") if args.outside else (project / "probe-marker.txt")
-command = "printf reet-probe > " + shlex.quote(str(marker))
+if args.marker_path and args.marker_path.exists():
+    parser.error("--marker-path already exists; choose a path that does not, so a probe never overwrites or removes a real file")
+marker = args.marker_path if args.marker_path else (run / "outside-marker.txt") if args.outside else (project / "probe-marker.txt")
+command = args.run_command or "printf reet-probe > " + shlex.quote(str(marker))
 records = []
 offered = {"tools": None}
 
@@ -63,6 +68,9 @@ class Stub(http.server.BaseHTTPRequestHandler):
             body = {}
         tools = [t.get("name") or t.get("type") for t in body.get("tools", [])]
         offered["tools"] = tools
+        for t in body.get("tools", []):
+            if t.get("name") == "exec_command":
+                offered["exec_command_schema"] = t.get("parameters")
         records.append({"http": self.path, "tools": tools, "model": body.get("model")})
         if args.decision == "error":
             payload = json.dumps({"error": {"message": "probe provider failure", "type": "server_error"}}).encode()
@@ -78,6 +86,8 @@ class Stub(http.server.BaseHTTPRequestHandler):
             item = {"type": "message", "role": "assistant", "id": "msg_1", "content": [{"type": "output_text", "text": "Probe completed."}]}
         else:
             call_args = {"command": command} if args.tool_name == "shell_command" else {"cmd": command}
+            if args.escalate:
+                call_args.update({"sandbox_permissions": "require_escalated", "justification": "Probe: may I write outside the sandbox?"})
             item = {"type": "function_call", "id": "fc_1", "call_id": "call_probe", "name": args.tool_name, "arguments": json.dumps(call_args)}
         events = [
             {"type": "response.created", "response": {"id": "resp_probe"}},
@@ -118,6 +128,7 @@ sel.register(proc.stdout, selectors.EVENT_READ, "stdout")
 sel.register(proc.stderr, selectors.EVENT_READ, "stderr")
 buffers = {"stdout": b"", "stderr": b""}
 permissions, notifications = [], []
+cancel_sent = []
 
 
 def send(m):
@@ -159,6 +170,11 @@ def pump(until_id, timeout=60):
                         send({"jsonrpc": "2.0", "id": m["id"], "error": {"code": -32601, "message": "probe does not implement this callback"}})
                 elif "method" in m:
                     notifications.append(m)
+                    update = m.get("params", {}).get("update", {}) if m.get("method") == "session/update" else {}
+                    if args.decision == "cancel-running" and not cancel_sent and update.get("sessionUpdate") == "tool_call" and update.get("status") == "in_progress":
+                        cancel_sent.append(time.monotonic())
+                        time.sleep(1.0)  # let the command actually start
+                        send({"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": m["params"]["sessionId"]}})
                 elif m.get("id") == until_id:
                     return m
     return {"timeout": until_id}
@@ -190,6 +206,37 @@ try:
         done = call(5, "session/prompt", {"sessionId": native, "prompt": [{"type": "text", "text": "Reet ACP probe: run the isolated marker command, then finish."}]}, 40)
         summary["turn"] = done.get("result", done)
         summary["turnSeconds"] = round(time.monotonic() - started, 1)
+        if cancel_sent:
+            summary["secondsFromCancelToEnd"] = round(time.monotonic() - cancel_sent[0] - 1.0, 1)
+            time.sleep(1.0)
+            # An exact scan of /proc for a process whose argv is the command: matching on a command line would find this probe's own shell.
+            # Polled, because the adapter may stop the command a moment after the turn ends.
+            wanted = args.run_command.split()
+
+            def running():
+                found = []
+                for entry in Path("/proc").iterdir():
+                    if entry.name.isdigit():
+                        try:
+                            argv = (entry / "cmdline").read_bytes().split(b"\0")[:-1]
+                        except OSError:
+                            continue
+                        if [a.decode(errors="replace") for a in argv] == wanted:
+                            found.append(int(entry.name))
+                return found
+
+            ended_at = time.monotonic()
+            alive = running()
+            while alive and time.monotonic() - ended_at < 15:
+                time.sleep(0.5)
+                alive = running()
+            summary["secondsUntilCommandGone"] = None if alive else round(time.monotonic() - ended_at, 1)
+            summary["commandStillRunningAfterCancel"] = alive
+            for pid in alive:  # leave nothing behind
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
         summary["permissions"] = [{"kind": p["toolCall"].get("kind"), "title": p["toolCall"].get("title"), "rawInput": p["toolCall"].get("rawInput"),
                                    "content": p["toolCall"].get("content"), "options": p["options"]} for p in permissions]
         updates = [n["params"].get("update", {}) for n in notifications if n.get("method") == "session/update"]
@@ -199,6 +246,8 @@ try:
         summary["markerExists"] = marker.exists()
         summary["markerContent"] = marker.read_text() if marker.exists() else None
     summary["offeredTools"] = offered["tools"]
+    if args.discover:
+        summary["execCommandSchema"] = offered.get("exec_command_schema")
     summary["httpRequests"] = sum("http" in r for r in records)
     print(json.dumps(summary, indent=2, default=str))
 finally:
@@ -213,4 +262,6 @@ finally:
         proc.wait()
     server.shutdown()
     server.server_close()
+    if args.marker_path and args.marker_path.is_file():
+        args.marker_path.unlink()
     (root / ("codex-turn-" + args.decision + ".json")).write_text(json.dumps(records, indent=2, default=str) + "\n")

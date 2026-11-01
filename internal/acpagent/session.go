@@ -100,6 +100,7 @@ type Session struct {
 	turnError    bool
 	turnSeq      uint64
 	forceArmed   uint64
+	forceClosing bool
 	turnStart    time.Time
 	lastEvent    time.Time
 	warned       bool
@@ -897,6 +898,19 @@ func (s *Session) sendCancel() error {
 	return s.write(map[string]any{"jsonrpc": "2.0", "method": "session/cancel", "params": map[string]string{"sessionId": acpID}})
 }
 
+// commitForceStop decides, under the turn lock, to end the chat because turn seq
+// is still running. From that point no new prompt may start, so a turn that
+// finishes just afterwards cannot be followed by one that the close then kills.
+func (s *Session) commitForceStop(seq uint64) bool {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	if !s.working || s.turnSeq != seq {
+		return false
+	}
+	s.forceClosing = true
+	return true
+}
+
 // Cancel stops the current turn and closes every card this client still holds.
 // The agent does not withdraw an outstanding request_permission, so reet must.
 func (s *Session) Cancel() error {
@@ -930,10 +944,7 @@ func (s *Session) armForceStop() {
 		case <-s.done:
 			return
 		}
-		s.turnMu.Lock()
-		stuck := s.working && s.turnSeq == seq
-		s.turnMu.Unlock()
-		if !stuck {
+		if !s.commitForceStop(seq) {
 			return
 		}
 		s.emit(Event{Kind: "notice", Text: s.opts.Agent.displayName() + " did not stop when asked, so this chat was ended.", Bad: true})
@@ -1032,6 +1043,10 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		}
 	}
 	s.turnMu.Lock()
+	if s.forceClosing {
+		s.turnMu.Unlock()
+		return ErrClosed
+	}
 	if s.working {
 		s.turnMu.Unlock()
 		return ErrBusy

@@ -327,7 +327,8 @@ export function defaultTitle(prompt: string, fallback = ''): string {
 export function toCreate(choice: LaunchChoice, project: LaunchProject | null, requestId: string, runToken: string, profile: LaunchDefaults = {}): LaunchCreate {
   const chat = choice.chat === true && isChatTool(choice.agent)
   const launch: LaunchRequest = { tool: choice.agent }
-  if (chat) { launch.structured = true; if (choice.trust === true) launch.trust = true }
+  // Trust is OpenCode's plugin warning; no other chat tool takes it, so it is never sent for one.
+  if (chat) { launch.structured = true; if (choice.trust === true && choice.agent === 'opencode') launch.trust = true }
   const model = cleanModel(choice.model)
   if (model) launch.model = model
   if (project) launch.dir = project.dir

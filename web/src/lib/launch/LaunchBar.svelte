@@ -1024,7 +1024,7 @@
         aria-describedby={[choice?.prompt ? `${id}-secrets` : '', shownStatus ? `${id}-status` : ''].filter(Boolean).join(' ') || undefined}
         autocomplete="off" spellcheck="true"></textarea>
     </div>
-    {#if choice?.chat}
+    {#if choice?.chat && choice.agent === 'opencode'}
       <label class="trust"><input type="checkbox" bind:checked={choice.trust} disabled={locked} /> I trust this folder; OpenCode plugins in <code>.opencode</code> may run.</label>
     {/if}
     {#if starter || choice?.prompt || runOpen || attachments.length}

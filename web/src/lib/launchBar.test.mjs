@@ -409,6 +409,8 @@ test('Claude gets a native chat only from a machine that reports the reviewed ad
   // OpenCode's plugin warning does not apply: no trust is asked for and none is sent.
   assert.equal(startable(start, [claudeProject], [optedIn], profile), null)
   assert.equal(create.launch.trust, undefined)
+  // Even a stale trust flag on the choice is never sent for Claude.
+  assert.equal(toCreate({ ...start, trust: true }, claudeProject, 'r'.repeat(16), 'a'.repeat(16)).launch.trust, undefined)
   // A dark machine (Claude only unverified), the wrong adapter, or a peer with no descriptors never gets a chat.
   for (const agents of [[claudeAgent({ state: 'unverified' })], [claudeAgent({ adapter: 'opencode' })], [claudeAgent({ state: 'missing' })], []]) {
     const dark = machine('m-studio', 'studio', { tools: ['claude'], acp: true, acpAgents: agents })

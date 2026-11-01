@@ -29,6 +29,36 @@ KZ0 reconciliation and KZ5A's remaining decisions are unfinished; neither stage
 is marked complete. KZ5 and later stages retain their dependencies and acceptance
 gates. The dated baseline, original delivery record and history below are preserved.
 
+### Gaffer PR delivery and push discipline
+
+- PR: [#353](https://github.com/eyupio/reet.sh/pull/353), currently draft;
+  branch `feat/gaffer-interface`, base `9b8bc17`.
+- Every subsequent push to this PR must include an update to this handoff with
+  changed scope, validation results, outstanding work and the exact next task.
+  Record prior published commits below; the PR head is authoritative for the
+  commit containing the current handoff update, avoiding a self-referential SHA.
+- Published implementation: `e089ae6`, Gaffer branding, HTML explanations,
+  documentation and bounded attributed Eli compatibility probe.
+- Published verification: `4369324`, launch-option hover/focus checks and
+  phone backlog create/edit retaining `chat: true`. This handoff sync records
+  both pushes and the current validation state.
+- Passed: web unit suite, svelte-check (0 errors/warnings), production build,
+  go vet, MCP suite, targeted launch/default-interface and disabled/live-toggle/
+  plugin-trust session cases, full chat and session-board browser fixtures,
+  and Eli fake-backed race/conformance probe. Dialog and phone checks cover
+  hover/focus, Escape, actual touch, bounds and light/dark backgrounds.
+- Full Go race run: still in progress. `TestCloseKillsOrphanedGroupMembers`
+  fails on this branch and on unchanged base `9b8bc17` in isolated race runs.
+  The ACP lifecycle code is unchanged. Targeted broker and API tests pass.
+- Live providers/paid turns, real fleet machines, physical phones and
+  Safari/Firefox: not checked. Production build retains its large-chunk warning.
+- Exact next task for this PR: finish and record the full race run, retain the
+  reproduced baseline failure explicitly, and review the PR without expanding
+  into unrelated process-cleanup changes. For orchestration, complete KZ0's
+  access/MCP measurements and KZ5A's remaining decisions from
+  [the reuse review](research/eli-reuse.md) before KZ5/KZ6 implementation.
+- Publication: branch pushed and draft PR created; no merge or deployment.
+
 ## Purpose and relationship to the existing handoff
 
 This document develops the user's proposed durable-work direction for reet.sh:

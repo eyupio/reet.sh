@@ -107,6 +107,7 @@ Usage: reet <command> [options]
   install      Install this binary or set up a managed server
   upgrade      Update a managed deployment with backup and recovery
   backup       Take, verify and restore sealed backups
+  branches     List local branches merged into the base, and prune them here
   doctor       Check your installation and suggest next steps
   healthcheck  Check your saved server, --url, or --local
   version      Show the binary version and source commit
@@ -215,8 +216,12 @@ backup to preserve accounts, lists, teams and sync references.
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	case "branches":
+		if code := runBranches(args, os.Stdout); code != 0 {
+			os.Exit(code)
+		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: reet serve | reet terminal | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet setup | reet sync | reet backup | reet version")
+		fmt.Fprintln(os.Stderr, "usage: reet serve | reet terminal | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet setup | reet sync | reet backup | reet branches | reet version")
 		os.Exit(2)
 	}
 }

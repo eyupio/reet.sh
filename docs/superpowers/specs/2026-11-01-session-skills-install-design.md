@@ -144,8 +144,11 @@ So a failed install also leaves the saved set as it was, and the picker's Failed
 install again (still one press), and Close. There is no separate remove action.
 
 While an install is pending, Keep synced holds off on that machine (it already waits while any job there is pending) and the
-Sync page's Run skips that folder; when that folder is the only one left it refuses with "an install is waiting for approval on
-this folder; finish or cancel it first".
+Sync page's Run skips that folder; when no folder is left it refuses with "an install is waiting on this folder; finish or
+cancel it first" (or "...on each of these folders..." for several). Saving that folder's set (`SaveDesiredFor`, used by the Sync
+page and the library's one-click install) is refused with "An install is waiting on this folder. Finish or cancel it first.",
+and merging that folder's report into another cancels the pending install (and reverts it) before the set is copied; a merge
+while a job runs there is refused.
 
 ### Safety
 

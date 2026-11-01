@@ -317,11 +317,14 @@ An install that does not finish leaves the machine's saved skill list as it
 was: pressing **Cancel** in the picker, cancelling it from the Needs you list
 or the Sync page, and an install that fails all take the skill back out (or
 remove the saved list if the install created it). **Retry** after a failure
-runs the install again. An install that has started can't be cancelled.
+runs the install again. An install that has started can't be cancelled. If an
+install fails after the machine started writing, some of the skill's files may
+already be on disk even though the saved list no longer mentions the skill; the
+next preview for that folder shows them.
 
 While an install waits for you to review it, Keep synced holds off on that
-machine, and the Sync page's Run skips that folder until you approve or cancel
-the install.
+machine, the Sync page's Run skips that folder, and the folder's saved list
+can't be changed until you approve or cancel the install.
 
 reet refuses the install, and says why, when:
 

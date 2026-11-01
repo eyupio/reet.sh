@@ -376,13 +376,22 @@ func TestSessionModeEndpointMapsRefusals(t *testing.T) {
 		// wire is true when the refusal comes from the machine; every other
 		// refusal is decided by the controller and must not reach it.
 		wire bool
+		// noID starts a chat whose OpenCode session id was never recorded.
+		noID bool
+		// yolo marks the row YOLO; the account does not allow YOLO.
+		yolo bool
+		// ends is true when the machine ended the session: the row closes.
+		ends bool
 	}{
 		{name: "busy decided by the controller", prompt: true, target: "terminal", status: 409, code: "session_mode_busy"},
 		{name: "busy", wire: true, target: "terminal", reply: terminalproto.Result{Code: terminalproto.Conflict}, status: 409, code: "session_mode_busy"},
 		{name: "no session", plain: true, target: "chat", status: 409, code: "session_mode_no_session"},
 		{name: "unsupported", caps: func(c *terminalproto.Capabilities) { c.SessionMode = false }, target: "terminal", status: 409, code: "session_mode_unsupported"},
 		{name: "trust", wire: true, toTerm: true, target: "chat", reply: terminalproto.Result{Code: terminalproto.ACPTrustRequired, Detail: ".opencode/plugins/x.js"}, status: 409, code: "acp_trust_required"},
-		{name: "failed", wire: true, target: "terminal", reply: terminalproto.SessionChanged{State: terminalproto.Ended}, status: 502, code: "session_mode_failed"},
+		{name: "failed", wire: true, target: "terminal", reply: terminalproto.Result{Code: terminalproto.LaunchFailed}, status: 502, code: "session_mode_failed"},
+		{name: "ended", wire: true, ends: true, target: "terminal", reply: terminalproto.SessionChanged{State: terminalproto.Exited}, status: 409, code: "session_mode_ended"},
+		{name: "no conversation", noID: true, target: "terminal", status: 409, code: "session_mode_no_conversation"},
+		{name: "yolo not allowed", yolo: true, target: "terminal", status: 403, code: "yolo_not_allowed"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -398,8 +407,19 @@ func TestSessionModeEndpointMapsRefusals(t *testing.T) {
 					t.Fatalf("create: %d %s", code, body)
 				}
 				session = out["id"].(string)
+			} else if c.noID {
+				code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "opencode", "structured": true, "trust": true, "dir": "/tmp"}))
+				if code != 200 || out["acpSessionId"] != nil && out["acpSessionId"] != "" {
+					t.Fatalf("create: %d %s", code, body)
+				}
+				session = out["id"].(string)
 			} else {
 				session = modeChat(t, f)
+			}
+			if c.yolo {
+				if err := f.st.SetTerminalYoloFor(f.uid, session, true); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if c.toTerm {
 				if code, _, body := f.do(t, f.cookie, "POST", modePath(session), map[string]any{"mode": "terminal"}); code != http.StatusNoContent {
@@ -435,13 +455,44 @@ func TestSessionModeEndpointMapsRefusals(t *testing.T) {
 				t.Fatalf("machine saw %d session_mode requests, want wire=%v", sentAfter-sentBefore, c.wire)
 			}
 			after, err := f.st.TerminalSessionFor(f.uid, session)
-			if err != nil || after.Structured != before.Structured || after.State != before.State || after.ACPSessionID != before.ACPSessionID {
+			if err != nil || after.Structured != before.Structured || after.State != before.State && !c.ends || after.ACPSessionID != before.ACPSessionID {
 				t.Fatalf("row changed by a refusal: %+v -> %+v (%v)", before, after, err)
+			}
+			if c.ends && after.State == terminalproto.Running {
+				t.Fatalf("the machine ended the session but the row runs: %+v", after)
+			}
+			if c.code == "session_mode_ended" && out["error"] != "The session could not be switched and has ended. Start a new session or continue it with history." {
+				t.Fatalf("ended sentence: %s", body)
+			}
+			if c.code == "session_mode_no_conversation" && out["error"] != "This session has no saved OpenCode conversation yet, so it cannot move to the OpenCode TUI." {
+				t.Fatalf("no conversation sentence: %s", body)
 			}
 			if c.name == "trust" && out["detail"] != ".opencode/plugins/x.js" {
 				t.Fatalf("trust detail: %s", body)
 			}
 		})
+	}
+}
+
+// A switch to the mode the session is already in answers 204, asks the
+// machine nothing and leaves the row as it was.
+func TestSessionModeEndpointAlreadyInModeIsNoContent(t *testing.T) {
+	f := launchAPIFixture(t, modeCaps())
+	session := modeChat(t, f)
+	before, err := f.st.TerminalSessionFor(f.uid, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _, body := f.do(t, f.cookie, "POST", modePath(session), map[string]any{"mode": "chat"})
+	if code != http.StatusNoContent || body != "" {
+		t.Fatalf("already chat: %d %q", code, body)
+	}
+	f.mu.Lock()
+	n := len(f.modes)
+	f.mu.Unlock()
+	after, err := f.st.TerminalSessionFor(f.uid, session)
+	if n != 0 || err != nil || after.Structured != before.Structured || after.State != before.State || after.ACPSessionID != before.ACPSessionID || after.UpdatedAt != before.UpdatedAt {
+		t.Fatalf("a no-op switch reached the machine (%d) or changed the row %+v -> %+v (%v)", n, before, after, err)
 	}
 }
 

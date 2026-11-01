@@ -3,6 +3,7 @@ package terminalbroker
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
@@ -25,6 +26,13 @@ var (
 	// ErrSessionModeFailed means the machine could not start the other mode.
 	// It restored the previous one, or ended the session and says so itself.
 	ErrSessionModeFailed = errors.New("The session could not be switched. Try again, or end it and start a new session.")
+	// ErrSessionModeEnded means the switch failed and the session is no
+	// longer running: the machine could neither start the other mode nor
+	// restore the previous one, so trying again cannot help.
+	ErrSessionModeEnded = errors.New("The session could not be switched and has ended. Start a new session or continue it with history.")
+	// ErrSessionModeNoConversation means a chat has no recorded OpenCode
+	// session id, which the OpenCode TUI needs to open the conversation.
+	ErrSessionModeNoConversation = errors.New("This session has no saved OpenCode conversation yet, so it cannot move to the OpenCode TUI.")
 )
 
 // sessionModeTrustError is ErrSessionModeTrust carrying the machine's
@@ -48,6 +56,10 @@ const (
 // and a margin, so its own deadline never loses an answer.
 var sessionModeCallTimeout = terminalproto.SessionModeTimeout + 15*time.Second
 
+// afterSessionModeRead runs after a switch first reads the row and before it
+// claims the switch slot; tests use it to change the row in between.
+var afterSessionModeRead = func() {}
+
 // claimSwitch marks a session as switching, so a second switch of it is
 // refused before it touches the first one's ring. It reports false when one
 // is already running; release with releaseSwitch.
@@ -63,6 +75,14 @@ func (b *Broker) claimSwitch(uid int64, session string) bool {
 	}
 	b.switching[k] = struct{}{}
 	return true
+}
+
+// switchInFlight reports whether a switch of the session holds its slot.
+func (b *Broker) switchInFlight(uid int64, session string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, held := b.switching[chatKey{uid, session}]
+	return held
 }
 
 func (b *Broker) releaseSwitch(uid int64, session string) {
@@ -98,15 +118,8 @@ func (b *Broker) SwitchSessionMode(ctx context.Context, uid int64, session, to s
 	if err != nil {
 		return err
 	}
-	if s.State != terminalproto.Running {
-		return ErrACPClosed
-	}
-	if !terminalproto.ReviewedChatTool(s.Tool) {
-		return ErrACPUnsupported
-	}
-	if s.Structured == (to == terminalproto.SessionModeChat) {
-		// Already there: nothing to ask the machine or record.
-		return nil
+	if done, err := switchable(s, to); done || err != nil {
+		return err
 	}
 	p, err := b.peer(uid, s.AgentID, true)
 	if err != nil {
@@ -116,20 +129,28 @@ func (b *Broker) SwitchSessionMode(ctx context.Context, uid int64, session, to s
 	if err != nil || caps.Generation != p.Generation {
 		return ErrOffline
 	}
-	if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !caps.Capabilities.SessionMode || !ok || !chat.History {
+	if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !caps.Capabilities.SessionModeFor(s.Tool) || !ok || !chat.History {
 		return ErrSessionModeUnsupported
 	}
-	if !terminalproto.ValidACPSessionIDFor(s.Tool, s.ACPSessionID) {
-		if to == terminalproto.SessionModeChat {
-			return ErrSessionModeNoSession
-		}
-		// A chat whose id was never recorded cannot be reopened in the TUI.
-		return ErrSessionModeUnsupported
+	if err := b.switchReady(s, to); err != nil {
+		return err
 	}
+	afterSessionModeRead()
 	if !b.claimSwitch(uid, session) {
 		return ErrSessionModeBusy
 	}
 	defer b.releaseSwitch(uid, session)
+	// Decide from the row as it is now that this switch holds the slot: an
+	// earlier switch (another tab) may have finished since the first read.
+	if s, err = b.st.TerminalSessionFor(uid, session); err != nil {
+		return err
+	}
+	if done, err := switchable(s, to); done || err != nil {
+		return err
+	}
+	if err := b.switchReady(s, to); err != nil {
+		return err
+	}
 	if s.Structured && b.chatBusy(uid, session) {
 		return ErrSessionModeBusy
 	}
@@ -159,7 +180,20 @@ func (b *Broker) SwitchSessionMode(ctx context.Context, uid int64, session, to s
 	// conflict even when the earlier switch succeeded.
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &in}, sessionModeCallTimeout)
 	if err == nil {
-		err = sessionModeAck(reply)
+		if changed, ok := reply.Body.(*terminalproto.SessionChanged); ok && !changed.State.ReservesQuota() {
+			// The machine says the session is gone: record it as the
+			// observation loop would.
+			code := changed.ExitCode
+			if code == nil {
+				code = changed.ExitStatus
+			}
+			_ = b.st.ObserveTerminalStateFor(uid, s.AgentID, session, p.Generation, changed.State, code)
+		}
+		if err = sessionModeAck(reply); err != nil && p.switchedSessionEnded(session) {
+			// Neither mode could be left running and the machine ended the
+			// session: trying again cannot help.
+			err = ErrSessionModeEnded
+		}
 	}
 	if err != nil {
 		if to == terminalproto.SessionModeChat {
@@ -174,18 +208,68 @@ func (b *Broker) SwitchSessionMode(ctx context.Context, uid int64, session, to s
 		if to == terminalproto.SessionModeChat {
 			b.closeChat(uid, session)
 		}
+		if p.switchedSessionEnded(session) {
+			return ErrSessionModeEnded
+		}
 		return ErrSessionModeFailed
 	}
 	if to == terminalproto.SessionModeChat {
-		s.Structured = true
-		b.restoreChat(uid, s)
+		b.restoreSwitchedChat(uid, s)
 	} else {
 		b.closeChat(uid, session)
 	}
 	_ = b.st.AddEventFor(uid, "machine", "session-mode", "", map[string]string{
-		"machine": s.AgentID, "tool": s.Tool, "session": session, "mode": to,
+		"machine": s.AgentID, "tool": s.Tool, "session": session, "mode": to, "yolo": strconv.FormatBool(s.Yolo),
 	})
+	if to == terminalproto.SessionModeTerminal && s.Yolo {
+		// The OpenCode TUI starts with --auto: a YOLO launch like a create's.
+		_ = b.st.AddEventFor(uid, "machine", "yolo-launch", "", map[string]string{
+			"machine": s.AgentID, "tool": s.Tool, "session": session, "worktree": s.WorktreePath,
+		})
+	}
 	return nil
+}
+
+// switchable reports whether a row can switch at all: it must be a running
+// session of a chat tool. done is true when it is already in mode to, which
+// asks the machine nothing and records nothing.
+func switchable(s store.TerminalSession, to string) (done bool, err error) {
+	if s.State != terminalproto.Running {
+		return false, ErrACPClosed
+	}
+	if !terminalproto.ReviewedChatTool(s.Tool) {
+		return false, ErrACPUnsupported
+	}
+	return s.Structured == (to == terminalproto.SessionModeChat), nil
+}
+
+// switchReady refuses a switch the row cannot make: either mode needs the
+// OpenCode session id, and a YOLO session moving to the OpenCode TUI is a
+// YOLO launch the account must still allow.
+func (b *Broker) switchReady(s store.TerminalSession, to string) error {
+	if !terminalproto.ValidACPSessionIDFor(s.Tool, s.ACPSessionID) {
+		if to == terminalproto.SessionModeChat {
+			return ErrSessionModeNoSession
+		}
+		// A chat whose id was never recorded cannot be opened in the TUI.
+		return ErrSessionModeNoConversation
+	}
+	if to == terminalproto.SessionModeTerminal && s.Yolo && !b.yoloAllowed() {
+		return ErrYoloNotAllowed
+	}
+	return nil
+}
+
+// sessionModeSettle bounds how long a failed switch waits for the machine's
+// earlier messages (an ended notice sent before the answer) to be recorded.
+const sessionModeSettle = 5 * time.Second
+
+// switchedSessionEnded reports whether a session is no longer running once
+// everything the machine sent before its answer has been recorded.
+func (p *Peer) switchedSessionEnded(session string) bool {
+	p.settleObservations(sessionModeSettle)
+	s, err := p.b.st.TerminalSessionFor(p.key.uid, session)
+	return err == nil && s.State != terminalproto.Running
 }
 
 // sessionModeAck maps the machine's answer to a switch: the running session
@@ -243,9 +327,15 @@ func (p *Peer) adoptSessionMode(s store.TerminalSession, observed terminalproto.
 // adoptLateChat settles a row whose switch to chat was answered after the
 // call gave up: a running answer with an OpenCode session id, for a running
 // terminal row on a connection that negotiated session-mode-v1, means the
-// machine runs the chat. Closed rows and the stored id are never touched.
+// machine runs the chat. Closed rows and the stored id are never touched, and
+// nothing is adopted while a switch of the session is in flight.
 func (p *Peer) adoptLateChat(session string, changed *terminalproto.SessionChanged) {
 	if changed.State != terminalproto.Running || changed.ACPSessionID == "" {
+		return
+	}
+	if p.b.switchInFlight(p.key.uid, session) {
+		// The switch in flight settles the row from its own answer; an
+		// answer read now is older than it and must not flip the row first.
 		return
 	}
 	s, err := p.b.st.TerminalSessionFor(p.key.uid, session)
@@ -260,5 +350,5 @@ func (p *Peer) adoptLateChat(session string, changed *terminalproto.SessionChang
 		return
 	}
 	s.Structured = true
-	p.b.restoreChat(p.key.uid, s)
+	p.b.restoreSwitchedChat(p.key.uid, s)
 }

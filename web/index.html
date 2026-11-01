@@ -11,9 +11,13 @@
       The account holds the theme, but its profile only arrives after the API answers, so a dark preference painted light
       first. Read the copy applyTheme() leaves in this browser and apply it before the first paint; the profile corrects it
       if another browser chose differently.
+
+      `data-js` is set here, before the body is parsed, so a browser can hide the crawler copy and show the boot shell in
+      the same frame. Crawlers do not run this script and keep the readable landing copy below.
     -->
     <script>
       (function () {
+        document.documentElement.dataset.js = ''
         try {
           var theme = localStorage.getItem('reet-theme')
           if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme
@@ -28,6 +32,28 @@
         } catch (e) {
           /* storage blocked: the app removes the fallback when it mounts */
         }
+        // The server names the shell that matches this route (and already knows a cookie signed-in visitor). A static
+        // preview or a host that serves index.html unchanged has no name yet, so pick it here; no more than one is painted.
+        if (!document.documentElement.dataset.boot) {
+          var path = location.pathname
+          var signedIn = document.documentElement.dataset.signedIn !== undefined
+          document.documentElement.dataset.boot = (path === '/' || path === '/welcome') && !signedIn ? 'welcome'
+            : (path === '/signin' || path === '/signup' || path === '/setup' || path === '/reset' || path.indexOf('/join') === 0) ? 'auth'
+            : 'app'
+        }
+        // A bundle that never arrives must not leave a silent skeleton. The recovery line lives outside the decorative
+        // shell and starts empty, so putting words into its live region both shows it and announces it.
+        window.setTimeout(function () {
+          if (document.documentElement.dataset.ready) return
+          var slow = document.getElementById('boot-slow')
+          if (!slow) return
+          slow.appendChild(document.createTextNode('Taking longer than usual. '))
+          var reload = document.createElement('a')
+          reload.href = ''
+          reload.textContent = 'Reload'
+          slow.appendChild(reload)
+          slow.appendChild(document.createTextNode(' or check that reet.sh is running.'))
+        }, 10000)
       })()
     </script>
 
@@ -62,6 +88,10 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- The two faces the boot shell and the first screen use, fetched while the bundle is still on its way. -->
+    <link rel="preload" href="/fonts/fraunces-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
 
     <script type="application/ld+json">
       {
@@ -102,17 +132,27 @@
       (GPTBot, OAI-SearchBot, Claude-SearchBot, PerplexityBot). The SPA removes it
       on mount. Keep it in sync with web/src/lib/Welcome.svelte.
     -->
+
     <!--
-      The fallback paints with the app's own tokens so it follows the theme before the app mounts. The literals are the
-      light palette, for a reader that never loads the stylesheet.
+      Everything a browser needs before the bundle runs, inline so it paints at once and needs no stylesheet of its own:
+      the crawler copy stays hidden, and a theme-aware boot shell holds the page's shape until the app is ready. The
+      literals are the two palettes, because this style is the only styling a first paint can count on.
     -->
     <style id="seo-fallback-style">
-      /* The page background, so the empty shell before the app mounts does not flash white. */
       html { background: #f7f6f2; }
       html[data-theme='dark'] { background: #14110f; }
       @media (prefers-color-scheme: dark) { html:not([data-theme='light']) { background: #14110f; } }
-      /* A signed-in token refresh hides the landing page before first paint. */
-      html[data-signed-in] .crawl-fallback { display: none; }
+
+      /* A browser runs the head script, so it never sees the crawler page; a crawler gets it instead of the shell. */
+      html[data-js] .crawl-fallback { display: none; }
+      #boot { display: none; }
+      html[data-js] #boot { display: block; }
+      /* One route, one shell: a static preview carries every variant, and only the chosen one is painted. */
+      #boot [data-boot] { display: none; }
+      html[data-boot='welcome'] #boot [data-boot='welcome'],
+      html[data-boot='app'] #boot [data-boot='app'] { display: block; }
+      html[data-boot='auth'] #boot [data-boot='auth'] { display: grid; }
+
       .crawl-fallback { max-width: 760px; margin: 0 auto; padding: 56px 20px 72px; font: 16px/1.7 system-ui, -apple-system, 'Segoe UI', sans-serif; color: var(--ink, #1d1c1a); background: var(--bg, #f7f6f2); }
       .crawl-fallback a { color: var(--accent-text, #c2410c); }
       .crawl-fallback .eyebrow { margin: 0 0 12px; font-size: .7rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-text, #c2410c); }
@@ -124,34 +164,188 @@
       .crawl-fallback .cta { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0 8px; }
       .crawl-fallback .cta a { display: inline-block; padding: 10px 14px; border: 1px solid var(--line, #dedbd2); border-radius: 8px; text-decoration: none; }
       .crawl-fallback .cta a.primary { background: var(--accent, #c2410c); border-color: var(--accent, #c2410c); color: var(--accent-ink, #fff); }
+      .crawl-fallback .trust { color: #5f5c54; font-size: .85rem; }
       .crawl-fallback pre { padding: 16px; overflow-x: auto; border: 1px solid var(--line, #dedbd2); border-radius: 8px; background: var(--card, #fffdf9); font: 13px/1.6 ui-monospace, Consolas, monospace; }
       .crawl-fallback ul { padding-left: 20px; }
+
+      /* The boot shell. It is aria-hidden decoration: the app's own loading state carries the words. */
+      #boot { --boot-bg: #f7f6f2; --boot-card: #fffdf9; --boot-line: #e8e4db; --boot-line-soft: #f0eee8; --boot-ink: #1d1c1a; --boot-accent: #c2410c;
+        position: fixed; inset: 0; z-index: 100; overflow: hidden; background: var(--boot-bg); color: var(--boot-ink);
+        font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif; }
+      @media (prefers-color-scheme: dark) {
+        #boot { --boot-bg: #14110f; --boot-card: #1a1613; --boot-line: #2a241f; --boot-line-soft: #1f1a16; --boot-ink: #f1ebe4; --boot-accent: #ff8d63; }
+        html[data-theme='light'] #boot { --boot-bg: #f7f6f2; --boot-card: #fffdf9; --boot-line: #e8e4db; --boot-line-soft: #f0eee8; --boot-ink: #1d1c1a; --boot-accent: #c2410c; }
+      }
+      html[data-theme='dark'] #boot { --boot-bg: #14110f; --boot-card: #1a1613; --boot-line: #2a241f; --boot-line-soft: #1f1a16; --boot-ink: #f1ebe4; --boot-accent: #ff8d63; }
+      html[data-theme='light'] #boot { --boot-bg: #f7f6f2; --boot-card: #fffdf9; --boot-line: #e8e4db; --boot-line-soft: #f0eee8; --boot-ink: #1d1c1a; --boot-accent: #c2410c; }
+
+      html[data-ready] #boot { opacity: 0; pointer-events: none; transition: opacity 180ms cubic-bezier(.23, 1, .32, 1); }
+      @media (prefers-reduced-motion: reduce) { html[data-ready] #boot { transition: none; } }
+
+      .boot-bar { border-bottom: 1px solid var(--boot-line); }
+      .boot-bar-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: 1120px; margin: 0 auto; padding: 24px 40px; }
+      .boot-brand { font-weight: 700; letter-spacing: -.04em; font-size: 1.05rem; color: var(--boot-ink); }
+      .boot-brand span { color: var(--boot-accent); }
+      .boot-nav { display: flex; align-items: center; gap: 12px; }
+      .boot-pill { height: 30px; width: 74px; border-radius: 999px; background: var(--boot-line); }
+      .boot-pill.wide { width: 96px; }
+      .boot-main { max-width: 1120px; margin: 0 auto; padding: 38px 40px 56px; }
+      .boot-card { border: 1px solid var(--boot-line); border-radius: 14px; background: var(--boot-card); }
+      .boot-line { height: 13px; border-radius: 6px; background: var(--boot-line); }
+      .boot-line.slim { height: 10px; }
+      .boot-hero { display: grid; grid-template-columns: 1fr 1.05fr; gap: 48px; align-items: center; }
+      .boot-copy { display: grid; gap: 16px; align-content: start; }
+      .boot-eyebrow { height: 10px; width: 140px; }
+      .boot-title { height: clamp(34px, 4.4vw, 52px); width: 94%; border-radius: 10px; }
+      .boot-title.short { width: 68%; }
+      .boot-lede { display: grid; gap: 9px; margin-top: 8px; }
+      .boot-lede .boot-line { width: 92%; }
+      .boot-lede .boot-line:last-child { width: 61%; }
+      .boot-cta { display: flex; gap: 8px; margin-top: 12px; }
+      .boot-button { height: 40px; width: 118px; border-radius: 8px; background: var(--boot-line); }
+      .boot-button.primary { background: var(--boot-accent); opacity: .85; }
+      .boot-trust { height: 10px; width: 210px; margin-top: 20px; }
+      .boot-preview { padding: 14px; display: grid; gap: 10px; box-shadow: 0 15px 45px rgb(30 24 16 / .08); transform: rotate(-1deg); }
+      .boot-preview .head { display: flex; justify-content: space-between; margin-bottom: 4px; }
+      .boot-preview .row { height: 46px; border-radius: 8px; border: 1px solid var(--boot-line); background: var(--boot-bg); }
+      .boot-preview .terminal { height: 150px; border-radius: 8px; background: #171e26; opacity: .88; }
+      .boot-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 42px; padding-top: 32px; border-top: 1px solid var(--boot-line); }
+      .boot-step { display: grid; gap: 12px; }
+      .boot-step .boot-line:last-child { width: 80%; }
+
+      .boot-page { display: grid; gap: 18px; }
+      .boot-page-head { display: grid; gap: 12px; margin-bottom: 8px; }
+      .boot-page-head .boot-line:first-child { width: 120px; height: 10px; }
+      .boot-page-head .boot-line:nth-child(2) { width: 34%; height: 30px; border-radius: 8px; }
+      .boot-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+      .boot-rows { display: grid; gap: 1px; border: 1px solid var(--boot-line); border-radius: 14px; overflow: hidden; background: var(--boot-line); }
+      .boot-row { display: flex; align-items: center; gap: 16px; padding: 18px 20px; background: var(--boot-card); }
+      .boot-row .boot-line { flex: 1; }
+      .boot-row .boot-line:first-child { flex: 0 0 32%; }
+
+      .boot-auth { display: grid; place-items: center; min-height: calc(100dvh - 82px); padding: 24px; }
+      .boot-auth .boot-card { width: min(430px, 100%); padding: 28px; display: grid; gap: 14px; }
+      .boot-auth .boot-line.title { width: 62%; height: 24px; }
+      .boot-auth .boot-line.hint { width: 88%; height: 11px; }
+      .boot-auth .field { height: 44px; border: 1px solid var(--boot-line); border-radius: 8px; background: var(--boot-bg); }
+      .boot-auth .boot-button { width: 100%; }
+
+      /* The recovery line sits outside #boot: the shell is aria-hidden, and this must reach a screen reader. Empty, it
+         takes no room and says nothing; the head script fills it only after ten seconds. */
+      .boot-slow { position: fixed; left: 0; right: 0; bottom: max(18px, env(safe-area-inset-bottom)); z-index: 101; text-align: center; margin: 0 auto; max-width: 420px; padding: 10px 20px; font-size: .82rem; line-height: 1.6; color: #6f6b62; }
+      .boot-slow:empty { height: 0; padding: 0; overflow: hidden; opacity: 0; pointer-events: none; }
+      @media (prefers-color-scheme: dark) { html:not([data-theme='light']) .boot-slow { color: #a39a90; } }
+      html[data-theme='dark'] .boot-slow { color: #a39a90; }
+      .boot-slow a { color: #c2410c; }
+      @media (prefers-color-scheme: dark) { html:not([data-theme='light']) .boot-slow a { color: #ff8d63; } }
+      html[data-theme='dark'] .boot-slow a { color: #ff8d63; }
+
+      @media (prefers-reduced-motion: no-preference) {
+        #boot .boot-line, #boot .boot-pill, #boot .boot-button, #boot .boot-row, #boot .boot-preview .row { animation: boot-pulse 1.7s ease-in-out infinite; }
+        #boot .boot-line:nth-child(2n) { animation-delay: .25s; }
+        #boot .boot-button.primary { animation: none; }
+      }
+      @keyframes boot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+
+      @media (max-width: 850px) {
+        .boot-main { padding: 26px 24px 44px; }
+        .boot-hero { grid-template-columns: 1fr; gap: 30px; }
+        .boot-preview { max-width: 640px; transform: none; }
+        .boot-steps { grid-template-columns: 1fr; gap: 20px; }
+        .boot-cards { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 550px) {
+        .boot-bar-inner { padding: 18px 16px; }
+        .boot-main { padding: 18px 16px 36px; }
+        .boot-nav .boot-pill:not(.wide) { display: none; }
+        .boot-preview .terminal { height: 120px; }
+      }
     </style>
   </head>
   <body>
+    <!-- The boot shell holds the page's shape while the bundle loads; the server keeps only the variant for this route. -->
+    <div id="boot" aria-hidden="true">
+      <div class="boot-bar">
+        <div class="boot-bar-inner">
+          <span class="boot-brand">reet<span>.sh</span></span>
+          <div class="boot-nav"><span class="boot-pill"></span><span class="boot-pill wide"></span></div>
+        </div>
+      </div>
+      <!--boot-welcome:start-->
+      <div class="boot-main" data-boot="welcome">
+        <div class="boot-hero">
+          <div class="boot-copy">
+            <div class="boot-line boot-eyebrow"></div>
+            <div class="boot-line boot-title"></div>
+            <div class="boot-line boot-title short"></div>
+            <div class="boot-lede"><div class="boot-line slim"></div><div class="boot-line slim"></div><div class="boot-line slim"></div></div>
+            <div class="boot-cta"><span class="boot-button primary"></span><span class="boot-button"></span><span class="boot-button"></span></div>
+            <div class="boot-line slim boot-trust"></div>
+          </div>
+          <div class="boot-card boot-preview">
+            <div class="head"><span class="boot-line slim" style="width:74px"></span><span class="boot-line slim" style="width:52px"></span></div>
+            <div class="row"></div><div class="row"></div><div class="row"></div>
+            <div class="terminal"></div>
+          </div>
+        </div>
+        <div class="boot-steps">
+          <div class="boot-step"><div class="boot-line slim" style="width:34px"></div><div class="boot-line"></div><div class="boot-line slim"></div></div>
+          <div class="boot-step"><div class="boot-line slim" style="width:34px"></div><div class="boot-line"></div><div class="boot-line slim"></div></div>
+          <div class="boot-step"><div class="boot-line slim" style="width:34px"></div><div class="boot-line"></div><div class="boot-line slim"></div></div>
+        </div>
+      </div>
+      <!--boot-welcome:end-->
+      <!--boot-app:start-->
+      <div class="boot-main" data-boot="app">
+        <div class="boot-page">
+          <div class="boot-page-head"><div class="boot-line slim"></div><div class="boot-line"></div></div>
+          <div class="boot-cards"><div class="boot-card" style="height:150px"></div><div class="boot-card" style="height:150px"></div><div class="boot-card" style="height:150px"></div></div>
+          <div class="boot-rows">
+            <div class="boot-row"><div class="boot-line slim"></div><div class="boot-line slim"></div></div>
+            <div class="boot-row"><div class="boot-line slim"></div><div class="boot-line slim"></div></div>
+            <div class="boot-row"><div class="boot-line slim"></div><div class="boot-line slim"></div></div>
+            <div class="boot-row"><div class="boot-line slim"></div><div class="boot-line slim"></div></div>
+          </div>
+        </div>
+      </div>
+      <!--boot-app:end-->
+      <!--boot-auth:start-->
+      <div class="boot-auth" data-boot="auth">
+        <div class="boot-card">
+          <div class="boot-line title"></div>
+          <div class="boot-line hint"></div>
+          <div class="boot-line hint" style="width:64%"></div>
+          <div class="field"></div>
+          <div class="field"></div>
+          <span class="boot-button primary"></span>
+        </div>
+      </div>
+      <!--boot-auth:end-->
+    </div>
+    <div id="boot-slow" role="status" aria-live="polite" aria-atomic="true"></div>
     <div id="app"><!--seo-fallback:start-->
       <main class="crawl-fallback">
         <p class="eyebrow">Ey up. Your AI control room.</p>
-        <h1>One control room. For your AI fleet.</h1>
-        <p class="lede">reet.sh brings your machines, AI agents, skills and setups into one self-hosted workspace. Connect your fleet, use the agents already installed on each machine, and choose what gets synced where.</p>
+        <h1>One command on any machine. Your whole AI setup shows up.</h1>
+        <p class="lede">reet.sh keeps your AI agents, skills and setups on every machine you own in one self-hosted place: synced, backed up, restorable. Enrol a laptop, a VPS or a lab box, and it has what the others have.</p>
         <div class="cta">
           <a class="primary" href="/signin">Sign in →</a>
           <a href="#self-host">Install reet.sh</a>
         </div>
-        <p>Self-hosted · Free · AGPL-3.0 · No telemetry</p>
+        <p class="trust">Self-hosted · Free · AGPL-3.0 · No telemetry</p>
 
         <h2>How reet.sh works</h2>
-        <h3>Bring your fleet together.</h3>
-        <p>Connect laptops and servers, see their status, and choose the machine where you want to work.</p>
-        <h3>A reet good agent toolkit.</h3>
-        <p>Maintain skills and reusable AI setups. Bring another machine into the fold with a known setup, rather than rebuilding it from memory.</p>
+        <h3>Enrol a machine with one command.</h3>
+        <p>Run the agent on a laptop, a VPS or a lab box. It dials out to your controller, so there is no port to open, and reports in with the agents, skills and setups it already has.</p>
+        <h3>Agents, skills and setups stay in sync.</h3>
+        <p>Push a skill to one machine or to all of them, bring back what you find, and review every change before it applies. A new machine ends up with the same reet good toolkit as the rest.</p>
         <h3>Put your agents to work.</h3>
-        <p>Open a browser terminal to use installed agents, keep sessions running, and pick up where you left off.</p>
+        <p>Open a browser terminal to use the agents installed on any enrolled machine, keep sessions running, and pick up where you left off.</p>
 
         <h2>The workspace around your agents</h2>
         <p>Machines, reusable setups, skills and ongoing work belong together. You decide what moves between them.</p>
         <h3>Your fleet, in view.</h3>
-        <p>Reach your connected machines from one control room. See what is available and continue the work already running there.</p>
+        <p>Every enrolled machine in one control room: what it has installed, whether it is in sync, and the work already running there.</p>
         <h3>Setups worth keeping.</h3>
         <p>Save and share named AI setup profiles through reet. Pull a known setup when preparing another machine, with restore and verification in the CLI.</p>
         <h3>Skills that travel.</h3>

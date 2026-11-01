@@ -26,6 +26,7 @@
   import HostedShelf from './lib/HostedShelf.svelte'
   import AccountSignIn from './lib/AccountSignIn.svelte'
   import Admin from './lib/Admin.svelte'
+  import BootSkeleton from './lib/BootSkeleton.svelte'
   import BulkBar from './lib/BulkBar.svelte'
   import ConfirmDialog from './lib/ConfirmDialog.svelte'
   import CopyButton from './lib/CopyButton.svelte'
@@ -880,6 +881,16 @@
     (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your whole AI setup, on every machine' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
+
+  // Public pages draw without the first auth answer: the shared list reads its own content, and the join and reset
+  // screens need nothing from it. Their shell must not wait on an unrelated request that may be slow or stalled.
+  const authIndependent = isCommunity || isPublicList || isJoin || isReset
+
+  // The static boot shell in index.html fades once the page below it is the real one: at the first auth answer, or at
+  // once on a public route that never depended on it. There is no half-drawn screen behind the fade either way.
+  $effect(() => {
+    if (authChecked || authIndependent) document.documentElement.dataset.ready = '1'
+  })
 </script>
 
 <svelte:head>
@@ -929,7 +940,7 @@
   {:else if isReset}
     <ResetPassword />
   {:else if !authChecked}
-    <p class="empty" role="status">Loading…</p>
+    <BootSkeleton />
   {:else if authMode === 'accounts' && setupRequired && !isWelcome}
     <Setup {bootstrapRequired} onsuccess={afterAuth} />
   {:else if authMode === 'accounts' && !currentUser}

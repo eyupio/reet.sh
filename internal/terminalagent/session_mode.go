@@ -5,6 +5,8 @@ package terminalagent
 import (
 	"context"
 	"errors"
+	"sort"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
@@ -22,6 +24,15 @@ type shellHost interface {
 	End(ctx context.Context, requestID, sessionID string) (terminalhost.ManagedSession, error)
 	Forget(ctx context.Context, sessionID string) error
 	List(ctx context.Context) ([]terminalhost.ManagedSession, error)
+}
+
+// swapShells is the terminal side of a connection's agentSwitch: its manager,
+// or nil without one. Tests replace it with a fake.
+var swapShells = func(m *terminalhost.Manager) shellHost {
+	if m == nil {
+		return nil
+	}
+	return m
 }
 
 // shellLister is what the state observer and reconcile read from shellHost.
@@ -82,7 +93,9 @@ func (a *agentSwitch) swap(ctx context.Context, requestID, sessionID string, in 
 		if err == nil {
 			return changed, nil
 		}
-		_, _ = a.startChat(newID(), sessionID, title, in, trust)
+		if _, restoreErr := a.startChat(newID(), sessionID, title, in, trust); restoreErr != nil {
+			sup.retireSwapped(sessionID, title, in.Tool, in.ACPSessionID)
+		}
 		return terminalproto.SessionChanged{}, err
 	}
 
@@ -109,7 +122,9 @@ func (a *agentSwitch) swap(ctx context.Context, requestID, sessionID string, in 
 	if !terminalproto.ValidDimensions(cols, rows) {
 		cols, rows = 80, 24
 	}
-	_, _ = a.startTerminal(ctx, newID(), sessionID, title, in, cols, rows)
+	if _, restoreErr := a.startTerminal(ctx, newID(), sessionID, title, in, cols, rows); restoreErr != nil {
+		sup.retireSwapped(sessionID, title, in.Tool, "")
+	}
 	return terminalproto.SessionChanged{}, err
 }
 
@@ -123,7 +138,7 @@ func (a *agentSwitch) claim(ctx context.Context, sessionID string, in terminalpr
 		sup.mu.Unlock()
 		return nil, terminalhost.ManagedSession{}, terminalhost.ErrManagerClosed
 	}
-	if _, busy := sup.swapping[sessionID]; busy {
+	if _, busy := sup.swapping[sessionID]; busy || sup.holds[sessionID] > 0 {
 		sup.mu.Unlock()
 		return nil, terminalhost.ManagedSession{}, terminalhost.ErrOperationConflict
 	}
@@ -160,7 +175,7 @@ func (a *agentSwitch) claim(ctx context.Context, sessionID string, in terminalpr
 		// freely; the mark must only precede the end.
 		sup.mu.Lock()
 		defer sup.mu.Unlock()
-		if _, busy := sup.swapping[sessionID]; busy || sup.closed {
+		if _, busy := sup.swapping[sessionID]; busy || sup.holds[sessionID] > 0 || sup.closed {
 			return nil, terminalhost.ManagedSession{}, terminalhost.ErrOperationConflict
 		}
 		if cs := sup.sessions[sessionID]; cs != nil {
@@ -220,6 +235,43 @@ func (a *agentSwitch) discardShell(ctx context.Context, sessionID string) {
 func (s *chatSupervisor) markSwapLocked(sessionID, title string) {
 	s.swapping[sessionID] = title
 	s.swapEpoch++
+}
+
+// hold registers a create or end of sessionID. It is false while a swap is
+// moving the session; the caller then answers busy.
+func (s *chatSupervisor) hold(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, moving := s.swapping[sessionID]; moving {
+		return false
+	}
+	s.holds[sessionID]++
+	return true
+}
+
+func (s *chatSupervisor) unhold(sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.holds[sessionID]--; s.holds[sessionID] <= 0 {
+		delete(s.holds, sessionID)
+	}
+}
+
+// retireSwapped reports a session whose swap and rollback both failed: no
+// process holds the id any more. It leaves an ended chat receipt, so a
+// reconcile reports the session ended, and tells the controller through the
+// supervisor's normal ended notice once the swap no longer hides the id.
+func (s *chatSupervisor) retireSwapped(sessionID, title, tool, acpID string) {
+	s.mu.Lock()
+	if s.closed || s.sessions[sessionID] != nil {
+		s.mu.Unlock()
+		return
+	}
+	cs := &chatSession{id: sessionID, title: title, tool: tool, acpID: acpID, state: terminalproto.Running}
+	s.sessions[sessionID] = cs
+	s.mu.Unlock()
+	s.releaseSwap(sessionID)
+	s.ended(cs, -1)
 }
 
 func (s *chatSupervisor) releaseSwap(sessionID string) {
@@ -291,6 +343,67 @@ func withSwaps(chats []terminalproto.SessionSnapshot, hidden map[string]string) 
 			title = "Session"
 		}
 		out = append(out, terminalproto.SessionSnapshot{ID: id, Title: title, State: terminalproto.Running})
+	}
+	return out
+}
+
+// reconcile is the complete snapshot of this connection's sessions: the
+// terminals, then the chats, with each session a swap is moving reported once
+// as running.
+func (a *agentSwitch) reconcile(ctx context.Context, features string) (terminalproto.Reconcile, error) {
+	sup := a.chats.sup
+	for {
+		// Both reads must see the same swaps: a swap landing between them
+		// could leave its id out of both, or in both.
+		epoch, moving := sup.swapView()
+		var sessions []terminalhost.ManagedSession
+		if a.shells != nil {
+			var err error
+			if sessions, err = a.shells.List(ctx); err != nil {
+				return terminalproto.Reconcile{}, err
+			}
+		}
+		betweenReconcileReads()
+		chats := a.chats.snapshots()
+		if again, _ := sup.swapView(); again != epoch {
+			if err := ctx.Err(); err != nil {
+				return terminalproto.Reconcile{}, err
+			}
+			time.Sleep(time.Millisecond)
+			continue
+		}
+		visible := sessions[:0]
+		for _, s := range sessions {
+			if _, hidden := moving[s.ID]; !hidden {
+				visible = append(visible, s)
+			}
+		}
+		chats = withSwaps(chats, moving)
+		for i := range chats {
+			chats[i] = chats[i].ForFeatures(features)
+		}
+		return reconcileSnapshot(shellSnapshots(visible, features), chats), nil
+	}
+}
+
+// betweenReconcileReads runs between the terminal and chat reads of a
+// reconcile. It does nothing; tests use it to land a swap in that gap.
+var betweenReconcileReads = func() {}
+
+// shellSnapshots orders terminals live first, then most recently updated.
+func shellSnapshots(sessions []terminalhost.ManagedSession, features string) []terminalproto.SessionSnapshot {
+	sort.Slice(sessions, func(i, j int) bool {
+		if sessions[i].State.ReservesQuota() != sessions[j].State.ReservesQuota() {
+			return sessions[i].State.ReservesQuota()
+		}
+		return sessions[i].UpdatedAt > sessions[j].UpdatedAt
+	})
+	out := make([]terminalproto.SessionSnapshot, 0, len(sessions))
+	for _, s := range sessions {
+		out = append(out, terminalproto.SessionSnapshot{
+			ID: s.ID, Title: s.Title, State: s.State, ExitCode: s.ExitCode,
+			ActivityAt: s.ActivityAt, BellAt: s.BellAt, ExitStatus: s.ExitCode,
+		}.ForFeatures(features))
 	}
 	return out
 }

@@ -98,9 +98,12 @@ type chatSupervisor struct {
 	// change to it so an observer can tell that a listing raced a swap.
 	swapping  map[string]string
 	swapEpoch uint64
-	closed    bool
-	wg        sync.WaitGroup
-	close     sync.Once
+	// holds counts the creates and ends in flight per session; a swap is
+	// refused while any runs, and they are refused while a swap runs.
+	holds  map[string]int
+	closed bool
+	wg     sync.WaitGroup
+	close  sync.Once
 }
 
 // chatLink is one control connection's delivery path. history is the
@@ -134,7 +137,7 @@ func newChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *c
 		},
 		lookPath: exec.LookPath,
 		sessions: map[string]*chatSession{}, requests: map[string]string{}, starting: map[string]string{},
-		swapping: map[string]string{},
+		swapping: map[string]string{}, holds: map[string]int{},
 	}
 	go func() {
 		<-ctx.Done()

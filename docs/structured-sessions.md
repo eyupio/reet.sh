@@ -43,8 +43,10 @@ default; choose **OpenCode TUI** for the terminal UI. The **Model** control choo
 first message. The dialog states that the folder's `.opencode` plugins run when it starts and that history lives in
 memory.
 
-The session appears in the usual list with its title and state. Its screen opens on **reet TUI**; the agent TUI is disabled
-because there is no shell to attach to. Closing the tab or **End session** ends the reet session and its process. Losing the
+The session appears in the usual list with its title and state. Its screen opens on **reet TUI**. The header's **OpenCode
+TUI** button switches the same live session to OpenCode's own terminal UI, and back, on a machine that negotiated
+`session-mode-v1` ([below](#switching-between-the-reet-tui-and-the-opencode-tui)); otherwise it is disabled with the reason.
+Closing the tab or **End session** ends the reet session and its process. Losing the
 control connection detaches it without killing the agent; the next connection adopts the running session and drains events
 queued while it was away. Restarting the agent process ends its chats.
 
@@ -147,6 +149,34 @@ to Ask me stops the auto-answer immediately. A connector older than `acp-approva
 so the switch is not offered; terminal sessions keep the mode they launched with. A refusal is sentence-shaped and leaves
 the mode as it was.
 
+## Switching between the reet TUI and the OpenCode TUI
+
+A running OpenCode session can move between the reet TUI and the OpenCode TUI under the same session row. The session
+header's **reet TUI** | **OpenCode TUI** pair shows the one in use; the other one switches (on a phone, the session's
+actions menu has **Switch to the reet TUI…** or **Switch to the OpenCode TUI…**). A confirmation says what happens: the
+machine stops one process and starts the other on the same OpenCode conversation in the same folder, terminal scrollback
+is not kept, and the switch can take a few minutes. Until the machine answers, both buttons wait and the status line says
+**Switching to the …**; the browser sets no deadline of its own. Then the pane changes to the chat or the terminal, and
+the status pill, the **Approvals** line and the context panel's decisions follow the new mode.
+
+- **Only reet-started sessions return to the reet TUI.** Going to the reet TUI needs OpenCode's session id, which reet
+  records only for a session that started (or has been) in the reet TUI. A session started in the OpenCode TUI keeps the
+  **reet TUI** button disabled: "This session started in the OpenCode TUI, so the reet TUI cannot pick up its
+  conversation."
+- **Idle only.** A chat with a running turn, an approval card or a question waiting does not switch: "Wait for the agent
+  to finish or answer what it is asking." The controller refuses it too.
+- **`session-mode-v1` machines only.** A connector that did not negotiate it (or has no chat history for OpenCode) is
+  not asked: "Update reet on this machine to switch between the reet TUI and the OpenCode TUI." Only a running session
+  can switch.
+- **Terminal scrollback is not carried over.** The reet TUI rebuilds the conversation from OpenCode's own store with
+  `session/load`, as **Continue in reet TUI with history…** does; the OpenCode TUI opens that conversation on a fresh
+  screen.
+- **The reet TUI is as durable as any chat.** A session in the OpenCode TUI runs in tmux and survives an agent restart;
+  once switched to the reet TUI it ends if the agent process restarts (its OpenCode id can still be continued).
+- **Folder trust when returning to the reet TUI.** OpenCode project plugins run when the reet TUI opens the session. If
+  the folder has `.opencode` plugins, the machine refuses the first request; the dialog then shows the plugin warning and
+  an **I trust this folder** confirmation, and sends the switch again with the person's trust.
+
 ## Limits
 
 - **History is in memory.** The controller keeps at most 1,000 events / 256 KiB per reet session and does not write a transcript.
@@ -165,6 +195,9 @@ the mode as it was.
 - **The model is chosen at launch.** **Agent default** uses OpenCode's configured model. A chosen model is passed in
   `OPENCODE_CONFIG_CONTENT` and must match the model OpenCode reports after `session/new`; a mismatch refuses the start.
   Thinking remains OpenCode's own. Continuing a chat keeps the model recorded on the closed session.
+- **Switching TUI is for a running, idle OpenCode session** on a `session-mode-v1` machine, and only a session reet
+  started in the reet TUI can return to it. Terminal scrollback is not carried over, a switch can take a few minutes, and
+  a session in the reet TUI is lost if the agent process restarts.
 - **Approval mode can change while a structured chat runs**, on a connector that negotiated `acp-approval-v1`. The
   per-session approval card and the Ask me/YOLO switch are described above. A terminal session cannot change the flags
   it was launched with.

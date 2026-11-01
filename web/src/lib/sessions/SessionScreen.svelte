@@ -5,24 +5,29 @@
   import WorktreeDialog from '../WorktreeDialog.svelte'
   import { fleetCards, stateWord, type FleetCard } from '../home'
   import type { RunMember } from '../projects'
-  import { headerMeta, offlineSentence, tabFromMenu, worktreeTargetOf } from '../sessions'
+  import { headerMeta, offlineSentence, switchModeState, tabFromMenu, worktreeTargetOf } from '../sessions'
   import { toolName } from '../agentLaunch'
   import { CATALOGUE } from '../catalogue'
   import YoloDialog from '../launch/YoloDialog.svelte'
   import { yoloCanStart, type YoloGate } from '../launchBar'
-  import { structuredAgent, markSessionSeen, setApprovalMode, terminalClosed, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
+  import SwitchModeDialog from './SwitchModeDialog.svelte'
 
   // The session screen: the strip of open sessions, the session's header (title, agent · model · started, the state in words
   // with its source, YOLO, reet TUI | the agent TUI and the actions menu), the live terminal the workspace hosts here (children),
   // Approvals under it, and the context panel beside it (behind Details under 1100 px and in theatre view). A terminal
   // session shows no steps and no progress bar (R10): only its state word and where that word came from.
-  let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false,
-    onaction, ontheatre, onrefresh, onsignedout, oncontinue, onterminal, onside, side, showSide = false, children }: {
+  let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false, chatBusy,
+    onaction, ontheatre, onrefresh, onmode, onsignedout, oncontinue, onterminal, onside, side, showSide = false, children }: {
     session: TerminalSession; sessions: TerminalSession[]
     machines: TerminalMachine[]; health: MachineHealth[]; projects: FolderProject[] | undefined; now: number
     theatre?: boolean; keyboard?: boolean; busy?: boolean
     onaction: (kind: 'rename' | 'end' | 'archive') => void; ontheatre: () => void; onrefresh: () => void
+    /** The open chat's own word on whether it is busy (a running turn, a waiting approval or question), when it has one. */
+    chatBusy?: boolean
+    /** The machine switched this session to the other TUI: the workspace shows it at once and reads the listing again. */
+    onmode?: (id: string, to: 'terminal' | 'chat') => void
     onsignedout?: (e: unknown) => void
     /** Present only when this closed session can be continued here. */
     oncontinue?: () => void; onterminal?: () => void; onside?: () => void; side?: Snippet; showSide?: boolean; children: Snippet
@@ -30,9 +35,7 @@
 
   const id = $props.id()
   const chatView = $derived(!!session.structured)
-  const CHAT_WHY = 'The reet TUI is for a structured OpenCode session.'
   const terminalLabel = $derived(session.tool ? `${toolName(session.tool)} TUI` : 'Terminal')
-  const TERMINAL_WHY = $derived(`${terminalLabel} is not available in this reet session.`)
 
   // The skills line comes from the sync state, read once when the screen opens (undefined while reading, null if it failed).
   let sync = $state<SyncState | null | undefined>(undefined)
@@ -104,12 +107,54 @@
   $effect(() => {
     if (session.id !== modeFor) { modeFor = session.id; approvalMode = session.yolo ? 'yolo' : 'ask' }
   })
-  onMount(() => {
-    if (!session.structured) return
-    const life = new AbortController()
-    void getYoloSetting().then(value => { if (!life.signal.aborted) yoloSetting = value }).catch(() => { if (!life.signal.aborted) yoloSetting = null })
-    return () => life.abort()
+  // Read once the screen shows a chat (when it opens as one, or when the session switches to the reet TUI).
+  let yoloRead = false
+  $effect(() => {
+    if (!session.structured || yoloRead) return
+    yoloRead = true
+    void getYoloSetting().then(value => { yoloSetting = value }).catch(() => { yoloSetting = null })
   })
+
+  // The reet TUI | agent TUI switch (switchModeState says where the inactive button goes and why it may not). A switch
+  // stops one process on the machine and starts the other, which can take minutes: until the machine answers, both buttons
+  // wait and the status line says so. No client deadline is set; the request ends when the controller answers.
+  let switching = $state<{ id: string; to: 'terminal' | 'chat' } | null>(null)
+  let switchAsk = $state<{ to: 'terminal' | 'chat'; trust?: { detail: string } } | null>(null), switchOpener: HTMLElement | null = null
+  const modeSwitching = $derived(switching?.id === session.id)
+  const chatIsBusy = $derived(chatBusy ?? (session.attention === 'working' || session.attention === 'waiting'))
+  const switchState = $derived(switchModeState(session, machineCaps, chatIsBusy))
+  const tuiName = (to: 'terminal' | 'chat') => to === 'chat' ? 'reet TUI' : terminalLabel
+  const canSwitch = $derived(switchState.enabled && !modeSwitching && !busy)
+  const switchWhy = $derived(modeSwitching && switching ? `Switching to the ${tuiName(switching.to)}…` : switchState.why)
+  function openSwitch(opener: HTMLElement | null) {
+    if (!canSwitch) return
+    switchOpener = opener
+    switchAsk = { to: switchState.to }
+  }
+  function closeSwitch() { switchAsk = null; switchOpener?.focus() }
+  async function confirmSwitch(trust: boolean) {
+    const ask = switchAsk
+    switchAsk = null
+    if (!ask || switching) return
+    const target = { id: session.id, to: ask.to }, name = tuiName(ask.to)
+    switching = target
+    notice = { text: `Switching to the ${name}… This can take a few minutes.` }
+    switchOpener?.focus()
+    try {
+      await setSessionMode(target.id, target.to, trust)
+      if (session.id === target.id) notice = { text: `Switched to the ${name}.` }
+      if (onmode) onmode(target.id, target.to); else onrefresh()
+    } catch (e) {
+      if (session.id !== target.id) return
+      if (e instanceof TerminalError && e.code === 'acp_trust_required' && target.to === 'chat' && !trust) {
+        notice = null
+        switchAsk = { to: target.to, trust: { detail: e.detail || e.message } }
+        return
+      }
+      notice = { text: e instanceof Error && e.message ? e.message : 'The session could not be switched. Try again in a moment.', bad: true }
+      onrefresh()
+    } finally { switching = null }
+  }
 
   // Details: the context panel over the terminal under 1100 px (and in theatre view). Escape closes it and focus returns.
   let detailsOpen = $state(false), detailsButton = $state<HTMLButtonElement>()
@@ -229,12 +274,16 @@
             title={yoloCanStart(switchGates) ? 'Answer every approval for this session' : 'Read why YOLO is not ready here'} onclick={yoloMode}>YOLO</button>
         </div>
       {:else if session.yolo}<span class="badge yolo">YOLO</span>{/if}
-      <div class="view" role="group" aria-label="View">
-        <button type="button" class="chat" aria-pressed={chatView} aria-disabled={!chatView} aria-describedby={chatView ? undefined : `${id}-chat-why`} title={chatView ? undefined : CHAT_WHY}>reet TUI</button>
-        <button type="button" aria-pressed={!chatView} aria-disabled={chatView} aria-describedby={chatView ? `${id}-terminal-why` : undefined} title={chatView ? TERMINAL_WHY : undefined}>{terminalLabel}</button>
+      <!-- The pressed button is the TUI shown; the other switches to it (aria-disabled with its reason when it cannot now). -->
+      <div class="view" role="group" aria-label="View" aria-busy={modeSwitching}>
+        <button type="button" class="chat" aria-pressed={chatView} aria-disabled={chatView ? modeSwitching || undefined : !canSwitch}
+          aria-describedby={!chatView && !canSwitch ? `${id}-switch-why` : undefined} title={!chatView && !canSwitch ? switchWhy : undefined}
+          onclick={event => { if (!chatView) openSwitch(event.currentTarget) }}>reet TUI</button>
+        <button type="button" aria-pressed={!chatView} aria-disabled={chatView ? !canSwitch : modeSwitching || undefined}
+          aria-describedby={chatView && !canSwitch ? `${id}-switch-why` : undefined} title={chatView && !canSwitch ? switchWhy : undefined}
+          onclick={event => { if (chatView) openSwitch(event.currentTarget) }}>{terminalLabel}</button>
       </div>
-      <span class="vh" id={`${id}-chat-why`}>{CHAT_WHY}</span>
-      {#if chatView}<span class="vh" id={`${id}-terminal-why`}>{TERMINAL_WHY}</span>{/if}
+      <span class="vh" id={`${id}-switch-why`}>{switchWhy}</span>
       <button type="button" class="details" bind:this={detailsButton} aria-expanded={detailsOpen} aria-controls={`${id}-context`} onclick={() => void toggleDetails()} onkeydown={closeDetails}>Details</button>
       <button type="button" class="more" bind:this={menuButton} aria-label="Session actions" aria-haspopup="menu" aria-expanded={menuAt !== null}
         onclick={event => { if (menuAt) closeMenu(); else void openMenu(event) }} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event) }}>
@@ -260,6 +309,9 @@
     {#if oncontinue}<button role="menuitem" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue in reet TUI with history…' : 'Continue session…'}</button>{/if}
     {#if onterminal}<button role="menuitem" disabled={busy} onclick={openTerminal}>Open a terminal here…</button>{/if}
     {#if onside}<button role="menuitem" disabled={busy} onclick={openSideTerminal}>Open a terminal beside this session…</button>{/if}
+    {#if live && session.tool === 'opencode'}
+      <button role="menuitem" disabled={!canSwitch} title={canSwitch ? undefined : switchWhy} onclick={() => { closeMenu(false); openSwitch(menuButton ?? null) }}>Switch to the {tuiName(switchState.to)}…</button>
+    {/if}
     {#if canSwitchApproval}
       <button role="menuitem" disabled={busy || modeBusy} onclick={() => { closeMenu(false); if (approvalMode === 'yolo') askMode(); else yoloMode() }}>{approvalMode === 'yolo' ? 'Switch to Ask me' : 'Turn on YOLO…'}</button>
     {/if}
@@ -273,6 +325,10 @@
 {/if}
 {#if removing}
   <WorktreeDialog member={removing} {host} opener={menuButton ?? null} onremoved={onrefresh} {onsignedout} onclose={() => (removing = null)} />
+{/if}
+{#if switchAsk}
+  <SwitchModeDialog to={switchAsk.to} agentTui={terminalLabel} machine={host} trust={switchAsk.trust}
+    onconfirm={trust => void confirmSwitch(trust)} oncancel={closeSwitch} />
 {/if}
 {#if yoloOpen}
   <YoloDialog gates={switchGates} tool={session.tool ?? ''} structured machine={host} switching
@@ -318,6 +374,7 @@
   .view button { padding: 7px 16px; border: 0; background: none; color: var(--muted); font: 400 14px var(--sans); cursor: pointer; }
   .view button[aria-pressed=true] { background: var(--line-soft); color: var(--ink); font-weight: 500; cursor: default; }
   .view button[aria-disabled=true] { cursor: not-allowed; }
+  .view[aria-busy=true] button { cursor: progress; }
   .view button:focus-visible, .details:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   .details { display: none; flex: none; min-height: 44px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: none; color: var(--ink); font: 500 14px var(--sans); cursor: pointer; }
   .details[aria-expanded=true] { background: var(--line-soft); }

@@ -257,6 +257,133 @@ try {
   await expect(page.getByText('Cleared the default for opencode.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Make anthropic/claude-sonnet-4-5 the default for OpenCode', exact: true })).toBeVisible()
 
+  // The skill picker: it fills the composer and never sends. Three groups, a filter, keyboard choice, the `/` trigger,
+  // disabled rows, the 2,000 limit, an empty machine, a failed request with Retry, and a bottom sheet on a phone.
+  const skillRows = [
+    { id: 'm1', name: 'pdf', description: 'Read and fill forms', source: 'machine', agent: 'opencode', native: true, onMachine: true, invocation: 'Use the pdf skill.' },
+    { id: 'm2', name: 'docx-other', description: 'Edit documents', source: 'machine', agent: 'claude', native: false, onMachine: true, invocation: '' },
+    { id: 'r1', name: 'reet-notes', description: 'Shared notes', source: 'reet', agent: '', native: false, onMachine: false, invocation: '' },
+  ]
+  state.skills = { skills: skillRows, machineSeen: Date.now() - 5 * 60_000, host: 'dev-laptop' }
+  state.skillsFail = 0
+  let sends = 0
+  page.on('request', request => { if (request.url().includes('/chat/prompt')) sends++ })
+  await page.route(`**/api/v2/terminal/sessions/*/skills`, route => {
+    if (state.skillsFail > 0) { state.skillsFail--; return route.fulfill({ status: 500, json: { error: 'Skills could not be read just now.' } }) }
+    return route.fulfill({ status: 200, json: state.skills })
+  })
+  const composer = page.getByRole('textbox', { name: 'Message OpenCode' })
+  const skillsButton = page.locator('.composer').getByRole('button', { name: 'Skills', exact: true })
+  const picker = page.getByRole('dialog', { name: 'Skills', exact: true })
+  await composer.fill('')
+  const sendsBefore = sends
+  await skillsButton.click()
+  await expect(picker).toBeVisible()
+  await expect(picker.getByRole('listbox')).toHaveCount(3)
+  await expect(picker.getByText('Skills on dev-laptop were read 5 minutes ago.')).toBeVisible()
+  await picker.getByRole('searchbox', { name: 'Filter skills' }).fill('pd')
+  await expect(picker.getByRole('option')).toHaveCount(1)
+  // Choosing with the keyboard closes the sheet, fills the composer, focuses it, and sends nothing.
+  await picker.getByRole('searchbox', { name: 'Filter skills' }).press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(picker).toHaveCount(0)
+  await expect(composer).toHaveValue('Use the pdf skill.')
+  await expect(composer).toBeFocused()
+  expect(sends).toBe(sendsBefore)
+  // Escape from the filter closes the picker and leaves the composer text as it was.
+  await composer.fill('keep this')
+  await skillsButton.click()
+  await expect(picker.getByRole('searchbox', { name: 'Filter skills' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  await expect(composer).toHaveValue('keep this')
+  await expect(composer).toBeFocused()
+  // Disabled rows (another agent, a reet-hosted skill): clicking or Enter does nothing, and ArrowUp from the first row returns to the filter.
+  await skillsButton.click()
+  const filter = picker.getByRole('searchbox', { name: 'Filter skills' })
+  for (const name of ['docx-other', 'reet-notes']) {
+    const row = picker.getByRole('option', { name: new RegExp(name) })
+    await expect(row).toHaveAttribute('aria-disabled', 'true')
+    await row.click({ force: true })
+    await row.focus()
+    await page.keyboard.press('Enter')
+    await expect(picker).toBeVisible()
+    await expect(row).toBeVisible()
+  }
+  await filter.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(picker.getByRole('option', { name: /pdf/ })).toBeFocused()
+  await page.keyboard.press('ArrowUp')
+  await expect(filter).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(composer).toHaveValue('keep this')
+  // The `/` trigger: a leading slash token opens the picker with that text as the filter and the pick replaces it.
+  await composer.fill('/pd')
+  await expect(picker).toBeVisible()
+  await expect(filter).toHaveValue('pd')
+  await picker.getByRole('option', { name: /pdf/ }).click()
+  await expect(composer).toHaveValue('Use the pdf skill.')
+  for (const text of ['fix /etc/hosts', 'see http://x', '/etc/hosts now']) {
+    await composer.fill(text)
+    await expect(picker).toHaveCount(0)
+  }
+  // Escape on `/`, then typing on, does not reopen it; clearing the slash token re-arms it.
+  await composer.fill('/')
+  await expect(picker).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  await composer.press('a')
+  await expect(composer).toHaveValue('/a')
+  await expect(picker).toHaveCount(0)
+  await composer.fill('')
+  await composer.fill('/')
+  await expect(picker).toBeVisible()
+  await page.keyboard.press('Escape')
+  // An insertion past the 2,000 limit is refused with the sentence and the draft is untouched.
+  const long = 'a'.repeat(1995)
+  await composer.fill(long)
+  await skillsButton.click()
+  await picker.getByRole('option', { name: /pdf/ }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'That would pass the 2,000-character limit. Nothing was inserted.' })).toBeVisible()
+  await expect(composer).toHaveValue(long)
+  await expect(picker).toHaveCount(0)
+  // The connection dropping while the picker is open: picking inserts nothing and says so; the button is disabled meanwhile.
+  await composer.fill('hello')
+  await skillsButton.click()
+  await expect(picker).toBeVisible()
+  await page.evaluate(() => window.__chatStream.onerror?.({}))
+  await picker.getByRole('option', { name: /pdf/ }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Connection changed. Nothing was inserted.' })).toBeVisible()
+  await expect(composer).toHaveValue('hello')
+  await expect(skillsButton).toBeDisabled()
+  await expect(skillsButton).toHaveAttribute('title', /connected/)
+  await page.evaluate(() => window.__chatStream.onopen?.({}))
+  await expect(skillsButton).toBeEnabled()
+  // An empty machine says so and says its skills have not been read yet.
+  state.skills = { skills: [], machineSeen: 0, host: 'dev-laptop' }
+  await skillsButton.click()
+  await expect(picker.getByText('No skills found on dev-laptop yet.')).toBeVisible()
+  await expect(picker.getByText('have not been read yet')).toBeVisible()
+  await page.keyboard.press('Escape')
+  // A failed request shows its error and Retry loads the list.
+  state.skills = { skills: skillRows, machineSeen: Date.now() - 5 * 60_000, host: 'dev-laptop' }
+  state.skillsFail = 1
+  await skillsButton.click()
+  await expect(picker.getByRole('alert')).toContainText('Skills could not be read just now.')
+  await picker.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(picker.getByRole('listbox')).toHaveCount(3)
+  // On a phone the picker is a bottom sheet with no sideways scroll.
+  await page.setViewportSize({ width: 390, height: 844 })
+  const sheet = await picker.boundingBox()
+  expect(sheet.x).toBeGreaterThanOrEqual(0)
+  expect(sheet.x + sheet.width).toBeLessThanOrEqual(390)
+  expect(Math.round(sheet.y + sheet.height)).toBeGreaterThanOrEqual(843)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  expect(sends).toBe(sendsBefore)
+  await page.setViewportSize({ width: 1360, height: 900 })
+
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('textbox', { name: 'Message OpenCode' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -298,7 +425,7 @@ try {
   expect(state.resume.prompt).toBeUndefined()
   expect(state.resume.model).toBe('anthropic/claude-sonnet-4-5')
   expect(errors).toEqual([])
-  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled, agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id.')
+  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled, agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet.')
 } finally {
   await context.close()
   await browser.close()

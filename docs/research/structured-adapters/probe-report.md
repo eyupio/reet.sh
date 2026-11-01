@@ -294,7 +294,7 @@ leaves the command running. None is built.
 (`spawn xdg-open ENOENT` here, code `-32603`), and `session/new` still fails with "Authentication required". The adapter also sent an `_auth/status_update` notification with
 `authStatus: {kind: "none", label: "Not logged in"}`. So reet cannot sign a person in from a chat: calling `chat-gpt` on a logged-out machine starts an interactive browser flow
 on that machine. What a logged-in machine sends (the `authStatus` kind, and whether `authenticate chat-gpt` then succeeds without opening anything) is **not observed**, and
-needs a real login; `CODEX_HOME` and `HOME` would also have to reach the person's own login, which the connector's replaced `HOME` does not.
+needs a real login; `CODEX_HOME` and `HOME` would also have to reach the person's own login, which the connector's replaced `HOME` does not. reet's decided approach is therefore not to call `authenticate` at all (see the plan).
 
 Still open: how a real person authenticates. `api-key` needs a key sent in `_meta`; `chat-gpt` is a browser sign-in. The connector replaces `HOME`, so a login under the real home is not visible to the adapter, and nothing in the profile calls `authenticate` yet.
 

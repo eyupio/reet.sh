@@ -17,7 +17,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--workspace", type=Path, required=True, help="directory holding codex/node_modules")
 parser.add_argument("--node", default=shutil.which("node"))
 parser.add_argument("--mode", default="read-only")
-parser.add_argument("--auth", choices=["api-key", "chat-gpt"], default="api-key", help="authenticate method to try; chat-gpt with no login on the machine records what the adapter does (a login URL, an error, or a wait)")
+parser.add_argument("--auth", choices=["api-key", "chat-gpt", "none"], default="api-key", help="authenticate method to try; none makes no authenticate call (reet's approach); chat-gpt with no login on the machine records what the adapter does (a login URL, an error, or a wait)")
 parser.add_argument("--codex-home", type=Path, default=None, help="use this directory as CODEX_HOME instead of an empty temporary one, e.g. a COPY of a signed-in ~/.codex; the adapter may write there")
 parser.add_argument("--auth-timeout", type=int, default=15)
 args = parser.parse_args()
@@ -86,7 +86,9 @@ try:
     summary["initialize"] = {"agentInfo": r.get("agentInfo"), "authMethods": [m.get("id") for m in r.get("authMethods") or []]}
     before = call(2, "session/new", {"cwd": str(run / "project"), "mcpServers": []})
     summary["newBeforeAuthenticate"] = before.get("error", "ok" if "result" in before else before)
-    if args.auth == "api-key":
+    if args.auth == "none":
+        auth = {"result": None}
+    elif args.auth == "api-key":
         auth = call(3, "authenticate", {"methodId": "api-key", "_meta": {"api-key": {"apiKey": "probe-placeholder-only"}}})
     else:
         auth = call(3, "authenticate", {"methodId": "chat-gpt"}, timeout=args.auth_timeout)

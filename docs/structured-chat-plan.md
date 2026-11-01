@@ -216,9 +216,11 @@ Probed afterwards (`scripts/probe-codex-start.py`, probe report "Codex start, pr
 `read-only`. Authentication is not settled: `session/new` answers "Authentication required" until `authenticate` is called, and the connector replaces `HOME`, so a login under the
 real home is not visible. A Codex chat cannot start until reet has a decided way to authenticate. That is the next decision, before the browser mode control.
 
-Decided by the owner: use the person's own ChatGPT login, not an API key through reet. The probe shows what that has to respect: `authenticate chat-gpt` on a logged-out machine opens a
-browser on that machine, so reet must only call it when the adapter reports the person is already signed in (`_auth/status_update`), and otherwise refuse with "sign in to Codex on
-that machine first". What a signed-in adapter sends is unobserved and needs a real-login run (add it to `docs/device-checks.md` beside the Claude one) before this is wired.
+Decided by the owner: use the person's own ChatGPT login, and never sign anyone in from a chat. reet does not call `authenticate`. The adapter is expected to find the login the
+person already made with Codex on that machine, so the Codex profile has to let it see that login (the real home, or the person's `CODEX_HOME`) instead of the connector's replaced
+`HOME`. To start, reet runs `session/new`; if it fails with "Authentication required" the chat is refused with "Sign in to Codex on that machine first." The adapter's
+`_auth/status_update` label ("Not logged in", or the account or key in use) is shown in the chat so the person can see which identity answers, without the account email. Whether a
+signed-in adapter's `session/new` succeeds with no `authenticate` call, and what status it sends, is unobserved and needs the real-login run in `docs/device-checks.md` before this is wired.
 
 ### Device and credential checks (1 November 2026)
 

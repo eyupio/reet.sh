@@ -50,11 +50,11 @@ export function installStep(job: { kind: string; status: string } | undefined): 
 export type PlanVerdict = { ok: true; lines: string[] } | { ok: false; reason: string; lines: string[] }
 
 // Approves only a plan whose every action is a plain add of the requested slug; the slugs come from a machine and are only ever shown as text.
-export function planVerdict(plan: { directory?: string; actions?: { add: boolean; replace?: boolean; skill: { slug: string } }[] } | undefined, slug: string): PlanVerdict {
+export function planVerdict(plan: { directory?: string; actions?: { add: boolean; replace?: boolean; skill?: { slug?: string } }[] } | undefined, slug: string): PlanVerdict {
   const actions = plan?.actions ?? []
-  const lines = actions.map(a => `${a.add ? (a.replace ? 'Replace' : 'Add') : 'Remove'} ${a.skill.slug}`)
+  const lines = actions.map(a => `${a.add ? (a.replace ? 'Replace' : 'Add') : 'Remove'} ${a.skill?.slug ?? ''}`.trimEnd())
   if (actions.length === 0) return { ok: false, reason: 'The machine has not sent its plan yet.', lines }
-  if (actions.every(a => a.add === true && !a.replace && a.skill.slug === slug)) return { ok: true, lines }
+  if (actions.every(a => a.add === true && !a.replace && a.skill?.slug === slug)) return { ok: true, lines }
   return { ok: false, reason: 'This install would change other skills. Review it on the Sync page.', lines }
 }
 

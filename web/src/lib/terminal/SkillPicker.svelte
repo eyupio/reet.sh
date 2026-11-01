@@ -100,7 +100,7 @@
       </button>
     </header>
     <div class="body" data-shell-body onkeydown={keys} role="presentation">
-      {#if installing}
+      {#if installing && !unknownMachine}
         <SkillInstallPanel {sessionId} skill={installing} host={data?.host ?? ''} {tool} onclose={installed} />
       {:else}
       <input class="filter" type="text" role="searchbox" bind:this={input} bind:value={query} aria-label="Filter skills" placeholder="Filter skills" autocomplete="off" spellcheck="false" />
@@ -135,10 +135,11 @@
                       {/each}
                     </div>
                     {#if hasAction(run[0])}
-                      {#if run[0].published}
-                        <button type="button" class="install" aria-label={`Install ${run[0].name}`} onclick={() => (installing = run[0])}>Install</button>
-                      {:else}
+                      {#if !run[0].published}
                         <a class="publish" href="/hosting">Publish this skill to install it.</a>
+                      {:else if !unknownMachine}
+                        <!-- An unknown machine has no name to install on, so there is nothing to confirm. -->
+                        <button type="button" class="install" aria-label={`Install ${run[0].name}`} onclick={() => (installing = run[0])}>Install</button>
                       {/if}
                     {/if}
                   </div>

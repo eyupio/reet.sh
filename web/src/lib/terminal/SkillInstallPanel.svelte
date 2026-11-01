@@ -188,6 +188,7 @@
   {#if phase === 'confirm'}
     <p>Add {slug} to the {tool} skills folder on {host}. Nothing runs until you approve the plan.</p>
   {:else if step === 'review' && verdict}
+    {#if job?.plan?.directory}<p class="folder">Folder: {job.plan.directory}</p>{/if}
     <ul class="plan">
       {#each verdict.lines as line}<li>{line}</li>{/each}
     </ul>
@@ -222,6 +223,7 @@
   .install:focus { outline: none; }
   h3 { margin: 0; font: 600 1rem/1.3 var(--serif); }
   p { margin: 0; font-size: 14px; line-height: 1.45; }
+  .folder { color: var(--muted); }
   .plan { margin: 0; padding: 0 0 0 18px; font-size: 14px; line-height: 1.5; }
   .failure { color: var(--ink); }
   .status { min-height: 1.45em; color: var(--muted); font-size: 13px; }

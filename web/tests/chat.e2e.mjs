@@ -494,6 +494,15 @@ try {
   await expect(picker.getByRole('link', { name: 'Publish this skill to install it.' })).toHaveAttribute('href', '/hosting')
   await page.keyboard.press('Escape')
   await expect(picker).toHaveCount(0)
+  // A machine reet does not know has no name to install on, so no row offers Install.
+  resetInstall()
+  state.skills = { ...state.skills, host: '' }
+  await skillsButton.click()
+  await expect(picker.getByRole('option', { name: /Read and fill forms/ })).toBeVisible()
+  await expect(picker.getByRole('button', { name: /^Install/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  expect(inst.installs).toEqual([])
 
   // Structure: a group of rows without actions is one listbox owning all of them; each reet row with an action is its own
   // single-option listbox with the action outside it.
@@ -541,6 +550,8 @@ try {
   await poll()
   await expect(statusOf).toHaveText('Review what will be added.')
   await expect(panelOf.getByText('Add pdf', { exact: true })).toBeVisible()
+  // The review names the folder the plan writes to.
+  await expect(panelOf.getByText(`Folder: ${folder}`, { exact: true })).toBeVisible()
   const approve = panelOf.getByRole('button', { name: 'Approve and install', exact: true })
   await expect(approve).toBeFocused()
   await page.clock.fastForward(5000)
@@ -612,6 +623,7 @@ try {
   inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }], { hash: 'hash-new', revision: 'r2', plan: { directory: '/elsewhere/skills', actions: [{ add: true, skill: { slug: 'pdf' } }] } })
   await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
   await expect(statusOf).toHaveText('This install changed while you were reviewing it. Check it again.')
+  await expect(panelOf.getByText('Folder: /elsewhere/skills', { exact: true })).toBeVisible()
   expect(inst.patches).toEqual([])
   await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
   await expect.poll(() => inst.patches).toEqual([{ id: cur(), action: 'approve', hash: 'hash-new' }])
@@ -650,6 +662,8 @@ try {
   await expect(panelOf.getByText('The folder is read-only.')).toBeVisible()
   const retry = panelOf.getByRole('button', { name: 'Retry', exact: true })
   await expect(retry).toBeFocused()
+  // A failed install leaves the saved list as it was, so there is nothing to remove: only Retry and Close.
+  await expect(panelOf.getByRole('button')).toHaveText(['Retry', 'Close'])
   inst.job = null
   await retry.click()
   await expect.poll(() => inst.installs.length).toBe(2)

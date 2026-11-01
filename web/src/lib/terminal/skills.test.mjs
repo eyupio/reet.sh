@@ -92,6 +92,14 @@ test('planVerdict approves only plain adds of the slug', () => {
   assert.deepEqual(s.planVerdict(undefined, 'pdf'), { ok: false, reason: none, lines: [] })
 })
 
+test('planVerdict never approves or throws on an action without a skill', () => {
+  const other = 'This install would change other skills. Review it on the Sync page.'
+  for (const action of [{ add: true }, { add: true, skill: null }, { add: true, skill: {} }]) {
+    assert.deepEqual(s.planVerdict({ actions: [action] }, 'pdf'), { ok: false, reason: other, lines: ['Add'] })
+  }
+  assert.equal(s.planVerdict({ actions: [{ add: true, skill: { slug: 'pdf' } }, { add: true }] }, 'pdf').ok, false)
+})
+
 test('installStatusLine', () => {
   assert.equal(s.installStatusLine('waiting', 'box', 'pdf', 0), 'Waiting for box…')
   assert.equal(s.installStatusLine('waiting', 'box', 'pdf', 59), 'Waiting for box…')

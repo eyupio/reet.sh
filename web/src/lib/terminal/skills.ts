@@ -24,7 +24,7 @@ export function slashQuery(draft: string): string | null {
 export function applyInvocation(draft: string, invocation: string, limit: number): { draft: string } | { error: string } {
   if (!invocation) return { error: "This skill can't be inserted from here." }
   const next = slashQuery(draft) !== null ? invocation : draft && !/\s$/.test(draft) ? `${draft} ${invocation}` : draft + invocation
-  if (Array.from(next).length > limit) return { error: 'That would pass the 2,000-character limit. Nothing was inserted.' }
+  if (next.length > limit || new TextEncoder().encode(next).length > limit) return { error: 'That would pass the 2,000-character limit. Nothing was inserted.' }
   return { draft: next }
 }
 

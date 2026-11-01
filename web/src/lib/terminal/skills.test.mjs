@@ -43,6 +43,15 @@ test('applyInvocation replaces, appends, and refuses', () => {
   assert.deepEqual(s.applyInvocation('abc', '', 2000), { error: "This skill can't be inserted from here." })
 })
 
+test('applyInvocation counts UTF-16 units and UTF-8 bytes, like the composer', () => {
+  const emoji = '😀'.repeat(6) // 6 code points, 12 UTF-16 units
+  assert.deepEqual(s.applyInvocation(emoji, '/a', 10), { error: 'That would pass the 2,000-character limit. Nothing was inserted.' })
+  const cjk = '中'.repeat(5) // 5 UTF-16 units, 15 UTF-8 bytes
+  assert.deepEqual(s.applyInvocation(cjk, '/a', 10), { error: 'That would pass the 2,000-character limit. Nothing was inserted.' })
+  assert.deepEqual(s.applyInvocation('a'.repeat(16), '/pd', 20), { draft: 'a'.repeat(16) + ' /pd' }, 'exactly at the limit is accepted')
+  assert.ok('error' in s.applyInvocation('a'.repeat(17), '/pd', 20))
+})
+
 test('seenLine', () => {
   const now = 1_000_000_000_000
   assert.equal(s.seenLine(0, 'box', now), 'Skills on box have not been read yet.')

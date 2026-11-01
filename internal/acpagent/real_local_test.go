@@ -5,6 +5,7 @@ package acpagent
 import (
 	"context"
 	"os"
+	"regexp"
 	"testing"
 	"time"
 )
@@ -36,5 +37,39 @@ func TestRealOpenCodeStart(t *testing.T) {
 	defer resumed.Close()
 	if resumed.SessionID() != id {
 		t.Fatalf("loaded %q, wanted %q", resumed.SessionID(), id)
+	}
+}
+
+// TestRealClaudeStart is opt-in: it starts the real Claude ACP adapter through the
+// Claude profile and closes it. It sends no prompt, so it makes no model call and
+// cannot spend anything. It checks the version floor, the adapter identity, the
+// required Manual mode and that Close leaves no live process behind. It needs an
+// adapter install (see scripts/check-claude-credentials.py) and Node on PATH.
+func TestRealClaudeStart(t *testing.T) {
+	binary := os.Getenv("REET_CLAUDE_ACP")
+	if binary == "" {
+		t.Skip("set REET_CLAUDE_ACP to a claude-agent-acp@0.99.1 executable")
+	}
+	home, dir := t.TempDir(), t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	base := []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}
+	session, err := Start(ctx, Options{Agent: ClaudeCandidate, Binary: binary, Dir: dir, Home: home, BaseEnv: base, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.SessionID() == "" {
+		t.Fatal("no session id")
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`).MatchString(session.SessionID()) {
+		t.Fatalf("session id %q is not the measured UUID form", session.SessionID())
+	}
+	session.Close()
+	// A profile whose floor is above the installed adapter must refuse it.
+	strict := ClaudeCandidate
+	strict.MinVersion = "99.0.0"
+	if refused, err := Start(ctx, Options{Agent: strict, Binary: binary, Dir: dir, Home: home, BaseEnv: base, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second}); err == nil {
+		refused.Close()
+		t.Fatal("an adapter below the version floor was started")
 	}
 }

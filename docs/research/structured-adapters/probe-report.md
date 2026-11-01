@@ -318,3 +318,10 @@ Still to run by a person, on a machine or OS account that is logged out of Claud
    forwards a credential (the profile forwards nothing else).
 
 Until 1 and 2 are recorded, Claude chats stay behind `REET_EXPERIMENTAL_CLAUDE_CHAT`.
+
+### Claude profile against the real adapter (1 November 2026)
+
+`TestRealClaudeStart` (opt-in: `REET_CLAUDE_ACP=<path to claude-agent-acp@0.99.1>`) starts the real adapter through
+`ClaudeCandidate` with no prompt, so no model call. Observed: the adapter identity and version floor pass, the session starts in
+the required Manual (`default`) mode with a UUID-form id, `Close` returns with the process group retired, and a profile whose floor is
+above the installed adapter refuses to start it. It does not test credentials, turns, approvals or resume.

@@ -164,7 +164,17 @@ func (s *server) mergeEnvironments(w http.ResponseWriter, r *http.Request) {
 			writeEnvironmentMergeError(w, store.ErrSkillContentReceiptScope)
 			return
 		}
-		writeJSON(w, 200, map[string]any{"dry_run": true, "from": source, "to": target, "skills_moved": source.SkillCount})
+		running, pending, installs, err := s.st.MergeJobCountsFor(s.uid(r), from)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		if running > 0 {
+			writeEnvironmentMergeError(w, store.ErrEnvironmentJobRunning)
+			return
+		}
+		// Pending previews and installs on the source are cancelled by the merge; the preview says how many.
+		writeJSON(w, 200, map[string]any{"dry_run": true, "from": source, "to": target, "skills_moved": source.SkillCount, "pending_jobs_cancelled": pending, "pending_installs_cancelled": installs})
 		return
 	}
 	if !in.Confirm {
@@ -186,6 +196,8 @@ func writeEnvironmentMergeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrSkillContentTargetScopeMerge):
 		writeErrCode(w, 409, errEnvironmentHasPins, "from_id", err.Error(), "Remove the private skill pin first.")
+	case errors.Is(err, store.ErrEnvironmentJobRunning):
+		writeErrCode(w, 409, errEnvironmentJobRunning, "from_id", err.Error(), "Wait for the machine to finish its sync job, then merge.")
 	case errors.Is(err, store.ErrSkillContentReceiptScope):
 		writeErrCode(w, 409, errEnvironmentHasReceipts, "from_id", err.Error(), "Release the ownership record first.")
 	case strings.Contains(strings.ToLower(err.Error()), "not found"):

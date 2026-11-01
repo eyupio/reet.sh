@@ -277,14 +277,14 @@ test('a 200 for a session the machine did not start is said plainly; a started o
   for (const state of ['creating', 'running', 'end_requested', 'exited']) assert.equal(notStartedText(state), '')
 })
 
-test('the reet TUI sentence says it asks before it acts', () => {
+test('Gaffer sentence says it asks before it acts', () => {
   const sentence = launchSentence('opencode', '/home/me/site', 'laptop', false, true)
-  assert.match(sentence, /OpenCode in the reet TUI/)
+  assert.match(sentence, /OpenCode in Gaffer/)
   assert.match(sentence, /asks before it edits a file or runs a command/)
   assert.match(launchSentence('opencode', '', 'laptop', true, true), /first message/)
 })
 
-test('the reet TUI refusals have plain sentences', () => {
+test('Gaffer refusals have plain sentences', () => {
   assert.match(refusalText(409, 'acp_version'), /OpenCode 1\.19\.5 or newer/)
   assert.match(refusalText(409, 'acp_unavailable', 'No OpenCode here.'), /No OpenCode here\./)
   assert.match(refusalText(409, 'acp_trust_required', 'This folder has OpenCode plugins.'), /OpenCode plugins/)

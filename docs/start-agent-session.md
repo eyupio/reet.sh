@@ -3,7 +3,7 @@
 Home starts sessions from its launch bar ([below](#on-home-the-launch-bar)). The **Start an agent**
 dialog stays for Machines and the Sessions panel: pick a machine, an agent, a folder and, if you like,
 a model and an opening prompt. Press **Start**
-and you land in a new browser terminal session with that agent already running, or in the reet TUI when you
+and you land in a new browser terminal session with that agent already running, or in Gaffer when you
 choose it. The dialog is
 `web/src/lib/StartAgentDialog.svelte`. The launch request it sends and how a machine handles it are
 in [Launch requests](terminal-launch.md). The design spec was removed in the docs tidy-up
@@ -14,19 +14,19 @@ The browser never sends a command line. It names a tool id (`claude`, `codex`, `
 connector and decides the program and its flags itself. No preset uses a flag that skips the
 agent's own permission prompts.
 
-## The reet TUI or the agent TUI
+## Gaffer or the agent TUI
 
-For OpenCode on a machine that advertises `acp`, the dialog's **Session** choice is **reet TUI** by default; choose
+For OpenCode on a machine that advertises `acp`, the dialog's **Session** choice is **Gaffer** by default; choose
 **OpenCode TUI** for the terminal UI instead. It sends `structured: true` and
 the person's trust confirmation. The **Model** control chooses the model; **Agent default** uses OpenCode's configured
-model, and Thinking stays OpenCode's own. The opening prompt is the first message. The new session opens on its reet TUI, where OpenCode asks before it edits a file
+model, and Thinking stays OpenCode's own. The opening prompt is the first message. The new session opens on its Gaffer, where OpenCode asks before it edits a file
 or runs a command with **Allow once** / **Deny**. On a machine that negotiated `session-mode-v1`, the session header's
-**OpenCode TUI** button switches the running session to OpenCode's own terminal UI and **reet TUI** switches it back,
-once the agent is idle; a session started in the OpenCode TUI cannot move to the reet TUI. Terminal scrollback is not kept
-across a switch, and returning to the reet TUI asks you to trust a folder with OpenCode plugins. **Attach image** (or paste/drop)
-sends a file through the launch-upload path and puts its path in the message. A closed reet TUI session offers **Continue in reet TUI with
+**OpenCode TUI** button switches the running session to OpenCode's own terminal UI and **Gaffer** switches it back,
+once the agent is idle; a session started in the OpenCode TUI cannot move to Gaffer. Terminal scrollback is not kept
+across a switch, and returning to Gaffer asks you to trust a folder with OpenCode plugins. **Attach image** (or paste/drop)
+sends a file through the launch-upload path and puts its path in the message. A closed Gaffer session offers **Continue in Gaffer with
 history…**, which loads OpenCode's stored conversation into a new session row. The conditions, deadlines and limits are in
-[OpenCode in the reet TUI](structured-sessions.md).
+[OpenCode in Gaffer](structured-sessions.md).
 
 ## Who sees it
 
@@ -60,11 +60,11 @@ The bar is docked at the foot of Home (`web/src/lib/launch/LaunchBar.svelte`; it
 `web/src/lib/launchBar.ts`). It is a **Describe the job** box, **Start**, and the launch sentence,
 whose bold words are the choices.
 
-For OpenCode on a machine that advertises `acp`, the sentence says **in reet TUI** by default and Start
-opens the reet TUI instead of the agent terminal UI. Home asks you to confirm **I trust this folder** first, because
-OpenCode runs any plugins in `.opencode` when the reet TUI starts. The **TUI** word switches it to **in OpenCode TUI**;
+For OpenCode on a machine that advertises `acp`, the sentence says **in Gaffer** by default and Start
+opens Gaffer instead of the agent terminal UI. Home asks you to confirm **I trust this folder** first, because
+OpenCode runs any plugins in `.opencode` when Gaffer starts. The **Gaffer** word switches it to **in OpenCode TUI**;
 the worktree and thinking choices come back for that terminal. The Model word chooses the chat's model; leave it at
-**default** to use OpenCode's configured model. The reet TUI runs in the chosen project folder (not a worktree) and can
+**default** to use OpenCode's configured model. Gaffer runs in the chosen project folder (not a worktree) and can
 attach images through Home's existing pasted-image path. It starts in one folder at a time. A session's actions menu has **Open a terminal here…**, which starts a plain shell in
 the same folder as a separate session.
 
@@ -76,10 +76,12 @@ follows the project and is named, not chosen, except for **Home folder on** a ma
 machine that isn't ready is listed, disabled, with that machine's readiness sentence.
 
 - **What it opens on.** The last launch, read from the sessions list (never from browser storage),
-  with the prompt empty and Approvals on **Ask me**. After every start Approvals is back on Ask me.
-  **YOLO** opens the confirmation dialog; it is available only when an owner or admin has allowed it
-  for the account, the machine accepts it, the agent has a reviewed option and the person confirms
-  this session. The controller refuses it with 403 `yolo_not_allowed` or 409 `yolo_refused` otherwise.
+  with the prompt empty and Approvals on the project's own default: **Ask me**, or **YOLO** when the
+  project was saved that way. Choosing **YOLO** in the bar opens the confirmation dialog; confirming
+  turns it on for this launch and does **not** start anything, so Start stays the person's decision.
+  A project default is confirmed the same way when Start is pressed. YOLO is available only when an
+  owner or admin has allowed it for the account, the machine accepts it and the agent has a reviewed
+  option. The controller refuses it with 403 `yolo_not_allowed` or 409 `yolo_refused` otherwise.
 - **The rail.** Choosing a rail card puts that project in the sentence with its own default agent,
   model, base branch and worktree choice, then moves focus to the prompt. `/?project=<id>` does the
   same once. The card's **+** and **New session here** start at once instead, sending the bar's Start

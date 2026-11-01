@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:5173'
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const now = Date.now(), minute = 60_000
-const caps = { protocolVersion: 1, os: 'linux', osUser: 'sam', terminalEnabled: true, healthEnabled: true, readiness: 'ready', launch: true, tools: ['claude', 'codex', 'cline', 'opencode'], agentsV2: true, yolo: true, uploads: true, browse: true, terminalControl: true }
+const caps = { protocolVersion: 1, os: 'linux', osUser: 'sam', terminalEnabled: true, healthEnabled: true, readiness: 'ready', launch: true, tools: ['claude', 'codex', 'cline', 'opencode'], agentsV2: true, acp: true, yolo: true, uploads: true, browse: true, terminalControl: true }
 const machines = [{ agentId: 'm1', host: 'Studio', ready: true, serverEnabled: true, capabilities: caps }, { agentId: 'm2', host: 'MacBook Pro', ready: false, serverEnabled: true, capabilities: caps }]
 const project = (id, name, dir, host = 'm1') => ({ id, name, host, machine: host === 'm1' ? 'Studio' : 'MacBook Pro', dir, isRepo: true, baseBranch: 'main', worktreeDefault: 'inherit', defaultTool: 'claude', defaultModel: 'sonnet', defaultEffort: '', hasStarterPrompt: false, colour: 'blue', position: 0, createdAt: now, updatedAt: now, version: 1 })
 const projects = [project('p1', 'Reet', '/home/sam/reet'), project('p2', 'Storefront', '/home/sam/storefront'), project('p3', 'Personal site', '/Users/sam/site', 'm2')]
@@ -52,7 +52,8 @@ async function workspace(width = 1440, theme = 'light', touch = false, entry = '
     skills: [skill('brainstorm'), skill('polish')] })
   await app.page.goto(new URL(entry, base).href)
   await expect(app.page.getByRole('heading', { name: 'A reet good day’s work.' })).toBeVisible()
-  await expect(app.page.locator('.session-card')).toHaveCount(7)
+  // An address naming one project narrows the board to that project's sessions.
+  await expect(app.page.locator('.session-card')).toHaveCount(entry.includes('?project=') ? 2 : 7)
   return { ...app, box }
 }
 try {
@@ -74,6 +75,16 @@ try {
       const launch = app.page.getByRole('form', { name: 'Start a session', exact: true })
       await expect(launch).toBeVisible()
       await expect(launch.getByRole('textbox', { name: 'Describe the job', exact: true })).toBeVisible()
+      // The board keeps the second column beside the rail, and an open Quick launch stays in the viewport under a long board.
+      const column = await app.page.locator('.column').boundingBox()
+      // Home on a tablet or phone has no rail; it lives on the Sessions screen there.
+      const railLocator = app.page.locator('aside.rail')
+      const rail = (await railLocator.count()) ? await railLocator.boundingBox() : null
+      if (rail) expect(column.x).toBeGreaterThanOrEqual(rail.x + rail.width - 1)
+      const launchBox = await launch.boundingBox()
+      const view = app.page.viewportSize()
+      expect(launchBox.y).toBeGreaterThanOrEqual(0)
+      expect(launchBox.y + launchBox.height).toBeLessThanOrEqual(view.height + 1)
       if (focused) {
         await expect(launch.getByRole('textbox', { name: 'Describe the job', exact: true })).toBeFocused()
         await expect.poll(() => new URL(app.page.url()).hash).toBe('')
@@ -223,5 +234,23 @@ try {
     expect(app.errors).toEqual([])
     await app.context.close()
   }
+  // Existing persisted `chat` intent survives the new native-interface branding.
+  const native = await workspace(390, 'dark', true)
+  await native.page.getByRole('button', { name: 'New session', exact: true }).click()
+  const form = native.page.getByRole('dialog')
+  await form.getByLabel('Agent', { exact: true }).selectOption('opencode')
+  const opensIn = form.getByRole('group', { name: 'Opens in' })
+  await expect(opensIn.getByRole('button', { name: 'OpenCode TUI', exact: true })).toBeVisible()
+  const gaffer = opensIn.getByRole('button', { name: 'Gaffer', exact: true })
+  await gaffer.tap()
+  await expect(native.page.getByRole('tooltip')).toContainText("Reet's native AI agent control interface.")
+  await expect(gaffer).toHaveAttribute('aria-pressed', 'true')
+  await form.getByRole('textbox', { name: /^Prompt/ }).fill('Keep this native interface choice')
+  await form.getByRole('button', { name: 'Add to backlog' }).click()
+  expect(native.box.saves.at(-1)).toMatchObject({ tool: 'opencode', chat: true })
+  await native.page.getByRole('button', { name: 'Edit Keep this native interface choice', exact: true }).click()
+  await expect(native.page.getByRole('dialog').getByRole('button', { name: 'Gaffer', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  expect(native.errors).toEqual([])
+  await native.context.close()
   console.log('Session board: launch links and project handoffs, stage views, combined filters, offline capture, edit, delete, start, light/dark and responsive checks passed.')
 } finally { await browser.close() }

@@ -72,6 +72,8 @@ type Peer struct {
 	// lateTargets holds removes whose late answer is waiting for the observer.
 	lateTargets map[string]WorktreeTarget
 	traffic     func(int64, int64, time.Time)
+	// barriers are settleObservations waits, by marker request id.
+	barriers map[string]chan struct{}
 }
 
 func (p *Peer) SetTrafficObserver(fn func(int64, int64, time.Time)) {
@@ -252,6 +254,17 @@ func (p *Peer) observe() {
 		case <-p.done:
 			return
 		case m := <-p.observations:
+			if m.Body == nil {
+				// A settleObservations marker: everything before it is done.
+				p.mu.Lock()
+				done := p.barriers[m.RequestID]
+				delete(p.barriers, m.RequestID)
+				p.mu.Unlock()
+				if done != nil {
+					close(done)
+				}
+				continue
+			}
 			if r, ok := m.Body.(*terminalproto.WorktreeResult); ok {
 				p.b.lateRemoval(p.key.uid, m.RequestID, *r, p)
 				continue
@@ -279,6 +292,39 @@ func (p *Peer) observe() {
 			// A worktree create's reply that came after its call gave up.
 			_ = p.b.recordWorktree(p.key.uid, p.key.agent, m.SessionID, s)
 		}
+	}
+}
+
+// settleObservations waits, at most limit, until the observation loop has
+// handled every observation the machine sent before this call, such as an
+// ended notice that came just before a call's answer.
+func (p *Peer) settleObservations(limit time.Duration) {
+	id := ID()
+	done := make(chan struct{})
+	p.mu.Lock()
+	if p.barriers == nil {
+		p.barriers = map[string]chan struct{}{}
+	}
+	p.barriers[id] = done
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		delete(p.barriers, id)
+		p.mu.Unlock()
+	}()
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	select {
+	case p.observations <- terminalproto.Message{RequestID: id}:
+	case <-p.done:
+		return
+	case <-timer.C:
+		return
+	}
+	select {
+	case <-done:
+	case <-p.done:
+	case <-timer.C:
 	}
 }
 

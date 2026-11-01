@@ -406,6 +406,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/admin/settings", s.requireOwner(s.adminSettings))
 	mux.HandleFunc("GET /api/v2/settings/yolo", s.requireWriter(s.yoloSettingGet))
 	mux.HandleFunc("PUT /api/v2/settings/yolo", s.requireAdmin(s.yoloSettingPut))
+	mux.HandleFunc("GET /api/v2/settings/branch-prune", s.requireWriter(s.branchPruneSettingGet))
+	mux.HandleFunc("PUT /api/v2/settings/branch-prune", s.requireAdmin(s.branchPruneSettingPut))
 	mux.HandleFunc("GET /api/export", s.requireWriter(s.export))
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
 	s.registerBackupRoutes(mux)
@@ -942,6 +944,7 @@ const (
 	errEnvironmentHasReceipts = "environment_has_receipts"
 	errEnvironmentHasPins     = "environment_has_pins"
 	errEnvironmentNotFound    = "environment_not_found"
+	errEnvironmentJobRunning  = "environment_job_running"
 	errLocalSkillInList       = "local_skill_not_allowed_in_list"
 	errAmbiguousSkillID       = "ambiguous_skill_id"
 	errSkillNotFound          = "skill_not_found"

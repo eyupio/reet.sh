@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { applyChatEvent, endedReason, initialChat, isWorking, pendingPermissions, resetChat } from './chat.ts'
+import { applyChatEvent, endedReason, enqueuePrompt, initialChat, isWorking, pendingPermissions, resetChat } from './chat.ts'
 
 const event = (seq, fields) => ({ seq, ...fields })
 
@@ -288,4 +288,43 @@ test('a closed chat says why it closed and what the person can do', () => {
   // Every reason says the history is gone; none claims it can be continued.
   for (const state of ['lost', 'ended', 'exited']) assert.doesNotMatch(endedReason(state, 'X'), /continue|resume|reopen/i)
   assert.notEqual(endedReason('lost', 'X'), endedReason('exited', 'X'))
+})
+
+test('queued prompts keep order, are capped, and can be edited, promoted and dropped', async () => {
+  const { dropQueuedPrompt, editQueuedPrompt, enqueuePrompt, promoteQueuedPrompt, MAX_QUEUED_PROMPTS } = await import('./chat.ts')
+  let queue = []
+  for (let i = 0; i < MAX_QUEUED_PROMPTS; i++) {
+    const answer = enqueuePrompt(queue, { id: `q${i}`, text: `message ${i}`, payload: null })
+    assert.equal(answer.full, false)
+    queue = answer.queue
+  }
+  const full = enqueuePrompt(queue, { id: 'overflow', text: 'no room', payload: null })
+  assert.equal(full.full, true)
+  assert.deepEqual(full.queue.map(item => item.id), queue.map(item => item.id))
+  queue = editQueuedPrompt(queue, 'q1', 'steer left')
+  assert.equal(queue[1].text, 'steer left')
+  assert.equal(editQueuedPrompt(editQueuedPrompt(queue, 'q1', '  '), 'q1', '')[1].text, 'steer left')
+  queue = promoteQueuedPrompt(queue, 'q3')
+  assert.deepEqual(queue.slice(0, 2).map(item => item.id), ['q3', 'q0'])
+  queue = dropQueuedPrompt(queue, 'q3')
+  assert.equal(queue[0].id, 'q0')
+  assert.equal(queue.length, MAX_QUEUED_PROMPTS - 1)
+})
+
+test('a tool still running when the turn stops is shown as stopped, and a later update still wins', () => {
+  for (const stop of ['cancelled', 'idle', 'error', 'ended']) {
+    let state = initialChat()
+    state = applyChatEvent(state, event(1, { kind: 'status', state: 'working' }))
+    state = applyChatEvent(state, event(2, { kind: 'tool', toolCallId: 'run', title: 'go test', toolKind: 'execute', status: 'in_progress' }))
+    state = applyChatEvent(state, event(3, { kind: 'tool', toolCallId: 'wait', title: 'sleep', toolKind: 'execute', status: 'pending' }))
+    state = applyChatEvent(state, event(4, { kind: 'tool', toolCallId: 'done', title: 'ls', toolKind: 'execute', status: 'completed' }))
+    state = applyChatEvent(state, event(5, { kind: 'status', state: stop }))
+    const byId = id => state.items.find(i => i.kind === 'tool' && i.toolCallId === id)
+    assert.equal(byId('run').status, 'cancelled', `${stop}: a running tool was left running`)
+    assert.equal(byId('wait').status, 'cancelled', `${stop}: a pending tool was left pending`)
+    assert.equal(byId('done').status, 'completed', `${stop}: a finished tool changed`)
+    // The agent's own late report of how that tool ended is still believed.
+    state = applyChatEvent(state, event(6, { kind: 'tool', toolCallId: 'run', status: 'completed', text: 'ok' }))
+    assert.equal(byId('run').status, 'completed', `${stop}: a later update was ignored`)
+  }
 })

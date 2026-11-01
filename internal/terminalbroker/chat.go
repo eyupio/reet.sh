@@ -535,6 +535,22 @@ func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
 	return l
 }
 
+// restoreSwitchedChat makes sure a ring exists for a row a switch (or its late
+// answer) has just made a chat. The ring holds the session/load replay. The
+// row's attention fields describe the session before the switch (an old turn,
+// a terminal bell), so they never mark the new chat running or waiting; only a
+// finished or failed outcome is kept for an empty ring.
+func (b *Broker) restoreSwitchedChat(uid int64, s store.TerminalSession) {
+	l := b.chatLog(uid, s.ID)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.seq == 0 && l.lastState == "" && (s.ChatStatus == "finished" || s.ChatStatus == "failed") {
+		l.lastState = s.ChatStatus
+		l.completedAt = s.CompletedAt
+		l.updatedAt = s.CompletedAt
+	}
+}
+
 func (b *Broker) restoreAgentChats(uid int64, agent string) {
 	if b.st == nil {
 		return

@@ -1372,6 +1372,25 @@ func (s *Store) SetRunMemberRemovedFor(uid int64, agent, token string) error {
 	return err
 }
 
+// RunMemberDirForWorktree returns the folder of the account's run member that
+// made the worktree with this run token on this machine, so maintenance can
+// work on the repository the worktree came from. A token that is not a run's
+// (or a member without a worktree) is not found, not an error.
+func (s *Store) RunMemberDirForWorktree(uid int64, agent, token string) (string, bool, error) {
+	if !terminalproto.ValidRunToken(token) || agent == "" {
+		return "", false, nil
+	}
+	var dir string
+	err := s.db.QueryRow(`SELECT dir FROM project_run_members WHERE user_id=? AND host=? AND worktree_token=? AND worktree_path<>'' LIMIT 1`, uid, agent, token).Scan(&dir)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return dir, true, nil
+}
+
 // SettleRunMemberBase decides, once, whether a member's inherited base is
 // sent: keep leaves it, otherwise it is cleared. Either way the member no
 // longer has an undecided inherited base, so every later send (a replay of the

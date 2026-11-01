@@ -8,7 +8,7 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [projects](docs/projects.md), [folder browse](docs/folder-browse.md),
 [remote machine operations](docs/remote-machine-operations.md),
 [controller terminal commands](docs/terminal-controller-commands.md),
-[OpenCode in the reet TUI](docs/structured-sessions.md) and
+[OpenCode in Gaffer](docs/structured-sessions.md) and
 [voice and copy](docs/voice-and-copy.md)); the agents-home mock-up in
 [docs/design/agents-home/](docs/design/agents-home/), its
 [plan](docs/superpowers/plans/2026-10-26-agents-home.md) and
@@ -16,6 +16,31 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 against in [docs/ui-verification.md](docs/ui-verification.md); the research behind the queued work in
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
+
+## Gaffer interface and Eli compatibility probe (1 November 2026)
+
+Branch `feat/gaffer-interface`, based on main `9b8bc17`. The native browser
+interface is branded Gaffer, with shared accessible HTML explanations; stored
+`reet`/`chat` choices, ACP sessions and OpenCode TUI remain compatible. A bounded
+Eli provider/conformance probe and licence/dependency review contribute to KZ5A;
+no coordinator or new adapter is enabled. See [the companion update](docs/work-orchestration-handoff.md#gaffer-branding-and-eli-reuse-1-november-2026)
+and [reuse decisions](docs/research/eli-reuse.md). KZ0 and KZ5A remain incomplete;
+the exact remaining decisions and future stage gates stay in those documents.
+Publication and validation are recorded in the PR; no merge or deployment is implied.
+
+## Durable work, Eli and Kanzo follow-on handoff (1 November 2026)
+
+The staged [work orchestration handoff](docs/work-orchestration-handoff.md) is a
+companion plan for the user's durable-work direction: steps assigned across
+agents, models and machines, with revision-bound independent reviews and an
+Eli-style coordinator informed by Zoomies. It owns stages KZ0–KZ12, including
+independent Kanzo-inspired documentation/resource/refresh improvements. This file
+remains the entry point for standing rules and the active task. The core stages
+fit richer run orchestration; the current structured-chat sequence retains its
+recorded priority and capability gates until the active task is explicitly changed.
+Only the handoff and this index entry are delivered. No KZ runtime implementation stage is complete; the Gaffer follow-up above records
+a bounded KZ5A probe. When this workstream is selected, begin with KZ0 baseline reconciliation
+and record the one active slice here.
 
 **Docs tidy-up (27 October 2026).** Finished plans, specs, stage documents and audits were removed
 on 27 October 2026; they live in git history before commit `bd9e56c` (for example

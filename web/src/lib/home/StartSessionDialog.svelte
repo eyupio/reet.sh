@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { gafferTooltip } from '../gafferTooltip'
   import { onMount, tick, untrack } from 'svelte'
   import { shell } from '../dialogShell'
-  import { UnauthorizedError, listModelFavourites, type Skill } from '../api'
-  import { agentChoices } from '../catalogue'
+  import { getYoloSetting, UnauthorizedError, listModelFavourites, type Skill, type YoloSetting } from '../api'
+  import { agentChoices, CATALOGUE } from '../catalogue'
   import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateDir, validateModel } from '../agentLaunch'
   import { effortChoices, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
   import { installPrompt } from '../install'
@@ -11,10 +12,11 @@
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import SkillPromptPicker from './SkillPromptPicker.svelte'
   import FolderBrowser from './FolderBrowser.svelte'
-  import { defaultTitle, initialChoice, startable, toCreate, withAgent, withHome, withProject, type LaunchChoice, type LaunchCreate, type LaunchDefaults } from '../launchBar'
+  import { defaultTitle, initialChoice, startable, toCreate, withAgent, withHome, withProject, yoloCanStart, yoloGates, type LaunchChoice, type LaunchCreate, type LaunchDefaults } from '../launchBar'
+  import YoloDialog from '../launch/YoloDialog.svelte'
   import { createTerminal, launchUpload, listBranches, machineModels, refusalSentence, type BranchesResult, structuredAgent, TerminalError, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
 
-  // Starts a session straight from the Active column. The interface choice is the launch bar's own: the reet TUI is the default
+  // Starts a session straight from the Active column. The interface choice is the launch bar's own: Gaffer is the default
   // wherever the machine offers it, and the agent's own TUI is one click away. Everything else (defaults, refusals, the one
   // idempotent create) is the launch bar's logic, so both start sessions the same way.
   let { projects, machines, profile, initialProject = '', onstarted, onsignedout, onclose }: {
@@ -28,6 +30,9 @@
   let busy = $state(false), message = $state(''), title = $state(''), titleTouched = $state(false)
   // Kept while a start's outcome is unknown, so Retry asks about the same request and cannot start a second agent.
   let request: (LaunchCreate & { structured: boolean }) | null = null, requestKey = ''
+  // YOLO opens on the project's default and is still confirmed before Start sends anything.
+  let yoloSetting = $state<YoloSetting | null>(null), yoloOpen = $state(false)
+  let yoloIntent = $state<'enable' | 'start'>('enable'), yoloConfirmed = $state(false)
   const first = (): LaunchChoice => {
     const options = { machines }
     const start = initialChoice(projects, profile, options)
@@ -46,6 +51,16 @@
   const hasChat = $derived(!!structuredAgent(machine?.capabilities, choice.agent))
   const chat = $derived(hasChat && choice.chat === true)
   const why = $derived(startable(choice, projects, machines, profile))
+  // The trust box is the one choice that stops a Gaffer start: say so beside the box, not only in the note.
+  const trustMissing = $derived(chat && choice.agent === 'opencode' && choice.trust !== true)
+  const yoloWhy = $derived.by(() => {
+    if (!yoloSetting) return 'Reading the account setting…'
+    if (!yoloSetting.allowed) return 'An owner or admin can allow YOLO for this account in Settings.'
+    const agent = choice.agent
+    if (!agent || !CATALOGUE.find(a => a.id === agent)?.yolo) return 'This agent has no option reet can use for that.'
+    return ''
+  })
+  const yoloGateList = $derived(yoloGates(choice, yoloSetting, projects, machines))
 
   // Model, effort and skills, as in the plan dialog. The model list is read from the machine the project lives on.
   const efforts = $derived(effortChoices(choice.agent))
@@ -125,7 +140,7 @@
   // The title follows the prompt's first line until the person types their own.
   $effect(() => { if (!titleTouched) title = defaultTitle(choice.prompt) })
 
-  // A repository starts in a fresh git worktree or in the checkout itself, from a base branch the machine lists. The reet TUI
+  // A repository starts in a fresh git worktree or in the checkout itself, from a base branch the machine lists. Gaffer
   // has neither (it runs in the folder as it is), so the choices only show for the agent's own terminal interface.
   const showCheckout = $derived(mode === 'project' && !!project?.isRepo && !chat)
   let branchRead = $state<{ key: string; result: BranchesResult | 'failed' | null }>({ key: '', result: null })
@@ -160,14 +175,33 @@
 
   function pickProject(value: string) {
     const next = projects.find(p => p.id === value)
-    if (next) choice = withProject(choice, next, profile, { machines })
+    if (next) { yoloConfirmed = false; choice = withProject(choice, next, profile, { machines }) }
   }
   function pickAgent(value: string) { choice = withAgent(choice, value, project ? { ...project } : null, profile, { machines }) }
   function pickTui(reet: boolean) { const { trust: _t, ...rest } = choice; choice = { ...rest, chat: reet } }
+  function askMode() { yoloConfirmed = false; if (choice.approvals === 'yolo') choice = { ...choice, approvals: 'ask' } }
+  function openYolo() {
+    if (busy || yoloWhy) return
+    yoloIntent = 'enable'
+    choice = { ...choice, approvals: 'ask' }
+    yoloOpen = true
+  }
+  function cancelYolo() { yoloOpen = false; if (yoloIntent === 'enable') choice = { ...choice, approvals: 'ask' } }
+  async function confirmYolo() {
+    if (!yoloCanStart(yoloGateList)) return
+    const starting = yoloIntent === 'start'
+    yoloConfirmed = true
+    choice = { ...choice, approvals: 'yolo' }
+    yoloOpen = false
+    await tick()
+    if (starting) await submit()
+    else dialog?.querySelector<HTMLButtonElement>('button.primary')?.focus()
+  }
 
-  async function start(event: SubmitEvent) {
-    event.preventDefault()
+  async function submit() {
     if (busy || why) { if (why) message = why; return }
+    if (choice.approvals === 'yolo' && yoloWhy) { message = yoloWhy; return }
+    if (choice.approvals === 'yolo' && !yoloConfirmed) { yoloIntent = 'start'; yoloOpen = true; return }
     if (imagesReason) { message = imagesReason; return }
     if (dirProblem) { message = dirProblem; return }
     let made: LaunchCreate | null = null
@@ -216,10 +250,12 @@
       } else message = "We didn't hear back, so the agent may have started. Check Active before starting another, or press Start to retry the same request."
     } finally { busy = false }
   }
-  function close() { if (!busy) { dialog?.close(); onclose() } }
+  function start(event: SubmitEvent) { event.preventDefault(); void submit() }
+  function close() { if (!busy && !yoloOpen) { dialog?.close(); onclose() } }
   onMount(() => {
     touch = matchMedia('(pointer: coarse)').matches
     listModelFavourites(life.signal).then(a => { if (!life.signal.aborted) favourites = a.favourites ?? [] }, () => { /* a help only */ })
+    void getYoloSetting().then(value => { if (!life.signal.aborted) yoloSetting = value }).catch(() => { if (!life.signal.aborted) yoloSetting = null })
     dialog?.showModal(); return () => { life.abort(); dialog?.close(); for (const a of attachments) URL.revokeObjectURL(a.preview) } })
 </script>
 
@@ -297,13 +333,27 @@
           </div>
           <div class="field"><span>Interface</span>
             <div class="mode" role="group" aria-label="Interface">
-              <button type="button" class:on={chat} aria-pressed={chat} disabled={!hasChat} title={hasChat ? '' : 'This machine does not offer the reet TUI for that agent.'} onclick={() => pickTui(true)}>reet TUI</button>
-              <button type="button" class:on={!chat} aria-pressed={!chat} onclick={() => pickTui(false)}>Agent TUI</button>
+              <button use:gafferTooltip type="button" class:on={chat} aria-pressed={chat} aria-disabled={!hasChat} title={hasChat ? '' : 'This machine does not offer Gaffer for that agent.'} onclick={() => { if (hasChat) pickTui(true) }}>Gaffer</button>
+              <button type="button" class:on={!chat} aria-pressed={!chat} onclick={() => pickTui(false)}>{toolName(choice.agent)} TUI</button>
             </div>
             <small>{chat ? (choice.agent === 'opencode' ? 'A native chat with approvals, history and images.' : 'A native chat that asks before it changes anything.') : `${toolName(choice.agent)}’s own terminal interface.`}</small>
           </div>
-          {#if chat && choice.agent === 'opencode'}
-            <label class="trust"><input type="checkbox" checked={choice.trust === true} onchange={e => choice = { ...choice, trust: e.currentTarget.checked }} />I trust this folder. OpenCode plugins in it may run.</label>
+          {#if chat}
+            <div class="field"><span>Approvals</span>
+              <div class="mode" role="group" aria-label="Approvals">
+                <button type="button" class:on={choice.approvals !== 'yolo'} aria-pressed={choice.approvals !== 'yolo'} onclick={askMode}>Ask me</button>
+                <button type="button" class:on={choice.approvals === 'yolo'} aria-pressed={choice.approvals === 'yolo'} disabled={!!yoloWhy} title={yoloWhy || 'Start only after a confirmation.'} onclick={openYolo}>YOLO</button>
+              </div>
+              <small>{choice.approvals === 'yolo' ? 'Every command and edit runs without asking. The start is audited.' : yoloWhy || 'reet asks before each command or edit.'}</small>
+            </div>
+            {#if choice.agent === 'opencode'}
+              <label class="trust" class:missing={trustMissing}>
+                <input type="checkbox" checked={choice.trust === true} onchange={e => choice = { ...choice, trust: e.currentTarget.checked }} aria-invalid={trustMissing} aria-describedby={trustMissing ? `${id}-trust-why` : undefined} />
+                <span>I trust this folder. OpenCode plugins in it may run.
+                  {#if trustMissing}<span class="trust-why" id={`${id}-trust-why`} role="alert">Tick this box to start Gaffer.</span>{/if}
+                </span>
+              </label>
+            {/if}
           {/if}
         </fieldset>
       {/if}
@@ -328,6 +378,10 @@
     <SkillPromptPicker opener={skillButton ?? null} sheet={touch} oninsert={useSkill} onclose={() => skillOpen = false} />
   {/if}
 </dialog>
+{#if yoloOpen}
+  <YoloDialog gates={yoloGateList} tool={choice.agent} structured={chat} machine={machine?.host || 'the machine'} enabling={yoloIntent === 'enable'}
+    oncancel={cancelYolo} onstart={() => void confirmYolo()} />
+{/if}
 
 <style>
   dialog { width: min(760px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--card); color: var(--ink); }
@@ -374,7 +428,9 @@
   .attachments button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; min-width: 28px; }
   .skill-add { border: 0; background: none; padding: 7px 0; color: var(--accent-text); font: 600 11px var(--sans); cursor: pointer; }
   .skill-add:hover { text-decoration: underline; }
-  .trust { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .trust { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; }
+  .trust.missing { color: var(--bad); }
+  .trust-why { display: block; margin-top: 2px; font-weight: 600; }
   .note, .none { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
   footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; border-top: 1px solid var(--line); }
   @media (max-width: 650px) { input:not([type='checkbox']), select, textarea, .picker { font-size: 16px; } .settings, .checkout { grid-template-columns: 1fr; gap: 0; } .skill-add { min-height: 44px; } header, .body, footer { padding-left: 16px; padding-right: 16px; } }

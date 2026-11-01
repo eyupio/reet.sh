@@ -63,6 +63,7 @@
   let defaultTool = $state(initial?.defaultTool ?? '')
   let defaultModel = $state(initial?.defaultModel ?? '')
   let defaultEffort = $state(initial?.defaultEffort ?? '')
+  let defaultYolo = $state(initial?.defaultYolo ?? false)
   // The machine's own agents: Cline only where the connector takes agents-v2 and reports it installed. A saved agent
   // that the machine no longer offers stays visible, so an edit elsewhere never drops it by itself.
   const agentOptions = $derived.by(() => {
@@ -98,7 +99,7 @@
   // A save met someone else's change: Save waits until the latest version is loaded, so the stale one is never sent again.
   let stale = $state(false), reloadButton = $state<HTMLButtonElement>()
   // What this person had changed when the latest version was loaded, to use again on top of it.
-  type Mine = Partial<{ host: string; dir: string; name: string; worktreeDefault: WorktreeDefault; starterPrompt: string; baseBranch: string; defaultTool: string; defaultModel: string; defaultEffort: string }>
+  type Mine = Partial<{ host: string; dir: string; name: string; worktreeDefault: WorktreeDefault; starterPrompt: string; baseBranch: string; defaultTool: string; defaultModel: string; defaultEffort: string; defaultYolo: boolean }>
   let mine = $state<Mine | null>(null)
   let branches = $state<string[]>([]), branchNote = $state('')
   // The project's model list and this account's favourites are suggestions only: a failed read changes the status line,
@@ -367,6 +368,7 @@
       if (defaultTool) input.defaultTool = defaultTool
       if (model) input.defaultModel = model
       if (effort) input.defaultEffort = effort
+      if (defaultYolo) input.defaultYolo = true
       return input
     }
     // A change sends only what changed: absent keeps, "" clears.
@@ -389,17 +391,18 @@
     if (defaultTool !== (editing.defaultTool ?? '')) input.defaultTool = defaultTool
     if (model !== (editing.defaultModel ?? '')) input.defaultModel = model
     if (effort !== (editing.defaultEffort ?? '')) input.defaultEffort = effort
+    if (defaultYolo !== (editing.defaultYolo ?? false)) input.defaultYolo = defaultYolo
     return input
   }
 
   const definite = (e: unknown) => e instanceof TerminalError && [400, 401, 403, 404, 409, 410, 413, 422, 429].includes(e.status)
   // The field a refusal names, so focus goes there (opening its fold first).
   async function focusField(field: string) {
-    const fold = field === 'starterPrompt' ? promptFold : ['baseBranch', 'defaultTool', 'defaultModel', 'defaultEffort'].includes(field) ? moreFold : undefined
+    const fold = field === 'starterPrompt' ? promptFold : ['baseBranch', 'defaultTool', 'defaultModel', 'defaultEffort', 'defaultYolo'].includes(field) ? moreFold : undefined
     if (fold) fold.open = true
     await tick()
     if (life.signal.aborted) return
-    const target = ({ host: 'machine', dir: 'folder', name: 'name', worktreeDefault: 'worktree', starterPrompt: 'prompt', baseBranch: 'branch', defaultTool: 'tool', defaultModel: 'model', defaultEffort: 'effort' } as Record<string, string>)[field]
+    const target = ({ host: 'machine', dir: 'folder', name: 'name', worktreeDefault: 'worktree', starterPrompt: 'prompt', baseBranch: 'branch', defaultTool: 'tool', defaultModel: 'model', defaultEffort: 'effort', defaultYolo: 'approvals' } as Record<string, string>)[field]
     let el = target ? dialog?.querySelector<HTMLElement>(`#${CSS.escape(`${id}-${target}`)}`) : null
     // A disabled model picker has no agent to pick for: the agent select is the field to fix.
     if (el instanceof HTMLButtonElement && el.disabled) el = dialog?.querySelector<HTMLElement>(`#${CSS.escape(`${id}-tool`)}`) ?? null
@@ -425,7 +428,7 @@
   }
 
   // The fields as they read now, by the name a change sends.
-  const fields = (): Required<Mine> => ({ host, dir, name: name.trim(), worktreeDefault, starterPrompt, baseBranch: baseBranch.trim(), defaultTool, defaultModel: cleanModel(defaultModel), defaultEffort })
+  const fields = (): Required<Mine> => ({ host, dir, name: name.trim(), worktreeDefault, starterPrompt, baseBranch: baseBranch.trim(), defaultTool, defaultModel: cleanModel(defaultModel), defaultEffort, defaultYolo })
   function fill(p: Mine) {
     if (p.host !== undefined) host = p.host
     if (p.dir !== undefined) dir = p.dir
@@ -436,6 +439,7 @@
     if (p.defaultTool !== undefined) defaultTool = p.defaultTool
     if (p.defaultModel !== undefined) defaultModel = p.defaultModel
     if (p.defaultEffort !== undefined) defaultEffort = p.defaultEffort
+    if (p.defaultYolo !== undefined) defaultYolo = p.defaultYolo
   }
   // Someone else saved first: read the latest version (with its starter prompt), put it in the fields, and keep what this
   // person had changed in a list they can use again with one press. Nothing is saved until they press Save.
@@ -449,7 +453,7 @@
       if (life.signal.aborted) return
       editing = latest
       fill({ host: latest.host, dir: latest.dir, name: latest.name, worktreeDefault: latest.worktreeDefault, starterPrompt: latest.starterPrompt ?? '',
-        baseBranch: latest.baseBranch, defaultTool: latest.defaultTool ?? '', defaultModel: latest.defaultModel ?? '', defaultEffort: latest.defaultEffort ?? '' })
+        baseBranch: latest.baseBranch, defaultTool: latest.defaultTool ?? '', defaultModel: latest.defaultModel ?? '', defaultEffort: latest.defaultEffort ?? '', defaultYolo: latest.defaultYolo ?? false })
       known.clear(); notes.clear(); knowSaved(latest); checkSeq++; clearBranches()
       fieldNote = null
       mine = changed.length ? Object.fromEntries(changed.map(k => [k, now[k]])) as Mine : null
@@ -484,6 +488,7 @@
     if (m.defaultTool !== undefined) out.push({ label: 'Default agent', value: m.defaultTool ? toolName(m.defaultTool) : "The launch bar's choice" })
     if (m.defaultModel !== undefined) out.push({ label: 'Default model', value: shown(m.defaultModel) })
     if (m.defaultEffort !== undefined) out.push({ label: 'Default thinking', value: shown(m.defaultEffort) })
+    if (m.defaultYolo !== undefined) out.push({ label: 'Approvals', value: m.defaultYolo ? 'YOLO' : 'Ask me' })
     return out
   }
 
@@ -685,6 +690,17 @@
                 </div>
               </div>
             {/if}
+            <div class="field">
+              <label class="label" for={`${id}-approvals`}>Approvals</label>
+              <div class="select-wrap">
+                <select id={`${id}-approvals`} bind:value={defaultYolo} onchange={edited}>
+                  <option value={false}>Ask me before each command or edit</option>
+                  <option value={true}>YOLO — run without asking</option>
+                </select>
+                <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+              </div>
+              {#if defaultYolo}<p class="hint yolo-hint">Sessions in this project open with YOLO selected. Each start still asks you to confirm, and every launch is audited.</p>{/if}
+            </div>
           </div>
         </details>
       </fieldset>
@@ -767,6 +783,7 @@
   .fold-body { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
   .fold-body.defaults { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .defaults-hint { grid-column: 1 / -1; }
+  .yolo-hint { color: var(--warn); }
   .picker { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-width: 0; height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: 14px var(--sans); text-align: left; cursor: pointer; }
   .picker:disabled { opacity: .55; cursor: default; }
   .picker .value { min-width: 0; overflow-wrap: anywhere; }

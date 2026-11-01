@@ -114,12 +114,15 @@ func TestNativeIDNamespacesAreDisjointAndGated(t *testing.T) {
 			}
 		}
 	}
-	// Claude is reviewed (its descriptor still gates availability); the other
-	// measured candidates are not, so none of them may validate.
+	// Claude and Codex are reviewed (their descriptors still gate availability);
+	// the other measured candidates are not, so none of them may validate.
 	if !ValidACPSessionIDFor("claude", uuid) || ValidACPSessionIDFor("claude", "ses_fake0001") {
 		t.Fatal("claude identifier namespace")
 	}
-	if ValidACPSessionIDFor("codex", uuid) || nativeIDMatches("gemini", uuid) {
+	if !ValidACPSessionIDFor("codex", uuid) || ValidACPSessionIDFor("codex", "ses_fake0001") {
+		t.Fatal("codex identifier namespace")
+	}
+	if nativeIDMatches("gemini", uuid) {
 		t.Fatal("unreviewed tool accepted")
 	}
 }

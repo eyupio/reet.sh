@@ -14,7 +14,7 @@ if (useDescriptors) machine.capabilities.acpAgents = [availableChat]
 
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const { context, page, state, errors } = await openWorkspace(browser, {
-  width: 1360, height: 900, touch: false, terminalStatus: active, terminalMachines: [machine],
+  width: 1360, height: 900, touch: true, terminalStatus: active, terminalMachines: [machine],
   routes: {
     '/api/v2/terminal/sessions': req => {
       if (req.method() === 'POST') {
@@ -73,7 +73,7 @@ try {
       const unavailableDialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })
       await unavailableDialog.getByRole('radio', { name: 'OpenCode', exact: true }).check()
       await expect(unavailableDialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveCount(0)
-      await expect(unavailableDialog.getByText('This machine does not currently offer the reet TUI for OpenCode.', { exact: false })).toBeVisible()
+      await expect(unavailableDialog.getByText('This machine does not currently offer Gaffer for OpenCode.', { exact: false })).toBeVisible()
       await unavailableDialog.getByRole('button', { name: 'Close', exact: true }).click()
     }
     machine.capabilities.acpAgents = [availableChat]
@@ -84,6 +84,43 @@ try {
   await expect(dialog).toBeVisible()
   await dialog.getByRole('radio', { name: 'OpenCode', exact: true }).check()
   await expect(dialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue('reet')
+  const explanation = "Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI."
+  const about = dialog.getByRole('button', { name: 'About Gaffer', exact: true })
+  await about.hover()
+  const help = page.getByRole('tooltip')
+  await expect(help).toBeVisible()
+  await expect(help).toHaveText(`Gaffer${explanation}`)
+  await expect(about).toHaveAccessibleDescription(explanation)
+  const backgrounds = []
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme)
+    backgrounds.push(await help.evaluate(node => getComputedStyle(node).backgroundColor))
+    await expect(help).toBeVisible()
+  }
+  expect(backgrounds[0]).not.toBe(backgrounds[1])
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light')
+
+  const box = await help.boundingBox()
+  expect(box.x).toBeGreaterThanOrEqual(0)
+  expect(box.y).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width).toBeLessThanOrEqual(1360)
+  await page.keyboard.press('Escape')
+  await expect(help).toHaveCount(0)
+  await expect(dialog).toBeVisible()
+  await about.focus()
+  await expect(help).toBeVisible()
+  // Touch opens the same explanation without cancelling native selection or dialog actions.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await about.tap()
+  await expect(help).toBeVisible()
+  const phoneHelp = await help.boundingBox()
+  expect(phoneHelp.x).toBeGreaterThanOrEqual(0)
+  expect(phoneHelp.x + phoneHelp.width).toBeLessThanOrEqual(390)
+  expect(phoneHelp.y).toBeGreaterThanOrEqual(0)
+  expect(phoneHelp.y + phoneHelp.height).toBeLessThanOrEqual(844)
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 1360, height: 900 })
+
   await expect(dialog.getByRole('button', { name: /^Model:/ })).toHaveAccessibleName('Model: OpenCode’s configured model')
   await dialog.getByRole('button', { name: /^Model:/ }).click()
   const models = page.getByRole('listbox', { name: 'Model', exact: true })
@@ -93,11 +130,17 @@ try {
   await dialog.getByRole('textbox', { name: /Opening prompt/ }).fill('fix the failing build')
   await dialog.getByRole('button', { name: 'Start', exact: true }).click()
   await page.waitForURL(new RegExp(`session=${S}`))
-  await expect(page.getByRole('button', { name: 'reet TUI', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: 'Gaffer', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  const gaffer = page.getByRole('button', { name: 'Gaffer', exact: true })
+  await gaffer.focus()
+  await expect(page.getByRole('tooltip')).toHaveText(`Gaffer${explanation}`)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+
   // This machine has not negotiated session-mode-v1, so the OpenCode TUI is offered with the reason it cannot switch.
   await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAttribute('aria-pressed', 'false')
   await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAttribute('aria-disabled', 'true')
-  await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAccessibleDescription('Update reet on this machine to switch between the reet TUI and the OpenCode TUI.')
+  await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAccessibleDescription('Update reet on this machine to switch between Gaffer and the OpenCode TUI.')
   await page.waitForFunction(() => window.__chatStream?.url.endsWith('/chat'))
   await page.evaluate(() => window.__chatStream.emit('reset', { truncated: false }))
   await page.evaluate(() => {
@@ -150,6 +193,39 @@ try {
   await expect.poll(() => state.cancelled).toBe(true)
   await page.evaluate(() => window.__chatStream.emit('chat', { seq: 8, kind: 'status', state: 'cancelled' }))
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+
+  // While OpenCode works the composer queues a message instead of sending it; the queue is visible, editable and removable,
+  // and sends one message when the turn finishes.
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 8.1, kind: 'status', state: 'working' }))
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+  const chatBox = page.getByRole('textbox', { name: 'Message OpenCode' })
+  await chatBox.fill('steer the work toward the smaller fix')
+  await page.getByRole('button', { name: 'Queue', exact: true }).click()
+  const queue = page.getByRole('region', { name: 'Queued messages' })
+  await expect(queue).toBeVisible()
+  await expect(queue.locator('.queue-list li')).toHaveCount(1)
+  await expect(queue).toContainText('steer the work toward the smaller fix')
+  await page.getByRole('button', { name: /^Edit queued message/ }).click()
+  await expect(chatBox).toHaveValue('steer the work toward the smaller fix')
+  await expect(queue).toHaveCount(0)
+  await page.getByRole('button', { name: 'Queue', exact: true }).click()
+  await expect(queue.locator('.queue-list li')).toHaveCount(1)
+  state.prompt = null
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 8.2, kind: 'status', state: 'idle' }))
+  await expect.poll(() => state.prompt).toEqual({ text: 'steer the work toward the smaller fix' })
+  await expect(queue).toHaveCount(0)
+  // A queued message can be removed instead of sent.
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 8.3, kind: 'status', state: 'working' }))
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+  await chatBox.fill('this one will be removed')
+  await page.getByRole('button', { name: 'Queue', exact: true }).click()
+  await expect(queue.locator('.queue-list li')).toHaveCount(1)
+  await page.getByRole('button', { name: /^Remove queued message/ }).click()
+  await expect(queue).toHaveCount(0)
+  state.prompt = null
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 8.4, kind: 'status', state: 'idle' }))
+  await page.waitForTimeout(250)
+  expect(state.prompt).toBeNull()
   expect(state.create).toMatchObject({ structured: true, trust: true, tool: 'opencode', model: 'anthropic/claude-sonnet-4-5', prompt: 'fix the failing build' })
   expect(state.create.effort).toBeUndefined()
 
@@ -448,6 +524,347 @@ try {
   expect(sends).toBe(sendsBeforePhone)
   await page.setViewportSize({ width: 1360, height: 900 })
 
+  // Tablet widths and both colour schemes: the picker stays inside the viewport with no sideways scroll, and its text stays
+  // readable (4.5:1) against the card in light and dark.
+  const contrastOf = (loc) => loc.evaluate(el => {
+    const rgb = c => (c.match(/[\d.]+/g) || []).map(Number)
+    const lum = ([r, g, b]) => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b) }
+    let bg = null
+    for (let n = el; n && !bg; n = n.parentElement) { const c = rgb(getComputedStyle(n).backgroundColor); if (c.length >= 3 && (c.length === 3 || c[3] === 1)) bg = c }
+    bg = bg || [255, 255, 255]
+    const fg = rgb(getComputedStyle(el).color)
+    const [a, b] = [lum(fg), lum(bg)].sort((x, y) => y - x)
+    return (a + 0.05) / (b + 0.05)
+  })
+  for (const combo of [{ w: 820, h: 1180, scheme: 'light' }, { w: 820, h: 1180, scheme: 'dark' }, { w: 1024, h: 768, scheme: 'dark' }, { w: 1024, h: 768, scheme: 'light' }]) {
+    await page.emulateMedia({ colorScheme: combo.scheme })
+    await page.setViewportSize({ width: combo.w, height: combo.h })
+    await skillsButton.click()
+    await expect(picker).toBeVisible()
+    await expect(picker.getByRole('listbox')).toHaveCount(3)
+    const box = await picker.boundingBox()
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.y).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(combo.w)
+    expect(box.y + box.height).toBeLessThanOrEqual(combo.h)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    expect(await picker.locator('[data-shell-body]').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    const row = picker.getByRole('option', { name: /pdf/ })
+    expect(await contrastOf(row.locator('.name'))).toBeGreaterThanOrEqual(4.5)
+    expect(await contrastOf(row.locator('.description'))).toBeGreaterThanOrEqual(4.5)
+    expect(await contrastOf(picker.getByText('Skills on dev-laptop were read 5 minutes ago.'))).toBeGreaterThanOrEqual(4.5)
+    await page.keyboard.press('Escape')
+    await expect(picker).toHaveCount(0)
+  }
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.setViewportSize({ width: 1360, height: 900 })
+
+  // Installing a hosted skill from the picker. The panel runs inside the same sheet; the mocks record every install, cancel,
+  // sync read and approval, and a fake clock drives the 2 second polling and the 60 second hint without waiting.
+  await page.clock.install()
+  const hostedPdf = { id: 'reet:pdf', name: 'pdf', description: 'Read and fill forms', source: 'reet', agent: '', native: false, onMachine: false, invocation: '', published: true }
+  const hostedDraft = { id: 'reet:draft', name: 'draft-notes', description: 'Not published yet', source: 'reet', agent: '', native: false, onMachine: false, invocation: '', published: false }
+  const nativePdf = { id: 'm9', name: 'pdf', description: 'Read and fill forms', source: 'machine', agent: 'opencode', native: true, onMachine: true, invocation: 'Use the pdf skill.', published: true }
+  const inst = { installs: [], cancels: [], patches: [], syncReads: 0, skillReads: 0, job: null, installReply: null, cancelReply: null, n: 0 }
+  const cur = () => `job${inst.n}`
+  const folder = '/home/dev/.config/opencode/skills'
+  const planJob = (id, actions, over = {}) => ({ id, agentId: A, targetId: 't1', kind: 'preview', status: 'awaiting-approval', revision: 'r1', hash: `hash-${id}`, plan: { directory: folder, actions }, message: '', createdAt: Date.now(), updatedAt: Date.now(), ...over })
+  page.on('request', request => { if (/\/sessions\/[^/]+\/skills$/.test(new URL(request.url()).pathname)) inst.skillReads++ })
+  await page.route('**/api/v2/terminal/sessions/*/skills/install', async route => {
+    inst.installs.push(route.request().postDataJSON())
+    const reply = inst.installReply ? inst.installReply() : { status: 200, json: { job: `job${++inst.n}`, reused: false, directory: folder, host: 'dev-laptop' } }
+    return route.fulfill(reply)
+  })
+  await page.route('**/api/v2/terminal/sessions/*/skills/install/cancel', route => {
+    inst.cancels.push(route.request().postDataJSON())
+    return route.fulfill(inst.cancelReply ? inst.cancelReply() : { status: 200, json: { reverted: true } })
+  })
+  await page.route('**/api/v2/sync', route => { inst.syncReads++; return route.fulfill({ status: 200, json: { environments: [], machines: [], agents: [], targets: [], runs: [], updateJobs: [], jobs: inst.job ? [inst.job] : [] } }) })
+  await page.route('**/api/v2/sync/jobs', route => { inst.patches.push(route.request().postDataJSON()); return route.fulfill({ status: 200, json: { environments: [], targets: [], jobs: inst.job ? [inst.job] : [] } }) })
+  const resetInstall = (rows = [hostedPdf, hostedDraft]) => {
+    inst.installs.length = 0; inst.cancels.length = 0; inst.patches.length = 0; inst.job = null; inst.installReply = null; inst.cancelReply = null
+    state.skills = { skills: rows, machineSeen: Date.now() - 5 * 60_000, host: 'dev-laptop' }
+  }
+  const pickerFilter = picker.getByRole('searchbox', { name: 'Filter skills' })
+  const panelOf = picker.getByRole('region', { name: 'Install pdf' })
+  const statusOf = picker.getByRole('status')
+  const openPanel = async () => {
+    await skillsButton.click()
+    await expect(picker).toBeVisible()
+    await picker.getByRole('button', { name: 'Install pdf', exact: true }).click()
+    await expect(panelOf).toBeVisible()
+  }
+  const confirmInstall = async () => { await panelOf.getByRole('button', { name: 'Install', exact: true }).click() }
+  const poll = () => page.clock.runFor(2000)
+
+  // The published reet-hosted row offers Install; the unpublished one says to publish it, as a link to the hosting page, with no button.
+  resetInstall()
+  await composer.fill('')
+  await skillsButton.click()
+  await expect(picker.getByRole('button', { name: 'Install pdf', exact: true })).toHaveCount(1)
+  await expect(picker.getByRole('link', { name: 'Publish this skill to install it.' })).toHaveAttribute('href', '/hosting')
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  // A machine reet does not know has no name to install on, so no row offers Install.
+  resetInstall()
+  state.skills = { ...state.skills, host: '' }
+  await skillsButton.click()
+  await expect(picker.getByRole('option', { name: /Read and fill forms/ })).toBeVisible()
+  await expect(picker.getByRole('button', { name: /^Install/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  expect(inst.installs).toEqual([])
+
+  // Structure: a group of rows without actions is one listbox owning all of them; each reet row with an action is its own
+  // single-option listbox with the action outside it.
+  resetInstall([nativePdf, { ...nativePdf, id: 'm10', name: 'xlsx' }, hostedPdf, hostedDraft])
+  await skillsButton.click()
+  await expect(picker.getByRole('button', { name: 'Install pdf', exact: true })).toBeVisible()
+  const boxes = picker.getByRole('listbox')
+  await expect(boxes).toHaveCount(3)
+  await expect(boxes.nth(0)).toHaveAccessibleName('On this machine for OpenCode')
+  await expect(boxes.nth(0).getByRole('option')).toHaveCount(2)
+  for (const i of [1, 2]) await expect(boxes.nth(i).getByRole('option')).toHaveCount(1)
+  await expect(picker.locator('[role=listbox] button, [role=listbox] a')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+
+  // Install opens the confirm text; nothing is called until the Install button in the panel is pressed, then exactly one call.
+  await openPanel()
+  await expect(panelOf.getByText('Add pdf to the OpenCode skills folder on dev-laptop. Nothing runs until you approve the plan.')).toBeVisible()
+  expect(inst.installs).toEqual([])
+  expect(inst.syncReads).toBe(0)
+  await expect(panelOf.getByRole('button', { name: 'Install', exact: true })).toBeFocused()
+  await confirmInstall()
+  await expect(statusOf).toHaveText('Waiting for dev-laptop…')
+  expect(inst.installs).toEqual([{ skill: 'reet:pdf' }])
+  // Waiting: the hint appears only after a minute; the panel never cancels by itself; Cancel calls the cancel route once and returns to the list.
+  await page.clock.fastForward(30_000)
+  await expect(statusOf).toHaveText('Waiting for dev-laptop…')
+  await page.clock.fastForward(31_000)
+  await expect(statusOf).toHaveText('Waiting for dev-laptop… Is reet running on dev-laptop?')
+  await page.clock.fastForward(10 * 60_000)
+  await expect(statusOf).toContainText('Is reet running on dev-laptop?')
+  expect(inst.cancels).toEqual([])
+  expect(inst.patches).toEqual([])
+  await panelOf.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(picker.getByRole('option', { name: /draft-notes/ })).toBeVisible()
+  expect(inst.cancels).toEqual([{ job: 'job1' }])
+  expect(inst.installs).toHaveLength(1)
+  await page.keyboard.press('Escape')
+
+  // A plain add is reviewed and approved: Approve is the focused button, nothing is approved until it is pressed, then exactly one PATCH with the job's hash.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  await expect(statusOf).toHaveText('Waiting for dev-laptop…')
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(statusOf).toHaveText('Review what will be added.')
+  await expect(panelOf.getByText('Add pdf', { exact: true })).toBeVisible()
+  // The review names the folder the plan writes to.
+  await expect(panelOf.getByText(`Folder: ${folder}`, { exact: true })).toBeVisible()
+  const approve = panelOf.getByRole('button', { name: 'Approve and install', exact: true })
+  await expect(approve).toBeFocused()
+  await page.clock.fastForward(5000)
+  expect(inst.patches).toEqual([])
+  await approve.click()
+  await expect.poll(() => inst.patches).toEqual([{ id: cur(), action: 'approve', hash: `hash-${cur()}` }])
+  expect(inst.cancels).toEqual([])
+  expect(inst.installs).toHaveLength(1)
+  // Installing, then done: the picker reloads, the skill is now a native row, and focus returns to the filter.
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }], { kind: 'apply', status: 'running' })
+  await poll()
+  await expect(statusOf).toHaveText('Installing pdf on dev-laptop…')
+  const readsBefore = inst.skillReads
+  state.skills = { skills: [nativePdf], machineSeen: Date.now(), host: 'dev-laptop' }
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }], { kind: 'apply', status: 'succeeded' })
+  await poll()
+  await expect(panelOf).toHaveCount(0)
+  await expect(picker.getByRole('option', { name: /pdf/ })).toBeVisible()
+  await expect(picker.getByText('On this machine for OpenCode')).toBeVisible()
+  expect(inst.skillReads).toBe(readsBefore + 1)
+  await expect(pickerFilter).toBeFocused()
+  const syncReadsAfterDone = inst.syncReads
+  await page.clock.fastForward(10_000)
+  expect(inst.syncReads).toBe(syncReadsAfterDone)
+  await page.keyboard.press('Escape')
+
+  // A plan that does more than add pdf cannot be approved here: the reason, the Sync page and Cancel are offered instead.
+  const risky = {
+    replace: [{ add: true, replace: true, skill: { slug: 'pdf' } }],
+    removal: [{ add: true, skill: { slug: 'pdf' } }, { add: false, skill: { slug: 'old-skill' } }],
+    another: [{ add: true, skill: { slug: 'pdf' } }, { add: true, skill: { slug: 'other' } }],
+  }
+  for (const [name, actions] of Object.entries(risky)) {
+    resetInstall()
+    await openPanel(); await confirmInstall()
+    inst.job = planJob(cur(), actions)
+    await poll()
+    await expect(statusOf).toHaveText('Review what will be added.')
+    await expect(panelOf.getByText('This install would change other skills. Review it on the Sync page.')).toBeVisible()
+    await expect(panelOf.getByRole('button', { name: 'Approve and install' })).toHaveCount(0)
+    await expect(panelOf.getByRole('link', { name: 'Open the Sync page' })).toHaveAttribute('href', '/sync')
+    await expect(panelOf.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+    expect(inst.patches).toEqual([])
+    // Closing the sheet mid-install does not cancel the job.
+    await page.keyboard.press('Escape')
+    await expect(picker).toHaveCount(0)
+    expect(inst.cancels).toEqual([])
+  }
+  // An empty plan is not approvable either, and a plan that turns unsafe after the review opened is refused at approval time.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(panelOf.getByRole('button', { name: 'Approve and install', exact: true })).toBeVisible()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }, { add: false, skill: { slug: 'gone' } }], { hash: 'hash-late-2' })
+  await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
+  await expect(panelOf.getByRole('button', { name: 'Approve and install' })).toHaveCount(0)
+  await expect(panelOf.getByText('This install would change other skills. Review it on the Sync page.')).toBeVisible()
+  expect(inst.patches).toEqual([])
+  await page.keyboard.press('Escape')
+
+  // The machine re-previews between render and click with a plain plan but a new hash: nothing is sent, the panel says it changed
+  // and shows the new plan, and a second click approves that plan with the hash now on screen.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(panelOf.getByRole('button', { name: 'Approve and install', exact: true })).toBeFocused()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }], { hash: 'hash-new', revision: 'r2', plan: { directory: '/elsewhere/skills', actions: [{ add: true, skill: { slug: 'pdf' } }] } })
+  await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
+  await expect(statusOf).toHaveText('This install changed while you were reviewing it. Check it again.')
+  await expect(panelOf.getByText('Folder: /elsewhere/skills', { exact: true })).toBeVisible()
+  expect(inst.patches).toEqual([])
+  await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
+  await expect.poll(() => inst.patches).toEqual([{ id: cur(), action: 'approve', hash: 'hash-new' }])
+  await page.keyboard.press('Escape')
+
+  // An empty plan has no Approve.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [])
+  await poll()
+  await expect(statusOf).toHaveText('Review what will be added.')
+  await expect(panelOf.getByText('The machine has not sent its plan yet.')).toBeVisible()
+  await expect(panelOf.getByRole('button', { name: 'Approve and install' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  // Closing the sheet mid-install stops polling and sends nothing.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(statusOf).toHaveText('Review what will be added.')
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  const readsAtClose = inst.syncReads
+  await page.clock.fastForward(10_000)
+  expect(inst.syncReads).toBe(readsAtClose)
+  expect(inst.patches).toEqual([])
+  expect(inst.cancels).toEqual([])
+
+  // Failed: the machine's message and Retry, which installs again; Close returns to the list.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [], { status: 'failed', message: 'The folder is read-only.' })
+  await poll()
+  await expect(statusOf).toHaveText('The install did not finish.')
+  await expect(panelOf.getByText('The folder is read-only.')).toBeVisible()
+  const retry = panelOf.getByRole('button', { name: 'Retry', exact: true })
+  await expect(retry).toBeFocused()
+  // A failed install leaves the saved list as it was, so there is nothing to remove: only Retry and Close.
+  await expect(panelOf.getByRole('button')).toHaveText(['Retry', 'Close'])
+  inst.job = null
+  await retry.click()
+  await expect.poll(() => inst.installs.length).toBe(2)
+  await expect(statusOf).toHaveText('Waiting for dev-laptop…')
+  inst.job = planJob(cur(), [], { status: 'failed', message: 'Still read-only.' })
+  await poll()
+  await expect(panelOf.getByText('Still read-only.')).toBeVisible()
+  await panelOf.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(picker.getByRole('option', { name: /draft-notes/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // Refusals leave the panel on Confirm with the server's sentence; an unpublished skill closes it and reloads the list.
+  const refusals = [
+    ['install-in-progress', 'Another skill is already being installed on dev-laptop.'],
+    ['connector-offline', "This session's machine isn't connected to reet right now, so it can't install this skill."],
+  ]
+  for (const [code, sentence] of refusals) {
+    resetInstall()
+    inst.installReply = () => ({ status: 409, json: { error: sentence, code } })
+    await openPanel(); await confirmInstall()
+    await expect(statusOf).toHaveText(sentence)
+    await expect(panelOf.getByText('Nothing runs until you approve the plan.')).toBeVisible()
+    await expect(panelOf.getByRole('button', { name: 'Install', exact: true })).toBeFocused()
+    await page.keyboard.press('Escape')
+  }
+  resetInstall()
+  inst.installReply = () => { state.skills = { skills: [hostedDraft], machineSeen: Date.now(), host: 'dev-laptop' }; return { status: 409, json: { error: "This skill isn't published any more.", code: 'unpublished' } } }
+  await openPanel()
+  const readsBeforeUnpublished = inst.skillReads
+  await confirmInstall()
+  await expect(panelOf).toHaveCount(0)
+  await expect(picker.getByRole('link', { name: 'Publish this skill to install it.' })).toBeVisible()
+  expect(inst.skillReads).toBe(readsBeforeUnpublished + 1)
+  expect(inst.installs).toHaveLength(1)
+  await page.keyboard.press('Escape')
+
+  // A running preview cannot be cancelled: the sentence is shown and the panel keeps polling.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.cancelReply = () => ({ status: 409, json: { error: "This install is already running and can't be cancelled.", code: 'cannot-cancel' } })
+  await panelOf.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(statusOf).toHaveText("This install is already running and can't be cancelled.")
+  const readsWhileRunning = inst.syncReads
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(statusOf).toHaveText('Review what will be added.')
+  expect(inst.syncReads).toBeGreaterThan(readsWhileRunning)
+  // Cancelling when there was nothing to undo says so and does not close until the person does.
+  inst.cancelReply = () => ({ status: 200, json: { reverted: false } })
+  await panelOf.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(statusOf).toContainText('The saved skill list was left as it is.')
+  await panelOf.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(picker.getByRole('option', { name: /draft-notes/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // Keyboard only: Tab reaches Install, then Approve; Escape closes the sheet from the review step.
+  resetInstall()
+  await skillsButton.click()
+  await expect(pickerFilter).toBeFocused()
+  await expect(picker.getByRole('button', { name: 'Install pdf', exact: true })).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(picker.getByRole('button', { name: 'Install pdf', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(panelOf.getByRole('button', { name: 'Install', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(statusOf).toHaveText('Waiting for dev-laptop…')
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(panelOf.getByRole('button', { name: 'Approve and install', exact: true })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  expect(inst.cancels).toEqual([])
+  expect(inst.patches).toEqual([])
+
+  // On a phone the panel fits with no sideways scroll.
+  resetInstall()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }, { add: false, skill: { slug: 'a-very-long-skill-name-that-has-to-wrap-inside-the-narrow-sheet-without-scrolling' } }])
+  await poll()
+  await expect(panelOf.getByText('Remove a-very-long-skill-name')).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  const phonePanel = await panelOf.boundingBox()
+  expect(phonePanel.x).toBeGreaterThanOrEqual(0)
+  expect(phonePanel.x + phonePanel.width).toBeLessThanOrEqual(390)
+  expect(await picker.locator('[data-shell-body]').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  await page.setViewportSize({ width: 1360, height: 900 })
+
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('textbox', { name: 'Message OpenCode' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -485,7 +902,7 @@ try {
   // A chat that exited does not say who ended it (it may have stopped on its own or been ended by the person), only that its live history is not kept.
   await expect(page.getByText('This OpenCode chat has ended. Its live history is not kept after the machine connection closes.')).toBeVisible()
   await page.getByRole('button', { name: 'Session actions' }).click()
-  await page.getByRole('menuitem', { name: /Continue in reet TUI with history/ }).click()
+  await page.getByRole('menuitem', { name: /Continue in Gaffer with history/ }).click()
   await expect.poll(() => state.resume).toMatchObject({ structured: true, trust: true, resumeAcp: closedSession.acpSessionId, dir: SITE })
   await page.waitForURL(new RegExp(`session=${S3}`))
   // A closed chat cannot switch: the menu offers no switch and the OpenCode TUI says why (on a wider screen, where the
@@ -499,7 +916,7 @@ try {
   expect(state.resume.prompt).toBeUndefined()
   expect(state.resume.model).toBe('anthropic/claude-sonnet-4-5')
   expect(errors).toEqual([])
-  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled and its reason (the machine predates session-mode-v1), agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id and cannot switch TUI; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet.')
+  console.log('Structured OpenCode chat UI passed: the dialog offers Gaffer for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens Gaffer with the OpenCode TUI disabled and its reason (the machine predates session-mode-v1), agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, messages queue while it works and send when the turn ends, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id and cannot switch TUI; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet, with tablet and dark-mode passes that keep it inside the viewport and readable; a published reet-hosted skill installs from the picker through confirm, wait, review, approve (only for a plain add), install and done, with cancel, retry, refusals and a phone fit.')
 } finally {
   await context.close()
   await browser.close()

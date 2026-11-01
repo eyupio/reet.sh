@@ -3,7 +3,7 @@
 A **project** is one folder on one machine, kept in the project rail on Home. Choosing a card puts it
 in Home's launch bar with its own defaults ([Start an agent session](start-agent-session.md#on-home-the-launch-bar));
 a session started there is listed under the project in In flight. A project can carry an optional **starter prompt**,
-a default agent, model and effort, a default base branch, whether each session gets its own worktree, and a
+a default agent, model and effort, whether its sessions open on **Ask me** or **YOLO**, a default base branch, whether each session gets its own worktree, and a
 rail **colour** (blank, red, amber, green, blue or violet) that marks it in the rail and, by default,
 the sessions started in it.
 There is no separate Projects page: `/projects` and `/projects/<id>` go to Home.
@@ -75,8 +75,9 @@ worktrees its live sessions are working in; the session listing has no record of
 so a finished session's worktree is never counted, and nothing shows at 0. The fleet cards show the
 same figure per machine ("no worktrees in use" included).
 
-Choosing a card sets the launch bar's project: its default agent and model, its base branch and its
-worktree choice go into the sentence, and focus moves to the prompt. The card's **+** and **New
+Choosing a card sets the launch bar's project: its default agent and model, its approvals (Ask me,
+or YOLO when the project asks for it), its base branch and its worktree choice go into the sentence,
+and focus moves to the prompt. A project's YOLO default is still confirmed before each start. The card's **+** and **New
 session here** in its menu start a session in that project at once with those defaults; the start
 carries the project's id, so the session is listed under it. While the bar has a start out or kept for
 a retry, a card changes nothing and the bar's status line says why. Each card's menu (its button shows
@@ -122,9 +123,11 @@ plain sentence, and a field refusal names the field so the dialog can move focus
   Project's first folder still on the account. Unknown ids, another account's and removed ones are the
   same 404 `project_not_found`.
 - `POST /folder-projects` with `{host, dir, isRepo?, name?, baseBranch?, worktreeDefault?,
-  defaultTool?, defaultModel?, defaultEffort?, starterPrompt?}` → 201 and an `ETag`. `host` is the machine's
-  enrollment id. `defaultTool` accepts any agent reet can start (including Cline); a default model needs
-  a default agent, and a default effort needs an agent whose preset takes one.
+  defaultTool?, defaultModel?, defaultEffort?, defaultYolo?, starterPrompt?}` → 201 and an `ETag`. `host` is the
+  machine's enrollment id. `defaultTool` accepts any agent reet can start (including Cline); a default model needs
+  a default agent, and a default effort needs an agent whose preset takes one. `defaultYolo` is a boolean that
+  preselects YOLO for sessions in the project; it does not bypass the account, machine, agent or confirmation
+  checks. Every read returns it.
 - `GET /folder-projects/{id}` → the project **with** `starterPrompt`, for the edit form, and its
   `ETag` (the version, quoted).
 - `PATCH /folder-projects/{id}` with `If-Match` and any of the create fields: absent keeps, `""`
@@ -151,8 +154,10 @@ The session listing (`GET /api/v2/terminal/sessions`) carries, for every session
 `defaultTool`, `defaultModel`, `defaultEffort` for a session started outside a project. Model
 favourites are per account under `/api/v2/profile/model-favourites`; see
 [agent models](agent-models.md). **Add project** and **Project settings** write the project defaults
-with the shared picker (agent including Cline, model and thinking), **Settings › Agents** writes the
-account defaults and favourites, and Home's launch bar and Start an agent read them.
+with the shared picker (agent including Cline, model and thinking) and the project's **Approvals**
+choice (Ask me or YOLO), **Settings › Agents** writes the account defaults and favourites, and Home's
+launch bar and Start an agent read them. A project default of YOLO only preselects it; every launch is
+confirmed and audited.
 
 ## Starter prompts
 

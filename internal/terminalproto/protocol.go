@@ -137,12 +137,15 @@ type Capabilities struct {
 	Worktree       bool     `json:"worktree,omitempty"`
 	Browse         bool     `json:"browse,omitempty"`
 	Branches       bool     `json:"branches,omitempty"`
-	BrowseOff      bool     `json:"browseOff,omitempty"`
-	Clipboard      bool     `json:"clipboard,omitempty"`
-	Uploads        bool     `json:"uploads,omitempty"`
-	UploadsOff     bool     `json:"uploadsOff,omitempty"`
-	Models         bool     `json:"models,omitempty"`
-	ModelsOff      bool     `json:"modelsOff,omitempty"`
+	// BranchPrune is sent only on a connection that negotiated
+	// branch-prune-v1: the machine can plan and delete merged branches.
+	BranchPrune bool `json:"branchPrune,omitempty"`
+	BrowseOff   bool `json:"browseOff,omitempty"`
+	Clipboard   bool `json:"clipboard,omitempty"`
+	Uploads     bool `json:"uploads,omitempty"`
+	UploadsOff  bool `json:"uploadsOff,omitempty"`
+	Models      bool `json:"models,omitempty"`
+	ModelsOff   bool `json:"modelsOff,omitempty"`
 	// ACP is sent only on a connection that negotiated acp-v1.
 	ACP bool `json:"acp,omitempty"`
 	// ACPAgents is present only after acp-agents-v1 negotiation.
@@ -224,7 +227,10 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ACPImages && !c.ACP || c.ACPApproval && !c.ACP || c.ACPQuestions && !c.ACP || c.ACPModel && !c.ACP || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
 		return ErrInvalid
 	}
-	if c.SessionMode && !(c.ACP && c.ACPHistory && c.TerminalControl) {
+	// A switch launches the tool in a terminal (launch-v1, which needs
+	// terminal control). Every connector that reports session mode has
+	// launch-v1 on: its chat tools are among its launch tools.
+	if c.SessionMode && !(c.ACP && c.ACPHistory && c.Launch) {
 		return ErrInvalid
 	}
 	if len(c.Software) > 0 && (!c.TerminalControl || !ValidSoftware(c.Software)) {
@@ -648,6 +654,14 @@ func Decode(data []byte) (Message, error) {
 		b = &Branches{}
 	case "branches_result":
 		b = &BranchesResult{}
+	case "branch_prune_plan":
+		b = &BranchPrunePlan{}
+	case "branch_prune_plan_result":
+		b = &BranchPrunePlanResult{}
+	case "branch_prune":
+		b = &BranchPrune{}
+	case "branch_prune_result":
+		b = &BranchPruneResult{}
 	case "upload":
 		b = &Upload{}
 	case "models":

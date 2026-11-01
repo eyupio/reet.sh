@@ -85,6 +85,16 @@ test('sentence for several projects', () => {
   assert.equal(words(two), "Run Claude Code with sonnet on 2 projects at studio from each project's default in a fresh worktree")
 })
 
+test('approvals open on the project default, else ask', () => {
+  assert.equal(initialChoice([{ ...reet, defaultYolo: true }], profile).approvals, 'yolo')
+  assert.equal(initialChoice([{ ...reet, defaultYolo: false }], profile).approvals, 'ask')
+  const next = withProject(choice(), { ...reet, defaultYolo: true }, profile)
+  assert.equal(next.approvals, 'yolo')
+  assert.equal(withSelection(choice(), ['p-reet', 'p-site'], [{ ...reet, defaultYolo: true }, { ...site, defaultYolo: true }], profile).approvals, 'yolo')
+  assert.equal(withSelection(choice(), ['p-reet', 'p-site'], [{ ...reet, defaultYolo: true }, { ...site, defaultYolo: false }], profile).approvals, 'ask')
+  assert.equal(withHome(choice({ approvals: 'yolo' }), 'm-studio', profile).approvals, 'ask')
+})
+
 test('approvals reset to ask', () => {
   const last = choice({ approvals: 'yolo', prompt: 'Fix the tests' })
   const next = initialChoice(projects, profile)
@@ -418,7 +428,7 @@ test('Claude gets a native chat only from a machine that reports the reviewed ad
   }
   const legacy = machine('m-studio', 'studio', { tools: ['claude'], acp: true, acpHistory: true })
   assert.notEqual(initialChoice([claudeProject], profile, { machines: [legacy] }).chat, true)
-  assert.match(startable({ ...start, chat: true }, [claudeProject], [legacy], profile), /does not offer the reet TUI/)
+  assert.match(startable({ ...start, chat: true }, [claudeProject], [legacy], profile), /does not offer Gaffer/)
   // A tool that is not a reviewed chat tool is never sent as one, whatever the choice says.
   assert.equal(toCreate({ ...start, agent: 'codex', chat: true }, claudeProject, 'r'.repeat(16), 'a'.repeat(16)).launch.structured, undefined)
 })
@@ -429,7 +439,7 @@ test('OpenCode on an acp machine launches a native chat by default', () => {
   const start = initialChoice([openProject], profile, { machines: [acp] })
   assert.equal(start.agent, 'opencode')
   assert.equal(start.chat, true)
-  assert.equal(words(sentence(start, [openProject], [acp])), 'Run OpenCode in reet TUI with default on reet at studio')
+  assert.equal(words(sentence(start, [openProject], [acp])), 'Run OpenCode in Gaffer with default on reet at studio')
   assert.deepEqual(slots(sentence(start, [openProject], [acp])), ['agent', 'chat', 'model', 'project', 'machine'])
   const create = toCreate(start, openProject, 'r'.repeat(16), 'a'.repeat(16))
   assert.equal(create.launch.structured, true)
@@ -455,7 +465,7 @@ test('without acp OpenCode stays a terminal and history is absent', () => {
   const openProject = { ...reet, defaultTool: 'opencode' }
   const start = initialChoice([openProject], profile, { machines: [] })
   assert.equal(start.chat, undefined)
-  assert.equal(words(sentence(start, [openProject], [])).includes('reet TUI'), false)
+  assert.equal(words(sentence(start, [openProject], [])).includes('Gaffer'), false)
   const moved = withAgent(choice(), 'opencode', openProject, profile, { machines: [] })
   assert.equal('chat' in moved, false)
   const acp = machine('m-studio', 'studio', { tools: ['opencode'], acp: true, acpHistory: true })

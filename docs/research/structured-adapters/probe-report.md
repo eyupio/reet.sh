@@ -229,7 +229,7 @@ a wire change and was not made.
 `scripts/probe-codex-turn.py` against `@agentclientprotocol/codex-acp@1.13.1` with
 `@openai/codex@0.156.1`, a loopback Responses-API stub, a temporary `CODEX_HOME`, synthetic
 credentials and a `model_providers` entry in `config.toml`. Same limits as above; this
-container has no `bwrap`, so the Codex sandbox could not be shown to be active.
+container has no `bwrap`; the re-run below shows Codex uses its own Linux sandbox helper, which is active here.
 
 - **Identity and auth.** Auth methods `api-key` and `chat-gpt`; a synthetic `api-key`
   authenticate succeeded. Modes: `read-only` ("Ask for approval"), `agent` ("Approve for me",
@@ -238,7 +238,7 @@ container has no `bwrap`, so the Codex sandbox could not be shown to be active.
 - **Tools offered.** `exec_command`, `write_stdin`, `request_user_input`, `view_image`,
   `multi_agent_v1`, `get_goal`, `create_goal`, `update_goal`, `web_search`. The command
   tool is `exec_command` with a `cmd` argument, not `shell_command`.
-- **No approval request in any mode (open gap).** A harmless write ran with **no
+- **No approval request in any mode (superseded: see "Codex gates, re-run" below; the probe's "outside" path was inside Codex's default writable roots).** A harmless write ran with **no
   `session/request_permission`** in `agent` and in `read-only`, for allow, deny and
   cancel decisions, both inside the project and to a path outside it. Approvals are
   sandbox- and mode-driven, not per command, so reet's "every command asks" contract is
@@ -251,6 +251,52 @@ container has no `bwrap`, so the Codex sandbox could not be shown to be active.
 - **Config strictness.** `approval_policy = "untrusted"` in `config.toml` is rejected
   ("no longer supported"), and a bad user config kills the process during initialize.
   Codex also warns it will not create helper binaries under a temp directory.
+
+## Codex gates, re-run (1 November 2026)
+
+Same adapter (`codex-acp@1.13.1`) and CLI (`@openai/codex@0.156.1`), loopback stub, temporary `CODEX_HOME`, synthetic credentials; `scripts/probe-codex-turn.py` gained
+`--marker-path` (write to an exact path, refused if it already exists, removed afterwards), `--escalate`, `--run-command` and a `cancel-running` decision. Results:
+
+- **The sandbox is active here, and the earlier "outside the project" probe did not test it.** The native CLI's own sandbox (`codex sandbox -- ...`, a
+  helper it ships; no `bwrap` needed) refuses a write to `/usr` with "Read-only file system". The earlier probe's "outside" marker lived under `/tmp`, which Codex's default
+  sandbox treats as writable (it lists `/tmp`, `$TMPDIR` and the project as write roots), so it proved nothing about approvals.
+- **A write to a path outside every writable root is blocked silently, in `read-only` and `agent` modes.** No `session/request_permission`, the file is not created, the turn
+  ends `end_turn`. In `agent-full-access` the same write succeeds, again with no request.
+- **Approvals are model-driven, not per command.** `exec_command` takes `sandbox_permissions` (`use_default` or `require_escalated`), `justification` and `prefix_rule`. Without
+  `require_escalated` every command runs inside the sandbox with no prompt, including writes inside the project. Only a model that asks to leave the sandbox raises an approval,
+  so reet's "every command asks first" contract does not hold for Codex.
+- **`read-only` ("Ask for approval") with an escalation request raises one request**, kind `execute`, title "Run command", `rawInput.command` and `rawInput.cwd` (a card can be
+  reviewed), the model's justification in `_meta.permission.description`, and three options: `allow_once`, **`accept_execpolicy_amendment` (kind `allow_always`: "don't ask again for
+  commands that start with ...", a persistent rule)**, and `cancel` (kind `reject_once`, "No, and tell Codex what to do differently"). Allow runs the command outside the sandbox
+  (file created). Reject and cancel both leave the file absent and **end the whole turn as `cancelled`**, not just the one tool.
+- **`agent` ("Approve for me") with the same escalation request raises nothing**: no request, no file, turn `end_turn`. An automatic reviewer decides, so the person is never asked
+  and is not told what was refused.
+- **Cancel does not stop a running command.** With `sleep 47` running, `session/cancel` ends the turn as `cancelled` in about a second, but the `sleep` process was still alive
+  15 seconds later in both modes (until the probe killed it). A user pressing Stop would be told it stopped while the command runs on.
+- **Provider failure** is unchanged (above): a disguised `end_turn` with `usage: null` after retries.
+
+**What this means for an integration.** Codex cannot be wired as a drop-in for the OpenCode and Claude approval card. Needed first, as product decisions: whether `read-only` is the only
+mode reet starts (it is the only one that can ask); not offering `allow_always` or mapping it to this session only, since it writes a persistent rule; showing the justification and
+that a reject ends the turn; treating a silent sandbox denial and an `agent`-mode refusal as events the person should see; and retiring the process group on Stop, since cancel alone
+leaves the command running. None is built.
+
+## Codex start, probed (1 November 2026)
+
+`scripts/probe-codex-start.py` against `codex-acp@1.13.1`: temporary HOME and CODEX_HOME, no credential variables, **no model call and no network**. Observed:
+
+- `initialize` reports `agentInfo.name` `@agentclientprotocol/codex-acp`, version `1.13.1`, `authMethods` `api-key` and `chat-gpt`. The profile's expected name is right.
+- `session/new` before `authenticate` fails with code `-32000`, "Authentication required". It is not a silent success as with Claude; a chat started without an authenticate step cannot start.
+- After a synthetic `api-key` authenticate, `session/new` succeeds starting in `agent`, with `modes` `read-only`, `agent`, `agent-full-access` and options `mode`, `collaboration_mode`, `model`, `reasoning_effort`, `fast-mode`.
+- **`session/set_config_option` with `configId: mode` works and confirms**: the reply carries the full option list with `mode` now `read-only`. This is the switch reet's profile uses, and its reply is authoritative.
+- `session/set_mode` replies `{}`, which confirms nothing; reet does not use it.
+
+**ChatGPT sign-in (`--auth chat-gpt`, no login on the machine).** `authenticate` with `chat-gpt` does not return a URL or wait for a token: it tries to open a browser on the host
+(`spawn xdg-open ENOENT` here, code `-32603`), and `session/new` still fails with "Authentication required". The adapter also sent an `_auth/status_update` notification with
+`authStatus: {kind: "none", label: "Not logged in"}`. So reet cannot sign a person in from a chat: calling `chat-gpt` on a logged-out machine starts an interactive browser flow
+on that machine. What a logged-in machine sends (the `authStatus` kind, and whether `authenticate chat-gpt` then succeeds without opening anything) is **not observed**, and
+needs a real login; `CODEX_HOME` and `HOME` would also have to reach the person's own login, which the connector's replaced `HOME` does not. reet's decided approach is therefore not to call `authenticate` at all (see the plan).
+
+Still open: how a real person authenticates. `api-key` needs a key sent in `_meta`; `chat-gpt` is a browser sign-in. The connector replaces `HOME`, so a login under the real home is not visible to the adapter, and nothing in the profile calls `authenticate` yet.
 
 ## Claude environment (observed)
 

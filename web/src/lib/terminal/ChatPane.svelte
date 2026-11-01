@@ -1,7 +1,7 @@
 <script lang="ts">
- import { onDestroy, onMount, tick } from 'svelte'
+ import { onDestroy, onMount, tick, untrack } from 'svelte'
  import { fade, fly } from 'svelte/transition'
- import { applyChatEvent, checkQuestionDraft, endedReason, diffCounts, displayPath, emptyDraft, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, proseBlocks, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QuestionAnswers, type QuestionDraft } from '../chat'
+ import { applyChatEvent, checkQuestionDraft, endedReason, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
  import { chatToolName, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
@@ -14,8 +14,9 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
  let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, onbusy }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
-  /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI switch. */
-  onbusy?: (busy: boolean) => void } = $props()
+  /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI
+   *  switch; undefined until the stream has opened and its replay has been applied, as the chat cannot say before then. */
+  onbusy?: (busy: boolean | undefined) => void } = $props()
 
  let chat: ChatState = $state(initialChat())
  let selectedModel = $state(''), currentModel = $state(''), changingModel = $state(false)
@@ -70,6 +71,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  const MAX_CHAT_BYTES = 2000
  let dropping = $state(false)
  let draft = $state(''), feedback = $state(''), sending = $state(false), uploading = $state(false), answering = $state('')
+ type Picture = { id: number; file: File; preview: string }
  let images = $state<{ id: number; file: File; preview: string }[]>([]), imageSeq = 0, attachNote = $state('')
  let fileInput: HTMLInputElement | undefined = $state()
  // The skill picker. It only ever puts an invocation into the draft; nothing is sent until the person presses Send.
@@ -138,6 +140,11 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
    saveBinding(session.id, item.key, echo.refs)
   }
  })
+ // Messages typed while OpenCode works are kept here and sent one at a time when the turn finishes. Nothing is stored.
+ let queued = $state<QueuedPrompt<Picture[]>[]>([]), queueSeq = 0
+ let queueHalted = $state(false), queueNote = $state(''), dispatching = $state(false)
+ // Set after one queued message is sent, until the agent is seen working again: one turn takes one message.
+ let awaitingWork = $state(false), awaitingTimer: ReturnType<typeof setTimeout> | undefined
  let log: HTMLElement | undefined = $state()
  let source: EventSource | undefined
  let alive = true, nearBottom = true
@@ -145,6 +152,11 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  // arrives as many events in a burst, and applying and drawing each one separately is what used to stall the tab.
  let pendingEvents: ChatEvent[] = []
  let flushTimer: ReturnType<typeof setTimeout> | undefined
+ // Whether this chat's word on being busy can be trusted: the controller writes a stream's reset and its replay together, so
+ // the chat has replayed once what arrived with the reset has been applied (settle, one batch later). Until then, and again
+ // while a dropped stream waits for its next reset, the chat says nothing either way.
+ let replayed = $state(false), settleTimer: ReturnType<typeof setTimeout> | undefined
+ function stopSettle() { if (settleTimer !== undefined) { clearTimeout(settleTimer); settleTimer = undefined } }
  // Every tool row is folded by default, including a failure; the person's toggle wins for that key.
  let expanded = $state<Record<string, boolean>>({})
  let copied = $state('')
@@ -160,7 +172,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  const pending = $derived(pendingPermissions(chat))
  const asked = $derived(pendingQuestions(chat))
  const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This reet session has ended.' : pending.length ? 'Waiting for your approval.' : asked.length ? 'Waiting for your answer.' : working ? `${toolName} is working…` : chat.status.state === 'error' ? `${toolName} stopped with an error.` : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
- $effect(() => { onbusy?.(working || pending.length > 0 || asked.length > 0) })
+ $effect(() => { onbusy?.(replayed ? working || pending.length > 0 || asked.length > 0 : undefined) })
  const statusDetail = $derived(pending.length || asked.length ? '' : chat.status.detail)
  const canAttach = $derived(uploadsSupported && !uploadsOff && !ended)
  const imageLimit = $derived(acpImages ? MAX_EMBEDDED_IMAGES : MAX_IMAGES)
@@ -191,6 +203,8 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   try { truncated = !!JSON.parse(event.data)?.truncated } catch { /* fixed empty reset */ }
   pendingEvents = []; stopFlush()
   chat = { ...resetChat(truncated), connection: 'open' }
+  replayed = false; stopSettle()
+  settleTimer = setTimeout(() => { settleTimer = undefined; flushEvents(); replayed = true }, 16)
   void scrollToEnd()
  }
  function readEvent(event: MessageEvent) {
@@ -238,44 +252,123 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   event.preventDefault(); noteImages(files)
  }
  function removeImage(id: number) { const item = images.find(image => image.id === id); if (item) URL.revokeObjectURL(item.preview); images = images.filter(image => image.id !== id); attachNote = '' }
+ function messageProblem(text: string): string {
+  if (new TextEncoder().encode(text).length > MAX_CHAT_BYTES) return 'That message is too long. Keep it under 2,000 bytes.'
+  return ''
+ }
+ /** Send a message and its pictures now, or queue it while the agent is busy. */
  async function send() {
   const text = draft.trim()
-  if ((!text && !images.length) || sending || uploading || changingModel || working || ended || chat.connection === 'reconnecting') return
-  if (images.length && !canAttach) { feedback = uploadsOff ? 'Image uploads are off on that machine.' : 'That machine does not accept images.'; return }
-  if (new TextEncoder().encode(text).length > MAX_CHAT_BYTES) { feedback = 'That message is too long. Keep it under 2,000 bytes.'; return }
-  uploading = images.length > 0; sending = true; feedback = ''
+  if ((!text && !images.length) || sending || uploading || changingModel || ended || chat.connection === 'reconnecting') return
+  const problem = messageProblem(text)
+  if (problem) { feedback = problem; return }
+  if (working || queued.length) { queueCurrent(text); return }
   const sendingImages = images.slice()
+  const ok = await deliver(text, sendingImages)
+  if (!ok) return
+  const sent = new Set(sendingImages.map(image => image.id))
+  for (const image of sendingImages) sentUrls.push(image.preview)
+  draft = ''; images = images.filter(image => !sent.has(image.id)); attachNote = ''; nearBottom = true; await scrollToEnd()
+ }
+ /** Put what is in the composer at the end of the queue, pictures and all. */
+ function queueCurrent(text: string) {
+  if (images.length && !canAttach) { feedback = uploadsOff ? 'Image uploads are off on that machine.' : 'That machine does not accept images.'; return }
+  const item: QueuedPrompt<Picture[]> = { id: `queued-${++queueSeq}`, text, payload: images.slice() }
+  const answer = enqueuePrompt(queued, item)
+  if (answer.full) { feedback = 'The queue is full. Send or remove one of the messages first.'; return }
+  queued = answer.queue
+  draft = ''; images = []; attachNote = ''; feedback = ''; queueHalted = false
+  queueNote = 'Queued. It sends when OpenCode finishes this turn.'
+  void tick().then(() => composerInput?.focus())
+ }
+ /** One attempt at sending a message; true when the controller accepted it. */
+ async function deliver(text: string, pictures: Picture[]): Promise<boolean> {
+  if (pictures.length && !canAttach) { feedback = uploadsOff ? 'Image uploads are off on that machine.' : 'That machine does not accept images.'; return false }
+  const problem = messageProblem(text)
+  if (problem) { feedback = problem; return false }
+  uploading = pictures.length > 0; sending = true; feedback = ''
   try {
    const uploads: { path: string; reference: string }[] = []
-   if (sendingImages.length) {
+   if (pictures.length) {
     attachNote = ''
-    for (let i = 0; i < sendingImages.length; i++) {
-     if (sendingImages.length > 1) attachNote = `Uploading image ${i + 1} of ${sendingImages.length}…`
-     uploads.push(await launchUpload(session.agentId, sendingImages[i].file, AbortSignal.timeout(30000)))
+    for (let i = 0; i < pictures.length; i++) {
+     if (pictures.length > 1) attachNote = `Uploading image ${i + 1} of ${pictures.length}…`
+     uploads.push(await launchUpload(session.agentId, pictures[i].file, AbortSignal.timeout(30000)))
     }
    }
    const keep: Record<string, { url: string; name: string }> = {}
    uploads.forEach((upload, i) => {
-    const image = sendingImages[i]
+    const image = pictures[i]
     for (const ref of [upload.path, upload.reference]) if (ref) keep[ref] = { url: image.preview, name: image.file.name }
     void makeThumb(image.file).then(data => saveThumb(upload.path || upload.reference, image.file.name, data))
    })
    sentPreviews = { ...sentPreviews, ...keep }
    const body = chatPromptParts(text, uploads, acpImages)
-   if (new TextEncoder().encode(body.text).length > MAX_CHAT_BYTES) { feedback = 'That message and its image paths are too long. Keep the message under 2,000 bytes.'; return }
+   if (new TextEncoder().encode(body.text).length > MAX_CHAT_BYTES) { feedback = 'That message and its image paths are too long. Keep the message under 2,000 bytes.'; return false }
    const echo = body.images.length ? { text: body.text.trim() || IMAGE_ONLY_ECHO, refs: uploads.map(upload => upload.path || upload.reference) } : null
    if (echo) echoes.push(echo)
    try { await chatPrompt(session.id, body.text, body.images) }
    catch (e) { if (echo) echoes = echoes.filter(item => item !== echo); throw e }
-   // Only the images in this message go: one attached while the first send was
-   // still settling must stay in the composer.
-   const sent = new Set(sendingImages.map(image => image.id))
-   for (const image of sendingImages) sentUrls.push(image.preview)
-   draft = ''; images = images.filter(image => !sent.has(image.id)); attachNote = ''; nearBottom = true; await scrollToEnd()
+   nearBottom = true
+   return true
   }
-  catch (e) { feedback = e instanceof Error ? e.message : 'That message was not sent.' }
-  finally { uploading = false; sending = false }
+  catch (e) { feedback = e instanceof Error ? e.message : 'That message was not sent.'; return false }
+  finally { uploading = false; sending = false; attachNote = '' }
  }
+ /** Send the first queued message once the agent is free; each turn takes one, so a steer lands between turns. */
+ async function dispatchQueued() {
+  if (dispatching || !queued.length) return
+  const item = queued[0]
+  dispatching = true
+  try {
+   const ok = await deliver(item.text, item.payload)
+   if (!ok) { queueHalted = true; queueNote = 'The queued message was not sent. Retry, edit or remove it.'; return }
+   // deliver() put these previews in sentPreviews, and the history and lightbox read them through previewFor();
+   // keep them alive until the pane closes, as the immediate-send path does.
+   for (const picture of item.payload) sentUrls.push(picture.preview)
+   queued = dropQueuedPrompt(queued, item.id)
+   queueNote = queued.length ? 'Sent one queued message. The next waits for this turn.' : 'Queued message sent.'
+   awaitingWork = true
+   clearTimeout(awaitingTimer)
+   awaitingTimer = setTimeout(() => { awaitingWork = false }, 4000)
+   nearBottom = true
+   await scrollToEnd()
+  } finally { dispatching = false }
+ }
+ function editQueued(id: string) {
+  const item = queued.find(entry => entry.id === id)
+  if (!item) return
+  queued = dropQueuedPrompt(queued, id)
+  draft = item.text
+  images = [...images, ...item.payload]
+  queueHalted = false; queueNote = ''
+  void tick().then(() => { composerInput?.focus(); composerInput?.setSelectionRange(draft.length, draft.length) })
+ }
+ function removeQueued(id: string) {
+  const item = queued.find(entry => entry.id === id)
+  if (!item) return
+  for (const picture of item.payload) URL.revokeObjectURL(picture.preview)
+  queued = dropQueuedPrompt(queued, id)
+  if (!queued.length) { queueHalted = false; queueNote = '' }
+ }
+ function retryQueued(id: string) {
+  queued = promoteQueuedPrompt(queued, id)
+  queueHalted = false; queueNote = 'Trying that message again…'
+  void tick().then(() => { if (!working && !sending && !uploading) void dispatchQueued() })
+ }
+ // A free agent with a queued message sends it. Waiting for an approval or an answer counts as busy: the person's reply
+ // comes first. A lost connection waits; a failed send stops the queue until someone retries or changes it.
+ // Seeing the turn start releases the next message; the timer is only a fallback if a status never arrives.
+ $effect(() => {
+  if (!working) return
+  untrack(() => { awaitingWork = false; clearTimeout(awaitingTimer) })
+ })
+ $effect(() => {
+  const ready = queued.length > 0 && !queueHalted && !awaitingWork && !working && !pending.length && !asked.length && !ended
+   && chat.connection === 'open' && !sending && !uploading && !changingModel && !dispatching
+  if (!ready) return
+  untrack(() => { void dispatchQueued() })
+ })
  async function stop() {
   feedback = ''
   try { await chatCancel(session.id) }
@@ -371,17 +464,17 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   stream.addEventListener('reset', readReset)
   stream.addEventListener('chat', readEvent)
   stream.onopen = () => { chat = { ...chat, connection: 'open' } }
-  stream.onerror = () => { if (alive) chat = { ...chat, connection: 'reconnecting' } }
-  return () => { alive = false; life.abort(); skillsLife?.abort(); pendingEvents = []; stopFlush(); if (copyTimer !== undefined) clearTimeout(copyTimer); closeStream() }
+  stream.onerror = () => { if (alive) { chat = { ...chat, connection: 'reconnecting' }; stopSettle(); replayed = false } }
+  return () => { alive = false; life.abort(); skillsLife?.abort(); pendingEvents = []; stopFlush(); stopSettle(); if (copyTimer !== undefined) clearTimeout(copyTimer); closeStream() }
  })
- onDestroy(() => { for (const image of images) URL.revokeObjectURL(image.preview); for (const url of sentUrls) URL.revokeObjectURL(url) })
+ onDestroy(() => { clearTimeout(awaitingTimer); for (const image of images) URL.revokeObjectURL(image.preview); for (const url of sentUrls) URL.revokeObjectURL(url); for (const item of queued) for (const image of item.payload) URL.revokeObjectURL(image.preview) })
 </script>
 
 {#snippet inline(text: string)}
  {#each inlineSegments(text) as part, n (n)}{#if part.kind === 'code'}<code>{part.text}</code>{:else if part.kind === 'strong'}<strong>{part.text}</strong>{:else}{part.text}{/if}{/each}
 {/snippet}
 
-<section class="chat-pane" aria-label={`reet TUI in ${session.title}`} ondragover={(event) => { if (canAttach) { event.preventDefault(); dropping = true } }} ondragleave={(event) => { if (event.currentTarget === event.target || !(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) dropping = false }} ondrop={(event) => { dropping = false; dropped(event) }}>
+<section class="chat-pane" aria-label={`Gaffer in ${session.title}`} ondragover={(event) => { if (canAttach) { event.preventDefault(); dropping = true } }} ondragleave={(event) => { if (event.currentTarget === event.target || !(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) dropping = false }} ondrop={(event) => { dropping = false; dropped(event) }}>
  <div class="chat-status" role="status" aria-live="polite">
   <span class="status-dot" class:busy={working} class:wait={pending.length > 0} class:down={chat.connection === 'reconnecting'} aria-hidden="true"></span>
   <strong>{statusWord}</strong>
@@ -607,9 +700,30 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   {/each}
  </div>
  {#if ended}
-  <p class="composer-note">{endedReason(session.state, toolName)}</p>
+  <p class="composer-note">{endedReason(session.state, toolName)}{#if queued.length} {queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.{/if}</p>
  {:else}
   <div class="composer" onpaste={pasted} class:dropping={dropping}>
+   {#if queued.length}
+    <section class="queue" aria-label="Queued messages">
+     <header class="queue-head">
+      <span class="queue-title"><span class="queue-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg></span>Queued <b>{queued.length}</b></span>
+      <span class="queue-said" role="status">{queueNote || (working ? 'Sent when this turn finishes.' : 'Waiting to send…')}</span>
+     </header>
+     <ol class="queue-list">
+      {#each queued as item, i (item.id)}
+       <li class:first={i === 0}>
+        <span class="queue-text" title={item.text}>{item.text || 'Image only'}</span>
+        {#if item.payload.length}<span class="queue-attach" title={`${item.payload.length} images`}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg>{item.payload.length}</span>{/if}
+        <span class="queue-actions">
+         {#if queueHalted && i === 0}<button type="button" class="retry" onclick={() => retryQueued(item.id)}>Retry</button>{/if}
+         <button type="button" onclick={() => editQueued(item.id)} aria-label={`Edit queued message: ${item.text.slice(0, 60) || 'image only'}`}>Edit</button>
+         <button type="button" class="remove" onclick={() => removeQueued(item.id)} aria-label={`Remove queued message: ${item.text.slice(0, 60) || 'image only'}`}>Remove</button>
+        </span>
+       </li>
+      {/each}
+     </ol>
+    </section>
+   {/if}
    {#if modelNote}<p class="notice" role="status">{modelNote}</p>{/if}
    {#if images.length}
     <ul class="attachments" aria-label="Images to attach">
@@ -626,10 +740,10 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
     <span class="field-prompt" aria-hidden="true">›</span>
-    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="2" maxlength="2000" placeholder={working ? `${toolName} is working…` : `Ask ${toolName} to change this project…`} onkeydown={keydown} disabled={composerBlocked}></textarea>
+    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="2" maxlength="2000" placeholder={working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…`} onkeydown={keydown} disabled={sending || uploading || changingModel || chat.connection === 'reconnecting'}></textarea>
     <div class="field-actions">
      {#if working}<button type="button" class="btn stop" onclick={() => void stop()}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>Stop</button>{/if}
-     <button type="button" class="btn primary send" disabled={sending || uploading || changingModel || working || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : 'Send'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg></button>
+     <button type="button" class="btn primary send" disabled={sending || uploading || changingModel || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
     </div>
    </div>
    <div class="composer-bar">
@@ -651,7 +765,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
     </div>
     <span class="hint">Enter to send · Shift + Enter for a new line</span>
    </div>
-   {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} onpick={pickSkill} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
+   {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} sessionId={session.id} onrefresh={() => void loadSkills()} onpick={pickSkill} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
    {#if canAttach}<input class="vh" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={picked} />{/if}
   </div>
  {/if}
@@ -801,7 +915,28 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  .question-summary { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 0; font-size: 12.5px; }
  .question-summary dt { color: var(--muted); }
  .question-summary dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
- /* Composer: a raised card holding one clearly bounded input well, then a toolbar. The well is the only place that looks typeable. */
+/* Queued messages: a quiet, compact list above the composer while OpenCode works. Nothing here starts work by itself
+    until the current turn has finished, so a message steers the next turn rather than interrupting this one. */
+ .queue { display: flex; flex-direction: column; gap: 7px; margin: 2px 0 4px; padding: 9px 10px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunk); }
+ .queue-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+ .queue-title { display: inline-flex; align-items: center; gap: 6px; flex: none; font: 600 11px var(--sans); letter-spacing: .04em; color: var(--ink-soft); }
+ .queue-title b { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 99px; background: var(--card); border: 1px solid var(--line); font: 600 10px var(--mono); color: var(--muted); box-sizing: border-box; }
+ .queue-icon { display: grid; place-items: center; color: var(--accent-text); }
+ .queue-icon svg { width: 13px; height: 13px; }
+ .queue-said { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); text-align: right; }
+ .queue-list { display: flex; flex-direction: column; gap: 3px; list-style: none; margin: 0; padding: 0; }
+ .queue-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 7px; min-height: 30px; padding: 4px 5px 4px 9px; border: 1px solid transparent; border-radius: 7px; background: var(--card); }
+ .queue-list li.first { border-color: color-mix(in srgb, var(--accent) 26%, var(--line)); }
+ .queue-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--ink); }
+ .queue-attach { display: inline-flex; align-items: center; gap: 3px; flex: none; font: 11px var(--mono); color: var(--muted); }
+ .queue-attach svg { width: 12px; height: 12px; }
+ .queue-actions { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+ .queue-actions button { min-height: 26px; padding: 0 7px; border: 0; border-radius: 5px; background: none; color: var(--muted); font: 500 11px var(--sans); cursor: pointer; }
+ .queue-actions button:hover { background: var(--tint); color: var(--ink); }
+ .queue-actions .retry { color: var(--accent-text); font-weight: 600; }
+ .queue-actions .remove:hover { color: var(--bad); }
+ .queue-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  /* Composer: a raised card holding one clearly bounded input well, then a toolbar. The well is the only place that looks typeable. */
  .composer { position: relative; display: flex; flex-direction: column; gap: 8px; margin: 0 14px 12px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--card-raised, var(--card)); box-shadow: var(--shadow-dock, var(--shadow)); transition: border-color .15s, box-shadow .15s; }
  .composer.dropping { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
  .field { display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 12px; border: 1.5px solid var(--line-strong); border-radius: 12px; background: var(--bg-sunk); transition: border-color .15s, box-shadow .15s, background .15s; }
@@ -880,6 +1015,8 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  @media (pointer: coarse) {
   .tool-head { min-height: 44px; }
   .skills-btn, .icon-btn { min-height: 44px; min-width: 44px; }
+  .queue-list li { min-height: 44px; }
+  .queue-actions button { min-height: 36px; padding: 0 9px; }
   .think-head { min-height: 40px; }
   .approval-actions .btn { min-height: 46px; flex: 1 1 0; }
   .qoption { min-height: 44px; align-items: center; }

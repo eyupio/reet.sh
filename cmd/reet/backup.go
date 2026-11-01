@@ -16,6 +16,10 @@ import (
 )
 
 func runBackup(args []string, out io.Writer) error {
+	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
+		fmt.Fprintln(out, "Usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] ID\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
+		return nil
+	}
 	if len(args) == 0 {
 		return errors.New("usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] ID")
 	}

@@ -71,6 +71,9 @@ type FolderProject struct {
 	ID, Host, Dir, Name                                                                  string
 	IsRepo                                                                               bool
 	BaseBranch, WorktreeDefault, DefaultTool, DefaultModel, DefaultEffort, StarterPrompt string
+	// DefaultYolo preselects YOLO approvals for a session started in this project. The launch still
+	// passes the account, machine and agent gates and is confirmed before it starts.
+	DefaultYolo bool
 	// Colour is the rail colour the person chose ("", red, amber, green, blue
 	// or violet). It names an identity, not a state, so it is never used for
 	// status.
@@ -97,6 +100,7 @@ func (s *Store) migrateFolderProjects() error {
 				worktree_default TEXT NOT NULL DEFAULT 'inherit' CHECK(worktree_default IN ('inherit','yes','no')),
 				default_tool TEXT NOT NULL DEFAULT '', default_model TEXT NOT NULL DEFAULT '',
 				default_effort TEXT NOT NULL DEFAULT '',
+				default_yolo INTEGER NOT NULL DEFAULT 0,
 				starter_prompt TEXT NOT NULL DEFAULT '',
 				colour TEXT NOT NULL DEFAULT '',
 				position INTEGER NOT NULL CHECK(position>=0),
@@ -155,6 +159,17 @@ func (s *Store) migrateFolderProjects() error {
 		}
 		if hasEffort == 0 {
 			if _, err := tx.Exec(`ALTER TABLE folder_projects ADD COLUMN default_effort TEXT NOT NULL DEFAULT ''`); err != nil {
+				return err
+			}
+		}
+		// Tables made before a project could default to YOLO gain the column.
+		// Existing rows keep 0, Ask me.
+		var hasYolo int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('folder_projects') WHERE name='default_yolo'`).Scan(&hasYolo); err != nil {
+			return err
+		}
+		if hasYolo == 0 {
+			if _, err := tx.Exec(`ALTER TABLE folder_projects ADD COLUMN default_yolo INTEGER NOT NULL DEFAULT 0`); err != nil {
 				return err
 			}
 		}
@@ -329,13 +344,13 @@ func folderConflict(err error) error {
 	return ErrFolderProjectExists
 }
 
-const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,starter_prompt,colour,position,COALESCE(legacy_project_id,''),note,created_at,updated_at,version`
+const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,position,COALESCE(legacy_project_id,''),note,created_at,updated_at,version`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanFolderProject(r rowScanner) (FolderProject, error) {
 	var p FolderProject
-	err := r.Scan(&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort,
+	err := r.Scan(&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.DefaultYolo,
 		&p.StarterPrompt, &p.Colour, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version)
 	p.Note = noteText(p.Note)
 	return p, err
@@ -391,9 +406,9 @@ func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject, note string) (F
 	if p.LegacyProjectID != "" {
 		legacy = p.LegacyProjectID
 	}
-	_, err = tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,starter_prompt,colour,position,legacy_project_id,note,created_at,updated_at,version)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
-		p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.StarterPrompt, p.Colour, p.Position, legacy, note, t, t)
+	_, err = tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,position,legacy_project_id,note,created_at,updated_at,version)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+		p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Position, legacy, note, t, t)
 	if err != nil {
 		return FolderProject{}, folderConflict(err)
 	}
@@ -436,8 +451,8 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 			t = cur.CreatedAt
 		}
 		p.ID, p.Position, p.LegacyProjectID, p.CreatedAt, p.UpdatedAt, p.Version = id, cur.Position, cur.LegacyProjectID, cur.CreatedAt, t, cur.Version+1
-		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,default_effort=?,starter_prompt=?,colour=?,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
-			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.StarterPrompt, p.Colour, p.Note, t, p.Version, id, uid, cur.Version)
+		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,default_effort=?,default_yolo=?,starter_prompt=?,colour=?,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
+			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Note, t, p.Version, id, uid, cur.Version)
 		if err != nil {
 			return folderConflict(err)
 		}

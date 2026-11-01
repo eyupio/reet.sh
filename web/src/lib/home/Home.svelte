@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { getProfile, getSyncState, UnauthorizedError, type SyncState } from '../api'
-  import { createTerminal, folderProjectList, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
-    type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
+    type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { notStartedText, refusalText } from '../agentLaunch'
   import { announceWaiting, attentionCount, fleetCards, handedProjects, reporting, needsYou, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type HomeSession, type NeedCard } from '../home'
   import type { LaunchDefaults } from '../launchBar'
@@ -40,6 +40,12 @@
   let sessions = $state<HomeSession[] | undefined>()
   let sync = $state<SyncState | undefined>()
   let projects = $state<FolderProject[] | undefined>()
+  // The rail's groups, in their saved order; a project names its group by id.
+  let groups = $state<ProjectGroup[] | undefined>()
+  // The project or group the board is narrowed to (null: everything).
+  let scope = $state<{ kind: 'project' | 'group'; id: string } | null>(null)
+  // The rail folds to its strip on a wide desktop; the choice is remembered in this browser.
+  let railCollapsed = $state(false)
   // The terminal machines (with readiness and launch capabilities), read with the rest for the launch bar and every start.
   let terminals = $state<TerminalMachine[] | undefined>()
   let savedWaiting = $state(0)
@@ -104,7 +110,7 @@
   let healthReadable = accounts
   const fromAgents = (s: SyncState, at: number): MachineHealth[] =>
     (s.agents ?? []).map(a => ({ agentId: a.id, host: a.host, state: a.lastSeen > at - 90_000 ? 'connected' : 'never_connected' }))
-  let sessionsFailed = $state(false), projectsFailed = $state(false)
+  let sessionsFailed = $state(false), projectsFailed = $state(false), groupsFailed = $state(false)
 
   // Each load has a generation. A poll is skipped while another load runs; an explicit refresh (after a start or a save)
   // supersedes it, and an answer from an older load is dropped so it never overwrites a newer list.
@@ -116,16 +122,17 @@
     loading = true
     const signOut = () => { life.abort(); onsignedout(new UnauthorizedError()) }
     try {
-      const [h, y, s, p, t] = await Promise.allSettled([
+      const [h, y, s, p, g, t] = await Promise.allSettled([
         healthReadable ? machineHealth(bounded()) : Promise.resolve(undefined),
         getSyncState(bounded()),
         writer ? terminalSessions(bounded()) : Promise.resolve(undefined),
         writer ? folderProjectList(bounded()) : Promise.resolve(undefined),
+        writer ? listProjectGroups(bounded()) : Promise.resolve(undefined),
         // The launch bar's machines: readiness and launch capabilities change while Home stays open, so they are read with the rest.
         writer ? terminalMachines(bounded()) : Promise.resolve(undefined),
       ])
       if (stale()) return
-      if ([h, y, s, p, t].some(r => r.status === 'rejected' && refused(r.reason, r !== y))) return signOut()
+      if ([h, y, s, p, g, t].some(r => r.status === 'rejected' && refused(r.reason, r !== y))) return signOut()
       const at = Date.now()
       let failed = false
       if (y.status === 'fulfilled') sync = y.value; else failed = true
@@ -137,6 +144,7 @@
       if (writer) {
         if (s.status === 'fulfilled' && s.value) { sessions = s.value; sessionsFailed = false } else { failed = true; sessionsFailed = sessions === undefined }
         if (p.status === 'fulfilled' && p.value) { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false } else { failed = true; projectsFailed = projects === undefined }
+        if (g.status === 'fulfilled' && g.value) { groups = g.value; groupsFailed = false } else { failed = true; groupsFailed = groups === undefined }
         if (t.status === 'fulfilled' && t.value) terminals = t.value; else failed = true
       }
       now = at
@@ -153,6 +161,33 @@
   let narrow = $state(typeof matchMedia === 'function' && matchMedia(NARROW).matches)
 
   let notice = $state<{ text: string; href?: string; bad?: boolean } | null>(null)
+  // The board's scope: a project shows its sessions, a group its projects' sessions.
+  const scopedIds = $derived.by(() => {
+    if (!scope) return undefined
+    if (scope.kind === 'project') return [scope.id]
+    const group = (groups ?? []).find(g => g.id === scope?.id)
+    if (!group) return [] as string[]
+    return (projects ?? []).filter(p => (p.groupId ?? '') === group.id).map(p => p.id)
+  })
+  const scopeName = $derived(scope ? (scope.kind === 'project' ? (projects ?? []).find(p => p.id === scope?.id)?.name : (groups ?? []).find(g => g.id === scope?.id)?.name) ?? 'Selection' : '')
+  // A removal or a fresh read that no longer names the chosen project or group ends the scope.
+  $effect(() => {
+    if (!scope || !projects) return
+    if (scope.kind === 'project' && !projects.some(p => p.id === scope?.id)) scope = null
+    else if (scope.kind === 'group' && groups && !groups.some(g => g.id === scope?.id)) scope = null
+  })
+  // An address that names a project (/?project=<id>) opens the board on it too, once the list is read.
+  let chosenScoped = false
+  $effect(() => {
+    if (chosenScoped || !chosen || !projects) return
+    chosenScoped = true
+    if (projects.some(p => p.id === chosen)) scope = { kind: 'project', id: chosen }
+  })
+  function setRailCollapsed(next: boolean) {
+    railCollapsed = next
+    try { localStorage.setItem('reet.rail.collapsed', next ? '1' : '0') } catch { /* The rail still folds. */ }
+  }
+
   // The rail and what its cards do (ProjectRailHost); the launch bar's project slot opens its Add project too.
   let host = $state<ProjectRailHost>()
   function openAdd(opener: HTMLElement) { void host?.openAdd(opener) }
@@ -194,6 +229,7 @@
   })
   // A write's answer is the list as it now is (or a project in it): it replaces what was read, superseding a poll in flight.
   function settle(next: FolderProject[]) { generation++; loading = false; projects = next }
+  function settleGroups(next: ProjectGroup[]) { generation++; loading = false; groups = next }
   // An old /projects/<id> address: its folder project, if one was made from it, is chosen and named in the address.
   async function findLegacy(id: string) {
     try {
@@ -272,6 +308,7 @@
   // The redirect note goes into its live region after the page is drawn, so it is announced.
   let movedShown = $state(false)
   onMount(() => {
+    try { railCollapsed = localStorage.getItem('reet.rail.collapsed') === '1' } catch { /* Open by default. */ }
     if (moved) void tick().then(() => { movedShown = true })
     void load()
     // The profile read gives up after 10 seconds, so the bar never waits on it for good (it then uses each project's own base).
@@ -294,15 +331,16 @@
   })
 </script>
 
-<div class="home" class:writer>
+<div class="home" class:writer class:rail-collapsed={railCollapsed}>
   <h1 class="vh">Home</h1>
   <!-- On a desktop the rail is the left column; on a tablet or phone it lives on the Sessions screen, and Home keeps only what
        adds a project from the launch sentence. -->
   {#if writer}
-    <ProjectRailHost bind:this={host} rail={!narrow} {projects} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
+    <ProjectRailHost bind:this={host} rail={!narrow} {projects} {groups} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
       chosen={launchProject ?? chosen} {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected} onchoose={(project) => chooseProject(project)}
+      {scope} onscope={(next) => (scope = next)} collapsed={railCollapsed} oncollapsed={setRailCollapsed} {userId}
       onnew={startProjectNow}
-      signal={bounded} onsettle={settle} onwaiting={(n) => (savedWaiting = n)} onmachines={(m) => (terminals = m)} onnotice={(n) => (notice = n)} onreload={() => void load(true)}
+      signal={bounded} onsettle={settle} onsettlegroups={settleGroups} onwaiting={(n) => (savedWaiting = n)} onmachines={(m) => (terminals = m)} onnotice={(n) => (notice = n)} onreload={() => void load(true)}
       onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
   {/if}
   <div class="column">
@@ -310,6 +348,7 @@
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
       <SessionBoard {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault}
+        scopeIds={scopedIds} scopeKind={scope?.kind} scopeName={scopeName} onclearscope={() => (scope = null)}
         onchanged={() => load(true)} onstarted={started} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       {#if needs.length}
         <details class="home-detail attention-detail"><summary>Needs you <span>{needs.length}</span></summary><NeedsYou cards={needs} onseen={markSeen} onanswered={answered} /></details>
@@ -343,6 +382,12 @@
   .home :global(p) { line-height: 1.55; }
   /* The rail is the mock-up's 272 px of cards inside 14 px padding and a 1 px rule: 301 px. */
   .home.writer { grid-template-columns: 301px minmax(0, 1fr); }
+  .home.writer.rail-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
+  /* Name the two columns explicitly: the rail and the board are the page's two grid items, and an absolute heading
+     must never leave either of them waiting for the next row. */
+  .home.writer > :global(aside.rail) { grid-column: 1; grid-row: 1; }
+  .home.writer > .column { grid-column: 2; grid-row: 1; }
+  .home:not(.writer) > .column { grid-column: 1; grid-row: 1; }
   .column { min-width: 0; display: flex; flex-direction: column; gap: 18px; padding: 20px 24px 0; min-height: calc(100dvh - var(--top) - var(--bottom-chrome, 0px)); }
   .home:not(.writer) .column { padding-bottom: 36px; }
   .problem, .notice { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
@@ -355,16 +400,24 @@
   .home-detail[open] > summary { margin-bottom: 14px; }
   .attention-detail > summary { color: var(--warn); }
   .quick-launch :global(.launch) { position: relative; bottom: auto; margin: 0; }
+  /* Quick launch is opened from a card, a machine or a link, often with a long board above it. While open it docks to the
+     foot of the viewport, so its prompt and Start are visible where the person is, not below the fold. */
+  .quick-launch[open] { position: sticky; bottom: calc(var(--bottom-chrome, 0px) + 14px); z-index: 3; padding: 10px 0 14px;
+    background: var(--bg); border-top-color: var(--line-strong); }
+  .quick-launch[open] > summary { margin-bottom: 10px; }
   /* A bar in the Quick launch flow cannot use `bottom` for the phone keyboard; lift it with a transform instead. */
   .quick-launch :global(.launch.lifted) { transform: translateY(calc(-1 * var(--lift, 0px))); }
   /* The live regions are always present, so a sentence put into one is announced; empty, they take no room. */
   .live:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
 
-  @media (max-width: 1239px) { .home.writer { grid-template-columns: 56px minmax(0, 1fr); } }
+  @media (max-width: 1239px) { .home.writer, .home.writer.rail-collapsed { grid-template-columns: 56px minmax(0, 1fr); } }
+  @media (max-width: 1099px) {
+    .home.writer > .column { grid-column: 1; }
+  }
   /* Tablet: machines, Needs you, then In flight, one column; the project rail is on the Sessions screen. */
   @media (max-width: 1099px) {
     .home { font-size: 15px; --top: 65px; }
-    .home.writer { grid-template-columns: minmax(0, 1fr); }
+    .home.writer, .home.writer.rail-collapsed { grid-template-columns: minmax(0, 1fr); }
   }
   /* Phone: one column with 16 px gutters; the launch bar sits above the tab bar. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {

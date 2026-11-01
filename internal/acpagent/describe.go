@@ -32,6 +32,12 @@ func Describe(tool string, installed bool, version string) terminalproto.ACPAgen
 		entry.Model, entry.Approval = true, true
 		return entry
 	}
+	if tool == "codex" {
+		// Only approvals: Codex asks only when the model asks to leave its sandbox
+		// (see the probe report). Model switching, replay and images are unverified.
+		entry.Approval = true
+		return entry
+	}
 	entry.History, entry.Images, entry.Model, entry.Approval = true, true, true, true
 	return entry
 }

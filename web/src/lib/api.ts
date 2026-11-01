@@ -430,6 +430,14 @@ export async function getYoloSetting(): Promise<YoloSetting> {
 export async function setYoloSetting(allowed: boolean): Promise<YoloSetting> {
   return (await req('/api/v2/settings/yolo', { method: 'PUT', body: json({ allowed }) })).json()
 }
+
+export type BranchPruneSetting = { afterWorktree: boolean; changedBy?: string; changedAt?: number }
+export async function getBranchPruneSetting(): Promise<BranchPruneSetting> {
+  return (await req('/api/v2/settings/branch-prune')).json()
+}
+export async function setBranchPruneSetting(afterWorktree: boolean): Promise<BranchPruneSetting> {
+  return (await req('/api/v2/settings/branch-prune', { method: 'PUT', body: json({ afterWorktree }) })).json()
+}
 export async function listIgnored(): Promise<{ ignored: Ignored[] }> {
   return (await req('/api/ignored')).json()
 }

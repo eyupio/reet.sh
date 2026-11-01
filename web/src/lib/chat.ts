@@ -88,6 +88,13 @@ export function pendingQuestions(state: ChatState): Extract<ChatItem, { kind: 'q
   return state.items.filter((item): item is Extract<ChatItem, { kind: 'question' }> => item.kind === 'question' && !item.decision)
 }
 
+/** Once a turn has stopped nothing it started is still running. A tool left pending or in progress would keep a busy state on a chat that says it
+ *  stopped, so it is shown as stopped; the agent's own later report of how it ended still replaces this. */
+function stopTools(items: ChatItem[]): ChatItem[] {
+  if (!items.some(item => item.kind === 'tool' && (item.status === 'pending' || item.status === 'in_progress'))) return items
+  return items.map(item => item.kind === 'tool' && (item.status === 'pending' || item.status === 'in_progress') ? { ...item, status: 'cancelled' } : item)
+}
+
 function cancelPending(items: ChatItem[], reason: string): ChatItem[] {
   return items.map(item => (item.kind === 'permission' || item.kind === 'question') && !item.decision ? { ...item, decision: 'cancelled' as const, reason } : item)
 }
@@ -178,7 +185,7 @@ function reduceChatEvent(state: ChatState, event: ChatEvent): ChatState {
       // Thinking belongs to the working phase: once the turn waits, finishes or stops, the thought is finished.
       const settled = status.state !== 'working' && status.state !== 'starting' ? settleThoughts(state.items) : state.items
       if (!stopped) return settled === state.items ? { ...next, status } : { ...next, status, items: settled }
-      return { ...next, status, items: cancelPending(settled, status.state === 'ended' ? 'ended' : status.state) }
+      return { ...next, status, items: stopTools(cancelPending(settled, status.state === 'ended' ? 'ended' : status.state)) }
     }
     case 'permission': {
       if (!event.permissionId) return next
@@ -522,4 +529,33 @@ export function proseBlocks(text: string): ProseBlock[] {
   }
   flushParagraph(); flushList()
   return out
+}
+
+/**
+ * Messages kept while the agent works, sent one at a time when its turn finishes. The queue lives only in the
+ * open chat: it is never stored, and an item's payload (its attachments) belongs to the person's session.
+ */
+export type QueuedPrompt<T = unknown> = { id: string; text: string; payload: T }
+export const MAX_QUEUED_PROMPTS = 10
+
+/** Add a message to the end of the queue. A full queue leaves it untouched and says so. */
+export function enqueuePrompt<T>(queue: readonly QueuedPrompt<T>[], item: QueuedPrompt<T>, max = MAX_QUEUED_PROMPTS): { queue: QueuedPrompt<T>[]; full: boolean } {
+  if (queue.length >= max) return { queue: [...queue], full: true }
+  return { queue: [...queue, item], full: false }
+}
+
+export function dropQueuedPrompt<T>(queue: readonly QueuedPrompt<T>[], id: string): QueuedPrompt<T>[] {
+  return queue.filter(item => item.id !== id)
+}
+
+/** Change a queued message's text in place; an empty message is refused, so the queue never holds nothing to send. */
+export function editQueuedPrompt<T>(queue: readonly QueuedPrompt<T>[], id: string, text: string): QueuedPrompt<T>[] {
+  if (!text.trim()) return [...queue]
+  return queue.map(item => item.id === id ? { ...item, text } : item)
+}
+
+/** Put an item back at the front (a retry), keeping every other item's order. */
+export function promoteQueuedPrompt<T>(queue: readonly QueuedPrompt<T>[], id: string): QueuedPrompt<T>[] {
+  const item = queue.find(entry => entry.id === id)
+  return item ? [item, ...queue.filter(entry => entry.id !== id)] : [...queue]
 }

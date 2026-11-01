@@ -24,6 +24,8 @@ type switchMachine struct {
 	// sessions is what the next reconcile reports; nil reports none.
 	sessions []terminalproto.SessionSnapshot
 	modes    []terminalproto.Message
+	// noChatID answers a structured create without an OpenCode session id.
+	noChatID bool
 }
 
 func (m *switchMachine) sent() []terminalproto.Message {
@@ -33,6 +35,12 @@ func (m *switchMachine) sent() []terminalproto.Message {
 }
 
 func switchFixture(t *testing.T, sessionMode bool) (*Broker, *Peer, int64, string, *switchMachine) {
+	t.Helper()
+	return switchFixtureCaps(t, func(c *terminalproto.Capabilities) { c.SessionMode = sessionMode })
+}
+
+// switchFixtureCaps is switchFixture with the machine's capabilities adjusted.
+func switchFixtureCaps(t *testing.T, adjust func(*terminalproto.Capabilities)) (*Broker, *Peer, int64, string, *switchMachine) {
 	t.Helper()
 	st, err := storetest.Open(t)
 	if err != nil {
@@ -44,7 +52,8 @@ func switchFixture(t *testing.T, sessionMode bool) (*Broker, *Peer, int64, strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", HealthEnabled: true, TerminalEnabled: true, TerminalControl: true, Launch: true, Tools: []string{"opencode"}, Readiness: terminalproto.Ready, ACP: true, ACPHistory: true, ACPApproval: true, ACPModel: true, SessionMode: sessionMode}
+	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", HealthEnabled: true, TerminalEnabled: true, TerminalControl: true, Launch: true, Tools: []string{"opencode"}, Readiness: terminalproto.Ready, ACP: true, ACPHistory: true, ACPApproval: true, ACPModel: true}
+	adjust(&caps)
 	record, err := st.BeginRemoteConnectionFor(uid, a.ID, ID(), caps)
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +82,7 @@ func switchFixture(t *testing.T, sessionMode bool) (*Broker, *Peer, int64, strin
 			reply.Body = terminalproto.Reconcile{Complete: true, Sessions: sessions}
 		case *terminalproto.Create:
 			reply.Body = terminalproto.SessionChanged{State: terminalproto.Running}
-			if op.Structured {
+			if op.Structured && !machine.noChatID {
 				reply.Body = terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: switchACPID}
 			}
 		case *terminalproto.End:
@@ -225,7 +234,7 @@ func TestSwitchToChatFlipsRowAndRestoresRing(t *testing.T) {
 	}
 	sent := machine.sent()
 	in := sent[len(sent)-1].Body.(*terminalproto.SessionMode)
-	if in.To != terminalproto.SessionModeChat || !in.Trust || in.ACPSessionID != switchACPID {
+	if in.To != terminalproto.SessionModeChat || !in.Trust || in.ACPSessionID != switchACPID || in.Cols != 0 || in.Rows != 0 {
 		t.Fatalf("sent %+v", in)
 	}
 	if events := modeEvents(t, b, uid); len(events) != 2 || events[0]["mode"] != terminalproto.SessionModeChat && events[1]["mode"] != terminalproto.SessionModeChat {
@@ -247,7 +256,7 @@ func TestSwitchRefusedWithoutACPSessionID(t *testing.T) {
 		t.Fatalf("session %+v", s)
 	}
 	err = b.SwitchSessionMode(t.Context(), uid, s.ID, terminalproto.SessionModeChat, true)
-	if !errors.Is(err, ErrSessionModeNoSession) || err.Error() != "This session started in the OpenCode TUI, so the reet TUI cannot pick up its conversation." {
+	if !errors.Is(err, ErrSessionModeNoSession) || err.Error() != "This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation." {
 		t.Fatalf("err %v", err)
 	}
 	if len(machine.sent()) != 0 || row(t, b, uid, s.ID).Structured {
@@ -305,7 +314,7 @@ func TestSwitchRefusedWhenUnsupportedOrOffline(t *testing.T) {
 	b, _, uid, agent, machine := switchFixture(t, false)
 	s := switchChat(t, b, uid, agent)
 	err := b.SwitchSessionMode(t.Context(), uid, s.ID, terminalproto.SessionModeTerminal, false)
-	if !errors.Is(err, ErrSessionModeUnsupported) || err.Error() != "Update reet on this machine to switch between the reet TUI and the OpenCode TUI." {
+	if !errors.Is(err, ErrSessionModeUnsupported) || err.Error() != "Update reet on this machine to switch between Gaffer and the OpenCode TUI." {
 		t.Fatalf("unsupported: %v", err)
 	}
 	if len(machine.sent()) != 0 || !row(t, b, uid, s.ID).Structured {
@@ -423,11 +432,14 @@ func TestReconcileAdoptsConnectorMode(t *testing.T) {
 	if got := row(t, b, uid, tui.ID); got.Structured || got.State != terminalproto.Running {
 		t.Fatalf("tui row %+v", got)
 	}
-	// A closed row is never touched.
+	// A closed row is never touched, even when the snapshot still reports it
+	// running as a terminal (which would demote a running chat row): closed
+	// rows never enter the loop.
 	if _, err := b.End(t.Context(), uid, s.ID, ID()); err != nil {
 		t.Fatal(err)
 	}
-	set(terminalproto.SessionSnapshot{ID: tui.ID, Title: "TUI", State: terminalproto.Running})
+	set(terminalproto.SessionSnapshot{ID: s.ID, Title: "Chat", State: terminalproto.Running},
+		terminalproto.SessionSnapshot{ID: tui.ID, Title: "TUI", State: terminalproto.Running})
 	if err := p.Synchronize(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -578,8 +590,9 @@ func TestConcurrentSwitchToChatKeepsTheFirstReplay(t *testing.T) {
 	}
 }
 
-// A row that changed under the switch (ended meanwhile) is a sentence, and the
-// ring made for the replay is not left behind.
+// A row that changed under the switch (ended meanwhile) is a sentence saying
+// it ended, the row keeps its mode, nothing is audited, and the ring made for
+// the replay is not left behind.
 func TestSwitchStoreFailureAfterAckIsASentence(t *testing.T) {
 	b, _, uid, agent, machine := switchFixture(t, true)
 	s := switchChat(t, b, uid, agent)
@@ -594,11 +607,17 @@ func TestSwitchStoreFailureAfterAckIsASentence(t *testing.T) {
 		return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: in.ACPSessionID}
 	}
 	machine.mu.Unlock()
-	if err := b.SwitchSessionMode(t.Context(), uid, s.ID, terminalproto.SessionModeChat, true); !errors.Is(err, ErrSessionModeFailed) {
+	if err := b.SwitchSessionMode(t.Context(), uid, s.ID, terminalproto.SessionModeChat, true); !errors.Is(err, ErrSessionModeEnded) {
 		t.Fatalf("err %v", err)
 	}
 	if b.chatExists(uid, s.ID) {
 		t.Fatal("ring left behind after the store refused the switch")
+	}
+	if got := row(t, b, uid, s.ID); got.Structured || got.State != terminalproto.Lost {
+		t.Fatalf("row %+v", got)
+	}
+	if events := modeEvents(t, b, uid); len(events) != 1 {
+		t.Fatalf("the refused switch was audited: %+v", events)
 	}
 }
 

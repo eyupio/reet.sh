@@ -240,8 +240,18 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 			model = option.CurrentValue
 		}
 	}
-	// No mode switching is offered: a custom primary agent must never become
-	// the default behind the approval config.
+	// A profile may name one mode to start in (StartMode). It is switched to only
+	// when the adapter's reply confirms it; otherwise the chat is refused below.
+	if spec.StartMode != "" && mode != "" && mode != spec.StartMode {
+		switched, err := s.switchMode(newCtx, sessionID0(created.SessionID, opts.Resume), spec.StartMode)
+		if err != nil || switched != spec.StartMode {
+			s.Close()
+			return nil, fmt.Errorf("%s did not start in %s mode; the chat was not started", spec.displayName(), spec.StartMode)
+		}
+		mode = switched
+	}
+	// No other mode switching is offered: a custom primary agent must never
+	// become the default behind the approval config.
 	if spec.RequireMode != "" && mode != spec.RequireMode {
 		s.Close()
 		return nil, fmt.Errorf("%s is not in %s mode; the chat was not started", spec.displayName(), spec.RequireMode)
@@ -1284,7 +1294,12 @@ func (s *Session) killGroup() {
 func retireGroup(pgid int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		// Check before signalling: a group seen gone may have had its id
+		// reused by an unrelated group since, so a retry must not kill it.
+		if !groupAlive(pgid) {
+			return true
+		}
+		killGroup(pgid)
 		if !groupAlive(pgid) {
 			return true
 		}
@@ -1471,4 +1486,38 @@ func (s *Session) SetModel(ctx context.Context, model string) error {
 		return ErrModel
 	}
 	return nil
+}
+
+// sessionID0 is the id session requests use during start: the new session's own,
+// or the one being resumed.
+func sessionID0(created, resume string) string {
+	if created != "" {
+		return created
+	}
+	return resume
+}
+
+// switchMode asks the adapter to change the session's mode and returns the mode
+// its reply reports. An empty result means the reply did not say, which callers
+// treat as not switched.
+func (s *Session) switchMode(ctx context.Context, id, mode string) (string, error) {
+	raw, err := s.request(ctx, "session/set_config_option", map[string]string{"sessionId": id, "configId": "mode", "value": mode})
+	if err != nil {
+		return "", err
+	}
+	var result struct {
+		ConfigOptions []struct {
+			ID           string `json:"id"`
+			CurrentValue string `json:"currentValue"`
+		} `json:"configOptions"`
+	}
+	if json.Unmarshal(raw, &result) != nil {
+		return "", nil
+	}
+	for _, option := range result.ConfigOptions {
+		if option.ID == "mode" {
+			return option.CurrentValue, nil
+		}
+	}
+	return "", nil
 }

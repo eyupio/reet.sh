@@ -1,24 +1,28 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import { shell } from '../dialogShell'
+  import SkillInstallPanel from './SkillInstallPanel.svelte'
   import { groupSkills, seenLine, type SessionSkill, type SessionSkills } from './skills'
 
   // The per-session skill picker: a modal sheet listing the skills a session could use, grouped by where they live.
   // Names and descriptions are untrusted text from a machine and are only ever rendered as text.
   // Arrow keys, Home and End move through the rows, Enter picks one, Escape closes; the caller gives focus back.
-  let { data, loading, error, tool, initialQuery = '', onpick, onclose, onretry }: {
+  let { data, loading, error, tool, initialQuery = '', sessionId, onpick, onclose, onretry, onrefresh }: {
     data: SessionSkills | null
     loading: boolean
     error: string
     tool: string
     initialQuery?: string
+    sessionId: string
     onpick: (skill: SessionSkill) => void
     onclose: () => void
     onretry: () => void
+    onrefresh: () => void
   } = $props()
 
   const id = $props.id()
   let query = $state(untrack(() => initialQuery))
+  let installing = $state<SessionSkill | null>(null)
   let dialog = $state<HTMLDialogElement>(), list = $state<HTMLDivElement>(), input = $state<HTMLInputElement>()
   const now = Date.now()
 
@@ -34,6 +38,13 @@
     return () => { if (dialog?.open) dialog.close() }
   })
   function close() { if (dialog?.open) dialog.close(); onclose() }
+  // The install panel takes the sheet over; when it closes the list comes back, reloaded if something was installed.
+  async function installed(done: boolean) {
+    installing = null
+    if (done) onrefresh()
+    await tick()
+    input?.focus()
+  }
   function pick(skill: SessionSkill) {
     if (!skill.invocation) return
     onpick(skill)
@@ -78,6 +89,9 @@
       </button>
     </header>
     <div class="body" data-shell-body onkeydown={keys} role="presentation">
+      {#if installing}
+        <SkillInstallPanel {sessionId} skill={installing} host={data?.host ?? ''} {tool} onclose={installed} />
+      {:else}
       <input class="filter" type="text" role="searchbox" bind:this={input} bind:value={query} aria-label="Filter skills" placeholder="Filter skills" autocomplete="off" spellcheck="false" />
       {#if loading}
         <p class="note" role="status">Reading skills…</p>
@@ -93,14 +107,23 @@
               <div class="heading" id={`${id}-${g.key}`}>{g.label}</div>
               <div class="list" role="listbox" aria-labelledby={`${id}-${g.key}`}>
                 {#each g.skills as s (s.id)}
+                  <div class="item" role="presentation">
                   <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <div class="option" role="option" tabindex="-1" aria-selected="false" aria-disabled={s.invocation ? undefined : 'true'} onclick={() => pick(s)}>
+                  <div class="option" id={`${id}-o-${s.id}`} role="option" tabindex="-1" aria-selected="false" aria-disabled={s.invocation ? undefined : 'true'} onclick={() => pick(s)}>
                     <span class="name">{s.name}</span>
                     {#if s.description}<span class="description">{s.description}</span>{/if}
                     <span class="meta">
                       <span class="source">{s.source === 'reet' ? 'reet-hosted' : `On this machine · ${s.agent}`}</span>
                       {#if !s.invocation}<span class="reason">{reason(s)}</span>{/if}
                     </span>
+                  </div>
+                  {#if s.source === 'reet' && !s.onMachine}
+                    {#if s.published}
+                      <button type="button" class="install" aria-describedby={`${id}-o-${s.id}`} onclick={() => (installing = s)}>Install</button>
+                    {:else}
+                      <a class="publish" href="/hosting">Publish this skill to install it.</a>
+                    {/if}
+                  {/if}
                   </div>
                 {/each}
               </div>
@@ -113,6 +136,7 @@
           {#if empty}<p class="note" role="status">No skills found on {data.host} yet.</p>{/if}
           <p class="seen">{seenLine(data.machineSeen, data.host, now)}</p>
         {/if}
+      {/if}
       {/if}
     </div>
   </div>
@@ -132,6 +156,9 @@
   .groups { display: flex; flex-direction: column; gap: 10px; }
   .heading { padding: 4px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
   .list { display: flex; flex-direction: column; gap: 2px; }
+  .item { display: flex; flex-direction: column; align-items: stretch; }
+  .install { align-self: flex-start; min-height: 36px; margin: 0 0 6px 10px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+  .publish { margin: 0 0 6px 10px; padding: 2px 0; font-size: 12px; color: var(--accent); }
   .option { display: flex; flex-direction: column; gap: 2px; min-height: 40px; justify-content: center; padding: 6px 10px; border-radius: 8px; color: var(--ink); cursor: pointer; }
   .option:hover, .option:focus-visible { background: var(--tint); }
   .option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -148,6 +175,7 @@
   @media (max-width: 560px) { .card { border-radius: 14px; } }
   @media (pointer: coarse) {
     .option { min-height: 44px; padding: 8px 12px; }
-    .filter, .retry { min-height: 44px; }
+    .filter, .retry, .install { min-height: 44px; }
+    .publish { display: inline-flex; align-items: center; min-height: 44px; }
   }
 </style>

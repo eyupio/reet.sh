@@ -123,6 +123,10 @@ try {
   await page.getByRole('button', { name: 'Allow once', exact: true }).click()
   await expect.poll(() => state.answer).toEqual({ allow: true })
   await page.evaluate(() => window.__chatStream.emit('chat', { seq: 6, kind: 'permission_resolved', permissionId: 'p1', allow: true }))
+  // A decided approval folds shut like every other row; the person reopens it to see the command and the answer.
+  const approvalCard = page.locator('.approval').filter({ hasText: 'Run the tests' })
+  await expect(approvalCard.locator('.approval-actions')).toHaveCount(0)
+  await approvalCard.locator('.approval-head').click()
   await expect(page.getByText('Allowed once.')).toBeVisible()
   await page.getByRole('textbox', { name: 'Message OpenCode' }).fill('now run the linter')
   await page.getByRole('button', { name: 'Send', exact: true }).click()

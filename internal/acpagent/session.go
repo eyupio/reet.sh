@@ -302,6 +302,10 @@ func (s *Session) ImagesSupported() bool {
 	return s.promptImages
 }
 
+// cancelGrace is how long an adapter gets to answer session/cancel after the
+// watchdog stops a silent turn before the prompt request is abandoned.
+var cancelGrace = 30 * time.Second
+
 func (s *Session) emit(event Event) {
 	s.mu.Lock()
 	now := time.Now()
@@ -921,7 +925,7 @@ func (s *Session) Cancel() error {
 	return err
 }
 
-// armForceStop gives the agent CancelGrace to end the turn it was asked to
+// armForceStop gives the agent ForceStopGrace to end the turn it was asked to
 // cancel. An agent that ignores session/cancel would otherwise leave the chat
 // busy until the turn timeout while the person has already been told it
 // stopped. If the same turn is still running after the grace period, the chat
@@ -937,7 +941,7 @@ func (s *Session) armForceStop() {
 	s.forceArmed = seq
 	s.turnMu.Unlock()
 	go func() {
-		timer := time.NewTimer(s.opts.cancelGrace())
+		timer := time.NewTimer(s.opts.forceStopGrace())
 		defer timer.Stop()
 		select {
 		case <-timer.C:
@@ -1073,6 +1077,11 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 	s.turnMu.Unlock()
 	watchDone := make(chan struct{})
 	watchStopped := make(chan struct{})
+	// The request may outlive an idle turn only while the agent keeps talking:
+	// once the watchdog gives up, an adapter that ignores session/cancel gets a
+	// bounded grace period instead of the whole MaxTurn.
+	requestCtx, cancel := context.WithTimeout(ctx, s.opts.maxTurn()+30*time.Second)
+	defer cancel()
 	// Join the watchdog before the next turn can start: a recovery already
 	// reading the log must not report against, or cancel, that next turn.
 	defer func() {
@@ -1125,7 +1134,7 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 						recoverNow = true
 					}
 				}
-				timedOut := elapsed >= s.opts.turnTimeout()
+				timedOut := elapsed >= s.opts.maxTurn() || (!pending && quiet >= s.opts.turnTimeout())
 				s.turnMu.Unlock()
 				if recoverNow {
 					if message := s.recoverLive(acpID, startedAt.UnixMilli()); message != "" {
@@ -1160,13 +1169,12 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 					}
 					s.emit(Event{Kind: "notice", Text: "The turn took too long, so " + s.opts.Agent.displayName() + " was stopped.", Bad: true})
 					_ = s.Cancel()
+					time.AfterFunc(cancelGrace, cancel)
 					return
 				}
 			}
 		}
 	}()
-	requestCtx, cancel := context.WithTimeout(ctx, s.opts.turnTimeout()+30*time.Second)
-	defer cancel()
 	prompt := make([]map[string]string, 0, 1+len(images))
 	if text != "" {
 		prompt = append(prompt, map[string]string{"type": "text", "text": text})

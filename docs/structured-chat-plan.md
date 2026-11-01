@@ -180,6 +180,13 @@ trust, model or history assumptions. Reuse SC2's probe matrix and SC3's question
 controls where the wire contract matches. Gemini and Pi are later candidates,
 not scope additions to the first two integrations.
 
+### Device and credential checks (1 November 2026)
+
+What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real
+device (`npm run fixture:questions`), and the logged-out and logged-in Claude runs. `question-card.e2e.mjs` automates what Chromium can show: the accessibility
+tree, a keyboard answer, and an emulated 390 px touch phone with every control on screen and at least 40 px tall. The form capability and Claude chats stay off until the
+recorded results are in.
+
 ### SC4 progress: Claude wired dark (1 November 2026)
 
 Claude is registered behind the descriptor and launch gates but dark. The controller accepts a Claude descriptor only for the
@@ -249,8 +256,8 @@ turn, is never touched. Covered by `TestCancelIgnoredByTheAgentEndsTheChatAfterT
 
 **Fixed (gap 3):** a permission or question request that arrives with no running turn, or after the running turn was cancelled, belongs to no turn the
 person is waiting on. It used to raise an approval card and show an idle chat as "waiting". It is now answered as cancelled and raises nothing
-(`turnAcceptsRequests`). Covered for permissions after a turn ended, permissions during a cancel, and questions after a turn ended. **Gap 2** stays as it is: showing
-"cancelled" at once is deliberate feedback, and the force-stop bounds the worst case; output arriving after the status flips is not yet tested.
+(`turnAcceptsRequests`). Covered for permissions after a turn ended, permissions during a cancel, and questions after a turn ended. **Gap 2** is resolved on the browser side: showing
+"cancelled" at once is deliberate feedback, and the force-stop bounds the worst case. What the review of output after the status flips found: text and tool reports that arrive late are still shown and a late report of how a tool ended still replaces what the row said, but a tool left pending or in progress when the turn stopped kept a busy "Running" state on a chat that said it stopped. Those rows are now shown as stopped when the turn stops (cancelled, finished, errored or ended).
 
 **Fixed (gap 4, wording only):** the app already marks a chat the machine can no longer find as lost, and the sessions list says "Connection lost". The chat itself now says
 why it closed: a lost chat explains that reet lost contact (for example when the connection closed or the reet service on the machine restarted) and that the

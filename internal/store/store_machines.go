@@ -83,6 +83,13 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 		}
 		// An alias belonging to another report selects that report’s preferred name.
 		to = destination
+		// Pending work is cancelled before the reports move, so an install's
+		// revert still finds the saved set it changed.
+		if !strings.EqualFold(source, to) {
+			if err := endSyncJobsTx(tx, "cancelled", "Machine renamed; preview again.", `j.agent_id IN (SELECT id FROM sync_agents WHERE user_id=? AND host=? COLLATE NOCASE) AND j.status IN ('queued','awaiting-approval')`, userID, source); err != nil {
+				return err
+			}
+		}
 		rows, err := tx.Query(`SELECT e.id,e.agent,e.project,e.path,e.first_seen,e.last_seen,COALESCE(sc.scanned_at,e.last_seen) FROM environments e LEFT JOIN environment_scans sc ON sc.env_id=e.id WHERE e.user_id=? AND e.host=? COLLATE NOCASE`, userID, source)
 		if err != nil {
 			return err
@@ -203,9 +210,6 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 			}
 		}
 		if !strings.EqualFold(source, to) {
-			if _, err := tx.Exec(`UPDATE sync_jobs SET status='cancelled',message='Machine renamed; preview again.',updated_at=? WHERE agent_id IN (SELECT id FROM sync_agents WHERE user_id=? AND host=? COLLATE NOCASE) AND status IN ('queued','awaiting-approval')`, now(), userID, source); err != nil {
-				return err
-			}
 			if _, err := tx.Exec(`UPDATE sync_agents SET host=? WHERE user_id=? AND host=? COLLATE NOCASE`, to, userID, source); err != nil {
 				return err
 			}

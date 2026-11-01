@@ -944,6 +944,7 @@ const (
 	errEnvironmentHasReceipts = "environment_has_receipts"
 	errEnvironmentHasPins     = "environment_has_pins"
 	errEnvironmentNotFound    = "environment_not_found"
+	errEnvironmentJobRunning  = "environment_job_running"
 	errLocalSkillInList       = "local_skill_not_allowed_in_list"
 	errAmbiguousSkillID       = "ambiguous_skill_id"
 	errSkillNotFound          = "skill_not_found"

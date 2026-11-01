@@ -85,7 +85,7 @@ The handler, in order:
 Response: `{ "job": "<id>", "reused": false, "directory": "<folder>", "host": "<machine>" }`.
 
 Errors are `{ "error": "<sentence>", "code": "<code>" }` with one stable code each: `unpublished`, `connector-offline`,
-`no-scan`, `unsupported-agent`, `follows-source`, `install-in-progress` (a different job is pending on this folder),
+`no-scan`, `unsupported-agent`, `follows-source`, `slug-conflict` (a different skill with the same name is already in the saved list), `install-in-progress` (a different job is pending on this folder),
 `already-installed` (the skill is already on this machine for this agent), `read-only`. The sentences are written for the person, for example "dev-laptop's skills follow another machine, so this
 skill would be removed the next time it syncs."
 
@@ -133,8 +133,22 @@ it (additive plans are applied without a second approval) although the person ca
 2. if the saved set's revision is still the one this install produced, removes the skill from the saved set, and deletes the
    whole saved set if this install had created it; if someone has changed the set since, leaves it alone and says so.
 
-A job that **failed** keeps the saved set so a retry is one press; the picker's Failed state offers Retry and Remove from
-saved skills (the same revert).
+The same revert runs whenever an install job ends without applying, by any path, not only the picker's Cancel: a cancel from
+the Needs you list or the Sync page, a removed saved set, a renamed or revoked machine, a preview or apply the machine reports
+as **failed**, and a job the controller fails because the machine stopped reporting. The rule is: a skill an install put in a
+saved set stays there only while its job is pending or once it has applied. A set the install created is deleted; otherwise the
+slug is removed and the set gets back the revision it had before the install (`skill_installs.prev_revision`), so no new
+revision without jobs appears for Keep synced to act on. If the set has changed since, it is left alone.
+
+So a failed install also leaves the saved set as it was, and the picker's Failed state offers Retry, which runs the whole
+install again (still one press), and Close. There is no separate remove action.
+
+While an install is pending, Keep synced holds off on that machine (it already waits while any job there is pending) and the
+Sync page's Run skips that folder; when no folder is left it refuses with "an install is waiting on this folder; finish or
+cancel it first" (or "...on each of these folders..." for several). Saving that folder's set (`SaveDesiredFor`, used by the Sync
+page and the library's one-click install) is refused with "An install is waiting on this folder. Finish or cancel it first.",
+and merging that folder's report into another cancels the pending install (and reverts it) before the set is copied; a merge
+while a job runs there is refused.
 
 ### Safety
 

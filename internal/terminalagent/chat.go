@@ -56,6 +56,9 @@ type chatSession struct {
 	// quiet is set once a mode swap has taken this chat over: its end and any
 	// late events are never told to the controller, whose row stays running.
 	quiet bool
+	// stray is set on a retired receipt whose process group Close could not
+	// confirm gone: it still counts against the quota and liveTool.
+	stray bool
 	ended sync.Once
 
 	activityAt int64
@@ -102,8 +105,10 @@ type chatSupervisor struct {
 	// refused while any runs, and they are refused while a swap runs.
 	holds  map[string]int
 	closed bool
-	wg     sync.WaitGroup
-	close  sync.Once
+	// stop is closed when Close starts; background waits end on it.
+	stop  chan struct{}
+	wg    sync.WaitGroup
+	close sync.Once
 }
 
 // chatLink is one control connection's delivery path. history is the
@@ -137,7 +142,7 @@ func newChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *c
 		},
 		lookPath: exec.LookPath,
 		sessions: map[string]*chatSession{}, requests: map[string]string{}, starting: map[string]string{},
-		swapping: map[string]string{}, holds: map[string]int{},
+		swapping: map[string]string{}, holds: map[string]int{}, stop: make(chan struct{}),
 	}
 	go func() {
 		<-ctx.Done()
@@ -167,6 +172,7 @@ func (s *chatSupervisor) closeOnce() {
 			s.link = nil
 		}
 		s.mu.Unlock()
+		close(s.stop)
 		for _, cs := range sessions {
 			if cs.process != nil {
 				cs.process.Close()
@@ -315,13 +321,7 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
 	}
-	live := 0
-	for _, existing := range h.sup.sessions {
-		if existing.state.ReservesQuota() {
-			live++
-		}
-	}
-	if live >= terminalproto.MaxSessionsPerAgent {
+	if h.sup.quotaLocked() >= terminalproto.MaxSessionsPerAgent {
 		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrSessionCapacity
 	}
@@ -464,6 +464,18 @@ func (h *chatHost) snapshots() []terminalproto.SessionSnapshot {
 	return out
 }
 
+// quotaLocked counts the chats that hold a slot of MaxSessionsPerAgent; the
+// caller holds s.mu.
+func (s *chatSupervisor) quotaLocked() int {
+	n := 0
+	for _, cs := range s.sessions {
+		if cs.state.ReservesQuota() || cs.stray {
+			n++
+		}
+	}
+	return n
+}
+
 // liveTool counts this process's live sessions for one tool, across every
 // connection. A software apply uses it to refuse while an OpenCode session
 // still needs the installation it is replacing.
@@ -472,7 +484,7 @@ func (s *chatSupervisor) liveTool(tool string) int {
 	defer s.mu.Unlock()
 	n := 0
 	for _, cs := range s.sessions {
-		if cs.tool == tool && cs.state.ReservesQuota() {
+		if cs.tool == tool && (cs.state.ReservesQuota() || cs.stray) {
 			n++
 		}
 	}
@@ -766,13 +778,19 @@ func (s *chatSupervisor) forget(sessionID string) bool {
 	if cs == nil || cs.state.ReservesQuota() {
 		return false
 	}
+	s.dropLocked(sessionID)
+	return true
+}
+
+// dropLocked removes the id's receipt and the request ids that name it; the
+// caller holds s.mu.
+func (s *chatSupervisor) dropLocked(sessionID string) {
 	delete(s.sessions, sessionID)
 	for request, id := range s.requests {
 		if id == sessionID {
 			delete(s.requests, request)
 		}
 	}
-	return true
 }
 
 // questionAnswerer is the part of a chat process that can resolve a typed

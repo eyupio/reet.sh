@@ -14,8 +14,9 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
  let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, onbusy }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
-  /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI switch. */
-  onbusy?: (busy: boolean) => void } = $props()
+  /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI
+   *  switch; undefined until the stream has opened and its replay has been applied, as the chat cannot say before then. */
+  onbusy?: (busy: boolean | undefined) => void } = $props()
 
  let chat: ChatState = $state(initialChat())
  let selectedModel = $state(''), currentModel = $state(''), changingModel = $state(false)
@@ -145,6 +146,11 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  // arrives as many events in a burst, and applying and drawing each one separately is what used to stall the tab.
  let pendingEvents: ChatEvent[] = []
  let flushTimer: ReturnType<typeof setTimeout> | undefined
+ // Whether this chat's word on being busy can be trusted: the controller writes a stream's reset and its replay together, so
+ // the chat has replayed once what arrived with the reset has been applied (settle, one batch later). Until then, and again
+ // while a dropped stream waits for its next reset, the chat says nothing either way.
+ let replayed = $state(false), settleTimer: ReturnType<typeof setTimeout> | undefined
+ function stopSettle() { if (settleTimer !== undefined) { clearTimeout(settleTimer); settleTimer = undefined } }
  // Every tool row is folded by default, including a failure; the person's toggle wins for that key.
  let expanded = $state<Record<string, boolean>>({})
  let copied = $state('')
@@ -160,7 +166,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  const pending = $derived(pendingPermissions(chat))
  const asked = $derived(pendingQuestions(chat))
  const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This reet session has ended.' : pending.length ? 'Waiting for your approval.' : asked.length ? 'Waiting for your answer.' : working ? `${toolName} is working…` : chat.status.state === 'error' ? `${toolName} stopped with an error.` : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
- $effect(() => { onbusy?.(working || pending.length > 0 || asked.length > 0) })
+ $effect(() => { onbusy?.(replayed ? working || pending.length > 0 || asked.length > 0 : undefined) })
  const statusDetail = $derived(pending.length || asked.length ? '' : chat.status.detail)
  const canAttach = $derived(uploadsSupported && !uploadsOff && !ended)
  const imageLimit = $derived(acpImages ? MAX_EMBEDDED_IMAGES : MAX_IMAGES)
@@ -191,6 +197,8 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   try { truncated = !!JSON.parse(event.data)?.truncated } catch { /* fixed empty reset */ }
   pendingEvents = []; stopFlush()
   chat = { ...resetChat(truncated), connection: 'open' }
+  replayed = false; stopSettle()
+  settleTimer = setTimeout(() => { settleTimer = undefined; flushEvents(); replayed = true }, 16)
   void scrollToEnd()
  }
  function readEvent(event: MessageEvent) {
@@ -371,8 +379,8 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   stream.addEventListener('reset', readReset)
   stream.addEventListener('chat', readEvent)
   stream.onopen = () => { chat = { ...chat, connection: 'open' } }
-  stream.onerror = () => { if (alive) chat = { ...chat, connection: 'reconnecting' } }
-  return () => { alive = false; life.abort(); skillsLife?.abort(); pendingEvents = []; stopFlush(); if (copyTimer !== undefined) clearTimeout(copyTimer); closeStream() }
+  stream.onerror = () => { if (alive) { chat = { ...chat, connection: 'reconnecting' }; stopSettle(); replayed = false } }
+  return () => { alive = false; life.abort(); skillsLife?.abort(); pendingEvents = []; stopFlush(); stopSettle(); if (copyTimer !== undefined) clearTimeout(copyTimer); closeStream() }
  })
  onDestroy(() => { for (const image of images) URL.revokeObjectURL(image.preview); for (const url of sentUrls) URL.revokeObjectURL(url) })
 </script>
@@ -651,7 +659,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
     </div>
     <span class="hint">Enter to send · Shift + Enter for a new line</span>
    </div>
-   {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} onpick={pickSkill} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
+   {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} sessionId={session.id} onrefresh={() => void loadSkills()} onpick={pickSkill} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
    {#if canAttach}<input class="vh" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={picked} />{/if}
   </div>
  {/if}

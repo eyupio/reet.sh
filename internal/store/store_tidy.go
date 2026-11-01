@@ -76,6 +76,24 @@ func (s *Store) DeleteEnvironmentsFor(userID int64, ids []string, force bool) ([
 	return deleted, blocked, nil
 }
 
+// ErrEnvironmentJobRunning refuses a merge while the source report has a sync
+// job running: it may be writing, and its result belongs to the source.
+var ErrEnvironmentJobRunning = errors.New("a sync job is running on this environment; wait for it to finish, then merge")
+
+// MergeJobCountsFor counts the sync jobs on one report that a merge would
+// refuse (running) or cancel (queued or awaiting approval), and how many of the
+// cancelled ones are skill installs, so a preview can say so before a merge.
+func (s *Store) MergeJobCountsFor(userID int64, envID string) (running, pending, installs int, err error) {
+	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND target_id=? AND status='running'`, userID, envID).Scan(&running); err != nil {
+		return
+	}
+	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND target_id=? AND status IN ('queued','awaiting-approval')`, userID, envID).Scan(&pending); err != nil {
+		return
+	}
+	err = s.db.QueryRow(`SELECT COUNT(*) FROM skill_installs i JOIN sync_jobs j ON j.id=i.job_id WHERE j.user_id=? AND j.target_id=? AND j.status IN ('queued','awaiting-approval')`, userID, envID).Scan(&installs)
+	return
+}
+
 // MergeEnvironmentsFor moves one report's skills into another and removes the
 // source report. The destination keeps its own scan metadata.
 func (s *Store) MergeEnvironmentsFor(userID int64, fromID, toID string) (int, error) {
@@ -108,6 +126,19 @@ func (s *Store) MergeEnvironmentsFor(userID int64, fromID, toID string) (int, er
 		}
 		if receipts > 0 {
 			return ErrSkillContentReceiptScope
+		}
+		var running int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND target_id=? AND status='running'`, userID, fromID).Scan(&running); err != nil {
+			return err
+		}
+		if running > 0 {
+			return ErrEnvironmentJobRunning
+		}
+		// Pending work is cancelled before the saved set is copied, so an
+		// install's revert still finds the set on the source report and the
+		// copy never carries a skill nobody approved.
+		if err := endSyncJobsTx(tx, "cancelled", "Environment merged; preview again.", `j.user_id=? AND j.target_id=? AND j.status IN ('queued','awaiting-approval')`, userID, fromID); err != nil {
+			return err
 		}
 		res, err := tx.Exec(`INSERT OR IGNORE INTO skill_envs(skill_id,env_id,installed_at,last_seen,source_path)
 			SELECT skill_id,?,installed_at,last_seen,source_path FROM skill_envs WHERE env_id=?`, toID, fromID)

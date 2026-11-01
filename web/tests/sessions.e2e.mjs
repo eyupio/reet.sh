@@ -732,7 +732,8 @@ try {
  }
 
  if (run('toggle switches a live chat to the OpenCode TUI and back')) {
-  const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
+  // The chat reports quiet; once in the OpenCode TUI the row's word comes from terminal activity.
+  const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions().map(x => x.id === 's9' ? {...x, attention:'quiet', attentionSource:'chat'} : x)], machines:switchMachines(), chat:true})
   // The switch is held until the test lets it finish, as the machine takes its time stopping one process and starting the other.
   let finish
   box.mode = () => new Promise(resolve => { finish = resolve })
@@ -743,6 +744,8 @@ try {
   await expect(page.locator('.chat-pane')).toBeVisible()
   await expect(page.locator('.pane')).toHaveCount(0)
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toBeVisible()
+  const pill = screen(page).locator('.pill')
+  await expect(pill).toHaveText(/^Quiet\W*from the chat$/)
   await expect(tuiButton).toHaveAttribute('aria-disabled','false')
   await tuiButton.click()
   const dialog = page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'})
@@ -766,19 +769,22 @@ try {
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(1)
   expect(box.writes.find(w => w.kind === 'mode')).toEqual({kind:'mode',id:'s9',body:{mode:'terminal',trust:false}})
-  box.sessions = box.sessions.map(x => x.id === 's9' ? {...x, structured:false} : x)
+  box.sessions = box.sessions.map(x => x.id === 's9' ? {...x, structured:false, attention:'working', attentionSource:'terminal'} : x)
   finish({status:204, body:''})
   // The pane swaps to the OpenCode TUI's terminal and the switch follows.
   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
   await expect(tuiButton).toHaveAttribute('aria-pressed','true')
   await expect(chatButton).toHaveAttribute('aria-pressed','false')
   await expect(chatButton).toHaveAttribute('aria-disabled','false')
+  // The status pill follows the row the switch read again: its word now comes from the terminal.
+  await expect(pill).toHaveText(/^Working\W*from terminal activity$/)
   // The Approvals line and the decisions follow the new mode: the terminal's own line, asked in the terminal.
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toHaveCount(0)
   await expect(screen(page).locator('.approvals')).toHaveText('Approvals: Ask me')
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the terminal.')
   // And back: the reet TUI loads the conversation again.
   box.mode = null
+  box.sessions = box.sessions.map(x => x.id === 's9' ? {...x, attention:'quiet', attentionSource:'chat'} : x)
   await chatButton.click()
   const back = page.getByRole('alertdialog',{name:'Switch to the reet TUI?'})
   await expect(back).toContainText('scrollback is not kept')
@@ -788,6 +794,7 @@ try {
   await expect(page.locator('.pane')).toHaveCount(0)
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the chat: Allow once or Deny.')
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toBeVisible()
+  await expect(pill).toHaveText(/^Quiet\W*from the chat$/)
   expect(box.writes.filter(w => w.kind === 'mode').map(w => w.body)).toEqual([{mode:'terminal',trust:false},{mode:'chat',trust:false}])
   expect(errors).toEqual([])
   await context.close()
@@ -936,11 +943,26 @@ try {
   await expect(trust).not.toBeChecked()
   await expect(dialog.getByRole('button',{name:'Switch to the reet TUI'})).toBeDisabled()
   await expect(chatButton).toHaveAttribute('aria-pressed','false')
+  // Cancel on the trust question closes it, sends nothing more, and leaves the switch usable: asked again, the dialog
+  // starts without the question until the machine refuses once more.
+  await dialog.getByRole('button',{name:'Cancel'}).click()
+  await expect(dialog).toBeHidden()
+  await expect(chatButton).toBeFocused()
+  await expect(chatButton).toHaveAttribute('aria-disabled','false')
+  await expect(screen(page).getByRole('status').first()).not.toContainText('Switching')
+  await page.waitForTimeout(200)
+  expect(box.writes.filter(w => w.kind === 'mode')).toHaveLength(1)
+  await chatButton.click()
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('checkbox')).toHaveCount(0)
+  await dialog.getByRole('button',{name:'Switch to the reet TUI'}).click()
+  await expect(trust).toBeVisible()
+  await expect(trust).not.toBeChecked()
   await trust.check()
   await dialog.getByRole('button',{name:'Switch to the reet TUI'}).click()
   await expect(chatButton).toHaveAttribute('aria-pressed','true')
   await expect(page.locator('.pane')).toHaveCount(0)
-  expect(box.writes.filter(w => w.kind === 'mode').map(w => w.body)).toEqual([{mode:'chat',trust:false},{mode:'chat',trust:true}])
+  expect(box.writes.filter(w => w.kind === 'mode').map(w => w.body)).toEqual([{mode:'chat',trust:false},{mode:'chat',trust:false},{mode:'chat',trust:true}])
   // In the dark theme and at phone width the same dialog reads and fits.
   for (const [width, height, theme] of [[1440, 900, 'dark'], [390, 844, 'light']]) {
    const next = await open({width, height, touch:width < 600, theme, sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})

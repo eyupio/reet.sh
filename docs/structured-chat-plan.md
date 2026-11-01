@@ -212,10 +212,9 @@ reject and Stop behaviour, then a real-login check. None of it is built yet.
 that starts in `agent` (Codex's default) to `read-only`, using `session/set_config_option`, and the chat is refused unless the adapter's reply reports the new mode. The
 descriptor reports approvals only. The browser does not offer Codex yet (`CHAT_ADAPTERS` is unchanged), so nothing is visible to anyone.
 
-Unverified against a real adapter, and why a chat may fail to start (it fails closed): the `mode` switch through `set_config_option` (the probes used `session/set_mode`); the
-agent name the adapter reports at `initialize` (assumed to follow Claude's `@agentclientprotocol/codex-acp`); and authentication, since `session/new` answers "Authentication
-required" until `authenticate` is called and the connector replaces `HOME`, so a ChatGPT login under the real home is not visible. The next step is a probe of those three against
-the pinned adapter, then the browser mode control.
+Probed afterwards (`scripts/probe-codex-start.py`, probe report "Codex start, probed"): the agent name is right and the `set_config_option` mode switch works and confirms
+`read-only`. Authentication is not settled: `session/new` answers "Authentication required" until `authenticate` is called, and the connector replaces `HOME`, so a login under the
+real home is not visible. A Codex chat cannot start until reet has a decided way to authenticate. That is the next decision, before the browser mode control.
 
 ### Device and credential checks (1 November 2026)
 

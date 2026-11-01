@@ -280,6 +280,18 @@ mode reet starts (it is the only one that can ask); not offering `allow_always` 
 that a reject ends the turn; treating a silent sandbox denial and an `agent`-mode refusal as events the person should see; and retiring the process group on Stop, since cancel alone
 leaves the command running. None is built.
 
+## Codex start, probed (1 November 2026)
+
+`scripts/probe-codex-start.py` against `codex-acp@1.13.1`: temporary HOME and CODEX_HOME, no credential variables, **no model call and no network**. Observed:
+
+- `initialize` reports `agentInfo.name` `@agentclientprotocol/codex-acp`, version `1.13.1`, `authMethods` `api-key` and `chat-gpt`. The profile's expected name is right.
+- `session/new` before `authenticate` fails with code `-32000`, "Authentication required". It is not a silent success as with Claude; a chat started without an authenticate step cannot start.
+- After a synthetic `api-key` authenticate, `session/new` succeeds starting in `agent`, with `modes` `read-only`, `agent`, `agent-full-access` and options `mode`, `collaboration_mode`, `model`, `reasoning_effort`, `fast-mode`.
+- **`session/set_config_option` with `configId: mode` works and confirms**: the reply carries the full option list with `mode` now `read-only`. This is the switch reet's profile uses, and its reply is authoritative.
+- `session/set_mode` replies `{}`, which confirms nothing; reet does not use it.
+
+Still open: how a real person authenticates. `api-key` needs a key sent in `_meta`; `chat-gpt` is a browser sign-in. The connector replaces `HOME`, so a login under the real home is not visible to the adapter, and nothing in the profile calls `authenticate` yet.
+
 ## Claude environment (observed)
 
 `probe-claude-lifecycle.py --drop VAR --add KEY=VAL` removes or adds adapter environment

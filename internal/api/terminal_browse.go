@@ -23,12 +23,17 @@ import (
 func (s *server) registerBrowseRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/machines/{agentId}/browse", s.terminal(s.sameOriginRead(s.machineBrowse)))
 	mux.HandleFunc("GET /api/v2/machines/{agentId}/branches", s.terminal(s.sameOriginRead(s.machineBranches)))
+	mux.HandleFunc("GET /api/v2/machines/{agentId}/branches/prune", s.terminal(s.sameOriginRead(s.machineBranchPrunePlan)))
+	mux.HandleFunc("POST /api/v2/machines/{agentId}/branches/prune", s.terminal(s.machineBranchPrune))
 }
 
 var (
 	// browseLimiter and branchesLimiter allow 20 browses and 10 listings per
 	// 10 seconds per account and machine.
 	browseLimit, branchesLimit = 20, 10
+	// pruneLimit allows 5 plans or prunes per 10 seconds per account and
+	// machine: a prune runs git over the whole repository.
+	pruneLimit = 5
 	// browseBrowsersPerUser bounds the browsers remembered per account (each
 	// is one audit row); past it, and after browseBrowserIdle without a page,
 	// a browser is forgotten. browsePagesCounted caps a row's page count.
@@ -60,6 +65,7 @@ type browseLimits struct {
 	mu       sync.Mutex
 	browse   *auth.Limiter
 	branches *auth.Limiter
+	prune    *auth.Limiter
 }
 
 func (l *browseLimits) take(limiter func(*browseLimits) *auth.Limiter, key string) bool {
@@ -94,7 +100,7 @@ type browseAudit struct {
 func (s *server) browseState() (*browseLimits, *browseAudit) {
 	s.browseOnce.Do(func() {
 		window := 10 * time.Second
-		s.browseLimits = &browseLimits{browse: auth.NewLimiter(browseLimit, window), branches: auth.NewLimiter(branchesLimit, window)}
+		s.browseLimits = &browseLimits{browse: auth.NewLimiter(browseLimit, window), branches: auth.NewLimiter(branchesLimit, window), prune: auth.NewLimiter(pruneLimit, window)}
 		s.browseAudit = &browseAudit{users: map[int64]map[string]*browseVisit{}}
 	})
 	return s.browseLimits, s.browseAudit
@@ -313,6 +319,7 @@ func browseView(r terminalproto.BrowseResult) browseJSON {
 func (s *server) machineRequestError(w http.ResponseWriter, err error, uid int64, agent string) {
 	var browse *terminalbroker.BrowseError
 	var branches *terminalbroker.BranchesError
+	var prune *terminalbroker.BranchPruneError
 	switch {
 	case errors.As(err, &browse):
 		switch browse.Reason {
@@ -340,6 +347,23 @@ func (s *server) machineRequestError(w http.ResponseWriter, err error, uid int64
 		default:
 			writeErrCode(w, http.StatusUnprocessableEntity, "git_failed", "dir", sentenceBranchesGit, "")
 		}
+	case errors.As(err, &prune):
+		switch prune.Reason {
+		case terminalproto.BranchesNotRepoRoot:
+			writeErrCode(w, http.StatusUnprocessableEntity, "not_repo_root", "dir", sentenceBranchesNotRoot, "")
+		case terminalproto.BranchesOutsideHome:
+			writeErrCode(w, http.StatusUnprocessableEntity, "outside_home", "dir", sentenceOutsideHome, "")
+		case terminalproto.BranchesDenied:
+			writeErrCode(w, http.StatusConflict, "branches_denied", "", sentenceBranchesDenied, "")
+		default:
+			writeErrCode(w, http.StatusUnprocessableEntity, "git_failed", "dir", sentenceBranchesGit, "")
+		}
+	case errors.Is(err, terminalbroker.ErrBranchPruneUnsupported):
+		writeErrCode(w, http.StatusConflict, "branches_unsupported", "", "Update reet on that machine to prune its branches.", "")
+	case errors.Is(err, terminalbroker.ErrBranchPruneDenied):
+		writeErrCode(w, http.StatusConflict, "branches_denied", "", sentenceBranchesDenied, "")
+	case errors.Is(err, terminalbroker.ErrBranchPruneBusy):
+		writeErrCode(w, http.StatusConflict, "branches_busy", "", sentenceBranchesBusy, "")
 	case errors.Is(err, terminalbroker.ErrBrowseUnsupported):
 		writeErrCode(w, http.StatusConflict, "browse_unsupported", "", sentenceBrowseOld, "")
 	case errors.Is(err, terminalbroker.ErrBranchesUnsupported):

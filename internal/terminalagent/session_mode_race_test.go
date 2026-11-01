@@ -546,12 +546,61 @@ func TestSwapToChatWaitsForTerminalExit(t *testing.T) {
 	}
 }
 
-// An OpenCode TUI that outlives its tmux session is not joined by a chat on
-// the same store: the switch is refused and the row retired.
-func TestSwapToChatTerminalStillRunningRetiresRow(t *testing.T) {
+// An OpenCode TUI that ignores its hangup and does not exit in time is
+// terminated (SIGTERM, then SIGKILL) before the chat opens on its store, so no
+// process is left behind and the switch still succeeds.
+func TestSwapToChatTerminatesALingeringTerminal(t *testing.T) {
 	previous := swapShellExitTimeout
 	swapShellExitTimeout = 300 * time.Millisecond
 	t.Cleanup(func() { swapShellExitTimeout = previous })
+	previousTerm, previousKill := swapShellTermTimeout, swapShellKillTimeout
+	swapShellTermTimeout, swapShellKillTimeout = 200*time.Millisecond, 3*time.Second
+	t.Cleanup(func() { swapShellTermTimeout, swapShellKillTimeout = previousTerm, previousKill })
+	r, opts := tmuxSwapRig(t, "#!/bin/sh\ntrap '' HUP TERM\nexec sleep 600\n")
+	groups := tuiGroups(t, opts)
+	t.Cleanup(func() {
+		for _, g := range groups {
+			_ = syscall.Kill(-g, syscall.SIGKILL)
+		}
+	})
+	var alive []bool
+	start := r.sup.start
+	r.sup.start = func(ctx context.Context, o acpagent.Options) (chatProcess, error) {
+		for _, g := range groups {
+			alive = append(alive, acpagent.GroupAlive(g))
+		}
+		return start(ctx, o)
+	}
+	body := toChat(r.home)
+	r.send(t, "request-swap-000001", &body)
+	if changed, ok := r.reply(t, "request-swap-000001").(terminalproto.SessionChanged); !ok || changed.State != terminalproto.Running {
+		t.Fatalf("swap reply %#v", changed)
+	}
+	if n := r.chatStarts(); n != 1 {
+		t.Fatalf("chat starts = %d, want 1", n)
+	}
+	for i, a := range alive {
+		if a {
+			t.Fatalf("the chat started while the TUI's group %d was alive", groups[i])
+		}
+	}
+	for _, g := range groups {
+		if acpagent.GroupAlive(g) {
+			t.Fatalf("the lingering TUI's group %d is still alive", g)
+		}
+	}
+}
+
+// When even the termination cannot stop the OpenCode TUI, no chat is opened on
+// its store: the switch is refused and the row retired.
+func TestSwapToChatRetiresRowWhenTerminalSurvivesTermination(t *testing.T) {
+	previous := swapShellExitTimeout
+	swapShellExitTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { swapShellExitTimeout = previous })
+	terminated := false
+	previousTerminate := terminateShellGroups
+	terminateShellGroups = func([]int) bool { terminated = true; return false }
+	t.Cleanup(func() { terminateShellGroups = previousTerminate })
 	r, opts := tmuxSwapRig(t, "#!/bin/sh\ntrap '' HUP TERM\nexec sleep 600\n")
 	groups := tuiGroups(t, opts)
 	t.Cleanup(func() {
@@ -563,6 +612,9 @@ func TestSwapToChatTerminalStillRunningRetiresRow(t *testing.T) {
 	r.send(t, "request-swap-000001", &body)
 	if _, ok := r.reply(t, "request-swap-000001").(terminalproto.Result); !ok {
 		t.Fatal("swap did not fail")
+	}
+	if !terminated {
+		t.Fatal("the lingering TUI was not terminated before the row was retired")
 	}
 	if n := r.chatStarts(); n != 0 {
 		t.Fatalf("a chat was started beside the TUI: %d", n)

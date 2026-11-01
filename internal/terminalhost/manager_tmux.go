@@ -159,8 +159,8 @@ func (m *Manager) PaneProcesses(ctx context.Context, sessionID string) ([]int, e
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.closed {
-		return nil, ErrManagerClosed
+	if err := m.allowed(); err != nil {
+		return nil, err
 	}
 	if !responsive(ctx, m.tmux, m.layout) {
 		return nil, ErrNotRunning

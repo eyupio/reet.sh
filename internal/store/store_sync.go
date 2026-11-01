@@ -147,6 +147,9 @@ func (s *Store) SaveSyncTargetFor(userID int64, sourceID, targetID string) error
 		return ErrSync
 	}
 	return s.withTx(func(tx *sql.Tx) error {
+		if err := refuseWhileInstallPendingTx(tx, userID, targetID); err != nil {
+			return err
+		}
 		type observed struct {
 			name, agent, project string
 			scanned              int64
@@ -309,10 +312,15 @@ func (s *Store) DeleteSyncTargetFor(userID int64, targetID string) error {
 		if running > 0 {
 			return errors.New("wait for the running sync before removing its desired set")
 		}
-		if _, err := tx.Exec(`UPDATE sync_jobs SET status='cancelled',message='Desired set removed.',updated_at=? WHERE user_id=? AND target_id=? AND status IN ('queued','awaiting-approval')`, now(), userID, targetID); err != nil {
+		if err := endSyncJobsTx(tx, "cancelled", "Desired set removed.", `j.user_id=? AND j.target_id=? AND j.status IN ('queued','awaiting-approval')`, userID, targetID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM sync_options WHERE target_id IN (SELECT target_id FROM sync_targets WHERE user_id=? AND target_id=?)`, userID, targetID); err != nil {
+			return err
+		}
+		// A policy left behind would make the folder look as if it still
+		// followed a source.
+		if _, err := tx.Exec(`DELETE FROM sync_policies WHERE target_id IN (SELECT id FROM environments WHERE user_id=? AND id=?)`, userID, targetID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(`DELETE FROM sync_targets WHERE user_id=? AND target_id=?`, userID, targetID)

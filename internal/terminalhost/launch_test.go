@@ -404,12 +404,24 @@ func TestLaunchArgvSessionRefusesResumeAndStructured(t *testing.T) {
 	}
 }
 
+// ErrLaunchOptionUnsupported for a session is reachable only for a tool whose
+// preset has no sessionArgs and which still passes Validate: today that is
+// claude with a UUID-shaped id.
 func TestLaunchArgvSessionUnsupportedTool(t *testing.T) {
 	look := fakeLookPath("claude")
-	for _, tool := range []string{"claude"} {
-		in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: tool, LaunchSession: "11111111-2222-3333-4444-555555555555"}
-		if _, err := LaunchArgv(in, look); !errors.Is(err, ErrLaunchOptionUnsupported) {
-			t.Fatal(tool, err)
-		}
+	in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "claude", LaunchSession: "11111111-2222-3333-4444-555555555555"}
+	if _, err := LaunchArgv(in, look); !errors.Is(err, ErrLaunchOptionUnsupported) {
+		t.Fatal(err)
+	}
+}
+
+func TestLaunchArgvOpenCodeSessionWithPrompt(t *testing.T) {
+	look := fakeLookPath("opencode")
+	const id = "ses_abc123XYZ"
+	in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "opencode", LaunchSession: id, Prompt: "p"}
+	got, err := LaunchArgv(in, look)
+	want := []string{"/opt/fake/bin/opencode", "--session", id, "--prompt", "p"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, %v; want %q", got, err, want)
 	}
 }

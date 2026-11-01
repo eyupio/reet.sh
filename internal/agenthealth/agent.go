@@ -948,9 +948,10 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ACPModel:    acp && cfg.acpModel,
 		ACPImages:   acp && cfg.acpImages,
 		ACPApproval: acp && cfg.acpApproval,
-		// Only on a connection that negotiated session-mode-v1, and only with
-		// chats, their history and terminal control: the validator's rule.
-		SessionMode:     acp && cfg.acpHistory && cfg.sessionMode && cfg.TerminalSession != nil,
+		// Only on a connection that negotiated session-mode-v1, with chats and
+		// their history, and only when OpenCode can be launched in a
+		// terminal: a switch opens the OpenCode TUI.
+		SessionMode:     acp && cfg.acpHistory && cfg.sessionMode && launch && slices.Contains(tools, "opencode"),
 		ACPQuestions:    acp && cfg.acpQuestion,
 		ShellDir:        cfg.shellDir && control && enabled,
 		Attention:       cfg.attention && control,

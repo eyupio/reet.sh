@@ -26,6 +26,7 @@ type SessionSkill struct {
 	Native      bool   `json:"native"`
 	OnMachine   bool   `json:"onMachine"`
 	Invocation  string `json:"invocation"`
+	Published   bool   `json:"published"`
 }
 
 // SessionSkills is the catalogue offered for one session.
@@ -104,7 +105,7 @@ func buildSessionSkills(tool, host, dir string, skills []store.Skill, hosted []s
 		}
 		entry := SessionSkill{
 			ID: sk.ID, Name: sk.Name, Description: sk.Description,
-			Source: "machine", Agent: agent, Native: hasNative, OnMachine: true,
+			Source: "machine", Agent: agent, Native: hasNative, OnMachine: true, Published: true,
 		}
 		if hasNative {
 			entry.Invocation = skillInvocation(tool, sk.Name)
@@ -118,7 +119,7 @@ func buildSessionSkills(tool, host, dir string, skills []store.Skill, hosted []s
 			continue
 		}
 		reet = append(reet, SessionSkill{
-			ID: "reet:" + h.Slug, Name: h.Slug, Description: h.Description, Source: "reet",
+			ID: "reet:" + h.Slug, Name: h.Slug, Description: h.Description, Source: "reet", Published: h.Published,
 		})
 	}
 	for _, group := range [][]SessionSkill{native, other, reet} {
@@ -138,23 +139,10 @@ func buildSessionSkills(tool, host, dir string, skills []store.Skill, hosted []s
 // installed on its machine, then the account's reet-hosted ones. It only reads.
 func (s *server) terminalSessionSkills(w http.ResponseWriter, r *http.Request) {
 	uid := s.uid(r)
-	session, err := s.st.TerminalSessionFor(uid, r.PathValue("id"))
-	if err != nil {
-		// Same answer as the sibling routes for an unknown or foreign session.
-		terminalError(w, terminalbroker.ErrDenied)
-		return
-	}
-	agents, err := s.st.SyncAgentsFor(uid)
+	session, _, host, err := s.sessionMachine(uid, r.PathValue("id"))
 	if err != nil {
 		terminalError(w, err)
 		return
-	}
-	host := ""
-	for _, a := range agents {
-		if a.ID == session.AgentID {
-			host = a.Host
-			break
-		}
 	}
 	// The reet-hosted group does not depend on the machine, so it is read first.
 	hosted, err := s.st.HostedSkillsFor(uid)
@@ -167,14 +155,38 @@ func (s *server) terminalSessionSkills(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, buildSessionSkills(session.Tool, "", session.Dir, nil, hosted))
 		return
 	}
-	if host, err = s.st.ResolveMachineHostFor(uid, host); err != nil {
-		terminalError(w, err)
-		return
-	}
 	skills, _, err := s.st.ListFor(uid, store.Filter{})
 	if err != nil {
 		terminalError(w, err)
 		return
 	}
 	writeJSON(w, 200, buildSessionSkills(session.Tool, host, session.Dir, skills, hosted))
+}
+
+// sessionMachine resolves a session the account owns and the machine it runs
+// on. host is "" when the session's machine is not among the account's agents;
+// otherwise it is the alias-resolved machine name. An unknown or foreign
+// session is terminalbroker.ErrDenied, the sibling routes' answer.
+func (s *server) sessionMachine(uid int64, id string) (session store.TerminalSession, agentID, host string, err error) {
+	session, err = s.st.TerminalSessionFor(uid, id)
+	if err != nil {
+		return session, "", "", terminalbroker.ErrDenied
+	}
+	agents, err := s.st.SyncAgentsFor(uid)
+	if err != nil {
+		return session, "", "", err
+	}
+	for _, a := range agents {
+		if a.ID == session.AgentID {
+			host = a.Host
+			break
+		}
+	}
+	if host == "" {
+		return session, session.AgentID, "", nil
+	}
+	if host, err = s.st.ResolveMachineHostFor(uid, host); err != nil {
+		return session, "", "", err
+	}
+	return session, session.AgentID, host, nil
 }

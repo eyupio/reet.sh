@@ -107,3 +107,44 @@ func TestTerminateGroupEmptyGroup(t *testing.T) {
 		t.Fatal("empty group reported alive")
 	}
 }
+
+// retireGroup on a group that is already gone must not signal: the group id may
+// have been reused by an unrelated group since it was seen alive.
+func TestRetireGroupDoesNotSignalAGoneGroup(t *testing.T) {
+	cmd := exec.Command("true")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	var calls []int
+	old := killGroup
+	killGroup = func(pgid int) { calls = append(calls, pgid); old(pgid) }
+	t.Cleanup(func() { killGroup = old })
+	if !retireGroup(cmd.Process.Pid, time.Second) {
+		t.Fatal("a gone group was reported alive")
+	}
+	if len(calls) != 0 {
+		t.Fatalf("killGroup called for a gone group: %v", calls)
+	}
+}
+
+func TestRetireGroupKillsALiveGroup(t *testing.T) {
+	cmd := exec.Command("sleep", "30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = cmd.Wait() }()
+	pgid := cmd.Process.Pid
+	time.Sleep(100 * time.Millisecond)
+	var calls []int
+	old := killGroup
+	killGroup = func(pgid int) { calls = append(calls, pgid); old(pgid) }
+	t.Cleanup(func() { killGroup = old })
+	if !retireGroup(pgid, 3*time.Second) {
+		t.Fatal("live group not retired")
+	}
+	if len(calls) == 0 || calls[0] != pgid {
+		t.Fatalf("killGroup calls %v, want the live group", calls)
+	}
+}

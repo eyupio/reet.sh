@@ -1,6 +1,9 @@
 package terminalproto
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // ACPAgentsFeature negotiates per-tool structured-chat descriptors. An absent
 // list is a legacy OpenCode-only peer; an explicit empty list supports no chats.
@@ -157,4 +160,14 @@ func validUUIDSessionID(s string) bool {
 		}
 	}
 	return true
+}
+
+// SessionModeFor reports whether a session of tool can switch between the
+// chat and the tool's own terminal on this machine: it negotiated
+// session-mode-v1 and can launch the tool in a terminal (launch-v1 with the
+// tool among its launch tools). The validator requires launch-v1 but not the
+// tool, because an older connector reports session mode on a machine whose
+// chats come from another adapter; such a machine is simply not asked.
+func (c Capabilities) SessionModeFor(tool string) bool {
+	return c.SessionMode && c.Launch && slices.Contains(c.Tools, tool)
 }

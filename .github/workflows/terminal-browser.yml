@@ -215,6 +215,7 @@ jobs:
           node web/tests/phone-dialogs.e2e.mjs
           node web/tests/chat.e2e.mjs
           node web/tests/chat-claude.e2e.mjs
+          node web/tests/question-card.e2e.mjs
           node web/tests/account.e2e.mjs
           node web/tests/launch.e2e.mjs
           node web/tests/sessions.e2e.mjs

@@ -423,8 +423,8 @@ export const copy = {
     surface: 'marketing',
   },
   'hero.title': {
-    standard: 'One control room. For your AI fleet.',
-    reet: 'One control room. For your AI fleet.',
+    standard: 'One command on any machine. Your whole AI setup shows up.',
+    reet: 'One command on any machine. Your whole AI setup shows up.',
     surface: 'marketing',
   },
   'hero.cta': {

@@ -35,7 +35,7 @@ The rule of thumb: **standard text carries the meaning; Yorkshire carries the wa
 | `nav.signIn` | Sign in | — | Authentication must never be a puzzle. |
 | `nav.createAccount` | Create an account | — | |
 | `hero.eyebrow` | Your AI control room. | Ey up. Your AI control room. | Greeting plus the page’s purpose. |
-| `hero.title` | One control room. For your AI fleet. | — | The promise stays literal. |
+| `hero.title` | One command on any machine. Your whole AI setup shows up. | — | The promise stays literal. |
 | `hero.cta` | Get started | Reet, let’s get crackin’ | Marketing only; use `nav.signIn` for auth. |
 | `hero.secondaryCta` | See how it works | Have a nosy | |
 | `marketing.toolkit` | A very good agent toolkit. | A reet good agent toolkit. | |

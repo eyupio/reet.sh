@@ -51,7 +51,7 @@
 <AuthCard
   eyebrow="Your AI workspace"
   title="Create your account"
-  lede="Bring your fleet, AI agents, skills and reusable setups into one workspace."
+  lede="Enrol the machines you work on, and your agents, skills and setups go with you to every one of them."
 >
   <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? 'signup-error' : undefined}>
     <label for="signup-name">Your name</label>

@@ -61,6 +61,7 @@ Each entry:
 
 The server builds it from the existing skills/environments tables and the hosting records, scoped to the session's machine.
 Groups in the picker follow the fields: native on this machine, other agents on this machine, reet-hosted.
+A skill installed in a project folder (a project-scoped environment) is listed only when the session's directory is that project or below it; otherwise it is not listed at all, and a session with no known directory sees none. A session whose machine is not among the account's agents still gets the reet-hosted group, with an empty `host` and no machine skills.
 
 ### Invocation text
 
@@ -115,7 +116,7 @@ Phase 1.
   that has not been scanned, and a session on a machine that does not match any scan host.
 - Go: `skillInvocation`, including a name with a newline or control character getting no invocation.
 - Unit (node): grouping and filtering, the `/` trigger rules (only as the first character, not inside a path or a URL), and
-  applying an invocation to a draft without passing the 2,000-character cap.
+  applying an invocation to a draft without passing the 2,000-byte cap.
 - Playwright: the picker in both TUIs, with keyboard and pointer, at desktop, tablet and phone width, in light and dark; the
   inserted text; and that nothing is sent without Enter.
 

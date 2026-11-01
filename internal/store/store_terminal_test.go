@@ -603,3 +603,90 @@ func TestACPResumeIsBoundToStoredToolAndFolder(t *testing.T) {
 		t.Fatalf("another tool's history matched: %v %v", ok, err)
 	}
 }
+
+func runningChat(t *testing.T, s *Store, uid int64, a SyncAgent, c RemoteAgentCapabilities, withACP bool) TerminalSession {
+	t.Helper()
+	chat, created, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: "/tmp"})
+	if err != nil || !created {
+		t.Fatalf("reserve chat: %v %v", created, err)
+	}
+	if withACP {
+		if err := s.RecordTerminalACPSessionFor(uid, a.ID, chat.ID, "ses_fake000000000000000000000001"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.ObserveTerminalStateFor(uid, a.ID, chat.ID, c.Generation, terminalproto.Running, nil); err != nil {
+		t.Fatal(err)
+	}
+	return chat
+}
+
+func TestSetTerminalStructuredForFlipsRunningRow(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	chat := runningChat(t, s, uid, a, c, true)
+	before, err := s.TerminalSessionFor(uid, chat.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []bool{false, false, true, true} {
+		if err := s.SetTerminalStructuredFor(uid, chat.ID, want); err != nil {
+			t.Fatalf("set %v: %v", want, err)
+		}
+		got, err := s.TerminalSessionFor(uid, chat.ID)
+		if err != nil || got.Structured != want {
+			t.Fatalf("structured after set %v: %+v %v", want, got, err)
+		}
+		if got.ACPSessionID != before.ACPSessionID || got.State != before.State || got.Model != before.Model || got.Yolo != before.Yolo || got.Dir != before.Dir {
+			t.Fatalf("other columns changed: %+v vs %+v", got, before)
+		}
+	}
+}
+
+func TestSetTerminalStructuredForRefusesWithoutACPSessionID(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	chat := runningChat(t, s, uid, a, c, false)
+	if err := s.SetTerminalStructuredFor(uid, chat.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTerminalStructuredFor(uid, chat.ID, true); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatalf("enable without acp id: %v", err)
+	}
+	got, _ := s.TerminalSessionFor(uid, chat.ID)
+	if got.Structured {
+		t.Fatal("structured flipped despite refusal")
+	}
+}
+
+func TestSetTerminalStructuredForRefusesClosedRow(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	chat := runningChat(t, s, uid, a, c, true)
+	if err := s.ObserveTerminalStateFor(uid, a.ID, chat.ID, c.Generation, terminalproto.Exited, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTerminalStructuredFor(uid, chat.ID, false); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatalf("closed row: %v", err)
+	}
+	got, _ := s.TerminalSessionFor(uid, chat.ID)
+	if !got.Structured {
+		t.Fatal("closed row changed")
+	}
+}
+
+func TestSetTerminalStructuredForOtherAccount(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	chat := runningChat(t, s, uid, a, c, true)
+	member, err := s.CreateUser("separate@example.com", "Separate", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTerminalStructuredFor(member.ID, chat.ID, false); !errors.Is(err, ErrRemoteNotFound) {
+		t.Fatalf("other account: %v", err)
+	}
+	if err := s.SetTerminalStructuredFor(uid, "nope", false); !errors.Is(err, terminalproto.ErrInvalid) && !errors.Is(err, ErrRemoteNotFound) {
+		t.Fatalf("unknown id: %v", err)
+	}
+	got, _ := s.TerminalSessionFor(uid, chat.ID)
+	if !got.Structured {
+		t.Fatal("other account changed the row")
+	}
+}

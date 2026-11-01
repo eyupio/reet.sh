@@ -34,6 +34,24 @@ func (e *TrustError) Error() string {
 	return "this folder has agent extensions: " + strings.Join(e.Files, ", ")
 }
 
+// CheckTrust is the start's trust gate on its own: a *TrustError when the
+// folder carries files the agent would execute and the person did not trust
+// it, ErrPluginsUnreadable when they cannot be read, and nil otherwise. A
+// caller about to stop something for a chat asks it first.
+func (s Spec) CheckTrust(dir string, trusted bool) error {
+	if s.Trust == nil {
+		return nil
+	}
+	files, err := s.Trust(dir)
+	if err != nil {
+		return err
+	}
+	if len(files) > 0 && !trusted {
+		return &TrustError{Files: files}
+	}
+	return nil
+}
+
 // Spec is one ACP adapter. It is data, not a code path per agent: the generic
 // client owns the handshake, turn and permission protocol, and a profile only
 // describes how to launch the agent and what its compatibility floor is.

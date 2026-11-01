@@ -10,7 +10,7 @@
   import { saveDraft } from '../sessionBacklog'
   import { insertSkillPrompt } from '../skillPrompt'
   import { machineModels, refreshMachineModels, structuredAgent, type FolderProject, type TerminalMachine } from '../terminal/api'
-  import { cleanDraftOptions, draftOptionRules } from '../draftOptions'
+  import { cleanDraftOptions, draftOptionRules, ideaProblem } from '../draftOptions'
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import type { DraftImage, SessionDraft } from '../sessionBoard'
   import type { LaunchDefaults } from '../launchBar'
@@ -25,7 +25,7 @@
   let dialog: HTMLDialogElement, promptInput = $state<HTMLTextAreaElement>()
   let title = $state(''), prompt = $state(''), projectId = $state(''), agentId = $state(''), dir = $state('')
   let tool = $state(''), model = $state(''), effort = $state(''), mode = $state<'project' | 'folder'>('project')
-  let yolo = $state(false), worktree = $state(false), base = $state(''), chat = $state(true), trust = $state(false)
+  let idea = $state(false), yolo = $state(false), worktree = $state(false), base = $state(''), chat = $state(true), trust = $state(false)
   let images = $state<DraftImage[]>([]), busy = $state(false), reading = $state(false), message = $state('')
   let browse = $state(false), titleTouched = $state(false)
   let modelButton = $state<HTMLButtonElement>(), effortButton = $state<HTMLButtonElement>(), skillButton = $state<HTMLButtonElement>()
@@ -65,7 +65,7 @@
     if (!modelTargetKey || !modelStatusInfo.canRefresh || !machine?.ready || !machine.capabilities?.models || machine.capabilities.modelsOff) return undefined
     return { label: 'Refresh', onclick: () => void refreshModels(), disabled: modelLoading }
   })
-  const initial = () => JSON.stringify({ title, prompt, projectId, agentId, dir, tool, model, effort, mode, images, yolo, worktree, base, chat, trust })
+  const initial = () => JSON.stringify({ title, prompt, projectId, agentId, dir, tool, model, effort, mode, images, idea, yolo, worktree, base, chat, trust })
   let original = '', confirmClose = $state(false)
 
   function defaults(project?: FolderProject) {
@@ -99,7 +99,7 @@
     if (draft) {
       title = draft.title; prompt = draft.prompt; projectId = draft.projectId; agentId = draft.agentId; dir = draft.dir
       tool = draft.tool; model = draft.model; effort = draft.effort; images = [...(draft.images ?? [])]
-      yolo = draft.yolo === true; worktree = draft.worktree === true; base = draft.base ?? ''; chat = draft.chat === true; trust = draft.trust === true
+      idea = draft.idea === true; yolo = draft.yolo === true; worktree = draft.worktree === true; base = draft.base ?? ''; chat = draft.chat === true; trust = draft.trust === true
       if (!CATALOGUE.find(agent => agent.id === tool)?.effort) effort = ''
       mode = projectId ? 'project' : 'folder'; titleTouched = true
     } else {
@@ -244,11 +244,11 @@
   }
   async function save(event: SubmitEvent) {
     event.preventDefault(); if (busy || reading) return
-    const why = !agentId ? 'Choose a machine.' : mode === 'project' && !projectId ? 'Choose a project.' : !prompt.trim() ? 'Describe what the agent should do.' : validatePrompt(tool, prompt) || validateModel(model) || (dir ? validateDir(dir) : null)
+    const why = !agentId ? 'Choose a machine.' : mode === 'project' && !projectId ? 'Choose a project.' : idea ? ideaProblem({ idea, title, prompt }) || (prompt.trim() ? validatePrompt(tool, prompt) : null) || validateModel(model) || (dir ? validateDir(dir) : null) : !prompt.trim() ? 'Describe what the agent should do.' : validatePrompt(tool, prompt) || validateModel(model) || (dir ? validateDir(dir) : null)
     if (why) { message = why; return }
     busy = true; message = ''
     try {
-      const saved = await saveDraft({ title: title.trim() || defaultTitle(prompt), prompt, projectId: mode === 'project' ? projectId : '', agentId, dir, tool, model: model.trim(), effort, ...cleanDraftOptions({ tool, isRepo: !!project?.isRepo, canChat: !!structuredAgent(machine?.capabilities, tool), chat, worktree, base, trust, yolo }), images, version: draft?.version ?? 0 }, draft?.id, AbortSignal.timeout(20_000))
+      const saved = await saveDraft({ title: title.trim() || defaultTitle(prompt), prompt, idea, projectId: mode === 'project' ? projectId : '', agentId, dir, tool, model: model.trim(), effort, ...cleanDraftOptions({ tool, isRepo: !!project?.isRepo, canChat: !!structuredAgent(machine?.capabilities, tool), chat, worktree, base, trust, yolo }), images, version: draft?.version ?? 0 }, draft?.id, AbortSignal.timeout(20_000))
       onsaved(saved)
     } catch (e) { onerror(e); message = e instanceof Error ? e.message : "Couldn't save this session. Your draft is still here." }
     finally { busy = false }
@@ -266,8 +266,9 @@
         <div class="discard" role="alert" style="position: sticky; top: 0; z-index: 3"><strong>Discard your unsaved changes?</strong><div><button type="button" class="btn" onclick={() => confirmClose = false}>Keep editing</button><button type="button" class="btn" onclick={onclose}>Discard changes</button></div></div>
       {/if}
       <fieldset disabled={busy || reading}>
-        <label class="field"><span>Session title <small>Optional · suggested from your prompt</small></span><input aria-label="Session title" bind:value={title} oninput={() => titleTouched = true} maxlength="80" placeholder="A short name for this piece of work" /></label>
-        <label class="field"><span>Prompt <em>Required</em></span><textarea bind:this={promptInput} aria-label="Prompt" bind:value={prompt} rows="6" required placeholder="What should the agent do? Include the context, the outcome you want, and anything it should keep in mind." onpaste={e => { const files = Array.from(e.clipboardData?.files ?? []); if (files.length) { e.preventDefault(); void attach(files) } }}></textarea></label>
+        <label class="idea-toggle"><input type="checkbox" bind:checked={idea} /> <span><strong>Just capture an idea</strong><small>A placeholder so you don’t forget. It can’t be started until you add a prompt and switch this off.</small></span></label>
+        <label class="field"><span>Session title <small>{idea ? 'Required if there’s no note' : 'Optional · suggested from your prompt'}</small></span><input aria-label="Session title" bind:value={title} oninput={() => titleTouched = true} maxlength="80" placeholder="A short name for this piece of work" /></label>
+        <label class="field"><span>{idea ? 'Note' : 'Prompt'} <em>{idea ? 'Optional' : 'Required'}</em></span><textarea bind:this={promptInput} aria-label="Prompt" bind:value={prompt} rows="6" required={!idea} placeholder={idea ? 'A rough note is plenty. You can turn it into a full prompt later.' : 'What should the agent do? Include the context, the outcome you want, and anything it should keep in mind.'} onpaste={e => { const files = Array.from(e.clipboardData?.files ?? []); if (files.length) { e.preventDefault(); void attach(files) } }}></textarea></label>
         <div class="prompt-foot"><div class="prompt-actions"><label class="attach">＋ Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={reading} onchange={e => { void attach(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }} /></label><button type="button" class="skill-add" bind:this={skillButton} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button></div><span class:over={bytes > 2000}>{bytes.toLocaleString()} / 2,000 bytes</span></div>
         {#if images.length}<div class="images">{#each images as image, i}<div class="image"><img src={image.data} alt={image.name} /><span>{image.name}</span><button type="button" aria-label={`Remove ${image.name}`} onclick={() => images = images.filter((_, index) => index !== i)}>×</button></div>{/each}</div>{/if}
         <div class="section-title">Where should it work?</div>
@@ -299,7 +300,7 @@
       </fieldset>
       {#if message}<p class="error" role="alert">{message}</p>{/if}
     </div>
-    <footer data-shell-foot><span>{reading ? 'Reading images…' : 'Your prompt and images are saved to your account.'}</span><button type="button" class="btn" onclick={close} disabled={busy || reading}>Cancel</button><button class="btn primary" disabled={busy || reading || bytes > 2000 || !machines.length}>{busy ? 'Saving…' : draft ? 'Save changes' : 'Add to backlog'}</button></footer>
+    <footer data-shell-foot><span>{reading ? 'Reading images…' : 'Your prompt and images are saved to your account.'}</span><button type="button" class="btn" onclick={close} disabled={busy || reading}>Cancel</button><button class="btn primary" disabled={busy || reading || bytes > 2000 || !machines.length}>{busy ? 'Saving…' : draft ? 'Save changes' : idea ? 'Save idea' : 'Add to backlog'}</button></footer>
   </form>
   {#if modelOpen}
     <SlotPicker label="Model" options={modelOptionsFor()} value={model} sheet={touch} opener={modelButton ?? null}
@@ -359,6 +360,10 @@
   .picker .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .picker .chev { flex: none; color: var(--muted); }
   .hint { font-size: 12px; color: var(--muted); margin: 0; line-height: 1.6; }
+  .idea-toggle { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 18px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunk); font-size: 13px; cursor: pointer; }
+  .idea-toggle input { width: auto; margin-top: 3px; }
+  .idea-toggle strong { display: block; font-weight: 650; }
+  .idea-toggle small { display: block; margin-top: 2px; font-size: 11px; font-weight: 400; color: var(--muted); }
   .effort-hint { margin: -9px 0 12px; }
   .options { display: grid; gap: 4px; }
   .options .mode { margin-bottom: 0; }

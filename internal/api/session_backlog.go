@@ -80,6 +80,7 @@ type backlogInput struct {
 	Tool      string             `json:"tool"`
 	Model     string             `json:"model"`
 	Effort    string             `json:"effort"`
+	Idea      bool               `json:"idea"`
 	Yolo      bool               `json:"yolo"`
 	Worktree  bool               `json:"worktree"`
 	Base      string             `json:"base"`
@@ -94,8 +95,12 @@ func (s *server) sessionBacklogSave(w http.ResponseWriter, r *http.Request) {
 	if !backlogBody(w, r, &in) {
 		return
 	}
-	d := store.SessionDraft{ID: r.PathValue("id"), Title: strings.TrimSpace(in.Title), Prompt: in.Prompt, AgentID: in.AgentID, ProjectID: in.ProjectID, Dir: in.Dir, Tool: in.Tool, Model: strings.TrimSpace(in.Model), Effort: in.Effort, Yolo: in.Yolo, Worktree: in.Worktree, Base: strings.TrimSpace(in.Base), Chat: in.Chat, Trust: in.Trust, Images: in.Images, Version: in.Version}
+	d := store.SessionDraft{ID: r.PathValue("id"), Title: strings.TrimSpace(in.Title), Prompt: in.Prompt, AgentID: in.AgentID, ProjectID: in.ProjectID, Dir: in.Dir, Tool: in.Tool, Model: strings.TrimSpace(in.Model), Effort: in.Effort, Idea: in.Idea, Yolo: in.Yolo, Worktree: in.Worktree, Base: strings.TrimSpace(in.Base), Chat: in.Chat, Trust: in.Trust, Images: in.Images, Version: in.Version}
 	bad := func(message string) { writeJSON(w, 422, map[string]string{"error": message}) }
+	if d.Idea && d.Title == "" && d.Prompt == "" {
+		bad("Give the idea a title or a note.")
+		return
+	}
 	if !terminalproto.ValidTitle(d.Title) {
 		bad("Use a session title of 1 to 80 plain characters.")
 		return
@@ -104,7 +109,7 @@ func (s *server) sessionBacklogSave(w http.ResponseWriter, r *http.Request) {
 		bad("Choose a supported agent, model and effort.")
 		return
 	}
-	if !terminalproto.ValidPrompt(d.Prompt) {
+	if !(d.Idea && d.Prompt == "") && !terminalproto.ValidPrompt(d.Prompt) {
 		bad("Write a prompt of at most 2,000 bytes without control characters.")
 		return
 	}
@@ -212,10 +217,16 @@ func (s *server) sessionBacklogStart(w http.ResponseWriter, r *http.Request) {
 	lock := &s.backlogStarts[key.Sum32()%uint32(len(s.backlogStarts))]
 	lock.Lock()
 	defer lock.Unlock()
+	// An idea is only a placeholder; it must gain a prompt (and lose the flag) before it can start.
+	cur, curErr := s.st.SessionDraftFor(s.uid(r), r.PathValue("id"))
+	if curErr == nil && cur.Idea {
+		writeJSON(w, 422, map[string]string{"error": "This is an idea. Add a prompt and switch off Idea before starting it.", "code": "idea_not_startable"})
+		return
+	}
 	// The worktree slug is resolved once and frozen with the prompt; a retry
 	// must not re-read a project that was renamed or changed since.
 	wtProject := ""
-	if cur, err := s.st.SessionDraftFor(s.uid(r), r.PathValue("id")); err == nil && cur.Worktree && !cur.Chat && cur.ProjectID != "" {
+	if curErr == nil && cur.Worktree && !cur.Chat && cur.ProjectID != "" {
 		if p, err := s.st.FolderProjectFor(s.uid(r), cur.ProjectID); err == nil && p.IsRepo {
 			wtProject = terminalproto.Slug(p.Name, "project")
 		}

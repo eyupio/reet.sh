@@ -249,3 +249,23 @@ func FuzzDecode(f *testing.F) {
 		}
 	})
 }
+
+func TestCapabilitiesSessionModeNeedsACPHistoryAndLaunch(t *testing.T) {
+	c := testCapabilities()
+	c.SessionMode = true
+	if c.Validate() == nil {
+		t.Fatal("session mode without acp accepted")
+	}
+	c.TerminalControl, c.ACP = true, true
+	if c.Validate() == nil {
+		t.Fatal("session mode without history accepted")
+	}
+	c.ACPHistory = true
+	if err := c.Validate(); err != nil {
+		t.Fatalf("session mode with acp, history, control refused: %v", err)
+	}
+	c.TerminalControl = false
+	if c.Validate() == nil {
+		t.Fatal("session mode without terminal control accepted")
+	}
+}

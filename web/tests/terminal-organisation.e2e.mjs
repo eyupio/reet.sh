@@ -50,7 +50,8 @@ await context.route('**/api/**',async route=>{
  }else return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})
  await route.fulfill({json:data})
 })
-await context.routeWebSocket('**/api/v2/terminal/socket',socket=>socket.onMessage(message=>{if(typeof message==='string'){if(JSON.parse(message).ticket){socket.send('{"type":"ready"}');socket.send(Buffer.from('\x1b[2J\x1b[HWorkspace shell\r\nready> '))}}else{inputs.push(message.toString());socket.send(message)}}))
+const sockets=[];let refuseSockets=false
+await context.routeWebSocket('**/api/v2/terminal/socket',socket=>{sockets.push(socket);socket.onMessage(message=>{if(typeof message==='string'){if(JSON.parse(message).ticket){if(refuseSockets){socket.close();return}socket.send('{"type":"ready"}');socket.send(Buffer.from('\x1b[2J\x1b[HWorkspace shell\r\nready> '))}}else{inputs.push(message.toString());socket.send(message)}})})
 const sidebar=page.getByRole('complementary',{name:'Session navigation'}),menu=page.getByRole('menu'),pane=page.locator('.pane')
 const row=name=>sidebar.locator('.session-row').filter({has:page.getByText(name,{exact:true})})
 async function showSidebar(){if(await sidebar.count()===0)await page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/}).click()}
@@ -289,6 +290,59 @@ try{
  Object.assign(sessions[0],{changedSinceSeen:false})
  await page.reload();await live();await showSidebar()
  await expect(sidebar.locator('li.needs')).toHaveCount(0)
+ // The agent TUI's Skills button: agent sessions only. Choosing inserts the invocation and never presses Enter; the agent owns `/`.
+ const skillRows=[
+  {id:'m1',name:'pdf',description:'Read and fill forms',source:'machine',agent:'claude',native:true,onMachine:true,invocation:'Use the pdf skill.'},
+  {id:'m2',name:'docx-other',description:'Edit documents',source:'machine',agent:'opencode',native:false,onMachine:true,invocation:''},
+  {id:'r1',name:'reet-notes',description:'Shared notes',source:'reet',agent:'',native:false,onMachine:false,invocation:''}]
+ await page.route('**/api/v2/terminal/sessions/*/skills',route=>route.fulfill({status:200,json:{skills:skillRows,machineSeen:Date.now()-5*60_000,host:'Laptop'}}))
+ const toolbar=page.locator('.terminal-toolbar'),skillsButton=toolbar.getByRole('button',{name:'Skills',exact:true})
+ const skillPicker=page.getByRole('dialog',{name:'Skills',exact:true}),skillFilter=skillPicker.getByRole('searchbox',{name:'Filter skills'})
+ await expect(toolbar.getByRole('button',{name:'Saved commands',exact:true})).toBeVisible()
+ await expect(skillsButton).toHaveCount(0)
+ sessions[0].tool='claude'
+ await page.reload();await live()
+ await expect(skillsButton).toBeEnabled()
+ const beforeSkill=inputs.length
+ await skillsButton.click()
+ await expect(skillPicker).toBeVisible()
+ await expect(skillPicker.getByRole('listbox')).toHaveCount(3)
+ await skillFilter.fill('pd')
+ await skillPicker.getByRole('option',{name:/pdf/}).click()
+ await expect(skillPicker).toHaveCount(0)
+ await expect.poll(()=>inputs.slice(beforeSkill).join('')).toBe('Use the pdf skill.')
+ expect(inputs.slice(beforeSkill).join('')).not.toMatch(/[\r\n]/)
+ // Typing `/` in the terminal reaches the agent as `/` and opens nothing.
+ const beforeSlash=inputs.length
+ await page.getByRole('region',{name:'Remote terminal screen',exact:true}).click()
+ await page.keyboard.type('/')
+ await expect.poll(()=>inputs.slice(beforeSlash).join('')).toBe('/')
+ await expect(skillPicker).toHaveCount(0)
+ // Rows for another agent or from reet are disabled and send nothing; Escape closes the picker and sends nothing.
+ const beforeRows=inputs.length
+ await skillsButton.click()
+ for(const name of ['docx-other','reet-notes']){
+  const rowItem=skillPicker.getByRole('option',{name:new RegExp(name)})
+  await expect(rowItem).toHaveAttribute('aria-disabled','true')
+  await rowItem.click({force:true});await rowItem.focus();await page.keyboard.press('Enter')
+  await expect(skillPicker).toBeVisible()
+ }
+ await skillFilter.focus();await page.keyboard.press('Escape')
+ await expect(skillPicker).toHaveCount(0)
+ expect(inputs.length).toBe(beforeRows)
+ // The socket drops while the picker is open: a pick inserts nothing and says so, and the button is disabled with a reason.
+ await skillsButton.click()
+ await expect(skillPicker.getByRole('option',{name:/pdf/})).toBeVisible()
+ refuseSockets=true;sockets.at(-1).close()
+ await expect(pane).not.toHaveAttribute('data-connection-state','live')
+ const beforeDrop=inputs.length
+ await skillPicker.getByRole('option',{name:/pdf/}).click()
+ await expect(skillPicker).toHaveCount(0)
+ await expect(pane.getByRole('status').filter({hasText:'Connection changed. Open Skills again after reconnecting; nothing was inserted.'})).toBeVisible()
+ expect(inputs.length).toBe(beforeDrop)
+ await expect(skillsButton).toBeDisabled()
+ await expect(skillsButton).toHaveAttribute('title',/connected|Reconnect/)
+ refuseSockets=false
  await page.setViewportSize({width:390,height:844});await showSidebar()
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
  if(process.env.REET_UI_SCREENSHOTS){await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true});await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/organisation-phone.png`})}

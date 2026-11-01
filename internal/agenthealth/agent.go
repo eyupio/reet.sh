@@ -60,6 +60,7 @@ type AgentConfig struct {
 	acpModel          bool
 	acpImages         bool
 	acpApproval       bool
+	sessionMode       bool
 	acpQuestion       bool
 	shellDir          bool
 	attention         bool
@@ -719,6 +720,9 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpModel = terminalproto.SupportsACPModel(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
 	cfg.acpApproval = terminalproto.SupportsACPApproval(advertised)
+	// session-mode-v1 stands on chats, their history and launches; it is
+	// never claimed without all three.
+	cfg.sessionMode = terminalproto.SupportsSessionMode(advertised) && cfg.acp && cfg.acpHistory && cfg.launch
 	cfg.acpQuestion = terminalproto.SupportsACPQuestion(advertised)
 	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
 	cfg.attention = terminalproto.SupportsAttention(advertised)
@@ -784,6 +788,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpApproval {
 		features = append(features, terminalproto.ACPApprovalFeature)
+	}
+	if cfg.sessionMode {
+		features = append(features, terminalproto.SessionModeFeature)
 	}
 	if cfg.acpQuestion {
 		features = append(features, terminalproto.ACPQuestionFeature)
@@ -930,17 +937,20 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		Browse:    cfg.browse && control && enabled && cfg.browseAllowed,
 		// Only on a connection that negotiated browse-v1: an older
 		// controller's strict decoder would refuse the field.
-		BrowseOff:       cfg.browse && control && enabled && !cfg.browseAllowed,
-		Clipboard:       cfg.clipboard && control && enabled && cfg.clipboardAllowed,
-		Uploads:         cfg.uploads && control && enabled && cfg.uploadsAllowed,
-		UploadsOff:      cfg.uploads && control && enabled && !cfg.uploadsAllowed,
-		Models:          cfg.models && control && enabled && cfg.modelsAllowed,
-		ModelsOff:       cfg.models && control && enabled && !cfg.modelsAllowed,
-		ACP:             acp,
-		ACPHistory:      acp && cfg.acpHistory,
-		ACPModel:        acp && cfg.acpModel,
-		ACPImages:       acp && cfg.acpImages,
-		ACPApproval:     acp && cfg.acpApproval,
+		BrowseOff:   cfg.browse && control && enabled && !cfg.browseAllowed,
+		Clipboard:   cfg.clipboard && control && enabled && cfg.clipboardAllowed,
+		Uploads:     cfg.uploads && control && enabled && cfg.uploadsAllowed,
+		UploadsOff:  cfg.uploads && control && enabled && !cfg.uploadsAllowed,
+		Models:      cfg.models && control && enabled && cfg.modelsAllowed,
+		ModelsOff:   cfg.models && control && enabled && !cfg.modelsAllowed,
+		ACP:         acp,
+		ACPHistory:  acp && cfg.acpHistory,
+		ACPModel:    acp && cfg.acpModel,
+		ACPImages:   acp && cfg.acpImages,
+		ACPApproval: acp && cfg.acpApproval,
+		// Only on a connection that negotiated session-mode-v1, and only with
+		// chats, their history and terminal control: the validator's rule.
+		SessionMode:     acp && cfg.acpHistory && cfg.sessionMode && cfg.TerminalSession != nil,
 		ACPQuestions:    acp && cfg.acpQuestion,
 		ShellDir:        cfg.shellDir && control && enabled,
 		Attention:       cfg.attention && control,

@@ -21,6 +21,7 @@ func (s *server) registerTerminalChatRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/permissions/{permissionId}", s.terminal(s.terminalChatPermission))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/questions/{questionId}", s.terminal(s.terminalChatQuestion))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/approval-mode", s.terminal(s.terminalChatApprovalMode))
+	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/mode", s.terminal(s.terminalSessionMode))
 }
 
 func (s *server) terminalChatSession(r *http.Request) (store.TerminalSession, bool) {
@@ -279,4 +280,57 @@ func (s *server) terminalChatModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"changed": true})
+}
+
+// terminalSessionMode switches a running OpenCode session between the reet TUI
+// ("chat") and the OpenCode TUI ("terminal"). Unlike the chat routes it does
+// not require a structured row: a session in the OpenCode TUI must be able to
+// switch to chat. The switch can take the machine up to
+// terminalproto.SessionModeTimeout; the server sets no response deadline, so
+// the handler waits on the request context alone.
+func (s *server) terminalSessionMode(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !terminalproto.ValidID(id) {
+		writeErr(w, 400, "invalid terminal request")
+		return
+	}
+	var in struct {
+		Mode  string `json:"mode"`
+		Trust bool   `json:"trust"`
+	}
+	if !terminalJSON(w, r, &in) {
+		return
+	}
+	if in.Mode != terminalproto.SessionModeTerminal && in.Mode != terminalproto.SessionModeChat {
+		writeErr(w, 400, "invalid terminal request")
+		return
+	}
+	if _, err := s.st.TerminalSessionFor(s.uid(r), id); err != nil {
+		writeErr(w, 404, "that reet session is not available")
+		return
+	}
+	if err := s.terminals.SwitchSessionMode(r.Context(), s.uid(r), id, in.Mode, in.Trust); err != nil {
+		s.terminalSessionModeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) terminalSessionModeError(w http.ResponseWriter, err error) {
+	var trust *terminalbroker.ACPTrustError
+	switch {
+	case errors.As(err, &trust):
+		// The structured create's trust refusal, with the plugin files it names.
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "This folder has OpenCode plugins. Start only in a folder you trust.", "code": "acp_trust_required", "detail": trust.Detail})
+	case errors.Is(err, terminalbroker.ErrSessionModeBusy):
+		writeErrCode(w, 409, "session_mode_busy", "", err.Error(), "")
+	case errors.Is(err, terminalbroker.ErrSessionModeNoSession):
+		writeErrCode(w, 409, "session_mode_no_session", "", err.Error(), "")
+	case errors.Is(err, terminalbroker.ErrSessionModeUnsupported):
+		writeErrCode(w, 409, "session_mode_unsupported", "", err.Error(), "")
+	case errors.Is(err, terminalbroker.ErrSessionModeFailed):
+		writeErrCode(w, 502, "session_mode_failed", "", err.Error(), "")
+	default:
+		s.terminalChatError(w, err)
+	}
 }

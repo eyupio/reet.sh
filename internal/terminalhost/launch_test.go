@@ -369,3 +369,47 @@ func TestTmuxArgument(t *testing.T) {
 		}
 	}
 }
+
+func TestLaunchArgvOpenCodeSession(t *testing.T) {
+	look := fakeLookPath("opencode")
+	const id = "ses_abc123XYZ"
+	in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "opencode", LaunchSession: id, Model: "m", Yolo: true}
+	got, err := LaunchArgv(in, look)
+	want := []string{"/opt/fake/bin/opencode", "--auto", "--session", id, "--model", "m"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, %v; want %q", got, err, want)
+	}
+	in.Yolo, in.Model = false, ""
+	got, err = LaunchArgv(in, look)
+	want = []string{"/opt/fake/bin/opencode", "--session", id}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, %v; want %q", got, err, want)
+	}
+}
+
+func TestLaunchArgvSessionRefusesResumeAndStructured(t *testing.T) {
+	look := fakeLookPath("opencode")
+	base := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "opencode", LaunchSession: "ses_abc123XYZ"}
+	r, s := base, base
+	r.Resume, s.Structured = true, true
+	for name, in := range map[string]terminalproto.Create{"resume": r, "structured": s} {
+		if argv, err := LaunchArgv(in, look); argv != nil || !errors.Is(err, terminalproto.ErrInvalid) {
+			t.Fatal(name, argv, err)
+		}
+	}
+	bad := base
+	bad.LaunchSession = "not-a-session"
+	if _, err := LaunchArgv(bad, look); !errors.Is(err, terminalproto.ErrInvalid) {
+		t.Fatal("bad id", err)
+	}
+}
+
+func TestLaunchArgvSessionUnsupportedTool(t *testing.T) {
+	look := fakeLookPath("claude")
+	for _, tool := range []string{"claude"} {
+		in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: tool, LaunchSession: "11111111-2222-3333-4444-555555555555"}
+		if _, err := LaunchArgv(in, look); !errors.Is(err, ErrLaunchOptionUnsupported) {
+			t.Fatal(tool, err)
+		}
+	}
+}

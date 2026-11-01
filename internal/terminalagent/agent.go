@@ -97,10 +97,21 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 	return func(ctx context.Context, client *http.Client, headers http.Header, generation int64, send agenthealth.Sender) (func(context.Context, terminalproto.Message) error, func()) {
 		ctx, cancel := context.WithCancel(ctx)
 		var wg sync.WaitGroup
+		// The chats attach first: the terminal state observer below hides a
+		// session while a mode swap moves it between the two.
+		chats := attachChats(supervisor, ctx, opts, generation, send, terminalproto.SupportsACPHistory(headers.Get(terminalproto.FeatureHeader)),
+			terminalproto.SupportsACPToolDetails(headers.Get(terminalproto.FeatureHeader)),
+			terminalproto.SupportsACPQuestion(headers.Get(terminalproto.FeatureHeader)))
 		m, managerErr := terminalhost.NewManager(ctx, opts)
+		switcher := &agentSwitch{chats: chats, shells: swapShells(m)}
+		// swaps tracks the mode swaps in flight. A swap outlives a lost
+		// connection, so the manager does too: its loop runs on its own
+		// context, which cleanup ends only after waiting for the swaps.
+		var swaps sync.WaitGroup
+		managerCtx, stopManager := context.WithCancel(context.WithoutCancel(ctx))
 		if managerErr == nil {
 			wg.Add(1)
-			go func() { defer wg.Done(); _ = m.Run(ctx) }()
+			go func() { defer wg.Done(); _ = m.Run(managerCtx) }()
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -108,7 +119,9 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				initial := true
 				for {
 					changed := m.Changed()
-					sessions, err := m.List(ctx)
+					// A session a swap is moving is left out: its terminal
+					// ending is a hand-off, not the end of the row.
+					sessions, err := observedShells(ctx, m, chats.sup)
 					if err != nil {
 						return
 					}
@@ -138,9 +151,6 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				}
 			}()
 		}
-		chats := attachChats(supervisor, ctx, opts, generation, send, terminalproto.SupportsACPHistory(headers.Get(terminalproto.FeatureHeader)),
-			terminalproto.SupportsACPToolDetails(headers.Get(terminalproto.FeatureHeader)),
-			terminalproto.SupportsACPQuestion(headers.Get(terminalproto.FeatureHeader)))
 		attachments := map[string]*terminalhost.Attachment{}
 		// worktreeSlot allows one worktree status or remove at a time on this
 		// machine. It runs on its own goroutine so the dispatcher, and the
@@ -252,6 +262,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				}
 			case *terminalproto.ACPMode:
 				if !terminalproto.SupportsACPApproval(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+			case *terminalproto.SessionMode:
+				if !terminalproto.SupportsSessionMode(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
 				}
 			case *terminalproto.ACPQuestionAnswer:
@@ -495,6 +509,22 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				released = true
 				return nil
 			}
+			// A create or end of a session a swap is moving is busy: it would
+			// start or stop a process the swap does not know about. Held for
+			// as long as it runs, so a swap cannot start under it either.
+			held := false
+			switch msg.Body.(type) {
+			case *terminalproto.Create, *terminalproto.End:
+				if !chats.sup.hold(msg.SessionID) {
+					return respond(terminalhost.ErrOperationConflict)
+				}
+				held = true
+				defer func() {
+					if held {
+						chats.sup.unhold(msg.SessionID)
+					}
+				}()
+			}
 			switch op := msg.Body.(type) {
 			case *terminalproto.Create:
 				if op.Structured {
@@ -504,8 +534,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					if !chats.sup.addWork() {
 						return respond(terminalhost.ErrManagerClosed)
 					}
+					held = false
 					go func(in terminalproto.Create) {
 						defer chats.sup.wg.Done()
+						defer chats.sup.unhold(msg.SessionID)
 						changed, err := chats.open(msg.RequestID, msg.SessionID, in)
 						if callCtx.Err() != nil {
 							return
@@ -519,6 +551,31 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					}(*op)
 					return nil
 				}
+			case *terminalproto.SessionMode:
+				// A swap stops one process and starts another; answer from its
+				// own goroutine like a structured create. It runs to the end
+				// (or its rollback) even if this connection is lost meanwhile.
+				if !chats.sup.addWork() {
+					return respond(terminalhost.ErrManagerClosed)
+				}
+				swaps.Add(1)
+				go func(in terminalproto.SessionMode) {
+					defer chats.sup.wg.Done()
+					defer swaps.Done()
+					swapCtx, cancel := context.WithTimeout(context.WithoutCancel(callCtx), sessionModeTimeout)
+					defer cancel()
+					changed, err := switcher.swap(swapCtx, msg.RequestID, msg.SessionID, in)
+					if callCtx.Err() != nil {
+						return
+					}
+					if err != nil {
+						reply.Body = chatResult(err)
+					} else {
+						reply.Body = changed.ForFeatures(headers.Get(terminalproto.FeatureHeader))
+					}
+					_ = send(callCtx, reply)
+				}(*op)
+				return nil
 			case *terminalproto.End:
 				if _, ok := chats.snapshot(msg.SessionID); ok {
 					// Closing a chat waits for its process group; answer from
@@ -526,8 +583,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					if !chats.sup.addWork() {
 						return respond(terminalhost.ErrManagerClosed)
 					}
+					held = false
 					go func() {
 						defer chats.sup.wg.Done()
+						defer chats.sup.unhold(msg.SessionID)
 						changed, err := chats.end(msg.SessionID)
 						if callCtx.Err() != nil {
 							return
@@ -585,39 +644,16 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				if op.Complete || len(op.Sessions) != 0 {
 					return terminalproto.ErrInvalid
 				}
-				snapshot := terminalproto.Reconcile{Complete: true, Sessions: []terminalproto.SessionSnapshot{}}
 				if m != nil {
 					if err := m.Reconcile(callCtx); err != nil {
 						return respond(err)
 					}
-					sessions, err := m.List(callCtx)
-					if err != nil {
-						return respond(err)
-					}
-					sort.Slice(sessions, func(i, j int) bool {
-						if sessions[i].State.ReservesQuota() != sessions[j].State.ReservesQuota() {
-							return sessions[i].State.ReservesQuota()
-						}
-						return sessions[i].UpdatedAt > sessions[j].UpdatedAt
-					})
-					for _, s := range sessions {
-						snapshot.Sessions = append(snapshot.Sessions, terminalproto.SessionSnapshot{
-							ID:         s.ID,
-							Title:      s.Title,
-							State:      s.State,
-							ExitCode:   s.ExitCode,
-							ActivityAt: s.ActivityAt,
-							BellAt:     s.BellAt,
-							ExitStatus: s.ExitCode,
-						}.ForFeatures(headers.Get(terminalproto.FeatureHeader)))
-					}
 				}
-				chatSnapshots := chats.snapshots()
-				features := headers.Get(terminalproto.FeatureHeader)
-				for i := range chatSnapshots {
-					chatSnapshots[i] = chatSnapshots[i].ForFeatures(features)
+				snapshot, err := switcher.reconcile(callCtx, headers.Get(terminalproto.FeatureHeader))
+				if err != nil {
+					return respond(err)
 				}
-				reply.Body = reconcileSnapshot(snapshot.Sessions, chatSnapshots)
+				reply.Body = snapshot
 				return respond(nil)
 			}
 			if managerErr != nil {
@@ -753,6 +789,8 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 		return handler, func() {
 			cancel()
 			chats.close()
+			waitBounded(&swaps, swapDrainTimeout)
+			stopManager()
 			if m != nil {
 				m.Close()
 			}
@@ -1080,6 +1118,27 @@ func reconcileSnapshot(shells, chats []terminalproto.SessionSnapshot) terminalpr
 // mirrorHeaderTimeout covers the controller's cache download (15 minutes) and
 // a short wait for a serving slot.
 const mirrorHeaderTimeout = 16 * time.Minute
+
+// sessionModeTimeout bounds one swap: stopping a chat waits up to a few
+// seconds for its process group, and a chat start may take up to a minute.
+// It is shared with the controller, which waits longer than it.
+const sessionModeTimeout = terminalproto.SessionModeTimeout
+
+// swapDrainTimeout is how long a closing connection keeps its terminal manager
+// for a swap still in flight: as long as a chat start may take.
+const swapDrainTimeout = 60 * time.Second
+
+// waitBounded waits for wg, or gives up after d.
+func waitBounded(wg *sync.WaitGroup, d time.Duration) {
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+	}
+}
 
 // mirrorHeaders is the machine enrollment the mirror route authenticates. The
 // session token and feature flags are not part of it.

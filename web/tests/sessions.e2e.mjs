@@ -37,6 +37,14 @@ const sessions = () => [
  session('s6','a1','Shell',3*HOUR,{state:'ended',worktreePath:'/home/dev/.reet/worktrees/reet/reet/1122334455667788',worktreeRepo:'reet',worktreeBranch:'reet/reet-1122334455667788'}),
 ]
 
+// OpenCode on studio, for the reet TUI | OpenCode TUI switch: one started in the OpenCode TUI (no OpenCode session id), one
+// reet started as a chat and moved to the OpenCode TUI, and a live chat. studio has negotiated session-mode-v1.
+const opencodeSessions = () => [
+ session('s7','a1','OpenCode in its own TUI',4*MIN,{tool:'opencode',dir:'/home/dev/reet'}),
+ session('s8','a1','Chat moved to the OpenCode TUI',5*MIN,{tool:'opencode',dir:'/home/dev/reet',acpSessionId:'ses_moved00000000000000000001'}),
+ session('s9','a1','Chat about the store',6*MIN,{tool:'opencode',dir:'/home/dev/reet',structured:true,acpSessionId:'ses_chat000000000000000000001'}),
+]
+const switchMachines = () => tmachines.map(m => m.agentId === 'a1' ? {...m, capabilities:{...m.capabilities, tools:['claude','codex','opencode'], acp:true, acpHistory:true, acpApproval:true, sessionMode:true}} : m)
 // The skills line's record: studio's one target was last checked three minutes ago and found nothing to change.
 const sync = () => ({environments:[],machines:[],agents:[{id:'a1',host:'studio',version:'test',lastSeen:Date.now(),paused:false,autoUpdate:false}],
  targets:[{target:{id:'t1',host:'studio'},revision:'r1',sourceId:'',sourceName:'',desired:[],missing:[],extra:[],updatedAt:1}],
@@ -64,6 +72,16 @@ async function open(options={}) {
  const opened = await openWorkspace(browser, {width:options.width ?? 1440, height:options.height ?? 900, touch:options.touch, theme:options.theme ?? 'light', routes, sync:options.sync ?? sync()})
  // An open session's terminal: a ticket, then a socket that says it is ready.
  await opened.context.routeWebSocket('**/api/v2/terminal/socket', socket => { box.sockets.push(socket); socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) } }) })
+ // A reet TUI chat's stream: window.__chatStream.emit(type, data) plays the controller's events into the open chat.
+ if (options.chat) await opened.page.addInitScript(() => {
+  class FakeEventSource {
+   constructor(url) { this.url = url; this.listeners = {}; window.__chatStream = this; setTimeout(() => { this.onopen?.({}); this.emit('reset', {truncated:false}) }, 0) }
+   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn) }
+   close() { if (window.__chatStream === this) window.__chatStream = null }
+   emit(type, data) { for (const fn of this.listeners[type] ?? []) fn({data:JSON.stringify(data)}) }
+  }
+  window.EventSource = FakeEventSource
+ })
  // The sessions panel's saved colours, as the workspace keeps them in this browser.
  if (options.colours) await opened.page.addInitScript(colors => localStorage.setItem('reet-terminal-layout:1:sessions', JSON.stringify({colors})), options.colours)
  // A session's own writes: rename (PATCH), end and remove from history (POST).
@@ -78,6 +96,14 @@ async function open(options={}) {
   const request = route.request(), parts = new URL(request.url()).pathname.split('/'), id = decodeURIComponent(parts.at(-2)), kind = parts.at(-1)
   if (kind === 'attachments') return route.fulfill({json:{ticket:'sessions-fixture-ticket01'}})
   box.writes.push({kind,id,body:request.postDataJSON()})
+  // A switch between the reet TUI and the OpenCode TUI: the test's own answer (box.mode), else done (204) and the row follows.
+  if (kind === 'mode') {
+   const answer = box.mode ? await box.mode(request.postDataJSON(), s => box.sessions.find(x => x.id === id)) : null
+   if (answer) return route.fulfill(answer)
+   const s = box.sessions.find(x => x.id === id)
+   if (s) s.structured = request.postDataJSON().mode === 'chat'
+   return route.fulfill({status:204, body:''})
+  }
   const s = box.sessions.find(x => x.id === id)
   if (kind === 'end' && s) s.state = 'end_requested'
   if (kind === 'archive') box.sessions = box.sessions.filter(x => x.id !== id)
@@ -627,10 +653,20 @@ try {
   await context.close()
  }
 
- if (run('Chat is disabled with its reason')) {
-  const {context,page,errors} = await open()
-  await page.goto(`${base}/sessions?agent=a1&session=s2`)
+ if (run('view switch says why it is disabled')) {
+  const {context,page,errors} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines()})
+  // An OpenCode session started in the OpenCode TUI has no conversation for the reet TUI to load.
+  await page.goto(`${base}/sessions?agent=a1&session=s7`)
   const view = screen(page).getByRole('group',{name:'View'})
+  await expect(view.getByRole('button',{name:'OpenCode TUI'})).toHaveAttribute('aria-pressed','true')
+  await expect(view.getByRole('button',{name:'reet TUI'})).toHaveAttribute('aria-disabled','true')
+  await expect(view.getByRole('button',{name:'reet TUI'})).toHaveAccessibleDescription('This session started in the OpenCode TUI, so the reet TUI cannot pick up its conversation.')
+  // One reet started and switched to the OpenCode TUI can go back.
+  await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
+  await expect(view.getByRole('button',{name:'OpenCode TUI'})).toHaveAttribute('aria-pressed','true')
+  await expect(view.getByRole('button',{name:'reet TUI'})).toHaveAttribute('aria-disabled','false')
+  // Another agent has no reet TUI at all.
+  await sidebarRow(page, 'Add browse-v1 protocol').click()
   const chat = view.getByRole('button',{name:'reet TUI'})
   await expect(chat).toHaveAttribute('aria-disabled','true')
   await expect(chat).toHaveAccessibleDescription('The reet TUI is for a structured OpenCode session.')
@@ -646,6 +682,7 @@ try {
   await expect(pill).toHaveAttribute('title',"From the session's state")
   await expect(screen(page).locator('progress, [role=progressbar]')).toHaveCount(0)
   await expect(screen(page)).not.toContainText(/Step \d/)
+  await expect(screen(page).getByRole('group',{name:'Approvals'})).toHaveCount(0)
   await expect(screen(page).locator('.approvals')).toHaveText('Approvals: Ask me')
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the terminal.')
   // The actions menu: Rename, Theatre view, Copy branch, End session, Check and remove worktree (waits for the end).
@@ -661,6 +698,137 @@ try {
   await menu.getByRole('menuitem',{name:'Rename…'}).click()
   await expect(page.getByRole('dialog',{name:'Rename session'})).toBeVisible()
   await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('toggle switches a live chat to the OpenCode TUI and back')) {
+  const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
+  // The switch is held until the test lets it finish, as the machine takes its time stopping one process and starting the other.
+  let finish
+  box.mode = () => new Promise(resolve => { finish = resolve })
+  await page.goto(`${base}/sessions?agent=a1&session=s9`)
+  const view = screen(page).getByRole('group',{name:'View'})
+  const chatButton = view.getByRole('button',{name:'reet TUI'}), tuiButton = view.getByRole('button',{name:'OpenCode TUI'})
+  await expect(chatButton).toHaveAttribute('aria-pressed','true')
+  await expect(page.locator('.chat-pane')).toBeVisible()
+  await expect(page.locator('.pane')).toHaveCount(0)
+  await expect(screen(page).getByRole('group',{name:'Approvals'})).toBeVisible()
+  await expect(tuiButton).toHaveAttribute('aria-disabled','false')
+  await tuiButton.click()
+  const dialog = page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'})
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('reet stops the reet TUI and starts the OpenCode TUI')
+  await expect(dialog).toContainText('scrollback is not kept')
+  await expect(dialog).toContainText('a few minutes')
+  // Cancel sends nothing and gives focus back.
+  await dialog.getByRole('button',{name:'Cancel'}).click()
+  await expect(dialog).toBeHidden()
+  await expect(tuiButton).toBeFocused()
+  expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])
+  await tuiButton.click()
+  await dialog.getByRole('button',{name:'Switch to the OpenCode TUI'}).click()
+  await expect(dialog).toBeHidden()
+  // While the machine works, the switch says so and both buttons wait: a second press sends nothing.
+  await expect(screen(page).getByRole('status').first()).toContainText('Switching to the OpenCode TUI…')
+  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
+  await expect(chatButton).toHaveAttribute('aria-disabled','true')
+  await tuiButton.click({force:true})
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(1)
+  expect(box.writes.find(w => w.kind === 'mode')).toEqual({kind:'mode',id:'s9',body:{mode:'terminal',trust:false}})
+  box.sessions = box.sessions.map(x => x.id === 's9' ? {...x, structured:false} : x)
+  finish({status:204, body:''})
+  // The pane swaps to the OpenCode TUI's terminal and the switch follows.
+  await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
+  await expect(tuiButton).toHaveAttribute('aria-pressed','true')
+  await expect(chatButton).toHaveAttribute('aria-pressed','false')
+  await expect(chatButton).toHaveAttribute('aria-disabled','false')
+  // The Approvals line and the decisions follow the new mode: the terminal's own line, asked in the terminal.
+  await expect(screen(page).getByRole('group',{name:'Approvals'})).toHaveCount(0)
+  await expect(screen(page).locator('.approvals')).toHaveText('Approvals: Ask me')
+  await expect(panel(page).locator('.decisions')).toHaveText('Asked in the terminal.')
+  // And back: the reet TUI loads the conversation again.
+  box.mode = null
+  await chatButton.click()
+  const back = page.getByRole('alertdialog',{name:'Switch to the reet TUI?'})
+  await expect(back).toContainText('scrollback is not kept')
+  await back.getByRole('button',{name:'Switch to the reet TUI'}).click()
+  await expect(chatButton).toHaveAttribute('aria-pressed','true')
+  await expect(page.locator('.chat-pane')).toBeVisible()
+  await expect(page.locator('.pane')).toHaveCount(0)
+  await expect(panel(page).locator('.decisions')).toHaveText('Asked in the chat: Allow once or Deny.')
+  await expect(screen(page).getByRole('group',{name:'Approvals'})).toBeVisible()
+  expect(box.writes.filter(w => w.kind === 'mode').map(w => w.body)).toEqual([{mode:'terminal',trust:false},{mode:'chat',trust:false}])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('switch is disabled while an approval card waits')) {
+  const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
+  await page.goto(`${base}/sessions?agent=a1&session=s9`)
+  const tuiButton = screen(page).getByRole('group',{name:'View'}).getByRole('button',{name:'OpenCode TUI'})
+  await expect(tuiButton).toHaveAttribute('aria-disabled','false')
+  await page.waitForFunction(() => !!window.__chatStream)
+  await page.evaluate(() => window.__chatStream.emit('chat', {seq:1, kind:'permission', permissionId:'p1', toolCallId:'c1', title:'Run the tests', toolKind:'execute', command:'go test ./...'}))
+  await expect(page.getByRole('button',{name:'Allow once',exact:true})).toBeVisible()
+  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
+  await expect(tuiButton).toHaveAccessibleDescription('Wait for the agent to finish or answer what it is asking.')
+  await tuiButton.click({force:true})
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  // Answered, the chat is idle again and the switch is offered.
+  await page.evaluate(() => window.__chatStream.emit('chat', {seq:2, kind:'permission_resolved', permissionId:'p1', allow:false}))
+  await expect(tuiButton).toHaveAttribute('aria-disabled','false')
+  // A turn that is running holds it too.
+  await page.evaluate(() => window.__chatStream.emit('chat', {seq:3, kind:'status', state:'working'}))
+  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
+  await page.evaluate(() => window.__chatStream.emit('chat', {seq:4, kind:'status', state:'idle'}))
+  await expect(tuiButton).toHaveAttribute('aria-disabled','false')
+  expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ if (run('trust confirmation is required to return to the reet TUI when the folder has plugins')) {
+  const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
+  const PLUGINS = 'This folder has agent extensions: .opencode/plugin/audit.ts. Start a chat only in a folder you trust.'
+  box.mode = body => body.trust ? null : {status:409, json:{error:'This folder has OpenCode plugins. Start only in a folder you trust.', code:'acp_trust_required', detail:PLUGINS}}
+  await page.goto(`${base}/sessions?agent=a1&session=s8`)
+  const chatButton = screen(page).getByRole('group',{name:'View'}).getByRole('button',{name:'reet TUI'})
+  await chatButton.click()
+  const dialog = page.getByRole('alertdialog',{name:'Switch to the reet TUI?'})
+  await dialog.getByRole('button',{name:'Switch to the reet TUI'}).click()
+  // The machine refuses: the dialog comes back with the plugin warning and asks for trust before sending again.
+  await expect(dialog).toContainText(PLUGINS)
+  const trust = dialog.getByRole('checkbox',{name:/I trust this folder/})
+  await expect(trust).not.toBeChecked()
+  await expect(dialog.getByRole('button',{name:'Switch to the reet TUI'})).toBeDisabled()
+  await expect(chatButton).toHaveAttribute('aria-pressed','false')
+  await trust.check()
+  await dialog.getByRole('button',{name:'Switch to the reet TUI'}).click()
+  await expect(chatButton).toHaveAttribute('aria-pressed','true')
+  await expect(page.locator('.pane')).toHaveCount(0)
+  expect(box.writes.filter(w => w.kind === 'mode').map(w => w.body)).toEqual([{mode:'chat',trust:false},{mode:'chat',trust:true}])
+  // In the dark theme and at phone width the same dialog reads and fits.
+  for (const [width, height, theme] of [[1440, 900, 'dark'], [390, 844, 'light']]) {
+   const next = await open({width, height, touch:width < 600, theme, sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
+   next.box.mode = box.mode
+   await next.page.goto(`${base}/sessions?agent=a1&session=s8`)
+   if (width < 600) {
+    await next.page.locator('.session-screen').getByRole('button',{name:'Session actions'}).click()
+    await next.page.getByRole('menuitem',{name:'Switch to the reet TUI…'}).click()
+   } else await next.page.locator('.session-screen').getByRole('group',{name:'View'}).getByRole('button',{name:'reet TUI'}).click()
+   const d = next.page.getByRole('alertdialog',{name:'Switch to the reet TUI?'})
+   await d.getByRole('button',{name:'Switch to the reet TUI'}).click()
+   await expect(d.getByRole('checkbox',{name:/I trust this folder/})).toBeVisible()
+   expect(await next.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+   const b = await d.getByRole('button',{name:'Switch to the reet TUI'}).boundingBox()
+   expect(b.x).toBeGreaterThanOrEqual(0)
+   expect(b.x + b.width).toBeLessThanOrEqual(width)
+   if (process.env.REET_SWITCH_SHOTS) { await next.page.waitForTimeout(400); await next.page.screenshot({path:`${process.env.REET_SWITCH_SHOTS}/switch-trust-${width}-${theme}.png`}) }
+   expect(next.errors).toEqual([])
+   await next.context.close()
+  }
   expect(errors).toEqual([])
   await context.close()
  }
@@ -1070,5 +1238,5 @@ try {
    await context.close()
   }
  }
- console.log('Sessions: groups shared with Home, search by branch and machine, filters together, the actions menu by right-click, Shift+F10 and its button, the offline sentence, 44 px rows on touch, a failed refresh keeping the list, the empty states, session colours, saved commands without a session, menu focus, Checking… on later reads, the Needs you sentence, a viewer at /sessions, and the session screen: tabs held in memory (eight at most, closing one never ends its session), the context panel, changed files read once and on refresh, the reet TUI disabled with its reason and the YOLO decisions line.')
+ console.log('Sessions: groups shared with Home, search by branch and machine, filters together, the actions menu by right-click, Shift+F10 and its button, the offline sentence, 44 px rows on touch, a failed refresh keeping the list, the empty states, session colours, saved commands without a session, menu focus, Checking… on later reads, the Needs you sentence, a viewer at /sessions, and the session screen: tabs held in memory (eight at most, closing one never ends its session), the context panel, changed files read once and on refresh, the reet TUI | OpenCode TUI switch (its disabled reasons, the confirmation, the busy state while a switch runs, the panes swapping both ways, held while an approval waits, and the folder-trust confirmation to return to the reet TUI) and the YOLO decisions line.')
 } finally { await browser.close() }

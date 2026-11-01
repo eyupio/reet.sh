@@ -139,3 +139,50 @@ func TestSessionBacklogYoloIsConfirmedAndGatedAtStart(t *testing.T) {
 		t.Fatalf("refused start stays editable with its choice: %+v %v", d, err)
 	}
 }
+
+func TestSessionBacklogIdeaIsAPlaceholderThatCannotStart(t *testing.T) {
+	f := launchAPIFixture(t, launchCaps("claude"))
+	path := "/api/v2/session-backlog"
+	idea := func(over map[string]any) map[string]any {
+		in := map[string]any{"title": "Faster filters", "prompt": "", "agentId": f.agent.ID, "dir": "/home/tester/site", "tool": "claude", "idea": true, "version": 0}
+		for k, v := range over {
+			in[k] = v
+		}
+		return in
+	}
+	// A title alone is enough, and so is a note alone (the title is the client's to derive).
+	code, out, raw := f.do(t, f.cookie, "POST", path, idea(nil))
+	if code != 201 || out["idea"] != true || out["prompt"] != "" {
+		t.Fatalf("idea with a title only: %d %s", code, raw)
+	}
+	id := out["id"].(string)
+	for _, bad := range []map[string]any{
+		{"title": ""},                 // no title and no note
+		{"agentId": "not-my-machine"}, // still against one of this account's machines
+		{"idea": false},               // a normal item still needs a prompt
+		{"prompt": "-leading dash"},   // a note that is given is still validated
+	} {
+		if code, _, raw = f.do(t, f.cookie, "POST", path, idea(bad)); code != 422 {
+			t.Fatalf("%v: %d %s", bad, code, raw)
+		}
+	}
+	code, _, raw = f.do(t, f.cookie, "POST", path+"/"+id+"/start", map[string]any{"version": 1, "prompt": "Make the filters clearer"})
+	if code != 422 || !strings.Contains(raw, "idea_not_startable") {
+		t.Fatalf("an idea must not start: %d %s", code, raw)
+	}
+	if len(f.sent()) != 0 {
+		t.Fatal("nothing may be dispatched for an idea")
+	}
+	d, err := f.st.SessionDraftFor(f.uid, id)
+	if err != nil || d.PreparedPrompt != "" || !d.Idea {
+		t.Fatalf("a refused idea stays an editable idea: %+v %v", d, err)
+	}
+	// Promoting it: add a prompt, switch the flag off, and it starts.
+	code, _, raw = f.do(t, f.cookie, "PUT", path+"/"+id, idea(map[string]any{"prompt": "Make the filters clearer", "idea": false, "version": 1}))
+	if code != 200 {
+		t.Fatalf("promote: %d %s", code, raw)
+	}
+	if code, _, raw = f.do(t, f.cookie, "POST", path+"/"+id+"/start", map[string]any{"version": 2, "prompt": "Make the filters clearer"}); code != 200 {
+		t.Fatalf("promoted start: %d %s", code, raw)
+	}
+}

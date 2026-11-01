@@ -18,6 +18,9 @@ type SessionDraft struct {
 	Tool      string `json:"tool"`
 	Model     string `json:"model"`
 	Effort    string `json:"effort"`
+	// Idea marks a placeholder that is only being remembered: it may have no
+	// prompt and can never be started until the flag is cleared.
+	Idea bool `json:"idea,omitempty"`
 	// Launch options carried to Start. Yolo is only an intent: the account
 	// setting, machine and agent gates and the audit run when it starts.
 	Yolo           bool         `json:"yolo,omitempty"`

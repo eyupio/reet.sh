@@ -212,7 +212,15 @@ func (s *server) sessionBacklogStart(w http.ResponseWriter, r *http.Request) {
 	lock := &s.backlogStarts[key.Sum32()%uint32(len(s.backlogStarts))]
 	lock.Lock()
 	defer lock.Unlock()
-	d, err := s.st.PrepareSessionDraftFor(s.uid(r), r.PathValue("id"), in.Version, in.Prompt)
+	// The worktree slug is resolved once and frozen with the prompt; a retry
+	// must not re-read a project that was renamed or changed since.
+	wtProject := ""
+	if cur, err := s.st.SessionDraftFor(s.uid(r), r.PathValue("id")); err == nil && cur.Worktree && !cur.Chat && cur.ProjectID != "" {
+		if p, err := s.st.FolderProjectFor(s.uid(r), cur.ProjectID); err == nil && p.IsRepo {
+			wtProject = terminalproto.Slug(p.Name, "project")
+		}
+	}
+	d, err := s.st.PrepareSessionDraftFor(s.uid(r), r.PathValue("id"), in.Version, in.Prompt, wtProject)
 	if err != nil {
 		backlogError(w, err)
 		return
@@ -232,15 +240,13 @@ func (s *server) sessionBacklogStart(w http.ResponseWriter, r *http.Request) {
 		if d.Trust {
 			launch["trust"] = true
 		}
-	} else if d.Worktree && d.ProjectID != "" {
+	} else if d.PreparedProject != "" && terminalproto.ValidRunToken(d.ID) {
 		// The draft ID is the stable run token, so a retried start adopts the
 		// worktree the machine already made.
-		if p, err := s.st.FolderProjectFor(s.uid(r), d.ProjectID); err == nil && p.IsRepo && terminalproto.ValidRunToken(d.ID) {
-			launch["worktree"] = d.ID
-			launch["project"] = terminalproto.Slug(p.Name, "project")
-			if d.Base != "" {
-				launch["base"] = d.Base
-			}
+		launch["worktree"] = d.ID
+		launch["project"] = d.PreparedProject
+		if d.Base != "" {
+			launch["base"] = d.Base
 		}
 	}
 	body, _ := json.Marshal(launch)

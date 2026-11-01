@@ -112,15 +112,17 @@
     try { const next = await getYoloSetting(); if (!life.signal.aborted) yoloSetting = next } catch { /* The dialog keeps its reading line and Start stays off. */ }
   }
   function cancelYolo() { yoloAsk = null; notice = 'Not started. The item is still in your backlog.' }
-  function confirmYolo() { const item = yoloAsk; yoloAsk = null; if (item) void activate(item, true) }
-  async function activate(item: SessionDraft, confirmed = false) {
+  // The confirmation is for the version the dialog showed; a draft edited since is confirmed again.
+  function confirmYolo() { const item = yoloAsk; yoloAsk = null; if (item) void activate(item, item.version) }
+  async function activate(item: SessionDraft, confirmedVersion = 0) {
     if (activeRequests.has(item.id)) return
     const why = startReason(item); if (why) { notice = why; return }
-    // A frozen retry carries the request already made; asking again would only repeat the same confirmation.
-    if (item.yolo && !confirmed && !item.starting) { void askYolo(item); return }
     activeRequests.add(item.id); working = item.id; notice = ''; phase = 'Preparing…'
     try {
       const draft = await getDraft(item.id, signal())
+      // Decide on the draft as the server has it now, not the board's last refresh. A frozen retry carries the request
+      // already made, so it is not asked again.
+      if (draft.yolo && !draft.preparedPrompt && draft.version !== confirmedVersion) { void askYolo(draft); return }
       let prompt = draft.preparedPrompt || draft.prompt
       if (!draft.preparedPrompt) {
         const refs: string[] = []

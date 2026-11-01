@@ -28,11 +28,15 @@ type SessionDraft struct {
 	Images         []DraftImage `json:"images,omitempty"`
 	ImageCount     int          `json:"imageCount"`
 	PreparedPrompt string       `json:"preparedPrompt,omitempty"`
-	Starting       bool         `json:"starting"`
-	SessionID      string       `json:"sessionId,omitempty"`
-	Version        int64        `json:"version"`
-	CreatedAt      int64        `json:"createdAt"`
-	UpdatedAt      int64        `json:"updatedAt"`
+	// PreparedProject is the worktree project slug frozen with the prompt, so a
+	// retried start sends the same create parameters even if the project is
+	// renamed or stops being a repository. Empty means no worktree.
+	PreparedProject string `json:"preparedProject,omitempty"`
+	Starting        bool   `json:"starting"`
+	SessionID       string `json:"sessionId,omitempty"`
+	Version         int64  `json:"version"`
+	CreatedAt       int64  `json:"createdAt"`
+	UpdatedAt       int64  `json:"updatedAt"`
 }
 
 type DraftImage struct {
@@ -94,7 +98,7 @@ func (s *Store) SessionDraftsFor(uid int64) ([]SessionDraft, error) {
 		d.ImageCount = len(d.Images)
 		d.Images = nil // Large image bodies only leave the store on an explicit detail read.
 		d.Starting = d.PreparedPrompt != ""
-		d.PreparedPrompt = ""
+		d.PreparedPrompt, d.PreparedProject = "", ""
 		list = append(list, d)
 	}
 	return list, rows.Err()
@@ -126,7 +130,7 @@ func (s *Store) SaveSessionDraftFor(uid int64, d SessionDraft, create bool) (Ses
 			}
 			d.Version, d.CreatedAt, d.UpdatedAt = old.Version+1, old.CreatedAt, now()
 		}
-		d.SessionID, d.PreparedPrompt = "", ""
+		d.SessionID, d.PreparedPrompt, d.PreparedProject = "", "", ""
 		d.ImageCount = len(d.Images)
 		raw, err := json.Marshal(d)
 		if err != nil {
@@ -146,7 +150,9 @@ func (s *Store) SaveSessionDraftFor(uid int64, d SessionDraft, create bool) (Ses
 	return d, err
 }
 
-func (s *Store) PrepareSessionDraftFor(uid int64, id string, version int64, prompt string) (SessionDraft, error) {
+// worktreeProject is the resolved worktree slug ("" for none); like the prompt,
+// the first prepare freezes it and every retry gets the frozen value back.
+func (s *Store) PrepareSessionDraftFor(uid int64, id string, version int64, prompt, worktreeProject string) (SessionDraft, error) {
 	var d SessionDraft
 	err := s.withTx(func(tx *sql.Tx) error {
 		var err error
@@ -160,7 +166,7 @@ func (s *Store) PrepareSessionDraftFor(uid int64, id string, version int64, prom
 		if d.Version != version {
 			return ErrDraftConflict
 		}
-		d.PreparedPrompt, d.Version, d.UpdatedAt = prompt, d.Version+1, now()
+		d.PreparedPrompt, d.PreparedProject, d.Version, d.UpdatedAt = prompt, worktreeProject, d.Version+1, now()
 		raw, err := json.Marshal(d)
 		if err != nil {
 			return err
@@ -186,7 +192,7 @@ func (s *Store) DeleteSessionDraftFor(uid int64, id string, version int64) error
 // ReleaseSessionDraftFor only thaws a definitively refused start with no broker
 // operation. The API holds its start lock until this completes.
 func (s *Store) ReleaseSessionDraftFor(uid int64, id string, version int64) error {
-	_, err := s.db.Exec(`UPDATE session_backlog SET body=json_remove(body,'$.preparedPrompt'),version=version+1,updated_at=?
+	_, err := s.db.Exec(`UPDATE session_backlog SET body=json_remove(json_remove(body,'$.preparedPrompt'),'$.preparedProject'),version=version+1,updated_at=?
 		WHERE user_id=? AND id=? AND version=? AND NOT EXISTS (
 		SELECT 1 FROM terminal_operations o WHERE o.user_id=session_backlog.user_id AND o.request_id=session_backlog.id AND o.kind='create')`, now(), uid, id, version)
 	return err

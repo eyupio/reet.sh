@@ -35,18 +35,18 @@ func TestSessionBacklogOwnershipConcurrencyAndFrozenRetries(t *testing.T) {
 	if err := s.DeleteSessionDraftFor(uid, d.ID, d.Version); !errors.Is(err, ErrDraftConflict) {
 		t.Fatal("stale deletion", err)
 	}
-	if _, err := s.PrepareSessionDraftFor(uid, d.ID, d.Version, d.Prompt); !errors.Is(err, ErrDraftConflict) {
+	if _, err := s.PrepareSessionDraftFor(uid, d.ID, d.Version, d.Prompt, ""); !errors.Is(err, ErrDraftConflict) {
 		t.Fatal("stale start", err)
 	}
-	frozen, err := s.PrepareSessionDraftFor(uid, d.ID, updated.Version, "Exact prompt with uploaded references")
+	frozen, err := s.PrepareSessionDraftFor(uid, d.ID, updated.Version, "Exact prompt with uploaded references", "reet")
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := s.PrepareSessionDraftFor(uid, d.ID, updated.Version, "A concurrent browser's different image paths")
+	again, err := s.PrepareSessionDraftFor(uid, d.ID, updated.Version, "A concurrent browser's different image paths", "renamed")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.PreparedPrompt != frozen.PreparedPrompt || again.Version != frozen.Version {
+	if again.PreparedPrompt != frozen.PreparedPrompt || again.PreparedProject != "reet" || again.Version != frozen.Version {
 		t.Fatal("retry changed the frozen launch")
 	}
 	if _, err := s.SaveSessionDraftFor(uid, frozen, false); !errors.Is(err, ErrDraftConflict) {

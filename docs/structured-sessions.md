@@ -174,7 +174,8 @@ the status pill, the **Approvals** line and the context panel's decisions follow
 - **YOLO stays YOLO, and is checked again.** A YOLO session moving to the OpenCode TUI starts it with `--auto`, so the
   switch is refused if the account no longer allows YOLO ("An owner or admin can allow YOLO for this account in
   Settings."), before anything is stopped. The switch is audited (`session-mode`, with `yolo`), and a YOLO switch to the
-  OpenCode TUI also records a `yolo-launch` event like a launch.
+  OpenCode TUI also records a `yolo-launch` event like a launch when the switch request is answered (a switch settled
+  later by a reconnect is not audited).
 - **Terminal scrollback is not carried over.** The reet TUI rebuilds the conversation from OpenCode's own store with
   `session/load`, as **Continue in reet TUI with history…** does; the OpenCode TUI opens that conversation on a fresh
   screen.

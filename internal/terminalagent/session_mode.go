@@ -118,6 +118,8 @@ func (a *agentSwitch) swap(ctx context.Context, requestID, sessionID string, in 
 			return terminalproto.SessionChanged{}, errAgentStillRunning
 		}
 		if !sup.forget(sessionID) {
+			// retireSwapped returns silently when the existing receipt still reserves quota; the swap mark makes
+			// that unreachable today, so this branch does not cover that cause.
 			// The id cannot be freed for the terminal; nothing runs the row.
 			sup.retireSwapped(sessionID, title, in.Tool, in.ACPSessionID, nil)
 			return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict

@@ -222,6 +222,13 @@ person already made with Codex on that machine, so the Codex profile has to let 
 `_auth/status_update` label ("Not logged in", or the account or key in use) is shown in the chat so the person can see which identity answers, without the account email. Whether a
 signed-in adapter's `session/new` succeeds with no `authenticate` call, and what status it sends, is unobserved and needs the real-login run in `docs/device-checks.md` before this is wired.
 
+### SC4 progress: Codex Stop ends the chat when a command is running (1 November 2026)
+
+Decided by the owner: Codex's `session/cancel` ends the turn but leaves a running command alive, and the commands are children of the engine the adapter starts, so reet cannot stop just
+the command safely. `Spec.EndChatOnStopWhileToolRuns` (set for Codex only) makes Stop, when a tool is still running, say "Codex was running a command when you pressed Stop, so this chat
+was ended to be sure nothing keeps running." and end the chat, retiring the process group. A Stop with nothing running only cancels the turn. Still dark behind
+`REET_EXPERIMENTAL_CODEX_CHAT`; the browser does not offer Codex yet.
+
 ### Device and credential checks (1 November 2026)
 
 What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real

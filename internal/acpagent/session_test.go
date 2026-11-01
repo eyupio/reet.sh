@@ -278,6 +278,9 @@ func TestFakeACP(t *testing.T) {
 				}})
 			case "permission-on-cancel":
 				// Hangs until cancelled; see the session/cancel handler.
+			case "running-command":
+				// A command is started and never reported finished; the prompt waits for session/cancel.
+				update(session, "tool_call", map[string]any{"toolCallId": "call_run", "title": "sleep 47", "kind": "execute", "status": "in_progress"})
 			case "ignore-cancel":
 				// Never answers the prompt and ignores session/cancel.
 			case "steady-progress":
@@ -1413,5 +1416,125 @@ func TestStartModeIsConfirmedOrTheChatIsRefused(t *testing.T) {
 	opts, _ := options(t, "mode-switch", testVersion)
 	if _, err := Start(context.Background(), opts); err == nil {
 		t.Fatal("plan mode accepted without a StartMode")
+	}
+}
+
+// For an adapter whose cancel leaves a command alive, Stop with a command running
+// ends the chat, retires the process group and says so; Stop with nothing running
+// only cancels the turn and leaves the chat usable.
+func TestStopEndsTheChatOnlyWhileACommandRunsWhenTheProfileAsksFor(t *testing.T) {
+	for _, tc := range []struct {
+		scenario string
+		flag     bool
+		ended    bool
+	}{{"running-command", true, true}, {"running-command", false, false}, {"permission-on-cancel", true, false}} {
+		opts, got := options(t, tc.scenario, testVersion)
+		opts.Agent.EndChatOnStopWhileToolRuns = tc.flag
+		opts.TurnTimeout = time.Minute
+		session, err := Start(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() { done <- session.Prompt(context.Background(), "go") }()
+		for deadline := time.Now().Add(5 * time.Second); !session.Working(); time.Sleep(10 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatal("the turn never started")
+			}
+		}
+		if tc.scenario == "running-command" {
+			for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+				session.mu.Lock()
+				n := len(session.toolStart)
+				session.mu.Unlock()
+				if n > 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("the command never started")
+				}
+			}
+		}
+		if err := session.Cancel(); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s: the turn never returned", tc.scenario)
+		}
+		notice := false
+		for {
+			select {
+			case event := <-got.wait:
+				if event.Kind == "notice" && strings.Contains(event.Text, "was running a command when you pressed Stop") && event.Bad {
+					notice = true
+				}
+				continue
+			default:
+			}
+			break
+		}
+		select {
+		case <-session.Done():
+			if !tc.ended {
+				t.Fatalf("%s flag=%v: the chat was ended", tc.scenario, tc.flag)
+			}
+			if !session.GroupRetired() {
+				t.Fatalf("%s: the process group was not confirmed gone", tc.scenario)
+			}
+		case <-time.After(300 * time.Millisecond):
+			if tc.ended {
+				t.Fatalf("%s: the chat was not ended", tc.scenario)
+			}
+		}
+		if notice != tc.ended {
+			t.Fatalf("%s flag=%v: notice=%v want %v", tc.scenario, tc.flag, notice, tc.ended)
+		}
+		session.Close()
+	}
+}
+
+// A tool the replayed history left unfinished is marked interrupted when the chat
+// is reopened; it must not count as a running command, or Stop in a later
+// text-only turn would end the chat and claim a command was running.
+func TestInterruptedReplayToolsDoNotMakeStopEndTheChat(t *testing.T) {
+	opts, got := options(t, "ignore-cancel", testVersion)
+	opts.Resume = "ses_fake000000000000000000000001"
+	opts.Agent.EndChatOnStopWhileToolRuns = true
+	opts.TurnTimeout = time.Minute
+	opts.ForceStopGrace = time.Minute
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if !got.has("tool") {
+		t.Fatal("the replay did not include the unfinished tool")
+	}
+	go func() { _ = session.Prompt(context.Background(), "just text") }()
+	for deadline := time.Now().Add(5 * time.Second); !session.Working(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the turn never started")
+		}
+	}
+	if err := session.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-session.Done():
+		t.Fatal("Stop ended the chat although no command was running")
+	case <-time.After(400 * time.Millisecond):
+	}
+	for {
+		select {
+		case event := <-got.wait:
+			if event.Kind == "notice" && strings.Contains(event.Text, "was running a command") {
+				t.Fatal("the person was told a command was running")
+			}
+			continue
+		default:
+		}
+		break
 	}
 }

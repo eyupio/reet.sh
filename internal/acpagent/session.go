@@ -938,13 +938,26 @@ func (s *Session) commitForceStop(seq uint64) bool {
 // The agent does not withdraw an outstanding request_permission, so reet must.
 func (s *Session) Cancel() error {
 	s.turnMu.Lock()
-	if s.working {
+	working := s.working
+	if working {
 		s.cancelledSeq = s.turnSeq
 	}
 	s.turnMu.Unlock()
+	// Read before the cards are cancelled and the agent winds the turn down.
+	s.mu.Lock()
+	toolRunning := len(s.toolStart) > 0
+	s.mu.Unlock()
+	endChat := working && toolRunning && s.opts.Agent.EndChatOnStopWhileToolRuns
 	s.cancelCards()
 	s.emit(Event{Kind: "status", State: "cancelled"})
 	err := s.sendCancel()
+	if endChat {
+		// The adapter ends the turn but leaves the command alive, so end the chat
+		// and retire the process group rather than say it stopped while it runs on.
+		s.emit(Event{Kind: "notice", Text: s.opts.Agent.displayName() + " was running a command when you pressed Stop, so this chat was ended to be sure nothing keeps running.", Bad: true})
+		s.Close()
+		return err
+	}
 	s.armForceStop()
 	return err
 }
@@ -1044,6 +1057,10 @@ func (s *Session) markInterrupted() {
 			ids = append(ids, id)
 		}
 	}
+	// Interrupted calls are over: they must not count as running tools.
+	for _, id := range ids {
+		delete(s.toolStart, id)
+	}
 	s.mu.Unlock()
 	for _, id := range ids {
 		s.emit(Event{Kind: "tool", ToolCallID: id, Status: "failed", ToolKind: "other", Title: "Interrupted tool call",
@@ -1096,6 +1113,9 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 	s.lastEvent = s.turnStart
 	s.turnProgress = false
 	s.turnError = false
+	// No tool can be running when a turn begins; an entry left by an earlier turn
+	// or by a replayed history must not make Stop think a command is running.
+	s.toolStart = map[string]time.Time{}
 	s.mu.Unlock()
 	startedAt := s.turnStart
 	s.turnMu.Unlock()

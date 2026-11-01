@@ -414,4 +414,26 @@ func TestEnvironmentMergeRefusesARunningInstallWith409(t *testing.T) {
 	if code != 409 || !strings.Contains(raw, `"code":"environment_job_running"`) {
 		t.Fatalf("got %d %s", code, raw)
 	}
+	// The preview refuses the same way, before anything is confirmed.
+	preview, _ := json.Marshal(map[string]any{"from_id": f.env, "to_id": dest, "dry_run": true})
+	code, raw = f.post("/api/v2/environments/merge", string(preview), f.cookie, "https://reet.example")
+	if code != 409 || !strings.Contains(raw, `"code":"environment_job_running"`) {
+		t.Fatalf("preview got %d %s", code, raw)
+	}
+}
+
+func TestEnvironmentMergePreviewCountsPendingInstalls(t *testing.T) {
+	f := installFixture(t)
+	if code, raw := f.install(`{"skill":"reet:pdf"}`); code != 200 {
+		t.Fatal(code, raw)
+	}
+	if err := f.st.TouchEnvironmentFor(f.uid, f.agent.Host, "claude", "/work/app", "/work/app/.claude/skills"); err != nil {
+		t.Fatal(err)
+	}
+	dest := store.EnvironmentIDFor(f.uid, f.agent.Host, "claude", "/work/app")
+	body, _ := json.Marshal(map[string]any{"from_id": f.env, "to_id": dest, "dry_run": true})
+	code, raw := f.post("/api/v2/environments/merge", string(body), f.cookie, "https://reet.example")
+	if code != 200 || !strings.Contains(raw, `"pending_jobs_cancelled":1`) || !strings.Contains(raw, `"pending_installs_cancelled":1`) {
+		t.Fatalf("got %d %s", code, raw)
+	}
 }

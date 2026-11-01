@@ -448,6 +448,41 @@ try {
   expect(sends).toBe(sendsBeforePhone)
   await page.setViewportSize({ width: 1360, height: 900 })
 
+  // Tablet widths and both colour schemes: the picker stays inside the viewport with no sideways scroll, and its text stays
+  // readable (4.5:1) against the card in light and dark.
+  const contrastOf = (loc) => loc.evaluate(el => {
+    const rgb = c => (c.match(/[\d.]+/g) || []).map(Number)
+    const lum = ([r, g, b]) => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b) }
+    let bg = null
+    for (let n = el; n && !bg; n = n.parentElement) { const c = rgb(getComputedStyle(n).backgroundColor); if (c.length >= 3 && (c.length === 3 || c[3] === 1)) bg = c }
+    bg = bg || [255, 255, 255]
+    const fg = rgb(getComputedStyle(el).color)
+    const [a, b] = [lum(fg), lum(bg)].sort((x, y) => y - x)
+    return (a + 0.05) / (b + 0.05)
+  })
+  for (const combo of [{ w: 820, h: 1180, scheme: 'light' }, { w: 820, h: 1180, scheme: 'dark' }, { w: 1024, h: 768, scheme: 'dark' }, { w: 1024, h: 768, scheme: 'light' }]) {
+    await page.emulateMedia({ colorScheme: combo.scheme })
+    await page.setViewportSize({ width: combo.w, height: combo.h })
+    await skillsButton.click()
+    await expect(picker).toBeVisible()
+    await expect(picker.getByRole('listbox')).toHaveCount(3)
+    const box = await picker.boundingBox()
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.y).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(combo.w)
+    expect(box.y + box.height).toBeLessThanOrEqual(combo.h)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    expect(await picker.locator('[data-shell-body]').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    const row = picker.getByRole('option', { name: /pdf/ })
+    expect(await contrastOf(row.locator('.name'))).toBeGreaterThanOrEqual(4.5)
+    expect(await contrastOf(row.locator('.description'))).toBeGreaterThanOrEqual(4.5)
+    expect(await contrastOf(picker.getByText('Skills on dev-laptop were read 5 minutes ago.'))).toBeGreaterThanOrEqual(4.5)
+    await page.keyboard.press('Escape')
+    await expect(picker).toHaveCount(0)
+  }
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.setViewportSize({ width: 1360, height: 900 })
+
   // Installing a hosted skill from the picker. The panel runs inside the same sheet; the mocks record every install, cancel,
   // sync read and approval, and a fake clock drives the 2 second polling and the 60 second hint without waiting.
   await page.clock.install()
@@ -805,7 +840,7 @@ try {
   expect(state.resume.prompt).toBeUndefined()
   expect(state.resume.model).toBe('anthropic/claude-sonnet-4-5')
   expect(errors).toEqual([])
-  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled and its reason (the machine predates session-mode-v1), agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id and cannot switch TUI; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet; a published reet-hosted skill installs from the picker through confirm, wait, review, approve (only for a plain add), install and done, with cancel, retry, refusals and a phone fit.')
+  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled and its reason (the machine predates session-mode-v1), agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id and cannot switch TUI; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet, with tablet and dark-mode passes that keep it inside the viewport and readable; a published reet-hosted skill installs from the picker through confirm, wait, review, approve (only for a plain add), install and done, with cancel, retry, refusals and a phone fit.')
 } finally {
   await context.close()
   await browser.close()

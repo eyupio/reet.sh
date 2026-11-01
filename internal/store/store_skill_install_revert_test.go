@@ -779,3 +779,20 @@ func TestSaveSyncTargetRefusedWhileAnInstallIsPending(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMergeJobCountsForCountsWhatAMergeWouldCancelOrRefuse(t *testing.T) {
+	e := installFixture(t)
+	if r, p, i, err := e.s.MergeJobCountsFor(e.uid, e.env); err != nil || r != 0 || p != 0 || i != 0 {
+		t.Fatalf("idle: %d %d %d %v", r, p, i, err)
+	}
+	if _, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf")); err != nil {
+		t.Fatal(err)
+	}
+	if r, p, i, err := e.s.MergeJobCountsFor(e.uid, e.env); err != nil || r != 0 || p != 1 || i != 1 {
+		t.Fatalf("pending install: %d %d %d %v", r, p, i, err)
+	}
+	e.claim(t)
+	if r, _, _, err := e.s.MergeJobCountsFor(e.uid, e.env); err != nil || r != 1 {
+		t.Fatalf("running: %d %v", r, err)
+	}
+}

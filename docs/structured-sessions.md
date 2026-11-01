@@ -171,6 +171,10 @@ the status pill, the **Approvals** line and the context panel's decisions follow
 - **Terminal scrollback is not carried over.** The reet TUI rebuilds the conversation from OpenCode's own store with
   `session/load`, as **Continue in reet TUI with history…** does; the OpenCode TUI opens that conversation on a fresh
   screen.
+- **The OpenCode TUI is stopped before the chat opens.** The machine waits up to five seconds for the TUI to exit after its
+  tmux session closes. A TUI that has not exited by then is sent SIGTERM and, if it is still there, SIGKILL; the chat
+  opens only once its process group is gone, so two OpenCode processes never share one conversation. If a TUI survives
+  even that, no chat is opened, the session ends and the switch reports that it failed.
 - **The reet TUI is as durable as any chat.** A session in the OpenCode TUI runs in tmux and survives an agent restart;
   once switched to the reet TUI it ends if the agent process restarts (its OpenCode id can still be continued).
 - **Folder trust when returning to the reet TUI.** OpenCode project plugins run when the reet TUI opens the session. If

@@ -243,6 +243,27 @@ func TestFakeACP(t *testing.T) {
 			case "progress-after-silence-hang":
 				time.Sleep(60 * time.Millisecond)
 				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_progress", "content": map[string]string{"type": "text", "text": "still here"}})
+			case "question-late":
+				// The turn ends, and only then does the agent ask a question.
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
+				promptID = nil
+				time.Sleep(100 * time.Millisecond)
+				send(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "elicitation/create", "params": map[string]any{
+					"mode": "form", "sessionId": session, "toolCallId": "toolu_late", "message": "Too late?",
+					"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{"a": map[string]any{"type": "string", "title": "A"}}}}})
+			case "late-permission":
+				// The turn ends, and only then does the agent ask for a permission.
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
+				promptID = nil
+				time.Sleep(100 * time.Millisecond)
+				send(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "session/request_permission", "params": map[string]any{
+					"sessionId": session,
+					"toolCall": map[string]any{"toolCallId": "call_late", "title": "write late.txt", "kind": "edit", "status": "pending",
+						"rawInput": map[string]string{"filepath": "/tmp/late.txt", "diff": "@@ -0,0 +1 @@\n+late\n"}},
+					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "reject", "kind": "reject_once", "name": "Reject"}},
+				}})
+			case "permission-on-cancel":
+				// Hangs until cancelled; see the session/cancel handler.
 			case "ignore-cancel":
 				// Never answers the prompt and ignores session/cancel.
 			case "steady-progress":
@@ -257,6 +278,16 @@ func TestFakeACP(t *testing.T) {
 		case "session/cancel":
 			if scenario == "ignore-cancel" {
 				break
+			}
+			if scenario == "permission-on-cancel" {
+				// Winding down, the agent still asks for a permission before it finishes.
+				send(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "session/request_permission", "params": map[string]any{
+					"sessionId": session,
+					"toolCall": map[string]any{"toolCallId": "call_cancel", "title": "write cancel.txt", "kind": "edit", "status": "pending",
+						"rawInput": map[string]string{"filepath": "/tmp/cancel.txt", "diff": "@@ -0,0 +1 @@\n+x\n"}},
+					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "reject", "kind": "reject_once", "name": "Reject"}},
+				}})
+				time.Sleep(100 * time.Millisecond)
 			}
 			if len(promptID) > 0 {
 				reply(promptID, map[string]any{"stopReason": "cancelled"})
@@ -283,6 +314,12 @@ func TestFakeACP(t *testing.T) {
 					update(session, "tool_call_update", map[string]any{"toolCallId": "call_1", "title": "write hello.txt", "kind": "edit", "status": status})
 					reply(promptID, map[string]any{"stopReason": "end_turn"})
 					promptID = nil
+				} else if scenario == "late-permission" || scenario == "permission-on-cancel" {
+					var raw struct {
+						Result json.RawMessage `json:"result"`
+					}
+					_ = json.Unmarshal(in.Bytes(), &raw)
+					update(session, "agent_message_chunk", map[string]any{"messageId": "msg_late", "content": map[string]string{"type": "text", "text": "late answer: " + string(raw.Result)}})
 				} else if strings.HasPrefix(scenario, "question") {
 					// Echo exactly what the agent received so the test can assert it.
 					var raw struct {
@@ -290,8 +327,10 @@ func TestFakeACP(t *testing.T) {
 					}
 					_ = json.Unmarshal(in.Bytes(), &raw)
 					update(session, "agent_message_chunk", map[string]any{"messageId": "msg_q", "content": map[string]string{"type": "text", "text": string(raw.Result)}})
-					reply(promptID, map[string]any{"stopReason": "end_turn"})
-					promptID = nil
+					if len(promptID) > 0 {
+						reply(promptID, map[string]any{"stopReason": "end_turn"})
+						promptID = nil
+					}
 				} else if scenario == "fs" {
 					update(session, "agent_message_chunk", map[string]any{"messageId": "msg_fs", "content": map[string]string{"type": "text", "text": "mirrored"}})
 					reply(promptID, map[string]any{"stopReason": "end_turn"})
@@ -1254,5 +1293,89 @@ func TestForceStopRefusesNewTurnsOnceCommitted(t *testing.T) {
 	// A stale commit for an older turn is refused.
 	if session.commitForceStop(seq - 1) {
 		t.Fatal("a commit for another turn was accepted")
+	}
+}
+
+// SC5 audit, gap 3: a permission request that arrives after the turn has ended
+// belongs to no turn the person can see. It must be answered as cancelled and
+// never raise an approval card or a "waiting" status on an idle chat.
+func TestPermissionRequestAfterTheTurnEndedIsCancelled(t *testing.T) {
+	opts, got := options(t, "late-permission", testVersion)
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.Prompt(context.Background(), "go"); err != nil {
+		t.Fatal(err)
+	}
+	var answered string
+	deadline := time.After(3 * time.Second)
+wait:
+	for {
+		select {
+		case event := <-got.wait:
+			if event.Kind == "permission" {
+				t.Fatalf("an approval card was raised for a turn that had ended: %+v", event)
+			}
+			if event.Kind == "status" && event.State == "waiting" {
+				t.Fatal("an idle chat was shown as waiting for an approval")
+			}
+			if event.Kind == "agent" && strings.HasPrefix(event.Text, "late answer: ") {
+				answered = event.Text
+				break wait
+			}
+		case <-deadline:
+			t.Fatal("the late permission request was never answered")
+		}
+	}
+	if !strings.Contains(answered, "cancelled") {
+		t.Fatalf("the agent was told %q, want a cancelled outcome", answered)
+	}
+}
+
+// SC5 audit, gap 3: a permission request that arrives while the cancelled turn
+// is still winding down must not raise a card either.
+func TestPermissionRequestAfterCancelIsCancelled(t *testing.T) {
+	opts, got := options(t, "permission-on-cancel", testVersion)
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "go") }()
+	for deadline := time.Now().Add(5 * time.Second); !session.Working(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the turn never started")
+		}
+	}
+	if err := session.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	answered := ""
+	deadline := time.After(5 * time.Second)
+wait:
+	for {
+		select {
+		case event := <-got.wait:
+			if event.Kind == "permission" {
+				t.Fatalf("a card was raised for a cancelled turn: %+v", event)
+			}
+			if event.Kind == "agent" && strings.HasPrefix(event.Text, "late answer: ") {
+				answered = event.Text
+				break wait
+			}
+		case <-deadline:
+			t.Fatal("the permission request sent during the cancel was never answered")
+		}
+	}
+	if !strings.Contains(answered, "cancelled") {
+		t.Fatalf("the agent was told %q, want a cancelled outcome", answered)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the cancelled turn did not end")
 	}
 }

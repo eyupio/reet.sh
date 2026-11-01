@@ -88,6 +88,13 @@ export function pendingQuestions(state: ChatState): Extract<ChatItem, { kind: 'q
   return state.items.filter((item): item is Extract<ChatItem, { kind: 'question' }> => item.kind === 'question' && !item.decision)
 }
 
+/** Once a turn has stopped nothing it started is still running. A tool left pending or in progress would keep a busy state on a chat that says it
+ *  stopped, so it is shown as stopped; the agent's own later report of how it ended still replaces this. */
+function stopTools(items: ChatItem[]): ChatItem[] {
+  if (!items.some(item => item.kind === 'tool' && (item.status === 'pending' || item.status === 'in_progress'))) return items
+  return items.map(item => item.kind === 'tool' && (item.status === 'pending' || item.status === 'in_progress') ? { ...item, status: 'cancelled' } : item)
+}
+
 function cancelPending(items: ChatItem[], reason: string): ChatItem[] {
   return items.map(item => (item.kind === 'permission' || item.kind === 'question') && !item.decision ? { ...item, decision: 'cancelled' as const, reason } : item)
 }
@@ -178,7 +185,7 @@ function reduceChatEvent(state: ChatState, event: ChatEvent): ChatState {
       // Thinking belongs to the working phase: once the turn waits, finishes or stops, the thought is finished.
       const settled = status.state !== 'working' && status.state !== 'starting' ? settleThoughts(state.items) : state.items
       if (!stopped) return settled === state.items ? { ...next, status } : { ...next, status, items: settled }
-      return { ...next, status, items: cancelPending(settled, status.state === 'ended' ? 'ended' : status.state) }
+      return { ...next, status, items: stopTools(cancelPending(settled, status.state === 'ended' ? 'ended' : status.state)) }
     }
     case 'permission': {
       if (!event.permissionId) return next

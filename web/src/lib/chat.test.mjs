@@ -310,3 +310,21 @@ test('queued prompts keep order, are capped, and can be edited, promoted and dro
   assert.equal(queue[0].id, 'q0')
   assert.equal(queue.length, MAX_QUEUED_PROMPTS - 1)
 })
+
+test('a tool still running when the turn stops is shown as stopped, and a later update still wins', () => {
+  for (const stop of ['cancelled', 'idle', 'error', 'ended']) {
+    let state = initialChat()
+    state = applyChatEvent(state, event(1, { kind: 'status', state: 'working' }))
+    state = applyChatEvent(state, event(2, { kind: 'tool', toolCallId: 'run', title: 'go test', toolKind: 'execute', status: 'in_progress' }))
+    state = applyChatEvent(state, event(3, { kind: 'tool', toolCallId: 'wait', title: 'sleep', toolKind: 'execute', status: 'pending' }))
+    state = applyChatEvent(state, event(4, { kind: 'tool', toolCallId: 'done', title: 'ls', toolKind: 'execute', status: 'completed' }))
+    state = applyChatEvent(state, event(5, { kind: 'status', state: stop }))
+    const byId = id => state.items.find(i => i.kind === 'tool' && i.toolCallId === id)
+    assert.equal(byId('run').status, 'cancelled', `${stop}: a running tool was left running`)
+    assert.equal(byId('wait').status, 'cancelled', `${stop}: a pending tool was left pending`)
+    assert.equal(byId('done').status, 'completed', `${stop}: a finished tool changed`)
+    // The agent's own late report of how that tool ended is still believed.
+    state = applyChatEvent(state, event(6, { kind: 'tool', toolCallId: 'run', status: 'completed', text: 'ok' }))
+    assert.equal(byId('run').status, 'completed', `${stop}: a later update was ignored`)
+  }
+})

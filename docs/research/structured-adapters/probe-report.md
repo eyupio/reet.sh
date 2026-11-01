@@ -283,6 +283,12 @@ Also done (local): `SetModel` reads the applied model back and refuses a silent 
 subagent cards are labelled. Also done (local): the Claude environment profile (`ClaudeCandidate`). Still required before
 enabling Claude: a real-credential/missing-credential check, registering the profile behind
 the descriptor and launch gates, and the SC3 question contract.
+Also done (local, SC4 slice 1): Claude is registered but dark. A machine opts in with `REET_EXPERIMENTAL_CLAUDE_CHAT=1`
+on the connector; without it Claude is `unverified` exactly as before. Opted in, its descriptor reports only what the probe
+verified (approvals and a read-back model switch); native-session replay, images and questions stay off. Descriptors are bound
+to the adapter reviewed for the tool, and a peer that sent no descriptors is still assumed OpenCode-only. The browser does not
+offer Claude chats yet. Still required before turning it on: the real-credential and missing-credential check on a real
+machine, the browser launch and view changes, and Claude-specific recovery.
 Keep question support disabled until the SC3 contract is implemented.
 
 For Codex, additionally establish whether a per-command approval exists with a working

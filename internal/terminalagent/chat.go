@@ -287,7 +287,7 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 		state, exit, acpID := cs.state, cs.exit, cs.acpID
 		history := h.link.history
 		h.sup.mu.Unlock()
-		return terminalproto.SessionChanged{State: state, ExitCode: exit, ACPSessionID: reportedACP(acpID, history)}, nil
+		return terminalproto.SessionChanged{State: state, ExitCode: exit, ACPSessionID: reportedACP(in.Tool, acpID, history)}, nil
 	}
 	if _, ok := h.sup.sessions[sessionID]; ok {
 		h.sup.mu.Unlock()
@@ -392,11 +392,15 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 		h.sup.publish(cs, acpagent.Event{Kind: "user", Text: in.Prompt})
 		h.startPrompt(cs, in.Prompt, nil)
 	}
-	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(acpID, h.link.history)}, nil
+	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(in.Tool, acpID, h.link.history)}, nil
 }
 
-func reportedACP(acpID string, history bool) string {
-	if !history {
+// reportedACP is the native session id sent to the controller. It is sent only
+// on a connection that negotiated history and only for a tool whose descriptor
+// offers it: Claude's UUID does not fit the wire's id format and its replay is
+// unverified, so reporting it would break the notices that carry it.
+func reportedACP(tool, acpID string, history bool) string {
+	if !history || !acpagent.Describe(tool, true, "").History {
 		return ""
 	}
 	return acpID
@@ -411,7 +415,7 @@ func (h *chatHost) snapshot(sessionID string) (terminalproto.SessionSnapshot, bo
 	}
 	return terminalproto.SessionSnapshot{
 		ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit,
-		ACPSessionID: reportedACP(cs.acpID, h.link.history),
+		ACPSessionID: reportedACP(cs.tool, cs.acpID, h.link.history),
 		ActivityAt:   cs.activityAt, BellAt: cs.bellAt,
 	}, true
 }
@@ -423,7 +427,7 @@ func (h *chatHost) snapshots() []terminalproto.SessionSnapshot {
 	for _, cs := range h.sup.sessions {
 		out = append(out, terminalproto.SessionSnapshot{
 			ID: cs.id, Title: cs.title, State: cs.state, ExitCode: cs.exit,
-			ACPSessionID: reportedACP(cs.acpID, h.link.history),
+			ACPSessionID: reportedACP(cs.tool, cs.acpID, h.link.history),
 			ActivityAt:   cs.activityAt, BellAt: cs.bellAt,
 		})
 	}
@@ -677,7 +681,7 @@ func (h *chatHost) end(sessionID string) (terminalproto.SessionChanged, error) {
 	h.sup.mu.Unlock()
 	cs.process.Close()
 	h.sup.ended(cs, 0)
-	return terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: reportedACP(cs.acpID, h.link.history)}, nil
+	return terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: reportedACP(cs.tool, cs.acpID, h.link.history)}, nil
 }
 
 func (h *chatHost) ended(cs *chatSession, code int) { h.sup.ended(cs, code) }
@@ -694,7 +698,7 @@ func (s *chatSupervisor) announceRunning(cs *chatSession) {
 		return
 	}
 	_ = link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
-		Generation: link.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(acpID, link.history)}})
+		Generation: link.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(cs.tool, acpID, link.history)}})
 }
 
 func (s *chatSupervisor) ended(cs *chatSession, code int) {
@@ -713,7 +717,7 @@ func (s *chatSupervisor) ended(cs *chatSession, code int) {
 			return
 		}
 		_ = link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
-			Generation: link.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: exit, ACPSessionID: reportedACP(acpID, link.history)}})
+			Generation: link.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: exit, ACPSessionID: reportedACP(cs.tool, acpID, link.history)}})
 	})
 }
 

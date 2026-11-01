@@ -111,8 +111,17 @@ the `/chat/questions/{id}` route. Still off by default; see the plan.
 
 **Chat card:** the browser card for typed questions, with unit and browser tests; see `docs/ui-verification.md`.
 
-**Next unchecked task:** request-scoped (pre-session) questions and
-old-peer/concurrent-tab/phone fixtures. Do not advertise the form capability before those.
+**Next unchecked task:** SC3 code and fixtures are done (startup questions are cancelled with their own notice; holding them is
+deferred). Left: the touch-device and screen-reader checks on a real device. Do not advertise the form capability before those.
+
+## SC4 — Claude wired dark (1 November 2026)
+
+Claude is registered but dark: `REET_EXPERIMENTAL_CLAUDE_CHAT=1` on a machine's connector makes it report Claude as available
+(approvals and the model switch only; no history, images or questions), the controller binds each descriptor to its reviewed
+adapter, and a descriptor-less peer is still OpenCode-only. The browser offers OpenCode only.
+
+**Next unchecked task:** run the real-credential and missing-credential check for Claude on a real machine; then the browser
+launch and view changes; then Claude-specific recovery.
 
 ## SC2 — Structured adapter probe checkpoint (31 October 2026)
 

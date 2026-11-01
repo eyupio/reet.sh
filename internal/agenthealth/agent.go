@@ -874,7 +874,21 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 	// so they need terminal access on as well as their negotiated feature:
 	// browse also the local folder-browse switch on, branches worktrees.
 	control := cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin")
-	acp := cfg.acp && control && enabled && slices.Contains(tools, "opencode")
+	// Descriptors are read once, and only on a connection that negotiated them.
+	var described []terminalproto.ACPAgent
+	if cfg.acpAgents && cfg.acp && control && enabled && cfg.StructuredAgents != nil {
+		described = cfg.StructuredAgents()
+	}
+	// Chats are available when OpenCode is installed (what a controller without
+	// descriptors assumes) or when a reviewed adapter reports itself available
+	// for a tool installed here, so Claude does not need OpenCode.
+	chatTool := slices.Contains(tools, "opencode")
+	for _, entry := range described {
+		if entry.Valid() && entry.State == "available" && slices.Contains(tools, entry.Tool) {
+			chatTool = true
+		}
+	}
+	acp := cfg.acp && control && enabled && chatTool
 	var software []terminalproto.SoftwareEntry
 	if cfg.software && cfg.Software != nil && control {
 		software = softwareEntries(cfg)
@@ -882,9 +896,9 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 	var chatAgents *[]terminalproto.ACPAgent
 	if cfg.acpAgents && cfg.acp && control && enabled {
 		entries := []terminalproto.ACPAgent{}
-		if cfg.StructuredAgents != nil {
+		{
 			seen := map[string]bool{}
-			for _, entry := range cfg.StructuredAgents() {
+			for _, entry := range described {
 				if !entry.Valid() || seen[entry.Tool] || len(entries) >= terminalproto.MaxACPAgents {
 					continue
 				}

@@ -234,3 +234,31 @@ func TestQuestionAnswerRequiresNegotiatedFeatures(t *testing.T) {
 		})
 	}
 }
+
+// A native session id is reported to the controller only for a tool whose
+// descriptor offers history. Claude's UUID does not fit the wire's OpenCode id
+// format, so reporting it would make the running notice and every reconcile fail
+// to encode while the process runs.
+func TestNativeSessionIDIsReportedOnlyWhereHistoryIsOffered(t *testing.T) {
+	const uuid = "0b9f6a1c-3d2e-4f5a-8b7c-1234567890ab"
+	for _, tc := range []struct {
+		tool, id string
+		history  bool
+		want     string
+	}{
+		{"opencode", "ses_fake0001", true, "ses_fake0001"},
+		{"opencode", "ses_fake0001", false, ""},
+		{"claude", uuid, true, ""},
+		{"claude", uuid, false, ""},
+		{"codex", uuid, true, ""},
+	} {
+		if got := reportedACP(tc.tool, tc.id, tc.history); got != tc.want {
+			t.Fatalf("%+v: got %q", tc, got)
+		}
+	}
+	msg := terminalproto.Message{Version: terminalproto.Version, RequestID: "request-0123456789", SessionID: "session-0123456789", Generation: 1,
+		Body: &terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP("claude", uuid, true)}}
+	if _, err := terminalproto.Encode(msg); err != nil {
+		t.Fatalf("a running notice for a claude chat cannot be encoded: %v", err)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -49,12 +50,20 @@ type chatSession struct {
 	cancel    context.CancelFunc
 	busy      bool
 	yolo      bool
-	ended     sync.Once
+	// trust is the folder trust the chat was opened with; a swap that has to
+	// restore this chat reopens it the same way.
+	trust bool
+	// quiet is set once a mode swap has taken this chat over: its end and any
+	// late events are never told to the controller, whose row stays running.
+	quiet bool
+	ended sync.Once
 
 	activityAt int64
 	bellAt     int64
 	lastStatus *terminalproto.ACPEvent
 	pending    []terminalproto.ACPEvent
+	// questions are the ids of typed questions delivered and not yet resolved.
+	questions []string
 
 	// outbox holds events produced while no control connection is attached,
 	// oldest first. It is bounded by the same event and byte ceilings as the
@@ -84,9 +93,17 @@ type chatSupervisor struct {
 	sessions map[string]*chatSession
 	requests map[string]string
 	starting map[string]string
-	closed   bool
-	wg       sync.WaitGroup
-	close    sync.Once
+	// swapping maps each session a mode swap is moving to the title it is
+	// reported under meanwhile; swapEpoch counts every
+	// change to it so an observer can tell that a listing raced a swap.
+	swapping  map[string]string
+	swapEpoch uint64
+	// holds counts the creates and ends in flight per session; a swap is
+	// refused while any runs, and they are refused while a swap runs.
+	holds  map[string]int
+	closed bool
+	wg     sync.WaitGroup
+	close  sync.Once
 }
 
 // chatLink is one control connection's delivery path. history is the
@@ -120,6 +137,7 @@ func newChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *c
 		},
 		lookPath: exec.LookPath,
 		sessions: map[string]*chatSession{}, requests: map[string]string{}, starting: map[string]string{},
+		swapping: map[string]string{}, holds: map[string]int{},
 	}
 	go func() {
 		<-ctx.Done()
@@ -311,7 +329,7 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrYoloRefused
 	}
-	cs := &chatSession{id: sessionID, title: in.Title, tool: in.Tool, state: terminalproto.Creating, yolo: in.Yolo}
+	cs := &chatSession{id: sessionID, title: in.Title, tool: in.Tool, state: terminalproto.Creating, yolo: in.Yolo, trust: in.Trust}
 	h.sup.sessions[sessionID] = cs
 	h.sup.requests[requestID] = sessionID
 	h.sup.starting[requestID] = sessionID
@@ -469,7 +487,7 @@ func (h *chatHost) find(sessionID string) *chatSession {
 
 func (h *chatHost) startPrompt(cs *chatSession, text string, images []acpagent.Attachment) bool {
 	h.sup.mu.Lock()
-	if cs.busy || cs.state != terminalproto.Running {
+	if cs.busy || cs.quiet || cs.state != terminalproto.Running {
 		h.sup.mu.Unlock()
 		return false
 	}
@@ -711,9 +729,9 @@ func (s *chatSupervisor) ended(cs *chatSession, code int) {
 			}
 		}
 		link := s.link
-		acpID, exit := cs.acpID, cs.exit
+		acpID, exit, quiet := cs.acpID, cs.exit, cs.quiet
 		s.mu.Unlock()
-		if link == nil || !link.live {
+		if link == nil || !link.live || quiet {
 			return
 		}
 		_ = link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
@@ -722,6 +740,40 @@ func (s *chatSupervisor) ended(cs *chatSession, code int) {
 }
 
 func (h *chatHost) close() { h.sup.detach(h) }
+
+// idle reports whether a running chat has nothing in flight: no turn, no
+// approval and no question waiting on the person. Only an idle chat may be
+// swapped to a terminal.
+func (h *chatHost) idle(sessionID string) bool {
+	h.sup.mu.Lock()
+	defer h.sup.mu.Unlock()
+	cs := h.sup.sessions[sessionID]
+	return cs != nil && idleLocked(cs)
+}
+
+// idleLocked is idle for a session the caller holds the supervisor lock for.
+func idleLocked(cs *chatSession) bool {
+	return cs.state == terminalproto.Running && cs.process != nil && !cs.busy && !cs.quiet &&
+		len(cs.pending) == 0 && len(cs.questions) == 0 && !cs.process.Working()
+}
+
+// forget drops an ended chat's receipt, and the request ids that name it, so
+// the id is unique again. It is false for a chat that is still live.
+func (s *chatSupervisor) forget(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cs := s.sessions[sessionID]
+	if cs == nil || cs.state.ReservesQuota() {
+		return false
+	}
+	delete(s.sessions, sessionID)
+	for request, id := range s.requests {
+		if id == sessionID {
+			delete(s.requests, request)
+		}
+	}
+	return true
+}
 
 // questionAnswerer is the part of a chat process that can resolve a typed
 // question. It is optional: only a process that can ask questions has it.
@@ -788,6 +840,11 @@ func (s *chatSupervisor) cancelQuestion(cs *chatSession, questionID string) {
 
 func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 	s.mu.Lock()
+	if cs.quiet {
+		// A swapped-out process's last words belong to no live row.
+		s.mu.Unlock()
+		return
+	}
 	recordChatSessionEvent(cs, wire)
 	link := s.link
 	if link == nil || !link.live {
@@ -825,8 +882,21 @@ func recordChatSessionEvent(cs *chatSession, wire terminalproto.ACPEvent) {
 			}
 		case "idle", "cancelled", "error", "ended":
 			cs.pending = nil
+			cs.questions = nil
 			cs.bellAt = 0
 		}
+	case "question":
+		if wire.QuestionID != "" && !slices.Contains(cs.questions, wire.QuestionID) {
+			cs.questions = append(cs.questions, wire.QuestionID)
+		}
+	case "question_resolved", "question_cancelled":
+		out := cs.questions[:0]
+		for _, id := range cs.questions {
+			if id != wire.QuestionID {
+				out = append(out, id)
+			}
+		}
+		cs.questions = out
 	case "permission":
 		if wire.PermissionID != "" {
 			replaced := false
@@ -1062,7 +1132,7 @@ func (h *chatHost) setModel(ctx context.Context, sessionID, model string) error 
 		return terminalhost.ErrSessionMissing
 	}
 	h.sup.mu.Lock()
-	if cs.busy || cs.state != terminalproto.Running {
+	if cs.busy || cs.quiet || cs.state != terminalproto.Running {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict
 	}

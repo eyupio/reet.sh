@@ -240,3 +240,27 @@ func TestExportedValidatorsMatchTheCreateRules(t *testing.T) {
 		t.Fatal("prompt control characters")
 	}
 }
+
+func TestCreateLaunchSessionRules(t *testing.T) {
+	base := Create{Title: "a", Cols: 80, Rows: 24, Tool: "opencode", LaunchSession: "ses_abc123XYZ"}
+	if err := base.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, mut := range map[string]func(*Create){
+		"bad id":     func(c *Create) { c.LaunchSession = "abc" },
+		"wrong tool": func(c *Create) { c.Tool = "claude" },
+		"no tool":    func(c *Create) { c.Tool = "" },
+		"resume":     func(c *Create) { c.Resume = true },
+		"structured": func(c *Create) { c.Structured = true },
+	} {
+		c := base
+		mut(&c)
+		if err := c.Validate(); err == nil {
+			t.Fatal(name, "accepted")
+		}
+	}
+	b, err := json.Marshal(base)
+	if err != nil || strings.Contains(string(b), "ses_") {
+		t.Fatalf("LaunchSession leaked onto the wire: %s %v", b, err)
+	}
+}

@@ -890,6 +890,33 @@ func (s *Store) SetTerminalYoloFor(uid int64, sessionID string, yolo bool) error
 	return nil
 }
 
+// SetTerminalStructuredFor switches a running OpenCode session between the
+// structured chat and the raw terminal view. Enabling needs the ACP session
+// id the chat resumes from. Only the structured flag changes. Already being
+// at the requested value is a no-op.
+func (s *Store) SetTerminalStructuredFor(uid int64, sessionID string, structured bool) error {
+	if !terminalproto.ValidID(sessionID) {
+		return terminalproto.ErrInvalid
+	}
+	r, err := s.db.Exec(`UPDATE terminal_sessions SET structured=?,updated_at=? WHERE id=? AND user_id=? AND state='running' AND structured<>? AND (?=0 OR acp_session_id<>'') AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, structured, now(), sessionID, uid, structured, structured, uid)
+	if err != nil {
+		return err
+	}
+	if n, err := r.RowsAffected(); err != nil {
+		return err
+	} else if n == 1 {
+		return nil
+	}
+	t, err := s.TerminalSessionFor(uid, sessionID)
+	if err != nil {
+		return err
+	}
+	if t.State == terminalproto.Running && t.Structured == structured {
+		return nil
+	}
+	return ErrTerminalConflict
+}
+
 func (s *Store) RenameTerminalFor(uid int64, sessionID, title string) error {
 	if !terminalproto.ValidTitle(title) {
 		return terminalproto.ErrInvalid

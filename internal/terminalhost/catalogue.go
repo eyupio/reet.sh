@@ -26,7 +26,10 @@ type Preset struct {
 	YoloArgs, SafeArgs []string
 	// ResumeArgs continues the tool's last conversation in the launch folder.
 	// A preset without them is never offered or sent a resume.
-	ResumeArgs     []string
+	ResumeArgs []string
+	// SessionArgs precede a native session id to open the terminal on that
+	// session. A preset without them refuses a LaunchSession.
+	SessionArgs    []string
 	ACP            string
 	DisabledReason string
 	ModelList      *ModelList
@@ -44,7 +47,7 @@ type Preset struct {
 var Catalogue = []Preset{
 	{ID: "claude", Name: "Claude Code", Binary: "claude", ModelFlag: "--model", PromptPositional: true, ACP: "adapter"},
 	{ID: "codex", Name: "Codex", Binary: "codex", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--ask-for-approval", "never"}, ACP: "adapter"},
-	{ID: "opencode", Name: "OpenCode", Binary: "opencode", ModelFlag: "--model", PromptFlag: "--prompt", YoloArgs: []string{"--auto"}, ResumeArgs: []string{"--continue"}, ACP: "native", ModelList: &ModelList{Argv: []string{"models"}, Env: []string{"OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_DISABLE_AUTOUPDATE=1", "NO_COLOR=1", "LANG=C.UTF-8", "CI=1"}}},
+	{ID: "opencode", Name: "OpenCode", Binary: "opencode", ModelFlag: "--model", PromptFlag: "--prompt", YoloArgs: []string{"--auto"}, ResumeArgs: []string{"--continue"}, SessionArgs: []string{"--session"}, ACP: "native", ModelList: &ModelList{Argv: []string{"models"}, Env: []string{"OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_DISABLE_AUTOUPDATE=1", "NO_COLOR=1", "LANG=C.UTF-8", "CI=1"}}},
 	{ID: "gemini", Name: "Gemini CLI", Binary: "gemini", ModelFlag: "--model", PromptFlag: "--prompt-interactive"},
 	{ID: "pi", Name: "Pi", Binary: "pi", DisabledReason: "This CLI has no built-in approval policy for tool execution."},
 	{ID: "cursor", Name: "Cursor Agent", Binary: "cursor-agent", DisabledReason: "CLI help and permission defaults have not been confirmed."},
@@ -56,6 +59,7 @@ type launchPreset struct {
 	binary, modelFlag, promptFlag  string
 	effortArgs                     map[string][]string
 	safeArgs, yoloArgs, resumeArgs []string
+	sessionArgs                    []string
 	modelList                      *ModelList
 }
 
@@ -65,7 +69,7 @@ var launchPresets = func() map[string]launchPreset {
 		if p.DisabledReason != "" {
 			continue
 		}
-		out[p.ID] = launchPreset{binary: p.Binary, modelFlag: p.ModelFlag, promptFlag: p.PromptFlag, effortArgs: p.EffortArgs, safeArgs: p.SafeArgs, yoloArgs: p.YoloArgs, resumeArgs: p.ResumeArgs, modelList: p.ModelList}
+		out[p.ID] = launchPreset{binary: p.Binary, modelFlag: p.ModelFlag, promptFlag: p.PromptFlag, effortArgs: p.EffortArgs, safeArgs: p.SafeArgs, yoloArgs: p.YoloArgs, resumeArgs: p.ResumeArgs, sessionArgs: p.SessionArgs, modelList: p.ModelList}
 	}
 	return out
 }()

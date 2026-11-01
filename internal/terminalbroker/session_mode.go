@@ -134,7 +134,10 @@ func (b *Broker) SwitchSessionMode(ctx context.Context, uid int64, session, to s
 		return ErrSessionModeBusy
 	}
 	in := terminalproto.SessionMode{To: to, Tool: s.Tool, Dir: s.Dir, Yolo: s.Yolo, ACPSessionID: s.ACPSessionID,
-		Trust: trust && to == terminalproto.SessionModeChat, Cols: switchCols, Rows: switchRows}
+		Trust: trust && to == terminalproto.SessionModeChat}
+	if to == terminalproto.SessionModeTerminal {
+		in.Cols, in.Rows = switchCols, switchRows
+	}
 	if terminalproto.ValidModel(s.Model) {
 		in.Model = s.Model
 	}

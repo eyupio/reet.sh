@@ -225,7 +225,7 @@ func TestSwitchToChatFlipsRowAndRestoresRing(t *testing.T) {
 	}
 	sent := machine.sent()
 	in := sent[len(sent)-1].Body.(*terminalproto.SessionMode)
-	if in.To != terminalproto.SessionModeChat || !in.Trust || in.ACPSessionID != switchACPID {
+	if in.To != terminalproto.SessionModeChat || !in.Trust || in.ACPSessionID != switchACPID || in.Cols != 0 || in.Rows != 0 {
 		t.Fatalf("sent %+v", in)
 	}
 	if events := modeEvents(t, b, uid); len(events) != 2 || events[0]["mode"] != terminalproto.SessionModeChat && events[1]["mode"] != terminalproto.SessionModeChat {

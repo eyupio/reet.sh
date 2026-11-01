@@ -102,7 +102,7 @@ func TestIndexHasCrawlableFallback(t *testing.T) {
 	if !strings.Contains(body, `"@type": "SoftwareApplication"`) {
 		t.Error("missing SoftwareApplication JSON-LD")
 	}
-	if !strings.Contains(body, "self-hosted workspace") {
+	if !strings.Contains(body, "one self-hosted place") {
 		t.Error("missing crawlable landing copy")
 	}
 	if strings.Contains(body, "<!--seo-fallback:start-->") {
@@ -113,10 +113,10 @@ func TestIndexHasCrawlableFallback(t *testing.T) {
 func TestWelcomeKeepsFallbackAndAppRoutesDoNot(t *testing.T) {
 	requireBuilt(t)
 	h := Handler("https://reet.sh")
-	if body := get(t, h, "/welcome").Body.String(); !strings.Contains(body, "self-hosted workspace") {
+	if body := get(t, h, "/welcome").Body.String(); !strings.Contains(body, "one self-hosted place") {
 		t.Error("/welcome should keep the crawlable landing copy")
 	}
-	if body := get(t, h, "/signin").Body.String(); strings.Contains(body, "self-hosted workspace") {
+	if body := get(t, h, "/signin").Body.String(); strings.Contains(body, "one self-hosted place") {
 		t.Error("/signin should not serve the marketing fallback")
 	}
 }
@@ -124,12 +124,52 @@ func TestWelcomeKeepsFallbackAndAppRoutesDoNot(t *testing.T) {
 func TestSignedInLandingRequestHidesFallback(t *testing.T) {
 	requireBuilt(t)
 	signedIn := Handler("https://reet.sh", WithSignedIn(func(*http.Request) bool { return true }))
-	if body := get(t, signedIn, "/").Body.String(); strings.Contains(body, "self-hosted workspace") {
+	if body := get(t, signedIn, "/").Body.String(); strings.Contains(body, "one self-hosted place") {
 		t.Error("a signed-in landing request should not serve the marketing fallback")
 	}
 	anonymous := Handler("https://reet.sh", WithSignedIn(func(*http.Request) bool { return false }))
-	if body := get(t, anonymous, "/").Body.String(); !strings.Contains(body, "self-hosted workspace") {
+	if body := get(t, anonymous, "/").Body.String(); !strings.Contains(body, "one self-hosted place") {
 		t.Error("an anonymous landing request should keep the crawlable landing copy")
+	}
+}
+
+// The boot shell must match the route: a landing hero for an anonymous "/", a centred card for the entry screens, and the
+// app's page shape everywhere else. Serving the wrong one is the half-drawn screen this exists to remove.
+func TestBootShellMatchesTheRoute(t *testing.T) {
+	requireBuilt(t)
+	anonymous := Handler("https://reet.sh")
+	signedIn := Handler("https://reet.sh", WithSignedIn(func(*http.Request) bool { return true }))
+	cases := []struct {
+		name string
+		h    http.Handler
+		path string
+		want string
+	}{
+		{"anonymous landing", anonymous, "/", `data-boot="welcome"`},
+		{"welcome", anonymous, "/welcome", `data-boot="welcome"`},
+		{"sign in", anonymous, "/signin", `data-boot="auth"`},
+		{"sign up", anonymous, "/signup", `data-boot="auth"`},
+		{"join", anonymous, "/join?token=t", `data-boot="auth"`},
+		{"app page", anonymous, "/machines", `data-boot="app"`},
+		{"signed-in landing is Home", signedIn, "/", `data-boot="app"`},
+	}
+	for _, c := range cases {
+		body := get(t, c.h, c.path).Body.String()
+		if !strings.Contains(body, c.want) {
+			t.Errorf("%s: missing %q", c.name, c.want)
+		}
+		// The document itself names the shell, so the browser does not have to guess (and cannot see a cookie).
+		if !strings.Contains(body, `<html lang="en" `+c.want+`>`) {
+			t.Errorf("%s: <html> does not name %q", c.name, c.want)
+		}
+		for _, other := range []string{`data-boot="welcome"`, `data-boot="auth"`, `data-boot="app"`} {
+			if other != c.want && strings.Contains(body, other) {
+				t.Errorf("%s: served %q as well as %q", c.name, other, c.want)
+			}
+		}
+		if strings.Contains(body, "<!--boot-") {
+			t.Errorf("%s: boot markers were left in the served page", c.name)
+		}
 	}
 }
 

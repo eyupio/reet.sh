@@ -26,6 +26,34 @@ implemented baseline, S/A/W/L task lists, start-agent-session protocol notes, Pr
 delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief) are in
 [handoff-history.md](handoff-history.md), under "Moved from handoff.md on 27 October 2026".
 
+## Boot shell: no crawler page, no bare loading screen (1 November 2026)
+
+**Scope:** the first paint of every route, signed in and signed out; no API, data or copy change beyond the
+crawler page. Uncommitted working-tree changes.
+
+**Problem:** on a slow connection the browser painted the static crawler copy of the landing page (the older
+"One control room. For your AI fleet." layout, no header, system fonts) for as long as the bundle took, then
+snapped to the real Welcome page. App routes showed a bare `Loading…` line while the first auth answer was in
+flight, and opening a session left an empty page with one sentence while the terminal chunk downloaded.
+
+**Fix:** `index.html` now carries three small theme-aware boot shells (landing hero, entry card, app page).
+The head script marks `data-js` before the body is parsed, so a browser hides the crawler copy at once and
+shows the shell in the same frame; a crawler that runs no script still gets the readable copy, now updated to
+the current Welcome words. `embed.go` serves only the shell for the route, names it on `<html data-boot>`, and
+therefore handles a cookie-signed-in visitor on `/` without the browser having to know the session. A static
+preview picks the same variant from the path. `App.svelte` sets `data-ready` after the first auth answer, so
+the shell fades once the real page is behind it and `main.ts` removes it; a late bundle shows a "taking longer"
+line with a reload link after ten seconds. The pre-auth branch and the terminal chunk's gap now use skeletons
+(`BootSkeleton.svelte`, and a workspace-shaped card in `Machines.svelte`) instead of sentences. The two faces
+the first screen uses are preloaded; reduced motion gets no fade.
+
+**Checks:** `npm run build`, `npm run check` (unit tests and svelte-check, 0 errors/warnings), `go vet` and
+`go test ./web/` (including the new route-to-shell test), and `first-run.e2e.mjs` gained a throttled-bundle
+case: the crawler copy stays hidden, only the landing shell is visible, it is removed after auth, and a
+no-JavaScript context still reads the landing copy. `public-workspace.e2e.mjs` passes at light/dark ×
+1440/390/320. Screenshots at 1280 and 390 in both themes, and a delayed terminal chunk, confirmed the shells
+match the pages they hand over to.
+
 ## Welcome page: one command on any machine (1 November 2026)
 
 **Scope:** the signed-out Welcome page and the entry card beside sign-in, set-up and sign-up; no API or

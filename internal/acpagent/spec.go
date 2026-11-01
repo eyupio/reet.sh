@@ -85,6 +85,12 @@ type Spec struct {
 	// uses it for adapter options that must be fixed by reet, never by the
 	// repository. Nil sends no _meta.
 	SessionMeta map[string]any
+	// EndChatOnStopWhileToolRuns ends the whole chat when a person stops a turn
+	// that has a tool still running. For an adapter whose session/cancel ends the
+	// turn but leaves the command alive (Codex), the only way to be sure nothing
+	// keeps running is to retire the process group, so the person is told and the
+	// chat ends. A stop with no tool running only cancels the turn.
+	EndChatOnStopWhileToolRuns bool
 	// Trust reports the files in dir that the agent would execute before a
 	// chat starts. Nil means this adapter has no repository trust surface.
 	Trust func(dir string) ([]string, error)

@@ -26,4 +26,8 @@ var CodexCandidate = Spec{
 	MinVersion:   "1.13.1",
 	RequireMode:  "read-only",
 	StartMode:    "read-only",
+	// session/cancel ends a turn in about a second but leaves a running command
+	// alive (probe report, "Codex gates, re-run"). Stop therefore ends the chat
+	// when a command is running, so nothing keeps running behind a stopped chat.
+	EndChatOnStopWhileToolRuns: true,
 }

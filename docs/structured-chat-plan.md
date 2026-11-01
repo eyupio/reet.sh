@@ -185,8 +185,8 @@ not scope additions to the first two integrations.
 The browser reads the reviewed adapter from each machine's descriptor instead of assuming OpenCode: a chat is offered for Claude
 only when the machine reports `claude-agent-acp` as available, so it stays hidden everywhere the machine has not opted in. Claude
 chats show Claude Code's name, skip OpenCode's plugin trust prompt (Claude ignores a folder's own settings), and send no trust.
-Covered by `launchBar.test.mjs` and the existing launch, start-agent and chat browser tests; there is no Claude-specific
-browser fixture yet. Native-session continue, images and typed questions stay off for Claude.
+Covered by `launchBar.test.mjs` and the existing launch, start-agent and chat browser tests; `chat-claude.e2e.mjs` covers the Claude
+start dialog, create body and session screen. Native-session continue, images and typed questions stay off for Claude.
 
 ## SC5 — Recovery and capability-driven controls
 

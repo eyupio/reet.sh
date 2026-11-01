@@ -6,7 +6,7 @@
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import '@xterm/xterm/css/xterm.css'
   import { TerminalConnection, type ConnectionState } from './connection'
-  import { terminalClosed, terminalUpload, refusalSentence, type TerminalSession } from './api'
+  import { terminalClosed, terminalUpload, refusalSentence, getSessionSkills, type TerminalSession } from './api'
   import { terminalShortcut } from './keyboard'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalAppearance from './TerminalAppearance.svelte'
@@ -14,6 +14,8 @@
   import OutputScrollback from './OutputScrollback.svelte'
   import CommandLibrary from './CommandLibrary.svelte'
   import TerminalIcon from './TerminalIcon.svelte'
+  import SkillPicker from './SkillPicker.svelte'
+  import type {SessionSkill,SessionSkills} from './skills'
   import TerminalSelectText from './TerminalSelectText.svelte'
   import UploadChip from './UploadChip.svelte'
   import {initialFontSize,hostSize,ResizeSender,pageViewport,browserViewport,overflowEdges,repaintOnReturn,FONT_MIN,FONT_MAX,LANDSCAPE_PHONE,PHONE_TOUCH,type Size} from './sizing'
@@ -71,6 +73,24 @@
     const intended=generation;scrollbackOpen=false;commandsOpen=false;await tick()
     if(!alive||intended!==generation||!live){feedback='Connection changed. Open Commands again after reconnecting; nothing was inserted.';return}
     paste(item.command,/[\t\r\n]/.test(item.command));restoreFocus()
+  }
+  // The Skills picker: the catalogue is read once per opening. A pick types the invocation (no Enter) only into a live terminal.
+  let skillsOpen=$state(false),skillData=$state<SessionSkills|null>(null),skillsLoading=$state(false),skillsError=$state('')
+  let skillsLife:AbortController|undefined
+  async function loadSkills(){
+    skillsLife?.abort()
+    const life=skillsLife=new AbortController()
+    skillsLoading=true;skillsError='';skillData=null
+    try{const data=await getSessionSkills(session.id,life.signal);if(!life.signal.aborted)skillData=data}
+    catch(e){if(!life.signal.aborted)skillsError=e instanceof Error&&e.message?e.message:'Skills could not be read. Try again.'}
+    finally{if(!life.signal.aborted)skillsLoading=false}
+  }
+  function openSkills(){if(skillsOff||skillsOpen)return;skillsOpen=true;void loadSkills()}
+  async function closeSkills(){skillsLife?.abort();skillsLife=undefined;skillsOpen=false;skillsLoading=false;await tick();restoreFocus()}
+  async function pickSkill(skill:SessionSkill){
+    const intended=generation;skillsLife?.abort();skillsLife=undefined;skillsOpen=false;skillsLoading=false;await tick()
+    if(!alive||intended!==generation||!live){feedback='Connection changed. Open Skills again after reconnecting; nothing was inserted.';return}
+    paste(skill.invocation,false);restoreFocus()
   }
   async function insertHistory(text:string,run:boolean){
     const intended=generation;scrollbackOpen=false;if(!run){historyOpen=false;await tick()}
@@ -322,6 +342,8 @@
     return()=>{window.visualViewport?.removeEventListener('resize',viewport);window.visualViewport?.removeEventListener('scroll',viewport);window.removeEventListener('resize',viewport);window.removeEventListener('keydown',keyboard,true)}
   })
   const live = $derived(connectionState === 'live')
+  // Only agent sessions have skills; a plain shell shows no button. One reason serves the button's title and the open guard.
+  const skillsOff = $derived(live?'':'Skills can be inserted once the terminal is connected.')
   const stateLabel = $derived(({ connecting:'Connecting',resynchronising:'Restoring screen',live:'Live',reconnecting:'Reconnecting',detached:'Disconnected',taken_over:'Open elsewhere',ended:'Ended',lost:'Shell unavailable',access_denied:'Access denied' })[connectionState])
 
   onMount(() => {
@@ -404,7 +426,7 @@
     const online=()=>connection?.recover(),visible=()=>{if(document.visibilityState!=='visible'){hiddenAt=performance.now();return}const now=performance.now(),hiddenFor=hiddenAt===null?0:now-hiddenAt;hiddenAt=null;resize();if(repaintOnReturn({hiddenFor,coarse:coarse.matches,sinceRepaint:now-repaintedAt}))redraw();connection?.recover()}
     window.addEventListener('online',online);document.addEventListener('visibilitychange',visible)
     void connection.connect()
-    return ()=>{alive=false;pendingCopy=null;staleUploads=null;for(const chip of uploads)chip.controller.abort();uploads=[];clearTimeout(selectionTimer);selectionTimer=undefined;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;sizeSender=undefined;sender.dispose();connection?.dispose();connection=undefined;cancelAnimationFrame(frame);cancelAnimationFrame(clipFrame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
+    return ()=>{alive=false;skillsLife?.abort();pendingCopy=null;staleUploads=null;for(const chip of uploads)chip.controller.abort();uploads=[];clearTimeout(selectionTimer);selectionTimer=undefined;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;sizeSender=undefined;sender.dispose();connection?.dispose();connection=undefined;cancelAnimationFrame(frame);cancelAnimationFrame(clipFrame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
   })
 </script>
 
@@ -425,6 +447,7 @@
       <span class="tool-divider" aria-hidden="true"></span>
       <button onclick={()=>key("\x03")} disabled={!live||scrollbackOpen} aria-label="Interrupt shell" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="tool-label">Interrupt</span></button>
       <button onclick={()=>commandsOpen=true} aria-label="Saved commands" title="Your saved commands"><TerminalIcon name="commands"/><span>Commands</span></button>
+      {#if session.tool}<button onclick={openSkills} disabled={!!skillsOff} aria-haspopup="dialog" aria-label="Skills" title={skillsOff||'Insert a skill into the agent'}><span>Skills</span></button>{/if}
       <button onclick={openScrollback} aria-label="Earlier output" aria-pressed={scrollbackOpen} title="Scroll earlier terminal output · Shift+PageUp"><TerminalIcon name="history"/><span>Scrollback</span></button>
       <span class="tool-space"></span>
       <button onclick={()=>appearanceOpen=true} aria-label="Appearance" title="Theme, text size and cursor"><TerminalIcon name="appearance"/><span class="tool-label">Appearance</span></button>
@@ -452,6 +475,7 @@
 
 {#if appearanceOpen}<WorkspaceDialog title="Terminal appearance" placement="drawer" onclose={()=>appearanceOpen=false}><TerminalAppearance {palette} {fontSize} {cursor} {copyOnSelect} onpalette={choosePalette} onfont={changeFont} oncursor={chooseCursor} oncopyselect={chooseCopyOnSelect}/></WorkspaceDialog>{/if}
 {#if commandsOpen}<CommandLibrary onclose={()=>commandsOpen=false} oninsert={item=>void insertSaved(item)} canInsert={live} context={`${user?user+'@':''}${host} · ${session.title}`}/>{/if}
+{#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={session.tool??''} onpick={skill=>void pickSkill(skill)} onclose={()=>void closeSkills()} onretry={()=>void loadSkills()}/>{/if}
 {#if historyOpen}<CommandHistory session={session.id} context={`${user?user+'@':''}${host} · ${session.title}`} supported={historySupported} canInsert={live} onclose={()=>historyOpen=false} oninsert={(text,run)=>void insertHistory(text,run)} onoutput={openScrollback}/>{/if}
 {#if pendingPaste}<ConfirmDialog title={pendingPaste.execute?'Run this command in the active terminal?':'Paste into the remote shell?'} body={pendingPaste.execute?`Send this command to ${host} · ${session.title} and press Enter. Be at a shell prompt; an open program receives terminal input instead.`:'This text contains multiple lines, control characters, or a large block. It may execute commands immediately.'} details={confirmDetails(pendingPaste.text,pendingPaste.execute)} confirmLabel={pendingPaste.execute?'Run command':'Paste text'} onconfirm={confirmPaste} oncancel={()=>{const running=pendingPaste?.execute;pendingPaste=null;if(!running)terminal?.focus()}} />{/if}
 {#if selectOpen}<TerminalSelectText text={selectModel} onclose={closeSelect}/>{/if}

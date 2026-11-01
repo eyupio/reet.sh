@@ -46,6 +46,23 @@ func MergeDesired(existing []SyncSkill, add SyncSkill) []SyncSkill {
 	return append(out, add)
 }
 
+// desiredStatus says how add stands against a saved set: present when an entry
+// is the same skill (slug, ID, source and source type), conflict when an entry
+// has the slug but is a different skill.
+func desiredStatus(existing []SyncSkill, add SyncSkill) (present, conflict bool) {
+	for _, sk := range existing {
+		if sk.Slug != add.Slug {
+			continue
+		}
+		if sk.ID == add.ID && sk.Source == add.Source && sk.SourceType == add.SourceType {
+			present = true
+		} else {
+			conflict = true
+		}
+	}
+	return present, conflict
+}
+
 // RemoveDesired returns existing without the slug, keeping order. The result
 // is never nil.
 func RemoveDesired(existing []SyncSkill, slug string) []SyncSkill {
@@ -133,6 +150,22 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		if follow {
 			return installRefused("follows-source", host+"'s skills follow another machine, so this skill would be removed the next time it syncs.")
 		}
+		var data, oldRevision string
+		created := false
+		err = tx.QueryRow(`SELECT desired,revision FROM sync_targets WHERE user_id=? AND target_id=?`, uid, envID).Scan(&data, &oldRevision)
+		if errors.Is(err, sql.ErrNoRows) {
+			created, data = true, "[]"
+		} else if err != nil {
+			return err
+		}
+		var existing []SyncSkill
+		if err = json.Unmarshal([]byte(data), &existing); err != nil {
+			return err
+		}
+		present, conflict := desiredStatus(existing, skill)
+		if conflict {
+			return installRefused("slug-conflict", "A different skill named "+in.Slug+" is already in "+host+"'s saved list. Remove it on the Sync page first.")
+		}
 		rows, err := tx.Query(`SELECT j.id,COALESCE(i.slug,'') FROM sync_jobs j LEFT JOIN skill_installs i ON i.job_id=j.id WHERE j.user_id=? AND j.target_id=? AND j.status IN ('queued','running','awaiting-approval') ORDER BY j.created_at,j.id`, uid, envID)
 		if err != nil {
 			return err
@@ -170,39 +203,30 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		if busy > 0 {
 			return installRefused("install-in-progress", host+" is busy with another sync job. Finish or cancel it, then try again.")
 		}
-		var data, oldRevision string
-		created := false
-		err = tx.QueryRow(`SELECT desired,revision FROM sync_targets WHERE user_id=? AND target_id=?`, uid, envID).Scan(&data, &oldRevision)
-		if errors.Is(err, sql.ErrNoRows) {
-			created, data = true, "[]"
-		} else if err != nil {
-			return err
-		}
-		var existing []SyncSkill
-		if err = json.Unmarshal([]byte(data), &existing); err != nil {
-			return err
-		}
-		merged, _ := json.Marshal(MergeDesired(existing, skill))
-		revision, at := syncID(), now()
-		if created {
-			baseline, _ := json.Marshal(actual)
-			if _, err = tx.Exec(`INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,?,?,?,?,?)`, uid, envID, "hosted", "My published reet.sh skills", string(merged), revision, at); err != nil {
+		revision, at := oldRevision, now()
+		if !present {
+			merged, _ := json.Marshal(MergeDesired(existing, skill))
+			revision = syncID()
+			if created {
+				baseline, _ := json.Marshal(actual)
+				if _, err = tx.Exec(`INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,?,?,?,?,?)`, uid, envID, "hosted", "My published reet.sh skills", string(merged), revision, at); err != nil {
+					return err
+				}
+				if _, err = tx.Exec(`INSERT INTO sync_policies(target_id,follow_source) VALUES(?,0) ON CONFLICT(target_id) DO UPDATE SET follow_source=0,problem=''`, envID); err != nil {
+					return err
+				}
+				if _, err = tx.Exec(`INSERT INTO sync_options(target_id,mode,baseline) VALUES(?,'additive',?) ON CONFLICT(target_id) DO UPDATE SET mode='additive',baseline=excluded.baseline`, envID, string(baseline)); err != nil {
+					return err
+				}
+			} else if _, err = tx.Exec(`UPDATE sync_targets SET desired=?,revision=?,updated_at=? WHERE user_id=? AND target_id=?`, string(merged), revision, at, uid, envID); err != nil {
 				return err
 			}
-			if _, err = tx.Exec(`INSERT INTO sync_policies(target_id,follow_source) VALUES(?,0) ON CONFLICT(target_id) DO UPDATE SET follow_source=0,problem=''`, envID); err != nil {
-				return err
-			}
-			if _, err = tx.Exec(`INSERT INTO sync_options(target_id,mode,baseline) VALUES(?,'additive',?) ON CONFLICT(target_id) DO UPDATE SET mode='additive',baseline=excluded.baseline`, envID, string(baseline)); err != nil {
-				return err
-			}
-		} else if _, err = tx.Exec(`UPDATE sync_targets SET desired=?,revision=?,updated_at=? WHERE user_id=? AND target_id=?`, string(merged), revision, at, uid, envID); err != nil {
-			return err
 		}
 		jobID := syncID()
 		if _, err = tx.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, jobID, uid, in.AgentID, envID, "preview", "queued", revision, at, at); err != nil {
 			return err
 		}
-		if _, err = tx.Exec(`INSERT INTO skill_installs(job_id,user_id,target_id,slug,created_target,revision) VALUES(?,?,?,?,?,?)`, jobID, uid, envID, in.Slug, created, revision); err != nil {
+		if _, err = tx.Exec(`INSERT INTO skill_installs(job_id,user_id,target_id,slug,created_target,added,revision) VALUES(?,?,?,?,?,?,?)`, jobID, uid, envID, in.Slug, created, !present, revision); err != nil {
 			return err
 		}
 		res = InstallResult{JobID: jobID, Directory: dir, Host: host}
@@ -222,8 +246,8 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 func (s *Store) CancelInstallFor(uid int64, jobID string) (reverted bool, err error) {
 	err = s.withTx(func(tx *sql.Tx) error {
 		var status, target, slug, revision string
-		var created bool
-		if err := tx.QueryRow(`SELECT j.status,i.target_id,i.slug,i.created_target,i.revision FROM sync_jobs j JOIN skill_installs i ON i.job_id=j.id WHERE j.id=? AND j.user_id=? AND i.user_id=?`, jobID, uid, uid).Scan(&status, &target, &slug, &created, &revision); err != nil {
+		var created, added bool
+		if err := tx.QueryRow(`SELECT j.status,i.target_id,i.slug,i.created_target,i.added,i.revision FROM sync_jobs j JOIN skill_installs i ON i.job_id=j.id WHERE j.id=? AND j.user_id=? AND i.user_id=?`, jobID, uid, uid).Scan(&status, &target, &slug, &created, &added, &revision); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrNotFound
 			}
@@ -234,6 +258,9 @@ func (s *Store) CancelInstallFor(uid int64, jobID string) (reverted bool, err er
 		}
 		if _, err := tx.Exec(`UPDATE sync_jobs SET status='cancelled',updated_at=? WHERE id=?`, now(), jobID); err != nil {
 			return err
+		}
+		if !added {
+			return nil
 		}
 		var data, current string
 		err := tx.QueryRow(`SELECT desired,revision FROM sync_targets WHERE user_id=? AND target_id=?`, uid, target).Scan(&data, &current)

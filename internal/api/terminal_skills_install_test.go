@@ -176,6 +176,11 @@ func TestTerminalSkillInstallErrorCodesAndStatuses(t *testing.T) {
 		{"follows-source", "follows-source", 409, func(t *testing.T, f *installFx) {
 			f.raw(t, `INSERT INTO sync_policies(target_id,follow_source) VALUES(?,1) ON CONFLICT(target_id) DO UPDATE SET follow_source=1`, f.env)
 		}, "reet:pdf", "laptop's skills follow another machine, so this skill would be removed the next time it syncs."},
+		{"slug-conflict", "slug-conflict", 409, func(t *testing.T, f *installFx) {
+			f.raw(t, `INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,'shelf','Shelf',?,'rev1',1)`, f.uid, f.env, `[{"id":"x/y/pdf","name":"pdf","slug":"pdf","source":"x/y","sourceType":"github"}]`)
+			f.raw(t, `INSERT INTO sync_policies(target_id,follow_source) VALUES(?,0)`, f.env)
+			f.raw(t, `INSERT INTO sync_options(target_id,mode) VALUES(?,'mirror')`, f.env)
+		}, "reet:pdf", "A different skill named pdf is already in laptop's saved list. Remove it on the Sync page first."},
 		{"install-in-progress", "install-in-progress", 409, func(t *testing.T, f *installFx) {
 			if code, raw := f.install(`{"skill":"reet:docx"}`); code != 200 {
 				t.Fatal(code, raw)

@@ -85,7 +85,7 @@ The handler, in order:
 Response: `{ "job": "<id>", "reused": false, "directory": "<folder>", "host": "<machine>" }`.
 
 Errors are `{ "error": "<sentence>", "code": "<code>" }` with one stable code each: `unpublished`, `connector-offline`,
-`no-scan`, `unsupported-agent`, `follows-source`, `install-in-progress` (a different job is pending on this folder),
+`no-scan`, `unsupported-agent`, `follows-source`, `slug-conflict` (a different skill with the same name is already in the saved list), `install-in-progress` (a different job is pending on this folder),
 `already-installed` (the skill is already on this machine for this agent), `read-only`. The sentences are written for the person, for example "dev-laptop's skills follow another machine, so this
 skill would be removed the next time it syncs."
 

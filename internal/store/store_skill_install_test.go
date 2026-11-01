@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -518,4 +519,91 @@ func TestInstallSurfacesAHostedListError(t *testing.T) {
 	// A readable list without the slug is still unpublished.
 	_, err = e.s.InstallHostedSkillFor(e.uid, e.req("nope"))
 	wantInstallError(t, err, "unpublished", "")
+}
+
+func (e *installEnv) saveHostedSet(t *testing.T, mode string, slugs ...string) {
+	t.Helper()
+	ids := []string{}
+	for _, slug := range slugs {
+		ids = append(ids, e.hosts[slug].ID)
+	}
+	if err := e.s.SaveDesiredFor(e.uid, "owner", DesiredSelection{TargetID: e.env, SourceID: "hosted", Origin: installOrigin, SkillIDs: ids, Mode: mode}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCancelLeavesAPreExistingSelection(t *testing.T) {
+	e := installFixture(t)
+	e.saveHostedSet(t, "mirror", "pdf", "docx")
+	before := e.target(t)
+	res, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := e.target(t); got.Revision != before.Revision {
+		t.Fatal("install changed the revision")
+	}
+	reverted, err := e.s.CancelInstallFor(e.uid, res.JobID)
+	if err != nil || reverted {
+		t.Fatal(reverted, err)
+	}
+	tg := e.target(t)
+	if tg.Revision != before.Revision || !reflect.DeepEqual(slugs(tg.Desired), slugs(before.Desired)) || tg.Mode != "mirror" {
+		t.Fatalf("%+v", tg)
+	}
+	jobs, _ := e.s.SyncJobsFor(e.uid)
+	if len(jobs) != 1 || jobs[0].Status != "cancelled" {
+		t.Fatalf("%+v", jobs)
+	}
+}
+
+func TestInstallOfAnAlreadySelectedSkillDoesNotTouchTheSavedSet(t *testing.T) {
+	e := installFixture(t)
+	e.saveHostedSet(t, "additive", "pdf")
+	before := e.target(t)
+	var rowBefore string
+	e.s.db.QueryRow(`SELECT desired||revision||updated_at FROM sync_targets WHERE target_id=?`, e.env).Scan(&rowBefore)
+	res, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rowAfter string
+	e.s.db.QueryRow(`SELECT desired||revision||updated_at FROM sync_targets WHERE target_id=?`, e.env).Scan(&rowAfter)
+	if rowAfter != rowBefore {
+		t.Fatal("saved set written")
+	}
+	jobs, _ := e.s.SyncJobsFor(e.uid)
+	if len(jobs) != 1 || jobs[0].Kind != "preview" || jobs[0].Status != "queued" || jobs[0].Revision != before.Revision {
+		t.Fatalf("%+v", jobs)
+	}
+	var added, created int
+	e.s.db.QueryRow(`SELECT added,created_target FROM skill_installs WHERE job_id=?`, res.JobID).Scan(&added, &created)
+	if added != 0 || created != 0 {
+		t.Fatal(added, created)
+	}
+}
+
+func TestInstallRefusesASameSlugFromAnotherSource(t *testing.T) {
+	for name, other := range map[string]SyncSkill{
+		"another source":      {ID: "x/y/pdf", Name: "pdf", Slug: "pdf", Source: "x/y", SourceType: "github"},
+		"another source type": {ID: "hosted/reet.example/publisher/pdf", Name: "pdf", Slug: "pdf", Source: "reet.example/publisher/pdf", SourceType: "git"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := installFixture(t)
+			mine := e.hosts["pdf"]
+			if other.Source == "reet.example/publisher/pdf" {
+				other.Source, other.ID = mine.Source, mine.ID
+			}
+			data, _ := json.Marshal([]SyncSkill{other})
+			e.s.db.Exec(`INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,?,?,?,?,1)`, e.uid, e.env, "shelf", "Shelf", string(data), "rev1")
+			e.s.db.Exec(`INSERT INTO sync_policies(target_id,follow_source) VALUES(?,0)`, e.env)
+			e.s.db.Exec(`INSERT INTO sync_options(target_id,mode) VALUES(?,'mirror')`, e.env)
+			before := e.dump(t)
+			_, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf"))
+			wantInstallError(t, err, "slug-conflict", "A different skill named pdf is already in laptop's saved list. Remove it on the Sync page first.")
+			if e.dump(t) != before {
+				t.Fatal("refusal wrote")
+			}
+		})
+	}
 }

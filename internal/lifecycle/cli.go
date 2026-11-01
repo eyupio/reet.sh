@@ -9,10 +9,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/cliui"
@@ -24,19 +26,32 @@ type App struct {
 	In              io.Reader
 	Out             io.Writer
 	// Progress receives transient progress lines. It defaults to os.Stderr so
-	// structured stdout stays clean; the terminal interface discards it.
-	Progress       io.Writer
-	client         *http.Client
-	interactiveRun func(context.Context, string, ...string) error
-	run            runner
-	executable     func() (string, error)
-	api, downloads string
+	// structured and redirected commands disable presentation on both streams.
+	Progress                    io.Writer
+	client                      *http.Client
+	interactiveRun              func(context.Context, string, ...string) error
+	run                         runner
+	executable                  func() (string, error)
+	api, downloads              string
+	ctx                         context.Context
+	noAnimation, nonInteractive bool
+	structured                  bool
+	recovering                  bool
+	// Test seam for the presentation boundary, independent of upgrade work.
+	taskRunner func(context.Context, string, bool, cliui.Work) error
 }
 
 func New(version, commit string, in io.Reader, out io.Writer) *App {
 	return &App{Version: version, Commit: commit, In: in, Out: out, Progress: os.Stderr, interactiveRun: interactiveCommand(in, out), client: defaultClient(), run: execute, executable: os.Executable, api: releaseAPI, downloads: "https://github.com/eyupio/reet.sh/releases/download"}
 }
 func (a *App) Run(command string, args []string) error {
+	return a.RunContext(context.Background(), command, args)
+}
+
+func (a *App) RunContext(ctx context.Context, command string, args []string) error {
+	previous := a.ctx
+	a.ctx = ctx
+	defer func() { a.ctx = previous }()
 	switch command {
 	case "install", "init":
 		return a.install(args)
@@ -69,6 +84,9 @@ func (a *App) confirm(yes bool) error {
 	if yes {
 		return nil
 	}
+	if a.nonInteractive {
+		return fmt.Errorf("cancelled; no deployment changes applied (use --yes for unattended operation)")
+	}
 	line, err := clientconfig.Ask(a.In, a.Out, "Apply these changes? Type yes", "")
 	if err != nil || strings.TrimSpace(line) != "yes" {
 		return fmt.Errorf("cancelled; no deployment changes applied (use --yes for unattended operation)")
@@ -77,6 +95,7 @@ func (a *App) confirm(yes bool) error {
 }
 func (a *App) install(args []string) error {
 	f := flags("install", a.Out)
+	a.progressFlags(f)
 	mode := f.String("mode", "binary", "binary, native (user service), or compose")
 	stateArg := f.String("state-dir", stateDefault(), "deployment configuration directory")
 	dirArg := f.String("dir", binaryDefault(), "binary installation directory")
@@ -188,6 +207,8 @@ func (a *App) install(args []string) error {
 	if err = a.confirm(*yes); err != nil {
 		return err
 	}
+	ctx, stopSignals := signal.NotifyContext(a.context(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
 	unlock, err := acquire(state)
 	if err != nil {
 		return err
@@ -197,7 +218,6 @@ func (a *App) install(args []string) error {
 	if _, e := os.Lstat(filepath.Join(state, "deployment.json")); e == nil {
 		return fmt.Errorf("deployment was created by another operation")
 	}
-	ctx := context.Background()
 	if d.Mode == "compose" {
 		resolved, e := resolveRelease(ctx, a.client, a.api, *tag)
 		if e != nil {
@@ -218,11 +238,11 @@ func (a *App) install(args []string) error {
 		if e != nil {
 			return e
 		}
-		build, e := a.run(ctx, candidate, "--version")
+		build, e := a.command(ctx, candidate, "--version")
 		if e != nil {
 			return e
 		}
-		imageBuild, e := a.run(ctx, "docker", "run", "--rm", "--network", "none", "--read-only", d.Image, "--version")
+		imageBuild, e := a.command(ctx, "docker", "run", "--rm", "--network", "none", "--read-only", d.Image, "--version")
 		if e != nil {
 			return e
 		}
@@ -263,7 +283,7 @@ func (a *App) install(args []string) error {
 			return ce
 		}
 		if !*noStart && strings.HasSuffix(unit, ".service") {
-			if _, err = a.run(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
+			if _, err = a.command(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
 				return err
 			}
 			if _, err = a.native(ctx, "enable"); err != nil {
@@ -301,7 +321,8 @@ func (a *App) install(args []string) error {
 	if *noStart && d.Mode == "native" {
 		fmt.Fprintln(a.Out, "Start manually: systemctl --user daemon-reload && systemctl --user enable --now reet.service (Linux); launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/sh.reet.server.plist (macOS).")
 	}
-	a.offerTerminalSetup(d, state, !*noStart, *yes || *skipTerminalSetup)
+	stopSignals()
+	a.offerTerminalSetup(d, state, !*noStart, *yes || *skipTerminalSetup || a.nonInteractive)
 	return nil
 }
 
@@ -309,6 +330,7 @@ func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'
 
 func (a *App) upgrade(args []string) error {
 	f := flags("upgrade", a.Out)
+	a.progressFlags(f)
 	stateArg := f.String("state-dir", stateDefault(), "managed deployment configuration directory")
 	tag := f.String("version", os.Getenv("REET_VERSION"), "latest, dev or vX.Y.Z; default: REET_VERSION, then installed channel (explicit tags allow downgrade)")
 	skipTerminalSetup := f.Bool("skip-terminal-setup", false, "skip the interactive terminal connection wizard")
@@ -366,7 +388,7 @@ func (a *App) upgrade(args []string) error {
 			}
 		}
 		if installed == "" || installed == "unknown" {
-			if !clientconfig.Interactive(a.In) {
+			if a.nonInteractive || !clientconfig.Interactive(a.In) {
 				return fmt.Errorf("release channel is missing; set REET_VERSION, pass --version or run reet configure")
 			}
 			choice, e := clientconfig.Prompt(a.In, a.Out, "REET_VERSION", "")
@@ -384,10 +406,14 @@ func (a *App) upgrade(args []string) error {
 			*tag = "dev"
 		}
 	}
-	ctx := context.Background()
-	stopStatus := cliui.Start(a.Progress, "Checking release channel")
-	resolved, err := resolveRelease(ctx, a.client, a.api, *tag)
-	stopStatus()
+	ctx := a.context()
+	var resolved string
+	err = a.task(ctx, "Checking release channel", false, func(ctx context.Context, observe func(string)) error {
+		observe("Resolving the requested release")
+		var e error
+		resolved, e = resolveRelease(ctx, a.client, a.api, *tag)
+		return e
+	})
 	if err != nil {
 		return err
 	}
@@ -423,13 +449,17 @@ func (a *App) upgrade(args []string) error {
 		return err
 	}
 	defer os.RemoveAll(stage)
-	stopStatus = cliui.Start(a.Progress, "Downloading and verifying update")
-	candidate, err := fetchBinary(ctx, a.client, a.downloads, resolved, stage)
-	stopStatus()
+	var candidate string
+	err = a.task(ctx, "Downloading and verifying update", false, func(ctx context.Context, observe func(string)) error {
+		observe("Verifying the release archive against its SHA-256 checksum")
+		var e error
+		candidate, e = fetchBinary(ctx, a.client, a.downloads, resolved, stage)
+		return e
+	})
 	if err != nil {
 		return err
 	}
-	build, err := a.run(ctx, candidate, "--version")
+	build, err := a.command(ctx, candidate, "--version")
 	if err != nil {
 		return fmt.Errorf("verified release binary cannot run on this host")
 	}
@@ -441,7 +471,7 @@ func (a *App) upgrade(args []string) error {
 	if d.Mode == "binary" && sameBinary(candidate, d.Binary) {
 		fmt.Fprintln(a.Out, "Already up to date.")
 		if !*dry {
-			a.offerTerminalSetup(d, state, false, *yes || *skipTerminalSetup)
+			a.offerTerminalSetup(d, state, false, *yes || *skipTerminalSetup || a.nonInteractive)
 		}
 		return nil
 	}
@@ -453,6 +483,11 @@ func (a *App) upgrade(args []string) error {
 		return nil
 	}
 	if err = a.confirm(*yes); err != nil {
+		return err
+	}
+	ctx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	if err = ctx.Err(); err != nil {
 		return err
 	}
 	unlock, err := acquire(state)
@@ -478,7 +513,7 @@ func (a *App) upgrade(args []string) error {
 		if err != nil {
 			return err
 		}
-		imageBuild, e := a.run(ctx, "docker", "run", "--rm", "--network", "none", "--read-only", next.Image, "--version")
+		imageBuild, e := a.command(ctx, "docker", "run", "--rm", "--network", "none", "--read-only", next.Image, "--version")
 		if e != nil {
 			return e
 		}
@@ -493,15 +528,23 @@ func (a *App) upgrade(args []string) error {
 			return err
 		}
 		if err = a.stop(ctx, d, state); err != nil {
+			if running {
+				return errors.Join(err, a.recoverServer(ctx, d, state))
+			}
 			return err
 		}
 	}
 	backup := ""
 	if d.Mode != "binary" {
-		backup, err = backupDB(ctx, d.Data, state)
+		err = a.task(ctx, "Backing up and verifying SQLite", false, func(ctx context.Context, observe func(string)) error {
+			observe("Taking a consistent copy, including committed WAL data")
+			var e error
+			backup, e = backupDB(ctx, d.Data, state)
+			return e
+		})
 		if err != nil {
 			if running {
-				if e = a.start(ctx, d, state); e != nil {
+				if e = a.recoverServer(ctx, d, state); e != nil {
 					return errors.Join(err, fmt.Errorf("old server could not restart: %w", e))
 				}
 			}
@@ -512,14 +555,20 @@ func (a *App) upgrade(args []string) error {
 		}
 	}
 	previous := d.Binary + ".previous"
-	if err = replaceBinary(d.Binary, previous); err != nil {
+	if err = a.step(ctx, "Keeping the previous binary", func(context.Context) error { return replaceBinary(d.Binary, previous) }); err != nil {
 		if running {
-			err = errors.Join(err, a.start(ctx, d, state))
+			err = errors.Join(err, a.recoverServer(ctx, d, state))
 		}
 		return err
 	}
 	applied := false
 	rollback := func(cause error) error {
+		// A cancelled operation still needs a live context for recovery.
+		ctx, cancel := recoveryContext(ctx)
+		defer cancel()
+		previousPresentation := a.recovering
+		a.recovering = true
+		defer func() { a.recovering = previousPresentation }()
 		// Never restore database bytes while a new server might still be writing them.
 		if d.Mode != "binary" {
 			if e := a.stop(ctx, &next, state); e != nil {
@@ -550,7 +599,7 @@ func (a *App) upgrade(args []string) error {
 		}
 		return fmt.Errorf("upgrade failed; previous deployment restored: %w", cause)
 	}
-	if err = replaceBinary(candidate, d.Binary); err != nil {
+	if err = a.step(ctx, "Replacing the verified binary", func(context.Context) error { return replaceBinary(candidate, d.Binary) }); err != nil {
 		return rollback(err)
 	}
 	if d.Mode == "compose" {
@@ -570,12 +619,16 @@ func (a *App) upgrade(args []string) error {
 			return rollback(err)
 		}
 	}
+	if err = ctx.Err(); err != nil {
+		return rollback(err)
+	}
 	fmt.Fprintln(a.Out, "Upgraded. Previous binary: "+previous)
 	if d.Mode == "binary" {
 		fmt.Fprintln(a.Out, "Restart any manually launched reet server to use the new binary.")
 	} else if !running {
 		fmt.Fprintln(a.Out, "Server was stopped and remains stopped; its first start may migrate the database. Backup retained.")
 	}
-	a.offerTerminalSetup(&next, state, running, *yes || *skipTerminalSetup)
+	stopSignals()
+	a.offerTerminalSetup(&next, state, running, *yes || *skipTerminalSetup || a.nonInteractive)
 	return nil
 }

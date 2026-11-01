@@ -203,13 +203,10 @@ so a damaged file fails before a restore begins.
 
 ## From the terminal interface
 
-Run `reet backup --tui` on the machine for the same local list, take and
-restore actions. **n** takes a copy after a confirmation, **x** restores the
-selected copy after a password field and a warning, and **r** refreshes the
-list. The terminal interface uses `REET_DATA_DIR` (or `--data-dir`) so the
-copies and key stay with the database it is showing. It never skips the
-warning: a restore replaces the live database, and the previous one is kept
-beside it.
+Run `reet` and choose **Backups** for the existing list, take, restore and open
+commands. Press `e` to select a backup ID or add options. The real command keeps
+its confirmations and password handling; output stays visible until you return
+home. See [CLI home](cli-home.md).
 
 ## Restoring the instance
 

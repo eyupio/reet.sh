@@ -48,10 +48,10 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 
 - **Terminal-first control.** Home shows your machines and the sessions in flight, and starts an agent in a folder project from one sentence. Continue exact sessions from Sessions, or connect and open a machine's terminals. When a session has exited, **Manage → Continue session…** starts a new terminal in the same folder and asks the agent to resume its last conversation there (OpenCode today).
 - **An organised session workspace.** Filter across machines, sort and group, colour-code sessions, drag to reorder, resize or collapse the sidebar. Right-click or use keyboard-accessible row actions to rename, disconnect, stop and remove closed history. Layout stays in this browser, separately per account.
-- **Skills in a session.** A **Skills** button in Gaffer composer (and in the agent TUI toolbar) lists the skills on the session's machine for its agent, those on the machine for other agents (dimmed) and reet-hosted skills not installed there; a published hosted skill has an **Install** button that previews the install and adds it to the agent's own skills folder on that machine once you approve. Picking an installed one puts `Use the {name} skill.` in the message box, or types it into the terminal without Enter; nothing is sent for you. In Gaffer, typing `/` first in the composer opens the same list. See [the terminal workspace](docs/terminal-workspace.md#skills-in-a-session).
+- **Skills in a session.** A **Skills** button in Gaffer composer and the agent TUI toolbar lists skills on the session's machine for its agent, those for other agents (dimmed) and reet-hosted skills. Picking one puts `Use the {name} skill.` in the message box, or types it into the terminal without Enter; nothing is sent for you. Typing `/` first in Gaffer composer opens the same list. A published hosted skill can be installed from the picker after you approve a preview. See [the terminal workspace](docs/terminal-workspace.md#skills-in-a-session).
 - **OpenCode in Gaffer.** Start OpenCode in reet's own native view instead of its terminal UI on a machine with OpenCode 1.19.5 or newer, accepting ACP; streamed messages, tool calls, a model choice, Allow once / Deny cards with an optional allow-for-this-session command or file, a live Ask me ↔ YOLO switch, attachments as machine paths, and reopen a closed reet session with its stored history. Trusted folders only. Chat availability is reported per agent on current connectors; only the verified OpenCode integration is enabled. See [structured sessions](docs/structured-sessions.md).
 - **Agent software, installed from one verified artifact.** On a Linux machine, Settings → **Software** shows OpenCode's exact installed version, package evidence, executable path and platform, or says it is not installed. reet can review and apply an install, update, rollback or remove of its own copy at the pinned 1.19.5: it downloads the recorded tarball, verifies its sha512 and binary sha256, keeps its own copy beside any system installation, refuses while OpenCode sessions run, restores the previous managed copy if verification fails, and can roll back to a kept version. Only reet's own copy is updated or removed. Machines → **Software** reviews each machine's plan side by side. Choose machines into an ordered batch and reet applies them one at a time, stopping at the first failure with retry, skip and continue, or abandon. A controller-side artifact mirror, off unless an owner or admin turns it on, lets machines that cannot reach npm download the same verified artifact from reet. See [agent software](docs/agent-software.md).
-- **A terminal interface.** Run `reet` in a terminal for a menu over Doctor, Healthcheck, Scan, Sync, Backups, Setups, Upgrade, Install, Connect machine, Version, Terminal status and Agent status, or add `--tui` to one of those commands to open its screen directly. Scan is a full form: environment, controller, token, extra folders, dry run, prune and reconcile. Sync previews a saved target and shows every install, replace and remove before `a` applies that exact plan. Backups lists local copies, takes one after a confirmation and restores the selected copy after a warning. Setups creates, pushes and pulls setup profiles, and can preview and apply a restore or roll back the newest one. Upgrade checks, verifies, backs up and replaces a managed install, with the same rollback as the text command. Install sets up a binary, native service or Compose deployment, with a dry run that changes nothing. Connect machine enrolls this installation with a controller, with allow-apply off by default. It is compiled into the same static binary, with no separate executable or assets. Redirected output, containers and services are unchanged. [Terminal interface](docs/design/terminal-tui.md).
+- **An interactive CLI home.** Run `reet` in a terminal for a grouped, searchable list of existing tasks. Use arrows or `j`/`k`, Enter, `/` to search, `e` to edit arguments, Escape to return and `q` to quit. Commands keep their own flags, authentication and confirmations, and their output stays visible until you return home or exit. Doctor, healthcheck and upgrade show compact progress during real work. [CLI home](docs/cli-home.md).
 
 - **Comfortable remote terminals.** Four colour palettes, font/cursor controls, search, clipboard and guarded paste. Search a machine’s saved Bash/Zsh history to paste/edit or explicitly review and rerun a command. Keep a separate account command library for reusable snippets, inserted without an extra Enter. Stopping can remove history after the machine confirms closure; set its default in Account → Profile.
 - **One or all machines.** In Sync, choose a library, list, published collection or reported machine scope as the source; select one destination or All machines, then adjust individual scopes. Differences are shown per destination. Saving desired state is separate from previewing and approving changes.
@@ -262,7 +262,7 @@ Machine terminals retain the OS account’s usual sudo permissions and authentic
 
 Connect a machine’s terminal with `reet agent terminal setup`. Interactive install, enrollment and upgrades offer this resumable wizard; it checks tmux, asks for local shell consent and repairs native services while preserving running sessions. See [terminal connection setup](docs/terminal-controller-commands.md#first-class-machine-connection-setup).
 
-Manage the binary or a server with `reet install --mode binary|native|compose`, inspect updates with `reet upgrade --check` (or `reet upgrade --tui` for the terminal form), apply a verified update with `reet upgrade` (`--version` overrides `REET_VERSION`/saved defaults; otherwise dev stays dev; replacing the running dev CLI with stable requires an explicit `--version`), and diagnose problems with `reet doctor [--json]`. Managed server upgrades preserve configuration, back up SQLite and restore the previous deployment on a failed restart. Use `reet healthcheck --url https://your-site.example` for a remote health check; without `--url` it uses `REET_URL`/saved defaults. Use `--local` for the local server. Commands preview their intent and require confirmation before applying; see [managed installation and upgrades](docs/binary-installation.md#managed-install-upgrade-and-doctor).
+Manage the binary or a server with `reet install --mode binary|native|compose`, inspect updates with `reet upgrade --check` (or choose Upgrade from `reet` home), apply a verified update with `reet upgrade` (`--version` overrides `REET_VERSION`/saved defaults; otherwise dev stays dev; replacing the running dev CLI with stable requires an explicit `--version`), and diagnose problems with `reet doctor [--json]`. Managed server upgrades preserve configuration, back up SQLite and restore the previous deployment on a failed restart. Use `reet healthcheck --url https://your-site.example` for a remote health check; without `--url` it uses `REET_URL`/saved defaults. Use `--local` for the local server. Commands preview their intent and require confirmation before applying; see [managed installation and upgrades](docs/binary-installation.md#managed-install-upgrade-and-doctor).
 
 **Account → Machines** groups agents under machines; an enrolled agent shows its build and update state, a waiting update is reviewed before it moves, and each machine's **Settings** hold its policies: automatic updates, which verify the new build and restore the previous binary if it cannot report back, its release channel, whether sync jobs are paused, and an **Agents** section with each installed agent's model-list state and a guarded Refresh. **Account → Compare & sync** offers a two-machine comparison with shared/missing skills and explicit stale/incomplete scan warnings. Library filters follow the same machine → agent hierarchy.
 
@@ -296,21 +296,23 @@ is saved as plain text in `reet/token` with owner-only permissions
 explicit `--token` or `--env-file` selection overrides it. Forget it with
 `reet configure --forget-token`.
 
-Run `reet` with no command in a terminal for the terminal interface: a menu over
-Doctor, Healthcheck, Scan, Sync, Backups, Setups, Upgrade, Install, Connect
-machine, Version, Terminal status and Agent status. Add `--tui` to one of those
-commands to open its screen directly, for example `reet doctor --tui`, `reet
-scan --tui`, `reet sync --tui`, `reet backup --tui`, `reet setup profile --tui`,
-`reet upgrade --tui`, `reet install --tui`, `reet agent enroll --tui` or `reet
-agent status --tui`. `REET_NO_TUI=1` keeps the old no-command behaviour, and
-redirected output, containers and services are unaffected.
+Run `reet` with no command in a terminal for its grouped home: Check & maintain,
+Skills & setups, Machines & access and More commands. Use arrows or `j`/`k`,
+Enter, `/` to search, `e` to edit the selected command's arguments and `?` for
+help. Escape returns and `q` quits. The real command owns prompts and passwords;
+its output stays in normal terminal scrollback until you return home or exit.
+`REET_NO_TUI=1` keeps the no-command `serve` behaviour. Redirected output,
+containers, CI and services keep their existing entry points. The old dashboard
+is removed; legacy `--tui` runs the command and offers a return home.
 
-Interactive terminals show the reet wordmark and burnt-orange progress indicators
-for update checks/downloads and remote health checks. Set `REET_NO_ANIMATION=1` to
-stop animation, or `NO_COLOR=1` for plain output. The terminal interface picks
-its light or dark palette from `REET_TUI_BACKGROUND=light|dark`, then
-`COLORFGBG`, and never queries the terminal for its background. Redirected output and JSON stay
-free of banners and animation. See [CLI defaults](docs/binary-installation.md#saved-cli-defaults).
+Interactive maintenance commands show Reet's static wordmark and a small
+burnt-orange working indicator, elapsed time, observations and explicit outcomes.
+`REET_NO_ANIMATION=1`, leading `--no-animation`, or reduced-motion preferences
+use static feedback. `NO_COLOR` removes colours, including when set to an empty
+value. `REET_TUI_BACKGROUND=light|dark`, then `COLORFGBG`, selects the palette
+without a terminal background query. JSON, pipes and `TERM=dumb` stay plain.
+See [CLI home and terminal handling](docs/cli-home.md), the generated
+[command reference](docs/cli-reference.md) and [CLI defaults](docs/binary-installation.md#saved-cli-defaults).
 
 ### Local AI agent setup discovery
 

@@ -26,6 +26,9 @@ func Path() (string, error) {
 	return filepath.Join(dir, "reet", "client.env"), nil
 }
 func Interactive(in io.Reader) bool {
+	if os.Getenv("REET_NON_INTERACTIVE") != "" {
+		return false
+	}
 	f, ok := in.(*os.File)
 	return ok && isatty.IsTerminal(f.Fd())
 }

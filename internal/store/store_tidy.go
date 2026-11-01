@@ -80,6 +80,20 @@ func (s *Store) DeleteEnvironmentsFor(userID int64, ids []string, force bool) ([
 // job running: it may be writing, and its result belongs to the source.
 var ErrEnvironmentJobRunning = errors.New("a sync job is running on this environment; wait for it to finish, then merge")
 
+// MergeJobCountsFor counts the sync jobs on one report that a merge would
+// refuse (running) or cancel (queued or awaiting approval), and how many of the
+// cancelled ones are skill installs, so a preview can say so before a merge.
+func (s *Store) MergeJobCountsFor(userID int64, envID string) (running, pending, installs int, err error) {
+	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND target_id=? AND status='running'`, userID, envID).Scan(&running); err != nil {
+		return
+	}
+	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND target_id=? AND status IN ('queued','awaiting-approval')`, userID, envID).Scan(&pending); err != nil {
+		return
+	}
+	err = s.db.QueryRow(`SELECT COUNT(*) FROM skill_installs i JOIN sync_jobs j ON j.id=i.job_id WHERE j.user_id=? AND j.target_id=? AND j.status IN ('queued','awaiting-approval')`, userID, envID).Scan(&installs)
+	return
+}
+
 // MergeEnvironmentsFor moves one report's skills into another and removes the
 // source report. The destination keeps its own scan metadata.
 func (s *Store) MergeEnvironmentsFor(userID int64, fromID, toID string) (int, error) {

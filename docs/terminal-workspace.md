@@ -279,7 +279,7 @@ that would make Gaffer message longer than 2,000 bytes is refused with a
 message and your draft is left as it was. A skill whose name has unusual
 characters (a line break, a control character, or more than 80 characters) is
 listed but cannot be inserted. Skills installed in a project folder are listed
-only for sessions running in that project, or in a folder inside it. In the reet
+only for sessions running in that project, or in a folder inside it. The folders are compared as written, so a session started through a symlinked path does not see skills from the real folder (or the other way round); start it from the path the machine scanned. In the reet
 TUI the button is disabled, with the reason, while the agent is working, a
 message is sending, the connection is not live or the session has ended. In the
 agent TUI it is disabled only while the terminal is not live.
@@ -307,7 +307,7 @@ is written before that. The same steps work in Gaffer and the agent TUI;
 in the agent TUI nothing is typed into the terminal.
 
 The skill goes into the session agent's own skills folder in the home
-directory (for Claude, the user-level folder), so it is available to every
+directory (for Claude, `~/.claude/skills`), so it is available to every
 project on that machine. It is not written into the session's project folder.
 Only Claude, OpenCode, Cursor and `.agents` folders can be installed to. Codex
 and Cline sessions get a message saying the skill can't be installed from reet
@@ -324,7 +324,9 @@ next preview for that folder shows them.
 
 While an install waits for you to review it, Keep synced holds off on that
 machine, the Sync page's Run skips that folder, and the folder's saved list
-can't be changed until you approve or cancel the install.
+can't be changed until you approve or cancel the install. Merging that folder's
+environment into another cancels the waiting install (the merge preview counts
+it), and is refused while an install is already running.
 
 reet refuses the install, and says why, when:
 

@@ -173,7 +173,7 @@
   .filter { width: 100%; min-width: 0; min-height: 36px; padding: 6px 10px; font: inherit; font-size: 16px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; box-sizing: border-box; }
   .groups { display: flex; flex-direction: column; gap: 10px; }
   .heading { padding: 4px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-  .list { display: flex; flex-direction: column; gap: 2px; }
+  .list, .single { display: flex; flex-direction: column; gap: 2px; }
   .item { display: flex; flex-direction: column; align-items: stretch; }
   .install { align-self: flex-start; min-height: 36px; margin: 0 0 6px 10px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
   .publish { margin: 0 0 6px 10px; padding: 2px 0; font-size: 12px; color: var(--accent); }

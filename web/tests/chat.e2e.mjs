@@ -480,7 +480,7 @@ try {
   const openPanel = async () => {
     await skillsButton.click()
     await expect(picker).toBeVisible()
-    await picker.getByRole('button', { name: 'Install', exact: true }).click()
+    await picker.getByRole('button', { name: 'Install pdf', exact: true }).click()
     await expect(panelOf).toBeVisible()
   }
   const confirmInstall = async () => { await panelOf.getByRole('button', { name: 'Install', exact: true }).click() }
@@ -490,7 +490,7 @@ try {
   resetInstall()
   await composer.fill('')
   await skillsButton.click()
-  await expect(picker.getByRole('button', { name: 'Install', exact: true })).toHaveCount(1)
+  await expect(picker.getByRole('button', { name: 'Install pdf', exact: true })).toHaveCount(1)
   await expect(picker.getByRole('link', { name: 'Publish this skill to install it.' })).toHaveAttribute('href', '/hosting')
   await page.keyboard.press('Escape')
   await expect(picker).toHaveCount(0)
@@ -514,7 +514,7 @@ try {
   expect(inst.cancels).toEqual([])
   expect(inst.patches).toEqual([])
   await panelOf.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(picker.getByRole('listbox')).toHaveCount(1)
+  await expect(picker.getByRole('option', { name: /draft-notes/ })).toBeVisible()
   expect(inst.cancels).toEqual([{ job: 'job1' }])
   expect(inst.installs).toHaveLength(1)
   await page.keyboard.press('Escape')
@@ -588,6 +588,45 @@ try {
   expect(inst.patches).toEqual([])
   await page.keyboard.press('Escape')
 
+  // The machine re-previews between render and click with a plain plan but a new hash: nothing is sent, the panel says it changed
+  // and shows the new plan, and a second click approves that plan with the hash now on screen.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(panelOf.getByRole('button', { name: 'Approve and install', exact: true })).toBeFocused()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }], { hash: 'hash-new', revision: 'r2', plan: { directory: '/elsewhere/skills', actions: [{ add: true, skill: { slug: 'pdf' } }] } })
+  await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
+  await expect(statusOf).toHaveText('This install changed while you were reviewing it. Check it again.')
+  expect(inst.patches).toEqual([])
+  await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
+  await expect.poll(() => inst.patches).toEqual([{ id: cur(), action: 'approve', hash: 'hash-new' }])
+  await page.keyboard.press('Escape')
+
+  // An empty plan has no Approve.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [])
+  await poll()
+  await expect(statusOf).toHaveText('Review what will be added.')
+  await expect(panelOf.getByText('The machine has not sent its plan yet.')).toBeVisible()
+  await expect(panelOf.getByRole('button', { name: 'Approve and install' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  // Closing the sheet mid-install stops polling and sends nothing.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(statusOf).toHaveText('Review what will be added.')
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  const readsAtClose = inst.syncReads
+  await page.clock.fastForward(10_000)
+  expect(inst.syncReads).toBe(readsAtClose)
+  expect(inst.patches).toEqual([])
+  expect(inst.cancels).toEqual([])
+
   // Failed: the machine's message and Retry, which installs again; Close returns to the list.
   resetInstall()
   await openPanel(); await confirmInstall()
@@ -605,7 +644,7 @@ try {
   await poll()
   await expect(panelOf.getByText('Still read-only.')).toBeVisible()
   await panelOf.getByRole('button', { name: 'Close', exact: true }).click()
-  await expect(picker.getByRole('listbox')).toHaveCount(1)
+  await expect(picker.getByRole('option', { name: /draft-notes/ })).toBeVisible()
   await page.keyboard.press('Escape')
 
   // Refusals leave the panel on Confirm with the server's sentence; an unpublished skill closes it and reloads the list.
@@ -649,16 +688,16 @@ try {
   await panelOf.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(statusOf).toContainText('The saved skill list was changed elsewhere, so it was left as it is.')
   await panelOf.getByRole('button', { name: 'Close', exact: true }).click()
-  await expect(picker.getByRole('listbox')).toHaveCount(1)
+  await expect(picker.getByRole('option', { name: /draft-notes/ })).toBeVisible()
   await page.keyboard.press('Escape')
 
   // Keyboard only: Tab reaches Install, then Approve; Escape closes the sheet from the review step.
   resetInstall()
   await skillsButton.click()
   await expect(pickerFilter).toBeFocused()
-  await expect(picker.getByRole('button', { name: 'Install', exact: true })).toBeVisible()
+  await expect(picker.getByRole('button', { name: 'Install pdf', exact: true })).toBeVisible()
   await page.keyboard.press('Tab')
-  await expect(picker.getByRole('button', { name: 'Install', exact: true })).toBeFocused()
+  await expect(picker.getByRole('button', { name: 'Install pdf', exact: true })).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(panelOf.getByRole('button', { name: 'Install', exact: true })).toBeFocused()
   await page.keyboard.press('Enter')

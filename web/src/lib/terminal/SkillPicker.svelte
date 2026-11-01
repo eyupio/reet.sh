@@ -105,9 +105,11 @@
           {#each groups as g (g.key)}
             <div class="group">
               <div class="heading" id={`${id}-${g.key}`}>{g.label}</div>
-              <div class="list" role="listbox" aria-labelledby={`${id}-${g.key}`}>
+              <div class="list">
                 {#each g.skills as s (s.id)}
-                  <div class="item" role="presentation">
+                  <div class="item">
+                  <!-- A listbox may own only options, so each row is its own one-option listbox and its action sits beside it, outside it. -->
+                  <div class="single" role="listbox" aria-labelledby={`${id}-${g.key}`}>
                   <!-- svelte-ignore a11y_click_events_have_key_events -->
                   <div class="option" id={`${id}-o-${s.id}`} role="option" tabindex="-1" aria-selected="false" aria-disabled={s.invocation ? undefined : 'true'} onclick={() => pick(s)}>
                     <span class="name">{s.name}</span>
@@ -117,9 +119,10 @@
                       {#if !s.invocation}<span class="reason">{reason(s)}</span>{/if}
                     </span>
                   </div>
+                  </div>
                   {#if s.source === 'reet' && !s.onMachine}
                     {#if s.published}
-                      <button type="button" class="install" aria-describedby={`${id}-o-${s.id}`} onclick={() => (installing = s)}>Install</button>
+                      <button type="button" class="install" aria-label={`Install ${s.name}`} onclick={() => (installing = s)}>Install</button>
                     {:else}
                       <a class="publish" href="/hosting">Publish this skill to install it.</a>
                     {/if}

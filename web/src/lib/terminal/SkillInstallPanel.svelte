@@ -106,17 +106,22 @@
 
   async function approve() {
     if (busy || phase !== 'started') return
+    // The hash of the plan the person is looking at; it is what gets approved, never a hash from a later read.
+    const shownHash = job?.hash
+    if (!shownHash) return
     busy = true; problem = null
     const life = track()
     try {
-      // Look again at the job as it is now: the plan and its hash may have changed since the review opened.
+      // Look again at the job as it is now: if it is no longer the plan on screen, show the new one and send nothing.
       const state = await getSyncState(life.signal)
       if (!alive) return
       const current = state.jobs?.find(j => j.id === jobId)
       job = current
-      if (installStep(current) !== 'review') { fail('This install changed while you were reviewing it. Check it again.'); return }
-      if (!planVerdict(current?.plan, slug).ok || !current) return
-      await controlSyncJob(jobId, 'approve', current.hash)
+      if (!current || installStep(current) !== 'review' || current.hash !== shownHash || !planVerdict(current.plan, slug).ok) {
+        fail('This install changed while you were reviewing it. Check it again.')
+        return
+      }
+      await controlSyncJob(jobId, 'approve', shownHash)
       if (!alive) return
       void read()
     } catch (e) {

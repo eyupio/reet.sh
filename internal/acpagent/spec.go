@@ -5,6 +5,7 @@ package acpagent
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -118,9 +119,20 @@ func (s Spec) minVersion() (semver, bool) {
 
 // Lookup returns the registered adapter for a catalogue tool.
 func Lookup(tool string) (Spec, bool) {
+	if tool == ClaudeCandidate.Key && ClaudeEnabled() {
+		return ClaudeCandidate, true
+	}
 	spec, ok := agents[tool]
 	return spec, ok
 }
+
+// ClaudeSwitch is the environment variable that opts one machine in to Claude
+// chats. It is off by default: until the real-credential and missing-credential
+// checks have been run, Claude is registered but dark.
+const ClaudeSwitch = "REET_EXPERIMENTAL_CLAUDE_CHAT"
+
+// ClaudeEnabled reports whether this machine has opted in to Claude chats.
+func ClaudeEnabled() bool { return os.Getenv(ClaudeSwitch) == "1" }
 
 // VersionError explains why an adapter was refused.
 type VersionError struct {

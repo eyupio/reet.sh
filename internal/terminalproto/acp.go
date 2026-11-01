@@ -299,7 +299,7 @@ const (
 )
 
 // SessionMode asks the machine to move a session to the OpenCode terminal or
-// the structured chat. Cols and Rows size the terminal and must be zero for chat.
+// the structured chat. Cols and Rows size the terminal and are ignored for chat (current controllers send zero).
 // Trust applies only when switching to chat.
 type SessionMode struct {
 	To           string `json:"to"`
@@ -322,10 +322,8 @@ func (m SessionMode) valid() bool {
 			return false
 		}
 	case SessionModeChat:
-		// A chat has no terminal to size: the dimensions must be absent.
-		if m.Cols != 0 || m.Rows != 0 {
-			return false
-		}
+		// Cols and Rows are ignored: a controller from before they were
+		// zeroed for chat still sends them, and must keep working.
 	default:
 		return false
 	}

@@ -192,7 +192,13 @@ func TestSessionModeValid(t *testing.T) {
 	maxModel.Model = strings.Repeat("m", MaxModelBytes)
 	emptyTitle := validSessionMode()
 	emptyTitle.Title = ""
-	for name, m := range map[string]SessionMode{"chat": chat, "terminal": term, "chat no dims": validSessionMode(), "max model": maxModel, "empty title": emptyTitle} {
+	// An older controller sends terminal dimensions with a chat switch; the
+	// connector must keep accepting them (version skew).
+	chatDims := validSessionMode()
+	chatDims.Cols, chatDims.Rows = 100, 30
+	chatOddDims := validSessionMode()
+	chatOddDims.Cols, chatOddDims.Rows = -1, 1<<30
+	for name, m := range map[string]SessionMode{"chat dims ignored": chatDims, "chat odd dims ignored": chatOddDims, "chat": chat, "terminal": term, "chat no dims": validSessionMode(), "max model": maxModel, "empty title": emptyTitle} {
 		if !m.valid() {
 			t.Fatalf("%s: valid body refused", name)
 		}
@@ -214,10 +220,6 @@ func TestSessionModeValid(t *testing.T) {
 		"bad model":        bad(func(m *SessionMode) { m.Model = "a\x00b" }),
 		"long model":       bad(func(m *SessionMode) { m.Model = strings.Repeat("m", MaxModelBytes+1) }),
 		"control title":    bad(func(m *SessionMode) { m.Title = "a\x1bb" }),
-		"chat with cols":   bad(func(m *SessionMode) { m.To, m.Cols, m.Rows = SessionModeChat, 100, 30 }),
-		"chat negative":    bad(func(m *SessionMode) { m.To, m.Cols, m.Rows = SessionModeChat, -1, -1 }),
-		"chat huge":        bad(func(m *SessionMode) { m.To, m.Cols, m.Rows = SessionModeChat, 1<<30, 1<<30 }),
-		"chat only rows":   bad(func(m *SessionMode) { m.To, m.Cols, m.Rows = SessionModeChat, 0, 30 }),
 	} {
 		if m.valid() {
 			t.Fatalf("%s: invalid body accepted", name)

@@ -99,6 +99,7 @@ type Session struct {
 	turnProgress bool
 	turnError    bool
 	turnSeq      uint64
+	forceArmed   uint64
 	turnStart    time.Time
 	lastEvent    time.Time
 	warned       bool
@@ -901,7 +902,43 @@ func (s *Session) sendCancel() error {
 func (s *Session) Cancel() error {
 	s.cancelCards()
 	s.emit(Event{Kind: "status", State: "cancelled"})
-	return s.sendCancel()
+	err := s.sendCancel()
+	s.armForceStop()
+	return err
+}
+
+// armForceStop gives the agent CancelGrace to end the turn it was asked to
+// cancel. An agent that ignores session/cancel would otherwise leave the chat
+// busy until the turn timeout while the person has already been told it
+// stopped. If the same turn is still running after the grace period, the chat
+// is ended explicitly and the process group is retired, never left half alive.
+// It is bound to the turn that was cancelled, so it cannot end a later turn.
+func (s *Session) armForceStop() {
+	s.turnMu.Lock()
+	if !s.working || s.forceArmed == s.turnSeq {
+		s.turnMu.Unlock()
+		return
+	}
+	seq := s.turnSeq
+	s.forceArmed = seq
+	s.turnMu.Unlock()
+	go func() {
+		timer := time.NewTimer(s.opts.cancelGrace())
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-s.done:
+			return
+		}
+		s.turnMu.Lock()
+		stuck := s.working && s.turnSeq == seq
+		s.turnMu.Unlock()
+		if !stuck {
+			return
+		}
+		s.emit(Event{Kind: "notice", Text: s.opts.Agent.displayName() + " did not stop when asked, so this chat was ended.", Bad: true})
+		s.Close()
+	}()
 }
 
 // stopTurn cancels the agent without reporting the turn as cancelled. The

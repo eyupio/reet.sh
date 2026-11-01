@@ -36,6 +36,9 @@ type Options struct {
 	StillWorkingAfter time.Duration
 	// TurnTimeout cancels a prompt that has not finished.
 	TurnTimeout time.Duration
+	// CancelGrace is how long an agent has to end a turn after it is asked to
+	// cancel. After that the chat is ended explicitly instead of staying busy.
+	CancelGrace time.Duration
 	// OnEvent receives bounded structured events in order. It must not block
 	// indefinitely; the connector's sender has its own deadline.
 	OnEvent func(Event)
@@ -52,6 +55,12 @@ func (o Options) stillWorkingAfter() time.Duration {
 		return o.StillWorkingAfter
 	}
 	return 20 * time.Second
+}
+func (o Options) cancelGrace() time.Duration {
+	if o.CancelGrace > 0 {
+		return o.CancelGrace
+	}
+	return 15 * time.Second
 }
 func (o Options) turnTimeout() time.Duration {
 	if o.TurnTimeout > 0 {

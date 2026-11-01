@@ -243,6 +243,10 @@ recovery cannot report against it; the browser drops events at or below its last
 5. **Controls are model-only.** There is no effort or mode descriptor, which is intended while the mode is pinned, but the plan's "absent list versus
    empty replacement" rule only applies to the model today.
 
+**Fixed (gap 1):** `Cancel` now arms a force-stop bound to the cancelled turn. If the same turn is still running after `CancelGrace` (15 seconds by
+default), the person is told the agent did not stop and the chat is ended, with the process group confirmed gone. A cancel the agent honours, or a later
+turn, is never touched. Covered by `TestCancelIgnoredByTheAgentEndsTheChatAfterTheGracePeriod` and `TestForceStopIsBoundToTheCancelledTurn`.
+
 **Proposed order:** (1) bounded force-stop for an ignored cancel: after a grace period without an acknowledgement, end the chat explicitly with a notice
 and confirm the process group is gone, rather than leaving it busy; (2) tests for gaps 2 and 3 first, fixing only what they show; (3) say why a chat ended
 when the connector restarted; (4) descriptor-driven controls when a second agent needs them.

@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onDestroy, onMount, tick } from 'svelte'
  import { fade, fly } from 'svelte/transition'
- import { applyChatEvent, checkQuestionDraft, diffCounts, displayPath, emptyDraft, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, proseBlocks, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QuestionAnswers, type QuestionDraft } from '../chat'
+ import { applyChatEvent, checkQuestionDraft, endedReason, diffCounts, displayPath, emptyDraft, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, proseBlocks, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
  import { chatToolName, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
@@ -607,7 +607,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   {/each}
  </div>
  {#if ended}
-  <p class="composer-note">This reet session has ended. Its live history is not kept after the machine connection closes.</p>
+  <p class="composer-note">{endedReason(session.state, toolName)}</p>
  {:else}
   <div class="composer" onpaste={pasted} class:dropping={dropping}>
    {#if modelNote}<p class="notice" role="status">{modelNote}</p>{/if}

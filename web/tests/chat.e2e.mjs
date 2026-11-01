@@ -321,6 +321,14 @@ try {
   await composer.fill('/pd')
   await expect(picker).toBeVisible()
   await expect(filter).toHaveValue('pd')
+  // One Escape with text in the search field closes the picker (it must not stop at clearing the field) and leaves the composer alone.
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  await expect(composer).toHaveValue('/pd')
+  await composer.fill('')
+  await composer.fill('/pd')
+  await expect(picker).toBeVisible()
+  await expect(filter).toHaveValue('pd')
   await picker.getByRole('option', { name: /pdf/ }).click()
   await expect(composer).toHaveValue('Use the pdf skill.')
   for (const text of ['fix /etc/hosts', 'see http://x', '/etc/hosts now']) {
@@ -344,7 +352,7 @@ try {
   await composer.fill(long)
   await skillsButton.click()
   await picker.getByRole('option', { name: /pdf/ }).click()
-  await expect(page.getByRole('alert').filter({ hasText: 'That would pass the 2,000-character limit. Nothing was inserted.' })).toBeVisible()
+  await expect(page.getByRole('alert').filter({ hasText: 'That would make the message longer than 2,000 bytes. Nothing was inserted.' })).toBeVisible()
   await expect(composer).toHaveValue(long)
   await expect(picker).toHaveCount(0)
   // The connection dropping while the picker is open: picking inserts nothing and says so; the button is disabled meanwhile.
@@ -403,6 +411,19 @@ try {
   await skillsButton.click()
   await expect(picker.getByText('No skills found on dev-laptop yet.')).toBeVisible()
   await expect(picker.getByText('have not been read yet')).toBeVisible()
+  await page.keyboard.press('Escape')
+  // A machine reet does not know says so, with no empty host name, and still lists the reet-hosted skills.
+  state.skills = { skills: [skillRows[2]], machineSeen: 0, host: '' }
+  await skillsButton.click()
+  await expect(picker.getByRole('option', { name: /reet-notes/ })).toBeVisible()
+  await expect(picker.getByText("This session's machine is not known to reet, so its skills cannot be listed.")).toBeVisible()
+  await expect(picker.getByText('have not been read yet')).toHaveCount(0)
+  await expect(picker.getByText('No skills found')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  state.skills = { skills: [], machineSeen: 0, host: '' }
+  await skillsButton.click()
+  await expect(picker.getByText("This session's machine is not known to reet, so its skills cannot be listed.")).toBeVisible()
+  await expect(picker.getByText('have not been read yet')).toHaveCount(0)
   await page.keyboard.press('Escape')
   // A failed request shows its error and Retry loads the list.
   state.skills = { skills: skillRows, machineSeen: Date.now() - 5 * 60_000, host: 'dev-laptop' }

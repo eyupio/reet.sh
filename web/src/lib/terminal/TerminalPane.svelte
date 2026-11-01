@@ -16,6 +16,7 @@
   import TerminalIcon from './TerminalIcon.svelte'
   import SkillPicker from './SkillPicker.svelte'
   import type {SessionSkill,SessionSkills} from './skills'
+  import {toolName} from '../agentLaunch'
   import TerminalSelectText from './TerminalSelectText.svelte'
   import UploadChip from './UploadChip.svelte'
   import {initialFontSize,hostSize,ResizeSender,pageViewport,browserViewport,overflowEdges,repaintOnReturn,FONT_MIN,FONT_MAX,LANDSCAPE_PHONE,PHONE_TOUCH,type Size} from './sizing'
@@ -475,7 +476,7 @@
 
 {#if appearanceOpen}<WorkspaceDialog title="Terminal appearance" placement="drawer" onclose={()=>appearanceOpen=false}><TerminalAppearance {palette} {fontSize} {cursor} {copyOnSelect} onpalette={choosePalette} onfont={changeFont} oncursor={chooseCursor} oncopyselect={chooseCopyOnSelect}/></WorkspaceDialog>{/if}
 {#if commandsOpen}<CommandLibrary onclose={()=>commandsOpen=false} oninsert={item=>void insertSaved(item)} canInsert={live} context={`${user?user+'@':''}${host} · ${session.title}`}/>{/if}
-{#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={session.tool??''} onpick={skill=>void pickSkill(skill)} onclose={()=>void closeSkills()} onretry={()=>void loadSkills()}/>{/if}
+{#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName(session.tool)} onpick={skill=>void pickSkill(skill)} onclose={()=>void closeSkills()} onretry={()=>void loadSkills()}/>{/if}
 {#if historyOpen}<CommandHistory session={session.id} context={`${user?user+'@':''}${host} · ${session.title}`} supported={historySupported} canInsert={live} onclose={()=>historyOpen=false} oninsert={(text,run)=>void insertHistory(text,run)} onoutput={openScrollback}/>{/if}
 {#if pendingPaste}<ConfirmDialog title={pendingPaste.execute?'Run this command in the active terminal?':'Paste into the remote shell?'} body={pendingPaste.execute?`Send this command to ${host} · ${session.title} and press Enter. Be at a shell prompt; an open program receives terminal input instead.`:'This text contains multiple lines, control characters, or a large block. It may execute commands immediately.'} details={confirmDetails(pendingPaste.text,pendingPaste.execute)} confirmLabel={pendingPaste.execute?'Run command':'Paste text'} onconfirm={confirmPaste} oncancel={()=>{const running=pendingPaste?.execute;pendingPaste=null;if(!running)terminal?.focus()}} />{/if}
 {#if selectOpen}<TerminalSelectText text={selectModel} onclose={closeSelect}/>{/if}

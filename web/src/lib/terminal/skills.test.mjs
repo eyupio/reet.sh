@@ -39,15 +39,15 @@ test('applyInvocation replaces, appends, and refuses', () => {
   assert.deepEqual(s.applyInvocation('fix the bug', '/pdf', 2000), { draft: 'fix the bug /pdf' })
   assert.deepEqual(s.applyInvocation('', '/pdf', 2000), { draft: '/pdf' })
   assert.deepEqual(s.applyInvocation('fix ', '/pdf', 2000), { draft: 'fix /pdf' })
-  assert.deepEqual(s.applyInvocation('fix the bug in the parser', '/pdf', 20), { error: "That would pass the 2,000-character limit. Nothing was inserted." })
+  assert.deepEqual(s.applyInvocation('fix the bug in the parser', '/pdf', 20), { error: "That would make the message longer than 2,000 bytes. Nothing was inserted." })
   assert.deepEqual(s.applyInvocation('abc', '', 2000), { error: "This skill can't be inserted from here." })
 })
 
 test('applyInvocation counts UTF-16 units and UTF-8 bytes, like the composer', () => {
   const emoji = '😀'.repeat(6) // 6 code points, 12 UTF-16 units
-  assert.deepEqual(s.applyInvocation(emoji, '/a', 10), { error: 'That would pass the 2,000-character limit. Nothing was inserted.' })
+  assert.deepEqual(s.applyInvocation(emoji, '/a', 10), { error: 'That would make the message longer than 2,000 bytes. Nothing was inserted.' })
   const cjk = '中'.repeat(5) // 5 UTF-16 units, 15 UTF-8 bytes
-  assert.deepEqual(s.applyInvocation(cjk, '/a', 10), { error: 'That would pass the 2,000-character limit. Nothing was inserted.' })
+  assert.deepEqual(s.applyInvocation(cjk, '/a', 10), { error: 'That would make the message longer than 2,000 bytes. Nothing was inserted.' })
   assert.deepEqual(s.applyInvocation('a'.repeat(16), '/pd', 20), { draft: 'a'.repeat(16) + ' /pd' }, 'exactly at the limit is accepted')
   assert.ok('error' in s.applyInvocation('a'.repeat(17), '/pd', 20))
 })

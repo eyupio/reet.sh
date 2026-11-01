@@ -23,6 +23,7 @@
   const now = Date.now()
 
   const groups = $derived(data ? groupSkills(data.skills, query, tool) : [])
+  const unknownMachine = $derived(!!data && data.host === '')
   const empty = $derived(!!data && data.skills.length === 0)
   const noMatch = $derived(!!data && !empty && groups.length === 0)
   const reason = (s: SessionSkill) => (s.invocation ? '' : s.source === 'reet' ? 'not on this machine' : `not native to ${tool}`)
@@ -77,7 +78,7 @@
       </button>
     </header>
     <div class="body" data-shell-body onkeydown={keys} role="presentation">
-      <input class="filter" type="search" bind:this={input} bind:value={query} aria-label="Filter skills" placeholder="Filter skills" autocomplete="off" spellcheck="false" />
+      <input class="filter" type="text" role="searchbox" bind:this={input} bind:value={query} aria-label="Filter skills" placeholder="Filter skills" autocomplete="off" spellcheck="false" />
       {#if loading}
         <p class="note" role="status">Reading skills…</p>
       {:else if error}
@@ -106,9 +107,12 @@
             </div>
           {/each}
         </div>
-        {#if empty}<p class="note" role="status">No skills found on {data.host} yet.</p>
-        {:else if noMatch}<p class="note" role="status">No skills match.</p>{/if}
-        <p class="seen">{seenLine(data.machineSeen, data.host, now)}</p>
+        {#if noMatch}<p class="note" role="status">No skills match.</p>{/if}
+        {#if unknownMachine}<p class="note" role="status">This session's machine is not known to reet, so its skills cannot be listed.</p>
+        {:else}
+          {#if empty}<p class="note" role="status">No skills found on {data.host} yet.</p>{/if}
+          <p class="seen">{seenLine(data.machineSeen, data.host, now)}</p>
+        {/if}
       {/if}
     </div>
   </div>

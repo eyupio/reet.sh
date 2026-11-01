@@ -102,7 +102,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   if (!slashDismissed) openSkills(query)
  }
  function pickSkill(skill: SessionSkill) {
-  if (skillsOff) { feedback = ended || chat.connection !== 'open' ? 'Connection changed. Nothing was inserted.' : 'The message box is busy. Nothing was inserted.'; void closeSkills(); return }
+  if (skillsOff) { feedback = ended ? `${skillsOff} Nothing was inserted.` : chat.connection !== 'open' ? 'Connection changed. Nothing was inserted.' : 'The message box is busy. Nothing was inserted.'; void closeSkills(); return }
   const result = applyInvocation(draft, skill.invocation, MAX_CHAT_BYTES)
   if ('error' in result) { feedback = result.error; void closeSkills(); return }
   feedback = ''; draft = result.draft

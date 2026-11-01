@@ -275,9 +275,14 @@ toolbar, where it appears for agent sessions only. It lists three groups:
 Picking a skill inserts `Use the {name} skill.`. In the reet TUI the text goes
 into the message box for you to edit and send. In the agent TUI it is typed into
 the terminal without Enter. Nothing is sent until you press Enter. An insertion
-that would pass the composer's 2,000-character limit is refused with a message
-and your draft is left as it was. The button is disabled, with the reason, while
-the agent is working, a message is sending or the connection is not live.
+that would make the reet TUI message longer than 2,000 bytes is refused with a
+message and your draft is left as it was. A skill whose name has unusual
+characters (a line break, a control character, or more than 80 characters) is
+listed but cannot be inserted. Skills installed in a project folder are listed
+only for sessions running in that project, or in a folder inside it. In the reet
+TUI the button is disabled, with the reason, while the agent is working, a
+message is sending, the connection is not live or the session has ended. In the
+agent TUI it is disabled only while the terminal is not live.
 
 In the reet TUI only, typing `/` as the first character of the composer opens the
 picker too. The agent TUI has no `/` trigger because the agent owns that key.

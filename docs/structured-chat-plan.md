@@ -229,6 +229,12 @@ the command safely. `Spec.EndChatOnStopWhileToolRuns` (set for Codex only) makes
 was ended to be sure nothing keeps running." and end the chat, retiring the process group. A Stop with nothing running only cancels the turn. Still dark behind
 `REET_EXPERIMENTAL_CODEX_CHAT`; the browser does not offer Codex yet.
 
+### SC4 progress: Codex mode switch in the session (1 November 2026)
+
+First of three slices for the browser mode control (this one is the session core; then the wire, broker and API; then the browser). `Spec.ChoosableModes` lists the modes a person may
+switch a live chat to (Codex: `read-only` and `agent`, never `agent-full-access`). `Session.SetMode` refuses any other mode, refuses while a turn works, and reports the switch as applied
+only when the adapter's reply names the requested mode (`Session.Mode` is the last confirmed one). Nothing outside the session can call it yet, so it changes nothing for anyone.
+
 ### Device and credential checks (1 November 2026)
 
 What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real

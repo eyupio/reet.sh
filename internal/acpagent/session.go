@@ -88,6 +88,7 @@ type Session struct {
 	acpID        string
 	model        string
 	promptImages bool
+	mode         string
 	tools        map[string]string
 	toolStart    map[string]time.Time
 	done         chan struct{}
@@ -266,6 +267,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	}
 	s.mu.Lock()
 	s.acpID = sessionID
+	s.mode = mode
 	s.model = model
 	s.mu.Unlock()
 	if !opened {
@@ -1540,4 +1542,47 @@ func (s *Session) switchMode(ctx context.Context, id, mode string) (string, erro
 		}
 	}
 	return "", nil
+}
+
+// Mode is the mode the chat is in, as last confirmed by the agent.
+func (s *Session) Mode() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mode
+}
+
+// SetMode moves a live chat to one of the profile's ChoosableModes. It is
+// refused while a turn is working, and reported as applied only when the
+// agent's reply names the requested mode, the same rule as the model switch.
+func (s *Session) SetMode(ctx context.Context, mode string) error {
+	allowed := false
+	for _, m := range s.opts.Agent.ChoosableModes {
+		if m == mode {
+			allowed = true
+		}
+	}
+	if !allowed {
+		return ErrMode
+	}
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	if s.working {
+		return ErrBusy
+	}
+	s.mu.Lock()
+	id := s.acpID
+	s.mu.Unlock()
+	applied, err := s.switchMode(ctx, id, mode)
+	if err != nil {
+		return err
+	}
+	if applied != "" {
+		s.mu.Lock()
+		s.mode = applied
+		s.mu.Unlock()
+	}
+	if applied != mode {
+		return ErrMode
+	}
+	return nil
 }

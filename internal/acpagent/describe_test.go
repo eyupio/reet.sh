@@ -83,6 +83,9 @@ func TestCodexIsDarkUntilTheMachineOptsIn(t *testing.T) {
 	if !ok || spec.RequireMode != "read-only" || spec.StartMode != "read-only" || spec.Command != "codex-acp" {
 		t.Fatalf("lookup: %+v %v", spec, ok)
 	}
+	if len(spec.ChoosableModes) != 2 || spec.ChoosableModes[0] != "read-only" || spec.ChoosableModes[1] != "agent" {
+		t.Fatalf("choosable modes: %v", spec.ChoosableModes)
+	}
 	got := Describe("codex", true, "")
 	if got.State != "available" || !got.Valid() || got.Adapter != "codex-acp" || got.MinimumVersion != "1.13.1" {
 		t.Fatalf("opted-in codex: %+v", got)

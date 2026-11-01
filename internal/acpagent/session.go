@@ -100,6 +100,7 @@ type Session struct {
 	turnError    bool
 	turnSeq      uint64
 	forceArmed   uint64
+	cancelledSeq uint64
 	forceClosing bool
 	turnStart    time.Time
 	lastEvent    time.Time
@@ -706,8 +707,22 @@ type permissionParams struct {
 	} `json:"options"`
 }
 
+// turnAcceptsRequests reports whether a permission or question request can
+// belong to a turn the person is still waiting on. A request that arrives with no
+// turn running, or after the running turn was cancelled, has no owner: the agent
+// does not withdraw it, so it is answered as cancelled instead of raising a card.
+func (s *Session) turnAcceptsRequests() bool {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	return s.working && s.cancelledSeq != s.turnSeq
+}
+
 func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 	if len(rpcID) == 0 {
+		return
+	}
+	if !s.turnAcceptsRequests() {
+		s.respond(rpcID, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}}, nil)
 		return
 	}
 	var params permissionParams
@@ -918,6 +933,11 @@ func (s *Session) commitForceStop(seq uint64) bool {
 // Cancel stops the current turn and closes every card this client still holds.
 // The agent does not withdraw an outstanding request_permission, so reet must.
 func (s *Session) Cancel() error {
+	s.turnMu.Lock()
+	if s.working {
+		s.cancelledSeq = s.turnSeq
+	}
+	s.turnMu.Unlock()
 	s.cancelCards()
 	s.emit(Event{Kind: "status", State: "cancelled"})
 	err := s.sendCancel()

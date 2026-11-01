@@ -77,6 +77,12 @@ func (s *Session) handleElicitation(rpcID json.RawMessage, raw json.RawMessage) 
 		s.refuseQuestion(rpcID)
 		return
 	}
+	if !s.turnAcceptsRequests() {
+		// No running, uncancelled turn owns this question (it arrived after the turn
+		// ended or was cancelled); the agent does not withdraw it, so answer it.
+		s.respond(rpcID, cancelledQuestion(), nil)
+		return
+	}
 	id, err := permissionID()
 	if err != nil {
 		s.respond(rpcID, cancelledQuestion(), nil)

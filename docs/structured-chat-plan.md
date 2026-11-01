@@ -247,6 +247,11 @@ recovery cannot report against it; the browser drops events at or below its last
 default), the person is told the agent did not stop and the chat is ended, with the process group confirmed gone. A cancel the agent honours, or a later
 turn, is never touched. Covered by `TestCancelIgnoredByTheAgentEndsTheChatAfterTheGracePeriod` and `TestForceStopIsBoundToTheCancelledTurn`.
 
+**Fixed (gap 3):** a permission or question request that arrives with no running turn, or after the running turn was cancelled, belongs to no turn the
+person is waiting on. It used to raise an approval card and show an idle chat as "waiting". It is now answered as cancelled and raises nothing
+(`turnAcceptsRequests`). Covered for permissions after a turn ended, permissions during a cancel, and questions after a turn ended. **Gap 2** stays as it is: showing
+"cancelled" at once is deliberate feedback, and the force-stop bounds the worst case; output arriving after the status flips is not yet tested.
+
 **Proposed order:** (1) bounded force-stop for an ignored cancel: after a grace period without an acknowledgement, end the chat explicitly with a notice
 and confirm the process group is gone, rather than leaving it busy; (2) tests for gaps 2 and 3 first, fixing only what they show; (3) say why a chat ended
 when the connector restarted; (4) descriptor-driven controls when a second agent needs them.

@@ -300,9 +300,9 @@
               <button type="button" class:on={chat} aria-pressed={chat} disabled={!hasChat} title={hasChat ? '' : 'This machine does not offer the reet TUI for that agent.'} onclick={() => pickTui(true)}>reet TUI</button>
               <button type="button" class:on={!chat} aria-pressed={!chat} onclick={() => pickTui(false)}>Agent TUI</button>
             </div>
-            <small>{chat ? 'A native chat with approvals, history and images.' : `${toolName(choice.agent)}’s own terminal interface.`}</small>
+            <small>{chat ? (choice.agent === 'opencode' ? 'A native chat with approvals, history and images.' : 'A native chat that asks before it changes anything.') : `${toolName(choice.agent)}’s own terminal interface.`}</small>
           </div>
-          {#if chat}
+          {#if chat && choice.agent === 'opencode'}
             <label class="trust"><input type="checkbox" checked={choice.trust === true} onchange={e => choice = { ...choice, trust: e.currentTarget.checked }} />I trust this folder. OpenCode plugins in it may run.</label>
           {/if}
         </fieldset>

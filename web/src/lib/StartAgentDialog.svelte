@@ -6,7 +6,7 @@
  import { defaultLabel, effortChoices, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
  import { createTerminal, getFolderProject, machineModels, readiness, refreshMachineModels, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
  import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
- import { structuredAgent } from './terminal/api'
+ import { chatToolName, structuredAgent } from './terminal/api'
  import SlotPicker, { type SlotOption } from './launch/SlotPicker.svelte'
 
  // Start an agent CLI in a new terminal session on one machine. One screen, one press. The page names a tool id, a model, a
@@ -374,7 +374,7 @@
    const invalid = modelError ? ['model', modelError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
    if (invalid) { failed = true; message = invalid[1]; invalidMessage = true; field(invalid[0])?.focus(); return }
    const launch: LaunchRequest & { tool: string } = { tool: chosenTool }
-   if (structured) { launch.structured = true; launch.trust = true }
+   if (structured) { launch.structured = true; if (chosenTool === 'opencode') launch.trust = true }
    if (model) launch.model = model
    if (!structured && effort && effortOptions.length > 1) launch.effort = effort as NonNullable<LaunchRequest['effort']>
    if (dir) launch.dir = dir
@@ -509,7 +509,11 @@
       <option value="terminal">{toolName(chosenTool)} TUI</option>
      </select>
      {#if structured}
-      <p class="hint">In the reet TUI, OpenCode asks before it edits a file or runs a command. Any plugins in this folder's <code>.opencode</code> run when it starts, so use a folder you trust. Its live history stays in memory and ends when the machine connection does.</p>
+      {#if chosenTool === 'claude'}
+       <p class="hint">In the reet TUI, Claude Code asks before it edits a file or runs a command. Only your own Claude settings apply; this folder's repository settings and hooks are ignored. Its live history stays in memory and ends when the machine connection does.</p>
+      {:else}
+       <p class="hint">In the reet TUI, OpenCode asks before it edits a file or runs a command. Any plugins in this folder's <code>.opencode</code> run when it starts, so use a folder you trust. Its live history stays in memory and ends when the machine connection does.</p>
+      {/if}
      {:else}
       <p class="hint">Starts the {toolName(chosenTool)} TUI in a terminal session; the agent's own prompts apply.</p>
      {/if}
@@ -524,7 +528,7 @@
     </button>
     {#if modelChoice === OTHER && modelError}<p class="reason" id={`${id}-model-error`}>{modelError}</p>{/if}
     <p class="hint">Suggestions are hints. The agent says itself if it doesn't know a model.</p>
-    {#if structured}<p class="hint">The reet TUI uses this model. Leave it at OpenCode’s configured model to keep OpenCode’s own; its thinking comes from OpenCode.</p>{/if}
+    {#if structured}<p class="hint">The reet TUI uses this model. Leave it at {chatToolName(chosenTool)}’s configured model to keep {chatToolName(chosenTool)}’s own; its thinking comes from {chatToolName(chosenTool)}.</p>{/if}
    </div>
 
    {#if !structured && effortOptions.length > 1}

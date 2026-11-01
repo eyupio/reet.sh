@@ -32,6 +32,16 @@ try {
    await expect(page.locator('.workspace-preview')).toContainText('reet agent enroll --server')
    await expect(page.locator('.workspace-preview')).toContainText('reet agent run')
    await expect(page.locator('.workspace-preview .preview-machine')).toHaveCount(3)
+   // The colour choice is in the header, as a three-way control that applies at once and is remembered in this browser.
+   const picker=page.locator('header .theme-picker')
+   await expect(picker.getByRole('button')).toHaveCount(3)
+   await picker.getByRole('button',{name:'Dark'}).click()
+   expect(await page.evaluate(()=>document.documentElement.dataset.theme)).toBe('dark')
+   await expect(picker.getByRole('button',{name:'Dark'})).toHaveAttribute('aria-pressed','true')
+   await page.reload()
+   expect(await page.evaluate(()=>document.documentElement.dataset.theme)).toBe('dark')
+   await page.locator('header .theme-picker').getByRole('button',{name:'Match this device'}).click()
+   expect(await page.evaluate(()=>document.documentElement.dataset.theme)).toBeUndefined()
    await expect(page.getByText('On the workbench',{exact:true})).toBeVisible()
    // Invite-only: members of a private instance come back to sign in, so that leads. Install and invite are real buttons, not quiet text.
    const cta=page.locator('.cta-row')

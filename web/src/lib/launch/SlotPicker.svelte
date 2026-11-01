@@ -4,6 +4,7 @@ export type SlotOption = { value: string; label: string; description?: string; d
 </script>
 
 <script lang="ts">
+  import { gafferTooltip } from '../gafferTooltip'
   import { onMount, tick, untrack } from 'svelte'
   import { shell } from '../dialogShell'
 
@@ -163,7 +164,7 @@ export type SlotOption = { value: string; label: string; description?: string; d
 
 {#snippet row(o: SlotOption)}
   <div class="option-row">
-    <div class="option" role="option" tabindex="-1" data-value={o.value} aria-selected={o.value === value && o.value !== OTHER}
+    <div use:gafferTooltip={o.label === 'Gaffer'} class="option" role="option" tabindex="-1" data-value={o.value} aria-selected={o.value === value && o.value !== OTHER}
       aria-disabled={o.disabled ? 'true' : undefined} onclick={() => choose(o)} onkeydown={() => {}}>
       <span class="name">{o.label}</span>
       {#if o.description}<span class="description">{o.description}</span>{/if}

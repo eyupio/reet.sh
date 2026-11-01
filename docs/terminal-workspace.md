@@ -21,9 +21,9 @@ the bell are for a writer in accounts mode only.
 | --- | --- | --- |
 | Fleet strip | One card per machine from the health report: the status in words (online, paused, reconnecting or offline) with a dot that also differs by shape, the live sessions on it of any kind ("sessions running"), CPU, memory in use and disk space free from a fresh report (or **No reading** for each, with a meter), the worktrees live sessions there are in ("3 worktrees in use"; no record says which other worktrees were removed), and the skills line from the last finished sync check for the current desired skills, or **Not checked**. A machine that is not reporting shows its last known count and says so. **Add a machine** opens the existing dialog on Machines. | OS version: PR C |
 | In flight | Live sessions, and finished ones for a day, grouped by project, Machine or State. A session joins the folder project it was started in (its own project id); the subtitle is `project · machine · branch`. Each row shows the state word and where it came from ("from terminal activity", "from the session's state" or "from the exit code"). There is no step or progress bar. A row opens the session; a right-click (or Shift+F10 / the menu key) opens the same actions menu as the Sessions page: Rename, Open in theatre, Copy branch, End session or Remove from history (each confirmed), and Check and remove worktree. | |
-| Needs you | Sessions that are waiting for you (a terminal bell or a pending reet TUI permission since you last opened or marked the session seen), finished cleanly ("Ready to review", with changed-file count when the session ran in a worktree) or exited with an error, newest first, with **Open** and **Mark seen** (`POST /api/v2/terminal/sessions/{id}/seen`). Empty state: "Nothing needs you." | Inline Allow once / Deny cards on Home: a later slice |
+| Needs you | Sessions that are waiting for you (a terminal bell or a pending Gaffer permission since you last opened or marked the session seen), finished cleanly ("Ready to review", with changed-file count when the session ran in a worktree) or exited with an error, newest first, with **Open** and **Mark seen** (`POST /api/v2/terminal/sessions/{id}/seen`). Empty state: "Nothing needs you." | Inline Allow once / Deny cards on Home: a later slice |
 | Project rail | Your folder projects ([Projects](projects.md)): each card's colour, machine, base branch, state in words and worktrees in use; choosing one sets the launch bar's project, while its **+** (and New session here in its menu) starts a session there at once; a menu, from the card's button or a right-click, with New session here, Edit, project colour, Worktrees, Move up and down, and Remove from reet. **Select projects** in the heading's menu (or a long press on touch) turns the cards into checkboxes for a start in 2 to 12 projects. **Add** opens the folder browser. Under 1240 px it is a 56 px strip that shows how many are chosen. On a tablet or phone it is on the **Sessions** screen instead (see [The Sessions page](#the-sessions-page)); Home there keeps the launch sentence's project slot and its Add a project. | |
-| Launch bar | Docked at the foot: **Describe the job**, **Start** and the launch sentence ("Run Claude Code with default on Store rewrite at studio from main in a fresh worktree"), whose words are the choices. OpenCode on an acp machine reads "Run OpenCode in reet TUI…" by default; the **TUI** word switches it to **OpenCode TUI**. Home has no Start an agent button; the dialog stays for Machines and the Sessions panel. Details: [Start an agent session](start-agent-session.md#on-home-the-launch-bar). | **YOLO** needs the account setting, the machine's acceptance and a per-session confirmation. A live structured chat can switch Ask me ↔ YOLO from its header under the same gates. |
+| Launch bar | Docked at the foot: **Describe the job**, **Start** and the launch sentence ("Run Claude Code with default on Store rewrite at studio from main in a fresh worktree"), whose words are the choices. OpenCode on an acp machine reads "Run OpenCode in Gaffer…" by default; the **Gaffer** word switches it to **OpenCode TUI**. Home has no Start an agent button; the dialog stays for Machines and the Sessions panel. Details: [Start an agent session](start-agent-session.md#on-home-the-launch-bar). | **YOLO** needs the account setting, the machine's acceptance and a per-session confirmation. A live structured chat can switch Ask me ↔ YOLO from its header under the same gates. |
 | Bell | The Needs you count across your machines, with a popover listing the same cards as Needs you. The page title prefixes `(N)` when `N > 0`, and a polite live region announces transitions into Waiting at most once per session per minute. | |
 
 Viewers, single-token and open sign-ins get the fleet strip only. Those sign-ins cannot read sessions, so the cards
@@ -77,9 +77,9 @@ beside it). Its parts:
   are held in memory: nothing is stored, and the address carries only the session's ids.
 - **Header**: the title, `agent · model · started …`, the state pill (Home's state words, with where the word came from in
   its tooltip and read out; while this browser's connection to a live session is down it says that instead, such as
-  "Reconnecting" or "Disconnected", from the connection), a **YOLO** badge when on (or **Ask me | YOLO** for a live structured chat that can switch), **reet TUI | the agent TUI** — the agent TUI chosen for a shell or terminal
-  session, reet TUI chosen for a structured OpenCode session (and the agent TUI disabled there), and
-  reet TUI disabled with its reason for a shell — and the actions menu (⋮, or Shift+F10 on it): Rename, Theatre view, Copy branch,
+  "Reconnecting" or "Disconnected", from the connection), a **YOLO** badge when on (or **Ask me | YOLO** for a live structured chat that can switch), **Gaffer | the agent TUI** — the agent TUI chosen for a shell or terminal
+  session, Gaffer chosen for a structured OpenCode session (and the agent TUI disabled there), and
+  Gaffer disabled with its reason for a shell — and the actions menu (⋮, or Shift+F10 on it): Rename, Theatre view, Copy branch,
   End session or Remove from history, Check and remove worktree. Tab from the open menu goes on to the control after ⋮
   (Shift+Tab back to ⋮), and a reconnecting terminal never takes focus out of it. A terminal session shows no steps and no
   progress bar (R10). A tab's close button says the session keeps running, or for a finished one that it stays in its
@@ -89,13 +89,13 @@ beside it). Its parts:
 - **A session's actions menu** has **Open a terminal here…** for any agent session. It starts a plain shell in the same
   folder as a separate session; a machine that negotiated `shell-dir-v1` runs it there, otherwise the controller says to
   update reet. This is the direct non-agent terminal entry point. **Open a terminal beside this session…** creates the
-  same plain shell but shows it in the right-hand panel while the reet TUI or agent TUI stays in the main column; Close
+  same plain shell but shows it in the right-hand panel while Gaffer or agent TUI stays in the main column; Close
   ends that shell. The side panel replaces the context panel while it is open.
-- **The reet TUI pane** for a structured OpenCode session ([structured sessions](structured-sessions.md)): the streamed
+- **Gaffer pane** for a structured OpenCode session ([structured sessions](structured-sessions.md)): the streamed
   conversation, tool calls, approval cards with **Allow once** and **Deny**, a composer (Enter sends, Shift+Enter adds a
   line), **Attach image** (pasted, dropped or chosen; the machine embeds it in the prompt when it negotiated
   `acp-image-v1`, otherwise the prompt names the uploaded path), **Stop**, and the watchdog's "still working" notice. A closed reet
-  session's menu offers **Continue in reet TUI with history…**, which opens a new reet TUI and loads OpenCode's stored
+  session's menu offers **Continue in Gaffer with history…**, which opens a new Gaffer and loads OpenCode's stored
   conversation. It asks before an edit or command; there is no shell in this
   session. It has no terminal or session tabs on a phone; the usual slim header and End actions stay.
 - **Context panel** (340 px): *Where it's working* (machine and whether it is reporting, project, branch, worktree: "own
@@ -113,7 +113,7 @@ beside it). Its parts:
   reaches into the panel's widened padding, covers no control and reaches no further over the terminal than its 24 px
   track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
   extra keys are 40 × 40 px.
-- **Phones** get one slim header (back to Sessions, title, project · machine, state, Details, ⋮); the tabs and reet TUI |
+- **Phones** get one slim header (back to Sessions, title, project · machine, state, Details, ⋮); the tabs and Gaffer |
   agent TUI are left out. With the keyboard up for the terminal the site's top bar steps aside (`keyboardChrome` with the
   `session` focus, the same usable-height rule as Jump and the launch prompt); the slim header stays, 44 px tall while
   typing, and the pane's own header gives its row to the terminal, so the keyboard-open rows are unchanged (24 at
@@ -263,7 +263,7 @@ never changes an already requested stop. Files and operation receipts remain.
 ## Skills in a session
 
 **Skills** opens a picker for the session's machine and agent. It sits beside
-Attach image in the reet TUI composer and next to Commands in the agent TUI
+Attach image in Gaffer composer and next to Commands in the agent TUI
 toolbar, where it appears for agent sessions only. It lists three groups:
 
 - skills on the machine for this session's agent, which you can insert (the
@@ -272,10 +272,10 @@ toolbar, where it appears for agent sessions only. It lists three groups:
 - reet-hosted skills that are not installed on the machine, listed but not
   insertable. A published one has an **Install** button (see below).
 
-Picking a skill inserts `Use the {name} skill.`. In the reet TUI the text goes
+Picking a skill inserts `Use the {name} skill.`. In Gaffer the text goes
 into the message box for you to edit and send. In the agent TUI it is typed into
 the terminal without Enter. Nothing is sent until you press Enter. An insertion
-that would make the reet TUI message longer than 2,000 bytes is refused with a
+that would make Gaffer message longer than 2,000 bytes is refused with a
 message and your draft is left as it was. A skill whose name has unusual
 characters (a line break, a control character, or more than 80 characters) is
 listed but cannot be inserted. Skills installed in a project folder are listed
@@ -284,7 +284,7 @@ TUI the button is disabled, with the reason, while the agent is working, a
 message is sending, the connection is not live or the session has ended. In the
 agent TUI it is disabled only while the terminal is not live.
 
-In the reet TUI only, typing `/` as the first character of the composer opens the
+In Gaffer only, typing `/` as the first character of the composer opens the
 picker too. The agent TUI has no `/` trigger because the agent owns that key.
 
 The list is as fresh as the machine's last scan, and the picker says when that
@@ -303,7 +303,7 @@ reet then asks the machine to preview the install and shows you the plan. Only
 a plan that adds nothing but that one skill offers **Approve and install** in
 the picker. Anything else, such as a replacement, a removal or another skill, is
 handed to the Sync page. The machine writes the files after you approve; nothing
-is written before that. The same steps work in the reet TUI and the agent TUI;
+is written before that. The same steps work in Gaffer and the agent TUI;
 in the agent TUI nothing is typed into the terminal.
 
 The skill goes into the session agent's own skills folder in the home

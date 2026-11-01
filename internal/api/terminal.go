@@ -364,7 +364,7 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 	case errors.Is(err, terminalbroker.ErrACPUnsupported):
 		writeErrCode(w, http.StatusConflict, "acp_unavailable", "", "Update reet on that machine to use OpenCode chats.", "")
 	case errors.Is(err, terminalbroker.ErrACPVersion):
-		writeErrCode(w, http.StatusConflict, "acp_version", "", "The reet TUI needs OpenCode 1.19.5 or newer on that machine.", "")
+		writeErrCode(w, http.StatusConflict, "acp_version", "", "Gaffer needs OpenCode 1.19.5 or newer on that machine.", "")
 	default:
 		terminalError(w, err)
 	}

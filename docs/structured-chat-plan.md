@@ -5,7 +5,7 @@ enabled by this document. OpenCode remains the only structured chat integration.
 
 The goal is one reet conversation view for supported agents, with streamed
 messages, tool details, reviewed approvals, agent questions and honest recovery
-states. This is the browser's reet TUI, separate from the binary's terminal menu.
+states. This is the browser's Gaffer, separate from the binary's terminal menu.
 Terminal sessions remain available for agents without a verified chat adapter.
 
 ## Reuse the existing stack

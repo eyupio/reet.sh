@@ -16,10 +16,10 @@ var (
 	ErrSessionModeBusy = errors.New("Wait for the agent to finish or answer what it is asking, then switch.")
 	// ErrSessionModeUnsupported means the machine did not negotiate
 	// session-mode-v1, so it was not asked.
-	ErrSessionModeUnsupported = errors.New("Update reet on this machine to switch between the reet TUI and the OpenCode TUI.")
+	ErrSessionModeUnsupported = errors.New("Update reet on this machine to switch between Gaffer and the OpenCode TUI.")
 	// ErrSessionModeNoSession means the row has no OpenCode session id to
 	// load, because the session began in the OpenCode TUI.
-	ErrSessionModeNoSession = errors.New("This session started in the OpenCode TUI, so the reet TUI cannot pick up its conversation.")
+	ErrSessionModeNoSession = errors.New("This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.")
 	// ErrSessionModeTrust is the structured create's trust refusal: the folder
 	// has OpenCode plugins and the switch did not carry the person's trust.
 	ErrSessionModeTrust = errors.New("This folder has OpenCode plugins. Start only in a folder you trust.")
@@ -105,7 +105,7 @@ func (b *Broker) chatBusy(uid int64, session string) bool {
 	return l.running || len(l.pending) > 0 || len(l.questions) > 0
 }
 
-// SwitchSessionMode moves a running OpenCode session between the reet TUI
+// SwitchSessionMode moves a running OpenCode session between Gaffer
 // (chat) and the OpenCode TUI (terminal) under the same row. The machine is
 // asked only when it negotiated session-mode-v1, the row has the OpenCode
 // session id to carry across, and the chat is idle. The row and its rings

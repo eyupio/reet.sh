@@ -697,10 +697,10 @@ try {
   await poll()
   await expect(statusOf).toHaveText('Review what will be added.')
   expect(inst.syncReads).toBeGreaterThan(readsWhileRunning)
-  // Cancelling when the saved list changed elsewhere says so and does not close until the person does.
+  // Cancelling when there was nothing to undo says so and does not close until the person does.
   inst.cancelReply = () => ({ status: 200, json: { reverted: false } })
   await panelOf.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(statusOf).toContainText('The saved skill list was changed elsewhere, so it was left as it is.')
+  await expect(statusOf).toContainText('The saved skill list was left as it is.')
   await panelOf.getByRole('button', { name: 'Close', exact: true }).click()
   await expect(picker.getByRole('option', { name: /draft-notes/ })).toBeVisible()
   await page.keyboard.press('Escape')

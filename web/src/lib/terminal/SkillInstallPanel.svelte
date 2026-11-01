@@ -143,7 +143,7 @@
       if (!alive) return
       stop()
       if (result.reverted) { onclose(false); return }
-      note = 'The saved skill list was changed elsewhere, so it was left as it is.'
+      note = 'The saved skill list was left as it is.'
       phase = 'cancelled'
     } catch (e) {
       if (!alive || life.signal.aborted) return

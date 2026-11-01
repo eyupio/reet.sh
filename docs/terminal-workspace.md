@@ -270,7 +270,7 @@ toolbar, where it appears for agent sessions only. It lists three groups:
   shared `.agents/skills` folder counts for every agent);
 - skills on the machine for other agents, shown dimmed and not insertable;
 - reet-hosted skills that are not installed on the machine, listed but not
-  insertable. They cannot be installed from the picker yet.
+  insertable. A published one has an **Install** button (see below).
 
 Picking a skill inserts `Use the {name} skill.`. In the reet TUI the text goes
 into the message box for you to edit and send. In the agent TUI it is typed into
@@ -289,6 +289,42 @@ picker too. The agent TUI has no `/` trigger because the agent owns that key.
 
 The list is as fresh as the machine's last scan, and the picker says when that
 was.
+
+### Installing a hosted skill
+
+A published reet-hosted skill that is not on the machine has an **Install**
+button in the picker. An unpublished one links to the hosted-skills page with
+"Publish this skill to install it." and has no button. A hosted skill whose
+name is already installed on the machine for a different agent is listed once,
+under the other agents, and has no Install button.
+
+Pressing **Install** first asks you to confirm what will be added and where.
+reet then asks the machine to preview the install and shows you the plan. Only
+a plan that adds nothing but that one skill offers **Approve and install** in
+the picker. Anything else, such as a replacement, a removal or another skill, is
+handed to the Sync page. The machine writes the files after you approve; nothing
+is written before that. The same steps work in the reet TUI and the agent TUI;
+in the agent TUI nothing is typed into the terminal.
+
+The skill goes into the session agent's own skills folder in the home
+directory (for Claude, the user-level folder), so it is available to every
+project on that machine. It is not written into the session's project folder.
+Only Claude, OpenCode, Cursor and `.agents` folders can be installed to. Codex
+and Cline sessions get a message saying the skill can't be installed from reet
+yet.
+
+**Cancel** before the install has run leaves the saved skill list as it was. An
+install that has started can't be cancelled.
+
+reet refuses the install, and says why, when:
+
+- the machine is not connected to reet;
+- reet has not scanned that skills folder recently;
+- the machine's skills follow another machine;
+- another install or sync job is waiting on that machine;
+- the skill is already installed there;
+- a different skill with the same name is already in the machine's saved list;
+- the skill is not published.
 
 ## Actions and keyboard
 

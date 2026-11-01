@@ -205,6 +205,11 @@ the status pill, the **Approvals** line and the context panel's decisions follow
   oldest first and says when earlier messages are no longer shown; an approval still waiting for an answer is never
   dropped. A continued chat replaying a long OpenCode history therefore stays responsive instead of building an
   unbounded page.
+- **Messages typed while it works are queued.** The composer stays usable during a turn: Enter queues the message
+  (with any images) instead of sending it, and the queue, at most ten items, sends one message as each turn finishes.
+  A queued item can be edited back into the composer or removed; a failed send stays put with **Retry**. The queue lives
+  only in the open chat and is never stored. Waiting for an approval or an answer holds the queue until the person has
+  answered.
 - **A control connection loss does not end a reet session.** The connector owns one process per reet session for the life of
   the agent process. A reconnect adopts the running sessions, includes them in reconciliation, and drains the bounded event
   queue produced while detached. Restarting the agent ends them; their stored OpenCode ids can still be reopened if that

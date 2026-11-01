@@ -107,7 +107,10 @@
   // A start in several projects keeps its one run request (request id and every field) the same way.
   let operation = $state<({ kind: 'one' } & LaunchCreate & { host: string }) | { kind: 'run'; body: SelectionRunRequest } | null>(null)
   // The account's Allow YOLO setting and the open confirmation. YOLO is never remembered by the browser.
+  // Choosing YOLO in the bar enables it for the next Start; only Start starts. A project's own default is
+  // preselected and confirmed when Start is pressed.
   let yoloSetting = $state<YoloSetting | null>(null), yoloOpen = $state(false)
+  let yoloIntent = $state<'enable' | 'start'>('enable'), yoloConfirmed = $state(false)
   const life = new AbortController()
   let form = $state<HTMLFormElement>(), field = $state<HTMLTextAreaElement>(), startButton = $state<HTMLButtonElement>()
   // The session screen's + arrives at /#launch: the prompt takes focus once the bar is ready, and the address forgets it.
@@ -128,6 +131,7 @@
       let next = initialChoice(projects!, profile, options)
       const p = initialProject && projects!.find(x => x.id === initialProject)
       if (p) { next = withProject(next, p, profile, options); named = p.id }
+      yoloConfirmed = false
       choice = next
     })
   })
@@ -192,6 +196,7 @@
     if (locked) { hint = busy || leaving ? 'Wait for the current start to finish.' : 'Finish or discard the current start first.'; return }
     const next = withProject(choice, project, profile, { machines: machines ?? [], favourites, explicitModel, explicitEffort })
     if (next.agent !== choice.agent) { explicitModel = false; explicitEffort = false }
+    yoloConfirmed = false
     choice = next
     message = ''
     void tick().then(() => field?.focus({ preventScroll: phone }))
@@ -207,6 +212,7 @@
   export async function startProject(project: FolderProject): Promise<boolean> {
     if (!choice) { hint = 'The bar is still opening. Choose the project again in a moment.'; return false }
     if (locked) { hint = busy || leaving ? 'Wait for the current start to finish.' : 'Finish or discard the current start first.'; return false }
+    yoloConfirmed = false
     choice = withProject(choice, project, profile)
     message = ''; hint = ''
     await tick()
@@ -228,6 +234,7 @@
       const next = withSelection(choice!, ids, projects!, profile, { machines: machines ?? [], favourites, explicitModel, explicitEffort })
       if (sameProjects(next, choice!)) return
       if (next.agent !== choice!.agent) { explicitModel = false; explicitEffort = false }
+      yoloConfirmed = false
       choice = next
       message = ''
     })
@@ -455,6 +462,8 @@
   // Why Start can't be pressed yet. Until the machines have been read nothing is checked, so nothing is sent.
   const reason = $derived(!choice || !projects ? '' : !machines ? 'Start waits until your machines have been read.' : startable(choice, projects, machines, profile))
   const locked = $derived(busy || leaving || operation !== null)
+  // The trust box is the one choice that stops a Gaffer start: say so beside the box, not only in the status line.
+  const trustMissing = $derived(!!choice?.chat && choice.agent === 'opencode' && choice.trust !== true)
   // Why YOLO cannot even open the dialog. A machine that refuses it is shown in the dialog instead.
   const yoloWhy = $derived.by(() => {
     if (!yoloSetting) return 'Reading the account setting…'
@@ -550,14 +559,15 @@
     else if (slot === 'model') { explicitModel = true; choice = { ...choice, model: value } }
     else if (slot === 'project') {
       if (value === ADD) { const opener = open?.opener; if (opener) onaddproject?.(opener); return }
-      if (value.startsWith(HOME)) { choice = withHome(choice, value.slice(HOME.length), profile, { favourites, explicitModel, explicitEffort }); return }
+      if (value.startsWith(HOME)) { yoloConfirmed = false; choice = withHome(choice, value.slice(HOME.length), profile, { favourites, explicitModel, explicitEffort }); return }
       const p = projects?.find(x => x.id === value)
       if (p) {
         const next = withProject(choice, p, profile, { machines: machines ?? [], favourites, explicitModel, explicitEffort })
         if (next.agent !== choice.agent) { explicitModel = false; explicitEffort = false }
+        yoloConfirmed = false
         choice = next
       }
-    } else if (slot === 'machine') choice = withHome(choice, value, profile, { favourites, explicitModel, explicitEffort })
+    } else if (slot === 'machine') { yoloConfirmed = false; choice = withHome(choice, value, profile, { favourites, explicitModel, explicitEffort }) }
     else if (slot === 'branch') choice = { ...choice, branch: value }
     else if (slot === 'worktree') choice = { ...choice, worktree: value === 'yes' }
     else if (slot === 'effort') { explicitEffort = true; choice = { ...choice, effort: value as LaunchChoice['effort'] } }
@@ -695,6 +705,17 @@
   const definite = (e: unknown) => e instanceof TerminalError && [400, 401, 403, 404, 409, 422].includes(e.status)
   async function start() {
     if (busy || leaving || !choice || !projects || life.signal.aborted) return
+    if (!operation && choice.approvals === 'yolo' && yoloWhy) {
+      // A rail card's + can reach Start without the button, so the reason is said here too.
+      failed = true; message = yoloWhy
+      return
+    }
+    if (!operation && choice.approvals === 'yolo' && !yoloConfirmed) {
+      // A project's default YOLO still needs this launch's confirmation; the dialog's button starts it.
+      yoloIntent = 'start'
+      yoloOpen = true
+      return
+    }
     if (!operation) {
       if (reason !== null) return
       if (imagesReason) { failed = true; message = imagesReason; return }
@@ -748,7 +769,7 @@
         leave(session, next)
         return
       }
-      choice = next; message = ''
+      choice = next; yoloConfirmed = false; message = ''
     } catch (e) {
       if (life.signal.aborted) return
       failed = true
@@ -945,16 +966,26 @@
   $effect(() => {
     const bar = form
     if (!bar) return
+    // The docked thing may be the bar itself, or the sticky Quick launch section that holds it.
+    // That section exists before it is opened, so it is watched from the start, not looked up once.
+    const details = bar.closest<HTMLDetailsElement>('details.quick-launch')
     const root = document.documentElement
     const fit = () => {
-      const below = parseFloat(getComputedStyle(bar).bottom) || 0
-      root.style.scrollPaddingBottom = `${Math.ceil(bar.getBoundingClientRect().height + below + 8)}px`
+      const dock = details && details.open ? details : bar
+      if (dock.getClientRects().length === 0) { root.style.removeProperty('scroll-padding-bottom'); return }
+      const below = parseFloat(getComputedStyle(dock).bottom) || 0
+      root.style.scrollPaddingBottom = `${Math.ceil(dock.getBoundingClientRect().height + below + 8)}px`
     }
     const watch = new ResizeObserver(fit)
     watch.observe(bar)
+    if (details) { watch.observe(details); details.addEventListener('toggle', fit) }
     addEventListener('resize', fit)
     fit()
-    return () => { watch.disconnect(); removeEventListener('resize', fit); root.style.removeProperty('scroll-padding-bottom') }
+    return () => {
+      watch.disconnect(); removeEventListener('resize', fit)
+      if (details) details.removeEventListener('toggle', fit)
+      root.style.removeProperty('scroll-padding-bottom')
+    }
   })
 
   async function loadYolo() {
@@ -962,20 +993,24 @@
   }
   function openYolo() {
     if (!choice || locked || yoloWhy) return
-    // The dialog decides; the radio stays on Ask me until Start with YOLO.
+    // The dialog decides; the radio stays on Ask me until the person confirms they want YOLO enabled.
+    yoloIntent = 'enable'
     choice = { ...choice, approvals: 'ask' }
     yoloOpen = true
   }
   function cancelYolo() {
     yoloOpen = false
-    if (choice) choice = { ...choice, approvals: 'ask' }
+    if (yoloIntent === 'enable' && choice) choice = { ...choice, approvals: 'ask' }
   }
-  async function startYolo() {
+  async function confirmYolo() {
     if (!choice || !yoloCanStart(yoloGateList)) return
+    const starting = yoloIntent === 'start'
     choice = { ...choice, approvals: 'yolo' }
+    yoloConfirmed = true
     yoloOpen = false
     await tick()
-    await start()
+    if (starting) await start()
+    else field?.focus()
   }
 
   onMount(() => {
@@ -1005,7 +1040,7 @@
   <div class="approvals" role="radiogroup" aria-label="Approvals">
     <span class="lead" aria-hidden="true">Approvals</span>
     <span class="segments">
-      <label class:on={choice?.approvals !== 'yolo'}><input type="radio" name={name} value="ask" checked={choice?.approvals !== 'yolo'} onchange={() => choice && (choice = { ...choice, approvals: 'ask' })} />Ask me</label>
+      <label class:on={choice?.approvals !== 'yolo'}><input type="radio" name={name} value="ask" checked={choice?.approvals !== 'yolo'} onchange={() => { if (choice) { yoloConfirmed = false; choice = { ...choice, approvals: 'ask' } } }} />Ask me</label>
       <label class:on={choice?.approvals === 'yolo'} class:off={!!yoloWhy} title={yoloWhy || 'Start only after a confirmation.'}>
         <input type="radio" name={name} value="yolo" checked={choice?.approvals === 'yolo'} disabled={locked || !!yoloWhy} onclick={(event) => { event.preventDefault(); openYolo() }} onchange={(event) => { (event.currentTarget as HTMLInputElement).checked = false; openYolo() }} aria-describedby={`${id}-${name}-why`} />YOLO
       </label>
@@ -1026,7 +1061,12 @@
         autocomplete="off" spellcheck="true"></textarea>
     </div>
     {#if choice?.chat && choice.agent === 'opencode'}
-      <label class="trust"><input type="checkbox" bind:checked={choice.trust} disabled={locked} /> I trust this folder; OpenCode plugins in <code>.opencode</code> may run.</label>
+      <label class="trust" class:missing={trustMissing}>
+        <input type="checkbox" bind:checked={choice.trust} disabled={locked} aria-invalid={trustMissing} aria-describedby={trustMissing ? `${id}-trust-why` : undefined} />
+        <span>I trust this folder; OpenCode plugins in <code>.opencode</code> may run.
+          {#if trustMissing}<span class="trust-why" id={`${id}-trust-why`} role="alert">Tick this box to start Gaffer.</span>{/if}
+        </span>
+      </label>
     {/if}
     {#if starter || choice?.prompt || runOpen || attachments.length}
       <div class="under">
@@ -1140,7 +1180,7 @@
 
 {#if yoloOpen && choice}
   <YoloDialog gates={yoloGateList} tool={choice.agent} structured={choice.chat === true} machine={hostOf(choice.projectIds.length === 0 ? (choice.homeMachine ?? '') : (picked[0]?.host ?? '')) || 'the machine'}
-    oncancel={cancelYolo} onstart={() => void startYolo()} />
+    enabling={yoloIntent === 'enable'} oncancel={cancelYolo} onstart={() => void confirmYolo()} />
 {/if}
 
 {#if run}
@@ -1200,6 +1240,8 @@
   .trust { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 0; font-size: .8rem; line-height: 1.4; color: var(--ink-soft); }
  .trust input { margin-top: 2px; }
  .trust code { font-size: .95em; }
+  .trust.missing { color: var(--bad); }
+  .trust-why { display: block; margin-top: 2px; font-weight: 600; }
  .titled { margin: 0; max-width: 100%; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .status { grid-column: 1 / -1; grid-row: 5; margin: 0; padding: 0 18px 12px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
   .status:empty { display: none; }

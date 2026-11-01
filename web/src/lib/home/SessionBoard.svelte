@@ -17,9 +17,13 @@
   import BoardIcon from './BoardIcon.svelte'
   import SessionActions from '../sessions/SessionActions.svelte'
 
-  let { userId, sessions, sessionsFailed = false, projects, machines, health, profile, now, initialProject = '', removeDefault = false, onchanged, onsignedout, onstarted }: {
+  let { userId, sessions, sessionsFailed = false, projects, machines, health, profile, now, initialProject = '', removeDefault = false,
+    scopeIds = undefined, scopeKind = undefined, scopeName = '', onclearscope,
+    onchanged, onsignedout, onstarted }: {
     userId: number; sessions: TerminalSession[] | undefined; sessionsFailed?: boolean; projects: FolderProject[]; machines: TerminalMachine[]
     health: MachineHealth[]; profile: LaunchDefaults; now: number; initialProject?: string; removeDefault?: boolean
+    /** The projects the board is narrowed to; undefined shows every project. */
+    scopeIds?: string[]; scopeKind?: 'project' | 'group'; scopeName?: string; onclearscope?: () => void
     onchanged: () => void | Promise<void>; onsignedout: () => void; onstarted?: (session: TerminalSession) => void
   } = $props()
   const id = $props.id()
@@ -40,7 +44,9 @@
   const machineNames = $derived(new Map(machines.map(m => [m.agentId, m.host])))
   const projectNames = $derived(new Map(projects.map(p => [p.id, p.name])))
   const all = $derived(boardItems(drafts ?? [], sessions ?? []))
-  const filtered = $derived(sortBoard(filterBoard(all, filters, { machines: machineNames, projects: projectNames }), sort))
+  // The rail's choice narrows the board before the filters do.
+  const scoped = $derived(scopeIds === undefined ? all : all.filter(item => scopeIds.includes(item.projectId || '')))
+  const filtered = $derived(sortBoard(filterBoard(scoped, filters, { machines: machineNames, projects: projectNames }), sort))
   const count = $derived(filterCount(filters))
   const hasFilters = $derived(count > 0 || !!filters.query.trim())
   const columns = $derived(STAGES.filter(stage => view === 'board' || stage.id === view))
@@ -76,6 +82,8 @@
     filters = { ...filters, [key]: filters[key].includes(value) ? filters[key].filter(v => v !== value) : [...filters[key], value] }
   }
   function clear() { filters = emptyFilters() }
+  // Reset from the scoped banner: back to every project and every session.
+  function resetScope() { clear(); onclearscope?.() }
   function closeFilters(focus = false) { filtersOpen = false; if (focus) filterButton?.focus() }
   function outside(e: PointerEvent) {
     if (filtersOpen && !filterPanel?.contains(e.target as Node) && !filterButton?.contains(e.target as Node)) closeFilters()
@@ -186,6 +194,15 @@
     </div>
     <div class="display"><label><span class="vh">Sort sessions</span><select bind:value={sort} onchange={preferences}><option value="newest">Recently updated</option><option value="oldest">Oldest first</option><option value="title">Title A–Z</option></select></label><button class="density" class:on={compact} aria-label="Compact cards" aria-pressed={compact} onclick={() => { compact = !compact; preferences() }}><span></span><span></span><span></span></button></div>
   </div>
+  {#if scopeIds !== undefined}
+    <div class="scope" role="status" aria-live="polite">
+      <span class="scope-mark"><BoardIcon name={scopeKind === 'group' ? 'folder' : 'board'} size={15} /></span>
+      <p><span class="scope-kind">{scopeKind === 'group' ? 'Group' : 'Project'}</span><strong>{scopeName}</strong><span class="scope-count">{scoped.length} {scoped.length === 1 ? 'session' : 'sessions'}</span></p>
+      <button type="button" class="scope-reset" onclick={resetScope} title="Show every project and clear filters">
+        <BoardIcon name="close" size={12} />Show everything
+      </button>
+    </div>
+  {/if}
   <div class="filterbar">
     <label class="search"><BoardIcon name="search" /><input type="search" bind:value={filters.query} placeholder="Find a session, prompt, folder…" aria-label="Search sessions" />{#if filters.query}<button aria-label="Clear search" onclick={() => filters.query = ''}><BoardIcon name="close" size={13}/></button>{/if}</label>
     <div class="filter-anchor">
@@ -200,7 +217,7 @@
         </div>
       {/if}
     </div>
-    <span class="result-count">{hasFilters ? `${filtered.length} of ${all.length}` : all.length} sessions</span>
+    <span class="result-count">{hasFilters || scopeIds !== undefined ? `${filtered.length} of ${scoped.length}` : all.length} sessions</span>
   </div>
   {#if hasFilters}<div class="chips">{#each chips as chip}<button onclick={() => toggle(chip.key, chip.value)}>{chip.label}<BoardIcon name="close" size={11} /></button>{/each}{#if filters.attention}<button onclick={() => filters.attention = false}>Needs attention<BoardIcon name="close" size={11}/></button>{/if}{#if filters.images}<button onclick={() => filters.images = false}>Has images<BoardIcon name="close" size={11}/></button>{/if}<button class="clear" onclick={clear}>Clear all</button></div>{/if}
   <div class="live" role="status">{#if notice}<p class="notice">{notice}</p>{/if}</div>
@@ -217,7 +234,7 @@
           {:else if stage.id === 'backlog' && drafts === undefined && !problem || stage.id !== 'backlog' && sessions === undefined}
             <div class="empty"><span class="empty-icon"><BoardIcon name="clock" size={24}/></span><strong>Reading your sessions…</strong></div>
           {:else if !items.length}
-            <div class="empty"><span class="empty-icon"><BoardIcon name={hasFilters ? 'search' : stage.id} size={26}/></span><strong>{hasFilters ? 'Nowt matches just yet.' : stage.id === 'backlog' ? 'Make room for your next idea.' : stage.id === 'active' ? 'Ready when you are.' : 'Good work will land here.'}</strong><p>{hasFilters ? 'Try another search or loosen your filters.' : stage.id === 'backlog' ? 'Save a clear prompt, pick an agent, and leave it ready for later.' : stage.id === 'active' ? 'Start one now, or from your backlog.' : 'Sessions move here when they end, with their history close at hand.'}</p>{#if hasFilters}<button onclick={clear}>Clear filters</button>{:else if stage.id === 'backlog'}<button onclick={e => composer = { draft: null, opener: e.currentTarget }}><BoardIcon name="plus" size={14}/>Plan a session</button>{:else if stage.id === 'active'}<button onclick={e => starting = { opener: e.currentTarget }}><BoardIcon name="plus" size={14}/>Start a session</button>{/if}</div>
+            <div class="empty"><span class="empty-icon"><BoardIcon name={hasFilters ? 'search' : stage.id} size={26}/></span><strong>{hasFilters ? 'Nowt matches just yet.' : scopeIds !== undefined ? `Nothing in ${scopeName} here yet.` : stage.id === 'backlog' ? 'Make room for your next idea.' : stage.id === 'active' ? 'Ready when you are.' : 'Good work will land here.'}</strong><p>{hasFilters ? 'Try another search or loosen your filters.' : scopeIds !== undefined ? 'Choose Show everything to see every project again.' : stage.id === 'backlog' ? 'Save a clear prompt, pick an agent, and leave it ready for later.' : stage.id === 'active' ? 'Start one now, or from your backlog.' : 'Sessions move here when they end, with their history close at hand.'}</p>{#if hasFilters}<button onclick={clear}>Clear filters</button>{:else if scopeIds !== undefined}<button onclick={resetScope}>Show everything</button>{:else if stage.id === 'backlog'}<button onclick={e => composer = { draft: null, opener: e.currentTarget }}><BoardIcon name="plus" size={14}/>Plan a session</button>{:else if stage.id === 'active'}<button onclick={e => starting = { opener: e.currentTarget }}><BoardIcon name="plus" size={14}/>Start a session</button>{/if}</div>
           {:else}
             {#each items as item (item.key)}
               {@const draft = item.draft}
@@ -273,6 +290,14 @@
   .display select { background: transparent; min-height: 34px; padding: 5px 20px 5px 7px; border-color: transparent; color: var(--muted); font-size: 11px; cursor: pointer; }
   .density { display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 32px; height: 32px; border: 1px solid var(--line); background: transparent; border-radius: 6px; cursor: pointer; }
   .density span { height: 1px; width: 14px; margin: 0 auto; background: var(--muted); }.density.on { background: var(--card); }
+  .scope { display: flex; align-items: center; gap: 11px; margin-top: 13px; padding: 10px 13px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line)); border-radius: 9px; background: var(--accent-wash); }
+  .scope-mark { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: var(--card); color: var(--accent-text); box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 7%, transparent); }
+  .scope p { display: flex; align-items: baseline; gap: 7px; min-width: 0; margin: 0; font-size: 12px; }
+  .scope-kind { flex: none; font-size: 9px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; color: var(--accent-text); }
+  .scope strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .scope-count { flex: none; color: var(--muted); }
+  .scope-reset { display: flex; align-items: center; gap: 5px; margin-left: auto; flex: none; min-height: 30px; padding: 4px 9px; border: 1px solid var(--line-mid); border-radius: 6px; background: var(--card); color: var(--ink-soft); font: 500 11px var(--sans); cursor: pointer; }
+  .scope-reset:hover { border-color: var(--muted); color: var(--ink); }
   .filterbar { display: flex; align-items: center; gap: 10px; padding: 17px 0; }
   .search { display: flex; align-items: center; gap: 8px; color: var(--muted); flex: 1; max-width: 360px; border: 1px solid var(--line); background: var(--card); border-radius: 7px; padding: 0 10px; }
   .search input { border: 0; min-height: 35px; padding: 7px 0; width: 100%; outline: 0; font-size: 12px; background: transparent; }
@@ -317,7 +342,7 @@
   @media (min-width: 1800px) { .session-card { padding: 17px; }h4 { font-size: 15px; }.prompt-preview { font-size: 12px; }.agent-meta, .machine-line, .age, .status { font-size: 11px; } }
   @media (max-width: 1400px) { .board { gap: 10px; }.stage { padding: 12px 8px 8px; }.session-card { padding: 11px; }.card-foot { flex-wrap: wrap; }.card-actions { gap: 9px; }.heading p span { display: none; } }
   @media (max-width: 850px) { .board { grid-template-columns: minmax(0, 1fr); gap: 18px; }.cards { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }.stage { min-height: 0; }.stage-hint { font-size: 11px; }.stage-head h3 { font-size: 14px; }.session-card h4 { font-size: 14px; }.agent-meta, .machine-line, .card-actions button, .status, .open-session, .age { font-size: 11px; }.card-actions button, .open-session { min-height: 30px; }.filter-panel { right: 0; width: min(480px, calc(100vw - 54px)); }.display select { max-width: 120px; }.viewbar { flex-wrap: wrap; }.views { flex: 1; }.display { margin-left: auto; } }
-  @media (max-width: 650px) { .heading { margin: 4px 0 24px; gap: 12px; align-items: start; }h2 { font-size: 27px; max-width: 220px; }.eyebrow { font-size: 8px; }.heading p { font-size: 11px; max-width: 190px; }.new-session { font-size: 0; width: 40px; height: 40px; padding: 0; margin-top: 23px; }.new-session :global(svg) { width: 20px; height: 20px; }.new-session::after { content: 'New'; font-size: 10px; }.new-session { width: auto; padding: 0 11px; }.views { gap: 1px; justify-content: space-between; width: 100%; }.views button { padding: 9px 6px; font-size: 11px; gap: 5px; min-height: 42px; }.views button :global(svg) { width: 14px; }.divider { margin: 0 2px; }.view-count { font-size: 9px; min-width: 14px; padding: 1px 2px; }.viewbar { gap: 9px; padding-bottom: 10px; }.display { width: 100%; justify-content: space-between; }.display select { max-width: none; padding-left: 0; font-size: 16px; }.filterbar { gap: 8px; padding: 13px 0; flex-wrap: wrap; }.search { max-width: none; min-width: 0; }.search input { min-height: 42px; font-size: 16px; }.filter-button { min-height: 44px; }.result-count { display: none; }.filter-panel { position: fixed; top: 15dvh; left: 16px; right: 16px; width: auto; max-height: 70dvh; box-sizing: border-box; }.filter-groups { gap: 16px; }.filter-groups label { padding: 9px 0; }.board-foot { align-items: start; font-size: 9px; }.board-foot span { max-width: 180px; }.board-foot span :global(svg) { flex-shrink: 0; }.focused .cards, .cards { grid-template-columns: minmax(0, 1fr); }.card-foot { flex-wrap: nowrap; }.empty { padding: 25px 12px; }.prompt-preview { font-size: 12px; } }
+  @media (max-width: 650px) { .scope { flex-wrap: wrap; padding: 10px 11px; } .scope p { flex-wrap: wrap; row-gap: 2px; } .scope-reset { margin-left: 0; width: 100%; justify-content: center; min-height: 40px; } .heading { margin: 4px 0 24px; gap: 12px; align-items: start; }h2 { font-size: 27px; max-width: 220px; }.eyebrow { font-size: 8px; }.heading p { font-size: 11px; max-width: 190px; }.new-session { font-size: 0; width: 40px; height: 40px; padding: 0; margin-top: 23px; }.new-session :global(svg) { width: 20px; height: 20px; }.new-session::after { content: 'New'; font-size: 10px; }.new-session { width: auto; padding: 0 11px; }.views { gap: 1px; justify-content: space-between; width: 100%; }.views button { padding: 9px 6px; font-size: 11px; gap: 5px; min-height: 42px; }.views button :global(svg) { width: 14px; }.divider { margin: 0 2px; }.view-count { font-size: 9px; min-width: 14px; padding: 1px 2px; }.viewbar { gap: 9px; padding-bottom: 10px; }.display { width: 100%; justify-content: space-between; }.display select { max-width: none; padding-left: 0; font-size: 16px; }.filterbar { gap: 8px; padding: 13px 0; flex-wrap: wrap; }.search { max-width: none; min-width: 0; }.search input { min-height: 42px; font-size: 16px; }.filter-button { min-height: 44px; }.result-count { display: none; }.filter-panel { position: fixed; top: 15dvh; left: 16px; right: 16px; width: auto; max-height: 70dvh; box-sizing: border-box; }.filter-groups { gap: 16px; }.filter-groups label { padding: 9px 0; }.board-foot { align-items: start; font-size: 9px; }.board-foot span { max-width: 180px; }.board-foot span :global(svg) { flex-shrink: 0; }.focused .cards, .cards { grid-template-columns: minmax(0, 1fr); }.card-foot { flex-wrap: nowrap; }.empty { padding: 25px 12px; }.prompt-preview { font-size: 12px; } }
   @media (max-width: 380px) { .views button:not(:first-child) :global(svg) { display: none; } }
   @media (prefers-reduced-motion: reduce) { .session-card { transition: none; } }
 </style>

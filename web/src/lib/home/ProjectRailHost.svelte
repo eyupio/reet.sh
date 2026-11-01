@@ -5,9 +5,11 @@
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import { addedLine } from '../folderBrowser'
   import type { ProjectColour } from '../projectColour'
-  import { deleteFolderProject, getFolderProject, importSavedProjects, refusalSentence, reorderFolderProjects, terminalMachines, updateFolderProject, TerminalError,
-    type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { createProjectGroup, deleteFolderProject, deleteProjectGroup, getFolderProject, importSavedProjects, refusalSentence, reorderFolderProjects,
+    reorderProjectGroups, setFolderProjectGroup, terminalMachines, updateFolderProject, updateProjectGroup, TerminalError,
+    type FolderProject, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import AddProjectDialog from './AddProjectDialog.svelte'
+  import ProjectGroupDialog from './ProjectGroupDialog.svelte'
   import ProjectRail from './ProjectRail.svelte'
   import ProjectWorktrees from './ProjectWorktrees.svelte'
 
@@ -16,10 +18,12 @@
   // desktop; the Sessions screen holds it on a tablet or phone (the phone rail, PR H). The page owns the list it read and is
   // handed every write's answer (`onsettle`), so a poll on its way never overwrites it; sentences go to the page's own live
   // region (`onnotice`). Nothing is stored in the browser.
-  let { projects, failed = false, savedWaiting = 0, sessions, sessionsFailed = false, reporting, running, known, worktrees, chosen = '',
-    selecting = false, selected = [], onselecting, ontoggle, onchoose, onnew, signal, onsettle, onwaiting, onmachines, onnotice, onreload, onsignedout,
-    variant = 'home', selectAction, rail = true }: {
+  let { projects, groups = undefined, failed = false, savedWaiting = 0, sessions, sessionsFailed = false, reporting, running, known, worktrees, chosen = '',
+    selecting = false, selected = [], onselecting, ontoggle, onchoose, onnew, signal, onsettle, onsettlegroups, onwaiting, onmachines, onnotice, onreload, onsignedout,
+    variant = 'home', selectAction, rail = true, userId = 0, scope = null, onscope, collapsed = false, oncollapsed }: {
     projects: FolderProject[] | undefined
+    /** The account's project groups, in rail order. */
+    groups?: ProjectGroup[] | undefined
     failed?: boolean
     savedWaiting?: number
     sessions: TerminalSession[] | undefined
@@ -40,6 +44,8 @@
     signal: () => AbortSignal
     /** A write's answer: the list as it now is. */
     onsettle: (projects: FolderProject[]) => void
+    /** A group write's answer: the groups as they now are. */
+    onsettlegroups?: (groups: ProjectGroup[]) => void
     onwaiting?: (count: number) => void
     /** The terminal machines read again for the folder dialog. */
     onmachines?: (machines: TerminalMachine[]) => void
@@ -52,6 +58,15 @@
     selectAction?: Snippet
     /** False where the page shows no rail (Home on a tablet or phone) but still adds projects (the launch bar's slot). */
     rail?: boolean
+    /** Whose rail this is: the collapse choice and folded groups are remembered for them. */
+    userId?: number
+    /** The project or group the board is showing, marked in the rail. */
+    scope?: { kind: 'project' | 'group'; id: string } | null
+    /** A card or group is chosen to say which sessions the board shows. Where absent, a card chooses the launch bar's project. */
+    onscope?: (scope: { kind: 'project' | 'group'; id: string } | null) => void
+    /** The user has folded the rail to its strip (desktop). */
+    collapsed?: boolean
+    oncollapsed?: (collapsed: boolean) => void
   } = $props()
 
   const refused = (e: unknown) => e instanceof UnauthorizedError || (e instanceof TerminalError && e.status === 401)
@@ -67,6 +82,9 @@
   let adding = $state<{ opener: HTMLElement | null; project?: FolderProject; host?: string } | null>(null)
   let removing = $state<{ opener: HTMLElement | null; project: FolderProject } | null>(null)
   let listing = $state<{ opener: HTMLElement | null; project: FolderProject } | null>(null)
+  let groupDialog = $state<{ opener: HTMLElement | null; group?: ProjectGroup } | null>(null)
+  let groupRemoving = $state<{ opener: HTMLElement | null; group: ProjectGroup } | null>(null)
+  let groupBusy = $state(false), arranging = $state(false), groupMoving = $state(false)
 
   // Read again on every open of Add project, never from an earlier one: a machine's browse capability can change while the
   // page stays open. `checking` stops a second open racing the first read.
@@ -140,7 +158,7 @@
     onnotice(null)
     moving = true
     try {
-      onsettle(await reorderFolderProjects(list.map(p => p.id), list.map(p => p.version), signal()))
+      onsettle(await reorderFolderProjects(list.map(p => p.id), list.map(p => p.version), undefined, signal()))
     } catch (e) {
       if (refused(e)) { signOut(); return }
       onnotice({ text: refusalSentence(e), bad: true })
@@ -178,6 +196,111 @@
       onreload()
     } finally { pending.delete(project.id) }
   }
+  const sortProjects = (list: FolderProject[]) => [...list].sort((a, b) => a.position - b.position)
+  const sortGroups = (list: ProjectGroup[]) => [...list].sort((a, b) => a.position - b.position)
+  function settleGroups(next: ProjectGroup[]) { onsettlegroups?.(sortGroups(next)) }
+  function openGroupAdd(opener: HTMLElement) { onnotice(null); groupDialog = { opener } }
+  function openGroupEdit(group: ProjectGroup, opener: HTMLElement) { onnotice(null); groupDialog = { opener, group } }
+  async function saveGroup(name: string, colour: string) {
+    if (!groupDialog || groupBusy) return
+    const target = groupDialog.group, opener = groupDialog.opener
+    groupBusy = true
+    try {
+      if (target) {
+        const saved = await updateProjectGroup(target.id, { name, colour }, target.version, signal())
+        settleGroups((groups ?? []).map(g => g.id === saved.id ? saved : g))
+        onnotice({ text: `Sorted. ${saved.name} saved.` })
+      } else {
+        const saved = await createProjectGroup({ name, colour }, signal())
+        settleGroups([...(groups ?? []), saved])
+        onnotice({ text: `Group “${saved.name}” is ready. Drag projects into it.` })
+      }
+      groupDialog = null
+      await tick()
+      opener?.focus()
+    } catch (e) {
+      if (refused(e)) { signOut(); return }
+      onnotice({ text: refusalSentence(e), bad: true })
+      if (e instanceof TerminalError && e.status === 404) onreload()
+    } finally { groupBusy = false }
+  }
+  async function removeGroup(group: ProjectGroup, opener: HTMLElement | null) {
+    if (groupMoving) return
+    groupMoving = true; onnotice(null)
+    try {
+      const answer = await deleteProjectGroup(group.id, group.version, signal())
+      settleGroups(answer)
+      // The projects stay in the rail; their cards lose the group at once.
+      onsettle((projects ?? []).map(p => p.groupId === group.id ? { ...p, groupId: '' } : p))
+      onnotice({ text: `Group “${group.name}” removed. Its projects stay in the rail.` })
+      await tick()
+      if (opener?.isConnected) opener.focus()
+    } catch (e) {
+      if (refused(e)) { signOut(); return }
+      onnotice({ text: refusalSentence(e), bad: true })
+      if (opener?.isConnected) opener.focus()
+      onreload()
+    } finally { groupMoving = false }
+  }
+  async function moveGroup(group: ProjectGroup, by: -1 | 1) {
+    if (groupMoving || groupBusy) return
+    const list = sortGroups(groups ?? [])
+    const at = list.findIndex(g => g.id === group.id), to = at + by
+    if (at < 0 || to < 0 || to >= list.length) return
+    ;[list[at], list[to]] = [list[to], list[at]]
+    groupMoving = true; onnotice(null)
+    try {
+      settleGroups(await reorderProjectGroups(list.map(g => g.id), list.map(g => g.version), signal()))
+    } catch (e) {
+      if (refused(e)) { signOut(); return }
+      onnotice({ text: refusalSentence(e), bad: true })
+      onreload()
+    } finally { groupMoving = false }
+  }
+  async function colourGroup(group: ProjectGroup, colour: string) {
+    if (groupMoving || (group.colour || '') === colour) return
+    const before = groups ?? []
+    settleGroups(before.map(g => g.id === group.id ? { ...g, colour } : g))
+    try {
+      const saved = await updateProjectGroup(group.id, { colour }, group.version, signal())
+      settleGroups((groups ?? []).map(g => g.id === saved.id ? saved : g))
+    } catch (e) {
+      settleGroups(before)
+      if (refused(e)) { signOut(); return }
+      onnotice({ text: refusalSentence(e), bad: true })
+      onreload()
+    }
+  }
+  // A drag's whole rail order: each project once, with its version and group.
+  async function arrange(order: { id: string; version: number; groupId: string }[]) {
+    if (arranging || moving || pending.size > 0 || groupMoving) return
+    if (!order.length) return
+    onnotice(null)
+    arranging = true
+    try {
+      settleProjects(await reorderFolderProjects(order.map(p => p.id), order.map(p => p.version), order.map(p => p.groupId), signal()))
+    } catch (e) {
+      if (refused(e)) { signOut(); return }
+      onnotice({ text: refusalSentence(e), bad: true })
+      onreload()
+    } finally { arranging = false }
+  }
+  function settleProjects(next: FolderProject[]) { onsettle(sortProjects(next)) }
+  async function moveToGroup(project: FolderProject, groupId: string) {
+    if (pending.has(project.id) || (project.groupId ?? '') === groupId) return
+    pending.add(project.id); onnotice(null)
+    const before = projects ?? []
+    onsettle(before.map(p => p.id === project.id ? { ...p, groupId } : p))
+    try {
+      await setFolderProjectGroup(project.id, groupId, signal())
+    } catch (e) {
+      onsettle(before)
+      if (refused(e)) { signOut(); return }
+      onnotice({ text: refusalSentence(e), bad: true })
+      onreload()
+    } finally { pending.delete(project.id) }
+  }
+
   // The saved Project folders that waited for room come in only when the person asks; the answer is said as it came.
   async function bringIn() {
     if (importing) return
@@ -194,10 +317,23 @@
   }
 </script>
 
-{#if rail}<ProjectRail {projects} {failed} {reporting} {running} {known} {worktrees} {savedWaiting} {chosen} busy={checking} {importing} {pending} {moving}
-  {selecting} {selected} {onselecting} {ontoggle} {variant} {selectAction}
+{#if rail}<ProjectRail {projects} {groups} {failed} {reporting} {running} {known} {worktrees} {savedWaiting} {chosen} busy={checking} {importing} {pending} {moving}
+  {selecting} {selected} {onselecting} {ontoggle} {variant} {selectAction} {userId} {scope} {onscope} {collapsed} {oncollapsed}
   {onnew} onadd={(opener) => void openAdd(opener)} {onchoose} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
-  onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} oncolour={colour} />{/if}
+  onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} oncolour={colour}
+  onarrange={(order) => void arrange(order)} ongroupadd={openGroupAdd} ongroupedit={openGroupEdit}
+  ongroupremove={(group, opener) => (groupRemoving = { group, opener })} ongroupmove={moveGroup} ongroupcolour={colourGroup} ongroupmovebusy={groupMoving}
+  onmovetogroup={(project, groupId) => void moveToGroup(project, groupId)} />>{/if}
+{#if groupDialog}
+  <ProjectGroupDialog group={groupDialog.group} busy={groupBusy} onsave={(name, colour) => void saveGroup(name, colour)}
+    onclose={() => { const opener = groupDialog?.opener; groupDialog = null; opener?.focus() }} />
+{/if}
+{#if groupRemoving}
+  {@const g = groupRemoving.group}
+  <ConfirmDialog title={`Remove group “${g.name}”?`} body="The group leaves the rail. Its projects stay, ungrouped, and nothing on your machines changes."
+    confirmLabel="Remove group" danger onconfirm={() => { const target = g, opener = groupRemoving?.opener ?? null; groupRemoving = null; void removeGroup(target, opener) }}
+    oncancel={() => { const o = groupRemoving?.opener; groupRemoving = null; o?.focus() }} />
+{/if}
 
 {#if adding && terminals}
   {@const wasEdit = !!adding.project}

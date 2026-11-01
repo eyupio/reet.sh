@@ -193,6 +193,39 @@ try {
   await expect.poll(() => state.cancelled).toBe(true)
   await page.evaluate(() => window.__chatStream.emit('chat', { seq: 8, kind: 'status', state: 'cancelled' }))
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+
+  // While OpenCode works the composer queues a message instead of sending it; the queue is visible, editable and removable,
+  // and sends one message when the turn finishes.
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 8.1, kind: 'status', state: 'working' }))
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+  const chatBox = page.getByRole('textbox', { name: 'Message OpenCode' })
+  await chatBox.fill('steer the work toward the smaller fix')
+  await page.getByRole('button', { name: 'Queue', exact: true }).click()
+  const queue = page.getByRole('region', { name: 'Queued messages' })
+  await expect(queue).toBeVisible()
+  await expect(queue.locator('.queue-list li')).toHaveCount(1)
+  await expect(queue).toContainText('steer the work toward the smaller fix')
+  await page.getByRole('button', { name: /^Edit queued message/ }).click()
+  await expect(chatBox).toHaveValue('steer the work toward the smaller fix')
+  await expect(queue).toHaveCount(0)
+  await page.getByRole('button', { name: 'Queue', exact: true }).click()
+  await expect(queue.locator('.queue-list li')).toHaveCount(1)
+  state.prompt = null
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 8.2, kind: 'status', state: 'idle' }))
+  await expect.poll(() => state.prompt).toEqual({ text: 'steer the work toward the smaller fix' })
+  await expect(queue).toHaveCount(0)
+  // A queued message can be removed instead of sent.
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 8.3, kind: 'status', state: 'working' }))
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+  await chatBox.fill('this one will be removed')
+  await page.getByRole('button', { name: 'Queue', exact: true }).click()
+  await expect(queue.locator('.queue-list li')).toHaveCount(1)
+  await page.getByRole('button', { name: /^Remove queued message/ }).click()
+  await expect(queue).toHaveCount(0)
+  state.prompt = null
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 8.4, kind: 'status', state: 'idle' }))
+  await page.waitForTimeout(250)
+  expect(state.prompt).toBeNull()
   expect(state.create).toMatchObject({ structured: true, trust: true, tool: 'opencode', model: 'anthropic/claude-sonnet-4-5', prompt: 'fix the failing build' })
   expect(state.create.effort).toBeUndefined()
 
@@ -883,7 +916,7 @@ try {
   expect(state.resume.prompt).toBeUndefined()
   expect(state.resume.model).toBe('anthropic/claude-sonnet-4-5')
   expect(errors).toEqual([])
-  console.log('Structured OpenCode chat UI passed: the dialog offers Gaffer for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens Gaffer with the OpenCode TUI disabled and its reason (the machine predates session-mode-v1), agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id and cannot switch TUI; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet, with tablet and dark-mode passes that keep it inside the viewport and readable; a published reet-hosted skill installs from the picker through confirm, wait, review, approve (only for a plain add), install and done, with cancel, retry, refusals and a phone fit.')
+  console.log('Structured OpenCode chat UI passed: the dialog offers Gaffer for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens Gaffer with the OpenCode TUI disabled and its reason (the machine predates session-mode-v1), agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, messages queue while it works and send when the turn ends, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id and cannot switch TUI; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet, with tablet and dark-mode passes that keep it inside the viewport and readable; a published reet-hosted skill installs from the picker through confirm, wait, review, approve (only for a plain add), install and done, with cancel, retry, refusals and a phone fit.')
 } finally {
   await context.close()
   await browser.close()

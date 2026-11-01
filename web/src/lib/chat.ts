@@ -530,3 +530,32 @@ export function proseBlocks(text: string): ProseBlock[] {
   flushParagraph(); flushList()
   return out
 }
+
+/**
+ * Messages kept while the agent works, sent one at a time when its turn finishes. The queue lives only in the
+ * open chat: it is never stored, and an item's payload (its attachments) belongs to the person's session.
+ */
+export type QueuedPrompt<T = unknown> = { id: string; text: string; payload: T }
+export const MAX_QUEUED_PROMPTS = 10
+
+/** Add a message to the end of the queue. A full queue leaves it untouched and says so. */
+export function enqueuePrompt<T>(queue: readonly QueuedPrompt<T>[], item: QueuedPrompt<T>, max = MAX_QUEUED_PROMPTS): { queue: QueuedPrompt<T>[]; full: boolean } {
+  if (queue.length >= max) return { queue: [...queue], full: true }
+  return { queue: [...queue, item], full: false }
+}
+
+export function dropQueuedPrompt<T>(queue: readonly QueuedPrompt<T>[], id: string): QueuedPrompt<T>[] {
+  return queue.filter(item => item.id !== id)
+}
+
+/** Change a queued message's text in place; an empty message is refused, so the queue never holds nothing to send. */
+export function editQueuedPrompt<T>(queue: readonly QueuedPrompt<T>[], id: string, text: string): QueuedPrompt<T>[] {
+  if (!text.trim()) return [...queue]
+  return queue.map(item => item.id === id ? { ...item, text } : item)
+}
+
+/** Put an item back at the front (a retry), keeping every other item's order. */
+export function promoteQueuedPrompt<T>(queue: readonly QueuedPrompt<T>[], id: string): QueuedPrompt<T>[] {
+  const item = queue.find(entry => entry.id === id)
+  return item ? [item, ...queue.filter(entry => entry.id !== id)] : [...queue]
+}

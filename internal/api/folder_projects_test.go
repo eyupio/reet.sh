@@ -94,7 +94,7 @@ func TestFolderProjectCreateReadUpdateDelete(t *testing.T) {
 	f := projectFixture(t)
 	created := f.fpCreate(t, nil)
 	id, _ := created["id"].(string)
-	want := []string{"baseBranch", "colour", "createdAt", "defaultEffort", "defaultModel", "defaultTool", "dir", "hasStarterPrompt", "host", "id", "isRepo", "machine", "name", "note", "position", "updatedAt", "version", "worktreeDefault"}
+	want := []string{"baseBranch", "colour", "createdAt", "defaultEffort", "defaultModel", "defaultTool", "defaultYolo", "dir", "hasStarterPrompt", "host", "id", "isRepo", "machine", "name", "note", "position", "updatedAt", "version", "worktreeDefault"}
 	if got := keysOf(created); !reflect.DeepEqual(got, want) {
 		t.Fatal("project keys", got)
 	}
@@ -112,12 +112,12 @@ func TestFolderProjectCreateReadUpdateDelete(t *testing.T) {
 		t.Fatal("single read", one.code, one.header, one.raw)
 	}
 	// Absent keeps a field; "" clears a text field.
-	res := f.fpDo(t, f.cookie, "PATCH", "/api/v2/folder-projects/"+id, map[string]any{"name": "Site front", "colour": "blue"}, `"1"`)
-	if res.code != 200 || res.out["name"] != "Site front" || res.out["colour"] != "blue" || res.out["hasStarterPrompt"] != true || res.out["baseBranch"] != "main" || res.header.Get("ETag") != `"2"` {
+	res := f.fpDo(t, f.cookie, "PATCH", "/api/v2/folder-projects/"+id, map[string]any{"name": "Site front", "colour": "blue", "defaultYolo": true}, `"1"`)
+	if res.code != 200 || res.out["name"] != "Site front" || res.out["colour"] != "blue" || res.out["defaultYolo"] != true || res.out["hasStarterPrompt"] != true || res.out["baseBranch"] != "main" || res.header.Get("ETag") != `"2"` {
 		t.Fatal("rename", res.code, res.raw)
 	}
-	res = f.fpDo(t, f.cookie, "PATCH", "/api/v2/folder-projects/"+id, map[string]any{"starterPrompt": "", "baseBranch": "", "colour": "", "worktreeDefault": "inherit", "dir": "/home/tester/site/web/"}, `"2"`)
-	if res.code != 200 || res.out["hasStarterPrompt"] != false || res.out["baseBranch"] != "" || res.out["colour"] != "" || res.out["worktreeDefault"] != "inherit" || res.out["dir"] != "/home/tester/site/web" {
+	res = f.fpDo(t, f.cookie, "PATCH", "/api/v2/folder-projects/"+id, map[string]any{"starterPrompt": "", "baseBranch": "", "colour": "", "worktreeDefault": "inherit", "defaultYolo": false, "dir": "/home/tester/site/web/"}, `"2"`)
+	if res.code != 200 || res.out["defaultYolo"] != false || res.out["hasStarterPrompt"] != false || res.out["baseBranch"] != "" || res.out["colour"] != "" || res.out["worktreeDefault"] != "inherit" || res.out["dir"] != "/home/tester/site/web" {
 		t.Fatal("clear", res.code, res.raw)
 	}
 	saved, err := f.st.FolderProjectFor(f.uid, id)

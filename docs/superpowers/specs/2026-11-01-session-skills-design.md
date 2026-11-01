@@ -4,8 +4,8 @@ Status: draft for review. Nothing here is built.
 
 ## Goal
 
-From inside an active session, a person can find a skill and put a short invocation of it into that session, by typing `/`
-at the start of the input or pressing **+ Skills**. It works in both session kinds:
+From inside an active session, a person can find a skill and put a short invocation of it into that session, by pressing
+**+ Skills** or, in the reet TUI only, by typing `/` at the start of the composer. It works in both session kinds:
 
 - the **reet TUI** (the structured chat, `ChatPane.svelte`), and
 - the **agent TUI** (the terminal, `TerminalPane.svelte`).
@@ -64,7 +64,10 @@ Groups in the picker follow the fields: native on this machine, other agents on 
 
 ### Invocation text
 
-`invocation` is produced by one pure function (`skillInvocation(agent, skill)`), so both TUIs and the tests share it.
+`invocation` is produced on the server by one pure function (`skillInvocation(agent, name)`), so both TUIs insert exactly what
+the server said and the rule is tested in one place. An invocation is always a single line of printable characters: a skill
+whose name is empty, has control characters or is longer than 80 characters gets an empty `invocation` and is listed but not
+insertable, because text with a newline typed into a terminal would run.
 
 - Default for every agent: `Use the {name} skill.`
 - A per-agent override table for agents that have a slash or mention syntax for skills (for example `/{name}`). **The table
@@ -75,8 +78,9 @@ Groups in the picker follow the fields: native on this machine, other agents on 
 
 One shared Svelte component, `SkillPicker.svelte`, used by both TUIs.
 
-- Opened by **+ Skills** (a button beside the composer's Attach button, and in the terminal toolbar) or by typing `/` as the
-  first character of the composer.
+- Opened by **+ Skills** (a button beside the composer's Attach button, and in the terminal toolbar) or, in the reet TUI only,
+  by typing `/` as the first character of the composer. The agent TUI has no `/` trigger: the agent owns that key and its own
+  slash commands must keep working.
 - A filter box, the three groups above, and a source label on each row. A skill not on the machine shows "reet-hosted ·
   not on this machine" and is not insertable in Phase 1.
 - Keyboard: arrows move, Enter inserts, Escape closes and returns focus to where it came from. On a phone it opens as the
@@ -109,14 +113,16 @@ Phase 1.
 
 - Go: the catalogue handler, covering a session on a machine with skills for several agents, a machine with none, a machine
   that has not been scanned, and a session on a machine that does not match any scan host.
-- Unit (node): `skillInvocation` for each agent, catalogue grouping and ordering, and the `/` trigger rules (only as the first
-  character, not inside a path or a URL).
+- Go: `skillInvocation`, including a name with a newline or control character getting no invocation.
+- Unit (node): grouping and filtering, the `/` trigger rules (only as the first character, not inside a path or a URL), and
+  applying an invocation to a draft without passing the 2,000-character cap.
 - Playwright: the picker in both TUIs, with keyboard and pointer, at desktop, tablet and phone width, in light and dark; the
   inserted text; and that nothing is sent without Enter.
 
 ## Open questions for the plan
 
 1. The slash or mention syntax each supported agent uses for skills, to fill the override table.
+   The shared `.agents/skills` folder counts as native for every agent until a check shows an agent that does not read it.
 2. How a terminal session's `agentId` maps to a scan `host` when a machine has been renamed or merged
    (`/api/v2/environments/merge` exists), and what the picker says when it cannot.
 3. How fresh the machine's skill list is: the scan runs periodically, so a skill added minutes ago may be missing. The picker

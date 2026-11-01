@@ -704,6 +704,33 @@ try {
   await context.close()
  }
 
+ // D4: on a phone the switch is in the actions menu: a disabled one stays in the menu with its reason as its description,
+ // and choosing it does nothing.
+ if (run('phone actions menu says why the switch is disabled')) {
+  const {context,page,errors,box} = await open({width:390, height:844, touch:true, sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines()})
+  await page.goto(`${base}/sessions?agent=a1&session=s7`)
+  await screen(page).getByRole('button',{name:'Session actions'}).click()
+  const item = page.getByRole('menuitem',{name:'Switch to the reet TUI…'})
+  await expect(item).toHaveAttribute('aria-disabled','true')
+  await expect(item).toHaveAccessibleDescription('This session started in the OpenCode TUI, so the reet TUI cannot pick up its conversation.')
+  await item.click({force:true})
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  // The menu stays open on it: a disabled item does nothing at all.
+  await expect(item).toBeVisible()
+  await page.keyboard.press('Escape')
+  // One that can switch is offered without a description.
+  await page.goto(`${base}/sessions?agent=a1&session=s8`)
+  await screen(page).getByRole('button',{name:'Session actions'}).click()
+  const offered = page.getByRole('menuitem',{name:'Switch to the reet TUI…'})
+  await expect(offered).not.toHaveAttribute('aria-disabled','true')
+  await expect(offered).toHaveAccessibleDescription('')
+  await offered.click()
+  await expect(page.getByRole('alertdialog',{name:'Switch to the reet TUI?'})).toBeVisible()
+  expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('toggle switches a live chat to the OpenCode TUI and back')) {
   const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
   // The switch is held until the test lets it finish, as the machine takes its time stopping one process and starting the other.

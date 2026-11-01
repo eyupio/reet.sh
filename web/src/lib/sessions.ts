@@ -224,6 +224,14 @@ export function switchModeState(session: TerminalSession, caps: Capabilities | u
   return { to, enabled: true, why: '' }
 }
 
+/** Why the switch cannot be used now, for its title and accessible description: a switch already running (named by the TUI it
+ *  goes to), else switchModeState's reason, else another action holding the session (actionBusy). Empty only when it can. */
+export function switchWhy(state: { why: string }, switchingTo: string | undefined, actionBusy: boolean): string {
+  if (switchingTo) return `Switching to the ${switchingTo}…`
+  if (state.why) return state.why
+  return actionBusy ? 'Another action on this session is running.' : ''
+}
+
 /** The context panel's changed files (R19): the first twenty paths the worktree status lists, the total, and how many more. */
 export function changedList(status: { changed: number; paths: string[] }): { shown: string[]; total: number; more: number } {
   const shown = (status.paths ?? []).slice(0, 20)

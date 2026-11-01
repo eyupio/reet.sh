@@ -13,7 +13,7 @@ const home = asURL(compile('./home.ts'))
 const colour = asURL(compile('./projectColour.ts'))
 const api = asURL(compile('./terminal/api.ts'))
 const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './catalogue'", `from '${catalogue}'`).replace("from './projectColour'", `from '${colour}'`).replaceAll("from './terminal/api'", `from '${api}'`)
-const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList, switchModeState } = await import(asURL(source))
+const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList, switchModeState, switchWhy } = await import(asURL(source))
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000
@@ -238,4 +238,14 @@ test('switchModeState: the inactive TUI button, enabled or with the reason it is
     ['a plain shell has no reet TUI', { ...started, tool: undefined }, caps, false, { to: 'chat', enabled: false, why: 'The reet TUI is for a structured OpenCode session.' }],
   ]
   for (const [name, s, c, busy, want] of rows) assert.deepEqual(switchModeState(s, c, busy), want, name)
+})
+
+test('switchWhy: the switch always says why it cannot be used now', () => {
+  const off = { to: 'terminal', enabled: false, why: 'Only a running session can switch.' }
+  const on = { to: 'terminal', enabled: true, why: '' }
+  assert.equal(switchWhy(on, 'OpenCode TUI', false), 'Switching to the OpenCode TUI…')
+  assert.equal(switchWhy(off, 'OpenCode TUI', true), 'Switching to the OpenCode TUI…')
+  assert.equal(switchWhy(off, undefined, true), 'Only a running session can switch.')
+  assert.equal(switchWhy(on, undefined, true), 'Another action on this session is running.')
+  assert.equal(switchWhy(on, undefined, false), '')
 })

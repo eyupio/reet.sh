@@ -5,7 +5,7 @@
   import WorktreeDialog from '../WorktreeDialog.svelte'
   import { fleetCards, stateWord, type FleetCard } from '../home'
   import type { RunMember } from '../projects'
-  import { headerMeta, offlineSentence, switchModeState, tabFromMenu, worktreeTargetOf } from '../sessions'
+  import { headerMeta, offlineSentence, switchModeState, switchWhy, tabFromMenu, worktreeTargetOf } from '../sessions'
   import { toolName } from '../agentLaunch'
   import { CATALOGUE } from '../catalogue'
   import YoloDialog from '../launch/YoloDialog.svelte'
@@ -127,7 +127,7 @@
   const switchState = $derived(switchModeState(session, machineCaps, chatIsBusy))
   const tuiName = (to: 'terminal' | 'chat') => to === 'chat' ? 'reet TUI' : terminalLabel
   const canSwitch = $derived(switchState.enabled && !modeSwitching && !busy)
-  const switchWhy = $derived(switching[session.id] ? `Switching to the ${tuiName(switching[session.id])}…` : switchState.why)
+  const whyNot = $derived(switchWhy(switchState, switching[session.id] ? tuiName(switching[session.id]) : undefined, busy))
   function openSwitch(opener: HTMLElement | null) {
     if (!canSwitch) return
     switchOpener = opener
@@ -280,13 +280,13 @@
       <!-- The pressed button is the TUI shown; the other switches to it (aria-disabled with its reason when it cannot now). -->
       <div class="view" role="group" aria-label="View" aria-busy={modeSwitching}>
         <button type="button" class="chat" aria-pressed={chatView} aria-disabled={chatView ? modeSwitching || undefined : !canSwitch}
-          aria-describedby={!chatView && !canSwitch ? `${id}-switch-why` : undefined} title={!chatView && !canSwitch ? switchWhy : undefined}
+          aria-describedby={!chatView && !canSwitch ? `${id}-switch-why` : undefined} title={!chatView && !canSwitch ? whyNot : undefined}
           onclick={event => { if (!chatView) openSwitch(event.currentTarget) }}>reet TUI</button>
         <button type="button" aria-pressed={!chatView} aria-disabled={chatView ? !canSwitch : modeSwitching || undefined}
-          aria-describedby={chatView && !canSwitch ? `${id}-switch-why` : undefined} title={chatView && !canSwitch ? switchWhy : undefined}
+          aria-describedby={chatView && !canSwitch ? `${id}-switch-why` : undefined} title={chatView && !canSwitch ? whyNot : undefined}
           onclick={event => { if (chatView) openSwitch(event.currentTarget) }}>{terminalLabel}</button>
       </div>
-      <span class="vh" id={`${id}-switch-why`}>{switchWhy}</span>
+      <span class="vh" id={`${id}-switch-why`}>{whyNot}</span>
       <button type="button" class="details" bind:this={detailsButton} aria-expanded={detailsOpen} aria-controls={`${id}-context`} onclick={() => void toggleDetails()} onkeydown={closeDetails}>Details</button>
       <button type="button" class="more" bind:this={menuButton} aria-label="Session actions" aria-haspopup="menu" aria-expanded={menuAt !== null}
         onclick={event => { if (menuAt) closeMenu(); else void openMenu(event) }} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event) }}>
@@ -313,7 +313,9 @@
     {#if onterminal}<button role="menuitem" disabled={busy} onclick={openTerminal}>Open a terminal here…</button>{/if}
     {#if onside}<button role="menuitem" disabled={busy} onclick={openSideTerminal}>Open a terminal beside this session…</button>{/if}
     {#if live && session.tool === 'opencode'}
-      <button role="menuitem" disabled={!canSwitch} title={canSwitch ? undefined : switchWhy} onclick={() => { closeMenu(false); openSwitch(menuButton ?? null) }}>Switch to the {tuiName(switchState.to)}…</button>
+      <!-- aria-disabled with its reason, as the header's pair: it stays in the menu, and choosing it does nothing. -->
+      <button role="menuitem" aria-disabled={!canSwitch} aria-describedby={canSwitch ? undefined : `${id}-switch-why`} title={canSwitch ? undefined : whyNot}
+        onclick={() => { if (!canSwitch) return; closeMenu(false); openSwitch(menuButton ?? null) }}>Switch to the {tuiName(switchState.to)}…</button>
     {/if}
     {#if canSwitchApproval}
       <button role="menuitem" disabled={busy || modeBusy} onclick={() => { closeMenu(false); if (approvalMode === 'yolo') askMode(); else yoloMode() }}>{approvalMode === 'yolo' ? 'Switch to Ask me' : 'Turn on YOLO…'}</button>
@@ -389,8 +391,8 @@
   .stage { min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line-soft); }
   .menu { position: fixed; z-index: 110; width: 240px; max-height: calc(100dvh - 16px); overflow: auto; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
   .menu [role=menuitem] { display: block; min-height: 36px; padding: 8px 9px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 400 14px var(--sans); text-align: left; cursor: pointer; }
-  .menu [role=menuitem]:hover:not(:disabled), .menu [role=menuitem]:focus-visible { background: var(--tint); outline: none; }
-  .menu [role=menuitem]:disabled { opacity: .45; cursor: default; }
+  .menu [role=menuitem]:hover:not(:disabled):not([aria-disabled=true]), .menu [role=menuitem]:focus-visible { background: var(--tint); outline: none; }
+  .menu [role=menuitem]:disabled, .menu [role=menuitem][aria-disabled=true] { opacity: .45; cursor: default; }
   .menu .danger { color: var(--bad); }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   @media (pointer: coarse) { .menu [role=menuitem] { min-height: 44px; } .more { width: 44px; height: 44px; } .view button, .approvals button { min-height: 44px; } }

@@ -138,18 +138,32 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 	}
 	// An explicit per-skill install may supplement a list or machine source
 	// with a skill on this account's shelf. Shared source lists are unchanged.
-	if !in.FollowSource && source != "shelf" {
-		shelf, e := s.SyncCandidatesFor(uid, role, 0)
-		if e != nil {
-			return e
-		}
+	if !in.FollowSource {
 		seen := map[string]bool{}
 		for _, sk := range candidates {
 			seen[sk.ID] = true
 		}
-		for _, sk := range shelf {
-			if !seen[sk.ID] {
-				candidates = append(candidates, sk)
+		add := func(list []SyncSkill) {
+			for _, sk := range list {
+				if !seen[sk.ID] {
+					seen[sk.ID] = true
+					candidates = append(candidates, sk)
+				}
+			}
+		}
+		if source != "shelf" {
+			shelf, e := s.SyncCandidatesFor(uid, role, 0)
+			if e != nil {
+				return e
+			}
+			add(shelf)
+		}
+		// A hosted skill installed from a session's skill picker sits in any
+		// saved set, so re-saving the set must accept it. Best effort: without
+		// a usable origin nothing is added and the save works as before.
+		if source != "hosted" && in.Origin != "" {
+			if hosted, e := s.SyncHostedFor(uid, in.Origin); e == nil {
+				add(hosted)
 			}
 		}
 	}
@@ -451,8 +465,15 @@ func (s *Store) ControlSyncAgent(uid int64, id, action string) error {
 		_, err := s.db.Exec(`UPDATE sync_agents SET auto_update=? WHERE id=? AND user_id=?`, action == "auto-update-on", id, uid)
 		return err
 	case "revoke":
-		_, err := s.db.Exec(`DELETE FROM sync_agents WHERE id=? AND user_id=?`, id, uid)
-		return err
+		// Revoking deletes the machine's jobs; an install waiting among them
+		// is cancelled first so its skill leaves the saved set.
+		return s.withTx(func(tx *sql.Tx) error {
+			if err := endSyncJobsTx(tx, "cancelled", "Machine enrollment revoked.", `j.agent_id=? AND j.user_id=? AND j.status IN ('queued','running','awaiting-approval')`, id, uid); err != nil {
+				return err
+			}
+			_, err := tx.Exec(`DELETE FROM sync_agents WHERE id=? AND user_id=?`, id, uid)
+			return err
+		})
 	}
 	return errors.New("unknown machine action")
 }
@@ -469,7 +490,7 @@ func scanJob(row interface{ Scan(...any) error }) (SyncJob, error) {
 const jobCols = `id,agent_id,target_id,kind,status,revision,plan,hash,message,stage,stages,created_at,updated_at`
 
 func (s *Store) SyncJobsFor(uid int64) ([]SyncJob, error) {
-	if _, err := s.db.Exec(`UPDATE sync_jobs SET status='failed',message=CASE WHEN kind='update' THEN 'The machine did not report back. It may still be restarting; check its build and try again.' ELSE 'Agent disconnected or timed out; inspect local files and preview again.' END,updated_at=? WHERE user_id=? AND status='running' AND updated_at<?`, now(), uid, time.Now().Add(-10*time.Minute).UnixMilli()); err != nil {
+	if err := s.withTx(func(tx *sql.Tx) error { return reapStaleSyncJobsTx(tx, `j.user_id=?`, uid) }); err != nil {
 		return nil, err
 	}
 
@@ -538,7 +559,10 @@ func (s *Store) ControlSyncJob(uid int64, id, action, hash string) error {
 			if j.Status != "queued" && j.Status != "awaiting-approval" {
 				return errors.New("job already finished")
 			}
-			_, err = tx.Exec(`UPDATE sync_jobs SET status='cancelled',updated_at=? WHERE id=?`, now(), id)
+			if _, err = tx.Exec(`UPDATE sync_jobs SET status='cancelled',updated_at=? WHERE id=?`, now(), id); err != nil {
+				return err
+			}
+			_, err = revertInstallTx(tx, id)
 			return err
 		}
 		if action != "approve" || j.Status != "awaiting-approval" || hash == "" || hash != j.Hash {
@@ -559,7 +583,7 @@ func (s *Store) ClaimSyncJob(uid int64, a SyncAgent) (*SyncJob, error) {
 	var job *SyncJob
 	err := s.withTx(func(tx *sql.Tx) error {
 		// Expired work is never replayed automatically: it may have partially applied.
-		_, err := tx.Exec(`UPDATE sync_jobs SET status='failed',message=CASE WHEN kind='update' THEN 'The machine did not report back. It may still be restarting; check its build and try again.' ELSE 'Agent disconnected or timed out; inspect local files and preview again.' END,updated_at=? WHERE agent_id=? AND status='running' AND updated_at<?`, now(), a.ID, time.Now().Add(-10*time.Minute).UnixMilli())
+		err := reapStaleSyncJobsTx(tx, `j.agent_id=?`, a.ID)
 		if err != nil {
 			return err
 		}
@@ -578,8 +602,7 @@ func (s *Store) ClaimSyncJob(uid int64, a SyncAgent) (*SyncJob, error) {
 			var revision, host string
 			err = tx.QueryRow(`SELECT t.revision,e.host FROM sync_targets t JOIN environments e ON e.id=t.target_id WHERE t.user_id=? AND t.target_id=?`, uid, j.TargetID).Scan(&revision, &host)
 			if err != nil || revision != j.Revision || !strings.EqualFold(host, a.Host) {
-				_, err = tx.Exec(`UPDATE sync_jobs SET status='failed',message='Target changed; preview again.',updated_at=? WHERE id=?`, now(), j.ID)
-				return err
+				return endSyncJobsTx(tx, "failed", "Target changed; preview again.", `j.id=?`, j.ID)
 			}
 		}
 		_, err = tx.Exec(`UPDATE sync_jobs SET status='running',updated_at=? WHERE id=?`, now(), j.ID)
@@ -696,6 +719,12 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 		}
 		if _, err = tx.Exec(`UPDATE sync_jobs SET kind=?,status=?,plan=?,hash=?,message=?,stage=?,stages=?,updated_at=? WHERE id=?`, finalKind, finalStatus, string(plan), hash, message, stage, encodeStages(stages), now(), id); err != nil {
 			return err
+		}
+		// Any end other than a successful apply leaves an install unapplied.
+		if finalStatus != "queued" && finalStatus != "awaiting-approval" && (finalStatus != "succeeded" || finalKind != "apply") {
+			if _, err = revertInstallTx(tx, id); err != nil {
+				return err
+			}
 		}
 		outcome := runNext
 		switch {

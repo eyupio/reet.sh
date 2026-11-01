@@ -143,8 +143,10 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 				return installRefused("already-installed", "This skill is already on "+host+" for "+in.Tool+".")
 			}
 		}
+		// A policy row can outlive its saved set; only a saved set that
+		// follows a source refuses the install.
 		var follow bool
-		if err = tx.QueryRow(`SELECT follow_source FROM sync_policies WHERE target_id=?`, envID).Scan(&follow); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err = tx.QueryRow(`SELECT p.follow_source FROM sync_policies p JOIN sync_targets t ON t.target_id=p.target_id AND t.user_id=? WHERE p.target_id=?`, uid, envID).Scan(&follow); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 		if follow {
@@ -226,7 +228,7 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		if _, err = tx.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, jobID, uid, in.AgentID, envID, "preview", "queued", revision, at, at); err != nil {
 			return err
 		}
-		if _, err = tx.Exec(`INSERT INTO skill_installs(job_id,user_id,target_id,slug,created_target,added,revision) VALUES(?,?,?,?,?,?,?)`, jobID, uid, envID, in.Slug, created, !present, revision); err != nil {
+		if _, err = tx.Exec(`INSERT INTO skill_installs(job_id,user_id,target_id,slug,created_target,added,revision,prev_revision) VALUES(?,?,?,?,?,?,?,?)`, jobID, uid, envID, in.Slug, created, !present, revision, oldRevision); err != nil {
 			return err
 		}
 		res = InstallResult{JobID: jobID, Directory: dir, Host: host}
@@ -239,65 +241,145 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 }
 
 // CancelInstallFor cancels a queued or awaiting-approval install job and takes
-// the skill back out of the saved set, so a later automatic sync cannot
-// install what the person cancelled. When the install created the set, the
-// whole set goes. When the set has changed since (its revision is no longer
-// the one the install produced) it is left alone and reverted is false.
+// the skill back out of the saved set (see revertInstallTx). reverted is false
+// when the install changed nothing or the set has changed since.
 func (s *Store) CancelInstallFor(uid int64, jobID string) (reverted bool, err error) {
 	err = s.withTx(func(tx *sql.Tx) error {
-		var status, target, slug, revision string
-		var created, added bool
-		if err := tx.QueryRow(`SELECT j.status,i.target_id,i.slug,i.created_target,i.added,i.revision FROM sync_jobs j JOIN skill_installs i ON i.job_id=j.id WHERE j.id=? AND j.user_id=? AND i.user_id=?`, jobID, uid, uid).Scan(&status, &target, &slug, &created, &added, &revision); err != nil {
+		var status string
+		if err := tx.QueryRow(`SELECT j.status FROM sync_jobs j JOIN skill_installs i ON i.job_id=j.id WHERE j.id=? AND j.user_id=? AND i.user_id=?`, jobID, uid, uid).Scan(&status); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrNotFound
 			}
 			return err
 		}
-		if status != "queued" && status != "awaiting-approval" {
+		if status == "running" {
 			return installRefused("cannot-cancel", "This install is already running and can't be cancelled.")
+		}
+		if status != "queued" && status != "awaiting-approval" {
+			return installRefused("cannot-cancel", "This install has already finished.")
 		}
 		if _, err := tx.Exec(`UPDATE sync_jobs SET status='cancelled',updated_at=? WHERE id=?`, now(), jobID); err != nil {
 			return err
 		}
-		if !added {
-			return nil
-		}
-		var data, current string
-		err := tx.QueryRow(`SELECT desired,revision FROM sync_targets WHERE user_id=? AND target_id=?`, uid, target).Scan(&data, &current)
-		if errors.Is(err, sql.ErrNoRows) || (err == nil && current != revision) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if created {
-			for _, table := range []string{"sync_targets", "sync_policies", "sync_options"} {
-				q := `DELETE FROM ` + table + ` WHERE target_id=?`
-				args := []any{target}
-				if table == "sync_targets" {
-					q += ` AND user_id=?`
-					args = append(args, uid)
-				}
-				if _, err := tx.Exec(q, args...); err != nil {
-					return err
-				}
-			}
-			reverted = true
-			return nil
-		}
-		var existing []SyncSkill
-		if err := json.Unmarshal([]byte(data), &existing); err != nil {
-			return err
-		}
-		out, _ := json.Marshal(RemoveDesired(existing, slug))
-		if _, err := tx.Exec(`UPDATE sync_targets SET desired=?,revision=?,updated_at=? WHERE user_id=? AND target_id=?`, string(out), syncID(), now(), uid, target); err != nil {
-			return err
-		}
-		reverted = true
-		return nil
+		reverted, err = revertInstallTx(tx, jobID)
+		return err
 	})
 	if err != nil {
 		return false, err
 	}
 	return reverted, nil
+}
+
+// revertInstallTx undoes an install's merge once its job has ended without
+// applying (failed or cancelled, by any path). A skill an install put in a
+// saved set stays there only while its job is pending or once it applied, so
+// automatic sync can never install what the person did not approve.
+//
+// It does nothing for a job that is not an install, for an install that did
+// not add the slug, or when the set's revision is no longer the one the install
+// produced (someone changed the set since, or it was deleted and saved again).
+// A set the install created is deleted; otherwise the slug is removed and the
+// set gets back the revision it had before, so no jobless revision appears and
+// the earlier jobs still count for Keep synced.
+func revertInstallTx(tx *sql.Tx, jobID string) (bool, error) {
+	var uid int64
+	var target, slug, revision, prev string
+	var created, added bool
+	err := tx.QueryRow(`SELECT user_id,target_id,slug,created_target,added,revision,prev_revision FROM skill_installs WHERE job_id=?`, jobID).Scan(&uid, &target, &slug, &created, &added, &revision, &prev)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil || !added {
+		return false, err
+	}
+	var data, current string
+	err = tx.QueryRow(`SELECT desired,revision FROM sync_targets WHERE user_id=? AND target_id=?`, uid, target).Scan(&data, &current)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && current != revision) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if created {
+		if _, err := tx.Exec(`DELETE FROM sync_targets WHERE user_id=? AND target_id=?`, uid, target); err != nil {
+			return false, err
+		}
+		for _, table := range []string{"sync_policies", "sync_options"} {
+			if _, err := tx.Exec(`DELETE FROM `+table+` WHERE target_id IN (SELECT id FROM environments WHERE id=? AND user_id=?)`, target, uid); err != nil {
+				return false, err
+			}
+		}
+		return true, nil
+	}
+	var existing []SyncSkill
+	if err := json.Unmarshal([]byte(data), &existing); err != nil {
+		return false, err
+	}
+	if prev == "" {
+		// An install recorded before prev_revision existed.
+		prev = syncID()
+	}
+	out, _ := json.Marshal(RemoveDesired(existing, slug))
+	if _, err := tx.Exec(`UPDATE sync_targets SET desired=?,revision=?,updated_at=? WHERE user_id=? AND target_id=?`, string(out), prev, now(), uid, target); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// staleJobMessage is the reaper's message: an update may still be restarting,
+// any other job lost its agent.
+const staleJobMessage = `CASE WHEN kind='update' THEN 'The machine did not report back. It may still be restarting; check its build and try again.' ELSE 'Agent disconnected or timed out; inspect local files and preview again.' END`
+
+// endSyncJobsTx ends every job matching where (columns qualified as j.) with
+// status, 'failed' or 'cancelled', and message, then reverts each install
+// among them. message is a literal, or staleJobMessage for the reaper. Every
+// bulk path that ends jobs without applying goes through it.
+func endSyncJobsTx(tx *sql.Tx, status, message, where string, args ...any) error {
+	rows, err := tx.Query(`SELECT j.id FROM sync_jobs j JOIN skill_installs i ON i.job_id=j.id WHERE `+where, args...)
+	if err != nil {
+		return err
+	}
+	var installs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		installs = append(installs, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	set, values := `status=?,message=?,updated_at=?`, []any{status, message, now()}
+	if message == staleJobMessage {
+		set, values = `status=?,message=`+staleJobMessage+`,updated_at=?`, []any{status, now()}
+	}
+	if _, err := tx.Exec(`UPDATE sync_jobs AS j SET `+set+` WHERE `+where, append(values, args...)...); err != nil {
+		return err
+	}
+	for _, id := range installs {
+		if _, err := revertInstallTx(tx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// reapStaleSyncJobsTx fails running jobs whose agent has not reported for ten
+// minutes, for the jobs matching where. Expired work is never replayed: it may
+// have partially applied.
+func reapStaleSyncJobsTx(tx *sql.Tx, where string, args ...any) error {
+	return endSyncJobsTx(tx, "failed", staleJobMessage, `j.status='running' AND j.updated_at<? AND `+where, append([]any{time.Now().Add(-10 * time.Minute).UnixMilli()}, args...)...)
+}
+
+func (s *Store) migrateSkillInstalls() error {
+	ok, err := hasColumn(s.db, "skill_installs", "prev_revision")
+	if err != nil || ok {
+		return err
+	}
+	_, err = s.db.Exec(`ALTER TABLE skill_installs ADD COLUMN prev_revision TEXT NOT NULL DEFAULT ''`)
+	return err
 }

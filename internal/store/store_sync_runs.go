@@ -93,15 +93,11 @@ func (s *Store) startSyncRun(uid int64, agentID string, targetIDs []string, idem
 		}
 		ordered = append(ordered, id)
 	}
-	targets, err := json.Marshal(ordered)
-	if err != nil {
-		return SyncRun{}, err
-	}
 	run := SyncRun{ID: syncID(), AgentID: agentID, Targets: ordered, Status: "running", CreatedAt: now(), UpdatedAt: now()}
 	if idempotentID != "" {
 		run.ID = idempotentID
 	}
-	err = s.withTx(func(tx *sql.Tx) error {
+	err := s.withTx(func(tx *sql.Tx) error {
 		if idempotentID != "" {
 			var existingAgent string
 			err := tx.QueryRow(`SELECT agent_id FROM sync_runs WHERE id=? AND user_id=?`, run.ID, uid).Scan(&existingAgent)
@@ -115,7 +111,28 @@ func (s *Store) startSyncRun(uid int64, agentID string, targetIDs []string, idem
 				return err
 			}
 		}
-		if _, err := tx.Exec(`UPDATE sync_jobs SET status='cancelled',message='Replaced by a newer sync run.',updated_at=? WHERE status IN ('queued','awaiting-approval') AND id IN (SELECT job_id FROM sync_run_jobs WHERE run_id IN (SELECT id FROM sync_runs WHERE user_id=? AND agent_id=? AND status IN ('running','review')))`, now(), uid, agentID); err != nil {
+		// A folder with an install still pending (waiting for its preview or
+		// for approval) is skipped: an automatic job beside it would apply the
+		// skill before the person approved it.
+		run.Targets = make([]string, 0, len(ordered))
+		for _, id := range ordered {
+			var pending int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs j JOIN skill_installs i ON i.job_id=j.id WHERE j.user_id=? AND j.target_id=? AND j.status IN ('queued','running','awaiting-approval')`, uid, id).Scan(&pending); err != nil {
+				return err
+			}
+			if pending == 0 {
+				run.Targets = append(run.Targets, id)
+			}
+		}
+		if len(run.Targets) == 0 {
+			return errors.New("an install is waiting for approval on this folder; finish or cancel it first")
+		}
+		ordered = run.Targets
+		targets, err := json.Marshal(ordered)
+		if err != nil {
+			return err
+		}
+		if err := endSyncJobsTx(tx, "cancelled", "Replaced by a newer sync run.", `j.status IN ('queued','awaiting-approval') AND j.id IN (SELECT job_id FROM sync_run_jobs WHERE run_id IN (SELECT id FROM sync_runs WHERE user_id=? AND agent_id=? AND status IN ('running','review')))`, uid, agentID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`UPDATE sync_runs SET status='cancelled',updated_at=? WHERE user_id=? AND agent_id=? AND status IN ('running','review')`, now(), uid, agentID); err != nil {
@@ -275,7 +292,7 @@ func (s *Store) QueueAgentUpdate(uid int64, agentID, version string) (SyncJob, e
 		}
 		// Expired work is never replayed automatically, so it must not keep
 		// blocking a person who asks for an update.
-		if _, err := tx.Exec(`UPDATE sync_jobs SET status='failed',message=CASE WHEN kind='update' THEN 'The machine did not report back. It may still be restarting; check its build and try again.' ELSE 'Agent disconnected or timed out; inspect local files and preview again.' END,updated_at=? WHERE user_id=? AND agent_id=? AND status='running' AND updated_at<?`, now(), uid, agentID, time.Now().Add(-10*time.Minute).UnixMilli()); err != nil {
+		if err := reapStaleSyncJobsTx(tx, `j.user_id=? AND j.agent_id=?`, uid, agentID); err != nil {
 			return err
 		}
 		var running, pendingUpdate int

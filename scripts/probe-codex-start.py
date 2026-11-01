@@ -18,6 +18,7 @@ parser.add_argument("--workspace", type=Path, required=True, help="directory hol
 parser.add_argument("--node", default=shutil.which("node"))
 parser.add_argument("--mode", default="read-only")
 parser.add_argument("--auth", choices=["api-key", "chat-gpt"], default="api-key", help="authenticate method to try; chat-gpt with no login on the machine records what the adapter does (a login URL, an error, or a wait)")
+parser.add_argument("--codex-home", type=Path, default=None, help="use this directory as CODEX_HOME instead of an empty temporary one, e.g. a COPY of a signed-in ~/.codex; the adapter may write there")
 parser.add_argument("--auth-timeout", type=int, default=15)
 args = parser.parse_args()
 if args.node is None:
@@ -30,7 +31,7 @@ run = Path(tempfile.mkdtemp(prefix="reet-codex-start-", dir=root))
 for p in ["project", "home", "codex-home", "config", "data", "cache"]:
     (run / p).mkdir()
 env = {"PATH": str(root / "codex/node_modules/.bin") + ":" + str(Path(node).parent) + ":/usr/bin:/bin", "HOME": str(run / "home"),
-       "CODEX_HOME": str(run / "codex-home"), "XDG_CONFIG_HOME": str(run / "config"), "XDG_DATA_HOME": str(run / "data"),
+       "CODEX_HOME": str(args.codex_home.resolve() if args.codex_home else run / "codex-home"), "XDG_CONFIG_HOME": str(run / "config"), "XDG_DATA_HOME": str(run / "data"),
        "XDG_CACHE_HOME": str(run / "cache"), "LANG": "C.UTF-8"}
 proc = subprocess.Popen([node, str(entry)], cwd=run / "project", env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE, start_new_session=True)

@@ -37,7 +37,20 @@ type ACPAgent struct {
 
 // ReviewedChatTool is the closed set with a verified structured integration.
 // Merely advertising another tool cannot enable its launch or history access.
-func ReviewedChatTool(tool string) bool { return tool == "opencode" }
+func ReviewedChatTool(tool string) bool { return chatAdapter(tool) != "" }
+
+// chatAdapter is the adapter name a reviewed tool's descriptor must carry. A
+// descriptor can only ever be "available" for the adapter that was reviewed for
+// that tool, never for another one claiming its name.
+func chatAdapter(tool string) string {
+	switch tool {
+	case "opencode":
+		return "opencode"
+	case "claude":
+		return "claude-agent-acp"
+	}
+	return ""
+}
 
 func (a ACPAgent) Valid() bool {
 	if !ValidToolV2(a.Tool) || !plainText(a.Adapter, 64) || a.Adapter == "" ||
@@ -46,7 +59,7 @@ func (a ACPAgent) Valid() bool {
 	}
 	switch a.State {
 	case "available":
-		return ReviewedChatTool(a.Tool) && a.Adapter == "opencode" && a.MinimumVersion != ""
+		return ReviewedChatTool(a.Tool) && a.Adapter == chatAdapter(a.Tool) && a.MinimumVersion != ""
 	case "missing", "unverified", "incompatible":
 		return !a.History && !a.Images && !a.Model && !a.Approval && !a.Questions
 	}
@@ -94,6 +107,10 @@ func (c Capabilities) ChatAgent(tool string) (ACPAgent, bool) {
 				return a, true
 			}
 		}
+		return ACPAgent{}, false
+	}
+	if tool != "opencode" {
+		// A peer that sent no descriptors predates every adapter but OpenCode.
 		return ACPAgent{}, false
 	}
 	return ACPAgent{Tool: tool, Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", History: c.ACPHistory, Images: c.ACPImages, Model: c.ACPModel, Approval: c.ACPApproval}, true

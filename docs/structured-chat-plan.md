@@ -180,6 +180,14 @@ trust, model or history assumptions. Reuse SC2's probe matrix and SC3's question
 controls where the wire contract matches. Gemini and Pi are later candidates,
 not scope additions to the first two integrations.
 
+### SC4 progress: Claude wired dark (1 November 2026)
+
+Claude is registered behind the descriptor and launch gates but dark. The controller accepts a Claude descriptor only for the
+reviewed adapter and only when the machine reports it available; a machine reports it available only when it opts in with
+`REET_EXPERIMENTAL_CLAUDE_CHAT=1`. The descriptor reports approvals and the model switch only. Native-session replay, images and
+questions stay off. The browser offers a Claude chat only where a machine reports the adapter available (below). Next: run the credential
+and missing-credential check on a real machine (script and checklist in the probe report).
+
 ### SC4 progress: the browser offers Claude chats (1 November 2026)
 
 The browser reads the reviewed adapter from each machine's descriptor instead of assuming OpenCode: a chat is offered for Claude

@@ -114,8 +114,56 @@ func TestNativeIDNamespacesAreDisjointAndGated(t *testing.T) {
 			}
 		}
 	}
-	// Formats are measured, but no candidate is reviewed, so none may validate.
-	if ValidACPSessionIDFor("claude", uuid) || ValidACPSessionIDFor("codex", uuid) || nativeIDMatches("gemini", uuid) {
+	// Claude is reviewed (its descriptor still gates availability); the other
+	// measured candidates are not, so none of them may validate.
+	if !ValidACPSessionIDFor("claude", uuid) || ValidACPSessionIDFor("claude", "ses_fake0001") {
+		t.Fatal("claude identifier namespace")
+	}
+	if ValidACPSessionIDFor("codex", uuid) || nativeIDMatches("gemini", uuid) {
 		t.Fatal("unreviewed tool accepted")
+	}
+}
+
+// A reviewed tool is available only with the adapter that was reviewed for it,
+// and a peer that sent no descriptors is an OpenCode-only peer.
+func TestChatAgentDescriptorsAreBoundToTheirAdapter(t *testing.T) {
+	claude := func(adapter string) Capabilities {
+		c := chatCapabilities()
+		c.Tools = []string{"claude", "opencode"}
+		entries := []ACPAgent{
+			{Tool: "claude", Adapter: adapter, State: "available", MinimumVersion: "0.99.1", Model: true, Approval: true},
+			{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5"},
+		}
+		c.ACPAgents = &entries
+		c.ACPModel, c.ACPApproval = true, true
+		return c
+	}
+	good := claude("claude-agent-acp")
+	if err := good.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if a, ok := good.ChatAgent("claude"); !ok || !a.Approval || a.History || a.Images || a.Questions {
+		t.Fatalf("claude descriptor %+v %v", a, ok)
+	}
+	for _, adapter := range []string{"opencode", "codex-acp", "claude"} {
+		bad := claude(adapter)
+		if bad.Validate() == nil {
+			t.Fatalf("claude accepted with adapter %q", adapter)
+		}
+	}
+	// opencode with claude's adapter name is refused too.
+	swapped := claude("claude-agent-acp")
+	(*swapped.ACPAgents)[1].Adapter = "claude-agent-acp"
+	if swapped.Validate() == nil {
+		t.Fatal("opencode accepted with claude's adapter")
+	}
+	// No descriptors at all: only OpenCode is assumed.
+	legacy := chatCapabilities()
+	legacy.ACPAgents = nil
+	if _, ok := legacy.ChatAgent("claude"); ok {
+		t.Fatal("a legacy peer was assumed to support claude")
+	}
+	if _, ok := legacy.ChatAgent("opencode"); !ok {
+		t.Fatal("a legacy peer lost opencode")
 	}
 }

@@ -216,6 +216,10 @@ Probed afterwards (`scripts/probe-codex-start.py`, probe report "Codex start, pr
 `read-only`. Authentication is not settled: `session/new` answers "Authentication required" until `authenticate` is called, and the connector replaces `HOME`, so a login under the
 real home is not visible. A Codex chat cannot start until reet has a decided way to authenticate. That is the next decision, before the browser mode control.
 
+Decided by the owner: use the person's own ChatGPT login, not an API key through reet. The probe shows what that has to respect: `authenticate chat-gpt` on a logged-out machine opens a
+browser on that machine, so reet must only call it when the adapter reports the person is already signed in (`_auth/status_update`), and otherwise refuse with "sign in to Codex on
+that machine first". What a signed-in adapter sends is unobserved and needs a real-login run (add it to `docs/device-checks.md` beside the Claude one) before this is wired.
+
 ### Device and credential checks (1 November 2026)
 
 What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real

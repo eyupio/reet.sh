@@ -17,6 +17,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--workspace", type=Path, required=True, help="directory holding codex/node_modules")
 parser.add_argument("--node", default=shutil.which("node"))
 parser.add_argument("--mode", default="read-only")
+parser.add_argument("--auth", choices=["api-key", "chat-gpt"], default="api-key", help="authenticate method to try; chat-gpt with no login on the machine records what the adapter does (a login URL, an error, or a wait)")
+parser.add_argument("--auth-timeout", type=int, default=15)
 args = parser.parse_args()
 if args.node is None:
     parser.error("Node 22 or newer is required")
@@ -83,8 +85,11 @@ try:
     summary["initialize"] = {"agentInfo": r.get("agentInfo"), "authMethods": [m.get("id") for m in r.get("authMethods") or []]}
     before = call(2, "session/new", {"cwd": str(run / "project"), "mcpServers": []})
     summary["newBeforeAuthenticate"] = before.get("error", "ok" if "result" in before else before)
-    auth = call(3, "authenticate", {"methodId": "api-key", "_meta": {"api-key": {"apiKey": "probe-placeholder-only"}}})
-    summary["authenticate"] = auth.get("error", "ok")
+    if args.auth == "api-key":
+        auth = call(3, "authenticate", {"methodId": "api-key", "_meta": {"api-key": {"apiKey": "probe-placeholder-only"}}})
+    else:
+        auth = call(3, "authenticate", {"methodId": "chat-gpt"}, timeout=args.auth_timeout)
+    summary["authenticate"] = {"method": args.auth, "outcome": auth.get("error", "ok" if "result" in auth else auth), "result": auth.get("result")}
     created = call(4, "session/new", {"cwd": str(run / "project"), "mcpServers": []})
     if "result" in created:
         native = created["result"]["sessionId"]

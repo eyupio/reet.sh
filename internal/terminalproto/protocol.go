@@ -351,9 +351,13 @@ type Create struct {
 	// It is the controller's own record: never encoded, so never sent to a
 	// machine nor stored with the create's parameters.
 	ProjectID string `json:"-"`
-	Base      string `json:"base,omitempty"`
-	Effort    string `json:"effort,omitempty"`
-	Yolo      bool   `json:"yolo,omitempty"`
+	// LaunchSession opens the tool's terminal on that native session id (for
+	// OpenCode, `--session`). Never encoded: the connector builds the Create
+	// locally. Incompatible with Resume and Structured.
+	LaunchSession string `json:"-"`
+	Base          string `json:"base,omitempty"`
+	Effort        string `json:"effort,omitempty"`
+	Yolo          bool   `json:"yolo,omitempty"`
 	// Resume continues the agent's last conversation in Dir. It is offered
 	// only for a closed session, and only on a machine that negotiated
 	// resume-v1 and whose preset has a reviewed resume command.
@@ -380,6 +384,9 @@ func (c Create) Validate() error {
 		return ErrInvalid
 	}
 	if c.Trust && !c.Structured {
+		return ErrInvalid
+	}
+	if c.LaunchSession != "" && (!ValidACPSessionIDFor(c.Tool, c.LaunchSession) || c.Resume || c.Structured) {
 		return ErrInvalid
 	}
 	if c.ResumeACP != "" && (!c.Structured || !ValidACPSessionIDFor(c.Tool, c.ResumeACP)) {

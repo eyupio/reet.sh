@@ -313,8 +313,15 @@ Only Claude, OpenCode, Cursor and `.agents` folders can be installed to. Codex
 and Cline sessions get a message saying the skill can't be installed from reet
 yet.
 
-**Cancel** before the install has run leaves the saved skill list as it was. An
-install that has started can't be cancelled.
+An install that does not finish leaves the machine's saved skill list as it
+was: pressing **Cancel** in the picker, cancelling it from the Needs you list
+or the Sync page, and an install that fails all take the skill back out (or
+remove the saved list if the install created it). **Retry** after a failure
+runs the install again. An install that has started can't be cancelled.
+
+While an install waits for you to review it, Keep synced holds off on that
+machine, and the Sync page's Run skips that folder until you approve or cancel
+the install.
 
 reet refuses the install, and says why, when:
 

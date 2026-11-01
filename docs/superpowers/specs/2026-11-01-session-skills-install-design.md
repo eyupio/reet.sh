@@ -133,8 +133,19 @@ it (additive plans are applied without a second approval) although the person ca
 2. if the saved set's revision is still the one this install produced, removes the skill from the saved set, and deletes the
    whole saved set if this install had created it; if someone has changed the set since, leaves it alone and says so.
 
-A job that **failed** keeps the saved set so a retry is one press; the picker's Failed state offers Retry and Remove from
-saved skills (the same revert).
+The same revert runs whenever an install job ends without applying, by any path, not only the picker's Cancel: a cancel from
+the Needs you list or the Sync page, a removed saved set, a renamed or revoked machine, a preview or apply the machine reports
+as **failed**, and a job the controller fails because the machine stopped reporting. The rule is: a skill an install put in a
+saved set stays there only while its job is pending or once it has applied. A set the install created is deleted; otherwise the
+slug is removed and the set gets back the revision it had before the install (`skill_installs.prev_revision`), so no new
+revision without jobs appears for Keep synced to act on. If the set has changed since, it is left alone.
+
+So a failed install also leaves the saved set as it was, and the picker's Failed state offers Retry, which runs the whole
+install again (still one press), and Close. There is no separate remove action.
+
+While an install is pending, Keep synced holds off on that machine (it already waits while any job there is pending) and the
+Sync page's Run skips that folder; when that folder is the only one left it refuses with "an install is waiting for approval on
+this folder; finish or cancel it first".
 
 ### Safety
 

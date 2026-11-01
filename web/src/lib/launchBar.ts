@@ -23,7 +23,7 @@ export type LaunchChoice = {
   worktree: boolean
   effort: Effort
   prompt: string
-  /** Never stored: every launch and every fresh choice is back on 'ask'. */
+  /** The project's default, chosen in its settings, else Ask me. Never stored in the browser and confirmed before a launch. */
   approvals: 'ask' | 'yolo'
   /** OpenCode on an acp machine starts as a native chat by default; false or absent is the terminal UI. */
   chat?: boolean
@@ -32,7 +32,7 @@ export type LaunchChoice = {
 }
 /** The person's launch defaults from the profile (`defaultBaseBranch`, `worktreesByDefault`, which is true when absent). */
 export type LaunchDefaults = Partial<Pick<Profile, 'defaultBaseBranch' | 'worktreesByDefault' | 'defaultTool' | 'defaultModel' | 'defaultEffort'>>
-export type LaunchProject = Pick<FolderProject, 'id' | 'name' | 'host' | 'machine' | 'dir' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'defaultTool' | 'defaultModel' | 'defaultEffort'>
+export type LaunchProject = Pick<FolderProject, 'id' | 'name' | 'host' | 'machine' | 'dir' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'defaultTool' | 'defaultModel' | 'defaultEffort' | 'defaultYolo'>
 export type LaunchMachine = Pick<TerminalMachine, 'agentId' | 'host' | 'ready' | 'capabilities'>
 /** One piece of the sentence: a named slot is a button; slot '' is a plain word between them. */
 export type SentencePart = { slot: '' | 'agent' | 'chat' | 'model' | 'project' | 'machine' | 'branch' | 'worktree' | 'checkout' | 'effort'; text: string }
@@ -54,6 +54,11 @@ const agentOf = (id: string) => CATALOGUE.find(agent => agent.id === id)
 const takesEffort = (id: string): boolean => agentOf(id)?.effort === true
 const chosen = (choice: LaunchChoice, projects: LaunchProject[]): LaunchProject[] =>
   choice.projectIds.map(id => projects.find(p => p.id === id)).filter((p): p is LaunchProject => !!p)
+
+/** The approvals a launch on these projects opens with: YOLO only when every one of them asks for it. */
+function approvalsFor(projects: LaunchProject[]): LaunchChoice['approvals'] {
+  return projects.length > 0 && projects.every(p => p.defaultYolo) ? 'yolo' : 'ask'
+}
 
 function worktreeFor(project: LaunchProject | undefined, profile: LaunchDefaults): boolean {
   if (project?.worktreeDefault === 'yes') return true
@@ -106,7 +111,7 @@ export function initialChoice(projects: LaunchProject[], profile: LaunchDefaults
   return {
     agent: next.agent, model: next.model, projectIds: first ? [first.id] : [],
     branch: first?.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(first ?? undefined, profile),
-    effort: next.effort as Effort, prompt: '', approvals: 'ask',
+    effort: next.effort as Effort, prompt: '', approvals: first ? approvalsFor([first]) : 'ask',
     ...(supportsChat(next.agent, first?.host, options.machines) ? { chat: true } : {}),
   }
 }
@@ -146,6 +151,7 @@ export function withProject(choice: LaunchChoice, project: LaunchProject, profil
   const out: LaunchChoice = {
     ...rest, agent: next.agent, model: keepModel ? choice.model : next.model, projectIds: [project.id],
     branch: project.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(project, profile), effort: (keepEffort ? choice.effort : next.effort) as Effort,
+    approvals: approvalsFor([project]),
   }
   if (chat) out.chat = true
   else if (isChatTool(next.agent) && choice.chat === false) out.chat = false
@@ -173,7 +179,7 @@ export function withSelection(choice: LaunchChoice, ids: string[], projects: Lau
   const known = ids.filter(id => projects.some(p => p.id === id))
   if (known.length > 1) {
     const { homeMachine: _, ...rest } = choice
-    return { ...rest, projectIds: known }
+    return { ...rest, projectIds: known, approvals: approvalsFor(projects.filter(p => known.includes(p.id))) }
   }
   const one = projects.find(p => p.id === (known[0] ?? choice.projectIds[0]))
   if (!one) return choice
@@ -187,7 +193,7 @@ export function withHome(choice: LaunchChoice, agentId: string, profile: LaunchD
   const keepModel = !!options.explicitModel
   const keepEffort = !!options.explicitEffort
   const chat = supportsChat(next.agent, agentId, options.machines) && choice.chat !== false
-  const out: LaunchChoice = { ...choice, projectIds: [], homeMachine: agentId, branch: '', model: keepModel ? choice.model : next.model, effort: (keepEffort ? choice.effort : next.effort) as Effort }
+  const out: LaunchChoice = { ...choice, projectIds: [], homeMachine: agentId, branch: '', model: keepModel ? choice.model : next.model, effort: (keepEffort ? choice.effort : next.effort) as Effort, approvals: 'ask' }
   delete out.trust
   if (chat) out.chat = true
   else if (isChatTool(next.agent) && choice.chat === false) out.chat = false

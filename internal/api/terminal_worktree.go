@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -180,6 +181,7 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 			branch := worktreeBranch(in.Project, in.Run)
 			s.event(uid, "ui", "worktree-remove", "", map[string]string{"machine": in.AgentID, "host": s.machineHost(uid, in.AgentID), "branch": branch, "confirmedBy": "status"})
 			s.recordRunWorktreeRemoved(uid, in.AgentID, in.Run)
+			s.autoPruneAfterWorktree(uid, in.AgentID, in.Run)
 			writeJSON(w, 200, map[string]any{"ok": true, "branch": branch, "confirmedBy": "status"})
 			return
 		}
@@ -190,7 +192,47 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 	}
 	s.event(uid, "ui", "worktree-remove", "", map[string]string{"machine": in.AgentID, "host": s.machineHost(uid, in.AgentID), "path": removed.Path, "branch": removed.Branch})
 	s.recordRunWorktreeRemoved(uid, in.AgentID, in.Run)
+	s.autoPruneAfterWorktree(uid, in.AgentID, in.Run)
 	writeJSON(w, 200, map[string]any{"ok": true, "path": removed.Path, "branch": removed.Branch})
+}
+
+// autoPruneAfterWorktree runs the account's opt-in maintenance after a
+// worktree is removed: plan and prune the merged local branches of the
+// repository the worktree came from. It runs off the request and deletes only
+// the proven-safe set; anything that fails is left for the person to see.
+func (s *server) autoPruneAfterWorktree(uid int64, agent, run string) {
+	if !s.branchPruneAfterWorktree() {
+		return
+	}
+	dir, ok, err := s.st.RunMemberDirForWorktree(uid, agent, run)
+	if err != nil || !ok {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		plan, err := s.terminals.BranchPrunePlan(ctx, uid, agent, terminalproto.BranchPrunePlan{Dir: dir})
+		if err != nil || plan.Reason != "" || plan.Base == "" {
+			return
+		}
+		targets := make([]terminalproto.BranchPruneTarget, 0, len(plan.Branches))
+		for _, b := range plan.Branches {
+			if b.Skip == "" {
+				targets = append(targets, terminalproto.BranchPruneTarget{Name: b.Name, OID: b.OID})
+			}
+		}
+		if len(targets) == 0 {
+			return
+		}
+		result, err := s.terminals.PruneBranches(ctx, uid, agent, terminalproto.BranchPrune{Dir: dir, Base: plan.Base, Branches: targets})
+		if err != nil || result.Reason != "" {
+			return
+		}
+		s.event(uid, "ui", "branches-prune", "", map[string]any{
+			"machine": agent, "host": s.machineHost(uid, agent), "dir": dir,
+			"deleted": result.Deleted, "skipped": len(result.Skipped), "automatic": true,
+		})
+	}()
 }
 
 // auditLateWorktreeRemoval records a removal whose ok answer reached the

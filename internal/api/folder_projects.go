@@ -51,6 +51,7 @@ func (s *server) registerFolderProjectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectGet))
 	mux.HandleFunc("PATCH /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectWrite(s.folderProjectUpdate)))
 	mux.HandleFunc("DELETE /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectWrite(s.folderProjectDelete)))
+	s.registerProjectGroupRoutes(mux)
 }
 
 // folderProjectWrite admits at most folderProjectWriteLimit writes per
@@ -119,6 +120,7 @@ type folderProjectInput struct {
 	DefaultTool     *string `json:"defaultTool"`
 	DefaultModel    *string `json:"defaultModel"`
 	DefaultEffort   *string `json:"defaultEffort"`
+	DefaultYolo     *bool   `json:"defaultYolo"`
 	StarterPrompt   *string `json:"starterPrompt"`
 	// Colour is the rail colour ("" clears it).
 	Colour *string `json:"colour"`
@@ -154,6 +156,9 @@ func (in folderProjectInput) apply(p store.FolderProject) store.FolderProject {
 	set(&p.Note, in.Note)
 	if in.IsRepo != nil {
 		p.IsRepo = *in.IsRepo
+	}
+	if in.DefaultYolo != nil {
+		p.DefaultYolo = *in.DefaultYolo
 	}
 	return p
 }
@@ -325,8 +330,11 @@ type folderProjectView struct {
 	DefaultTool      string  `json:"defaultTool"`
 	DefaultModel     string  `json:"defaultModel"`
 	DefaultEffort    string  `json:"defaultEffort"`
+	DefaultYolo      bool    `json:"defaultYolo"`
 	HasStarterPrompt bool    `json:"hasStarterPrompt"`
 	StarterPrompt    *string `json:"starterPrompt,omitempty"`
+	// GroupID is the group that holds the project ("" for ungrouped).
+	GroupID string `json:"groupId,omitempty"`
 	// Note is the migration's one-time notice: the saved Projects (by name)
 	// with this folder whose shared prompts were not kept. "" when none.
 	Note      string `json:"note"`
@@ -338,7 +346,7 @@ type folderProjectView struct {
 
 func viewFolderProject(p store.FolderProject, names map[string]string) folderProjectView {
 	return folderProjectView{ID: p.ID, Host: p.Host, Machine: names[p.Host], Dir: p.Dir, Name: p.Name, IsRepo: p.IsRepo, BaseBranch: p.BaseBranch, WorktreeDefault: p.WorktreeDefault,
-		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, DefaultEffort: p.DefaultEffort, HasStarterPrompt: p.StarterPrompt != "", Colour: p.Colour, Note: p.Note, Position: p.Position,
+		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, DefaultEffort: p.DefaultEffort, DefaultYolo: p.DefaultYolo, HasStarterPrompt: p.StarterPrompt != "", Colour: p.Colour, Note: p.Note, Position: p.Position,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
 }
 
@@ -365,16 +373,23 @@ func (s *server) writeFolderProjects(w http.ResponseWriter, uid int64) {
 		folderRefusal(err, "").write(w)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.folderListAnswer(projects, names, waiting, nil))
+	members, err := s.st.FolderProjectGroupsFor(uid)
+	if err != nil {
+		folderRefusal(err, "").write(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.folderListAnswer(projects, names, members, waiting, nil))
 }
 
 // folderListAnswer is the list answer: the projects in rail order and
 // savedWaiting, how many saved Project repositories wait for room. extra
 // adds fields (the import's counts and sentence).
-func (s *server) folderListAnswer(projects []store.FolderProject, names map[string]string, waiting int, extra map[string]any) map[string]any {
+func (s *server) folderListAnswer(projects []store.FolderProject, names map[string]string, members map[string]string, waiting int, extra map[string]any) map[string]any {
 	out := make([]folderProjectView, 0, len(projects))
 	for _, p := range projects {
-		out = append(out, viewFolderProject(p, names))
+		v := viewFolderProject(p, names)
+		v.GroupID = members[p.ID]
+		out = append(out, v)
 	}
 	answer := map[string]any{"projects": out, "savedWaiting": waiting}
 	for k, v := range extra {
@@ -422,6 +437,11 @@ func (s *server) folderProjectImportSaved(w http.ResponseWriter, r *http.Request
 		folderRefusal(err, "").write(w)
 		return
 	}
+	members, err := s.st.FolderProjectGroupsFor(uid)
+	if err != nil {
+		folderRefusal(err, "").write(w)
+		return
+	}
 	var message string
 	switch {
 	case rep.Created > 0 && waiting > 0:
@@ -436,7 +456,7 @@ func (s *server) folderProjectImportSaved(w http.ResponseWriter, r *http.Request
 		// cannot use is not counted.
 		message = "Nothing is waiting to be added: every saved folder is already in reet, or can't be used as a project."
 	}
-	writeJSON(w, http.StatusOK, s.folderListAnswer(projects, names, waiting, map[string]any{"created": rep.Created, "skipped": rep.Skipped, "message": message}))
+	writeJSON(w, http.StatusOK, s.folderListAnswer(projects, names, members, waiting, map[string]any{"created": rep.Created, "skipped": rep.Skipped, "message": message}))
 }
 
 func savedRepositories(n int) string {
@@ -492,6 +512,9 @@ func (s *server) folderProjectGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := viewFolderProject(p, names)
+	if members, err := s.st.FolderProjectGroupsFor(uid); err == nil {
+		v.GroupID = members[p.ID]
+	}
 	prompt := p.StarterPrompt
 	v.StarterPrompt = &prompt
 	w.Header().Set("ETag", projectETag(p.Version))
@@ -572,8 +595,13 @@ func (s *server) folderProjectUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditFolderProject(uid, "project-update", saved, names)
+	v := viewFolderProject(saved, names)
+	// The rail replaces its card with this answer, so keep the group the project is in.
+	if members, err := s.st.FolderProjectGroupsFor(uid); err == nil {
+		v.GroupID = members[saved.ID]
+	}
 	w.Header().Set("ETag", projectETag(saved.Version))
-	writeJSON(w, http.StatusOK, viewFolderProject(saved, names))
+	writeJSON(w, http.StatusOK, v)
 }
 
 // folderProjectDelete removes the registry entry only; sessions and worktrees
@@ -611,18 +639,29 @@ func (s *server) folderProjectDelete(w http.ResponseWriter, r *http.Request) {
 // the list in its new order, with the new versions.
 func (s *server) folderProjectReorder(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		IDs      []string `json:"ids"`
-		Versions []int64  `json:"versions"`
+		IDs      []string  `json:"ids"`
+		Versions []int64   `json:"versions"`
+		GroupIDs *[]string `json:"groupIds"`
 	}
 	if !folderProjectBody(w, r, &in) {
 		return
 	}
-	if in.IDs == nil || len(in.IDs) != len(in.Versions) || len(in.IDs) > store.MaxFolderProjects {
+	if in.IDs == nil || len(in.IDs) != len(in.Versions) || (in.GroupIDs != nil && len(*in.GroupIDs) != len(in.IDs)) || len(in.IDs) > store.MaxFolderProjects {
 		writeErrCode(w, http.StatusUnprocessableEntity, "invalid_order", "ids", "List every project once, each with the version you read.", "")
 		return
 	}
 	uid := s.uid(r)
-	if err := s.st.ReorderFolderProjectsFor(uid, in.IDs, in.Versions); err != nil {
+	reorder := func() error {
+		if in.GroupIDs == nil {
+			return s.st.ReorderFolderProjectsFor(uid, in.IDs, in.Versions)
+		}
+		return s.st.ReorderFolderProjectsInGroupsFor(uid, in.IDs, in.Versions, *in.GroupIDs)
+	}
+	if err := reorder(); err != nil {
+		if errors.Is(err, store.ErrProjectGroupForbidden) {
+			writeErrCode(w, http.StatusUnprocessableEntity, "invalid_group", "groupIds", "Choose one of your groups for each project, or no group.", "")
+			return
+		}
 		if errors.Is(err, store.ErrFolderProjectInvalid) {
 			writeErrCode(w, http.StatusUnprocessableEntity, "invalid_order", "ids", "List every project once, each with the version you read.", "")
 			return

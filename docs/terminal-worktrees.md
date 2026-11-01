@@ -463,4 +463,4 @@ that the agent is signed in, understands the prompt, or makes progress; that the
 branch contains anything; or that the repository's hooks, filters, build or tests
 are safe to run. A status shows what git and the walk reported at that moment, not
 that the worktree is safe to throw away beyond the conditions listed above.
-Removing a worktree never deletes its branch.
+Removing a worktree never deletes its branch. Merged local branches can be pruned separately, from the Machines page, `reet branches` or an opt-in automation ([branch pruning](branch-pruning.md)).

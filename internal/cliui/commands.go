@@ -26,6 +26,10 @@ func Commands() []Command {
 			{Name: "backup restore", Title: "Restore a backup", Summary: "Press e to add the backup ID and options", Args: []string{"backup", "restore"}},
 			{Name: "backup open", Title: "Open a backup", Summary: "Press e to add a file and options", Args: []string{"backup", "open"}},
 		}},
+		{Name: "branches", Title: "Branches", Summary: "List merged local branches and prune them", Group: "Check & maintain", Args: []string{"branches"}, Children: []Command{
+			{Name: "branches status", Title: "Branch status", Summary: "Read which local branches are merged", Args: []string{"branches", "status"}},
+			{Name: "branches prune", Title: "Prune branches", Summary: "Press e to add --dry-run, --yes or a folder", Args: []string{"branches", "prune"}},
+		}},
 		{Name: "scan", Title: "Scan", Summary: "Report installed skills to your account", Group: "Skills & setups", Args: []string{"scan"}},
 		{Name: "sync", Title: "Sync", Summary: "Preview a saved target; --apply asks first", Group: "Skills & setups", Args: []string{"sync"}},
 		{Name: "setup", Title: "Setups", Summary: "Discover, save and restore agent setups", Group: "Skills & setups", Args: []string{"setup"}, Children: []Command{

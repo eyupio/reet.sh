@@ -10,6 +10,8 @@
     structured = false,
     machine,
     switching = false,
+    /** The bar's YOLO choice was just switched on: this sets it active and leaves Start to the person. */
+    enabling = false,
     oncancel,
     onstart,
   }: {
@@ -19,6 +21,8 @@
     machine: string
     /** The chat is already running: this switches it rather than launching it. */
     switching?: boolean
+    /** Passing the bar's YOLO choice on, not starting now. */
+    enabling?: boolean
     oncancel: () => void
     onstart: () => void
   } = $props()
@@ -27,6 +31,9 @@
   let keep = $state<HTMLButtonElement>()
   const titleId = $props.id()
   const canStart = $derived(yoloCanStart(gates))
+  const setting = $derived(!switching && enabling)
+  const title = $derived(switching ? 'Turn on YOLO for this session?' : setting ? 'Turn on YOLO for this launch?' : 'Start this session on YOLO?')
+  const confirm = $derived(setting ? 'Turn on YOLO' : switching ? 'Turn on YOLO' : 'Start with YOLO')
   const sentence = $derived(structured
     ? `The agent will not wait for you. reet says yes, this once, to every permission request it makes on ${machine}, including running commands and changing files.`
     : `The agent will not ask before running commands and changing files on ${machine}. reet passes ${toolName(tool)}'s own skip-the-prompts option and records the launch.`)
@@ -44,7 +51,7 @@
   oncancel={(event) => { event.preventDefault(); cancel() }}>
   <div class="box" data-shell-card>
     <p class="warn" aria-hidden="true">!</p>
-    <h2 id={titleId}>{switching ? 'Turn on YOLO for this session?' : 'Start this session on YOLO?'}</h2>
+    <h2 id={titleId}>{title}</h2>
     <p id={`${titleId}-body`}>{sentence}</p>
     <ul class="gates">
       {#each gates as gate (gate.label)}
@@ -57,12 +64,12 @@
     <ul class="terms">
       <li>{structured ? 'Every request reet answers is written to the audit log, one line each.' : 'The launch is written to the audit log.'}</li>
       <li>The session wears a YOLO badge wherever it appears, for everyone who can see it.</li>
-      {#if switching}<li>You can switch back to Ask me from this session's header.</li>{:else}<li>It can't be switched on part-way through. To stop it, end the session.</li>{/if}
+      {#if switching}<li>You can switch back to Ask me from this session's header.</li>{:else if setting}<li>Starting is separate: press Start when you are ready.</li>{:else}<li>It can't be switched on part-way through. To stop it, end the session.</li>{/if}
       <li>Secrets in that folder are readable to the agent. Use a throwaway worktree if unsure.</li>
     </ul>
     <div class="actions" data-shell-foot>
       <button type="button" class="btn quiet" bind:this={keep} onclick={cancel}>Keep asking me</button>
-      <button type="button" class="btn primary" disabled={!canStart} onclick={start}>{switching ? 'Turn on YOLO' : 'Start with YOLO'}</button>
+      <button type="button" class="btn primary" disabled={!canStart} onclick={start}>{confirm}</button>
     </div>
   </div>
 </dialog>

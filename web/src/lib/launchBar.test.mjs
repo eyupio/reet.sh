@@ -85,6 +85,16 @@ test('sentence for several projects', () => {
   assert.equal(words(two), "Run Claude Code with sonnet on 2 projects at studio from each project's default in a fresh worktree")
 })
 
+test('approvals open on the project default, else ask', () => {
+  assert.equal(initialChoice([{ ...reet, defaultYolo: true }], profile).approvals, 'yolo')
+  assert.equal(initialChoice([{ ...reet, defaultYolo: false }], profile).approvals, 'ask')
+  const next = withProject(choice(), { ...reet, defaultYolo: true }, profile)
+  assert.equal(next.approvals, 'yolo')
+  assert.equal(withSelection(choice(), ['p-reet', 'p-site'], [{ ...reet, defaultYolo: true }, { ...site, defaultYolo: true }], profile).approvals, 'yolo')
+  assert.equal(withSelection(choice(), ['p-reet', 'p-site'], [{ ...reet, defaultYolo: true }, { ...site, defaultYolo: false }], profile).approvals, 'ask')
+  assert.equal(withHome(choice({ approvals: 'yolo' }), 'm-studio', profile).approvals, 'ask')
+})
+
 test('approvals reset to ask', () => {
   const last = choice({ approvals: 'yolo', prompt: 'Fix the tests' })
   const next = initialChoice(projects, profile)

@@ -204,8 +204,12 @@ backup to preserve accounts, lists, teams and sync references.
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	case "branches":
+		if code := runBranches(args, os.Stdout); code != 0 {
+			os.Exit(code)
+		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: reet serve | reet terminal | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet setup | reet sync | reet backup | reet version")
+		fmt.Fprintln(os.Stderr, "usage: reet serve | reet terminal | reet install | reet upgrade | reet doctor | reet healthcheck | reet scan | reet setup | reet sync | reet backup | reet branches | reet version")
 		os.Exit(2)
 	}
 }

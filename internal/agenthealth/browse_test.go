@@ -488,3 +488,30 @@ func fillQueue(t *testing.T, peer *websocket.Conn, handled *atomic.Int32) {
 		write(i)
 	}
 }
+
+// branch-prune-v1 is its own feature: a controller that advertises only
+// branches-v1 must neither be sent it nor have it claimed, and one that
+// advertises it gets it back.
+func TestBranchPruneFeatureIsNegotiatedOnItsOwn(t *testing.T) {
+	for _, tc := range []struct {
+		advertised string
+		prune      bool
+	}{
+		{"", false},
+		{terminalproto.BranchesFeature, false},
+		{terminalproto.BranchPruneFeature, true},
+		{terminalproto.WorktreeFeature + "," + terminalproto.BranchesFeature + "," + terminalproto.BranchPruneFeature, true},
+		{"branch-prune-v2", false},
+	} {
+		cfg := AgentConfig{}
+		negotiateFeatures(&cfg, tc.advertised)
+		if cfg.branchPrune != tc.prune {
+			t.Fatal("negotiated", tc.advertised, cfg.branchPrune)
+		}
+		headers := http.Header{}
+		setTerminalFeatures(headers, cfg)
+		if terminalproto.SupportsBranchPrune(headers.Get(terminalproto.FeatureHeader)) != tc.prune {
+			t.Fatal("terminal features header", tc.advertised, headers.Get(terminalproto.FeatureHeader))
+		}
+	}
+}

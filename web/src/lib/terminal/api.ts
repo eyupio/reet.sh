@@ -274,7 +274,12 @@ export type FolderProject = {
   dir: string; name: string; isRepo: boolean; baseBranch: string; worktreeDefault: WorktreeDefault
   /** The rail colour's id from projectColour.ts, "" when none. */
   colour: string
-  defaultTool: string; defaultModel: string; defaultEffort: string; hasStarterPrompt: boolean
+  /** The group that holds the project; absent or "" when ungrouped. */
+  groupId?: string
+  defaultTool: string; defaultModel: string; defaultEffort: string
+  /** Sessions in this project open with YOLO selected; each start still confirms. */
+  defaultYolo: boolean
+  hasStarterPrompt: boolean
   /** Only in the single read (`getFolderProject`), for the edit form. */
   starterPrompt?: string
   /** The one-time notice from moving saved Projects here: the names of the other Projects with this folder whose shared
@@ -284,7 +289,7 @@ export type FolderProject = {
 }
 /** A create sends host (the machine's enrollment id) and dir at least; an update sends only what changed (absent keeps, "" clears a text field).
  * `note` can only be cleared (anything else is 422 `invalid_note`). */
-export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'colour' | 'defaultTool' | 'defaultModel' | 'defaultEffort' | 'starterPrompt'>> & { note?: '' }
+export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'colour' | 'defaultTool' | 'defaultModel' | 'defaultEffort' | 'defaultYolo' | 'starterPrompt'>> & { note?: '' }
 export type RemovedFolderProject = { ok: boolean; message: string }
 /** The rail's list; `savedWaiting` counts saved Project repositories still waiting for room (offer `importSavedProjects`). */
 export type FolderProjectList = { projects: FolderProject[]; savedWaiting: number }
@@ -357,10 +362,47 @@ export async function deleteFolderProject(id: string, version: number, signal?: 
   const headers = versionHeader(version)
   return (await terminalRequest(folderProjectPath(id), { method: 'DELETE', signal: within(signal), headers })).json()
 }
-/** Every project once, each with the version read; answers the list in its new order with the new versions. */
-export async function reorderFolderProjects(ids: string[], versions: number[], signal?: AbortSignal): Promise<FolderProject[]> {
-  if (ids.length !== versions.length) throw new Error('Every project needs the version that was read.')
-  return (await (await terminalRequest('/api/v2/folder-projects/reorder', { method: 'POST', signal: within(signal), body: JSON.stringify({ ids, versions }) })).json()).projects
+/** Every project once, each with the version read; answers the list in its new order with the new versions.
+ *  `groupIds`, when given, also settles each project's group ("" for ungrouped). */
+export async function reorderFolderProjects(ids: string[], versions: number[], groupIds?: string[], signal?: AbortSignal): Promise<FolderProject[]> {
+  if (ids.length !== versions.length || (groupIds && groupIds.length !== ids.length)) throw new Error('Every project needs the version that was read.')
+  const body = groupIds ? { ids, versions, groupIds } : { ids, versions }
+  return (await (await terminalRequest('/api/v2/folder-projects/reorder', { method: 'POST', signal: within(signal), body: JSON.stringify(body) })).json()).projects
+}
+
+// Project groups: named, coloured collections that arrange the rail. A project
+// belongs to at most one group; removing a group leaves its projects ungrouped.
+export type ProjectGroup = { id: string; name: string; colour: string; position: number; createdAt: number; updatedAt: number; version: number }
+export type ProjectGroupInput = Partial<Pick<ProjectGroup, 'name' | 'colour'>>
+export type ProjectGroupList = { groups: ProjectGroup[] }
+export const PROJECT_GROUP_ERROR_CODES = ['group_not_found', 'group_changed', 'group_name_taken', 'group_limit', 'invalid_group', 'invalid_name', 'invalid_colour'] as const
+export type ProjectGroupErrorCode = typeof PROJECT_GROUP_ERROR_CODES[number]
+export const projectGroupPath = (id: string): string => `/api/v2/project-groups/${encodeURIComponent(id)}`
+export async function listProjectGroups(signal?: AbortSignal): Promise<ProjectGroup[]> { return (await (await terminalRequest('/api/v2/project-groups', { signal: within(signal) })).json()).groups }
+async function withGroupVersion(response: Response): Promise<ProjectGroup> {
+  const group: ProjectGroup = await response.json()
+  const tag = /^"(\d+)"$/.exec(response.headers.get('ETag') ?? '')
+  if (tag) group.version = Number(tag[1])
+  return group
+}
+export async function createProjectGroup(input: ProjectGroupInput, signal?: AbortSignal): Promise<ProjectGroup> {
+  return withGroupVersion(await terminalRequest('/api/v2/project-groups', { method: 'POST', signal: within(signal), body: JSON.stringify(input) }))
+}
+export async function updateProjectGroup(id: string, input: ProjectGroupInput, version: number, signal?: AbortSignal): Promise<ProjectGroup> {
+  const headers = versionHeader(version)
+  return withGroupVersion(await terminalRequest(projectGroupPath(id), { method: 'PATCH', signal: within(signal), body: JSON.stringify(input), headers }))
+}
+export async function deleteProjectGroup(id: string, version: number, signal?: AbortSignal): Promise<ProjectGroup[]> {
+  const headers = versionHeader(version)
+  return (await (await terminalRequest(projectGroupPath(id), { method: 'DELETE', signal: within(signal), headers })).json()).groups
+}
+export async function reorderProjectGroups(ids: string[], versions: number[], signal?: AbortSignal): Promise<ProjectGroup[]> {
+  if (ids.length !== versions.length) throw new Error('Every group needs the version that was read.')
+  return (await (await terminalRequest('/api/v2/project-groups/reorder', { method: 'POST', signal: within(signal), body: JSON.stringify({ ids, versions }) })).json()).groups
+}
+/** Moves one project into a group, or out of every group when groupId is "". */
+export async function setFolderProjectGroup(id: string, groupId: string, signal?: AbortSignal): Promise<void> {
+  await terminalRequest(`${folderProjectPath(id)}/group`, { method: 'POST', signal: within(signal), body: JSON.stringify({ groupId }) })
 }
 
 /** Only the parameters that are set, each once; `hidden` only when true. */
@@ -378,6 +420,27 @@ export function branchesURL(agentId: string, dir: string, filter?: string): stri
 }
 export async function browseFolder(agentId: string, query: BrowseQuery, signal?: AbortSignal): Promise<BrowseResult> { return (await terminalRequest(browseURL(agentId, query), { signal: within(signal) })).json() }
 export async function listBranches(agentId: string, dir: string, filter?: string, signal?: AbortSignal): Promise<BranchesResult> { return (await terminalRequest(branchesURL(agentId, dir, filter), { signal: within(signal) })).json() }
+
+// Branch pruning (GET/POST /api/v2/machines/{agentId}/branches/prune): a plan of the local branches whose work is already in
+// the base, then a prune of exactly the ones the person agreed to. A branch that moved since the plan is skipped, not forced.
+export type BranchPruneBranch = { name: string; oid: string; skip: '' | BranchPruneSkip }
+export type BranchPruneSkip = 'not_merged' | 'unpushed' | 'checked_out' | 'current' | 'default' | 'base' | 'moved' | 'git_failed'
+export type BranchPrunePlan = { current: string; default: string; base: string; branches: BranchPruneBranch[]; more: boolean }
+export type BranchPruneTarget = { name: string; oid: string }
+export type BranchPruneResult = { deleted: string[]; skipped: { name: string; skip: BranchPruneSkip }[] }
+export function branchPruneURL(agentId: string, dir: string, base?: string): string {
+  const params = new URLSearchParams({ dir })
+  if (base) params.set('base', base)
+  return `/api/v2/machines/${encodeURIComponent(agentId)}/branches/prune?${params}`
+}
+/** Reads the plan; `base` empty asks the machine to use the repository's default branch. */
+export async function branchPrunePlan(agentId: string, dir: string, base?: string, signal?: AbortSignal): Promise<BranchPrunePlan> {
+  return (await terminalRequest(branchPruneURL(agentId, dir, base), { signal: within(signal) })).json()
+}
+/** Deletes the branches in `branches`, each only if it still points at the tip named and is still safe. */
+export async function pruneBranches(agentId: string, dir: string, base: string, branches: BranchPruneTarget[], signal?: AbortSignal): Promise<BranchPruneResult> {
+  return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/branches/prune`, { method: 'POST', signal: within(signal), body: JSON.stringify({ dir, base, branches }) })).json()
+}
 export function chatURL(id: string): string { return `/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat` }
 export async function chatPrompt(id: string, text: string, images: string[] = []): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/prompt`, { method: 'POST', body: JSON.stringify(images.length ? { text, images } : { text }) }) }
 export async function chatCancel(id: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/cancel`, { method: 'POST', body: '{}' }) }

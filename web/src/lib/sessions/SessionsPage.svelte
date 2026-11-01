@@ -9,8 +9,8 @@
   import { attentionCount, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy, type NeedCard } from '../home'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import { agentChoicesOf, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
-  import { folderProjectList, machineHealth, markSessionSeen, sessionHref, terminalMachines, terminalSessions, TerminalError,
-    type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { folderProjectList, listProjectGroups, machineHealth, markSessionSeen, sessionHref, terminalMachines, terminalSessions, TerminalError,
+    type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import SessionActions from './SessionActions.svelte'
 
   // The Sessions page (/sessions): every session across machines from the account-wide listing, grouped as Home groups them
@@ -53,10 +53,11 @@
 
   let sessions = $state<TerminalSession[] | undefined>()
   let projects = $state<FolderProject[] | undefined>()
+  let projectGroups = $state<ProjectGroup[] | undefined>()
   let terminals = $state<TerminalMachine[] | undefined>()
   let health = $state<MachineHealth[] | undefined>()
   let now = $state(Date.now())
-  let checking = $state(false), failed = $state(false), projectsFailed = $state(false), denied = $state(false)
+  let checking = $state(false), failed = $state(false), projectsFailed = $state(false), groupsFailed = $state(false), denied = $state(false)
   let query = $state(''), sort = $state<SessionSort>('recent')
   let filter = $state<SessionFilter>({ state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false, colour: '' })
   let notice = $state<{ text: string; bad?: boolean } | null>(null)
@@ -107,6 +108,7 @@
   const reportingNow = $derived(new Map((health ?? []).map(m => [m.agentId, m.state === 'connected'])))
   // A write's answer from the rail is the list as it now is: it supersedes a read on its way.
   function settle(next: FolderProject[]) { generation++; loading = false; checking = false; projects = next }
+  function settleGroups(next: ProjectGroup[]) { generation++; loading = false; checking = false; projectGroups = next }
 
   let loading = false, generation = 0
   async function load(explicit = false) {
@@ -114,7 +116,7 @@
     const mine = ++generation
     loading = true; checking = true
     try {
-      const [s, p, t, h] = await Promise.allSettled([terminalSessions(bounded()), folderProjectList(bounded()), terminalMachines(bounded()), machineHealth(bounded())])
+      const [s, p, t, h, g] = await Promise.allSettled([terminalSessions(bounded()), folderProjectList(bounded()), terminalMachines(bounded()), machineHealth(bounded()), listProjectGroups(bounded())])
       if (life.signal.aborted || mine !== generation) return
       if ([s, p, t, h].some(r => r.status === 'rejected' && refused(r.reason))) return signOut()
       // An account that lost terminal access (403) is shown nothing it can no longer open, as the workspace does.
@@ -125,6 +127,8 @@
       if (t.status === 'fulfilled') terminals = t.value; else bad = true
       // The projects keep what was last read; only a first read that fails says so, in their own section.
       if (p.status === 'fulfilled') { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false } else projectsFailed = projects === undefined
+      // Without groups the rail shows every project ungrouped; a failed read keeps what it had.
+      if (g.status === 'fulfilled') { projectGroups = g.value; groupsFailed = false } else groupsFailed = projectGroups === undefined
       // A health read that fails keeps the last one: the offline sentences stay as last known.
       if (h.status === 'fulfilled') health = h.value.machines ?? []
       failed = bad
@@ -298,9 +302,9 @@
     <!-- The phone rail: the projects with their menus, Select and state words. A card (or New session here) opens Home's launch
          bar on that project; Select hands the chosen projects to it. -->
     <div class="projects rail-host">
-      <ProjectRailHost variant="sessions" {projects} failed={projectsFailed} {savedWaiting} {sessions} sessionsFailed={failed && sessions === undefined} reporting={reportingNow}
+      <ProjectRailHost variant="sessions" {projects} groups={projectGroups} failed={projectsFailed} {savedWaiting} {sessions} sessionsFailed={failed && sessions === undefined} reporting={reportingNow}
         {running} known={sessions !== undefined} {worktrees} {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected}
-        onchoose={(p) => location.assign(`/?project=${encodeURIComponent(p.id)}`)} signal={bounded} onsettle={settle} onwaiting={(n) => (savedWaiting = n)}
+        onchoose={(p) => location.assign(`/?project=${encodeURIComponent(p.id)}`)} signal={bounded} onsettle={settle} onsettlegroups={settleGroups} onwaiting={(n) => (savedWaiting = n)}
         onmachines={(m) => (terminals = m)} onnotice={(n) => (notice = n)} onreload={() => void load(true)} onsignedout={signOut}>
         {#snippet selectAction()}
           {#if selected.length >= 2}<a class="start-chosen" href={`/?projects=${selected.map(encodeURIComponent).join(',')}`}>Start in these on Home</a>{/if}

@@ -214,6 +214,8 @@ test('switchModeState: the inactive TUI button, enabled or with the reason it is
   const NO_SESSION = 'This session started in the OpenCode TUI, so the reet TUI cannot pick up its conversation.'
   const UPDATE = 'Update reet on this machine to switch between the reet TUI and the OpenCode TUI.'
   const NOT_LIVE = 'Only a running session can switch.'
+  const NO_CONVERSATION = 'This session has no saved OpenCode conversation yet, so it cannot move to the OpenCode TUI.'
+  const fresh = { ...chat, acpSessionId: undefined }
   const rows = [
     ['an idle reet TUI chat can go to the OpenCode TUI', chat, caps, false, { to: 'terminal', enabled: true, why: '' }],
     ['a reet-started chat in the OpenCode TUI can come back', tui, caps, false, { to: 'chat', enabled: true, why: '' }],
@@ -229,6 +231,9 @@ test('switchModeState: the inactive TUI button, enabled or with the reason it is
     ['an exited OpenCode TUI', { ...tui, state: 'exited', exitCode: 0 }, caps, false, { to: 'chat', enabled: false, why: NOT_LIVE }],
     ['a session still starting', { ...chat, state: 'creating' }, caps, false, { to: 'terminal', enabled: false, why: NOT_LIVE }],
     ['a session ending', { ...tui, state: 'end_requested' }, caps, true, { to: 'chat', enabled: false, why: NOT_LIVE }],
+    ['a chat with no saved OpenCode conversation cannot open in the OpenCode TUI', fresh, caps, false, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
+    ['an old machine outranks no saved conversation, as on the controller', fresh, old, false, { to: 'terminal', enabled: false, why: UPDATE }],
+    ['no saved conversation outranks a busy chat', fresh, caps, true, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
     ['another agent has no reet TUI', { ...started, tool: 'claude' }, caps, false, { to: 'chat', enabled: false, why: 'The reet TUI is for a structured OpenCode session.' }],
     ['a plain shell has no reet TUI', { ...started, tool: undefined }, caps, false, { to: 'chat', enabled: false, why: 'The reet TUI is for a structured OpenCode session.' }],
   ]

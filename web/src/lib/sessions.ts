@@ -206,7 +206,8 @@ export function decisionsLine(s: Pick<TerminalSession, 'yolo' | 'structured'>): 
  * The session header's reet TUI | OpenCode TUI switch: where the inactive button goes (`to`) and whether it can go now.
  * The first reason that holds is the one given: an agent with no reet TUI, a session that is not running, a session started
  * in the OpenCode TUI (no OpenCode session id for the reet TUI to load), a machine that has not negotiated session-mode-v1
- * (or has no chat history for this agent), then a busy chat. `busy` (a running turn, a waiting approval or question) only
+ * (or has no chat history for this agent), a chat with no saved conversation yet (nothing for `opencode --session` to open),
+ * then a busy chat. `busy` (a running turn, a waiting approval or question) only
  * holds a chat back: the OpenCode TUI's own state is not watched, as the controller does not watch it either.
  */
 export function switchModeState(session: TerminalSession, caps: Capabilities | undefined, busy: boolean): { to: 'terminal' | 'chat'; enabled: boolean; why: string } {
@@ -216,6 +217,9 @@ export function switchModeState(session: TerminalSession, caps: Capabilities | u
   if (session.state !== 'running') return no('Only a running session can switch.')
   if (to === 'chat' && !session.acpSessionId) return no('This session started in the OpenCode TUI, so the reet TUI cannot pick up its conversation.')
   if (caps?.sessionMode !== true || structuredAgent(caps, session.tool)?.history !== true) return no('Update reet on this machine to switch between the reet TUI and the OpenCode TUI.')
+  // `opencode --session` needs the id; the controller refuses with this same sentence (session_mode_no_conversation), and
+  // as there, an old machine is named first.
+  if (to === 'terminal' && !session.acpSessionId) return no('This session has no saved OpenCode conversation yet, so it cannot move to the OpenCode TUI.')
   if (session.structured && busy) return no('Wait for the agent to finish or answer what it is asking.')
   return { to, enabled: true, why: '' }
 }

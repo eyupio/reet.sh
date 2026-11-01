@@ -162,8 +162,9 @@ the status pill, the **Approvals** line and the context panel's decisions follow
 - **Only reet-started sessions return to the reet TUI.** Going to the reet TUI needs OpenCode's session id, which reet
   records only for a session that started (or has been) in the reet TUI. A session started in the OpenCode TUI keeps the
   **reet TUI** button disabled: "This session started in the OpenCode TUI, so the reet TUI cannot pick up its
-  conversation." Going the other way needs the same id: a reet TUI session whose OpenCode id was never recorded is
-  refused with "This session has no saved OpenCode conversation yet, so it cannot move to the OpenCode TUI."
+  conversation." Going the other way needs the same id: a reet TUI session whose OpenCode id was never recorded keeps
+  the **OpenCode TUI** button disabled, and the controller refuses it too: "This session has no saved OpenCode
+  conversation yet, so it cannot move to the OpenCode TUI."
 - **Idle only.** A chat with a running turn, an approval card or a question waiting does not switch: "Wait for the agent
   to finish or answer what it is asking." The controller refuses it too.
 - **`session-mode-v1` machines only.** A connector that did not negotiate it, has no chat history for OpenCode, or

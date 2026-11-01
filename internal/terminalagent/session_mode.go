@@ -111,12 +111,15 @@ func (a *agentSwitch) swap(ctx context.Context, requestID, sessionID string, in 
 		}
 		if retired, ok := process.(interface{ GroupRetired() bool }); ok && !retired.GroupRetired() {
 			// Nothing else may start on its store, and nothing runs the
-			// row any more: retire it so the controller is told.
-			sup.forget(sessionID)
-			sup.retireSwapped(sessionID, title, in.Tool, in.ACPSessionID)
+			// row any more: retire it so the controller is told. Its group
+			// may still be alive, so the receipt that replaces it keeps
+			// counting against the quota and liveTool until it is gone.
+			sup.retireSwapped(sessionID, title, in.Tool, in.ACPSessionID, process)
 			return terminalproto.SessionChanged{}, errAgentStillRunning
 		}
 		if !sup.forget(sessionID) {
+			// The id cannot be freed for the terminal; nothing runs the row.
+			sup.retireSwapped(sessionID, title, in.Tool, in.ACPSessionID, nil)
 			return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
 		}
 		changed, err := a.startTerminal(ctx, requestID, sessionID, title, in, in.Cols, in.Rows)
@@ -124,7 +127,7 @@ func (a *agentSwitch) swap(ctx context.Context, requestID, sessionID string, in 
 			return changed, nil
 		}
 		if _, restoreErr := a.startChat(newID(), sessionID, title, in, trust); restoreErr != nil {
-			sup.retireSwapped(sessionID, title, in.Tool, in.ACPSessionID)
+			sup.retireSwapped(sessionID, title, in.Tool, in.ACPSessionID, nil)
 		}
 		return terminalproto.SessionChanged{}, err
 	}
@@ -154,7 +157,7 @@ func (a *agentSwitch) swap(ctx context.Context, requestID, sessionID string, in 
 		// The TUI did not exit on its hangup and survived SIGTERM and SIGKILL.
 		// It may still write the OpenCode store: no chat opens on it, and
 		// nothing runs the row any more.
-		sup.retireSwapped(sessionID, title, in.Tool, "")
+		sup.retireSwapped(sessionID, title, in.Tool, "", nil)
 		return terminalproto.SessionChanged{}, errAgentStillRunning
 	}
 	changed, err := a.startChat(requestID, sessionID, title, in, in.Trust)
@@ -166,7 +169,7 @@ func (a *agentSwitch) swap(ctx context.Context, requestID, sessionID string, in 
 		cols, rows = 80, 24
 	}
 	if _, restoreErr := a.startTerminal(ctx, newID(), sessionID, title, in, cols, rows); restoreErr != nil {
-		sup.retireSwapped(sessionID, title, in.Tool, "")
+		sup.retireSwapped(sessionID, title, in.Tool, "", nil)
 	}
 	return terminalproto.SessionChanged{}, err
 }
@@ -259,7 +262,8 @@ func (a *agentSwitch) claim(ctx context.Context, sessionID string, in terminalpr
 
 // chatTrusted is the chat start's trust gate, asked before anything is
 // stopped: the same *acpagent.TrustError (or ErrPluginsUnreadable) the start
-// would return. A folder that does not resolve is left to the start.
+// would return. A folder that does not resolve is refused here too, with the
+// start's own ResolveDir error, so the terminal keeps running.
 func (a *agentSwitch) chatTrusted(in terminalproto.SessionMode) error {
 	spec, ok := acpagent.Lookup(in.Tool)
 	if !ok {
@@ -267,7 +271,7 @@ func (a *agentSwitch) chatTrusted(in terminalproto.SessionMode) error {
 	}
 	dir, err := terminalhost.ResolveDir(a.chats.sup.opts.Home, in.Dir)
 	if err != nil {
-		return nil
+		return err
 	}
 	return spec.CheckTrust(dir, in.Trust)
 }
@@ -342,22 +346,68 @@ func (s *chatSupervisor) unhold(sessionID string) {
 	}
 }
 
-// retireSwapped reports a session whose swap and rollback both failed: no
-// process holds the id any more. It leaves an ended chat receipt, so a
-// reconcile reports the session ended, and tells the controller through the
-// supervisor's normal ended notice once the swap no longer hides the id.
-func (s *chatSupervisor) retireSwapped(sessionID, title, tool, acpID string) {
+// retireSwapped reports a session whose swap could not leave a process
+// running it. It leaves an ended chat receipt, replacing an ended one the
+// swap left behind, so a reconcile reports the session ended, and tells the
+// controller through the supervisor's normal ended notice once the swap no
+// longer hides the id. The receipt is created ended: no reconcile taken after
+// the swap mark is released ever sees the id live.
+//
+// stray, when set, is the swapped-out chat process whose group Close could not
+// confirm gone. The receipt keeps it and counts against the chat quota and
+// liveTool until a later Close confirms the group gone.
+func (s *chatSupervisor) retireSwapped(sessionID, title, tool, acpID string, stray chatProcess) {
 	s.mu.Lock()
-	if s.closed || s.sessions[sessionID] != nil {
+	if existing := s.sessions[sessionID]; s.closed || existing != nil && existing.state.ReservesQuota() {
 		s.mu.Unlock()
 		return
 	}
-	cs := &chatSession{id: sessionID, title: title, tool: tool, acpID: acpID, state: terminalproto.Running}
+	s.dropLocked(sessionID)
+	cs := &chatSession{id: sessionID, title: title, tool: tool, acpID: acpID, state: terminalproto.Exited, process: stray, stray: stray != nil}
 	s.sessions[sessionID] = cs
+	if stray != nil {
+		s.wg.Add(1)
+	}
 	s.mu.Unlock()
+	if stray != nil {
+		go s.awaitStray(cs, stray)
+	}
 	s.releaseSwap(sessionID)
+	beforeRetireNotice()
 	s.ended(cs, -1)
 }
+
+// awaitStray closes a retired chat's process again every strayRecheckInterval
+// until Close confirms its group gone, then stops counting the receipt. It
+// gives up when the supervisor closes.
+func (s *chatSupervisor) awaitStray(cs *chatSession, process chatProcess) {
+	defer s.wg.Done()
+	retired, ok := process.(interface{ GroupRetired() bool })
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-s.stop:
+			return
+		case <-time.After(strayRecheckInterval):
+		}
+		process.Close()
+		if !ok || retired.GroupRetired() {
+			s.mu.Lock()
+			cs.stray = false
+			s.mu.Unlock()
+			return
+		}
+	}
+}
+
+// strayRecheckInterval is how often a retired chat whose process group Close
+// could not confirm gone is closed again; a variable so tests can shorten it.
+var strayRecheckInterval = 5 * time.Second
+
+// beforeRetireNotice runs once a retired session is visible again and before
+// its ended notice is sent. It does nothing; tests land a reconcile there.
+var beforeRetireNotice = func() {}
 
 func (s *chatSupervisor) releaseSwap(sessionID string) {
 	s.mu.Lock()
@@ -398,6 +448,9 @@ func listShells(ctx context.Context, shells shellLister, sup *chatSupervisor) ([
 			if ctx.Err() != nil {
 				return nil, nil, ctx.Err()
 			}
+			// Yield before listing again, as reconcile does: back-to-back
+			// swaps must not spin this loop.
+			time.Sleep(time.Millisecond)
 			continue
 		}
 		out := sessions[:0]

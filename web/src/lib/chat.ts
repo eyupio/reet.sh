@@ -375,6 +375,15 @@ const TOOL_LABELS: Record<string, string> = {
 }
 
 /** The short all-caps word a tool row leads with: Bash, Read, Edit… */
+/** Why a closed chat is closed, in words. A chat's live history is kept only in the machine's connector process, so what the person can do
+ *  next depends on how it ended. `name` is the tool's product name. */
+export function endedReason(state: string, name: string): string {
+  if (state === 'lost') return `reet lost contact with this ${name} chat on the machine, for example when the connection closed or the reet service there restarted. Its live history was held in memory and is gone, so start a new chat to carry on.`
+  if (state === 'ended') return `You ended this ${name} chat. Its live history is not kept after a chat ends.`
+  // An exited chat is one that stopped on its own or that the person ended: the state does not say which, so it does not guess.
+  return `This ${name} chat has ended. Its live history is not kept after the machine connection closes.`
+}
+
 export function toolLabel(kind: string): string {
   return TOOL_LABELS[kind] ?? (kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : 'Tool')
 }

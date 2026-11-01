@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { applyChatEvent, initialChat, isWorking, pendingPermissions, resetChat } from './chat.ts'
+import { applyChatEvent, endedReason, initialChat, isWorking, pendingPermissions, resetChat } from './chat.ts'
 
 const event = (seq, fields) => ({ seq, ...fields })
 
@@ -274,4 +274,18 @@ test('fields that share a title stay distinct in the summary', () => {
   assert.deepEqual(lines.map(line => line.key), ['a', 'b'])
   assert.equal(new Set(lines.map(line => line.key)).size, 2)
   assert.deepEqual(lines.map(line => line.text), ['x', 'y'])
+})
+
+test('a closed chat says why it closed and what the person can do', () => {
+  const lost = endedReason('lost', 'Claude Code')
+  assert.match(lost, /lost contact with this Claude Code chat/)
+  assert.match(lost, /service there restarted/)
+  assert.match(lost, /start a new chat/)
+  assert.match(endedReason('ended', 'OpenCode'), /^You ended this OpenCode chat/)
+  // An exited chat may have stopped on its own or been ended by the person; the wording must not blame either.
+  assert.match(endedReason('exited', 'OpenCode'), /^This OpenCode chat has ended/)
+  assert.doesNotMatch(endedReason('exited', 'OpenCode'), /You ended|OpenCode ended/)
+  // Every reason says the history is gone; none claims it can be continued.
+  for (const state of ['lost', 'ended', 'exited']) assert.doesNotMatch(endedReason(state, 'X'), /continue|resume|reopen/i)
+  assert.notEqual(endedReason('lost', 'X'), endedReason('exited', 'X'))
 })

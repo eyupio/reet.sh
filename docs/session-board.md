@@ -65,7 +65,9 @@ terminal feature, authorization, capability, and audit gates. No prompt or image
 body is added to Activity or browser storage. Ordinary agent approvals apply.
 
 Quick launch remains available in an expandable section. New session links from
-Sessions and project handoffs open it automatically; launch links focus the prompt.
+Sessions and project handoffs open it automatically, and while open it docks to the foot of the
+viewport so its prompt and Start stay visible however long the board above it is. Launch links focus
+the prompt.
 Machine health and Needs you remain accessible below the board and through the
 existing bell.
 Home refreshes visible data every 15 seconds and keeps the last successful read

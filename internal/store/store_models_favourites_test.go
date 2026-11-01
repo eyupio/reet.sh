@@ -274,8 +274,11 @@ func TestFolderProjectExistingRowsKeepTheirDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	uid := projectUser(t, s, "a")
-	// A row written before the effort column existed.
+	// A row written before the effort and YOLO columns existed.
 	if _, err := s.db.Exec(`ALTER TABLE folder_projects DROP COLUMN default_effort`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`ALTER TABLE folder_projects DROP COLUMN default_yolo`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,starter_prompt,colour,position,legacy_project_id,note,created_at,updated_at,version)
@@ -289,7 +292,7 @@ func TestFolderProjectExistingRowsKeepTheirDefaults(t *testing.T) {
 			t.Fatal("reopen", i, err)
 		}
 		got, err := s.FolderProjectFor(uid, "old")
-		if err != nil || got.DefaultTool != "claude" || got.DefaultModel != "model-one" || got.DefaultEffort != "" {
+		if err != nil || got.DefaultTool != "claude" || got.DefaultModel != "model-one" || got.DefaultEffort != "" || got.DefaultYolo {
 			t.Fatalf("open %d: %+v %v", i, got, err)
 		}
 		s.Close()

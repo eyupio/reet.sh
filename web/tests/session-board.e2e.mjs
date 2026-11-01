@@ -74,6 +74,14 @@ try {
       const launch = app.page.getByRole('form', { name: 'Start a session', exact: true })
       await expect(launch).toBeVisible()
       await expect(launch.getByRole('textbox', { name: 'Describe the job', exact: true })).toBeVisible()
+      // The board keeps the second column beside the rail, and an open Quick launch stays in the viewport under a long board.
+      const column = await app.page.locator('.column').boundingBox()
+      const rail = await app.page.locator('aside.rail').boundingBox()
+      if (rail) expect(column.x).toBeGreaterThanOrEqual(rail.x + rail.width - 1)
+      const launchBox = await launch.boundingBox()
+      const view = app.page.viewportSize()
+      expect(launchBox.y).toBeGreaterThanOrEqual(0)
+      expect(launchBox.y + launchBox.height).toBeLessThanOrEqual(view.height + 1)
       if (focused) {
         await expect(launch.getByRole('textbox', { name: 'Describe the job', exact: true })).toBeFocused()
         await expect.poll(() => new URL(app.page.url()).hash).toBe('')

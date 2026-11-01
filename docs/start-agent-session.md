@@ -76,10 +76,12 @@ follows the project and is named, not chosen, except for **Home folder on** a ma
 machine that isn't ready is listed, disabled, with that machine's readiness sentence.
 
 - **What it opens on.** The last launch, read from the sessions list (never from browser storage),
-  with the prompt empty and Approvals on **Ask me**. After every start Approvals is back on Ask me.
-  **YOLO** opens the confirmation dialog; it is available only when an owner or admin has allowed it
-  for the account, the machine accepts it, the agent has a reviewed option and the person confirms
-  this session. The controller refuses it with 403 `yolo_not_allowed` or 409 `yolo_refused` otherwise.
+  with the prompt empty and Approvals on the project's own default: **Ask me**, or **YOLO** when the
+  project was saved that way. Choosing **YOLO** in the bar opens the confirmation dialog; confirming
+  turns it on for this launch and does **not** start anything, so Start stays the person's decision.
+  A project default is confirmed the same way when Start is pressed. YOLO is available only when an
+  owner or admin has allowed it for the account, the machine accepts it and the agent has a reviewed
+  option. The controller refuses it with 403 `yolo_not_allowed` or 409 `yolo_refused` otherwise.
 - **The rail.** Choosing a rail card puts that project in the sentence with its own default agent,
   model, base branch and worktree choice, then moves focus to the prompt. `/?project=<id>` does the
   same once. The card's **+** and **New session here** start at once instead, sending the bar's Start

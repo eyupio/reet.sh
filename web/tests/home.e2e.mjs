@@ -903,8 +903,13 @@ try {
   await expect(launchBar(page)).toBeVisible()
   await expect(page.getByRole('button',{name:'Start an agent'})).toHaveCount(0)
   await expect(page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
-  // Quick launch holds the bar in the page flow rather than docking it over the board.
+  // Quick launch docks to the foot of the viewport while open, so its prompt is visible under a long board.
+  await page.locator('details.quick-launch').evaluate(d => { d.open = true })
   await expect(launchBar(page)).toBeVisible()
+  const barBox = await launchBar(page).boundingBox()
+  const view = page.viewportSize()
+  expect(barBox.y).toBeGreaterThanOrEqual(0)
+  expect(barBox.y + barBox.height).toBeLessThanOrEqual(view.height + 1)
   expect(errors).toEqual([])
   await context.close()
  }

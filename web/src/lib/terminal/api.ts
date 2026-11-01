@@ -270,7 +270,12 @@ export type FolderProject = {
   dir: string; name: string; isRepo: boolean; baseBranch: string; worktreeDefault: WorktreeDefault
   /** The rail colour's id from projectColour.ts, "" when none. */
   colour: string
-  defaultTool: string; defaultModel: string; defaultEffort: string; hasStarterPrompt: boolean
+  /** The group that holds the project; absent or "" when ungrouped. */
+  groupId?: string
+  defaultTool: string; defaultModel: string; defaultEffort: string
+  /** Sessions in this project open with YOLO selected; each start still confirms. */
+  defaultYolo: boolean
+  hasStarterPrompt: boolean
   /** Only in the single read (`getFolderProject`), for the edit form. */
   starterPrompt?: string
   /** The one-time notice from moving saved Projects here: the names of the other Projects with this folder whose shared
@@ -280,7 +285,7 @@ export type FolderProject = {
 }
 /** A create sends host (the machine's enrollment id) and dir at least; an update sends only what changed (absent keeps, "" clears a text field).
  * `note` can only be cleared (anything else is 422 `invalid_note`). */
-export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'colour' | 'defaultTool' | 'defaultModel' | 'defaultEffort' | 'starterPrompt'>> & { note?: '' }
+export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'colour' | 'defaultTool' | 'defaultModel' | 'defaultEffort' | 'defaultYolo' | 'starterPrompt'>> & { note?: '' }
 export type RemovedFolderProject = { ok: boolean; message: string }
 /** The rail's list; `savedWaiting` counts saved Project repositories still waiting for room (offer `importSavedProjects`). */
 export type FolderProjectList = { projects: FolderProject[]; savedWaiting: number }
@@ -353,10 +358,47 @@ export async function deleteFolderProject(id: string, version: number, signal?: 
   const headers = versionHeader(version)
   return (await terminalRequest(folderProjectPath(id), { method: 'DELETE', signal: within(signal), headers })).json()
 }
-/** Every project once, each with the version read; answers the list in its new order with the new versions. */
-export async function reorderFolderProjects(ids: string[], versions: number[], signal?: AbortSignal): Promise<FolderProject[]> {
-  if (ids.length !== versions.length) throw new Error('Every project needs the version that was read.')
-  return (await (await terminalRequest('/api/v2/folder-projects/reorder', { method: 'POST', signal: within(signal), body: JSON.stringify({ ids, versions }) })).json()).projects
+/** Every project once, each with the version read; answers the list in its new order with the new versions.
+ *  `groupIds`, when given, also settles each project's group ("" for ungrouped). */
+export async function reorderFolderProjects(ids: string[], versions: number[], groupIds?: string[], signal?: AbortSignal): Promise<FolderProject[]> {
+  if (ids.length !== versions.length || (groupIds && groupIds.length !== ids.length)) throw new Error('Every project needs the version that was read.')
+  const body = groupIds ? { ids, versions, groupIds } : { ids, versions }
+  return (await (await terminalRequest('/api/v2/folder-projects/reorder', { method: 'POST', signal: within(signal), body: JSON.stringify(body) })).json()).projects
+}
+
+// Project groups: named, coloured collections that arrange the rail. A project
+// belongs to at most one group; removing a group leaves its projects ungrouped.
+export type ProjectGroup = { id: string; name: string; colour: string; position: number; createdAt: number; updatedAt: number; version: number }
+export type ProjectGroupInput = Partial<Pick<ProjectGroup, 'name' | 'colour'>>
+export type ProjectGroupList = { groups: ProjectGroup[] }
+export const PROJECT_GROUP_ERROR_CODES = ['group_not_found', 'group_changed', 'group_name_taken', 'group_limit', 'invalid_group', 'invalid_name', 'invalid_colour'] as const
+export type ProjectGroupErrorCode = typeof PROJECT_GROUP_ERROR_CODES[number]
+export const projectGroupPath = (id: string): string => `/api/v2/project-groups/${encodeURIComponent(id)}`
+export async function listProjectGroups(signal?: AbortSignal): Promise<ProjectGroup[]> { return (await (await terminalRequest('/api/v2/project-groups', { signal: within(signal) })).json()).groups }
+async function withGroupVersion(response: Response): Promise<ProjectGroup> {
+  const group: ProjectGroup = await response.json()
+  const tag = /^"(\d+)"$/.exec(response.headers.get('ETag') ?? '')
+  if (tag) group.version = Number(tag[1])
+  return group
+}
+export async function createProjectGroup(input: ProjectGroupInput, signal?: AbortSignal): Promise<ProjectGroup> {
+  return withGroupVersion(await terminalRequest('/api/v2/project-groups', { method: 'POST', signal: within(signal), body: JSON.stringify(input) }))
+}
+export async function updateProjectGroup(id: string, input: ProjectGroupInput, version: number, signal?: AbortSignal): Promise<ProjectGroup> {
+  const headers = versionHeader(version)
+  return withGroupVersion(await terminalRequest(projectGroupPath(id), { method: 'PATCH', signal: within(signal), body: JSON.stringify(input), headers }))
+}
+export async function deleteProjectGroup(id: string, version: number, signal?: AbortSignal): Promise<ProjectGroup[]> {
+  const headers = versionHeader(version)
+  return (await (await terminalRequest(projectGroupPath(id), { method: 'DELETE', signal: within(signal), headers })).json()).groups
+}
+export async function reorderProjectGroups(ids: string[], versions: number[], signal?: AbortSignal): Promise<ProjectGroup[]> {
+  if (ids.length !== versions.length) throw new Error('Every group needs the version that was read.')
+  return (await (await terminalRequest('/api/v2/project-groups/reorder', { method: 'POST', signal: within(signal), body: JSON.stringify({ ids, versions }) })).json()).groups
+}
+/** Moves one project into a group, or out of every group when groupId is "". */
+export async function setFolderProjectGroup(id: string, groupId: string, signal?: AbortSignal): Promise<void> {
+  await terminalRequest(`${folderProjectPath(id)}/group`, { method: 'POST', signal: within(signal), body: JSON.stringify({ groupId }) })
 }
 
 /** Only the parameters that are set, each once; `hidden` only when true. */

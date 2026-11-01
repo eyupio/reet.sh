@@ -292,3 +292,29 @@ is insufficient to enable it. Candidate order: Claude first, conditional on thes
 gates; Codex remains a separately verified integration.
 
 Codex probes: `python3 scripts/probe-codex-turn.py <allow|deny|cancel|error> --tool-name exec_command --mode read-only [--outside] --workspace "$probe_dir"` (add `--discover` to list tools).
+
+## Claude credential check (SC4 gate, 1 November 2026)
+
+`scripts/check-claude-credentials.py` runs the pinned adapter with the connector profile's environment shape and records what
+the adapter does about credentials. Two scenarios: `session` (initialize and create a session; no model call, cannot spend
+anything) and `prompt` (also sends one short prompt that allows no tools; needs `--yes-spend` because a logged-in account is
+billed a small amount). `--home isolated|real` chooses an empty temporary home or this machine's own home.
+
+Observed in the SC4 session (adapter 0.99.1, no credential variables, empty temporary home):
+
+- `initialize` advertises **no** login methods (`authMethods` is empty), and `session/new` **succeeds**. Session creation
+  therefore does not reveal a missing login; the first prompt would.
+- The run nevertheless authenticated: a one-word prompt completed with token usage, and the adapter wrote its synced settings
+  into the temporary home. The sandbox supplies credentials outside the process, so **this session cannot test the
+  logged-out case**. The first draft of the script claimed a prompt with no credentials could not bill; that was wrong here
+  and one small turn was spent before it was corrected. The script now makes no model call unless asked to.
+
+Still to run by a person, on a machine or OS account that is logged out of Claude:
+
+1. `python3 scripts/check-claude-credentials.py prompt --workspace "$probe_dir" --yes-spend` and keep the JSON: the error
+   shape (code, message, whether `authMethods` appears) is what the browser will have to explain.
+2. The same with `--home real` on a logged-in machine: confirms a real login is found and the reply is `ok`.
+3. Confirm that an `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` in the environment is the only way the connector
+   forwards a credential (the profile forwards nothing else).
+
+Until 1 and 2 are recorded, Claude chats stay behind `REET_EXPERIMENTAL_CLAUDE_CHAT`.

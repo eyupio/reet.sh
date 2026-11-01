@@ -26,6 +26,10 @@ var CodexCandidate = Spec{
 	MinVersion:   "1.13.1",
 	RequireMode:  "read-only",
 	StartMode:    "read-only",
+	// A person may move a chat between the mode that can ask before a command
+	// leaves the sandbox and the one where an automatic reviewer decides. Never
+	// "agent-full-access".
+	ChoosableModes: []string{"read-only", "agent"},
 	// session/cancel ends a turn in about a second but leaves a running command
 	// alive (probe report, "Codex gates, re-run"). Stop therefore ends the chat
 	// when a command is running, so nothing keeps running behind a stopped chat.

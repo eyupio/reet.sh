@@ -1,5 +1,5 @@
 <script lang="ts">
- import { structuredAgent } from '../terminal/api'
+ import { isChatTool, structuredAgent } from '../terminal/api'
   import { onMount, tick, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { shell } from '../dialogShell'
@@ -130,11 +130,11 @@
       choice = next
     })
   })
-  // If the machine list arrives after the first choice, an OpenCode choice not yet
+  // If the machine list arrives after the first choice, a chat-capable choice not yet
   // toggled to a terminal becomes a chat. An explicit terminal (chat === false) stays.
   $effect(() => {
     const current = choice, all = machines
-    if (!current || locked || current.agent !== 'opencode' || current.chat !== undefined) return
+    if (!current || locked || !isChatTool(current.agent) || current.chat !== undefined) return
     const host = current.projectIds.length === 1 ? projects?.find(p => p.id === current.projectIds[0])?.host : current.homeMachine
     if (structuredAgent(all?.find(m => m.agentId === host)?.capabilities, current.agent)) choice = { ...current, chat: true }
   })
@@ -1024,7 +1024,7 @@
         aria-describedby={[choice?.prompt ? `${id}-secrets` : '', shownStatus ? `${id}-status` : ''].filter(Boolean).join(' ') || undefined}
         autocomplete="off" spellcheck="true"></textarea>
     </div>
-    {#if choice?.chat}
+    {#if choice?.chat && choice.agent === 'opencode'}
       <label class="trust"><input type="checkbox" bind:checked={choice.trust} disabled={locked} /> I trust this folder; OpenCode plugins in <code>.opencode</code> may run.</label>
     {/if}
     {#if starter || choice?.prompt || runOpen || attachments.length}

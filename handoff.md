@@ -26,6 +26,25 @@ implemented baseline, S/A/W/L task lists, start-agent-session protocol notes, Pr
 delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief) are in
 [handoff-history.md](handoff-history.md), under "Moved from handoff.md on 27 October 2026".
 
+## Welcome page: one command on any machine (1 November 2026)
+
+**Scope:** the signed-out Welcome page and the entry card beside sign-in, set-up and sign-up; no API or
+signed-in change. Branch `welcome-one-command-any-machine`.
+
+The hero now leads with the moment a newcomer can picture, one command on any machine, and the lede
+says what reet.sh keeps on every machine (agents, skills and setups: synced, backed up, restorable).
+The illustration is the product's own enrolment: a Machines list with three machines in sync over a
+terminal running `enrollCommands()` from `machineSetup.ts` line for line, so it cannot drift from what
+Add a machine gives. The three steps are enrol a machine, agents, skills and setups stay in sync, put
+your agents to work. The entry card's headline is "Your whole AI setup. On every machine." The voice,
+the rose and the palette are unchanged, and the page still says self-hosted, never a service.
+`public-workspace.e2e.mjs` and `first-run.e2e.mjs` hold the words and the illustration's commands.
+The public header also carries the colour choice (`ThemePicker.svelte`: three icons, light, dark, then
+match this device, the chosen one ringed) between the links and Sign in, in the links row at every width
+so a phone's set-up form still fits its first screen; it applies through `applyTheme`, is kept in this
+browser, and a signed-in profile's saved choice still wins. The signed-in account menu is unchanged. The
+sign-in, sign-up and set-up leads say machines are enrolled and agents, skills and setups stay in sync.
+
 ## SC2 — Claude lifecycle probes and ID/diff hardening (31 October 2026)
 
 **Scope:** follow-up to PR #301; no adapter is enabled. Branch `ccr-4cc5980a-dt7hki`.

@@ -386,14 +386,22 @@ export async function setApprovalMode(id: string, mode: ApprovalMode): Promise<v
 export async function chatModel(id: string, model: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/model`, { method: 'POST', body: JSON.stringify({ model }) }) }
 
 /** Local adapter evidence; available still checks --version and identity at launch. */
-export type StructuredAgent = { tool: string; adapter: string; state: 'available' | 'missing' | 'unverified' | 'incompatible'; version?: string; minimumVersion?: string; history?: boolean; images?: boolean; model?: boolean; approval?: boolean }
+export type StructuredAgent = { tool: string; adapter: string; state: 'available' | 'missing' | 'unverified' | 'incompatible'; version?: string; minimumVersion?: string; history?: boolean; images?: boolean; model?: boolean; approval?: boolean; questions?: boolean }
+
+/** The adapter each reviewed chat tool must report; a descriptor for any other adapter never makes a tool chat-capable. */
+const CHAT_ADAPTERS: Record<string, string> = { opencode: 'opencode', claude: 'claude-agent-acp' }
+export function isChatTool(tool: string | undefined): boolean { return !!tool && tool in CHAT_ADAPTERS }
+/** The product name shown for a chat tool. */
+export function chatToolName(tool: string | undefined): string { return tool === 'claude' ? 'Claude Code' : 'OpenCode' }
 
 /** Explicit descriptors override legacy booleans; only reviewed tools may start. */
 export function structuredAgent(caps: Capabilities | undefined, tool: string | undefined): StructuredAgent | null {
- if (!caps?.acp || tool !== 'opencode') return null
+ if (!caps?.acp || !tool || !isChatTool(tool)) return null
  if (caps.acpAgents !== undefined) {
   if (!Array.isArray(caps.acpAgents)) return null
-  return caps.acpAgents.find(a => a.tool === tool && a.adapter === 'opencode' && a.state === 'available') ?? null
+  return caps.acpAgents.find(a => a.tool === tool && a.adapter === CHAT_ADAPTERS[tool] && a.state === 'available') ?? null
  }
+ // A machine that sent no descriptors predates every adapter but OpenCode.
+ if (tool !== 'opencode') return null
  return { tool, adapter: 'opencode', state: 'available', history: caps.acpHistory === true, images: caps.acpImages === true, model: caps.acpModel === true, approval: caps.acpApproval === true }
 }

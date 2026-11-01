@@ -889,7 +889,7 @@ try {
   await d.getByRole('textbox',{name:'Folder',exact:true}).fill('/home/dev/site')
   await d.getByRole('button',{name:'Add project'}).click()
   // Signed out on / is the welcome and sign-in page.
-  await expect(page).toHaveTitle('Your AI fleet control room · reet.sh')
+  await expect(page).toHaveTitle('Your whole AI setup, on every machine · reet.sh')
   await expect(rail(page)).toHaveCount(0)
   await expect(page.getByRole('dialog',{name:'Add a project',exact:true})).toHaveCount(0)
   expect(errors).toEqual([])

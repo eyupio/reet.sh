@@ -397,6 +397,32 @@ test('a start in several projects words its own refusals', () => {
   assert.equal(runRefusalText(401, 'x', 'no'), "You've been signed out. Sign in again to continue.")
 })
 
+test('Claude gets a native chat only from a machine that reports the reviewed adapter as available', () => {
+  const claudeAgent = (extra = {}) => ({ tool: 'claude', adapter: 'claude-agent-acp', state: 'available', minimumVersion: '0.99.1', model: true, approval: true, ...extra })
+  const optedIn = machine('m-studio', 'studio', { tools: ['claude'], acp: true, acpAgents: [claudeAgent()] })
+  const claudeProject = { ...reet, defaultTool: 'claude' }
+  const start = initialChoice([claudeProject], profile, { machines: [optedIn] })
+  assert.equal(start.agent, 'claude')
+  assert.equal(start.chat, true)
+  const create = toCreate(start, claudeProject, 'r'.repeat(16), 'a'.repeat(16))
+  assert.equal(create.launch.structured, true)
+  // OpenCode's plugin warning does not apply: no trust is asked for and none is sent.
+  assert.equal(startable(start, [claudeProject], [optedIn], profile), null)
+  assert.equal(create.launch.trust, undefined)
+  // Even a stale trust flag on the choice is never sent for Claude.
+  assert.equal(toCreate({ ...start, trust: true }, claudeProject, 'r'.repeat(16), 'a'.repeat(16)).launch.trust, undefined)
+  // A dark machine (Claude only unverified), the wrong adapter, or a peer with no descriptors never gets a chat.
+  for (const agents of [[claudeAgent({ state: 'unverified' })], [claudeAgent({ adapter: 'opencode' })], [claudeAgent({ state: 'missing' })], []]) {
+    const dark = machine('m-studio', 'studio', { tools: ['claude'], acp: true, acpAgents: agents })
+    assert.notEqual(initialChoice([claudeProject], profile, { machines: [dark] }).chat, true)
+  }
+  const legacy = machine('m-studio', 'studio', { tools: ['claude'], acp: true, acpHistory: true })
+  assert.notEqual(initialChoice([claudeProject], profile, { machines: [legacy] }).chat, true)
+  assert.match(startable({ ...start, chat: true }, [claudeProject], [legacy], profile), /does not offer the reet TUI/)
+  // A tool that is not a reviewed chat tool is never sent as one, whatever the choice says.
+  assert.equal(toCreate({ ...start, agent: 'codex', chat: true }, claudeProject, 'r'.repeat(16), 'a'.repeat(16)).launch.structured, undefined)
+})
+
 test('OpenCode on an acp machine launches a native chat by default', () => {
   const acp = machine('m-studio', 'studio', { tools: ['opencode'], acp: true, acpHistory: true })
   const openProject = { ...reet, defaultTool: 'opencode' }

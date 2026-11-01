@@ -94,7 +94,7 @@
   </form>
 {/snippet}
 
-<AuthCard title="Sign in to your workspace" lede="Your fleet, agent toolkit and ongoing sessions are waiting.">
+<AuthCard title="Sign in to your workspace" lede="Your machines, with their agents, skills and setups in sync, and the sessions you left running.">
   {#if ssoError}<p class="error sso-error" role="alert">{ssoError}</p>{/if}
   {#if choices.button}
     <a class="btn primary sso" href={startHref}>{choices.label}</a>

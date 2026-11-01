@@ -185,8 +185,16 @@ not scope additions to the first two integrations.
 Claude is registered behind the descriptor and launch gates but dark. The controller accepts a Claude descriptor only for the
 reviewed adapter and only when the machine reports it available; a machine reports it available only when it opts in with
 `REET_EXPERIMENTAL_CLAUDE_CHAT=1`. The descriptor reports approvals and the model switch only. Native-session replay, images and
-questions stay off. The browser still offers OpenCode only. Next: run the credential and missing-credential check on a real
-machine, then the launch and view changes, then Claude-specific recovery.
+questions stay off. The browser offers a Claude chat only where a machine reports the adapter available (below). Next: run the credential
+and missing-credential check on a real machine (script and checklist in the probe report).
+
+### SC4 progress: the browser offers Claude chats (1 November 2026)
+
+The browser reads the reviewed adapter from each machine's descriptor instead of assuming OpenCode: a chat is offered for Claude
+only when the machine reports `claude-agent-acp` as available, so it stays hidden everywhere the machine has not opted in. Claude
+chats show Claude Code's name, skip OpenCode's plugin trust prompt (Claude ignores a folder's own settings), and send no trust.
+Covered by `launchBar.test.mjs` and the existing launch, start-agent and chat browser tests; `chat-claude.e2e.mjs` covers the Claude
+start dialog, create body and session screen. Native-session continue, images and typed questions stay off for Claude.
 
 ## SC5 — Recovery and capability-driven controls
 
@@ -212,6 +220,32 @@ cancel ignored by an agent, output before completion, active approvals during
 reconnect and native process failure. Preserve the bounded SSE/ring contract.
 Durable controller history and detached per-session workers need their own
 retention, lifecycle and recovery design; they are not implied by this stage.
+
+### SC5 audit (1 November 2026)
+
+Read against the SC5 list; no behaviour changed. **Already covered, with tests:** process-group retirement on `Close` (confirmed, zombie-aware);
+cards (permissions and questions) retire when a turn is cancelled or the session closes; the silence watchdog is joined before the next turn so a late
+recovery cannot report against it; the browser drops events at or below its last sequence number; a connection's messages carry its link generation; and
+`SetModel` reports the applied model only after the agent acknowledges it.
+
+**Gaps found:**
+
+1. **A cancel the agent ignores leaves the chat busy for about 10 minutes.** `Cancel` shows "cancelled" immediately and sends `session/cancel`, but
+   `Working()` stays true until `session/prompt` returns. If the agent never answers, that is the 10 minute turn timeout plus the 30 second request
+   allowance; the timeout path sends another cancel and nothing stronger. Meanwhile the person sees "Stopped" and a new message is refused as busy.
+   Reproduced with a fake agent that ignores `session/cancel` (not committed: it needs a 30 second wait). There is no force-stop.
+2. **"Cancelled" is shown before the agent acknowledges it.** Not harmful on its own, but it is what makes gap 1 confusing. To verify: late output
+   from the cancelled turn after the status flips.
+3. **Late callbacks from a retired turn.** The turn sequence guards the silence recovery only. To verify: a permission or question request that arrives after
+   a cancel or turn end; the agent does not withdraw outstanding requests, so reet closes them, but a request that arrives afterwards may still raise a card.
+4. **A connector restart loses every chat.** Chats live in the connector process, so a restart ends them and nothing adopts a surviving native session.
+   The browser says the history is not kept; it does not say why. A connector transport reconnect (same process) is covered by the link generation.
+5. **Controls are model-only.** There is no effort or mode descriptor, which is intended while the mode is pinned, but the plan's "absent list versus
+   empty replacement" rule only applies to the model today.
+
+**Proposed order:** (1) bounded force-stop for an ignored cancel: after a grace period without an acknowledgement, end the chat explicitly with a notice
+and confirm the process group is gone, rather than leaving it busy; (2) tests for gaps 2 and 3 first, fixing only what they show; (3) say why a chat ended
+when the connector restarted; (4) descriptor-driven controls when a second agent needs them.
 
 ## Delivery and completion evidence
 

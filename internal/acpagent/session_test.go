@@ -255,6 +255,9 @@ func TestFakeACP(t *testing.T) {
 				send(map[string]any{"jsonrpc": "2.0", "id": 9, "method": "fs/write_text_file", "params": map[string]string{"sessionId": session, "path": "/tmp/mirror.txt", "content": "mirror"}})
 			}
 		case "session/cancel":
+			if scenario == "ignore-cancel" {
+				break
+			}
 			if len(promptID) > 0 {
 				reply(promptID, map[string]any{"stopReason": "cancelled"})
 				promptID = nil

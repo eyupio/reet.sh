@@ -6,6 +6,7 @@ export type DraftImage = { name: string; data: string }
 export type SessionDraft = {
   id: string; title: string; prompt: string; agentId: string; projectId: string; dir: string
   tool: string; model: string; effort: string; images?: DraftImage[]; imageCount: number
+  yolo?: boolean; worktree?: boolean; base?: string; chat?: boolean; trust?: boolean
   starting: boolean; preparedPrompt?: string; sessionId?: string; version: number; createdAt: number; updatedAt: number
 }
 export type BoardItem = {

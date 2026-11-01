@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:5173'
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const now = Date.now(), minute = 60_000
-const caps = { protocolVersion: 1, os: 'linux', osUser: 'sam', terminalEnabled: true, healthEnabled: true, readiness: 'ready', launch: true, tools: ['claude', 'codex', 'cline', 'opencode'], agentsV2: true, uploads: true, browse: true, terminalControl: true }
+const caps = { protocolVersion: 1, os: 'linux', osUser: 'sam', terminalEnabled: true, healthEnabled: true, readiness: 'ready', launch: true, tools: ['claude', 'codex', 'cline', 'opencode'], agentsV2: true, yolo: true, uploads: true, browse: true, terminalControl: true }
 const machines = [{ agentId: 'm1', host: 'Studio', ready: true, serverEnabled: true, capabilities: caps }, { agentId: 'm2', host: 'MacBook Pro', ready: false, serverEnabled: true, capabilities: caps }]
 const project = (id, name, dir, host = 'm1') => ({ id, name, host, machine: host === 'm1' ? 'Studio' : 'MacBook Pro', dir, isRepo: true, baseBranch: 'main', worktreeDefault: 'inherit', defaultTool: 'claude', defaultModel: 'sonnet', defaultEffort: '', hasStarterPrompt: false, colour: 'blue', position: 0, createdAt: now, updatedAt: now, version: 1 })
 const projects = [project('p1', 'Reet', '/home/sam/reet'), project('p2', 'Storefront', '/home/sam/storefront'), project('p3', 'Personal site', '/Users/sam/site', 'm2')]
@@ -24,6 +24,7 @@ async function workspace(width = 1440, theme = 'light', touch = false, entry = '
     '/api/v2/machines/m1/models': { models: [{ id: 'sonnet', provider: '' }, { id: 'opus', provider: '' }], state: 'listed' },
     '/api/v2/model-favourites': { favourites: [] },
     '/api/v2/terminal/yolo': { allowed: false },
+    '/api/v2/settings/yolo': { allowed: true },
     '/api/v2/session-backlog': request => {
       if (request.method() === 'POST') {
         const input = request.postDataJSON(); box.saves.push(input)
@@ -156,6 +157,31 @@ try {
   await expect(page.locator('.active .session-card')).toHaveCount(3)
   await expect(page.locator('.backlog .session-card')).toHaveCount(2)
   expect(box.starts).toHaveLength(1)
+  // Launch options travel with a backlog item; YOLO is saved as intent and confirmed only at Start.
+  await page.getByRole('button', { name: 'New session', exact: true }).click()
+  const options = page.getByRole('dialog')
+  await options.getByRole('textbox', { name: /^Prompt/ }).fill('Tighten the checkout copy')
+  await options.getByLabel('Agent', { exact: true }).selectOption('codex')
+  await expect(options.getByRole('group', { name: 'Approvals' })).toBeVisible()
+  await expect(options.getByLabel('Start in a fresh worktree')).toBeVisible()
+  await options.getByLabel('Start in a fresh worktree').check()
+  await options.getByLabel('Base branch').fill('develop')
+  await options.getByRole('button', { name: 'YOLO', exact: true }).click()
+  await expect(options.getByRole('note')).toContainText('confirm')
+  await options.getByRole('button', { name: 'Add to backlog' }).click()
+  await expect(options).toHaveCount(0)
+  expect(box.saves.at(-1)).toMatchObject({ tool: 'codex', yolo: true, worktree: true, base: 'develop', chat: false })
+  const startsBefore = box.starts.length
+  const yoloCard = page.locator('.session-card').filter({ hasText: 'Tighten the checkout copy' })
+  await yoloCard.getByRole('button', { name: 'Start', exact: true }).click()
+  const confirm = page.getByRole('alertdialog')
+  await expect(confirm).toContainText('Start this session on YOLO?')
+  expect(box.starts).toHaveLength(startsBefore)
+  await confirm.getByRole('button', { name: 'Keep asking me' }).click()
+  expect(box.starts).toHaveLength(startsBefore)
+  await yoloCard.getByRole('button', { name: 'Start', exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Start with YOLO' }).click()
+  await expect.poll(() => box.starts.length).toBe(startsBefore + 1)
   expect(app.errors).toEqual([])
   await app.context.close()
   for (const [width, theme, touch] of [[1440, 'dark', false], [390, 'light', true], [320, 'light', true], [768, 'light', true]]) {

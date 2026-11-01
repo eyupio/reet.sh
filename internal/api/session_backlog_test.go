@@ -42,6 +42,7 @@ func TestSessionBacklogAPIAuthorizationAndValidation(t *testing.T) {
 	for _, change := range []map[string]any{
 		{"agentId": "not-my-machine"}, {"model": "-bad"}, {"effort": "extreme"}, {"dir": "relative"}, {"tool": "unknown"}, {"prompt": strings.Repeat("a", 2001)},
 		{"images": []store.DraftImage{{Name: "fake.png", Data: "data:image/png;base64,aGVsbG8="}}}, {"projectId": "not-my-project"},
+		{"base": "main"}, {"worktree": true, "base": "bad branch"}, {"chat": true}, {"trust": true, "chat": true},
 	} {
 		bad := map[string]any{}
 		for k, v := range input {
@@ -115,5 +116,26 @@ func TestSessionBacklogRefusedStartCanBeEditedAgain(t *testing.T) {
 	reloaded.Tool = "codex"
 	if _, err := f.st.SaveSessionDraftFor(f.uid, reloaded, false); err != nil {
 		t.Fatal("cannot correct refused draft", err)
+	}
+}
+
+func TestSessionBacklogYoloIsConfirmedAndGatedAtStart(t *testing.T) {
+	f := launchAPIFixture(t, launchCaps("claude"))
+	input := map[string]any{"title": "Risky", "prompt": "Make the filters clearer", "agentId": f.agent.ID, "dir": "/home/tester/site", "tool": "claude", "yolo": true, "version": 0}
+	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/session-backlog", input)
+	if code != 201 || out["yolo"] != true {
+		t.Fatalf("save keeps the intent without a gate: %d %s", code, raw)
+	}
+	id := out["id"].(string)
+	code, _, raw = f.do(t, f.cookie, "POST", "/api/v2/session-backlog/"+id+"/start", map[string]any{"version": 1, "prompt": "Make the filters clearer"})
+	if code != 403 || !strings.Contains(raw, "yolo_not_allowed") {
+		t.Fatalf("start must hit the account YOLO gate: %d %s", code, raw)
+	}
+	if len(f.sent()) != 0 {
+		t.Fatal("nothing may be dispatched when YOLO is refused")
+	}
+	d, err := f.st.SessionDraftFor(f.uid, id)
+	if err != nil || d.PreparedPrompt != "" || !d.Yolo {
+		t.Fatalf("refused start stays editable with its choice: %+v %v", d, err)
 	}
 }

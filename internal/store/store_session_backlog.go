@@ -9,15 +9,22 @@ import (
 // SessionDraft is an account-owned launch plan. Its ID is also the terminal
 // create request ID, so a lost response or concurrent Start cannot launch twice.
 type SessionDraft struct {
-	ID             string       `json:"id"`
-	Title          string       `json:"title"`
-	Prompt         string       `json:"prompt"`
-	AgentID        string       `json:"agentId"`
-	ProjectID      string       `json:"projectId"`
-	Dir            string       `json:"dir"`
-	Tool           string       `json:"tool"`
-	Model          string       `json:"model"`
-	Effort         string       `json:"effort"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Prompt    string `json:"prompt"`
+	AgentID   string `json:"agentId"`
+	ProjectID string `json:"projectId"`
+	Dir       string `json:"dir"`
+	Tool      string `json:"tool"`
+	Model     string `json:"model"`
+	Effort    string `json:"effort"`
+	// Launch options carried to Start. Yolo is only an intent: the account
+	// setting, machine and agent gates and the audit run when it starts.
+	Yolo           bool         `json:"yolo,omitempty"`
+	Worktree       bool         `json:"worktree,omitempty"`
+	Base           string       `json:"base,omitempty"`
+	Chat           bool         `json:"chat,omitempty"`
+	Trust          bool         `json:"trust,omitempty"`
 	Images         []DraftImage `json:"images,omitempty"`
 	ImageCount     int          `json:"imageCount"`
 	PreparedPrompt string       `json:"preparedPrompt,omitempty"`

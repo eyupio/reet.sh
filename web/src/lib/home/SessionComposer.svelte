@@ -9,7 +9,8 @@
   import { effortChoices, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { saveDraft } from '../sessionBacklog'
   import { insertSkillPrompt } from '../skillPrompt'
-  import { machineModels, refreshMachineModels, type FolderProject, type TerminalMachine } from '../terminal/api'
+  import { machineModels, refreshMachineModels, structuredAgent, type FolderProject, type TerminalMachine } from '../terminal/api'
+  import { cleanDraftOptions, draftOptionRules } from '../draftOptions'
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import type { DraftImage, SessionDraft } from '../sessionBoard'
   import type { LaunchDefaults } from '../launchBar'
@@ -24,6 +25,7 @@
   let dialog: HTMLDialogElement, promptInput = $state<HTMLTextAreaElement>()
   let title = $state(''), prompt = $state(''), projectId = $state(''), agentId = $state(''), dir = $state('')
   let tool = $state(''), model = $state(''), effort = $state(''), mode = $state<'project' | 'folder'>('project')
+  let yolo = $state(false), worktree = $state(false), base = $state(''), chat = $state(true), trust = $state(false)
   let images = $state<DraftImage[]>([]), busy = $state(false), reading = $state(false), message = $state('')
   let browse = $state(false), titleTouched = $state(false)
   let modelButton = $state<HTMLButtonElement>(), effortButton = $state<HTMLButtonElement>(), skillButton = $state<HTMLButtonElement>()
@@ -39,6 +41,8 @@
   const modelMachine = $derived(modelKey === modelTargetKey ? modelRead : null)
   const efforts = $derived(effortChoices(tool))
   const takesEffort = $derived(efforts.length > 1)
+  const project = $derived(mode === 'project' ? projects.find(p => p.id === projectId) : undefined)
+  const rules = $derived(draftOptionRules({ tool, isRepo: !!project?.isRepo, canChat: !!structuredAgent(machine?.capabilities, tool), chat }))
   const modelStatusInfo = $derived.by(() => {
     const host = machine?.host ?? ''
     if (!machine) return modelStatus(null, host)
@@ -61,7 +65,7 @@
     if (!modelTargetKey || !modelStatusInfo.canRefresh || !machine?.ready || !machine.capabilities?.models || machine.capabilities.modelsOff) return undefined
     return { label: 'Refresh', onclick: () => void refreshModels(), disabled: modelLoading }
   })
-  const initial = () => JSON.stringify({ title, prompt, projectId, agentId, dir, tool, model, effort, mode, images })
+  const initial = () => JSON.stringify({ title, prompt, projectId, agentId, dir, tool, model, effort, mode, images, yolo, worktree, base, chat, trust })
   let original = '', confirmClose = $state(false)
 
   function defaults(project?: FolderProject) {
@@ -72,6 +76,8 @@
     const p = projects.find(p => p.id === projectId)
     if (!p) return
     agentId = p.host; dir = p.dir; browse = false; defaults(p)
+    worktree = p.worktreeDefault === 'yes' ? true : p.worktreeDefault === 'no' ? false : profile.worktreesByDefault !== false
+    base = ''; trust = false
   }
   function changeMode(next: 'project' | 'folder') {
     mode = next; browse = false
@@ -93,6 +99,7 @@
     if (draft) {
       title = draft.title; prompt = draft.prompt; projectId = draft.projectId; agentId = draft.agentId; dir = draft.dir
       tool = draft.tool; model = draft.model; effort = draft.effort; images = [...(draft.images ?? [])]
+      yolo = draft.yolo === true; worktree = draft.worktree === true; base = draft.base ?? ''; chat = draft.chat === true; trust = draft.trust === true
       if (!CATALOGUE.find(agent => agent.id === tool)?.effort) effort = ''
       mode = projectId ? 'project' : 'folder'; titleTouched = true
     } else {
@@ -241,7 +248,7 @@
     if (why) { message = why; return }
     busy = true; message = ''
     try {
-      const saved = await saveDraft({ title: title.trim() || defaultTitle(prompt), prompt, projectId: mode === 'project' ? projectId : '', agentId, dir, tool, model: model.trim(), effort, images, version: draft?.version ?? 0 }, draft?.id, AbortSignal.timeout(20_000))
+      const saved = await saveDraft({ title: title.trim() || defaultTitle(prompt), prompt, projectId: mode === 'project' ? projectId : '', agentId, dir, tool, model: model.trim(), effort, ...cleanDraftOptions({ tool, isRepo: !!project?.isRepo, canChat: !!structuredAgent(machine?.capabilities, tool), chat, worktree, base, trust, yolo }), images, version: draft?.version ?? 0 }, draft?.id, AbortSignal.timeout(20_000))
       onsaved(saved)
     } catch (e) { onerror(e); message = e instanceof Error ? e.message : "Couldn't save this session. Your draft is still here." }
     finally { busy = false }
@@ -279,7 +286,16 @@
         <div class="field"><span>Model</span><button type="button" class="picker" bind:this={modelButton} aria-label={`Model: ${model || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={modelOpen} disabled={busy || reading || !tool} onclick={() => modelOpen = !modelOpen}><span class="value">{model || 'Agent default'}</span><span class="chev" aria-hidden="true">▾</span></button></div>
         <div class="field"><span>Effort</span><button type="button" class="picker" bind:this={effortButton} aria-label={`Effort: ${effort || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={effortOpen} disabled={busy || reading || !takesEffort} title={takesEffort ? '' : `${toolName(tool)} chooses its own effort.`} onclick={() => effortOpen = !effortOpen}><span class="value">{takesEffort ? effort || 'Agent default' : 'This agent decides'}</span>{#if takesEffort}<span class="chev" aria-hidden="true">▾</span>{/if}</button></div></div>
         {#if !takesEffort}<p class="hint effort-hint">{toolName(tool)} chooses its own effort level.</p>{/if}
-        <p class="hint">{machine && !machine.ready ? 'This machine is offline. You can save now and start when it reconnects.' : 'Saving to the backlog keeps everything ready for later.'} Uses the agent’s normal approval settings.</p>
+        <div class="section-title">How should it run?</div>
+        <div class="options">
+          <div class="field"><span>Approvals</span><div class="mode" role="group" aria-label="Approvals"><button type="button" class:on={!yolo} aria-pressed={!yolo} onclick={() => yolo = false}>Ask me</button><button type="button" class:on={yolo} aria-pressed={yolo} onclick={() => yolo = true}>YOLO</button></div></div>
+          {#if rules.showChat}<div class="field"><span>Opens in</span><div class="mode" role="group" aria-label="Opens in"><button type="button" class:on={chat} aria-pressed={chat} onclick={() => chat = true}>reet TUI</button><button type="button" class:on={!chat} aria-pressed={!chat} onclick={() => chat = false}>{toolName(tool)} TUI</button></div></div>{/if}
+          {#if rules.showWorktree}<label class="check"><input type="checkbox" bind:checked={worktree} /> Start in a fresh worktree</label>
+            {#if worktree}<label class="field"><span>Base branch <small>Optional · leave empty for the default</small></span><input aria-label="Base branch" bind:value={base} placeholder="main" maxlength="200" /></label>{/if}{/if}
+          {#if rules.showTrust}<label class="check"><input type="checkbox" bind:checked={trust} /> I trust this folder; OpenCode plugins in <code>.opencode</code> may run.</label>{/if}
+        </div>
+        {#if yolo}<p class="hint yolo-hint" role="note">YOLO is saved as a plan only. You’ll be asked to confirm, with the account and machine checks, when you start it.</p>{/if}
+        <p class="hint">{machine && !machine.ready ? 'This machine is offline. You can save now and start when it reconnects.' : 'Saving to the backlog keeps everything ready for later.'}</p>
       </fieldset>
       {#if message}<p class="error" role="alert">{message}</p>{/if}
     </div>
@@ -344,6 +360,11 @@
   .picker .chev { flex: none; color: var(--muted); }
   .hint { font-size: 12px; color: var(--muted); margin: 0; line-height: 1.6; }
   .effort-hint { margin: -9px 0 12px; }
+  .options { display: grid; gap: 4px; }
+  .options .mode { margin-bottom: 0; }
+  .check { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 14px; font-size: 13px; }
+  .check input { width: auto; margin-top: 2px; }
+  .yolo-hint { color: var(--warn); margin-bottom: 8px; }
   footer { display: flex; align-items: center; gap: 8px; padding: 18px 28px; border-top: 1px solid var(--line); background: var(--bg); }
   footer > span { flex: 1; font-size: 11px; color: var(--muted); }
   .error, .discard { border: 1px solid var(--warn); padding: 12px; border-radius: 8px; color: var(--warn); font-size: 13px; }

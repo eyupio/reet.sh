@@ -103,7 +103,7 @@
  // arrives as many events in a burst, and applying and drawing each one separately is what used to stall the tab.
  let pendingEvents: ChatEvent[] = []
  let flushTimer: ReturnType<typeof setTimeout> | undefined
- // Tool rows are folded by default; a failure opens so its error is not hidden. The person's toggle wins for that key.
+ // Every tool row is folded by default, including a failure; the person's toggle wins for that key.
  let expanded = $state<Record<string, boolean>>({})
  let copied = $state('')
  let copyTimer: ReturnType<typeof setTimeout> | undefined
@@ -283,7 +283,7 @@
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
   event.preventDefault(); void send()
  }
- function isOpen(key: string, failed = false) { return expanded[key] ?? failed }
+ function isOpen(key: string) { return expanded[key] ?? false }
  function toggle(key: string) { expanded[key] = !isOpen(key) }
  function lineCount(text: string) { return text ? text.replace(/\n$/, '').split('\n').length : 0 }
  function diffClass(line: string) {
@@ -426,8 +426,8 @@
      {@const counts = item.additions || item.deletions || !item.diff ? { additions: item.additions, deletions: item.deletions } : diffCounts(item.diff)}
      {@const lines = lineCount(item.text)}
      {@const hasBody = !!(item.command || item.diff || item.text)}
-     {@const open = isOpen(item.key, item.status === 'failed')}
-     <div class="tool" data-kind={item.toolKind || 'other'} class:open class:failed={item.status === 'failed'}>
+     {@const open = isOpen(item.key)}
+     <div class="tool" data-kind={item.toolKind || 'other'} class:open={open} class:failed={item.status === 'failed'}>
       <svelte:element this={hasBody ? 'button' : 'div'} type={hasBody ? 'button' : undefined} role={hasBody ? 'button' : undefined} class="tool-head"
         aria-expanded={hasBody ? open : undefined} onclick={hasBody ? () => toggle(item.key) : undefined}>
        <span class="dot {state.tone}" aria-hidden="true"></span>
@@ -440,7 +440,7 @@
         {#if item.durationMs > 0}<span class="time">{formatDuration(item.durationMs)}</span>{/if}
        </span>
        <span class="state {state.tone}">{state.word}</span>
-       {#if hasBody}<span class="chevron" class:open aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg></span>{/if}
+       {#if hasBody}<span class="chevron" class:open={open} aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg></span>{/if}
       </svelte:element>
       {#if hasBody && open}
        <div class="tool-body">
@@ -466,27 +466,33 @@
     {/if}
    {:else if item.kind === 'permission'}
     {@const approvalCounts = item.diff ? diffCounts(item.diff) : { additions: 0, deletions: 0 }}
-    <div class="approval" class:decided={item.decision} role="group" aria-label="Approval needed">
-     <div class="approval-head">
+    {@const decided = !!item.decision}
+    {@const open = decided ? isOpen(item.key) : true}
+    <div class="approval" class:decided={decided} class:open={decided && open} role="group" aria-label="Approval needed">
+     <svelte:element this={decided ? 'button' : 'div'} type={decided ? 'button' : undefined} role={decided ? 'button' : undefined} class="approval-head"
+       aria-expanded={decided ? open : undefined} onclick={decided ? () => toggle(item.key) : undefined}>
       <span class="ticon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 16H3z" /><path d="M12 9v4M12 16h.01" /></svg></span>
       <span class="kind">{toolLabel(item.toolKind)}</span>
       <strong>{item.title}</strong>
       <span class="state">{item.decision ? 'Answered' : 'Needs you'}</span>
-     </div>
-     {#if item.path}<p class="approval-path" title={item.path}>{displayPath(item.path, session.dir)}</p>{/if}
-     {#if item.command}<div class="block"><span class="block-label">Command</span><pre class="command"><span class="prompt" aria-hidden="true">$</span>{' '}{item.command}</pre></div>{/if}
-     {#if item.diff}<div class="block"><span class="block-label">Diff · {approvalCounts.additions} added, {approvalCounts.deletions} removed</span><pre class="diff">{#each item.diff.split('\n') as line, i (i)}<span class={diffClass(line)}>{line || ' '}</span>{/each}</pre></div>{/if}
-     {#if item.truncated}<p class="notice bad">This change is too large to review in full here. Deny it and use {toolName} in a terminal if you need to see all of it.</p>{/if}
-     {#if item.decision}
-      <p class="decision">{item.decision === 'allowed' ? 'Allowed once.' : item.decision === 'denied' ? 'Denied.' : item.reason === 'timeout' ? 'Closed: the approval timed out.' : 'Closed without an answer.'}</p>
-     {:else}
-      <div class="approval-actions">
-       <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, false)}>Deny</button>
-       <button type="button" class="btn primary" disabled={!!answering || item.truncated} onclick={() => void answer(item.permissionId, true)}>Allow once</button>
-       {#if (item.command || item.path) && !item.truncated}
-        <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, true, true)}>{item.command ? 'Allow this command for this session' : 'Allow this file for this session'}</button>
-       {/if}
-      </div>
+      {#if decided}<span class="chevron" class:open={open} aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg></span>{/if}
+     </svelte:element>
+     {#if open}
+      {#if item.path}<p class="approval-path" title={item.path}>{displayPath(item.path, session.dir)}</p>{/if}
+      {#if item.command}<div class="block"><span class="block-label">Command</span><pre class="command"><span class="prompt" aria-hidden="true">$</span>{' '}{item.command}</pre></div>{/if}
+      {#if item.diff}<div class="block"><span class="block-label">Diff · {approvalCounts.additions} added, {approvalCounts.deletions} removed</span><pre class="diff">{#each item.diff.split('\n') as line, i (i)}<span class={diffClass(line)}>{line || ' '}</span>{/each}</pre></div>{/if}
+      {#if item.truncated}<p class="notice bad">This change is too large to review in full here. Deny it and use {toolName} in a terminal if you need to see all of it.</p>{/if}
+      {#if item.decision}
+       <p class="decision">{item.decision === 'allowed' ? 'Allowed once.' : item.decision === 'denied' ? 'Denied.' : item.reason === 'timeout' ? 'Closed: the approval timed out.' : 'Closed without an answer.'}</p>
+      {:else}
+       <div class="approval-actions">
+        <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, false)}>Deny</button>
+        <button type="button" class="btn primary" disabled={!!answering || item.truncated} onclick={() => void answer(item.permissionId, true)}>Allow once</button>
+        {#if (item.command || item.path) && !item.truncated}
+         <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, true, true)}>{item.command ? 'Allow this command for this session' : 'Allow this file for this session'}</button>
+        {/if}
+       </div>
+      {/if}
      {/if}
     </div>
    {:else if item.kind === 'question'}
@@ -719,6 +725,8 @@
  .approval { display: flex; flex-direction: column; gap: 9px; margin: 6px 0; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--warn) 38%, var(--line)); border-left: 3px solid var(--warn); border-radius: 10px; background: color-mix(in srgb, var(--warn) 5%, var(--card)); }
  .approval.decided { border-color: var(--line); border-left-color: var(--line-strong); background: var(--card); }
  .approval-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+ button.approval-head { width: 100%; padding: 0; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; }
+ button.approval-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 5px; }
  .approval-head strong { font: 500 13px var(--sans); color: var(--ink); }
  .approval-head .state { margin-left: auto; color: var(--warn); }
  .approval.decided .approval-head .state { color: var(--muted); }

@@ -43,9 +43,33 @@ const (
 )
 
 // sessionModeCallTimeout bounds a switch's acknowledgement. The machine stops
-// one process and starts the other before it answers, which is as slow as a
-// structured create, so it has the same 60 seconds.
-var sessionModeCallTimeout = 60 * time.Second
+// one process, starts the other and may restore the first before it answers,
+// all within terminalproto.SessionModeTimeout; the controller waits that long
+// and a margin, so its own deadline never loses an answer.
+var sessionModeCallTimeout = terminalproto.SessionModeTimeout + 15*time.Second
+
+// claimSwitch marks a session as switching, so a second switch of it is
+// refused before it touches the first one's ring. It reports false when one
+// is already running; release with releaseSwitch.
+func (b *Broker) claimSwitch(uid int64, session string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	k := chatKey{uid, session}
+	if _, held := b.switching[k]; held {
+		return false
+	}
+	if b.switching == nil {
+		b.switching = map[chatKey]struct{}{}
+	}
+	b.switching[k] = struct{}{}
+	return true
+}
+
+func (b *Broker) releaseSwitch(uid int64, session string) {
+	b.mu.Lock()
+	delete(b.switching, chatKey{uid, session})
+	b.mu.Unlock()
+}
 
 // chatBusy reports whether the controller's ring for a chat shows a running
 // turn, a pending approval or a waiting question.
@@ -102,6 +126,10 @@ func (b *Broker) SwitchSessionMode(ctx context.Context, uid int64, session, to s
 		// A chat whose id was never recorded cannot be reopened in the TUI.
 		return ErrSessionModeUnsupported
 	}
+	if !b.claimSwitch(uid, session) {
+		return ErrSessionModeBusy
+	}
+	defer b.releaseSwitch(uid, session)
 	if s.Structured && b.chatBusy(uid, session) {
 		return ErrSessionModeBusy
 	}
@@ -134,7 +162,11 @@ func (b *Broker) SwitchSessionMode(ctx context.Context, uid int64, session, to s
 		return err
 	}
 	if err := b.st.SetTerminalStructuredFor(uid, session, to == terminalproto.SessionModeChat); err != nil {
-		return err
+		// The row ended or changed meanwhile; it keeps its mode.
+		if to == terminalproto.SessionModeChat {
+			b.closeChat(uid, session)
+		}
+		return ErrSessionModeFailed
 	}
 	if to == terminalproto.SessionModeChat {
 		s.Structured = true
@@ -198,4 +230,27 @@ func (p *Peer) adoptSessionMode(s store.TerminalSession, observed terminalproto.
 		p.b.closeChat(p.key.uid, s.ID)
 	}
 	return s
+}
+
+// adoptLateChat settles a row whose switch to chat was answered after the
+// call gave up: a running answer with an OpenCode session id, for a running
+// terminal row on a connection that negotiated session-mode-v1, means the
+// machine runs the chat. Closed rows and the stored id are never touched.
+func (p *Peer) adoptLateChat(session string, changed *terminalproto.SessionChanged) {
+	if changed.State != terminalproto.Running || changed.ACPSessionID == "" {
+		return
+	}
+	s, err := p.b.st.TerminalSessionFor(p.key.uid, session)
+	if err != nil || s.AgentID != p.key.agent || s.State != terminalproto.Running || s.Structured || s.ACPSessionID != changed.ACPSessionID {
+		return
+	}
+	caps, err := p.b.st.RemoteCapabilitiesFor(p.key.uid, p.key.agent)
+	if err != nil || caps.Generation != p.Generation || !caps.Capabilities.SessionMode {
+		return
+	}
+	if p.b.st.SetTerminalStructuredFor(p.key.uid, session, true) != nil {
+		return
+	}
+	s.Structured = true
+	p.b.restoreChat(p.key.uid, s)
 }

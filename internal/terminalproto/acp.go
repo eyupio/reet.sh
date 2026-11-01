@@ -3,6 +3,7 @@ package terminalproto
 import (
 	"encoding/json"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -50,6 +51,11 @@ const ACPQuestionFeature = "acp-question-v1"
 // OpenCode terminal and the structured chat (session_mode). A peer without it
 // never sends or receives the body.
 const SessionModeFeature = "session-mode-v1"
+
+// SessionModeTimeout bounds one session_mode swap on the machine: stopping
+// the old process, starting the other and, on failure, restoring the first.
+// The connector enforces it and the controller waits longer than it.
+const SessionModeTimeout = 3 * time.Minute
 
 const (
 	// MaxChatPromptBytes bounds one chat message. 2,000 bytes is the largest

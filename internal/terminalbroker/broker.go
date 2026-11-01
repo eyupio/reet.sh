@@ -40,6 +40,8 @@ type Broker struct {
 	// approvals holds the permission signatures a person allowed for the rest
 	// of one chat. It is controller state only and never reaches the machine.
 	approvals map[chatKey]map[string]bool
+	// switching holds the sessions a SwitchSessionMode is moving.
+	switching map[chatKey]struct{}
 	closed    bool
 	// lateRemoved hears of a remove whose ok answer came after its call.
 	lateRemoved func(uid int64, target WorktreeTarget, result terminalproto.WorktreeResult)
@@ -262,6 +264,10 @@ func (p *Peer) observe() {
 			err := p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, m.SessionID, p.Generation, s.State, code)
 			if err == nil && (s.ActivityAt > 0 || s.BellAt > 0 || s.ExitStatus != nil || p.b.peerSupportsAttention(p.key.uid, p.key.agent)) {
 				_ = p.b.st.ObserveTerminalAttentionFor(p.key.uid, p.key.agent, m.SessionID, p.Generation, s.ActivityAt, s.BellAt)
+			}
+			if err == nil {
+				// A switch to chat whose answer came after its call gave up.
+				p.adoptLateChat(m.SessionID, s)
 			}
 			if err == nil && s.ACPSessionID != "" {
 				err = p.b.st.RecordTerminalACPSessionFor(p.key.uid, p.key.agent, m.SessionID, s.ACPSessionID)

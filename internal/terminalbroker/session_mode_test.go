@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/store/storetest"
@@ -93,6 +94,10 @@ func switchFixture(t *testing.T, sessionMode bool) (*Broker, *Peer, int64, strin
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
 		}
 		machine.mu.Unlock()
+		if reply.Body == nil {
+			// A script that answers nil holds the reply back.
+			return nil
+		}
 		data, err = terminalproto.Encode(reply)
 		if err != nil {
 			return err
@@ -444,5 +449,155 @@ func TestReconcileWithoutSessionModeKeepsStructured(t *testing.T) {
 	}
 	if got := row(t, b, uid, s.ID); !got.Structured || got.ACPSessionID != switchACPID {
 		t.Fatalf("row %+v", got)
+	}
+}
+
+// eventually waits for cond, which the observation loop settles asynchronously.
+func eventually(t *testing.T, cond func() bool) bool {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return false
+}
+
+// The controller waits longer than the machine may take, so an answer is
+// not lost to the controller's own deadline.
+func TestSwitchWaitsLongerThanTheMachine(t *testing.T) {
+	if sessionModeCallTimeout <= terminalproto.SessionModeTimeout {
+		t.Fatalf("controller waits %v, machine may take %v", sessionModeCallTimeout, terminalproto.SessionModeTimeout)
+	}
+}
+
+// A to-chat answer that came after the call gave up still settles the row:
+// it carries the OpenCode session id, so the machine runs a chat.
+func TestLateChatReplySettlesTheRow(t *testing.T) {
+	b, p, uid, agent, machine := switchFixture(t, true)
+	s := switchChat(t, b, uid, agent)
+	other := switchChat(t, b, uid, agent)
+	for _, id := range []string{s.ID, other.ID} {
+		if err := b.SwitchSessionMode(t.Context(), uid, id, terminalproto.SessionModeTerminal, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := sessionModeCallTimeout
+	sessionModeCallTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { sessionModeCallTimeout = old })
+	machine.mu.Lock()
+	machine.reply = func(*Peer, terminalproto.Message, *terminalproto.SessionMode) terminalproto.Body { return nil }
+	machine.mu.Unlock()
+	for _, id := range []string{s.ID, other.ID} {
+		if err := b.SwitchSessionMode(t.Context(), uid, id, terminalproto.SessionModeChat, true); !errors.Is(err, ErrOffline) {
+			t.Fatalf("held reply: %v", err)
+		}
+	}
+	if row(t, b, uid, s.ID).Structured || b.chatExists(uid, s.ID) {
+		t.Fatal("unanswered switch changed the row")
+	}
+	sent := machine.sent()
+	late := func(m terminalproto.Message, body terminalproto.SessionChanged) {
+		t.Helper()
+		if err := p.Receive(terminalproto.Message{Version: 1, RequestID: m.RequestID, SessionID: m.SessionID, Generation: p.Generation, Body: &body}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// An answer without the id says nothing about a chat: the row stays a
+	// terminal. The observation loop is FIFO, so once the second answer has
+	// settled its row, the first has been read.
+	late(sent[len(sent)-2], terminalproto.SessionChanged{State: terminalproto.Running})
+	late(sent[len(sent)-1], terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: switchACPID})
+	if !eventually(t, func() bool { return row(t, b, uid, other.ID).Structured }) {
+		t.Fatal("late chat answer did not settle the row")
+	}
+	if !b.chatExists(uid, other.ID) {
+		t.Fatal("late chat answer did not restore the ring")
+	}
+	if got := row(t, b, uid, other.ID); got.ACPSessionID != switchACPID || got.State != terminalproto.Running {
+		t.Fatalf("settled row %+v", got)
+	}
+	if got := row(t, b, uid, s.ID); got.Structured || b.chatExists(uid, s.ID) {
+		t.Fatalf("answer without an id flipped the row %+v", got)
+	}
+}
+
+// Two switches of one session at once: the second is refused before it
+// touches the first one's ring, and nothing is sent for it.
+func TestConcurrentSwitchToChatKeepsTheFirstReplay(t *testing.T) {
+	b, _, uid, agent, machine := switchFixture(t, true)
+	s := switchChat(t, b, uid, agent)
+	if err := b.SwitchSessionMode(t.Context(), uid, s.ID, terminalproto.SessionModeTerminal, false); err != nil {
+		t.Fatal(err)
+	}
+	replaying := make(chan struct{})
+	release := make(chan struct{})
+	machine.mu.Lock()
+	calls := 0
+	machine.reply = func(p *Peer, m terminalproto.Message, in *terminalproto.SessionMode) terminalproto.Body {
+		if calls++; calls > 1 {
+			// The machine refuses a second swap of the same id.
+			return terminalproto.Result{Code: terminalproto.Conflict}
+		}
+		receive(t, p, m.SessionID, terminalproto.ACPEvent{Kind: "agent", MessageID: "msg_1", Text: "earlier answer"})
+		close(replaying)
+		<-release
+		return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: in.ACPSessionID}
+	}
+	machine.mu.Unlock()
+	first := make(chan error, 1)
+	go func() {
+		first <- b.SwitchSessionMode(context.Background(), uid, s.ID, terminalproto.SessionModeChat, true)
+	}()
+	<-replaying
+	before := len(machine.sent())
+	if err := b.SwitchSessionMode(t.Context(), uid, s.ID, terminalproto.SessionModeChat, true); !errors.Is(err, ErrSessionModeBusy) {
+		close(release)
+		t.Fatalf("second switch: %v", err)
+	}
+	if len(machine.sent()) != before {
+		close(release)
+		t.Fatal("second switch reached the machine")
+	}
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _, _, cancel := b.SubscribeChat(uid, s.ID)
+	cancel()
+	if len(snapshot) != 1 || snapshot[0].Text != "earlier answer" {
+		t.Fatalf("first switch's replay lost: %+v", snapshot)
+	}
+	machine.mu.Lock()
+	machine.reply = nil
+	machine.mu.Unlock()
+	if err := b.SwitchSessionMode(t.Context(), uid, s.ID, terminalproto.SessionModeTerminal, false); err != nil {
+		t.Fatalf("switch after the first finished: %v", err)
+	}
+}
+
+// A row that changed under the switch (ended meanwhile) is a sentence, and the
+// ring made for the replay is not left behind.
+func TestSwitchStoreFailureAfterAckIsASentence(t *testing.T) {
+	b, _, uid, agent, machine := switchFixture(t, true)
+	s := switchChat(t, b, uid, agent)
+	if err := b.SwitchSessionMode(t.Context(), uid, s.ID, terminalproto.SessionModeTerminal, false); err != nil {
+		t.Fatal(err)
+	}
+	machine.mu.Lock()
+	machine.reply = func(p *Peer, m terminalproto.Message, in *terminalproto.SessionMode) terminalproto.Body {
+		if err := b.st.ObserveTerminalStateFor(uid, agent, m.SessionID, p.Generation, terminalproto.Lost, nil); err != nil {
+			t.Error(err)
+		}
+		return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: in.ACPSessionID}
+	}
+	machine.mu.Unlock()
+	if err := b.SwitchSessionMode(t.Context(), uid, s.ID, terminalproto.SessionModeChat, true); !errors.Is(err, ErrSessionModeFailed) {
+		t.Fatalf("err %v", err)
+	}
+	if b.chatExists(uid, s.ID) {
+		t.Fatal("ring left behind after the store refused the switch")
 	}
 }

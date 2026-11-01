@@ -1121,7 +1121,8 @@ const mirrorHeaderTimeout = 16 * time.Minute
 
 // sessionModeTimeout bounds one swap: stopping a chat waits up to a few
 // seconds for its process group, and a chat start may take up to a minute.
-const sessionModeTimeout = 3 * time.Minute
+// It is shared with the controller, which waits longer than it.
+const sessionModeTimeout = terminalproto.SessionModeTimeout
 
 // swapDrainTimeout is how long a closing connection keeps its terminal manager
 // for a swap still in flight: as long as a chat start may take.

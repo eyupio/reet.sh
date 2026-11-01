@@ -355,3 +355,44 @@ func TestSwapSurvivesConnectionCleanupTerminalToChat(t *testing.T) {
 		t.Fatalf("after the swap: %d live terminals, %d live chats (%+v)", terminals, chat, sessions)
 	}
 }
+
+// countingChat counts Close calls so a test sees how often a stray receipt is
+// retried.
+type countingChat struct {
+	*gatedChat
+	closes atomic.Int64
+}
+
+func (c *countingChat) Close() { c.closes.Add(1); c.gatedChat.Close() }
+
+// Once a retry confirms the group gone, no later tick closes (and so signals)
+// the receipt again: a group id that is gone may be reused by another group.
+func TestStrayRetryStopsOnceGroupGone(t *testing.T) {
+	previous := strayRecheckInterval
+	strayRecheckInterval = 5 * time.Millisecond
+	t.Cleanup(func() { strayRecheckInterval = previous })
+	g := &gatedChat{fakeChat: &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}}
+	g.lingers.Store(true)
+	c := &countingChat{gatedChat: g}
+	sup := &chatSupervisor{ctx: t.Context(), stop: make(chan struct{})}
+	cs := &chatSession{stray: true}
+	sup.wg.Add(1)
+	go sup.awaitStray(cs, c)
+	deadline := time.Now().Add(2 * time.Second)
+	for c.closes.Load() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatal("no retries while the group lingers")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	g.lingers.Store(false)
+	sup.wg.Wait()
+	n := c.closes.Load()
+	time.Sleep(50 * time.Millisecond)
+	if got := c.closes.Load(); got != n {
+		t.Fatalf("closed again after the group was confirmed gone: %d -> %d", n, got)
+	}
+	if cs.stray {
+		t.Fatal("receipt still counted")
+	}
+}

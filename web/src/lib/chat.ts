@@ -380,7 +380,8 @@ const TOOL_LABELS: Record<string, string> = {
 export function endedReason(state: string, name: string): string {
   if (state === 'lost') return `reet lost contact with this ${name} chat on the machine, for example when the connection closed or the reet service there restarted. Its live history was held in memory and is gone, so start a new chat to carry on.`
   if (state === 'ended') return `You ended this ${name} chat. Its live history is not kept after a chat ends.`
-  return `${name} ended this chat. Its live history is not kept after the machine connection closes.`
+  // An exited chat is one that stopped on its own or that the person ended: the state does not say which, so it does not guess.
+  return `This ${name} chat has ended. Its live history is not kept after the machine connection closes.`
 }
 
 export function toolLabel(kind: string): string {

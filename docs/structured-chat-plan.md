@@ -249,7 +249,7 @@ turn, is never touched. Covered by `TestCancelIgnoredByTheAgentEndsTheChatAfterT
 
 **Fixed (gap 4, wording only):** the app already marks a chat the machine can no longer find as lost, and the sessions list says "Connection lost". The chat itself now says
 why it closed: a lost chat explains that reet lost contact (for example when the connection closed or the reet service on the machine restarted) and that the
-history, held only in memory, is gone, so a new chat is needed; an ended chat and an exited chat each say who ended it. Adopting a surviving native session after a
+history, held only in memory, is gone, so a new chat is needed; a chat that merely exited says only that it ended, because the state cannot tell a chat that stopped on its own from one the person ended. Adopting a surviving native session after a
 connector restart is not implemented and not claimed.
 
 **Proposed order:** (1) bounded force-stop for an ignored cancel: after a grace period without an acknowledgement, end the chat explicitly with a notice

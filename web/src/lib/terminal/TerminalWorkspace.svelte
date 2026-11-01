@@ -110,7 +110,7 @@
   let detailsOpen = $state(false)
   let healthIssue=$state(''),showCreate=$state(false)
   // The Start an agent dialog, with the button that opened it, and the folders the machines have reported (read when it opens).
-  let agentStart=$state<{agent:string;opener:HTMLElement|null;dir?:string;projectId?:string}|null>(null),agentFolders=$state<Machine[]|undefined>(),folderRead=0
+  let historyViewed=$state(''),agentStart=$state<{agent:string;opener:HTMLElement|null;dir?:string;projectId?:string}|null>(null),agentFolders=$state<Machine[]|undefined>(),folderRead=0
   // Add a project from the session panel: the same dialog as Home, without leaving the terminal.
   let addingProject=$state<{opener:HTMLElement|null}|null>(null)
   let action = $state<'rename'|'end'|'archive'|null>(null), actionSession = $state(''), rename = $state(''), actionTitle = $state(''), actionBusy = $state(false)
@@ -443,7 +443,7 @@
       {#if loading}<div class="empty" role="status"><span class="empty-icon" aria-hidden="true">›_</span><h2>Finding your shells…</h2><p>Connecting to your existing workspace.</p></div>
       {:else if accessDenied}<div class="empty"><h2>Terminal access unavailable</h2><p>Your account no longer has terminal access. Sign in again or ask the owner to check your permissions. Existing shells were not ended.</p><button class="btn" onclick={()=>void refresh()}>Check access again</button></div>
       {:else if !machines.length}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>Connect your first machine</h2><p>Enroll a machine and enable terminal access locally to open a shell here.</p><a class="btn primary" href="/machines#add-machine">Connect a machine</a></div>
-      {:else if session}
+      {:else if session && !(terminalClosed(session.state) && historyViewed !== session.id)}
         <!-- The session screen hosts the live terminal pane, unchanged: tabs and header above it, the context panel beside it. -->
         <SessionScreen {session} {sessions} {machines} health={health.machines} {projects} now={serverNow} {theatre} {keyboard} busy={actionBusy}
           onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}
@@ -471,6 +471,7 @@
           {/if}
         </SessionScreen>
       {:else if selectedSession}
+        {@const closedSession = session && terminalClosed(session.state) ? session : null}
         <div class="empty ended" role="status">
           <div class="ended-glow" aria-hidden="true"></div>
           <span class="empty-icon ended-icon" aria-hidden="true">›_</span>
@@ -479,6 +480,7 @@
           <div class="ended-actions">
             <button type="button" class="btn primary ended-cta" disabled={!machines.length || atQuota} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>✦ Start a new agent session</button>
           </div>
+          {#if closedSession}<button type="button" class="btn ended-history" onclick={()=>historyViewed=closedSession.id}>View session history</button>{/if}
           <div class="ended-card">{@render createForm()}</div>
           {#if activeSessions.length}
             <div class="ended-resume" aria-label="Running sessions">
@@ -520,6 +522,7 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   .ended{position:relative;overflow:hidden}.ended>*{position:relative}.ended-glow{position:absolute!important;inset:-20% 20% auto;height:60%;background:radial-gradient(closest-side,color-mix(in srgb,var(--accent-text) 22%,transparent),transparent);filter:blur(30px);pointer-events:none}
   .ended-icon{font-size:2.8rem;animation:ended-blink 1.2s steps(2) infinite}@keyframes ended-blink{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.ended-icon{animation:none}}
   .ended h2{font-size:2rem}.ended-actions{margin:0 0 18px}.ended-cta{font-size:1rem;padding:12px 22px;min-height:48px}
+  .ended-history{margin:-6px 0 16px}
   .ended-card{width:100%;max-width:520px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--bg-sunk,var(--card))}
   .ended-resume{margin-top:22px;max-width:520px;width:100%;text-align:left}.ended-resume h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px;color:var(--muted)}
   .ended-resume ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}.ended-resume button{width:100%;display:flex;align-items:center;gap:10px;min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-size:.82rem;text-align:left}.ended-resume button:hover{border-color:var(--accent-text)}

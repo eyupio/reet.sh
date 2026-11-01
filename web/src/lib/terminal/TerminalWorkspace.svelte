@@ -526,7 +526,7 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   .ended-card{width:100%;max-width:520px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--bg-sunk,var(--card))}
   .ended-resume{margin-top:22px;max-width:520px;width:100%;text-align:left}.ended-resume h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px;color:var(--muted)}
   .ended-resume ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}.ended-resume button{width:100%;display:flex;align-items:center;gap:10px;min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-size:.82rem;text-align:left}.ended-resume button:hover{border-color:var(--accent-text)}
-  .ended-dot{width:7px;height:7px;border-radius:50%;background:var(--ok,#4caf7d)}.ended-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ended-dot{width:7px;height:7px;border-radius:50%;background:var(--good)}.ended-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .workspace.theatre>.workspace-toolbar{display:none}
   /* Keyboard focus layout (phones only, see keyboardLikelyOpen): the terminal toolbar keeps Show sessions. */
   .workspace.keyboard>.workspace-toolbar{display:none}

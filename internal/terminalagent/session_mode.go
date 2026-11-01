@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/acpagent"
 	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -17,12 +18,20 @@ import (
 // confirmed gone, so nothing else is started on its session store.
 var errAgentStillRunning = errors.New("the previous agent process did not stop")
 
+// swapShellExitTimeout bounds how long a switch to the chat waits for the
+// OpenCode TUI's processes to exit after its tmux session is killed, well
+// inside terminalproto.SessionModeTimeout. A variable so tests can shorten it.
+var swapShellExitTimeout = 5 * time.Second
+
 // shellHost is the part of the tmux manager a mode swap drives.
 // *terminalhost.Manager implements it; tests use a fake.
 type shellHost interface {
 	Create(ctx context.Context, requestID, sessionID string, in terminalproto.Create) (terminalhost.ManagedSession, error)
 	End(ctx context.Context, requestID, sessionID string) (terminalhost.ManagedSession, error)
 	Forget(ctx context.Context, sessionID string) error
+	// PaneProcesses is the process group leader of each of the session's
+	// panes, read before End so a swap can wait for them to exit.
+	PaneProcesses(ctx context.Context, sessionID string) ([]int, error)
 	List(ctx context.Context) ([]terminalhost.ManagedSession, error)
 }
 
@@ -83,7 +92,10 @@ func (a *agentSwitch) swap(ctx context.Context, requestID, sessionID string, in 
 			return terminalproto.SessionChanged{}, err
 		}
 		if retired, ok := process.(interface{ GroupRetired() bool }); ok && !retired.GroupRetired() {
+			// Nothing else may start on its store, and nothing runs the
+			// row any more: retire it so the controller is told.
 			sup.forget(sessionID)
+			sup.retireSwapped(sessionID, title, in.Tool, in.ACPSessionID)
 			return terminalproto.SessionChanged{}, errAgentStillRunning
 		}
 		if !sup.forget(sessionID) {
@@ -104,6 +116,12 @@ func (a *agentSwitch) swap(ctx context.Context, requestID, sessionID string, in 
 	if in.Title != "" {
 		title = in.Title
 	}
+	// End only asks tmux to close the panes; read their process groups
+	// first, so the chat waits for the TUI to be gone.
+	groups, err := a.shells.PaneProcesses(ctx, sessionID)
+	if err != nil {
+		return terminalproto.SessionChanged{}, err
+	}
 	ended, err := a.shells.End(ctx, requestID, sessionID)
 	if err != nil {
 		return terminalproto.SessionChanged{}, err
@@ -113,6 +131,12 @@ func (a *agentSwitch) swap(ctx context.Context, requestID, sessionID string, in 
 	}
 	if err := a.shells.Forget(ctx, sessionID); err != nil {
 		return terminalproto.SessionChanged{}, err
+	}
+	if !groupsExited(groups, swapShellExitTimeout) {
+		// The TUI may still write the OpenCode store: no chat opens on it,
+		// and nothing runs the row any more.
+		sup.retireSwapped(sessionID, title, in.Tool, "")
+		return terminalproto.SessionChanged{}, errAgentStillRunning
 	}
 	changed, err := a.startChat(requestID, sessionID, title, in, in.Trust)
 	if err == nil {
@@ -126,6 +150,28 @@ func (a *agentSwitch) swap(ctx context.Context, requestID, sessionID string, in 
 		sup.retireSwapped(sessionID, title, in.Tool, "")
 	}
 	return terminalproto.SessionChanged{}, err
+}
+
+// groupsExited polls until no live process remains in any of groups, for at
+// most timeout. It is false when one is still alive.
+func groupsExited(groups []int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		alive := false
+		for _, g := range groups {
+			if acpagent.GroupAlive(g) {
+				alive = true
+				break
+			}
+		}
+		if !alive {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // claim marks the session as swapping and reports its current side: the live
@@ -171,6 +217,11 @@ func (a *agentSwitch) claim(ctx context.Context, sessionID string, in terminalpr
 		if s.State != terminalproto.Running || in.To == terminalproto.SessionModeTerminal {
 			return nil, terminalhost.ManagedSession{}, terminalhost.ErrOperationConflict
 		}
+		// A chat the folder's trust gate would refuse is refused here, before
+		// the terminal is stopped: a refusal leaves the OpenCode TUI running.
+		if err := a.chatTrusted(in); err != nil {
+			return nil, terminalhost.ManagedSession{}, err
+		}
 		// Nothing has ended yet, so the listing above may race an observer
 		// freely; the mark must only precede the end.
 		sup.mu.Lock()
@@ -185,6 +236,21 @@ func (a *agentSwitch) claim(ctx context.Context, sessionID string, in terminalpr
 		return nil, s, nil
 	}
 	return nil, terminalhost.ManagedSession{}, terminalhost.ErrSessionMissing
+}
+
+// chatTrusted is the chat start's trust gate, asked before anything is
+// stopped: the same *acpagent.TrustError (or ErrPluginsUnreadable) the start
+// would return. A folder that does not resolve is left to the start.
+func (a *agentSwitch) chatTrusted(in terminalproto.SessionMode) error {
+	spec, ok := acpagent.Lookup(in.Tool)
+	if !ok {
+		return nil
+	}
+	dir, err := terminalhost.ResolveDir(a.chats.sup.opts.Home, in.Dir)
+	if err != nil {
+		return nil
+	}
+	return spec.CheckTrust(dir, in.Trust)
 }
 
 func (a *agentSwitch) startChat(requestID, sessionID, title string, in terminalproto.SessionMode, trust bool) (terminalproto.SessionChanged, error) {

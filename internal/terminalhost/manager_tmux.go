@@ -149,6 +149,37 @@ func (m *Manager) panes(ctx context.Context, sessionID string) ([]paneState, err
 	return panes, nil
 }
 
+// PaneProcesses returns the process id tmux started in each pane of a
+// session: the leader of the process group the pane's program runs in. A
+// caller that ends the session reads it first, so it can wait for those
+// groups to exit; End only asks tmux to close the panes.
+func (m *Manager) PaneProcesses(ctx context.Context, sessionID string) ([]int, error) {
+	if !terminalproto.ValidID(sessionID) {
+		return nil, terminalproto.ErrInvalid
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return nil, ErrManagerClosed
+	}
+	if !responsive(ctx, m.tmux, m.layout) {
+		return nil, ErrNotRunning
+	}
+	out, err := m.command(ctx, 64<<10, "list-panes", "-s", "-t", "="+m.name(sessionID), "-F", "#{pane_pid}")
+	if err != nil {
+		return nil, err
+	}
+	var pids []int
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		pid, err := strconv.Atoi(line)
+		if err != nil || pid <= 1 {
+			return nil, ErrNotRunning
+		}
+		pids = append(pids, pid)
+	}
+	return pids, nil
+}
+
 // History is a separate bounded snapshot, not an atomic replay concatenated
 // with a live stream. The caller must not persist or log the returned bytes.
 func (m *Manager) History(ctx context.Context, sessionID string, lines int) ([]byte, error) {

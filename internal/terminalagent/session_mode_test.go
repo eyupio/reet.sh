@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -103,6 +105,9 @@ func (f *fakeShells) Forget(_ context.Context, sessionID string) error {
 	delete(f.sessions, sessionID)
 	return nil
 }
+
+// PaneProcesses reports no processes: a fake terminal has none to wait for.
+func (f *fakeShells) PaneProcesses(context.Context, string) ([]int, error) { return nil, nil }
 
 func (f *fakeShells) List(context.Context) ([]terminalhost.ManagedSession, error) {
 	f.mu.Lock()
@@ -460,5 +465,60 @@ func TestSwapHidesTerminalFromObserver(t *testing.T) {
 	close(shells.forgetGate)
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A switch to the chat without trust, in a folder with OpenCode plugins, is a
+// refusal: the running terminal is not touched and no chat is started. The
+// same request with trust proceeds.
+func TestSwapToChatWithoutTrustLeavesTerminalUntouched(t *testing.T) {
+	h, _, _ := testChatHost(t)
+	dir := h.sup.opts.Home
+	if err := os.MkdirAll(filepath.Join(dir, ".opencode", "plugin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	starts := 0
+	start := h.sup.start
+	h.sup.start = func(ctx context.Context, opts acpagent.Options) (chatProcess, error) {
+		starts++
+		return start(ctx, opts)
+	}
+	shells := newFakeShells()
+	if _, err := shells.Create(t.Context(), "request-0123456789", swapSession, terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", LaunchSession: swapACP}); err != nil {
+		t.Fatal(err)
+	}
+	sw := &agentSwitch{chats: h, shells: shells}
+	in := toChat(dir)
+	in.Trust = false
+	_, err := sw.swap(t.Context(), "request-swap-000001", swapSession, in)
+	var trust *acpagent.TrustError
+	if !errors.As(err, &trust) || len(trust.Files) != 1 || trust.Files[0] != "plugin" {
+		t.Fatalf("err = %v, want the chat start's trust refusal", err)
+	}
+	if got := chatResult(err); got.Code != terminalproto.ACPTrustRequired {
+		t.Fatalf("answered %+v", got)
+	}
+	shells.mu.Lock()
+	ends, creates := shells.ends, len(shells.creates)
+	s := shells.sessions[swapSession]
+	shells.mu.Unlock()
+	if ends != 0 || creates != 1 || s.State != terminalproto.Running {
+		t.Fatalf("the terminal was touched: ends %d creates %d state %s", ends, creates, s.State)
+	}
+	if starts != 0 {
+		t.Fatalf("chat starts = %d", starts)
+	}
+	if _, ok := h.snapshot(swapSession); ok {
+		t.Fatal("a chat was opened")
+	}
+	in.Trust = true
+	if _, err := sw.swap(t.Context(), "request-swap-000002", swapSession, in); err != nil {
+		t.Fatal(err)
+	}
+	if starts != 1 {
+		t.Fatalf("chat starts = %d", starts)
+	}
+	if s, ok := h.snapshot(swapSession); !ok || s.State != terminalproto.Running {
+		t.Fatalf("chat = %+v %v", s, ok)
 	}
 }

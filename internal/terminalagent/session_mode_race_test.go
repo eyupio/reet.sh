@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -24,7 +25,11 @@ type gatedChat struct {
 	*fakeChat
 	gate    chan struct{}
 	entered chan struct{}
+	// lingers makes Close fail to confirm the process group gone.
+	lingers bool
 }
+
+func (g *gatedChat) GroupRetired() bool { return !g.lingers }
 
 func (g *gatedChat) Close() {
 	if g.gate != nil {
@@ -319,9 +324,10 @@ func TestSwapDoubleFailureReportsEndTerminalToChat(t *testing.T) {
 	}
 }
 
-// A control connection closed while a chat-to-terminal swap is closing the
-// chat still lets the swap start its terminal on the real manager.
-func TestSwapSurvivesConnectionCleanup(t *testing.T) {
+// realTmux starts a private tmux server whose opencode is script, and returns
+// the manager options and home for it.
+func realTmux(t *testing.T, script string) (terminalhost.ManagerOptions, string) {
+	t.Helper()
 	tmux, err := terminalhost.FindTmux(t.Context())
 	if err != nil {
 		t.Skip(err)
@@ -341,7 +347,7 @@ func TestSwapSurvivesConnectionCleanup(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte("#!/bin/sh\nexec sleep 600\n"), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
@@ -372,7 +378,13 @@ func TestSwapSurvivesConnectionCleanup(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	opts := terminalhost.ManagerOptions{EnrollmentID: enrollment, Layout: layout, Home: home, Consent: func() error { return nil }}
+	return opts, home
+}
 
+// A control connection closed while a chat-to-terminal swap is closing the
+// chat still lets the swap start its terminal on the real manager.
+func TestSwapSurvivesConnectionCleanup(t *testing.T) {
+	opts, home := realTmux(t, "#!/bin/sh\nexec sleep 600\n")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	r := &swapRig{out: &sent{}, home: home}
@@ -428,4 +440,135 @@ func TestSwapSurvivesConnectionCleanup(t *testing.T) {
 	if terminals != 1 {
 		t.Fatalf("the swap rolled back instead of finishing: %+v", sessions)
 	}
+}
+
+// retiredOnce asserts the controller was told the id ended and that a
+// reconcile lists it at most once, never as live.
+func retiredOnce(t *testing.T, r *swapRig) {
+	t.Helper()
+	if !endedNotice(r.out) {
+		t.Fatal("the controller was never told the session ended")
+	}
+	r.send(t, "request-reconcile-01", &terminalproto.Reconcile{})
+	rec := r.reply(t, "request-reconcile-01").(terminalproto.Reconcile)
+	n := 0
+	for _, s := range rec.Sessions {
+		if s.ID == swapSession {
+			n++
+			if s.State.ReservesQuota() {
+				t.Fatalf("reconcile reports %s", s.State)
+			}
+		}
+	}
+	if n > 1 {
+		t.Fatalf("reconcile lists the id %d times", n)
+	}
+}
+
+// A chat whose process group cannot be confirmed gone is not replaced, and
+// the row is retired rather than left running with nothing behind it.
+func TestSwapChatStillRunningRetiresRow(t *testing.T) {
+	r := newSwapRig(t)
+	r.openChat(t)
+	r.procs[0].lingers = true
+	body := toTerminal(r.home)
+	r.send(t, "request-swap-000001", &body)
+	if _, ok := r.reply(t, "request-swap-000001").(terminalproto.Result); !ok {
+		t.Fatal("swap did not fail")
+	}
+	if n := r.shells.createCount(); n != 0 {
+		t.Fatalf("a terminal was started beside the old chat: %d", n)
+	}
+	retiredOnce(t, r)
+}
+
+// tmuxSwapRig is a control connection on a real tmux manager whose opencode
+// is script, with an OpenCode TUI running under swapSession.
+func tmuxSwapRig(t *testing.T, script string) (*swapRig, terminalhost.ManagerOptions) {
+	t.Helper()
+	opts, home := realTmux(t, script)
+	r := &swapRig{out: &sent{}, home: home}
+	r.sup = newChatSupervisor(t.Context(), opts)
+	r.sup.lookPath = func(string) (string, error) { return "/bin/true", nil }
+	r.sup.start = r.start
+	headers := http.Header{terminalproto.FeatureHeader: {swapFeatures()}}
+	handle, cleanup := FactoryWithChats(opts, &ChatSupervisor{s: r.sup})(t.Context(), http.DefaultClient, headers, 1, r.out.send)
+	t.Cleanup(cleanup)
+	r.handle = handle
+	r.send(t, "request-tui-0000001", &terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Dir: home, LaunchSession: swapACP})
+	if changed, ok := r.reply(t, "request-tui-0000001").(terminalproto.SessionChanged); !ok || changed.State != terminalproto.Running {
+		t.Fatalf("terminal did not start: %#v", changed)
+	}
+	return r, opts
+}
+
+// tuiGroups returns the process groups the session's panes run.
+func tuiGroups(t *testing.T, opts terminalhost.ManagerOptions) []int {
+	t.Helper()
+	m, err := terminalhost.NewManager(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	pids, err := m.PaneProcesses(t.Context(), swapSession)
+	if err != nil || len(pids) == 0 {
+		t.Fatalf("pane processes %v %v", pids, err)
+	}
+	return pids
+}
+
+// A switch to the chat waits for the OpenCode TUI to exit before the chat
+// opens the same OpenCode store, and then proceeds. This TUI takes a moment
+// to exit after its hangup.
+func TestSwapToChatWaitsForTerminalExit(t *testing.T) {
+	r, opts := tmuxSwapRig(t, "#!/bin/sh\ntrap 'sleep 0.5; exit 0' HUP\nsleep 600 &\nwait\n")
+	groups := tuiGroups(t, opts)
+	var alive []bool
+	start := r.sup.start
+	r.sup.start = func(ctx context.Context, o acpagent.Options) (chatProcess, error) {
+		for _, g := range groups {
+			alive = append(alive, acpagent.GroupAlive(g))
+		}
+		return start(ctx, o)
+	}
+	body := toChat(r.home)
+	r.send(t, "request-swap-000001", &body)
+	if changed, ok := r.reply(t, "request-swap-000001").(terminalproto.SessionChanged); !ok || changed.State != terminalproto.Running {
+		t.Fatalf("swap reply %#v", changed)
+	}
+	if len(alive) != len(groups) {
+		t.Fatalf("chat starts saw %d groups", len(alive))
+	}
+	for i, a := range alive {
+		if a {
+			t.Fatalf("the chat started while the TUI's group %d was alive", groups[i])
+		}
+	}
+}
+
+// An OpenCode TUI that outlives its tmux session is not joined by a chat on
+// the same store: the switch is refused and the row retired.
+func TestSwapToChatTerminalStillRunningRetiresRow(t *testing.T) {
+	previous := swapShellExitTimeout
+	swapShellExitTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { swapShellExitTimeout = previous })
+	r, opts := tmuxSwapRig(t, "#!/bin/sh\ntrap '' HUP TERM\nexec sleep 600\n")
+	groups := tuiGroups(t, opts)
+	t.Cleanup(func() {
+		for _, g := range groups {
+			_ = syscall.Kill(-g, syscall.SIGKILL)
+		}
+	})
+	body := toChat(r.home)
+	r.send(t, "request-swap-000001", &body)
+	if _, ok := r.reply(t, "request-swap-000001").(terminalproto.Result); !ok {
+		t.Fatal("swap did not fail")
+	}
+	if n := r.chatStarts(); n != 0 {
+		t.Fatalf("a chat was started beside the TUI: %d", n)
+	}
+	if !acpagent.GroupAlive(groups[0]) {
+		t.Fatal("fixture: the lingering TUI exited")
+	}
+	retiredOnce(t, r)
 }

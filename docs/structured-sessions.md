@@ -174,8 +174,9 @@ the status pill, the **Approvals** line and the context panel's decisions follow
 - **The reet TUI is as durable as any chat.** A session in the OpenCode TUI runs in tmux and survives an agent restart;
   once switched to the reet TUI it ends if the agent process restarts (its OpenCode id can still be continued).
 - **Folder trust when returning to the reet TUI.** OpenCode project plugins run when the reet TUI opens the session. If
-  the folder has `.opencode` plugins, the machine refuses the first request; the dialog then shows the plugin warning and
-  an **I trust this folder** confirmation, and sends the switch again with the person's trust.
+  the folder has `.opencode` plugins and the request does not carry the person's trust, the machine refuses it before
+  stopping anything: the OpenCode TUI keeps running untouched. The dialog then shows the plugin warning and an **I trust
+  this folder** confirmation, and sends the switch again with the person's trust.
 
 ## Limits
 

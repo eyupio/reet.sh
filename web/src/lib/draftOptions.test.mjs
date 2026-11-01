@@ -4,7 +4,8 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 const source = readFileSync(new URL('./draftOptions.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { draftOptionRules, cleanDraftOptions } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
+const ideaApi = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
+const { draftOptionRules, cleanDraftOptions } = ideaApi
 const base = { tool: 'claude', isRepo: true, canChat: false, chat: false }
 
 test('worktree shows only for a repository project', () => {
@@ -21,4 +22,14 @@ test('hidden choices are cleared before saving', () => {
   const out = cleanDraftOptions({ ...base, isRepo: false, worktree: true, base: ' main ', trust: true, yolo: true })
   assert.deepEqual(out, { yolo: true, chat: false, trust: false, worktree: false, base: '' })
   assert.equal(cleanDraftOptions({ ...base, worktree: true, base: ' main ', trust: false, yolo: false }).base, 'main')
+})
+
+test('an idea needs a title or a note, nothing more', () => {
+  const { ideaProblem, IDEA_START_NOTE } = ideaApi
+  assert.equal(ideaProblem({ idea: true, title: '', prompt: '' }), 'Give the idea a title or a note.')
+  assert.equal(ideaProblem({ idea: true, title: '  ', prompt: ' ' }), 'Give the idea a title or a note.')
+  assert.equal(ideaProblem({ idea: true, title: 'Faster filters', prompt: '' }), '')
+  assert.equal(ideaProblem({ idea: true, title: '', prompt: 'rough note' }), '')
+  assert.equal(ideaProblem({ idea: false, title: '', prompt: '' }), '')
+  assert.match(IDEA_START_NOTE, /switch off Idea/)
 })

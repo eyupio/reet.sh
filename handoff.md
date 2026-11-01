@@ -42,15 +42,18 @@ shows the shell in the same frame; a crawler that runs no script still gets the 
 the current Welcome words. `embed.go` serves only the shell for the route, names it on `<html data-boot>`, and
 therefore handles a cookie-signed-in visitor on `/` without the browser having to know the session. A static
 preview picks the same variant from the path. `App.svelte` sets `data-ready` after the first auth answer, so
-the shell fades once the real page is behind it and `main.ts` removes it; a late bundle shows a "taking longer"
-line with a reload link after ten seconds. The pre-auth branch and the terminal chunk's gap now use skeletons
-(`BootSkeleton.svelte`, and a workspace-shaped card in `Machines.svelte`) instead of sentences. The two faces
-the first screen uses are preloaded; reduced motion gets no fade.
+the shell fades once the real page is behind it and `main.ts` removes it; public routes that need nothing from
+the auth answer (community, shared lists, join, reset) dismiss it as soon as they draw, even if that answer
+stalls. A late bundle shows a "taking longer" line with a reload link after ten seconds; the line is a live
+region outside the aria-hidden shell, so a screen reader receives it. The pre-auth branch and the terminal
+chunk's gap now use skeletons (`BootSkeleton.svelte`, and a workspace-shaped card in `Machines.svelte`) instead
+of sentences. The two faces the first screen uses are preloaded; reduced motion gets no fade.
 
 **Checks:** `npm run build`, `npm run check` (unit tests and svelte-check, 0 errors/warnings), `go vet` and
 `go test ./web/` (including the new route-to-shell test), and `first-run.e2e.mjs` gained a throttled-bundle
-case: the crawler copy stays hidden, only the landing shell is visible, it is removed after auth, and a
-no-JavaScript context still reads the landing copy. `public-workspace.e2e.mjs` passes at light/dark ×
+case: the crawler copy stays hidden, only the landing shell is visible, it is removed after auth, a
+no-JavaScript context still reads the landing copy, the recovery line is a live region outside the hidden
+shell, and `/reset` draws before a stalled auth answer. `public-workspace.e2e.mjs` passes at light/dark ×
 1440/390/320. Screenshots at 1280 and 390 in both themes, and a delayed terminal chunk, confirmed the shells
 match the pages they hand over to.
 

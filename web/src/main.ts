@@ -19,13 +19,14 @@ const bootStyle = document.getElementById('seo-fallback-style')
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
 
 function dismissBoot() {
-  if (!boot?.isConnected) {
-    bootStyle?.remove()
-    return
-  }
   const remove = () => {
-    boot.remove()
+    boot?.remove()
+    document.getElementById('boot-slow')?.remove()
     bootStyle?.remove()
+  }
+  if (!boot?.isConnected) {
+    remove()
+    return
   }
   if (reduceMotion) {
     requestAnimationFrame(remove)

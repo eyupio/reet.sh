@@ -882,10 +882,14 @@
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
-  // The static boot shell in index.html fades once the first auth answer says what this route is: at that point the
-  // page below it is the real one, so there is no half-drawn screen behind the fade.
+  // Public pages draw without the first auth answer: the shared list reads its own content, and the join and reset
+  // screens need nothing from it. Their shell must not wait on an unrelated request that may be slow or stalled.
+  const authIndependent = isCommunity || isPublicList || isJoin || isReset
+
+  // The static boot shell in index.html fades once the page below it is the real one: at the first auth answer, or at
+  // once on a public route that never depended on it. There is no half-drawn screen behind the fade either way.
   $effect(() => {
-    if (authChecked) document.documentElement.dataset.ready = '1'
+    if (authChecked || authIndependent) document.documentElement.dataset.ready = '1'
   })
 </script>
 

@@ -137,6 +137,12 @@ try {
   await expect(page.locator('#boot [data-boot="auth"]')).toBeHidden()
   // The shell is decoration: the words arrive with the app, so nothing claims the page is ready.
   await expect(page.getByRole('status',{name:'Loading reet.sh'})).toHaveCount(0)
+  // The recovery line is a live region of its own: outside the aria-hidden shell, so a screen reader can receive it,
+  // and empty until the bundle is actually late.
+  const slow = page.locator('#boot-slow')
+  await expect(slow).toHaveAttribute('role','status')
+  await expect(slow).toBeEmpty()
+  expect(await slow.evaluate(el => !!el.closest('[aria-hidden="true"]'))).toBe(false)
   release()
   // The shell fades once the first auth answer is in, and is removed rather than left over the page.
   await expect(page.locator('#boot')).toHaveCount(0)
@@ -150,6 +156,18 @@ try {
   await expect(plain.getByRole('heading',{name:'One command on any machine. Your whole AI setup shows up.'})).toBeVisible()
   await expect(plain.getByText('One command on any machine. Your whole AI setup shows up.')).toBeVisible()
   await crawler.close()
+ }
+ // A public screen that needs nothing from the auth answer must not wait behind it.
+ if (run('boot-public')) {
+  let releaseAuth
+  const authGate = new Promise(resolve => { releaseAuth = resolve })
+  const {context,page,errors} = await open({width:1280,status:{user:null},gates:{'/api/v2/auth/status':authGate}})
+  await page.goto(`${base}/reset`)
+  await expect(page.getByRole('heading',{name:'Choose a new password'})).toBeVisible()
+  await expect(page.locator('#boot')).toHaveCount(0)
+  releaseAuth()
+  expect(errors).toEqual([])
+  await context.close()
  }
  console.log('First run: More on screen, setup ends on Home, unknown routes, phone auth fit, touch focus, one focus ring, dark warning colour and the boot shell passed.')
 } finally {await browser.close()}

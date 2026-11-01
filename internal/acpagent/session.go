@@ -99,6 +99,8 @@ type Session struct {
 	turnProgress bool
 	turnError    bool
 	turnSeq      uint64
+	forceArmed   uint64
+	forceClosing bool
 	turnStart    time.Time
 	lastEvent    time.Time
 	warned       bool
@@ -900,12 +902,58 @@ func (s *Session) sendCancel() error {
 	return s.write(map[string]any{"jsonrpc": "2.0", "method": "session/cancel", "params": map[string]string{"sessionId": acpID}})
 }
 
+// commitForceStop decides, under the turn lock, to end the chat because turn seq
+// is still running. From that point no new prompt may start, so a turn that
+// finishes just afterwards cannot be followed by one that the close then kills.
+func (s *Session) commitForceStop(seq uint64) bool {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	if !s.working || s.turnSeq != seq {
+		return false
+	}
+	s.forceClosing = true
+	return true
+}
+
 // Cancel stops the current turn and closes every card this client still holds.
 // The agent does not withdraw an outstanding request_permission, so reet must.
 func (s *Session) Cancel() error {
 	s.cancelCards()
 	s.emit(Event{Kind: "status", State: "cancelled"})
-	return s.sendCancel()
+	err := s.sendCancel()
+	s.armForceStop()
+	return err
+}
+
+// armForceStop gives the agent ForceStopGrace to end the turn it was asked to
+// cancel. An agent that ignores session/cancel would otherwise leave the chat
+// busy until the turn timeout while the person has already been told it
+// stopped. If the same turn is still running after the grace period, the chat
+// is ended explicitly and the process group is retired, never left half alive.
+// It is bound to the turn that was cancelled, so it cannot end a later turn.
+func (s *Session) armForceStop() {
+	s.turnMu.Lock()
+	if !s.working || s.forceArmed == s.turnSeq {
+		s.turnMu.Unlock()
+		return
+	}
+	seq := s.turnSeq
+	s.forceArmed = seq
+	s.turnMu.Unlock()
+	go func() {
+		timer := time.NewTimer(s.opts.forceStopGrace())
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-s.done:
+			return
+		}
+		if !s.commitForceStop(seq) {
+			return
+		}
+		s.emit(Event{Kind: "notice", Text: s.opts.Agent.displayName() + " did not stop when asked, so this chat was ended.", Bad: true})
+		s.Close()
+	}()
 }
 
 // stopTurn cancels the agent without reporting the turn as cancelled. The
@@ -999,6 +1047,10 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		}
 	}
 	s.turnMu.Lock()
+	if s.forceClosing {
+		s.turnMu.Unlock()
+		return ErrClosed
+	}
 	if s.working {
 		s.turnMu.Unlock()
 		return ErrBusy

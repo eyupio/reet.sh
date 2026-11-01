@@ -39,6 +39,9 @@ type Options struct {
 	TurnTimeout time.Duration
 	// MaxTurn is the hard wall-clock cap on one prompt, however active.
 	MaxTurn time.Duration
+	// ForceStopGrace is how long an agent has to end a turn after it is asked to
+	// cancel. After that the chat is ended explicitly instead of staying busy.
+	ForceStopGrace time.Duration
 	// OnEvent receives bounded structured events in order. It must not block
 	// indefinitely; the connector's sender has its own deadline.
 	OnEvent func(Event)
@@ -55,6 +58,12 @@ func (o Options) stillWorkingAfter() time.Duration {
 		return o.StillWorkingAfter
 	}
 	return 20 * time.Second
+}
+func (o Options) forceStopGrace() time.Duration {
+	if o.ForceStopGrace > 0 {
+		return o.ForceStopGrace
+	}
+	return 15 * time.Second
 }
 func (o Options) turnTimeout() time.Duration {
 	if o.TurnTimeout > 0 {

@@ -464,12 +464,30 @@
             {/if}
           {/snippet}
           {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
+          {#if terminalClosed(session.state)}<div class="workspace-notice ended-banner" role="status"><span>This session has ended. Its output stays below.</span><span class="ended-banner-actions"><button type="button" disabled={!machines.length || atQuota} onclick={event=>openAgentStart(session.agentId,event.currentTarget)}>Start a new agent session</button><button type="button" disabled={!machine?.ready || atQuota} onclick={()=>showCreate=true}>New terminal</button></span></div>{/if}
           {#if session.structured}
             {#key session.id}<ChatPane {session} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} />{/key}
           {:else}
             {#key session.id}<TerminalPane {keyboard} footnote={phone ? '' : `Approvals: ${session.yolo ? 'YOLO' : 'Ask me'}`} holdSize={resizing} sessionsVisible={shown!=='closed'} onsessions={paneSessions} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />{/key}
           {/if}
         </SessionScreen>
+      {:else if selectedSession}
+        <div class="empty ended" role="status">
+          <div class="ended-glow" aria-hidden="true"></div>
+          <span class="empty-icon ended-icon" aria-hidden="true">›_</span>
+          <h2>This session has ended</h2>
+          <p>It's no longer running, so there's nothing to reconnect to. Nothing was started in its place. Pick up where you left off, or start fresh.</p>
+          <div class="ended-actions">
+            <button type="button" class="btn primary ended-cta" disabled={!machines.length || atQuota} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>✦ Start a new agent session</button>
+          </div>
+          <div class="ended-card">{@render createForm()}</div>
+          {#if activeSessions.length}
+            <div class="ended-resume" aria-label="Running sessions">
+              <h3>Or jump back into a running session</h3>
+              <ul>{#each activeSessions.slice(0,4) as item (item.id)}<li><button type="button" onclick={()=>chooseSession(item)}><span class="ended-dot" aria-hidden="true"></span><span class="ended-name">{item.title}</span></button></li>{/each}</ul>
+            </div>
+          {/if}
+        </div>
       {:else}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>{selectedSession ? 'This session is unavailable' : selectedAgent && !machine ? 'This machine is unavailable' : 'Your next shell starts here.'}</h2><p>{selectedSession ? 'Choose an existing session or create one explicitly. No replacement shell was created.' : setup || 'Create a terminal, then return to the same session whenever you need it.'}</p>{@render createForm()}{#if setup}<button class="btn" onclick={() => detailsOpen = true}>View setup &amp; connection details</button>{/if}</div>{/if}
     </div>
   </div>
@@ -500,6 +518,14 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
 {#if action === 'rename'}<ConfirmDialog title="Rename session" body="Only the display name changes. The running shell stays the same." confirmLabel="Save name" onconfirm={() => void performAction()} oncancel={() => action = null}><label>Session name<input bind:value={rename} maxlength="80" required /></label></ConfirmDialog>{:else if action === 'end'}<ConfirmDialog title={`End ${actionTitle}?`} body="This stops the shell and its running jobs. Disconnecting keeps them running. If the machine is offline, the request stays pending until it reconnects." confirmLabel="End session" danger onconfirm={() => void performAction()} oncancel={() => action = null}><div class="end-options"><div class="option"><label><input type="checkbox" bind:checked={removeOnClose} disabled={endKeys.has(actionSession)||sessions.find(item=>item.id===actionSession)?.state==='end_requested'} /><span>Remove from history when this session ends</span></label><p>Files are kept. Pending sessions remain visible until the machine confirms they have ended.</p></div><div class="option"><label><input type="checkbox" bind:checked={saveRemoveDefault} /><span>Use this as my account default</span></label></div><a href="/account#profile">Manage terminal preferences →</a></div></ConfirmDialog>{:else if action === 'archive'}<ConfirmDialog title={`Remove ${actionTitle} from history?`} body="This removes the closed session from your history. Files on the machine are kept. You cannot restore it from the web interface." confirmLabel="Remove from history" onconfirm={()=>void performAction()} oncancel={()=>action=null} />{/if}
 
 <style>
+  .ended{position:relative;overflow:hidden}.ended>*{position:relative}.ended-glow{position:absolute!important;inset:-20% 20% auto;height:60%;background:radial-gradient(closest-side,color-mix(in srgb,var(--accent-text) 22%,transparent),transparent);filter:blur(30px);pointer-events:none}
+  .ended-icon{font-size:2.8rem;animation:ended-blink 1.2s steps(2) infinite}@keyframes ended-blink{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.ended-icon{animation:none}}
+  .ended h2{font-size:2rem}.ended-actions{margin:0 0 18px}.ended-cta{font-size:1rem;padding:12px 22px;min-height:48px}
+  .ended-banner-actions{display:flex;gap:14px;flex-wrap:wrap}.ended-banner button{font-weight:600}
+  .ended-card{width:100%;max-width:520px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--bg-sunk,var(--card))}
+  .ended-resume{margin-top:22px;max-width:520px;width:100%;text-align:left}.ended-resume h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px;color:var(--muted)}
+  .ended-resume ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}.ended-resume button{width:100%;display:flex;align-items:center;gap:10px;min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-size:.82rem;text-align:left}.ended-resume button:hover{border-color:var(--accent-text)}
+  .ended-dot{width:7px;height:7px;border-radius:50%;background:var(--good)}.ended-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .workspace.theatre>.workspace-toolbar{display:none}
   /* Keyboard focus layout (phones only, see keyboardLikelyOpen): the terminal toolbar keeps Show sessions. */
   .workspace.keyboard>.workspace-toolbar{display:none}

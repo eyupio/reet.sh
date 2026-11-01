@@ -1,9 +1,11 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -48,7 +50,7 @@ func TestBuildSessionSkillsSplitsNativeOtherAndReet(t *testing.T) {
 		tsSkill("s3", "Codex Only", "codex-only", tsEnv("box", "codex", 5)),
 	}
 	hosted := []store.HostedSkill{{Slug: "mine", Description: "hosted desc"}}
-	got := buildSessionSkills("claude", "box", skills, hosted)
+	got := buildSessionSkills("claude", "box", "", skills, hosted)
 	if len(got.Skills) != 4 {
 		t.Fatalf("got %d skills: %+v", len(got.Skills), got.Skills)
 	}
@@ -77,7 +79,7 @@ func TestBuildSessionSkillsIgnoresOtherMachinesAndMatchesHostCaseInsensitively(t
 		tsSkill("a", "here", "here", tsEnv("BOX", "claude", 1)),
 		tsSkill("b", "elsewhere", "elsewhere", tsEnv("other", "claude", 99)),
 	}
-	got := buildSessionSkills("claude", "box", skills, nil)
+	got := buildSessionSkills("claude", "box", "", skills, nil)
 	if len(got.Skills) != 1 || got.Skills[0].ID != "a" {
 		t.Fatalf("got %+v", got.Skills)
 	}
@@ -89,7 +91,7 @@ func TestBuildSessionSkillsIgnoresOtherMachinesAndMatchesHostCaseInsensitively(t
 func TestBuildSessionSkillsDoesNotRepeatAHostedSkillThatIsInstalled(t *testing.T) {
 	skills := []store.Skill{tsSkill("a", "Mine", "mine", tsEnv("box", "claude", 1))}
 	hosted := []store.HostedSkill{{Slug: "mine"}, {Slug: "other"}}
-	got := buildSessionSkills("claude", "box", skills, hosted)
+	got := buildSessionSkills("claude", "box", "", skills, hosted)
 	if len(got.Skills) != 2 || got.Skills[0].ID != "a" || got.Skills[1].ID != "reet:other" {
 		t.Fatalf("got %+v", got.Skills)
 	}
@@ -100,10 +102,10 @@ func TestBuildSessionSkillsMachineSeenAndEmpty(t *testing.T) {
 		tsSkill("a", "a", "a", tsEnv("box", "claude", 5), tsEnv("box", "codex", 40)),
 		tsSkill("b", "b", "b", tsEnv("box", "claude", 12), tsEnv("other", "claude", 500)),
 	}
-	if got := buildSessionSkills("claude", "box", skills, nil); got.MachineSeen != 40 {
+	if got := buildSessionSkills("claude", "box", "", skills, nil); got.MachineSeen != 40 {
 		t.Fatalf("MachineSeen = %d, want 40", got.MachineSeen)
 	}
-	empty := buildSessionSkills("claude", "unscanned", nil, nil)
+	empty := buildSessionSkills("claude", "unscanned", "", nil, nil)
 	if empty.MachineSeen != 0 || len(empty.Skills) != 0 || empty.Skills == nil {
 		t.Fatalf("empty = %+v", empty)
 	}
@@ -118,7 +120,7 @@ func TestBuildSessionSkillsMachineSeenAndEmpty(t *testing.T) {
 
 func TestBuildSessionSkillsListsAnUnsafeNameWithoutAnInvocation(t *testing.T) {
 	skills := []store.Skill{tsSkill("a", "bad\nname", "bad", tsEnv("box", "claude", 1))}
-	got := buildSessionSkills("claude", "box", skills, nil)
+	got := buildSessionSkills("claude", "box", "", skills, nil)
 	if len(got.Skills) != 1 {
 		t.Fatalf("got %+v", got.Skills)
 	}
@@ -229,5 +231,97 @@ func TestTerminalSessionSkillsRefusesAnotherAccountAndAnonymous(t *testing.T) {
 	}
 	if code, _ := call("", session); code != 401 {
 		t.Fatalf("anonymous got %d", code)
+	}
+}
+
+func TestTerminalSessionSkillsStillListsHostedSkillsWhenTheMachineIsUnknown(t *testing.T) {
+	call, importSkill, st, uid, agent, session, cookie := skillsEndpointFixture(t)
+	importSkill(agent.Host, "claude", "pdf")
+	if err := st.ClaimPublishingUsername(uid, "skills-author"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveHostedSkill(uid, store.HostedSkill{Slug: "mine", Description: "hosted desc", Content: "---\nname: mine\ndescription: hosted desc\n---\n\nSteps\n"}); err != nil {
+		t.Fatal(err)
+	}
+	// Revoking an agent deletes its sessions with it, so the machine is made
+	// unknown by blanking its host on a second connection to the same database.
+	raw, err := sql.Open("sqlite", filepath.Join(st.Dir(), "reet.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if _, err := raw.Exec(`UPDATE sync_agents SET host='' WHERE id=?`, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	code, got := call(cookie, session)
+	if code != 200 || got.Host != "" || got.MachineSeen != 0 || len(got.Skills) != 1 {
+		t.Fatalf("got %d %+v", code, got)
+	}
+	if s := got.Skills[0]; s.Source != "reet" || s.Name != "mine" || s.Invocation != "" || s.OnMachine || s.Native {
+		t.Fatalf("hosted entry %+v", s)
+	}
+}
+
+func tsProjectEnv(host, agent, project string, seen int64) store.Environment {
+	return store.Environment{Host: host, Agent: agent, Project: project, LastSeen: seen}
+}
+
+func TestBuildSessionSkillsOnlyCountsProjectEnvironmentsForTheSessionsFolder(t *testing.T) {
+	cases := []struct {
+		name     string
+		dir      string
+		skills   []store.Skill
+		wantIDs  []string
+		wantSeen int64
+	}{
+		{"project skill inside the dir is listed and native", "/work/repoA/pkg",
+			[]store.Skill{tsSkill("p", "proj", "proj", tsProjectEnv("box", "claude", "/work/repoA", 7))}, []string{"p"}, 7},
+		{"session in the project root itself", "/work/repoA",
+			[]store.Skill{tsSkill("p", "proj", "proj", tsProjectEnv("box", "claude", "/work/repoA", 7))}, []string{"p"}, 7},
+		{"project skill for another folder is absent but still counts as scanned", "/work/repoA",
+			[]store.Skill{tsSkill("p", "proj", "proj", tsProjectEnv("box", "claude", "/work/repoB", 9))}, nil, 9},
+		{"prefix trap: /work/repo is not /work/repo2", "/work/repo2",
+			[]store.Skill{tsSkill("p", "proj", "proj", tsProjectEnv("box", "claude", "/work/repo", 3))}, nil, 3},
+		{"prefix trap the other way", "/work/repo",
+			[]store.Skill{tsSkill("p", "proj", "proj", tsProjectEnv("box", "claude", "/work/repo2", 3))}, nil, 3},
+		{"trailing slash on the session folder", "/work/repoA/",
+			[]store.Skill{tsSkill("p", "proj", "proj", tsProjectEnv("box", "claude", "/work/repoA", 1))}, []string{"p"}, 1},
+		{"empty dir hides project skills", "",
+			[]store.Skill{tsSkill("p", "proj", "proj", tsProjectEnv("box", "claude", "/work/repoA", 4))}, nil, 4},
+		{"global skill is unaffected by the dir", "",
+			[]store.Skill{tsSkill("g", "glob", "glob", tsEnv("box", "claude", 2))}, []string{"g"}, 2},
+		{"global and unrelated project environments list the skill once, from the global one", "/work/repoA",
+			[]store.Skill{tsSkill("g", "both", "both", tsEnv("box", "codex", 2), tsProjectEnv("box", "claude", "/work/repoB", 50))}, []string{"g"}, 50},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := buildSessionSkills("claude", "box", c.dir, c.skills, nil)
+			var ids []string
+			for _, s := range got.Skills {
+				ids = append(ids, s.ID)
+			}
+			if strings.Join(ids, ",") != strings.Join(c.wantIDs, ",") {
+				t.Fatalf("ids = %v, want %v", ids, c.wantIDs)
+			}
+			if got.MachineSeen != c.wantSeen {
+				t.Fatalf("MachineSeen = %d, want %d", got.MachineSeen, c.wantSeen)
+			}
+		})
+	}
+}
+
+func TestBuildSessionSkillsListsAProjectSkillAsNativeAndAGlobalOneFromTheGlobalAgent(t *testing.T) {
+	skills := []store.Skill{
+		tsSkill("p", "proj", "proj", tsProjectEnv("box", "claude", "/work/repoA", 1)),
+		tsSkill("both", "both", "both", tsEnv("box", "codex", 1), tsProjectEnv("box", "claude", "/work/repoA", 1)),
+	}
+	got := buildSessionSkills("claude", "box", "/work/repoA", skills, nil)
+	if len(got.Skills) != 2 {
+		t.Fatalf("got %+v", got.Skills)
+	}
+	for _, s := range got.Skills {
+		if !s.Native || s.Agent != "claude" || s.Invocation == "" {
+			t.Fatalf("entry %+v", s)
+		}
 	}
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"unicode"
@@ -48,9 +49,29 @@ func skillInvocation(agent, name string) string {
 	return "Use the " + name + " skill."
 }
 
-// buildSessionSkills builds the catalogue for a session running tool on
-// host: native machine skills, other-agent machine skills, then reet skills.
-func buildSessionSkills(tool, host string, skills []store.Skill, hosted []store.HostedSkill) SessionSkills {
+// inProject reports whether dir is the project folder or inside it. Both are
+// absolute paths as the machine reported them; /work/repo does not contain /work/repo2.
+func inProject(dir, project string) bool {
+	if dir == "" || project == "" {
+		return false
+	}
+	dir, project = filepath.Clean(dir), filepath.Clean(project)
+	if dir == project {
+		return true
+	}
+	if !strings.HasSuffix(project, string(filepath.Separator)) {
+		project += string(filepath.Separator)
+	}
+	return strings.HasPrefix(dir, project)
+}
+
+// buildSessionSkills builds the catalogue for a session running tool in dir
+// on host: native machine skills, other-agent machine skills, then reet skills.
+// An environment scoped to a project counts only when dir is that project or
+// below it; a skill that no counting environment holds is not listed at all.
+// MachineSeen still follows every environment on the machine, so the freshness
+// line does not depend on where the session runs.
+func buildSessionSkills(tool, host, dir string, skills []store.Skill, hosted []store.HostedSkill) SessionSkills {
 	out := SessionSkills{Skills: []SessionSkill{}, Host: host}
 	isNative := func(e store.Environment) bool { return e.Agent == tool || e.Agent == "agents" }
 
@@ -59,11 +80,14 @@ func buildSessionSkills(tool, host string, skills []store.Skill, hosted []store.
 	for _, sk := range skills {
 		var here []store.Environment
 		for _, e := range sk.Environments {
-			if strings.EqualFold(e.Host, host) {
+			if !strings.EqualFold(e.Host, host) {
+				continue
+			}
+			if e.LastSeen > out.MachineSeen {
+				out.MachineSeen = e.LastSeen
+			}
+			if e.Project == "" || inProject(dir, e.Project) {
 				here = append(here, e)
-				if e.LastSeen > out.MachineSeen {
-					out.MachineSeen = e.LastSeen
-				}
 			}
 		}
 		if len(here) == 0 {
@@ -132,8 +156,15 @@ func (s *server) terminalSessionSkills(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	// The reet-hosted group does not depend on the machine, so it is read first.
+	hosted, err := s.st.HostedSkillsFor(uid)
+	if err != nil {
+		terminalError(w, err)
+		return
+	}
 	if host == "" {
-		writeJSON(w, 200, buildSessionSkills(session.Tool, "", nil, nil))
+		// The session's machine is not among the account's agents: no machine skills.
+		writeJSON(w, 200, buildSessionSkills(session.Tool, "", session.Dir, nil, hosted))
 		return
 	}
 	if host, err = s.st.ResolveMachineHostFor(uid, host); err != nil {
@@ -145,10 +176,5 @@ func (s *server) terminalSessionSkills(w http.ResponseWriter, r *http.Request) {
 		terminalError(w, err)
 		return
 	}
-	hosted, err := s.st.HostedSkillsFor(uid)
-	if err != nil {
-		terminalError(w, err)
-		return
-	}
-	writeJSON(w, 200, buildSessionSkills(session.Tool, host, skills, hosted))
+	writeJSON(w, 200, buildSessionSkills(session.Tool, host, session.Dir, skills, hosted))
 }

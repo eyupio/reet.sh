@@ -1073,7 +1073,7 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 						recoverNow = true
 					}
 				}
-				timedOut := elapsed >= s.opts.turnTimeout()
+				timedOut := elapsed >= s.opts.maxTurn() || (!pending && quiet >= s.opts.turnTimeout())
 				s.turnMu.Unlock()
 				if recoverNow {
 					if message := s.recoverLive(acpID, startedAt.UnixMilli()); message != "" {
@@ -1113,7 +1113,7 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 			}
 		}
 	}()
-	requestCtx, cancel := context.WithTimeout(ctx, s.opts.turnTimeout()+30*time.Second)
+	requestCtx, cancel := context.WithTimeout(ctx, s.opts.maxTurn()+30*time.Second)
 	defer cancel()
 	prompt := make([]map[string]string, 0, 1+len(images))
 	if text != "" {

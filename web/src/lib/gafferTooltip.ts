@@ -23,7 +23,7 @@ export function gafferTooltip(node: HTMLElement, enabled = true) {
   accessible.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;'
   const parent = node.closest('dialog') ?? document.body
   parent.append(tip, accessible)
-  let visible = false, hovering = false, focused = false, dismissed = false
+  let visible = false, hovering = false, focused = false, dismissed = false, pressed = false, held = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const original = node.getAttribute('aria-describedby')
   function describe() {
@@ -52,16 +52,30 @@ export function gafferTooltip(node: HTMLElement, enabled = true) {
     if (!enabled || dismissed || !node.isConnected || visible) return
     closeActive?.()
     closeActive = hide
+    // Opened by focus (a menu moving focus to its selected option) or by touch, it is not under the pointer and cannot be
+    // read by hovering it; it must not catch a click aimed at the control it happens to cover. Opened by hover it stays
+    // hoverable, so a pointer can move onto it to read it.
+    tip.style.pointerEvents = hovering ? '' : 'none'
     tip.showPopover()
     visible = true
     position()
   }
   function leave() {
     hovering = false
+    held = false
     if (!focused) timer = setTimeout(hide, 100)
   }
-  function enter() { hovering = true; dismissed = false; show() }
-  function focus() { focused = true; dismissed = false; show() }
+  // A browser repeats pointerenter when the layout under a still pointer changes (a menu opening, say), so a press holds
+  // the tooltip closed until the pointer has really left the control.
+  function enter() { hovering = true; if (held) return; dismissed = false; show() }
+  // A mouse or pen press is an action on the control, not a request to read about it: the tooltip closes and the focus the
+  // press brings does not reopen it, so it never sits over the menu or the controls the press just opened. Hovering the
+  // control again, or keyboard focus, shows it as before.
+  function focus() {
+    focused = true
+    if (pressed) { pressed = false; return }
+    dismissed = false; show()
+  }
   function blur() { focused = false; if (!hovering) hide() }
   function escape(event: KeyboardEvent) {
     if (event.key === 'Escape' && visible) {
@@ -72,7 +86,12 @@ export function gafferTooltip(node: HTMLElement, enabled = true) {
     if (!node.contains(event.target as Node) && !tip.contains(event.target as Node)) hide()
   }
   // Touch opens on pointerdown as well as focus, without cancelling the normal click.
-  function touch(event: PointerEvent) { if (event.pointerType === 'touch') { dismissed = false; show() } }
+  function touch(event: PointerEvent) {
+    if (event.pointerType === 'touch') { dismissed = false; show(); return }
+    pressed = true; held = true; dismissed = true; hide()
+    // A press on a control that already has focus fires no focus event; do not leave the flag set for a later keyboard focus.
+    setTimeout(() => { pressed = false }, 0)
+  }
   node.addEventListener('pointerenter', enter)
   node.addEventListener('pointerleave', leave)
   node.addEventListener('focus', focus)

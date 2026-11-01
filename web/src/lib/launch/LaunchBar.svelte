@@ -965,16 +965,26 @@
   $effect(() => {
     const bar = form
     if (!bar) return
+    // The docked thing may be the bar itself, or the sticky Quick launch section that holds it.
+    // That section exists before it is opened, so it is watched from the start, not looked up once.
+    const details = bar.closest('details.quick-launch')
     const root = document.documentElement
     const fit = () => {
-      const below = parseFloat(getComputedStyle(bar).bottom) || 0
-      root.style.scrollPaddingBottom = `${Math.ceil(bar.getBoundingClientRect().height + below + 8)}px`
+      const dock = details && details.open ? details : bar
+      if (dock.getClientRects().length === 0) { root.style.removeProperty('scroll-padding-bottom'); return }
+      const below = parseFloat(getComputedStyle(dock).bottom) || 0
+      root.style.scrollPaddingBottom = `${Math.ceil(dock.getBoundingClientRect().height + below + 8)}px`
     }
     const watch = new ResizeObserver(fit)
     watch.observe(bar)
+    if (details) { watch.observe(details); details.addEventListener('toggle', fit) }
     addEventListener('resize', fit)
     fit()
-    return () => { watch.disconnect(); removeEventListener('resize', fit); root.style.removeProperty('scroll-padding-bottom') }
+    return () => {
+      watch.disconnect(); removeEventListener('resize', fit)
+      if (details) details.removeEventListener('toggle', fit)
+      root.style.removeProperty('scroll-padding-bottom')
+    }
   })
 
   async function loadYolo() {

@@ -628,7 +628,8 @@ try {
   await expect(page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
   await r.getByRole('button',{name:'More for Store rewrite',exact:true}).click()
   const storeMenu = page.getByRole('menu',{name:'Store rewrite'})
-  await expect(storeMenu.getByRole('menuitemradio')).toHaveCount(6)
+  // The menu also offers groups; the colour choices are the ones with a name.
+  await expect(storeMenu.locator('.colours').getByRole('menuitemradio')).toHaveCount(6)
   await storeMenu.getByRole('menuitemradio',{name:'Blue'}).click()
   await expect.poll(() => box.writes.find(w => w.method === 'PATCH')?.body ?? null).toEqual({colour:'blue'})
   expect(box.writes.find(w => w.method === 'PATCH').match).toBe('"1"')
@@ -834,7 +835,8 @@ try {
    const menu = page.getByRole('menu',{name:'Store rewrite'})
    await expect(menu.getByRole('menuitem')).toHaveText(['New session here','Edit','Worktrees','Move up','Move down','Remove from reet'])
    await expect(menu.getByRole('menuitem',{name:'New session here'})).toBeFocused()
-   for (const item of ['Edit','Worktrees','Move down','Remove from reet']) {
+   // The menu also has a Move to group section (one radio per group, and No group).
+   for (const item of ['Edit','Worktrees','Move down','No group','Remove from reet']) {
     await page.keyboard.press('ArrowDown')
     if (item !== 'Edit') continue
     await expect(menu.getByRole('menuitem',{name:'Edit'})).toBeFocused()

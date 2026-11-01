@@ -52,7 +52,8 @@ async function workspace(width = 1440, theme = 'light', touch = false, entry = '
     skills: [skill('brainstorm'), skill('polish')] })
   await app.page.goto(new URL(entry, base).href)
   await expect(app.page.getByRole('heading', { name: 'A reet good day’s work.' })).toBeVisible()
-  await expect(app.page.locator('.session-card')).toHaveCount(7)
+  // An address naming one project narrows the board to that project's sessions.
+  await expect(app.page.locator('.session-card')).toHaveCount(entry.includes('?project=') ? 2 : 7)
   return { ...app, box }
 }
 try {
@@ -76,7 +77,9 @@ try {
       await expect(launch.getByRole('textbox', { name: 'Describe the job', exact: true })).toBeVisible()
       // The board keeps the second column beside the rail, and an open Quick launch stays in the viewport under a long board.
       const column = await app.page.locator('.column').boundingBox()
-      const rail = await app.page.locator('aside.rail').boundingBox()
+      // Home on a tablet or phone has no rail; it lives on the Sessions screen there.
+      const railLocator = app.page.locator('aside.rail')
+      const rail = (await railLocator.count()) ? await railLocator.boundingBox() : null
       if (rail) expect(column.x).toBeGreaterThanOrEqual(rail.x + rail.width - 1)
       const launchBox = await launch.boundingBox()
       const view = app.page.viewportSize()

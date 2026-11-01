@@ -335,8 +335,10 @@
   // gives the choice to the launch bar's sentence (the Sessions screen).
   function chooseCard(p: FolderProject, el: HTMLElement) {
     if (panelOpen) closePanel(false)
-    if (onscope) { onscope(scopeOfProject(p) ? null : { kind: 'project', id: p.id }); return }
-    onchoose(p, el)
+    // A page with a launch bar puts the project in its sentence; a page with a board
+    // also narrows the board to it. The Sessions rail only navigates.
+    if (onchoose) onchoose(p, el)
+    if (onscope) onscope(scopeOfProject(p) ? null : { kind: 'project', id: p.id })
   }
   // A card's + and New session here start at once; a page without a launch bar (the Sessions rail) navigates instead.
   function startCard(p: FolderProject, el: HTMLElement) {
@@ -381,7 +383,7 @@
     <button type="button" class="card" class:chosen={!selecting && chosen === p.id} class:scoped={!selecting && scopeOfProject(p)} class:picked
       draggable={!selecting && !!onarrange}
       role={selecting ? 'checkbox' : undefined} aria-checked={selecting ? picked : undefined} aria-disabled={selecting && !picked && full_ ? 'true' : undefined}
-      aria-current={!selecting && (scopeOfProject(p) || chosen === p.id) ? 'true' : undefined} aria-label={label(p)}
+      aria-current={!selecting && chosen === p.id ? 'true' : undefined} aria-label={label(p)}
       onclick={(e) => cardClick(p, e.currentTarget)} oncontextmenu={(e) => cardContextMenu(e, p)}
       onpointerdown={(e) => pressStart(e, p)} onpointermove={pressMove} onpointerup={pressEnd} onpointercancel={pressEnd} onpointerleave={pressEnd}
       ondragstart={(e) => startDrag(e, p)} ondragend={endDrag}
@@ -535,7 +537,7 @@
     {#each projects ?? [] as p (p.id)}
       {@const wt = worktrees.get(p.id) ?? 0}
       {@const picked = selecting && isPicked(p)}
-      <button type="button" class="mini" class:chosen={!selecting && (scopeOfProject(p) || chosen === p.id)} class:picked aria-current={!selecting && (scopeOfProject(p) || chosen === p.id) ? 'true' : undefined}
+      <button type="button" class="mini" class:chosen={!selecting && (scopeOfProject(p) || chosen === p.id)} class:picked aria-current={!selecting && chosen === p.id ? 'true' : undefined}
         role={selecting ? 'checkbox' : undefined} aria-checked={selecting ? picked : undefined} aria-disabled={selecting && !picked && full_ ? 'true' : undefined}
         aria-label={label(p)} title={label(p)} style={`--project-colour:${projectColourHex(p.colour)}`}
         onclick={(e) => { if (swallow === p.id && Date.now() < swallowUntil) { swallow = ''; return } if (selecting) toggle(p); else if (onscope) onscope(scopeOfProject(p) ? null : { kind: 'project', id: p.id }); else onchoose(p, e.currentTarget) }}

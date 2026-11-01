@@ -18,6 +18,7 @@ try {
     if(path==='/api/v2/auth/status')return route.fulfill({json:status})
     if(path==='/api/version')return route.fulfill({json:{version:'test',commit:'fixture'}})
     if(path==='/api/v2/auth/sign-in')return route.fulfill({status:401,json:{error:'Email or password is incorrect.'}})
+    if(path==='/api/v2/auth/invite')return route.fulfill({json:{email:'new@example.test',role:'member',expiresAt:Date.now()+86400000}})
     unexpected.push(path)
     return route.fulfill({status:403,json:{error:'Private API must not be called'}})
    })
@@ -25,6 +26,7 @@ try {
    const noOldPitch=async()=>expect(await page.locator('body').innerText()).not.toMatch(/skills\.sh|your shelf|skills reported/i)
    await page.goto(base)
    await expect(page.getByRole('heading',{level:1})).toContainText('Your whole AI setup shows up.')
+   await expect(page).toHaveTitle('Your whole AI setup, on every machine · reet.sh')
    await expect(page.getByText('Ey up. Your AI control room.',{exact:true})).toBeVisible()
    await expect(page.getByRole('heading',{name:'Enrol a machine with one command.'})).toBeVisible()
    await expect(page.getByRole('heading',{name:'Agents, skills and setups stay in sync.'})).toBeVisible()
@@ -106,6 +108,11 @@ try {
    await expect(page.getByText('Enrol your first machine, enable terminal access')).toBeVisible()
    await expect(page.getByLabel('Access token',{exact:true})).toBeVisible()
    await layout();await noOldPitch()
+   // An invitation names the person and what joining gets them, in the welcome page's words.
+   await page.goto(`${base}/join?token=t`)
+   await expect(page.getByRole('heading',{name:'Join reet.sh'})).toBeVisible()
+   await expect(page.getByText("Your team's agents, skills and setups are one sign-in away.")).toBeVisible()
+   await layout()
    status={mode:'token'}
    await page.goto(base)
    await expect(page.getByRole('heading',{name:'Open your workspace'})).toBeVisible()

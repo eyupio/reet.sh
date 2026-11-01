@@ -1,13 +1,15 @@
 <script lang="ts">
  import { onMount, tick, untrack } from 'svelte'
  import { shell } from './dialogShell'
- import { UnauthorizedError, addModelFavourite, getProfile, listModelFavourites, removeModelFavourite, setModelFavouriteDefault, type Machine } from './api'
+ import { UnauthorizedError, addModelFavourite, getProfile, getYoloSetting, listModelFavourites, removeModelFavourite, setModelFavouriteDefault, type Machine, type YoloSetting } from './api'
  import { CATALOGUE } from './catalogue'
  import { defaultLabel, effortChoices, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
  import { createTerminal, getFolderProject, machineModels, readiness, refreshMachineModels, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
  import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
- import { structuredAgent } from './terminal/api'
+ import { chatToolName, structuredAgent } from './terminal/api'
  import SlotPicker, { type SlotOption } from './launch/SlotPicker.svelte'
+ import YoloDialog from './launch/YoloDialog.svelte'
+ import { yoloCanStart, type YoloGate } from './launchBar'
 
  // Start an agent CLI in a new terminal session on one machine. One screen, one press. The page names a tool id, a model, a
  // folder and a prompt; the machine decides the program and its flags. Nothing here is kept in browser storage or the URL, and
@@ -188,6 +190,36 @@
  const dirError = $derived(folderChoice === TYPED && (attempted || typedDir !== '') ? validateDir(typedDir) ?? '' : '')
  const promptError = $derived(chosenTool ? validatePrompt(chosenTool, prompt) ?? '' : '')
  const locked = $derived(busy || operation !== null)
+ // YOLO: the account setting, the confirmation, and whether this start was confirmed. It is never remembered; changing the
+ // machine or the agent drops it, because the confirmation named them.
+ let yoloSetting = $state<YoloSetting | null>(null), yoloOpen = $state(false), yoloChosen = $state(false)
+ let yoloRadio = $state<HTMLInputElement>()
+ // Why YOLO cannot even be offered. A machine that refuses it is named here too, since this dialog has one machine in view.
+ const yoloWhy = $derived.by(() => {
+  if (!yoloSetting) return 'Reading the account setting…'
+  if (!yoloSetting.allowed) return 'An owner or admin can allow YOLO for this account in Settings.'
+  if (!chosenTool || !CATALOGUE.find(a => a.id === chosenTool)?.yolo) return 'This agent has no option reet can use for that.'
+  if (machine && !machine.capabilities?.yolo) return `${machine.host} doesn’t accept YOLO sessions.`
+  return ''
+ })
+ const yoloGateList = $derived.by((): YoloGate[] => {
+  const account = yoloSetting?.allowed === true
+  const name = machine?.host || 'That machine'
+  const agentOk = !!CATALOGUE.find(a => a.id === chosenTool)?.yolo
+  const machineOk = !!machine?.capabilities?.yolo
+  return [
+   { label: 'Your account allows YOLO', ok: account, detail: account ? (yoloSetting?.changedBy ? `set by ${yoloSetting.changedBy}` : 'set by an owner') : yoloSetting ? 'An owner or admin can allow YOLO for this account in Settings.' : 'Reading the account setting…' },
+   { label: `${name} accepts YOLO sessions`, ok: machineOk, detail: machineOk ? 'checked a moment ago' : `${name} doesn’t accept YOLO sessions.` },
+   { label: 'This agent has an option reet can use', ok: agentOk, detail: agentOk ? 'the option is recorded with the launch' : 'This agent has no option reet can use for that.' },
+   { label: 'Works in the folder you chose', ok: true, warning: true, detail: 'Secrets in that folder are readable to the agent. Use a throwaway worktree if unsure.' },
+  ]
+ })
+ $effect(() => { agentId; chosenTool; untrack(() => { yoloChosen = false }) })
+ $effect(() => { if (yoloWhy) untrack(() => { yoloChosen = false }) })
+ async function loadYolo() { try { yoloSetting = await getYoloSetting() } catch { yoloSetting = null } }
+ function openYolo() { if (locked || yoloWhy || yoloChosen) return; yoloOpen = true }
+ function cancelYolo() { yoloOpen = false; yoloChosen = false; void focusAfter(() => yoloRadio) }
+ function startYolo() { if (!yoloCanStart(yoloGateList)) return; yoloChosen = true; yoloOpen = false; edited() }
  // While a request is held, the line says what was asked for, not what the current machine list would offer.
  const sentence = $derived(operation ? launchSentence(operation.launch.tool, operation.launch.dir ?? '', operation.host, !!operation.launch.prompt, !!operation.launch.structured) : machine && chosenTool ? launchSentence(chosenTool, dir, machine.host, prompt !== '', structured) : '')
 
@@ -374,11 +406,12 @@
    const invalid = modelError ? ['model', modelError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
    if (invalid) { failed = true; message = invalid[1]; invalidMessage = true; field(invalid[0])?.focus(); return }
    const launch: LaunchRequest & { tool: string } = { tool: chosenTool }
-   if (structured) { launch.structured = true; launch.trust = true }
+   if (structured) { launch.structured = true; if (chosenTool === 'opencode') launch.trust = true }
    if (model) launch.model = model
    if (!structured && effort && effortOptions.length > 1) launch.effort = effort as NonNullable<LaunchRequest['effort']>
    if (dir) launch.dir = dir
    if (prompt) launch.prompt = prompt
+   if (yoloChosen && !yoloWhy) launch.yolo = true
    if (projectId && machine.agentId === initialAgent && dir === initialDir) launch.projectId = projectId
    operation = { agentId: machine.agentId, host: machine.host, requestId: crypto.randomUUID(), title: titleFor(chosenTool, dir), launch }
   }
@@ -457,6 +490,7 @@
   // The profile is read even without a project, so a machine card or the workspace gets the account defaults.
   void loadFavourites()
   void loadAccount()
+  void loadYolo()
   if (projectId) void loadProject()
   return () => { stopLeaving(); life.abort(); prompt = ''; coarse.removeEventListener?.('change', readPointer) }
  })
@@ -509,7 +543,11 @@
       <option value="terminal">{toolName(chosenTool)} TUI</option>
      </select>
      {#if structured}
-      <p class="hint">In the reet TUI, OpenCode asks before it edits a file or runs a command. Any plugins in this folder's <code>.opencode</code> run when it starts, so use a folder you trust. Its live history stays in memory and ends when the machine connection does.</p>
+      {#if chosenTool === 'claude'}
+       <p class="hint">In the reet TUI, Claude Code asks before it edits a file or runs a command. Only your own Claude settings apply; this folder's repository settings and hooks are ignored. Its live history stays in memory and ends when the machine connection does.</p>
+      {:else}
+       <p class="hint">In the reet TUI, OpenCode asks before it edits a file or runs a command. Any plugins in this folder's <code>.opencode</code> run when it starts, so use a folder you trust. Its live history stays in memory and ends when the machine connection does.</p>
+      {/if}
      {:else}
       <p class="hint">Starts the {toolName(chosenTool)} TUI in a terminal session; the agent's own prompts apply.</p>
      {/if}
@@ -524,7 +562,7 @@
     </button>
     {#if modelChoice === OTHER && modelError}<p class="reason" id={`${id}-model-error`}>{modelError}</p>{/if}
     <p class="hint">Suggestions are hints. The agent says itself if it doesn't know a model.</p>
-    {#if structured}<p class="hint">The reet TUI uses this model. Leave it at OpenCode’s configured model to keep OpenCode’s own; its thinking comes from OpenCode.</p>{/if}
+    {#if structured}<p class="hint">The reet TUI uses this model. Leave it at {chatToolName(chosenTool)}’s configured model to keep {chatToolName(chosenTool)}’s own; its thinking comes from {chatToolName(chosenTool)}.</p>{/if}
    </div>
 
    {#if !structured && effortOptions.length > 1}
@@ -556,6 +594,18 @@
     <p class="hint count" id={`${id}-prompt-count`} class:over={promptBytes > MAX_PROMPT_BYTES}>{promptBytes.toLocaleString('en-GB')} of {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes. Secrets don't belong here.</p>
     {#if promptError}<p class="reason" id={`${id}-prompt-error`}>{promptError}</p>{/if}
    </div>
+
+   <!-- Approvals: Ask me is the default. YOLO opens a confirmation first and is never remembered. -->
+   <div class="field approvals" role="radiogroup" aria-labelledby={`${id}-approvals-label`} aria-describedby={`${id}-approvals-why`}>
+    <span class="legend" id={`${id}-approvals-label`}>Approvals</span>
+    <div class="approval-choices">
+     <label class:on={!yoloChosen}><input type="radio" name={`${id}-approvals`} value="ask" checked={!yoloChosen} disabled={locked} onchange={() => { yoloChosen = false; edited() }} />Ask me</label>
+     <label class:on={yoloChosen} class:off={!!yoloWhy} title={yoloWhy || 'Starts only after a confirmation.'}>
+      <input type="radio" name={`${id}-approvals`} value="yolo" bind:this={yoloRadio} checked={yoloChosen} disabled={locked || !!yoloWhy} onclick={(event) => { if (!yoloChosen) { event.preventDefault(); openYolo() } }} onchange={(event) => { if (!yoloChosen) { (event.currentTarget as HTMLInputElement).checked = false; openYolo() } }} />YOLO
+     </label>
+    </div>
+    <p class="hint" id={`${id}-approvals-why`}>{yoloWhy || (yoloChosen ? 'This session will not wait for you to approve commands or file changes.' : 'Starts only after a confirmation. Each use is audited.')}</p>
+   </div>
   </fieldset>
 
   {#if sentence}<p class="sentence">{sentence}</p>{/if}
@@ -566,6 +616,9 @@
    <button class="btn primary" type="submit" disabled={busy || (!operation && !!blocked)} aria-busy={busy} bind:this={startButton}>{busy ? 'Starting…' : operation ? 'Try the same request again' : 'Start'}</button>
   </footer>
  </form>
+ {#if yoloOpen && machine}
+  <YoloDialog gates={yoloGateList} tool={chosenTool} {structured} machine={machine.host} oncancel={cancelYolo} onstart={startYolo} />
+ {/if}
  {#if pickerOpen}
   <SlotPicker label="Model" options={modelOptionsFor()} value={model} sheet={touch} opener={modelButton ?? null}
    filter="Filter models" status={modelStatusLine} statusAction={modelStatusAction}
@@ -601,6 +654,12 @@
  @media (max-width: 560px) { select, input:not([type=radio]), textarea, .picker { font-size: 16px; } }
  textarea { resize: vertical; min-height: 80px; }
  [aria-invalid='true'] { border-color: var(--bad); }
+ .approvals .legend { font-size: .85rem; }
+ .approval-choices { display: flex; gap: 8px; flex-wrap: wrap; }
+ .approval-choices label { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font-size: .85rem; cursor: pointer; }
+ .approval-choices label.on { border-color: var(--accent); background: var(--tint); }
+ .approval-choices label.off { opacity: .55; cursor: not-allowed; }
+ .approval-choices label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
  .tools { gap: 6px; }
  .tools legend { margin-bottom: 6px; padding: 0; }
  .tool { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }

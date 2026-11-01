@@ -339,6 +339,17 @@ func TestWireEventTrimsAndValidates(t *testing.T) {
 	_ = time.Second
 }
 
+// A shell command is its own title for some agents. A long one must keep the
+// full Command and stay approvable: the title is only a label.
+func TestWireEventLongCommandTitleStaysApprovable(t *testing.T) {
+	command := "cd /root/reet && git diff HEAD -- web/src/lib/launch/LaunchBar.svelte | grep -n \"^@@\\|trust\\|locked = \" | head -60 && echo '=== START ===' && git diff HEAD -- web/src/lib/home/StartSessionDialog.svelte"
+	event := acpagent.Event{Kind: "permission", PermissionID: "permission-0123456789", ToolKind: "execute", Title: command, Command: command, Text: "the workspace"}
+	wire, ok := wireEvent(event)
+	if !ok || wire.Truncated || wire.Command != command {
+		t.Fatalf("long title made the card unapprovable: %+v %v", wire, ok)
+	}
+}
+
 func TestReconcileSnapshotKeepsLiveChats(t *testing.T) {
 	shells := make([]terminalproto.SessionSnapshot, 32)
 	for i := range shells {

@@ -1038,8 +1038,10 @@ func wireEvent(event acpagent.Event) (terminalproto.ACPEvent, bool) {
 		wire.Path = cutText(wire.Path, 1<<10)
 	}
 	if len(wire.Title) > 200 {
+		// The title is only a label. Some agents use the whole shell command as
+		// it, and the full text still travels in Command, so a cut title must not
+		// make the card unreviewable and disable Allow once.
 		wire.Title = cutText(wire.Title, 200)
-		wire.Truncated = true
 	}
 	if len(wire.Locations) > 4 {
 		wire.Locations = wire.Locations[:4]

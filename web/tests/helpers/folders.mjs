@@ -83,6 +83,7 @@ export async function openFixture(browser, harness, options={}) {
    box.writes.push({method:request.method(), body, headers:request.headers()})
    return {status:201, json:saved({id:'fp9', host:body.host, dir:body.dir, name:body.name || body.dir.split('/').pop(), isRepo:!!body.isRepo, version:1})}
   },
+  '/api/v2/project-groups': () => ({groups:[]}),
   '/api/v2/folder-projects/fp1': request => {
    if (request.method() === 'GET') return saved({starterPrompt:'Read the README first'})
    box.writes.push({method:request.method(), body:request.postDataJSON(), headers:request.headers()})

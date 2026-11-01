@@ -97,20 +97,21 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		if err != nil {
 			return err
 		}
-		if canonical, err := resolveMachineHost(tx, uid, agentHost); err == nil {
-			agentHost = canonical
+		if agentHost, err = resolveMachineHost(tx, uid, agentHost); err != nil {
+			return err
 		}
 		if paused || !strings.EqualFold(agentHost, host) || seen < time.Now().Add(-installAgentOnline).UnixMilli() {
 			return offline
 		}
 		var skill SyncSkill
 		found := false
-		if hostedErr == nil {
-			for _, sk := range published {
-				if sk.Slug == in.Slug {
-					skill, found = sk, true
-					break
-				}
+		if hostedErr != nil {
+			return hostedErr
+		}
+		for _, sk := range published {
+			if sk.Slug == in.Slug {
+				skill, found = sk, true
+				break
 			}
 		}
 		if !found {

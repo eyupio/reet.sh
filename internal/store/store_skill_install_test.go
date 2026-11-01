@@ -497,3 +497,25 @@ func TestCancelAnAwaitingApprovalJob(t *testing.T) {
 		t.Fatalf("%+v", jobs)
 	}
 }
+
+func TestInstallSurfacesAHostedListError(t *testing.T) {
+	e := installFixture(t)
+	before := e.dump(t)
+	in := e.req("pdf")
+	in.Origin = ""
+	_, err := e.s.InstallHostedSkillFor(e.uid, in)
+	var ie *InstallError
+	if err == nil || errors.As(err, &ie) {
+		t.Fatalf("want a plain error, got %v", err)
+	}
+	if e.dump(t) != before {
+		t.Fatal("error wrote")
+	}
+	// An earlier refusal still wins over the hosted-list error.
+	in.Tool = "codex"
+	_, err = e.s.InstallHostedSkillFor(e.uid, in)
+	wantInstallError(t, err, "unsupported-agent", "")
+	// A readable list without the slug is still unpublished.
+	_, err = e.s.InstallHostedSkillFor(e.uid, e.req("nope"))
+	wantInstallError(t, err, "unpublished", "")
+}

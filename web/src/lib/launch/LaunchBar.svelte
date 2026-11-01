@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gafferTooltip } from '../gafferTooltip'
  import { isChatTool, structuredAgent } from '../terminal/api'
   import { onMount, tick, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
@@ -461,7 +462,7 @@
   // Why Start can't be pressed yet. Until the machines have been read nothing is checked, so nothing is sent.
   const reason = $derived(!choice || !projects ? '' : !machines ? 'Start waits until your machines have been read.' : startable(choice, projects, machines, profile))
   const locked = $derived(busy || leaving || operation !== null)
-  // The trust box is the one choice that stops a reet TUI start: say so beside the box, not only in the status line.
+  // The trust box is the one choice that stops a Gaffer start: say so beside the box, not only in the status line.
   const trustMissing = $derived(!!choice?.chat && choice.agent === 'opencode' && choice.trust !== true)
   // Why YOLO cannot even open the dialog. A machine that refuses it is shown in the dialog instead.
   const yoloWhy = $derived.by(() => {
@@ -510,7 +511,7 @@
       const offers = target ? agentChoices(target) : CATALOGUE.map(agent => ({ agent, available: agent.enabled, reason: agent.enabled ? undefined : agent.disabledReason }))
       return offers.map(o => ({ value: o.agent.id, label: o.agent.name, disabled: !o.available, reason: o.available ? undefined : o.reason }))
     }
-    if (slot === 'chat') return [{ value: 'chat', label: 'reet TUI' }, { value: 'terminal', label: `${toolName(choice.agent)} TUI` }]
+    if (slot === 'chat') return [{ value: 'chat', label: 'Gaffer' }, { value: 'terminal', label: `${toolName(choice.agent)} TUI` }]
     if (slot === 'model') return modelOptionsFor()
     if (slot === 'project') {
       const out: SlotOption[] = (projects ?? []).map(p => {
@@ -1063,7 +1064,7 @@
       <label class="trust" class:missing={trustMissing}>
         <input type="checkbox" bind:checked={choice.trust} disabled={locked} aria-invalid={trustMissing} aria-describedby={trustMissing ? `${id}-trust-why` : undefined} />
         <span>I trust this folder; OpenCode plugins in <code>.opencode</code> may run.
-          {#if trustMissing}<span class="trust-why" id={`${id}-trust-why`} role="alert">Tick this box to start the reet TUI.</span>{/if}
+          {#if trustMissing}<span class="trust-why" id={`${id}-trust-why`} role="alert">Tick this box to start Gaffer.</span>{/if}
         </span>
       </label>
     {/if}
@@ -1091,7 +1092,7 @@
       <p class="sentence">
         {#each words as part, i (i)}
           {#if slotButton(part)}
-            <button type="button" class="part slot" class:tablet-hide={tabletHidden.has(i)} aria-label={`${LABELS[part.slot]}: ${part.text}`} aria-haspopup="listbox" aria-expanded={open?.slot === part.slot}
+            <button use:gafferTooltip={part.slot === 'chat' && part.text === 'Gaffer'} type="button" class="part slot" class:tablet-hide={tabletHidden.has(i)} aria-label={`${LABELS[part.slot]}: ${part.text}`} aria-haspopup="listbox" aria-expanded={open?.slot === part.slot}
               use:hit onclick={(e) => openSlot(part.slot, e.currentTarget)}><span>{part.text}</span></button>
           {:else if part.slot}
             <b class="part fixed" class:tablet-hide={tabletHidden.has(i)}>{part.text}</b>
@@ -1160,7 +1161,7 @@
       <div class="rows" data-shell-body>
         {#each words.filter(p => p.slot) as part (part.slot)}
           {#if slotButton(part)}
-            <button type="button" class="row" aria-label={`${LABELS[part.slot]}: ${part.text}`} aria-haspopup="listbox" onclick={(e) => openSlot(part.slot, e.currentTarget)}>
+            <button use:gafferTooltip={part.slot === 'chat' && part.text === 'Gaffer'} type="button" class="row" aria-label={`${LABELS[part.slot]}: ${part.text}`} aria-haspopup="listbox" onclick={(e) => openSlot(part.slot, e.currentTarget)}>
               <span class="row-label">{LABELS[part.slot]}</span><span class="row-value">{part.text}</span><span class="chev" aria-hidden="true">›</span>
             </button>
           {:else}

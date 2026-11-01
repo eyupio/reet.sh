@@ -5,7 +5,7 @@ enabled by this document. OpenCode remains the only structured chat integration.
 
 The goal is one reet conversation view for supported agents, with streamed
 messages, tool details, reviewed approvals, agent questions and honest recovery
-states. This is the browser's reet TUI, separate from the binary's terminal menu.
+states. This is the browser's Gaffer, separate from the binary's terminal menu.
 Terminal sessions remain available for agents without a verified chat adapter.
 
 ## Reuse the existing stack
@@ -179,6 +179,32 @@ verified profile. Do not copy the first adapter's permission, ID, environment,
 trust, model or history assumptions. Reuse SC2's probe matrix and SC3's question
 controls where the wire contract matches. Gemini and Pi are later candidates,
 not scope additions to the first two integrations.
+
+### SC4 progress: Codex gates re-run (1 November 2026)
+
+The three open Codex gates were re-probed (see "Codex gates, re-run" in the probe report). Codex's sandbox is active; approvals appear only in `read-only` mode and only when the
+model asks to leave the sandbox, so commands inside the sandbox, including project writes, run without a prompt. `agent` mode never asks, a reject ends the whole turn, an
+"allow always" option writes a persistent rule, and `session/cancel` does not stop a running command. Codex stays unregistered: it needs the product decisions listed there
+before any wiring, and the earlier note that no approval exists in any mode is corrected.
+
+### SC4 decision: Codex starts in `read-only` and may be switched to `agent` (1 November 2026)
+
+Decided by the owner, against the recommendation to offer `read-only` only. What it commits the Codex integration to, because the probes showed `agent` never asks and a refused
+escalation is silent:
+
+- **Default is `read-only`.** It is the only mode that can ask before a command leaves the sandbox. `agent` is something the person chooses for a chat, never the default.
+  `agent-full-access` is not offered.
+- **The mode is stated in the chat, in words that say what it means.** `read-only`: "Codex runs commands inside its sandbox and asks before one leaves it." `agent`: "Codex decides
+  for itself what needs your approval. You may not be asked." The mode is visible without opening a menu, and it is shown again if it changes.
+- **A mode switch is reported only after the adapter acknowledges it** (the existing rule for the model), and the choice is only offered when the machine's descriptor lists the mode.
+- **No "allow always".** The adapter's `accept_execpolicy_amendment` option writes a persistent rule outside the chat; it is not offered. Allow once and reject only.
+- **A reject ends the turn,** so the card says so before it is pressed.
+- **Stop retires the command,** not only the turn, because `session/cancel` leaves a running command alive. This reuses the process-group retirement already in `Close`.
+- **A silent sandbox denial or an `agent`-mode refusal cannot be seen in the events the adapter sends today.** That gap is accepted for `agent`, and is why the mode is labelled as above. If
+  a later adapter version reports them, they should be shown.
+
+Still to build, in this order, each behind the same opt-in as Claude until its checks are recorded: a Codex profile and descriptor (dark), the mode control and wording in the browser, the
+reject and Stop behaviour, then a real-login check. None of it is built yet.
 
 ### Device and credential checks (1 November 2026)
 

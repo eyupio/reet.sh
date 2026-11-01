@@ -55,7 +55,7 @@ export type NeedCard = {
   age: string
   markSeen: boolean
   worktreeTarget: { agentId: string; project: string; repo: string; run: string } | null
-  /** The earliest unanswered tool approval of a waiting reet TUI chat: answered from the card without opening it. */
+  /** The earliest unanswered tool approval of a waiting Gaffer chat: answered from the card without opening it. */
   approval?: { permissionId: string; title: string; command: string; path: string; truncated: boolean; queued: number }
   /** The earliest unanswered typed question: shown as a preview, answered in the chat where its whole card is. */
   question?: { questionId: string; message: string; truncated: boolean; queued: number }

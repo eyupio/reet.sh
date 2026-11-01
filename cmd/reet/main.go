@@ -48,8 +48,22 @@ func env(k, def string) string {
 
 func main() {
 	rawArgs := os.Args[1:]
+	resumed, err := takeHomeContinuation(rawArgs)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	tuiFlag := false
 	filtered := make([]string, 0, len(rawArgs))
+	for len(rawArgs) > 0 && (rawArgs[0] == "--no-animation" || rawArgs[0] == "--non-interactive") {
+		if rawArgs[0] == "--no-animation" {
+			_ = os.Setenv("REET_NO_ANIMATION", "1")
+		} else {
+			_ = os.Setenv("REET_NON_INTERACTIVE", "1")
+			_ = os.Setenv("REET_NO_TUI", "1")
+		}
+		rawArgs = rawArgs[1:]
+	}
 	for _, arg := range rawArgs {
 		if arg == "--tui" {
 			tuiFlag = true
@@ -61,8 +75,30 @@ func main() {
 	cmd := "serve"
 	args := filtered
 	if !bare {
-		cmd = args[0]
-		args = args[1:]
+		cmd, args = args[0], args[1:]
+	}
+	available := cliui.Interactive(os.Stdin, os.Stdout)
+	if tuiFlag && !available && !structuredArgs(args) {
+		fmt.Fprintln(os.Stderr, "reet: the interactive home needs a terminal")
+		os.Exit(1)
+	}
+	if resumed != nil || (tuiFlag && available && !structuredArgs(args)) || (bare && os.Getenv("REET_NO_TUI") == "" && available) {
+		if !available {
+			return
+		}
+		var initial []string
+		if !bare && resumed == nil {
+			initial = filtered
+		}
+		code, err := runHome(initial, resumed)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if code != 0 {
+			os.Exit(code)
+		}
+		return
 	}
 	if usesClientDefaults(cmd, args) {
 		if err := clientconfig.Apply(); err != nil {
@@ -71,61 +107,14 @@ func main() {
 		}
 	}
 	scan.SetBuildCommit(commit)
-	if cmd == "configure" || cmd == "install" || cmd == "init" || cmd == "upgrade" || cmd == "update" || cmd == "help" || cmd == "--help" || cmd == "-h" {
+	if cliui.Terminal(os.Stdout) && !structuredArgs(args) && (cmd == "configure" || cmd == "install" || cmd == "init" || cmd == "upgrade" || cmd == "update" || cmd == "doctor") {
 		cliui.Banner(os.Stderr)
-	}
-	if tuiFlag || (bare && os.Getenv("REET_NO_TUI") == "" && tuiAvailable()) {
-		if !tuiAvailable() {
-			fmt.Fprintln(os.Stderr, "reet: the terminal interface needs an interactive terminal")
-			os.Exit(1)
-		}
-		screen := cmd
-		if bare {
-			screen = ""
-		}
-		if err := runTUI(screen, args, version, commit); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		return
 	}
 	switch cmd {
 	case "version", "--version", "-v":
 		printVersion(os.Stdout, version, commit)
 	case "help", "--help", "-h":
-		fmt.Print(`reet.sh — your AI agent toolkit. Get your toolkit reet.
-
-Usage: reet <command> [options]
-
-  serve        Run the web app (also the default when no command is given)
-  agent        Enroll a machine, process sync jobs and manage local terminal services
-  terminal     Start, stop, restart or inspect controller web terminal access
-  scan         Report installed skills to your account
-  setup        Discover local AI agent setups and support limitations
-  sync         Preview a saved skill set; --apply asks before changing files
-  configure    Save your release channel, target server and token
-  install      Install this binary or set up a managed server
-  upgrade      Update a managed deployment with backup and recovery
-  backup       Take, verify and restore sealed backups
-  doctor       Check your installation and suggest next steps
-  healthcheck  Check your saved server, --url, or --local
-  version      Show the binary version and source commit
-
-Run reet with no command in a terminal for the menu, or add --tui to doctor,
-healthcheck, scan, sync, backup, setup profile, install, upgrade, version, terminal status,
-agent status or agent enrollment to open that screen.
-
-Connect to an existing site:
-  Open Account on your site, then Connect a machine.
-  Paste its connection command into your terminal, then run:
-    reet scan --env my-laptop --prune
-
-Host your own site:
-  reet install --mode native
-  Or use reet install --mode compose for Docker Compose.
-
-Run reet <command> --help for options. init/update alias install/upgrade.
-`)
+		cliui.Help(os.Stdout)
 	case "terminal":
 		if err := runTerminal(args, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)

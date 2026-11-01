@@ -1644,3 +1644,45 @@ before.
 closes only the list and the second closes the dialog. It failed on `main` before this change and fails again with the change
 reverted. `add-project`, `add-project-edit`, `home`, `navigation`, `chat` and `phone-layout` browser tests also passed. Not
 checked: a touch device (suggestions only open on focus for a fine pointer), Safari or Firefox, a screen reader.
+
+## Gaffer naming and explanations, 1 November 2026
+
+Based on main `9b8bc17`. The native browser interface now reads Gaffer; OpenCode
+TUI, the CLI TUI and existing `reet`/`chat` settings retain their identities and
+behaviour. This naming slice uses the existing layouts and tokens, with a shared
+HTML popover explanation rather than a native title. The top-layer popover stays
+inside the active modal's accessible tree and does not change layout or consume
+selection clicks. A persistent accessible description includes any disabled reason.
+
+Checks performed with synthetic data in Chromium on Linux:
+
+- `chat.e2e.mjs`: Gaffer default with stored `reet` choice; exact explanation on
+  hover and focus, Escape without closing the dialog, light/dark backgrounds,
+  actual touch tap at 390 × 844 and viewport bounds; existing streaming, tool
+  rows, approvals, questions, attachments, cancellation and history continuation.
+- `launch.e2e.mjs`, selected `OpenCode starts a native chat by default`: Gaffer
+  sentence and list option both explain themselves; OpenCode TUI remains a
+  selectable alternative and the create payload retains structured/trust/model.
+- `sessions.e2e.mjs`, selected disabled-view, live-toggle and plugin-trust cases:
+  accessible explanation survives disabled-reason changes; the same session
+  switches in both directions and keeps its existing confirmation and trust gates.
+- `session-board.e2e.mjs`: existing light/dark and responsive journey plus a
+  phone Gaffer “Opens in” choice, saved `chat: true` and that choice retained on edit.
+- Web unit suite and svelte-check pass (zero errors/warnings); production build,
+  go vet, MCP suite and Eli fake-backed race/conformance probe pass. The build
+  retains its existing large-chunk warning.
+
+A full Go race run found `TestCloseKillsOrphanedGroupMembers` failing because
+its orphan PID remained visible after Close. Isolated race runs reproduce the
+same failure on the changed branch and unchanged main `9b8bc17`. The naming
+slice changes no ACP process cleanup implementation. The completed full run also failed in unchanged `internal/terminalagent`
+(model-listing fixtures) and `internal/terminalhost` (process-group cleanup and
+missing tmux). Both package runs reproduce the same failures on unchanged main.
+All other tested packages pass, including the API, broker, store and Eli probe;
+the full suite remains non-green. The handoff and draft PR retain these results. Initial browser checks interrupted while the
+preview's build files were replaced were rerun against the finished build.
+
+No live provider/model, real fleet machine, physical phone, Safari or Firefox
+was tested. Eli coordinator integration remains the staged work described in
+[the orchestration handoff](work-orchestration-handoff.md) and
+[the compatibility review](research/eli-reuse.md).

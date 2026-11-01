@@ -282,7 +282,7 @@ func (s *server) terminalChatModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]bool{"changed": true})
 }
 
-// terminalSessionMode switches a running OpenCode session between the reet TUI
+// terminalSessionMode switches a running OpenCode session between Gaffer
 // ("chat") and the OpenCode TUI ("terminal"). Unlike the chat routes it does
 // not require a structured row: a session in the OpenCode TUI must be able to
 // switch to chat. The switch can take the machine up to

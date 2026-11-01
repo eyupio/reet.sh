@@ -445,7 +445,7 @@ try {
   await context.close()
  }
 
- // A waiting reet TUI chat shows its earliest approval on the Needs you card and in the bell, with Allow once and Deny; an
+ // A waiting Gaffer chat shows its earliest approval on the Needs you card and in the bell, with Allow once and Deny; an
  // answer is sent to the chat, the card leaves once the session no longer waits, and a cut-short command cannot be allowed.
  if (run('Needs you approvals: Allow once and Deny from the card and the bell')) {
   const {context,page,errors,box} = await home()

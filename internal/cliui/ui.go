@@ -1,57 +1,108 @@
-// Package cliui renders optional terminal presentation without touching JSON output.
+// Package cliui presents existing CLI commands without owning their work.
 package cliui
 
 import (
 	"fmt"
 	"io"
 	"os"
-	"sync"
-	"time"
+	"strconv"
+	"strings"
+	"unicode"
 
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-isatty"
 )
+
+const Tagline = "Get your toolkit reet."
 
 func Terminal(out io.Writer) bool {
 	f, ok := out.(*os.File)
 	return ok && isatty.IsTerminal(f.Fd())
 }
-func colour(out io.Writer) bool {
-	_, noColour := os.LookupEnv("NO_COLOR")
-	return Terminal(out) && os.Getenv("TERM") != "dumb" && !noColour
+
+func Interactive(in io.Reader, out io.Writer) bool {
+	f, ok := in.(*os.File)
+	return ok && isatty.IsTerminal(f.Fd()) && Terminal(out) && os.Getenv("TERM") != "dumb" && os.Getenv("CI") == ""
 }
-func Banner(out io.Writer) {
-	if !Terminal(out) {
-		return
+
+func Colour() bool {
+	_, disabled := os.LookupEnv("NO_COLOR")
+	return !disabled && os.Getenv("TERM") != "dumb"
+}
+
+func Motion() bool {
+	return os.Getenv("REET_NO_ANIMATION") == "" && os.Getenv("REET_REDUCED_MOTION") == "" &&
+		os.Getenv("REDUCE_MOTION") == "" && os.Getenv("PREFERS_REDUCED_MOTION") != "reduce" &&
+		os.Getenv("CI") == "" && os.Getenv("TERM") != "dumb"
+}
+
+func darkBackground() bool {
+	switch strings.ToLower(os.Getenv("REET_TUI_BACKGROUND")) {
+	case "light":
+		return false
+	case "dark":
+		return true
 	}
-	if colour(out) {
-		fmt.Fprint(out, "\n  \x1b[38;2;251;146;60m✿\x1b[0m  \x1b[1mreet\x1b[0m\x1b[38;2;251;146;60m.sh\x1b[0m\n     Get your toolkit reet.\n\n")
-	} else {
-		fmt.Fprint(out, "\n  reet.sh\n  Get your toolkit reet.\n\n")
+	parts := strings.Split(os.Getenv("COLORFGBG"), ";")
+	if n, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+		return n < 8
+	}
+	return true
+}
+
+func styled(text, role string, colour bool) string {
+	if !colour || role == "" {
+		return text
+	}
+	dark := darkBackground()
+	value := "#FB923C"
+	if !dark {
+		value = "#C2410C"
+	}
+	s := lipgloss.NewStyle()
+	switch role {
+	case "bold":
+		return s.Bold(true).Render(text)
+	case "muted":
+		value = "#9CA3AF"
+		if !dark {
+			value = "#6B7280"
+		}
+	case "fail":
+		value = "#F87171"
+		if !dark {
+			value = "#B91C1C"
+		}
+	case "warn":
+		value = "#FBBF24"
+		if !dark {
+			value = "#B45309"
+		}
+	}
+	return s.Foreground(lipgloss.Color(value)).Render(text)
+}
+
+func Brand(colour bool) string {
+	return styled("reet", "bold", colour) + styled(".sh", "accent", colour)
+}
+
+func Banner(out io.Writer) {
+	if Terminal(out) && os.Getenv("TERM") != "dumb" && os.Getenv("CI") == "" {
+		fmt.Fprintf(out, "\n  %s\n  %s\n\n", Brand(Colour()), Tagline)
 	}
 }
 
-// Start animates real work only. Stop joins the renderer before other output.
-func Start(out io.Writer, label string) func() {
-	if !colour(out) || os.Getenv("REET_NO_ANIMATION") != "" {
-		return func() {}
-	}
-	done := make(chan struct{})
-	finished := make(chan struct{})
-	var once sync.Once
-	go func() {
-		defer close(finished)
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-		for i := 0; ; i++ {
-			fmt.Fprintf(out, "\r\x1b[2K  \x1b[38;2;251;146;60m%s\x1b[0m %s", frames[i%len(frames)], label)
-			select {
-			case <-done:
-				fmt.Fprint(out, "\r\x1b[2K")
-				return
-			case <-ticker.C:
-			}
+func fit(s string, width int) string { return ansi.Truncate(s, max(width, 0), "") }
+func pad(s string, width int) string {
+	return s + strings.Repeat(" ", max(width-ansi.StringWidth(s), 0))
+}
+
+func plain(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
 		}
-	}()
-	return func() { once.Do(func() { close(done); <-finished }) }
+		return r
+	}, ansi.Strip(s))
 }

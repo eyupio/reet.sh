@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gafferTooltip } from '../gafferTooltip'
   import { onMount, tick, untrack } from 'svelte'
   import { addModelFavourite, listModelFavourites, removeModelFavourite, type Skill } from '../api'
   import { cleanModel, modelSuggestions, toolName, validateDir, validateModel, validatePrompt } from '../agentLaunch'
@@ -290,7 +291,7 @@
         <div class="section-title">How should it run?</div>
         <div class="options">
           <div class="field"><span>Approvals</span><div class="mode" role="group" aria-label="Approvals"><button type="button" class:on={!yolo} aria-pressed={!yolo} onclick={() => yolo = false}>Ask me</button><button type="button" class:on={yolo} aria-pressed={yolo} onclick={() => yolo = true}>YOLO</button></div></div>
-          {#if rules.showChat}<div class="field"><span>Opens in</span><div class="mode" role="group" aria-label="Opens in"><button type="button" class:on={chat} aria-pressed={chat} onclick={() => chat = true}>reet TUI</button><button type="button" class:on={!chat} aria-pressed={!chat} onclick={() => chat = false}>{toolName(tool)} TUI</button></div></div>{/if}
+          {#if rules.showChat}<div class="field"><span>Opens in</span><div class="mode" role="group" aria-label="Opens in"><button use:gafferTooltip type="button" class:on={chat} aria-pressed={chat} onclick={() => chat = true}>Gaffer</button><button type="button" class:on={!chat} aria-pressed={!chat} onclick={() => chat = false}>{toolName(tool)} TUI</button></div></div>{/if}
           {#if rules.showWorktree}<label class="check"><input type="checkbox" bind:checked={worktree} /> Start in a fresh worktree</label>
             {#if worktree}<label class="field"><span>Base branch <small>Optional · leave empty for the default</small></span><input aria-label="Base branch" bind:value={base} placeholder="main" maxlength="200" /></label>{/if}{/if}
           {#if rules.showTrust}<label class="check"><input type="checkbox" bind:checked={trust} /> I trust this folder; OpenCode plugins in <code>.opencode</code> may run.</label>{/if}

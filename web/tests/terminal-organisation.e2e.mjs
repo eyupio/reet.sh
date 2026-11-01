@@ -330,7 +330,7 @@ try{
  await skillFilter.focus();await page.keyboard.press('Escape')
  await expect(skillPicker).toHaveCount(0)
  expect(inputs.length).toBe(beforeRows)
- // Installing a hosted skill from the agent TUI's picker: the same panel as the reet TUI, and nothing reaches the terminal socket.
+ // Installing a hosted skill from the agent TUI's picker: the same panel as Gaffer, and nothing reaches the terminal socket.
  const hostedPdf={id:'reet:pdf',name:'pdf',description:'Read and fill forms',source:'reet',agent:'',native:false,onMachine:false,invocation:'',published:true}
  const nativePdf={id:'m9',name:'pdf',description:'Read and fill forms',source:'machine',agent:'claude',native:true,onMachine:true,invocation:'Use the pdf skill.',published:true}
  const claudeFolder='/home/developer/.claude/skills'

@@ -2,6 +2,68 @@
 
 Prepared: 1 November 2026. Status: proposed follow-on work; implementation has not started.
 
+## Gaffer branding and Eli reuse (1 November 2026)
+
+**Gaffer** is reet's native agent control interface and the user-facing identity
+for its structured browser experience. **Eli AI Chat** is the underlying provider/chat
+technology being reused from Zoomies where compatible. **OpenCode TUI** is the
+agent's original terminal interface; reet's actual CLI TUI remains separate.
+
+Continue Eli reuse rather than creating a competing chat implementation. Preserve
+reet's existing sessions, ACP integration, streaming, permissions, trust checks,
+request IDs, capability negotiation and agent lifecycle. Additional agents remain
+subject to the structured-chat plan's verified adapter gates. Coordinator API
+providers and machine-local workers have separate credentials and authority.
+
+The Gaffer naming slice retains existing internal `reet`/`chat` identifiers and
+stored preferences. Shared HTML tooltips explain the interface on hover, focus
+and touch, including in modal dialogs. OpenCode TUI labels and behaviour remain.
+
+A bounded KZ5A contribution is recorded in [the Eli reuse review](research/eli-reuse.md):
+source/licence review, dependency matrix and a test-only fake-backed probe of the
+reused provider contract, cancellation and an offered read. No provider adapter,
+credential route, second chat UI or orchestration dispatcher is enabled. The
+coordinator will be integrated into Gaffer through the documented stages.
+
+KZ0 reconciliation and KZ5A's remaining decisions are unfinished; neither stage
+is marked complete. KZ5 and later stages retain their dependencies and acceptance
+gates. The dated baseline, original delivery record and history below are preserved.
+
+### Gaffer PR delivery and push discipline
+
+- PR: [#353](https://github.com/eyupio/reet.sh/pull/353), currently draft;
+  branch `feat/gaffer-interface`, base `9b8bc17`.
+- Every subsequent push to this PR must include an update to this handoff with
+  changed scope, validation results, outstanding work and the exact next task.
+  Record prior published commits below; the PR head is authoritative for the
+  commit containing the current handoff update, avoiding a self-referential SHA.
+- Published implementation: `e089ae6`, Gaffer branding, HTML explanations,
+  documentation and bounded attributed Eli compatibility probe.
+- Published verification: `4369324`, launch-option hover/focus checks and
+  phone backlog create/edit retaining `chat: true`. This handoff sync records
+  both pushes. `2268cd2` published this push discipline. This final validation
+  update records the completed run below.
+- Passed: web unit suite, svelte-check (0 errors/warnings), production build,
+  go vet, MCP suite, targeted launch/default-interface and disabled/live-toggle/
+  plugin-trust session cases, full chat and session-board browser fixtures,
+  and Eli fake-backed race/conformance probe. Dialog and phone checks cover
+  hover/focus, Escape, actual touch, bounds and light/dark backgrounds.
+- Full Go race run: completed with failures in `internal/acpagent`,
+  `internal/terminalagent` and `internal/terminalhost`. The ACP orphan cleanup,
+  four model-listing fixture failures, process-group cleanup and missing-tmux
+  service failures all reproduce on unchanged base `9b8bc17`. None of these
+  packages is changed by this PR. All other tested packages pass, including
+  the race-enabled API, broker, store and Eli probe. The full suite is not green.
+- Live providers/paid turns, real fleet machines, physical phones and
+  Safari/Firefox: not checked. Production build retains its large-chunk warning.
+- Exact next task for this PR: review the implementation and baseline-failure
+  evidence, and rerun the full suite in a test environment with tmux and working
+  process-reaping/model fixtures before marking the draft ready. Retain baseline
+  failures explicitly rather than expanding this naming PR into process cleanup. For orchestration, complete KZ0's
+  access/MCP measurements and KZ5A's remaining decisions from
+  [the reuse review](research/eli-reuse.md) before KZ5/KZ6 implementation.
+- Publication: branch pushed and draft PR created; no merge or deployment.
+
 ## Purpose and relationship to the existing handoff
 
 This document develops the user's proposed durable-work direction for reet.sh:
@@ -199,7 +261,8 @@ retention because they live in the work records.
 
 ## Delivery sequence and status
 
-All stages are **not started**. Producing this handoff completes no runtime stage.
+The original handoff started no stages. The Gaffer follow-up above contributes a bounded
+KZ5A probe; KZ0 and KZ5A remain incomplete, and all other stages remain **not started**.
 KZ0 is the next task when this workstream is selected.
 
 | ID | Deliverable | Depends on | Approximate scope |
@@ -461,7 +524,7 @@ Tasks:
   budgets and interrupted publication; retain reet's own verified launch contracts.
 - Decide where the coordinator UI appears and how conversations attach to work,
   how provider access is configured, and how a proposed plan becomes versioned
-  domain data. Record the user-facing naming as a product choice.
+  domain data. Use Gaffer as the user-facing identity and Eli as the technical reuse reference.
 
 **Acceptance:** a dependency/reuse matrix, one minimal fake-backed contract probe,
 the proposed coordinator/worker boundary and a concrete KZ5 decision list.
@@ -820,7 +883,7 @@ Tasks:
   controller or connector commands.
 - Let the coordinator explain blocked attempts, conflicting reviews and missing
   evidence. Display actual agent/model/machine activity rather than a generic
-  “Eli is working” state that hides who is running.
+  “Gaffer is working” state that hides who is running.
 
 **Acceptance:** a fake-backed streamed conversation proposes a valid work plan;
 invalid/unknown routes are refused or shown unavailable; ownership/provider-data

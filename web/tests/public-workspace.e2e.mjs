@@ -35,6 +35,11 @@ try {
    // The colour choice is in the header, as a three-way control that applies at once and is remembered in this browser.
    const picker=page.locator('header .theme-picker')
    await expect(picker.getByRole('button')).toHaveCount(3)
+   // Three icons, light then dark then the device, each named for a screen reader and ringed when chosen.
+   await expect(picker.getByRole('button').nth(0)).toHaveAccessibleName('Light')
+   await expect(picker.getByRole('button').nth(1)).toHaveAccessibleName('Dark')
+   await expect(picker.getByRole('button').nth(2)).toHaveAccessibleName('Match this device')
+   expect(await picker.locator('svg').count()).toBe(3)
    await picker.getByRole('button',{name:'Dark'}).click()
    expect(await page.evaluate(()=>document.documentElement.dataset.theme)).toBe('dark')
    await expect(picker.getByRole('button',{name:'Dark'})).toHaveAttribute('aria-pressed','true')
@@ -72,6 +77,7 @@ try {
    await page.evaluate(()=>scrollTo(0,0))
    await cta.getByRole('link',{name:'Sign in'}).click()
    await expect(page.getByRole('heading',{name:'Sign in to your workspace'})).toBeVisible()
+   await expect(page.getByText('Your machines, with their agents, skills and setups in sync, and the sessions you left running.')).toBeVisible()
    // A wide screen with a keyboard starts in the field; a phone is not handed its soft keyboard on load.
    if(width>=700)await expect(page.locator('#signin-email')).toBeFocused()
    else await expect(page.locator('#signin-email')).not.toBeFocused()
@@ -88,6 +94,7 @@ try {
    await expect(page.locator('.cta-row').getByRole('link',{name:'Sign in'})).not.toHaveClass(/primary/)
    await page.getByRole('link',{name:'Create an account'}).click()
    await expect(page.getByRole('heading',{name:'Create your account'})).toBeVisible()
+   await expect(page.getByText('Enrol the machines you work on, and your agents, skills and setups go with you to every one of them.')).toBeVisible()
    await expect(page.getByLabel('Confirm password',{exact:true})).toBeVisible()
    await layout();await noOldPitch()
    status={...status,setupRequired:true,bootstrapRequired:true,signupEnabled:false}
@@ -96,6 +103,7 @@ try {
    await expect(page.getByRole('navigation',{name:'Public navigation'}).getByRole('link',{name:/Sign in/})).toHaveCount(0)
    await page.getByRole('link',{name:'Set up this instance'}).click()
    await expect(page.getByRole('heading',{name:'Create your account'})).toBeVisible()
+   await expect(page.getByText('Enrol your first machine, enable terminal access')).toBeVisible()
    await expect(page.getByLabel('Access token',{exact:true})).toBeVisible()
    await layout();await noOldPitch()
    status={mode:'token'}

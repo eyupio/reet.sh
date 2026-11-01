@@ -1466,11 +1466,6 @@
     .header-inner { display: flex; gap: 16px; padding: 16px 24px; }
     .site-nav { flex-wrap: nowrap; width: 100%; min-width: 0; overflow-x: auto; padding-bottom: 8px; }
     .site-nav a { flex: none; justify-content: center; white-space: nowrap; border: 0; }
-  }
-  /* On a phone the colour choice takes its own line under the links, where the row has no room for it. */
-  @media (max-width: 560px) {
-    .site-nav { flex-wrap: wrap; overflow: visible; padding-bottom: 0; row-gap: 10px; }
-    .site-nav :global(.theme-picker) { flex-basis: 100%; order: 1; }
     .toolbar { position: static; padding: 10px 0; gap: 8px; }
     .filters { flex-wrap: wrap; width: 100%; min-width: 0; }
     .filters button { white-space: nowrap; }

@@ -128,14 +128,8 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		}
 		binary = found
 	}
-	if spec.Trust != nil {
-		files, err := spec.Trust(opts.Dir)
-		if err != nil {
-			return nil, err
-		}
-		if len(files) > 0 && !opts.Trust {
-			return nil, &TrustError{Files: files}
-		}
+	if err := spec.CheckTrust(opts.Dir, opts.Trust); err != nil {
+		return nil, err
 	}
 	if _, err := ProbeVersion(ctx, binary, spec, opts.Dir, opts.Home, opts.BaseEnv); err != nil {
 		return nil, err
@@ -1280,6 +1274,10 @@ func retireGroup(pgid int, timeout time.Duration) bool {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// GroupAlive reports whether any live (non-zombie) process remains in the
+// process group pgid.
+func GroupAlive(pgid int) bool { return groupAlive(pgid) }
 
 // GroupRetired reports whether Close confirmed that every process the agent
 // started is gone. It is false before Close and when retirement timed out.

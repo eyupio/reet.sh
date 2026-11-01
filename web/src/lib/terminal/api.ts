@@ -18,7 +18,7 @@ export type SoftwareBatchMemberState = 'pending' | 'running' | 'applied' | 'fail
 export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
 export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion }
-export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -385,6 +385,11 @@ export async function chatQuestionAnswer(id: string, questionId: string, action:
 }
 export type ApprovalMode = 'ask' | 'yolo'
 export async function setApprovalMode(id: string, mode: ApprovalMode): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/approval-mode`, { method: 'POST', body: JSON.stringify({ mode }) }) }
+
+/** Switch a running OpenCode session between the reet TUI ('chat') and the OpenCode TUI ('terminal'); 204 when done, or
+ *  when it is already in that mode. The machine stops one process and starts the other, which can take a few minutes, so
+ *  no client deadline is set. `trust` answers an `acp_trust_required` refusal (the folder has OpenCode plugins). */
+export async function setSessionMode(id: string, mode: 'terminal' | 'chat', trust = false): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/mode`, { method: 'POST', body: JSON.stringify({ mode, trust }) }) }
 
 export async function chatModel(id: string, model: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/model`, { method: 'POST', body: JSON.stringify({ model }) }) }
 

@@ -13,7 +13,7 @@ const home = asURL(compile('./home.ts'))
 const colour = asURL(compile('./projectColour.ts'))
 const api = asURL(compile('./terminal/api.ts'))
 const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './catalogue'", `from '${catalogue}'`).replace("from './projectColour'", `from '${colour}'`).replaceAll("from './terminal/api'", `from '${api}'`)
-const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList } = await import(asURL(source))
+const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList, switchModeState } = await import(asURL(source))
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000
@@ -202,4 +202,35 @@ test('chat descriptors override legacy flags and continuation retains the stored
   capabilities.acpAgents[0].state = state
   assert.equal(canContinueChat(s, { capabilities }), false)
  }
+})
+
+test('switchModeState: the inactive TUI button, enabled or with the reason it is not', () => {
+  const caps = { protocolVersion: 1, os: 'linux', osUser: 'dev', terminalEnabled: true, healthEnabled: true, readiness: 'ready', acp: true, acpHistory: true, sessionMode: true }
+  const old = { ...caps, sessionMode: undefined }
+  const chat = { id: 's', agentId: 'a', title: 'Chat', state: 'running', createdAt: 1, updatedAt: 1, exitCode: null, tool: 'opencode', structured: true, acpSessionId: 'ses_abc' }
+  const tui = { ...chat, structured: false }
+  const started = { ...chat, structured: false, acpSessionId: undefined }
+  const BUSY = 'Wait for the agent to finish or answer what it is asking.'
+  const NO_SESSION = 'This session started in the OpenCode TUI, so the reet TUI cannot pick up its conversation.'
+  const UPDATE = 'Update reet on this machine to switch between the reet TUI and the OpenCode TUI.'
+  const NOT_LIVE = 'Only a running session can switch.'
+  const rows = [
+    ['an idle reet TUI chat can go to the OpenCode TUI', chat, caps, false, { to: 'terminal', enabled: true, why: '' }],
+    ['a reet-started chat in the OpenCode TUI can come back', tui, caps, false, { to: 'chat', enabled: true, why: '' }],
+    ['a busy chat waits', chat, caps, true, { to: 'terminal', enabled: false, why: BUSY }],
+    ['busy only gates a chat: the OpenCode TUI is not watched', tui, caps, true, { to: 'chat', enabled: true, why: '' }],
+    ['a session started in the OpenCode TUI has no conversation to load', started, caps, false, { to: 'chat', enabled: false, why: NO_SESSION }],
+    ['no session id outranks an old machine', started, old, false, { to: 'chat', enabled: false, why: NO_SESSION }],
+    ['an old machine, to the OpenCode TUI', chat, old, false, { to: 'terminal', enabled: false, why: UPDATE }],
+    ['an old machine, to the reet TUI', tui, old, false, { to: 'chat', enabled: false, why: UPDATE }],
+    ['no capabilities read yet', chat, undefined, false, { to: 'terminal', enabled: false, why: UPDATE }],
+    ['a machine without chat history cannot load the conversation', tui, { ...caps, acpHistory: false }, false, { to: 'chat', enabled: false, why: UPDATE }],
+    ['an ended chat', { ...chat, state: 'ended' }, caps, false, { to: 'terminal', enabled: false, why: NOT_LIVE }],
+    ['an exited OpenCode TUI', { ...tui, state: 'exited', exitCode: 0 }, caps, false, { to: 'chat', enabled: false, why: NOT_LIVE }],
+    ['a session still starting', { ...chat, state: 'creating' }, caps, false, { to: 'terminal', enabled: false, why: NOT_LIVE }],
+    ['a session ending', { ...tui, state: 'end_requested' }, caps, true, { to: 'chat', enabled: false, why: NOT_LIVE }],
+    ['another agent has no reet TUI', { ...started, tool: 'claude' }, caps, false, { to: 'chat', enabled: false, why: 'The reet TUI is for a structured OpenCode session.' }],
+    ['a plain shell has no reet TUI', { ...started, tool: undefined }, caps, false, { to: 'chat', enabled: false, why: 'The reet TUI is for a structured OpenCode session.' }],
+  ]
+  for (const [name, s, c, busy, want] of rows) assert.deepEqual(switchModeState(s, c, busy), want, name)
 })

@@ -94,7 +94,10 @@ try {
   await dialog.getByRole('button', { name: 'Start', exact: true }).click()
   await page.waitForURL(new RegExp(`session=${S}`))
   await expect(page.getByRole('button', { name: 'reet TUI', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  // This machine has not negotiated session-mode-v1, so the OpenCode TUI is offered with the reason it cannot switch.
+  await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAttribute('aria-pressed', 'false')
   await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAttribute('aria-disabled', 'true')
+  await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAccessibleDescription('Update reet on this machine to switch between the reet TUI and the OpenCode TUI.')
   await page.waitForFunction(() => window.__chatStream?.url.endsWith('/chat'))
   await page.evaluate(() => window.__chatStream.emit('reset', { truncated: false }))
   await page.evaluate(() => {
@@ -483,10 +486,18 @@ try {
   await page.getByRole('menuitem', { name: /Continue in reet TUI with history/ }).click()
   await expect.poll(() => state.resume).toMatchObject({ structured: true, trust: true, resumeAcp: closedSession.acpSessionId, dir: SITE })
   await page.waitForURL(new RegExp(`session=${S3}`))
+  // A closed chat cannot switch: the menu offers no switch and the OpenCode TUI says why (on a wider screen, where the
+  // header shows the switch).
+  await page.setViewportSize({ width: 1360, height: 900 })
+  await page.goto(`${base}/sessions?agent=${A}&session=${S2}`)
+  await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAccessibleDescription('Only a running session can switch.')
+  await page.getByRole('button', { name: 'Session actions' }).click()
+  await expect(page.getByRole('menuitem', { name: /Switch to the/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
   expect(state.resume.prompt).toBeUndefined()
   expect(state.resume.model).toBe('anthropic/claude-sonnet-4-5')
   expect(errors).toEqual([])
-  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled, agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet.')
+  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled and its reason (the machine predates session-mode-v1), agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id and cannot switch TUI; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet.')
 } finally {
   await context.close()
   await browser.close()

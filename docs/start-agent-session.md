@@ -20,7 +20,10 @@ For OpenCode on a machine that advertises `acp`, the dialog's **Session** choice
 **OpenCode TUI** for the terminal UI instead. It sends `structured: true` and
 the person's trust confirmation. The **Model** control chooses the model; **Agent default** uses OpenCode's configured
 model, and Thinking stays OpenCode's own. The opening prompt is the first message. The new session opens on its reet TUI, where OpenCode asks before it edits a file
-or runs a command with **Allow once** / **Deny**. There is no terminal in a reet TUI session. **Attach image** (or paste/drop)
+or runs a command with **Allow once** / **Deny**. On a machine that negotiated `session-mode-v1`, the session header's
+**OpenCode TUI** button switches the running session to OpenCode's own terminal UI and **reet TUI** switches it back,
+once the agent is idle; a session started in the OpenCode TUI cannot move to the reet TUI. Terminal scrollback is not kept
+across a switch, and returning to the reet TUI asks you to trust a folder with OpenCode plugins. **Attach image** (or paste/drop)
 sends a file through the launch-upload path and puts its path in the message. A closed reet TUI session offers **Continue in reet TUI with
 history…**, which loads OpenCode's stored conversation into a new session row. The conditions, deadlines and limits are in
 [OpenCode in the reet TUI](structured-sessions.md).

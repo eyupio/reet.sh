@@ -357,6 +357,67 @@ func (m *Manager) End(ctx context.Context, requestID, sessionID string) (Managed
 	return r.Sessions[sessionID], nil
 }
 
+// Forget removes a session that no longer reserves quota, with every operation
+// receipt that names it, so its id can be created again. A live session (one
+// that still reserves quota, or whose tmux object still exists) is refused with
+// ErrOperationConflict; an unknown id is ErrSessionMissing.
+func (m *Manager) Forget(ctx context.Context, sessionID string) error {
+	if !terminalproto.ValidID(sessionID) {
+		return terminalproto.ErrInvalid
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return ErrManagerClosed
+	}
+	lock, err := m.registryLock(ctx)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	r, err := m.loadRegistry()
+	if err != nil {
+		return err
+	}
+	s, ok := r.Sessions[sessionID]
+	if !ok {
+		return ErrSessionMissing
+	}
+	if s.State.ReservesQuota() {
+		return ErrOperationConflict
+	}
+	// An exited pane can linger briefly before reconcile kills it. Kill it now:
+	// once the record is gone nothing would, and a later create under the same
+	// id would be refused by its name.
+	if responsive(ctx, m.tmux, m.layout) {
+		names, err := m.sessionNames(ctx)
+		if err != nil {
+			return err
+		}
+		if names[m.name(sessionID)] {
+			if _, err := m.command(ctx, 0, "kill-session", "-t", "="+m.name(sessionID)); err != nil {
+				return ErrOperationConflict
+			}
+		}
+	}
+	delete(r.Sessions, sessionID)
+	for key, op := range r.Operations {
+		if op.SessionID == sessionID {
+			delete(r.Operations, key)
+		}
+	}
+	if err := m.saveRegistry(r); err != nil {
+		return err
+	}
+	if a := m.attachments[sessionID]; a != nil {
+		_ = a.Close()
+		delete(m.attachments, sessionID)
+	}
+	delete(m.deadSeen, sessionID)
+	_ = m.removeUploads(sessionID)
+	return nil
+}
+
 func (m *Manager) Rename(ctx context.Context, sessionID, title string) error {
 	if !terminalproto.ValidTitle(title) {
 		return terminalproto.ErrInvalid

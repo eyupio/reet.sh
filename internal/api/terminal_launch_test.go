@@ -37,7 +37,11 @@ type launchAPI struct {
 	late func(terminalproto.Message)
 	// prompts records every ACP prompt, including its image paths.
 	prompts []terminalproto.ACPPrompt
-	peer    *terminalbroker.Peer
+	// modes records every session_mode request; mode answers it (default: the
+	// session is running).
+	modes []terminalproto.SessionMode
+	mode  func(terminalproto.SessionMode) terminalproto.Body
+	peer  *terminalbroker.Peer
 }
 
 func (f *launchAPI) sent() []terminalproto.Create {
@@ -84,6 +88,15 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 			f.prompts = append(f.prompts, op)
 			f.mu.Unlock()
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
+		case *terminalproto.SessionMode:
+			f.mu.Lock()
+			f.modes = append(f.modes, *op)
+			respond := f.mode
+			f.mu.Unlock()
+			reply.Body = terminalproto.SessionChanged{State: terminalproto.Running}
+			if respond != nil {
+				reply.Body = respond(*op)
+			}
 		case terminalproto.WorktreeStatus, terminalproto.WorktreeRemove:
 			f.mu.Lock()
 			f.worktrees = append(f.worktrees, op)

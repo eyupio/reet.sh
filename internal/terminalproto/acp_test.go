@@ -177,3 +177,76 @@ func TestACPModelFeature(t *testing.T) {
 		t.Fatal("model feature missing")
 	}
 }
+
+func validSessionMode() SessionMode {
+	return SessionMode{To: SessionModeChat, Tool: "opencode", Dir: "/home/u/proj", ACPSessionID: "ses_abc12345"}
+}
+
+func TestSessionModeValid(t *testing.T) {
+	chat := validSessionMode()
+	chat.Model, chat.Yolo, chat.Title, chat.Trust = "ollama-cloud/deepseek-v4", true, "t", true
+	term := validSessionMode()
+	term.To, term.Cols, term.Rows = SessionModeTerminal, 80, 24
+	for name, m := range map[string]SessionMode{"chat": chat, "terminal": term, "chat no dims": validSessionMode()} {
+		if !m.valid() {
+			t.Fatalf("%s: valid body refused", name)
+		}
+	}
+	bad := func(f func(*SessionMode)) SessionMode {
+		m := term
+		f(&m)
+		return m
+	}
+	for name, m := range map[string]SessionMode{
+		"bad to":           bad(func(m *SessionMode) { m.To = "x" }),
+		"empty session id": bad(func(m *SessionMode) { m.ACPSessionID = "" }),
+		"bad session id":   bad(func(m *SessionMode) { m.ACPSessionID = "nope" }),
+		"trust terminal":   bad(func(m *SessionMode) { m.Trust = true }),
+		"unreviewed tool":  bad(func(m *SessionMode) { m.Tool = "bash" }),
+		"terminal no dims": bad(func(m *SessionMode) { m.Cols, m.Rows = 0, 0 }),
+		"bad dir":          bad(func(m *SessionMode) { m.Dir = "relative\x00" }),
+		"bad model":        bad(func(m *SessionMode) { m.Model = "a\x00b" }),
+		"control title":    bad(func(m *SessionMode) { m.Title = "a\x1bb" }),
+	} {
+		if m.valid() {
+			t.Fatalf("%s: invalid body accepted", name)
+		}
+	}
+}
+
+func TestSessionModeRoundTrip(t *testing.T) {
+	m := validSessionMode()
+	data, err := Encode(acpMessage(&m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(data)
+	if err != nil || decoded.Body.kind() != "session_mode" {
+		t.Fatalf("decode: %v %+v", err, decoded.Body)
+	}
+	extra := strings.Replace(string(data), `"to":"chat"`, `"to":"chat","extra":1`, 1)
+	if extra == string(data) {
+		t.Fatal("test did not inject field")
+	}
+	if _, err := Decode([]byte(extra)); err == nil {
+		t.Fatal("unknown field accepted")
+	}
+}
+
+func TestSessionModeFeature(t *testing.T) {
+	if !SupportsSessionMode("acp-v1, "+SessionModeFeature) || SupportsSessionMode("acp-v1") {
+		t.Fatal("session mode feature negotiation")
+	}
+}
+
+func TestSessionModeAcceptsEightyRuneCJKTitle(t *testing.T) {
+	m := validSessionMode()
+	m.Title = strings.Repeat("\u4e2d", 80)
+	if !m.valid() {
+		t.Fatal("80-rune CJK title refused")
+	}
+	m.Title += "\u4e2d"
+	if m.valid() {
+		t.Fatal("81-rune title accepted")
+	}
+}

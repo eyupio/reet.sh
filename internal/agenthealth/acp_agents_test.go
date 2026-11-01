@@ -1,8 +1,10 @@
 package agenthealth
 
 import (
-	"github.com/eyupio/reet.sh/internal/terminalproto"
+	"strings"
 	"testing"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 func TestACPAgentsOnlyObservedAfterNegotiation(t *testing.T) {
@@ -76,5 +78,61 @@ func TestClaudeChatDoesNotNeedOpenCodeInstalled(t *testing.T) {
 	negotiateFeatures(&dark, features)
 	if c := capabilitiesFor(dark, true, terminalproto.Ready); c.ACP {
 		t.Fatal("an unverified adapter turned chats on")
+	}
+}
+
+// session-mode-v1 is claimed only when the controller advertised it together
+// with the features a swap stands on: acp-v1, acp-history-v1 and launch-v1.
+func TestNegotiationAdvertisesSessionMode(t *testing.T) {
+	full := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPHistoryFeature + "," + terminalproto.SessionModeFeature
+	var cfg AgentConfig
+	negotiateFeatures(&cfg, full)
+	if !terminalproto.SupportsSessionMode(terminalFeatures(cfg)) {
+		t.Fatalf("session-mode-v1 not negotiated: %q", terminalFeatures(cfg))
+	}
+	for _, missing := range []string{terminalproto.LaunchFeature, terminalproto.ACPFeature, terminalproto.ACPHistoryFeature, terminalproto.SessionModeFeature} {
+		var parts []string
+		for _, f := range []string{terminalproto.LaunchFeature, terminalproto.ACPFeature, terminalproto.ACPHistoryFeature, terminalproto.SessionModeFeature} {
+			if f != missing {
+				parts = append(parts, f)
+			}
+		}
+		var partial AgentConfig
+		negotiateFeatures(&partial, strings.Join(parts, ","))
+		if terminalproto.SupportsSessionMode(terminalFeatures(partial)) {
+			t.Fatalf("session-mode-v1 negotiated without %s", missing)
+		}
+	}
+}
+
+// Capabilities.SessionMode is reported only on a connection that negotiated
+// it, with chats and their history available and terminal control on.
+func TestCapabilitiesReportSessionModeOnlyWithHistory(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
+	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature
+	negotiateFeatures(&cfg, base+","+terminalproto.ACPHistoryFeature+","+terminalproto.SessionModeFeature)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if !c.SessionMode || !c.ACP || !c.ACPHistory || !c.TerminalControl {
+		t.Fatalf("session mode not reported: %+v", c)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	negotiateFeatures(&cfg, base+","+terminalproto.SessionModeFeature)
+	if c := capabilitiesFor(cfg, true, terminalproto.Ready); c.SessionMode {
+		t.Fatal("session mode reported without chat history")
+	}
+	negotiateFeatures(&cfg, base+","+terminalproto.ACPHistoryFeature)
+	if c := capabilitiesFor(cfg, true, terminalproto.Ready); c.SessionMode {
+		t.Fatal("session mode reported to a controller that did not advertise it")
+	}
+	negotiateFeatures(&cfg, base+","+terminalproto.ACPHistoryFeature+","+terminalproto.SessionModeFeature)
+	if c := capabilitiesFor(cfg, false, terminalproto.DisabledLocally); c.SessionMode {
+		t.Fatal("session mode reported with terminal access off")
+	}
+	noOpenCode := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return nil }}
+	negotiateFeatures(&noOpenCode, base+","+terminalproto.ACPHistoryFeature+","+terminalproto.SessionModeFeature)
+	if c := capabilitiesFor(noOpenCode, true, terminalproto.Ready); c.SessionMode {
+		t.Fatal("session mode reported without chats")
 	}
 }

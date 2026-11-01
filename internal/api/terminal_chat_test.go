@@ -281,3 +281,161 @@ func TestChatDescriptorFeaturesOverrideMachineWideFlags(t *testing.T) {
 		t.Fatalf("plain prompt: %d %s", code, body)
 	}
 }
+
+const modeTestACPID = "ses_fake000000000000000000000001"
+
+func modeCaps() terminalproto.Capabilities {
+	caps := chatCaps()
+	caps.SessionMode = true
+	return caps
+}
+
+// modeChat starts an OpenCode chat that carries an OpenCode session id.
+func modeChat(t *testing.T, f *launchAPI) string {
+	t.Helper()
+	f.reply = func(terminalproto.Create) terminalproto.Body {
+		return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: modeTestACPID}
+	}
+	code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{
+		"tool": "opencode", "structured": true, "trust": true, "dir": "/tmp",
+	}))
+	if code != 200 {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	return out["id"].(string)
+}
+
+func modePath(session string) string { return "/api/v2/terminal/sessions/" + session + "/mode" }
+
+func TestSessionModeEndpointSwitchesAndReturnsNoContent(t *testing.T) {
+	f := launchAPIFixture(t, modeCaps())
+	session := modeChat(t, f)
+	code, _, body := f.do(t, f.cookie, "POST", modePath(session), map[string]any{"mode": "terminal"})
+	if code != http.StatusNoContent || body != "" {
+		t.Fatalf("to terminal: %d %q", code, body)
+	}
+	row, err := f.st.TerminalSessionFor(f.uid, session)
+	if err != nil || row.Structured {
+		t.Fatalf("row after switch: %+v %v", row, err)
+	}
+	// A terminal-mode session is not a chat, and must still switch back.
+	code, _, body = f.do(t, f.cookie, "POST", modePath(session), map[string]any{"mode": "chat", "trust": true})
+	if code != http.StatusNoContent {
+		t.Fatalf("to chat: %d %s", code, body)
+	}
+	row, err = f.st.TerminalSessionFor(f.uid, session)
+	if err != nil || !row.Structured {
+		t.Fatalf("row after switch back: %+v %v", row, err)
+	}
+	f.mu.Lock()
+	modes := append([]terminalproto.SessionMode(nil), f.modes...)
+	f.mu.Unlock()
+	if len(modes) != 2 || modes[0].To != "terminal" || modes[1].To != "chat" || !modes[1].Trust {
+		t.Fatalf("machine requests: %+v", modes)
+	}
+	if code, _, _ := f.do(t, f.cookie, "POST", modePath("nosuchsession0000000"), map[string]any{"mode": "chat"}); code != http.StatusNotFound {
+		t.Fatalf("unknown session: %d", code)
+	}
+}
+
+func TestSessionModeEndpointRejectsBadMode(t *testing.T) {
+	f := launchAPIFixture(t, modeCaps())
+	session := modeChat(t, f)
+	for name, body := range map[string]string{
+		"unknown mode": `{"mode":"split"}`,
+		"empty mode":   `{"mode":""}`,
+		"missing mode": `{}`,
+		"extra field":  `{"mode":"terminal","force":true}`,
+		"not json":     `mode=terminal`,
+	} {
+		if code, _, raw := f.do(t, f.cookie, "POST", modePath(session), body); code != http.StatusBadRequest {
+			t.Fatalf("%s: %d %s", name, code, raw)
+		}
+	}
+	f.mu.Lock()
+	n := len(f.modes)
+	f.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("a bad request reached the machine: %d", n)
+	}
+}
+
+func TestSessionModeEndpointMapsRefusals(t *testing.T) {
+	cases := []struct {
+		name   string
+		caps   func(*terminalproto.Capabilities)
+		plain  bool // start from the OpenCode TUI without a recorded session id
+		toTerm bool // switch to the OpenCode TUI first, then ask for the target
+		target string
+		reply  terminalproto.Body
+		status int
+		code   string
+	}{
+		{name: "busy", target: "terminal", reply: terminalproto.Result{Code: terminalproto.Conflict}, status: 409, code: "session_mode_busy"},
+		{name: "no session", plain: true, target: "chat", status: 409, code: "session_mode_no_session"},
+		{name: "unsupported", caps: func(c *terminalproto.Capabilities) { c.SessionMode = false }, target: "terminal", status: 409, code: "session_mode_unsupported"},
+		{name: "trust", toTerm: true, target: "chat", reply: terminalproto.Result{Code: terminalproto.ACPTrustRequired, Detail: ".opencode/plugins/x.js"}, status: 409, code: "acp_trust_required"},
+		{name: "failed", target: "terminal", reply: terminalproto.SessionChanged{State: terminalproto.Ended}, status: 502, code: "session_mode_failed"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			caps := modeCaps()
+			if c.caps != nil {
+				c.caps(&caps)
+			}
+			f := launchAPIFixture(t, caps)
+			var session string
+			if c.plain {
+				code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "opencode", "dir": "/tmp"}))
+				if code != 200 {
+					t.Fatalf("create: %d %s", code, body)
+				}
+				session = out["id"].(string)
+			} else {
+				session = modeChat(t, f)
+			}
+			if c.toTerm {
+				if code, _, body := f.do(t, f.cookie, "POST", modePath(session), map[string]any{"mode": "terminal"}); code != http.StatusNoContent {
+					t.Fatalf("setup: %d %s", code, body)
+				}
+			}
+			if c.reply != nil {
+				reply := c.reply
+				f.mu.Lock()
+				f.mode = func(terminalproto.SessionMode) terminalproto.Body { return reply }
+				f.mu.Unlock()
+			}
+			code, out, body := f.do(t, f.cookie, "POST", modePath(session), map[string]any{"mode": c.target})
+			if code != c.status || out["code"] != c.code {
+				t.Fatalf("got %d %s, want %d %s", code, body, c.status, c.code)
+			}
+			if c.name == "trust" && out["detail"] != ".opencode/plugins/x.js" {
+				t.Fatalf("trust detail: %s", body)
+			}
+		})
+	}
+}
+
+func TestSessionModeEndpointRequiresWriter(t *testing.T) {
+	f := launchAPIFixture(t, modeCaps())
+	session := modeChat(t, f)
+	viewer, err := f.st.CreateUser("mode-viewer@example.test", "Viewer", "viewer", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range map[string]struct {
+		cookie string
+		status int
+	}{"viewer": {terminalLogin(t, f.st, viewer.ID), http.StatusForbidden}, "anonymous": {"", http.StatusUnauthorized}} {
+		if code, _, raw := f.do(t, c.cookie, "POST", modePath(session), map[string]any{"mode": "terminal"}); code != c.status {
+			t.Fatalf("%s: %d %s", name, code, raw)
+		}
+	}
+	f.mu.Lock()
+	n := len(f.modes)
+	f.mu.Unlock()
+	row, err := f.st.TerminalSessionFor(f.uid, session)
+	if n != 0 || err != nil || !row.Structured {
+		t.Fatalf("refused request switched the session: %d %+v %v", n, row, err)
+	}
+}

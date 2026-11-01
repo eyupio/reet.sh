@@ -13,7 +13,9 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, uploadsSupported = false, uploadsOff = false, acpImages = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean } = $props()
+ let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, onbusy }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+  /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI switch. */
+  onbusy?: (busy: boolean) => void } = $props()
 
  let chat: ChatState = $state(initialChat())
  let selectedModel = $state(''), currentModel = $state(''), changingModel = $state(false)
@@ -158,6 +160,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  const pending = $derived(pendingPermissions(chat))
  const asked = $derived(pendingQuestions(chat))
  const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This reet session has ended.' : pending.length ? 'Waiting for your approval.' : asked.length ? 'Waiting for your answer.' : working ? `${toolName} is working…` : chat.status.state === 'error' ? `${toolName} stopped with an error.` : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
+ $effect(() => { onbusy?.(working || pending.length > 0 || asked.length > 0) })
  const statusDetail = $derived(pending.length || asked.length ? '' : chat.status.detail)
  const canAttach = $derived(uploadsSupported && !uploadsOff && !ended)
  const imageLimit = $derived(acpImages ? MAX_EMBEDDED_IMAGES : MAX_IMAGES)

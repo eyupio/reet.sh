@@ -97,6 +97,13 @@ func launchArgv(in terminalproto.Create, lookPath func(string) (string, error), 
 		}
 		argv = append(argv, p.resumeArgs...)
 	}
+	if in.LaunchSession != "" {
+		if len(p.sessionArgs) == 0 {
+			return nil, ErrLaunchOptionUnsupported
+		}
+		argv = append(argv, p.sessionArgs...)
+		argv = append(argv, in.LaunchSession)
+	}
 	if in.Effort != "" {
 		args, supported := p.effortArgs[in.Effort]
 		if !supported || len(args) == 0 {

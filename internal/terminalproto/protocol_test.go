@@ -261,11 +261,41 @@ func TestCapabilitiesSessionModeNeedsACPHistoryAndLaunch(t *testing.T) {
 		t.Fatal("session mode without history accepted")
 	}
 	c.ACPHistory = true
+	if c.Validate() == nil {
+		t.Fatal("session mode without launch-v1 accepted")
+	}
+	c.Launch, c.Tools = true, []string{"opencode"}
 	if err := c.Validate(); err != nil {
-		t.Fatalf("session mode with acp, history, control refused: %v", err)
+		t.Fatalf("session mode with acp, history, launch refused: %v", err)
 	}
 	c.TerminalControl = false
 	if c.Validate() == nil {
 		t.Fatal("session mode without terminal control accepted")
+	}
+}
+
+// SessionModeFor is the rule a controller applies: session-mode-v1 and the
+// tool among the machine's launch tools. Launch tools without the tool are
+// still valid capabilities (an older connector reports session mode with
+// chats from another adapter) but cannot switch that tool.
+func TestCapabilitiesSessionModeForNeedsTheLaunchTool(t *testing.T) {
+	c := testCapabilities()
+	c.TerminalControl, c.ACP, c.ACPHistory, c.Launch, c.Tools = true, true, true, true, []string{"opencode"}
+	if c.SessionModeFor("opencode") {
+		t.Fatal("session mode reported without session-mode-v1")
+	}
+	c.SessionMode = true
+	if !c.SessionModeFor("opencode") {
+		t.Fatal("opencode cannot switch on a machine that launches it")
+	}
+	if c.SessionModeFor("claude") {
+		t.Fatal("claude can switch although it is not a launch tool")
+	}
+	c.Tools = []string{"claude"}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("older connector's capabilities refused: %v", err)
+	}
+	if c.SessionModeFor("opencode") {
+		t.Fatal("opencode can switch although it is not a launch tool")
 	}
 }

@@ -325,3 +325,20 @@ func TestBuildSessionSkillsListsAProjectSkillAsNativeAndAGlobalOneFromTheGlobalA
 		}
 	}
 }
+
+func TestBuildSessionSkillsMarksPublishedForMachineAndHostedSkills(t *testing.T) {
+	skills := []store.Skill{tsSkill("a", "onbox", "onbox", tsEnv("box", "claude", 1))}
+	hosted := []store.HostedSkill{{Slug: "live", Published: true}, {Slug: "draft"}}
+	got := buildSessionSkills("claude", "box", "", skills, hosted)
+	published := map[string]bool{}
+	for _, s := range got.Skills {
+		published[s.ID] = s.Published
+	}
+	if len(got.Skills) != 3 || !published["a"] || !published["reet:live"] || published["reet:draft"] {
+		t.Fatalf("got %+v", got.Skills)
+	}
+	b, _ := json.Marshal(got.Skills[0])
+	if !strings.Contains(string(b), `"published":true`) {
+		t.Fatalf("json = %s", b)
+	}
+}

@@ -670,6 +670,13 @@ func TestSetTerminalStructuredForRefusesClosedRow(t *testing.T) {
 	if !got.Structured {
 		t.Fatal("closed row changed")
 	}
+	// Even the value it already has is a conflict once the row is closed.
+	if err := s.SetTerminalStructuredFor(uid, chat.ID, true); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatalf("closed row at the requested value: %v", err)
+	}
+	if got, _ := s.TerminalSessionFor(uid, chat.ID); !got.Structured || got.State == terminalproto.Running {
+		t.Fatalf("closed row changed: %+v", got)
+	}
 }
 
 func TestSetTerminalStructuredForOtherAccount(t *testing.T) {
@@ -682,8 +689,11 @@ func TestSetTerminalStructuredForOtherAccount(t *testing.T) {
 	if err := s.SetTerminalStructuredFor(member.ID, chat.ID, false); !errors.Is(err, ErrRemoteNotFound) {
 		t.Fatalf("other account: %v", err)
 	}
-	if err := s.SetTerminalStructuredFor(uid, "nope", false); !errors.Is(err, terminalproto.ErrInvalid) && !errors.Is(err, ErrRemoteNotFound) {
-		t.Fatalf("unknown id: %v", err)
+	if err := s.SetTerminalStructuredFor(uid, "nope", false); !errors.Is(err, terminalproto.ErrInvalid) {
+		t.Fatalf("malformed id: %v", err)
+	}
+	if err := s.SetTerminalStructuredFor(uid, syncID(), false); !errors.Is(err, ErrRemoteNotFound) {
+		t.Fatalf("well-formed unknown id: %v", err)
 	}
 	got, _ := s.TerminalSessionFor(uid, chat.ID)
 	if !got.Structured {

@@ -53,11 +53,11 @@ const sync = () => ({environments:[],machines:[],agents:[{id:'a1',host:'studio',
 const changedPaths = Array.from({length:23}, (_, i) => i < 3 ? ['internal/terminalproto/browse.go','internal/terminalhost/browse.go','docs/terminal-launch.md'][i] : `web/src/file${i}.ts`)
 
 async function open(options={}) {
- const box = {sessions:options.sessions ?? sessions(), projects:options.projects ?? projects(), fail:false, writes:[], commands:[], hold:null, status:[], sockets:[]}
+ const box = {sessions:options.sessions ?? sessions(), projects:options.projects ?? projects(), fail:false, writes:[], commands:[], hold:null, status:[], sockets:[], lists:0}
  const routes = {
   '/api/v2/machines/health': () => box.fail ? {status:500,json:{error:'down'}} : health(),
   '/api/v2/terminal/machines': () => box.fail ? {status:500,json:{error:'down'}} : {machines:options.machines ?? tmachines},
-  '/api/v2/terminal/sessions': async () => { if (box.hold) await box.hold; return box.fail ? {status:500,json:{error:'down'}} : {sessions:box.sessions} },
+  '/api/v2/terminal/sessions': async () => { box.lists++; if (box.hold) await box.hold; return box.fail ? {status:500,json:{error:'down'}} : {sessions:box.sessions} },
   '/api/v2/terminal/commands': request => {
    if (request.method() === 'GET') return {commands:box.commands}
    const item = {...request.postDataJSON(), id:`c${box.commands.length + 1}`, revision:1}
@@ -72,16 +72,18 @@ async function open(options={}) {
  const opened = await openWorkspace(browser, {width:options.width ?? 1440, height:options.height ?? 900, touch:options.touch, theme:options.theme ?? 'light', routes, sync:options.sync ?? sync()})
  // An open session's terminal: a ticket, then a socket that says it is ready.
  await opened.context.routeWebSocket('**/api/v2/terminal/socket', socket => { box.sockets.push(socket); socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) } }) })
- // A Gaffer chat's stream: window.__chatStream.emit(type, data) plays the controller's events into the open chat.
- if (options.chat) await opened.page.addInitScript(() => {
+ // A Gaffer chat's stream: window.__chatStream.emit(type, data) plays the controller's events into the open chat. With
+ // chatHold the stream stays connecting until window.__chatStream.start(...events) opens it and replays those events.
+ if (options.chat) await opened.page.addInitScript(hold => {
   class FakeEventSource {
-   constructor(url) { this.url = url; this.listeners = {}; window.__chatStream = this; setTimeout(() => { this.onopen?.({}); this.emit('reset', {truncated:false}) }, 0) }
+   constructor(url) { this.url = url; this.listeners = {}; window.__chatStream = this; if (!hold) setTimeout(() => this.start(), 0) }
+   start(...events) { this.onopen?.({}); this.emit('reset', {truncated:false}); for (const event of events) this.emit('chat', event) }
    addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn) }
    close() { if (window.__chatStream === this) window.__chatStream = null }
    emit(type, data) { for (const fn of this.listeners[type] ?? []) fn({data:JSON.stringify(data)}) }
   }
   window.EventSource = FakeEventSource
- })
+ }, !!options.chatHold)
  // The sessions panel's saved colours, as the workspace keeps them in this browser.
  if (options.colours) await opened.page.addInitScript(colors => localStorage.setItem('reet-terminal-layout:1:sessions', JSON.stringify({colors})), options.colours)
  // A session's own writes: rename (PATCH), end and remove from history (POST).
@@ -702,8 +704,36 @@ try {
   await context.close()
  }
 
+ // D4: on a phone the switch is in the actions menu: a disabled one stays in the menu with its reason as its description,
+ // and choosing it does nothing.
+ if (run('phone actions menu says why the switch is disabled')) {
+  const {context,page,errors,box} = await open({width:390, height:844, touch:true, sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines()})
+  await page.goto(`${base}/sessions?agent=a1&session=s7`)
+  await screen(page).getByRole('button',{name:'Session actions'}).click()
+  const item = page.getByRole('menuitem',{name:'Switch to Gaffer…'})
+  await expect(item).toHaveAttribute('aria-disabled','true')
+  await expect(item).toHaveAccessibleDescription('This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.')
+  await item.click({force:true})
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  // The menu stays open on it: a disabled item does nothing at all.
+  await expect(item).toBeVisible()
+  await page.keyboard.press('Escape')
+  // One that can switch is offered without a description.
+  await page.goto(`${base}/sessions?agent=a1&session=s8`)
+  await screen(page).getByRole('button',{name:'Session actions'}).click()
+  const offered = page.getByRole('menuitem',{name:'Switch to Gaffer…'})
+  await expect(offered).not.toHaveAttribute('aria-disabled','true')
+  await expect(offered).toHaveAccessibleDescription('')
+  await offered.click()
+  await expect(page.getByRole('alertdialog',{name:'Switch to Gaffer?'})).toBeVisible()
+  expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('toggle switches a live chat to the OpenCode TUI and back')) {
-  const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
+  // The chat reports quiet; once in the OpenCode TUI the row's word comes from terminal activity.
+  const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions().map(x => x.id === 's9' ? {...x, attention:'quiet', attentionSource:'chat'} : x)], machines:switchMachines(), chat:true})
   // The switch is held until the test lets it finish, as the machine takes its time stopping one process and starting the other.
   let finish
   box.mode = () => new Promise(resolve => { finish = resolve })
@@ -714,6 +744,8 @@ try {
   await expect(page.locator('.chat-pane')).toBeVisible()
   await expect(page.locator('.pane')).toHaveCount(0)
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toBeVisible()
+  const pill = screen(page).locator('.pill')
+  await expect(pill).toHaveText(/^Quiet\W*from the chat$/)
   await expect(tuiButton).toHaveAttribute('aria-disabled','false')
   await tuiButton.click()
   const dialog = page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'})
@@ -737,19 +769,22 @@ try {
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(1)
   expect(box.writes.find(w => w.kind === 'mode')).toEqual({kind:'mode',id:'s9',body:{mode:'terminal',trust:false}})
-  box.sessions = box.sessions.map(x => x.id === 's9' ? {...x, structured:false} : x)
+  box.sessions = box.sessions.map(x => x.id === 's9' ? {...x, structured:false, attention:'working', attentionSource:'terminal'} : x)
   finish({status:204, body:''})
   // The pane swaps to the OpenCode TUI's terminal and the switch follows.
   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
   await expect(tuiButton).toHaveAttribute('aria-pressed','true')
   await expect(chatButton).toHaveAttribute('aria-pressed','false')
   await expect(chatButton).toHaveAttribute('aria-disabled','false')
+  // The status pill follows the row the switch read again: its word now comes from the terminal.
+  await expect(pill).toHaveText(/^Working\W*from terminal activity$/)
   // The Approvals line and the decisions follow the new mode: the terminal's own line, asked in the terminal.
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toHaveCount(0)
   await expect(screen(page).locator('.approvals')).toHaveText('Approvals: Ask me')
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the terminal.')
   // And back: Gaffer loads the conversation again.
   box.mode = null
+  box.sessions = box.sessions.map(x => x.id === 's9' ? {...x, attention:'quiet', attentionSource:'chat'} : x)
   await chatButton.click()
   const back = page.getByRole('alertdialog',{name:'Switch to Gaffer?'})
   await expect(back).toContainText('scrollback is not kept')
@@ -759,6 +794,7 @@ try {
   await expect(page.locator('.pane')).toHaveCount(0)
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the chat: Allow once or Deny.')
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toBeVisible()
+  await expect(pill).toHaveText(/^Quiet\W*from the chat$/)
   expect(box.writes.filter(w => w.kind === 'mode').map(w => w.body)).toEqual([{mode:'terminal',trust:false},{mode:'chat',trust:false}])
   expect(errors).toEqual([])
   await context.close()
@@ -789,6 +825,109 @@ try {
   await context.close()
  }
 
+ // D1: a chat whose stream has not replayed yet has not said whether it is busy: the row's word holds the switch until it has.
+ if (run('switch waits for the chat stream before trusting its word')) {
+  const BUSY = 'Wait for the agent to finish or answer what it is asking.'
+  const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions().map(x => x.id === 's9' ? {...x, attention:'waiting', attentionSource:'chat'} : x)], machines:switchMachines(), chat:true, chatHold:true})
+  await page.goto(`${base}/sessions?agent=a1&session=s9`)
+  const tuiButton = screen(page).getByRole('group',{name:'View'}).getByRole('button',{name:'OpenCode TUI'})
+  await expect(page.locator('.chat-pane')).toBeVisible()
+  await page.waitForFunction(() => !!window.__chatStream)
+  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
+  await expect(tuiButton).toHaveAccessibleDescription(BUSY)
+  // From here on, any moment the button is offered is recorded: the replay of the waiting approval must never let it go.
+  await tuiButton.evaluate(button => {
+   window.__offered = false
+   new MutationObserver(() => { if (button.getAttribute('aria-disabled') === 'false') window.__offered = true }).observe(button, {attributes:true, attributeFilter:['aria-disabled']})
+  })
+  await page.waitForTimeout(200)
+  await page.evaluate(() => window.__chatStream.start({seq:1, kind:'permission', permissionId:'p1', toolCallId:'c1', title:'Run the tests', toolKind:'execute', command:'go test ./...'}))
+  await expect(page.getByRole('button',{name:'Allow once',exact:true})).toBeVisible()
+  await page.waitForTimeout(200)
+  expect(await page.evaluate(() => window.__offered)).toBe(false)
+  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
+  await tuiButton.click({force:true})
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  // Once the chat has replayed, its own word wins: answered, it is idle and the switch is offered.
+  await page.evaluate(() => window.__chatStream.emit('chat', {seq:2, kind:'permission_resolved', permissionId:'p1', allow:false}))
+  await expect(tuiButton).toHaveAttribute('aria-disabled','false')
+  expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // D2: each session has its own switch in flight; one held on the machine never drops another's.
+ if (run('a switch on one session does not hold another')) {
+  const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
+  let finish
+  box.mode = (body, find) => find().id === 's9' ? new Promise(resolve => { finish = resolve }) : null
+  await page.goto(`${base}/sessions?agent=a1&session=s9`)
+  const view = screen(page).getByRole('group',{name:'View'})
+  const chatButton = view.getByRole('button',{name:'Gaffer'}), tuiButton = view.getByRole('button',{name:'OpenCode TUI'})
+  await tuiButton.click()
+  await page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'}).getByRole('button',{name:'Switch to the OpenCode TUI'}).click()
+  await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(1)
+  // B, while A is still switching: its switch is offered and its request is sent.
+  await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
+  await expect(tuiButton).toHaveAttribute('aria-pressed','true')
+  await expect(chatButton).toHaveAttribute('aria-disabled','false')
+  await chatButton.click()
+  await page.getByRole('alertdialog',{name:'Switch to Gaffer?'}).getByRole('button',{name:'Switch to Gaffer'}).click()
+  await expect.poll(() => box.writes.filter(w => w.kind === 'mode').map(w => [w.id, w.body.mode])).toEqual([['s9','terminal'],['s8','chat']])
+  await expect(chatButton).toHaveAttribute('aria-pressed','true')
+  await expect(page.locator('.chat-pane')).toBeVisible()
+  // A is still switching: back on it, both its buttons wait and say why.
+  await sidebarRow(page, 'Chat about the store').click()
+  await expect(chatButton).toHaveAttribute('aria-pressed','true')
+  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
+  await expect(tuiButton).toHaveAccessibleDescription('Switching to the OpenCode TUI…')
+  box.sessions = box.sessions.map(x => x.id === 's9' ? {...x, structured:false} : x)
+  finish({status:204, body:''})
+  await expect(tuiButton).toHaveAttribute('aria-pressed','true')
+  await expect(chatButton).toHaveAttribute('aria-disabled','false')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // D3 and D6: a switch the machine could not make, which ended the session: its sentence is shown and the list read again,
+ // whether or not the person is still on that session.
+ if (run('a failed switch reads the list again')) {
+  const ENDED = 'The session could not be switched and has ended. Start a new session or continue it with history.'
+  const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
+  let finish
+  box.mode = () => new Promise(resolve => { finish = resolve })
+  await page.goto(`${base}/sessions?agent=a1&session=s9`)
+  const view = screen(page).getByRole('group',{name:'View'})
+  const tuiButton = view.getByRole('button',{name:'OpenCode TUI'})
+  await tuiButton.click()
+  await page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'}).getByRole('button',{name:'Switch to the OpenCode TUI'}).click()
+  await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(1)
+  // On this session: the controller's sentence, and the ended row read again (the list is otherwise read every 15 s).
+  let lists = box.lists
+  box.sessions = box.sessions.map(x => x.id === 's9' ? {...x, state:'ended'} : x)
+  finish({status:409, json:{error:ENDED, code:'session_mode_ended'}})
+  await expect(screen(page).getByRole('status').first()).toHaveText(ENDED)
+  await expect.poll(() => box.lists).toBeGreaterThan(lists)
+  await expect(screen(page).locator('.pill')).toContainText('Ended')
+  await expect(page.locator('.ended-banner')).toContainText('This session has ended.')
+  // Away from it: a failure for a session no longer shown still reads the list again, so its row is not stale.
+  await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
+  box.mode = (body, find) => find().id === 's8' ? new Promise(resolve => { finish = resolve }) : null
+  await view.getByRole('button',{name:'Gaffer'}).click()
+  await page.getByRole('alertdialog',{name:'Switch to Gaffer?'}).getByRole('button',{name:'Switch to Gaffer'}).click()
+  await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(2)
+  await sidebarRow(page, 'Add browse-v1 protocol').click()
+  await expect(screen(page).getByRole('heading',{name:'Add browse-v1 protocol',level:2})).toBeVisible()
+  await page.waitForTimeout(300)
+  lists = box.lists
+  finish({status:409, json:{error:ENDED, code:'session_mode_ended'}})
+  await expect.poll(() => box.lists).toBeGreaterThan(lists)
+  // The sentence belongs to the other session, so this screen does not show it.
+  await expect(screen(page).getByRole('status').first()).not.toContainText(ENDED)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('trust confirmation is required to return to Gaffer when the folder has plugins')) {
   const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
   const PLUGINS = 'This folder has agent extensions: .opencode/plugin/audit.ts. Start a chat only in a folder you trust.'
@@ -804,11 +943,26 @@ try {
   await expect(trust).not.toBeChecked()
   await expect(dialog.getByRole('button',{name:'Switch to Gaffer'})).toBeDisabled()
   await expect(chatButton).toHaveAttribute('aria-pressed','false')
+  // Cancel on the trust question closes it, sends nothing more, and leaves the switch usable: asked again, the dialog
+  // starts without the question until the machine refuses once more.
+  await dialog.getByRole('button',{name:'Cancel'}).click()
+  await expect(dialog).toBeHidden()
+  await expect(chatButton).toBeFocused()
+  await expect(chatButton).toHaveAttribute('aria-disabled','false')
+  await expect(screen(page).getByRole('status').first()).not.toContainText('Switching')
+  await page.waitForTimeout(200)
+  expect(box.writes.filter(w => w.kind === 'mode')).toHaveLength(1)
+  await chatButton.click()
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('checkbox')).toHaveCount(0)
+  await dialog.getByRole('button',{name:'Switch to Gaffer'}).click()
+  await expect(trust).toBeVisible()
+  await expect(trust).not.toBeChecked()
   await trust.check()
   await dialog.getByRole('button',{name:'Switch to Gaffer'}).click()
   await expect(chatButton).toHaveAttribute('aria-pressed','true')
   await expect(page.locator('.pane')).toHaveCount(0)
-  expect(box.writes.filter(w => w.kind === 'mode').map(w => w.body)).toEqual([{mode:'chat',trust:false},{mode:'chat',trust:true}])
+  expect(box.writes.filter(w => w.kind === 'mode').map(w => w.body)).toEqual([{mode:'chat',trust:false},{mode:'chat',trust:false},{mode:'chat',trust:true}])
   // In the dark theme and at phone width the same dialog reads and fits.
   for (const [width, height, theme] of [[1440, 900, 'dark'], [390, 844, 'light']]) {
    const next = await open({width, height, touch:width < 600, theme, sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})

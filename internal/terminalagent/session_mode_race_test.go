@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -26,10 +27,10 @@ type gatedChat struct {
 	gate    chan struct{}
 	entered chan struct{}
 	// lingers makes Close fail to confirm the process group gone.
-	lingers bool
+	lingers atomic.Bool
 }
 
-func (g *gatedChat) GroupRetired() bool { return !g.lingers }
+func (g *gatedChat) GroupRetired() bool { return !g.lingers.Load() }
 
 func (g *gatedChat) Close() {
 	if g.gate != nil {
@@ -470,7 +471,7 @@ func retiredOnce(t *testing.T, r *swapRig) {
 func TestSwapChatStillRunningRetiresRow(t *testing.T) {
 	r := newSwapRig(t)
 	r.openChat(t)
-	r.procs[0].lingers = true
+	r.procs[0].lingers.Store(true)
 	body := toTerminal(r.home)
 	r.send(t, "request-swap-000001", &body)
 	if _, ok := r.reply(t, "request-swap-000001").(terminalproto.Result); !ok {

@@ -20,7 +20,7 @@
 // REET_E2E_ONLY=<regexp> limits the dialogs, REET_E2E_VIEWPORTS=320x568,844x390 the screens. REET_DIALOG_SHOTS=<dir> saves a
 // screenshot of each state there, and REET_DIALOG_LOG=1 prints what was measured.
 import { chromium, expect } from '@playwright/test'
-import { installApi, LONGHOST, sessions } from './helpers/longtext.mjs'
+import { installApi, LONGHOST, sessions, tmachines } from './helpers/longtext.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 const only = process.env.REET_E2E_ONLY ? new RegExp(process.env.REET_E2E_ONLY, 'i') : null
@@ -38,8 +38,15 @@ const menu = (project, item) => async page => { await press(`More for ${project}
 const cardMenu = item => async page => { await page.getByRole('article',{name:LONGHOST}).locator('summary[aria-label^="More options"]').click(); await page.getByRole('menuitem',{name:item,exact:true}).click() }
 const TEXT = 'input:not([type=checkbox]):not([type=radio]):not([type=hidden])'
 const ended = {'/api/v2/terminal/sessions': {sessions:sessions.map(s => ({...s, state:'ended'}))}}
+// Gaffer | OpenCode TUI switch, from the session screen's actions menu (a phone's slim header has no View group): an
+// OpenCode session reet started as a chat and moved to the OpenCode TUI, on a machine that negotiated session-mode-v1.
+const moved = {...sessions[0], id:'session-switch000000001', title:'OpenCode chat moved to its TUI', tool:'opencode', dir:'/home/dev/work/site', acpSessionId:'ses_moved00000000000000000001'}
+const switchable = {'/api/v2/terminal/sessions': {sessions:[moved, ...sessions]},
+ '/api/v2/terminal/machines': {machines:tmachines.map(m => m.agentId === moved.agentId ? {...m, capabilities:{...m.capabilities, tools:[...m.capabilities.tools, 'opencode'], acp:true, acpHistory:true, sessionMode:true}} : m)}}
+const switchTui = async page => { await page.locator('.session-screen').getByRole('button', {name:'Session actions'}).click(); await page.getByRole('menuitem', {name:'Switch to Gaffer…'}).click() }
 // field: the text field typed into with the keyboard open. primary: the main action, when it is not the dialog's
 // button.primary or submit button. sheet: how it sits on an upright phone.
+// upright: the dialog has no way in on a phone held sideways (there the session screen's header gives its rows to the terminal).
 const DIALOGS = [
  {name:'start agent', path:'/machines', open:p => card(p, 'Start an agent').click(), field:'textarea', sheet:'full'},
  {name:'add machine', path:'/machines#add-machine', field:TEXT, sheet:'full'},
@@ -75,6 +82,14 @@ const DIALOGS = [
  {name:'commands drawer', path:live, open:tool('Saved commands'), field:'input[type=search]', last:true, sheet:'full'},
  {name:'command editor drawer', path:live, open:async p => { await tool('Saved commands')(p); await p.locator('dialog[open]').getByRole('button', {name:/New command/}).click() }, field:'textarea', last:true, sheet:'full'},
  {name:'select text', path:live, open:tool('Select text'), last:true, sheet:'bottom'},
+ {name:'switch tui', path:`/sessions?agent=${moved.agentId}&session=${moved.id}`, extra:switchable, open:switchTui, upright:true, sheet:'bottom'},
+ // The same dialog once the machine asks for folder trust: the plugin warning and the checkbox make it the tallest.
+ {name:'switch tui (trust)', path:`/sessions?agent=${moved.agentId}&session=${moved.id}`, extra:switchable, upright:true, sheet:'bottom', open:async page => {
+  await page.route('**/api/v2/terminal/sessions/*/mode', route => route.fulfill({status:409, json:{error:'This folder has OpenCode plugins. Start only in a folder you trust.', code:'acp_trust_required', detail:`This folder has agent extensions: .opencode/plugin/${'a_really_long_plugin_name_without_any_spaces'.repeat(2)}.ts. Start a chat only in a folder you trust.`}}))
+  await switchTui(page)
+  await page.locator('dialog[open]').getByRole('button', {name:'Switch to Gaffer'}).click()
+  await page.locator('dialog[open]').getByRole('checkbox').waitFor()
+ }},
 ]
 
 // Runs in the page: the top dialog's geometry against the part of the screen that can be seen.
@@ -276,6 +291,7 @@ async function check(viewport) {
  try {
   for (const spec of DIALOGS) {
    if (only && !only.test(spec.name)) continue
+   if (spec.upright && p.width > p.height) continue
    for (const k of Object.keys(p.extra)) delete p.extra[k]
    Object.assign(p.extra, spec.extra || {})
    // A fresh document each time: a path that differs only in its #hash would otherwise keep the last dialog open.

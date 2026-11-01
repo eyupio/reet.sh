@@ -83,8 +83,9 @@
   let selectedAgent = $state(new URLSearchParams(location.search).get('agent') || '')
   let selectedSession = $state(new URLSearchParams(location.search).get('session') || '')
   let sideSession = $state<TerminalSession | null>(null)
-  // The open chat's word on whether it is busy, for the header's TUI switch; kept with the session it is about.
-  let chatBusy = $state<{ id: string; busy: boolean } | null>(null)
+  // The open chat's word on whether it is busy, for the header's TUI switch; kept with the session it is about. Undefined
+  // until its stream has replayed, so the header keeps to the row's word meanwhile.
+  let chatBusy = $state<{ id: string; busy: boolean | undefined } | null>(null)
   let health = $state<HealthResponse>({ serverNow:Date.now(),machines:[] })
   let receivedAt = performance.now(), elapsed = $state(0)
   let loading = $state(true), busy = $state(false), error = $state(''), title = $state('Shell')

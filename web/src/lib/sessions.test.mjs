@@ -13,7 +13,7 @@ const home = asURL(compile('./home.ts'))
 const colour = asURL(compile('./projectColour.ts'))
 const api = asURL(compile('./terminal/api.ts'))
 const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './catalogue'", `from '${catalogue}'`).replace("from './projectColour'", `from '${colour}'`).replaceAll("from './terminal/api'", `from '${api}'`)
-const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList, switchModeState } = await import(asURL(source))
+const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList, switchModeState, switchWhy } = await import(asURL(source))
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000
@@ -214,6 +214,8 @@ test('switchModeState: the inactive TUI button, enabled or with the reason it is
   const NO_SESSION = 'This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.'
   const UPDATE = 'Update reet on this machine to switch between Gaffer and the OpenCode TUI.'
   const NOT_LIVE = 'Only a running session can switch.'
+  const NO_CONVERSATION = 'This session has no saved OpenCode conversation yet, so it cannot move to the OpenCode TUI.'
+  const fresh = { ...chat, acpSessionId: undefined }
   const rows = [
     ['an idle Gaffer chat can go to the OpenCode TUI', chat, caps, false, { to: 'terminal', enabled: true, why: '' }],
     ['a reet-started chat in the OpenCode TUI can come back', tui, caps, false, { to: 'chat', enabled: true, why: '' }],
@@ -229,8 +231,26 @@ test('switchModeState: the inactive TUI button, enabled or with the reason it is
     ['an exited OpenCode TUI', { ...tui, state: 'exited', exitCode: 0 }, caps, false, { to: 'chat', enabled: false, why: NOT_LIVE }],
     ['a session still starting', { ...chat, state: 'creating' }, caps, false, { to: 'terminal', enabled: false, why: NOT_LIVE }],
     ['a session ending', { ...tui, state: 'end_requested' }, caps, true, { to: 'chat', enabled: false, why: NOT_LIVE }],
+    ['a chat with no saved OpenCode conversation cannot open in the OpenCode TUI', fresh, caps, false, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
+    ['an old machine outranks no saved conversation, as on the controller', fresh, old, false, { to: 'terminal', enabled: false, why: UPDATE }],
+    ['no saved conversation outranks a busy chat', fresh, caps, true, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
     ['another agent has no Gaffer', { ...started, tool: 'claude' }, caps, false, { to: 'chat', enabled: false, why: 'Gaffer is for a structured OpenCode session.' }],
+    ['OpenCode among the launch tools keeps the switch', chat, { ...caps, tools: ['claude', 'opencode'] }, false, { to: 'terminal', enabled: true, why: '' }],
+    ['OpenCode not a launch tool on the machine, to the OpenCode TUI', chat, { ...caps, tools: ['claude'] }, false, { to: 'terminal', enabled: false, why: UPDATE }],
+    ['OpenCode not a launch tool on the machine, to Gaffer', tui, { ...caps, tools: ['claude'] }, false, { to: 'chat', enabled: false, why: UPDATE }],
+    ['an empty launch tool list is a known list without OpenCode', chat, { ...caps, tools: [] }, false, { to: 'terminal', enabled: false, why: UPDATE }],
     ['a plain shell has no Gaffer', { ...started, tool: undefined }, caps, false, { to: 'chat', enabled: false, why: 'Gaffer is for a structured OpenCode session.' }],
   ]
   for (const [name, s, c, busy, want] of rows) assert.deepEqual(switchModeState(s, c, busy), want, name)
+})
+
+test('switchWhy: the switch always says why it cannot be used now', () => {
+  const off = { to: 'terminal', enabled: false, why: 'Only a running session can switch.' }
+  const on = { to: 'terminal', enabled: true, why: '' }
+  assert.equal(switchWhy(on, 'OpenCode TUI', false), 'Switching to the OpenCode TUI…')
+  assert.equal(switchWhy(off, 'OpenCode TUI', true), 'Switching to the OpenCode TUI…')
+  assert.equal(switchWhy(on, 'Gaffer', false), 'Switching to Gaffer…')
+  assert.equal(switchWhy(off, undefined, true), 'Only a running session can switch.')
+  assert.equal(switchWhy(on, undefined, true), 'Another action on this session is running.')
+  assert.equal(switchWhy(on, undefined, false), '')
 })

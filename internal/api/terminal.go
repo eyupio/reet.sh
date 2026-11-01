@@ -43,6 +43,8 @@ func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/history", s.terminal(s.terminalHistory))
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/command-history", s.terminal(s.terminalCommandHistory))
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/skills", s.terminal(s.terminalSessionSkills))
+	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/skills/install", s.terminal(s.terminalSkillInstall))
+	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/skills/install/cancel", s.terminal(s.terminalSkillInstallCancel))
 	mux.HandleFunc("GET /api/v2/terminal/socket", s.terminal(s.terminalSocket))
 	mux.HandleFunc("POST /api/v2/terminal/worktrees/status", s.terminal(s.terminalWorktreeStatus))
 	mux.HandleFunc("POST /api/v2/terminal/worktrees/remove", s.terminal(s.terminalWorktreeRemove))

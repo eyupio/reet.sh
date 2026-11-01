@@ -164,19 +164,31 @@ the status pill, the **Approvals** line and the context panel's decisions follow
 - **Only reet-started sessions return to Gaffer.** Going to Gaffer needs OpenCode's session id, which reet
   records only for a session that started (or has been) in Gaffer. A session started in the OpenCode TUI keeps the
   **Gaffer** button disabled: "This session started in the OpenCode TUI, so Gaffer cannot pick up its
-  conversation."
+  conversation." Going the other way needs the same id: a Gaffer session whose OpenCode id was never recorded keeps
+  the **OpenCode TUI** button disabled, and the controller refuses it too: "This session has no saved OpenCode
+  conversation yet, so it cannot move to the OpenCode TUI."
 - **Idle only.** A chat with a running turn, an approval card or a question waiting does not switch: "Wait for the agent
   to finish or answer what it is asking." The controller refuses it too.
-- **`session-mode-v1` machines only.** A connector that did not negotiate it (or has no chat history for OpenCode) is
-  not asked: "Update reet on this machine to switch between Gaffer and the OpenCode TUI." Only a running session
-  can switch.
+- **`session-mode-v1` machines only.** A connector that did not negotiate it, has no chat history for OpenCode, or
+  cannot launch OpenCode in a terminal (OpenCode is not among its launch tools) is not asked: "Update reet on this
+  machine to switch between Gaffer and the OpenCode TUI." Only a running session can switch. Asking for the mode
+  the session is already in changes nothing.
+- **YOLO stays YOLO, and is checked again.** A YOLO session moving to the OpenCode TUI starts it with `--auto`, so the
+  switch is refused if the account no longer allows YOLO ("An owner or admin can allow YOLO for this account in
+  Settings."), before anything is stopped. The switch is audited (`session-mode`, with `yolo`), and a YOLO switch to the
+  OpenCode TUI also records a `yolo-launch` event like a launch when the switch request is answered (a switch settled
+  later by a reconnect is not audited).
 - **Terminal scrollback is not carried over.** Gaffer rebuilds the conversation from OpenCode's own store with
   `session/load`, as **Continue in Gaffer with history…** does; the OpenCode TUI opens that conversation on a fresh
   screen.
 - **The OpenCode TUI is stopped before the chat opens.** The machine waits up to five seconds for the TUI to exit after its
   tmux session closes. A TUI that has not exited by then is sent SIGTERM and, if it is still there, SIGKILL; the chat
   opens only once its process group is gone, so two OpenCode processes never share one conversation. If a TUI survives
-  even that, no chat is opened, the session ends and the switch reports that it failed.
+  even that, no chat is opened and the session ends.
+- **A failed switch says whether the session survived.** When the other mode cannot start, the machine restores the
+  previous one and the switch reports "The session could not be switched. Try again, or end it and start a new
+  session." When neither mode could be left running, the machine ends the session and the switch reports "The session
+  could not be switched and has ended. Start a new session or continue it with history."
 - **Gaffer is as durable as any chat.** A session in the OpenCode TUI runs in tmux and survives an agent restart;
   once switched to Gaffer it ends if the agent process restarts (its OpenCode id can still be continued).
 - **Folder trust when returning to Gaffer.** OpenCode project plugins run when Gaffer opens the session. If

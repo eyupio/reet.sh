@@ -1284,7 +1284,12 @@ func (s *Session) killGroup() {
 func retireGroup(pgid int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		// Check before signalling: a group seen gone may have had its id
+		// reused by an unrelated group since, so a retry must not kill it.
+		if !groupAlive(pgid) {
+			return true
+		}
+		killGroup(pgid)
 		if !groupAlive(pgid) {
 			return true
 		}

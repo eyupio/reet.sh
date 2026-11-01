@@ -180,6 +180,13 @@ trust, model or history assumptions. Reuse SC2's probe matrix and SC3's question
 controls where the wire contract matches. Gemini and Pi are later candidates,
 not scope additions to the first two integrations.
 
+### Device and credential checks (1 November 2026)
+
+What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real
+device (`npm run fixture:questions`), and the logged-out and logged-in Claude runs. `question-card.e2e.mjs` automates what Chromium can show: the accessibility
+tree, a keyboard answer, and an emulated 390 px touch phone with every control on screen and at least 40 px tall. The form capability and Claude chats stay off until the
+recorded results are in.
+
 ### SC4 progress: Claude wired dark (1 November 2026)
 
 Claude is registered behind the descriptor and launch gates but dark. The controller accepts a Claude descriptor only for the

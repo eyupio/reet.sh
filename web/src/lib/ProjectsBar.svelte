@@ -3,6 +3,7 @@
   import { getSyncState, UnauthorizedError, type Machine } from './api'
   import { folderProjectList, terminalMachines, terminalSessions, updateFolderProject, type FolderProject, type TerminalMachine, type TerminalSession } from './terminal/api'
   import StartAgentDialog from './StartAgentDialog.svelte'
+  import BranchPruneDialog from './home/BranchPruneDialog.svelte'
   import { projectRunning } from './home'
   import { PROJECT_COLOURS, projectColour, projectColourHex, type ProjectColour } from './projectColour'
 
@@ -20,6 +21,8 @@
   let failed = $state(false), notice = $state<{ text: string; href?: string } | null>(null)
   let machines = $state<TerminalMachine[] | undefined>(), snapshot = $state<Machine[] | undefined>()
   let starting = $state<{ project: FolderProject; opener: HTMLElement } | null>(null), opening = $state(false)
+  // The branch-prune plan dialog for one repository project, and the menu button that opened it.
+  let pruning = $state<FolderProject | null>(null), pruneOpener = $state<HTMLElement | undefined>()
   let menu = $state<{ project: FolderProject; x: number; y: number } | null>(null), menuEl = $state<HTMLElement>(), opener: HTMLElement | undefined
   const running = $derived(projectRunning(sessions))
   // Built once here so the component's markup carries no literal that looks like a colour.
@@ -130,14 +133,21 @@
 {/if}
 
 {#if menu}
-  {@const project = menu.project}
+  {@const project = menu?.project}
+  {#if project}
   <div class="project-menu" role="menu" aria-label={`Actions for ${project.name}`} tabindex="-1" bind:this={menuEl} style={`left:${menu.x}px;top:${menu.y}px`} onkeydown={menuKeys}>
     <p>{project.name}<small>{hostOf(project)}</small></p>
-    <button type="button" role="menuitem" disabled={opening} onclick={event => { const from = opener ?? (event.currentTarget as HTMLElement); closeMenu(); void openStart(project, from) }}>New session here</button>
+    <button type="button" role="menuitem" disabled={opening} onclick={event => { const target = menu?.project; if (!target) return; const from = opener ?? (event.currentTarget as HTMLElement); closeMenu(); void openStart(target, from) }}>New session here</button>
+    {#if project.isRepo}<button type="button" role="menuitem" onclick={event => { const target = menu?.project; if (!target) return; const from = opener ?? (event.currentTarget as HTMLElement); closeMenu(); pruneOpener = from; pruning = target }}>Prune merged branches…</button>{/if}
     <span class="label">Project colour</span>
-    <div class="colours">{#each PROJECT_COLOURS as choice}<button type="button" role="menuitemradio" aria-checked={projectColour(project.colour) === choice.id} aria-label={choice.name} title={choice.name} style={`--swatch:${choice.hex}`} onclick={() => void saveColour(project, choice.id)}>{choice.id === '' ? '×' : ''}</button>{/each}</div>
+    <div class="colours">{#each PROJECT_COLOURS as choice}<button type="button" role="menuitemradio" aria-checked={projectColour(project.colour) === choice.id} aria-label={choice.name} title={choice.name} style={`--swatch:${choice.hex}`} onclick={() => { const target = menu?.project; if (target) void saveColour(target, choice.id) }}>{choice.id === '' ? '×' : ''}</button>{/each}</div>
     <a role="menuitem" href={`/?project=${encodeURIComponent(project.id)}`}>Show on Home</a>
   </div>
+  {/if}
+{/if}
+
+{#if pruning}
+  <BranchPruneDialog project={pruning} opener={pruneOpener} {onsignedout} onclose={() => (pruning = null)} />
 {/if}
 
 {#if starting && machines && snapshot}

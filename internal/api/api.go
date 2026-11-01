@@ -406,6 +406,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/admin/settings", s.requireOwner(s.adminSettings))
 	mux.HandleFunc("GET /api/v2/settings/yolo", s.requireWriter(s.yoloSettingGet))
 	mux.HandleFunc("PUT /api/v2/settings/yolo", s.requireAdmin(s.yoloSettingPut))
+	mux.HandleFunc("GET /api/v2/settings/branch-prune", s.requireWriter(s.branchPruneSettingGet))
+	mux.HandleFunc("PUT /api/v2/settings/branch-prune", s.requireAdmin(s.branchPruneSettingPut))
 	mux.HandleFunc("GET /api/export", s.requireWriter(s.export))
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
 	s.registerBackupRoutes(mux)

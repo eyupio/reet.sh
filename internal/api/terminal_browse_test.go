@@ -99,7 +99,7 @@ func (f *browseAPI) addMachine(t *testing.T, host string, caps terminalproto.Cap
 		switch op := m.Body.(type) {
 		case terminalproto.Reconcile:
 			reply.Body = terminalproto.Reconcile{Complete: true, Sessions: []terminalproto.SessionSnapshot{}}
-		case terminalproto.Browse, terminalproto.Branches:
+		case terminalproto.Browse, terminalproto.Branches, terminalproto.BranchPrunePlan, terminalproto.BranchPrune:
 			f.mu.Lock()
 			f.asked = append(f.asked, op)
 			answer := f.answer

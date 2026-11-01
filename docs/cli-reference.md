@@ -25,6 +25,13 @@ List, take and restore sealed copies.
 - `reet backup restore` — Press e to add the backup ID and options.
 - `reet backup open` — Press e to add a file and options.
 
+## reet branches
+
+List merged local branches and prune them.
+
+- `reet branches status` — Read which local branches are merged.
+- `reet branches prune` — Press e to add --dry-run, --yes or a folder.
+
 ## reet scan
 
 Report installed skills to your account.

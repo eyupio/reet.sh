@@ -138,6 +138,7 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (path === '/api/v2/profile/sessions') return json({ sessions: [{ id: 's1', device: 'Chrome on Android (Pixel 7)', createdAt: now - DAY, lastSeen: now, expiresAt: now + 30 * DAY, current: true }, { id: 's2', device: 'Safari on macOS', createdAt: now - 5 * DAY, lastSeen: now - DAY, expiresAt: now + 25 * DAY, current: false }] })
     if (path === '/api/v2/auth/oidc/identity') return json({ enabled: true, label: 'Company SSO', linked: true, hasPassword: true, linkedAt: now - DAY, lastLoginAt: now, canUnlink: true })
     if (path === '/api/v2/admin/sso') return json({ enabled: true, issuer: 'https://login.example-company.test/realms/engineering', redirectUrl: 'https://reet.example.test/api/v2/auth/oidc/callback', label: 'Company SSO', passwordLogin: true, autoCreate: false, linkByEmail: true, defaultRole: 'viewer' })
+    if (path === '/api/v2/settings/branch-prune') return json({ afterWorktree: true, changedBy: 'Owner', changedAt: now - DAY })
     if (path === '/api/v2/backups') return json(backupStatus(false))
     if (path === '/api/v2/admin/backups') return json(backupStatus(true))
     if (path === '/api/admin/status') return json(adminStatus)

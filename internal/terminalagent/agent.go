@@ -39,6 +39,9 @@ var (
 	// after 5 s (and given 2 s to exit), but resolving the folder can hang
 	// as a browse can.
 	branchesAnswerAfter = 8 * time.Second
+	// branchPruneAnswerAfter bounds a plan or prune that has not returned.
+	// Its own deadline is 20 s, which is under this answer.
+	branchPruneAnswerAfter = 22 * time.Second
 	// modelsAnswerAfter is when a model listing that has not returned is
 	// answered timed_out and its slot freed. ListModels kills its process at
 	// 10 s; this leaves room for the reply and process reaping.
@@ -60,6 +63,7 @@ var (
 	// stuck work.
 	browsesRunning  atomic.Int32
 	branchesRunning atomic.Int32
+	prunesRunning   atomic.Int32
 	modelsRunning   atomic.Int32
 	softwareRunning atomic.Int32
 )
@@ -161,6 +165,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 		// like a worktree request.
 		browseSlot := make(chan struct{}, 1)
 		branchesSlot := make(chan struct{}, 1)
+		pruneSlot := make(chan struct{}, 1)
 		modelsSlot := make(chan struct{}, 1)
 		// modelsMu guards the per-tool last listing used for the floor.
 		var modelsMu sync.Mutex
@@ -353,6 +358,40 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					terminalproto.BranchesResult{Reason: terminalproto.BranchesConflict}, terminalproto.BranchesResult{Reason: terminalproto.BranchesGitFailed},
 					func(ctx context.Context) terminalproto.Body {
 						return terminalhost.ListBranches(ctx, home, req, git)
+					})
+			case *terminalproto.BranchPrunePlan:
+				if !terminalproto.SupportsBranchPrune(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+				if !allowed(opts.Consent) {
+					reply.Body = terminalproto.BranchPrunePlanResult{Reason: terminalproto.BranchesDenied}
+					return send(callCtx, reply)
+				}
+				req, home, git := *op, opts.Home, opts.Git
+				if git == nil {
+					git = terminalhost.ExecGit
+				}
+				return aside(callCtx, reply, pruneSlot, &prunesRunning, branchPruneAnswerAfter,
+					terminalproto.BranchPrunePlanResult{Reason: terminalproto.BranchesConflict}, terminalproto.BranchPrunePlanResult{Reason: terminalproto.BranchesGitFailed},
+					func(ctx context.Context) terminalproto.Body {
+						return terminalhost.PlanBranchPrune(ctx, home, req, git)
+					})
+			case *terminalproto.BranchPrune:
+				if !terminalproto.SupportsBranchPrune(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+				if !allowed(opts.Consent) {
+					reply.Body = terminalproto.BranchPruneResult{Reason: terminalproto.BranchesDenied}
+					return send(callCtx, reply)
+				}
+				req, home, git := *op, opts.Home, opts.Git
+				if git == nil {
+					git = terminalhost.ExecGit
+				}
+				return aside(callCtx, reply, pruneSlot, &prunesRunning, branchPruneAnswerAfter,
+					terminalproto.BranchPruneResult{Reason: terminalproto.BranchesConflict}, terminalproto.BranchPruneResult{Reason: terminalproto.BranchesGitFailed},
+					func(ctx context.Context) terminalproto.Body {
+						return terminalhost.PruneBranches(ctx, home, req, git)
 					})
 			case *terminalproto.Models:
 				// Models are served only on a generation that negotiated

@@ -420,6 +420,27 @@ export function branchesURL(agentId: string, dir: string, filter?: string): stri
 }
 export async function browseFolder(agentId: string, query: BrowseQuery, signal?: AbortSignal): Promise<BrowseResult> { return (await terminalRequest(browseURL(agentId, query), { signal: within(signal) })).json() }
 export async function listBranches(agentId: string, dir: string, filter?: string, signal?: AbortSignal): Promise<BranchesResult> { return (await terminalRequest(branchesURL(agentId, dir, filter), { signal: within(signal) })).json() }
+
+// Branch pruning (GET/POST /api/v2/machines/{agentId}/branches/prune): a plan of the local branches whose work is already in
+// the base, then a prune of exactly the ones the person agreed to. A branch that moved since the plan is skipped, not forced.
+export type BranchPruneBranch = { name: string; oid: string; skip: '' | BranchPruneSkip }
+export type BranchPruneSkip = 'not_merged' | 'unpushed' | 'checked_out' | 'current' | 'default' | 'base' | 'moved' | 'git_failed'
+export type BranchPrunePlan = { current: string; default: string; base: string; branches: BranchPruneBranch[]; more: boolean }
+export type BranchPruneTarget = { name: string; oid: string }
+export type BranchPruneResult = { deleted: string[]; skipped: { name: string; skip: BranchPruneSkip }[] }
+export function branchPruneURL(agentId: string, dir: string, base?: string): string {
+  const params = new URLSearchParams({ dir })
+  if (base) params.set('base', base)
+  return `/api/v2/machines/${encodeURIComponent(agentId)}/branches/prune?${params}`
+}
+/** Reads the plan; `base` empty asks the machine to use the repository's default branch. */
+export async function branchPrunePlan(agentId: string, dir: string, base?: string, signal?: AbortSignal): Promise<BranchPrunePlan> {
+  return (await terminalRequest(branchPruneURL(agentId, dir, base), { signal: within(signal) })).json()
+}
+/** Deletes the branches in `branches`, each only if it still points at the tip named and is still safe. */
+export async function pruneBranches(agentId: string, dir: string, base: string, branches: BranchPruneTarget[], signal?: AbortSignal): Promise<BranchPruneResult> {
+  return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/branches/prune`, { method: 'POST', signal: within(signal), body: JSON.stringify({ dir, base, branches }) })).json()
+}
 export function chatURL(id: string): string { return `/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat` }
 export async function chatPrompt(id: string, text: string, images: string[] = []): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/prompt`, { method: 'POST', body: JSON.stringify(images.length ? { text, images } : { text }) }) }
 export async function chatCancel(id: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/cancel`, { method: 'POST', body: '{}' }) }

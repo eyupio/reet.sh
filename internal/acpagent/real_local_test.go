@@ -65,6 +65,9 @@ func TestRealClaudeStart(t *testing.T) {
 		t.Fatalf("session id %q is not the measured UUID form", session.SessionID())
 	}
 	session.Close()
+	if !session.GroupRetired() {
+		t.Fatal("Close did not confirm that every process the adapter started is gone")
+	}
 	// A profile whose floor is above the installed adapter must refuse it.
 	strict := ClaudeCandidate
 	strict.MinVersion = "99.0.0"

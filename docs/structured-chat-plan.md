@@ -249,8 +249,8 @@ turn, is never touched. Covered by `TestCancelIgnoredByTheAgentEndsTheChatAfterT
 
 **Fixed (gap 3):** a permission or question request that arrives with no running turn, or after the running turn was cancelled, belongs to no turn the
 person is waiting on. It used to raise an approval card and show an idle chat as "waiting". It is now answered as cancelled and raises nothing
-(`turnAcceptsRequests`). Covered for permissions after a turn ended, permissions during a cancel, and questions after a turn ended. **Gap 2** stays as it is: showing
-"cancelled" at once is deliberate feedback, and the force-stop bounds the worst case; output arriving after the status flips is not yet tested.
+(`turnAcceptsRequests`). Covered for permissions after a turn ended, permissions during a cancel, and questions after a turn ended. **Gap 2** is resolved on the browser side: showing
+"cancelled" at once is deliberate feedback, and the force-stop bounds the worst case. What the review of output after the status flips found: text and tool reports that arrive late are still shown and a late report of how a tool ended still replaces what the row said, but a tool left pending or in progress when the turn stopped kept a busy "Running" state on a chat that said it stopped. Those rows are now shown as stopped when the turn stops (cancelled, finished, errored or ended).
 
 **Fixed (gap 4, wording only):** the app already marks a chat the machine can no longer find as lost, and the sessions list says "Connection lost". The chat itself now says
 why it closed: a lost chat explains that reet lost contact (for example when the connection closed or the reet service on the machine restarted) and that the

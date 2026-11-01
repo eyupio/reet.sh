@@ -72,16 +72,18 @@ async function open(options={}) {
  const opened = await openWorkspace(browser, {width:options.width ?? 1440, height:options.height ?? 900, touch:options.touch, theme:options.theme ?? 'light', routes, sync:options.sync ?? sync()})
  // An open session's terminal: a ticket, then a socket that says it is ready.
  await opened.context.routeWebSocket('**/api/v2/terminal/socket', socket => { box.sockets.push(socket); socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) } }) })
- // A reet TUI chat's stream: window.__chatStream.emit(type, data) plays the controller's events into the open chat.
- if (options.chat) await opened.page.addInitScript(() => {
+ // A reet TUI chat's stream: window.__chatStream.emit(type, data) plays the controller's events into the open chat. With
+ // chatHold the stream stays connecting until window.__chatStream.start(...events) opens it and replays those events.
+ if (options.chat) await opened.page.addInitScript(hold => {
   class FakeEventSource {
-   constructor(url) { this.url = url; this.listeners = {}; window.__chatStream = this; setTimeout(() => { this.onopen?.({}); this.emit('reset', {truncated:false}) }, 0) }
+   constructor(url) { this.url = url; this.listeners = {}; window.__chatStream = this; if (!hold) setTimeout(() => this.start(), 0) }
+   start(...events) { this.onopen?.({}); this.emit('reset', {truncated:false}); for (const event of events) this.emit('chat', event) }
    addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn) }
    close() { if (window.__chatStream === this) window.__chatStream = null }
    emit(type, data) { for (const fn of this.listeners[type] ?? []) fn({data:JSON.stringify(data)}) }
   }
   window.EventSource = FakeEventSource
- })
+ }, !!options.chatHold)
  // The sessions panel's saved colours, as the workspace keeps them in this browser.
  if (options.colours) await opened.page.addInitScript(colors => localStorage.setItem('reet-terminal-layout:1:sessions', JSON.stringify({colors})), options.colours)
  // A session's own writes: rename (PATCH), end and remove from history (POST).
@@ -783,6 +785,37 @@ try {
   await page.evaluate(() => window.__chatStream.emit('chat', {seq:3, kind:'status', state:'working'}))
   await expect(tuiButton).toHaveAttribute('aria-disabled','true')
   await page.evaluate(() => window.__chatStream.emit('chat', {seq:4, kind:'status', state:'idle'}))
+  await expect(tuiButton).toHaveAttribute('aria-disabled','false')
+  expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // D1: a chat whose stream has not replayed yet has not said whether it is busy: the row's word holds the switch until it has.
+ if (run('switch waits for the chat stream before trusting its word')) {
+  const BUSY = 'Wait for the agent to finish or answer what it is asking.'
+  const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions().map(x => x.id === 's9' ? {...x, attention:'waiting', attentionSource:'chat'} : x)], machines:switchMachines(), chat:true, chatHold:true})
+  await page.goto(`${base}/sessions?agent=a1&session=s9`)
+  const tuiButton = screen(page).getByRole('group',{name:'View'}).getByRole('button',{name:'OpenCode TUI'})
+  await expect(page.locator('.chat-pane')).toBeVisible()
+  await page.waitForFunction(() => !!window.__chatStream)
+  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
+  await expect(tuiButton).toHaveAccessibleDescription(BUSY)
+  // From here on, any moment the button is offered is recorded: the replay of the waiting approval must never let it go.
+  await tuiButton.evaluate(button => {
+   window.__offered = false
+   new MutationObserver(() => { if (button.getAttribute('aria-disabled') === 'false') window.__offered = true }).observe(button, {attributes:true, attributeFilter:['aria-disabled']})
+  })
+  await page.waitForTimeout(200)
+  await page.evaluate(() => window.__chatStream.start({seq:1, kind:'permission', permissionId:'p1', toolCallId:'c1', title:'Run the tests', toolKind:'execute', command:'go test ./...'}))
+  await expect(page.getByRole('button',{name:'Allow once',exact:true})).toBeVisible()
+  await page.waitForTimeout(200)
+  expect(await page.evaluate(() => window.__offered)).toBe(false)
+  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
+  await tuiButton.click({force:true})
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  // Once the chat has replayed, its own word wins: answered, it is idle and the switch is offered.
+  await page.evaluate(() => window.__chatStream.emit('chat', {seq:2, kind:'permission_resolved', permissionId:'p1', allow:false}))
   await expect(tuiButton).toHaveAttribute('aria-disabled','false')
   expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])
   expect(errors).toEqual([])

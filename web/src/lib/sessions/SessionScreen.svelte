@@ -24,7 +24,8 @@
     machines: TerminalMachine[]; health: MachineHealth[]; projects: FolderProject[] | undefined; now: number
     theatre?: boolean; keyboard?: boolean; busy?: boolean
     onaction: (kind: 'rename' | 'end' | 'archive') => void; ontheatre: () => void; onrefresh: () => void
-    /** The open chat's own word on whether it is busy (a running turn, a waiting approval or question), when it has one. */
+    /** The open chat's own word on whether it is busy (a running turn, a waiting approval or question), once its stream has
+     *  replayed; until then (undefined) the row's attention stands in for it. */
     chatBusy?: boolean
     /** The machine switched this session to the other TUI: the workspace shows it at once and reads the listing again. */
     onmode?: (id: string, to: 'terminal' | 'chat') => void

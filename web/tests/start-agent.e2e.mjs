@@ -15,7 +15,7 @@ const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{p
 const A='connector-laptop000000001',B='connector-oldbox00000001',C='connector-spare000000001'
 const HOME_A='/home/dev',SITE='/home/dev/work/site'
 let authMode='accounts',viewer=false,machinesFail=false,theme='light',machineReads=0
-let profileDefaults={},modelsFail=false,favourites=[],folderProjects=[]
+let yoloAllowed=true,profileDefaults={},modelsFail=false,favourites=[],folderProjects=[]
 const tmachines=[
  {agentId:A,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,agentsV2:true,models:true,tools:['claude','codex','gemini','cline']}},
  // An older connector: no launch capability. The tools list is there only to show that it is not enough on its own.
@@ -75,6 +75,7 @@ await page.route('**/api/**',async route=>{
  else if(path.endsWith('/attachments'))data={ticket:'fixture-ticket00000000000'}
  else if(path.endsWith('/history'))return route.fulfill({body:''})
  else if(path.endsWith('/command-history'))data={entries:[],sources:[],truncated:false,skipped:0}
+ else if(path==='/api/v2/settings/yolo')data={allowed:yoloAllowed,changedBy:'Sam'}
  else{unmocked.push(`${method} ${path}`);return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})}
  await route.fulfill({json:data})
 })
@@ -939,6 +940,55 @@ try{
  await expect(page.getByRole('heading',{name:'Sessions',exact:true,level:1})).toHaveCount(0)
  await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
 
+ // YOLO from the start dialog, as the left panel opens it: offered only when the account, the machine and the agent allow it,
+ // confirmed before it counts, never remembered, and sent as yolo:true only then.
+ // The steps before this one left a viewer and a legacy sign-in; this is the owner again, with the machine accepting YOLO.
+ viewer=false;authMode='accounts'
+ tmachines[0].capabilities.yolo=true
+ yoloAllowed=false
+ d=await openAt(A);p=parts(d)
+ await p.tool('Cline').check()
+ await expect(d.getByRole('radio',{name:'YOLO',exact:true})).toBeDisabled()
+ await expect(d.getByText('An owner or admin can allow YOLO for this account in Settings.')).toBeVisible()
+ await page.keyboard.press('Escape')
+ yoloAllowed=true
+ d=await openAt(A);p=parts(d)
+ await p.tool('Cline').check()
+ const yolo=d.getByRole('radio',{name:'YOLO',exact:true}),askMe=d.getByRole('radio',{name:'Ask me',exact:true}),confirm=page.getByRole('alertdialog')
+ await expect(yolo).toBeEnabled()
+ await expect(askMe).toBeChecked()
+ await yolo.click()
+ await expect(confirm).toContainText('Start this session on YOLO?')
+ await expect(confirm).toContainText('Your account allows YOLO')
+ await confirm.getByRole('button',{name:'Keep asking me'}).click()
+ await expect(confirm).toHaveCount(0)
+ await expect(askMe).toBeChecked()
+ let yoloPosts=posts.length
+ await p.start.click()
+ await expect.poll(()=>posts.length).toBe(yoloPosts+1)
+ expect(JSON.parse(posts.at(-1))).not.toHaveProperty('yolo')
+ d=await openAt(A);p=parts(d)
+ await p.tool('Cline').check()
+ await d.getByRole('radio',{name:'YOLO',exact:true}).click()
+ await page.getByRole('alertdialog').getByRole('button',{name:'Start with YOLO'}).click()
+ await expect(d.getByRole('radio',{name:'YOLO',exact:true})).toBeChecked()
+ // Changing the machine or the agent drops the confirmation: it named them.
+ await p.tool('Codex').check()
+ await expect(d.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
+ await p.tool('Cline').check()
+ await d.getByRole('radio',{name:'YOLO',exact:true}).click()
+ await page.getByRole('alertdialog').getByRole('button',{name:'Start with YOLO'}).click()
+ yoloPosts=posts.length
+ await p.start.click()
+ await expect.poll(()=>posts.length).toBe(yoloPosts+1)
+ expect(JSON.parse(posts.at(-1))).toMatchObject({yolo:true})
+ // A machine that does not accept it says so and keeps Ask me.
+ tmachines[0].capabilities.yolo=false
+ d=await openAt(A);p=parts(d)
+ await p.tool('Cline').check()
+ await expect(d.getByRole('radio',{name:'YOLO',exact:true})).toBeDisabled()
+ await expect(d.getByText('dev-laptop doesn’t accept YOLO sessions.')).toBeVisible()
+ await page.keyboard.press('Escape')
  expect(errors).toEqual([])
  console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old four otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and no new storage key. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

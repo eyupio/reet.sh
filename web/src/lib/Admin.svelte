@@ -205,7 +205,7 @@
     if (section === 'users') { void loadUsers(); void loadSso() }
     if (section === 'team') void loadRollup()
     return () => {
-      document.title = 'reet.sh – your shelf for everything AI'
+      document.title = 'reet.sh – your whole AI setup, on every machine'
     }
   })
 

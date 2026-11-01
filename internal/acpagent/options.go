@@ -34,8 +34,11 @@ type Options struct {
 	PermissionTimeout time.Duration
 	// StillWorkingAfter emits one notice when the model has been silent.
 	StillWorkingAfter time.Duration
-	// TurnTimeout cancels a prompt that has not finished.
+	// TurnTimeout cancels a prompt that has gone silent: no agent event for this
+	// long. A turn that keeps making progress is not cut off by it.
 	TurnTimeout time.Duration
+	// MaxTurn is the hard wall-clock cap on one prompt, however active.
+	MaxTurn time.Duration
 	// OnEvent receives bounded structured events in order. It must not block
 	// indefinitely; the connector's sender has its own deadline.
 	OnEvent func(Event)
@@ -58,6 +61,15 @@ func (o Options) turnTimeout() time.Duration {
 		return o.TurnTimeout
 	}
 	return 10 * time.Minute
+}
+func (o Options) maxTurn() time.Duration {
+	if o.MaxTurn > 0 {
+		return o.MaxTurn
+	}
+	if d := 2 * time.Hour; d > o.turnTimeout() {
+		return d
+	}
+	return o.turnTimeout()
 }
 
 // Event is the package's event shape, kept independent of the wire protocol so

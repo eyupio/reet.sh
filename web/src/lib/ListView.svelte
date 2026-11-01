@@ -50,7 +50,7 @@
     void load()
     void loadShelf()
     return () => {
-      document.title = 'reet.sh – your shelf for everything AI'
+      document.title = 'reet.sh – your whole AI setup, on every machine'
     }
   })
 

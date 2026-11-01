@@ -243,10 +243,21 @@ func TestFakeACP(t *testing.T) {
 			case "progress-after-silence-hang":
 				time.Sleep(60 * time.Millisecond)
 				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_progress", "content": map[string]string{"type": "text", "text": "still here"}})
+			case "ignore-cancel":
+				// Never answers the prompt and ignores session/cancel.
+			case "steady-progress":
+				for i := 0; i < 10; i++ {
+					time.Sleep(30 * time.Millisecond)
+					update(session, "agent_message_chunk", map[string]any{"messageId": "msg_steady", "content": map[string]string{"type": "text", "text": "."}})
+				}
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
 			case "fs":
 				send(map[string]any{"jsonrpc": "2.0", "id": 9, "method": "fs/write_text_file", "params": map[string]string{"sessionId": session, "path": "/tmp/mirror.txt", "content": "mirror"}})
 			}
 		case "session/cancel":
+			if scenario == "ignore-cancel" {
+				break
+			}
 			if len(promptID) > 0 {
 				reply(promptID, map[string]any{"stopReason": "cancelled"})
 				promptID = nil
@@ -799,6 +810,48 @@ func TestSilentRecoverySkipsTurnsWithProgress(t *testing.T) {
 			t.Fatal("the watchdog stopped watching after the stale read")
 		}
 	})
+}
+
+func TestActiveTurnOutlivesTheIdleTimeout(t *testing.T) {
+	opts, got := options(t, "steady-progress", testVersion)
+	opts.StillWorkingAfter = 20 * time.Millisecond
+	opts.TurnTimeout = 150 * time.Millisecond
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.Prompt(context.Background(), "working"); err != nil {
+		t.Fatalf("an active turn was stopped: %v", err)
+	}
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	for _, event := range got.all {
+		if event.Kind == "notice" && strings.Contains(event.Text, "took too long") {
+			t.Fatalf("an active turn was timed out: %+v", event)
+		}
+	}
+}
+
+func TestSilentTurnIsAbandonedWhenCancelIsIgnored(t *testing.T) {
+	old := cancelGrace
+	cancelGrace = 100 * time.Millisecond
+	defer func() { cancelGrace = old }()
+	opts, _ := options(t, "ignore-cancel", testVersion)
+	opts.StillWorkingAfter = 20 * time.Millisecond
+	opts.TurnTimeout = 100 * time.Millisecond
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "hang") }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a silent turn stayed busy after the adapter ignored cancel")
+	}
 }
 
 func TestEnvironmentScrub(t *testing.T) {

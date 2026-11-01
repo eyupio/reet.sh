@@ -1,5 +1,6 @@
 <script lang="ts">
   import { applyTheme, saveProfile } from './api'
+  import ThemePicker from './ThemePicker.svelte'
 
   let { name = '', email = '', accounts = true, active = false, unread = 0, onsignout }: {
     name?: string
@@ -29,21 +30,19 @@
     event.preventDefault()
   }
 
-  // Light, dark or follow the device. The page's current theme is read when the menu opens, because the saved one loads after sign-in.
+  // Light, dark or follow the device: the same control as the public header. The choice applies at
+  // once; only an account has somewhere to keep it, and a save that fails puts the previous theme back.
   type Theme = 'system' | 'light' | 'dark'
-  const themes: { id: Theme; label: string }[] = [{ id: 'system', label: 'Match this device' }, { id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }]
   const currentTheme = (): Theme => {
     const value = document.documentElement.dataset.theme
     return value === 'light' || value === 'dark' ? value : 'system'
   }
-  let theme = $state<Theme>(currentTheme())
-  async function chooseTheme(next: Theme) {
-    const previous = theme
-    theme = next
-    applyTheme(next)
-    // Only an account has somewhere to keep the choice; a sign-in without accounts keeps it for this visit.
+  let previousTheme: Theme = currentTheme()
+  async function saveTheme(next: Theme) {
+    const previous = previousTheme
+    previousTheme = next
     if (!accounts) return
-    try { await saveProfile({ theme: next }) } catch { theme = previous; applyTheme(previous) }
+    try { await saveProfile({ theme: next }) } catch { previousTheme = previous; applyTheme(previous) }
   }
 
   function signOut() {
@@ -59,7 +58,7 @@
 }} />
 
 <div class="account" bind:this={root}>
-  <details bind:this={menu} ontoggle={() => { if (menu?.open) theme = currentTheme() }}>
+  <details bind:this={menu} ontoggle={() => { if (menu?.open) previousTheme = currentTheme() }}>
     <summary class:active aria-label={`Account menu for ${label}${unread > 0 ? `, ${unread} unread notifications` : ''}`}>
       <span class="avatar" aria-hidden="true">{initials}{#if unread > 0}<span class="badge">{unreadLabel}</span>{/if}</span>
       <span class="who"><strong>{name || 'Your account'}</strong>{#if email}<small>{email}</small>{/if}</span>
@@ -70,11 +69,7 @@
         <strong>{name || 'Your account'}</strong>
         {#if email}<span>{email}</span>{/if}
       </div>
-      <div class="theme" role="group" aria-label="Theme">
-        {#each themes as option (option.id)}
-          <button type="button" aria-pressed={theme === option.id} onclick={() => chooseTheme(option.id)}>{option.label}</button>
-        {/each}
-      </div>
+      <div class="theme"><ThemePicker onchoose={saveTheme} /></div>
       <a href="/notifications">Notifications{#if unread > 0}<span class="count">{unreadLabel}</span>{/if}</a>
       {#if accounts}<a href="/account/profile">Account &amp; preferences</a>{/if}
       <button type="button" onclick={signOut}>Sign out</button>
@@ -132,9 +127,7 @@
     font: inherit; font-size: 0.82rem; text-align: left; text-decoration: none; cursor: pointer;
   }
   .panel a:hover, .panel button:hover { background: var(--tint); }
-  .theme { display: flex; gap: 4px; padding: 6px 4px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
-  .panel .theme button { flex: 1; width: auto; min-height: 36px; justify-content: center; padding: 6px 4px; border: 1px solid var(--line); font-size: 0.74rem; text-align: center; }
-  .panel .theme button[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); font-weight: 650; }
+  .theme { display: flex; justify-content: center; padding: 6px 4px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
   /* The top bar shows the initials only, as drawn; the name and email are at the top of the panel. */
   .who { display: none; }
   summary { min-width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 50%; background: none; justify-content: center; }

@@ -1,6 +1,6 @@
 import type { Profile, YoloSetting } from './api'
 import type { BranchesResult, FolderProject, LaunchRequest, TerminalMachine, TerminalSession } from './terminal/api'
-import { readiness, structuredAgent } from './terminal/api'
+import { isChatTool, readiness, structuredAgent } from './terminal/api'
 import { CATALOGUE, agentChoices } from './catalogue'
 import { resolveLaunchDefaults, type ModelFavourite } from './models'
 import { cleanModel, codeSentence, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
@@ -148,7 +148,7 @@ export function withProject(choice: LaunchChoice, project: LaunchProject, profil
     branch: project.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(project, profile), effort: (keepEffort ? choice.effort : next.effort) as Effort,
   }
   if (chat) out.chat = true
-  else if (next.agent === 'opencode' && choice.chat === false) out.chat = false
+  else if (isChatTool(next.agent) && choice.chat === false) out.chat = false
   return out
 }
 
@@ -159,7 +159,7 @@ export function withAgent(choice: LaunchChoice, agent: string, project: LaunchPr
   const chat = supportsChat(next.agent, host, options.machines) && choice.chat !== false
   const out: LaunchChoice = { ...choice, agent: next.agent, model: next.model, effort: next.effort as Effort }
   if (chat) out.chat = true
-  else if (next.agent === 'opencode' && choice.chat === false) out.chat = false
+  else if (isChatTool(next.agent) && choice.chat === false) out.chat = false
   else delete out.chat
   return out
 }
@@ -190,7 +190,7 @@ export function withHome(choice: LaunchChoice, agentId: string, profile: LaunchD
   const out: LaunchChoice = { ...choice, projectIds: [], homeMachine: agentId, branch: '', model: keepModel ? choice.model : next.model, effort: (keepEffort ? choice.effort : next.effort) as Effort }
   delete out.trust
   if (chat) out.chat = true
-  else if (next.agent === 'opencode' && choice.chat === false) out.chat = false
+  else if (isChatTool(next.agent) && choice.chat === false) out.chat = false
   else delete out.chat
   return out
 }
@@ -272,7 +272,8 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
   if (prompt) return prompt
   if (choice.chat === true) {
     if (picked.length > 1) return 'The reet TUI starts in one folder at a time. Choose one project, or switch to the agent TUI.'
-    if (choice.trust !== true) return 'Confirm you trust this folder before starting the reet TUI.'
+    // The trust prompt is OpenCode's plugin warning; Claude ignores a folder's own settings, so there is nothing to confirm.
+    if (choice.agent === 'opencode' && choice.trust !== true) return 'Confirm you trust this folder before starting the reet TUI.'
     const model = validateModel(choice.model)
     if (model) return model
     const target = machines.find(x => x.agentId === (picked[0]?.host ?? choice.homeMachine ?? ''))
@@ -324,7 +325,7 @@ export function defaultTitle(prompt: string, fallback = ''): string {
  * takes it, `yolo` only when chosen; nothing else is added. The project folder is sent as it is, whatever its name.
  */
 export function toCreate(choice: LaunchChoice, project: LaunchProject | null, requestId: string, runToken: string, profile: LaunchDefaults = {}): LaunchCreate {
-  const chat = choice.chat === true && choice.agent === 'opencode'
+  const chat = choice.chat === true && isChatTool(choice.agent)
   const launch: LaunchRequest = { tool: choice.agent }
   if (chat) { launch.structured = true; if (choice.trust === true) launch.trust = true }
   const model = cleanModel(choice.model)

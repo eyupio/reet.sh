@@ -180,6 +180,14 @@ trust, model or history assumptions. Reuse SC2's probe matrix and SC3's question
 controls where the wire contract matches. Gemini and Pi are later candidates,
 not scope additions to the first two integrations.
 
+### SC4 progress: the browser offers Claude chats (1 November 2026)
+
+The browser reads the reviewed adapter from each machine's descriptor instead of assuming OpenCode: a chat is offered for Claude
+only when the machine reports `claude-agent-acp` as available, so it stays hidden everywhere the machine has not opted in. Claude
+chats show Claude Code's name, skip OpenCode's plugin trust prompt (Claude ignores a folder's own settings), and send no trust.
+Covered by `launchBar.test.mjs` and the existing launch, start-agent and chat browser tests; there is no Claude-specific
+browser fixture yet. Native-session continue, images and typed questions stay off for Claude.
+
 ## SC5 — Recovery and capability-driven controls
 
 Differentiate browser reconnect, connector transport reconnect, native process

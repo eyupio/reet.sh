@@ -1,5 +1,5 @@
 <script lang="ts">
- import { structuredAgent } from '../terminal/api'
+ import { isChatTool, structuredAgent } from '../terminal/api'
   import { onMount, tick, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { shell } from '../dialogShell'
@@ -130,11 +130,11 @@
       choice = next
     })
   })
-  // If the machine list arrives after the first choice, an OpenCode choice not yet
+  // If the machine list arrives after the first choice, a chat-capable choice not yet
   // toggled to a terminal becomes a chat. An explicit terminal (chat === false) stays.
   $effect(() => {
     const current = choice, all = machines
-    if (!current || locked || current.agent !== 'opencode' || current.chat !== undefined) return
+    if (!current || locked || !isChatTool(current.agent) || current.chat !== undefined) return
     const host = current.projectIds.length === 1 ? projects?.find(p => p.id === current.projectIds[0])?.host : current.homeMachine
     if (structuredAgent(all?.find(m => m.agentId === host)?.capabilities, current.agent)) choice = { ...current, chat: true }
   })

@@ -52,7 +52,7 @@
   }
 </script>
 
-<AuthCard eyebrow="Better together" title="Join reet.sh" lede={invite ? `You have been invited as ${invite.email}.` : 'Checking this invitation…'}>
+<AuthCard eyebrow="Better together" title="Join reet.sh" lede={invite ? `You have been invited as ${invite.email}. Your team's agents, skills and setups are one sign-in away.` : 'Checking this invitation…'}>
   {#if loading}
     <p class="muted">Loading…</p>
   {:else if !invite}

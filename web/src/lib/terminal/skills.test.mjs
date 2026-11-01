@@ -5,6 +5,8 @@ import ts from 'typescript'
 
 const source = ts.transpileModule(readFileSync(new URL('./skills.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const s = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+const asURL = code => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
+const api = await import(asURL(ts.transpileModule(readFileSync(new URL('./api.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText.replace("from '../projects'", `from '${asURL('export {}')}'`)))
 
 const skill = (id, over) => ({ id, name: id, description: '', source: 'machine', agent: 'claude', native: false, onMachine: true, invocation: `/${id}`, ...over })
 
@@ -59,4 +61,76 @@ test('seenLine', () => {
   assert.equal(s.seenLine(now - 5 * 3_600_000, 'box', now), 'Skills on box were read 5 hours ago.')
   assert.equal(s.seenLine(now - 2 * 86_400_000, 'box', now), 'Skills on box were read 2 days ago.')
   assert.equal(s.seenLine(now - 60_000, 'box', now), 'Skills on box were read 1 minute ago.')
+})
+
+test('installStep maps kind and status', () => {
+  const step = (kind, status) => s.installStep({ kind, status })
+  assert.equal(step('preview', 'queued'), 'waiting')
+  assert.equal(step('preview', 'running'), 'waiting')
+  assert.equal(step('preview', 'awaiting-approval'), 'review')
+  assert.equal(step('apply', 'queued'), 'installing')
+  assert.equal(step('apply', 'running'), 'installing')
+  assert.equal(step('apply', 'succeeded'), 'done')
+  assert.equal(step('preview', 'failed'), 'failed')
+  assert.equal(step('apply', 'failed'), 'failed')
+  assert.equal(step('preview', 'cancelled'), 'cancelled')
+  assert.equal(step('apply', 'cancelled'), 'cancelled')
+  assert.equal(s.installStep(undefined), 'waiting')
+})
+
+test('planVerdict approves only plain adds of the slug', () => {
+  const act = (add, slug, replace) => ({ add, ...(replace ? { replace } : {}), skill: { slug } })
+  assert.deepEqual(s.planVerdict({ actions: [act(true, 'pdf')] }, 'pdf'), { ok: true, lines: ['Add pdf'] })
+  const other = 'This install would change other skills. Review it on the Sync page.'
+  assert.deepEqual(s.planVerdict({ actions: [act(true, 'xlsx')] }, 'pdf'), { ok: false, reason: other, lines: ['Add xlsx'] })
+  assert.deepEqual(s.planVerdict({ actions: [act(true, 'pdf', true)] }, 'pdf'), { ok: false, reason: other, lines: ['Replace pdf'] })
+  assert.deepEqual(s.planVerdict({ actions: [act(false, 'pdf')] }, 'pdf'), { ok: false, reason: other, lines: ['Remove pdf'] })
+  assert.deepEqual(s.planVerdict({ actions: [act(true, 'pdf'), act(false, 'docx')] }, 'pdf'), { ok: false, reason: other, lines: ['Add pdf', 'Remove docx'] })
+  const none = 'The machine has not sent its plan yet.'
+  assert.deepEqual(s.planVerdict({ actions: [] }, 'pdf'), { ok: false, reason: none, lines: [] })
+  assert.deepEqual(s.planVerdict({}, 'pdf'), { ok: false, reason: none, lines: [] })
+  assert.deepEqual(s.planVerdict(undefined, 'pdf'), { ok: false, reason: none, lines: [] })
+})
+
+test('installStatusLine', () => {
+  assert.equal(s.installStatusLine('waiting', 'box', 'pdf', 0), 'Waiting for box…')
+  assert.equal(s.installStatusLine('waiting', 'box', 'pdf', 59), 'Waiting for box…')
+  assert.equal(s.installStatusLine('waiting', 'box', 'pdf', 60), 'Waiting for box… Is reet running on box?')
+  assert.equal(s.installStatusLine('review', 'box', 'pdf', 90), 'Review what will be added.')
+  assert.equal(s.installStatusLine('installing', 'box', 'pdf', 90), 'Installing pdf on box…')
+  assert.equal(s.installStatusLine('done', 'box', 'pdf', 0), 'pdf is installed on box.')
+  assert.equal(s.installStatusLine('failed', 'box', 'pdf', 0), 'The install did not finish.')
+  assert.equal(s.installStatusLine('cancelled', 'box', 'pdf', 0), 'Install cancelled.')
+})
+
+function fetchReplying(status, body) {
+  const calls = []
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init, headers: new Headers(init.headers) })
+    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  }
+  return calls
+}
+
+test('installSessionSkill and cancelSessionSkillInstall', async () => {
+  const started = { job: 'j1', reused: false, directory: '/home/u/.claude/skills', host: 'box' }
+  let calls = fetchReplying(200, started)
+  assert.deepEqual(await api.installSessionSkill('s/1', 'sk 9'), started)
+  assert.equal(calls[0].url, '/api/v2/terminal/sessions/s%2F1/skills/install')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.deepEqual(JSON.parse(calls[0].init.body), { skill: 'sk 9' })
+  assert.equal(calls[0].init.credentials, 'same-origin')
+
+  const text = 'Another install is already running for this session.'
+  fetchReplying(409, { error: text, code: 'install-in-progress' })
+  const err = await api.installSessionSkill('s1', 'k').then(() => assert.fail('resolved'), e => e)
+  assert.equal(err.code, 'install-in-progress')
+  assert.equal(err.message, text)
+  assert.equal(err.status, 409)
+
+  calls = fetchReplying(200, { reverted: true })
+  assert.deepEqual(await api.cancelSessionSkillInstall('s/1', 'j1'), { reverted: true })
+  assert.equal(calls[0].url, '/api/v2/terminal/sessions/s%2F1/skills/install/cancel')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.deepEqual(JSON.parse(calls[0].init.body), { job: 'j1' })
 })

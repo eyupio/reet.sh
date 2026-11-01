@@ -1675,8 +1675,11 @@ Checks performed with synthetic data in Chromium on Linux:
 A full Go race run found `TestCloseKillsOrphanedGroupMembers` failing because
 its orphan PID remained visible after Close. Isolated race runs reproduce the
 same failure on the changed branch and unchanged main `9b8bc17`. The naming
-slice changes no ACP process cleanup implementation. The PR records the full
-run's eventual outcome separately. Initial browser checks interrupted while the
+slice changes no ACP process cleanup implementation. The completed full run also failed in unchanged `internal/terminalagent`
+(model-listing fixtures) and `internal/terminalhost` (process-group cleanup and
+missing tmux). Both package runs reproduce the same failures on unchanged main.
+All other tested packages pass, including the API, broker, store and Eli probe;
+the full suite remains non-green. The handoff and draft PR retain these results. Initial browser checks interrupted while the
 preview's build files were replaced were rerun against the finished build.
 
 No live provider/model, real fleet machine, physical phone, Safari or Firefox

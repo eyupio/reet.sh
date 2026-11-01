@@ -41,20 +41,25 @@ gates. The dated baseline, original delivery record and history below are preser
   documentation and bounded attributed Eli compatibility probe.
 - Published verification: `4369324`, launch-option hover/focus checks and
   phone backlog create/edit retaining `chat: true`. This handoff sync records
-  both pushes and the current validation state.
+  both pushes. `2268cd2` published this push discipline. This final validation
+  update records the completed run below.
 - Passed: web unit suite, svelte-check (0 errors/warnings), production build,
   go vet, MCP suite, targeted launch/default-interface and disabled/live-toggle/
   plugin-trust session cases, full chat and session-board browser fixtures,
   and Eli fake-backed race/conformance probe. Dialog and phone checks cover
   hover/focus, Escape, actual touch, bounds and light/dark backgrounds.
-- Full Go race run: still in progress. `TestCloseKillsOrphanedGroupMembers`
-  fails on this branch and on unchanged base `9b8bc17` in isolated race runs.
-  The ACP lifecycle code is unchanged. Targeted broker and API tests pass.
+- Full Go race run: completed with failures in `internal/acpagent`,
+  `internal/terminalagent` and `internal/terminalhost`. The ACP orphan cleanup,
+  four model-listing fixture failures, process-group cleanup and missing-tmux
+  service failures all reproduce on unchanged base `9b8bc17`. None of these
+  packages is changed by this PR. All other tested packages pass, including
+  the race-enabled API, broker, store and Eli probe. The full suite is not green.
 - Live providers/paid turns, real fleet machines, physical phones and
   Safari/Firefox: not checked. Production build retains its large-chunk warning.
-- Exact next task for this PR: finish and record the full race run, retain the
-  reproduced baseline failure explicitly, and review the PR without expanding
-  into unrelated process-cleanup changes. For orchestration, complete KZ0's
+- Exact next task for this PR: review the implementation and baseline-failure
+  evidence, and rerun the full suite in a test environment with tmux and working
+  process-reaping/model fixtures before marking the draft ready. Retain baseline
+  failures explicitly rather than expanding this naming PR into process cleanup. For orchestration, complete KZ0's
   access/MCP measurements and KZ5A's remaining decisions from
   [the reuse review](research/eli-reuse.md) before KZ5/KZ6 implementation.
 - Publication: branch pushed and draft PR created; no merge or deployment.

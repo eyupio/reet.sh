@@ -26,6 +26,7 @@ func Describe(tool string, installed bool, version string) terminalproto.ACPAgen
 		return entry
 	}
 	entry.State = "available"
+	entry.Modes = append([]string(nil), spec.ChoosableModes...)
 	if tool == "claude" {
 		// Only what the probe verified: approvals and a read-back model switch.
 		// Native-session replay and image prompts were not verified, so they stay off.

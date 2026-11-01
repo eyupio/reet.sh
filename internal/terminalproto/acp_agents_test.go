@@ -170,3 +170,44 @@ func TestChatAgentDescriptorsAreBoundToTheirAdapter(t *testing.T) {
 		t.Fatal("a legacy peer lost opencode")
 	}
 }
+
+// A descriptor may list the modes a person can choose, but only on a connection that
+// negotiated acp-agent-mode-v1 (the Capabilities flag), only a few, only well-formed
+// and distinct, and never for an agent that is not available.
+func TestACPAgentModesInDescriptors(t *testing.T) {
+	ok := chatCapabilities()
+	ok.ACPAgentMode = true
+	(*ok.ACPAgents)[0].Modes = []string{"read-only", "agent"}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("valid modes: %v", err)
+	}
+	cases := map[string]func(*Capabilities){
+		"flag missing":  func(c *Capabilities) { c.ACPAgentMode = false },
+		"no ACP":        func(c *Capabilities) { c.ACP = false; c.ACPHistory = false },
+		"too many":      func(c *Capabilities) { (*c.ACPAgents)[0].Modes = []string{"a", "b", "c", "d", "e"} },
+		"duplicate":     func(c *Capabilities) { (*c.ACPAgents)[0].Modes = []string{"agent", "agent"} },
+		"malformed":     func(c *Capabilities) { (*c.ACPAgents)[0].Modes = []string{"Agent Mode"} },
+		"empty name":    func(c *Capabilities) { (*c.ACPAgents)[0].Modes = []string{""} },
+		"missing agent": func(c *Capabilities) { (*c.ACPAgents)[0].State = "missing" },
+		"incompatible":  func(c *Capabilities) { (*c.ACPAgents)[0].State = "incompatible" },
+		"unverified":    func(c *Capabilities) { (*c.ACPAgents)[0].State = "unverified" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := ok
+			agents := append([]ACPAgent(nil), *ok.ACPAgents...)
+			agents[0].Modes = append([]string(nil), agents[0].Modes...)
+			c.ACPAgents = &agents
+			mutate(&c)
+			if c.Validate() == nil {
+				t.Fatal("accepted invalid modes")
+			}
+		})
+	}
+	c := ok
+	agents := append([]ACPAgent(nil), *ok.ACPAgents...)
+	c.ACPAgents = &agents
+	if a, found := c.ChatAgent("opencode"); !found || len(a.Modes) != 2 {
+		t.Fatalf("descriptor lost its modes: %+v %v", a, found)
+	}
+}

@@ -26,6 +26,21 @@ func SupportsACPModel(features string) bool {
 	return false
 }
 
+// ACPAgentModeFeature lets a controller switch a live chat between the agent's
+// own modes (Codex: read-only and agent) with acp_agent_mode, and lets a machine
+// list the modes a person may choose in an agent's descriptor. A controller
+// without it never sends the message, and a connector without it refuses it.
+const ACPAgentModeFeature = "acp-agent-mode-v1"
+
+func SupportsACPAgentMode(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ACPAgentModeFeature {
+			return true
+		}
+	}
+	return false
+}
+
 // ACPImageFeature lets a controller send images with a prompt. The machine
 // reads the uploaded files and embeds their bytes in the ACP prompt so the
 // agent sees the image itself rather than a file path.
@@ -291,6 +306,31 @@ type ACPMode struct {
 
 func (ACPMode) kind() string { return "acp_mode" }
 func (ACPMode) valid() bool  { return true }
+
+// ACPAgentMode moves a live chat to one of the modes its descriptor lists. The
+// machine refuses a mode its profile does not offer, and reports success only
+// when the agent confirms the mode.
+type ACPAgentMode struct {
+	Mode string `json:"mode"`
+}
+
+func (ACPAgentMode) kind() string  { return "acp_agent_mode" }
+func (m ACPAgentMode) valid() bool { return ValidAgentMode(m.Mode) }
+
+// ValidAgentMode accepts the short lower-case names agents give their modes
+// ("read-only", "agent"). It is a shape check only; which modes are choosable
+// is the machine profile's decision.
+func ValidAgentMode(mode string) bool {
+	if mode == "" || len(mode) > 32 {
+		return false
+	}
+	for _, r := range mode {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
 
 // Targets of a session_mode switch.
 const (

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +19,12 @@ var (
 	ErrACPVersion          = errors.New("the machine needs OpenCode 1.19.5 or newer for chats")
 	ErrACPModelRejected    = errors.New("The model could not be changed. Choose a model configured on this machine and check its provider credentials, then try again.")
 	ErrACPModelUnsupported = errors.New("Update reet on this machine to switch models during a session.")
-	ErrACPBusy             = errors.New("the chat is already working")
-	ErrACPClosed           = errors.New("the chat is not running")
+	// ErrACPAgentModeUnsupported means the machine or agent does not offer that mode switch.
+	ErrACPAgentModeUnsupported = errors.New("That agent cannot be switched to that mode on this machine. Update reet on the machine, or choose one of the modes it offers.")
+	// ErrACPAgentModeRejected means the agent did not confirm the new mode, so the chat is still in the old one.
+	ErrACPAgentModeRejected = errors.New("The agent did not switch modes, so the chat is still in the mode it was in.")
+	ErrACPBusy              = errors.New("the chat is already working")
+	ErrACPClosed            = errors.New("the chat is not running")
 	// ErrACPResumeNotFound means the requested OpenCode session is not one of
 	// this account's closed chats on that machine.
 	ErrACPResumeNotFound = errors.New("that chat history is not available")
@@ -903,6 +908,36 @@ func (b *Broker) SetChatYolo(ctx context.Context, uid int64, session string, yol
 // chatCallTimeout bounds a chat command's acknowledgement. The model turn is
 // not waited for; its events arrive on the same control connection.
 var chatCallTimeout = 10 * time.Second
+
+// SetAgentMode moves a live chat to one of the modes its machine lists in the
+// agent's descriptor. The machine confirms the mode with the agent before it
+// answers OK, so a success here means the chat is in that mode.
+func (b *Broker) SetAgentMode(ctx context.Context, uid int64, session, mode string) error {
+	if !terminalproto.ValidAgentMode(mode) {
+		return terminalproto.ErrInvalid
+	}
+	s, err := b.structuredSession(uid, session)
+	if err != nil {
+		return err
+	}
+	p, err := b.peer(uid, s.AgentID, true)
+	if err != nil {
+		return err
+	}
+	caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID)
+	if err != nil || caps.Generation != p.Generation {
+		return ErrOffline
+	}
+	chat, ok := caps.Capabilities.ChatAgent(s.Tool)
+	if !ok || !caps.Capabilities.ACPAgentMode || !slices.Contains(chat.Modes, mode) {
+		return ErrACPAgentModeUnsupported
+	}
+	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &terminalproto.ACPAgentMode{Mode: mode}}, chatCallTimeout)
+	if result, ok := reply.Body.(*terminalproto.Result); err == nil && ok && result.Code != terminalproto.OK && result.Code != terminalproto.Conflict && result.Code != terminalproto.NotFound {
+		return ErrACPAgentModeRejected
+	}
+	return chatAck(reply, err)
+}
 
 func (b *Broker) ModelChat(ctx context.Context, uid int64, session, model string) error {
 	if model == "" || !terminalproto.ValidModel(model) {

@@ -24,9 +24,14 @@ try {
    const layout=async()=>expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
    const noOldPitch=async()=>expect(await page.locator('body').innerText()).not.toMatch(/skills\.sh|your shelf|skills reported/i)
    await page.goto(base)
-   await expect(page.getByRole('heading',{level:1})).toContainText('For your AI fleet.')
+   await expect(page.getByRole('heading',{level:1})).toContainText('Your whole AI setup shows up.')
    await expect(page.getByText('Ey up. Your AI control room.',{exact:true})).toBeVisible()
-   await expect(page.getByRole('heading',{name:'A reet good agent toolkit.'})).toBeVisible()
+   await expect(page.getByRole('heading',{name:'Enrol a machine with one command.'})).toBeVisible()
+   await expect(page.getByRole('heading',{name:'Agents, skills and setups stay in sync.'})).toBeVisible()
+   // The illustration shows the real enrolment: the product's own two commands, a machine reporting in, and the fleet in sync.
+   await expect(page.locator('.workspace-preview')).toContainText('reet agent enroll --server')
+   await expect(page.locator('.workspace-preview')).toContainText('reet agent run')
+   await expect(page.locator('.workspace-preview .preview-machine')).toHaveCount(3)
    await expect(page.getByText('On the workbench',{exact:true})).toBeVisible()
    // Invite-only: members of a private instance come back to sign in, so that leads. Install and invite are real buttons, not quiet text.
    const cta=page.locator('.cta-row')

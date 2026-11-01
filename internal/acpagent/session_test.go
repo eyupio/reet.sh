@@ -1117,3 +1117,142 @@ func TestPermissionTitle(t *testing.T) {
 		}
 	}
 }
+
+// An agent that ignores session/cancel must not leave the chat busy until the
+// turn timeout after the person was told it stopped: after the grace period the
+// chat is ended explicitly and the process group is confirmed gone.
+func TestCancelIgnoredByTheAgentEndsTheChatAfterTheGracePeriod(t *testing.T) {
+	opts, got := options(t, "ignore-cancel", testVersion)
+	opts.TurnTimeout = time.Minute
+	opts.ForceStopGrace = 300 * time.Millisecond
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "start") }()
+	for deadline := time.Now().Add(5 * time.Second); !session.Working(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the turn never started")
+		}
+	}
+	if err := session.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-session.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("an ignored cancel left the chat running")
+	}
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the turn never returned after the chat was ended")
+	}
+	// Done closes when the process exits; Close records the retirement just after.
+	for deadline := time.Now().Add(10 * time.Second); !session.GroupRetired(); {
+		if time.Now().After(deadline) {
+			t.Fatal("the process group was not confirmed gone")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	notice := false
+	for {
+		select {
+		case event := <-got.wait:
+			if event.Kind == "notice" && strings.Contains(event.Text, "did not stop when asked") && event.Bad {
+				notice = true
+			}
+			continue
+		default:
+		}
+		break
+	}
+	if !notice {
+		t.Fatal("the person was not told the chat was ended")
+	}
+}
+
+// A cancel the agent honours must not end the chat, and the force-stop armed for
+// that turn must not touch the next turn that is running when it fires.
+func TestForceStopIsBoundToTheCancelledTurn(t *testing.T) {
+	opts, got := options(t, "progress-after-silence-hang", testVersion)
+	opts.TurnTimeout = time.Minute
+	opts.ForceStopGrace = 300 * time.Millisecond
+	opts.StillWorkingAfter = time.Minute
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	first := make(chan error, 1)
+	go func() { first <- session.Prompt(context.Background(), "one") }()
+	for event := got.next(t); event.Kind != "agent"; event = got.next(t) {
+	}
+	if err := session.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-first:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the honoured cancel did not end the first turn")
+	}
+	second := make(chan error, 1)
+	go func() { second <- session.Prompt(context.Background(), "two") }()
+	time.Sleep(900 * time.Millisecond) // well past the first turn's grace period
+	select {
+	case <-session.Done():
+		t.Fatal("the first turn's force-stop ended the second turn")
+	default:
+	}
+	if !session.Working() {
+		t.Fatal("the second turn is not running")
+	}
+	_ = session.Cancel()
+	select {
+	case <-second:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second turn did not end")
+	}
+}
+
+// Once the force-stop has committed to ending the chat, a turn that finishes a
+// moment later must not be followed by a new one that the close would then kill.
+func TestForceStopRefusesNewTurnsOnceCommitted(t *testing.T) {
+	opts, got := options(t, "progress-after-silence-hang", testVersion)
+	opts.TurnTimeout = time.Minute
+	opts.ForceStopGrace = time.Minute // the timer never fires; the commit is driven by hand
+	opts.StillWorkingAfter = time.Minute
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	first := make(chan error, 1)
+	go func() { first <- session.Prompt(context.Background(), "one") }()
+	for event := got.next(t); event.Kind != "agent"; event = got.next(t) {
+	}
+	session.turnMu.Lock()
+	seq := session.turnSeq
+	session.turnMu.Unlock()
+	if !session.commitForceStop(seq) {
+		t.Fatal("a running turn could not be committed to a force-stop")
+	}
+	// The agent now finishes the cancelled turn, before the close runs.
+	if err := session.sendCancel(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-first:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the turn did not end")
+	}
+	if err := session.Prompt(context.Background(), "two"); !errors.Is(err, ErrClosed) {
+		t.Fatalf("a new turn started after the force-stop committed: %v", err)
+	}
+	// A stale commit for an older turn is refused.
+	if session.commitForceStop(seq - 1) {
+		t.Fatal("a commit for another turn was accepted")
+	}
+}

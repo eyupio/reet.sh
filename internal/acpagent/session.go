@@ -1279,6 +1279,41 @@ func retireGroup(pgid int, timeout time.Duration) bool {
 // process group pgid.
 func GroupAlive(pgid int) bool { return groupAlive(pgid) }
 
+// killGroup sends SIGKILL to the whole process group; a variable so a test can
+// see whether the escalation was needed.
+var killGroup = func(pgid int) { _ = syscall.Kill(-pgid, syscall.SIGKILL) }
+
+// TerminateGroup stops a process group this package did not start (a terminal
+// TUI): SIGTERM first, so the program can flush, waiting up to termTimeout; then
+// SIGKILL, waiting up to killTimeout. It returns true once no live member
+// remains, and false if the group is still alive, so a caller must not start a
+// replacement on the same OpenCode session. Call it only for a group that was
+// seen alive moments ago, so the group id cannot have been reused.
+func TerminateGroup(pgid int, termTimeout, killTimeout time.Duration) bool {
+	if !groupAlive(pgid) {
+		return true
+	}
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	if waitGroupGone(pgid, termTimeout) {
+		return true
+	}
+	killGroup(pgid)
+	return waitGroupGone(pgid, killTimeout)
+}
+
+func waitGroupGone(pgid int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if !groupAlive(pgid) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // GroupRetired reports whether Close confirmed that every process the agent
 // started is gone. It is false before Close and when retirement timed out.
 func (s *Session) GroupRetired() bool {

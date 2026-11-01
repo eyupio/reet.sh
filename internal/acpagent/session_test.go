@@ -1494,3 +1494,47 @@ func TestStopEndsTheChatOnlyWhileACommandRunsWhenTheProfileAsksFor(t *testing.T)
 		session.Close()
 	}
 }
+
+// A tool the replayed history left unfinished is marked interrupted when the chat
+// is reopened; it must not count as a running command, or Stop in a later
+// text-only turn would end the chat and claim a command was running.
+func TestInterruptedReplayToolsDoNotMakeStopEndTheChat(t *testing.T) {
+	opts, got := options(t, "ignore-cancel", testVersion)
+	opts.Resume = "ses_fake000000000000000000000001"
+	opts.Agent.EndChatOnStopWhileToolRuns = true
+	opts.TurnTimeout = time.Minute
+	opts.ForceStopGrace = time.Minute
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if !got.has("tool") {
+		t.Fatal("the replay did not include the unfinished tool")
+	}
+	go func() { _ = session.Prompt(context.Background(), "just text") }()
+	for deadline := time.Now().Add(5 * time.Second); !session.Working(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the turn never started")
+		}
+	}
+	if err := session.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-session.Done():
+		t.Fatal("Stop ended the chat although no command was running")
+	case <-time.After(400 * time.Millisecond):
+	}
+	for {
+		select {
+		case event := <-got.wait:
+			if event.Kind == "notice" && strings.Contains(event.Text, "was running a command") {
+				t.Fatal("the person was told a command was running")
+			}
+			continue
+		default:
+		}
+		break
+	}
+}

@@ -1057,6 +1057,10 @@ func (s *Session) markInterrupted() {
 			ids = append(ids, id)
 		}
 	}
+	// Interrupted calls are over: they must not count as running tools.
+	for _, id := range ids {
+		delete(s.toolStart, id)
+	}
 	s.mu.Unlock()
 	for _, id := range ids {
 		s.emit(Event{Kind: "tool", ToolCallID: id, Status: "failed", ToolKind: "other", Title: "Interrupted tool call",
@@ -1109,6 +1113,9 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 	s.lastEvent = s.turnStart
 	s.turnProgress = false
 	s.turnError = false
+	// No tool can be running when a turn begins; an entry left by an earlier turn
+	// or by a replayed history must not make Stop think a command is running.
+	s.toolStart = map[string]time.Time{}
 	s.mu.Unlock()
 	startedAt := s.turnStart
 	s.turnMu.Unlock()

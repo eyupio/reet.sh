@@ -95,7 +95,7 @@ reproduce the earlier finding.)
 
 **Run B, signed in:** by default the script uses an empty temporary `CODEX_HOME`, so it cannot see your login. Copy your Codex directory and point the script at the copy (the adapter
 may write to it): `cp -r ~/.codex "$WORKSPACE/codex-home-copy"`, then `python3 -I scripts/probe-codex-start.py --workspace "$WORKSPACE" --auth none --codex-home "$WORKSPACE/codex-home-copy"`.
-**Record** whether `session/new` succeeds with no `authenticate` call, that it starts in `agent`, and the `_auth/status_update` `authStatus` kind and label it sends (leave the email
+**Record** whether `session/new` succeeds with no `authenticate` call, that it starts in `agent`, and the `authStatusUpdates` (kind and label) the script prints (the email is never included
 out of what you share). Delete the copy afterwards; it holds your login.
 
 Only then wire the Codex start and its "Sign in to Codex on that machine first" message.

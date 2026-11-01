@@ -38,7 +38,7 @@ proc = subprocess.Popen([node, str(entry)], cwd=run / "project", env=env, stdin=
 sel = selectors.DefaultSelector()
 sel.register(proc.stdout, selectors.EVENT_READ, "stdout")
 sel.register(proc.stderr, selectors.EVENT_READ, "stderr")
-buf, records = {"stdout": b"", "stderr": b""}, []
+buf, records, auth_updates = {"stdout": b"", "stderr": b""}, [], []
 
 
 def send(m):
@@ -47,8 +47,29 @@ def send(m):
     proc.stdin.flush()
 
 
+def take(data, channel, answers):
+    """Parse every complete line now buffered, recording all of them. Responses are collected by id so a notification that arrives in the same read as a response is never dropped."""
+    buf[channel] += data
+    while b"\n" in buf[channel]:
+        line, buf[channel] = buf[channel].split(b"\n", 1)
+        if channel == "stderr":
+            records.append({"stderr": line.decode(errors="replace")[:500]})
+            continue
+        m = json.loads(line)
+        records.append({"agent": m})
+        if "method" in m and "id" in m:
+            send({"jsonrpc": "2.0", "id": m["id"], "error": {"code": -32601, "message": "probe does not implement this callback"}})
+        elif m.get("method") == "_auth/status_update":
+            status = (m.get("params") or {}).get("authStatus") or {}
+            # Kind and label only: the payload can carry the account email, which does not belong in a shared summary.
+            auth_updates.append({"kind": status.get("kind"), "label": status.get("label")})
+        elif "id" in m:
+            answers[m["id"]] = m
+
+
 def call(ident, method, params, timeout=40):
     send({"jsonrpc": "2.0", "id": ident, "method": method, "params": params})
+    answers = {}
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         for key, _ in sel.select(0.2):
@@ -56,19 +77,22 @@ def call(ident, method, params, timeout=40):
             if not data:
                 sel.unregister(key.fileobj)
                 continue
-            buf[key.data] += data
-            while b"\n" in buf[key.data]:
-                line, buf[key.data] = buf[key.data].split(b"\n", 1)
-                if key.data == "stderr":
-                    records.append({"stderr": line.decode(errors="replace")[:500]})
-                    continue
-                m = json.loads(line)
-                records.append({"agent": m})
-                if "method" in m and "id" in m:
-                    send({"jsonrpc": "2.0", "id": m["id"], "error": {"code": -32601, "message": "probe does not implement this callback"}})
-                elif m.get("id") == ident:
-                    return m
+            take(data, key.data, answers)
+        if ident in answers:
+            return answers[ident]
     return {"timeout": ident}
+
+
+def drain(seconds=1.0):
+    """Read what is still arriving after the last call, so a trailing notification is recorded before the adapter is stopped."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        for key, _ in sel.select(0.2):
+            data = os.read(key.fileobj.fileno(), 65536)
+            if data:
+                take(data, key.data, {})
+            else:
+                sel.unregister(key.fileobj)
 
 
 def modes(res):
@@ -103,6 +127,8 @@ try:
         summary["setMode"] = {"error": legacy.get("error"), "rawResult": legacy.get("result")}
     else:
         summary["newAfterAuthenticate"] = created
+    drain()
+    summary["authStatusUpdates"] = auth_updates
     print(json.dumps(summary, indent=2, default=str))
 finally:
     try:

@@ -180,6 +180,13 @@ trust, model or history assumptions. Reuse SC2's probe matrix and SC3's question
 controls where the wire contract matches. Gemini and Pi are later candidates,
 not scope additions to the first two integrations.
 
+### SC4 progress: Codex gates re-run (1 November 2026)
+
+The three open Codex gates were re-probed (see "Codex gates, re-run" in the probe report). Codex's sandbox is active; approvals appear only in `read-only` mode and only when the
+model asks to leave the sandbox, so commands inside the sandbox, including project writes, run without a prompt. `agent` mode never asks, a reject ends the whole turn, an
+"allow always" option writes a persistent rule, and `session/cancel` does not stop a running command. Codex stays unregistered: it needs the product decisions listed there
+before any wiring, and the earlier note that no approval exists in any mode is corrected.
+
 ### Device and credential checks (1 November 2026)
 
 What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real

@@ -53,11 +53,11 @@ const sync = () => ({environments:[],machines:[],agents:[{id:'a1',host:'studio',
 const changedPaths = Array.from({length:23}, (_, i) => i < 3 ? ['internal/terminalproto/browse.go','internal/terminalhost/browse.go','docs/terminal-launch.md'][i] : `web/src/file${i}.ts`)
 
 async function open(options={}) {
- const box = {sessions:options.sessions ?? sessions(), projects:options.projects ?? projects(), fail:false, writes:[], commands:[], hold:null, status:[], sockets:[]}
+ const box = {sessions:options.sessions ?? sessions(), projects:options.projects ?? projects(), fail:false, writes:[], commands:[], hold:null, status:[], sockets:[], lists:0}
  const routes = {
   '/api/v2/machines/health': () => box.fail ? {status:500,json:{error:'down'}} : health(),
   '/api/v2/terminal/machines': () => box.fail ? {status:500,json:{error:'down'}} : {machines:options.machines ?? tmachines},
-  '/api/v2/terminal/sessions': async () => { if (box.hold) await box.hold; return box.fail ? {status:500,json:{error:'down'}} : {sessions:box.sessions} },
+  '/api/v2/terminal/sessions': async () => { box.lists++; if (box.hold) await box.hold; return box.fail ? {status:500,json:{error:'down'}} : {sessions:box.sessions} },
   '/api/v2/terminal/commands': request => {
    if (request.method() === 'GET') return {commands:box.commands}
    const item = {...request.postDataJSON(), id:`c${box.commands.length + 1}`, revision:1}
@@ -818,6 +818,78 @@ try {
   await page.evaluate(() => window.__chatStream.emit('chat', {seq:2, kind:'permission_resolved', permissionId:'p1', allow:false}))
   await expect(tuiButton).toHaveAttribute('aria-disabled','false')
   expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // D2: each session has its own switch in flight; one held on the machine never drops another's.
+ if (run('a switch on one session does not hold another')) {
+  const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
+  let finish
+  box.mode = (body, find) => find().id === 's9' ? new Promise(resolve => { finish = resolve }) : null
+  await page.goto(`${base}/sessions?agent=a1&session=s9`)
+  const view = screen(page).getByRole('group',{name:'View'})
+  const chatButton = view.getByRole('button',{name:'reet TUI'}), tuiButton = view.getByRole('button',{name:'OpenCode TUI'})
+  await tuiButton.click()
+  await page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'}).getByRole('button',{name:'Switch to the OpenCode TUI'}).click()
+  await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(1)
+  // B, while A is still switching: its switch is offered and its request is sent.
+  await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
+  await expect(tuiButton).toHaveAttribute('aria-pressed','true')
+  await expect(chatButton).toHaveAttribute('aria-disabled','false')
+  await chatButton.click()
+  await page.getByRole('alertdialog',{name:'Switch to the reet TUI?'}).getByRole('button',{name:'Switch to the reet TUI'}).click()
+  await expect.poll(() => box.writes.filter(w => w.kind === 'mode').map(w => [w.id, w.body.mode])).toEqual([['s9','terminal'],['s8','chat']])
+  await expect(chatButton).toHaveAttribute('aria-pressed','true')
+  await expect(page.locator('.chat-pane')).toBeVisible()
+  // A is still switching: back on it, both its buttons wait and say why.
+  await sidebarRow(page, 'Chat about the store').click()
+  await expect(chatButton).toHaveAttribute('aria-pressed','true')
+  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
+  await expect(tuiButton).toHaveAccessibleDescription('Switching to the OpenCode TUI…')
+  box.sessions = box.sessions.map(x => x.id === 's9' ? {...x, structured:false} : x)
+  finish({status:204, body:''})
+  await expect(tuiButton).toHaveAttribute('aria-pressed','true')
+  await expect(chatButton).toHaveAttribute('aria-disabled','false')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // D3 and D6: a switch the machine could not make, which ended the session: its sentence is shown and the list read again,
+ // whether or not the person is still on that session.
+ if (run('a failed switch reads the list again')) {
+  const ENDED = 'The session could not be switched and has ended. Start a new session or continue it with history.'
+  const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
+  let finish
+  box.mode = () => new Promise(resolve => { finish = resolve })
+  await page.goto(`${base}/sessions?agent=a1&session=s9`)
+  const view = screen(page).getByRole('group',{name:'View'})
+  const tuiButton = view.getByRole('button',{name:'OpenCode TUI'})
+  await tuiButton.click()
+  await page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'}).getByRole('button',{name:'Switch to the OpenCode TUI'}).click()
+  await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(1)
+  // On this session: the controller's sentence, and the ended row read again (the list is otherwise read every 15 s).
+  let lists = box.lists
+  box.sessions = box.sessions.map(x => x.id === 's9' ? {...x, state:'ended'} : x)
+  finish({status:409, json:{error:ENDED, code:'session_mode_ended'}})
+  await expect(screen(page).getByRole('status').first()).toHaveText(ENDED)
+  await expect.poll(() => box.lists).toBeGreaterThan(lists)
+  await expect(screen(page).locator('.pill')).toContainText('Ended')
+  await expect(page.locator('.ended-banner')).toContainText('This session has ended.')
+  // Away from it: a failure for a session no longer shown still reads the list again, so its row is not stale.
+  await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
+  box.mode = (body, find) => find().id === 's8' ? new Promise(resolve => { finish = resolve }) : null
+  await view.getByRole('button',{name:'reet TUI'}).click()
+  await page.getByRole('alertdialog',{name:'Switch to the reet TUI?'}).getByRole('button',{name:'Switch to the reet TUI'}).click()
+  await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(2)
+  await sidebarRow(page, 'Add browse-v1 protocol').click()
+  await expect(screen(page).getByRole('heading',{name:'Add browse-v1 protocol',level:2})).toBeVisible()
+  await page.waitForTimeout(300)
+  lists = box.lists
+  finish({status:409, json:{error:ENDED, code:'session_mode_ended'}})
+  await expect.poll(() => box.lists).toBeGreaterThan(lists)
+  // The sentence belongs to the other session, so this screen does not show it.
+  await expect(screen(page).getByRole('status').first()).not.toContainText(ENDED)
   expect(errors).toEqual([])
   await context.close()
  }

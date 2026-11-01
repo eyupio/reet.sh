@@ -118,15 +118,16 @@
 
   // The reet TUI | agent TUI switch (switchModeState says where the inactive button goes and why it may not). A switch
   // stops one process on the machine and starts the other, which can take minutes: until the machine answers, both buttons
-  // wait and the status line says so. No client deadline is set; the request ends when the controller answers.
-  let switching = $state<{ id: string; to: 'terminal' | 'chat' } | null>(null)
+  // wait and the status line says so. No client deadline is set; the request ends when the controller answers. Each session
+  // has its own switch in flight (keyed by its id), so one held on the machine never holds or drops another's.
+  let switching = $state<Record<string, 'terminal' | 'chat'>>({})
   let switchAsk = $state<{ to: 'terminal' | 'chat'; trust?: { detail: string } } | null>(null), switchOpener: HTMLElement | null = null
-  const modeSwitching = $derived(switching?.id === session.id)
+  const modeSwitching = $derived(!!switching[session.id])
   const chatIsBusy = $derived(chatBusy ?? (session.attention === 'working' || session.attention === 'waiting'))
   const switchState = $derived(switchModeState(session, machineCaps, chatIsBusy))
   const tuiName = (to: 'terminal' | 'chat') => to === 'chat' ? 'reet TUI' : terminalLabel
   const canSwitch = $derived(switchState.enabled && !modeSwitching && !busy)
-  const switchWhy = $derived(modeSwitching && switching ? `Switching to the ${tuiName(switching.to)}…` : switchState.why)
+  const switchWhy = $derived(switching[session.id] ? `Switching to the ${tuiName(switching[session.id])}…` : switchState.why)
   function openSwitch(opener: HTMLElement | null) {
     if (!canSwitch) return
     switchOpener = opener
@@ -136,9 +137,9 @@
   async function confirmSwitch(trust: boolean) {
     const ask = switchAsk
     switchAsk = null
-    if (!ask || switching) return
+    if (!ask || switching[session.id]) return
     const target = { id: session.id, to: ask.to }, name = tuiName(ask.to)
-    switching = target
+    switching[target.id] = target.to
     notice = { text: `Switching to the ${name}… This can take a few minutes.` }
     switchOpener?.focus()
     try {
@@ -146,7 +147,8 @@
       if (session.id === target.id) notice = { text: `Switched to the ${name}.` }
       if (onmode) onmode(target.id, target.to); else onrefresh()
     } catch (e) {
-      if (session.id !== target.id) return
+      // Away from it, the session's sentence is not shown here, but its row is read again so it is not stale.
+      if (session.id !== target.id) { onrefresh(); return }
       if (e instanceof TerminalError && e.code === 'acp_trust_required' && target.to === 'chat' && !trust) {
         notice = null
         switchAsk = { to: target.to, trust: { detail: e.detail || e.message } }
@@ -154,7 +156,7 @@
       }
       notice = { text: e instanceof Error && e.message ? e.message : 'The session could not be switched. Try again in a moment.', bad: true }
       onrefresh()
-    } finally { switching = null }
+    } finally { delete switching[target.id] }
   }
 
   // Details: the context panel over the terminal under 1100 px (and in theatre view). Escape closes it and focus returns.

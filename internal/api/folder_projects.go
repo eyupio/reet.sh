@@ -595,8 +595,13 @@ func (s *server) folderProjectUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditFolderProject(uid, "project-update", saved, names)
+	v := viewFolderProject(saved, names)
+	// The rail replaces its card with this answer, so keep the group the project is in.
+	if members, err := s.st.FolderProjectGroupsFor(uid); err == nil {
+		v.GroupID = members[saved.ID]
+	}
 	w.Header().Set("ETag", projectETag(saved.Version))
-	writeJSON(w, http.StatusOK, viewFolderProject(saved, names))
+	writeJSON(w, http.StatusOK, v)
 }
 
 // folderProjectDelete removes the registry entry only; sessions and worktrees

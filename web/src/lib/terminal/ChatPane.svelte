@@ -315,7 +315,9 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   try {
    const ok = await deliver(item.text, item.payload)
    if (!ok) { queueHalted = true; queueNote = 'The queued message was not sent. Retry, edit or remove it.'; return }
-   for (const picture of item.payload) URL.revokeObjectURL(picture.preview)
+   // deliver() put these previews in sentPreviews, and the history and lightbox read them through previewFor();
+   // keep them alive until the pane closes, as the immediate-send path does.
+   for (const picture of item.payload) sentUrls.push(picture.preview)
    queued = dropQueuedPrompt(queued, item.id)
    queueNote = queued.length ? 'Sent one queued message. The next waits for this turn.' : 'Queued message sent.'
    awaitingWork = true
@@ -690,7 +692,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   {/each}
  </div>
  {#if ended}
-  <p class="composer-note">This reet session has ended. Its live history is not kept after the machine connection closes.{#if queued.length} {queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.{/if}</p>
+  <p class="composer-note">{endedReason(session.state, toolName)}{#if queued.length} {queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.{/if}</p>
  {:else}
   <div class="composer" onpaste={pasted} class:dropping={dropping}>
    {#if queued.length}

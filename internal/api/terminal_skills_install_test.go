@@ -371,3 +371,47 @@ func TestTerminalSkillInstallCancelHidesOtherErrors(t *testing.T) {
 		t.Fatalf("got %d %q", code, raw)
 	}
 }
+
+func TestSaveDesiredAnswersAPendingInstallWithItsSentence(t *testing.T) {
+	f := installFixture(t)
+	code, raw := f.install(`{"skill":"reet:pdf"}`)
+	if code != 200 {
+		t.Fatal(code, raw)
+	}
+	var tg store.SyncTarget
+	targets, _ := f.st.SyncTargetsFor(f.uid)
+	for _, x := range targets {
+		if x.Target.ID == f.env {
+			tg = x
+		}
+	}
+	body, _ := json.Marshal(map[string]any{"targetId": f.env, "sourceId": "hosted", "listId": 0, "skillIds": []string{tg.Desired[0].ID}, "mode": "additive", "revision": tg.Revision})
+	r := httptest.NewRequest("PUT", "/api/v2/sync/desired", strings.NewReader(string(body)))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Origin", "https://reet.example")
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: f.cookie})
+	w := httptest.NewRecorder()
+	f.srv.ServeHTTP(w, r)
+	if w.Code != 409 || w.Body.String() != `{"error":"An install is waiting on this folder. Finish or cancel it first."}` {
+		t.Fatalf("got %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestEnvironmentMergeRefusesARunningInstallWith409(t *testing.T) {
+	f := installFixture(t)
+	if code, raw := f.install(`{"skill":"reet:pdf"}`); code != 200 {
+		t.Fatal(code, raw)
+	}
+	if j, err := f.st.ClaimSyncJob(f.uid, f.agent); err != nil || j == nil {
+		t.Fatal(j, err)
+	}
+	if err := f.st.TouchEnvironmentFor(f.uid, f.agent.Host, "claude", "/work/app", "/work/app/.claude/skills"); err != nil {
+		t.Fatal(err)
+	}
+	dest := store.EnvironmentIDFor(f.uid, f.agent.Host, "claude", "/work/app")
+	body, _ := json.Marshal(map[string]any{"from_id": f.env, "to_id": dest, "confirm": true})
+	code, raw := f.post("/api/v2/environments/merge", string(body), f.cookie, "https://reet.example")
+	if code != 409 || !strings.Contains(raw, `"code":"environment_job_running"`) {
+		t.Fatalf("got %d %s", code, raw)
+	}
+}

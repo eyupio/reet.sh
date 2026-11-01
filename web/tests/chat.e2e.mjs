@@ -495,6 +495,20 @@ try {
   await page.keyboard.press('Escape')
   await expect(picker).toHaveCount(0)
 
+  // Structure: a group of rows without actions is one listbox owning all of them; each reet row with an action is its own
+  // single-option listbox with the action outside it.
+  resetInstall([nativePdf, { ...nativePdf, id: 'm10', name: 'xlsx' }, hostedPdf, hostedDraft])
+  await skillsButton.click()
+  await expect(picker.getByRole('button', { name: 'Install pdf', exact: true })).toBeVisible()
+  const boxes = picker.getByRole('listbox')
+  await expect(boxes).toHaveCount(3)
+  await expect(boxes.nth(0)).toHaveAccessibleName('On this machine for OpenCode')
+  await expect(boxes.nth(0).getByRole('option')).toHaveCount(2)
+  for (const i of [1, 2]) await expect(boxes.nth(i).getByRole('option')).toHaveCount(1)
+  await expect(picker.locator('[role=listbox] button, [role=listbox] a')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+
   // Install opens the confirm text; nothing is called until the Install button in the panel is pressed, then exactly one call.
   await openPanel()
   await expect(panelOf.getByText('Add pdf to the OpenCode skills folder on dev-laptop. Nothing runs until you approve the plan.')).toBeVisible()

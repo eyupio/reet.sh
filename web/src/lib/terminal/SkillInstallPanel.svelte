@@ -108,7 +108,7 @@
     if (busy || phase !== 'started') return
     // The hash of the plan the person is looking at; it is what gets approved, never a hash from a later read.
     const shownHash = job?.hash
-    if (!shownHash) return
+    if (!shownHash) { fail('The plan has no approval code yet. Wait a moment and try again.'); return }
     busy = true; problem = null
     const life = track()
     try {

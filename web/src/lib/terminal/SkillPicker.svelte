@@ -30,6 +30,17 @@
   const unknownMachine = $derived(!!data && data.host === '')
   const empty = $derived(!!data && data.skills.length === 0)
   const noMatch = $derived(!!data && !empty && groups.length === 0)
+  const hasAction = (s: SessionSkill) => s.source === 'reet' && !s.onMachine
+  // Consecutive rows without an action stay together; a row with an action stands alone.
+  function runsOf(skills: SessionSkill[]): SessionSkill[][] {
+    const out: SessionSkill[][] = []
+    for (const s of skills) {
+      const last = out[out.length - 1]
+      if (last && !hasAction(s) && !hasAction(last[0])) last.push(s)
+      else out.push([s])
+    }
+    return out
+  }
   const reason = (s: SessionSkill) => (s.invocation ? '' : s.source === 'reet' ? 'not on this machine' : `not native to ${tool}`)
 
   onMount(() => {
@@ -59,7 +70,7 @@
   }
   function keys(event: KeyboardEvent) {
     const onRow = (event.target as HTMLElement)?.getAttribute('role') === 'option'
-    if (event.key === 'ArrowDown') move(event, at => at + 1)
+    if (event.key === 'ArrowDown') { if (onRow || event.target === input) move(event, at => at + 1) }
     else if (event.key === 'ArrowUp') {
       if (onRow && rows()[0] === event.target) { event.preventDefault(); input?.focus() }
       else if (onRow) move(event, at => at - 1)
@@ -106,27 +117,30 @@
             <div class="group">
               <div class="heading" id={`${id}-${g.key}`}>{g.label}</div>
               <div class="list">
-                {#each g.skills as s (s.id)}
+                {#each runsOf(g.skills) as run (run[0].id)}
+                  <!-- A listbox may own only options: rows without an action share the group's listbox; a row with an action is its own
+                       one-option listbox with the action beside it, outside. -->
                   <div class="item">
-                  <!-- A listbox may own only options, so each row is its own one-option listbox and its action sits beside it, outside it. -->
-                  <div class="single" role="listbox" aria-labelledby={`${id}-${g.key}`}>
-                  <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <div class="option" id={`${id}-o-${s.id}`} role="option" tabindex="-1" aria-selected="false" aria-disabled={s.invocation ? undefined : 'true'} onclick={() => pick(s)}>
-                    <span class="name">{s.name}</span>
-                    {#if s.description}<span class="description">{s.description}</span>{/if}
-                    <span class="meta">
-                      <span class="source">{s.source === 'reet' ? 'reet-hosted' : `On this machine · ${s.agent}`}</span>
-                      {#if !s.invocation}<span class="reason">{reason(s)}</span>{/if}
-                    </span>
-                  </div>
-                  </div>
-                  {#if s.source === 'reet' && !s.onMachine}
-                    {#if s.published}
-                      <button type="button" class="install" aria-label={`Install ${s.name}`} onclick={() => (installing = s)}>Install</button>
-                    {:else}
-                      <a class="publish" href="/hosting">Publish this skill to install it.</a>
+                    <div class="single" role="listbox" aria-labelledby={`${id}-${g.key}`}>
+                      {#each run as s (s.id)}
+                        <!-- svelte-ignore a11y_click_events_have_key_events -->
+                        <div class="option" id={`${id}-o-${s.id}`} role="option" tabindex="-1" aria-selected="false" aria-disabled={s.invocation ? undefined : 'true'} onclick={() => pick(s)}>
+                          <span class="name">{s.name}</span>
+                          {#if s.description}<span class="description">{s.description}</span>{/if}
+                          <span class="meta">
+                            <span class="source">{s.source === 'reet' ? 'reet-hosted' : `On this machine · ${s.agent}`}</span>
+                            {#if !s.invocation}<span class="reason">{reason(s)}</span>{/if}
+                          </span>
+                        </div>
+                      {/each}
+                    </div>
+                    {#if hasAction(run[0])}
+                      {#if run[0].published}
+                        <button type="button" class="install" aria-label={`Install ${run[0].name}`} onclick={() => (installing = run[0])}>Install</button>
+                      {:else}
+                        <a class="publish" href="/hosting">Publish this skill to install it.</a>
+                      {/if}
                     {/if}
-                  {/if}
                   </div>
                 {/each}
               </div>

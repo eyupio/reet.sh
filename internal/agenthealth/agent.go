@@ -955,6 +955,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ShellDir:        cfg.shellDir && control && enabled,
 		Attention:       cfg.attention && control,
 		Branches:        cfg.branches && worktree && enabled,
+		BranchPrune:     cfg.branches && worktree && enabled,
 		Software:        software,
 		SoftwareApply:   cfg.softwareApply && control && enabled,
 		TerminalControl: cfg.TerminalSession != nil,

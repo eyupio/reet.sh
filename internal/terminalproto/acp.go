@@ -46,6 +46,11 @@ const ACPApprovalFeature = "acp-approval-v1"
 // refuses an answer when it was not negotiated.
 const ACPQuestionFeature = "acp-question-v1"
 
+// SessionModeFeature lets a controller switch a live session between the
+// OpenCode terminal and the structured chat (session_mode). A peer without it
+// never sends or receives the body.
+const SessionModeFeature = "session-mode-v1"
+
 const (
 	// MaxChatPromptBytes bounds one chat message. 2,000 bytes is the largest
 	// text whose JSON encoding is certain to fit the 16 KiB control frame, even
@@ -87,6 +92,16 @@ func SupportsACPToolDetails(features string) bool {
 func SupportsACPApproval(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == ACPApprovalFeature {
+			return true
+		}
+	}
+	return false
+}
+
+// SupportsSessionMode reports whether the peer negotiated session-mode-v1.
+func SupportsSessionMode(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == SessionModeFeature {
 			return true
 		}
 	}
@@ -270,6 +285,43 @@ type ACPMode struct {
 
 func (ACPMode) kind() string { return "acp_mode" }
 func (ACPMode) valid() bool  { return true }
+
+// Targets of a session_mode switch.
+const (
+	SessionModeTerminal = "terminal"
+	SessionModeChat     = "chat"
+)
+
+// SessionMode asks the machine to move a session to the OpenCode terminal or
+// the structured chat. Cols and Rows size the terminal and are ignored for chat.
+// Trust applies only when switching to chat.
+type SessionMode struct {
+	To           string `json:"to"`
+	Tool         string `json:"tool"`
+	Dir          string `json:"dir"`
+	Model        string `json:"model,omitempty"`
+	Yolo         bool   `json:"yolo,omitempty"`
+	ACPSessionID string `json:"acpSessionId"`
+	Title        string `json:"title,omitempty"`
+	Trust        bool   `json:"trust,omitempty"`
+	Cols         int    `json:"cols"`
+	Rows         int    `json:"rows"`
+}
+
+func (SessionMode) kind() string { return "session_mode" }
+func (m SessionMode) valid() bool {
+	switch m.To {
+	case SessionModeTerminal:
+		if m.Trust || !ValidDimensions(m.Cols, m.Rows) {
+			return false
+		}
+	case SessionModeChat:
+	default:
+		return false
+	}
+	return ValidACPSessionIDFor(m.Tool, m.ACPSessionID) && ValidDir(m.Dir) &&
+		(m.Model == "" || ValidModel(m.Model)) && validChatText(m.Title, 200)
+}
 
 func validACPID(s string) bool {
 	if len(s) < 2 || len(s) > 128 {

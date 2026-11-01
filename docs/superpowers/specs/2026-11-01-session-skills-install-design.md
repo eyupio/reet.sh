@@ -67,18 +67,26 @@ The handler, in order:
    refused.
 5. In one transaction, reads the target's saved set, mode and follow-source flag, and:
    - if the target follows another machine (`follow_source`), refuses, because the next sync would remove the skill;
-   - if a preview, auto or apply job is already queued, running or awaiting approval for this target, returns that job
-     (`reused: true`) instead of queuing a second;
+   - if a preview, auto or apply job is already queued, running or awaiting approval for this target: when that job was
+     started by an install of **the same skill**, returns it (`reused: true`); when it is anything else, including an
+     install of a different skill, refuses with `install-in-progress` and changes nothing. A pending job is tied to the
+     saved set's revision (`ClaimSyncJob`, `ControlSyncJob` and the apply result all reject a job whose revision no longer
+     matches), so merging a second skill under a waiting job would break that job. The person finishes or cancels the first
+     install, then installs the second;
    - otherwise merges the skill into the saved set (the set stays as it was, plus the new skill), keeps the existing mode,
-     or creates an `additive` set when the target had none, and queues a **`preview`** job for the target.
+     or creates an `additive` set when the target had none, and queues a **`preview`** job for the target. The job kind is
+     always `preview`, never `auto`: `FinishSyncJob` turns an additive `auto` plan straight into a queued apply, which would
+     install the skill without the picker's Approve step. A test pins the queued kind.
+   The install records, on the job, that it was started by an install of this skill and whether the install created the saved
+   set (so Cancel can undo exactly that, below).
 6. Writes a sync event (`s.eventRequest`, action `skill-install`) with the session, machine, skill and job id, like other
    sync writes. The skill's content is never logged.
 
 Response: `{ "job": "<id>", "reused": false, "directory": "<folder>", "host": "<machine>" }`.
 
 Errors are `{ "error": "<sentence>", "code": "<code>" }` with one stable code each: `unpublished`, `connector-offline`,
-`no-scan`, `unsupported-agent`, `follows-source`, `already-installed` (the skill is already on this machine for this agent),
-`read-only`. The sentences are written for the person, for example "dev-laptop's skills follow another machine, so this
+`no-scan`, `unsupported-agent`, `follows-source`, `install-in-progress` (a different job is pending on this folder),
+`already-installed` (the skill is already on this machine for this agent), `read-only`. The sentences are written for the person, for example "dev-laptop's skills follow another machine, so this
 skill would be removed the next time it syncs."
 
 The controller adds **no code that writes files on the machine**. Writing is the connector's existing apply.
@@ -114,6 +122,20 @@ or the job ends. Approve and Cancel use the existing `controlSyncJob`. The only 
 The install panel works the same in both TUIs and as a bottom sheet on a phone. Closing the picker mid-install does not cancel
 the job; the job stays visible in the existing Needs you and Sync surfaces.
 
+### Cancel undoes the merge
+
+Pressing Cancel in the picker must not leave the skill in the saved set, because a later `auto` sync run would then install
+it (additive plans are applied without a second approval) although the person cancelled. So Cancel is a second endpoint,
+`POST /api/v2/terminal/sessions/{id}/skills/install/cancel` with body `{ "job": "<id>" }`, which in one transaction:
+
+1. cancels the job through the existing cancel rule (only a queued or awaiting-approval job can be cancelled; a running
+   one cannot, and the picker says so);
+2. if the saved set's revision is still the one this install produced, removes the skill from the saved set, and deletes the
+   whole saved set if this install had created it; if someone has changed the set since, leaves it alone and says so.
+
+A job that **failed** keeps the saved set so a retry is one press; the picker's Failed state offers Retry and Remove from
+saved skills (the same revert).
+
 ### Safety
 
 - Every write to the machine goes through the existing preview, hash approval and apply. A plan the person did not see in the
@@ -121,6 +143,8 @@ the job; the job stays visible in the existing Needs you and Sync surfaces.
 - Only the signed-in account's own published hosted skills can be installed, and only through `SyncHostedFor`.
 - Viewers cannot install. The endpoint follows the sibling sync writers' role check.
 - The merge never removes: the saved set keeps what it had, and an `additive` set is created only when none existed.
+- Only `preview` jobs are queued, so every install shows its plan and waits for the hash-checked Approve.
+- A cancelled install leaves no trace in the saved set.
 - Names and messages are shown as text only.
 
 ## Not in scope
@@ -131,8 +155,11 @@ the job; the job stays visible in the existing Needs you and Sync surfaces.
 ## Testing
 
 - Go (store): the merge keeps the existing saved set and mode and adds the skill; an `additive` set is created when none
-  exists; a `follow_source` target is refused with no change; a pending job is reused instead of a second one; two concurrent
-  installs on one target leave one pending job and a saved set that contains both skills.
+  exists; a `follow_source` target is refused with no change; the queued job kind is `preview`; a pending job for the same
+  skill is returned (`reused`); a pending job for a different skill is refused with `install-in-progress` and leaves the
+  saved set and the pending job untouched; two concurrent installs of different skills on one target end with exactly one
+  pending job and a saved set containing only the first; Cancel removes the skill again (and removes a set the install
+  created), leaves a set someone else changed, and refuses to cancel a running job.
 - Go (handler, in the Phase 1 test style): unknown and foreign sessions get 403; a viewer is refused; each error code is
   returned for its condition (unpublished, offline connector, no or stale scan, unsupported agent, already installed,
   follows source); a machine alias still resolves the target; the success path queues exactly one `preview` job for the user-
@@ -146,8 +173,7 @@ the job; the job stays visible in the existing Needs you and Sync surfaces.
 ## Open questions for the plan
 
 1. Where the "Publish this skill" link goes (the page where hosted skills are managed).
-2. Whether the job is best queued as `preview` or `auto` (both reach awaiting approval); the plan must read
-   `FinishSyncJob` before choosing, and the spec's flow holds either way.
+2. (Resolved: `preview` only; see the endpoint section.)
 3. A hosted skill whose slug is already installed on the machine **for another agent** is, in Phase 1, listed once, under
    "other agents", and not repeated in the reet group (the catalogue drops a hosted skill whose slug is installed). So no
    Install is offered for it, although it is not installed for this session's agent. Either accept that for now, or change

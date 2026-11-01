@@ -2,6 +2,8 @@ package terminalhost
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
@@ -115,6 +117,9 @@ func PlanBranchPrune(ctx context.Context, home string, req terminalproto.BranchP
 	}
 
 	result := terminalproto.BranchPrunePlanResult{Current: current, Default: deflt, Base: base, More: more}
+	// The encoded answer must fit the protocol's reply limit, or the machine
+	// could not send it: stop adding branches when the budget is spent.
+	size := branchPrunePlanBaseSize(result)
 	for _, name := range order {
 		if ctx.Err() != nil {
 			result.More = true
@@ -147,9 +152,24 @@ func PlanBranchPrune(ctx context.Context, home string, req terminalproto.BranchP
 				}
 			}
 		}
-		result.Branches = append(result.Branches, terminalproto.BranchPruneBranch{Name: name, OID: oids[name], Skip: skip})
+		entry := terminalproto.BranchPruneBranch{Name: name, OID: oids[name], Skip: skip}
+		data, _ := json.Marshal(entry)
+		if size+len(data)+1 > terminalproto.MaxBrowseReplyBytes {
+			result.More = true
+			break
+		}
+		size += len(data) + 1
+		result.Branches = append(result.Branches, entry)
 	}
 	return result
+}
+
+// branchPrunePlanBaseSize is an upper bound on the encoded answer without
+// branches: More set and the branches' brackets.
+func branchPrunePlanBaseSize(r terminalproto.BranchPrunePlanResult) int {
+	r.More, r.Branches = true, nil
+	data, _ := json.Marshal(r)
+	return len(data) + len(`,"branches":[]`)
 }
 
 type mergeState struct {
@@ -168,14 +188,43 @@ func branchMerged(ctx context.Context, dir, base, branch string, git GitRunner) 
 	if strings.TrimSpace(string(out)) == "0" {
 		return mergeState{merged: true}, false
 	}
+	// git cherry skips merge commits, so a merge only this branch has could
+	// carry work (a conflict resolution) that no patch comparison sees: it is
+	// not proven preserved.
+	merges, err := git(ctx, dir, "rev-list", "--count", "--merges", base+".."+branch)
+	if err != nil {
+		return mergeState{}, true
+	}
+	if strings.TrimSpace(string(merges)) != "0" {
+		return mergeState{merged: false}, false
+	}
+	plain, err := git(ctx, dir, "rev-list", "--count", "--no-merges", base+".."+branch)
+	if err != nil {
+		return mergeState{}, true
+	}
+	want, err := strconv.Atoi(strings.TrimSpace(string(plain)))
+	if err != nil {
+		return mergeState{}, true
+	}
 	cherry, err := git(ctx, dir, "cherry", base, branch)
 	if err != nil {
 		return mergeState{}, true
 	}
+	// ExecGit cuts long output without an error. Every commit must be
+	// accounted for: a list shorter than the commit count is incomplete and
+	// proves nothing, whatever it shows.
+	listed := 0
 	for _, line := range strings.Split(string(cherry), "\n") {
-		if strings.HasPrefix(line, "+") {
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "- ") {
 			return mergeState{merged: false}, false
 		}
+		listed++
+	}
+	if listed != want {
+		return mergeState{merged: false}, false
 	}
 	return mergeState{merged: true, uniqueCommits: true}, false
 }

@@ -44,6 +44,7 @@ type AgentConfig struct {
 	worktree          bool
 	browse            bool
 	branches          bool
+	branchPrune       bool
 	browseAllowed     bool
 	clipboard         bool
 	clipboardAllowed  bool
@@ -394,6 +395,16 @@ func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminal
 				m.Body = terminalproto.BranchesResult{Reason: terminalproto.BranchesDenied}
 				return send(ctx, m)
 			}
+		case *terminalproto.BranchPrunePlan:
+			if cfg.branchPrune && !currentCapabilities(cfg).BranchPrune {
+				m.Body = terminalproto.BranchPrunePlanResult{Reason: terminalproto.BranchesDenied}
+				return send(ctx, m)
+			}
+		case *terminalproto.BranchPrune:
+			if cfg.branchPrune && !currentCapabilities(cfg).BranchPrune {
+				m.Body = terminalproto.BranchPruneResult{Reason: terminalproto.BranchesDenied}
+				return send(ctx, m)
+			}
 		}
 		return control(ctx, m)
 	}
@@ -481,6 +492,16 @@ func unavailable(m terminalproto.Message, features string) (terminalproto.Messag
 			return m, false
 		}
 		m.Body = terminalproto.BranchesResult{Reason: terminalproto.BranchesConflict}
+	case *terminalproto.BranchPrunePlan:
+		if !terminalproto.SupportsBranchPrune(features) {
+			return m, false
+		}
+		m.Body = terminalproto.BranchPrunePlanResult{Reason: terminalproto.BranchesConflict}
+	case *terminalproto.BranchPrune:
+		if !terminalproto.SupportsBranchPrune(features) {
+			return m, false
+		}
+		m.Body = terminalproto.BranchPruneResult{Reason: terminalproto.BranchesConflict}
 	default:
 		m.Body = terminalproto.Result{Code: terminalproto.Unavailable}
 	}
@@ -709,6 +730,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.worktree = terminalproto.SupportsWorktree(advertised)
 	cfg.browse = terminalproto.SupportsBrowse(advertised)
 	cfg.branches = terminalproto.SupportsBranches(advertised)
+	cfg.branchPrune = terminalproto.SupportsBranchPrune(advertised)
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
 	cfg.models = terminalproto.SupportsModels(advertised)
@@ -761,6 +783,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.branches {
 		features = append(features, terminalproto.BranchesFeature)
+	}
+	if cfg.branchPrune {
+		features = append(features, terminalproto.BranchPruneFeature)
 	}
 	if cfg.clipboard {
 		features = append(features, terminalproto.ClipboardFeature)
@@ -956,7 +981,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ShellDir:        cfg.shellDir && control && enabled,
 		Attention:       cfg.attention && control,
 		Branches:        cfg.branches && worktree && enabled,
-		BranchPrune:     cfg.branches && worktree && enabled,
+		BranchPrune:     cfg.branchPrune && worktree && enabled,
 		Software:        software,
 		SoftwareApply:   cfg.softwareApply && control && enabled,
 		TerminalControl: cfg.TerminalSession != nil,

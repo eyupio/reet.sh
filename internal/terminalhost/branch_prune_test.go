@@ -142,3 +142,66 @@ func TestPlanBranchPruneRefusals(t *testing.T) {
 		t.Fatalf("no git = %+v, want git_failed", r)
 	}
 }
+
+// A branch with many patch-equivalent commits and one of its own: git cherry's
+// output is cut by ExecGit before the "+" line, so the list is incomplete and
+// the branch must not be called merged.
+func TestPlanBranchPruneLongEquivalentHistoryWithUniqueCommitIsNotMerged(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "prune-long")
+	testGit(t, repo, "branch", "eq")
+	for i := 0; i < 100; i++ {
+		name := "f" + strings.Repeat("x", i%7) + string(rune('a'+i%26)) + strings.Repeat("y", i/26)
+		writeFile(t, filepath.Join(repo, name), "x\n")
+		testGit(t, repo, "add", name)
+		testGit(t, repo, "commit", "-q", "-m", name)
+	}
+	testGit(t, repo, "checkout", "-q", "eq")
+	testGit(t, repo, "cherry-pick", "main~99..main")
+	writeFile(t, filepath.Join(repo, "unique"), "mine\n")
+	testGit(t, repo, "add", "unique")
+	testGit(t, repo, "commit", "-q", "-m", "unique work")
+	testGit(t, repo, "checkout", "-q", "main")
+
+	for _, b := range planPrune(t, home, repo).Branches {
+		if b.Name == "eq" && b.Skip != terminalproto.BranchPruneNotMerged {
+			t.Fatalf("eq skip = %q, want not_merged", b.Skip)
+		}
+	}
+}
+
+// A merge commit only this branch has can hold a conflict resolution that
+// git cherry never looks at.
+func TestPlanBranchPruneUniqueMergeCommitIsNotMerged(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "prune-merge")
+	writeFile(t, filepath.Join(repo, "a"), "a\n")
+	testGit(t, repo, "add", "a")
+	testGit(t, repo, "commit", "-q", "-m", "a")
+	testGit(t, repo, "checkout", "-q", "-b", "m", "main~1")
+	testGit(t, repo, "merge", "--no-ff", "--no-commit", "main")
+	writeFile(t, filepath.Join(repo, "resolution"), "only here\n")
+	testGit(t, repo, "add", "resolution")
+	testGit(t, repo, "commit", "-q", "-m", "merge with extra work")
+	testGit(t, repo, "checkout", "-q", "main")
+
+	for _, b := range planPrune(t, home, repo).Branches {
+		if b.Name == "m" && b.Skip != terminalproto.BranchPruneNotMerged {
+			t.Fatalf("m skip = %q, want not_merged", b.Skip)
+		}
+	}
+}
+
+// Two hundred safe branches with long names do not fit one reply: the plan
+// stops at the byte budget and says there is more, and it still encodes.
+func TestPlanBranchPruneStaysWithinReplyBudget(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "prune-many")
+	for i := 0; i < terminalproto.MaxBranchPruneList; i++ {
+		testGit(t, repo, "branch", strings.Repeat("n", 90)+strings.Repeat("a", i/26)+string(rune('a'+i%26)))
+	}
+	plan := planPrune(t, home, repo)
+	if !plan.More || len(plan.Branches) == 0 || len(plan.Branches) >= terminalproto.MaxBranchPruneList {
+		t.Fatalf("got %d branches, More %t", len(plan.Branches), plan.More)
+	}
+}

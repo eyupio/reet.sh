@@ -291,6 +291,8 @@ try {
   state.closed = true
   await page.goto(`${base}/sessions?agent=${A}&session=${S2}`)
   await expect(page.getByRole('button', { name: 'Session actions' })).toBeVisible()
+  // A chat that exited says who ended it and that its live history is not kept.
+  await expect(page.getByText('OpenCode ended this chat. Its live history is not kept after the machine connection closes.')).toBeVisible()
   await page.getByRole('button', { name: 'Session actions' }).click()
   await page.getByRole('menuitem', { name: /Continue in reet TUI with history/ }).click()
   await expect.poll(() => state.resume).toMatchObject({ structured: true, trust: true, resumeAcp: closedSession.acpSessionId, dir: SITE })

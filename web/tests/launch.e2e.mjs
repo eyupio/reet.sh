@@ -1556,6 +1556,8 @@ try {
   await expect(slot(page,'TUI')).toHaveAccessibleName('TUI: Gaffer')
   await slot(page,'TUI').focus()
   await expect(page.getByRole('tooltip')).toContainText("Reet's native AI agent control interface.")
+  // The explanation must never be the thing a click lands on: the slot, its list and its options stay clickable.
+  expect(await page.getByRole('tooltip').evaluate(el => getComputedStyle(el).pointerEvents)).toBe('none')
   await page.keyboard.press('Escape')
   await slot(page,'TUI').click()
   const nativeOption = page.getByRole('option', { name: 'Gaffer', exact: true })

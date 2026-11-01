@@ -74,6 +74,11 @@ region outside the aria-hidden shell, so a screen reader receives it. The pre-au
 chunk's gap now use skeletons (`BootSkeleton.svelte`, and a workspace-shaped card in `Machines.svelte`) instead
 of sentences. The two faces the first screen uses are preloaded; reduced motion gets no fade.
 
+**Also fixed (found by CI on the merge with main):** the Gaffer help tooltip is a read-only explanation but its
+popover was in the top layer and intercepted pointer events, so on a narrow layout it could cover the launch
+bar's own listbox and block an option. It is now `pointer-events: none`; `launch.e2e.mjs` asserts that and that
+the slot, list and options stay clickable.
+
 **Checks:** `npm run build`, `npm run check` (unit tests and svelte-check, 0 errors/warnings), `go vet` and
 `go test ./web/` (including the new route-to-shell test), and `first-run.e2e.mjs` gained a throttled-bundle
 case: the crawler copy stays hidden, only the landing shell is visible, it is removed after auth, a

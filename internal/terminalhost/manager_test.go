@@ -627,3 +627,31 @@ func TestManagerLaunchKeepsTrailingSemicolons(t *testing.T) {
 		})
 	}
 }
+
+func TestManagerForgetRefusesLiveSession(t *testing.T) {
+	m, _ := managerFixture(t)
+	ctx := context.Background()
+	if _, err := m.Create(ctx, testRequestID(1), testSessionID(1), terminalproto.Create{Title: "Build", Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Forget(ctx, testSessionID(1)); !errors.Is(err, ErrOperationConflict) {
+		t.Fatalf("forget of a live session: %v", err)
+	}
+	if err := m.Forget(ctx, testSessionID(2)); !errors.Is(err, ErrSessionMissing) {
+		t.Fatalf("forget of an unknown session: %v", err)
+	}
+	if s, err := m.End(ctx, testRequestID(2), testSessionID(1)); err != nil || s.State.ReservesQuota() {
+		t.Fatal("end", s, err)
+	}
+	if err := m.Forget(ctx, testSessionID(1)); err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := m.List(ctx)
+	if err != nil || len(sessions) != 0 {
+		t.Fatal("forgotten session still listed", sessions, err)
+	}
+	// The id is free again: a new create under it starts a fresh shell.
+	if s, err := m.Create(ctx, testRequestID(3), testSessionID(1), terminalproto.Create{Title: "Build", Cols: 80, Rows: 24}); err != nil || s.State != terminalproto.Running {
+		t.Fatal("create after forget", s, err)
+	}
+}

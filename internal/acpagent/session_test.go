@@ -91,6 +91,20 @@ func TestFakeACP(t *testing.T) {
 				SessionID string `json:"sessionId"`
 			}
 			_ = json.Unmarshal(message.Params, &params)
+			if params.ConfigID == "mode" {
+				// A profile's StartMode switch: confirmed in the reply, silently ignored, or refused.
+				switch scenario {
+				case "mode-switch":
+					reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": params.Value}}})
+				case "mode-ignored":
+					reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": "plan"}}})
+				case "mode-silent":
+					reply(message.ID, map[string]any{})
+				default:
+					send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32602, "message": "no"}})
+				}
+				continue
+			}
 			if params.ConfigID != "model" || params.SessionID != session || params.Value == "reject" {
 				send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32602, "message": "invalid model"}})
 			} else if params.Value == "silently-reset" {
@@ -117,7 +131,7 @@ func TestFakeACP(t *testing.T) {
 			reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "model", "currentValue": "stub/model"}, {"id": "mode", "currentValue": "build"}}})
 		case "session/new":
 			mode := "build"
-			if scenario == "mode-plan" {
+			if scenario == "mode-plan" || scenario == "mode-switch" || scenario == "mode-ignored" || scenario == "mode-silent" {
 				mode = "plan"
 			}
 			session = "ses_fake_1"
@@ -1377,5 +1391,27 @@ wait:
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the cancelled turn did not end")
+	}
+}
+
+// A profile with a StartMode moves a session that starts elsewhere into it, but
+// only when the adapter's reply confirms the new mode. An ignored, unreported or
+// refused switch refuses the chat, so a chat can never run in the wrong mode.
+func TestStartModeIsConfirmedOrTheChatIsRefused(t *testing.T) {
+	for scenario, wantStart := range map[string]bool{"mode-switch": true, "mode-ignored": false, "mode-silent": false, "mode-plan": false} {
+		opts, _ := options(t, scenario, testVersion)
+		opts.Agent.StartMode = "build"
+		session, err := Start(context.Background(), opts)
+		if (err == nil) != wantStart {
+			t.Fatalf("%s: err %v, want start %v", scenario, err, wantStart)
+		}
+		if session != nil {
+			session.Close()
+		}
+	}
+	// Without a StartMode the old rule holds: a session in another mode is refused.
+	opts, _ := options(t, "mode-switch", testVersion)
+	if _, err := Start(context.Background(), opts); err == nil {
+		t.Fatal("plan mode accepted without a StartMode")
 	}
 }

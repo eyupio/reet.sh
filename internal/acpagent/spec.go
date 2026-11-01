@@ -73,6 +73,11 @@ type Spec struct {
 	// RequireMode is the ACP session mode that must be active before a turn
 	// may start. Empty accepts whatever the adapter reports.
 	RequireMode string
+	// StartMode is the mode a session is switched to when the adapter starts in
+	// another one (Codex starts in "agent", which never asks). The switch uses
+	// session/set_config_option and is accepted only when the adapter's reply
+	// reports the new mode; otherwise the chat is refused. Empty never switches.
+	StartMode string
 	// EnvAllowlist names additional inherited variables the adapter may
 	// read (provider credentials), on top of the infrastructure allowlist.
 	EnvAllowlist []string
@@ -140,6 +145,9 @@ func Lookup(tool string) (Spec, bool) {
 	if tool == ClaudeCandidate.Key && ClaudeEnabled() {
 		return ClaudeCandidate, true
 	}
+	if tool == CodexCandidate.Key && CodexEnabled() {
+		return CodexCandidate, true
+	}
 	spec, ok := agents[tool]
 	return spec, ok
 }
@@ -151,6 +159,14 @@ const ClaudeSwitch = "REET_EXPERIMENTAL_CLAUDE_CHAT"
 
 // ClaudeEnabled reports whether this machine has opted in to Claude chats.
 func ClaudeEnabled() bool { return os.Getenv(ClaudeSwitch) == "1" }
+
+// CodexSwitch is the environment variable that opts one machine in to Codex
+// chats. Off by default: Codex is registered but dark until a real-login run and
+// the approval card changes are done.
+const CodexSwitch = "REET_EXPERIMENTAL_CODEX_CHAT"
+
+// CodexEnabled reports whether this machine has opted in to Codex chats.
+func CodexEnabled() bool { return os.Getenv(CodexSwitch) == "1" }
 
 // VersionError explains why an adapter was refused.
 type VersionError struct {

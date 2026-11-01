@@ -51,6 +51,8 @@ func chatAdapter(tool string) string {
 		return "opencode"
 	case "claude":
 		return "claude-agent-acp"
+	case "codex":
+		return "codex-acp"
 	}
 	return ""
 }

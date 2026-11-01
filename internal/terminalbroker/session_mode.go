@@ -147,6 +147,11 @@ func (b *Broker) SwitchSessionMode(ctx context.Context, uid int64, session, to s
 		b.closeChat(uid, session)
 		b.chatLog(uid, session)
 	}
+	// Once sent, the switch runs on the machine whether or not the browser
+	// stays: a cancelled request (a locked phone, a reload) must not leave the
+	// row in the old mode, so the wait and the writes after the answer are
+	// bounded by sessionModeCallTimeout alone.
+	ctx = context.WithoutCancel(ctx)
 	// A fresh request id every call: the machine refuses a reused one as a
 	// conflict even when the earlier switch succeeded.
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &in}, sessionModeCallTimeout)

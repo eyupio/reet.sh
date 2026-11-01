@@ -601,3 +601,41 @@ func TestSwitchStoreFailureAfterAckIsASentence(t *testing.T) {
 		t.Fatal("ring left behind after the store refused the switch")
 	}
 }
+
+// A browser that goes away mid switch (a locked phone, a reload) cancels the
+// request's context. The switch is already on the machine, so its answer still
+// settles the row and is audited.
+func TestSwitchToTerminalSurvivesCancelledRequest(t *testing.T) {
+	b, _, uid, agent, machine := switchFixture(t, true)
+	s := switchChat(t, b, uid, agent)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	answered := make(chan struct{})
+	machine.mu.Lock()
+	machine.reply = func(p *Peer, m terminalproto.Message, in *terminalproto.SessionMode) terminalproto.Body {
+		// The browser leaves while the chat is closing; the machine answers
+		// once the terminal runs.
+		cancel()
+		go func() {
+			defer close(answered)
+			time.Sleep(50 * time.Millisecond)
+			body := terminalproto.SessionChanged{State: terminalproto.Running}
+			if err := p.Receive(terminalproto.Message{Version: 1, RequestID: m.RequestID, SessionID: m.SessionID, Generation: p.Generation, Body: &body}); err != nil {
+				t.Error(err)
+			}
+		}()
+		return nil
+	}
+	machine.mu.Unlock()
+	_ = b.SwitchSessionMode(ctx, uid, s.ID, terminalproto.SessionModeTerminal, false)
+	<-answered
+	if !eventually(t, func() bool { return !row(t, b, uid, s.ID).Structured }) {
+		t.Fatal("the row stayed a chat after the machine switched it to the terminal")
+	}
+	if !eventually(t, func() bool { return len(modeEvents(t, b, uid)) == 1 }) {
+		t.Fatalf("audit events %+v", modeEvents(t, b, uid))
+	}
+	if b.chatExists(uid, s.ID) {
+		t.Fatal("chat ring kept after switching to the terminal")
+	}
+}

@@ -212,10 +212,15 @@ reject and Stop behaviour, then a real-login check. None of it is built yet.
 that starts in `agent` (Codex's default) to `read-only`, using `session/set_config_option`, and the chat is refused unless the adapter's reply reports the new mode. The
 descriptor reports approvals only. The browser does not offer Codex yet (`CHAT_ADAPTERS` is unchanged), so nothing is visible to anyone.
 
-Unverified against a real adapter, and why a chat may fail to start (it fails closed): the `mode` switch through `set_config_option` (the probes used `session/set_mode`); the
-agent name the adapter reports at `initialize` (assumed to follow Claude's `@agentclientprotocol/codex-acp`); and authentication, since `session/new` answers "Authentication
-required" until `authenticate` is called and the connector replaces `HOME`, so a ChatGPT login under the real home is not visible. The next step is a probe of those three against
-the pinned adapter, then the browser mode control.
+Probed afterwards (`scripts/probe-codex-start.py`, probe report "Codex start, probed"): the agent name is right and the `set_config_option` mode switch works and confirms
+`read-only`. Authentication is not settled: `session/new` answers "Authentication required" until `authenticate` is called, and the connector replaces `HOME`, so a login under the
+real home is not visible. A Codex chat cannot start until reet has a decided way to authenticate. That is the next decision, before the browser mode control.
+
+Decided by the owner: use the person's own ChatGPT login, and never sign anyone in from a chat. reet does not call `authenticate`. The adapter is expected to find the login the
+person already made with Codex on that machine, so the Codex profile has to let it see that login (the real home, or the person's `CODEX_HOME`) instead of the connector's replaced
+`HOME`. To start, reet runs `session/new`; if it fails with "Authentication required" the chat is refused with "Sign in to Codex on that machine first." The adapter's
+`_auth/status_update` label ("Not logged in", or the account or key in use) is shown in the chat so the person can see which identity answers, without the account email. Whether a
+signed-in adapter's `session/new` succeeds with no `authenticate` call, and what status it sends, is unobserved and needs the real-login run in `docs/device-checks.md` before this is wired.
 
 ### Device and credential checks (1 November 2026)
 

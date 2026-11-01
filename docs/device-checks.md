@@ -78,3 +78,24 @@ REET_CLAUDE_ACP=$WORKSPACE/claude/node_modules/.bin/claude-agent-acp go test ./i
 
 **Record** the adapter version, the OS, whether each run was logged in, `authenticatedHint`, and the logged-out error text. Put it in the probe report and the PR.
 Only then decide whether the browser needs a "sign in to Claude on that machine" message, and whether to retire `REET_EXPERIMENTAL_CLAUDE_CHAT`.
+
+## 3. Codex sign-in (needed before Codex chats can start)
+
+Codex chats stay behind `REET_EXPERIMENTAL_CODEX_CHAT` and cannot start until reet knows how the adapter behaves for a person who is already signed in to Codex (ChatGPT).
+`scripts/probe-codex-start.py` makes no model call and no network request. Install the pinned adapter and CLI once:
+
+```
+export WORKSPACE=$HOME/codex-probe && mkdir -p $WORKSPACE
+npm install --ignore-scripts --no-audit --no-fund --prefix "$WORKSPACE/codex" @agentclientprotocol/codex-acp@1.13.1 @openai/codex@0.156.1
+```
+
+**Run A, signed out** (an OS account with no `~/.codex/auth.json`): `python3 -I scripts/probe-codex-start.py --workspace "$WORKSPACE" --auth none`. Expect `session/new` to fail with
+"Authentication required" and an `_auth/status_update` of `kind: none`. (`--auth chat-gpt` would make the adapter try to open a browser; reet never does that, so only use it to
+reproduce the earlier finding.)
+
+**Run B, signed in:** by default the script uses an empty temporary `CODEX_HOME`, so it cannot see your login. Copy your Codex directory and point the script at the copy (the adapter
+may write to it): `cp -r ~/.codex "$WORKSPACE/codex-home-copy"`, then `python3 -I scripts/probe-codex-start.py --workspace "$WORKSPACE" --auth none --codex-home "$WORKSPACE/codex-home-copy"`.
+**Record** whether `session/new` succeeds with no `authenticate` call, that it starts in `agent`, and the `authStatusUpdates` (kind and label) the script prints (the email is never included
+out of what you share). Delete the copy afterwards; it holds your login.
+
+Only then wire the Codex start and its "Sign in to Codex on that machine first" message.

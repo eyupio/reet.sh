@@ -80,6 +80,11 @@ type backlogInput struct {
 	Tool      string             `json:"tool"`
 	Model     string             `json:"model"`
 	Effort    string             `json:"effort"`
+	Yolo      bool               `json:"yolo"`
+	Worktree  bool               `json:"worktree"`
+	Base      string             `json:"base"`
+	Chat      bool               `json:"chat"`
+	Trust     bool               `json:"trust"`
 	Images    []store.DraftImage `json:"images"`
 	Version   int64              `json:"version"`
 }
@@ -89,7 +94,7 @@ func (s *server) sessionBacklogSave(w http.ResponseWriter, r *http.Request) {
 	if !backlogBody(w, r, &in) {
 		return
 	}
-	d := store.SessionDraft{ID: r.PathValue("id"), Title: strings.TrimSpace(in.Title), Prompt: in.Prompt, AgentID: in.AgentID, ProjectID: in.ProjectID, Dir: in.Dir, Tool: in.Tool, Model: strings.TrimSpace(in.Model), Effort: in.Effort, Images: in.Images, Version: in.Version}
+	d := store.SessionDraft{ID: r.PathValue("id"), Title: strings.TrimSpace(in.Title), Prompt: in.Prompt, AgentID: in.AgentID, ProjectID: in.ProjectID, Dir: in.Dir, Tool: in.Tool, Model: strings.TrimSpace(in.Model), Effort: in.Effort, Yolo: in.Yolo, Worktree: in.Worktree, Base: strings.TrimSpace(in.Base), Chat: in.Chat, Trust: in.Trust, Images: in.Images, Version: in.Version}
 	bad := func(message string) { writeJSON(w, 422, map[string]string{"error": message}) }
 	if !terminalproto.ValidTitle(d.Title) {
 		bad("Use a session title of 1 to 80 plain characters.")
@@ -128,6 +133,14 @@ func (s *server) sessionBacklogSave(w http.ResponseWriter, r *http.Request) {
 			bad("Choose the project's own machine and folder.")
 			return
 		}
+	}
+	if d.Base != "" && !d.Worktree || d.Base != "" && !terminalproto.ValidRefName(d.Base) {
+		bad("Choose a base branch only with a worktree, and use a valid branch name.")
+		return
+	}
+	if d.Chat && d.Tool != "opencode" || d.Trust && !d.Chat {
+		bad("Chat is only for OpenCode, and the plugin trust applies only to a chat.")
+		return
 	}
 	if len(d.Images) > 4 {
 		bad("Keep at most four images in a backlog item.")
@@ -199,7 +212,15 @@ func (s *server) sessionBacklogStart(w http.ResponseWriter, r *http.Request) {
 	lock := &s.backlogStarts[key.Sum32()%uint32(len(s.backlogStarts))]
 	lock.Lock()
 	defer lock.Unlock()
-	d, err := s.st.PrepareSessionDraftFor(s.uid(r), r.PathValue("id"), in.Version, in.Prompt)
+	// The worktree slug is resolved once and frozen with the prompt; a retry
+	// must not re-read a project that was renamed or changed since.
+	wtProject := ""
+	if cur, err := s.st.SessionDraftFor(s.uid(r), r.PathValue("id")); err == nil && cur.Worktree && !cur.Chat && cur.ProjectID != "" {
+		if p, err := s.st.FolderProjectFor(s.uid(r), cur.ProjectID); err == nil && p.IsRepo {
+			wtProject = terminalproto.Slug(p.Name, "project")
+		}
+	}
+	d, err := s.st.PrepareSessionDraftFor(s.uid(r), r.PathValue("id"), in.Version, in.Prompt, wtProject)
 	if err != nil {
 		backlogError(w, err)
 		return
@@ -208,7 +229,27 @@ func (s *server) sessionBacklogStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "That session is no longer available. Create a new backlog item to start new work."})
 		return
 	}
-	body, _ := json.Marshal(map[string]any{"agentId": d.AgentID, "requestId": d.ID, "title": d.Title, "cols": 100, "rows": 30, "tool": d.Tool, "model": d.Model, "effort": d.Effort, "dir": d.Dir, "projectId": d.ProjectID, "prompt": d.PreparedPrompt})
+	launch := map[string]any{"agentId": d.AgentID, "requestId": d.ID, "title": d.Title, "cols": 100, "rows": 30, "tool": d.Tool, "model": d.Model, "effort": d.Effort, "dir": d.Dir, "projectId": d.ProjectID, "prompt": d.PreparedPrompt}
+	// YOLO is checked by the normal create path (account setting, machine and
+	// agent) and audited there, exactly as for an active launch.
+	if d.Yolo {
+		launch["yolo"] = true
+	}
+	if d.Chat {
+		launch["structured"] = true
+		if d.Trust {
+			launch["trust"] = true
+		}
+	} else if d.PreparedProject != "" && terminalproto.ValidRunToken(d.ID) {
+		// The draft ID is the stable run token, so a retried start adopts the
+		// worktree the machine already made.
+		launch["worktree"] = d.ID
+		launch["project"] = d.PreparedProject
+		if d.Base != "" {
+			launch["base"] = d.Base
+		}
+	}
+	body, _ := json.Marshal(launch)
 	next := r.Clone(r.Context())
 	next.Body = io.NopCloser(bytes.NewReader(body))
 	next.ContentLength = int64(len(body))

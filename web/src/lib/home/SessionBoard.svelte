@@ -2,6 +2,9 @@
   import { onMount, tick } from 'svelte'
   import { toolName, notStartedText, validatePrompt } from '../agentLaunch'
   import { agentChoices } from '../catalogue'
+  import { getYoloSetting, type YoloSetting } from '../api'
+  import { yoloGates } from '../launchBar'
+  import YoloDialog from '../launch/YoloDialog.svelte'
   import { shortAge, stateWord } from '../home'
   import { listDrafts, getDraft, deleteDraft, startDraft } from '../sessionBacklog'
   import { boardItems, emptyFilters, filterBoard, filterCount, sortBoard, STAGES, type BoardView, type SessionDraft } from '../sessionBoard'
@@ -28,6 +31,8 @@
   let starting = $state<{ opener: HTMLElement } | null>(null)
   let removing = $state<SessionDraft | null>(null), deleteBusy = $state(false)
   let working = $state(''), phase = $state(''), loadingId = $state('')
+  // YOLO is confirmed here, at Start, never when the item is saved or remembered by the browser.
+  let yoloAsk = $state<SessionDraft | null>(null), yoloSetting = $state<YoloSetting | null>(null)
   let actions = $state<SessionActions>(), filterButton = $state<HTMLButtonElement>(), filterPanel = $state<HTMLDivElement>(), deleteDialog = $state<HTMLDialogElement>()
   let generation = 0
   let activeRequests = new Set<string>()
@@ -100,12 +105,24 @@
     if (draft.projectId && !projects.some(p => p.id === draft.projectId && p.host === draft.agentId && p.dir === draft.dir)) return 'The project changed or was removed. Edit this backlog item first.'
     return null
   }
-  async function activate(item: SessionDraft) {
+  const yoloChoice = (d: SessionDraft) => ({ agent: d.tool, model: '', projectIds: d.projectId ? [d.projectId] : [], homeMachine: d.agentId, branch: '', worktree: d.worktree === true && !d.chat, effort: '' as const, prompt: '', approvals: 'yolo' as const })
+  const yoloGateList = $derived(yoloAsk ? yoloGates(yoloChoice(yoloAsk), yoloSetting, projects, machines) : [])
+  async function askYolo(item: SessionDraft) {
+    yoloSetting = null; yoloAsk = item
+    try { const next = await getYoloSetting(); if (!life.signal.aborted) yoloSetting = next } catch { /* The dialog keeps its reading line and Start stays off. */ }
+  }
+  function cancelYolo() { yoloAsk = null; notice = 'Not started. The item is still in your backlog.' }
+  // The confirmation is for the version the dialog showed; a draft edited since is confirmed again.
+  function confirmYolo() { const item = yoloAsk; yoloAsk = null; if (item) void activate(item, item.version) }
+  async function activate(item: SessionDraft, confirmedVersion = 0) {
     if (activeRequests.has(item.id)) return
     const why = startReason(item); if (why) { notice = why; return }
     activeRequests.add(item.id); working = item.id; notice = ''; phase = 'Preparing…'
     try {
       const draft = await getDraft(item.id, signal())
+      // Decide on the draft as the server has it now, not the board's last refresh. A frozen retry carries the request
+      // already made, so it is not asked again.
+      if (draft.yolo && !draft.preparedPrompt && draft.version !== confirmedVersion) { void askYolo(draft); return }
       let prompt = draft.preparedPrompt || draft.prompt
       if (!draft.preparedPrompt) {
         const refs: string[] = []
@@ -231,6 +248,7 @@
   <div class="board-foot"><span><BoardIcon name="finished" size={13}/>Saved to your account. Ready across your machines.</span><a href="/sessions">All session history<BoardIcon name="arrow" size={13}/></a></div>
 </section>
 {#if starting}<StartSessionDialog {projects} {machines} {profile} {initialProject} onstarted={startedHere} {onsignedout} onclose={closeStart}/>{/if}
+{#if yoloAsk}<YoloDialog gates={yoloGateList} tool={yoloAsk.tool} structured={yoloAsk.chat === true} machine={machineNames.get(yoloAsk.agentId) || 'the machine'} oncancel={cancelYolo} onstart={confirmYolo} />{/if}
 {#if composer}<SessionComposer draft={composer.draft} {projects} {machines} {profile} {initialProject} onsaved={saved} onclose={closeComposer} onerror={error}/>{/if}
 {#if removing}<dialog class="delete-dialog" bind:this={deleteDialog} aria-labelledby={`${id}-delete`} oncancel={e => { if (deleteBusy) e.preventDefault(); else removing = null }}><h2 id={`${id}-delete`}>Delete this backlog item?</h2><p>“{removing.title}” and its saved images will be removed.</p><div><button class="btn" disabled={deleteBusy} onclick={() => removing = null}>Keep session</button><button class="btn primary" disabled={deleteBusy} onclick={() => void remove()}>{deleteBusy ? 'Deleting…' : 'Delete item'}</button></div></dialog>{/if}
 <SessionActions bind:this={actions} machines={health} {offline} terminals={machines} {removeDefault} {onsignedout} {onchanged} onnotice={n => notice = n?.text ?? ''}/>

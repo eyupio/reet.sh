@@ -370,12 +370,19 @@ func TestSessionModeEndpointMapsRefusals(t *testing.T) {
 		reply  terminalproto.Body
 		status int
 		code   string
+		// prompt starts a chat turn first, so the controller itself knows the
+		// chat is busy.
+		prompt bool
+		// wire is true when the refusal comes from the machine; every other
+		// refusal is decided by the controller and must not reach it.
+		wire bool
 	}{
-		{name: "busy", target: "terminal", reply: terminalproto.Result{Code: terminalproto.Conflict}, status: 409, code: "session_mode_busy"},
+		{name: "busy decided by the controller", prompt: true, target: "terminal", status: 409, code: "session_mode_busy"},
+		{name: "busy", wire: true, target: "terminal", reply: terminalproto.Result{Code: terminalproto.Conflict}, status: 409, code: "session_mode_busy"},
 		{name: "no session", plain: true, target: "chat", status: 409, code: "session_mode_no_session"},
 		{name: "unsupported", caps: func(c *terminalproto.Capabilities) { c.SessionMode = false }, target: "terminal", status: 409, code: "session_mode_unsupported"},
-		{name: "trust", toTerm: true, target: "chat", reply: terminalproto.Result{Code: terminalproto.ACPTrustRequired, Detail: ".opencode/plugins/x.js"}, status: 409, code: "acp_trust_required"},
-		{name: "failed", target: "terminal", reply: terminalproto.SessionChanged{State: terminalproto.Ended}, status: 502, code: "session_mode_failed"},
+		{name: "trust", wire: true, toTerm: true, target: "chat", reply: terminalproto.Result{Code: terminalproto.ACPTrustRequired, Detail: ".opencode/plugins/x.js"}, status: 409, code: "acp_trust_required"},
+		{name: "failed", wire: true, target: "terminal", reply: terminalproto.SessionChanged{State: terminalproto.Ended}, status: 502, code: "session_mode_failed"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -399,6 +406,18 @@ func TestSessionModeEndpointMapsRefusals(t *testing.T) {
 					t.Fatalf("setup: %d %s", code, body)
 				}
 			}
+			if c.prompt {
+				if code, _, body := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/chat/prompt", map[string]string{"text": "work"}); code != 200 {
+					t.Fatalf("prompt: %d %s", code, body)
+				}
+			}
+			before, err := f.st.TerminalSessionFor(f.uid, session)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.mu.Lock()
+			sentBefore := len(f.modes)
+			f.mu.Unlock()
 			if c.reply != nil {
 				reply := c.reply
 				f.mu.Lock()
@@ -409,10 +428,43 @@ func TestSessionModeEndpointMapsRefusals(t *testing.T) {
 			if code != c.status || out["code"] != c.code {
 				t.Fatalf("got %d %s, want %d %s", code, body, c.status, c.code)
 			}
+			f.mu.Lock()
+			sentAfter := len(f.modes)
+			f.mu.Unlock()
+			if c.wire && sentAfter != sentBefore+1 || !c.wire && sentAfter != sentBefore {
+				t.Fatalf("machine saw %d session_mode requests, want wire=%v", sentAfter-sentBefore, c.wire)
+			}
+			after, err := f.st.TerminalSessionFor(f.uid, session)
+			if err != nil || after.Structured != before.Structured || after.State != before.State || after.ACPSessionID != before.ACPSessionID {
+				t.Fatalf("row changed by a refusal: %+v -> %+v (%v)", before, after, err)
+			}
 			if c.name == "trust" && out["detail"] != ".opencode/plugins/x.js" {
 				t.Fatalf("trust detail: %s", body)
 			}
 		})
+	}
+}
+
+func TestSessionModeEndpointHidesOtherAccountsSession(t *testing.T) {
+	f := launchAPIFixture(t, modeCaps())
+	session := modeChat(t, f)
+	member, err := f.st.CreateUser("mode-member@example.test", "Member", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := terminalLogin(t, f.st, member.ID)
+	// Real but foreign id, and an id nobody has: the same status and body.
+	code, _, real := f.do(t, other, "POST", modePath(session), map[string]any{"mode": "terminal"})
+	missing, _, unknown := f.do(t, other, "POST", modePath("nosuchsession0000000"), map[string]any{"mode": "terminal"})
+	if code != http.StatusNotFound || missing != http.StatusNotFound || real != unknown {
+		t.Fatalf("foreign id %d %q, unknown id %d %q", code, real, missing, unknown)
+	}
+	f.mu.Lock()
+	n := len(f.modes)
+	f.mu.Unlock()
+	row, err := f.st.TerminalSessionFor(f.uid, session)
+	if n != 0 || err != nil || !row.Structured {
+		t.Fatalf("another account switched the session: %d %+v %v", n, row, err)
 	}
 }
 

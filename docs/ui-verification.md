@@ -1581,7 +1581,7 @@ Checks:
 
 The reet TUI transcript was rebuilt around one-line tool rows: a state dot, kind icon and label, the command or the path
 relative to the session folder, added/removed counts, output length, duration and the state word, with the full command,
-output or diff folded underneath. Failed rows open on their error. Thinking is a quiet foldable aside; agent prose keeps its headings, lists, quotes and inline code, and fenced code gets
+output or diff folded underneath. Every row starts folded, failures and answered approvals included, and the person opens any of them. Thinking is a quiet foldable aside; agent prose keeps its headings, lists, quotes and inline code, and fenced code gets
 its own block with a Copy action; approvals are the only cards that ask for an answer; and the composer is
 one soft card with an icon-only attach control, a keyboard hint and Send/Stop.
 

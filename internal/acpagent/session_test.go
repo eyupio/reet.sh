@@ -243,6 +243,8 @@ func TestFakeACP(t *testing.T) {
 			case "progress-after-silence-hang":
 				time.Sleep(60 * time.Millisecond)
 				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_progress", "content": map[string]string{"type": "text", "text": "still here"}})
+			case "ignore-cancel":
+				// Never answers the prompt and ignores session/cancel.
 			case "steady-progress":
 				for i := 0; i < 10; i++ {
 					time.Sleep(30 * time.Millisecond)
@@ -825,6 +827,27 @@ func TestActiveTurnOutlivesTheIdleTimeout(t *testing.T) {
 		if event.Kind == "notice" && strings.Contains(event.Text, "took too long") {
 			t.Fatalf("an active turn was timed out: %+v", event)
 		}
+	}
+}
+
+func TestSilentTurnIsAbandonedWhenCancelIsIgnored(t *testing.T) {
+	old := cancelGrace
+	cancelGrace = 100 * time.Millisecond
+	defer func() { cancelGrace = old }()
+	opts, _ := options(t, "ignore-cancel", testVersion)
+	opts.StillWorkingAfter = 20 * time.Millisecond
+	opts.TurnTimeout = 100 * time.Millisecond
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "hang") }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a silent turn stayed busy after the adapter ignored cancel")
 	}
 }
 

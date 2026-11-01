@@ -300,6 +300,10 @@ func (s *Session) ImagesSupported() bool {
 	return s.promptImages
 }
 
+// cancelGrace is how long an adapter gets to answer session/cancel after the
+// watchdog stops a silent turn before the prompt request is abandoned.
+var cancelGrace = 30 * time.Second
+
 func (s *Session) emit(event Event) {
 	s.mu.Lock()
 	now := time.Now()
@@ -1021,6 +1025,11 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 	s.turnMu.Unlock()
 	watchDone := make(chan struct{})
 	watchStopped := make(chan struct{})
+	// The request may outlive an idle turn only while the agent keeps talking:
+	// once the watchdog gives up, an adapter that ignores session/cancel gets a
+	// bounded grace period instead of the whole MaxTurn.
+	requestCtx, cancel := context.WithTimeout(ctx, s.opts.maxTurn()+30*time.Second)
+	defer cancel()
 	// Join the watchdog before the next turn can start: a recovery already
 	// reading the log must not report against, or cancel, that next turn.
 	defer func() {
@@ -1108,13 +1117,12 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 					}
 					s.emit(Event{Kind: "notice", Text: "The turn took too long, so " + s.opts.Agent.displayName() + " was stopped.", Bad: true})
 					_ = s.Cancel()
+					time.AfterFunc(cancelGrace, cancel)
 					return
 				}
 			}
 		}
 	}()
-	requestCtx, cancel := context.WithTimeout(ctx, s.opts.maxTurn()+30*time.Second)
-	defer cancel()
 	prompt := make([]map[string]string, 0, 1+len(images))
 	if text != "" {
 		prompt = append(prompt, map[string]string{"type": "text", "text": text})

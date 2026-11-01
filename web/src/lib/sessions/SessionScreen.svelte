@@ -108,12 +108,15 @@
   $effect(() => {
     if (session.id !== modeFor) { modeFor = session.id; approvalMode = session.yolo ? 'yolo' : 'ask' }
   })
-  // Read once the screen shows a chat (when it opens as one, or when the session switches to the reet TUI).
+  // Read once the screen shows a chat (when it opens as one, or when the session switches to the reet TUI); an answer that
+  // arrives after the screen has gone is dropped.
   let yoloRead = false
+  const yoloLife = new AbortController()
+  onMount(() => () => yoloLife.abort())
   $effect(() => {
     if (!session.structured || yoloRead) return
     yoloRead = true
-    void getYoloSetting().then(value => { yoloSetting = value }).catch(() => { yoloSetting = null })
+    void getYoloSetting().then(value => { if (!yoloLife.signal.aborted) yoloSetting = value }).catch(() => { if (!yoloLife.signal.aborted) yoloSetting = null })
   })
 
   // The reet TUI | agent TUI switch (switchModeState says where the inactive button goes and why it may not). A switch

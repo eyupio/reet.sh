@@ -20,6 +20,24 @@ type InstallError struct{ Code, Message string }
 
 func (e *InstallError) Error() string { return e.Message }
 
+// ErrInstallPending refuses a save of a saved set while an install on that
+// folder is queued, running or waiting for approval.
+var ErrInstallPending = errors.New("An install is waiting on this folder. Finish or cancel it first.")
+
+// refuseWhileInstallPendingTx returns ErrInstallPending while an install on
+// target is queued, running or waiting for approval. Every save of a saved set
+// calls it before writing.
+func refuseWhileInstallPendingTx(tx *sql.Tx, uid int64, target string) error {
+	var n int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs j JOIN skill_installs i ON i.job_id=j.id WHERE j.user_id=? AND j.target_id=? AND j.status IN ('queued','running','awaiting-approval')`, uid, target).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return ErrInstallPending
+	}
+	return nil
+}
+
 func installRefused(code, message string) error { return &InstallError{Code: code, Message: message} }
 
 // InstallRequest names one published hosted skill to put on one machine.
@@ -285,7 +303,9 @@ func revertInstallTx(tx *sql.Tx, jobID string) (bool, error) {
 	var uid int64
 	var target, slug, revision, prev string
 	var created, added bool
-	err := tx.QueryRow(`SELECT user_id,target_id,slug,created_target,added,revision,prev_revision FROM skill_installs WHERE job_id=?`, jobID).Scan(&uid, &target, &slug, &created, &added, &revision, &prev)
+	// Only an install whose job has ended without applying is reverted, so a
+	// later call can never undo an applied install, wherever its set was copied.
+	err := tx.QueryRow(`SELECT i.user_id,i.target_id,i.slug,i.created_target,i.added,i.revision,i.prev_revision FROM skill_installs i JOIN sync_jobs j ON j.id=i.job_id AND j.target_id=i.target_id WHERE i.job_id=? AND j.status NOT IN ('queued','running','awaiting-approval') AND NOT (j.kind='apply' AND j.status='succeeded')`, jobID).Scan(&uid, &target, &slug, &created, &added, &revision, &prev)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

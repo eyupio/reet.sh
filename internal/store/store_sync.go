@@ -147,6 +147,9 @@ func (s *Store) SaveSyncTargetFor(userID int64, sourceID, targetID string) error
 		return ErrSync
 	}
 	return s.withTx(func(tx *sql.Tx) error {
+		if err := refuseWhileInstallPendingTx(tx, userID, targetID); err != nil {
+			return err
+		}
 		type observed struct {
 			name, agent, project string
 			scanned              int64

@@ -1,7 +1,10 @@
 package store
 
 import (
+	"database/sql"
+	"errors"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -240,6 +243,21 @@ func TestOtherCancellationsRevertAnInstall(t *testing.T) {
 			t.Fatal("the install's set survived the rename")
 		}
 	})
+	t.Run("machine renamed, existing set", func(t *testing.T) {
+		e := installFixture(t)
+		before := e.existingSet(t)
+		if _, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf")); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.s.MergeMachinesFor(e.uid, "laptop", "work-laptop"); err != nil {
+			t.Fatal(err)
+		}
+		e.env = EnvironmentIDFor(e.uid, "work-laptop", "claude", "")
+		got := e.target(t)
+		if got.Revision != before.Revision || !reflect.DeepEqual(slugs(got.Desired), slugs(before.Desired)) {
+			t.Fatalf("saved set %+v, want %+v", got, before)
+		}
+	})
 	t.Run("machine revoked", func(t *testing.T) {
 		e := installFixture(t)
 		before := e.existingSet(t)
@@ -392,7 +410,7 @@ func TestRunRefusesWhenOnlyPendingInstallsRemain(t *testing.T) {
 		}
 		before := e.dump(t)
 		_, err := e.s.StartSyncRun(e.uid, e.agent.ID, targets)
-		if err == nil || err.Error() != "an install is waiting for approval on this folder; finish or cancel it first" {
+		if err == nil || err.Error() != "an install is waiting on this folder; finish or cancel it first" {
 			t.Fatal(err)
 		}
 		if e.dump(t) != before {
@@ -443,6 +461,11 @@ func TestSaveDesiredAcceptsAnInstalledHostedSkillForShelfListAndMachineSources(t
 			}
 			hash := e.awaitApproval(t, "pdf")
 			if err := e.s.ControlSyncJob(e.uid, res.JobID, "approve", hash); err != nil {
+				t.Fatal(err)
+			}
+			// The install applies first: a re-save is refused while it is pending.
+			j := e.claim(t)
+			if err := e.s.FinishSyncJob(e.uid, e.agent.ID, j.ID, "succeeded", hash, "", nil); err != nil {
 				t.Fatal(err)
 			}
 			tg := e.target(t)
@@ -518,5 +541,241 @@ func TestCancelOfAFinishedInstallSaysFinished(t *testing.T) {
 				t.Fatal("refusal wrote")
 			}
 		})
+	}
+}
+
+// mergeTarget records a complete scan of the project folder /work/app on laptop.
+func (e *installEnv) mergeTarget(t *testing.T) string {
+	t.Helper()
+	if err := e.s.TouchEnvironmentFor(e.uid, "laptop", "claude", "/work/app", "/work/app/.claude/skills"); err != nil {
+		t.Fatal(err)
+	}
+	id := EnvironmentIDFor(e.uid, "laptop", "claude", "/work/app")
+	if err := e.s.RecordInventoryFor(e.uid, id, true, MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func TestMergeEnvironmentsRevertsAPendingInstallBeforeTheCopy(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		name := "no saved set"
+		if existing {
+			name = "existing set"
+		}
+		t.Run(name, func(t *testing.T) {
+			e := installFixture(t)
+			var before SyncTarget
+			if existing {
+				before = e.existingSet(t)
+			}
+			dest := e.mergeTarget(t)
+			res, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := e.s.MergeEnvironmentsFor(e.uid, e.env, dest); err != nil {
+				t.Fatal(err)
+			}
+			if e.jobStatus(t, res.JobID) != "cancelled" {
+				t.Fatal("the install was not cancelled by the merge")
+			}
+			if _, err := e.s.CancelInstallFor(e.uid, res.JobID); err == nil {
+				t.Fatal("cancelled an install the merge had ended")
+			}
+			agent := e.agent
+			agent.KeepSynced = true
+			if err := e.s.MaintainSync(e.uid, "owner", agent); err != nil {
+				t.Fatal(err)
+			}
+			var queued int
+			e.s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE kind!='preview' OR status IN ('queued','running','awaiting-approval')`).Scan(&queued)
+			if queued != 0 {
+				jobs, _ := e.s.SyncJobsFor(e.uid)
+				t.Fatalf("Keep synced queued work: %+v", jobs)
+			}
+			e.env = dest
+			if existing {
+				e.sameSet(t, before)
+			} else {
+				e.noSetLeft(t)
+			}
+		})
+	}
+	t.Run("running job refuses", func(t *testing.T) {
+		e := installFixture(t)
+		dest := e.mergeTarget(t)
+		if _, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf")); err != nil {
+			t.Fatal(err)
+		}
+		e.claim(t)
+		before := e.dump(t)
+		if _, err := e.s.MergeEnvironmentsFor(e.uid, e.env, dest); !errors.Is(err, ErrEnvironmentJobRunning) {
+			t.Fatal(err)
+		}
+		if e.dump(t) != before {
+			t.Fatal("refusal wrote")
+		}
+	})
+}
+
+const installPendingSentence = "An install is waiting on this folder. Finish or cancel it first."
+
+func TestSaveDesiredRefusedWhileAnInstallIsPending(t *testing.T) {
+	resave := func(t *testing.T, e *installEnv) error {
+		t.Helper()
+		e.s.UpsertFor(e.uid, mustRef(t, "a/b/two"), Patch{})
+		tg := e.target(t)
+		ids := []string{"a/b/two"}
+		for _, sk := range tg.Desired {
+			ids = append(ids, sk.ID)
+		}
+		return e.s.SaveDesiredFor(e.uid, "owner", DesiredSelection{TargetID: e.env, SourceID: "shelf", Mode: "additive", Origin: installOrigin, Revision: tg.Revision, SkillIDs: ids})
+	}
+	for _, status := range []string{"queued", "running", "awaiting-approval"} {
+		t.Run(status, func(t *testing.T) {
+			e := installFixture(t)
+			e.existingSet(t)
+			res, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch status {
+			case "running":
+				e.claim(t)
+			case "awaiting-approval":
+				e.awaitApproval(t, "pdf")
+			}
+			// Another folder on the same machine is unaffected.
+			e.projectSet(t)
+			before := e.dump(t)
+			if err := resave(t, e); err == nil || err.Error() != installPendingSentence {
+				t.Fatal(err)
+			}
+			if e.dump(t) != before {
+				t.Fatal("refusal wrote")
+			}
+			// Reusing the install for the same skill still works.
+			if again, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf")); err != nil || again.JobID != res.JobID {
+				t.Fatal(again, err)
+			}
+			// Once the install has ended, a re-save works again.
+			if status == "running" {
+				if err := e.s.FinishSyncJob(e.uid, e.agent.ID, res.JobID, "failed", "", "npx exited 1", nil); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := e.s.CancelInstallFor(e.uid, res.JobID); err != nil {
+				t.Fatal(err)
+			}
+			if err := resave(t, e); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	t.Run("applied", func(t *testing.T) {
+		e := installFixture(t)
+		e.existingSet(t)
+		res, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		hash := e.awaitApproval(t, "pdf")
+		if err := e.s.ControlSyncJob(e.uid, res.JobID, "approve", hash); err != nil {
+			t.Fatal(err)
+		}
+		if err := resave(t, e); err == nil || err.Error() != installPendingSentence {
+			t.Fatal("approved but unapplied install allowed a re-save:", err)
+		}
+		j := e.claim(t)
+		if err := e.s.FinishSyncJob(e.uid, e.agent.ID, j.ID, "succeeded", hash, "", nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := resave(t, e); err != nil {
+			t.Fatal(err)
+		}
+		got := slugs(e.target(t).Desired)
+		sort.Strings(got)
+		if !reflect.DeepEqual(got, []string{"one", "pdf", "two"}) {
+			t.Fatalf("%v", got)
+		}
+	})
+}
+
+func TestRunRefusalNamesEveryFolderWithAPendingInstall(t *testing.T) {
+	e := installFixture(t)
+	if err := e.s.TouchEnvironmentFor(e.uid, "laptop", "opencode", "", "/home/u/.config/opencode/skills"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.RecordInventoryFor(e.uid, EnvironmentIDFor(e.uid, "laptop", "opencode", ""), true, MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf")); err != nil {
+		t.Fatal(err)
+	}
+	in := e.req("docx")
+	in.Tool = "opencode"
+	if _, err := e.s.InstallHostedSkillFor(e.uid, in); err != nil {
+		t.Fatal(err)
+	}
+	_, err := e.s.StartSyncRun(e.uid, e.agent.ID, nil)
+	if err == nil || err.Error() != "an install is waiting on each of these folders; finish or cancel them first" {
+		t.Fatal(err)
+	}
+}
+
+func TestAnAppliedInstallIsNeverReverted(t *testing.T) {
+	e := installFixture(t)
+	res, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := e.awaitApproval(t, "pdf")
+	if err := e.s.ControlSyncJob(e.uid, res.JobID, "approve", hash); err != nil {
+		t.Fatal(err)
+	}
+	j := e.claim(t)
+	if err := e.s.FinishSyncJob(e.uid, e.agent.ID, j.ID, "succeeded", hash, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	before := e.target(t)
+	// Copy the applied set elsewhere, as a merge would, then try every revert.
+	dest := e.mergeTarget(t)
+	if _, err := e.s.MergeEnvironmentsFor(e.uid, e.env, dest); err != nil {
+		t.Fatal(err)
+	}
+	var reverted bool
+	if err := e.s.withTx(func(tx *sql.Tx) error { var e error; reverted, e = revertInstallTx(tx, res.JobID); return e }); err != nil || reverted {
+		t.Fatal(reverted, err)
+	}
+	e.env = dest
+	e.sameSet(t, before)
+}
+
+func TestSaveSyncTargetRefusedWhileAnInstallIsPending(t *testing.T) {
+	e := installFixture(t)
+	e.s.UpsertFor(e.uid, mustRef(t, "a/b/one"), Patch{})
+	if err := e.s.RecordEnvironmentFor(e.uid, "a/b/one", "desk", "claude", "", "/home/d/.claude/skills", ""); err != nil {
+		t.Fatal(err)
+	}
+	desk := EnvironmentIDFor(e.uid, "desk", "claude", "")
+	if err := e.s.RecordInventoryFor(e.uid, desk, true, MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := e.dump(t)
+	if err := e.s.SaveSyncTargetFor(e.uid, desk, e.env); err != ErrInstallPending {
+		t.Fatal(err)
+	}
+	if e.dump(t) != before {
+		t.Fatal("refusal wrote")
+	}
+	if _, err := e.s.CancelInstallFor(e.uid, res.JobID); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.SaveSyncTargetFor(e.uid, desk, e.env); err != nil {
+		t.Fatal(err)
 	}
 }

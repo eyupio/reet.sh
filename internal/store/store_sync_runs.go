@@ -125,7 +125,10 @@ func (s *Store) startSyncRun(uid int64, agentID string, targetIDs []string, idem
 			}
 		}
 		if len(run.Targets) == 0 {
-			return errors.New("an install is waiting for approval on this folder; finish or cancel it first")
+			if len(ordered) > 1 {
+				return errors.New("an install is waiting on each of these folders; finish or cancel them first")
+			}
+			return errors.New("an install is waiting on this folder; finish or cancel it first")
 		}
 		ordered = run.Targets
 		targets, err := json.Marshal(ordered)

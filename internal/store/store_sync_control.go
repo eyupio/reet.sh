@@ -206,6 +206,11 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		desired = append(desired, linked[0])
 	}
 	return s.withTx(func(tx *sql.Tx) error {
+		// A pending install owns the set until it ends: a save now would carry
+		// its skill past the install's revert.
+		if err := refuseWhileInstallPendingTx(tx, uid, in.TargetID); err != nil {
+			return err
+		}
 		var complete bool
 		var scanned int64
 		var agent, project string

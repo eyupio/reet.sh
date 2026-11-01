@@ -206,6 +206,17 @@ escalation is silent:
 Still to build, in this order, each behind the same opt-in as Claude until its checks are recorded: a Codex profile and descriptor (dark), the mode control and wording in the browser, the
 reject and Stop behaviour, then a real-login check. None of it is built yet.
 
+### SC4 progress: Codex registered, dark (1 November 2026)
+
+`acpagent.CodexCandidate` exists and is reachable only where a machine sets `REET_EXPERIMENTAL_CODEX_CHAT=1`. It follows the decision above: `Spec.StartMode` moves a session
+that starts in `agent` (Codex's default) to `read-only`, using `session/set_config_option`, and the chat is refused unless the adapter's reply reports the new mode. The
+descriptor reports approvals only. The browser does not offer Codex yet (`CHAT_ADAPTERS` is unchanged), so nothing is visible to anyone.
+
+Unverified against a real adapter, and why a chat may fail to start (it fails closed): the `mode` switch through `set_config_option` (the probes used `session/set_mode`); the
+agent name the adapter reports at `initialize` (assumed to follow Claude's `@agentclientprotocol/codex-acp`); and authentication, since `session/new` answers "Authentication
+required" until `authenticate` is called and the connector replaces `HOME`, so a ChatGPT login under the real home is not visible. The next step is a probe of those three against
+the pinned adapter, then the browser mode control.
+
 ### Device and credential checks (1 November 2026)
 
 What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real

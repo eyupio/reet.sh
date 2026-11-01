@@ -61,8 +61,40 @@ func TestClaudeIsDarkUntilTheMachineOptsIn(t *testing.T) {
 	if missing := Describe("claude", false, ""); missing.State != "missing" || !missing.Valid() {
 		t.Fatalf("missing: %+v", missing)
 	}
-	// The switch never admits another candidate.
+	// The Claude switch never admits Codex.
 	if _, ok := Lookup("codex"); ok {
-		t.Fatal("codex is registered")
+		t.Fatal("codex is registered by the claude switch")
+	}
+}
+
+// Codex is registered but dark behind its own switch, starts in read-only (the
+// only mode that can ask), and reports approvals only.
+func TestCodexIsDarkUntilTheMachineOptsIn(t *testing.T) {
+	t.Setenv(CodexSwitch, "")
+	t.Setenv(ClaudeSwitch, "1")
+	if _, ok := Lookup("codex"); ok {
+		t.Fatal("codex is registered without its switch")
+	}
+	if got := Describe("codex", true, ""); got.State != "unverified" || got.Approval || got.Model {
+		t.Fatalf("dark codex: %+v", got)
+	}
+	t.Setenv(CodexSwitch, "1")
+	spec, ok := Lookup("codex")
+	if !ok || spec.RequireMode != "read-only" || spec.StartMode != "read-only" || spec.Command != "codex-acp" {
+		t.Fatalf("lookup: %+v %v", spec, ok)
+	}
+	got := Describe("codex", true, "")
+	if got.State != "available" || !got.Valid() || got.Adapter != "codex-acp" || got.MinimumVersion != "1.13.1" {
+		t.Fatalf("opted-in codex: %+v", got)
+	}
+	if !got.Approval || got.Model || got.History || got.Images || got.Questions {
+		t.Fatalf("unverified capabilities were reported: %+v", got)
+	}
+	if old := Describe("codex", true, "1.0.0"); old.State != "incompatible" || !old.Valid() {
+		t.Fatalf("old codex: %+v", old)
+	}
+	t.Setenv(ClaudeSwitch, "")
+	if _, ok := Lookup("claude"); ok {
+		t.Fatal("the codex switch registered claude")
 	}
 }

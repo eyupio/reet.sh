@@ -893,7 +893,8 @@ func (s *Store) SetTerminalYoloFor(uid int64, sessionID string, yolo bool) error
 // SetTerminalStructuredFor switches a running OpenCode session between the
 // structured chat and the raw terminal view. Enabling needs the ACP session
 // id the chat resumes from. Only the structured flag changes. Already being
-// at the requested value is a no-op.
+// at the requested value is a no-op for a running row; a closed row returns
+// ErrTerminalConflict even when it is already at the requested value.
 func (s *Store) SetTerminalStructuredFor(uid int64, sessionID string, structured bool) error {
 	if !terminalproto.ValidID(sessionID) {
 		return terminalproto.ErrInvalid

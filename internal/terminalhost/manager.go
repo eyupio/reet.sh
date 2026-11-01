@@ -358,9 +358,12 @@ func (m *Manager) End(ctx context.Context, requestID, sessionID string) (Managed
 }
 
 // Forget removes a session that no longer reserves quota, with every operation
-// receipt that names it, so its id can be created again. A live session (one
-// that still reserves quota, or whose tmux object still exists) is refused with
-// ErrOperationConflict; an unknown id is ErrSessionMissing.
+// receipt that names it, so its id can be created again. A session that still
+// reserves quota is refused with ErrOperationConflict; an unknown id is
+// ErrSessionMissing. A tmux object an ended session left behind (an exited pane
+// not yet reaped) is killed first; only a failed kill is refused, with
+// ErrOperationConflict. An upload still streaming to the session keeps its
+// quota reservation until that transfer ends, and no longer.
 func (m *Manager) Forget(ctx context.Context, sessionID string) error {
 	if !terminalproto.ValidID(sessionID) {
 		return terminalproto.ErrInvalid

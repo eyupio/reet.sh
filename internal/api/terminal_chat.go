@@ -328,8 +328,17 @@ func (s *server) terminalSessionModeError(w http.ResponseWriter, err error) {
 		writeErrCode(w, 409, "session_mode_no_session", "", err.Error(), "")
 	case errors.Is(err, terminalbroker.ErrSessionModeUnsupported):
 		writeErrCode(w, 409, "session_mode_unsupported", "", err.Error(), "")
+	case errors.Is(err, terminalbroker.ErrSessionModeNoConversation):
+		writeErrCode(w, 409, "session_mode_no_conversation", "", err.Error(), "")
 	case errors.Is(err, terminalbroker.ErrSessionModeFailed):
 		writeErrCode(w, 502, "session_mode_failed", "", err.Error(), "")
+	case errors.Is(err, terminalbroker.ErrSessionModeEnded):
+		// The switch failed and the machine ended the session: not retryable.
+		writeErrCode(w, 409, "session_mode_ended", "", err.Error(), "")
+	case errors.Is(err, terminalbroker.ErrYoloNotAllowed):
+		// A YOLO session moving to the OpenCode TUI is a YOLO launch; the
+		// same refusal and sentence as a launch.
+		writeErrCode(w, http.StatusForbidden, "yolo_not_allowed", "", "An owner or admin can allow YOLO for this account in Settings.", "")
 	default:
 		s.terminalChatError(w, err)
 	}

@@ -224,7 +224,10 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ACPImages && !c.ACP || c.ACPApproval && !c.ACP || c.ACPQuestions && !c.ACP || c.ACPModel && !c.ACP || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
 		return ErrInvalid
 	}
-	if c.SessionMode && !(c.ACP && c.ACPHistory && c.TerminalControl) {
+	// A switch launches the tool in a terminal (launch-v1, which needs
+	// terminal control). Every connector that reports session mode has
+	// launch-v1 on: its chat tools are among its launch tools.
+	if c.SessionMode && !(c.ACP && c.ACPHistory && c.Launch) {
 		return ErrInvalid
 	}
 	if len(c.Software) > 0 && (!c.TerminalControl || !ValidSoftware(c.Software)) {

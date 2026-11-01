@@ -264,3 +264,25 @@ func TestCreateLaunchSessionRules(t *testing.T) {
 		t.Fatalf("LaunchSession leaked onto the wire: %s %v", b, err)
 	}
 }
+
+// LaunchSession is an in-process launch option (json:"-"). A controller
+// cannot smuggle it in over the wire: the strict decoder refuses the field
+// under either spelling.
+func TestCreateStrictDecodeRefusesLaunchSession(t *testing.T) {
+	valid, err := Encode(testMessage(Create{Title: "Shell", Cols: 80, Rows: 24, Tool: "opencode"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(valid); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"LaunchSession":"ses_abc123XYZ"`, `"launchSession":"ses_abc123XYZ"`} {
+		data := bytes.Replace(valid, []byte(`"cols":80`), []byte(`"cols":80,`+field), 1)
+		if bytes.Equal(data, valid) {
+			t.Fatal("test did not inject the field")
+		}
+		if _, err := Decode(data); err != ErrInvalid {
+			t.Fatalf("%s accepted: %v", field, err)
+		}
+	}
+}

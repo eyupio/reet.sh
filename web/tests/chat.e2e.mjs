@@ -448,6 +448,312 @@ try {
   expect(sends).toBe(sendsBeforePhone)
   await page.setViewportSize({ width: 1360, height: 900 })
 
+  // Installing a hosted skill from the picker. The panel runs inside the same sheet; the mocks record every install, cancel,
+  // sync read and approval, and a fake clock drives the 2 second polling and the 60 second hint without waiting.
+  await page.clock.install()
+  const hostedPdf = { id: 'reet:pdf', name: 'pdf', description: 'Read and fill forms', source: 'reet', agent: '', native: false, onMachine: false, invocation: '', published: true }
+  const hostedDraft = { id: 'reet:draft', name: 'draft-notes', description: 'Not published yet', source: 'reet', agent: '', native: false, onMachine: false, invocation: '', published: false }
+  const nativePdf = { id: 'm9', name: 'pdf', description: 'Read and fill forms', source: 'machine', agent: 'opencode', native: true, onMachine: true, invocation: 'Use the pdf skill.', published: true }
+  const inst = { installs: [], cancels: [], patches: [], syncReads: 0, skillReads: 0, job: null, installReply: null, cancelReply: null, n: 0 }
+  const cur = () => `job${inst.n}`
+  const folder = '/home/dev/.config/opencode/skills'
+  const planJob = (id, actions, over = {}) => ({ id, agentId: A, targetId: 't1', kind: 'preview', status: 'awaiting-approval', revision: 'r1', hash: `hash-${id}`, plan: { directory: folder, actions }, message: '', createdAt: Date.now(), updatedAt: Date.now(), ...over })
+  page.on('request', request => { if (/\/sessions\/[^/]+\/skills$/.test(new URL(request.url()).pathname)) inst.skillReads++ })
+  await page.route('**/api/v2/terminal/sessions/*/skills/install', async route => {
+    inst.installs.push(route.request().postDataJSON())
+    const reply = inst.installReply ? inst.installReply() : { status: 200, json: { job: `job${++inst.n}`, reused: false, directory: folder, host: 'dev-laptop' } }
+    return route.fulfill(reply)
+  })
+  await page.route('**/api/v2/terminal/sessions/*/skills/install/cancel', route => {
+    inst.cancels.push(route.request().postDataJSON())
+    return route.fulfill(inst.cancelReply ? inst.cancelReply() : { status: 200, json: { reverted: true } })
+  })
+  await page.route('**/api/v2/sync', route => { inst.syncReads++; return route.fulfill({ status: 200, json: { environments: [], machines: [], agents: [], targets: [], runs: [], updateJobs: [], jobs: inst.job ? [inst.job] : [] } }) })
+  await page.route('**/api/v2/sync/jobs', route => { inst.patches.push(route.request().postDataJSON()); return route.fulfill({ status: 200, json: { environments: [], targets: [], jobs: inst.job ? [inst.job] : [] } }) })
+  const resetInstall = (rows = [hostedPdf, hostedDraft]) => {
+    inst.installs.length = 0; inst.cancels.length = 0; inst.patches.length = 0; inst.job = null; inst.installReply = null; inst.cancelReply = null
+    state.skills = { skills: rows, machineSeen: Date.now() - 5 * 60_000, host: 'dev-laptop' }
+  }
+  const pickerFilter = picker.getByRole('searchbox', { name: 'Filter skills' })
+  const panelOf = picker.getByRole('region', { name: 'Install pdf' })
+  const statusOf = picker.getByRole('status')
+  const openPanel = async () => {
+    await skillsButton.click()
+    await expect(picker).toBeVisible()
+    await picker.getByRole('button', { name: 'Install pdf', exact: true }).click()
+    await expect(panelOf).toBeVisible()
+  }
+  const confirmInstall = async () => { await panelOf.getByRole('button', { name: 'Install', exact: true }).click() }
+  const poll = () => page.clock.runFor(2000)
+
+  // The published reet-hosted row offers Install; the unpublished one says to publish it, as a link to the hosting page, with no button.
+  resetInstall()
+  await composer.fill('')
+  await skillsButton.click()
+  await expect(picker.getByRole('button', { name: 'Install pdf', exact: true })).toHaveCount(1)
+  await expect(picker.getByRole('link', { name: 'Publish this skill to install it.' })).toHaveAttribute('href', '/hosting')
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  // A machine reet does not know has no name to install on, so no row offers Install.
+  resetInstall()
+  state.skills = { ...state.skills, host: '' }
+  await skillsButton.click()
+  await expect(picker.getByRole('option', { name: /Read and fill forms/ })).toBeVisible()
+  await expect(picker.getByRole('button', { name: /^Install/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  expect(inst.installs).toEqual([])
+
+  // Structure: a group of rows without actions is one listbox owning all of them; each reet row with an action is its own
+  // single-option listbox with the action outside it.
+  resetInstall([nativePdf, { ...nativePdf, id: 'm10', name: 'xlsx' }, hostedPdf, hostedDraft])
+  await skillsButton.click()
+  await expect(picker.getByRole('button', { name: 'Install pdf', exact: true })).toBeVisible()
+  const boxes = picker.getByRole('listbox')
+  await expect(boxes).toHaveCount(3)
+  await expect(boxes.nth(0)).toHaveAccessibleName('On this machine for OpenCode')
+  await expect(boxes.nth(0).getByRole('option')).toHaveCount(2)
+  for (const i of [1, 2]) await expect(boxes.nth(i).getByRole('option')).toHaveCount(1)
+  await expect(picker.locator('[role=listbox] button, [role=listbox] a')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+
+  // Install opens the confirm text; nothing is called until the Install button in the panel is pressed, then exactly one call.
+  await openPanel()
+  await expect(panelOf.getByText('Add pdf to the OpenCode skills folder on dev-laptop. Nothing runs until you approve the plan.')).toBeVisible()
+  expect(inst.installs).toEqual([])
+  expect(inst.syncReads).toBe(0)
+  await expect(panelOf.getByRole('button', { name: 'Install', exact: true })).toBeFocused()
+  await confirmInstall()
+  await expect(statusOf).toHaveText('Waiting for dev-laptop…')
+  expect(inst.installs).toEqual([{ skill: 'reet:pdf' }])
+  // Waiting: the hint appears only after a minute; the panel never cancels by itself; Cancel calls the cancel route once and returns to the list.
+  await page.clock.fastForward(30_000)
+  await expect(statusOf).toHaveText('Waiting for dev-laptop…')
+  await page.clock.fastForward(31_000)
+  await expect(statusOf).toHaveText('Waiting for dev-laptop… Is reet running on dev-laptop?')
+  await page.clock.fastForward(10 * 60_000)
+  await expect(statusOf).toContainText('Is reet running on dev-laptop?')
+  expect(inst.cancels).toEqual([])
+  expect(inst.patches).toEqual([])
+  await panelOf.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(picker.getByRole('option', { name: /draft-notes/ })).toBeVisible()
+  expect(inst.cancels).toEqual([{ job: 'job1' }])
+  expect(inst.installs).toHaveLength(1)
+  await page.keyboard.press('Escape')
+
+  // A plain add is reviewed and approved: Approve is the focused button, nothing is approved until it is pressed, then exactly one PATCH with the job's hash.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  await expect(statusOf).toHaveText('Waiting for dev-laptop…')
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(statusOf).toHaveText('Review what will be added.')
+  await expect(panelOf.getByText('Add pdf', { exact: true })).toBeVisible()
+  // The review names the folder the plan writes to.
+  await expect(panelOf.getByText(`Folder: ${folder}`, { exact: true })).toBeVisible()
+  const approve = panelOf.getByRole('button', { name: 'Approve and install', exact: true })
+  await expect(approve).toBeFocused()
+  await page.clock.fastForward(5000)
+  expect(inst.patches).toEqual([])
+  await approve.click()
+  await expect.poll(() => inst.patches).toEqual([{ id: cur(), action: 'approve', hash: `hash-${cur()}` }])
+  expect(inst.cancels).toEqual([])
+  expect(inst.installs).toHaveLength(1)
+  // Installing, then done: the picker reloads, the skill is now a native row, and focus returns to the filter.
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }], { kind: 'apply', status: 'running' })
+  await poll()
+  await expect(statusOf).toHaveText('Installing pdf on dev-laptop…')
+  const readsBefore = inst.skillReads
+  state.skills = { skills: [nativePdf], machineSeen: Date.now(), host: 'dev-laptop' }
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }], { kind: 'apply', status: 'succeeded' })
+  await poll()
+  await expect(panelOf).toHaveCount(0)
+  await expect(picker.getByRole('option', { name: /pdf/ })).toBeVisible()
+  await expect(picker.getByText('On this machine for OpenCode')).toBeVisible()
+  expect(inst.skillReads).toBe(readsBefore + 1)
+  await expect(pickerFilter).toBeFocused()
+  const syncReadsAfterDone = inst.syncReads
+  await page.clock.fastForward(10_000)
+  expect(inst.syncReads).toBe(syncReadsAfterDone)
+  await page.keyboard.press('Escape')
+
+  // A plan that does more than add pdf cannot be approved here: the reason, the Sync page and Cancel are offered instead.
+  const risky = {
+    replace: [{ add: true, replace: true, skill: { slug: 'pdf' } }],
+    removal: [{ add: true, skill: { slug: 'pdf' } }, { add: false, skill: { slug: 'old-skill' } }],
+    another: [{ add: true, skill: { slug: 'pdf' } }, { add: true, skill: { slug: 'other' } }],
+  }
+  for (const [name, actions] of Object.entries(risky)) {
+    resetInstall()
+    await openPanel(); await confirmInstall()
+    inst.job = planJob(cur(), actions)
+    await poll()
+    await expect(statusOf).toHaveText('Review what will be added.')
+    await expect(panelOf.getByText('This install would change other skills. Review it on the Sync page.')).toBeVisible()
+    await expect(panelOf.getByRole('button', { name: 'Approve and install' })).toHaveCount(0)
+    await expect(panelOf.getByRole('link', { name: 'Open the Sync page' })).toHaveAttribute('href', '/sync')
+    await expect(panelOf.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+    expect(inst.patches).toEqual([])
+    // Closing the sheet mid-install does not cancel the job.
+    await page.keyboard.press('Escape')
+    await expect(picker).toHaveCount(0)
+    expect(inst.cancels).toEqual([])
+  }
+  // An empty plan is not approvable either, and a plan that turns unsafe after the review opened is refused at approval time.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(panelOf.getByRole('button', { name: 'Approve and install', exact: true })).toBeVisible()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }, { add: false, skill: { slug: 'gone' } }], { hash: 'hash-late-2' })
+  await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
+  await expect(panelOf.getByRole('button', { name: 'Approve and install' })).toHaveCount(0)
+  await expect(panelOf.getByText('This install would change other skills. Review it on the Sync page.')).toBeVisible()
+  expect(inst.patches).toEqual([])
+  await page.keyboard.press('Escape')
+
+  // The machine re-previews between render and click with a plain plan but a new hash: nothing is sent, the panel says it changed
+  // and shows the new plan, and a second click approves that plan with the hash now on screen.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(panelOf.getByRole('button', { name: 'Approve and install', exact: true })).toBeFocused()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }], { hash: 'hash-new', revision: 'r2', plan: { directory: '/elsewhere/skills', actions: [{ add: true, skill: { slug: 'pdf' } }] } })
+  await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
+  await expect(statusOf).toHaveText('This install changed while you were reviewing it. Check it again.')
+  await expect(panelOf.getByText('Folder: /elsewhere/skills', { exact: true })).toBeVisible()
+  expect(inst.patches).toEqual([])
+  await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
+  await expect.poll(() => inst.patches).toEqual([{ id: cur(), action: 'approve', hash: 'hash-new' }])
+  await page.keyboard.press('Escape')
+
+  // An empty plan has no Approve.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [])
+  await poll()
+  await expect(statusOf).toHaveText('Review what will be added.')
+  await expect(panelOf.getByText('The machine has not sent its plan yet.')).toBeVisible()
+  await expect(panelOf.getByRole('button', { name: 'Approve and install' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  // Closing the sheet mid-install stops polling and sends nothing.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(statusOf).toHaveText('Review what will be added.')
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  const readsAtClose = inst.syncReads
+  await page.clock.fastForward(10_000)
+  expect(inst.syncReads).toBe(readsAtClose)
+  expect(inst.patches).toEqual([])
+  expect(inst.cancels).toEqual([])
+
+  // Failed: the machine's message and Retry, which installs again; Close returns to the list.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [], { status: 'failed', message: 'The folder is read-only.' })
+  await poll()
+  await expect(statusOf).toHaveText('The install did not finish.')
+  await expect(panelOf.getByText('The folder is read-only.')).toBeVisible()
+  const retry = panelOf.getByRole('button', { name: 'Retry', exact: true })
+  await expect(retry).toBeFocused()
+  // A failed install leaves the saved list as it was, so there is nothing to remove: only Retry and Close.
+  await expect(panelOf.getByRole('button')).toHaveText(['Retry', 'Close'])
+  inst.job = null
+  await retry.click()
+  await expect.poll(() => inst.installs.length).toBe(2)
+  await expect(statusOf).toHaveText('Waiting for dev-laptop…')
+  inst.job = planJob(cur(), [], { status: 'failed', message: 'Still read-only.' })
+  await poll()
+  await expect(panelOf.getByText('Still read-only.')).toBeVisible()
+  await panelOf.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(picker.getByRole('option', { name: /draft-notes/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // Refusals leave the panel on Confirm with the server's sentence; an unpublished skill closes it and reloads the list.
+  const refusals = [
+    ['install-in-progress', 'Another skill is already being installed on dev-laptop.'],
+    ['connector-offline', "This session's machine isn't connected to reet right now, so it can't install this skill."],
+  ]
+  for (const [code, sentence] of refusals) {
+    resetInstall()
+    inst.installReply = () => ({ status: 409, json: { error: sentence, code } })
+    await openPanel(); await confirmInstall()
+    await expect(statusOf).toHaveText(sentence)
+    await expect(panelOf.getByText('Nothing runs until you approve the plan.')).toBeVisible()
+    await expect(panelOf.getByRole('button', { name: 'Install', exact: true })).toBeFocused()
+    await page.keyboard.press('Escape')
+  }
+  resetInstall()
+  inst.installReply = () => { state.skills = { skills: [hostedDraft], machineSeen: Date.now(), host: 'dev-laptop' }; return { status: 409, json: { error: "This skill isn't published any more.", code: 'unpublished' } } }
+  await openPanel()
+  const readsBeforeUnpublished = inst.skillReads
+  await confirmInstall()
+  await expect(panelOf).toHaveCount(0)
+  await expect(picker.getByRole('link', { name: 'Publish this skill to install it.' })).toBeVisible()
+  expect(inst.skillReads).toBe(readsBeforeUnpublished + 1)
+  expect(inst.installs).toHaveLength(1)
+  await page.keyboard.press('Escape')
+
+  // A running preview cannot be cancelled: the sentence is shown and the panel keeps polling.
+  resetInstall()
+  await openPanel(); await confirmInstall()
+  inst.cancelReply = () => ({ status: 409, json: { error: "This install is already running and can't be cancelled.", code: 'cannot-cancel' } })
+  await panelOf.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(statusOf).toHaveText("This install is already running and can't be cancelled.")
+  const readsWhileRunning = inst.syncReads
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(statusOf).toHaveText('Review what will be added.')
+  expect(inst.syncReads).toBeGreaterThan(readsWhileRunning)
+  // Cancelling when there was nothing to undo says so and does not close until the person does.
+  inst.cancelReply = () => ({ status: 200, json: { reverted: false } })
+  await panelOf.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(statusOf).toContainText('The saved skill list was left as it is.')
+  await panelOf.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(picker.getByRole('option', { name: /draft-notes/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // Keyboard only: Tab reaches Install, then Approve; Escape closes the sheet from the review step.
+  resetInstall()
+  await skillsButton.click()
+  await expect(pickerFilter).toBeFocused()
+  await expect(picker.getByRole('button', { name: 'Install pdf', exact: true })).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(picker.getByRole('button', { name: 'Install pdf', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(panelOf.getByRole('button', { name: 'Install', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(statusOf).toHaveText('Waiting for dev-laptop…')
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
+  await poll()
+  await expect(panelOf.getByRole('button', { name: 'Approve and install', exact: true })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  expect(inst.cancels).toEqual([])
+  expect(inst.patches).toEqual([])
+
+  // On a phone the panel fits with no sideways scroll.
+  resetInstall()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openPanel(); await confirmInstall()
+  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }, { add: false, skill: { slug: 'a-very-long-skill-name-that-has-to-wrap-inside-the-narrow-sheet-without-scrolling' } }])
+  await poll()
+  await expect(panelOf.getByText('Remove a-very-long-skill-name')).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  const phonePanel = await panelOf.boundingBox()
+  expect(phonePanel.x).toBeGreaterThanOrEqual(0)
+  expect(phonePanel.x + phonePanel.width).toBeLessThanOrEqual(390)
+  expect(await picker.locator('[data-shell-body]').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  await page.setViewportSize({ width: 1360, height: 900 })
+
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('textbox', { name: 'Message OpenCode' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -499,7 +805,7 @@ try {
   expect(state.resume.prompt).toBeUndefined()
   expect(state.resume.model).toBe('anthropic/claude-sonnet-4-5')
   expect(errors).toEqual([])
-  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled and its reason (the machine predates session-mode-v1), agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id and cannot switch TUI; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet.')
+  console.log('Structured OpenCode chat UI passed: the dialog offers the reet TUI for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens reet TUI with the OpenCode TUI disabled and its reason (the machine predates session-mode-v1), agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id and cannot switch TUI; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet; a published reet-hosted skill installs from the picker through confirm, wait, review, approve (only for a plain add), install and done, with cancel, retry, refusals and a phone fit.')
 } finally {
   await context.close()
   await browser.close()

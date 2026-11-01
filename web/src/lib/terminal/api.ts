@@ -225,6 +225,10 @@ export type CommandHistoryEntry={command:string;source:'bash'|'zsh';timestamp?:n
 export type CommandHistorySnapshot={entries:CommandHistoryEntry[];sources:{source:'bash'|'zsh';available:boolean;reason?:string}[];truncated:boolean;skipped:number}
 export async function commandHistory(id:string,signal?:AbortSignal):Promise<CommandHistorySnapshot>{return(await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/command-history`,{signal:signal?AbortSignal.any([signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)})).json()}
 
+export type InstallStarted = { job: string; reused: boolean; directory: string; host: string }
+const withTimeout = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000)
+export async function installSessionSkill(sessionId: string, skillId: string, signal?: AbortSignal): Promise<InstallStarted> { return (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(sessionId)}/skills/install`, { method: 'POST', body: JSON.stringify({ skill: skillId }), signal: withTimeout(signal) })).json() }
+export async function cancelSessionSkillInstall(sessionId: string, jobId: string, signal?: AbortSignal): Promise<{ reverted: boolean }> { return (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(sessionId)}/skills/install/cancel`, { method: 'POST', body: JSON.stringify({ job: jobId }), signal: withTimeout(signal) })).json() }
 export async function getSessionSkills(sessionId: string, signal?: AbortSignal): Promise<SessionSkills> { return (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(sessionId)}/skills`, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000) })).json() }
 
 // Saved Projects, kept to read: the list, their runs and a run, and the worktree status and remove a run's worktree

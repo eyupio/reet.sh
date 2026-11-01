@@ -186,6 +186,8 @@ func writeEnvironmentMergeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrSkillContentTargetScopeMerge):
 		writeErrCode(w, 409, errEnvironmentHasPins, "from_id", err.Error(), "Remove the private skill pin first.")
+	case errors.Is(err, store.ErrEnvironmentJobRunning):
+		writeErrCode(w, 409, errEnvironmentJobRunning, "from_id", err.Error(), "Wait for the machine to finish its sync job, then merge.")
 	case errors.Is(err, store.ErrSkillContentReceiptScope):
 		writeErrCode(w, 409, errEnvironmentHasReceipts, "from_id", err.Error(), "Release the ownership record first.")
 	case strings.Contains(strings.ToLower(err.Error()), "not found"):

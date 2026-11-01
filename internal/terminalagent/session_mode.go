@@ -23,6 +23,24 @@ var errAgentStillRunning = errors.New("the previous agent process did not stop")
 // inside terminalproto.SessionModeTimeout. A variable so tests can shorten it.
 var swapShellExitTimeout = 5 * time.Second
 
+// swapShellTermTimeout and swapShellKillTimeout bound the two steps used on a
+// terminal that did not exit within swapShellExitTimeout: SIGTERM, then SIGKILL.
+var (
+	swapShellTermTimeout = 2 * time.Second
+	swapShellKillTimeout = 2 * time.Second
+)
+
+// terminateShellGroups stops the TUI's process groups and reports whether none
+// remains; a variable so a test can simulate a group that survives it.
+var terminateShellGroups = func(groups []int) bool {
+	for _, g := range groups {
+		if !acpagent.TerminateGroup(g, swapShellTermTimeout, swapShellKillTimeout) {
+			return false
+		}
+	}
+	return true
+}
+
 // shellHost is the part of the tmux manager a mode swap drives.
 // *terminalhost.Manager implements it; tests use a fake.
 type shellHost interface {
@@ -132,9 +150,10 @@ func (a *agentSwitch) swap(ctx context.Context, requestID, sessionID string, in 
 	if err := a.shells.Forget(ctx, sessionID); err != nil {
 		return terminalproto.SessionChanged{}, err
 	}
-	if !groupsExited(groups, swapShellExitTimeout) {
-		// The TUI may still write the OpenCode store: no chat opens on it,
-		// and nothing runs the row any more.
+	if !groupsExited(groups, swapShellExitTimeout) && !terminateShellGroups(groups) {
+		// The TUI did not exit on its hangup and survived SIGTERM and SIGKILL.
+		// It may still write the OpenCode store: no chat opens on it, and
+		// nothing runs the row any more.
 		sup.retireSwapped(sessionID, title, in.Tool, "")
 		return terminalproto.SessionChanged{}, errAgentStillRunning
 	}

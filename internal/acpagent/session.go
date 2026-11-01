@@ -100,6 +100,7 @@ type Session struct {
 	turnError    bool
 	turnSeq      uint64
 	forceArmed   uint64
+	cancelledSeq uint64
 	forceClosing bool
 	turnStart    time.Time
 	lastEvent    time.Time
@@ -700,8 +701,22 @@ type permissionParams struct {
 	} `json:"options"`
 }
 
+// turnAcceptsRequests reports whether a permission or question request can
+// belong to a turn the person is still waiting on. A request that arrives with no
+// turn running, or after the running turn was cancelled, has no owner: the agent
+// does not withdraw it, so it is answered as cancelled instead of raising a card.
+func (s *Session) turnAcceptsRequests() bool {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	return s.working && s.cancelledSeq != s.turnSeq
+}
+
 func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 	if len(rpcID) == 0 {
+		return
+	}
+	if !s.turnAcceptsRequests() {
+		s.respond(rpcID, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}}, nil)
 		return
 	}
 	var params permissionParams
@@ -912,6 +927,11 @@ func (s *Session) commitForceStop(seq uint64) bool {
 // Cancel stops the current turn and closes every card this client still holds.
 // The agent does not withdraw an outstanding request_permission, so reet must.
 func (s *Session) Cancel() error {
+	s.turnMu.Lock()
+	if s.working {
+		s.cancelledSeq = s.turnSeq
+	}
+	s.turnMu.Unlock()
 	s.cancelCards()
 	s.emit(Event{Kind: "status", State: "cancelled"})
 	err := s.sendCancel()
@@ -1278,6 +1298,41 @@ func retireGroup(pgid int, timeout time.Duration) bool {
 // GroupAlive reports whether any live (non-zombie) process remains in the
 // process group pgid.
 func GroupAlive(pgid int) bool { return groupAlive(pgid) }
+
+// killGroup sends SIGKILL to the whole process group; a variable so a test can
+// see whether the escalation was needed.
+var killGroup = func(pgid int) { _ = syscall.Kill(-pgid, syscall.SIGKILL) }
+
+// TerminateGroup stops a process group this package did not start (a terminal
+// TUI): SIGTERM first, so the program can flush, waiting up to termTimeout; then
+// SIGKILL, waiting up to killTimeout. It returns true once no live member
+// remains, and false if the group is still alive, so a caller must not start a
+// replacement on the same OpenCode session. Call it only for a group that was
+// seen alive moments ago, so the group id cannot have been reused.
+func TerminateGroup(pgid int, termTimeout, killTimeout time.Duration) bool {
+	if !groupAlive(pgid) {
+		return true
+	}
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	if waitGroupGone(pgid, termTimeout) {
+		return true
+	}
+	killGroup(pgid)
+	return waitGroupGone(pgid, killTimeout)
+}
+
+func waitGroupGone(pgid int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if !groupAlive(pgid) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
 
 // GroupRetired reports whether Close confirmed that every process the agent
 // started is gone. It is false before Close and when retirement timed out.

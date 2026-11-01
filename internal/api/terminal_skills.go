@@ -1,12 +1,14 @@
 package api
 
 import (
+	"net/http"
 	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalbroker"
 )
 
 // maxSkillInvocationName is the longest skill name, in runes, that is
@@ -106,4 +108,47 @@ func buildSessionSkills(tool, host string, skills []store.Skill, hosted []store.
 		out.Skills = append(out.Skills, group...)
 	}
 	return out
+}
+
+// terminalSessionSkills lists the skills a running session can use: those
+// installed on its machine, then the account's reet-hosted ones. It only reads.
+func (s *server) terminalSessionSkills(w http.ResponseWriter, r *http.Request) {
+	uid := s.uid(r)
+	session, err := s.st.TerminalSessionFor(uid, r.PathValue("id"))
+	if err != nil {
+		// Same answer as the sibling routes for an unknown or foreign session.
+		terminalError(w, terminalbroker.ErrDenied)
+		return
+	}
+	agents, err := s.st.SyncAgentsFor(uid)
+	if err != nil {
+		terminalError(w, err)
+		return
+	}
+	host := ""
+	for _, a := range agents {
+		if a.ID == session.AgentID {
+			host = a.Host
+			break
+		}
+	}
+	if host == "" {
+		writeJSON(w, 200, buildSessionSkills(session.Tool, "", nil, nil))
+		return
+	}
+	if host, err = s.st.ResolveMachineHostFor(uid, host); err != nil {
+		terminalError(w, err)
+		return
+	}
+	skills, _, err := s.st.ListFor(uid, store.Filter{})
+	if err != nil {
+		terminalError(w, err)
+		return
+	}
+	hosted, err := s.st.HostedSkillsFor(uid)
+	if err != nil {
+		terminalError(w, err)
+		return
+	}
+	writeJSON(w, 200, buildSessionSkills(session.Tool, host, skills, hosted))
 }

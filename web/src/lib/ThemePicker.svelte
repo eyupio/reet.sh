@@ -6,6 +6,9 @@
   // the profile's saved choice wins, so the control reads the page rather than keeping a copy, and
   // follows a change made anywhere else.
   type Theme = 'system' | 'light' | 'dark'
+  // A signed-in menu passes onchoose to save the choice; it applies at once either way, and a save
+  // that fails puts the page's theme back through applyTheme, which this control then follows.
+  let { onchoose }: { onchoose?: (next: Theme) => void | Promise<void> } = $props()
   const themes: { id: Theme; label: string }[] = [{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'system', label: 'Match this device' }]
   const currentTheme = (): Theme => {
     const value = document.documentElement.dataset.theme
@@ -20,6 +23,7 @@
   function choose(next: Theme) {
     theme = next
     applyTheme(next)
+    void onchoose?.(next)
   }
 </script>
 
@@ -43,4 +47,6 @@
   button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   button:hover { color: var(--ink); }
   button[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--accent-text); }
+  /* A finger gets the touch size the rest of the chrome keeps. */
+  @media (pointer: coarse) { button { width: 44px; height: 44px; } }
 </style>

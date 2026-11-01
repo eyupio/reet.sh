@@ -499,6 +499,8 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	caps, capsErr := p.b.st.RemoteCapabilitiesFor(p.key.uid, p.key.agent)
+	sessionMode := capsErr == nil && caps.Generation == p.Generation && caps.Capabilities.SessionMode
 	for _, s := range sessions {
 		if s.AgentID != p.key.agent || !s.State.ReservesQuota() {
 			continue
@@ -518,6 +520,11 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 		}
 		if exists && (observed.ActivityAt > 0 || observed.BellAt > 0 || observed.ExitStatus != nil || p.b.peerSupportsAttention(p.key.uid, p.key.agent)) {
 			_ = p.b.st.ObserveTerminalAttentionFor(p.key.uid, p.key.agent, s.ID, p.Generation, observed.ActivityAt, observed.BellAt)
+		}
+		if exists {
+			// A switch whose answer was lost still settles here: the row
+			// follows the mode the machine reports.
+			s = p.adoptSessionMode(s, observed, sessionMode)
 		}
 		if exists && s.Structured && state.ReservesQuota() {
 			if observed.ActivityAt > s.ActivityAt {

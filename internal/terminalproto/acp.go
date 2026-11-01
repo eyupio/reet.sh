@@ -320,7 +320,7 @@ func (m SessionMode) valid() bool {
 		return false
 	}
 	return ValidACPSessionIDFor(m.Tool, m.ACPSessionID) && ValidDir(m.Dir) &&
-		(m.Model == "" || ValidModel(m.Model)) && validChatText(m.Title, 200)
+		(m.Model == "" || ValidModel(m.Model)) && (m.Title == "" || ValidTitle(m.Title))
 }
 
 func validACPID(s string) bool {

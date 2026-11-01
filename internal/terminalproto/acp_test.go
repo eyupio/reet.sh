@@ -206,6 +206,7 @@ func TestSessionModeValid(t *testing.T) {
 		"terminal no dims": bad(func(m *SessionMode) { m.Cols, m.Rows = 0, 0 }),
 		"bad dir":          bad(func(m *SessionMode) { m.Dir = "relative\x00" }),
 		"bad model":        bad(func(m *SessionMode) { m.Model = "a\x00b" }),
+		"control title":    bad(func(m *SessionMode) { m.Title = "a\x1bb" }),
 	} {
 		if m.valid() {
 			t.Fatalf("%s: invalid body accepted", name)
@@ -235,5 +236,17 @@ func TestSessionModeRoundTrip(t *testing.T) {
 func TestSessionModeFeature(t *testing.T) {
 	if !SupportsSessionMode("acp-v1, "+SessionModeFeature) || SupportsSessionMode("acp-v1") {
 		t.Fatal("session mode feature negotiation")
+	}
+}
+
+func TestSessionModeAcceptsEightyRuneCJKTitle(t *testing.T) {
+	m := validSessionMode()
+	m.Title = strings.Repeat("\u4e2d", 80)
+	if !m.valid() {
+		t.Fatal("80-rune CJK title refused")
+	}
+	m.Title += "\u4e2d"
+	if m.valid() {
+		t.Fatal("81-rune title accepted")
 	}
 }

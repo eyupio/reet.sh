@@ -527,6 +527,36 @@ Delivery record:
 - **Publication:** draft PR only; no merge or deployment authorized.
 
 
+### SC5 progress: startup model confirmation (2 November 2026)
+
+Status reconciliation: the owner merged #402 as `a78ffa6` (all CI passed on `7dec2cc`, bot review completed without findings) and #406 as
+`6973f08` (all five CI workflows passed on `59f896f`, no retry, bot review completed without findings). Their earlier draft notes above describe
+scope/history, not current publication state. #401's independent documentation update is already merged as `d5a4e80`.
+
+This bounded next slice requires exactly one valid matching model read-back from `session/new` and `session/load` when the person selected a model.
+It reuses the live-model acknowledgement parser, with omission disallowed at startup even for OpenCode. Missing, empty, duplicate and mismatched
+model reports cannot admit a usable chat or send its opening prompt. No-model/Agent-default launches keep existing behaviour. No extra startup
+model-setting RPC is introduced. A definite refused chat create clears unconfirmed model metadata while retaining the operation fingerprint and
+refusal receipt; replay does not start another process. Plain terminals and transport uncertainty retain their existing treatment.
+
+Closing a rejected ACP startup emits an ended callback before Start returns. The supervisor now waits for admission before publishing that lifecycle
+transition; a post-admission Done watcher still catches an exit racing successful startup. Regressions cover both sides of this ordering.
+
+Delivery record:
+- **Branch / implementation:** `fix/confirm-startup-chat-model`, initial implementation `a032345`, based on `1235328`; main `6973f08` and `f051948` merged
+  without rewriting history. The owner authorized this slice and requested an up-to-date handoff in its draft PR.
+- **Checks:** new fake-child startup tests failed before the fix for incomplete/ambiguous read-back on both new/load and OpenCode/Claude profiles.
+  Controller regressions reproduced the stale stored model and verify refusal replay stays idempotent; supervisor regressions reproduced premature exit publication
+  and an exit overwritten during admission. These pass under race. Web check/build and Go vet pass; final package/CI/review receipts belong in the PR.
+- **Real evidence:** isolated Linux x86-64 probes used OpenCode 1.19.5 and Claude ACP 0.99.1 / SDK 0.3.312, Node 24.19.0. Only initialize/new/load
+  were called. OpenCode returned `opencode/big-pickle` on new/load; Claude returned `default`. OpenCode still reported `opencode/big-pickle` when
+  private config requested `anthropic/claude-sonnet-4-5`; config alone did not establish selection. Opt-in Go profile tests passed for explicitly
+  matching OpenCode new/load and Claude new. See the probe report for exact reproduction and package locks.
+- **Limits / next:** no prompts, genuine credentials, model turns, physical devices or screen readers were verified. Codex Run B remains deferred
+  at the owner's request, not passed. Both experimental switches and form capability remain off. Broader mode/effort option contracts and native-session
+  adoption after connector restart remain separate SC5 work. No merge or deployment is authorized; publication results belong in the draft PR.
+
+
 ## Delivery and completion evidence
 
 Keep one bounded stage per PR. Reuse protocol fixtures, fake children and browser

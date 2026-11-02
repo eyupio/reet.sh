@@ -394,3 +394,38 @@ The owner approved implementing the login route from source evidence and keeping
 
 The fake-child regressions establish reet's routing, mode confirmation and error/notice handling; they do not establish provider authentication.
 Section 3 Run B in `docs/device-checks.md` remains the signed-in release gate. Neither switch is retired by this change.
+
+
+## Startup model read-back (2 November 2026)
+
+Linux x86-64, Node v24.19.0; pinned OpenCode 1.19.5 and Claude ACP 0.99.1 (resolved SDK 0.3.312).
+Installed outside the repository with `npm install --ignore-scripts --no-audit --no-fund`. Because OpenCode's postinstall is disabled, the probe used
+`node_modules/opencode-linux-x64/bin/opencode` directly. Npm verified the package-lock integrity records. Lock SHA-256 values:
+
+- OpenCode: `9f3dcbcf850bf978445e289651b2e29ea2125c48a841af0916c27375ba090bc6`.
+- Claude: `8cd73ef47f65f97faf30ea5089a609c9965fa458d9c325bd093d3886430ede5e`.
+
+A direct protocol probe used isolated HOME/project/config/data/cache, the launch profile's config, synthetic Claude credentials and a closed loopback
+provider endpoint. It called only `initialize`, `session/new` and `session/load`, never `session/prompt`, `authenticate` or a model-setting RPC.
+Sanitized results are recorded in `fixtures/startup-models.json` (transient session IDs omitted).
+
+| Agent / requested model | New and load model `currentValue` | Mode |
+| --- | --- | --- |
+| OpenCode / agent default | `opencode/big-pickle` | `build` |
+| OpenCode / private config `anthropic/claude-sonnet-4-5` | `opencode/big-pickle` | `build` |
+| Claude / agent default | `default` | `default` |
+
+Both adapters report these through `configOptions`, not a legacy `models.currentModelId`. OpenCode's private config alone did not establish the
+alternate selection. Preserve mismatch refusal; these results do not justify silently setting a startup model with another RPC.
+
+The enhanced opt-in profile tests reproduce explicit matching read-back using the actual Go launch profiles:
+
+```sh
+REET_OPENCODE_1195=/path/to/opencode-linux-x64/bin/opencode \
+REET_CLAUDE_ACP=/path/to/claude/node_modules/.bin/claude-agent-acp \
+go test ./internal/acpagent -run '^TestReal(OpenCode|Claude)Start$' -v -count=1
+```
+
+Both passed: OpenCode new/load confirm the explicitly selected observed default and preserve resume identity; Claude new confirms `default`,
+retires its process group and retains the strict-version refusal check. The direct probe also measured Claude load, but the Go profile test does not
+claim Claude resume coverage. No prompt or model call was sent. No real-login, provider-turn or physical-device gate is closed by these checks.

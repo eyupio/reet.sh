@@ -45,7 +45,7 @@ A live model change is reported as applied only after the adapter confirms it. O
 omitted; an explicit list must contain one valid model value. Claude requires that read-back. Incomplete or ambiguous replies clear the confirmed
 model and retained status detail, and show a notice. The controller also clears its stored model if an acknowledgement is lost after sending; busy or pre-send failures leave it
 unchanged. The person can choose a model again; the conversation and approvals are preserved.
-This does not add an effort control or change model selection at launch.
+No effort control is added. An explicitly chosen startup model must also be confirmed before admission or the opening prompt; see below.
 
 
 ## Starting one
@@ -261,7 +261,7 @@ the status pill, the **Approvals** line and the context panel's decisions follow
 - **Only OpenCode, at least 1.19.5.** No other agent has an ACP adapter in this slice. A machine with an older OpenCode
   shows the version refusal; a newer release passes the name and semver checks.
 - **The model is chosen at launch.** **Agent default** uses OpenCode's configured model. A chosen model is passed in
-  `OPENCODE_CONFIG_CONTENT` and must match the model OpenCode reports after `session/new`; a mismatch refuses the start.
+  `OPENCODE_CONFIG_CONTENT`. New and loaded chats must report exactly one valid model matching that choice; missing, empty, ambiguous or mismatched read-back refuses startup before the opening prompt. A definite failed chat create clears its unconfirmed model metadata while keeping the refusal receipt for replay. Agent-default launches keep their existing behaviour.
   Thinking remains OpenCode's own. Continuing a chat keeps the model recorded on the closed session.
 - **Switching TUI is for a running, idle OpenCode session** on a `session-mode-v1` machine, and only a session reet
   started in Gaffer can return to it. Terminal scrollback is not carried over, a switch can take a few minutes, and

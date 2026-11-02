@@ -493,6 +493,40 @@ Delivery record:
   descriptor contracts and native-session adoption after connector restart remain independent SC5 work.
 - **Publication:** #402 is open as a draft; Codex bot review requested. No merge or deployment authorized.
 
+### SC5 progress: confirmed live model switches (2 November 2026, draft)
+
+This independent slice distinguishes an omitted `configOptions` reply from an explicit replacement that cannot establish the model.
+Only the OpenCode profile permits its existing omitted-list acknowledgement. Claude requires the model's read-back `currentValue`, as measured
+in the SC2 probe. An explicit empty/null/malformed list, missing/empty/invalid model value, duplicate model entries, lost reply or internal RPC
+error cannot confirm the requested model. The machine clears its model and retained status detail, returns an error and emits a notice instead of reporting success.
+A confirmed different model is still recorded on the process and returned as a rejected choice, preserving the measured silent-reset handling.
+An explicit invalid-parameters or unsupported-method refusal retains the process's last confirmed model. A later confirmed switch recovers normally.
+
+The controller clears its stored model after an unconfirmed response or a reply lost after sending. Failure before sending, busy and missing-chat
+responses retain the stored value. An empty stored model makes no claim about the agent's current choice; it does not block sending or change
+approvals. Existing API errors provide feedback. No new wire field, message, negotiation feature, database column or adapter capability is added.
+
+Delivery record:
+- **Task / scope:** SC5 live model acknowledgement and unknown-state handling. Startup model confirmation, effort/mode option contracts and native-session
+  adoption remain separate work.
+- **Branch / implementation / PR:** `fix/confirm-chat-model-switch`, `9054732`, [draft #406](https://github.com/eyupio/reet.sh/pull/406), independently based on main `7e390b2`. The owner explicitly authorized this slice while #402 was open.
+  The owner later merged #402 as `a78ffa6`; current main is merged into this branch without rewriting history. Its changes are not duplicated in this PR.
+- **Checks:** new regressions failed before the fix for incomplete replies, strict-profile omitted replies, lost acknowledgements and stale stored models.
+  A separate late internal-error regression failed before its fix too. Targeted core/controller race tests, web check/build and all 16 MCP tests pass;
+  the API package also passes without race (73 s). A final full ACP package run passes under race with only the baseline orphan test excluded.
+  The initial broader local run compiled before the late internal-error fix and is not reported as a final pass; it also hit one Stop timeout.
+  The final ACP package and the same Stop test on current main both pass. Merged-tree ACP/connector/broker/protocol race checks pass with only the five baseline-confirmed container tests excluded; vet and API tests pass.
+  A further regression reproduced the old model surviving in retained idle-status detail; the follow-up clears that detail for reconnect replay too.
+  Full broader results, bot review and CI are recorded in #406.
+- **Baseline:** the known model, orphan/process-group and missing-tmux tests were reproduced on current main `7e390b2` in this container.
+- **Evidence / limits:** Claude read-back follows the recorded real-adapter probe; OpenCode's pre-existing omitted-list compatibility is preserved.
+  New edge cases are fake-child/control-link regressions, not claims that an adapter was observed sending malformed replies. No genuine-login,
+  real-provider, physical-device or screen-reader check ran. The owner previously deferred Codex Run B; it remains unverified. Both experimental
+  switches and disabled form capability remain unchanged.
+- **Next:** owner login/device checks remain in their recorded order. SC5 still has broader option contracts and connector-restart adoption.
+- **Publication:** draft PR only; no merge or deployment authorized.
+
+
 ## Delivery and completion evidence
 
 Keep one bounded stage per PR. Reuse protocol fixtures, fake children and browser

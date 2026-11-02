@@ -30,7 +30,7 @@ func chatFixtureCaps(t *testing.T, answerReply func(*terminalproto.ACPQuestionAn
 }
 
 // chatFixtureFull also lets a test script the machine's reply to an agent mode switch.
-func chatFixtureFull(t *testing.T, answerReply func(*terminalproto.ACPQuestionAnswer) terminalproto.Result, mutate func(*terminalproto.Capabilities), modeReply func(*terminalproto.ACPAgentMode) (terminalproto.Result, bool)) (*Broker, *Peer, int64, string) {
+func chatFixtureFull(t *testing.T, answerReply func(*terminalproto.ACPQuestionAnswer) terminalproto.Result, mutate func(*terminalproto.Capabilities), modeReply func(*terminalproto.ACPAgentMode) (terminalproto.Result, bool), modelReply ...func(*terminalproto.ACPModel) (terminalproto.Result, bool)) (*Broker, *Peer, int64, string) {
 	t.Helper()
 	st, err := storetest.Open(t)
 	if err != nil {
@@ -75,6 +75,16 @@ func chatFixtureFull(t *testing.T, answerReply func(*terminalproto.ACPQuestionAn
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
 			if answerReply != nil {
 				reply.Body = answerReply(op)
+			}
+		case *terminalproto.ACPModel:
+			reply.Body = terminalproto.Result{Code: terminalproto.OK}
+			if len(modelReply) > 0 {
+				result, deliver := modelReply[0](op)
+				if !deliver {
+					mu.Unlock()
+					return nil
+				}
+				reply.Body = result
 			}
 		case *terminalproto.ACPAgentMode:
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
@@ -486,5 +496,65 @@ func TestPromptIsRefusedWhileTheAgentModeIsUnknown(t *testing.T) {
 	ps := chatSession(t, plain, puid, pagent)
 	if err := plain.PromptChat(t.Context(), puid, ps.ID, "hello", nil); err != nil {
 		t.Fatalf("an agent that offers no modes was held up: %v", err)
+	}
+}
+
+func TestUnconfirmedModelSwitchClearsStoredModel(t *testing.T) {
+	old := chatCallTimeout
+	chatCallTimeout = 100 * time.Millisecond
+	defer func() { chatCallTimeout = old }()
+	for _, tc := range []struct {
+		name                    string
+		code                    terminalproto.ResultCode
+		deliver, clear, success bool
+	}{
+		{name: "unconfirmed", code: terminalproto.Unavailable, deliver: true, clear: true},
+		{name: "reply lost", code: terminalproto.OK, clear: true},
+		{name: "busy", code: terminalproto.Conflict, deliver: true},
+		{name: "gone", code: terminalproto.NotFound, deliver: true},
+		{name: "confirmed", code: terminalproto.OK, deliver: true, success: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, _, uid, agent := chatFixtureFull(t, nil, nil, nil, func(*terminalproto.ACPModel) (terminalproto.Result, bool) {
+				return terminalproto.Result{Code: tc.code}, tc.deliver
+			})
+			s := chatSession(t, b, uid, agent)
+			if err := b.st.RecordTerminalModelFor(uid, s.ID, "provider/original"); err != nil {
+				t.Fatal(err)
+			}
+			err := b.ModelChat(t.Context(), uid, s.ID, "provider/other")
+			if (err == nil) != tc.success {
+				t.Fatalf("switch: %v", err)
+			}
+			got, readErr := b.st.TerminalSessionFor(uid, s.ID)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			want := "provider/original"
+			if tc.clear {
+				want = ""
+			} else if tc.success {
+				want = "provider/other"
+			}
+			if got.Model != want {
+				t.Fatalf("stored model %q, want %q", got.Model, want)
+			}
+		})
+	}
+}
+
+func TestModelSwitchBeforeSendFailureKeepsStoredModel(t *testing.T) {
+	b, p, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	if err := b.st.RecordTerminalModelFor(uid, s.ID, "provider/original"); err != nil {
+		t.Fatal(err)
+	}
+	p.Close()
+	if err := b.ModelChat(t.Context(), uid, s.ID, "provider/other"); err == nil {
+		t.Fatal("offline switch succeeded")
+	}
+	got, err := b.st.TerminalSessionFor(uid, s.ID)
+	if err != nil || got.Model != "provider/original" {
+		t.Fatalf("before-send failure: model=%q err=%v", got.Model, err)
 	}
 }

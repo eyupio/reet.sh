@@ -23,13 +23,14 @@ import (
 // permission context; a newer release is accepted because the handshake still
 // names and versions the agent.
 var OpenCode = Spec{
-	Key:          "opencode",
-	Command:      "opencode",
-	Args:         []string{"acp"},
-	DisplayName:  "OpenCode",
-	ExpectedName: "OpenCode",
-	MinVersion:   "1.19.5",
-	RequireMode:  "build",
+	Key:                  "opencode",
+	Command:              "opencode",
+	Args:                 []string{"acp"},
+	DisplayName:          "OpenCode",
+	ExpectedName:         "OpenCode",
+	MinVersion:           "1.19.5",
+	RequireMode:          "build",
+	AllowOmittedModelAck: true,
 	EnvAllowlist: []string{
 		"ANTHROPIC_API_KEY",
 		"OPENAI_API_KEY",

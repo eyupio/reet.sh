@@ -133,6 +133,14 @@ Status checks briefly acquire the same enrollment lock as startup; polling immed
 The fixture retains private output for startup-failure diagnostics. A local subprocess reproduction confirmed that holding the status lock
 rejects foreground startup, while waiting for readiness before checking status succeeds. The full native-service check requires CI's real service manager.
 
+**Current SC5 model-confirmation slice (2 November, draft [#406](https://github.com/eyupio/reet.sh/pull/406)):** branch `fix/confirm-chat-model-switch`, implementation `9054732`, based independently on main `7e390b2` with main `a78ffa6` merged.
+The owner explicitly asked to start this slice while #402 was open. The owner has since merged #402 as `a78ffa6`; that current main is merged here without rewriting history.
+Live model changes now distinguish OpenCode's legacy omitted-list acknowledgement from explicit options and Claude's required read-back.
+Incomplete or ambiguous replies clear model state and report an error/notice. The controller clears its stored model after an unconfirmed or lost
+reply; busy, missing-chat and pre-send failures retain it. Tests cover later confirmation without replacing the conversation. See the appended SC5
+progress note and the draft PR for exact checks/publication results. No login or physical-device pass is claimed; the owner deferred Run B, both
+experimental switches remain in place and form capability remains off. Broader option contracts and native-session adoption are still separate work.
+
 **Working rules the owner set (keep following them):**
 - One item at a time: build it test-first, open a **draft** PR, watch it, and **merge only when the owner says so** (they often mark
   PRs ready or merge them themselves). Then take the next item.

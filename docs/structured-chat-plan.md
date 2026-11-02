@@ -465,6 +465,31 @@ Delivery record:
   contracts remain future SC5 work. Pending typed-question recovery is outside this approval slice; the form capability remains off.
 - **Publication:** opened as a draft for owner review; no merge or deployment claimed.
 
+
+### SC5 progress: delivered typed questions across transport reconnects (2 November 2026, draft)
+
+This bounded follow-up to #396 retains complete, already delivered typed-question cards on the surviving connector process. Reconnect replay
+places their original tokens and schemas after buffered history, once, alongside pending approvals and current status. Old output is evicted
+before pending cards; question IDs and serialized schemas count against the unchanged 1,000-event / 256 KiB queue limits. The native process
+still owns deadlines, single-use tokens and answer validation. No new/load, new token or new adapter behaviour is introduced.
+
+Question resolution and timeout callbacks now retire local state while detached or replaying. Waiting settles only when neither approvals nor
+questions remain. A replacement peer without `acp-question-v1` receives no question frames, including historical frames from exited chats;
+pending questions are cancelled through the original process. Questions first asked without a live negotiated recipient are still cancelled.
+
+Delivery record:
+- **Task / scope:** SC5 pending typed-question recovery over a replacement control connection; no connector-process restart adoption.
+- **Branch:** `fix/recover-pending-chat-questions`, based on main `9961b11`. The independent documentation-only status update remains in #401;
+  its changes are not duplicated here.
+- **Compatibility:** existing negotiated events, tokens, generation and queue limits; no protocol field, dependency or database change.
+- **Checks:** regression and final validation results will be recorded in the draft PR. The initial regressions failed on main: missing cards even
+  without a backlog, stale waiting after a detached timeout, no cancellation for an older peer, and schema bytes omitted from accounting.
+- **Not performed:** genuine login, physical-device, screen-reader or real-provider checks. The owner deferred signed-in Codex Run B in this session;
+  it remains unverified, rather than recorded as a pass. Both experimental switches and the disabled form capability remain in place.
+- **Next unchecked work:** owner checks in `device-checks.md` section 3 Run B, then its signed-out follow-up, section 2 and section 1. Broader
+  descriptor contracts and native-session adoption after connector restart remain independent SC5 work.
+- **Publication:** draft review only; no merge or deployment authorized.
+
 ## Delivery and completion evidence
 
 Keep one bounded stage per PR. Reuse protocol fixtures, fake children and browser

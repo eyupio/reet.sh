@@ -120,6 +120,14 @@ the fix and pass under the race detector. See the SC5 recovery progress note in 
 and [#392](https://github.com/eyupio/reet.sh/pull/392) have merged. #392's bot review was blocked by account quota, and its terminal CI failure
 was reproduced on main and left outside its scope. Both experimental switches remain in place; signed-in Run B is still the next owner check.
 
+**Current SC5 slice (2 November):** branch `fix/recover-pending-chat-questions`, based on main `9961b11`, restores complete typed-question cards
+already delivered before a transport disconnect. It extends the existing bounded replay and retains the original process, token, schema and deadline.
+Detached resolutions retire state; an older replacement peer gets no question frames and pending questions are cancelled. New questions without a live
+negotiated recipient are still cancelled. See the appended SC5 progress note for scope and the draft PR for validation/publication results.
+#401 is still an independent open documentation-only draft; its status corrections are not duplicated. The owner deferred Codex Run B for now:
+no real-login pass is recorded, neither experimental switch is retired, and form capability remains off. Native-session adoption after connector
+restart and broader descriptor contracts remain future work. The next owner check remains section 3 Run B, followed by the recorded order.
+
 **Working rules the owner set (keep following them):**
 - One item at a time: build it test-first, open a **draft** PR, watch it, and **merge only when the owner says so** (they often mark
   PRs ready or merge them themselves). Then take the next item.

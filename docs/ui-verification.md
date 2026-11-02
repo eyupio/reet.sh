@@ -2029,3 +2029,32 @@ Validation:
 **Not checked.** No physical phone or tablet and no screen reader. Saving settings,
 resending and the connection/DNS checks were not exercised by a new browser matrix;
 the existing form and actions were left in place.
+
+## Admin notification defaults under one panel — 2 November 2026
+
+The admin Notifications page now has one **Notification defaults** panel with a live
+count of the kinds and **Save defaults** in its head. The owner/admin note sits
+beneath, and the kinds keep their area fieldsets: Machines, Sync, Support, Security,
+and any others the server offers. Each editable row keeps **On**, **Delivery** and,
+for staff notices, **Owner** and **Admins**. A locked kind such as a security notice
+keeps its sentence and has no controls; the save payload leaves it out. An
+unreadable list offers **Try again**, and the phone layouts stack each row.
+
+Validation:
+
+- `npm run check`: pass, including the new `adminNotifications` unit suite;
+  svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-notifications.e2e.mjs`: panel count, every group, the locked security
+  row with no controls, a staff row's three controls, a save's payload, an
+  unreadable list and its retry, and phone layouts at 390 and 320 px with no
+  horizontal overflow.
+- `phone-zoom.e2e.mjs` (the admin notifications screen) and `navigation.e2e.mjs`
+  pass.
+
+![Admin notification defaults, desktop](images/ui/admin-notifications-desktop.png)
+![Admin notification defaults, phone](images/ui/admin-notifications-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The empty list
+was not exercised by a new browser matrix; its panel rendering is shared with the
+other admin sections.

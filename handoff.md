@@ -44,13 +44,13 @@ a descriptor that says `available`.
   unanswered one (it clears the mode and tries once to restore); feature `acp-agent-mode-v1` (descriptor `modes`,
   `Capabilities.ACPAgentMode`, message `acp_agent_mode`, broker `SetAgentMode`, `POST /api/v2/terminal/sessions/{id}/chat/agent-mode`);
   the confirmed mode is stored on the session (`terminal_sessions.agent_mode`, JSON `agentMode`; empty means unknown), set to the
-  first listed mode at create, to the new mode on a confirmed switch, and cleared on an unconfirmed or lost one; the controller
-  refuses a message with a 409 while an agent that offers modes is in an unknown mode.
+  first listed mode at create, to the new mode on a confirmed switch, and cleared on an unconfirmed or lost one.
 - Probe scripts: `scripts/probe-codex-turn.py`, `scripts/probe-codex-start.py` (no model call; `--auth none|api-key|chat-gpt`,
   `--codex-home`).
 
 **Open pull request:** #375, "Offer Codex chats in the browser with an approvals-mode control" (ready for review, Codex bot
-findings fixed and resolved). It makes `codex` a reviewed chat tool in the browser, adds the Approvals control
+findings fixed and resolved). It makes the controller refuse a message with a 409 (`ErrACPModeUnknown`, `PromptChat`) while an
+agent that offers modes is in an unknown mode, makes `codex` a reviewed chat tool in the browser, adds the Approvals control
 (`web/src/lib/terminal/AgentModeControl.svelte`, wired in `ChatPane.svelte`; the wording for each mode, Send held while the mode is
 unknown, a YOLO-aware sentence), the Start and Home dialog copy, and `web/tests/chat-codex.e2e.mjs` (added to the browser workflow).
 Its only red check is `phone-zoom`, which is red on main too (see below). Merge main into it once that is fixed; do not merge it

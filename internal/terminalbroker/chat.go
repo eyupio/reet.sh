@@ -21,6 +21,9 @@ var (
 	ErrACPModelUnsupported = errors.New("Update reet on this machine to switch models during a session.")
 	// ErrACPAgentModeUnsupported means the machine or agent does not offer that mode switch.
 	ErrACPAgentModeUnsupported = errors.New("That agent cannot be switched to that mode on this machine. Update reet on the machine, or choose one of the modes it offers.")
+	// ErrACPModeUnknown means the chat's agent offers modes and the mode it is in is not confirmed, so a message is refused until the
+	// person chooses one. The agent may be in a mode that never asks.
+	ErrACPModeUnknown = errors.New("Choose an approvals mode for this chat before sending anything. Its current mode isn't confirmed.")
 	// ErrACPAgentModeRejected means the agent did not confirm the new mode. It may or may not have switched, so the message never claims the old mode survived.
 	ErrACPAgentModeRejected = errors.New("The agent did not confirm the new mode. Check which mode the chat is in before you send anything else.")
 	ErrACPBusy              = errors.New("the chat is already working")
@@ -724,6 +727,15 @@ func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string
 		}
 		if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !ok || !chat.Images {
 			return ErrACPImagesUnsupported
+		}
+	}
+	// An agent that offers modes does not get a message while its mode is unknown: after a switch that was not
+	// confirmed it may be in a mode that never asks, and the person has not yet chosen one.
+	if s.AgentMode == "" {
+		if caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID); err == nil && caps.Generation == p.Generation {
+			if chat, ok := caps.Capabilities.ChatAgent(s.Tool); ok && caps.Capabilities.ACPAgentMode && len(chat.Modes) > 0 {
+				return ErrACPModeUnknown
+			}
 		}
 	}
 	shown := text

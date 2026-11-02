@@ -596,6 +596,8 @@
      {#if structured}
       {#if chosenTool === 'claude'}
        <p class="hint">In Gaffer, Claude Code asks before it edits a file or runs a command. Only your own Claude settings apply; this folder's repository settings and hooks are ignored. Its live history stays in memory and ends when the machine connection does.</p>
+      {:else if chosenTool === 'codex'}
+       <p class="hint">In Gaffer, Codex starts in the mode where it runs commands inside its sandbox and asks before one leaves it. You can switch it to let Codex decide for itself, in which case you may not be asked. Its live history stays in memory and ends when the machine connection does.</p>
       {:else}
        <p class="hint">In Gaffer, OpenCode asks before it edits a file or runs a command. Any plugins in this folder's <code>.opencode</code> run when it starts, so use a folder you trust. Its live history stays in memory and ends when the machine connection does.</p>
       {/if}

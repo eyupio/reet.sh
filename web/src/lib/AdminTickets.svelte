@@ -1,6 +1,8 @@
 <script lang="ts">
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
+  import CollectionPanel from './CollectionPanel.svelte'
+  import { adminTicketCountLabel, adminTicketMatchesSearch, adminTicketStatusCounts, filterAdminTickets } from './adminTickets'
   import {
     adminAssignTicket, adminGetTicket, adminListTickets, adminNoteTicket, adminReplyTicket, adminSetTicketStatus,
     listAdminUsers, type Ticket, type TicketMessage, type TicketStatus, type UserMeta,
@@ -10,7 +12,6 @@
   let { onerror }: { onerror?: (e: unknown) => void } = $props()
 
   let tickets = $state<Ticket[]>([])
-  let counts = $state<Record<TicketStatus, number>>({ open: 0, waiting: 0, closed: 0 })
   let admins = $state<UserMeta[]>([])
   let status = $state<'all' | TicketStatus>('open')
   let search = $state('')
@@ -26,10 +27,10 @@
 
   const labels: Record<TicketStatus, string> = { open: 'Open', waiting: 'Waiting on requester', closed: 'Closed' }
   const authorLabel: Record<TicketMessage['authorKind'], string> = { user: 'Requester', team: 'Team manager', admin: 'Support' }
-  const visible = $derived(tickets.filter((t) => {
-    const words = search.toLowerCase().split(/\s+/).filter(Boolean)
-    return words.every((word) => `${t.subject} ${t.opener} ${t.groupName ?? 'personal'} ${t.assignee ?? ''} ${t.id}`.toLowerCase().includes(word))
-  }))
+  const searched = $derived(tickets.filter((ticket) => adminTicketMatchesSearch(ticket, search)))
+  const counts = $derived(adminTicketStatusCounts(searched))
+  const visible = $derived(filterAdminTickets(tickets, status, search))
+  const countLabel = $derived(loading ? 'Reading tickets…' : adminTicketCountLabel(visible.length, tickets.length))
 
   function fail(e: unknown) {
     error = e instanceof Error ? e.message : String(e)
@@ -38,9 +39,8 @@
 
   async function loadQueue() {
     try {
-      const r = await adminListTickets(status === 'all' ? '' : status)
+      const r = await adminListTickets()
       tickets = r.tickets
-      counts = r.counts
       error = ''
     } catch (e) {
       fail(e)
@@ -126,7 +126,10 @@
     }
   }
 
-  function total() { return counts.open + counts.waiting + counts.closed }
+  function clearFilters() {
+    search = ''
+    status = 'all'
+  }
 
   onMount(() => {
     const id = Number(new URLSearchParams(location.search).get('ticket') ?? 0)
@@ -147,38 +150,50 @@
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
 
   <div class="layout">
-    <section class="queue" aria-labelledby="queue-title">
-      <h3 id="queue-title" class="vh">Ticket queue</h3>
-      <div class="filters" role="group" aria-label="Ticket status">
-        {#each [['open', 'Open'], ['waiting', 'Waiting'], ['closed', 'Closed'], ['all', 'All']] as [key, label]}
-          <button type="button" class="btn quiet" aria-pressed={status === key} onclick={() => { status = key as typeof status; void loadQueue() }}>{label}<small>{key === 'all' ? total() : counts[key as TicketStatus]}</small></button>
-        {/each}
-      </div>
-      <label class="search">Search
-        <input type="search" bind:value={search} placeholder="Subject, opener, team or assignee" />
-      </label>
+    <div class="queue">
+      <CollectionPanel label="Ticket queue" count={countLabel}>
+        {#snippet actions()}
+          <button type="button" class="btn quiet" onclick={loadQueue} disabled={loading}>Refresh</button>
+        {/snippet}
+        {#snippet toolbar()}
+          <div class="queue-toolbar">
+            <label class="search">Search tickets
+              <input type="search" bind:value={search} placeholder="Subject, opener, team or assignee" />
+            </label>
+            <div class="filters" role="group" aria-label="Ticket status">
+              {#each [['open', 'Open'], ['waiting', 'Waiting'], ['closed', 'Closed'], ['all', 'All']] as [key, label]}
+                <button type="button" class="scope" aria-pressed={status === key} onclick={() => (status = key as typeof status)}>{label}<small>{counts[key as keyof typeof counts]}</small></button>
+              {/each}
+            </div>
+          </div>
+        {/snippet}
 
-      {#if loading}
-        <Skeleton label="Loading tickets…" shape="rows" count={4} />
-      {:else if visible.length === 0}
-        <p class="empty">{tickets.length === 0 ? 'No tickets in this view.' : 'No ticket matches that search.'}</p>
-      {:else}
-        <ul class="tickets">
-          {#each visible as t (t.id)}
-            <li>
-              <button type="button" class:selected={selected?.id === t.id} onclick={() => select(t)}>
-                <span class="main">
-                  <strong>{t.subject}</strong>
-                  <small>#{t.id} · {t.opener}{t.groupName ? ` · ${t.groupName}` : ' · personal'} · {t.messages} {t.messages === 1 ? 'message' : 'messages'} · {elapsed(t.updatedAt)}</small>
-                </span>
-                <span class="state {t.status}">{labels[t.status]}</span>
-                <span class="assignee">{t.assignee || 'Unassigned'}</span>
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </section>
+        {#if loading}
+          <Skeleton label="Reading tickets…" shape="lines" count={4} />
+        {:else if visible.length === 0}
+          <div class="state-block">
+            <h3>{tickets.length === 0 ? 'No tickets yet.' : 'No ticket matches that search or status.'}</h3>
+            <p>{tickets.length === 0 ? 'Tickets opened by people and teams appear here.' : 'Try another search, or show every status.'}</p>
+            {#if tickets.length > 0}<button type="button" class="btn" onclick={clearFilters}>Clear filters</button>{/if}
+          </div>
+        {:else}
+          <ul class="tickets">
+            {#each visible as t (t.id)}
+              <li>
+                <button type="button" class:selected={selected?.id === t.id} onclick={() => select(t)}>
+                  <span class="main">
+                    <strong>{t.subject}</strong>
+                    <small>#{t.id} · {t.opener}{t.groupName ? ` · ${t.groupName}` : ' · personal'} · {t.messages} {t.messages === 1 ? 'message' : 'messages'} · {elapsed(t.updatedAt)}</small>
+                  </span>
+                  <span class="state {t.status}">{labels[t.status]}</span>
+                  <span class="assignee">{t.assignee || 'Unassigned'}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </CollectionPanel>
+    </div>
 
     <section class="detail" aria-labelledby="detail-title">
       {#if detailLoading}
@@ -247,12 +262,19 @@
   .muted, .meta, .hint { color: var(--muted); }
   .muted { margin: 4px 0 0; }
   .layout { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.35fr); gap: 18px; margin-top: 18px; align-items: start; }
-  .queue, .detail, .composer { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 16px; min-width: 0; }
+  .detail, .composer { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 16px; min-width: 0; }
   .queue { position: sticky; top: 18px; max-height: calc(100vh - 48px); overflow: auto; }
-  .filters { display: flex; flex-wrap: wrap; gap: 2px; }
-  .filters small { margin-left: 4px; color: var(--muted); }
-  .search { margin-top: 12px; display: grid; gap: 5px; color: var(--muted); font-size: 0.8rem; }
+  .queue-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .scope:hover { border-color: var(--muted); color: var(--ink); }
+  .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .scope small { margin-left: 5px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .search { flex: 1 1 240px; display: grid; gap: 5px; color: var(--muted); font-size: 0.8rem; }
   .search input { width: 100%; }
+  .state-block { padding: 20px 0 12px; max-width: 52ch; }
+  .state-block h3 { margin: 0; font: 500 1.25rem/1.2 var(--serif); }
+  .state-block p { margin: 6px 0 12px; color: var(--muted); }
   .tickets { list-style: none; margin: 12px 0 0; padding: 0; }
   .tickets li + li { border-top: 1px solid var(--line); }
   .tickets button { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 11px 6px; border: 0; background: transparent; text-align: left; cursor: pointer; color: inherit; border-radius: 8px; }
@@ -261,7 +283,7 @@
   .tickets strong { overflow-wrap: anywhere; }
   .tickets small { color: var(--muted); font-size: 0.74rem; overflow-wrap: anywhere; }
   .assignee { grid-column: 1 / -1; color: var(--muted); font-size: 0.72rem; }
-  .state { justify-self: end; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.7rem; white-space: nowrap; }
+  .state { justify-self: end; align-self: start; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.7rem; white-space: nowrap; }
   .state.open { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent-text); }
   .state.waiting { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--warn); }
   .state.closed { border-color: color-mix(in srgb, var(--good) 35%, var(--line)); color: var(--good); }
@@ -297,5 +319,8 @@
   @media (max-width: 1050px) {
     .layout { grid-template-columns: 1fr; }
     .queue { position: static; max-height: none; }
+    .state-block { padding-top: 16px; }
   }
+  @media (max-width: 650px) { .search { flex-basis: 100%; } }
+  @media (pointer: coarse) { .scope, .search input { min-height: 44px; } }
 </style>

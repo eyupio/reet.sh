@@ -1975,3 +1975,29 @@ Validation:
 **Not checked.** No physical phone or tablet and no screen reader. The drift and
 people disclosures were checked only through their existing content, not with a
 new browser matrix. The other Admin and Account pages are unchanged.
+
+## Admin ticket queue under the collection contract — 2 November 2026
+
+The admin Support queue now has one **Ticket queue** panel with a live count and
+**Refresh**, a search and **Open / Waiting / Closed / All** chips whose figures
+follow the search. The queue reads all tickets once and filters in the browser, so
+status changes do not re-fetch. Each row keeps its subject, number, opener/team,
+message count, age, compact status badge and assignee. The conversation detail,
+thread and composer are unchanged.
+
+Validation:
+
+- `npm run check`: pass, including the new `adminTickets` unit suite; svelte-check
+  reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-tickets.e2e.mjs`: count and status chips, search, empty recovery,
+  selected ticket and conversation, and phone layouts at 390 and 320 px with no
+  horizontal overflow.
+- `phone-zoom.e2e.mjs` and `navigation.e2e.mjs` pass.
+
+![Admin support queue, desktop](images/ui/admin-tickets-desktop.png)
+![Admin support queue, phone](images/ui/admin-tickets-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The reply/note
+composer was checked through the existing detail assertions, not a new messaging
+matrix.

@@ -288,6 +288,9 @@ func newModel(opts Options) model {
 
 func (m model) Init() tea.Cmd {
 	if form := m.activeForm(); form != nil {
+		if m.page == ScreenSync {
+			return tea.Batch(form.Init(), m.loadSyncTargets())
+		}
 		return form.Init()
 	}
 	if m.loading {
@@ -333,6 +336,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setForm(updated.(*huh.Form))
 			m.setContent()
 			return m, cmd
+		}
+		return m, nil
+	}
+	if msg, ok := msg.(syncTargetsMsg); ok {
+		if m.page == ScreenSync && m.syncForm != nil && m.syncValues != nil && len(msg.choices) > 0 && m.syncValues.Target == "" {
+			m.syncValues.Choices = msg.choices
+			m.syncForm = buildSyncForm(m.syncValues, m.dark)
+			m.resize()
+			m.setContent()
+			return m, m.syncForm.Init()
 		}
 		return m, nil
 	}
@@ -686,7 +699,7 @@ func (m model) open(page ScreenID) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.resize()
 		m.setContent()
-		return m, m.syncForm.Init()
+		return m, tea.Batch(m.syncForm.Init(), m.loadSyncTargets())
 	}
 	if page == ScreenUpgrade {
 		m.upgradeValues = &upgradeFormValues{Release: defaultUpgradeRelease(m.opts)}

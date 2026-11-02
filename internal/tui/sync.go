@@ -21,6 +21,8 @@ type syncFormValues struct {
 	Host   string
 	Dir    string
 	Conn   clientconfig.Connection
+	// Choices are the account's saved targets, loaded after the form opens.
+	Choices []scan.TargetChoice
 }
 
 type syncOutcome struct {
@@ -45,19 +47,60 @@ func defaultSyncValues(opts Options) *syncFormValues {
 	}
 }
 
+// syncTargetsMsg carries the saved targets fetched from the controller.
+type syncTargetsMsg struct {
+	choices []scan.TargetChoice
+}
+
+// loadSyncTargets fetches saved targets in the background so the form can offer
+// a pick-list. Any failure just leaves the typed-ID field in place.
+func (m model) loadSyncTargets() tea.Cmd {
+	values := m.syncValues
+	if values == nil || values.Server == "" || values.Target != "" || len(values.Choices) > 0 {
+		return nil
+	}
+	server, host, tokenFile, typed := strings.TrimSpace(values.Server), strings.TrimSpace(values.Host), tokenFileOr(m.opts.SyncTokenFile, values.Conn), values.Token
+	return func() tea.Msg {
+		token, err := clientconfig.ResolveToken(typed, tokenFile, strings.NewReader(""), io.Discard)
+		if err != nil {
+			return syncTargetsMsg{}
+		}
+		choices, _ := scan.ListTargetChoices(server, token, host)
+		return syncTargetsMsg{choices: choices}
+	}
+}
+
+func targetField(values *syncFormValues) huh.Field {
+	if len(values.Choices) > 0 {
+		options := make([]huh.Option[string], len(values.Choices))
+		for i, c := range values.Choices {
+			options[i] = huh.NewOption(c.Label, c.ID)
+		}
+		if values.Target == "" {
+			values.Target = values.Choices[0].ID
+		}
+		return huh.NewSelect[string]().
+			Title("Target").
+			Description("Saved targets on your account; ones for this machine come first.").
+			Options(options...).
+			Value(&values.Target)
+	}
+	return huh.NewInput().
+		Title("Target").
+		Description("Target ID from Account → Compare & sync.").
+		Value(&values.Target).
+		Validate(func(value string) error {
+			if strings.TrimSpace(value) == "" {
+				return errors.New("a target ID is required")
+			}
+			return nil
+		})
+}
+
 func buildSyncForm(values *syncFormValues, dark bool) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewInput().
-				Title("Target").
-				Description("Target ID from Account → Compare & sync.").
-				Value(&values.Target).
-				Validate(func(value string) error {
-					if strings.TrimSpace(value) == "" {
-						return errors.New("a target ID is required")
-					}
-					return nil
-				}),
+			targetField(values),
 			huh.NewInput().
 				Title("Controller").
 				Description(serverDescription(values.Conn, "HTTPS site URL of the controller.")).

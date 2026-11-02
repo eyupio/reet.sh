@@ -44,12 +44,19 @@ export function skillSyncSummary(intent: SkillSyncIntent): string {
 
 export type SyncFilter = '' | 'nowhere' | 'missing' | 'not-set' | 'pending'
 
-export const SYNC_FILTERS: { id: Exclude<SyncFilter, ''>; label: string; title: string }[] = [
-  { id: 'nowhere', label: 'Not on any machine', title: 'No complete recent scan reports this skill.' },
-  { id: 'missing', label: 'Missing somewhere', title: 'At least one machine with a complete recent scan does not have it.' },
-  { id: 'not-set', label: 'Not set to sync', title: 'No saved selection on any machine includes it.' },
-  { id: 'pending', label: 'Sync pending', title: 'A saved selection includes it but the machine does not have it yet.' },
+/** `needsSnapshot` filters read the saved selections, so they are disabled until a sync state has loaded: an empty answer must not pass as "not set". */
+export const SYNC_FILTERS: { id: Exclude<SyncFilter, ''>; label: string; title: string; needsSnapshot: boolean }[] = [
+  { id: 'nowhere', label: 'Not on any machine', title: 'No complete recent scan reports this skill.', needsSnapshot: false },
+  { id: 'missing', label: 'Missing somewhere', title: 'At least one machine with a complete recent scan does not have it.', needsSnapshot: false },
+  { id: 'not-set', label: 'Not set to sync', title: 'No saved selection on any machine includes it.', needsSnapshot: true },
+  { id: 'pending', label: 'Sync pending', title: 'A saved selection includes it but the machine does not have it yet.', needsSnapshot: true },
 ]
+export const SYNC_UNAVAILABLE = 'Sync state could not be read, so this filter is off until it loads.'
+
+/** Which jobs have reached a final state: when this changes, inventory and the saved selections are worth re-reading. */
+export function settledJobsKey(snapshot: SyncState | undefined): string {
+  return (snapshot?.jobs ?? []).filter(job => !['queued', 'running', 'awaiting-approval'].includes(job.status)).map(job => `${job.id}:${job.status}`).sort().join('|')
+}
 
 export function matchesSyncFilter(filter: SyncFilter, skillId: string, snapshot: SyncState | undefined, reports: InstallationReport[]): boolean {
   if (!filter) return true

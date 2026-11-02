@@ -8,7 +8,7 @@
   import Home from './lib/home/Home.svelte'
   import { attentionCount, needsYou, sessionOwners, titleWithAttention, type NeedCard } from './lib/home'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
-  import { SYNC_FILTERS, matchesSyncFilter, type SyncFilter } from './lib/skillSync'
+  import { SYNC_FILTERS, SYNC_UNAVAILABLE, matchesSyncFilter, settledJobsKey, type SyncFilter } from './lib/skillSync'
   import Community from './lib/Community.svelte'
   import SharedLists from './lib/SharedLists.svelte'
   import Spaces from './lib/Spaces.svelte'
@@ -340,6 +340,7 @@
       const [envs, tags, shared, sync] = await Promise.all([listEnvironments(), listTags(), listLists(), getSyncState().catch(() => undefined)])
       environments = envs.environments
       syncSnapshot = sync
+      settledJobs = settledJobsKey(sync)
       machines = envs.machines
       allTags = tags.tags
       lists = shared.lists
@@ -797,6 +798,17 @@
     }
   }
 
+  // The activity dock polls sync while an install runs. Keep the cards' sync line on that state, and when a job settles
+  // re-read inventory too, so Pending becomes Set and the badge turns Installed without a reload.
+  let settledJobs = ''
+  function syncUpdated(next: import('./lib/api').SyncState) {
+    syncSnapshot = next
+    const key = settledJobsKey(next)
+    if (key === settledJobs) return
+    settledJobs = key
+    void loadMeta()
+  }
+
   async function copyMissing() {
     if (!selectedEnv && !selectedMachine) return
     copying = true
@@ -1110,7 +1122,7 @@
         <button type="button" class="chip" aria-pressed={onlyOne} onclick={() => (onlyOne = !onlyOne)}>Only on one machine</button>
         <span class="sep" aria-hidden="true"></span>
         {#each SYNC_FILTERS as f (f.id)}
-          <button type="button" class="chip" aria-pressed={syncFilter === f.id} title={f.title} onclick={() => (syncFilter = syncFilter === f.id ? '' : f.id)}>{f.label}</button>
+          <button type="button" class="chip" aria-pressed={syncFilter === f.id} disabled={f.needsSnapshot && !syncSnapshot} title={f.needsSnapshot && !syncSnapshot ? SYNC_UNAVAILABLE : f.title} onclick={() => (syncFilter = syncFilter === f.id ? '' : f.id)}>{f.label}</button>
         {/each}
         {#if selectedMachine}
           <button type="button" class="chip action" onclick={copyMissing} disabled={copying}>
@@ -1230,7 +1242,7 @@
 
 {#if authMode === 'accounts' && currentUser && !needsAuth && !isMCPConsent}<WebMCP />{/if}
 {#if machineCopy}<MachineSkillSync skill={machineCopy.skill} destination={machineCopy.host} onclose={() => {machineCopy=null;void loadMeta()}} />{/if}
-{#if isSkills && authenticated && !needsAuth}<SyncActivity open={syncWatch !== null} context={syncWatch} {canWrite} onclose={() => (syncWatch = null)} />{/if}
+{#if isSkills && authenticated && !needsAuth}<SyncActivity open={syncWatch !== null} context={syncWatch} {canWrite} onclose={() => (syncWatch = null)} onupdate={syncUpdated} />{/if}
 {#if !terminalLayout && !homeLayout}<Footer
   signedIn={!isPublicList && authMode !== 'none' && authenticated && !needsAuth}
   showAdmin={!isPublicList && authenticated && !needsAuth && isAdminUser}

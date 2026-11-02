@@ -77,6 +77,11 @@ try {
   await silent.page.goto(`${base}/skills`)
   await expect(silent.page.getByText('dev-laptop',{exact:true}).first()).toBeVisible()
   await expect(silent.page.locator('.sync-intent')).toHaveCount(0)
+  // The intent filters are off rather than answering from nothing; the observed ones still work.
+  await silent.page.locator('.shelf-filters summary').click()
+  await expect(silent.page.getByRole('button',{name:'Not set to sync'})).toBeDisabled()
+  await expect(silent.page.getByRole('button',{name:'Sync pending'})).toBeDisabled()
+  await expect(silent.page.getByRole('button',{name:'Missing somewhere'})).toBeEnabled()
   await silent.context.close()
  }
  console.log('Skill card: Copy install leads when installed nowhere, the shelf step leads once installed, the prompt is available while collapsed, and the card says where the skill is set to sync.')

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 // Compile the pure helper without a browser or an extra test dependency.
 const { outputText } = ts.transpileModule(readFileSync(new URL('./skillSync.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { skillSyncIntent, skillSyncSummary, matchesSyncFilter, SYNC_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { skillSyncIntent, skillSyncSummary, matchesSyncFilter, settledJobsKey, SYNC_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
 const sk = id => ({ id, name: id, slug: id, source: 'demo/toolkit', sourceType: 'github' })
 const target = (host, agent, desired, missing = []) => ({ target: { id: `${host}-${agent}`, host, agent, name: host }, sourceId: 'shelf', sourceName: 'Shelf', desired, missing, extra: [], revision: 'r1', updatedAt: 0 })
@@ -49,6 +49,7 @@ test('sync filters answer where-is-it questions from intent and observed reports
   const snap = snapshot([target('laptop', 'agents', [sk('a'), sk('c')]), target('box', 'agents', [sk('c')], [sk('c')])])
   const reports = [report('laptop', ['a', 'b']), report('box', []), report('new', [], false)]
   assert.deepEqual(SYNC_FILTERS.map(f => f.id), ['nowhere', 'missing', 'not-set', 'pending'])
+  assert.deepEqual(SYNC_FILTERS.map(f => f.needsSnapshot), [false, false, true, true])
   // a: installed on laptop, set there, missing on box, not pending
   assert.equal(matchesSyncFilter('nowhere', 'a', snap, reports), false)
   assert.equal(matchesSyncFilter('missing', 'a', snap, reports), true)
@@ -70,4 +71,11 @@ test('a stale scan never counts as missing, but it does count as not installed',
   const reports = [report('new', [], false)]
   assert.equal(matchesSyncFilter('missing', 'a', snapshot([]), reports), false)
   assert.equal(matchesSyncFilter('nowhere', 'a', snapshot([]), reports), true)
+})
+
+test('the settled-jobs key changes only when a job reaches a final state', () => {
+  const job = (id, status) => ({ id, status })
+  assert.equal(settledJobsKey(undefined), '')
+  assert.equal(settledJobsKey({ environments: [], targets: [], jobs: [job('a', 'queued'), job('b', 'running'), job('c', 'awaiting-approval')] }), '')
+  assert.equal(settledJobsKey({ environments: [], targets: [], jobs: [job('b', 'done'), job('a', 'failed')] }), 'a:failed|b:done')
 })

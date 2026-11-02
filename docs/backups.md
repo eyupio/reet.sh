@@ -278,7 +278,9 @@ curl -X POST --data-binary @copy.reetbackup \
 ```
 
 `X-Copy-Password` is only for a copy protected with a password, and
-`keepTokens=1` is optional (see above).
+`keepTokens=1` is optional (see above). A password with non-Latin characters or
+spaces at either end cannot travel in a plain header: send its UTF-8 bytes
+base64-encoded as `X-Copy-Password-B64` instead (the page does).
 
 The copy is opened, checked and adapted immediately, and the response is the
 same report a restore prints, so problems show before anything is replaced. The

@@ -915,7 +915,8 @@ export async function getPendingImport(): Promise<RestoreReport | null> {
 /** Stages a sealed instance copy; it replaces the database at the controller's next start, not now. */
 export async function stageImport(file: File, opts: { password?: string; keepTokens?: boolean }): Promise<RestoreReport> {
   const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' }
-  if (opts.password) headers['X-Copy-Password'] = opts.password
+  // A header cannot carry every password: non-Latin characters throw and surrounding spaces are trimmed. Send the UTF-8 bytes.
+  if (opts.password) headers['X-Copy-Password-B64'] = btoa(String.fromCharCode(...new TextEncoder().encode(opts.password)))
   const res = await req(`/api/v2/admin/backups/import${opts.keepTokens ? '?keepTokens=1' : ''}`, { method: 'POST', headers, body: file })
   return ((await res.json()) as { report: RestoreReport }).report
 }

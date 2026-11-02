@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -74,5 +75,74 @@ func TestAnImportIsStagedNotAppliedAndCanBeCancelled(t *testing.T) {
 	}
 	if p, _ := backup.PendingImport(dir); p != nil {
 		t.Fatal("still pending after cancel")
+	}
+}
+
+// A copy password may hold characters and spaces a plain header cannot carry,
+// so the page sends it base64-encoded.
+func TestAnImportOpensACopyWhosePasswordNeedsEncodingInAHeader(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.EnsureLocalOwner(); err != nil {
+		t.Fatal(err)
+	}
+	const key = "0123456789abcdef0123456789abcdef"
+	sealer, _ := backup.NewSealer(key, "test")
+	svc := backup.New(st, backup.Config{Dir: filepath.Join(dir, "backups"), Sealer: sealer, Usable: true, KeySource: "test", Key: key})
+	password := "  pässwörd ✓ with edges  "
+	if _, err := svc.SaveSettings(0, backup.SettingsInput{Password: &password, Compression: backup.CompressionGzip, Destination: "local"}); err != nil {
+		t.Fatal(err)
+	}
+	item, err := svc.RunInstance(context.Background(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := svc.Archive(context.Background(), 0, item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another controller with no stored password, so only the typed one opens it.
+	other := t.TempDir()
+	ost, err := store.Open(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ost.Close()
+	if _, err := ost.EnsureLocalOwner(); err != nil {
+		t.Fatal(err)
+	}
+	osvc := backup.New(ost, backup.Config{Dir: filepath.Join(other, "backups"), Sealer: sealer, Usable: true, KeySource: "test", Key: key})
+	ts := httptest.NewServer(New(ost, meta.Fetcher{}, "", WithAuthMode(AuthNone), WithBackups(osvc)))
+	defer ts.Close()
+	post := func(header string) int {
+		req, _ := http.NewRequest("POST", ts.URL+"/api/v2/admin/backups/import", bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/octet-stream")
+		if header != "" {
+			req.Header.Set("X-Copy-Password-B64", header)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+	// The stored password on the same key would open it, so remove that
+	// route: the copy is only readable with the typed password here.
+	if _, err := osvc.SaveSettings(0, backup.SettingsInput{Compression: backup.CompressionGzip, Destination: "local"}); err != nil {
+		t.Fatal(err)
+	}
+	if code := post(""); code != 400 {
+		t.Fatalf("without the password the copy must be refused, got %d", code)
+	}
+	if code := post("!!not base64!!"); code != 400 {
+		t.Fatalf("a malformed encoding must be refused, got %d", code)
+	}
+	if code := post(base64.StdEncoding.EncodeToString([]byte(password))); code != 200 {
+		t.Fatalf("the exact password, spaces and accents included, must open the copy, got %d", code)
 	}
 }

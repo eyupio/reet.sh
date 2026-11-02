@@ -44,6 +44,8 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  let modeSeen = ''
  $effect(() => { const seen = `${session.id}:${session.agentMode ?? ''}`; if (seen !== modeSeen) { modeSeen = seen; modeOverride = null } })
  const agentMode = $derived(modeOverride ?? session.agentMode ?? '')
+ // An agent that offers modes does not get a message until its mode is confirmed: it may be in one that never asks. The machine refuses too.
+ const modeUnknown = $derived(agentModes.length > 0 && !agentMode)
  async function chooseMode(mode: string) {
   try { await setAgentMode(session.id, mode); modeOverride = mode }
   catch (e) { modeOverride = ''; throw e }
@@ -271,7 +273,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  /** Send a message and its pictures now, or queue it while the agent is busy. */
  async function send() {
   const text = draft.trim()
-  if ((!text && !images.length) || sending || uploading || changingModel || ended || chat.connection === 'reconnecting') return
+  if ((!text && !images.length) || sending || uploading || changingModel || modeUnknown || ended || chat.connection === 'reconnecting') return
   const problem = messageProblem(text)
   if (problem) { feedback = problem; return }
   if (working || queued.length) { queueCurrent(text); return }
@@ -377,7 +379,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  })
  $effect(() => {
   const ready = queued.length > 0 && !queueHalted && !awaitingWork && !working && !pending.length && !asked.length && !ended
-   && chat.connection === 'open' && !sending && !uploading && !changingModel && !dispatching
+   && chat.connection === 'open' && !sending && !uploading && !changingModel && !modeUnknown && !dispatching
   if (!ready) return
   untrack(() => { void dispatchQueued() })
  })
@@ -737,7 +739,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
     </section>
    {/if}
    {#if modelNote}<p class="notice" role="status">{modelNote}</p>{/if}
-   {#if agentModes.length}<AgentModeControl tool={toolName} modes={agentModes} current={agentMode} disabled={working || sending || uploading || changingModel || ended || chat.connection !== 'open'} onchoose={chooseMode} />{/if}
+   {#if agentModes.length}<AgentModeControl tool={toolName} modes={agentModes} current={agentMode} yolo={session.yolo === true} disabled={working || sending || uploading || changingModel || ended || chat.connection !== 'open'} onchoose={chooseMode} />{/if}
    {#if images.length}
     <ul class="attachments" aria-label="Images to attach">
      {#each images as image, i (image.id)}
@@ -756,7 +758,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
     <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="2" maxlength="2000" placeholder={working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…`} onkeydown={keydown} disabled={sending || uploading || changingModel || chat.connection === 'reconnecting'}></textarea>
     <div class="field-actions">
      {#if working}<button type="button" class="btn stop" onclick={() => void stop()}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>Stop</button>{/if}
-     <button type="button" class="btn primary send" disabled={sending || uploading || changingModel || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
+     <button type="button" class="btn primary send" disabled={sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
     </div>
    </div>
    <div class="composer-bar">

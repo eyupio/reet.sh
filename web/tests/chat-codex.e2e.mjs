@@ -87,11 +87,25 @@ try {
   await expect(group.getByRole('radio', { name: 'Ask before leaving the sandbox' })).not.toBeChecked()
   await expect(group.getByRole('radio', { name: 'Let Codex decide' })).not.toBeChecked()
   await expect(group.getByText('Codex’s mode isn’t confirmed. Choose one before you send anything else.')).toBeVisible()
+  // Nothing is sent while the mode is unknown: it may be the one that never asks.
+  await page.getByRole('textbox', { name: 'Message Codex' }).fill('run the tests')
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
 
   // Choosing again after the machine answers puts a mode back.
   state.modeRefuse = false
   await group.getByRole('radio', { name: 'Ask before leaving the sandbox' }).click()
   await expect(group.getByRole('radio', { name: 'Ask before leaving the sandbox' })).toBeChecked()
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled()
+
+  // With YOLO on, the sandbox mode does not promise that the person is asked.
+  session.yolo = true
+  session.agentMode = 'read-only'
+  await page.reload()
+  await page.waitForFunction(() => window.__chatStream?.url.endsWith('/chat'))
+  await page.evaluate(() => window.__chatStream.emit('reset', { truncated: false }))
+  const yoloGroup = page.getByRole('radiogroup', { name: 'Approvals' })
+  await expect(yoloGroup.getByText('YOLO is on for this chat, so when it asks to leave the sandbox you are not asked.', { exact: false })).toBeVisible()
+  await expect(yoloGroup.getByText('and asks before one leaves it.', { exact: false })).toHaveCount(0)
   expect(errors).toEqual([])
   console.log('Codex chat UI passed: no Gaffer for Codex where the adapter is only unverified, Codex copy and no plugin warning where it is available, the create body is structured without trust, and the approvals control states each mode, sends a switch, and shows an unconfirmed switch as unknown.')
 } finally {

@@ -2,12 +2,14 @@
   // The agent's own approval mode for a chat that offers one (Codex: read-only and agent). The wording says what each mode
   // means for the person, because "agent" never asks and a refused request is silent. The mode is shown only as the machine last
   // confirmed it; after a switch the machine did not confirm, no mode is shown as active and the person is told to choose one.
-  let { tool, modes, current, disabled = false, onchoose }: {
+  let { tool, modes, current, disabled = false, yolo = false, onchoose }: {
     tool: string
     modes: string[]
     /** The mode the machine last confirmed, or '' when it is not known. */
     current: string
     disabled?: boolean
+    /** YOLO answers every request for the person, so the sandbox mode cannot promise that they are asked. */
+    yolo?: boolean
     onchoose: (mode: string) => Promise<void>
   } = $props()
 
@@ -16,7 +18,7 @@
     agent: { label: 'Let Codex decide', meaning: t => `${t} decides for itself what needs your approval. You may not be asked.` }
   }
   const labelOf = (mode: string) => LABELS[mode]?.label ?? mode
-  const meaning = $derived(current ? LABELS[current]?.meaning(tool) ?? `${tool} is in ${current} mode.` : `${tool}’s mode isn’t confirmed. Choose one before you send anything else.`)
+  const meaning = $derived(current === 'read-only' && yolo ? `${tool} runs commands inside its sandbox. YOLO is on for this chat, so when it asks to leave the sandbox you are not asked.` : current ? LABELS[current]?.meaning(tool) ?? `${tool} is in ${current} mode.` : `${tool}’s mode isn’t confirmed. Choose one before you send anything else.`)
   let busy = $state(''), problem = $state('')
   const groupId = $props.id()
 

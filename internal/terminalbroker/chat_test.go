@@ -457,3 +457,34 @@ func TestLostModeSwitchReplyClearsTheStoredMode(t *testing.T) {
 		t.Fatalf("a lost reply left the stored mode as %q, not unknown", got)
 	}
 }
+
+// While an agent that offers modes is in an unknown mode, a message is refused before it is sent; choosing a
+// mode lifts the refusal. An agent that offers no modes is never held up.
+func TestPromptIsRefusedWhileTheAgentModeIsUnknown(t *testing.T) {
+	b, _, uid, agent := chatFixtureFull(t, nil, func(c *terminalproto.Capabilities) {
+		c.ACPAgentMode = true
+		agents := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", Model: true, Approval: true, Modes: []string{"read-only", "agent"}}}
+		c.ACPAgents = &agents
+	}, nil)
+	s := chatSession(t, b, uid, agent)
+	if err := b.PromptChat(t.Context(), uid, s.ID, "hello", nil); err != nil {
+		t.Fatalf("a message in a known mode: %v", err)
+	}
+	if err := b.st.RecordTerminalAgentModeFor(uid, s.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.PromptChat(t.Context(), uid, s.ID, "again", nil); !errors.Is(err, ErrACPModeUnknown) {
+		t.Fatalf("a message while the mode is unknown: %v", err)
+	}
+	if err := b.SetAgentMode(t.Context(), uid, s.ID, "read-only"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.PromptChat(t.Context(), uid, s.ID, "again", nil); err != nil {
+		t.Fatalf("a message after choosing a mode: %v", err)
+	}
+	plain, _, puid, pagent := chatFixture(t)
+	ps := chatSession(t, plain, puid, pagent)
+	if err := plain.PromptChat(t.Context(), puid, ps.ID, "hello", nil); err != nil {
+		t.Fatalf("an agent that offers no modes was held up: %v", err)
+	}
+}

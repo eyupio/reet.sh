@@ -433,7 +433,7 @@
  async function focusAfter(target: () => HTMLElement | null | undefined) { await tick(); if (!life.signal.aborted) (target() ?? startButton)?.focus() }
  function focusFor(where: string) {
   if (where === 'machine') return field('machine')
-  if (where === 'tool') return dialog?.querySelector<HTMLElement>(`input[name="${CSS.escape(`${id}-tool`)}"]:checked`)
+  if (where === 'tool') return field('tool')
   if (where === 'model') return modelButton
   if (where === 'folder') return folderChoice === TYPED ? field('dir') : field('folder')
   if (where === 'prompt') return field('prompt')

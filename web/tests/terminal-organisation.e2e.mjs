@@ -192,6 +192,7 @@ try{
  await expect(menu).toHaveAccessibleName('Actions for machine Laptop')
  await menu.press('Escape');expect(tickets.length).toBe(beforeQuickTickets)
  await emptyGroup.getByRole('button',{name:'New terminal on New machine',exact:true}).click()
+ await page.getByRole('menuitem',{name:'Terminal',exact:true}).click()
  await expect(page.getByRole('alert')).toContainText('Creation unconfirmed')
  expect(new URL(page.url()).searchParams.get('agent')).toBe(c)
  expect(new URL(page.url()).searchParams.get('session')).toBeNull()

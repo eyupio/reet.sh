@@ -39,7 +39,7 @@ try {
   await page.goto(`${base}/sessions?agent=${A}`)
   await page.getByRole('button', { name: 'New agent session', exact: true }).first().click()
   const dark = page.getByRole('dialog', { name: 'Start an agent', exact: true })
-  await dark.getByRole('radio', { name: 'Claude Code', exact: true }).check()
+  await dark.getByRole('combobox', { name: 'Agent', exact: true }).selectOption({ label: 'Claude Code' })
   await expect(dark.getByRole('combobox', { name: 'Session', exact: true })).toHaveCount(0)
   await dark.getByRole('button', { name: 'Close', exact: true }).click()
 
@@ -48,7 +48,7 @@ try {
   await page.goto(`${base}/sessions?agent=${A}`)
   await page.getByRole('button', { name: 'New agent session', exact: true }).first().click()
   const dialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })
-  await dialog.getByRole('radio', { name: 'Claude Code', exact: true }).check()
+  await dialog.getByRole('combobox', { name: 'Agent', exact: true }).selectOption({ label: 'Claude Code' })
   await expect(dialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue('reet')
   await expect(dialog.getByText('Claude Code asks before it edits a file or runs a command.', { exact: false })).toBeVisible()
   await expect(dialog.getByText('Only your own Claude settings apply', { exact: false })).toBeVisible()

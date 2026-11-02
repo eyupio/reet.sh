@@ -10,7 +10,7 @@
   import Home from './lib/home/Home.svelte'
   import { attentionCount, needsYou, sessionOwners, titleWithAttention, type NeedCard } from './lib/home'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
-  import { SYNC_FILTERS, SYNC_UNAVAILABLE, matchesSyncFilter, settledJobsKey, type SyncFilter } from './lib/skillSync'
+  import { SYNC_FILTERS, SYNC_UNAVAILABLE, matchesSyncFilter, settledJobsKey, skillSyncIntent, skillSyncSummary, type SyncFilter } from './lib/skillSync'
   import Community from './lib/Community.svelte'
   import SharedLists from './lib/SharedLists.svelte'
   import Spaces from './lib/Spaces.svelte'
@@ -187,6 +187,8 @@
   const isPublicList = publicMatch !== null
   const publicSlug = publicMatch ? decodeURIComponent(publicMatch[1]) : ''
   const joinToken = new URLSearchParams(location.search).get('token') ?? ''
+  // A Jump result for a skill carries its id; after the shelf has loaded, the card is brought into view once.
+  const jumpSkill = new URLSearchParams(location.search).get('skill') ?? ''
   const signedIn = $derived(token !== '')
   const authenticated = $derived(authMode === 'none' || (authMode === 'token' && token !== '') || (authMode === 'accounts' && currentUser !== null))
   const canLoad = $derived(authChecked && authenticated && !needsAuth && !isCommunity && !isPublicList)
@@ -238,6 +240,11 @@
       }
       if (projects.status === 'fulfilled') for (const project of projects.value) items.push({ kind: 'project', label: project.name, detail: project.machine ? `Project · ${project.machine}` : 'Project', href: `/?project=${encodeURIComponent(project.id)}` })
       if ([sessions, projects, terminal].every(result => result.status === 'rejected')) throw new Error('Nothing could be read.')
+    }
+    for (const skill of skills) {
+      const state = syncSnapshot ? skillSyncSummary(skillSyncIntent(skill.id, syncSnapshot)) : ''
+      const detail = state ? `Skill · ${state}` : skill.source ? `Skill · ${skill.source}` : 'Skill'
+      items.push({ kind: 'skill', label: skill.name, detail, href: `/skills?skill=${encodeURIComponent(skill.id)}` })
     }
     const names = new Set([...hosts.values(), ...shelfMachines.map(machine => machine.host)])
     for (const host of names) items.push({ kind: 'machine', label: host, detail: 'Machine', href: `/machines?machine=${encodeURIComponent(host)}` })
@@ -590,6 +597,14 @@
     card.classList.add('flash')
     setTimeout(() => card.classList.remove('flash'), 1600)
   }
+
+  // A Jump result for a skill opens this page with its id. Bring the card into view once the shelf has loaded.
+  let jumpedToSkill = false
+  $effect(() => {
+    if (!isSkills || jumpedToSkill || jumpSkill === '' || loading || !skills.some(skill => skill.id === jumpSkill)) return
+    jumpedToSkill = true
+    void flash(jumpSkill)
+  })
 
   function friendlyAddError(e: unknown): string {
     const text = e instanceof Error ? e.message : String(e)
@@ -1043,7 +1058,7 @@
       <p class="notice good" role="status" hidden={!message}>{message}</p>
     </div>
 
-    {#if authMode === 'accounts'}<HostedShelf {canWrite} onchange={() => { void load(); void loadMeta() }} />{/if}
+    {#if authMode === 'accounts'}<HostedShelf {canWrite} reports={machineReports} snapshot={syncSnapshot} onchange={() => { void load(); void loadMeta() }} />{/if}
 
     {#if counts.all > 0 || filtering}
       <div class="toolbar" role="group" aria-label="Filter and sort">

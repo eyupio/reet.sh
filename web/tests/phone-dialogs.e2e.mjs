@@ -74,7 +74,7 @@ const DIALOGS = [
  // (sticky) footer.
  {name:'new list (people)', path:'/shared', open:async p => { await press('Create a list')(p); await p.locator('dialog[open] input[name=audience][value=private]').check() }, field:'textarea', sheet:'full'},
  {name:'manage tags', path:'/skills', open:async p => { await p.locator('button[aria-controls="tools-panel"]:visible').first().click(); await press('Manage tags')(p); await p.locator('dialog[open]').getByRole('button', {name:'Rename'}).last().click() }, field:TEXT, sheet:'full'},
- {name:'terminal workspace', path:'/sessions?view=terminal', open:press('New session', {exact:true}), field:'input[aria-describedby=terminal-folder-help]', sheet:'full'},
+ {name:'terminal workspace', path:'/sessions?view=terminal', open:async p => { await press('New session', {exact:true})(p); await p.getByRole('button',{name:'Terminal session',exact:true}).click() }, field:'input[aria-describedby=terminal-folder-help]', sheet:'full'},
  // The terminal's drawers (placement="drawer"), opened from a live pane's toolbar. last: the dialog's last control must be
  // reachable, so nothing below the screen's edge is lost.
  {name:'appearance drawer', path:live, open:tool('Appearance'), last:true, sheet:'full'},

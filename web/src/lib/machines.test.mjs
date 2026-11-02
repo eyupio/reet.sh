@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 // Compile the pure comparison helper without a browser or an extra test dependency.
 const { outputText } = ts.transpileModule(readFileSync(new URL('./machines.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { inventoryMachines, compareInventories, inventory, agentGroups, agentOnline, installationReports, installationStatus, agentBuild, agentUpdateTarget, latestRelease, updateAvailable, versionLess, updateJobFor, updateProgress, agentUpdateState, updateStateLabel, updateStepsShown, updateAction, channelBuild } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { inventoryMachines, compareInventories, inventory, agentGroups, agentOnline, installationReports, installationStatus, machineMatchesSearch, agentBuild, agentUpdateTarget, latestRelease, updateAvailable, versionLess, updateJobFor, updateProgress, agentUpdateState, updateStateLabel, updateStepsShown, updateAction, channelBuild } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 const now = Date.now()
 const skill = (id, source = 'org/repo') => ({ id, name: id, source, sourceType: source ? 'github' : 'local' })
 const group = (id, skills, changes = {}) => ({ id, agent: 'claude', skills, complete: true, scannedAt: now, ...changes })
@@ -12,6 +12,18 @@ test('a machine inventory deduplicates skills across its agents', () => {
   assert.equal(inventory([group('claude', [skill('a')]), group('agents', [skill('a')])]).length, 1)
   assert.equal(agentGroups({ groups: [group('a', []), group('server', [], { agent: 'reet-server' })] }).length, 1)
 })
+test('a machine is found by host, alias or a skill in any scope', () => {
+  const machine = { host: 'dev-laptop', aliases: ['old-laptop'], groups: [group('claude', [skill('code-review')]), group('server', [skill('hidden')], { agent: 'reet-server' })] }
+  assert.equal(machineMatchesSearch(machine, ''), true)
+  assert.equal(machineMatchesSearch(machine, 'DEV'), true)
+  assert.equal(machineMatchesSearch(machine, 'old-laptop'), true)
+  assert.equal(machineMatchesSearch(machine, 'code review'), true)
+  assert.equal(machineMatchesSearch(machine, 'code deployment'), false)
+  assert.equal(machineMatchesSearch(machine, 'code-review'), true)
+  assert.equal(machineMatchesSearch(machine, 'hidden'), false, 'server heartbeats are not a machine skill')
+  assert.equal(machineMatchesSearch(machine, 'laptop code'), true)
+})
+
 test('only a recent heartbeat makes a machine reachable for a job fix', () => {
   assert.equal(agentOnline({ lastSeen: now }, now), true)
   assert.equal(agentOnline({ lastSeen: now - 89_999 }, now), true)

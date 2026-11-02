@@ -112,9 +112,10 @@ type chatSupervisor struct {
 	registry *chatRegistry
 	closed   bool
 	// stop is closed when Close starts; background waits end on it.
-	stop  chan struct{}
-	wg    sync.WaitGroup
-	close sync.Once
+	stop       chan struct{}
+	wg         sync.WaitGroup
+	close      sync.Once
+	resumeOnce sync.Once
 }
 
 // chatLink is one control connection's delivery path. history is the
@@ -137,7 +138,9 @@ type ChatSupervisor struct{ s *chatSupervisor }
 // NewChatSupervisor creates the process-scoped supervisor. Cancelling ctx
 // closes every live chat process.
 func NewChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *ChatSupervisor {
-	return &ChatSupervisor{s: newChatSupervisor(ctx, opts)}
+	s := newChatSupervisor(ctx, opts)
+	s.startResume()
+	return &ChatSupervisor{s: s}
 }
 
 func newChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *chatSupervisor {
@@ -157,10 +160,17 @@ func newChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *c
 		<-ctx.Done()
 		s.Close()
 	}()
-	if s.registry != nil {
-		go s.resumePersisted()
-	}
 	return s
+}
+
+// startResume begins adopting the chats this connector was running before it
+// restarted. It is separate from construction so a caller can install its
+// process hooks first, and runs once.
+func (s *chatSupervisor) startResume() {
+	if s.registry == nil {
+		return
+	}
+	s.resumeOnce.Do(func() { go s.resumePersisted() })
 }
 
 // Close ends every chat process and refuses new sessions.
@@ -211,6 +221,7 @@ func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalh
 		s = supervisor.s
 	} else {
 		s = newChatSupervisor(ctx, opts)
+		s.startResume()
 	}
 	return s.attach(ctx, generation, send, history, details, questions...)
 }

@@ -712,7 +712,8 @@ try {
   await screen(page).getByRole('button',{name:'Session actions'}).click()
   const item = page.getByRole('menuitem',{name:'Switch to Gaffer…'})
   await expect(item).toHaveAttribute('aria-disabled','true')
-  await expect(item).toHaveAccessibleDescription('This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.')
+  // The reason first, then Gaffer's own explanation, as on the header's Gaffer button.
+  await expect(item).toHaveAccessibleDescription("This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation. Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI.")
   await item.click({force:true})
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   // The menu stays open on it: a disabled item does nothing at all.
@@ -723,7 +724,8 @@ try {
   await screen(page).getByRole('button',{name:'Session actions'}).click()
   const offered = page.getByRole('menuitem',{name:'Switch to Gaffer…'})
   await expect(offered).not.toHaveAttribute('aria-disabled','true')
-  await expect(offered).toHaveAccessibleDescription('')
+  // Offered, it still carries Gaffer's own explanation, but no reason.
+  await expect(offered).toHaveAccessibleDescription("Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI.")
   await offered.click()
   await expect(page.getByRole('alertdialog',{name:'Switch to Gaffer?'})).toBeVisible()
   expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])

@@ -94,7 +94,7 @@ func TestFakeACP(t *testing.T) {
 			if params.ConfigID == "mode" {
 				// A profile's StartMode switch: confirmed in the reply, silently ignored, or refused.
 				switch scenario {
-				case "mode-switch":
+				case "mode-switch", "mode-live":
 					reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": params.Value}}})
 				case "mode-ignored":
 					reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": "plan"}}})
@@ -1536,5 +1536,62 @@ func TestInterruptedReplayToolsDoNotMakeStopEndTheChat(t *testing.T) {
 		default:
 		}
 		break
+	}
+}
+
+// A live mode switch is limited to the profile's choosable modes, refused while a
+// turn works, and reported as applied only when the agent's reply names the mode.
+func TestSetModeIsLimitedAndConfirmed(t *testing.T) {
+	opts, _ := options(t, "mode-live", testVersion)
+	opts.Agent.RequireMode = ""
+	opts.Agent.ChoosableModes = []string{"build", "plan"}
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if got := session.Mode(); got != "build" {
+		t.Fatalf("starting mode %q", got)
+	}
+	if err := session.SetMode(context.Background(), "plan"); err != nil {
+		t.Fatalf("allowed switch: %v", err)
+	}
+	if got := session.Mode(); got != "plan" {
+		t.Fatalf("mode after switch %q", got)
+	}
+	if err := session.SetMode(context.Background(), "full-access"); !errors.Is(err, ErrMode) {
+		t.Fatalf("a mode outside the list: %v", err)
+	}
+	if got := session.Mode(); got != "plan" {
+		t.Fatalf("a refused switch changed the mode to %q", got)
+	}
+	opts, _ = options(t, "mode-ignored", testVersion)
+	opts.Agent.RequireMode = ""
+	opts.Agent.ChoosableModes = []string{"build", "plan"}
+	ignored, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ignored.Close()
+	if err := ignored.SetMode(context.Background(), "build"); !errors.Is(err, ErrMode) {
+		t.Fatalf("an ignored switch was reported as applied: %v", err)
+	}
+	opts, _ = options(t, "ignore-cancel", testVersion)
+	opts.Agent.ChoosableModes = []string{"build"}
+	opts.TurnTimeout = time.Minute
+	opts.ForceStopGrace = time.Minute
+	busy, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	go func() { _ = busy.Prompt(context.Background(), "work") }()
+	for deadline := time.Now().Add(5 * time.Second); !busy.Working(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the turn never started")
+		}
+	}
+	if err := busy.SetMode(context.Background(), "build"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("a switch during a turn: %v", err)
 	}
 }

@@ -24,6 +24,9 @@ var (
 	ErrModel = errors.New("the agent did not use the chosen model")
 	// ErrUnsupported means the catalogue tool has no ACP adapter here.
 	ErrUnsupported = errors.New("that agent does not support chats")
+	// ErrMode means the requested mode is not one this profile lets a person
+	// choose, or the agent did not confirm the switch.
+	ErrMode = errors.New("the agent did not switch to that mode")
 )
 
 // TrustError means the folder carries files the agent would execute. Only a
@@ -85,6 +88,10 @@ type Spec struct {
 	// uses it for adapter options that must be fixed by reet, never by the
 	// repository. Nil sends no _meta.
 	SessionMeta map[string]any
+	// ChoosableModes lists the modes a person may switch a live chat to. Empty
+	// offers no switch. A mode outside the list is refused even if the agent has
+	// it (Codex's "agent-full-access" is never offered).
+	ChoosableModes []string
 	// EndChatOnStopWhileToolRuns ends the whole chat when a person stops a turn
 	// that has a tool still running. For an adapter whose session/cancel ends the
 	// turn but leaves the command alive (Codex), the only way to be sure nothing

@@ -38,6 +38,36 @@ const (
 	fallbackEnd   = "<!--seo-fallback:end-->"
 )
 
+// The boot shell in index.html holds the page's shape while the bundle loads. Only the variant that matches the route is
+// served, so a landing request never holds an app skeleton and an app request never holds a landing hero.
+var bootZones = [][2]string{
+	{"<!--boot-welcome:start-->", "<!--boot-welcome:end-->"},
+	{"<!--boot-app:start-->", "<!--boot-app:end-->"},
+	{"<!--boot-auth:start-->", "<!--boot-auth:end-->"},
+}
+
+const (
+	bootWelcome = iota
+	bootApp
+	bootAuth
+)
+
+var bootNames = [...]string{"welcome", "app", "auth"}
+
+// bootVariant picks the shell that matches what the app is about to draw: the landing hero for an anonymous landing
+// route, a centred card for the entry screens, and the page shell for everything else. A signed-in request to "/" is
+// Home, not the landing page.
+func bootVariant(path string, signedIn bool) int {
+	if !signedIn && (path == "/" || path == "/welcome") {
+		return bootWelcome
+	}
+	switch {
+	case path == "/signin", path == "/signup", path == "/setup", path == "/reset", strings.HasPrefix(path, "/join"):
+		return bootAuth
+	}
+	return bootApp
+}
+
 // Option configures Handler.
 type Option func(*config)
 
@@ -112,20 +142,50 @@ func serveIndex(w http.ResponseWriter, index []byte, path, origin string, signed
 	} else {
 		body = stripFallback(body)
 	}
+	variant := bootVariant(path, signedIn)
+	body = selectBoot(body, variant)
+	// The chosen shell is on the document before the head script runs, so a cookie-signed-in visitor on "/" gets the app
+	// shell rather than the landing hero the browser alone cannot know to skip.
+	body = bytes.Replace(body, []byte(`<html lang="en">`), []byte(`<html lang="en" data-boot="`+bootNames[variant]+`">`), 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(body)
 }
 
 func stripFallback(body []byte) []byte {
-	start := bytes.Index(body, []byte(fallbackStart))
-	end := bytes.Index(body, []byte(fallbackEnd))
-	if start < 0 || end < start {
+	return stripBetween(body, []byte(fallbackStart), []byte(fallbackEnd))
+}
+
+// selectBoot keeps one boot shell and removes the other two, markers included, so the served page never carries a
+// variant that does not match its route.
+func selectBoot(body []byte, keep int) []byte {
+	for i, zone := range bootZones {
+		start, end := []byte(zone[0]), []byte(zone[1])
+		if i == keep {
+			body = bytes.ReplaceAll(body, start, nil)
+			body = bytes.ReplaceAll(body, end, nil)
+			continue
+		}
+		body = stripBetween(body, start, end)
+	}
+	return body
+}
+
+// stripBetween removes the range from start through end, markers included. A missing or reversed pair leaves the body
+// unchanged, so an index built without a zone still serves.
+func stripBetween(body, start, end []byte) []byte {
+	i := bytes.Index(body, start)
+	if i < 0 {
 		return body
 	}
+	j := bytes.Index(body[i:], end)
+	if j < 0 {
+		return body
+	}
+	j += i + len(end)
 	out := make([]byte, 0, len(body))
-	out = append(out, body[:start]...)
-	out = append(out, body[end+len(fallbackEnd):]...)
+	out = append(out, body[:i]...)
+	out = append(out, body[j:]...)
 	return out
 }
 

@@ -10,7 +10,9 @@ export function gafferTooltip(node: HTMLElement, enabled = true) {
   tip.id = `gaffer-help-${++nextId}`
   tip.setAttribute('role', 'tooltip')
   tip.setAttribute('popover', 'manual')
-  tip.style.cssText = 'position:fixed;inset:auto;margin:0;box-sizing:border-box;width:320px;max-width:calc(100vw - 16px);padding:12px 16px;border:1px solid var(--line-strong);border-radius:8px;background:var(--card);color:var(--ink);box-shadow:var(--shadow-dock);font:14px/1.5 system-ui;z-index:10000;'
+  // It is an explanation, not a control: pointer-events none keeps it from covering the button or menu it explains,
+  // which on a narrow layout sits exactly where the tip is placed.
+  tip.style.cssText = 'position:fixed;inset:auto;margin:0;box-sizing:border-box;width:320px;max-width:calc(100vw - 16px);padding:12px 16px;border:1px solid var(--line-strong);border-radius:8px;background:var(--card);color:var(--ink);box-shadow:var(--shadow-dock);font:14px/1.5 system-ui;z-index:10000;pointer-events:none;'
   const title = document.createElement('strong')
   title.textContent = 'Gaffer'
   const description = document.createElement('div')

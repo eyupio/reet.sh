@@ -99,6 +99,14 @@ function cancelPending(items: ChatItem[], reason: string): ChatItem[] {
   return items.map(item => (item.kind === 'permission' || item.kind === 'question') && !item.decision ? { ...item, decision: 'cancelled' as const, reason } : item)
 }
 
+/** The turn's waiting status belongs to the card that asked for it. Once the last card is answered or closed the turn is
+ *  running again, so the status must stop saying it waits; the agent's own next status still replaces this. */
+function settledWaiting(state: ChatState, items: ChatItem[]): ChatState['status'] {
+  if (state.status.state !== 'waiting') return state.status
+  const waiting = items.some(item => (item.kind === 'permission' || item.kind === 'question') && !item.decision)
+  return waiting ? state.status : { state: 'working', detail: '' }
+}
+
 function itemChars(item: ChatItem): number {
   if (item.kind === 'tool') return item.title.length + item.text.length + item.locations.join('').length
   if (item.kind === 'permission') return item.title.length + item.command.length + item.path.length + item.diff.length + item.description.length + item.locations.join('').length
@@ -206,11 +214,14 @@ function reduceChatEvent(state: ChatState, event: ChatEvent): ChatState {
     }
     case 'permission_resolved': {
       if (!event.permissionId) return next
-      return { ...next, items: state.items.map(item => item.kind === 'permission' && item.permissionId === event.permissionId ? { ...item, decision: event.allow ? 'allowed' : 'denied' } : item) }
+      const decision: 'allowed' | 'denied' = event.allow ? 'allowed' : 'denied'
+      const items = state.items.map(item => item.kind === 'permission' && item.permissionId === event.permissionId ? { ...item, decision } : item)
+      return { ...next, items, status: settledWaiting(state, items) }
     }
     case 'permission_cancelled': {
       if (!event.permissionId) return next
-      return { ...next, items: state.items.map(item => item.kind === 'permission' && item.permissionId === event.permissionId ? { ...item, decision: 'cancelled', reason: event.reason } : item) }
+      const items = state.items.map(item => item.kind === 'permission' && item.permissionId === event.permissionId ? { ...item, decision: 'cancelled' as const, reason: event.reason } : item)
+      return { ...next, items, status: settledWaiting(state, items) }
     }
     case 'question': {
       if (!event.questionId) return next
@@ -231,11 +242,13 @@ function reduceChatEvent(state: ChatState, event: ChatEvent): ChatState {
     case 'question_resolved': {
       if (!event.questionId) return next
       const decision: QuestionDecision = event.reason === 'decline' ? 'declined' : 'answered'
-      return { ...next, items: state.items.map(item => item.kind === 'question' && item.questionId === event.questionId ? { ...item, decision } : item) }
+      const items = state.items.map(item => item.kind === 'question' && item.questionId === event.questionId ? { ...item, decision } : item)
+      return { ...next, items, status: settledWaiting(state, items) }
     }
     case 'question_cancelled': {
       if (!event.questionId) return next
-      return { ...next, items: state.items.map(item => item.kind === 'question' && item.questionId === event.questionId ? { ...item, decision: 'cancelled', reason: event.reason } : item) }
+      const items = state.items.map(item => item.kind === 'question' && item.questionId === event.questionId ? { ...item, decision: 'cancelled' as const, reason: event.reason } : item)
+      return { ...next, items, status: settledWaiting(state, items) }
     }
     default:
       return next

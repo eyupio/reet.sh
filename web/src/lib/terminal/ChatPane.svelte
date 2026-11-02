@@ -200,7 +200,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  const asked = $derived(pendingQuestions(chat))
  const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This reet session has ended.' : !replayed ? `Catching up with ${toolName}…` : pending.length ? 'Waiting for your approval.' : asked.length ? 'Waiting for your answer.' : working ? `${toolName} is working…` : chat.status.state === 'error' ? `${toolName} stopped with an error.` : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
  $effect(() => { onbusy?.(replayed ? working || pending.length > 0 || asked.length > 0 : undefined) })
- const statusDetail = $derived(pending.length || asked.length ? '' : chat.status.detail)
+ const statusDetail = $derived(pending.length || asked.length || chat.status.state === 'waiting' ? '' : chat.status.detail)
  const canAttach = $derived(uploadsSupported && !uploadsOff && !ended)
  const imageLimit = $derived(acpImages ? MAX_EMBEDDED_IMAGES : MAX_IMAGES)
 

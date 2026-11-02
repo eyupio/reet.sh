@@ -29,6 +29,35 @@ test('permission cards resolve, cancel, and are pending until then', () => {
   assert.equal(state.items[1].decision, 'cancelled')
 })
 
+test('answering the last card ends the waiting status, not just the card', () => {
+  let state = initialChat()
+  state = applyChatEvent(state, event(1, { kind: 'status', state: 'waiting', detail: 'Waiting for your approval.' }))
+  state = applyChatEvent(state, event(2, { kind: 'permission', permissionId: 'p1', title: 'write', command: 'echo ok' }))
+  state = applyChatEvent(state, event(3, { kind: 'permission_resolved', permissionId: 'p1', allow: true }))
+  assert.equal(state.status.state, 'working')
+  assert.equal(state.status.detail, '')
+  assert.equal(isWorking(state), true)
+
+  // A second card still waiting keeps the turn truthfully waiting.
+  let queued = initialChat()
+  queued = applyChatEvent(queued, event(1, { kind: 'status', state: 'waiting', detail: 'Waiting for your approval.' }))
+  queued = applyChatEvent(queued, event(2, { kind: 'permission', permissionId: 'p1', title: 'write' }))
+  queued = applyChatEvent(queued, event(3, { kind: 'permission', permissionId: 'p2', title: 'bash' }))
+  queued = applyChatEvent(queued, event(4, { kind: 'permission_resolved', permissionId: 'p1', allow: true }))
+  assert.equal(queued.status.state, 'waiting')
+  assert.equal(queued.status.detail, 'Waiting for your approval.')
+  queued = applyChatEvent(queued, event(5, { kind: 'permission_cancelled', permissionId: 'p2', reason: 'cancelled' }))
+  assert.equal(queued.status.state, 'working')
+})
+
+test('a stopped turn keeps its own status, whatever a late card says', () => {
+  let state = initialChat()
+  state = applyChatEvent(state, event(1, { kind: 'permission', permissionId: 'p1', title: 'write' }))
+  state = applyChatEvent(state, event(2, { kind: 'status', state: 'cancelled' }))
+  state = applyChatEvent(state, event(3, { kind: 'permission_resolved', permissionId: 'p1', allow: true }))
+  assert.equal(state.status.state, 'cancelled')
+})
+
 test('an approval card keeps the reason the agent gave', () => {
   let state = initialChat()
   state = applyChatEvent(state, event(1, { kind: 'permission', permissionId: 'p1', title: 'Run command', toolKind: 'execute', command: 'go test ./...', text: 'Run the tests outside the sandbox because they write to /var/tmp.' }))

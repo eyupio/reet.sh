@@ -40,7 +40,7 @@ dark: a machine reports one as available only when its connector runs with `REET
 (`internal/terminalproto/acp_agents.go`); the controller binds each to its reviewed adapter; the browser offers a chat only from
 a descriptor that says `available`.
 
-**Current main:** `f051948` includes the owner's merges of pending typed-question recovery (#402, `a78ffa6`) and live model acknowledgement (#406).
+**Main integrated into this PR:** `f051948` includes the owner's merges of pending typed-question recovery (#402, `a78ffa6`) and live model acknowledgement (#406).
 The earlier documentation-only #401 merged as `d5a4e80`; do not duplicate it. The active bounded SC5 slice is startup model confirmation,
 branch `fix/confirm-startup-chat-model`, based on `1235328` with main `6973f08` and `f051948` merged without rewriting history. Implementation began at `a032345`.
 The owner authorized this slice and asked that this handoff be current when its draft PR is created.
@@ -115,7 +115,7 @@ out/in and the decision about machine-side sign-in wording, then section 1 physi
   All five CI workflows passed on final head `59f896f`, without retries; Codex review completed without findings
   ([receipt](https://github.com/eyupio/reet.sh/pull/406#issuecomment-6585858018)). No genuine-login/device gate was closed.
 
-**Active SC5 slice — startup model confirmation:** an explicitly chosen model must have exactly one valid matching read-back from `session/new`
+**Active SC5 slice — startup model confirmation ([draft #409](https://github.com/eyupio/reet.sh/pull/409)):** an explicitly chosen model must have exactly one valid matching read-back from `session/new`
 or `session/load` before admission or the opening prompt. Startup has no omitted-list exception, even for OpenCode. Agent-default launches preserve
 existing behaviour. Definite failed chat creates clear unconfirmed model metadata but retain the operation fingerprint/refusal for replay;
 ordinary terminals and transport uncertainty are unchanged. A close callback before admission cannot announce a premature exited session; the admitted
@@ -125,8 +125,22 @@ New fake-child/controller regressions failed before these fixes and pass under r
 (SDK 0.3.312) were probed on Linux x86-64 with isolated homes, without prompts or `authenticate`. OpenCode new/load reported `opencode/big-pickle`;
 Claude new/load reported `default`. Requesting `anthropic/claude-sonnet-4-5` through OpenCode's private config still read back `opencode/big-pickle`:
 config alone did not establish that selection. Enhanced opt-in Go tests passed for explicit matching OpenCode new/load and Claude new. These are
-startup/profile checks, not real-login or model-turn evidence. Exact versions, reproduction and limits are in the probe report. Final validation,
-publication and review receipts belong in this slice's PR; no merge or deployment is authorized.
+startup/profile checks, not real-login or model-turn evidence. Exact versions, reproduction and limits are in the probe report.
+
+**#409 publication and validation:** draft PR is open and unmerged. All five CI workflows passed on implementation head `bd10520`, without retries:
+[full tests/image](https://github.com/eyupio/reet.sh/actions/runs/41513691712) (full Go vet/race, web and MCP),
+[terminal browser and both phone jobs](https://github.com/eyupio/reet.sh/actions/runs/41513691713),
+[macOS/Linux native services and minimum tmux](https://github.com/eyupio/reet.sh/actions/runs/41513691764),
+[private connection](https://github.com/eyupio/reet.sh/actions/runs/41513691722) and
+[binary release](https://github.com/eyupio/reet.sh/actions/runs/41513691723). Local affected-package race checks, Go vet, API tests, web check/build
+and all 16 MCP tests passed. The five known model-discovery/orphan container failures were reproduced on main `6973f08` before local exclusions;
+CI passed the full suite without those exclusions.
+
+Codex bot review did **not** complete: the account's code-review quota was exhausted
+([bot response](https://github.com/eyupio/reet.sh/pull/409#issuecomment-6586917713)); there are no submitted reviews or inline finding threads.
+The bot summary's finding flags do not establish findings when the review failed. This handoff-only follow-up records the completed implementation
+checks; any new-head CI results belong in the PR. Do not represent the earlier head's green checks as checks of a later documentation commit.
+No merge or deployment is authorized. Login/device checks remain deferred and unverified; both experimental switches and form capability stay off.
 
 **Next independent work:** broader descriptor contracts for mode/effort and other options, measured before implementation; native-session adoption
 after connector restart remains separate. #396/#402 recover transport reconnects to a surviving connector, not connector-process restarts.

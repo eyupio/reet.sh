@@ -17,11 +17,11 @@ import (
 
 func runBackup(args []string, out io.Writer) error {
 	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
-		fmt.Fprintln(out, "Usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] ID\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
+		fmt.Fprintln(out, "Usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--keep-tokens] ID\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
 		return nil
 	}
 	if len(args) == 0 {
-		return errors.New("usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] ID")
+		return errors.New("usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--keep-tokens] ID")
 	}
 	switch args[0] {
 	case "keygen":
@@ -297,6 +297,7 @@ func backupRestore(args []string, out io.Writer) error {
 	f := flag.NewFlagSet("reet backup restore", flag.ContinueOnError)
 	f.SetOutput(out)
 	yes := f.Bool("yes", false, "confirm replacing the live database")
+	keep := f.Bool("keep-tokens", false, "leave personal API tokens and MCP connections working (browser sign-ins always end)")
 	file, literal := passwordFlags(f)
 	if err := f.Parse(args); err != nil {
 		return err
@@ -321,11 +322,11 @@ func backupRestore(args []string, out io.Writer) error {
 		st.Close()
 		return err
 	}
-	result, err := backup.RestoreInstance(context.Background(), svc, data, id, password, st.Close)
+	result, err := backup.RestoreInstance(context.Background(), svc, data, id, password, backup.RestoreOptions{KeepTokens: *keep}, st.Close)
 	if errors.Is(err, backup.ErrPasswordRequired) && password == "" {
 		password, err = clientconfig.Require("", "copy password (--password-file)", true, os.Stdin, os.Stderr)
 		if err == nil {
-			result, err = backup.RestoreInstance(context.Background(), svc, data, id, password, st.Close)
+			result, err = backup.RestoreInstance(context.Background(), svc, data, id, password, backup.RestoreOptions{KeepTokens: *keep}, st.Close)
 		}
 	}
 	if err != nil {

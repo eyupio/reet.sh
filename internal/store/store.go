@@ -433,6 +433,10 @@ func Open(dir string) (*Store, error) {
 			return nil, err
 		}
 	}
+	if err := stampSchemaVersion(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return st, nil
 }
 

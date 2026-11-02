@@ -34,6 +34,9 @@ func (s *server) registerBackupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/admin/backups/items/{id}/download", s.requireOwner(s.adminBackupDownload))
 	mux.HandleFunc("POST /api/v2/admin/backups/items/{id}/verify", s.requireAdmin(s.adminBackupVerify))
 	mux.HandleFunc("DELETE /api/v2/admin/backups/items/{id}", s.requireOwner(s.adminBackupDelete))
+	mux.HandleFunc("GET /api/v2/admin/backups/import", s.requireOwner(s.adminImportPending))
+	mux.HandleFunc("POST /api/v2/admin/backups/import", s.requireOwner(s.adminImportStage))
+	mux.HandleFunc("DELETE /api/v2/admin/backups/import", s.requireOwner(s.adminImportCancel))
 
 	// A person's own copies. A viewer may read; only a writer may change anything.
 	mux.HandleFunc("GET /api/v2/backups", s.userBackups)
@@ -626,4 +629,59 @@ func (s *server) deleteBackup(w http.ResponseWriter, r *http.Request, svc *backu
 	}
 	s.event(s.uid(r), "backup", "backup-delete", "", map[string]any{"id": r.PathValue("id")})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- import into this controller ------------------------------------------
+
+func (s *server) adminImportPending(w http.ResponseWriter, r *http.Request) {
+	svc := s.backupsOr(w)
+	if svc == nil {
+		return
+	}
+	rep, err := backup.PendingImport(s.st.Dir())
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"pending": rep})
+}
+
+// adminImportStage takes a sealed instance copy as the request body. The
+// running server cannot swap the database it serves, so the copy is opened,
+// checked and adapted now and put in place at the next start.
+func (s *server) adminImportStage(w http.ResponseWriter, r *http.Request) {
+	svc := s.backupsOr(w)
+	if svc == nil {
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, backup.MaxImportBytes+1<<20))
+	if err != nil {
+		writeErr(w, http.StatusRequestEntityTooLarge, "that copy is larger than this build opens")
+		return
+	}
+	keep := r.URL.Query().Get("keepTokens") == "1"
+	rep, err := svc.StageImport(r.Context(), s.st.Dir(), raw, r.Header.Get("X-Copy-Password"), backup.RestoreOptions{KeepTokens: keep})
+	if err != nil {
+		code := 400
+		if errors.Is(err, backup.ErrPasswordRequired) {
+			code = http.StatusUnauthorized
+		}
+		writeErr(w, code, err.Error())
+		return
+	}
+	s.event(s.uid(r), "backup", "backup-import-staged", "", map[string]any{"id": rep.ID, "keepTokens": keep})
+	writeJSON(w, 200, map[string]any{"staged": true, "restartRequired": true, "report": rep})
+}
+
+func (s *server) adminImportCancel(w http.ResponseWriter, r *http.Request) {
+	svc := s.backupsOr(w)
+	if svc == nil {
+		return
+	}
+	if err := backup.CancelImport(s.st.Dir()); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.event(s.uid(r), "backup", "backup-import-cancelled", "", nil)
+	writeJSON(w, 200, map[string]any{"pending": nil})
 }

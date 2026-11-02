@@ -17,6 +17,16 @@ against in [docs/ui-verification.md](docs/ui-verification.md); the research behi
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## Whole-controller restore and import (2 November 2026)
+
+`reet backup restore` now adapts the copy before it replaces anything (`internal/backup/restore.go`, `internal/store/store_restore.go`):
+browser sessions and reset links end, personal tokens and MCP connections are revoked unless `--keep-tokens`, the private-connection
+identity is dropped, stored secrets the controller's key cannot open are named, and a copy stamped with a newer `PRAGMA user_version`
+(`store.SchemaVersion`, stamped by `store.Open`) is refused. The owner can stage a copy on a running controller with
+`POST /api/v2/admin/backups/import` (also `GET`, `DELETE`); `backup.ApplyPendingImport` swaps it in at the start of `serve`.
+Left for later: an Admin → Backups page for the import (the endpoint exists; the UI does not), and bumping `store.SchemaVersion`
+when a release changes the schema incompatibly. See [docs/backups.md](docs/backups.md).
+
 ## Structured chats (SC1–SC5): resume here (2 November 2026)
 
 **Read first:** [docs/structured-chat-plan.md](docs/structured-chat-plan.md) (the plan and every progress note),

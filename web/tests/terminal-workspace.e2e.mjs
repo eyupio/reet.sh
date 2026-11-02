@@ -404,6 +404,10 @@ try{
  const terminalDialog=page.getByRole('dialog',{name:'New terminal session'})
  for(const button of ['New session','✦ Start a new Terminal session']){
   await page.getByRole('button',{name:button,exact:true}).click()
+  if(button==='New session'){
+   await expect(page.getByRole('dialog',{name:'New session'})).toBeVisible()
+   await page.getByRole('button',{name:'Terminal session',exact:true}).click()
+  }
   await expect(terminalDialog).toBeVisible()
   await expect(terminalDialog.getByLabel('Machine',{exact:true})).toHaveValue('')
   await expect(terminalDialog.getByRole('button',{name:'New terminal',exact:true})).toBeDisabled()
@@ -411,6 +415,12 @@ try{
   await expect(terminalDialog.getByRole('button',{name:'New terminal',exact:true})).toBeEnabled()
   await page.getByRole('button',{name:'Close New terminal session'}).click()
  }
+ // The other answer opens the Start an agent dialog instead of the shell form.
+ await page.getByRole('button',{name:'New session',exact:true}).click()
+ await page.getByRole('button',{name:'Agent session',exact:true}).click()
+ const startAgent=page.getByRole('dialog',{name:'Start an agent'})
+ await expect(startAgent).toBeVisible()
+ await startAgent.getByRole('button',{name:'Close',exact:true}).click()
  await expect(page.getByRole('heading',{name:'Start a new session'})).toBeVisible()
  expect(writes).toHaveLength(0)
  // header badge equals the panel count with no machine selected (3 sessions on 2 machines): both count the account's live

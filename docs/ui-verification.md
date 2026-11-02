@@ -1949,3 +1949,29 @@ Validation:
 
 **Not checked.** No physical phone or tablet and no screen reader. The other Admin
 sections and Account pages are unchanged by this pass.
+
+## Admin team usage under the collection contract — 2 November 2026
+
+Team usage now has one report panel: a live skill count, **Download CSV** and
+**Refresh**, a summary line for the team, a search over skill name/source/list/tag,
+and the existing **List**, **Tag** and **Sort** selects. Each skill is one row with
+its list and tag chips, **In use** with its bar, **Saved by**, **Agent reports** and
+the Team disclosure. The wide table and its separate mobile card rendering are gone;
+the same row stacks on a phone. The **List gaps & people** disclosure remains below.
+
+Validation:
+
+- `npm run check`: pass, including the new `adminTeam` unit suite; svelte-check
+  reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-team.e2e.mjs`: count and summary, search, List and Tag filters, empty
+  recovery, row metrics and Team disclosure, and phone layouts at 390 and 320 px
+  with no horizontal overflow.
+- `admin-users.e2e.mjs`, `phone-zoom.e2e.mjs` and `navigation.e2e.mjs` pass.
+
+![Admin team usage, desktop](images/ui/admin-team-desktop.png)
+![Admin team usage, phone](images/ui/admin-team-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The drift and
+people disclosures were checked only through their existing content, not with a
+new browser matrix. The other Admin and Account pages are unchanged.

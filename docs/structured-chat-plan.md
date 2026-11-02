@@ -436,7 +436,7 @@ when the connector restarted; (4) descriptor-driven controls when a second agent
 
 ### SC5 progress: pending approvals after a full detached backlog (2 November 2026, draft)
 
-Independent work while the owner login/device checks are pending; initially based on main `9905e8b`, then main `8e702a6` (Codex login access #391)
+Independent work while the owner login/device checks are pending; initially based on main `9905e8b`, then main `0e6a3b2` (including #391 and #392)
 merged without rewriting history. A replacement control connection used to rebuild its
 outbox with the last status and retained pending approval cards **before** the buffered history. At either queue limit, replaying that history evicted
 the recovery records again. A running agent could therefore remain waiting while the replacement controller received no approval card. The current
@@ -451,7 +451,7 @@ introduced by preparing recovery.
 
 Delivery record:
 - **Task / scope:** SC5 retained approval/status recovery over a replacement control connection to the surviving connector process.
-- **Branch:** `fix/recover-pending-chat-approvals`; exact implementation commit and draft PR are recorded with publication.
+- **Branch:** `fix/recover-pending-chat-approvals`; implementation commits `5699548` and `40f67cd`; draft PR is recorded with publication.
 - **Compatibility:** existing events, tokens, generation and memory limits; no protocol field, database, dependency, adapter capability or UI control added.
 - **Checks:** the event-limit and byte-limit regressions failed before the fix, as did recovery of the resolved idle status. They pass under `-race`
   with existing reconnect/startup tests. Tests also check complete command retention, answering the original process, the replacement generation,

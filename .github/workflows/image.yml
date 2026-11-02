@@ -32,7 +32,8 @@ concurrency:
 
 jobs:
   test:
-    runs-on: zoomies-linux-x64
+    # Keep PR validation available when the self-hosted pool is offline.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     # The full race suite runs close to 45 minutes on the Zoomies runners, and slower on a host
     # under pressure; 45 cancelled runs seconds after the Go tests finished.
     timeout-minutes: 90

@@ -43,7 +43,8 @@ concurrency:
 jobs:
   tmux-minimum:
     name: tmux minimum (3.2)
-    runs-on: zoomies-linux-x64
+    # Keep PR validation available when the self-hosted pool is offline.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4

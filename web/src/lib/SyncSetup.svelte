@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getSyncState, syncCandidates, saveDesired, startSyncRun, controlSyncAgent, queueSyncJob, syncFromMachine, getImports, type ImportRequest, type SyncState, type SyncSkill } from './api'
   import MachineSkillSync from './MachineSkillSync.svelte'
@@ -107,7 +108,7 @@
       <label class:chosen={all}><input type="radio" name="skill-choice" checked={all} onchange={() => all = true} /><span><strong>All my skills</strong><small>Your whole shelf. With Keep synced on, new skills follow automatically.</small></span></label>
       <label class:chosen={!all}><input type="radio" name="skill-choice" checked={!all} onchange={() => all = false} /><span><strong>Choose individual skills</strong><small>Only the skills you select.</small></span></label>
     </div>
-    {#if loading}<p role="status">Loading your skills…</p>
+    {#if loading}<Skeleton label="Loading your skills…" shape="rows" count={4} />
     {:else if !candidates.length}<p>Add your first skill on <a href="/skills">Skills</a>, then come back to sync it.</p>
     {:else if !all}
       <label class="search-label">Find a skill<input type="search" bind:value={query} placeholder="Search your skills" /></label>

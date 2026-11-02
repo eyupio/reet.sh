@@ -721,6 +721,23 @@ type fleetSoftwareRow struct {
 	// Reason says why a row is "unknown", so the page can tell a person what
 	// to do about it. It is empty for every other state.
 	Reason string `json:"reason,omitempty"`
+	// Evidence is what the machine itself reported about OpenCode, for rows
+	// that are unknown. It repeats only already-validated plain-text fields.
+	Evidence *fleetSoftwareEvidence `json:"evidence,omitempty"`
+}
+
+// fleetSoftwareEvidence is the stored installation evidence behind an unknown row.
+type fleetSoftwareEvidence struct {
+	Reason  string `json:"reason,omitempty"`
+	Manager string `json:"manager,omitempty"`
+	Path    string `json:"path,omitempty"`
+}
+
+func evidenceOf(entry terminalproto.SoftwareEntry) *fleetSoftwareEvidence {
+	if entry.Reason == "" && entry.Manager == "" && entry.Path == "" {
+		return nil
+	}
+	return &fleetSoftwareEvidence{Reason: string(entry.Reason), Manager: entry.Manager, Path: entry.Path}
 }
 
 // Reasons a machine's software could not be reviewed.
@@ -793,6 +810,7 @@ func (s *server) fleetSoftwarePlans(w http.ResponseWriter, r *http.Request) {
 			action = agentsoftware.Install
 		default:
 			row.State, row.Sentence, row.Reason = "unknown", "reet couldn't read how OpenCode is installed.", reasonUnreadable
+			row.Evidence = evidenceOf(*entry)
 		}
 		if row.State == "unknown" && action == "" {
 			rows = append(rows, row)
@@ -805,6 +823,7 @@ func (s *server) fleetSoftwarePlans(w http.ResponseWriter, r *http.Request) {
 		plan, planErr := agentsoftware.For(*entry, action, agent.Host, row.SessionsRunning)
 		if planErr != nil {
 			row.State, row.Sentence, row.Reason = "unknown", "No reviewed plan is available for this machine.", reasonNoPlan
+			row.Evidence = evidenceOf(*entry)
 			rows = append(rows, row)
 			continue
 		}

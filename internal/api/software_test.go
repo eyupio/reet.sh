@@ -456,6 +456,10 @@ func TestFleetSoftwarePlansReadStoredEvidence(t *testing.T) {
 	add("current", softwareTestCapabilities(noneEntry))
 	add("bare", softwareTestCapabilities(softwareTestEntry(terminalproto.SoftwareMissing, "")))
 	add("system", softwareTestCapabilities(softwareTestSystemEntry("1.18.0")))
+	broken := softwareTestSystemEntry("")
+	broken.State, broken.Reason, broken.Path, broken.Manager = terminalproto.SoftwareUnknown, terminalproto.SoftwareUnreadable, "/usr/bin/opencode", "system"
+	broken.Operations = nil
+	add("broken", softwareTestCapabilities(broken))
 	add("older", terminalproto.Capabilities{ProtocolVersion: terminalproto.Version, OS: "linux", OSUser: "me", TerminalEnabled: true, TerminalControl: true, HealthEnabled: true, Readiness: terminalproto.Ready})
 
 	r := httptest.NewRequest(http.MethodGet, "/api/v2/software/plans", nil)
@@ -471,7 +475,7 @@ func TestFleetSoftwarePlansReadStoredEvidence(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Machines) != 5 {
+	if len(out.Machines) != 6 {
 		t.Fatalf("machines = %+v", out.Machines)
 	}
 	byHost := map[string]fleetSoftwareRow{}
@@ -492,6 +496,12 @@ func TestFleetSoftwarePlansReadStoredEvidence(t *testing.T) {
 	}
 	if row := byHost["system"]; row.State != "install" || !strings.Contains(row.Sentence, "alongside") {
 		t.Fatalf("system row = %+v", row)
+	}
+	if row := byHost["broken"]; row.State != "unknown" || row.Reason != reasonUnreadable || row.Evidence == nil || row.Evidence.Reason != "unreadable" || row.Evidence.Path != "/usr/bin/opencode" || row.Evidence.Manager != "system" {
+		t.Fatalf("broken row = %+v evidence=%+v", row, row.Evidence)
+	}
+	if row := byHost["older"]; row.Evidence != nil {
+		t.Fatalf("a row without stored evidence carries some: %+v", row.Evidence)
 	}
 	if row := byHost["older"]; row.State != "unknown" || !strings.Contains(row.Sentence, "Update reet") || row.Reason != reasonAgentTooOld {
 		t.Fatalf("older row = %+v", row)

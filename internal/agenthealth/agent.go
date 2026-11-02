@@ -64,6 +64,7 @@ type AgentConfig struct {
 	acpApproval       bool
 	sessionMode       bool
 	acpQuestion       bool
+	inspect           bool
 	shellDir          bool
 	attention         bool
 	progress          bool
@@ -748,6 +749,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	// never claimed without all three.
 	cfg.sessionMode = terminalproto.SupportsSessionMode(advertised) && cfg.acp && cfg.acpHistory && cfg.launch
 	cfg.acpQuestion = terminalproto.SupportsACPQuestion(advertised)
+	cfg.inspect = terminalproto.SupportsInspect(advertised)
 	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
 	cfg.attention = terminalproto.SupportsAttention(advertised)
 	cfg.progress = terminalproto.SupportsProgress(advertised)
@@ -824,6 +826,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpQuestion {
 		features = append(features, terminalproto.ACPQuestionFeature)
+	}
+	if cfg.inspect {
+		features = append(features, terminalproto.InspectFeature)
 	}
 	if cfg.shellDir {
 		features = append(features, terminalproto.ShellDirFeature)
@@ -988,6 +993,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// terminal: a switch opens the OpenCode TUI.
 		SessionMode:     acp && cfg.acpHistory && cfg.sessionMode && launch && slices.Contains(tools, "opencode"),
 		ACPQuestions:    acp && cfg.acpQuestion,
+		Inspect:         cfg.inspect && control && enabled,
 		ShellDir:        cfg.shellDir && control && enabled,
 		Attention:       cfg.attention && control,
 		Branches:        cfg.branches && worktree && enabled,

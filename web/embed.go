@@ -9,7 +9,10 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"path"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // extraTypes are the types the served files need that Go's built-in table lacks. Without them a type comes from the host's
@@ -99,6 +102,7 @@ func Handler(baseURL string, opts ...Option) http.Handler {
 	}
 	files := http.FileServerFS(sub)
 	index, _ := fs.ReadFile(sub, "index.html")
+	gz := &gzipCache{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/robots.txt":
@@ -110,18 +114,18 @@ func Handler(baseURL string, opts ...Option) http.Handler {
 		}
 		p := strings.TrimPrefix(r.URL.Path, "/")
 		if p == "" || p == "index.html" {
-			serveIndex(w, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r))
+			serveIndex(w, r, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r))
 			return
 		}
-		if _, err := fs.Stat(sub, p); err == nil {
-			files.ServeHTTP(w, r)
+		if info, err := fs.Stat(sub, p); err == nil && !info.IsDir() {
+			serveFile(w, r, sub, files, gz, p, info.Size())
 			return
 		}
 		if index == nil {
 			http.Error(w, "reet.sh UI is not built; run `npm run build` in web/", http.StatusNotFound)
 			return
 		}
-		serveIndex(w, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r))
+		serveIndex(w, r, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r))
 	})
 }
 
@@ -130,7 +134,7 @@ func Handler(baseURL string, opts ...Option) http.Handler {
 // not already signed in; every other route is an app screen, and a signed-in
 // visitor is going straight to the app, so both would otherwise paint the
 // logged-out landing page before the SPA mounts.
-func serveIndex(w http.ResponseWriter, index []byte, path, origin string, signedIn bool) {
+func serveIndex(w http.ResponseWriter, r *http.Request, index []byte, path, origin string, signedIn bool) {
 	if index == nil {
 		http.Error(w, "reet.sh UI is not built; run `npm run build` in web/", http.StatusNotFound)
 		return
@@ -149,7 +153,38 @@ func serveIndex(w http.ResponseWriter, index []byte, path, origin string, signed
 	body = bytes.Replace(body, []byte(`<html lang="en">`), []byte(`<html lang="en" data-boot="`+bootNames[variant]+`">`), 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	_, _ = w.Write(body)
+	writeMaybeGzip(w, r, body)
+}
+
+// serveFile answers a built file: a content-hashed one is cacheable for a year, and a text one goes compressed to a
+// client that takes gzip. Anything else (a font, an icon, a request for a byte range) is left to the file server, which
+// knows about ranges and conditional requests; a range of a compressed body would not be a range of the file.
+func serveFile(w http.ResponseWriter, r *http.Request, sub fs.FS, files http.Handler, gz *gzipCache, name string, size int64) {
+	if hashedAsset(name) {
+		w.Header().Set("Cache-Control", immutableCache)
+	}
+	if !compressibleAsset(name) || size < gzipMinSize {
+		files.ServeHTTP(w, r)
+		return
+	}
+	w.Header().Add("Vary", "Accept-Encoding")
+	if r.Header.Get("Range") != "" || !acceptsGzip(r) {
+		files.ServeHTTP(w, r)
+		return
+	}
+	body, err := gz.body(name, func() ([]byte, error) { return fs.ReadFile(sub, name) })
+	if err != nil {
+		files.ServeHTTP(w, r)
+		return
+	}
+	w.Header().Set("Content-Encoding", "gzip")
+	if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	// The length is said because a browser shows its loading progress against it, and ServeContent leaves it off an
+	// encoded body on the assumption that something downstream will change it. Nothing will.
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	http.ServeContent(w, r, path.Base(name), time.Time{}, bytes.NewReader(body))
 }
 
 func stripFallback(body []byte) []byte {

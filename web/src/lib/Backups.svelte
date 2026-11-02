@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import {
     backupDownloadUrl, createBackupRemote, deleteBackup, deleteBackupRemote, deleteBackupRemoteCopy, getBackupStatus,
@@ -412,7 +413,7 @@
   </div>
 
   {#if loading}
-    <p class="muted" role="status">Loading…</p>
+    <Skeleton label="Loading backups…" shape="rows" count={4} />
   {:else if !status}
     <p class="notice bad" role="alert">{error || 'Could not load the backups.'}</p>
   {:else}

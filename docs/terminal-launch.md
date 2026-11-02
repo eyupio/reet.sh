@@ -36,8 +36,8 @@ before it sends any launch field. A peer without `launch` is never sent one and
 nothing is reserved. The connector also refuses, with `launch_failed`, a create
 that carries a tool on a connection that did not negotiate `launch-v1`; it never
 substitutes a shell. There is no protocol version bump, no arbitrary exec
-operation and no decoder relaxation. The control frame limit (16 KiB) is
-unchanged.
+operation and no decoder relaxation. The control frame limit is 64 KiB, so an
+8,000-byte prompt still fits when every byte is escaped in JSON.
 
 ## Wire fields and limits
 
@@ -50,7 +50,7 @@ comparable struct and `omitempty` keeps a plain create unchanged. They are named
 | `tool` | Tool id | One of `claude`, `codex`, `opencode`, `gemini`; `cline` under `agents-v2` |
 | `model` | Model id, optional | 1 to 100 bytes; letters, digits and `. _ : / @ + -`; the first character must be a letter or digit |
 | `dir` | Folder, optional | Absolute; at most 4,096 bytes; valid UTF-8; no control characters |
-| `prompt` | Opening prompt, optional | At most 2,000 bytes; valid UTF-8; no control characters except newline; must not begin with `-` |
+| `prompt` | Opening prompt, optional | At most 8,000 bytes; valid UTF-8; no control characters except newline; must not begin with `-` |
 
 `model`, `dir` or `prompt` without `tool` is refused. Strict decoding is
 unchanged: an unknown field is refused. The controller and the connector both

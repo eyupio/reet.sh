@@ -6,7 +6,9 @@ import ts from 'typescript'
 const compile = (file) => ts.transpileModule(readFileSync(new URL(file, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
 const load = (file) => import(`data:text/javascript;base64,${Buffer.from(compile(file)).toString('base64')}`)
 const review = await load('./contentReview.ts')
-const api = await load('./api.ts')
+// api.ts reports every request to the in-flight indicator; that module is pure, so it is compiled and linked in.
+const inflight = `data:text/javascript;base64,${Buffer.from(compile('./inflight.ts')).toString('base64')}`
+const api = await import(`data:text/javascript;base64,${Buffer.from(compile('./api.ts').replace("from './inflight'", `from '${inflight}'`)).toString('base64')}`)
 const {
   OWNERSHIP_SENTENCE, APPLY_NOTICE, FALLBACK,
   presenceLabel, ownershipNote, checkStateLabel, reasonText, failureText, planCodeText, preservedText,

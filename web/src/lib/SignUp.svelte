@@ -63,7 +63,7 @@
     <label for="signup-confirm">Confirm password</label>
     <PasswordInput id="signup-confirm" bind:value={confirm} autocomplete="new-password" placeholder="Repeat the password" minlength={8} />
     {#if error}<p class="error" id="signup-error" role="alert">{error}</p>{/if}
-    <button type="submit" class="btn primary submit" disabled={busy}>{busy ? 'Creating…' : 'Create account'}</button>
+    <button type="submit" class="btn primary submit" disabled={busy} aria-busy={busy}>{busy ? 'Creating…' : 'Create account'}</button>
   </form>
   <p class="help">Already have an account? <a href="/signin">Sign in</a>.</p>
 </AuthCard>

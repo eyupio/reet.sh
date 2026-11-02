@@ -9,6 +9,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type menuState struct {
@@ -221,6 +222,9 @@ func (m homeModel) View() tea.View {
 				rows = append(rows, "/ "+plain(m.query))
 			}
 			items := m.items()
+			if m.width >= 72 && m.height >= 16 {
+				return m.wideView(rows, items)
+			}
 			var body []string
 			selected, group := 0, ""
 			for i, c := range items {
@@ -380,4 +384,77 @@ func Pause(ctx context.Context, in io.Reader, out io.Writer, code int) (bool, er
 		return true, err
 	}
 	return result.(pauseModel).quit, nil
+}
+
+// wideView is the two-pane home: the grouped list on the left, and what the
+// selected command does on the right. head holds the rows already drawn above.
+func (m homeModel) wideView(head []string, items []Command) tea.View {
+	head = []string{head[0], head[1]}
+	head = append(head, styled("Ey up! What's tha after doing?", "ok", m.colour), "")
+	if m.searching {
+		head = append(head, m.input.View())
+	} else if m.query != "" {
+		head = append(head, "/ "+plain(m.query))
+	}
+	footer := []string{"", styled("● Reight then", "accent", m.colour) + styled(" · nowt to fettle", "muted", m.colour),
+		"↑/↓ j/k move   Enter open   / search   e edit   ? help   Esc back   q quit"}
+	if m.width < 84 {
+		footer[2] = "↑/↓ move  Enter open  / search  e edit  ? help  q quit"
+	}
+	if m.searching {
+		footer[2] = "↑/↓ select   Enter open   Esc clear   Ctrl+C quit"
+	}
+	outer := max(m.height-len(head)-len(footer), 6)
+	inner := outer - 2
+
+	leftW := 36
+	rightW := m.width - leftW - 1
+	var body []string
+	selected, group := 0, ""
+	for i, c := range items {
+		g := c.Group
+		if g == "" {
+			g = m.title
+		}
+		if g != group {
+			body = append(body, styled(strings.ToUpper(g), "muted", m.colour))
+			group = g
+		}
+		line := pad("  "+c.Title, leftW-4)
+		if i == m.cursor {
+			line = pad("› "+c.Title, leftW-4)
+			selected = len(body)
+			line = styled(line, "cursor", m.colour)
+		} else {
+			line = styled(line, "muted", m.colour)
+		}
+		body = append(body, line)
+	}
+	detail := styled("Nowt matches just yet.", "muted", m.colour)
+	if len(items) > 0 {
+		c := items[min(m.cursor, len(items)-1)]
+		g := c.Group
+		if g == "" {
+			g = m.title
+		}
+		detail = styled(strings.ToUpper(g), "muted", m.colour) + "\n" + styled(c.Title, "ok", m.colour) + "\n\n" +
+			styled("reet "+strings.Join(c.Args, " "), "muted", m.colour) + "\n\n" + plain(c.DetailFor())
+		if len(c.Children) > 0 {
+			detail += "\n\n" + styled("Enter opens "+fmt.Sprint(len(c.Children))+" actions.", "muted", m.colour)
+		}
+	}
+	start := max(0, selected-inner+2)
+	start = min(start, max(len(body)-inner, 0))
+	body = body[start:min(start+inner, len(body))]
+
+	rows := append(head, strings.Split(lipgloss.JoinHorizontal(lipgloss.Top,
+		panel(strings.Join(body, "\n"), leftW, outer, true, m.colour), " ",
+		panel(detail, rightW, outer, false, m.colour)), "\n")...)
+	rows = append(rows, footer...)
+	for i := range rows {
+		rows[i] = fit(rows[i], m.width)
+	}
+	view := tea.NewView(strings.Join(rows[:min(len(rows), m.height)], "\n"))
+	view.AltScreen = true
+	return view
 }

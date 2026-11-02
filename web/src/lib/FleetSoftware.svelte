@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getSoftwareMirror, type SoftwareMirrorStatus } from './api'
   import { shell } from './dialogShell'
@@ -244,7 +245,7 @@
     </header>
 
     {#if loading}
-      <p role="status">Reading the stored plans…</p>
+      <Skeleton label="Reading the stored plans…" shape="rows" count={3} />
     {:else if error}
       <p class="error" role="alert">{error}</p>
       <button class="btn" type="button" onclick={() => void load()}>Try again</button>
@@ -344,6 +345,7 @@
                   <div class="guide" role="group" aria-label={`What to do for ${row.host}`}>
                     <strong class="guide-title">{guide.title}</strong>
                     <small><b>Why:</b> {guide.why}</small>
+                    {#if guide.found}<small><b>Found:</b> {guide.found}</small>{/if}
                     {#if guide.command}
                       <div class="guide-cmd"><code>{guide.command}</code><CopyButton text={guide.command} label="Copy" compact ariaLabel={`Copy ${guide.command} for ${row.host}`} /></div>
                     {/if}

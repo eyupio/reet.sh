@@ -62,7 +62,7 @@
       placeholder="Paste your token"
     />
     {#if error}<p class="error" id="signin-error" role="alert">{error}</p>{/if}
-    <button class="btn primary submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Open the workspace'}</button>
+    <button class="btn primary submit" type="submit" disabled={busy} aria-busy={busy}>{busy ? 'Checking…' : 'Open the workspace'}</button>
   </form>
 
   <details class="help">

@@ -1,7 +1,11 @@
 # Structured chats across agents
 
-Status: implementation plan, 31 October 2026. No additional agent adapter is
-enabled by this document. OpenCode remains the only structured chat integration.
+Status: implementation plan, last updated 2 November 2026. OpenCode is the only structured chat
+integration anyone is offered. Claude Code and Codex are built and wired but dark behind
+per-machine switches (`REET_EXPERIMENTAL_CLAUDE_CHAT`, `REET_EXPERIMENTAL_CODEX_CHAT`) until the
+device and login checks in [device-checks.md](device-checks.md) are recorded. The progress notes
+below are in the order they were written; the current position and the order of what is left are
+in the resume-here section of [handoff.md](../handoff.md).
 
 The goal is one reet conversation view for supported agents, with streamed
 messages, tool details, reviewed approvals, agent questions and honest recovery
@@ -251,6 +255,24 @@ Owner decision: the confirmed agent mode is stored on the session, like the mode
 offer no modes are unchanged) and the session JSON carries `agentMode`. A new chat records the first mode its descriptor lists, which the profile guarantees is the mode the machine opens it in
 (a test pins the first `ChoosableModes` entry to `StartMode`). A confirmed switch records the new mode. A switch the machine did not confirm records "unknown" (empty) rather than the old mode,
 because the agent may have switched. The browser control, which reads `agentMode` and shows the plain-language wording, is the last slice.
+
+### SC4 progress: the approval card shows the agent's reason (2 November 2026)
+
+Both of the card gaps the Codex probes left behind are closed, on the shared card, so the browser is ready the day Codex leaves its switch.
+
+- **The reason the agent gave is on the card.** Codex puts the model's justification in `toolCall._meta.permission.description`; the machine now reads that
+  (`permissionParams` in `internal/acpagent/session.go`) and sends it in the permission event's existing `text` field, which already carried Claude's `rawInput.description`.
+  No new wire field, so a peer that decodes strictly still reads the event. The browser keeps it as `description` on the approval item (counted against the chat log's
+  bound), and the card shows it above the command under a `Why {agent} asks` label. Both shapes are pinned by `TestPermissionCarriesTheAgentsReason` (a Codex escalation,
+  a Claude write and a card with neither), and `chat.e2e.mjs` drives the card in a built browser.
+- **The reject button says what it does.** Codex ends the whole turn when an approval is rejected, not just the one tool, so its button reads "Deny and end the turn"
+  (`rejectLabel` in `web/src/lib/chat.ts`); every other reviewed agent keeps "Deny", because their rejection closes the tool the card is about. Pinned by
+  `chat.test.mjs`.
+- **The connector's mode switch has its own test.** `TestChatHostSwitchesAgentMode` covers what `setAgentMode` refuses (an unknown chat, a chat that is busy or no
+  longer running, and a process that offers no switch) and that the mode reaches the process unchanged and an agent's refusal comes back as it was, so nothing claims a
+  mode the adapter did not confirm.
+
+Codex stays dark behind `REET_EXPERIMENTAL_CODEX_CHAT` until the sign-in run in section 3 of the device checks is recorded.
 
 ### Device and credential checks (1 November 2026)
 

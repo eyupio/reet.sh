@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { tick } from 'svelte'
   import { groupLabel, installationStatus, type InstallationReport } from './machines'
   import { recordInstallCopy, type Environment, type Event, type Flags, type ListRef, type Skill, type SyncState, type Tag } from './api'
@@ -411,7 +412,7 @@
       {#if historyOpen}
         <div class="history">
           {#if historyLoading}
-            <p>Loading…</p>
+            <Skeleton label="Loading the history…" count={3} />
           {:else if history.length === 0}
             <p>Nothing recorded yet.</p>
           {:else}
@@ -547,8 +548,8 @@
   .installation-badge { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); font-size: 0.75rem; }
   .installation-badge .host { overflow-wrap: anywhere; min-width: 0; }
   .sync-intent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 0; color: var(--muted); font-size: 0.75rem; }
+  .sync-intent span { min-width: 0; overflow-wrap: anywhere; }
   .sync-intent svg { width: 13px; height: 13px; flex: none; }
-  .sync-intent { min-width: 0; max-width: 100%; }
   .sync-intent span { min-width: 0; overflow-wrap: anywhere; }
   .sync-intent.set { color: var(--good); }
   .sync-intent.pending { color: var(--warn); }

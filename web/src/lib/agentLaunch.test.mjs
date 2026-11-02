@@ -48,12 +48,12 @@ test('prompt rule', () => {
   const two = 'Write the opening prompt as at least two words.'
   assert.equal(validatePrompt('claude', 'purge'), two)
   assert.equal(validatePrompt('codex', 'update'), two)
-  assert.equal(MAX_PROMPT_BYTES, 2000)
-  const long = 'That prompt is too long. Use at most 2000 bytes; accented letters and emoji take more than one.'
-  assert.equal(validatePrompt('claude', 'a '.repeat(1000)), null)
-  assert.equal(validatePrompt('claude', 'a '.repeat(1000) + 'b'), long)
-  // 3-byte characters at the boundary: 666*3 = 1998, plus a space = 1999, plus "a" = 2000, plus one more = 2001
-  const han = '中'.repeat(666)
+  assert.equal(MAX_PROMPT_BYTES, 8000)
+  const long = 'That prompt is too long. Use at most 8,000 bytes; accented letters and emoji take more than one.'
+  assert.equal(validatePrompt('claude', 'a '.repeat(4000)), null)
+  assert.equal(validatePrompt('claude', 'a '.repeat(4000) + 'b'), long)
+  // 3-byte characters at the boundary: 2,666*3 = 7,998, plus a space = 7,999, plus "a" = 8,000, plus one more = 8,001
+  const han = '中'.repeat(2666)
   assert.equal(validatePrompt('claude', han + ' a'), null)
   assert.equal(validatePrompt('claude', han + ' ab'), long)
   assert.equal(validatePrompt('claude', han + '中' + ' '), long)

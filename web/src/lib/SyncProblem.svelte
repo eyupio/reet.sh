@@ -56,7 +56,7 @@
   {#if (online && onretry && fix.retry) || fix.href}
     <div class="actions">
       {#if online && onretry && fix.retry}
-        <button class="btn primary" type="button" disabled={retrying} onclick={onretry}>
+        <button class="btn primary" type="button" disabled={retrying} onclick={onretry} aria-busy={retrying}>
           {retrying ? 'Trying…' : fix.local ? 'I’ve run it — try again' : 'Fix and try again'}
         </button>
       {/if}

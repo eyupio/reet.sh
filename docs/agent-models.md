@@ -28,7 +28,7 @@ Cursor) never list. A machine with the token but not an installed binary answers
 
 The parser rejects the whole output if it contains a control byte or ESC, drops
 lines that fail the model-name rule, de-duplicates, caps at 500 entries, and
-trims the encoded answer to 12 KiB (inside the 16 KiB control frame) with `more`
+trims the encoded answer to 12 KiB (inside the 64 KiB control frame) with `more`
 set. The provider is the text before the first `/`. A listed name is a
 suggestion: the launch path still validates the explicit `Create.Model` and never
 reads the cache.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // folderSentinel is a starter prompt that must never leave the single read:
@@ -364,8 +365,8 @@ func TestFolderProjectCreateValidatesAndAudits(t *testing.T) {
 		{"unknown tool", map[string]any{"defaultTool": "bash"}, 422, "invalid_tool", "defaultTool", "Choose one of the agents reet can start."},
 		{"bad model", map[string]any{"defaultModel": "-rm"}, 422, "invalid_model", "defaultModel", sentenceModel},
 		{"bad colour", map[string]any{"colour": "chartreuse"}, 422, "invalid_colour", "colour", "Choose a colour from the palette, or no colour."},
-		{"prompt starting with a dash", map[string]any{"starterPrompt": "--yolo " + folderSentinel}, 422, "invalid_prompt", "starterPrompt", "The starter prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash."},
-		{"prompt too long", map[string]any{"starterPrompt": folderSentinel + strings.Repeat(" word", 400)}, 422, "invalid_prompt", "starterPrompt", ""},
+		{"prompt starting with a dash", map[string]any{"starterPrompt": "--yolo " + folderSentinel}, 422, "invalid_prompt", "starterPrompt", fmt.Sprintf("The starter prompt must be valid text of at most %d bytes, without control characters other than line breaks, and must not start with a dash.", terminalproto.MaxPromptBytes)},
+		{"prompt too long", map[string]any{"starterPrompt": folderSentinel + strings.Repeat(" word", 2000)}, 422, "invalid_prompt", "starterPrompt", ""},
 		{"prompt with a control character", map[string]any{"starterPrompt": folderSentinel + "\t"}, 422, "invalid_prompt", "starterPrompt", ""},
 		{"one-word prompt", map[string]any{"starterPrompt": "okapi-sentinel"}, 422, "prompt_unsupported", "starterPrompt", "Write the starter prompt as at least two words."},
 	}

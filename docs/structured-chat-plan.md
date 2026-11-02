@@ -256,6 +256,24 @@ offer no modes are unchanged) and the session JSON carries `agentMode`. A new ch
 (a test pins the first `ChoosableModes` entry to `StartMode`). A confirmed switch records the new mode. A switch the machine did not confirm records "unknown" (empty) rather than the old mode,
 because the agent may have switched. The browser control, which reads `agentMode` and shows the plain-language wording, is the last slice.
 
+### SC4 progress: the approval card shows the agent's reason (2 November 2026)
+
+Both of the card gaps the Codex probes left behind are closed, on the shared card, so the browser is ready the day Codex leaves its switch.
+
+- **The reason the agent gave is on the card.** Codex puts the model's justification in `toolCall._meta.permission.description`; the machine now reads that
+  (`permissionParams` in `internal/acpagent/session.go`) and sends it in the permission event's existing `text` field, which already carried Claude's `rawInput.description`.
+  No new wire field, so a peer that decodes strictly still reads the event. The browser keeps it as `description` on the approval item (counted against the chat log's
+  bound), and the card shows it above the command under a `Why {agent} asks` label. Both shapes are pinned by `TestPermissionCarriesTheAgentsReason` (a Codex escalation,
+  a Claude write and a card with neither), and `chat.e2e.mjs` drives the card in a built browser.
+- **The reject button says what it does.** Codex ends the whole turn when an approval is rejected, not just the one tool, so its button reads "Deny and end the turn"
+  (`rejectLabel` in `web/src/lib/chat.ts`); every other reviewed agent keeps "Deny", because their rejection closes the tool the card is about. Pinned by
+  `chat.test.mjs`.
+- **The connector's mode switch has its own test.** `TestChatHostSwitchesAgentMode` covers what `setAgentMode` refuses (an unknown chat, a chat that is busy or no
+  longer running, and a process that offers no switch) and that the mode reaches the process unchanged and an agent's refusal comes back as it was, so nothing claims a
+  mode the adapter did not confirm.
+
+Codex stays dark behind `REET_EXPERIMENTAL_CODEX_CHAT` until the sign-in run in section 3 of the device checks is recorded.
+
 ### Device and credential checks (1 November 2026)
 
 What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real

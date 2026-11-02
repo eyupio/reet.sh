@@ -2001,3 +2001,31 @@ Validation:
 **Not checked.** No physical phone or tablet and no screen reader. The reply/note
 composer was checked through the existing detail assertions, not a new messaging
 matrix.
+
+## Admin email outbox under the collection contract — 2 November 2026
+
+The admin Email outbox now has one **Outbox** panel with a live message count and
+**Refresh**, a search over subject, recipient, template, last error and id, and
+**All / Queued / Sending / Held / Delivered / Failed / Bounced** chips whose figures
+follow the search. The outbox is read once and filtered in the browser. Each message
+is one row with its subject, template and sign-in marker, recipient, state, age,
+tries, next attempt, last error and a **Resend** action only when the server offers
+one. The wide table and its horizontal scroller are gone. The mail server summary,
+form, checks, DNS result and held-mail warning are unchanged.
+
+Validation:
+
+- `npm run check`: pass, including the new `adminMail` unit suite; svelte-check
+  reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-email.e2e.mjs`: count and every state chip, search by subject and
+  error, empty recovery, an unreadable outbox and its retry, row anatomy and resend
+  offer, and phone layouts at 390 and 320 px with no horizontal overflow.
+- `phone-zoom.e2e.mjs` (the admin email screen) and `navigation.e2e.mjs` pass.
+
+![Admin email outbox, desktop](images/ui/admin-email-desktop.png)
+![Admin email outbox, phone](images/ui/admin-email-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. Saving settings,
+resending and the connection/DNS checks were not exercised by a new browser matrix;
+the existing form and actions were left in place.

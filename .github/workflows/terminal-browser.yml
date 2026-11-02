@@ -84,6 +84,9 @@ jobs:
           node web/tests/first-machine.e2e.mjs
           node web/tests/first-skills.e2e.mjs
           node web/tests/empty-states.e2e.mjs
+          node web/tests/lists.e2e.mjs
+          node web/tests/community.e2e.mjs
+          node web/tests/spaces.e2e.mjs
           node web/tests/sync-activity.e2e.mjs
           node web/tests/skills-sync-simple.e2e.mjs
           node web/tests/machine-skill-sync.e2e.mjs

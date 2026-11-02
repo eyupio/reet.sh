@@ -13,13 +13,14 @@
   import { yoloCanStart, type YoloGate } from '../launchBar'
   import { structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
+  import type { ChatState } from '../chat'
   import SwitchModeDialog from './SwitchModeDialog.svelte'
 
   // The session screen: the strip of open sessions, the session's header (title, agent · model · started, the state in words
   // with its source, YOLO, Gaffer | the agent TUI and the actions menu), the live terminal the workspace hosts here (children),
   // Approvals under it, and the context panel beside it (behind Details under 1100 px and in theatre view). A terminal
   // session shows no steps and no progress bar (R10): only its state word and where that word came from.
-  let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false, chatBusy,
+  let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false, chatBusy, insightChat,
     onaction, ontheatre, onrefresh, onmode, onsignedout, oncontinue, onterminal, onside, side, showSide = false, children }: {
     session: TerminalSession; sessions: TerminalSession[]
     machines: TerminalMachine[]; health: MachineHealth[]; projects: FolderProject[] | undefined; now: number
@@ -27,7 +28,7 @@
     onaction: (kind: 'rename' | 'end' | 'archive') => void; ontheatre: () => void; onrefresh: () => void
     /** The open chat's own word on whether it is busy (a running turn, a waiting approval or question), once its stream has
      *  replayed; until then (undefined) the row's attention stands in for it. */
-    chatBusy?: boolean
+    chatBusy?: boolean; insightChat?: ChatState
     /** The machine switched this session to the other TUI: the workspace shows it at once and reads the listing again. */
     onmode?: (id: string, to: 'terminal' | 'chat') => void
     onsignedout?: (e: unknown) => void
@@ -185,7 +186,11 @@
     if (event.key === 'Escape') return closeDetails(event)
     if (event.key !== 'Tab' || !detailsOpen || !sheet()) return
     const panel = event.currentTarget as HTMLElement
-    const items = [...panel.querySelectorAll<HTMLElement>('a[href],button:not(:disabled),[tabindex="0"]')].filter(el => el.getClientRects().length)
+    const items = [...panel.querySelectorAll<HTMLElement>('a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary,[tabindex]')].filter(el => {
+      if (el.tabIndex < 0 || !el.getClientRects().length || el.closest('[inert]')) return false
+      const closed = el.closest('details:not([open])')
+      return !closed || (el.tagName === 'SUMMARY' && el.parentElement === closed && !closed.parentElement?.closest('details:not([open])'))
+    })
     if (!items.length) return
     const at = items.indexOf(document.activeElement as HTMLElement)
     event.preventDefault()
@@ -303,7 +308,7 @@
       <div class="side-terminal" data-keeps-focus>{@render side()}</div>
     {:else}
       {#key session.id}
-        <ContextPanel {session} {host} {status} {project} {skills} id={`${id}-context`} onkeydown={panelKey} onclose={hideDetails} />
+        <ContextPanel {session} {host} {status} {project} {skills} {now} chat={insightChat} supported={!!machineCaps?.inspect} onterminal={() => { hideDetails(); void tick().then(() => stage?.querySelector<HTMLElement>('.xterm-helper-textarea, textarea.composer-input')?.focus()) }} id={`${id}-context`} onkeydown={panelKey} onclose={hideDetails} />
       {/key}
     {/if}
     <div class="stage" bind:this={stage}>{@render children()}</div>

@@ -219,6 +219,7 @@ jobs:
           node web/tests/account.e2e.mjs
           node web/tests/launch.e2e.mjs
           node web/tests/sessions.e2e.mjs
+          node web/tests/session-workspace.e2e.mjs
           node web/tests/sessions-phone.e2e.mjs
           node web/tests/terminal-clipboard.e2e.mjs
           node web/tests/terminal-upload.e2e.mjs

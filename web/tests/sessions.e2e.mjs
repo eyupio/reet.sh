@@ -5,9 +5,11 @@ import { mkdir } from 'node:fs/promises'
 import { openWorkspace } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
-// REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
+// REET_E2E_ONLY=<section> runs one section; REET_E2E_FROM=<section> resumes from a known failing section.
 const only = process.env.REET_E2E_ONLY
-const run = name => !only || only === name
+const from = process.env.REET_E2E_FROM
+let reached = !from
+const run = name => { if (name === from) reached = true; return reached && (!only || only === name) }
 const shots = process.env.REET_UI_SCREENSHOTS
 
 const MIN = 60_000, HOUR = 60 * MIN
@@ -529,8 +531,8 @@ try {
   expect(box.sessions.every(s => s.state !== 'end_requested')).toBe(true)
   // + goes to Home's launch bar.
   await expect(tabs(page).getByRole('link',{name:'New session'})).toHaveAttribute('href','/#launch')
-  // Tabs are a view held in memory: nothing in browser storage, only ids in the address.
-  expect(await page.evaluate(() => sessionStorage.length)).toBe(0)
+  // Open tabs are held in memory. Return markers store only time and sequence, with ids in their keys.
+  expect(await page.evaluate(() => Object.keys(sessionStorage).every(k => k.startsWith('reet-session-visit:')))).toBe(true)
   const stored = await page.evaluate(() => Object.entries(localStorage).map(([k,v]) => k + '=' + v).join('\n'))
   for (const word of ['s1','s2','s4','Refactor','browse','tabs']) expect(stored).not.toContain(word)
   expect(new URL(page.url()).searchParams.get('session')).toBe('s2')
@@ -566,6 +568,7 @@ try {
   await expect(fact(page,'Branch')).toHaveText('reet/reet-0f1e2d3c4b5a6978')
   await expect(fact(page,'Worktree')).toHaveText('own copy')
   // Skills on this machine: the fleet card's line, and Manage opens that machine's skills.
+  await panel(page).getByText('Skills & session decisions',{exact:true}).click()
   await expect(panel(page).locator('.skills-line')).toHaveText(/skills in sync · checked 3 min ago/)
   await expect(panel(page).getByRole('link',{name:'Manage skills on studio'})).toHaveAttribute('href','/machines?view=compare&machine=studio')
   // A session in the project's own checkout, on another machine, with no branch recorded.
@@ -574,6 +577,7 @@ try {
   await expect(fact(page,'Project')).toHaveText('site')
   await expect(fact(page,'Branch')).toHaveText('Not recorded')
   await expect(fact(page,'Worktree')).toHaveText('the checkout')
+  await panel(page).getByText('Skills & session decisions',{exact:true}).click()
   await expect(panel(page).locator('.skills-line')).toHaveText('Not checked')
   // An offline machine is named so, never as reporting.
   await sidebarRow(page, 'Review code').click()
@@ -603,6 +607,7 @@ try {
  if (run('changed files fetched once and on refresh')) {
   const {context,page,errors,box} = await open()
   await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  await panel(page).getByRole('tab',{name:'Changes',exact:true}).click()
   const files = panel(page).getByRole('region',{name:'Changed files'})
   await expect(files.locator('li')).toHaveCount(20)
   await expect(files.locator('li').first()).toHaveText('internal/terminalproto/browse.go')
@@ -617,7 +622,8 @@ try {
   await expect.poll(() => box.status.length).toBe(2)
   // A session outside a worktree lists nothing and reads nothing.
   await sidebarRow(page, 'Speed up the runner pool').click()
-  await expect(panel(page).getByRole('region',{name:'Changed files'})).toContainText('Only sessions in their own worktree list changed files.')
+  await panel(page).getByRole('tab',{name:'Changes',exact:true}).click()
+  await expect(panel(page).getByRole('region',{name:'Changed files'})).toContainText('Update reet on this machine to inspect changes in the checkout.')
   await page.waitForTimeout(300)
   expect(box.status).toHaveLength(2)
   expect(errors).toEqual([])
@@ -630,6 +636,7 @@ try {
   const early = sessions().map(x => x.id === 's2' ? {...x, worktreeRepo:'', worktreeBranch:''} : x)
   const {context,page,errors,box} = await open({sessions:early})
   await page.goto(`${base}/sessions?agent=a1&session=s2`)
+  await panel(page).getByRole('tab',{name:'Changes',exact:true}).click()
   const files = panel(page).getByRole('region',{name:'Changed files'})
   await expect(files).toContainText("reet can't name this worktree")
   expect(box.status).toHaveLength(0)
@@ -994,12 +1001,14 @@ try {
   await page.goto(`${base}/sessions?agent=a2&session=s4`)
   await expect(screen(page).getByRole('heading',{name:'Speed up the runner pool',level:2})).toBeVisible()
   await expect(screen(page).locator('.head .badge.yolo')).toHaveText('YOLO')
+  await panel(page).getByText('Skills & session decisions',{exact:true}).click()
   await expect(panel(page).locator('.decisions')).toContainText('YOLO: the agent asked not to be prompted; the launch is audited.')
   await expect(panel(page).locator('.decisions').getByRole('link')).toHaveAttribute('href','/activity')
   await expect(screen(page).locator('.approvals')).toHaveText('Approvals: YOLO')
   // A session that is not YOLO says the terminal asks.
   await sidebarRow(page, 'Add browse-v1 protocol').click()
   await expect(screen(page).locator('.head .badge.yolo')).toHaveCount(0)
+  await panel(page).getByText('Skills & session decisions',{exact:true}).click()
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the terminal.')
   expect(errors).toEqual([])
   await context.close()
@@ -1029,13 +1038,17 @@ try {
   await page.goto(`${base}/sessions?agent=a1&session=s2`)
   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
   await screen(page).getByRole('button',{name:'Session actions'}).focus()
-  await tabTo(page, 'Refresh changed files')
-  await tabTo(page, 'Manage skills on studio')
+  await tabTo(page, 'Refresh session workspace')
+  await tabTo(page, 'Skills & session decisions')
+   await page.keyboard.press('Enter')
+   await tabTo(page, 'Manage skills on studio')
   await sidebarRow(page, 'Speed up the runner pool').click()
   // The new terminal takes focus once it is live; start from the header after that.
   await expect(page.locator('.pane')).toHaveAttribute('aria-label',/^Speed up the runner pool/)
   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
   await screen(page).getByRole('button',{name:'Session actions'}).focus()
+  await tabTo(page, 'Skills & session decisions')
+  await page.keyboard.press('Enter')
   await tabTo(page, 'Activity')
   expect(errors).toEqual([])
   await context.close()
@@ -1055,7 +1068,9 @@ try {
     const b = await screen(page).getByRole('button',{name,exact:true}).boundingBox()
     expect(await page.evaluate(([x,y]) => !document.elementFromPoint(x,y)?.closest('.context-panel'), [b.x+b.width/2, b.y+b.height/2]), `${name} covered at ${width}px`).toBe(true)
    }
-   await tabTo(page, 'Refresh changed files')
+   await tabTo(page, 'Refresh session workspace')
+   await tabTo(page, 'Skills & session decisions')
+   await page.keyboard.press('Enter')
    await tabTo(page, 'Manage skills on studio')
    // Tab keeps going round the sheet: it never reaches the terminal behind it.
    for (let i = 0; i < 12; i++) { await page.keyboard.press('Tab'); expect(await page.evaluate(() => !!document.activeElement.closest('.context-panel')), `Tab left the sheet at ${width}px`).toBe(true) }
@@ -1394,5 +1409,6 @@ try {
    await context.close()
   }
  }
+ if (!reached) throw new Error(`Unknown starting section: ${from}`)
  console.log('Sessions: groups shared with Home, search by branch and machine, filters together, the actions menu by right-click, Shift+F10 and its button, the offline sentence, 44 px rows on touch, a failed refresh keeping the list, the empty states, session colours, saved commands without a session, menu focus, Checking… on later reads, the Needs you sentence, a viewer at /sessions, and the session screen: tabs held in memory (eight at most, closing one never ends its session), the context panel, changed files read once and on refresh, Gaffer | OpenCode TUI switch (its disabled reasons, the confirmation, the busy state while a switch runs, the panes swapping both ways, held while an approval waits, and the folder-trust confirmation to return to Gaffer) and the YOLO decisions line.')
 } finally { await browser.close() }

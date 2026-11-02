@@ -765,3 +765,95 @@ func TestOpenMigratesAgentBuildAndAutoUpdateColumns(t *testing.T) {
 		t.Fatalf("migrated enrollment: %+v %v", a, err)
 	}
 }
+
+func TestSyncRunReplansStalePlanAndKeepsGoing(t *testing.T) {
+	s, uid, first := controlFixture(t)
+	s.TouchEnvironmentFor(uid, "laptop", "claude", "", "")
+	second := EnvironmentIDFor(uid, "laptop", "claude", "")
+	s.RecordInventoryFor(uid, second, true, MachineInfo{})
+	for _, id := range []string{first, second} {
+		if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.StartSyncRun(uid, agent.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || stale == nil || stale.Kind != "auto" || stale.TargetID != first {
+		t.Fatalf("first auto job: %+v %v", stale, err)
+	}
+	// The machine changed underneath the approved plan. It reports "replan"
+	// before writing anything, and the controller must repair the same scope.
+	if err = s.FinishSyncJob(uid, agent.ID, stale.ID, "replan", "", "local skills changed; preview again", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || replacement == nil || replacement.Kind != "auto" || replacement.TargetID != first {
+		t.Fatalf("scope was not re-planned: %+v %v", replacement, err)
+	}
+	hash := strings.Repeat("d", 64)
+	plan := json.RawMessage(`{"actions":[{"add":true,"skill":{"slug":"one"}}]}`)
+	if err = s.FinishSyncJob(uid, agent.ID, replacement.ID, "awaiting-approval", hash, "", plan); err != nil {
+		t.Fatal(err)
+	}
+	apply, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || apply == nil || apply.Kind != "apply" || apply.ID != replacement.ID {
+		t.Fatalf("replanned additive job was not approved: %+v %v", apply, err)
+	}
+	if err = s.FinishSyncJob(uid, agent.ID, apply.ID, "succeeded", hash, "", plan); err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || next == nil || next.Kind != "auto" || next.TargetID != second {
+		t.Fatalf("run did not continue after a re-plan: %+v %v", next, err)
+	}
+	runs, _ := s.SyncRunsFor(uid)
+	if len(runs) == 0 || runs[0].Status != "running" || runs[0].Cursor != 1 {
+		t.Fatalf("run state after re-plan: %+v", runs)
+	}
+	jobs, _ := s.SyncJobsFor(uid)
+	seenReplan := false
+	for _, job := range jobs {
+		if job.ID == stale.ID {
+			seenReplan = job.Status == "failed" && strings.Contains(job.Message, "fresh plan")
+		}
+	}
+	if !seenReplan {
+		t.Fatalf("stale attempt was not recorded honestly: %+v", jobs)
+	}
+}
+
+func TestSyncRunStopsAfterReplanLimit(t *testing.T) {
+	s, uid, first := controlFixture(t)
+	if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: first, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.StartSyncRun(uid, agent.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= syncRunReplanLimit; attempt++ {
+		job, err := s.ClaimSyncJob(uid, agent)
+		if err != nil || job == nil {
+			t.Fatalf("attempt %d: %+v %v", attempt, job, err)
+		}
+		if err = s.FinishSyncJob(uid, agent.ID, job.ID, "replan", "", "local skills changed; preview again", json.RawMessage(`{}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if job, err := s.ClaimSyncJob(uid, agent); err != nil || job != nil {
+		t.Fatalf("a fourth attempt was queued: %+v %v", job, err)
+	}
+	runs, _ := s.SyncRunsFor(uid)
+	if len(runs) == 0 || runs[0].Status != "failed" {
+		t.Fatalf("run did not stop at the limit: %+v", runs)
+	}
+}

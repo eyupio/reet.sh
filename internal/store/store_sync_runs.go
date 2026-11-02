@@ -258,6 +258,53 @@ func agentIDForRun(tx *sql.Tx, uid int64, runID string) string {
 	return agentID
 }
 
+// syncRunReplanLimit bounds how many times one scope may ask for a fresh plan
+// inside a run. A change that keeps happening (rather than settling) is shown
+// to the person instead of looping forever.
+const syncRunReplanLimit = 3
+
+// replanSyncRunScopeTx keeps an automatic run alive when its scope reports that
+// the plan no longer matches. A fresh automatic job replaces the failed attempt
+// at the same cursor position, so the run continues where it was. It reports
+// false when the scope is not part of a running chain or has used its attempts.
+func (s *Store) replanSyncRunScopeTx(tx *sql.Tx, uid int64, jobID string) (bool, error) {
+	var runID string
+	var position int
+	if err := tx.QueryRow(`SELECT run_id,position FROM sync_run_jobs WHERE job_id=?`, jobID).Scan(&runID, &position); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	var status string
+	if err := tx.QueryRow(`SELECT status FROM sync_runs WHERE id=? AND user_id=?`, runID, uid).Scan(&status); err != nil {
+		return false, err
+	}
+	if status != "running" {
+		return false, nil
+	}
+	var targetID, agentID string
+	if err := tx.QueryRow(`SELECT target_id,agent_id FROM sync_jobs WHERE id=? AND user_id=?`, jobID, uid).Scan(&targetID, &agentID); err != nil {
+		return false, err
+	}
+	var attempts int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_run_jobs r JOIN sync_jobs j ON j.id=r.job_id WHERE r.run_id=? AND r.position=?`, runID, position).Scan(&attempts); err != nil {
+		return false, err
+	}
+	if attempts >= syncRunReplanLimit {
+		return false, nil
+	}
+	job, err := insertSyncJobTx(tx, uid, agentID, targetID, "auto")
+	if err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(`INSERT INTO sync_run_jobs(job_id,run_id,position) VALUES(?,?,?)`, job.ID, runID, position); err != nil {
+		return false, err
+	}
+	_, err = tx.Exec(`UPDATE sync_runs SET status='running',updated_at=? WHERE id=?`, now(), runID)
+	return true, err
+}
+
 // additivePlan reports whether a preview only installs or replaces entries.
 func additivePlan(plan json.RawMessage) bool {
 	var parsed struct {

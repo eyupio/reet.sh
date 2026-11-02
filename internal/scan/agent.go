@@ -541,7 +541,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 		if err != nil {
 			operationErr = err
 		} else if !strings.EqualFold(target.Target.Host, c.Host) || target.Revision != j.Revision {
-			operationErr = errors.New("target identity or revision changed")
+			operationErr = errSyncTargetChanged
 		} else {
 			dir := c.Home
 			if target.Target.Project != "" {
@@ -594,6 +594,12 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	}
 	if operationErr != nil {
 		result.Status = "failed"
+		// A stale plan is not a dead end. Tell the controller nothing changed
+		// and that a fresh preview will settle the scope, so an automatic run
+		// can repair itself instead of stopping every later scope.
+		if ErrReplanWorthAttempting(operationErr) {
+			result.Status = "replan"
+		}
 		result.Message = operationErr.Error()
 	}
 	if restartPath != "" {

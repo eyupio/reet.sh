@@ -174,6 +174,71 @@ experimental switches remain in place and form capability remains off. Broader o
   on the pull request, and check `git diff origin/main...HEAD` is only what you meant to change.
 - Never use `pkill -f '<pattern>'` or `grep` for a pattern that also appears in your own command line: it ends the shell.
 
+## SR1 — Self-healing automatic sync (2 November 2026)
+
+**Scope:** the controller↔enrolled-agent sync job protocol; no new remote shell or arbitrary
+command surface. Branch `fix/sync-self-heal`, based on main `f051948`.
+
+**Problem:** a preview approved for apply could find that local files, the target revision or the
+saved selection had changed. The machine refused correctly, but the controller failed the whole
+automatic run, so later scopes waited behind a card the person had to press. The retry only
+re-queued the one scope. That is the failure shown in Sync activity as **The plan changed before it
+ran**.
+
+**Fix:** the machine now answers the recovery direction, not just receives jobs. `internal/scan`
+classifies the stale-plan refusals as recoverable and reports the new wire status `replan`; no
+files were written. `internal/store` accepts `replan` only from preview/apply/automatic jobs,
+records the attempt honestly as failed, and — when the job belongs to a running automatic run —
+queues a fresh automatic job at the same `sync_run_jobs.position`, leaving the cursor untouched so
+the run continues into later scopes. The controller-side "desired revision changed during apply"
+check takes the same path. A scope gets at most three attempts per run (`syncRunReplanLimit`); after
+that the run fails and the existing **Fix and try again** starts a fresh plan. Manual previews and
+applies never retry themselves. Results stay idempotent through `sync_receipts`, and the agent's
+durable `.result` file still resends rather than replaying filesystem work.
+
+**Checks:** `gofmt`, `go vet ./internal/store ./internal/scan`, `go build ./...`, and
+`go test ./internal/store ./internal/scan` (including
+`TestSyncRunReplansStalePlanAndKeepsGoing`, `TestSyncRunStopsAfterReplanLimit`,
+`TestSyncRefusesAChangedApprovedPlan`, `TestOrdinarySyncFailuresAreNotReplanned`).
+
+**Limits:** this does not add a general controller-to-machine command executor; the existing
+allowlisted typed jobs and local opt-ins still gate every write. A run interrupted by a disconnect
+or timeout is still failed by the reaper rather than automatically re-planned, because partial
+writes cannot be proven absent.
+
+**Next bounded task:** decide whether a reaped automatic run should requeue a fresh preview (safe,
+read-only) and then continue, with the same attempt budget; and add an end-to-end agent fixture that
+drifts local files between preview and apply to prove the whole loop over HTTP.
+
+## Structured chat recovery across a connector restart or reboot (2 November 2026)
+
+**Scope:** the machine's structured-chat supervisor and the controller's chat transcript; no change
+to ACP, permissions or the launch gates. Uncommitted working-tree changes on `ux/boot-shell`.
+
+**Problem:** a machine agent upgrade, a crash or a reboot ended every Gaffer chat, and the browser was
+told its live history was gone. OpenCode keeps the conversation on disk, but nothing reopened it.
+
+**Fix:** the connector now records each live Gaffer chat's `ses_…` id, folder, model, approval mode
+and folder trust in a private `structured-chats.json` beside its terminal state. On the next start it
+reopens each one with `session/load` under the same reet session id and drops the replay, because the
+controller already holds the transcript; the controller then adopts the row as running instead of
+marking it lost. Ending, archiving or switching a chat to the OpenCode TUI removes the record, folder
+trust and YOLO are re-checked at reopen, records older than seven days are dropped, and a failed
+reopen is tried at most three times. The controller now also stores the same bounded transcript (1,000
+events / 256 KiB per session) in SQLite, restored on subscribe, so its own restart or a reboot keeps
+the conversation rather than only the row. A lost row may return to running only for a structured
+chat; a plain shell is never resurrected. The stale "held in memory and is gone" copy is corrected.
+
+**Checks:** `gofmt`, `go build ./...`, `go test ./internal/terminalagent ./internal/terminalbroker
+./internal/store ./internal/terminalproto ./internal/api`, and the chat/agent-launch browser unit
+tests. No real machine was rebooted; the reopen path is covered by a fake ACP child and a registry
+fixture.
+
+**Limits:** a turn that was in flight when the connector stopped is reported as stopped, not resumed.
+Detached per-session workers, turn generations across a native restart, and a live-machine reboot
+check remain future work. Records and transcripts are stored in the controller database and the
+machine's private state directory; the agent-side record holds metadata only.
+
 ## Gaffer interface and Eli compatibility probe (1 November 2026)
 
 Branch `feat/gaffer-interface`, based on main `9b8bc17`. The native browser
@@ -862,12 +927,12 @@ After the reet TUI slices:
   A session's actions menu offers **Open a terminal here…**, a plain shell in the same folder as a separate session; it
   needs `shell-dir-v1` on the machine. **Open a terminal beside this session…** shows that plain shell in the right-hand
   panel, replacing the context panel while it is open; Close ends it. The agent TUI/reet TUI stays in the main column.
-- **reet TUI history is in memory, but OpenCode keeps it.** The controller keeps at most 1,000 events / 256 KiB per reet session and
-  writes no transcript. A closed reet session can be reopened with Continue in reet TUI with history… as a new row that runs
-  `session/load`; the old row stays. A server restart clears the live ring; archiving drops it. A control connection loss
-  detaches chats without killing them; the next connection adopts the running process, reconciles it as running, and drains
-  the bounded queue of events produced while detached. Restarting the agent ends them; a stored id can still be reopened if
-  OpenCode's own store survives. Pending approvals are not restored; replayed tools are shown interrupted.
+- **reet TUI history is bounded and kept.** The controller keeps at most 1,000 events / 256 KiB per reet session in SQLite,
+  and a controller restart restores it; archiving drops it. A closed reet session can be reopened with Continue in reet TUI
+  with history… as a new row that runs `session/load`; the old row stays. A control connection loss detaches chats without
+  killing them; the next connection adopts the running process, reconciles it as running, and drains the bounded queue of
+  events produced while detached. A connector restart or reboot reopens the recorded chats from OpenCode's store. Pending
+  approvals are not restored; replayed tools are shown interrupted.
 - **OpenCode 1.19.5 or newer.** The connector refuses an older version before starting a process; the ACP handshake must
   also name `OpenCode` and speak protocol 1. The seven conditions in
   [structured-sessions.md](docs/structured-sessions.md) are mandatory; a repository with `.opencode` plugins needs the

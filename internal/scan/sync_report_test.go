@@ -2,6 +2,7 @@ package scan
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -85,5 +86,19 @@ func TestSyncRefusesAChangedApprovedPlan(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "approved plan no longer matches") {
 		t.Fatalf("err = %v", err)
+	}
+	if !ErrReplanWorthAttempting(err) {
+		t.Fatalf("a stale approved plan should be recoverable, got %v", err)
+	}
+}
+
+func TestOrdinarySyncFailuresAreNotReplanned(t *testing.T) {
+	for _, err := range []error{
+		errors.New("sync stopped at beta: exited 1; rescan and preview again"),
+		errors.New("cannot read target skills directory: permission denied"),
+	} {
+		if ErrReplanWorthAttempting(err) {
+			t.Fatalf("%v should not be retried as a stale plan", err)
+		}
 	}
 }

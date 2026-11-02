@@ -167,14 +167,14 @@ function evidenceFound(evidence?: FleetEvidence): string | undefined {
     case 'unreadable': return `reet found OpenCode${where} but couldn't read its version.`
     case 'package_unknown': return `OpenCode is installed${where}, but reet doesn't recognise the package.`
     case 'platform_unsupported': return 'reet has no reviewed OpenCode build for that machine\'s platform.'
-    case 'managed_broken': return `reet's own copy of OpenCode${where} is damaged.`
+    case 'managed_broken': return "reet's own copy of OpenCode failed its integrity check, so reet won't run or change it."
     default: return evidence.path ? `OpenCode was seen at ${evidence.path}.` : undefined
   }
 }
 
 function evidenceThen(evidence?: FleetEvidence): string {
   switch (evidence?.reason) {
-    case 'managed_broken': return 'Open that machine\'s Settings and reinstall OpenCode from there, then press Refresh.'
+    case 'managed_broken': return 'Settings has no reinstall for this yet. On that machine, delete the folder ~/.reet/software/opencode (this removes reet\'s own OpenCode copy and its rollback version), then press Refresh and apply the install plan.'
     case 'platform_unsupported': return 'Nothing to run. Manage OpenCode on that machine yourself, or check back after a reet release.'
     default: return 'Nothing to run here. Fix or reinstall OpenCode on that machine, then press Refresh.'
   }

@@ -153,12 +153,15 @@ func TestBufferedChatApprovalIsReplayedOnlyOnce(t *testing.T) {
 }
 
 func TestPendingChatApprovalSurvivesOutputDuringRecovery(t *testing.T) {
-	for _, failSend := range []bool{false, true} {
-		name := "stalled send"
-		if failSend {
-			name = "failed send"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		failSend, cancelApproval bool
+	}{
+		{name: "stalled send"},
+		{name: "failed send", failSend: true},
+		{name: "cancelled during replay", cancelApproval: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			h, proc := openRecoveryChat(t)
 			proc.onEvent(recoveryApproval())
 			proc.onEvent(acpagent.Event{Kind: "status", State: "waiting"})
@@ -174,7 +177,7 @@ func TestPendingChatApprovalSurvivesOutputDuringRecovery(t *testing.T) {
 				attached <- h.sup.attach(h.sup.ctx, 2, func(ctx context.Context, message terminalproto.Message) error {
 					firstSend := false
 					first.Do(func() { firstSend = true; close(entered); <-release })
-					if firstSend && failSend {
+					if firstSend && tc.failSend {
 						return errors.New("transport closed")
 					}
 					return out.send(ctx, message)
@@ -190,6 +193,9 @@ func TestPendingChatApprovalSurvivesOutputDuringRecovery(t *testing.T) {
 			})
 			// The native process keeps streaming while the replacement transport
 			// is blocked. Recovery records must survive this overflow as well.
+			if tc.cancelApproval {
+				proc.onEvent(acpagent.Event{Kind: "permission_cancelled", PermissionID: recoveryPermissionID, Reason: "timeout"})
+			}
 			fillDetachedChat(proc, maxDetachedChatEvents+8, 1)
 			assertRecoveryBudget(t, h)
 			unblock()
@@ -204,12 +210,19 @@ func TestPendingChatApprovalSurvivesOutputDuringRecovery(t *testing.T) {
 			})
 			t.Cleanup(next.close)
 			assertRecoveryBudget(t, h)
-			if failSend {
+			if tc.failSend {
 				// Requeueing a failed send must remain bounded, and the next
 				// connection must still receive the original pending approval.
 				out = &sent{}
 				replacement := h.sup.attach(h.sup.ctx, 3, out.send, true, true)
 				t.Cleanup(replacement.close)
+			}
+			if tc.cancelApproval {
+				statuses := out.events("status")
+				if len(statuses) == 0 || statuses[len(statuses)-1].State != "idle" {
+					t.Fatalf("cancelled approval left recovery waiting: %+v", statuses)
+				}
+				return
 			}
 			if cards := out.events("permission"); len(cards) != 1 || cards[0].PermissionID != recoveryPermissionID {
 				t.Fatalf("approval lost during recovery: %d cards", len(cards))

@@ -444,7 +444,7 @@ idle status after a cancellation could be lost the same way.
 
 `seedRecoveredChatEvents` now replays history first, removes buffered copies of currently pending approvals, then appends their current snapshots
 and the latest status. Historical resolution receipts remain ordinary bounded history so they cannot monopolize the queue and displace new answers. Overflow discards old history before current pending approvals and the latest buffered status, so a stalled
-replacement transport cannot let fresh output evict the recovery records again. Requeueing a failed send applies the same trimming policy.
+replacement transport cannot let fresh output evict the recovery records again. Requeueing a failed send applies the same trimming policy. If an approval resolves during replay and settles the retained waiting state, its new status is buffered too.
 The original token and complete card travel unchanged. Resolved approvals retain their historical events and are not recreated
 from the pending set. The outbox still uses its existing 1,000-event and 256 KiB limits. No process is replaced and no new/load or approval call is
 introduced by preparing recovery.
@@ -456,7 +456,7 @@ Delivery record:
 - **Checks:** the event-limit and byte-limit regressions failed before the fix, as did recovery of the resolved idle status. They pass under `-race`
   with existing reconnect/startup tests. Tests also check complete command retention, answering the original process, the replacement generation,
   replay budgets, and a buffered approval appearing once alongside resolved history. A blocked-transport test failed under continued output;
-  a failed-send variant also reproduced a 1,001-event outbox. Both now pass under the race detector. Control-state-only overflow also remains
+  a failed-send variant also reproduced a 1,001-event outbox. Both now pass under the race detector. A cancellation during blocked replay also reproduced a stale waiting status; buffering the newly settled state fixes it. Control-state-only overflow also remains
   bounded by the existing ceilings. A separate regression reproduced old receipts displacing new answers; ordinary bounded receipt history fixes it. Vet and race tests pass for terminalagent, terminalbroker and terminalproto; the four
   known container `TestModels*` failures were excluded from that local package run (already confirmed on main; the model-discovery code is unchanged).
   The production web build passed. Full CI results are recorded in the PR.

@@ -864,10 +864,16 @@ func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 		s.mu.Unlock()
 		return
 	}
+	previousStatus := cs.lastStatus
 	recordChatSessionEvent(cs, wire)
 	link := s.link
 	if link == nil || !link.live {
 		bufferChatEvent(cs, wire)
+		// A resolution can settle the retained waiting status without a native
+		// status event. Keep that new state available during a stalled replay.
+		if wire.Kind != "status" && cs.lastStatus != nil && cs.lastStatus != previousStatus {
+			bufferChatEvent(cs, *cs.lastStatus)
+		}
 		s.mu.Unlock()
 		return
 	}

@@ -852,3 +852,30 @@ func TestToolDetailsFollowTheNegotiatedFeature(t *testing.T) {
 		}
 	}
 }
+
+func TestChatHostCodexLoginErrorReachesTheBrowser(t *testing.T) {
+	got := chatResult(acpagent.ErrCodexLogin)
+	if got.Code != terminalproto.ACPUnavailable || got.Detail != "Sign in to Codex on that machine first." {
+		t.Fatalf("login error hidden: %+v", got)
+	}
+}
+
+func TestChatHostForwardsCodexLoginNoticeDuringStart(t *testing.T) {
+	t.Setenv(acpagent.CodexSwitch, "1")
+	h, proc, out := testChatHost(t)
+	h.sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
+		opts.OnEvent(acpagent.Event{Kind: "notice", Text: "Codex sign-in: ChatGPT Pro"})
+		return proc, nil
+	}
+	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "codex", Structured: true, Dir: h.sup.opts.Home}); err != nil {
+		t.Fatal(err)
+	}
+	out.mu.Lock()
+	defer out.mu.Unlock()
+	for _, message := range out.msgs {
+		if event, ok := message.Body.(*terminalproto.ACPEvent); ok && event.Kind == "notice" && event.Text == "Codex sign-in: ChatGPT Pro" {
+			return
+		}
+	}
+	t.Fatal("startup notice never reached the controller")
+}

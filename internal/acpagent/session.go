@@ -56,6 +56,8 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
+func (e *rpcError) Error() string { return safeRPCText(e.Message) }
+
 type rpcResult struct {
 	result json.RawMessage
 	err    *rpcError
@@ -218,6 +220,10 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	raw, err = s.request(newCtx, method, params)
 	if err != nil {
 		s.Close()
+		var rpcErr *rpcError
+		if spec.Key == CodexCandidate.Key && errors.As(err, &rpcErr) && rpcErr.Code == -32000 && rpcErr.Message == "Authentication required" {
+			return nil, ErrCodexLogin
+		}
 		return nil, ErrExited
 	}
 	var created struct {
@@ -369,7 +375,7 @@ func (s *Session) request(ctx context.Context, method string, params any) (json.
 	select {
 	case result := <-ch:
 		if result.err != nil {
-			return nil, fmt.Errorf("%s: %s", s.opts.Agent.displayName(), safeRPCText(result.err.Message))
+			return nil, fmt.Errorf("%s: %w", s.opts.Agent.displayName(), result.err)
 		}
 		return result.result, nil
 	case <-ctx.Done():
@@ -416,6 +422,12 @@ func (s *Session) handle(message rpcMessage) {
 		switch message.Method {
 		case "session/update":
 			s.handleUpdate(message.Params)
+		case "_auth/status_update":
+			if len(message.ID) == 0 {
+				s.handleAuthStatus(message.Params)
+			} else {
+				s.respond(message.ID, nil, &rpcError{Code: -32601, Message: "not available"})
+			}
 		case "session/request_permission":
 			s.handlePermission(message.ID, message.Params)
 		case "elicitation/create":

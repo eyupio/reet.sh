@@ -1922,3 +1922,30 @@ row keeps **Sync to machines…**.
 Validation: `navigation.e2e.mjs` checks the current tab on `/sync` on desktop and
 phone and that `/profiles` still marks More; `skills-sync-simple.e2e.mjs` checks
 the new source name. `npm run check` and the production build pass.
+
+## Admin users under the collection contract — 2 November 2026
+
+The Users section now has an invite card of its own and one people panel with a
+live count, a search over name/address/role, and **All / Owners / Admins / Members
+/ Viewers** chips whose figures follow the search. Each person is one row: identity,
+role, tokens, last active, a **Disabled** badge, the inline role select for an owner
+and the existing Manage actions. The wide users table and its horizontal scroller
+are gone, and the page wrapper is a div so there is one “Users” region rather than
+two nested ones.
+
+Validation:
+
+- `npm run check`: pass, including the new `adminUsers` unit suite; svelte-check
+  reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-users.e2e.mjs`: counts, every role chip, search and empty recovery,
+  the disabled badge, inline role changes, Manage actions, 44 px controls and no
+  horizontal overflow at 390 and 320 px.
+- `single-sign-on.e2e.mjs` (its `/admin/users` case), `phone-zoom.e2e.mjs` (the
+  admin users screen) and `navigation.e2e.mjs` pass.
+
+![Admin users, desktop](images/ui/admin-users-desktop.png)
+![Admin users, phone](images/ui/admin-users-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The other Admin
+sections and Account pages are unchanged by this pass.

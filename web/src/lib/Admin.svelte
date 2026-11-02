@@ -2,6 +2,8 @@
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import NavigationMenu from './NavigationMenu.svelte'
+  import CollectionPanel from './CollectionPanel.svelte'
+  import { ADMIN_USER_SCOPES, adminUserCountLabel, adminUserMatchesSearch, adminUserRoleCounts } from './adminUsers'
   import { groupLabel } from './machines'
   import PageHeader from './PageHeader.svelte'
   import {
@@ -68,6 +70,13 @@
   let mirrorNotice = $state('')
   let users = $state<UserMeta[]>([])
   let usersError = $state('')
+  let usersLoading = $state(true)
+  let userQuery = $state('')
+  let userScope = $state<'all' | 'owner' | 'admin' | 'member' | 'viewer'>('all')
+  const searchedUsers = $derived(users.filter(user => adminUserMatchesSearch(user, userQuery)))
+  const userCounts = $derived(adminUserRoleCounts(searchedUsers))
+  const shownUsers = $derived(searchedUsers.filter(user => userScope === 'all' || user.role === userScope))
+  const userCountLabel = $derived(usersLoading ? 'Reading people…' : adminUserCountLabel(shownUsers.length, users.length))
   let ssoStatus = $state<AdminSso | null>(null)
   let inviteEmail = $state('')
   let inviteRole = $state('member')
@@ -106,12 +115,15 @@
 
   async function loadUsers() {
     if (!accounts) return
+    usersLoading = true
     try {
       users = (await listAdminUsers()).users
       usersError = ''
     } catch (e) {
       usersError = e instanceof Error ? e.message : String(e)
       onerror?.(e)
+    } finally {
+      usersLoading = false
     }
   }
 
@@ -213,6 +225,12 @@
       document.title = 'reet.sh – your whole AI setup, on every machine'
     }
   })
+
+  function lastActiveLabel(user: UserMeta): string {
+    if (!user.lastActive) return 'Never active'
+    const age = elapsed(user.lastActive)
+    return age === 'just now' ? 'Active just now' : `Active ${age} ago`
+  }
 
   function canManage(user: UserMeta): boolean {
     if (!accounts || user.email === currentEmail || user.role === 'owner') return false
@@ -444,7 +462,7 @@
   {:else}<span class="muted">Counts only</span>{/if}
 {/snippet}
 
-<section class="admin" aria-labelledby="admin-title">
+<div class="admin">
   <PageHeader eyebrow="Instance administration" title={sectionTitle} titleId="admin-title" lede={descriptions[section]} />
   <NavigationMenu label="Admin" items={sections.map(s => ({ label: s.label, href: `/admin/${s.key}`, current: section === s.key }))} />
 
@@ -524,9 +542,9 @@
     {/if}
 
     {#if accounts && section === 'users'}
-      <section class="block" aria-labelledby="admin-users">
-        <h2 id="admin-users">Users</h2>
-        {#if usersError}<p class="error" role="alert">{usersError}</p>{/if}
+      <section class="block" aria-labelledby="admin-invite">
+        <h2 id="admin-invite">Invite someone</h2>
+        <p class="muted">Send a link yourself, or let the instance email it when a mail server is set.</p>
         <div class="invite">
           <label for="invite-email">Invite by email</label>
           <div class="invite-row">
@@ -562,34 +580,58 @@
             </div>
           </div>
         {/if}
+      </section>
 
-        <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll wide tables.) -->
-        <div class="tablewrap" tabindex="0" role="region" aria-label="Users table, scroll horizontally for more">
-          <table class="users-table">
-            <thead><tr><th>User</th><th>Role</th><th>Last active</th><th>Tokens</th><th></th></tr></thead>
-            <tbody>
-              {#each users as user (user.id)}
-                <tr class:disabled={user.disabledAt}>
-                  <td>
-                    <strong>{user.name}</strong>{#if user.email === currentEmail} <span class="you">you</span>{/if}
-                    <small>{user.email}</small>
-                  </td>
-                  <td>
-                    {#if canManage(user) && role === 'owner'}
-                      <select aria-label={`Instance role for ${user.name}`} value={user.role} onchange={(e) => saveRole(user, e.currentTarget.value)} disabled={busyID === user.id}>
-                        {#each roleOptions(user) as option}
-                          <option value={option} selected={option === user.role}>{option}</option>
-                        {/each}
-                      </select>
-                    {:else}
-                      <span>{user.role}</span>
-                    {/if}
-                  </td>
-                  <td>{user.lastActive ? new Date(user.lastActive).toLocaleString() : 'never'}</td>
-                  <td>{user.tokens}</td>
-                  <td class="actions">
-                    {#if canManage(user)}
-                      <details class="user-actions"><summary>Manage {user.name}</summary><div>
+      {#if usersError}<p class="error" role="alert">{usersError} <button type="button" class="btn quiet" onclick={loadUsers}>Try again</button></p>{/if}
+      <CollectionPanel label="Users" count={userCountLabel}>
+        {#snippet actions()}
+          <button type="button" class="btn quiet" onclick={loadUsers} disabled={usersLoading}>Refresh</button>
+        {/snippet}
+        {#snippet toolbar()}
+          <div class="user-toolbar">
+            <label class="user-search">Search people
+              <input type="search" bind:value={userQuery} placeholder="Name, email or role" />
+            </label>
+            <div class="user-scopes" role="group" aria-label="Show people">
+              {#each ADMIN_USER_SCOPES as item (item.id)}
+                <button type="button" class="scope" aria-pressed={userScope === item.id} onclick={() => (userScope = item.id)}>{item.label}<small>{userCounts[item.id]}</small></button>
+              {/each}
+            </div>
+          </div>
+        {/snippet}
+
+        {#if usersLoading}
+          <Skeleton label="Reading people…" shape="lines" count={4} />
+        {:else if shownUsers.length === 0}
+          <div class="state-block">
+            <h2>{users.length === 0 ? 'No people yet.' : 'No person matches that search or role.'}</h2>
+            <p>{users.length === 0 ? 'Invite someone above and they appear here.' : 'Try another search or show everyone.'}</p>
+            {#if users.length > 0}<button type="button" class="btn" onclick={() => { userQuery = ''; userScope = 'all' }}>Clear filters</button>{/if}
+          </div>
+        {:else}
+          <div class="user-list">
+            {#each shownUsers as user (user.id)}
+              <div class="user-row" class:disabled={user.disabledAt}>
+                <div class="user-identity">
+                  <strong>{user.name}{#if user.email === currentEmail} <span class="you">you</span>{/if}</strong>
+                  <small>{user.email}</small>
+                </div>
+                <div class="user-meta">
+                  {#if !(canManage(user) && role === 'owner')}<span class="role-badge">{user.role}</span>{/if}
+                  <span>{user.tokens} {user.tokens === 1 ? 'token' : 'tokens'}</span>
+                  <span title={user.lastActive ? new Date(user.lastActive).toLocaleString() : undefined}>{lastActiveLabel(user)}</span>
+                  {#if user.disabledAt}<span class="disabled-badge">Disabled</span>{/if}
+                </div>
+                <div class="user-tools">
+                  {#if canManage(user) && role === 'owner'}
+                    <select aria-label={`Instance role for ${user.name}`} value={user.role} onchange={(e) => saveRole(user, e.currentTarget.value)} disabled={busyID === user.id}>
+                      {#each roleOptions(user) as option}
+                        <option value={option} selected={option === user.role}>{option}</option>
+                      {/each}
+                    </select>
+                  {/if}
+                  {#if canManage(user)}
+                    <details class="user-actions"><summary>Manage {user.name}</summary><div>
                       <button type="button" class="btn quiet" onclick={() => toggleDisabled(user)} disabled={busyID === user.id}>
                         {user.disabledAt ? 'Enable' : 'Disable'}
                       </button>
@@ -600,14 +642,14 @@
                         <button type="button" class="btn quiet danger" onclick={() => (confirmAction = { kind: 'delete', user })} disabled={busyID === user.id}>Delete</button>
                       {/if}
                     </div></details>
-                    {/if}
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </CollectionPanel>
+
     {/if}
 
     {#if section === 'team'}
@@ -854,7 +896,7 @@
       />
     {/if}
   {/if}
-</section>
+</div>
 
 <style>
   .ssorows { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 24px; margin: 16px 0 0; }
@@ -908,16 +950,36 @@
   .tokenline { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
   .tokenline code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 0.8rem; }
   td small { display: block; color: var(--muted); font-size: 0.75rem; }
-  .you { color: var(--muted); font-size: 0.75rem; font-weight: 500; }
-  tr.disabled td { opacity: 0.55; }
-  .users-table th:first-child, .users-table td:first-child { position: sticky; left: 0; z-index: 1; background: var(--card); min-width: 140px; max-width: 220px; overflow-wrap: anywhere; }
+  .you { margin-left: 4px; color: var(--muted); font-size: 0.75rem; font-weight: 500; }
+  .user-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
+  .user-search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .user-search input { width: 100%; }
+  .user-scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .scope:hover { border-color: var(--muted); color: var(--ink); }
+  .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .scope small { margin-left: 5px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .user-list { display: grid; }
+  .user-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 18px; align-items: start; padding: 14px 2px; border-top: 1px solid var(--line-soft); }
+  .user-row:first-child { border-top: 0; }
+  .user-row.disabled { opacity: 0.65; }
+  .user-identity { min-width: 0; }
+  .user-identity strong { display: block; overflow-wrap: anywhere; }
+  .user-identity small { display: block; color: var(--muted); font-size: 0.75rem; overflow-wrap: anywhere; }
+  .user-meta { grid-column: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; color: var(--muted); font-size: 0.75rem; }
+  .role-badge, .disabled-badge { border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--ink); font-size: 0.7rem; }
+  .disabled-badge { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
+  .user-tools { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .user-tools select { width: auto; }
   .user-actions { min-width: 140px; }
   .user-actions > summary { cursor: pointer; min-height: 44px; padding: 8px 0; font-size: 0.8rem; }
   .user-actions > div { display: grid; gap: 6px; padding-top: 8px; }
-  td.actions { white-space: normal; }
-  td.actions .btn { padding-left: 6px; padding-right: 6px; margin-left: 2px; }
-  td select { padding: 4px 8px; min-height: 32px; }
-  @media (pointer: coarse) { td select { min-height: 44px; } }
+  .state-block { padding: 24px 0 16px; max-width: 58ch; }
+  .state-block h2 { font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; margin: 0; }
+  .state-block p { margin: 6px 0 12px; color: var(--muted); }
+  @media (max-width: 650px) { .user-row { grid-template-columns: 1fr; } .user-tools { grid-column: 1; grid-row: auto; align-items: flex-start; } .user-search { flex-basis: 100%; } }
+  @media (pointer: coarse) { .scope, .user-search input { min-height: 44px; } }
+  @media (prefers-reduced-motion: no-preference) { .scope, .user-row { transition: background-color 0.15s, border-color 0.15s, color 0.15s; } }
 
   .rollup-summary { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; color: var(--muted); font-size: 0.84rem; }
   .rollup-summary strong { color: var(--ink); font-variant-numeric: tabular-nums; }

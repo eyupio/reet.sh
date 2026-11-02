@@ -39,7 +39,7 @@ try {
   await expect(page.getByRole('banner').getByText('Nothing needs you.',{exact:true})).toBeHidden()
   await expect(bell).toBeFocused()
   // The search box is there, and / focuses it from anywhere but a field.
-  const jump = page.getByRole('combobox',{name:'Jump to a session, project or machine'})
+  const jump = page.getByRole('combobox',{name:'Jump to a session, project, skill or machine'})
   await expect(jump).toBeVisible()
   await page.locator('main').click({position:{x:5,y:5}})
   await page.keyboard.press('/')
@@ -52,13 +52,13 @@ try {
   await context.close()
  }
 
- // Jump finds sessions, folder projects and machines the workspace already has, and opens the matching page (a project on
- // Home, chosen).
+ // Jump finds sessions, folder projects, skills and machines the workspace already has, and opens the matching page (a
+ // project on Home, chosen; a skill on its shelf card).
  if (run('jump')) {
   let seen = false
   const session = {id:'s1',agentId:'a',projectId:'fp1',title:'Refactor the store layer',state:'ended',exitCode:0,attention:'finished',attentionAt:Date.now()-30000,changedSinceSeen:true,createdAt:Date.now(),updatedAt:Date.now()}
   const project = {id:'fp1',host:'a',machine:'studio',dir:'/home/dev/store',name:'Store rewrite',isRepo:true,baseBranch:'',worktreeDefault:'inherit',defaultTool:'',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1}
-  const {context,page,errors} = await open({width:1440,terminalStatus:active,terminalMachines:[terminalMachine('a','studio',true)],
+  const {context,page,errors} = await open({width:1440,skills:[skill('code-review')],terminalStatus:active,terminalMachines:[terminalMachine('a','studio',true)],
    routes:{'/api/v2/terminal/sessions':()=>({sessions:[{...session,changedSinceSeen:!seen}]}),'/api/v2/terminal/sessions/s1/seen':()=>{seen=true;return{seenAt:Date.now()}},'/api/v2/folder-projects':{projects:[project],savedWaiting:0}}})
   await page.goto(`${base}/skills`)
   // The bell and document title reflect Needs you on non-Home pages too, and Mark seen clears them.
@@ -73,12 +73,15 @@ try {
   await expect(page.getByRole('button',{name:'Needs you: 0',exact:true})).toBeVisible()
   expect(await page.title()).toBe('Skills · reet.sh')
   await page.keyboard.press('Escape')
-  const jump = page.getByRole('combobox',{name:'Jump to a session, project or machine'})
+  const jump = page.getByRole('combobox',{name:'Jump to a session, project, skill or machine'})
   await jump.fill('store')
   const results = page.getByRole('listbox',{name:'Jump results'})
   await expect(results.getByRole('option')).toHaveCount(2)
   await expect(results.getByRole('option',{name:/Refactor the store layer/})).toHaveAttribute('href','/sessions?agent=a&session=s1')
   await expect(results.getByRole('option',{name:/Store rewrite/})).toHaveAttribute('href','/?project=fp1')
+  await jump.fill('code')
+  await expect(results.getByRole('option',{name:/code-review/})).toHaveAttribute('href','/skills?skill=demo%2Ftoolkit%2Fcode-review')
+  await expect(results.getByRole('option',{name:/code-review/})).toContainText('Skill ·')
   await jump.fill('stud')
   await expect(results.getByRole('option',{name:/studio/})).toHaveAttribute('href','/machines?machine=studio')
   await jump.press('ArrowDown')
@@ -377,8 +380,8 @@ try {
    await page.waitForTimeout(100)
    await expect(bar).toBeVisible()
    await page.evaluate(()=>window.__keyboard(null))
-   await page.getByRole('button',{name:'Jump to a session, project or machine'}).click()
-   const jump = page.getByRole('combobox',{name:'Jump to a session, project or machine'})
+   await page.getByRole('button',{name:'Jump to a session, project, skill or machine'}).click()
+   const jump = page.getByRole('combobox',{name:'Jump to a session, project, skill or machine'})
    await expect(jump).toBeFocused()
    const size = await jump.evaluate(el=>parseFloat(getComputedStyle(el).fontSize))
    expect(size, 'search input 16px so focusing never zooms').toBeGreaterThanOrEqual(16)

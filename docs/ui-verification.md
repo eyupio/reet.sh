@@ -1774,3 +1774,52 @@ Validation:
 Firefox. The checks use Chromium with the workspace fixtures; touch sizes are
 measured in the emulated coarse-pointer viewport, not by hand. The Setups page is
 the next page under the same contract and is not part of this change.
+
+## Skills and Machines findability — 2 November 2026
+
+Follow-up to the directory pages refresh, built on the merged `5c7463b`. The
+contract and rulings are in [the Skills and Machines findability
+spec](superpowers/specs/2026-11-02-skills-machines-findability.md). No API, store or
+permission change.
+
+**Jump finds skills.** The field is now **Jump to a session, project, skill or
+machine**. A skill result carries `Skill · <saved sync intent>` (or its source until
+the sync state loads), and choosing it opens `/skills?skill=<id>` and brings that
+card into view once. Results keep the order sessions, Projects, skills, machines.
+
+**A created skill says where it is.** The “Skills you create” rows now show the
+saved intent first (“Pending on dev-laptop”), then the observed state (“On 2
+machines · 1 missing”), then “Not on a machine yet”. A published skill links to its
+shelf card; a draft keeps **Sync to machines…** and is never described as installed.
+The line says that saved selections and scans are separate.
+
+**Machines can be searched.** The fleet has one labelled field over host, saved
+aliases and every skill any agent scope reported, with an honest `1 of 2 machines`
+count, a **Clear search** empty state and a mobile layout. A just-added machine stays
+visible while a different search is active.
+
+Validation:
+
+- `npm run check`: all unit suites pass, including the new Jump ordering and machine
+  matching tests; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- `machines-search.e2e.mjs`, `navigation.e2e.mjs` (skill result and address),
+  `first-skills.e2e.mjs` (draft intent), `skills-sync-simple.e2e.mjs` (published shelf
+  link), `phone-layout.e2e.mjs`, `phone-zoom.e2e.mjs` and `control.e2e.mjs`: pass at
+  desktop and phone widths. The new search spec checks host, alias, skill, empty
+  recovery, the count, a 44 px field and no horizontal overflow.
+- `go vet ./...`: pass. The full race suite's only local failure remains the
+  environment-specific `TestRunReportRefusesAnInteractiveLessScanWithoutServer`,
+  which reproduces on unchanged main.
+- Captures were checked at 1440 px in dark and at phone width; the three below show
+  the new surfaces.
+
+![Jump finds a skill](images/ui/jump-skill.png)
+![Skills you create says where the skill is](images/ui/skills-created-state.png)
+![Machines filtered by skill](images/ui/machines-search.png)
+
+**Not checked.** No physical phone or tablet, no screen reader, and no Safari or
+Firefox. Jump reads the currently loaded shelf; while a shelf filter is active on
+Skills, its skill results follow that filtered set. The machine search matches
+observed reports, not saved sync intent, so a pending skill does not make a machine
+match until a scan reports it.

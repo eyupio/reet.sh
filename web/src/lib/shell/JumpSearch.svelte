@@ -1,7 +1,7 @@
 <script lang="ts">
   import { jumpMatches, type JumpItem } from './tabs'
-  // "Jump to a session, project or machine": a combobox over what the workspace already lists (sessions, existing Projects
-  // and machines), read when the field is first used and again after 15 seconds. Arrow Down moves into the results,
+  // "Jump to a session, project, skill or machine": a combobox over what the workspace already lists (sessions, existing
+  // Projects, shelf skills and machines), read when the field is first used and again after 15 seconds. Arrow Down moves into the results,
   // Escape closes them. On a desktop it sits in the top bar; on a tablet or phone it is a row under the bar that the
   // search button opens. It stores nothing.
   let { load, open = false, input = $bindable(), onfocuschange, onclose }: {
@@ -13,7 +13,7 @@
   } = $props()
 
   const listId = $props.id()
-  const LABEL = 'Jump to a session, project or machine'
+  const LABEL = 'Jump to a session, project, skill or machine'
   let query = $state('')
   let items = $state<JumpItem[]>([])
   let loadedAt = 0
@@ -94,7 +94,7 @@
       {/each}
     </div>
     {#if matches.length === 0}
-      <p class="note" role="status">{loading && items.length === 0 ? 'Looking…' : failed && items.length === 0 ? 'Could not read the sessions, Projects and machines. Try again in a moment.' : 'Nothing matches.'}</p>
+      <p class="note" role="status">{loading && items.length === 0 ? 'Looking…' : failed && items.length === 0 ? 'Could not read the sessions, Projects, skills and machines. Try again in a moment.' : 'Nothing matches.'}</p>
     {/if}
   </div>
 </div>

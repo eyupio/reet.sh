@@ -164,6 +164,86 @@ func TestChatHostSwitchesApprovalMode(t *testing.T) {
 	}
 }
 
+// A mode switch is forwarded only to a process that offers one, and only for a
+// chat the connector still has running. What the agent confirms is the agent's
+// own contract (acpagent.Session.SetMode) and is covered there; this covers the
+// connector's gate and that the switch is passed through unchanged.
+func TestChatHostSwitchesAgentMode(t *testing.T) {
+	h, proc, _ := testChatHost(t)
+	const sessionID = "session-0123456789"
+	if err := h.setAgentMode(context.Background(), "session-0123456788", "agent"); !errors.Is(err, terminalhost.ErrSessionMissing) {
+		t.Fatalf("an unknown chat answered %v", err)
+	}
+	if _, err := h.open("request-0123456789", sessionID, terminalproto.Create{
+		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The fake process offers no switch: a chat that cannot confirm a mode is
+	// refused rather than told a switch happened.
+	if err := h.setAgentMode(context.Background(), sessionID, "agent"); !errors.Is(err, terminalhost.ErrOperationConflict) {
+		t.Fatalf("a process with no mode switch answered %v", err)
+	}
+	cs := h.find(sessionID)
+	if cs == nil {
+		t.Fatal("the chat is missing")
+	}
+	switched := &modeChat{fakeChat: proc}
+	h.sup.mu.Lock()
+	cs.process = switched
+	cs.busy = true
+	h.sup.mu.Unlock()
+	if err := h.setAgentMode(context.Background(), sessionID, "agent"); !errors.Is(err, terminalhost.ErrOperationConflict) {
+		t.Fatalf("a busy chat answered %v", err)
+	}
+	if switched.mode != "" {
+		t.Fatalf("a busy chat still received %q", switched.mode)
+	}
+	h.sup.mu.Lock()
+	cs.busy = false
+	cs.state = terminalproto.Exited
+	h.sup.mu.Unlock()
+	if err := h.setAgentMode(context.Background(), sessionID, "agent"); !errors.Is(err, terminalhost.ErrOperationConflict) {
+		t.Fatalf("an exited chat answered %v", err)
+	}
+	h.sup.mu.Lock()
+	cs.state = terminalproto.Running
+	h.sup.mu.Unlock()
+	if err := h.setAgentMode(context.Background(), sessionID, "agent"); err != nil {
+		t.Fatal(err)
+	}
+	if switched.mode != "agent" {
+		t.Fatalf("the chat received mode %q", switched.mode)
+	}
+	// The agent's own refusal is passed back, so the controller never hears that
+	// a mode was applied when it was not.
+	switched.mode, switched.err = "", acpagent.ErrMode
+	if err := h.setAgentMode(context.Background(), sessionID, "agent-full-access"); !errors.Is(err, acpagent.ErrMode) {
+		t.Fatalf("an agent's refusal answered %v", err)
+	}
+	if switched.mode != "agent-full-access" {
+		t.Fatalf("the refused mode was not passed to the agent: %q", switched.mode)
+	}
+	h.sup.mu.Lock()
+	busy := cs.busy
+	h.sup.mu.Unlock()
+	if busy {
+		t.Fatal("the chat was left busy after the switch")
+	}
+}
+
+// modeChat is a chat process that offers the agent-mode switch.
+type modeChat struct {
+	*fakeChat
+	mode string
+	err  error
+}
+
+func (m *modeChat) SetMode(_ context.Context, mode string) error {
+	m.mode = mode
+	return m.err
+}
+
 func TestChatPrefersTheManagedOpenCodeBinary(t *testing.T) {
 	h, _, _ := testChatHost(t)
 	home := h.sup.opts.Home

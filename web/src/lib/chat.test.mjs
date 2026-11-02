@@ -29,6 +29,25 @@ test('permission cards resolve, cancel, and are pending until then', () => {
   assert.equal(state.items[1].decision, 'cancelled')
 })
 
+test('an approval card keeps the reason the agent gave', () => {
+  let state = initialChat()
+  state = applyChatEvent(state, event(1, { kind: 'permission', permissionId: 'p1', title: 'Run command', toolKind: 'execute', command: 'go test ./...', text: 'Run the tests outside the sandbox because they write to /var/tmp.' }))
+  const card = state.items[0]
+  assert.equal(card.kind, 'permission')
+  assert.equal(card.description, 'Run the tests outside the sandbox because they write to /var/tmp.')
+  // A card with no reason from the machine keeps an empty one rather than an undefined field the view would print.
+  state = applyChatEvent(state, event(2, { kind: 'permission', permissionId: 'p2', title: 'Write notes.txt' }))
+  assert.equal(state.items[1].description, '')
+})
+
+test('the reject button says a Codex rejection ends the turn', async () => {
+  const { rejectLabel } = await import('./chat.ts')
+  assert.equal(rejectLabel('codex'), 'Deny and end the turn')
+  // The reviewed agents whose rejection only closes the tool keep the shorter word.
+  assert.equal(rejectLabel('opencode'), 'Deny')
+  assert.equal(rejectLabel('claude'), 'Deny')
+})
+
 test('dedupe, reset and working state', () => {
   let state = initialChat()
   state = applyChatEvent(state, event(1, { kind: 'status', state: 'working' }))

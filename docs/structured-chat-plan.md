@@ -263,6 +263,10 @@ chat screen explains the sandbox in the same terms. `web/tests/chat-codex.e2e.mj
 Still open before Codex can be offered to anyone: the real-login check (`docs/device-checks.md`, section 3) and the connector's way of letting the adapter see the person's own Codex login. Until then a Codex chat on a signed-in machine may
 fail to start ("Sign in to Codex on that machine first" is not built yet).
 
+Decided by the owner for that login: the Codex profile sets `CODEX_HOME` to the person's own Codex folder (`~/.codex`, or the `CODEX_HOME` the connector itself runs with) and passes nothing else from their real home, so the chat uses
+the same login they use in the terminal and the adapter can refresh it there. The alternatives (copying `auth.json` into a private folder each start, or passing the real `HOME`) were rejected: the copy goes stale when a token is refreshed in the chat,
+and the real `HOME` exposes everything the connector keeps from every other agent. It is built only after the signed-in run in `docs/device-checks.md` section 3 records how the adapter behaves with a real login.
+
 ### Device and credential checks (1 November 2026)
 
 What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real

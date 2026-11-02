@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 var (
@@ -301,6 +303,7 @@ func (s *Session) Working() bool {
 	return s.working
 }
 
+// Model is the last confirmed model; empty means it is not known.
 func (s *Session) Model() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1506,25 +1509,19 @@ func (s *Session) SetModel(ctx context.Context, model string) error {
 	}
 	raw, err := s.request(ctx, "session/set_config_option", map[string]string{"sessionId": id, "configId": "model", "value": model})
 	if err != nil {
-		return err
-	}
-	// Report an applied state only after the agent acknowledges it. The Claude
-	// adapter accepts an unknown model and silently resets to its default, so a
-	// response that carries the option list is authoritative. A response without
-	// one (OpenCode) keeps the requested value, as before.
-	applied := model
-	var result struct {
-		ConfigOptions []struct {
-			ID           string `json:"id"`
-			CurrentValue string `json:"currentValue"`
-		} `json:"configOptions"`
-	}
-	if json.Unmarshal(raw, &result) == nil {
-		for _, option := range result.ConfigOptions {
-			if option.ID == "model" && option.CurrentValue != "" {
-				applied = option.CurrentValue
-			}
+		var refusal *rpcError
+		// Invalid parameters and an unsupported method are explicit protocol
+		// refusals. An internal error may come after applying the change.
+		if errors.As(err, &refusal) && (refusal.Code == -32602 || refusal.Code == -32601) {
+			return err
 		}
+		s.unconfirmedModel()
+		return fmt.Errorf("%w: %w", ErrModelUnconfirmed, err)
+	}
+	applied, confirmed := acknowledgedModel(raw, model, s.opts.Agent.AllowOmittedModelAck)
+	if !confirmed {
+		s.unconfirmedModel()
+		return ErrModelUnconfirmed
 	}
 	s.mu.Lock()
 	s.model = applied
@@ -1534,6 +1531,47 @@ func (s *Session) SetModel(ctx context.Context, model string) error {
 		return ErrModel
 	}
 	return nil
+}
+
+func (s *Session) unconfirmedModel() {
+	s.mu.Lock()
+	s.model = ""
+	s.mu.Unlock()
+	// The connector retains status for reconnects. Retire the old model detail
+	// as well as the process value, so replay cannot present it as current.
+	s.emit(Event{Kind: "status", State: "idle"})
+	s.emit(Event{Kind: "notice", Text: s.opts.Agent.displayName() + " did not confirm the model change. The current model is unknown."})
+}
+
+// An omitted list is distinct from a replacement with no model. Only the
+// OpenCode profile permits omission; Claude's observed currentValue is required.
+func acknowledgedModel(raw json.RawMessage, requested string, allowOmitted bool) (string, bool) {
+	var result map[string]json.RawMessage
+	if json.Unmarshal(raw, &result) != nil || result == nil {
+		return "", false
+	}
+	options, present := result["configOptions"]
+	if !present {
+		return requested, allowOmitted
+	}
+	var entries []struct {
+		ID           string          `json:"id"`
+		CurrentValue json.RawMessage `json:"currentValue"`
+	}
+	if json.Unmarshal(options, &entries) != nil {
+		return "", false
+	}
+	model, found := "", false
+	for _, option := range entries {
+		if option.ID != "model" {
+			continue
+		}
+		if found || json.Unmarshal(option.CurrentValue, &model) != nil || !terminalproto.ValidModel(model) {
+			return "", false
+		}
+		found = true
+	}
+	return model, found
 }
 
 // sessionID0 is the id session requests use during start: the new session's own,

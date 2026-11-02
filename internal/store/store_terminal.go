@@ -992,9 +992,10 @@ func (s *Store) RecordTerminalAgentModeFor(uid int64, sessionID, mode string) er
 	return err
 }
 
-// RecordTerminalModelFor records a model only after the running agent accepted it.
+// RecordTerminalModelFor records a confirmed model, or clears it when a sent
+// switch was not confirmed. Empty makes no claim about the agent's current model.
 func (s *Store) RecordTerminalModelFor(uid int64, sessionID, model string) error {
-	if model == "" || !terminalproto.ValidModel(model) {
+	if model != "" && !terminalproto.ValidModel(model) {
 		return terminalproto.ErrInvalid
 	}
 	_, err := s.db.Exec(`UPDATE terminal_sessions SET model=?,updated_at=? WHERE id=? AND user_id=? AND structured=1`, model, now(), sessionID, uid)

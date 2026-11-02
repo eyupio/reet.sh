@@ -17,6 +17,100 @@ against in [docs/ui-verification.md](docs/ui-verification.md); the research behi
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## Structured chats (SC1–SC5): resume here (2 November 2026)
+
+**Read first:** [docs/structured-chat-plan.md](docs/structured-chat-plan.md) (the plan and every progress note),
+[docs/device-checks.md](docs/device-checks.md) (what needs a real device or login) and
+[docs/research/structured-adapters/probe-report.md](docs/research/structured-adapters/probe-report.md) (what each adapter was
+measured to do). This section is the position and the order of what is left.
+
+**Where it stands.** OpenCode is the only structured chat anyone is offered. Claude Code and Codex are built end to end but
+dark: a machine reports one as available only when its connector runs with `REET_EXPERIMENTAL_CLAUDE_CHAT=1` or
+`REET_EXPERIMENTAL_CODEX_CHAT=1` (`internal/acpagent/spec.go`: `ClaudeEnabled`, `CodexEnabled`). Descriptors are per agent
+(`internal/terminalproto/acp_agents.go`); the controller binds each to its reviewed adapter; the browser offers a chat only from
+a descriptor that says `available`.
+
+**On main (merged):**
+- SC1–SC2: per-agent descriptors; probes of the Claude and Codex adapters (report above).
+- SC3: typed agent questions, machine core to chat card; the form capability (`elicitation.form`) and Claude chats stay off until
+  the touch and screen-reader checks (device-checks section 1) are recorded.
+- SC4 Claude: `ClaudeCandidate` profile (`internal/acpagent/claude.go`), descriptor reports approvals and the model switch only, browser
+  offers it from an available descriptor, credential-check script `scripts/check-claude-credentials.py`.
+- SC5 audit fixes: force-stop of an agent that ignores cancel (`ForceStopGrace`), late permission and question callbacks refused
+  (`turnAcceptsRequests`), neutral "this chat has ended" wording, tools left running when a turn stops.
+- SC4 Codex: profile `CodexCandidate` (`codex.go`, floor 1.13.1, requires and starts in `read-only` via `Spec.StartMode`, only
+  `read-only` and `agent` choosable via `Spec.ChoosableModes`, Stop ends the chat when a command is running via
+  `EndChatOnStopWhileToolRuns`); `Session.SetMode` confirms a switch with the agent and never reports the old mode after an
+  unanswered one (it clears the mode and tries once to restore); feature `acp-agent-mode-v1` (descriptor `modes`,
+  `Capabilities.ACPAgentMode`, message `acp_agent_mode`, broker `SetAgentMode`, `POST /api/v2/terminal/sessions/{id}/chat/agent-mode`);
+  the confirmed mode is stored on the session (`terminal_sessions.agent_mode`, JSON `agentMode`; empty means unknown), set to the
+  first listed mode at create, to the new mode on a confirmed switch, and cleared on an unconfirmed or lost one.
+- Probe scripts: `scripts/probe-codex-turn.py`, `scripts/probe-codex-start.py` (no model call; `--auth none|api-key|chat-gpt`,
+  `--codex-home`).
+
+**Open pull request:** #375, "Offer Codex chats in the browser with an approvals-mode control" (ready for review, Codex bot
+findings fixed and resolved). It makes the controller refuse a message with a 409 (`ErrACPModeUnknown`, `PromptChat`) while an
+agent that offers modes is in an unknown mode, makes `codex` a reviewed chat tool in the browser, adds the Approvals control
+(`web/src/lib/terminal/AgentModeControl.svelte`, wired in `ChatPane.svelte`; the wording for each mode, Send held while the mode is
+unknown, a YOLO-aware sentence), the Start and Home dialog copy, and `web/tests/chat-codex.e2e.mjs` (added to the browser workflow).
+Its only red check is `phone-zoom`, which is red on main too (see below). Merge main into it once that is fixed; do not merge it
+while red unless the owner says so.
+
+**Red on main, not ours:** `phone-zoom` ("Long names never zoom a phone out…", step 6 of that job) fails since #370 ("Skills and sync
+UX review"): the Skills page at 320 px is 355 px wide (`web/tests/phone-zoom.e2e.mjs`, "320px skills"). It needs a layout fix on the
+Skills page in its own change.
+
+**Decisions already made (do not re-ask):**
+- Codex starts in `read-only` (the only mode that can ask before a command leaves the sandbox); `agent` is chosen per chat, never the
+  default; `agent-full-access` is never offered. The wording is in the plan and `AgentModeControl.svelte`.
+- No "allow always" for Codex (its `accept_execpolicy_amendment` writes a persistent rule); allow once or reject only.
+- Stop while a Codex command runs ends the whole chat (cancel leaves the command alive).
+- A silent sandbox denial or an `agent`-mode refusal is not visible in the adapter's events; accepted, hence the labelled mode.
+- Codex sign-in: reet never calls `authenticate` (`chat-gpt` opens a browser on the machine). The person signs in to Codex
+  themselves; the Codex profile will set `CODEX_HOME` to their own Codex folder and pass nothing else from their real home; a failed
+  start says "Sign in to Codex on that machine first"; the adapter's `_auth/status_update` label is shown in the chat, never the email.
+- The current mode is stored on the session, not sent only as an event.
+
+**What is left, in order:**
+1. **Needs the owner's hardware:** `docs/device-checks.md` section 3 (Codex signed out and signed in, `scripts/probe-codex-start.py
+   --auth none [--codex-home <copy>]`); section 2 (Claude logged out and logged in); section 1 (touch device and screen reader for typed
+   questions). Record each result in the probe report and the PR.
+2. **After section 3:** build the Codex login access (`CODEX_HOME` as decided; connector currently replaces `HOME`, so today a Codex
+   chat cannot start for a signed-in person), the "Sign in to Codex on that machine first" start error, and the `_auth/status_update`
+   label in the chat. Until then Codex stays dark.
+3. **Codex card gaps (not built):** show the model's justification (`_meta.permission.description`) on the approval card; say on the
+   reject button that a reject ends the whole turn; the connector's `setAgentMode` handler (`internal/terminalagent/chat.go`) has no
+   unit test of its own (it mirrors `setModel`).
+4. **After the checks are recorded:** retire `REET_EXPERIMENTAL_CLAUDE_CHAT` and `REET_EXPERIMENTAL_CODEX_CHAT` (and decide whether the
+   browser needs a "sign in to Claude on that machine" message).
+5. **SC5 remainder:** descriptor-driven chat controls (the mode control is the second agent that needs them) and extending recovery.
+6. Fix the Skills page layout so `phone-zoom` is green on main (outside this workstream).
+
+**Working rules the owner set (keep following them):**
+- One item at a time: build it test-first, open a **draft** PR, watch it, and **merge only when the owner says so** (they often mark
+  PRs ready or merge them themselves). Then take the next item.
+- Decisions that are the owner's to make go through the `askme` skill, one question at a time, recommendation first.
+- Commit trailers: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` and the `Claude-Session:` URL; PR bodies use the repo
+  template headings (What and why / How I checked it / Checklist), end with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
+  and the session URL; GitHub comments end with `---` and `_Generated by [Claude Code](https://claude.ai/code)_`. Do not name any external
+  reference project in a commit or PR.
+- Every ready PR gets a Codex bot review. Treat each finding as a claim to verify against the code: fix what is real with a test that
+  fails without the fix, reply on the thread, resolve it. Merge `main` into a branch for conflicts or a fix that landed after the branch
+  was cut; never rewrite history. A failing CI job is re-run at most once; a second failure is real, or is shown to be red on `main` too.
+- The Codex review sometimes finds a second-order effect of an earlier fix (an unconfirmed mode, a lost reply, YOLO, a held message).
+  The pattern that held: when something may have been applied but was not confirmed, record "unknown" and refuse to proceed, never
+  claim the old state.
+
+**Running things here:**
+- `go test ./internal/api` takes about two minutes without `-race`; with `-race` it can exceed a ten-minute timeout in a small
+  container (CI allows sixty). Run the other Go packages with `-race`.
+- Browser tests: `npm --prefix web run build`, then `npm --prefix web run preview -- --host 127.0.0.1 --port 4173`, then
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium REET_UI_URL=http://127.0.0.1:4173 node web/tests/<name>.e2e.mjs`.
+  The agent chooser in the Start dialog is a dropdown (`getByRole('combobox', { name: 'Agent' }).selectOption`), not radios.
+- The probe scripts are in `scripts/`, but the adapters they run are not in the repository: install the pinned versions with
+  `npm install --ignore-scripts` as the probe report says.
+- Never use `pkill -f '<pattern>'` or `grep` for a pattern that also appears in your own command line: it ends the shell.
+
 ## Gaffer interface and Eli compatibility probe (1 November 2026)
 
 Branch `feat/gaffer-interface`, based on main `9b8bc17`. The native browser
@@ -198,10 +292,10 @@ deferred). Left: the touch-device and screen-reader checks on a real device. Do 
 
 Claude is registered but dark: `REET_EXPERIMENTAL_CLAUDE_CHAT=1` on a machine's connector makes it report Claude as available
 (approvals and the model switch only; no history, images or questions), the controller binds each descriptor to its reviewed
-adapter, and a descriptor-less peer is still OpenCode-only. The browser offers OpenCode only.
+adapter, and a descriptor-less peer is still OpenCode-only.
 
-**Next unchecked task:** run the real-credential and missing-credential check for Claude on a real machine; then the browser
-launch and view changes; then Claude-specific recovery.
+**Superseded:** the browser now offers Claude (and Codex, on #375) from an available descriptor, and the next tasks are listed in
+"Structured chats (SC1–SC5): resume here" at the top of this file.
 
 ## SC2 — Structured adapter probe checkpoint (31 October 2026)
 

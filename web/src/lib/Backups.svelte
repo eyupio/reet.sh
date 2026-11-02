@@ -976,6 +976,7 @@
   .where { display: flex; flex-wrap: wrap; gap: 2px; }
   .offsite { font-family: var(--mono); font-size: 0.7rem; max-width: 22rem; overflow-wrap: anywhere; }
   .banner.import { border-color: var(--line); }
+  .banner.import input[type='file'] { width: 100%; min-width: 0; max-width: 100%; }
   .keep { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; }
   .keep input { width: 18px; height: 18px; min-height: 0; flex: none; }
   .cmdline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }

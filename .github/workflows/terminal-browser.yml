@@ -95,6 +95,7 @@ jobs:
           node web/tests/admin-tickets.e2e.mjs
           node web/tests/admin-email.e2e.mjs
           node web/tests/admin-notifications.e2e.mjs
+          node web/tests/admin-backups.e2e.mjs
           node web/tests/sync-activity.e2e.mjs
           node web/tests/skills-sync-simple.e2e.mjs
           node web/tests/machine-skill-sync.e2e.mjs

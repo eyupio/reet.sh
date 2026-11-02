@@ -938,6 +938,14 @@ func (b *Broker) SetAgentMode(ctx context.Context, uid int64, session, mode stri
 		_ = b.st.RecordTerminalAgentModeFor(uid, session, "")
 		return ErrACPAgentModeRejected
 	}
+	// A request that was sent but never answered (the connection closed, the call was
+	// cancelled, or the acknowledgement timed out) may have been applied, so the stored
+	// mode is no longer known. A failure before anything was sent, and an answer that
+	// says the chat was busy or gone, leave it as it was.
+	var lost errReplyLost
+	if errors.As(err, &lost) {
+		_ = b.st.RecordTerminalAgentModeFor(uid, session, "")
+	}
 	if err := chatAck(reply, err); err != nil {
 		return err
 	}

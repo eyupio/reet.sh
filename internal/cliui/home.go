@@ -222,7 +222,7 @@ func (m homeModel) View() tea.View {
 				rows = append(rows, "/ "+plain(m.query))
 			}
 			items := m.items()
-			if m.width >= 72 && m.height >= 14 {
+			if m.width >= 72 && m.height >= 16 {
 				return m.wideView(rows, items)
 			}
 			var body []string
@@ -398,6 +398,9 @@ func (m homeModel) wideView(head []string, items []Command) tea.View {
 	}
 	footer := []string{"", styled("● Reight then", "accent", m.colour) + styled(" · nowt to fettle", "muted", m.colour),
 		"↑/↓ j/k move   Enter open   / search   e edit   ? help   Esc back   q quit"}
+	if m.width < 84 {
+		footer[2] = "↑/↓ move  Enter open  / search  e edit  ? help  q quit"
+	}
 	if m.searching {
 		footer[2] = "↑/↓ select   Enter open   Esc clear   Ctrl+C quit"
 	}

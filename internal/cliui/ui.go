@@ -122,6 +122,14 @@ func plain(s string) string {
 // panel draws text in a rounded box exactly width x height, outer size. The
 // focused panel takes the accent colour.
 func panel(text string, width, height int, focus, colour bool) string {
+	// Lip Gloss treats Height as a minimum, so wrap to the inner width and clip
+	// to the inner height ourselves; the box is then exactly width x height.
+	lines := strings.Split(ansi.Wrap(text, max(width-4, 1), ""), "\n")
+	if inner := max(height-2, 1); len(lines) > inner {
+		lines = lines[:inner]
+		lines[inner-1] = fit(lines[inner-1], max(width-5, 0)) + "…"
+	}
+	text = strings.Join(lines, "\n")
 	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1).Width(width).Height(height)
 	if colour {
 		dark := darkBackground()

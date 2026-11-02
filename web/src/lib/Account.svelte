@@ -50,6 +50,9 @@
   let sessionSearch = $state('')
   let sessionScope = $state<'all' | 'current' | 'other'>('all')
   let tokens = $state<APIToken[]>([])
+  let tokensLoading = $state(false)
+  let tokenSearch = $state('')
+  let tokenScope = $state<'all' | 'used' | 'never'>('all')
   let freshToken = $state('')
   let tokenName = $state('scan token')
   let freshTokenId = $state(0)
@@ -144,11 +147,14 @@
 
   async function loadTokens() {
     if (!canWrite) return
+    tokensLoading = true
     try {
       tokens = (await listTokens()).tokens
       error = ''
     } catch (e) {
       fail(e)
+    } finally {
+      tokensLoading = false
     }
   }
 
@@ -309,6 +315,32 @@
   function clearSessionFilters() {
     sessionSearch = ''
     sessionScope = 'all'
+  }
+
+  const searchedTokens = $derived.by(() => {
+    const term = tokenSearch.trim().toLowerCase()
+    return tokens.filter((token) => {
+      if (!term) return true
+      return term.split(/\s+/).every((word) => token.name.toLowerCase().includes(word))
+    })
+  })
+  const tokenCounts = $derived({
+    all: searchedTokens.length,
+    used: searchedTokens.filter((token) => token.lastUsedAt).length,
+    never: searchedTokens.filter((token) => !token.lastUsedAt).length,
+  })
+  const visibleTokens = $derived(searchedTokens.filter((token) => tokenScope === 'all' || (tokenScope === 'used' ? Boolean(token.lastUsedAt) : !token.lastUsedAt)))
+  const tokenCountLabel = $derived(tokenCount(visibleTokens.length, tokens.length))
+
+  function tokenCount(shown: number, total: number): string {
+    if (total === 0) return 'No tokens'
+    if (shown === total) return `${total} ${total === 1 ? 'token' : 'tokens'}`
+    return `${shown} of ${total} tokens`
+  }
+
+  function clearTokenFilters() {
+    tokenSearch = ''
+    tokenScope = 'all'
   }
 
   function sampleDate(): string {
@@ -509,24 +541,58 @@
     {#if !canWrite}
       <p class="muted">Viewer accounts cannot create API tokens.</p>
     {:else}
-      <section class="block" aria-labelledby="tokens-title">
-        <h2 id="tokens-title">Personal API tokens</h2>
+      <section class="block" aria-labelledby="create-token-title">
+        <h2 id="create-token-title">Create a token</h2>
         <p class="muted">Use a token with <code>reet scan --token …</code> or an API client. A token is shown once, then only its name remains.</p>
         {@render tokenForm()}
+      </section>
 
-        {#if tokens.length}
-          <ul class="rows">
-            {#each tokens as token (token.id)}
+      <CollectionPanel label="Personal API tokens" count={tokenCountLabel}>
+        {#snippet actions()}
+          <button type="button" class="btn quiet" onclick={loadTokens} disabled={tokensLoading}>Refresh</button>
+        {/snippet}
+        {#snippet toolbar()}
+          <div class="token-toolbar">
+            <label class="token-search">Search tokens
+              <input type="search" bind:value={tokenSearch} placeholder="Token name" />
+            </label>
+            <div class="token-scopes" role="group" aria-label="Show tokens">
+              <button type="button" class="scope" aria-pressed={tokenScope === 'all'} onclick={() => (tokenScope = 'all')}>All<small>{tokenCounts.all}</small></button>
+              <button type="button" class="scope" aria-pressed={tokenScope === 'used'} onclick={() => (tokenScope = 'used')}>Used<small>{tokenCounts.used}</small></button>
+              <button type="button" class="scope" aria-pressed={tokenScope === 'never'} onclick={() => (tokenScope = 'never')}>Never used<small>{tokenCounts.never}</small></button>
+            </div>
+          </div>
+        {/snippet}
+
+        {#if tokensLoading}
+          <Skeleton label="Reading tokens…" shape="lines" count={3} />
+        {:else if tokens.length === 0}
+          <div class="state-block">
+            <h2>No API tokens yet.</h2>
+            <p>Tokens you create for scanners and API clients appear here.</p>
+          </div>
+        {:else if visibleTokens.length === 0}
+          <div class="state-block">
+            <h2>No token matches that search or filter.</h2>
+            <p>Try another search, or show every token.</p>
+            <button type="button" class="btn" onclick={clearTokenFilters}>Clear filters</button>
+          </div>
+        {:else}
+          <ul class="token-list">
+            {#each visibleTokens as token (token.id)}
               <li>
-                <div><strong>{token.name}</strong><small>created {when(token.createdAt)} · used {when(token.lastUsedAt)}</small></div>
-                <button type="button" class="btn quiet danger" onclick={() => (revokePending = token)} disabled={!!busy}>Revoke</button>
+                <div class="token-main">
+                  <strong>{token.name}</strong>
+                  <small>created {when(token.createdAt)} · used {when(token.lastUsedAt)}</small>
+                </div>
+                <div class="token-action">
+                  <button type="button" class="btn quiet danger" onclick={() => (revokePending = token)} disabled={!!busy}>Revoke</button>
+                </div>
               </li>
             {/each}
           </ul>
-        {:else}
-          <p class="muted">No API tokens yet.</p>
         {/if}
-      </section>
+      </CollectionPanel>
     {/if}
   {:else if section === 'mcp'}
     <MCPAccess timeZone={profile.timezone} dateFormat={profile.dateFormat} />
@@ -577,30 +643,25 @@
   .prefix-toggle { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 0.84rem; }
   .prefix-toggle input { width: auto; }
   .prefix-input { flex: 1 1 140px; max-width: 220px; }
-  .rows { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
-  .session-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
-  .session-search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
-  .session-search input { width: 100%; }
-  .session-scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .session-toolbar, .token-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
+  .session-search, .token-search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .session-search input, .token-search input { width: 100%; }
+  .session-scopes, .token-scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
   .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
   .scope:hover { border-color: var(--muted); color: var(--ink); }
   .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
   .scope small { margin-left: 5px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
-  .session-list { list-style: none; margin: 0; padding: 0; display: grid; }
-  .session-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 14px 2px; border-top: 1px solid var(--line-soft); }
-  .session-list > li:first-child { border-top: 0; }
-  .session-main { min-width: 0; }
-  .session-main strong { overflow-wrap: anywhere; }
-  .session-main small { display: block; margin-top: 3px; color: var(--muted); font-size: 0.78rem; line-height: 1.4; }
-  .session-action { justify-self: end; }
+  .session-list, .token-list { list-style: none; margin: 0; padding: 0; display: grid; }
+  .session-list > li, .token-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 14px 2px; border-top: 1px solid var(--line-soft); }
+  .session-list > li:first-child, .token-list > li:first-child { border-top: 0; }
+  .session-main, .token-main { min-width: 0; }
+  .session-main strong, .token-main strong { overflow-wrap: anywhere; }
+  .session-main small, .token-main small { display: block; margin-top: 3px; color: var(--muted); font-size: 0.78rem; line-height: 1.4; }
+  .session-action, .token-action { justify-self: end; }
   .state-block { padding: 24px 0 16px; max-width: 58ch; }
   .state-block h2 { margin: 0; font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; }
   .state-block p { margin: 6px 0 12px; color: var(--muted); }
-  .rows li { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); }
-  .rows small { display: block; color: var(--muted); font-size: 0.78rem; }
   /* Token, session and connection names can be one long word: they wrap rather than widen the card past the screen. */
-  .rows li > div { min-width: 0; }
-  .rows strong { overflow-wrap: anywhere; }
   .tag { margin-left: 6px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.65rem; }
   .fresh { margin-top: 14px; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--tint); }
   .fresh p { margin: 0 0 8px; font-size: 0.88rem; }
@@ -613,13 +674,13 @@
     .grid2 { grid-template-columns: 1fr; }
     .idcard { gap: 12px; }
     .avatar { width: 52px; height: 52px; font-size: 1.05rem; }
-    .session-search { flex-basis: 100%; }
-    .session-list > li { grid-template-columns: 1fr; }
-    .session-action { justify-self: start; }
+    .session-search, .token-search { flex-basis: 100%; }
+    .session-list > li, .token-list > li { grid-template-columns: 1fr; }
+    .session-action, .token-action { justify-self: start; }
     /* One line: a wrapping column is as wide as its widest item, so the field ran out of the card. */
     .createrow { flex-direction: column; flex-wrap: nowrap; }
 
   }
-  @media (pointer: coarse) { .scope, .session-search input, .session-action .btn { min-height: 44px; } }
+  @media (pointer: coarse) { .scope, .session-search input, .token-search input, .session-action .btn, .token-action .btn { min-height: 44px; } }
   @media (prefers-reduced-motion: no-preference) { .scope { transition: background-color 0.15s, border-color 0.15s, color 0.15s; } }
 </style>

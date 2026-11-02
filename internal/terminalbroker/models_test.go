@@ -56,7 +56,7 @@ func modelsFixture(t *testing.T, caps terminalproto.Capabilities) *modelsPeer {
 		switch op := m.Body.(type) {
 		case terminalproto.Reconcile:
 			reply.Body = terminalproto.Reconcile{Complete: true, Sessions: []terminalproto.SessionSnapshot{}}
-		case terminalproto.Models:
+		case terminalproto.Models, terminalproto.Inspect:
 			f.mu.Lock()
 			f.asked = append(f.asked, op)
 			answer := f.answer

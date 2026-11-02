@@ -12,7 +12,7 @@ const ModelsFeature = "models-v1"
 const (
 	// MaxModels bounds one machine's listed models.
 	MaxModels = 500
-	// MaxModelsReplyBytes keeps a list inside the 16 KiB control frame with its
+	// MaxModelsReplyBytes keeps a list inside the control frame with its
 	// envelope; a longer list is trimmed and More is set.
 	MaxModelsReplyBytes = 12 << 10
 )

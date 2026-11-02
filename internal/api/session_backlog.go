@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"io"
 	"net/http"
@@ -110,7 +111,7 @@ func (s *server) sessionBacklogSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !(d.Idea && d.Prompt == "") && !terminalproto.ValidPrompt(d.Prompt) {
-		bad("Write a prompt of at most 2,000 bytes without control characters.")
+		bad(fmt.Sprintf("Write a prompt of at most %d bytes without control characters.", terminalproto.MaxPromptBytes))
 		return
 	}
 	if d.Dir != "" && !terminalproto.ValidDir(d.Dir) {
@@ -209,7 +210,7 @@ func (s *server) sessionBacklogStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !terminalproto.ValidPrompt(in.Prompt) {
-		writeJSON(w, 422, map[string]string{"error": "The prompt including image paths must fit in 2,000 bytes."})
+		writeJSON(w, 422, map[string]string{"error": fmt.Sprintf("The prompt including image paths must fit in %d bytes.", terminalproto.MaxPromptBytes)})
 		return
 	}
 	key := fnv.New32a()

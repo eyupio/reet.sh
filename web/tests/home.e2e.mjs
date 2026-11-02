@@ -610,6 +610,27 @@ try {
   await narrow.context.close()
  }
 
+ // A project's name is shown in full even when several names start the same: it wraps rather than truncating, and the
+ // machine tag sits on the meta line so it cannot take the name's room.
+ if (run('the rail shows a project name in full')) {
+  const projects = [
+   fproject('fp1','reet-worktrees-service','a1','/home/dev/reet-worktrees-service',{machine:'PROD_Snipe',baseBranch:'main'}),
+   fproject('fp2','reet-worktrees-service-api','a1','/home/dev/reet-worktrees-service-api',{machine:'PROD_Snipe',baseBranch:'main',position:1}),
+  ]
+  const {context,page,errors} = await home({projects})
+  await page.goto(base)
+  const names = rail(page).locator('.full .card .name')
+  await expect.poll(() => names.allTextContents()).toEqual(['reet-worktrees-service','reet-worktrees-service-api'])
+  for (const name of await names.all()) {
+   const text = await name.textContent()
+   expect(await name.evaluate(el => el.scrollWidth <= el.clientWidth + 1), `${text} is shown in full`).toBe(true)
+   await expect(name).toHaveCSS('white-space','normal')
+  }
+  await expect(rail(page).locator('.full .card .meta .tag').first()).toHaveText('PROD_Snipe')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // #228's card menu (right-click or its button) on Home: New session here sets the launch bar's project like choosing the
  // card, never the Start an agent dialog (that dialog stays on Machines and the Sessions panel); the colour is saved on
  // the project with the version read, and the card names it.

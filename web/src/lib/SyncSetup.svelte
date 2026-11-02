@@ -110,7 +110,7 @@
   <fieldset disabled={busy || !canWrite}>
     <legend><span class="step">1</span> What do you want to sync?</legend>
     <div class="choices">
-      <label class:chosen={all}><input type="radio" name="skill-choice" checked={all} onchange={() => all = true} /><span><strong>All my skills</strong><small>Your whole shelf. With Keep synced on, new skills follow automatically. Unpublished drafts you wrote are chosen individually.</small></span></label>
+      <label class:chosen={all}><input type="radio" name="skill-choice" checked={all} onchange={() => all = true} /><span><strong>Everything on my shelf</strong><small>Your whole shelf. With Keep synced on, new skills follow automatically. Unpublished drafts you wrote are chosen individually.</small></span></label>
       <label class:chosen={!all}><input type="radio" name="skill-choice" checked={!all} onchange={() => all = false} /><span><strong>Choose individual skills</strong><small>Only the skills you select.</small></span></label>
     </div>
     {#if loading}<Skeleton label="Loading your skills…" shape="rows" count={4} />

@@ -507,10 +507,16 @@ func (o *Orchestrator) precheck(uid int64, agent string, deadline time.Time) str
 		if code == "" || !time.Now().Before(deadline) {
 			return code
 		}
+		// Wait no longer than the deadline allows: a short wait (a retry's
+		// StartWait) must not sleep a whole poll interval past its deadline.
+		tick := o.cfg.Poll
+		if remaining := time.Until(deadline); remaining < tick {
+			tick = remaining
+		}
 		select {
 		case <-o.ctx.Done():
 			return code
-		case <-time.After(o.cfg.Poll):
+		case <-time.After(tick):
 		}
 	}
 }

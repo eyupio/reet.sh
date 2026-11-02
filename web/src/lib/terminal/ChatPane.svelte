@@ -198,7 +198,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  const skillsOff = $derived(ended ? 'This reet session has ended.' : chat.connection !== 'open' ? 'Skills can be inserted once reet is connected.' : sending || uploading || changingModel ? 'Skills can be inserted once the message has been sent.' : working ? 'Skills can be inserted when the agent is idle.' : '')
  const pending = $derived(pendingPermissions(chat))
  const asked = $derived(pendingQuestions(chat))
- const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This reet session has ended.' : !replayed ? 'Catching up with the worker…' : pending.length ? 'Waiting for your approval.' : asked.length ? 'Waiting for your answer.' : working ? `${toolName} is working…` : chat.status.state === 'error' ? `${toolName} stopped with an error.` : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
+ const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This reet session has ended.' : !replayed ? `Catching up with ${toolName}…` : pending.length ? 'Waiting for your approval.' : asked.length ? 'Waiting for your answer.' : working ? `${toolName} is working…` : chat.status.state === 'error' ? `${toolName} stopped with an error.` : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
  $effect(() => { onbusy?.(replayed ? working || pending.length > 0 || asked.length > 0 : undefined) })
  const statusDetail = $derived(pending.length || asked.length ? '' : chat.status.detail)
  const canAttach = $derived(uploadsSupported && !uploadsOff && !ended)
@@ -738,7 +738,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
    {/if}
   {/each}
  </div>
- <GafferProgress {chat} dir={session.dir} worker={toolName} {replayed} {ended} />
+ <GafferProgress {chat} dir={session.dir} agent={toolName} {replayed} {ended} />
  {#if ended}
   <p class="composer-note">{endedReason(session.state, toolName)}{#if queued.length} {queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.{/if}</p>
  {:else}

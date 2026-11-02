@@ -76,8 +76,8 @@ remains the one card that asks for an answer.
 
 ## Gaffer’s work update
 
-Above the message box, Gaffer wears his flat cap and keeps a clipboard while the agent is the worker. His small nod,
-blink and pencil movement accompany contextual Yorkshire quips: encouragement while the worker reads, searches,
+Above the message box, Gaffer wears his flat cap and keeps a clipboard while the agent does the work. His small nod,
+blink and pencil movement accompany contextual Yorkshire quips: encouragement while the agent reads, searches,
 edits, runs commands or writes a reply; a quieter instruction to wait for an approval or answer. Quips rotate every
 twelve seconds during active work without immediately repeating. They are presentation copy, not extra instructions
 sent to the agent or evidence of work completing.
@@ -85,7 +85,7 @@ sent to the agent or evidence of work completing.
 The update uses the chat stream to show the current tool and target. A disclosure lists the five latest tool calls
 in this turn with their reported states, alongside counts of completed, active (pending or running) and failed tools.
 Thinking is excluded from those counts. Truncated history is labelled as recent activity. There is no estimated
-completion percentage. The timer is labelled **in view**: it starts when this view first sees the worker active,
+completion percentage. The timer is labelled **in view**: it starts when this view first sees the agent active,
 includes waits and reconnects, and freezes when the turn finishes or stops. It is not the full duration of a turn
 that began before the chat opened.
 

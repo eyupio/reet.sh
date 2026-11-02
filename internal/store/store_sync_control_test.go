@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/eyupio/reet.sh/internal/ref"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -317,6 +318,62 @@ func TestDraftSyncCandidatesArePrivateSources(t *testing.T) {
 	if _, err := s.PrivateSkillRevisionFor(other.ID, parts[1], parts[2]); err == nil {
 		t.Fatal("another account read a draft's private revision")
 	}
+	// Unpublishing keeps the shelf entry publishing created; the shelf must now offer the draft's private bytes, not a
+	// public URL that no longer serves, wherever candidates come from.
+	if _, err := s.SaveHostedSkill(uid, HostedSkill{Slug: "published", Description: "Fixture skill", Content: content("published", "Test"), Published: true}); err != nil {
+		t.Fatal(err)
+	}
+	publishedRef, err := ref.ParseAt("https://reet.sh/publisher/published", "reet.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.UpsertFor(uid, publishedRef, Patch{})
+	if _, err := s.SaveHostedSkill(uid, HostedSkill{Slug: "published", Description: "Fixture skill", Content: content("published", "Test"), Published: false}); err != nil {
+		t.Fatal(err)
+	}
+	shelf, err := s.SyncCandidatesFor(uid, "owner", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unpublished *SyncSkill
+	for i := range shelf {
+		if shelf[i].ID == "hosted/reet.sh/publisher/published" {
+			unpublished = &shelf[i]
+		}
+	}
+	if unpublished == nil || unpublished.SourceType != "private" || !strings.HasPrefix(unpublished.Source, "private:") {
+		t.Fatalf("unpublished skill on the shelf kept a public source: %+v", unpublished)
+	}
+	if err = s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", Origin: "https://reet.sh", SkillIDs: []string{"hosted/reet.sh/publisher/published"}, Mode: "additive", Revision: targets[0].Revision}); err != nil {
+		t.Fatal(err)
+	}
+	targets, _ = s.SyncTargetsFor(uid)
+	if len(targets[0].Desired) != 1 || targets[0].Desired[0].SourceType != "private" {
+		t.Fatalf("desired unpublished skill: %+v", targets[0].Desired)
+	}
+	// One draft that cannot be prepared is listed with its problem and is refused on save; the others stay usable.
+	if _, err := s.db.Exec(`UPDATE users SET role='viewer' WHERE id=?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveHostedSkill(uid, HostedSkill{Slug: "broken", Description: "Fixture skill", Content: content("broken", "Test")}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := s.SyncHostedFor(uid, "https://reet.sh")
+	if err != nil || len(listed) != 3 {
+		t.Fatalf("one unpreparable draft hid the collection: %+v %v", listed, err)
+	}
+	for _, sk := range listed {
+		if sk.Slug == "broken" && (sk.Problem == "" || sk.Source != "" || sk.SourceType != "local") {
+			t.Fatalf("broken draft: %+v", sk)
+		}
+		if sk.Slug == "draft" && sk.SourceType != "private" {
+			t.Fatalf("usable draft lost its source beside a broken one: %+v", sk)
+		}
+	}
+	if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "hosted", Origin: "https://reet.sh", SkillIDs: []string{"hosted/reet.sh/publisher/broken"}, Mode: "additive", Revision: targets[0].Revision}); err == nil || !strings.Contains(err.Error(), "cannot be synced privately") {
+		t.Fatalf("a draft with a problem was saved as installable, or refused for another reason: %v", err)
+	}
+	s.db.Exec(`UPDATE users SET role='owner' WHERE id=?`, uid)
 	// Deleting the draft drops its binding; the immutable revisions stay, as the private store is append-only.
 	if err := s.DeleteHostedSkill(uid, "draft"); err != nil {
 		t.Fatal(err)

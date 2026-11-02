@@ -119,10 +119,14 @@ try {
   const draftId = 'hosted/127.0.0.1:4173/sam/reet-incident-notes'
   const shelfSkill = skill('code-review')
   const draft = {id:draftId,name:'reet-incident-notes',slug:'reet-incident-notes',source:'private:'+'a'.repeat(32)+':'+'b'.repeat(32)+':'+'c'.repeat(64),sourceType:'private'}
+  // A skill published then unpublished: the shelf still carries its public entry, the hosted list carries the draft that now serves it.
+  const stale = {...skill('reet-standup'),id:'hosted/127.0.0.1:4173/sam/reet-standup',source:'127.0.0.1:4173/sam',sourceType:'hosted'}
+  const nowDraft = {id:stale.id,name:'reet-standup',slug:'reet-standup',source:'private:'+'d'.repeat(32)+':'+'e'.repeat(32)+':'+'f'.repeat(64),sourceType:'private'}
+  const broken = {id:'hosted/127.0.0.1:4173/sam/reet-broken',name:'reet-broken',slug:'reet-broken',source:'',sourceType:'local',problem:'reet-broken cannot be synced privately: private skill storage is full'}
   const scope = {id:'dev-laptop-agents',host:'dev-laptop',agent:'agents',name:'dev-laptop',skills:[],skillCount:0,complete:true,scannedAt:now,lastSeen:now,os:'linux',arch:'amd64',version:'test'}
   const sync = {environments:[scope],machines:[{host:'dev-laptop',groups:[scope],skillCount:0}],agents:[{id:'a1',host:'dev-laptop',version:'1.2.3',lastSeen:now,paused:false,autoUpdate:false}],targets:[],jobs:[],runs:[],updateJobs:[]}
   const hosting = {username:'sam',prefix:'reet-',skills:[{slug:'reet-incident-notes',description:'A private draft.',content:'---\nname: reet-incident-notes\ndescription: x\n---\nbody',files:{},published:false,createdAt:now,updatedAt:now}]}
-  const routes = {'/api/v2/sync/candidates': req => new URL(req.url()).searchParams.get('collection') === 'hosted' ? {skills:[draft]} : {skills:[shelfSkill]}}
+  const routes = {'/api/v2/sync/candidates': req => new URL(req.url()).searchParams.get('collection') === 'hosted' ? {skills:[draft,nowDraft,broken]} : {skills:[shelfSkill,stale]}}
   const {context,page,errors} = await open({width:1440,skills:[shelfSkill],hosting,sync,routes})
   await page.goto(`${base}/skills`)
   const row = page.locator('.hosted-list').getByRole('link',{name:'Sync to machines…'})
@@ -134,6 +138,14 @@ try {
   await expect(choice.getByRole('checkbox')).toBeEnabled()
   await expect(choice).toContainText('Your private draft')
   await expect(page.locator('.skills label', {hasText:'code-review'}).getByRole('checkbox')).not.toBeChecked()
+  const unpublished = page.locator('.skills label', {hasText:'reet-standup'})
+  await expect(unpublished).toHaveCount(1)
+  await expect(unpublished).toContainText('Your private draft')
+  await expect(unpublished.getByRole('checkbox')).toBeEnabled()
+  const stuck = page.locator('.skills label', {hasText:'reet-broken'})
+  await expect(stuck).toContainText('private skill storage is full')
+  await expect(stuck.getByRole('checkbox')).toBeDisabled()
+  await expect(stuck.getByRole('link',{name:'Link source'})).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
  }

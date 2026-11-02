@@ -97,7 +97,8 @@
     // Shelf skills first, then the skills this account wrote: a published one is already on the shelf, a draft is
     // only here, served privately from this controller. If the hosted read fails the shelf still loads, with its reason.
     void Promise.all([syncCandidates(), syncCandidates(0, 'hosted').catch(e => { hostedError = e instanceof Error ? e.message : String(e); return { skills: [] as SyncSkill[] } })])
-      .then(([shelf, hosted]) => { const seen = new Set(shelf.skills.map(skill => skill.id)); candidates = [...shelf.skills, ...hosted.skills.filter(skill => !seen.has(skill.id))]; chosen = chosen.filter(id => candidates.some(skill => skill.id === id)) })
+      // The account's own hosted skills are authoritative for their ids: a shelf entry left behind by unpublishing must not outrank the draft.
+      .then(([shelf, hosted]) => { const own = new Map(hosted.skills.map(skill => [skill.id, skill])); candidates = [...shelf.skills.map(skill => own.get(skill.id) ?? skill), ...hosted.skills.filter(skill => !shelf.skills.some(item => item.id === skill.id))]; chosen = chosen.filter(id => candidates.some(skill => skill.id === id)) })
       .catch(e => { error = e instanceof Error ? e.message : String(e) }).finally(() => { loading = false })
     return()=>{alive=false;clearInterval(timer)}
   })
@@ -117,8 +118,8 @@
       <label class="search-label">Find a skill<input type="search" bind:value={query} placeholder="Search your skills" /></label>
       <div class="skills" aria-label="Choose skills">
         {#each filtered as skill (skill.id)}
-          {@const installable = copyable.some(item=>item.id===skill.id)}
-          <label class="skill"><input type="checkbox" value={skill.id} bind:group={chosen} disabled={!installable} /><span><strong>{skill.name}</strong><small>{skill.source && skill.sourceType!=='local' ? skill.sourceType==='private'?(skill.id.startsWith('hosted/')?'Your private draft · synced from this reet.sh, not published':'Private copy in reet.sh'):skill.source : installable?'Copy privately from an installed machine':'Connect its source machine or link a source'}</small></span>{#if !installable}<a href={`/skills?search=${encodeURIComponent(skill.name)}`}>Link source</a>{/if}</label>
+          {@const installable = !skill.problem && copyable.some(item=>item.id===skill.id)}
+          <label class="skill"><input type="checkbox" value={skill.id} bind:group={chosen} disabled={!installable} /><span><strong>{skill.name}</strong><small>{skill.problem ? skill.problem : skill.source && skill.sourceType!=='local' ? skill.sourceType==='private'?(skill.id.startsWith('hosted/')?'Your private draft · synced from this reet.sh, not published':'Private copy in reet.sh'):skill.source : installable?'Copy privately from an installed machine':'Connect its source machine or link a source'}</small></span>{#if !installable && !skill.problem}<a href={`/skills?search=${encodeURIComponent(skill.name)}`}>Link source</a>{/if}</label>
         {:else}<p>No skills match this search.</p>{/each}
       </div>
     {/if}

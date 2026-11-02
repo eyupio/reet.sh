@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/eyupio/reet.sh/internal/skillbundle"
 )
@@ -78,4 +79,47 @@ func (s *Store) hostedPrivateSource(uid int64, sk HostedSkill) (string, error) {
 func (s *Store) forgetHostedSyncSource(uid int64, slug string) error {
 	_, err := s.db.Exec(`DELETE FROM hosted_sync_sources WHERE user_id=? AND slug=?`, uid, slug)
 	return err
+}
+
+// privateDraftCandidate is the sync candidate for one unpublished hosted skill.
+// A failure to prepare its revision is carried on the candidate as a problem,
+// so one full store or broken draft never hides the account's other skills.
+func (s *Store) privateDraftCandidate(uid int64, id string, sk HostedSkill) SyncSkill {
+	source, err := s.hostedPrivateSource(uid, sk)
+	if err != nil {
+		return SyncSkill{ID: id, Name: sk.Slug, Slug: sk.Slug, SourceType: "local", Problem: err.Error()}
+	}
+	return SyncSkill{ID: id, Name: sk.Slug, Slug: sk.Slug, Source: source, SourceType: "private"}
+}
+
+// applyDraftSources replaces a shelf entry that points at this account's own
+// hosted skill, when that skill is currently unpublished, with its private
+// draft candidate. Publishing adds a shelf entry and unpublishing keeps it, so
+// without this the shelf would still offer a public URL that no longer serves.
+func (s *Store) applyDraftSources(uid int64, candidates []SyncSkill) ([]SyncSkill, error) {
+	username, err := s.PublishingUsername(uid)
+	if err != nil || username == "" {
+		return candidates, err
+	}
+	hosted, err := s.HostedSkillsFor(uid)
+	if err != nil {
+		return nil, err
+	}
+	drafts := map[string]HostedSkill{}
+	for _, sk := range hosted {
+		if !sk.Published {
+			drafts[sk.Slug] = sk
+		}
+	}
+	if len(drafts) == 0 {
+		return candidates, nil
+	}
+	for i, sk := range candidates {
+		draft, ok := drafts[sk.Slug]
+		if !ok || sk.SourceType != "hosted" || !strings.HasSuffix(sk.ID, "/"+username+"/"+sk.Slug) {
+			continue
+		}
+		candidates[i] = s.privateDraftCandidate(uid, sk.ID, draft)
+	}
+	return candidates, nil
 }

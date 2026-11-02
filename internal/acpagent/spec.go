@@ -22,6 +22,9 @@ var (
 	ErrPluginsUnreadable = errors.New("the folder's agent plugins could not be read")
 	// ErrModel means the agent did not accept the session's chosen model.
 	ErrModel = errors.New("the agent did not use the chosen model")
+	// ErrModelUnconfirmed means a switch may have been applied, but the reply
+	// did not establish the current model. It is never reported as the old one.
+	ErrModelUnconfirmed = fmt.Errorf("%w: the current model is not confirmed", ErrModel)
 	// ErrUnsupported means the catalogue tool has no ACP adapter here.
 	ErrUnsupported = errors.New("that agent does not support chats")
 	// ErrCodexLogin means session creation needs a login made outside reet.
@@ -87,6 +90,10 @@ type Spec struct {
 	// session/set_config_option and is accepted only when the adapter's reply
 	// reports the new mode; otherwise the chat is refused. Empty never switches.
 	StartMode string
+	// AllowOmittedModelAck preserves OpenCode's existing acknowledgement with
+	// no configOptions field. An explicit list is always authoritative; other
+	// profiles must read the applied model back, as measured for Claude.
+	AllowOmittedModelAck bool
 	// EnvAllowlist names additional inherited variables the adapter may
 	// read (provider credentials), on top of the infrastructure allowlist.
 	EnvAllowlist []string

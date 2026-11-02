@@ -124,6 +124,32 @@ func TestFakeACP(t *testing.T) {
 				}
 				continue
 			}
+			if params.ConfigID == "model" && params.Value == "provider/recovered" {
+				reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "model", "currentValue": params.Value}}})
+				continue
+			}
+			if scenario == "model-reply-internal-error" && params.Value != "provider/recovered" {
+				send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32603, "message": "internal error after switch"}})
+				continue
+			}
+			if strings.HasPrefix(scenario, "model-reply-") {
+				responses := map[string]string{
+					"absent":        `{}`,
+					"empty":         `{"configOptions":[]}`,
+					"null-list":     `{"configOptions":null}`,
+					"missing-model": `{"configOptions":[{"id":"mode","currentValue":"build"}]}`,
+					"empty-value":   `{"configOptions":[{"id":"model","currentValue":""}]}`,
+					"wrong-type":    `{"configOptions":[{"id":"model","currentValue":42}]}`,
+					"duplicate":     `{"configOptions":[{"id":"model","currentValue":"provider/other"},{"id":"model","currentValue":"default"}]}`,
+					"null-result":   `null`,
+					"invalid-model": `{"configOptions":[{"id":"model","currentValue":"bad\nmodel"}]}`,
+					"confirmed":     `{"configOptions":[{"id":"model","currentValue":"provider/other"}]}`,
+				}
+				if scenario != "model-reply-lost" {
+					reply(message.ID, json.RawMessage(responses[strings.TrimPrefix(scenario, "model-reply-")]))
+				}
+				continue
+			}
 			if params.ConfigID != "model" || params.SessionID != session || params.Value == "reject" {
 				send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32602, "message": "invalid model"}})
 			} else if params.Value == "silently-reset" {
@@ -1731,5 +1757,62 @@ func TestUnansweredModeSwitchIsNeverReportedAsTheOldMode(t *testing.T) {
 			t.Fatalf("%s: mode %q, want %q", tc.scenario, got, tc.wantMode)
 		}
 		session.Close()
+	}
+}
+
+// Strict read-back is the Claude contract measured by the SC2 probe. Only the
+// fake child's identity/mode are overridden; its replies exercise that profile.
+func TestModelSwitchAcknowledgementContract(t *testing.T) {
+	for _, strict := range []bool{false, true} {
+		profile := "opencode"
+		if strict {
+			profile = "claude"
+		}
+		for _, shape := range []string{"absent", "empty", "null-list", "missing-model", "empty-value", "wrong-type", "duplicate", "null-result", "invalid-model", "confirmed", "lost", "internal-error"} {
+			t.Run(profile+"/"+shape, func(t *testing.T) {
+				opts, got := options(t, "model-reply-"+shape, testVersion)
+				if strict {
+					opts.Agent = ClaudeCandidate
+					opts.Agent.ExpectedName = "OpenCode"
+					opts.Agent.MinVersion = testVersion
+					opts.Agent.RequireMode = "build"
+				}
+				s, err := Start(t.Context(), opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer s.Close()
+				id := s.SessionID()
+				ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+				defer cancel()
+				err = s.SetModel(ctx, "provider/other")
+				success := shape == "confirmed" || shape == "absent" && !strict
+				if success {
+					if err != nil || s.Model() != "provider/other" {
+						t.Fatalf("confirmed switch: %v %q", err, s.Model())
+					}
+				} else {
+					if !errors.Is(err, ErrModelUnconfirmed) || s.Model() != "" {
+						t.Fatalf("unconfirmed switch: err=%v model=%q", err, s.Model())
+					}
+					got.mu.Lock()
+					for _, event := range got.all {
+						if event.Kind == "status" && event.Detail == "provider/other" {
+							t.Error("reported an unconfirmed requested model")
+						}
+					}
+					got.mu.Unlock()
+					if !got.has("notice") {
+						t.Fatal("unconfirmed model change had no notice")
+					}
+					if err := s.SetModel(t.Context(), "provider/recovered"); err != nil || s.Model() != "provider/recovered" {
+						t.Fatalf("later confirmation: %v %q", err, s.Model())
+					}
+				}
+				if s.SessionID() != id {
+					t.Fatal("model switch replaced the conversation")
+				}
+			})
+		}
 	}
 }

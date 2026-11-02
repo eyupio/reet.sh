@@ -17,7 +17,7 @@ import (
 var (
 	ErrACPUnsupported      = errors.New("that machine does not support OpenCode chats")
 	ErrACPVersion          = errors.New("the machine needs OpenCode 1.19.5 or newer for chats")
-	ErrACPModelRejected    = errors.New("The model could not be changed. Choose a model configured on this machine and check its provider credentials, then try again.")
+	ErrACPModelRejected    = errors.New("The agent did not confirm the chosen model. Its current model may have changed. Choose a model configured on this machine and try again.")
 	ErrACPModelUnsupported = errors.New("Update reet on this machine to switch models during a session.")
 	// ErrACPAgentModeUnsupported means the machine or agent does not offer that mode switch.
 	ErrACPAgentModeUnsupported = errors.New("That agent cannot be switched to that mode on this machine. Update reet on the machine, or choose one of the modes it offers.")
@@ -985,7 +985,13 @@ func (b *Broker) ModelChat(ctx context.Context, uid int64, session, model string
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &terminalproto.ACPModel{Model: model}}, chatCallTimeout)
 	if result, ok := reply.Body.(*terminalproto.Result); err == nil && ok && result.Code != terminalproto.OK && result.Code != terminalproto.Conflict && result.Code != terminalproto.NotFound {
+		// A sent switch may have applied without the adapter confirming it.
+		_ = b.st.RecordTerminalModelFor(uid, session, "")
 		return ErrACPModelRejected
+	}
+	var lost errReplyLost
+	if errors.As(err, &lost) {
+		_ = b.st.RecordTerminalModelFor(uid, session, "")
 	}
 	if err := chatAck(reply, err); err != nil {
 		return err

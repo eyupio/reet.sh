@@ -41,6 +41,10 @@ The live chat's **Model**, **Change model** and **Make default** controls appear
 An explicit descriptor overrides machine-wide flags; an older OpenCode peer must report `acpModel`. Without that capability, the pane does not request
 model options or favourites, and provider-error guidance does not direct the person to a missing model control. A capability update applies to an open
 pane: removing support hides the control, clears its option list and retires pending lookups. A delayed reply cannot repopulate a later control.
+A live model change is reported as applied only after the adapter confirms it. OpenCode keeps its legacy acknowledgement when the option list is
+omitted; an explicit list must contain one valid model value. Claude requires that read-back. Incomplete or ambiguous replies clear the confirmed
+model and show a notice. The controller also clears its stored model if an acknowledgement is lost after sending; busy or pre-send failures leave it
+unchanged. The person can choose a model again; the conversation and approvals are preserved.
 This does not add an effort control or change model selection at launch.
 
 

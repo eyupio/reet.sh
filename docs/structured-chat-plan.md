@@ -465,6 +465,36 @@ Delivery record:
   contracts remain future SC5 work. Pending typed-question recovery is outside this approval slice; the form capability remains off.
 - **Publication / review:** [#396](https://github.com/eyupio/reet.sh/pull/396) was opened as a draft and marked ready after implementation CI passed. The automatic Codex bot review failed because the account’s code-review quota is exhausted ([bot response](https://github.com/eyupio/reet.sh/pull/396#issuecomment-6583179410)); submitted reviews and inline threads were empty. The owner subsequently merged #396 as `35225eb`; the bot review did not complete before that merge. No deployment or real-login/device completion is claimed.
 
+### SC5 progress: confirmed live model switches (2 November 2026, draft)
+
+This independent slice distinguishes an omitted `configOptions` reply from an explicit replacement that cannot establish the model.
+Only the OpenCode profile permits its existing omitted-list acknowledgement. Claude requires the model's read-back `currentValue`, as measured
+in the SC2 probe. An explicit empty/null/malformed list, missing/empty/invalid model value, duplicate model entries, lost reply or internal RPC
+error cannot confirm the requested model. The machine clears its model, returns an error and emits a notice instead of reporting success.
+A confirmed different model is still recorded on the process and returned as a rejected choice, preserving the measured silent-reset handling.
+An explicit invalid-parameters or unsupported-method refusal retains the process's last confirmed model. A later confirmed switch recovers normally.
+
+The controller clears its stored model after an unconfirmed response or a reply lost after sending. Failure before sending, busy and missing-chat
+responses retain the stored value. An empty stored model makes no claim about the agent's current choice; it does not block sending or change
+approvals. Existing API errors provide feedback. No new wire field, message, negotiation feature, database column or adapter capability is added.
+
+Delivery record:
+- **Task / scope:** SC5 live model acknowledgement and unknown-state handling. Startup model confirmation, effort/mode option contracts and native-session
+  adoption remain separate work.
+- **Branch / base:** `fix/confirm-chat-model-switch`, independently based on main `7e390b2`. The owner explicitly authorized this slice while #402 remains open;
+  that PR's pending-question recovery and native-fixture change are not duplicated or merged here.
+- **Checks:** new regressions failed before the fix for incomplete replies, strict-profile omitted replies, lost acknowledgements and stale stored models.
+  A separate late internal-error regression failed before its fix too. Targeted core/controller race tests, web check/build and all 16 MCP tests pass;
+  final broader checks, bot review and CI results belong in the draft PR.
+- **Baseline:** the known model, orphan/process-group and missing-tmux tests were reproduced on current main `7e390b2` in this container.
+- **Evidence / limits:** Claude read-back follows the recorded real-adapter probe; OpenCode's pre-existing omitted-list compatibility is preserved.
+  New edge cases are fake-child/control-link regressions, not claims that an adapter was observed sending malformed replies. No genuine-login,
+  real-provider, physical-device or screen-reader check ran. The owner previously deferred Codex Run B; it remains unverified. Both experimental
+  switches and disabled form capability remain unchanged.
+- **Next:** owner login/device checks remain in their recorded order. SC5 still has broader option contracts and connector-restart adoption.
+- **Publication:** draft PR only; no merge or deployment authorized.
+
+
 ## Delivery and completion evidence
 
 Keep one bounded stage per PR. Reuse protocol fixtures, fake children and browser

@@ -451,7 +451,7 @@ introduced by preparing recovery.
 
 Delivery record:
 - **Task / scope:** SC5 retained approval/status recovery over a replacement control connection to the surviving connector process.
-- **Branch:** `fix/recover-pending-chat-approvals`; implementation commits `5699548` and `40f67cd`; draft PR is recorded with publication.
+- **Branch:** `fix/recover-pending-chat-approvals`; implementation commits `5699548` and `40f67cd`; draft [#396](https://github.com/eyupio/reet.sh/pull/396).
 - **Compatibility:** existing events, tokens, generation and memory limits; no protocol field, database, dependency, adapter capability or UI control added.
 - **Checks:** the event-limit and byte-limit regressions failed before the fix, as did recovery of the resolved idle status. They pass under `-race`
   with existing reconnect/startup tests. Tests also check complete command retention, answering the original process, the replacement generation,

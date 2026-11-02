@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 func fp(host, dir string) FolderProject { return FolderProject{Host: host, Dir: dir} }
@@ -234,29 +236,29 @@ func TestFolderProjectValidation(t *testing.T) {
 	s := newStore(t)
 	uid := projectUser(t, s, "a")
 	cases := map[string]func(p *FolderProject){
-		"relative dir":       func(p *FolderProject) { p.Dir = "work/api" },
-		"empty dir":          func(p *FolderProject) { p.Dir = "" },
-		"control in dir":     func(p *FolderProject) { p.Dir = "/a\nb" },
-		"empty host":         func(p *FolderProject) { p.Host = "  " },
-		"blank host":         func(p *FolderProject) { p.Host = "" },
-		"129-byte host":      func(p *FolderProject) { p.Host = strings.Repeat("h", 129) },
-		"host with a space":  func(p *FolderProject) { p.Host = " laptop" },
-		"control in host":    func(p *FolderProject) { p.Host = "lap\ttop" },
-		"81 char name":       func(p *FolderProject) { p.Name = strings.Repeat("n", 81) },
-		"control name":       func(p *FolderProject) { p.Name = "a\x07b" },
-		"format name":        func(p *FolderProject) { p.Name = "a‮b" },
-		"prompt dash":        func(p *FolderProject) { p.StarterPrompt = "-rf now please" },
-		"prompt 2001 bytes":  func(p *FolderProject) { p.StarterPrompt = strings.Repeat("a", 2001) },
-		"prompt control":     func(p *FolderProject) { p.StarterPrompt = "a\x00b c" },
-		"bad ref name":       func(p *FolderProject) { p.BaseBranch = "a..b" },
-		"ref name dash":      func(p *FolderProject) { p.BaseBranch = "-x" },
-		"ref name space":     func(p *FolderProject) { p.BaseBranch = "a b" },
-		"worktree maybe":     func(p *FolderProject) { p.WorktreeDefault = "maybe" },
-		"worktree uppercase": func(p *FolderProject) { p.WorktreeDefault = "YES" },
-		"bad tool":           func(p *FolderProject) { p.DefaultTool = "vim" },
-		"bad model":          func(p *FolderProject) { p.DefaultModel = "m o d" },
-		"bad colour":         func(p *FolderProject) { p.Colour = "chartreuse" },
-		"colour uppercase":   func(p *FolderProject) { p.Colour = "BLUE" },
+		"relative dir":          func(p *FolderProject) { p.Dir = "work/api" },
+		"empty dir":             func(p *FolderProject) { p.Dir = "" },
+		"control in dir":        func(p *FolderProject) { p.Dir = "/a\nb" },
+		"empty host":            func(p *FolderProject) { p.Host = "  " },
+		"blank host":            func(p *FolderProject) { p.Host = "" },
+		"129-byte host":         func(p *FolderProject) { p.Host = strings.Repeat("h", 129) },
+		"host with a space":     func(p *FolderProject) { p.Host = " laptop" },
+		"control in host":       func(p *FolderProject) { p.Host = "lap\ttop" },
+		"81 char name":          func(p *FolderProject) { p.Name = strings.Repeat("n", 81) },
+		"control name":          func(p *FolderProject) { p.Name = "a\x07b" },
+		"format name":           func(p *FolderProject) { p.Name = "a‮b" },
+		"prompt dash":           func(p *FolderProject) { p.StarterPrompt = "-rf now please" },
+		"prompt over the limit": func(p *FolderProject) { p.StarterPrompt = strings.Repeat("a", terminalproto.MaxPromptBytes+1) },
+		"prompt control":        func(p *FolderProject) { p.StarterPrompt = "a\x00b c" },
+		"bad ref name":          func(p *FolderProject) { p.BaseBranch = "a..b" },
+		"ref name dash":         func(p *FolderProject) { p.BaseBranch = "-x" },
+		"ref name space":        func(p *FolderProject) { p.BaseBranch = "a b" },
+		"worktree maybe":        func(p *FolderProject) { p.WorktreeDefault = "maybe" },
+		"worktree uppercase":    func(p *FolderProject) { p.WorktreeDefault = "YES" },
+		"bad tool":              func(p *FolderProject) { p.DefaultTool = "vim" },
+		"bad model":             func(p *FolderProject) { p.DefaultModel = "m o d" },
+		"bad colour":            func(p *FolderProject) { p.Colour = "chartreuse" },
+		"colour uppercase":      func(p *FolderProject) { p.Colour = "BLUE" },
 	}
 	for name, mod := range cases {
 		p := fp("laptop", "/ok")
@@ -281,7 +283,7 @@ func TestFolderProjectValidation(t *testing.T) {
 	// Values at the limits are accepted; a prompt is never echoed in errors.
 	ok := fp("laptop", "/ok")
 	ok.Name = strings.Repeat("é", 80)
-	ok.StarterPrompt = strings.Repeat("a", 2000)
+	ok.StarterPrompt = strings.Repeat("a", terminalproto.MaxPromptBytes)
 	ok.WorktreeDefault = "no"
 	ok.Colour = "blue"
 	ok.BaseBranch = "feature/x-1"

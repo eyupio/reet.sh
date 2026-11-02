@@ -693,6 +693,12 @@ type permissionParams struct {
 			ClaudeCode struct {
 				ParentToolUseID string `json:"parentToolUseId"`
 			} `json:"claudeCode"`
+			// Permission carries the Codex adapter's justification: the model's
+			// own words for wanting to leave its sandbox. Claude sends no such
+			// field; its rawInput description is used instead.
+			Permission struct {
+				Description string `json:"description"`
+			} `json:"permission"`
 		} `json:"_meta"`
 		Content  []permissionContent `json:"content"`
 		RawInput struct {
@@ -814,11 +820,19 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 		_ = s.sendCancel()
 	})
 	title := permissionTitle(params.ToolCall.Title, params.ToolCall.Meta.ClaudeCode.ParentToolUseID, s.opts.Agent.displayName())
+	// The agent's own words for the request, shown on the card so a person can
+	// judge it: Codex sends the model's justification in _meta.permission
+	// .description, Claude a short description of the call in rawInput. Neither
+	// is required, and neither is a reason to refuse the card.
+	rationale := params.ToolCall.Meta.Permission.Description
+	if rationale == "" {
+		rationale = params.ToolCall.RawInput.Description
+	}
 	s.emit(Event{Kind: "status", State: "waiting", Detail: "Waiting for your approval."})
 	s.emit(Event{Kind: "permission", PermissionID: permissionID, ToolCallID: params.ToolCall.ToolCallID,
 		Title: title, ToolKind: params.ToolCall.Kind, Command: command,
 		Path: path, Diff: diff, Locations: locations, Truncated: truncated,
-		Text: params.ToolCall.RawInput.Description})
+		Text: rationale})
 }
 
 // permissionTitle names the card. A subagent's own tool call is a separate

@@ -6,7 +6,7 @@ import type { TerminalMachine } from './terminal/api'
 // shows when the machine or the controller refuses. Pure: no DOM, no fetch. The limits match the controller and the
 // connector (docs/terminal-launch.md), which both check again; nothing here says an agent is signed in or working.
 
-export const MAX_PROMPT_BYTES = 2000
+export const MAX_PROMPT_BYTES = 8000
 export const TOOLS: { id: string; name: string }[] = [
   { id: 'claude', name: 'Claude Code' },
   { id: 'codex', name: 'Codex' },
@@ -61,7 +61,7 @@ export function validatePrompt(tool: string, prompt: string): string | null {
   const s = String(prompt ?? '')
   if (s === '') return null
   for (const c of s) { const n = c.codePointAt(0)!; if (n >= 0xd800 && n <= 0xdfff) return 'Use a prompt that is valid text.' }
-  if (new TextEncoder().encode(s).length > MAX_PROMPT_BYTES) return `That prompt is too long. Use at most ${MAX_PROMPT_BYTES} bytes; accented letters and emoji take more than one.`
+  if (new TextEncoder().encode(s).length > MAX_PROMPT_BYTES) return `That prompt is too long. Use at most ${MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes; accented letters and emoji take more than one.`
   if ([...s].some(c => badControl(c.codePointAt(0)!))) return 'Use a prompt without control characters other than line breaks.'
   if (s.startsWith('-')) return 'Start the prompt with a word, not a dash.'
   if (NEEDS_TWO_WORDS.has(tool) && !/[ \n]/.test(s)) return 'Write the opening prompt as at least two words.'

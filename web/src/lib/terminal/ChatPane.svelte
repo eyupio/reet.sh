@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onDestroy, onMount, tick, untrack } from 'svelte'
  import { fade, fly } from 'svelte/transition'
- import { applyChatEvent, checkQuestionDraft, endedReason, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
+ import { applyChatEvent, checkQuestionDraft, endedReason, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, rejectLabel, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
  import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
@@ -14,14 +14,15 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, agentModes = [], onbusy }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, agentModes = [], onbusy, onstate }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
   agentModes?: string[]
   /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI
    *  switch; undefined until the stream has opened and its replay has been applied, as the chat cannot say before then. */
-  onbusy?: (busy: boolean | undefined) => void } = $props()
+  onbusy?: (busy: boolean | undefined) => void; onstate?: (state: ChatState) => void } = $props()
 
  let chat: ChatState = $state(initialChat())
+ $effect(() => { onstate?.(chat) })
  let selectedModel = $state(''), currentModel = $state(''), changingModel = $state(false)
  let modelSession = '', modelValue = ''
  $effect(() => {
@@ -633,6 +634,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
       {#if decided}<span class="chevron" class:open={open} aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg></span>{/if}
      </svelte:element>
      {#if open}
+      {#if item.description}<div class="block"><span class="block-label">Why {toolName} asks</span><p class="approval-reason">{item.description}</p></div>{/if}
       {#if item.path}<p class="approval-path" title={item.path}>{displayPath(item.path, session.dir)}</p>{/if}
       {#if item.command}<div class="block"><span class="block-label">Command</span><pre class="command"><span class="prompt" aria-hidden="true">$</span>{' '}{item.command}</pre></div>{/if}
       {#if item.diff}<div class="block"><span class="block-label">Diff · {approvalCounts.additions} added, {approvalCounts.deletions} removed</span><pre class="diff">{#each item.diff.split('\n') as line, i (i)}<span class={diffClass(line)}>{line || ' '}</span>{/each}</pre></div>{/if}
@@ -641,7 +643,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
        <p class="decision">{item.decision === 'allowed' ? 'Allowed once.' : item.decision === 'denied' ? 'Denied.' : item.reason === 'timeout' ? 'Closed: the approval timed out.' : 'Closed without an answer.'}</p>
       {:else}
        <div class="approval-actions">
-        <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, false)}>Deny</button>
+        <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, false)}>{rejectLabel(tool)}</button>
         <button type="button" class="btn primary" disabled={!!answering || item.truncated} onclick={() => void answer(item.permissionId, true)}>Allow once</button>
         {#if (item.command || item.path) && !item.truncated}
          <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, true, true)}>{item.command ? 'Allow this command for this session' : 'Allow this file for this session'}</button>
@@ -910,6 +912,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  .approval-head .state { margin-left: auto; color: var(--warn); }
  .approval.decided .approval-head .state { color: var(--muted); }
  .approval-path { margin: 0; font: 11.5px var(--mono); color: var(--ink-soft); overflow-wrap: anywhere; }
+ .approval-reason { margin: 0; font: 12.5px/1.5 var(--sans); color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
  .approval-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
  .approval-actions .btn { min-height: 36px; padding: 0 13px; font-size: 13px; }
  .decision { margin: 0; font-size: 12px; color: var(--muted); }

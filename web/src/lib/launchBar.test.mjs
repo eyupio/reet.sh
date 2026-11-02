@@ -394,7 +394,7 @@ test('a start in several projects words its own refusals', () => {
     [422, 'invalid_effort', "Choose low, medium or high thinking, or the agent's default."],
     [422, 'invalid_model', "That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit."],
     [422, 'request_id_required', 'Starting needs a request id: 16 to 128 letters, digits, hyphens or underscores.'],
-    [422, 'invalid_prompt', 'The prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash.'],
+    [422, 'invalid_prompt', 'The prompt must be valid text of at most 8,000 bytes, without control characters other than line breaks, and must not start with a dash.'],
     [404, 'project_not_found', "That project isn't on this account."],
     [429, 'project_rate_limited', 'Slow down a moment, then try again.'],
     [409, 'request_changed', 'That request changed. Start it again.'],

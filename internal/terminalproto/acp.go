@@ -73,9 +73,9 @@ const SessionModeFeature = "session-mode-v1"
 const SessionModeTimeout = 3 * time.Minute
 
 const (
-	// MaxChatPromptBytes bounds one chat message. 2,000 bytes is the largest
-	// text whose JSON encoding is certain to fit the 16 KiB control frame, even
-	// when every byte is a character encoding/json escapes to six bytes.
+	// MaxChatPromptBytes bounds one chat message. 2,000 bytes is a long brief
+	// whose JSON encoding stays well inside the control frame, even when every
+	// byte is a character encoding/json escapes to six bytes.
 	MaxChatPromptBytes = 2000
 	// MaxACPEventBytes keeps one structured event inside MaxControlBytes after
 	// its envelope; a larger tool output is cut and marked truncated.

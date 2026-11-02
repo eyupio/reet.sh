@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 func projectUser(t *testing.T, s *Store, name string) int64 {
@@ -196,7 +198,7 @@ func TestProjectFieldValidation(t *testing.T) {
 		"host control":          func(p *Project) { p.Members[0].Host = "a\nb" },
 		"host long":             func(p *Project) { p.Members[0].Host = strings.Repeat("h", 256) },
 		"prompt dash":           func(p *Project) { p.SharedPrompt = "-" + secret },
-		"prompt too long":       func(p *Project) { p.SharedPrompt = secret + strings.Repeat("a", 2000) },
+		"prompt too long":       func(p *Project) { p.SharedPrompt = secret + strings.Repeat("a", terminalproto.MaxPromptBytes) },
 		"prompt control":        func(p *Project) { p.SharedPrompt = secret + "\x07" },
 		"prompt tab":            func(p *Project) { p.SharedPrompt = secret + "\t" },
 		"prompt invalid utf8":   func(p *Project) { p.SharedPrompt = secret + "\xff" },

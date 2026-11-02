@@ -1,5 +1,6 @@
 <script lang="ts">
  import { structuredAgent } from './api'
+ import type { ChatState } from '../chat'
   import { onMount, tick, untrack } from 'svelte'
   import {getProfile,getSyncState,saveProfile,type Machine} from '../api'
   import StartAgentDialog from '../StartAgentDialog.svelte'
@@ -85,6 +86,7 @@
   let sideSession = $state<TerminalSession | null>(null)
   // The open chat's word on whether it is busy, for the header's TUI switch; kept with the session it is about. Undefined
   // until its stream has replayed, so the header keeps to the row's word meanwhile.
+  let insightChat = $state<{ id: string; state: ChatState } | null>(null)
   let chatBusy = $state<{ id: string; busy: boolean | undefined } | null>(null)
   let health = $state<HealthResponse>({ serverNow:Date.now(),machines:[] })
   let receivedAt = performance.now(), elapsed = $state(0)
@@ -473,6 +475,7 @@
         <!-- The session screen hosts the live terminal pane, unchanged: tabs and header above it, the context panel beside it. -->
         <SessionScreen {session} {sessions} {machines} health={health.machines} {projects} now={serverNow} {theatre} {keyboard} busy={actionBusy}
           onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}
+          insightChat={insightChat?.id === session.id ? insightChat.state : undefined}
           chatBusy={session.structured && chatBusy?.id === session.id ? chatBusy.busy : undefined} onmode={modeSwitched}
           oncontinue={session.structured
             ? (canContinueChat(session, machines.find(item => item.agentId === session.agentId)) ? () => void continueSession(session) : undefined)
@@ -495,7 +498,7 @@
           <!-- Keyed by the session and its mode, so a switch between Gaffer and the OpenCode TUI mounts the other pane. -->
           {#key session.id + ':' + (session.structured ? 'chat' : 'term')}
             {#if session.structured}
-              <ChatPane {session} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
+              <ChatPane {session} onstate={state => { insightChat = { id: session.id, state } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
             {:else}
               <TerminalPane {keyboard} footnote={phone ? '' : `Approvals: ${session.yolo ? 'YOLO' : 'Ask me'}`} holdSize={resizing} sessionsVisible={shown!=='closed'} onsessions={paneSessions} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />
             {/if}

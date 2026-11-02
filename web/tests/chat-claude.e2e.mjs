@@ -69,7 +69,7 @@ try {
   })
   await expect(page.getByRole('textbox', { name: 'Message Claude Code' })).toBeVisible()
   await expect(page.getByText('Ask OpenCode', { exact: false })).toHaveCount(0)
-  await expect(page.getByText('go test ./...')).toBeVisible()
+  await expect(page.locator('.approval .command').filter({ hasText: 'go test ./...' })).toBeVisible()
   await page.getByRole('button', { name: 'Allow once' }).click()
   await expect.poll(() => state.answer).toMatchObject({ allow: true })
   await page.evaluate(() => {

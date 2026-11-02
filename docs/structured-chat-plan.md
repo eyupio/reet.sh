@@ -337,6 +337,33 @@ reconnect and native process failure. Preserve the bounded SSE/ring contract.
 Durable controller history and detached per-session workers need their own
 retention, lifecycle and recovery design; they are not implied by this stage.
 
+### SC5 progress: live model controls follow the descriptor (2 November 2026, draft)
+
+The owner asked to continue independent work while the login checks are pending. This is one bounded SC5 slice, based on main independently of
+Codex login PR #391. No login or device gate is bypassed and neither experimental switch is retired.
+
+**Problem:** Codex's available descriptor offers approvals and modes, but no verified live model switch. The chat nevertheless rendered the Model field,
+Change model and Make default, requested model options and favourites, and told people to choose another model after provider errors. The controller
+already refused unsupported switches; the browser was offering an action its descriptor did not support.
+
+**Behaviour:** `TerminalWorkspace` passes `structuredAgent(...).model` to `ChatPane`. Missing, false or unavailable support hides the model controls and
+skips their lookups. Explicit descriptors remain authoritative over global flags; older OpenCode peers use `acpModel`. The pane reacts when support
+appears or disappears without remounting. Removal clears options and aborts requests; stale replies are ignored. An unchanged capability refresh does
+not refetch. The current confirmed model and mode-switch acknowledgement rules remain as before. Error guidance names only actions the pane offers.
+
+Delivery record:
+- **Task / scope:** SC5 descriptor-driven live model controls; no effort or new mode support.
+- **Branch:** `fix/descriptor-chat-model-control`; publication and exact commit/PR are recorded in the draft PR.
+- **Compatibility:** browser only; existing descriptor/legacy flags and API routes, no new wire field, Go change, database migration or dependency.
+- **Checks:** the Codex browser regression failed before the fix because a Model textbox was present. Web checks passed with zero Svelte errors/warnings;
+  production build and Claude/OpenCode browser fixtures passed (OpenCode through both legacy flags and explicit descriptors). The Codex fixture covers
+  capability changes, a delayed response after revocation, unchanged refreshes, four provider-error cases, and light/dark at 1360 and 390 px. Final CI
+  and check results are recorded in the PR.
+- **Not performed:** physical-device, screen-reader or genuine-login checks; no new adapter capability is enabled.
+- **Next unchecked work:** owner login/device checks remain pending. SC5 still needs broader descriptor-driven mode/effort option contracts and process
+  recovery; read this note and the audit below before choosing that next bounded slice.
+- **Publication:** open as a draft, owner controls ready/merge; no merge or deployment claimed.
+
 ### SC5 audit (1 November 2026)
 
 Read against the SC5 list; no behaviour changed. **Already covered, with tests:** process-group retirement on `Close` (confirmed, zombie-aware);

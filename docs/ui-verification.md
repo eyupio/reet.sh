@@ -2058,3 +2058,33 @@ Validation:
 **Not checked.** No physical phone or tablet and no screen reader. The empty list
 was not exercised by a new browser matrix; its panel rendering is shared with the
 other admin sections.
+
+## Admin backup copies and runs under the collection contract — 2 November 2026
+
+Admin → Backups now has two collection panels. **Backup copies** carries a live
+count, search and **All / This machine / Off-site / Damaged** chips whose figures
+follow the search; a copy can be in both location chips and is **Damaged** only after
+**Verify** finds a problem. Each copy row has its id and verification badge, taken
+time, size and version, location tags, the damaged problem, and the existing Verify,
+Download, Restore and Delete actions. **Recent runs** carries a count, search and
+**All / Succeeded / Failed / Running** chips, with one row per trigger, start time,
+outcome, size, destination and error. The wide tables and their horizontal scrollers
+are gone. The key and schedule cards, findings, schedule form, destinations, import,
+restore and confirmations are unchanged.
+
+Validation:
+
+- `npm run check`: pass, including the new `adminBackups` unit suite; svelte-check
+  reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-backups.e2e.mjs`: both panel counts, every chip, copy and run search,
+  empty recovery, a verify that marks a copy damaged, and phone layouts at 390 and
+  320 px with no horizontal overflow.
+- `phone-zoom.e2e.mjs` (the admin backups screen) and `navigation.e2e.mjs` pass.
+
+![Admin backup copies and runs, desktop](images/ui/admin-backups-desktop.png)
+![Admin backup copies, phone](images/ui/admin-backups-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. Download, restore,
+delete, destination editing and import were not exercised by a new browser matrix;
+their controls were left in place.

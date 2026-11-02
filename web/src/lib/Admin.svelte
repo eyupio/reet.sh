@@ -4,6 +4,7 @@
   import NavigationMenu from './NavigationMenu.svelte'
   import CollectionPanel from './CollectionPanel.svelte'
   import { ADMIN_USER_SCOPES, adminUserCountLabel, adminUserMatchesSearch, adminUserRoleCounts } from './adminUsers'
+  import { teamUsageCountLabel, teamUsageMatchesSearch } from './adminTeam'
   import { groupLabel } from './machines'
   import PageHeader from './PageHeader.svelte'
   import {
@@ -93,6 +94,7 @@
   let rollupLoading = $state(false)
   let rollupList = $state(0)
   let rollupTag = $state('')
+  let teamQuery = $state('')
   let rollupSort = $state<'adoption' | 'name'>('adoption')
 
   async function load() {
@@ -161,7 +163,7 @@
     const rows = (rollup?.skills ?? []).filter((skill) => {
       if (rollupList !== 0 && !(skill.lists ?? []).some((list) => list.id === rollupList)) return false
       if (rollupTag && !(skill.tags ?? []).includes(rollupTag)) return false
-      return true
+      return teamUsageMatchesSearch(skill, teamQuery)
     })
     return [...rows].sort((a, b) => {
       if (rollupSort === 'name') return a.name.localeCompare(b.name)
@@ -169,9 +171,18 @@
     })
   })
 
+  const teamCount = $derived(teamUsageCountLabel(rollupRows.length, rollup?.skills.length ?? 0))
+  const teamCountLabel = $derived(rollupLoading && !rollup ? 'Reading team usage…' : !rollup ? 'Team usage unavailable' : teamCount)
   const rollupSkillByID = $derived(new Map((rollup?.skills ?? []).map((skill) => [skill.id, skill] as const)))
   const unlistedSkills = $derived((rollup?.drift.unlisted ?? []).map((id) => rollupSkillByID.get(id)).filter((skill): skill is RollupSkill => Boolean(skill)))
   const majorityCount = $derived((rollup?.skills ?? []).filter((skill) => (rollup?.teamSize ?? 0) > 0 && skill.usedBy * 2 > (rollup?.teamSize ?? 0)).length)
+
+  function clearTeamFilters() {
+    teamQuery = ''
+    rollupList = 0
+    rollupTag = ''
+    rollupSort = 'adoption'
+  }
 
   function usedMembers(skill: RollupSkill) {
     return (skill.members ?? []).filter((member) => member.used)
@@ -653,92 +664,73 @@
     {/if}
 
     {#if section === 'team'}
-      <section class="block" aria-labelledby="admin-team">
+      <section aria-labelledby="admin-team">
         <h2 id="admin-team" class="vh">Skill adoption</h2>
-        {#if rollupError}<p class="error" role="alert">{rollupError}</p>{/if}
-        {#if rollupLoading && !rollup}
-          <Skeleton label="Loading the rollup…" count={3} />
-        {:else if rollup}
-          <div class="rollup-summary">
-            <span><strong>{rollup.teamSize}</strong> {rollup.teamSize === 1 ? 'person' : 'people'}</span>
-            <span><strong>{rollup.skills.length}</strong> skills</span>
-            <span><strong>{majorityCount}</strong> used by more than half</span>
-            <span><strong>{unlistedSkills.length}</strong> in use, on no list</span>
-            <span><strong>{rollup.drift.unused.length}</strong> list skills unused</span>
-          </div>
-
-          <div class="rollup-filters">
-            <label>List
-              <select bind:value={rollupList}>
-                <option value={0}>All lists</option>
-                {#each rollup.lists as list (list.id)}<option value={list.id}>{list.name}</option>{/each}
-              </select>
-            </label>
-            <label>Tag
-              <select bind:value={rollupTag}>
-                <option value="">All tags</option>
-                {#each rollupTags as tag}<option value={tag}>{tag}</option>{/each}
-              </select>
-            </label>
-            <label>Sort
-              <select bind:value={rollupSort}>
-                <option value="adoption">Adoption</option>
-                <option value="name">Name</option>
-              </select>
-            </label>
-            <button type="button" class="btn" onclick={downloadCSV} disabled={rollupRows.length === 0}>Download CSV</button>
-          </div>
-
-          {#if !rollup.individual}
-            <p class="privacy-note">Per-person rows are hidden by the owner. The table shows counts only.</p>
-          {/if}
-
-          {#if rollupRows.length === 0}
-            <p class="muted">Nothing matches those filters.</p>
-          {:else}
-            <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll wide tables.) -->
-            <div class="tablewrap rollup-desktop" tabindex="0" role="region" aria-label="Team adoption table, scroll horizontally for more">
-              <table class="rollup-table">
-                <thead><tr><th>Skill</th><th>Lists</th><th>In use</th><th>Saved by</th><th>Agent reports</th><th>Team</th></tr></thead>
-                <tbody>
-                  {#each rollupRows as skill (skill.id)}
-                    <tr>
-                      <td class="skillcell"><strong>{skill.name}</strong><small><code>{skill.source}</code></small></td>
-                      <td>
-                        {#if skill.lists?.length}
-                          <div class="listchips">
-                            {#each skill.lists as list (list.id)}<a href={`/lists/${list.id}`} class="listchip">{list.name}</a>{/each}
-                          </div>
-                        {:else}<span class="muted">—</span>{/if}
-                      </td>
-                      <td class="num">
-                        <div class="adoption">
-                          <span>{skill.usedBy} / {rollup.teamSize}</span>
-                          <span class="bar" aria-hidden="true"><i style={`width:${rollup.teamSize ? Math.round((skill.usedBy / rollup.teamSize) * 100) : 0}%`}></i></span>
-                        </div>
-                      </td>
-                      <td class="num">{skill.onShelf}</td>
-                      <td class="num">{skill.environmentLinks}</td>
-                      <td class="teamcell">
-                        {@render teamDetails(skill)}
-                      </td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
+        <CollectionPanel label="Team usage" count={teamCountLabel}>
+          {#snippet actions()}
+            <button type="button" class="btn quiet" onclick={downloadCSV} disabled={rollupRows.length === 0}>Download CSV</button>
+            <button type="button" class="btn quiet" onclick={loadRollup} disabled={rollupLoading}>Refresh</button>
+          {/snippet}
+          {#snippet toolbar()}
+            {#if rollup}
+              <div class="team-summary" role="group" aria-label="Team usage summary">
+                <span><strong>{rollup.teamSize}</strong> {rollup.teamSize === 1 ? 'person' : 'people'}</span>
+                <span><strong>{majorityCount}</strong> used by more than half</span>
+                <span><strong>{unlistedSkills.length}</strong> in use, on no list</span>
+                <span><strong>{rollup.drift.unused.length}</strong> list skills unused</span>
+              </div>
+            {/if}
+            {#if rollup && !rollup.individual}<p class="privacy-note">Per-person rows are hidden by the owner. This view shows counts only.</p>{/if}
+            <div class="team-toolbar">
+              <label class="team-search">Search skills
+                <input type="search" bind:value={teamQuery} placeholder="Name, source, list or tag" />
+              </label>
+              <div class="team-filters">
+                <label>List<select aria-label="List" bind:value={rollupList}><option value={0}>All lists</option>{#each rollup?.lists ?? [] as list (list.id)}<option value={list.id}>{list.name}</option>{/each}</select></label>
+                <label>Tag<select aria-label="Tag" bind:value={rollupTag}><option value="">All tags</option>{#each rollupTags as tag}<option value={tag}>{tag}</option>{/each}</select></label>
+                <label>Sort<select aria-label="Sort" bind:value={rollupSort}><option value="adoption">Adoption</option><option value="name">Name</option></select></label>
+              </div>
             </div>
-            <ul class="rollup-mobile">
-              {#each rollupRows as skill (skill.id)}
-                <li class="usage-card">
-                  <h3>{skill.name}</h3><code class="usage-source">{skill.source || 'Local skill'}</code>
-                  <dl><div><dt>In use</dt><dd>{skill.usedBy} / {rollup.teamSize}</dd></div><div><dt>Saved by</dt><dd>{skill.onShelf}</dd></div><div><dt>Agent reports</dt><dd>{skill.environmentLinks}</dd></div></dl>
-                  {#if skill.lists?.length}<div class="listchips">{#each skill.lists as list (list.id)}<a class="listchip" href={`/lists/${list.id}`}>{list.name}</a>{/each}</div>{/if}
-                  {@render teamDetails(skill)}
-                </li>
-              {/each}
-            </ul>
-          {/if}
+          {/snippet}
 
+          {#if rollupError && !rollup}
+            <div class="state-block error" role="alert"><p>{rollupError}</p><button type="button" class="btn" onclick={loadRollup}>Try again</button></div>
+          {:else if rollupLoading && !rollup}
+            <Skeleton label="Reading team usage…" shape="lines" count={4} />
+          {:else if !rollup}
+            <div class="state-block"><h2>The rollup is not available yet.</h2><p>Refresh to read it again.</p></div>
+          {:else}
+            {#if rollupError}<p class="error" role="alert">{rollupError}</p>{/if}
+            {#if rollupRows.length === 0}
+              <div class="state-block">
+                <h2>No skill matches those filters.</h2>
+                <p>Try another search, or clear the list and tag filters.</p>
+                <button type="button" class="btn" onclick={clearTeamFilters}>Clear filters</button>
+              </div>
+            {:else}
+              <div class="usage-list">
+                {#each rollupRows as skill (skill.id)}
+                  <div class="usage-row">
+                    <div class="usage-identity">
+                      <strong>{skill.name}</strong>
+                      <code>{skill.source || 'Local skill'}</code>
+                      {#if skill.lists?.length}<div class="listchips">{#each skill.lists as list (list.id)}<a class="listchip" href={`/lists/${list.id}`}>{list.name}</a>{/each}</div>{/if}
+                      {#if skill.tags?.length}<div class="tagchips">{#each skill.tags as tag}<span class="tagchip">{tag}</span>{/each}</div>{/if}
+                    </div>
+                    <div class="usage-metrics">
+                      <div class="adoption"><span class="metric-label">In use</span><strong>{skill.usedBy} / {rollup.teamSize}</strong><span class="bar" aria-hidden="true"><i style={`width:${rollup.teamSize ? Math.round((skill.usedBy / rollup.teamSize) * 100) : 0}%`}></i></span></div>
+                      <div><span class="metric-label">Saved by</span><strong>{skill.onShelf}</strong></div>
+                      <div><span class="metric-label">Agent reports</span><strong>{skill.environmentLinks}</strong></div>
+                    </div>
+                    <div class="usage-team">{@render teamDetails(skill)}</div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          {/if}
+        </CollectionPanel>
+
+        {#if rollup}
           <details class="additional-usage"><summary>List gaps & people</summary>
           <div class="drift">
             <div class="driftcol">
@@ -784,8 +776,6 @@
             {/if}
           </div>
           </details>
-        {:else}
-          <p class="muted">The rollup is not available yet.</p>
         {/if}
       </section>
 
@@ -923,11 +913,6 @@
   .stages strong { color: var(--ink); font-variant-numeric: tabular-nums; }
   .block { margin-top: 24px; padding: clamp(16px, 3vw, 24px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); min-width: 0; }
   .muted { margin: 8px 0 0; color: var(--muted); }
-  .tablewrap { margin-top: 14px; overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th { text-align: left; color: var(--muted); font-weight: 600; padding: 12px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  td { padding: 16px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  td.num { font-variant-numeric: tabular-nums; }
 
   form { display: grid; gap: 10px; margin-top: 10px; max-width: 460px; }
   .check { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.9rem; }
@@ -949,7 +934,6 @@
   .fresh p { margin: 0 0 8px; font-size: 0.85rem; }
   .tokenline { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
   .tokenline code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 0.8rem; }
-  td small { display: block; color: var(--muted); font-size: 0.75rem; }
   .you { margin-left: 4px; color: var(--muted); font-size: 0.75rem; font-weight: 500; }
   .user-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
   .user-search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
@@ -981,16 +965,30 @@
   @media (pointer: coarse) { .scope, .user-search input { min-height: 44px; } }
   @media (prefers-reduced-motion: no-preference) { .scope, .user-row { transition: background-color 0.15s, border-color 0.15s, color 0.15s; } }
 
-  .rollup-summary { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; color: var(--muted); font-size: 0.84rem; }
-  .rollup-summary strong { color: var(--ink); font-variant-numeric: tabular-nums; }
-  .rollup-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 14px; }
-  .rollup-filters label { display: grid; gap: 4px; color: var(--muted); font-size: 0.76rem; font-weight: 600; }
-  .rollup-filters select { min-height: 36px; padding: 6px 10px; }
-  .privacy-note { margin: 12px 0 0; color: var(--muted); font-size: 0.8rem; }
-  .rollup-table { margin-top: 10px; min-width: 760px; }
-  .rollup-table .skillcell { min-width: 170px; }
-  .rollup-table .skillcell strong { display: block; overflow-wrap: anywhere; }
-  .rollup-table .muted { margin: 0; }
+  .team-summary { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 12px; color: var(--muted); font-size: 0.84rem; }
+  .team-summary strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .privacy-note { margin: 0 0 12px; color: var(--muted); font-size: 0.8rem; }
+  .team-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
+  .team-search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .team-search input { width: 100%; }
+  .team-filters { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px; }
+  .team-filters label { display: grid; gap: 4px; color: var(--muted); font-size: 0.76rem; font-weight: 600; }
+  .team-filters select { min-height: 36px; padding: 6px 10px; }
+  .usage-list { display: grid; }
+  .usage-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 10px 20px; padding: 16px 2px; border-top: 1px solid var(--line-soft); }
+  .usage-row:first-child { border-top: 0; }
+  .usage-identity { min-width: 0; }
+  .usage-identity strong { display: block; font-size: 0.95rem; overflow-wrap: anywhere; }
+  .usage-identity code { display: block; margin-top: 2px; color: var(--muted); font-size: 0.74rem; overflow-wrap: anywhere; }
+  .usage-identity .listchips { margin-top: 6px; }
+  .tagchips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .tagchip { padding: 2px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.7rem; }
+  .usage-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-content: start; }
+  .usage-metrics > div { display: grid; gap: 2px; align-content: start; }
+  .metric-label { color: var(--muted); font-size: 0.72rem; }
+  .usage-metrics strong { font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+  .adoption .bar { margin-top: 4px; }
+  .usage-team { grid-column: 2; border-top: 1px solid var(--line-soft); padding-top: 6px; }
   .listchips, .memberchips { display: flex; flex-wrap: wrap; gap: 4px; }
   .listchip {
     display: inline-flex; padding: 2px 7px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
@@ -999,7 +997,6 @@
   }
   .listchip:hover { border-color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
   .memberchip { padding: 2px 7px; border: 1px solid color-mix(in srgb, var(--good) 30%, var(--line)); border-radius: 999px; color: var(--good); font-size: 0.7rem; }
-  .teamcell { min-width: 190px; max-width: 320px; }
   .adoption { display: grid; gap: 4px; min-width: 72px; }
   .bar { display: block; height: 4px; min-width: 64px; border-radius: 999px; background: var(--line); overflow: hidden; }
   .bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
@@ -1021,13 +1018,15 @@
   @media (max-width: 720px) {
     .drift { grid-template-columns: 1fr; gap: 22px; }
   }
+  @media (max-width: 650px) {
+    .team-search { flex-basis: 100%; }
+    .usage-row { grid-template-columns: 1fr; }
+    .usage-team { grid-column: 1; }
+  }
+  @media (pointer: coarse) { .team-search input, .team-filters select { min-height: 44px; } }
   @media (max-width: 560px) {
     .cards article { padding: 16px; }
     .cards { grid-template-columns: 1fr 1fr; }
-    .rollup-filters { display: grid; grid-template-columns: 1fr 1fr; }
-    .rollup-filters label:nth-child(3) { grid-column: 1; }
-    .rollup-filters .btn { grid-column: 2; align-self: end; }
-    .rollup-table { min-width: 700px; }
     .machine-group li { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   }
   .environment-machines { display: grid; gap: 10px; margin-top: 16px; }
@@ -1048,18 +1047,4 @@
   .report-list strong { font-size: 0.78rem; font-weight: 500; }
   .report-list span { font-size: 0.75rem; color: var(--muted); }
   .additional-usage { border-top: 1px solid var(--line); margin-top: 20px; }
-  .rollup-mobile { display: none; }
-  .rollup-table th:first-child, .rollup-table td:first-child { position: sticky; left: 0; background: var(--card); z-index: 1; }
-  @media (max-width: 1000px) {
-    .rollup-desktop { display: none; }
-    .rollup-mobile { display: grid; gap: 12px; list-style: none; margin: 20px 0 0; padding: 0; }
-    .usage-card { padding: 16px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
-    .usage-card h3 { margin: 0; font: 600 1.2rem/1.3 var(--serif); overflow-wrap: anywhere; }
-    .usage-source { display: block; color: var(--muted); font-size: 0.75rem; overflow-wrap: anywhere; margin-top: 4px; }
-    .usage-card dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0 12px; }
-    .usage-card dt { color: var(--muted); font-size: 0.75rem; }
-    .usage-card dd { margin: 3px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
-    .usage-card .team-details { border-top: 1px solid var(--line); margin-top: 12px; }
-    .machine-group li { grid-template-columns: 1fr; }
-  }
 </style>

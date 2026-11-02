@@ -98,6 +98,10 @@ type ChatEvent struct {
 
 type chatLog struct {
 	mu        sync.Mutex
+	st        *store.Store
+	uid       int64
+	sessionID string
+	loadOnce  sync.Once
 	events    []ChatEvent
 	seq       int64
 	bytes     int
@@ -130,6 +134,7 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 	if err != nil || len(data) > maxChatBytes {
 		return
 	}
+	l.ensureLoaded()
 	nowMs := time.Now().UnixMilli()
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -322,6 +327,9 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 		l.events = l.events[1:]
 		l.truncated = true
 	}
+	if l.st != nil {
+		_ = l.st.AppendTerminalChatEventFor(l.uid, l.sessionID, l.seq, nowMs, data)
+	}
 	for id, ch := range l.subs {
 		select {
 		case ch <- l.events[len(l.events)-1]:
@@ -493,9 +501,44 @@ func (b *Broker) chatLog(uid int64, session string) *chatLog {
 	l := b.chats[key]
 	if l == nil {
 		l = newChatLog()
+		l.st, l.uid, l.sessionID = b.st, uid, session
 		b.chats[key] = l
 	}
 	return l
+}
+
+// ensureLoaded restores a chat's stored transcript once, so a controller
+// restart or a reboot does not lose the conversation the browser was showing.
+// A live ring always wins: an event published before this runs keeps its seq
+// and the stored rows continue from there.
+func (l *chatLog) ensureLoaded() {
+	if l.st == nil {
+		return
+	}
+	l.loadOnce.Do(func() {
+		stored, err := l.st.TerminalChatEventsFor(l.uid, l.sessionID)
+		if err != nil || len(stored) == 0 {
+			return
+		}
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if len(l.events) > 0 {
+			return
+		}
+		for _, e := range stored {
+			var event terminalproto.ACPEvent
+			if json.Unmarshal(e.Event, &event) != nil {
+				continue
+			}
+			l.events = append(l.events, ChatEvent{Seq: e.Seq, ACPEvent: event})
+			l.bytes += len(e.Event)
+		}
+		if len(l.events) == 0 {
+			return
+		}
+		l.seq = l.events[len(l.events)-1].Seq
+		l.truncated = l.events[0].Seq > 1
+	})
 }
 
 func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
@@ -668,7 +711,9 @@ func (b *Broker) autoAnswer(uid int64, session, permissionID string) {
 // cancel it. A reconnecting client always starts from a reset and the full
 // current ring; Seq lets it ignore a duplicate it has already shown.
 func (b *Broker) SubscribeChat(uid int64, session string) ([]ChatEvent, bool, <-chan ChatEvent, func()) {
-	return b.chatLog(uid, session).subscribe()
+	l := b.chatLog(uid, session)
+	l.ensureLoaded()
+	return l.subscribe()
 }
 
 // CloseChat forgets a chat's in-memory history and closes its subscribers.
@@ -681,9 +726,13 @@ func (b *Broker) closeChat(uid int64, session string) {
 	l := b.chats[key]
 	delete(b.chats, key)
 	delete(b.approvals, key)
+	st := b.st
 	b.mu.Unlock()
 	if l != nil {
 		l.close()
+	}
+	if st != nil {
+		_ = st.DeleteTerminalChatEventsFor(uid, session)
 	}
 }
 

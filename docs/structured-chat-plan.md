@@ -430,6 +430,20 @@ why it closed: a lost chat explains that reet lost contact (for example when the
 history, held only in memory, is gone, so a new chat is needed; a chat that merely exited says only that it ended, because the state cannot tell a chat that stopped on its own from one the person ended. Adopting a surviving native session after a
 connector restart is not implemented and not claimed.
 
+### SC5 progress: connector restart and controller transcript recovery (2 November 2026)
+
+Gap 4 is closed without a new process model. A structured chat's OpenCode id is recorded on the machine beside the
+terminal state; when the connector process starts again after an upgrade, a crash or a reboot, it reopens each recorded
+chat with `session/load` under the same reet session id, drops the replay (the controller already has the transcript),
+and reports the row running so the controller adopts it instead of marking it lost. Ending a chat, archiving it or
+switching it to the OpenCode TUI removes its record. Folder trust is re-checked, YOLO is re-checked against the account
+and the machine switch, records older than seven days are dropped, and a failed reopen is attempted at most three times.
+The controller now stores the same bounded transcript (1,000 events / 256 KiB per session) in SQLite, so its own restart
+or a reboot restores the conversation rather than just the row; archiving still drops it. A lost row can return to
+running only for a structured chat, so a plain shell is never resurrected. Detached per-session workers and turn
+generations across a native process restart remain future work; a turn in flight when the connector stopped is reported
+as stopped, not resumed.
+
 **Proposed order:** (1) bounded force-stop for an ignored cancel: after a grace period without an acknowledgement, end the chat explicitly with a notice
 and confirm the process group is gone, rather than leaving it busy; (2) tests for gaps 2 and 3 first, fixing only what they show; (3) say why a chat ended
 when the connector restarted; (4) descriptor-driven controls when a second agent needs them.

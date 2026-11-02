@@ -53,8 +53,8 @@ This does not add an effort control or change model selection at launch.
 In **Start an agent**, choose OpenCode on a machine that advertises `acp`. The **Session** choice is **Gaffer** by
 default; choose **OpenCode TUI** for the terminal UI. The **Model** control chooses the model for the chat; leave it at
 **Agent default** to use the model configured in OpenCode. Thinking stays OpenCode's own. The opening prompt becomes the
-first message. The dialog states that the folder's `.opencode` plugins run when it starts and that history lives in
-memory.
+first message. The dialog states that the folder's `.opencode` plugins run when it starts, and that a chat can be
+restored after reet restarts on the machine.
 
 The session appears in the usual list with its title and state. Its screen opens on **Gaffer**. The header's **OpenCode
 TUI** button switches the same live session to OpenCode's own terminal UI, and back, on a machine that negotiated
@@ -68,7 +68,9 @@ resolved, and uses the existing 1,000-event / 256 KiB queue limits, including af
 recovery also restores already delivered pending questions with their original tokens and complete schemas. Their schemas count against the same
 queue limit. Resolutions while detached settle the retained waiting state; a replacement controller without question support receives no question
 frames and the connector cancels pending questions. Questions first asked without a live recipient are still cancelled. This recovery does not enable
-typed questions: form capability remains off pending the device checks. Restarting the agent process ends its chats.
+typed questions: form capability remains off pending the device checks. Restarting the agent process, or rebooting the
+machine, is followed by the connector reopening the chats it was running from OpenCode's own store
+([below](#recovery-after-a-connector-restart-or-reboot)).
 
 ## The transcript
 
@@ -147,8 +149,9 @@ folder, as the connector's user. All seven conditions are mandatory:
 A structured session row keeps OpenCode's own session id (`ses_…`) once the machine reports it. When a reet session is closed, its
 actions menu offers **Continue in Gaffer with history…**. That creates a **new** reet session row with `resumeAcp` set to the
 old id; the old row stays in history. The machine runs `session/load` with the same folder, checks mode `build`, and
-replays OpenCode's stored conversation before the new Gaffer is ready. The controller keeps no transcript: the history is
-read from OpenCode each time, in memory, and is lost if that machine's OpenCode store is gone.
+replays OpenCode's stored conversation before the new Gaffer is ready. The controller also keeps a bounded transcript of
+the conversation it has shown, restored with the session after a controller restart; the replay is still read from
+OpenCode, so a machine whose OpenCode store is gone cannot be continued with history.
 
 Replayed tools left `pending` or `in_progress` are shown as interrupted, not as still working. Pending approvals are not restored; a new prompt starts cleanly. The controller will only load an id that belongs to one of the account's own closed
 structured sessions on that machine, so a crafted `resumeAcp` cannot read another project's OpenCode history.
@@ -240,11 +243,34 @@ the status pill, the **Approvals** line and the context panel's decisions follow
   stopping anything: the OpenCode TUI keeps running untouched. The dialog then shows the plugin warning and an **I trust
   this folder** confirmation, and sends the switch again with the person's trust.
 
+## Recovery after a connector restart or reboot
+
+A machine upgrade restarts the connector, and a reboot does both. Chats used to end there. Now the connector keeps a
+private record of the structured chats it was running, beside its terminal state, and the next connector process reopens
+each one with `session/load` under the same reet session id. The controller then adopts the row instead of marking it
+lost, so a session survives an upgrade or a reboot rather than asking for a new chat.
+
+- **OpenCode keeps the conversation.** The record holds only which `ses_…` belongs to which reet session, its folder,
+  model, approval mode and folder trust. The conversation itself is read from OpenCode's own store.
+- **Only chats that were live are reopened.** Ending a chat, archiving it, or switching it to the OpenCode TUI removes its
+  record. A record left by a crash is retried on the next start.
+- **The replay is not shown twice.** The controller already holds the transcript (live, or restored from its own store),
+  so the connector drops OpenCode's `session/load` replay and adds a notice that the chat was restored. A reply that was
+  running when the connector stopped was stopped; the chat starts idle and can be prompted again.
+- **The gates still apply.** The folder trust recorded at launch is re-checked, so a folder that gained `.opencode`
+  plugins is not reopened without a confirmation. YOLO is re-checked against the account and the machine's local switch,
+  and a chat whose YOLO is no longer allowed reopens asking. A missing or broken OpenCode installation, an unresolvable
+  folder, or a disabled machine environment drops the record.
+- **Bounded and forgetful.** Records older than seven days are dropped, and a record that fails to reopen is retried at
+  most three times. A connector that stops does not leave its chats in the controller's quota: the controller marks a
+  chat lost only if the next connector does not report it running.
+
 ## Limits
 
-- **History is in memory.** The controller keeps at most 1,000 events / 256 KiB per reet session and does not write a transcript.
-  A closed Gaffer session can be reopened from OpenCode's own store with Continue in Gaffer with history…; the live event ring still
-  resets on a server restart, and archiving a session drops its controller-side ring.
+- **History is kept, bounded.** The controller keeps at most 1,000 events / 256 KiB per reet session in its SQLite database,
+  and the live ring uses the same bounds. A controller restart or a reboot restores that transcript with the session; archiving
+  a session drops it. A closed Gaffer session can also be reopened from OpenCode's own store with Continue in Gaffer with
+  history…
 - **The browser's log is bounded too.** Gaffer keeps at most 400 items / 256 KiB of the conversation, drops the
   oldest first and says when earlier messages are no longer shown; an approval still waiting for an answer is never
   dropped. A continued chat replaying a long OpenCode history therefore stays responsive instead of building an
@@ -256,8 +282,8 @@ the status pill, the **Approvals** line and the context panel's decisions follow
   answered.
 - **A control connection loss does not end a reet session.** The connector owns one process per reet session for the life of
   the agent process. A reconnect adopts the running sessions, includes them in reconciliation, and drains the bounded event
-  queue produced while detached. Restarting the agent ends them; their stored OpenCode ids can still be reopened if that
-  store survives.
+  queue produced while detached. A connector restart or machine reboot reopens the recorded chats from OpenCode's store;
+  see [Recovery after a connector restart or reboot](#recovery-after-a-connector-restart-or-reboot).
 - **Only OpenCode, at least 1.19.5.** No other agent has an ACP adapter in this slice. A machine with an older OpenCode
   shows the version refusal; a newer release passes the name and semver checks.
 - **The model is chosen at launch.** **Agent default** uses OpenCode's configured model. A chosen model is passed in

@@ -383,13 +383,14 @@ const TOOL_LABELS: Record<string, string> = {
 }
 
 /** The short all-caps word a tool row leads with: Bash, Read, Edit… */
-/** Why a closed chat is closed, in words. A chat's live history is kept only in the machine's connector process, so what the person can do
- *  next depends on how it ended. `name` is the tool's product name. */
+/** Why a closed chat is closed, in words. The transcript already shown stays on screen even when the machine can no
+ *  longer reopen the chat, so the message says what can be done next rather than claiming the shown history is gone.
+ *  `name` is the tool's product name. */
 export function endedReason(state: string, name: string): string {
-  if (state === 'lost') return `reet lost contact with this ${name} chat on the machine, for example when the connection closed or the reet service there restarted. Its live history was held in memory and is gone, so start a new chat to carry on.`
-  if (state === 'ended') return `You ended this ${name} chat. Its live history is not kept after a chat ends.`
+  if (state === 'lost') return `reet lost contact with this ${name} chat on the machine, for example when the connection closed or the reet service there restarted. The chat could not be restored from the agent's own history on the machine, so start a new chat to carry on. What was already shown stays here.`
+  if (state === 'ended') return `You ended this ${name} chat. What was already shown stays here; start a new chat to carry on.`
   // An exited chat is one that stopped on its own or that the person ended: the state does not say which, so it does not guess.
-  return `This ${name} chat has ended. Its live history is not kept after the machine connection closes.`
+  return `This ${name} chat has ended. What was already shown stays here; start a new chat to carry on.`
 }
 
 export function toolLabel(kind: string): string {

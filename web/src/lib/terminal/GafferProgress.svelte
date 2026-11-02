@@ -4,8 +4,8 @@
   import { gafferProgress, gafferQuote, observedTime, recentToolState, type GafferPhase } from '../gafferProgress'
   import GafferAvatar from './GafferAvatar.svelte'
 
-  let { chat, dir = '', worker = 'OpenCode', replayed = true, ended = false }: { chat: ChatState; dir?: string; worker?: string; replayed?: boolean; ended?: boolean } = $props()
-  const view = $derived(gafferProgress(chat, dir, replayed, ended))
+  let { chat, dir = '', agent = 'Agent', replayed = true, ended = false }: { chat: ChatState; dir?: string; agent?: string; replayed?: boolean; ended?: boolean } = $props()
+  const view = $derived(gafferProgress(chat, dir, replayed, ended, agent))
   const needsYou = $derived(view.phase === 'approval' || view.phase === 'question')
   const stopped = $derived(['idle', 'error', 'cancelled', 'ended'].includes(view.phase))
   let paused = $state(false), reduced = $state(false), hidden = $state(false)
@@ -20,7 +20,7 @@
     untrack(() => {
       // A stream reset briefly removes the prompt while history replays. Only a confirmed new prompt starts a new timer.
       if (confirmed && turn !== 'unavailable' && turn !== observedTurn) { observedTurn = turn; observedAt = 0; seconds = 0; details = false }
-      if (phase !== lastPhase && !isPaused) { quote = gafferQuote(phase, quote); lastPhase = phase; quoteAt = Date.now() }
+      if (phase !== lastPhase && !isPaused) { quote = gafferQuote(phase, agent, quote); lastPhase = phase; quoteAt = Date.now() }
       if (visible && view.active && !observedAt) observedAt = Date.now()
     })
   })
@@ -34,7 +34,7 @@
     const timer = setInterval(() => {
       if (view.visible && !stopped && observedAt) seconds = Math.floor((Date.now() - observedAt) / 1000)
       if (!view.active || paused || reduced || hidden) { quoteAt = Date.now(); return }
-      if (Date.now() - quoteAt >= 12_000) { quote = gafferQuote(view.phase, quote); quoteAt = Date.now() }
+      if (Date.now() - quoteAt >= 12_000) { quote = gafferQuote(view.phase, agent, quote); quoteAt = Date.now() }
     }, 1000)
     return () => { clearInterval(timer); media.removeEventListener('change', motion); document.removeEventListener('visibilitychange', visibility) }
   })
@@ -45,7 +45,7 @@
     <div class="gaffer-main">
       <div class="portrait"><GafferAvatar active={view.active} paused={paused || hidden} /></div>
       <div class="brief">
-        <div class="byline"><strong>Gaffer</strong><span class="role">The boss</span><span class="worker">{worker} · worker</span></div>
+        <div class="byline"><strong>Gaffer</strong><span class="role">The boss</span><span class="agent">{agent}</span></div>
         <div class="live-update" role="status" aria-live="polite" aria-atomic="true">
           <span class="signal" class:live={view.active} aria-hidden="true">{#if needsYou}?{:else if view.phase === 'idle'}✓{:else if view.phase === 'error'}!{:else}<i></i><i></i><i></i>{/if}</span>
           <strong>{view.label}</strong>
@@ -59,7 +59,7 @@
     </div>
     <div class="foot">
       <span class="supervising"><span aria-hidden="true">↳</span> {needsYou ? 'Waiting for your say-so' : view.phase === 'reconnecting' ? 'Waiting for a live connection' : stopped ? 'Over to you' : 'Gaffer’s keeping an eye on it'}</span>
-      {#if observedAt}<span class="elapsed" title="Time since this view first observed the worker active; includes waiting. Earlier work may have happened before you opened it." aria-live="off">{observedTime(seconds)} in view</span>{/if}
+      {#if observedAt}<span class="elapsed" title="Time since this view first observed the agent active; includes waiting. Earlier work may have happened before you opened it." aria-live="off">{observedTime(seconds)} in view</span>{/if}
       {#if view.recent.length}
         <button type="button" class="quiet activity" aria-expanded={details} onclick={() => details = !details}>
           {view.phase === 'reconnecting' ? 'Last seen: ' : view.partial ? 'Recent: ' : ''}{view.completed} done{#if view.running} · {view.running} active{/if}{#if view.failed} · {view.failed} failed{/if}
@@ -92,7 +92,7 @@
   .byline { display: flex; align-items: baseline; gap: 9px; color: var(--muted); font: 10px/1.3 var(--sans); }
   .byline > strong { color: var(--ink); font: 600 16px/1.2 var(--serif); }
   .role { font-size: 9px; letter-spacing: .09em; text-transform: uppercase; color: var(--tone); }
-  .worker { margin-left: auto; font-family: var(--mono); }
+  .agent { margin-left: auto; font-family: var(--mono); }
   .live-update { display: flex; align-items: center; gap: 7px; min-width: 0; margin-top: 8px; font: 12px/1.5 var(--sans); }
   .live-update > strong { font-weight: 500; color: var(--ink); flex: none; }
   .target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--muted); font: 11px/1.5 var(--mono); }
@@ -137,7 +137,7 @@
   @container gaffer (max-width: 540px) {
     .gaffer-main { gap: 9px; padding: 11px 10px; }
     .portrait { width: 50px; height: 50px; align-self: flex-start; }
-    .worker { display: none; }
+    .agent { display: none; }
     .live-update { flex-wrap: wrap; gap: 2px 6px; margin-top: 6px; }
     .live-update > strong { flex: 1; min-width: 0; }
     .target { flex-basis: 100%; padding-left: 20px; }

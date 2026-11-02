@@ -61,24 +61,32 @@ test('current turn excludes earlier tools and reasoning, and never treats failed
 })
 
 test('pending, thinking, response and generic waiting do not invent a running command', () => {
-  assert.equal(gafferProgress(state(prompt, working, tool('one', 'pending'))).label, 'Worker preparing a tool')
+  assert.equal(gafferProgress(state(prompt, working, tool('one', 'pending')), '', true, false, 'OpenCode').label, 'OpenCode preparing a tool')
+  assert.equal(gafferProgress(state(prompt, working, tool('one', 'pending'))).label, 'Agent preparing a tool')
   assert.equal(gafferProgress(state(prompt, working, tool('thought', 'in_progress', { toolKind: 'think' }))).phase, 'planning')
   assert.equal(gafferProgress(state(prompt, working, { kind: 'agent', messageId: 'm', text: 'Here is what changed' })).phase, 'responding')
   assert.equal(gafferProgress(state(prompt, { kind: 'status', state: 'waiting' })).active, false)
   assert.equal(gafferProgress(state(prompt, { kind: 'status', state: 'cancelled' })).phase, 'cancelled')
 })
 
-test('quotes are contextual, do not immediately repeat, and single-choice states remain valid', () => {
+test('quotes are contextual, name the agent, do not immediately repeat, and single-choice states remain valid', () => {
   for (const phase of ['planning', 'reading', 'editing', 'running', 'approval', 'question', 'error', 'reconnecting', 'idle']) {
-    const first = gafferQuote(phase, '', () => 0)
-    const next = gafferQuote(phase, first, () => 0)
+    const first = gafferQuote(phase, 'Claude Code', '', () => 0)
+    const next = gafferQuote(phase, 'Claude Code', first, () => 0)
     assert.equal(typeof first, 'string')
     assert.notEqual(first, next)
-    assert.match(first, /worker/)
+    assert.match(first, /Claude Code/)
+    assert.doesNotMatch(first, /worker/i)
   }
   const ended = gafferQuote('ended')
-  assert.equal(gafferQuote('ended', ended), ended)
+  assert.equal(gafferQuote('ended', 'Agent', ended), ended)
   assert.equal(observedTime(0), '0s')
   assert.equal(observedTime(83), '1m 23s')
   assert.equal(observedTime(3601), '60m 01s')
+})
+
+test('progress and quotes fall back to Agent when the name is empty', () => {
+  const chat = state(prompt, working, tool('one', 'pending'))
+  assert.equal(gafferProgress(chat, '', true, false, '').label, 'Agent preparing a tool')
+  assert.match(gafferQuote('planning', '  ', '', () => 0), /Agent/)
 })

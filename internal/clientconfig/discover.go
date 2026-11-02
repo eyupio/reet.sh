@@ -93,3 +93,17 @@ func Discover(server, host, tokenFile string) Connection {
 	}
 	return c
 }
+
+// EnvName is the machine name set by REET_ENV, in the process environment or an
+// env file. It is empty when neither sets one, so callers fall back to the hostname.
+func EnvName() string {
+	if v := os.Getenv("REET_ENV"); v != "" {
+		return v
+	}
+	for _, p := range envFileCandidates() {
+		if v, ok, err := envFileValue(p, "REET_ENV"); err == nil && ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}

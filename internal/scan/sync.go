@@ -213,7 +213,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	token := fs.String("token", "", "personal token (env REET_TOKEN)")
 	tokenFile := fs.String("env-file", "", "read REET_TOKEN from an explicit env file")
 	targetID := fs.String("target", "", "target ID from Your account")
-	host := fs.String("env", os.Getenv("REET_ENV"), "local environment name (default hostname)")
+	host := fs.String("env", clientconfig.EnvName(), "local environment name (default hostname)")
 	apply := fs.Bool("apply", false, "preview, then ask before installing/removing skills")
 	config := fs.String("config", agentConfigPath(), "enrolled machine configuration")
 	if err := fs.Parse(args); err != nil {

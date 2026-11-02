@@ -95,7 +95,7 @@ func runTUI(screen string, args []string, version, commit string) error {
 		server := fs.String("server", os.Getenv("REET_URL"), "controller URL (default REET_URL)")
 		token := fs.String("token", "", "personal API token (default saved token or REET_TOKEN)")
 		envFile := fs.String("env-file", "", "read REET_TOKEN from an explicit env file")
-		envName := fs.String("env", os.Getenv("REET_ENV"), "environment name for this machine (default hostname)")
+		envName := fs.String("env", clientconfig.EnvName(), "environment name for this machine (default hostname)")
 		prune := fs.Bool("prune", false, "remove stale inventory reports for scanned environments")
 		reconcile := fs.Bool("reconcile", false, "repair hostname/env aliases before scanning")
 		dry := fs.Bool("dry-run", false, "list what would be sent without sending it")
@@ -129,7 +129,7 @@ func runTUI(screen string, args []string, version, commit string) error {
 		token := fs.String("token", "", "personal API token (default saved token or REET_TOKEN)")
 		envFile := fs.String("env-file", "", "read REET_TOKEN from an explicit env file")
 		target := fs.String("target", "", "target ID from Account")
-		envName := fs.String("env", os.Getenv("REET_ENV"), "local environment name (default hostname)")
+		envName := fs.String("env", clientconfig.EnvName(), "local environment name (default hostname)")
 		config := fs.String("config", "", "private machine enrollment file")
 		dir := fs.String("dir", "", "project directory (default current directory)")
 		apply := fs.Bool("apply", false, "apply after the preview")
@@ -172,6 +172,9 @@ func runTUI(screen string, args []string, version, commit string) error {
 		}
 		if fs.NArg() != 0 {
 			return errors.New("unexpected backup arguments")
+		}
+		if err := applyServerEnvFile(""); err != nil {
+			return err
 		}
 		opts.Start = tui.ScreenBackup
 		opts.BackupDataDir = *dir
@@ -316,7 +319,7 @@ func runTUI(screen string, args []string, version, commit string) error {
 			server := fs.String("server", os.Getenv("REET_URL"), "controller URL")
 			token := fs.String("token", "", "personal token for enrollment (env REET_TOKEN)")
 			envFile := fs.String("env-file", "", "read enrollment REET_TOKEN from an explicit env file")
-			host := fs.String("env", os.Getenv("REET_ENV"), "stable machine name")
+			host := fs.String("env", clientconfig.EnvName(), "stable machine name")
 			config := fs.String("config", "", "private machine enrollment file")
 			allow := fs.Bool("allow-apply", false, "allow this installation to execute approved plans")
 			var projects []string

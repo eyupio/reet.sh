@@ -209,6 +209,15 @@ func ResolveToken(explicit, envFile string, in io.Reader, out io.Writer) (string
 			return "", err
 		}
 	}
+	if token == "" && envFile == "" {
+		// REET_ENV_FILE or ./.env, the same files the server and TUI read.
+		if file := Discover("", "", "").TokenFile; file != "" {
+			var err error
+			if token, err = tokenFromEnvFile(file); err != nil {
+				return "", err
+			}
+		}
+	}
 	if token == "" {
 		var err error
 		token, err = loadSavedToken()

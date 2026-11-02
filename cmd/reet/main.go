@@ -211,6 +211,11 @@ backup to preserve accounts, lists, teams and sync references.
 			log.Fatal(err)
 		}
 	case "backup":
+		// Like serve, backup reads REET_DATA_DIR and REET_BACKUP_* from .env.
+		if err := applyServerEnvFile(""); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 		if err := runBackup(args, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)

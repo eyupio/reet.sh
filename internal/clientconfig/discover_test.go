@@ -3,6 +3,7 @@ package clientconfig
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -33,5 +34,25 @@ func TestDiscoverReportsMissingToken(t *testing.T) {
 	t.Chdir(dir)
 	if c := Discover("", "", ""); c.HasToken() || c.Server != "" {
 		t.Fatalf("unexpected %+v", c)
+	}
+}
+
+func TestResolveUsesProjectEnvWithoutPrompting(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	for _, k := range []string{"REET_URL", "REET_TOKEN", "REET_ENV", "REET_ENV_FILE"} {
+		t.Setenv(k, "")
+	}
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("REET_URL=https://reet.example\nREET_TOKEN=tok123\n"), 0o600)
+	t.Chdir(dir)
+	var out strings.Builder
+	url, err := ResolveURL("", strings.NewReader(""), &out)
+	if err != nil || url != "https://reet.example" {
+		t.Fatalf("url %q %v", url, err)
+	}
+	token, err := ResolveToken("", "", strings.NewReader(""), &out)
+	if err != nil || token != "tok123" || out.Len() != 0 {
+		t.Fatalf("token %q %v out=%q", token, err, out.String())
 	}
 }

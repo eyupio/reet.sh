@@ -1558,6 +1558,9 @@ try {
   await expect(page.getByRole('tooltip')).toContainText("Reet's native AI agent control interface.")
   await page.keyboard.press('Escape')
   await slot(page,'TUI').click()
+  // Opening the list moves focus to the selected option, which opens its explanation below it. That one was opened by focus,
+  // not hover, so it must not catch a click on the option it covers.
+  await expect(page.getByRole('tooltip')).toHaveCSS('pointer-events','none')
   const nativeOption = page.getByRole('option', { name: 'Gaffer', exact: true })
   await nativeOption.focus()
   await expect(page.getByRole('tooltip')).toContainText('manage tool calls and approvals')

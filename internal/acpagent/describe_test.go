@@ -86,6 +86,10 @@ func TestCodexIsDarkUntilTheMachineOptsIn(t *testing.T) {
 	if len(spec.ChoosableModes) != 2 || spec.ChoosableModes[0] != "read-only" || spec.ChoosableModes[1] != "agent" {
 		t.Fatalf("choosable modes: %v", spec.ChoosableModes)
 	}
+	// A chat opens in the first choosable mode: the broker records it as the start mode.
+	if spec.ChoosableModes[0] != spec.StartMode {
+		t.Fatalf("the first choosable mode %q is not the start mode %q", spec.ChoosableModes[0], spec.StartMode)
+	}
 	got := Describe("codex", true, "")
 	if got.State != "available" || !got.Valid() || got.Adapter != "codex-acp" || got.MinimumVersion != "1.13.1" {
 		t.Fatalf("opted-in codex: %+v", got)

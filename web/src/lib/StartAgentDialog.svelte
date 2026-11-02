@@ -553,6 +553,16 @@
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="body" data-shell-body tabindex={locked ? 0 : undefined} role={locked ? 'region' : undefined} aria-label={locked ? 'Your choices' : undefined}>
   <fieldset disabled={locked}>
+   {#if projects.length}
+    <div class="field">
+     <label for={`${id}-project`}>Project <span class="optional">optional</span></label>
+     <select id={`${id}-project`} value={projectSel} onchange={(event) => pickProject((event.currentTarget as HTMLSelectElement).value)}>
+      <option value="">No project</option>
+      {#each projects as item (item.id)}<option value={item.id} disabled={item.id !== projectSel && !projectReady(item)}>{item.name}{item.machine ? ` · ${item.machine}` : ''}{projectReady(item) ? '' : ' · machine not ready'}</option>{/each}
+     </select>
+    </div>
+   {/if}
+
    <div class="field">
     <label for={`${id}-machine`}>Machine</label>
     <select id={`${id}-machine`} bind:this={machineSelect} bind:value={agentId} aria-describedby={[switchedNote ? `${id}-switched` : '', blocked ? `${id}-blocked` : ''].filter(Boolean).join(' ') || undefined}>
@@ -564,26 +574,12 @@
     {#if onaddmachine}<button type="button" class="linklike" onclick={addMachine}>Not listed? Add a machine</button>{/if}
    </div>
 
-   {#if projects.length}
-    <div class="field">
-     <label for={`${id}-project`}>Project <span class="optional">optional</span></label>
-     <select id={`${id}-project`} value={projectSel} onchange={(event) => pickProject((event.currentTarget as HTMLSelectElement).value)}>
-      <option value="">No project</option>
-      {#each projects as item (item.id)}<option value={item.id} disabled={item.id !== projectSel && !projectReady(item)}>{item.name}{item.machine ? ` · ${item.machine}` : ''}{projectReady(item) ? '' : ' · machine not ready'}</option>{/each}
-     </select>
-     <p class="hint">A project fills in its machine and folder, and the session is listed under it.</p>
-    </div>
-   {/if}
-
    <div class="field">
     <label for={`${id}-tool`}>Agent</label>
-    <select id={`${id}-tool`} value={chosenTool} disabled={!choices.some(c => c.available)} aria-describedby={choices.some(c => !c.available) ? `${id}-tool-why` : undefined} onchange={(event) => selectTool((event.currentTarget as HTMLSelectElement).value)}>
+    <select id={`${id}-tool`} value={chosenTool} disabled={!choices.some(c => c.available)} onchange={(event) => selectTool((event.currentTarget as HTMLSelectElement).value)}>
      {#if !chosenTool}<option value="" disabled>No agent available</option>{/if}
-     {#each choices as choice (choice.id)}<option value={choice.id} disabled={!choice.available}>{choice.name}{choice.available ? '' : ' · unavailable'}</option>{/each}
+     {#each choices as choice (choice.id)}<option value={choice.id} disabled={!choice.available}>{choice.name}{choice.available ? '' : ` · ${choice.reason}`}</option>{/each}
     </select>
-    {#if choices.some(c => !c.available)}
-     <p class="hint" id={`${id}-tool-why`}>{choices.filter(c => !c.available).map(c => `${c.name}: ${c.reason}`).join(' ')}</p>
-    {/if}
    </div>
 
    {#if chosenTool === 'opencode' && machine && !chatCapable}
@@ -616,7 +612,6 @@
      <span class="value">{modelLabel}</span><span class="chev" aria-hidden="true">⌄</span>
     </button>
     {#if modelChoice === OTHER && modelError}<p class="reason" id={`${id}-model-error`}>{modelError}</p>{/if}
-    <p class="hint">Suggestions are hints. The agent says itself if it doesn't know a model.</p>
     {#if structured}<p class="hint">Gaffer uses this model. Leave it at {chatToolName(chosenTool)}’s configured model to keep {chatToolName(chosenTool)}’s own; its thinking comes from {chatToolName(chosenTool)}.</p>{/if}
    </div>
 
@@ -644,11 +639,13 @@
    </div>
 
    <div class="field">
-    <label for={`${id}-prompt`}>Opening prompt <span class="optional">optional</span></label>
+    <div class="label-row">
+     <label for={`${id}-prompt`}>Opening prompt <span class="optional">optional</span></label>
+     <button type="button" class="linklike skill-add" bind:this={skillButton} disabled={!chosenTool} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button>
+    </div>
     <textarea id={`${id}-prompt`} bind:this={promptInput} bind:value={prompt} rows="3" disabled={!chosenTool} aria-invalid={promptError ? 'true' : undefined} aria-describedby={`${id}-prompt-count${promptError ? ` ${id}-prompt-error` : ''}`}></textarea>
     <p class="hint count" id={`${id}-prompt-count`} class:over={promptBytes > MAX_PROMPT_BYTES}>{promptBytes.toLocaleString('en-GB')} of {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes. Secrets don't belong here.</p>
     {#if promptError}<p class="reason" id={`${id}-prompt-error`}>{promptError}</p>{/if}
-    <button type="button" class="linklike skill-add" bind:this={skillButton} disabled={!chosenTool} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button>
    </div>
 
    <!-- Approvals: Ask me is the default. YOLO opens a confirmation first and is never remembered. -->
@@ -702,6 +699,8 @@
  fieldset { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 18px; }
  .field { display: grid; gap: 6px; min-width: 0; }
  label { font-size: .85rem; font-weight: 600; }
+ .label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+ .label-row .skill-add { min-height: 28px; padding: 0; }
  label.sub { font-weight: 500; margin-top: 4px; }
  .optional { color: var(--muted); font-weight: 400; font-size: .78rem; }
  select, input:not([type=radio]), textarea { min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }

@@ -120,10 +120,10 @@ const parts=d=>({
  effort:d.getByRole('combobox',{name:'Thinking',exact:true}),
  prompt:d.getByRole('textbox',{name:/^Opening prompt/}),
  agent:d.getByRole('combobox',{name:'Agent',exact:true}),
- agentWhy:d.locator('[id$="-tool-why"]'),
+ agentWhy:d.getByRole('combobox',{name:'Agent',exact:true}),
  opt:name=>d.getByRole('combobox',{name:'Agent',exact:true}).locator('option').filter({hasText:new RegExp('^'+name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'( ·|$)')}),
  pick:name=>d.getByRole('combobox',{name:'Agent',exact:true}).selectOption({label:name}),
- chosen:name=>expect(d.getByRole('combobox',{name:'Agent',exact:true}).locator('option:checked')).toHaveText(new RegExp('^'+name+'( · unavailable)?$')),
+ chosen:name=>expect(d.getByRole('combobox',{name:'Agent',exact:true}).locator('option:checked')).toHaveText(new RegExp('^'+name+'( ·.*)?$')),
  status:d.getByRole('status'),
  sentence:d.locator('.sentence'),
  count:d.locator('.count'),
@@ -172,8 +172,8 @@ try{
  await expect(p.opt('Gemini CLI')).toBeEnabled()
  await expect(p.opt('Cline')).toBeEnabled()
  await expect(p.opt('OpenCode')).toBeDisabled()
- await expect(p.agentWhy).toContainText('OpenCode: Not installed on dev-laptop')
- await expect(p.agentWhy).not.toContainText('Claude Code:')
+ await expect(p.agentWhy).toContainText('OpenCode · Not installed on dev-laptop')
+ await expect(p.agentWhy).not.toContainText('Claude Code ·')
  // The reason is text to read, not a disabled control: it is not faded (an axe scan found it below contrast when it was).
  expect(await p.agentWhy.evaluate(el=>{let o=1;for(let n=el;n&&n.tagName!=='DIALOG';n=n.parentElement)o*=Number(getComputedStyle(n).opacity);return o})).toBe(1)
  // Machines: every machine listed; the one not ready cannot be chosen.
@@ -446,7 +446,7 @@ try{
  await p.machine.selectOption(B)
  await expect(p.machine).toHaveAccessibleDescription('Update reet on this machine to start agents.')
  await expect(d.locator('p.reason')).toHaveText(['Update reet on this machine to start agents.'])
- for(const name of ['Claude Code','Codex','OpenCode','Gemini CLI','Cline']){await expect(p.opt(name)).toBeDisabled();await expect(p.agentWhy).toContainText(name+': Update reet on that machine')}
+ for(const name of ['Claude Code','Codex','OpenCode','Gemini CLI','Cline']){await expect(p.opt(name)).toBeDisabled();await expect(p.agentWhy).toContainText(name+' · Update reet on that machine')}
  await expect(p.opt('Pi')).toBeDisabled()
  await expect(p.opt('Cursor Agent')).toBeDisabled()
  await expect(p.start).toBeDisabled()
@@ -749,7 +749,7 @@ try{
  d=dialog();p=parts(d)
  await expect(p.machine).toHaveValue(LONG_ID)
  await expect(p.machine.locator('option:checked')).toHaveText(LONG_HOST)
- await expect(p.agentWhy).toContainText('Codex: Not installed on '+LONG_HOST)
+ await expect(p.agentWhy).toContainText('Codex · Not installed on '+LONG_HOST)
  await p.folder.selectOption(LONG_DIR)
  await expect(p.folder.locator('option:checked')).toHaveText(LONG_DIR)
  await expect(p.sentence).toHaveText(`Starts Claude Code in ${LONG_DIR} on ${LONG_HOST}. Nothing runs until you press Start.`)

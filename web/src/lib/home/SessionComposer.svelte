@@ -301,7 +301,7 @@
       </fieldset>
       {#if message}<p class="error" role="alert">{message}</p>{/if}
     </div>
-    <footer data-shell-foot><span>{reading ? 'Reading images…' : 'Your prompt and images are saved to your account.'}</span><button type="button" class="btn" onclick={close} disabled={busy || reading}>Cancel</button><button class="btn primary" disabled={busy || reading || bytes > 2000 || !machines.length}>{busy ? 'Saving…' : draft ? 'Save changes' : idea ? 'Save idea' : 'Add to backlog'}</button></footer>
+    <footer data-shell-foot><span>{reading ? 'Reading images…' : 'Your prompt and images are saved to your account.'}</span><button type="button" class="btn" onclick={close} disabled={busy || reading}>Cancel</button><button class="btn primary" disabled={busy || reading || bytes > 2000 || !machines.length} aria-busy={busy}>{busy ? 'Saving…' : draft ? 'Save changes' : idea ? 'Save idea' : 'Add to backlog'}</button></footer>
   </form>
   {#if modelOpen}
     <SlotPicker label="Model" options={modelOptionsFor()} value={model} sheet={touch} opener={modelButton ?? null}

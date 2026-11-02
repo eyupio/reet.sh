@@ -59,7 +59,7 @@
     </fieldset>
     <div class="actions" data-shell-foot>
       <button type="button" class="btn quiet" disabled={busy} onclick={close}>Cancel</button>
-      <button type="button" class="btn primary" disabled={!valid || busy} onclick={save}>{busy ? 'Saving…' : group ? 'Save group' : 'Create group'}</button>
+      <button type="button" class="btn primary" disabled={!valid || busy} aria-busy={busy} onclick={save}>{busy ? 'Saving…' : group ? 'Save group' : 'Create group'}</button>
     </div>
   </div>
 </dialog>

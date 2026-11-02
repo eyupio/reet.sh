@@ -52,7 +52,7 @@
       <label for="reset-confirm">New password again</label>
       <PasswordInput id="reset-confirm" bind:value={confirm} autocomplete="new-password" placeholder="Repeat the password" minlength={8} />
       {#if error}<p class="error" id="reset-error" role="alert">{error}</p>{/if}
-      <button type="submit" class="btn primary submit" disabled={busy || !token}>{busy ? 'Saving…' : 'Set the new password'}</button>
+      <button type="submit" class="btn primary submit" disabled={busy || !token} aria-busy={busy}>{busy ? 'Saving…' : 'Set the new password'}</button>
     </form>
     <p class="help">The link has expired or was already used? <a href="/signin">Ask for a new one from the sign-in page</a>.</p>
   {/if}

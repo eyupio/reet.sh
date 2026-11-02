@@ -232,7 +232,7 @@
               <span class="hint">{mode === 'note' ? 'The requester never sees notes.' : 'A reply waits on the requester; a closed ticket can be reopened later.'}</span>
               <div class="send-actions">
                 {#if mode === 'reply'}<button type="button" class="btn" disabled={busy || !body.trim()} onclick={() => send('closed')}>Send reply and close</button>{/if}
-                <button type="submit" class="btn primary" disabled={busy || !body.trim()}>{busy ? 'Sending…' : mode === 'note' ? 'Add note' : 'Send reply'}</button>
+                <button type="submit" class="btn primary" disabled={busy || !body.trim()} aria-busy={busy}>{busy ? 'Sending…' : mode === 'note' ? 'Add note' : 'Send reply'}</button>
               </div>
             </div>
           </form>

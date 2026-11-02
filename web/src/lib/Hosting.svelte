@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getHosting, claimPublishingUsername, saveHostedSkill, renameHostedSkill, deleteHostedSkill, type HostedSkill } from './api'
   import { MAX_BUNDLE_BYTES, addPrefix, parseFrontmatter, prepareImports, renameSkillContent, sanitizeSkillName, uniqueSkillName, type ImportInput, type PreparedImport } from './skillImport'
@@ -356,7 +357,7 @@
 <PageHeader eyebrow="Publish on reet.sh" title="Host your own skills." lede="Write a skill, give it a home, and share one install command." />
 {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
 {#if notice}<p class="notice good" role="status">{notice}{#if syncHref && /saved|published|Renamed/.test(notice)} <a href={syncHref}>Put it on a machine →</a>{/if}</p>{/if}
-{#if loading}<p role="status">Loading your skills…</p>
+{#if loading}<Skeleton label="Loading your skills…" shape="cards" count={3} />
 {:else if !canWrite}<p class="notice">Your account is read-only. Ask an admin for publishing access.</p>
 {:else if !username}
   <section class="panel">
@@ -372,7 +373,7 @@
       <label for="publisher-name">Username</label>
       <input id="publisher-name" bind:value={wantedName} required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="64" autocomplete="off" placeholder="your-username" disabled={busy} />
       <small>Lowercase letters, numbers and single hyphens.</small>
-      <button class="btn primary" disabled={busy}>{busy ? 'Claiming…' : 'Claim username'}</button>
+      <button class="btn primary" disabled={busy} aria-busy={busy}>{busy ? 'Claiming…' : 'Claim username'}</button>
     </form>
   </section>
 {:else}
@@ -497,7 +498,7 @@
           </div>
           {#if saveError}<p class="notice bad" role="alert">{saveError}</p>{/if}
           <div class="actions">
-            <button class="btn primary" disabled={busy}>{busy ? 'Saving…' : renameNeeded ? 'Rename and save' : editor.published ? 'Save and publish' : 'Save draft'}</button>
+            <button class="btn primary" disabled={busy} aria-busy={busy}>{busy ? 'Saving…' : renameNeeded ? 'Rename and save' : editor.published ? 'Save and publish' : 'Save draft'}</button>
             {#if originalSlug}<button type="button" class="btn quiet" disabled={busy} onclick={() => deleting = skills.find(s => s.slug === originalSlug) ?? null}>Delete skill</button>{/if}
           </div>
         </form>
@@ -515,7 +516,7 @@
   {#if editor && !importing}
     <div class="save-dock" role="region" aria-label="Save your skill">
       <span class="save-state" aria-live="polite">{busy ? 'Saving…' : dirty ? 'Unsaved changes' : originalSlug ? 'All changes saved' : 'Not saved yet'}</span>
-      <button type="submit" form="skill-form" class="btn primary" disabled={busy}>{busy ? 'Saving…' : renameNeeded ? 'Rename and save' : editor.published ? 'Save and publish' : 'Save draft'}</button>
+      <button type="submit" form="skill-form" class="btn primary" disabled={busy} aria-busy={busy}>{busy ? 'Saving…' : renameNeeded ? 'Rename and save' : editor.published ? 'Save and publish' : 'Save draft'}</button>
     </div>
   {/if}
 {/if}

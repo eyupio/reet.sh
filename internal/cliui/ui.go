@@ -64,6 +64,18 @@ func styled(text, role string, colour bool) string {
 	switch role {
 	case "bold":
 		return s.Bold(true).Render(text)
+	case "cursor":
+		// A solid block, so the chosen row can't be missed.
+		fg, bg := "#111827", "#FB923C"
+		if !dark {
+			fg, bg = "#FFFFFF", "#C2410C"
+		}
+		return s.Bold(true).Foreground(lipgloss.Color(fg)).Background(lipgloss.Color(bg)).Render(text)
+	case "ok":
+		value = "#4ADE80"
+		if !dark {
+			value = "#15803D"
+		}
 	case "muted":
 		value = "#9CA3AF"
 		if !dark {
@@ -105,4 +117,32 @@ func plain(s string) string {
 		}
 		return r
 	}, ansi.Strip(s))
+}
+
+// panel draws text in a rounded box exactly width x height, outer size. The
+// focused panel takes the accent colour.
+func panel(text string, width, height int, focus, colour bool) string {
+	// Lip Gloss treats Height as a minimum, so wrap to the inner width and clip
+	// to the inner height ourselves; the box is then exactly width x height.
+	lines := strings.Split(ansi.Wrap(text, max(width-4, 1), ""), "\n")
+	if inner := max(height-2, 1); len(lines) > inner {
+		lines = lines[:inner]
+		lines[inner-1] = fit(lines[inner-1], max(width-5, 0)) + "…"
+	}
+	text = strings.Join(lines, "\n")
+	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1).Width(width).Height(height)
+	if colour {
+		dark := darkBackground()
+		border := "#6B7280"
+		if focus {
+			border = "#FB923C"
+			if !dark {
+				border = "#C2410C"
+			}
+		} else if dark {
+			border = "#9CA3AF"
+		}
+		style = style.BorderForeground(lipgloss.Color(border))
+	}
+	return style.Render(text)
 }

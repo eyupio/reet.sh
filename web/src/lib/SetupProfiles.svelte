@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import {
     deleteSetupProfile, getSetupProfile, listSetupProfiles, renameSetupProfile, updateSetupProfileOverrides,
@@ -218,7 +219,7 @@
 {#if error}<p class="notice bad" role="alert">{error} <button class="btn quiet" onclick={() => selected ? choose(selected.name) : load()} disabled={busy !== ''}>Reload setup</button></p>{/if}
 
 {#if loading}
-  <p class="empty" role="status">Loading setups…</p>
+  <Skeleton label="Loading setups…" shape="cards" count={3} />
 {:else if profiles.length === 0}
   <section class="empty-state">
     <h2>No setups yet.</h2>

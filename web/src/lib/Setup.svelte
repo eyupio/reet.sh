@@ -72,7 +72,7 @@
       <p class="hint">This is the bootstrap credential. Find it on the server: <code>grep REET_TOKEN .env</code></p>
     {/if}
     {#if error}<p class="error" id="setup-error" role="alert">{error}</p>{/if}
-    <button type="submit" class="btn primary submit" disabled={busy}>{busy ? 'Creating…' : 'Create account'}</button>
+    <button type="submit" class="btn primary submit" disabled={busy} aria-busy={busy}>{busy ? 'Creating…' : 'Create account'}</button>
   </form>
 </AuthCard>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getGroups, listTickets, openTicket, type Group, type Ticket, type TicketStatus } from './api'
   import PageHeader from './PageHeader.svelte'
@@ -96,7 +97,7 @@
     </label>
 
     {#if loading}
-      <p class="hint" role="status">Loading tickets…</p>
+      <Skeleton label="Loading tickets…" shape="rows" count={3} />
     {:else if visible.length === 0}
       <p class="empty">{tickets.length === 0 ? 'No tickets yet. Open one on the left and it appears here with every reply.' : 'No ticket matches that search or status.'}</p>
     {:else}

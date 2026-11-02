@@ -1,3 +1,4 @@
+import { inflight } from './inflight'
 import type { ModelFavourite } from './models'
 
 export type Skill = {
@@ -185,7 +186,15 @@ async function req(path: string, init: RequestInit = {}): Promise<Response> {
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const token = getToken()
   if (token) headers.set('X-Reet-Token', token)
-  const res = await fetch(path, { ...init, headers })
+  // The shell's progress bar watches this: every request counts from the moment it leaves until the headers are back,
+  // whatever the answer. The body is read by the caller and is not waited on here.
+  const end = inflight.begin()
+  let res: Response
+  try {
+    res = await fetch(path, { ...init, headers })
+  } finally {
+    end()
+  }
   if (res.status === 401) {
     let msg = 'missing or wrong token'
     try {

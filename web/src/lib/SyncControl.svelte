@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import SyncSetup from './SyncSetup.svelte'
   import { syncCandidates, listLists, getList, saveDesired, reconcileDesired, adoptSyncSkills, queueSyncJob, controlSyncJob, deleteSyncTarget, updateSyncAgent, type SyncState, type SyncSkill, type SharedList, type SyncTarget, type SyncJob, type SyncEnvironment } from './api'
@@ -602,7 +603,7 @@
   <label>Find skills<input type="search" bind:value={query} placeholder="Name or source" /></label>
   <div class="actions"><button class="btn quiet" disabled={loading || busy || !sourceLoaded} onclick={() => selected = [...new Set([...selected, ...filtered.map(s => preferred(s.id))])]}>Select visible</button><button class="btn quiet" disabled={busy} onclick={() => selected = []}>Clear selection</button><span>{selected.length} selected</span></div>
   <div class="skill-options" aria-label="Skills to compare">
-    {#if loading}<p role="status">Loading skills…</p>{:else}{#each filtered as skill (skill.id)}
+    {#if loading}<Skeleton label="Loading skills…" shape="rows" count={4} />{:else}{#each filtered as skill (skill.id)}
       {@const unknownSkill = isUnknownSkill(skill)}
       {@const status = rowStatus(skill)}
       <label class="skill" class:blocked={unknownSkill}>

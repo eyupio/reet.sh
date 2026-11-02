@@ -21,6 +21,7 @@ func TestACPBodiesRoundTrip(t *testing.T) {
 		"model":             &ACPModel{Model: "ollama-cloud/deepseek-v4"},
 		"permission":        &ACPPermission{PermissionID: "permission-0123456789", Allow: true},
 		"approval mode":     &ACPMode{Yolo: true},
+		"agent mode":        &ACPAgentMode{Mode: "read-only"},
 		"agent":             &ACPEvent{Kind: "agent", MessageID: "msg_1", Text: "hello"},
 		"tool":              &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Status: "completed", Text: "done", Command: "echo ok", Path: "/home/u/a", Diff: "@@ -1 +1 @@\n-a\n+b", Additions: 1, Deletions: 1, DurationMs: 12, Locations: []string{"/home/u/a"}},
 		"permission event":  &ACPEvent{Kind: "permission", PermissionID: "permission-0123456789", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Command: "echo ok", Path: "/home/u/a", Diff: "@@ -0,0 +1 @@\n+x", Truncated: false},
@@ -47,6 +48,10 @@ func TestACPRejectsUnboundedOrUnknownBodies(t *testing.T) {
 		tooManyImages[i] = "/home/u/.reet/launch-uploads/a/shot.png"
 	}
 	for name, body := range map[string]Body{
+		"empty agent mode":   &ACPAgentMode{},
+		"upper agent mode":   &ACPAgentMode{Mode: "Agent"},
+		"spaced agent mode":  &ACPAgentMode{Mode: "read only"},
+		"long agent mode":    &ACPAgentMode{Mode: strings.Repeat("a", 33)},
 		"empty model":        &ACPModel{},
 		"invalid model":      &ACPModel{Model: "a\x00b"},
 		"empty prompt":       &ACPPrompt{Text: " "},
@@ -176,6 +181,15 @@ func TestACPModelFeature(t *testing.T) {
 	}
 	if !SupportsACPModel(ACPFeature + "," + ACPModelFeature) {
 		t.Fatal("model feature missing")
+	}
+}
+
+func TestACPAgentModeFeature(t *testing.T) {
+	if SupportsACPAgentMode(ACPFeature) || SupportsACPAgentMode("not-"+ACPAgentModeFeature) {
+		t.Fatal("agent mode switching must be negotiated separately")
+	}
+	if !SupportsACPAgentMode(ACPFeature + "," + ACPAgentModeFeature) {
+		t.Fatal("agent mode feature missing")
 	}
 }
 

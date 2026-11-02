@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/scan"
 )
 
@@ -19,6 +20,7 @@ type syncFormValues struct {
 	Token  string
 	Host   string
 	Dir    string
+	Conn   clientconfig.Connection
 }
 
 type syncOutcome struct {
@@ -31,20 +33,15 @@ func defaultSyncValues(opts Options) *syncFormValues {
 	if dir == "" {
 		dir, _ = os.Getwd()
 	}
-	host := opts.SyncEnv
-	if host == "" {
-		host, _ = os.Hostname()
-	}
-	server := opts.SyncServer
-	if server == "" {
-		server = os.Getenv("REET_URL")
-	}
+	conn := clientconfig.Discover(opts.SyncServer, opts.SyncEnv, opts.SyncTokenFile)
+	host, server := conn.Host, conn.Server
 	return &syncFormValues{
 		Target: opts.SyncTarget,
 		Server: server,
 		Token:  opts.SyncToken,
 		Host:   host,
 		Dir:    dir,
+		Conn:   conn,
 	}
 }
 
@@ -63,13 +60,9 @@ func buildSyncForm(values *syncFormValues, dark bool) *huh.Form {
 				}),
 			huh.NewInput().
 				Title("Controller").
-				Description("HTTPS site URL; defaults to REET_URL.").
+				Description(serverDescription(values.Conn, "HTTPS site URL of the controller.")).
 				Value(&values.Server),
-			huh.NewInput().
-				Title("Token").
-				Description("Personal API token; empty uses REET_TOKEN or the saved token.").
-				EchoMode(huh.EchoModePassword).
-				Value(&values.Token),
+			tokenField(&values.Token, values.Conn),
 			huh.NewInput().
 				Title("Environment").
 				Description("This machine's name; defaults to the hostname.").
@@ -163,7 +156,7 @@ func (m model) startSync(apply bool) (tea.Model, tea.Cmd) {
 		report, err := scan.RunSyncReport(scan.SyncReportOptions{
 			Server:       strings.TrimSpace(values.Server),
 			Token:        values.Token,
-			TokenFile:    opts.SyncTokenFile,
+			TokenFile:    tokenFileOr(opts.SyncTokenFile, values.Conn),
 			Target:       strings.TrimSpace(values.Target),
 			Host:         strings.TrimSpace(values.Host),
 			Config:       opts.SyncConfig,

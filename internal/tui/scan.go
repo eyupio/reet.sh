@@ -2,11 +2,11 @@ package tui
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"charm.land/huh/v2"
 
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/scan"
 )
 
@@ -18,20 +18,15 @@ type scanFormValues struct {
 	Prune     bool
 	Reconcile bool
 	DryRun    bool
+	Conn      clientconfig.Connection
 }
 
 func defaultScanValues(opts Options) *scanFormValues {
-	host := opts.ScanEnv
-	if host == "" {
-		host, _ = os.Hostname()
-	}
-	server := opts.ScanServer
-	if server == "" {
-		server = os.Getenv("REET_URL")
-	}
+	conn := clientconfig.Discover(opts.ScanServer, opts.ScanEnv, opts.ScanTokenFile)
 	return &scanFormValues{
-		Host:      host,
-		Server:    server,
+		Conn:      conn,
+		Host:      conn.Host,
+		Server:    conn.Server,
 		Token:     opts.ScanToken,
 		Dirs:      opts.ScanDirs,
 		Prune:     opts.ScanPrune,
@@ -51,11 +46,7 @@ func buildScanForm(values *scanFormValues, dark bool) *huh.Form {
 				Title("Controller").
 				Description("HTTPS site URL. Empty is allowed for a dry run.").
 				Value(&values.Server),
-			huh.NewInput().
-				Title("Token").
-				Description("Personal API token; empty uses REET_TOKEN or the saved token.").
-				EchoMode(huh.EchoModePassword).
-				Value(&values.Token),
+			tokenField(&values.Token, values.Conn),
 			huh.NewInput().
 				Title("Extra folders").
 				Description("Comma-separated skill folders to scan, optional.").

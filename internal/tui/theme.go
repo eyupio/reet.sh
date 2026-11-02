@@ -21,6 +21,11 @@ type styles struct {
 	warn          lipgloss.Style
 	fail          lipgloss.Style
 	spinner       lipgloss.Style
+	dim           lipgloss.Style
+	accent        lipgloss.Style
+	cursorRow     lipgloss.Style
+	panel         lipgloss.Style
+	panelFocus    lipgloss.Style
 }
 
 // tuiDark chooses a palette without asking the terminal. The background query
@@ -56,6 +61,11 @@ func newStyles(plain, dark bool) styles {
 			warn:          lipgloss.NewStyle(),
 			fail:          lipgloss.NewStyle(),
 			spinner:       lipgloss.NewStyle(),
+			dim:           lipgloss.NewStyle(),
+			accent:        lipgloss.NewStyle(),
+			cursorRow:     lipgloss.NewStyle().Bold(true).Reverse(true),
+			panel:         lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1),
+			panelFocus:    lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1),
 		}
 	}
 	ld := lipgloss.LightDark(dark)
@@ -76,11 +86,32 @@ func newStyles(plain, dark bool) styles {
 		warn:          lipgloss.NewStyle().Foreground(amber),
 		fail:          lipgloss.NewStyle().Foreground(red),
 		spinner:       lipgloss.NewStyle().Foreground(orange),
+		dim:           lipgloss.NewStyle().Foreground(muted),
+		accent:        lipgloss.NewStyle().Foreground(orange).Bold(true),
+		cursorRow:     lipgloss.NewStyle().Bold(true).Foreground(ld(lipgloss.Color("#FFFFFF"), lipgloss.Color("#111827"))).Background(orange),
+		panel:         lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(muted).Padding(0, 1),
+		panelFocus:    lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(orange).Padding(0, 1),
 	}
 }
 
 // formTheme pins the form palette to the background we detected. The form's
 // own detection is ignored because the interface never queries the terminal.
+// Buttons get an unmistakable focus: the highlighted choice is a solid, bold
+// block with arrows either side, and the other is plain text with no fill.
 func formTheme(dark bool) huh.Theme {
-	return huh.ThemeFunc(func(bool) *huh.Styles { return huh.ThemeCharm(dark) })
+	return huh.ThemeFunc(func(bool) *huh.Styles {
+		t := huh.ThemeCharm(dark)
+		ld := lipgloss.LightDark(dark)
+		fg := ld(lipgloss.Color("#FFFFFF"), lipgloss.Color("#111827"))
+		accent := ld(lipgloss.Color("#C2410C"), lipgloss.Color("#FB923C"))
+		dim := ld(lipgloss.Color("#4B5563"), lipgloss.Color("#9CA3AF"))
+		for _, state := range []*huh.FieldStyles{&t.Focused, &t.Blurred} {
+			state.FocusedButton = lipgloss.NewStyle().Padding(0, 2).Margin(0, 1).Bold(true).Underline(true).
+				Foreground(fg).Background(accent)
+			state.BlurredButton = lipgloss.NewStyle().Padding(0, 2).Margin(0, 1).
+				Foreground(dim)
+		}
+		t.Focused.Next = t.Focused.FocusedButton
+		return t
+	})
 }

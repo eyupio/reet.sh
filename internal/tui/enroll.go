@@ -3,12 +3,12 @@ package tui
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"strings"
 
 	"charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/scan"
 )
 
@@ -19,6 +19,7 @@ type enrollFormValues struct {
 	Projects   string
 	AllowApply bool
 	Confirm    bool
+	Conn       clientconfig.Connection
 }
 
 type enrollOutcome struct {
@@ -26,19 +27,11 @@ type enrollOutcome struct {
 }
 
 func defaultEnrollValues(opts Options) *enrollFormValues {
-	server := opts.EnrollServer
-	if server == "" {
-		server = os.Getenv("REET_URL")
-	}
-	host := opts.EnrollHost
-	if host == "" {
-		host = os.Getenv("REET_ENV")
-	}
-	if host == "" {
-		host, _ = os.Hostname()
-	}
+	conn := clientconfig.Discover(opts.EnrollServer, opts.EnrollHost, opts.EnrollTokenFile)
+	host := conn.Host
 	return &enrollFormValues{
-		Server:     server,
+		Conn:       conn,
+		Server:     conn.Server,
 		Token:      opts.EnrollToken,
 		Host:       host,
 		Projects:   opts.EnrollProjects,
@@ -59,11 +52,7 @@ func buildEnrollForm(values *enrollFormValues, dark bool) *huh.Form {
 					}
 					return nil
 				}),
-			huh.NewInput().
-				Title("Token").
-				Description("Personal API token; empty uses REET_TOKEN or the saved token.").
-				EchoMode(huh.EchoModePassword).
-				Value(&values.Token),
+			tokenField(&values.Token, values.Conn),
 			huh.NewInput().
 				Title("Environment").
 				Description("A stable name for this machine; defaults to the hostname.").
@@ -142,8 +131,8 @@ func (m model) startEnroll() (tea.Model, tea.Cmd) {
 		if opts.EnrollConfig != "" {
 			args = append(args, "--config", opts.EnrollConfig)
 		}
-		if opts.EnrollTokenFile != "" {
-			args = append(args, "--env-file", opts.EnrollTokenFile)
+		if file := tokenFileOr(opts.EnrollTokenFile, values.Conn); file != "" {
+			args = append(args, "--env-file", file)
 		}
 		err := scan.RunAgentInput(args, strings.NewReader(""), &out, opts.Version)
 		return resultMsg{page: ScreenEnroll, value: enrollOutcome{output: out.String()}, err: err}

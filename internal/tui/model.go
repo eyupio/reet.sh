@@ -128,21 +128,35 @@ type homeItem struct {
 	id          ScreenID
 	title       string
 	description string
+	group       string
+	detail      string
 }
 
 var homeItems = []homeItem{
-	{ScreenDoctor, "Doctor", "Check this installation"},
-	{ScreenHealth, "Healthcheck", "Check a server's /healthz"},
-	{ScreenScan, "Scan", "Report installed skills to a controller"},
-	{ScreenSync, "Sync", "Preview and apply a saved target"},
-	{ScreenBackup, "Backups", "List, take and restore instance copies"},
-	{ScreenSetup, "Setups", "Create, push and pull setup profiles"},
-	{ScreenUpgrade, "Upgrade", "Check, verify and install a release"},
-	{ScreenInstall, "Install", "Set up a managed deployment"},
-	{ScreenEnroll, "Connect machine", "Enroll this machine with a controller"},
-	{ScreenVersion, "Version", "Build and runtime details"},
-	{ScreenTerminal, "Terminal status", "Controller terminal availability"},
-	{ScreenAgent, "Agent status", "This machine's enrollment and daemon"},
+	{ScreenDoctor, "Doctor", "Check this installation", "CHECK", "Have a good look under the bonnet. Checks this installation, its service and its connection, and says what wants fettling."},
+	{ScreenHealth, "Healthcheck", "Check a server's /healthz", "CHECK", "Ask a server if it's still breathing. Reads /healthz from your controller or from this machine."},
+	{ScreenScan, "Scan", "Report installed skills to a controller", "SKILLS", "Tek stock of the skills on this machine and report them to your account. Preview first with a dry run."},
+	{ScreenSync, "Sync", "Preview and apply a saved target", "SKILLS", "Compare this machine with a saved target and see what'd change. Nowt is touched until you press a."},
+	{ScreenBackup, "Backups", "List, take and restore instance copies", "KEEP SAFE", "List, take and restore sealed copies of your instance, so nowt gets lost."},
+	{ScreenSetup, "Setups", "Create, push and pull setup profiles", "KEEP SAFE", "Create, push and pull setup profiles so every machine's set up reight."},
+	{ScreenUpgrade, "Upgrade", "Check, verify and install a release", "MAINTAIN", "Check, verify and install a newer release. Asks before it changes owt."},
+	{ScreenInstall, "Install", "Set up a managed deployment", "MAINTAIN", "Set up a managed deployment, native or compose, and get it running."},
+	{ScreenEnroll, "Connect machine", "Enroll this machine with a controller", "MACHINES", "Enrol this machine with a controller. Anything it can already find, like a token in your .env, it uses without asking."},
+	{ScreenVersion, "Version", "Build and runtime details", "MACHINES", "Which build you're running, and where it came from."},
+	{ScreenTerminal, "Terminal status", "Controller terminal availability", "MACHINES", "Is controller terminal access on? Read-only."},
+	{ScreenAgent, "Agent status", "This machine's enrollment and daemon", "MACHINES", "This machine's enrolment and its background agent. Read-only."},
+}
+
+// visibleHome lists the home entries matching the search, as indexes into homeItems.
+func (m model) visibleHome() []int {
+	var out []int
+	q := strings.ToLower(strings.TrimSpace(m.filter))
+	for i, item := range homeItems {
+		if q == "" || strings.Contains(strings.ToLower(item.title+" "+item.description+" "+item.group), q) {
+			out = append(out, i)
+		}
+	}
+	return out
 }
 
 type resultMsg struct {
@@ -159,6 +173,8 @@ type model struct {
 	dark          bool
 	page          ScreenID
 	cursor        int
+	filter        string
+	searching     bool
 	loading       bool
 	err           error
 
@@ -406,19 +422,58 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	if m.page == ScreenHome {
+		visible := m.visibleHome()
+		if m.searching {
+			switch msg.String() {
+			case "esc":
+				m.searching, m.filter, m.cursor = false, "", 0
+			case "enter":
+				m.searching = false
+				if len(visible) > 0 {
+					return m.open(homeItems[visible[min(m.cursor, len(visible)-1)]].id)
+				}
+			case "backspace":
+				if r := []rune(m.filter); len(r) > 0 {
+					m.filter, m.cursor = string(r[:len(r)-1]), 0
+				}
+			case "up":
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			case "down":
+				if m.cursor < len(visible)-1 {
+					m.cursor++
+				}
+			default:
+				if t := msg.Key().Text; t != "" {
+					m.filter, m.cursor = m.filter+t, 0
+				}
+			}
+			return m, nil
+		}
 		switch msg.String() {
-		case "q", "esc":
+		case "q":
 			return m, tea.Quit
+		case "esc":
+			if m.filter != "" {
+				m.filter, m.cursor = "", 0
+				return m, nil
+			}
+			return m, tea.Quit
+		case "/":
+			m.searching = true
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
 			}
 		case "down", "j":
-			if m.cursor < len(homeItems)-1 {
+			if m.cursor < len(visible)-1 {
 				m.cursor++
 			}
 		case "enter":
-			return m.open(homeItems[m.cursor].id)
+			if len(visible) > 0 {
+				return m.open(homeItems[visible[min(m.cursor, len(visible)-1)]].id)
+			}
 		}
 		return m, nil
 	}
@@ -819,7 +874,7 @@ func (m model) startScan() (tea.Model, tea.Cmd) {
 		report, err := scan.RunReport(scan.ReportOptions{
 			Server:      strings.TrimSpace(values.Server),
 			Token:       values.Token,
-			TokenFile:   opts.ScanTokenFile,
+			TokenFile:   tokenFileOr(opts.ScanTokenFile, values.Conn),
 			Host:        strings.TrimSpace(values.Host),
 			Dirs:        scanDirs(values.Dirs),
 			Prune:       values.Prune,
@@ -897,7 +952,10 @@ func (m model) renderHeader() string {
 }
 
 func (m model) renderFooter() string {
-	keys := "↑/↓ move · enter open · q quit"
+	keys := "↑/↓ / j k move · enter open · / search · esc back · q quit"
+	if m.searching {
+		keys = "type to search · ↑/↓ move · enter open · esc clear"
+	}
 	if m.page != ScreenHome {
 		keys = "↑/↓ scroll · r refresh · esc back · q quit"
 	}
@@ -987,24 +1045,54 @@ func (m model) renderFooter() string {
 }
 
 func (m model) renderHome() string {
-	var b strings.Builder
-	b.WriteString("\n  " + m.styles.muted.Render("Get your toolkit reet.") + "\n\n")
-	b.WriteString("  " + m.styles.muted.Render(fmt.Sprintf("reet %s (%s)", m.opts.Version, shortCommit(m.opts.Commit))) + "\n\n")
-	showDescriptions := m.width >= 60
-	for i, item := range homeItems {
-		title := m.styles.item.Render(fmt.Sprintf("%-16s", item.title))
-		marker := "  "
-		if i == m.cursor {
-			marker = m.styles.selected.Render("› ")
-			title = m.styles.selectedTitle.Render(fmt.Sprintf("%-16s", item.title))
-		}
-		if showDescriptions {
-			b.WriteString("  " + marker + title + m.styles.muted.Render(item.description) + "\n")
-		} else {
-			b.WriteString("  " + marker + title + "\n")
+	visible := m.visibleHome()
+	cursor := m.cursor
+	if cursor >= len(visible) {
+		cursor = max(len(visible)-1, 0)
+	}
+	var head strings.Builder
+	head.WriteString("\n  " + m.styles.title.Render("Get your toolkit reet.") + "\n")
+	head.WriteString("  " + m.styles.muted.Render(fmt.Sprintf("reet %s (%s)", m.opts.Version, shortCommit(m.opts.Commit))) + "\n")
+	head.WriteString("  " + m.styles.pass.Bold(true).Render("Ey up! What's tha after doing?") + "\n\n")
+
+	listWidth := 30
+	if m.width < 70 {
+		// Too narrow for two panes: one list, and the selection's summary beneath it.
+		listWidth = max(m.width-6, 20)
+	}
+	rows := []string{m.styles.muted.Render("ACTIONS")}
+	if m.searching || m.filter != "" {
+		rows[0] = m.styles.muted.Render("SEARCH  ") + m.styles.item.Render(m.filter)
+		if m.searching {
+			rows[0] += m.styles.selected.Render("▏")
 		}
 	}
-	return b.String()
+	for n, i := range visible {
+		label := fmt.Sprintf(" %-*s", listWidth-3, homeItems[i].title)
+		if n == cursor {
+			rows = append(rows, m.styles.cursorRow.Width(listWidth).Render("›"+label))
+		} else {
+			rows = append(rows, m.styles.dim.Render(" "+label))
+		}
+	}
+	if len(visible) == 0 {
+		rows = append(rows, m.styles.muted.Render("Nowt matches that."))
+	}
+	list := m.styles.panelFocus.Width(listWidth + 2).Render(strings.Join(rows, "\n"))
+
+	detail := ""
+	if len(visible) > 0 {
+		item := homeItems[visible[cursor]]
+		detail = m.styles.muted.Render(item.group) + "\n" + m.styles.pass.Bold(true).Render(item.title) + "\n\n" + m.styles.item.Render(item.detail)
+	}
+	body := list
+	if m.width >= 70 {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, list, " ", m.styles.panel.Width(max(m.width-listWidth-9, 24)).Height(len(rows)+2).Render(detail))
+	} else if detail != "" {
+		body = lipgloss.JoinVertical(lipgloss.Left, list, m.styles.panel.Width(listWidth+2).Render(detail))
+	}
+	status := m.styles.accent.Render("● Reight then") + m.styles.muted.Render(" · nowt to fettle")
+	return head.String() + lipgloss.NewStyle().PaddingLeft(2).Render(body) + "\n\n  " + status + "\n"
 }
 
 func (m model) renderPage() string {

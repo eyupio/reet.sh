@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -32,27 +31,26 @@ type setupPushValues struct {
 	Name   string
 	Server string
 	Token  string
+	Conn   clientconfig.Connection
 }
 
 type setupPullValues struct {
 	Name   string
 	Server string
 	Token  string
+	Conn   clientconfig.Connection
 }
 
-func setupServer(opts Options) string {
-	if opts.SetupServer != "" {
-		return opts.SetupServer
-	}
-	return os.Getenv("REET_URL")
+func setupConn(opts Options) clientconfig.Connection {
+	return clientconfig.Discover(opts.SetupServer, "", opts.SetupTokenFile)
 }
 
 func defaultSetupPushValues(opts Options, name string) *setupPushValues {
-	return &setupPushValues{Name: name, Server: setupServer(opts), Token: opts.SetupToken}
+	return &setupPushValues{Name: name, Server: setupConn(opts).Server, Token: opts.SetupToken, Conn: setupConn(opts)}
 }
 
 func defaultSetupPullValues(opts Options) *setupPullValues {
-	return &setupPullValues{Server: setupServer(opts), Token: opts.SetupToken}
+	return &setupPullValues{Server: setupConn(opts).Server, Token: opts.SetupToken, Conn: setupConn(opts)}
 }
 
 func buildNewSetupForm(values *setupNewValues, newest string, dark bool) *huh.Form {
@@ -100,13 +98,9 @@ func buildPushSetupForm(values *setupPushValues, dark bool) *huh.Form {
 			huh.NewNote().Title("Profile").Description(values.Name),
 			huh.NewInput().
 				Title("Controller").
-				Description("HTTPS site URL; defaults to REET_URL.").
+				Description(serverDescription(values.Conn, "HTTPS site URL of the controller.")).
 				Value(&values.Server),
-			huh.NewInput().
-				Title("Token").
-				Description("Personal API token; empty uses REET_TOKEN or the saved token.").
-				EchoMode(huh.EchoModePassword).
-				Value(&values.Token),
+			tokenField(&values.Token, values.Conn),
 		),
 	).WithTheme(formTheme(dark)).WithShowHelp(true)
 }
@@ -126,13 +120,9 @@ func buildPullSetupForm(values *setupPullValues, dark bool) *huh.Form {
 				}),
 			huh.NewInput().
 				Title("Controller").
-				Description("HTTPS site URL; defaults to REET_URL.").
+				Description(serverDescription(values.Conn, "HTTPS site URL of the controller.")).
 				Value(&values.Server),
-			huh.NewInput().
-				Title("Token").
-				Description("Personal API token; empty uses REET_TOKEN or the saved token.").
-				EchoMode(huh.EchoModePassword).
-				Value(&values.Token),
+			tokenField(&values.Token, values.Conn),
 		),
 	).WithTheme(formTheme(dark)).WithShowHelp(true)
 }
@@ -150,7 +140,7 @@ func loadSetup(opts Options) (setupOutcome, error) {
 }
 
 func setupToken(opts Options, explicit string) (string, error) {
-	return clientconfig.ResolveToken(explicit, opts.SetupTokenFile, strings.NewReader(""), io.Discard)
+	return clientconfig.ResolveToken(explicit, tokenFileOr(opts.SetupTokenFile, setupConn(opts)), strings.NewReader(""), io.Discard)
 }
 
 func saveSetupProfile(opts Options, values setupNewValues) tea.Msg {

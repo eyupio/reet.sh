@@ -128,6 +128,11 @@ negotiated recipient are still cancelled. See the appended SC5 progress note for
 no real-login pass is recorded, neither experimental switch is retired, and form capability remains off. Native-session adoption after connector
 restart and broader descriptor contracts remain future work. The next owner check remains section 3 Run B, followed by the recorded order.
 
+**#402 CI follow-up:** the Linux native-service fixture now waits for its foreground agent's startup message before polling status.
+Status checks briefly acquire the same enrollment lock as startup; polling immediately could make the fixture exit before taking the lock.
+The fixture retains private output for startup-failure diagnostics. A local subprocess reproduction confirmed that holding the status lock
+rejects foreground startup, while waiting for readiness before checking status succeeds. The full native-service check requires CI's real service manager.
+
 **Working rules the owner set (keep following them):**
 - One item at a time: build it test-first, open a **draft** PR, watch it, and **merge only when the owner says so** (they often mark
   PRs ready or merge them themselves). Then take the next item.

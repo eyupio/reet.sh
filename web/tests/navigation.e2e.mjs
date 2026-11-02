@@ -336,27 +336,36 @@ try {
    await expect(tabs(page).locator('[aria-current]')).toHaveCount(1)
    await context.close()
   }
-  for (const [path,link] of [['/sync','Sync'],['/profiles','Setups']]) {
+  // Sync belongs to Machines: the Machines tab is current and the Sync link in More is not.
+  {
    const {context,page} = await open({width:1440})
-   await page.goto(`${base}${path}`)
+   await page.goto(`${base}/sync`)
+   await expect(tabs(page).getByRole('link',{name:'Machines',exact:true})).toHaveAttribute('aria-current','page')
+   await expect(tabs(page).locator('[aria-current]')).toHaveCount(1)
+   await expect(tabs(page).getByRole('button',{name:/^More/})).not.toHaveClass(/current/)
+   await tabs(page).getByRole('button',{name:/^More/}).click()
+   await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Sync',exact:true})).not.toHaveAttribute('aria-current','page')
+   await context.close()
+  }
+  // A page that is only under More still marks More and its own link.
+  {
+   const {context,page} = await open({width:1440})
+   await page.goto(`${base}/profiles`)
    await expect(tabs(page).locator('[aria-current]')).toHaveCount(0)
    const menu = page.locator('summary[aria-label^="Account menu"]')
    await expect(menu).not.toHaveClass(/active/)
    const more = tabs(page).getByRole('button',{name:/^More/})
    await expect(more).toHaveClass(/current/)
    await more.click()
-   await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:link,exact:true})).toHaveAttribute('aria-current','page')
+   await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Setups',exact:true})).toHaveAttribute('aria-current','page')
    await context.close()
   }
   const {context,page} = await open({width:390,touch:true})
   await page.goto(`${base}/sync`)
-  await expect(tabs(page).getByRole('button',{name:'More'})).toHaveClass(/current/)
-  // Not by colour alone: the current More carries the same underline as a current tab, and says so to assistive tech.
-  await expect(tabs(page).getByRole('button',{name:/^More/})).toHaveAccessibleName('More, current page inside')
-  const mark = await tabs(page).getByRole('button',{name:/^More/}).evaluate(el=>getComputedStyle(el,'::after').content)
-  expect(mark).not.toBe('none')
-  await tabs(page).getByRole('button',{name:'More'}).click()
-  await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Sync'})).toHaveAttribute('aria-current','page')
+  await expect(tabs(page).getByRole('link',{name:'Machines',exact:true})).toHaveAttribute('aria-current','page')
+  await expect(tabs(page).getByRole('button',{name:/^More/})).not.toHaveClass(/current/)
+  await tabs(page).getByRole('button',{name:/^More/}).click()
+  await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Sync'})).not.toHaveAttribute('aria-current','page')
   await context.close()
  }
 

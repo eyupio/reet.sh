@@ -176,7 +176,7 @@ try {
   await search.fill('nothing like it')
   await expect(page.getByText('No sessions match.',{exact:true})).toBeVisible()
   // The query stays on the page: never in the address.
-  expect(new URL(page.url()).search).toBe('')
+  expect(new URL(page.url()).search).toBe('?view=list')
   expect(errors).toEqual([])
   await context.close()
  }

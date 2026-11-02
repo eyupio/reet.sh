@@ -219,7 +219,7 @@ try{
  await page.getByRole('button',{name:'Close Saved commands',exact:true}).click()
  expect(inputs.length).toBe(beforeMenuInput)
  // The Sessions page's menu targets the clicked session, with explicit stop/removal review, and never attaches to it.
- await page.goto(`${base}/sessions`)
+ await page.goto(`${base}/sessions?view=list`)
  const listed=page.locator('main .session-row'),entry=name=>listed.filter({has:page.getByText(name,{exact:true})}).locator('a.open')
  const landingTickets=tickets.length
  // Shift+right-click keeps the browser's own menu.

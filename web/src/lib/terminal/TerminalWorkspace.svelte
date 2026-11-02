@@ -162,7 +162,7 @@
     if(shown)chooseSession(shown);else location.assign('/sessions')
   }
 
-  function remember() { const url=new URL(location.href);url.searchParams.set('view','terminal');url.searchParams.delete('theatre');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
+  function remember() { const url=new URL(location.href);if(!selectedAgent&&!selectedSession&&!url.searchParams.has('view'))return;url.searchParams.set('view','terminal');url.searchParams.delete('theatre');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
   function chooseMachine(id: string) {
     if(selectedAgent && selectedSession)rememberedSessions.set(selectedAgent,selectedSession)
     selectedAgent=id
@@ -193,8 +193,6 @@
       if(removedAfterClose){selectedSession='';remember()}
       if(nextHealth.data){health=nextHealth.data;receivedAt=performance.now();elapsed=0}
       if(firstLoad&&!selectedSession)selectedSession=sessions.find(item=>item.agentId===selectedAgent&&item.state==='running')?.id||''
-      // A bare /sessions names no machine: default to the first ready one so the new-session landing has somewhere to start.
-      if(firstLoad&&!selectedAgent&&!selectedSession)selectedAgent=machines.find(item=>item.ready)?.agentId||machines[0]?.agentId||''
       remember()
     } catch(e){
       if(!signal?.aborted&&!disposed){
@@ -503,7 +501,7 @@
         </SessionScreen>
       {:else if selectedSession}
         {@render endedView('This session has ended', "It's no longer running, so there's nothing to reconnect to. Nothing was started in its place. Pick up where you left off, or start fresh.")}
-      {:else if machine && !setup}
+      {:else if (!selectedAgent || machine) && !setup}
         {@render endedView('Start a new session', 'Nothing is open right now. Start a new agent session or a plain terminal, or jump back into one that is still running.')}
       {:else}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>{selectedSession ? 'This session is unavailable' : selectedAgent && !machine ? 'This machine is unavailable' : 'Your next shell starts here.'}</h2><p>{selectedSession ? 'Choose an existing session or create one explicitly. No replacement shell was created.' : setup || 'Create a terminal, then return to the same session whenever you need it.'}</p>{@render createForm()}{#if setup}<button class="btn" onclick={() => detailsOpen = true}>View setup &amp; connection details</button>{/if}</div>{/if}
     </div>

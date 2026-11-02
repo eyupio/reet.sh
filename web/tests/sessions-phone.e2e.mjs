@@ -138,7 +138,7 @@ try {
  // keyboard up the top bar steps aside too.
  if (run('sideways 844 × 390')) {
   const width = 844, height = 390
-  const {context,page,errors} = await openSession({width,height,path:'/sessions'})
+  const {context,page,errors} = await openSession({width,height,path:'/sessions?view=list'})
   await expect(page.locator('main .session-row')).toHaveCount(3)
   await expect(page.getByRole('navigation',{name:'Main navigation'})).toBeVisible()
   await expect(page.locator('main aside.rail')).toBeVisible()
@@ -194,7 +194,7 @@ try {
   // The heading counts the projects only once they have been read: never a false 0 while reading.
   let release
   const gate = new Promise(r => { release = r })
-  const {context,page,errors} = await openSession({width:390,height:844,path:'/sessions',gates:{'/api/v2/folder-projects':gate}})
+  const {context,page,errors} = await openSession({width:390,height:844,path:'/sessions?view=list',gates:{'/api/v2/folder-projects':gate}})
   const rail = page.locator('main aside.rail')
   await expect(rail).toBeVisible()
   await expect(rail.getByRole('heading',{level:2}).first()).toHaveText('Projects')
@@ -286,7 +286,7 @@ try {
  // Phones) and everything else on the screen at least 44 px; with reduced motion the terminal's cursor does not blink.
  if (run('phone matrix')) {
   for (const [width, height] of [[412,915],[360,800],[320,700],[844,390]]) {
-   const {context,page,errors} = await openSession({width,height,path:'/sessions'})
+   const {context,page,errors} = await openSession({width,height,path:'/sessions?view=list'})
    await page.emulateMedia({reducedMotion:'reduce', colorScheme:'dark'})
    const small = (need, scope) => page.evaluate(([need, scope]) => [...document.querySelectorAll(scope)].flatMap(root => [...root.querySelectorAll('a[href], button, select, summary, [role=button]')])
     .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.bottom > 0 && el.checkVisibility({visibilityProperty:true}) && !el.closest('.xterm') && (el.tagName !== 'A' || !el.closest('p')) })

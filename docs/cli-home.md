@@ -30,6 +30,11 @@ status. Returning home does not rerun a failed operation. Use the terminal's
 scrollback controls for long output. At narrow widths, descriptions move below
 the list and navigation scrolls to keep the selected command visible.
 
+On a terminal at least 72 columns wide and 14 rows tall, home becomes two panes:
+the grouped list on the left with the selected row as a solid block, and on the
+right what that command does, the exact `reet …` it runs and how many actions
+it opens. Search, argument editing and help work the same in both layouts.
+
 ![A narrow, light terminal](images/cli-home-light.png)
 
 ## Progress and terminal ownership

@@ -238,3 +238,20 @@ func TestOutputWaitsForAnExplicitReturnOrQuit(t *testing.T) {
 		t.Fatal("q must exit")
 	}
 }
+
+func TestWideHomeShowsDetailBesideTheSelection(t *testing.T) {
+	m := newHome("dev")
+	m.colour = false
+	m.cursor = 4 // Branches
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 26})
+	view := next.(homeModel).View().Content
+	for _, want := range []string{"› Branches", "reet branches", "tidy them away", "Ey up", "Reight then"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in\n%s", want, view)
+		}
+	}
+	next, _ = next.(homeModel).Update(tea.WindowSizeMsg{Width: 60, Height: 26})
+	if strings.Contains(next.(homeModel).View().Content, "Ey up") {
+		t.Fatal("narrow terminals keep the single list")
+	}
+}

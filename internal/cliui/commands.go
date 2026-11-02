@@ -97,3 +97,32 @@ func Reference(out io.Writer) {
 	}
 	fmt.Fprint(out, "`reet init` and `reet update` alias `install` and `upgrade`.\n\nThe old dashboard is removed. `reet tui` is not a command. The legacy `--tui`\nflag runs the selected CLI command and offers a return home. It does not create\na second implementation of that command.\n")
 }
+
+// details are kept apart from the catalog so a command's one-line summary stays
+// the single source for help and the generated reference.
+var details = map[string]string{
+	"doctor":       "Have a good look under the bonnet. Checks this installation, its service and its connection to your controller, and says what wants fettling.",
+	"healthcheck":  "Ask a server if it's still breathing. Reads /healthz from your controller or from this machine.",
+	"upgrade":      "Check, verify and install a newer release. Asks before it changes owt.",
+	"backup":       "List, take and restore sealed copies of your instance, so nowt gets lost.",
+	"branches":     "See which local branches are already merged, and tidy them away.",
+	"scan":         "Tek stock of the skills on this machine and report them to your account. Uses the URL and token already in your .env.",
+	"sync":         "Compare this machine with a saved target and see what'd change. Pick a target from your account. Nowt is touched until you say so.",
+	"setup":        "Discover, save and restore agent setups so every machine's set up reight.",
+	"agent enroll": "Enrol this machine with a controller. Anything it can already find, like a token in your .env, it uses without asking.",
+	"agent status": "This machine's enrolment and its background agent. Read-only.",
+	"terminal":     "Manage controller terminal access.",
+	"configure":    "Save the controller URL and release channel you use most, so you're not asked again.",
+	"install":      "Set up a binary or managed deployment, native or compose, and get it running.",
+	"serve":        "Run the web app. Also what you get with no command when not in a terminal.",
+	"version":      "Which build you're running, and where it came from.",
+	"help":         "Read the full command reference.",
+}
+
+// DetailFor is the longer text for a command, falling back to its summary.
+func (c Command) DetailFor() string {
+	if d := details[c.Name]; d != "" {
+		return d
+	}
+	return c.Summary
+}

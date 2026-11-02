@@ -48,17 +48,19 @@ a descriptor that says `available`.
 - Probe scripts: `scripts/probe-codex-turn.py`, `scripts/probe-codex-start.py` (no model call; `--auth none|api-key|chat-gpt`,
   `--codex-home`).
 
-**Open pull request:** #375, "Offer Codex chats in the browser with an approvals-mode control" (ready for review, Codex bot
-findings fixed and resolved). It makes the controller refuse a message with a 409 (`ErrACPModeUnknown`, `PromptChat`) while an
-agent that offers modes is in an unknown mode, makes `codex` a reviewed chat tool in the browser, adds the Approvals control
-(`web/src/lib/terminal/AgentModeControl.svelte`, wired in `ChatPane.svelte`; the wording for each mode, Send held while the mode is
-unknown, a YOLO-aware sentence), the Start and Home dialog copy, and `web/tests/chat-codex.e2e.mjs` (added to the browser workflow).
-Its only red check is `phone-zoom`, which is red on main too (see below). Merge main into it once that is fixed; do not merge it
-while red unless the owner says so.
+**Merged on 2 November:** #375, "Offer Codex chats in the browser with an approvals-mode control that says what each mode means", and
+#384, "Show the agent's reason on an approval card and say a Codex reject ends the turn". #375 makes the controller refuse a message
+with a 409 (`ErrACPModeUnknown`, `PromptChat`) while an agent that offers modes is in an unknown mode, makes `codex` a reviewed chat
+tool in the browser, and adds the Approvals control (`web/src/lib/terminal/AgentModeControl.svelte`, wired in `ChatPane.svelte`: the
+wording for each mode, Send held while the mode is unknown, a YOLO-aware sentence), the Start and Home dialog copy, and
+`web/tests/chat-codex.e2e.mjs`. #384 puts the model's justification (`_meta.permission.description`, carried in the permission event's
+existing `text` field, so no wire change) on the approval card under a "Why {agent} asks" label, makes Codex's reject button read
+"Deny and end the turn", and adds `TestChatHostSwitchesAgentMode` for the connector's mode switch. Both merged with every check green,
+`phone-zoom` included.
 
-**Red on main, not ours:** `phone-zoom` ("Long names never zoom a phone out…", step 6 of that job) fails since #370 ("Skills and sync
-UX review"): the Skills page at 320 px is 355 px wide (`web/tests/phone-zoom.e2e.mjs`, "320px skills"). It needs a layout fix on the
-Skills page in its own change.
+**`phone-zoom` on main:** green again. #380 ("Let the skill card's sync line wrap long host names") merged first, then #375 took `main`
+in and dropped its own copy of that rule, so `SkillCard.svelte` matches `main`. The failure had been the Skills page laying out 355 px
+wide at 320 px since #370.
 
 **Decisions already made (do not re-ask):**
 - Codex starts in `read-only` (the only mode that can ask before a command leaves the sandbox); `agent` is chosen per chat, never the
@@ -78,13 +80,13 @@ Skills page in its own change.
 2. **After section 3:** build the Codex login access (`CODEX_HOME` as decided; connector currently replaces `HOME`, so today a Codex
    chat cannot start for a signed-in person), the "Sign in to Codex on that machine first" start error, and the `_auth/status_update`
    label in the chat. Until then Codex stays dark.
-3. **Codex card gaps (not built):** show the model's justification (`_meta.permission.description`) on the approval card; say on the
-   reject button that a reject ends the whole turn; the connector's `setAgentMode` handler (`internal/terminalagent/chat.go`) has no
-   unit test of its own (it mirrors `setModel`).
+3. **Codex card gaps — done and merged (#384):** the model's justification (`_meta.permission.description`) is on the approval card,
+   the reject button says a Codex reject ends the whole turn ("Deny and end the turn"), and the connector's `setAgentMode` handler
+   (`internal/terminalagent/chat.go`) has its own test.
 4. **After the checks are recorded:** retire `REET_EXPERIMENTAL_CLAUDE_CHAT` and `REET_EXPERIMENTAL_CODEX_CHAT` (and decide whether the
    browser needs a "sign in to Claude on that machine" message).
 5. **SC5 remainder:** descriptor-driven chat controls (the mode control is the second agent that needs them) and extending recovery.
-6. Fix the Skills page layout so `phone-zoom` is green on main (outside this workstream).
+6. ~~Merge the Skills page fix~~ — done: #380 merged on 2 November and `phone-zoom` is green on main again.
 
 **Working rules the owner set (keep following them):**
 - One item at a time: build it test-first, open a **draft** PR, watch it, and **merge only when the owner says so** (they often mark
@@ -329,7 +331,7 @@ Claude is registered but dark: `REET_EXPERIMENTAL_CLAUDE_CHAT=1` on a machine's 
 (approvals and the model switch only; no history, images or questions), the controller binds each descriptor to its reviewed
 adapter, and a descriptor-less peer is still OpenCode-only.
 
-**Superseded:** the browser now offers Claude (and Codex, on #375) from an available descriptor, and the next tasks are listed in
+**Superseded:** the browser now offers Claude and Codex from an available descriptor, and the next tasks are listed in
 "Structured chats (SC1–SC5): resume here" at the top of this file.
 
 ## SC2 — Structured adapter probe checkpoint (31 October 2026)

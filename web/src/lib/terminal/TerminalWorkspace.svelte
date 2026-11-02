@@ -193,6 +193,8 @@
       if(removedAfterClose){selectedSession='';remember()}
       if(nextHealth.data){health=nextHealth.data;receivedAt=performance.now();elapsed=0}
       if(firstLoad&&!selectedSession)selectedSession=sessions.find(item=>item.agentId===selectedAgent&&item.state==='running')?.id||''
+      // A bare /sessions names no machine: default to the first ready one so the new-session landing has somewhere to start.
+      if(firstLoad&&!selectedAgent&&!selectedSession)selectedAgent=machines.find(item=>item.ready)?.agentId||machines[0]?.agentId||''
       remember()
     } catch(e){
       if(!signal?.aborted&&!disposed){

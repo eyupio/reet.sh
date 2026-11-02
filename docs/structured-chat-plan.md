@@ -353,7 +353,7 @@ not refetch. The current confirmed model and mode-switch acknowledgement rules r
 
 Delivery record:
 - **Task / scope:** SC5 descriptor-driven live model controls; no effort or new mode support.
-- **Branch:** `fix/descriptor-chat-model-control`; publication and exact commit/PR are recorded in the draft PR.
+- **Branch / implementation / PR:** `fix/descriptor-chat-model-control`, `5d0c82c`, [#392](https://github.com/eyupio/reet.sh/pull/392), opened as a draft.
 - **Compatibility:** browser only; existing descriptor/legacy flags and API routes, no new wire field, Go change, database migration or dependency.
 - **Checks:** the Codex browser regression failed before the fix because a Model textbox was present. Web checks passed with zero Svelte errors/warnings;
   production build and Claude/OpenCode browser fixtures passed (OpenCode through both legacy flags and explicit descriptors). The Codex fixture covers

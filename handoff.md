@@ -30,7 +30,7 @@ dark: a machine reports one as available only when its connector runs with `REET
 (`internal/terminalproto/acp_agents.go`); the controller binds each to its reviewed adapter; the browser offers a chat only from
 a descriptor that says `available`.
 
-**Current independent slice (2 November, draft):** the owner asked to continue while the login checks are pending. Branch
+**Current independent slice (2 November, [#392](https://github.com/eyupio/reet.sh/pull/392), opened as a draft):** the owner asked to continue while the login checks are pending. Branch
 `fix/descriptor-chat-model-control` makes the live Model controls and their lookups follow the available agent descriptor (legacy OpenCode uses
 `acpModel`); capability loss clears options and retires pending lookups, and provider-error wording no longer points at an unavailable control.
 This is the first bounded SC5 controls slice, independently based on main. See the SC5 progress note in the plan. Codex login access is separately

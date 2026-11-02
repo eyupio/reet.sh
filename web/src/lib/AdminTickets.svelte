@@ -182,7 +182,7 @@
 
     <section class="detail" aria-labelledby="detail-title">
       {#if detailLoading}
-        <p class="muted" role="status">Loading the ticket…</p>
+        <Skeleton label="Loading the ticket…" count={4} />
       {:else if !selected}
         <div class="empty-detail"><h3 id="detail-title">Choose a ticket</h3><p>Its conversation, notes and controls appear here.</p></div>
       {:else}

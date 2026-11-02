@@ -856,6 +856,13 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if err == nil && state.ACPSessionID != "" {
 			err = b.st.RecordTerminalACPSessionFor(uid, agent, s.ID, state.ACPSessionID)
 		}
+		if err == nil && in.Structured {
+			// A chat starts in the first mode its descriptor lists; the machine refuses
+			// to open it in any other.
+			if mode := b.startAgentMode(uid, agent, in.Tool); mode != "" {
+				_ = b.st.RecordTerminalAgentModeFor(uid, s.ID, mode)
+			}
+		}
 		if err == nil && worktreeRequested(in) && b.recordWorktree(uid, agent, s.ID, state) != nil {
 			// The agent started, but the machine's report of where does not
 			// match this run; nothing is recorded.
@@ -1031,4 +1038,18 @@ func (b *Broker) recordWorktree(uid int64, agent, session string, s *terminalpro
 		return err
 	}
 	return nil
+}
+
+// startAgentMode is the mode a new chat of this tool opens in: the first mode its
+// descriptor lists, or "" when the agent offers no mode switch.
+func (b *Broker) startAgentMode(uid int64, agent, tool string) string {
+	caps, err := b.st.RemoteCapabilitiesFor(uid, agent)
+	if err != nil {
+		return ""
+	}
+	chat, ok := caps.Capabilities.ChatAgent(tool)
+	if !ok || !caps.Capabilities.ACPAgentMode || len(chat.Modes) == 0 {
+		return ""
+	}
+	return chat.Modes[0]
 }

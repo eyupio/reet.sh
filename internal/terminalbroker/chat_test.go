@@ -20,6 +20,18 @@ func chatFixture(t *testing.T) (*Broker, *Peer, int64, string) {
 // chatFixtureWith lets a test script the machine's reply to a question answer.
 func chatFixtureWith(t *testing.T, answerReply func(*terminalproto.ACPQuestionAnswer) terminalproto.Result) (*Broker, *Peer, int64, string) {
 	t.Helper()
+	return chatFixtureCaps(t, answerReply, nil)
+}
+
+// chatFixtureCaps also lets a test change the machine's capabilities before it connects.
+func chatFixtureCaps(t *testing.T, answerReply func(*terminalproto.ACPQuestionAnswer) terminalproto.Result, mutate func(*terminalproto.Capabilities)) (*Broker, *Peer, int64, string) {
+	t.Helper()
+	return chatFixtureFull(t, answerReply, mutate, nil)
+}
+
+// chatFixtureFull also lets a test script the machine's reply to an agent mode switch.
+func chatFixtureFull(t *testing.T, answerReply func(*terminalproto.ACPQuestionAnswer) terminalproto.Result, mutate func(*terminalproto.Capabilities), modeReply func(*terminalproto.ACPAgentMode) (terminalproto.Result, bool)) (*Broker, *Peer, int64, string) {
+	t.Helper()
 	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
@@ -31,6 +43,9 @@ func chatFixtureWith(t *testing.T, answerReply func(*terminalproto.ACPQuestionAn
 		t.Fatal(err)
 	}
 	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", HealthEnabled: true, TerminalEnabled: true, TerminalControl: true, Launch: true, Tools: []string{"opencode"}, Readiness: terminalproto.Ready, ACP: true, ACPHistory: true, ACPApproval: true, ACPModel: true}
+	if mutate != nil {
+		mutate(&caps)
+	}
 	record, err := st.BeginRemoteConnectionFor(uid, a.ID, ID(), caps)
 	if err != nil {
 		t.Fatal(err)
@@ -60,6 +75,17 @@ func chatFixtureWith(t *testing.T, answerReply func(*terminalproto.ACPQuestionAn
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
 			if answerReply != nil {
 				reply.Body = answerReply(op)
+			}
+		case *terminalproto.ACPAgentMode:
+			reply.Body = terminalproto.Result{Code: terminalproto.OK}
+			if modeReply != nil {
+				result, deliver := modeReply(op)
+				if !deliver {
+					// The machine got the request and its reply never arrives.
+					mu.Unlock()
+					return nil
+				}
+				reply.Body = result
 			}
 		case terminalproto.ACPPrompt, terminalproto.ACPCancel, terminalproto.ACPPermission:
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
@@ -315,5 +341,119 @@ func TestStructuredCreateHonoursExplicitDescriptorRefusal(t *testing.T) {
 				t.Fatalf("descriptor refusal: %v", err)
 			}
 		})
+	}
+}
+
+// A mode switch goes to the machine only for a mode the agent's descriptor lists, on a
+// machine that negotiated acp-agent-mode-v1; anything else is refused before it is sent.
+func TestSetAgentModeIsLimitedToTheDescriptorsModes(t *testing.T) {
+	b, _, uid, agent := chatFixtureCaps(t, nil, func(c *terminalproto.Capabilities) {
+		c.ACPAgentMode = true
+		agents := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", Model: true, Approval: true, Modes: []string{"read-only", "agent"}}}
+		c.ACPAgents = &agents
+	})
+	s := chatSession(t, b, uid, agent)
+	if err := b.SetAgentMode(t.Context(), uid, s.ID, "agent"); err != nil {
+		t.Fatalf("a listed mode: %v", err)
+	}
+	if err := b.SetAgentMode(t.Context(), uid, s.ID, "agent-full-access"); !errors.Is(err, ErrACPAgentModeUnsupported) {
+		t.Fatalf("a mode the descriptor does not list: %v", err)
+	}
+	if err := b.SetAgentMode(t.Context(), uid, s.ID, "Not A Mode"); !errors.Is(err, terminalproto.ErrInvalid) {
+		t.Fatalf("an invalid mode name: %v", err)
+	}
+	if err := b.SetAgentMode(t.Context(), uid+1, s.ID, "agent"); err == nil {
+		t.Fatal("another user switched the mode")
+	}
+}
+
+// Without the negotiated feature and a descriptor that lists modes there is no switch.
+func TestSetAgentModeNeedsTheFeatureAndAListedMode(t *testing.T) {
+	b, _, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	if err := b.SetAgentMode(t.Context(), uid, s.ID, "agent"); !errors.Is(err, ErrACPAgentModeUnsupported) {
+		t.Fatalf("a machine that lists no modes: %v", err)
+	}
+}
+
+// The stored mode is what the browser will show after a reload: the first mode the
+// descriptor lists when the chat opens, the new mode after a confirmed switch, and
+// unknown (empty) after a switch the machine did not confirm.
+func TestAgentModeIsStoredAtCreateAndOnConfirmedSwitches(t *testing.T) {
+	refuse := false
+	b, _, uid, agent := chatFixtureFull(t, nil, func(c *terminalproto.Capabilities) {
+		c.ACPAgentMode = true
+		agents := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", Model: true, Approval: true, Modes: []string{"read-only", "agent"}}}
+		c.ACPAgents = &agents
+	}, func(*terminalproto.ACPAgentMode) (terminalproto.Result, bool) {
+		if refuse {
+			return terminalproto.Result{Code: terminalproto.Unavailable}, true
+		}
+		return terminalproto.Result{Code: terminalproto.OK}, true
+	})
+	s := chatSession(t, b, uid, agent)
+	mode := func() string {
+		got, err := b.st.TerminalSessionFor(uid, s.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.AgentMode
+	}
+	if got := mode(); got != "read-only" {
+		t.Fatalf("mode at create %q", got)
+	}
+	if err := b.SetAgentMode(t.Context(), uid, s.ID, "agent"); err != nil || mode() != "agent" {
+		t.Fatalf("after a confirmed switch: %v %q", err, mode())
+	}
+	refuse = true
+	if err := b.SetAgentMode(t.Context(), uid, s.ID, "read-only"); !errors.Is(err, ErrACPAgentModeRejected) {
+		t.Fatalf("an unconfirmed switch: %v", err)
+	}
+	if got := mode(); got != "" {
+		t.Fatalf("an unconfirmed switch left the stored mode as %q, not unknown", got)
+	}
+}
+
+// An agent that lists no modes has no stored mode.
+func TestNoModeIsStoredWhenTheAgentOffersNone(t *testing.T) {
+	b, _, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	got, err := b.st.TerminalSessionFor(uid, s.ID)
+	if err != nil || got.AgentMode != "" {
+		t.Fatalf("stored mode %q %v", got.AgentMode, err)
+	}
+}
+
+// A switch that was sent but whose reply never arrives may have been applied, so the
+// stored mode becomes unknown rather than keeping the old one as if it were confirmed.
+func TestLostModeSwitchReplyClearsTheStoredMode(t *testing.T) {
+	old := chatCallTimeout
+	chatCallTimeout = 150 * time.Millisecond
+	defer func() { chatCallTimeout = old }()
+	drop := false
+	b, _, uid, agent := chatFixtureFull(t, nil, func(c *terminalproto.Capabilities) {
+		c.ACPAgentMode = true
+		agents := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", Model: true, Approval: true, Modes: []string{"read-only", "agent"}}}
+		c.ACPAgents = &agents
+	}, func(*terminalproto.ACPAgentMode) (terminalproto.Result, bool) {
+		return terminalproto.Result{Code: terminalproto.OK}, !drop
+	})
+	s := chatSession(t, b, uid, agent)
+	stored := func() string {
+		got, err := b.st.TerminalSessionFor(uid, s.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.AgentMode
+	}
+	if got := stored(); got != "read-only" {
+		t.Fatalf("mode at create %q", got)
+	}
+	drop = true
+	if err := b.SetAgentMode(t.Context(), uid, s.ID, "agent"); err == nil {
+		t.Fatal("a switch with no reply was reported as done")
+	}
+	if got := stored(); got != "" {
+		t.Fatalf("a lost reply left the stored mode as %q, not unknown", got)
 	}
 }

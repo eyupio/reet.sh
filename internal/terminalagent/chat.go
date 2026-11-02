@@ -1167,3 +1167,30 @@ func (h *chatHost) setModel(ctx context.Context, sessionID, model string) error 
 	defer cancel()
 	return process.SetModel(changeCtx, model)
 }
+
+// setAgentMode moves a live chat to one of its agent's choosable modes. The
+// session refuses any other mode and reports success only when the agent
+// confirms the new one.
+func (h *chatHost) setAgentMode(ctx context.Context, sessionID, mode string) error {
+	cs := h.find(sessionID)
+	if cs == nil {
+		return terminalhost.ErrSessionMissing
+	}
+	h.sup.mu.Lock()
+	if cs.busy || cs.quiet || cs.state != terminalproto.Running {
+		h.sup.mu.Unlock()
+		return terminalhost.ErrOperationConflict
+	}
+	cs.busy = true
+	h.sup.mu.Unlock()
+	defer func() { h.sup.mu.Lock(); cs.busy = false; h.sup.mu.Unlock() }()
+	process, ok := cs.process.(interface {
+		SetMode(context.Context, string) error
+	})
+	if !ok {
+		return terminalhost.ErrOperationConflict
+	}
+	changeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	return process.SetMode(changeCtx, mode)
+}

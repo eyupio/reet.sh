@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { closeTicket, getTicket, replyTicket, type Ticket, type TicketMessage, type TicketStatus } from './api'
   import { elapsed } from './time'
@@ -70,7 +71,7 @@
 {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
 
 {#if !ticket && !error}
-  <p class="hint" role="status">Loading the ticket…</p>
+  <Skeleton label="Loading the ticket…" count={4} />
 {:else if ticket}
   <header class="head">
     <div>

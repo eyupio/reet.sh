@@ -27,6 +27,10 @@ var (
 	// ErrMode means the requested mode is not one this profile lets a person
 	// choose, or the agent did not confirm the switch.
 	ErrMode = errors.New("the agent did not switch to that mode")
+	// ErrModeUnconfirmed means the agent did not answer a mode switch, or did not
+	// name the mode in its answer, so which mode the chat is in is not known. It is
+	// never reported as the old mode.
+	ErrModeUnconfirmed = errors.New("the agent did not confirm which mode the chat is in")
 )
 
 // TrustError means the folder carries files the agent would execute. Only a

@@ -84,9 +84,13 @@ func RunReport(opts ReportOptions) (Report, error) {
 	}
 	server := opts.Server
 	if !opts.DryRun && server == "" {
-		if !opts.Interactive {
-			return r, errors.New("server URL required; set REET_URL or pass --server")
+		if found := clientconfig.Discover("", "", "").Server; found != "" {
+			server = found
+		} else if !opts.Interactive {
+			return r, errors.New("server URL required; set REET_URL, add it to .env, or pass --server")
 		}
+	}
+	if !opts.DryRun && server == "" {
 		value, err := clientconfig.ResolveURL("", input, output)
 		if err != nil {
 			return r, err

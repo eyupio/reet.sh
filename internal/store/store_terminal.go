@@ -59,6 +59,7 @@ func (s *Store) migrateTerminal() error {
 		{"terminal_sessions", "dir TEXT NOT NULL DEFAULT ''"},
 		{"terminal_sessions", "structured INTEGER NOT NULL DEFAULT 0 CHECK(structured IN (0,1))"},
 		{"terminal_sessions", "acp_session_id TEXT NOT NULL DEFAULT ''"},
+		{"terminal_sessions", "agent_mode TEXT NOT NULL DEFAULT ''"},
 	} {
 		ok, err := hasColumn(s.db, c.table, strings.Fields(c.ddl)[0])
 		if err != nil {
@@ -326,11 +327,15 @@ type TerminalSession struct {
 	Structured bool `json:"structured,omitempty"`
 	// ACPSessionID is OpenCode's own session id, the handle for reopening a
 	// chat's stored history. It is empty until the machine reports it.
-	ACPSessionID      string `json:"acpSessionId,omitempty"`
-	ActivityAt        int64  `json:"activityAt,omitempty"`
-	BellAt            int64  `json:"bellAt,omitempty"`
-	CompletedAt       int64  `json:"completedAt,omitempty"`
-	ChatStatus        string `json:"chatStatus,omitempty"`
+	ACPSessionID string `json:"acpSessionId,omitempty"`
+	ActivityAt   int64  `json:"activityAt,omitempty"`
+	BellAt       int64  `json:"bellAt,omitempty"`
+	CompletedAt  int64  `json:"completedAt,omitempty"`
+	ChatStatus   string `json:"chatStatus,omitempty"`
+	// AgentMode is the agent mode the chat is confirmed to be in (Codex:
+	// "read-only" or "agent"). Empty means the agent offers no modes or the mode
+	// is not known, for example after a switch it did not confirm.
+	AgentMode         string `json:"agentMode,omitempty"`
 	SeenAt            int64  `json:"-"`
 	Attention         string `json:"attention,omitempty"`
 	AttentionSource   string `json:"attentionSource,omitempty"`
@@ -366,14 +371,14 @@ type PendingPermission struct {
 	Queued       int    `json:"queued,omitempty"`
 }
 
-const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,activity_at,bell_at,attention_observed,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}'),completed_at,chat_status`
+const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,activity_at,bell_at,attention_observed,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}'),completed_at,chat_status,agent_mode`
 
 func readTerminal(row interface{ Scan(...any) error }) (TerminalSession, error) {
 	var t TerminalSession
 	var exit sql.NullInt64
 	var project sql.NullString
 	var attentionObserved int
-	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.ACPSessionID, &t.ActivityAt, &t.BellAt, &attentionObserved, &t.RemoveHistory, &t.CompletedAt, &t.ChatStatus)
+	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.ACPSessionID, &t.ActivityAt, &t.BellAt, &attentionObserved, &t.RemoveHistory, &t.CompletedAt, &t.ChatStatus, &t.AgentMode)
 	t.AttentionObserved = attentionObserved != 0
 	if exit.Valid {
 		n := int(exit.Int64)
@@ -975,6 +980,16 @@ func (s *Store) RecordTerminalWorktreeFor(uid int64, agentID, sessionID, path, r
 		_, err = tx.Exec(`UPDATE terminal_sessions SET worktree_path=?,worktree_repo=?,worktree_branch=? WHERE id=? AND user_id=? AND agent_id=?`, path, repo, "reet/"+in.Project+"-"+in.Worktree, sessionID, uid, agentID)
 		return err
 	})
+}
+
+// RecordTerminalAgentModeFor records the agent mode a chat is confirmed to be in.
+// An empty mode records that the mode is not known.
+func (s *Store) RecordTerminalAgentModeFor(uid int64, sessionID, mode string) error {
+	if mode != "" && !terminalproto.ValidAgentMode(mode) {
+		return terminalproto.ErrInvalid
+	}
+	_, err := s.db.Exec(`UPDATE terminal_sessions SET agent_mode=?,updated_at=? WHERE id=? AND user_id=? AND structured=1`, mode, now(), sessionID, uid)
+	return err
 }
 
 // RecordTerminalModelFor records a model only after the running agent accepted it.

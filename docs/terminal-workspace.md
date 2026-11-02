@@ -254,7 +254,9 @@ Multiline/tab/control/large input retains explicit paste review. No shell output
 or credential interpolation is used to build commands.
 
 Stopping a session includes **Remove from history when this session ends** and
-**Use this as my account default**. Account → Profile also stores the default.
+**Remove from history by default**, which starts as your saved default and says so
+("This is your current default. Untick to change it."); toggling it and ending the session saves the
+new default. Account → Profile also stores the default.
 History stays visible during offline/pending termination. The immutable end
 receipt stores the explicit choice; authenticated host closure inserts the
 existing archive tombstone in the same transaction. Changing preferences later

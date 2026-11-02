@@ -13,7 +13,7 @@
   const query = new URLSearchParams(location.search)
   // Without Sessions (not a writer in accounts mode) a session address shows the Machines page with its header too.
   // svelte-ignore state_referenced_locally
-  const terminals = (location.pathname === '/sessions' && (query.has('session') || query.has('agent')) || query.get('view') === 'terminal') && accounts && canWrite
+  const terminals = (location.pathname === '/sessions' && query.get('view') !== 'list' || query.get('view') === 'terminal') && accounts && canWrite
   // svelte-ignore state_referenced_locally
   const focus = compare ? '' : (new URLSearchParams(location.search).get('machine') ?? '')
   let TerminalView = $state<Component<{userId?:number; ontitle?: (title: string) => void}>>()

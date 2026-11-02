@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import {
     checkMailSettings, getMailDNS, getMailSettings, listMailOutbox, resendMail, saveMailSettings, sendTestMail,
@@ -159,7 +160,7 @@
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
   {#if loading}
-    <p class="muted" role="status">Loading email settings…</p>
+    <Skeleton label="Loading email settings…" count={4} />
   {:else if settings}
     <div class="summary">
       <span class="badge">{settings.mode === 'smtp' ? 'Sending' : settings.mode === 'outbox' ? 'Local outbox' : 'Held'}</span>

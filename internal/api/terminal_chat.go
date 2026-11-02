@@ -17,6 +17,7 @@ func (s *server) registerTerminalChatRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/chat", s.terminal(s.terminalChat))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/prompt", s.terminal(s.terminalChatPrompt))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/model", s.terminal(s.terminalChatModel))
+	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/agent-mode", s.terminal(s.terminalChatAgentMode))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/cancel", s.terminal(s.terminalChatCancel))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/permissions/{permissionId}", s.terminal(s.terminalChatPermission))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/questions/{questionId}", s.terminal(s.terminalChatQuestion))
@@ -226,7 +227,8 @@ func (s *server) terminalChatTarget(w http.ResponseWriter, r *http.Request) (sto
 
 func (s *server) terminalChatError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, terminalbroker.ErrACPModelRejected), errors.Is(err, terminalbroker.ErrACPModelUnsupported):
+	case errors.Is(err, terminalbroker.ErrACPModelRejected), errors.Is(err, terminalbroker.ErrACPModelUnsupported),
+		errors.Is(err, terminalbroker.ErrACPAgentModeRejected), errors.Is(err, terminalbroker.ErrACPAgentModeUnsupported):
 		writeErr(w, 409, err.Error())
 	case errors.Is(err, store.ErrRemoteNotFound):
 		writeErr(w, 404, "that reet session is not available")
@@ -280,6 +282,30 @@ func (s *server) terminalChatModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"changed": true})
+}
+
+// terminalChatAgentMode moves a live chat to one of the modes its agent offers
+// (Codex: read-only or agent). The machine confirms the mode with the agent
+// before this answers 200.
+func (s *server) terminalChatAgentMode(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.terminalChatTarget(w, r); !ok {
+		return
+	}
+	var in struct {
+		Mode string `json:"mode"`
+	}
+	if !terminalJSON(w, r, &in) {
+		return
+	}
+	if !terminalproto.ValidAgentMode(in.Mode) {
+		writeErr(w, 400, "Choose a valid mode.")
+		return
+	}
+	if err := s.terminals.SetAgentMode(r.Context(), s.uid(r), r.PathValue("id"), in.Mode); err != nil {
+		s.terminalChatError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"mode": in.Mode})
 }
 
 // terminalSessionMode switches a running OpenCode session between Gaffer

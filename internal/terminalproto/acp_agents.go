@@ -32,6 +32,10 @@ type ACPAgent struct {
 	Images         bool   `json:"images,omitempty"`
 	Model          bool   `json:"model,omitempty"`
 	Approval       bool   `json:"approval,omitempty"`
+	// Modes lists the agent modes a person may switch a live chat to, in the
+	// order to show them. Empty means the agent offers no switch. Sent only on a
+	// connection that negotiated acp-agent-mode-v1.
+	Modes []string `json:"modes,omitempty"`
 	// Questions reports typed agent questions. No reviewed adapter offers them
 	// yet, so the connector's descriptor builder never sets it; a controller
 	// still honours it only on a connection that negotiated acp-question-v1.
@@ -64,11 +68,26 @@ func (a ACPAgent) Valid() bool {
 	}
 	switch a.State {
 	case "available":
-		return ReviewedChatTool(a.Tool) && a.Adapter == chatAdapter(a.Tool) && a.MinimumVersion != ""
+		return ReviewedChatTool(a.Tool) && a.Adapter == chatAdapter(a.Tool) && a.MinimumVersion != "" && validAgentModes(a.Modes)
 	case "missing", "unverified", "incompatible":
-		return !a.History && !a.Images && !a.Model && !a.Approval && !a.Questions
+		return !a.History && !a.Images && !a.Model && !a.Approval && !a.Questions && len(a.Modes) == 0
 	}
 	return false
+}
+
+// MaxACPAgentModes bounds a descriptor's mode list.
+const MaxACPAgentModes = 4
+
+func validAgentModes(modes []string) bool {
+	if len(modes) > MaxACPAgentModes {
+		return false
+	}
+	for i, mode := range modes {
+		if !ValidAgentMode(mode) || slices.Contains(modes[:i], mode) {
+			return false
+		}
+	}
+	return true
 }
 
 func (c Capabilities) validACPAgents() bool {
@@ -91,7 +110,7 @@ func (c Capabilities) validACPAgents() bool {
 					installed = true
 				}
 			}
-			if !c.ACP || !installed || a.History && !c.ACPHistory || a.Images && !c.ACPImages || a.Model && !c.ACPModel || a.Approval && !c.ACPApproval || a.Questions && !c.ACPQuestions {
+			if !c.ACP || !installed || a.History && !c.ACPHistory || a.Images && !c.ACPImages || a.Model && !c.ACPModel || a.Approval && !c.ACPApproval || a.Questions && !c.ACPQuestions || len(a.Modes) > 0 && !c.ACPAgentMode {
 				return false
 			}
 		}

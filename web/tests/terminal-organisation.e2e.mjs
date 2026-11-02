@@ -86,7 +86,7 @@ try{
  await row('Builder renamed').press('Shift+F10')
  await menu.getByRole('menuitem',{name:'Stop session…'}).click()
  await page.getByLabel('Remove from history when this session ends').check()
- await page.getByLabel('Use this as my account default').check()
+ await page.getByLabel('Remove from history by default').check()
  await page.getByRole('dialog').getByRole('button',{name:'End session',exact:true}).click()
  await expect(row('Builder renamed')).toContainText('end requested')
  expect(mutations.find(m=>m.kind==='end')).toMatchObject({id:sessions[1].id,removeHistory:true})
@@ -192,6 +192,7 @@ try{
  await expect(menu).toHaveAccessibleName('Actions for machine Laptop')
  await menu.press('Escape');expect(tickets.length).toBe(beforeQuickTickets)
  await emptyGroup.getByRole('button',{name:'New terminal on New machine',exact:true}).click()
+ await page.getByRole('menuitem',{name:'Terminal',exact:true}).click()
  await expect(page.getByRole('alert')).toContainText('Creation unconfirmed')
  expect(new URL(page.url()).searchParams.get('agent')).toBe(c)
  expect(new URL(page.url()).searchParams.get('session')).toBeNull()
@@ -219,7 +220,7 @@ try{
  await page.getByRole('button',{name:'Close Saved commands',exact:true}).click()
  expect(inputs.length).toBe(beforeMenuInput)
  // The Sessions page's menu targets the clicked session, with explicit stop/removal review, and never attaches to it.
- await page.goto(`${base}/sessions`)
+ await page.goto(`${base}/sessions?view=list`)
  const listed=page.locator('main .session-row'),entry=name=>listed.filter({has:page.getByText(name,{exact:true})}).locator('a.open')
  const landingTickets=tickets.length
  // Shift+right-click keeps the browser's own menu.

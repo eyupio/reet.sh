@@ -10,13 +10,14 @@
   import Home from './lib/home/Home.svelte'
   import { attentionCount, needsYou, sessionOwners, titleWithAttention, type NeedCard } from './lib/home'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
+  import { SYNC_FILTERS, SYNC_UNAVAILABLE, matchesSyncFilter, settledJobsKey, type SyncFilter } from './lib/skillSync'
   import Community from './lib/Community.svelte'
   import SharedLists from './lib/SharedLists.svelte'
   import Spaces from './lib/Spaces.svelte'
   import { audienceLabel } from './lib/api'
   import { onMount, tick } from 'svelte'
   import {
-    addSkill, addSkillTags, applyTheme, clearToken, getAuthStatus, getNotificationCount, getProfile, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
+    addSkill, addSkillTags, applyTheme, clearToken, getAuthStatus, getNotificationCount, getProfile, getSyncState, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
     patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, saveProfile, signOutAccount, tagSkills, UnauthorizedError,
     type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
@@ -117,6 +118,9 @@
   const shelfMachines = $derived(inventoryMachines(machines))
   const machineReports = $derived(installationReports(shelfMachines, inventoryNow))
   let onlyOne = $state(false)
+  // Where-is-it filters: observed state (nowhere, missing) and saved selections (not set, pending). Applied here, not on the server.
+  let syncFilter = $state<SyncFilter>('')
+  let syncSnapshot = $state<import('./lib/api').SyncState | undefined>(undefined)
   let copying = $state(false)
   let removePending = $state<Skill | null>(null)
   let metaLoaded = $state(false)
@@ -150,8 +154,9 @@
   // view=terminal in the query it opens the terminal workspace there, with the session screen around the chosen session.
   const sessionsQuery = new URLSearchParams(location.search)
   const isSessionsPage = location.pathname === '/sessions'
-  const isTerminals = isSessionsPage && (sessionsQuery.has('session') || sessionsQuery.has('agent') || machineView === 'terminal') || legacyMachinePage && machineView === 'terminal'
-  const isSessions = isSessionsPage && !isTerminals
+  // A bare /sessions is the workspace too (its empty state offers a new session); the older list stays at /sessions?view=list.
+  const isSessions = isSessionsPage && machineView === 'list'
+  const isTerminals = isSessionsPage && !isSessions || legacyMachinePage && machineView === 'terminal'
   const isSync = location.pathname === '/sync' || legacyMachinePage && !isTerminals && (machineView === 'compare' || location.pathname === '/account/sync')
   const isHosting = location.pathname === '/hosting'
   const isCommunity = location.pathname === '/community'
@@ -245,8 +250,8 @@
     { slug: 'vercel-labs/skills/find-skills', name: 'Find skills', blurb: 'Find and install the right skill for a task.' },
   ]
 
-  const filtering = $derived(q.trim() !== '' || onlyLiked || selectedTags.length > 0 || selectedEnv !== '' || selectedMachine !== '' || onlyOne)
-  const grouped = $derived(stages.map((st) => ({ ...st, items: skills.filter((k) => stageOf(k) === st.id) })))
+  const filtering = $derived(q.trim() !== '' || onlyLiked || selectedTags.length > 0 || selectedEnv !== '' || selectedMachine !== '' || onlyOne || syncFilter !== '')
+  const grouped = $derived(stages.map((st) => ({ ...st, items: skills.filter((k) => stageOf(k) === st.id && matchesSyncFilter(syncFilter, k.id, syncSnapshot, machineReports)) })))
   // The board keeps empty columns as lanes. The list hides empty stages so the
   // first added skill appears immediately instead of below two dead sections.
   const orderedGroups = $derived(view === 'board' ? [grouped[2], grouped[1], grouped[0]] : grouped)
@@ -255,7 +260,7 @@
   const anyExpanded = $derived(visible.some(g => g.items.some(skill => expandedSkills[skill.id] ?? defaultExpanded)))
   const likedCount = $derived(skills.filter((s) => s.liked).length)
   const tagOptions = $derived(allTags.map((t) => t.name))
-  const filterKey = $derived(`${q}|${sort}|${onlyLiked}|${selectedTags.join(',')}|${selectedMachine}|${selectedEnv}|${onlyOne}|${show}`)
+  const filterKey = $derived(`${q}|${sort}|${onlyLiked}|${selectedTags.join(',')}|${selectedMachine}|${selectedEnv}|${onlyOne}|${syncFilter}|${show}`)
   const tagCounts = $derived.by(() => {
     const map = new Map<number, { tag: Tag; count: number }>()
     for (const skill of skills) {
@@ -335,8 +340,10 @@
 
   async function loadMeta(): Promise<boolean> {
     try {
-      const [envs, tags, shared] = await Promise.all([listEnvironments(), listTags(), listLists()])
+      const [envs, tags, shared, sync] = await Promise.all([listEnvironments(), listTags(), listLists(), getSyncState().catch(() => undefined)])
       environments = envs.environments
+      syncSnapshot = sync
+      settledJobs = settledJobsKey(sync)
       machines = envs.machines
       allTags = tags.tags
       lists = shared.lists
@@ -604,6 +611,7 @@
       q = ''
       selectedTags = []
       selectedEnv = ''
+      syncFilter = ''
       selectedMachine = ''
       onlyOne = false
       ok(s.created ? `Reet, added ${s.name} to the shelf.` : `Already on the shelf, in ${stageTitle(stageOf(s))}.`)
@@ -791,6 +799,17 @@
     } finally {
       installing = ''
     }
+  }
+
+  // The activity dock polls sync while an install runs. Keep the cards' sync line on that state, and when a job settles
+  // re-read inventory too, so Pending becomes Set and the badge turns Installed without a reload.
+  let settledJobs = ''
+  function syncUpdated(next: import('./lib/api').SyncState) {
+    syncSnapshot = next
+    const key = settledJobsKey(next)
+    if (key === settledJobs) return
+    settledJobs = key
+    void loadMeta()
   }
 
   async function copyMissing() {
@@ -1061,7 +1080,7 @@
 
     {#if tagCounts.length > 0 || shelfMachines.length > 0 || lists.length > 0 || filtering}
     <details class="shelf-filters">
-      <summary>Filters & lists <span>{selectedTags.length + Number(!!selectedMachine) + Number(!!selectedEnv) + Number(onlyOne) ? `${selectedTags.length + Number(!!selectedMachine) + Number(!!selectedEnv) + Number(onlyOne)} active` : `${tagCounts.length} ${tagCounts.length === 1 ? 'tag' : 'tags'} · ${shelfMachines.length} ${shelfMachines.length === 1 ? 'environment' : 'environments'}`}</span></summary>
+      <summary>Filters & lists <span>{selectedTags.length + Number(!!selectedMachine) + Number(!!selectedEnv) + Number(onlyOne) + Number(!!syncFilter) ? `${selectedTags.length + Number(!!selectedMachine) + Number(!!selectedEnv) + Number(onlyOne) + Number(!!syncFilter)} active` : `${tagCounts.length} ${tagCounts.length === 1 ? 'tag' : 'tags'} · ${shelfMachines.length} ${shelfMachines.length === 1 ? 'environment' : 'environments'}`}</span></summary>
       <div class="filter-panel">
     {#if lists.length > 0 || canWrite}
       <div class="filterbar" role="group" aria-label="Shared lists">
@@ -1105,6 +1124,10 @@
         {/each}
         <span class="sep" aria-hidden="true"></span>
         <button type="button" class="chip" aria-pressed={onlyOne} onclick={() => (onlyOne = !onlyOne)}>Only on one machine</button>
+        <span class="sep" aria-hidden="true"></span>
+        {#each SYNC_FILTERS as f (f.id)}
+          <button type="button" class="chip" aria-pressed={syncFilter === f.id} disabled={f.needsSnapshot && !syncSnapshot} title={f.needsSnapshot && !syncSnapshot ? SYNC_UNAVAILABLE : f.title} onclick={() => (syncFilter = syncFilter === f.id ? '' : f.id)}>{f.label}</button>
+        {/each}
         {#if selectedMachine}
           <button type="button" class="chip action" onclick={copyMissing} disabled={copying} aria-busy={copying}>
             {copying ? 'Copying…' : 'Copy missing installs'}
@@ -1176,7 +1199,7 @@
         <div class="no-matches">
           <h2>Nowt matches just yet.</h2>
           <p>Try another search or clear your filters.</p>
-          <button type="button" class="btn" onclick={() => { q = ''; show = 'all'; onlyLiked = false; selectedTags = []; selectedEnv = ''; selectedMachine = ''; onlyOne = false }}>Clear filters</button>
+          <button type="button" class="btn" onclick={() => { q = ''; show = 'all'; onlyLiked = false; selectedTags = []; selectedEnv = ''; selectedMachine = ''; onlyOne = false; syncFilter = '' }}>Clear filters</button>
         </div>
       {:else}
         {#each visible as g (g.id)}
@@ -1188,7 +1211,7 @@
                 <SkillCard
                 skill={s} stage={g.id} tagOptions={tagOptions} compact={view === 'board'}
                 expanded={expandedSkills[s.id] ?? defaultExpanded} onexpand={expanded => (expandedSkills[s.id] = expanded)}
-                installationReports={machineReports}
+                installationReports={machineReports} {syncSnapshot}
                 selecting={selecting} selectedIDs={selected} onselect={select} {canWrite}
                 oninstall={(s, host) => void installNow(s, host)} {installing}
                 onpatch={patch} onrefresh={refreshOne} onlink={link} onremove={remove}
@@ -1220,7 +1243,7 @@
 
 {#if authMode === 'accounts' && currentUser && !needsAuth && !isMCPConsent}<WebMCP />{/if}
 {#if machineCopy}<MachineSkillSync skill={machineCopy.skill} destination={machineCopy.host} onclose={() => {machineCopy=null;void loadMeta()}} />{/if}
-{#if isSkills && authenticated && !needsAuth}<SyncActivity open={syncWatch !== null} context={syncWatch} {canWrite} onclose={() => (syncWatch = null)} />{/if}
+{#if isSkills && authenticated && !needsAuth}<SyncActivity open={syncWatch !== null} context={syncWatch} {canWrite} onclose={() => (syncWatch = null)} onupdate={syncUpdated} />{/if}
 {#if !terminalLayout && !homeLayout}<Footer
   signedIn={!isPublicList && authMode !== 'none' && authenticated && !needsAuth}
   showAdmin={!isPublicList && authenticated && !needsAuth && isAdminUser}

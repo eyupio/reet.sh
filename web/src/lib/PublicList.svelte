@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import PageHeader from './PageHeader.svelte'
   import { getPublicList, type ListDetail } from './api'
@@ -41,7 +42,7 @@
 </script>
 
 {#if loading}
-  <p class="empty" role="status">Loading shared list…</p>
+  <Skeleton label="Loading the shared list…" shape="rows" count={4} />
 {:else if !detail}
   <section class="missing">
 <PageHeader eyebrow="Shared list" title="That link is not available." lede={error || 'The list may be private, deleted, or link sharing may be turned off.'} />
@@ -97,7 +98,6 @@
   .status { margin: 14px 0 0; color: var(--good); font-size: 0.88rem; }
   .error { margin: 14px 0 0; color: var(--bad); font-size: 0.88rem; }
   .privacy { margin: 18px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--bg) 45%, var(--card)); color: var(--muted); font-size: 0.8rem; }
-  .empty { text-align: center; color: var(--muted); font: italic 1.1rem/1.5 var(--serif); padding: 56px 0; }
   .back { color: var(--accent-text); font-weight: 600; text-underline-offset: 3px; }
 
   .entries { list-style: none; margin: 20px 0 0; padding: 0; display: grid; gap: 14px; }

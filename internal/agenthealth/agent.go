@@ -59,6 +59,7 @@ type AgentConfig struct {
 	acp               bool
 	acpHistory        bool
 	acpModel          bool
+	acpAgentMode      bool
 	acpImages         bool
 	acpApproval       bool
 	sessionMode       bool
@@ -740,6 +741,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpAgents = terminalproto.SupportsACPAgents(advertised)
 	cfg.acpHistory = terminalproto.SupportsACPHistory(advertised)
 	cfg.acpModel = terminalproto.SupportsACPModel(advertised)
+	cfg.acpAgentMode = terminalproto.SupportsACPAgentMode(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
 	cfg.acpApproval = terminalproto.SupportsACPApproval(advertised)
 	// session-mode-v1 stands on chats, their history and launches; it is
@@ -804,6 +806,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpModel {
 		features = append(features, terminalproto.ACPModelFeature)
+	}
+	if cfg.acpAgentMode {
+		features = append(features, terminalproto.ACPAgentModeFeature)
 	}
 	if cfg.acpHistory {
 		features = append(features, terminalproto.ACPHistoryFeature)
@@ -943,6 +948,9 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 					entry.Images = entry.Images && cfg.acpImages
 					entry.Model = entry.Model && cfg.acpModel
 					entry.Approval = entry.Approval && cfg.acpApproval
+					if !cfg.acpAgentMode {
+						entry.Modes = nil
+					}
 					entry.Questions = entry.Questions && cfg.acpQuestion
 				}
 				entries = append(entries, entry)
@@ -962,17 +970,19 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		Browse:    cfg.browse && control && enabled && cfg.browseAllowed,
 		// Only on a connection that negotiated browse-v1: an older
 		// controller's strict decoder would refuse the field.
-		BrowseOff:   cfg.browse && control && enabled && !cfg.browseAllowed,
-		Clipboard:   cfg.clipboard && control && enabled && cfg.clipboardAllowed,
-		Uploads:     cfg.uploads && control && enabled && cfg.uploadsAllowed,
-		UploadsOff:  cfg.uploads && control && enabled && !cfg.uploadsAllowed,
-		Models:      cfg.models && control && enabled && cfg.modelsAllowed,
-		ModelsOff:   cfg.models && control && enabled && !cfg.modelsAllowed,
-		ACP:         acp,
-		ACPHistory:  acp && cfg.acpHistory,
-		ACPModel:    acp && cfg.acpModel,
-		ACPImages:   acp && cfg.acpImages,
-		ACPApproval: acp && cfg.acpApproval,
+		BrowseOff:  cfg.browse && control && enabled && !cfg.browseAllowed,
+		Clipboard:  cfg.clipboard && control && enabled && cfg.clipboardAllowed,
+		Uploads:    cfg.uploads && control && enabled && cfg.uploadsAllowed,
+		UploadsOff: cfg.uploads && control && enabled && !cfg.uploadsAllowed,
+		Models:     cfg.models && control && enabled && cfg.modelsAllowed,
+		ModelsOff:  cfg.models && control && enabled && !cfg.modelsAllowed,
+		ACP:        acp,
+		ACPHistory: acp && cfg.acpHistory,
+		ACPModel:   acp && cfg.acpModel,
+		// Only when a descriptor lists a mode, so the flag never appears without one.
+		ACPAgentMode: acp && cfg.acpAgentMode && anyModes(chatAgents),
+		ACPImages:    acp && cfg.acpImages,
+		ACPApproval:  acp && cfg.acpApproval,
 		// Only on a connection that negotiated session-mode-v1, with chats and
 		// their history, and only when OpenCode can be launched in a
 		// terminal: a switch opens the OpenCode TUI.
@@ -1037,4 +1047,16 @@ func fillCapacity(capacity terminalproto.CapacityReading) terminalproto.Capacity
 		capacity.Available.Reason = terminalproto.CollectionFailed
 	}
 	return capacity
+}
+
+func anyModes(agents *[]terminalproto.ACPAgent) bool {
+	if agents == nil {
+		return false
+	}
+	for _, a := range *agents {
+		if len(a.Modes) > 0 {
+			return true
+		}
+	}
+	return false
 }

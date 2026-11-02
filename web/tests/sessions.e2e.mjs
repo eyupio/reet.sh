@@ -122,7 +122,7 @@ try {
  // The page itself: the heading, Group by shared with Home, the groups as the mock-up draws them, and the projects below.
  if (run('page')) {
   const {context,page,errors,state} = await open()
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   await expect(page.getByRole('heading',{name:'Sessions',level:1})).toBeVisible()
   expect(await page.title()).toBe('Sessions · reet.sh')
   await expect(page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Sessions',exact:true})).toHaveAttribute('aria-current','page')
@@ -165,7 +165,7 @@ try {
 
  if (run('search matches branch and machine')) {
   const {context,page,errors} = await open()
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   const search = page.getByRole('searchbox',{name:'Search sessions'})
   await search.fill('reet/reet-a1b2')
   await expect.poll(() => titles(page)).toEqual(['Refactor the store layer'])
@@ -176,14 +176,14 @@ try {
   await search.fill('nothing like it')
   await expect(page.getByText('No sessions match.',{exact:true})).toBeVisible()
   // The query stays on the page: never in the address.
-  expect(new URL(page.url()).search).toBe('')
+  expect(new URL(page.url()).search).toBe('?view=list')
   expect(errors).toEqual([])
   await context.close()
  }
 
  if (run('filters combine')) {
   const {context,page,errors} = await open()
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   await page.getByText('Filters',{exact:true}).click()
   await filters(page).getByLabel('State',{exact:true}).selectOption('running')
   await expect.poll(() => titles(page)).toEqual(['Review code','Add browse-v1 protocol','Refactor the store layer','Speed up the runner pool'])
@@ -209,7 +209,7 @@ try {
 
  if (run('actions menu by right-click and Shift+F10')) {
   const {context,page,errors,box} = await open()
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   const row = rows(page).filter({hasText:'Refactor the store layer'})
   await row.locator('a.open').click({button:'right'})
   const menu = page.getByRole('menu',{name:'Actions for Refactor the store layer'})
@@ -267,7 +267,7 @@ try {
 
  if (run('project cards have a right-click menu')) {
   const {context,page,errors} = await open()
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   const card = page.getByRole('link',{name:/^reet,/})
   await card.click({button:'right'})
   const menu = page.getByRole('menu',{name:'Actions for reet'})
@@ -295,7 +295,7 @@ try {
   // A shell command can be one unbroken link: the confirmation must wrap it instead of scrolling sideways.
   const title = 'npx skills use "https://github.com/emilkowalski/skills/blob/main/very-long-unbroken-path-0123456789abcdef" --skill find-animation-opportunities'
   const {context,page,errors} = await open({sessions:sessions().map(s => s.id === 's6' ? {...s, title} : s)})
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   await rows(page).filter({hasText:'find-animation-opportunities'}).locator('a.open').click({button:'right'})
   await page.getByRole('menuitem',{name:'Remove from history…'}).click()
   const dialog = page.getByRole('dialog',{name:`Remove ${title} from history?`})
@@ -311,7 +311,7 @@ try {
 
  if (run('offline machine group sentence')) {
   const {context,page,errors} = await open()
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   const notes = page.locator('main .group[aria-label="notes"]')
   await expect(notes.locator('.offline')).toHaveText('desk is offline')
   await expect(page.locator('main .group .offline')).toHaveCount(1)
@@ -330,7 +330,7 @@ try {
  if (run('rows at least 44 px on touch')) {
   for (const [width,height] of [[390,844],[834,1112]]) {
    const {context,page,errors} = await open({width,height,touch:true})
-   await page.goto(`${base}/sessions`)
+   await page.goto(`${base}/sessions?view=list`)
    await expect(rows(page)).toHaveCount(6)
    const sizes = await page.locator('main .session-row a.open, main .session-row button, main .group-by label, main label.search, main button, main summary, main .project-card').evaluateAll(els => els.filter(e => e.getClientRects().length).map(e => [e.textContent.trim() || e.getAttribute('aria-label') || e.tagName, e.getBoundingClientRect().height]))
    for (const [name,h] of sizes) expect(h, `${name} at ${width}px`).toBeGreaterThanOrEqual(44)
@@ -346,7 +346,7 @@ try {
  // A refresh that fails keeps the last list and says so, with Try again; the list comes back when the read does.
  if (run('a failed refresh keeps the list')) {
   const {context,page,errors,box} = await open()
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   await expect(rows(page)).toHaveCount(6)
   box.fail = true
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
@@ -362,12 +362,12 @@ try {
  // Empty states: no projects, no sessions, no machines.
  if (run('empty states')) {
   let {context,page} = await open({projects:[],sessions:[]})
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   await expect(page.getByText('Add a project to start an agent in one of your folders.',{exact:true})).toBeVisible()
   await expect(page.getByText('No sessions yet. Start one from Home.',{exact:true})).toBeVisible()
   await context.close()
   ;({context,page} = await open({projects:[],sessions:[],machines:[]}))
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   await expect(page.getByRole('link',{name:'Connect a machine'})).toHaveAttribute('href','/machines#add-machine')
   await context.close()
  }
@@ -375,7 +375,7 @@ try {
  // The sessions panel's colours show on the rows (with the colour's name, not colour alone) and can be filtered on.
  if (run('session colours')) {
   const {context,page,errors} = await open({colours:{s3:'red',s5:'violet'}})
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   const row = name => rows(page).filter({hasText:name})
   // The panel's own choice, else the project's colour (reet is green); none draws nothing.
   await expect(row('Docs pass').locator('.colour-name')).toHaveText('Red')
@@ -399,7 +399,7 @@ try {
  // Saved commands from the header, with no session needed (owner ruling): open, add one, close; focus goes back.
  if (run('saved commands without a session')) {
   const {context,page,errors,box} = await open({sessions:[]})
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   await expect(page.getByText('No sessions yet. Start one from Home.',{exact:true})).toBeVisible()
   const button = page.getByRole('button',{name:'Saved commands',exact:true})
   await button.click()
@@ -423,7 +423,7 @@ try {
  if (run('last known on a phone')) {
   for (const [width,height,touch,hidden] of [[390,844,true,true],[600,900,true,true],[834,1112,true,false],[1440,900,false,false]]) {
    const {context,page,errors} = await open({width,height,touch})
-   await page.goto(`${base}/sessions`)
+   await page.goto(`${base}/sessions?view=list`)
    const word = rows(page).filter({hasText:'Review code'}).locator('.word')
    await expect(word).toHaveText('Running · last known')
    const box = await word.locator('.lk').evaluate(el => { const c = getComputedStyle(el), r = el.getBoundingClientRect(); return {display:c.display, position:c.position, clip:c.clipPath, w:r.width, h:r.height} })
@@ -438,7 +438,7 @@ try {
  // The fix round's smaller points.
  if (run('menu focus, checking and words')) {
   const {context,page,errors,box} = await open()
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   // Escape after the ⋮ button gives focus back to that button; Shift+F10 on it opens reet's menu.
   const more = page.getByRole('button',{name:'Actions for Docs pass'})
   await more.click()
@@ -477,7 +477,7 @@ try {
  // A viewer at /sessions gets the Machines page under its own name.
  if (run('viewer at /sessions')) {
   const opened = await openWorkspace(browser, {width:1440, status:{user:{id:2,name:'Pat',email:'pat@example.test',role:'viewer'}}})
-  await opened.page.goto(`${base}/sessions`)
+  await opened.page.goto(`${base}/sessions?view=list`)
   await expect(opened.page.getByRole('heading',{level:1})).toHaveText('Your machines, connected.')
   expect(await opened.page.title()).toBe('Machines · reet.sh')
   await expect(opened.page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Machines',exact:true})).toHaveAttribute('aria-current','page')
@@ -1105,7 +1105,7 @@ try {
  if (run('Tab from a menu keeps its place')) {
   const {context,page,errors} = await open()
   const follows = (opener) => opener.evaluate(el => { const a = document.activeElement; return a !== document.body && !!(el.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING) && !a.closest('footer') && !a.closest('[role=menu]') })
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   const more = page.getByRole('button',{name:'Actions for Docs pass'})
   await more.click()
   await expect(page.getByRole('menu',{name:'Actions for Docs pass'})).toBeVisible()
@@ -1360,7 +1360,7 @@ try {
   for (const [width,height,touch] of [[1440,900,false],[834,1112,true],[390,844,true],[320,700,true]]) for (const theme of ['light','dark']) {
    // Three changed files, as the mock-up lists.
    const {context,page} = await open({width,height,touch,theme,changed:3})
-   await page.goto(`${base}/sessions`)
+   await page.goto(`${base}/sessions?view=list`)
    await expect(rows(page)).toHaveCount(6)
    await page.screenshot({path:`${shots}/sessions-${width}-${theme}.png`})
    // The phone rail, scrolled into view under the groups.

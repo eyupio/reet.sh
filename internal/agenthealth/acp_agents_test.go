@@ -152,3 +152,35 @@ func TestCapabilitiesReportSessionModeOnlyWithHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Modes are listed, and the capability flag set, only on a connection that negotiated
+// acp-agent-mode-v1 and only when an available agent offers one.
+func TestACPAgentModesOnlyAfterNegotiation(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }, StructuredAgents: func() []terminalproto.ACPAgent {
+		return []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", Approval: true, Modes: []string{"read-only", "agent"}}}
+	}}
+	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPAgentsFeature + "," + terminalproto.ACPApprovalFeature
+	negotiateFeatures(&cfg, base)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if c.ACPAgentMode || c.ACPAgents == nil || len((*c.ACPAgents)[0].Modes) != 0 {
+		t.Fatalf("modes leaked to a peer that did not negotiate them: %+v", c)
+	}
+	if terminalproto.SupportsACPAgentMode(terminalFeatures(cfg)) {
+		t.Fatal("advertised the feature the peer did not offer")
+	}
+	negotiateFeatures(&cfg, base+","+terminalproto.ACPAgentModeFeature)
+	c = capabilitiesFor(cfg, true, terminalproto.Ready)
+	if !c.ACPAgentMode || len((*c.ACPAgents)[0].Modes) != 2 || c.Validate() != nil {
+		t.Fatalf("negotiated modes: %+v %v", c, c.Validate())
+	}
+	if !terminalproto.SupportsACPAgentMode(terminalFeatures(cfg)) {
+		t.Fatal("did not advertise the negotiated feature")
+	}
+	// No agent offers a mode: the flag stays off even when negotiated.
+	cfg.StructuredAgents = func() []terminalproto.ACPAgent {
+		return []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", Approval: true}}
+	}
+	if c = capabilitiesFor(cfg, true, terminalproto.Ready); c.ACPAgentMode {
+		t.Fatal("flag set with no mode to choose")
+	}
+}

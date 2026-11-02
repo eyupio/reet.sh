@@ -63,10 +63,10 @@ const DIALOGS = [
  }},
  {name:'confirmation', path:'/machines', open:async p => { await cardMenu('Settings…')(p); await p.getByRole('button', {name:'Forget machine…'}).click() }, sheet:'bottom'},
  // Folder projects in the project rail, on the Sessions screen on a phone (PR H): Add, a card's Edit, Worktrees and Remove from reet.
- {name:'add project', path:'/sessions', open:press('Add a project', {exact:true}), field:TEXT, sheet:'full'},
- {name:'edit project', path:'/sessions', open:menu('site', 'Edit'), field:TEXT, sheet:'full'},
- {name:'project worktrees', path:'/sessions', open:menu('site', 'Worktrees'), sheet:'full'},
- {name:'remove project', path:'/sessions', open:menu('site', 'Remove from reet'), sheet:'bottom'},
+ {name:'add project', path:'/sessions?view=list', open:press('Add a project', {exact:true}), field:TEXT, sheet:'full'},
+ {name:'edit project', path:'/sessions?view=list', open:menu('site', 'Edit'), field:TEXT, sheet:'full'},
+ {name:'project worktrees', path:'/sessions?view=list', open:menu('site', 'Worktrees'), sheet:'full'},
+ {name:'remove project', path:'/sessions?view=list', open:menu('site', 'Remove from reet'), sheet:'bottom'},
  // An old Project run's worktree, from Runs from Projects in Activity.
  {name:'remove worktree', path:'/activity', extra:ended, open:async p => { await press(/^Site/)(p); await press(/^Remove worktree/)(p) }, sheet:'full'},
  {name:'new list', path:'/shared', open:press('Create a list'), field:TEXT, sheet:'full'},

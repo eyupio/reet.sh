@@ -117,7 +117,7 @@
   // Add a project from the session panel: the same dialog as Home, without leaving the terminal.
   let addingProject=$state<{opener:HTMLElement|null}|null>(null)
   let action = $state<'rename'|'end'|'archive'|null>(null), actionSession = $state(''), rename = $state(''), actionTitle = $state(''), actionBusy = $state(false)
-  let removeOnClose=$state(false),removeDefault=$state(false),saveRemoveDefault=$state(false),preferenceError=$state('')
+  let removeOnClose=$state(false),removeDefault=$state(false),defaultOn=$state(false),defaultEdited=$state(false),preferenceError=$state('')
   const endKeys = new Map<string,{key:string;remove:boolean}>()
   let refreshing = false, refreshAgain = false, disposed = false, inventoryVersion = 0
   let refreshRequest: AbortController | undefined
@@ -144,6 +144,8 @@
     document.title = tabTitle
   })
   $effect(()=>{if(machineSearchOpen||machinePrompt)machineSearchInput?.focus()})
+  // A saved default that arrives after the dialog opened shows in the toggle until the user changes it themselves.
+  $effect(()=>{if(!defaultEdited)defaultOn=removeDefault})
   // The session screen's tabs (R20): the sessions opened in this browser tab since it loaded, in memory only, at most eight.
   // A session that leaves the listing (removed from history) leaves the strip.
   let openTabs=$state<string[]>([])
@@ -162,7 +164,7 @@
     if(shown)chooseSession(shown);else location.assign('/sessions')
   }
 
-  function remember() { const url=new URL(location.href);url.searchParams.set('view','terminal');url.searchParams.delete('theatre');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
+  function remember() { const url=new URL(location.href);if(!selectedAgent&&!selectedSession&&!url.searchParams.has('view'))return;url.searchParams.set('view','terminal');url.searchParams.delete('theatre');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
   function chooseMachine(id: string) {
     if(selectedAgent && selectedSession)rememberedSessions.set(selectedAgent,selectedSession)
     selectedAgent=id
@@ -351,7 +353,7 @@
     }
     finally{actionBusy=false}
   }
-  function openAction(kind:'rename'|'end'|'archive',target=session) { if(!target)return;actionSession=target.id;actionTitle=target.title;rename=target.title;removeOnClose=endKeys.get(target.id)?.remove??(target.state==='end_requested'?(target.removeHistory??false):removeDefault);saveRemoveDefault=false;preferenceError='';action=kind }
+  function openAction(kind:'rename'|'end'|'archive',target=session) { if(!target)return;actionSession=target.id;actionTitle=target.title;rename=target.title;removeOnClose=endKeys.get(target.id)?.remove??(target.state==='end_requested'?(target.removeHistory??false):removeDefault);defaultOn=removeDefault;defaultEdited=false;preferenceError='';action=kind }
   async function performAction() {
     const kind=action,id=actionSession;action=null;if(!kind||actionBusy)return
     actionBusy=true;error=''
@@ -364,7 +366,7 @@
         for(const [agent,selected] of rememberedSessions)if(selected===id)rememberedSessions.delete(agent)
         if(selectedSession===id){selectedSession='';remember()}
       }
-      else {let operation=endKeys.get(id);if(!operation){operation={key:crypto.randomUUID(),remove:removeOnClose};endKeys.set(id,operation)}await endTerminal(id,operation.key,operation.remove);if(saveRemoveDefault){try{await saveProfile({terminalRemoveOnClose:operation.remove});removeDefault=operation.remove}catch{preferenceError='Session stop requested, but your default could not be saved. Change it in Account → Profile.'}}}
+      else {let operation=endKeys.get(id);if(!operation){operation={key:crypto.randomUUID(),remove:removeOnClose};endKeys.set(id,operation)}await endTerminal(id,operation.key,operation.remove);if(defaultEdited&&defaultOn!==removeDefault){try{await saveProfile({terminalRemoveOnClose:defaultOn});removeDefault=defaultOn}catch{preferenceError='Session stop requested, but your default could not be saved. Change it in Account → Profile.'}}}
       inventoryVersion++
       await refresh()
     } catch(e){if(!disposed)error=e instanceof Error?e.message:'Action could not be confirmed. Retry the same action.'}
@@ -414,6 +416,24 @@
   })
 </script>
 
+{#snippet endedView(heading:string,lede:string)}
+        <div class="empty ended" role="status">
+          <div class="ended-glow" aria-hidden="true"></div>
+          <span class="empty-icon ended-icon" aria-hidden="true">›_</span>
+          <h2>{heading}</h2>
+          <p>{lede}</p>
+          <div class="ended-actions">
+            <button type="button" class="btn primary ended-cta" disabled={!machines.length || atQuota} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>✦ Start a new agent session</button>
+          </div>
+          <div class="ended-card">{@render createForm()}</div>
+          {#if activeSessions.length}
+            <div class="ended-resume" aria-label="Running sessions">
+              <h3>Or jump back into a running session</h3>
+              <ul>{#each activeSessions.slice(0,4) as item (item.id)}<li><button type="button" onclick={()=>chooseSession(item)}><span class="ended-dot" aria-hidden="true"></span><span class="ended-name">{item.title}</span></button></li>{/each}</ul>
+            </div>
+          {/if}
+        </div>
+{/snippet}
 {#snippet createForm()}
   <form class="create-form" onsubmit={event => { event.preventDefault(); submitCreate() }}>
     {#if pendingCreation?.error}<p class="creation-error" role="alert">{pendingCreation.error} The creation is unconfirmed. Retry checks the original operation.</p>{/if}
@@ -482,22 +502,9 @@
           {/key}
         </SessionScreen>
       {:else if selectedSession}
-        <div class="empty ended" role="status">
-          <div class="ended-glow" aria-hidden="true"></div>
-          <span class="empty-icon ended-icon" aria-hidden="true">›_</span>
-          <h2>This session has ended</h2>
-          <p>It's no longer running, so there's nothing to reconnect to. Nothing was started in its place. Pick up where you left off, or start fresh.</p>
-          <div class="ended-actions">
-            <button type="button" class="btn primary ended-cta" disabled={!machines.length || atQuota} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>✦ Start a new agent session</button>
-          </div>
-          <div class="ended-card">{@render createForm()}</div>
-          {#if activeSessions.length}
-            <div class="ended-resume" aria-label="Running sessions">
-              <h3>Or jump back into a running session</h3>
-              <ul>{#each activeSessions.slice(0,4) as item (item.id)}<li><button type="button" onclick={()=>chooseSession(item)}><span class="ended-dot" aria-hidden="true"></span><span class="ended-name">{item.title}</span></button></li>{/each}</ul>
-            </div>
-          {/if}
-        </div>
+        {@render endedView('This session has ended', "It's no longer running, so there's nothing to reconnect to. Nothing was started in its place. Pick up where you left off, or start fresh.")}
+      {:else if (!selectedAgent || machine) && !setup}
+        {@render endedView('Start a new session', 'Nothing is open right now. Start a new agent session or a plain terminal, or jump back into one that is still running.')}
       {:else}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>{selectedSession ? 'This session is unavailable' : selectedAgent && !machine ? 'This machine is unavailable' : 'Your next shell starts here.'}</h2><p>{selectedSession ? 'Choose an existing session or create one explicitly. No replacement shell was created.' : setup || 'Create a terminal, then return to the same session whenever you need it.'}</p>{@render createForm()}{#if setup}<button class="btn" onclick={() => detailsOpen = true}>View setup &amp; connection details</button>{/if}</div>{/if}
     </div>
   </div>
@@ -514,7 +521,7 @@
   <nav class="machine-results" aria-label="Machines for a new terminal">{#each matchingMachines as item (item.agentId)}<button class="machine-result" aria-current={item.agentId===selectedAgent?'true':undefined} disabled={!canCreateFor(item.agentId)} onclick={()=>pickMachineForNew(item.agentId)}><strong>{item.host}</strong><span>{item.capabilities?.osUser || 'Shell user unavailable'} · {item.ready?'Ready':readiness(item)}</span></button>{:else}<p>No machines match.</p>{/each}</nav>
 </WorkspaceDialog>{/if}
 {#if showCreate}<WorkspaceDialog title="New terminal session" onclose={() => showCreate = false}><p class="dialog-copy">Create a shell on <strong>{machine?.host || 'the selected machine'}</strong>. Changing machines does not stop existing sessions.</p>{#if error}<p class="dialog-copy" role="alert">{error}</p>{/if}{@render createForm()}</WorkspaceDialog>{/if}
-{#if agentStart}<StartAgentDialog {machines} snapshot={agentFolders} initialAgent={agentStart.agent} initialDir={agentStart.dir ?? ''} projectId={agentStart.projectId ?? ''} opener={agentStart.opener} onstarted={agentStarted} onaddmachine={()=>location.assign('/machines#add-machine')} onclose={closeAgentStart} />{/if}
+{#if agentStart}<StartAgentDialog {machines} {projects} snapshot={agentFolders} initialAgent={agentStart.agent} initialDir={agentStart.dir ?? ''} projectId={agentStart.projectId ?? ''} opener={agentStart.opener} onstarted={agentStarted} onaddmachine={()=>location.assign('/machines#add-machine')} onclose={closeAgentStart} />{/if}
 {#if addingProject}<AddProjectDialog {machines} opener={addingProject.opener} onadded={projectAdded} onsignedout={()=>{accessDenied=true;addingProject=null}} onclose={()=>addingProject=null} />{/if}
 {#if detailsOpen}<WorkspaceDialog title="Machine & terminal details" onclose={() => detailsOpen = false}>
   <p class="dialog-copy">{machine?.host || 'No machine selected'}{machine?.capabilities?.osUser ? ` · Shell user ${machine.capabilities.osUser}` : ''}</p>
@@ -525,7 +532,7 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   <TerminalCommandReference />
   <section class="shortcut-help"><h3>Keyboard &amp; clipboard</h3><p>Ctrl+C interrupts the shell. On Windows/Linux, Ctrl+C copies selected terminal output; use Interrupt to send Ctrl+C when text is selected. On Mac, Cmd+C copies.</p><p>Ctrl+V / Cmd+V pastes. Ctrl+Shift+C/V are alternatives. Right-click the terminal for Copy/Paste; Shift+right-click keeps the browser menu. Ctrl+X stays a shell/editor key; cut works normally in editable app fields.</p><p>Multiple lines, control characters and large pastes need review. Disconnect keeps the shell running. End session stops its running work.</p></section>
 </WorkspaceDialog>{/if}
-{#if action === 'rename'}<ConfirmDialog title="Rename session" body="Only the display name changes. The running shell stays the same." confirmLabel="Save name" onconfirm={() => void performAction()} oncancel={() => action = null}><label>Session name<input bind:value={rename} maxlength="80" required /></label></ConfirmDialog>{:else if action === 'end'}<ConfirmDialog title={`End ${actionTitle}?`} body="This stops the shell and its running jobs. Disconnecting keeps them running. If the machine is offline, the request stays pending until it reconnects." confirmLabel="End session" danger onconfirm={() => void performAction()} oncancel={() => action = null}><div class="end-options"><div class="option"><label><input type="checkbox" bind:checked={removeOnClose} disabled={endKeys.has(actionSession)||sessions.find(item=>item.id===actionSession)?.state==='end_requested'} /><span>Remove from history when this session ends</span></label><p>Files are kept. Pending sessions remain visible until the machine confirms they have ended.</p></div><div class="option"><label><input type="checkbox" bind:checked={saveRemoveDefault} /><span>Use this as my account default</span></label></div><a href="/account#profile">Manage terminal preferences →</a></div></ConfirmDialog>{:else if action === 'archive'}<ConfirmDialog title={`Remove ${actionTitle} from history?`} body="This removes the closed session from your history. Files on the machine are kept. You cannot restore it from the web interface." confirmLabel="Remove from history" onconfirm={()=>void performAction()} oncancel={()=>action=null} />{/if}
+{#if action === 'rename'}<ConfirmDialog title="Rename session" body="Only the display name changes. The running shell stays the same." confirmLabel="Save name" onconfirm={() => void performAction()} oncancel={() => action = null}><label>Session name<input bind:value={rename} maxlength="80" required /></label></ConfirmDialog>{:else if action === 'end'}<ConfirmDialog title={`End ${actionTitle}?`} body="This stops the shell and its running jobs. Disconnecting keeps them running. If the machine is offline, the request stays pending until it reconnects." confirmLabel="End session" danger onconfirm={() => void performAction()} oncancel={() => action = null}><div class="end-options"><div class="option"><label><input type="checkbox" bind:checked={removeOnClose} disabled={endKeys.has(actionSession)||sessions.find(item=>item.id===actionSession)?.state==='end_requested'} /><span>Remove from history when this session ends</span></label><p>Files are kept. Pending sessions remain visible until the machine confirms they have ended.</p></div><div class="option"><label><input type="checkbox" bind:checked={defaultOn} onchange={()=>defaultEdited=true} /><span>Remove from history by default</span></label><p>{defaultOn===removeDefault?(removeDefault?'This is your current default. Untick to change it.':'Not your current default. Tick to change it.'):(defaultOn?'Will become your default when you end this session.':'Your default will change to keeping history when you end this session.')}</p></div><a href="/account#profile">Manage terminal preferences →</a></div></ConfirmDialog>{:else if action === 'archive'}<ConfirmDialog title={`Remove ${actionTitle} from history?`} body="This removes the closed session from your history. Files on the machine are kept. You cannot restore it from the web interface." confirmLabel="Remove from history" onconfirm={()=>void performAction()} oncancel={()=>action=null} />{/if}
 
 <style>
   .ended{position:relative;overflow:hidden}.ended>*{position:relative}.ended-glow{position:absolute!important;inset:-20% 20% auto;height:60%;background:radial-gradient(closest-side,color-mix(in srgb,var(--accent-text) 22%,transparent),transparent);filter:blur(30px);pointer-events:none}

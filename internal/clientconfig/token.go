@@ -16,24 +16,42 @@ import (
 // tokenFromEnvFile reads only REET_TOKEN. It never executes shell expressions or
 // exports unrelated deployment settings into the CLI process.
 func tokenFromEnvFile(path string) (string, error) {
+	token, seen, err := envFileValue(path, "REET_TOKEN")
+	if err != nil {
+		return "", err
+	}
+	if !seen || token == "" {
+		return "", errors.New("env file has no non-empty REET_TOKEN")
+	}
+	if strings.ContainsAny(token, "$`\\") {
+		return "", errors.New("REET_TOKEN must be literal; env file expansion is not supported")
+	}
+	if err := validateScanToken(token); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// envFileValue reads one literal key from an env file without sourcing it.
+func envFileValue(path, wantKey string) (string, bool, error) {
 	entry, err := os.Lstat(path)
 	if err != nil || !entry.Mode().IsRegular() || entry.Size() > 1<<20 {
-		return "", errors.New("token env file must be a regular file of at most 1 MiB, not a symlink")
+		return "", false, errors.New("env file must be a regular file of at most 1 MiB, not a symlink")
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return "", errors.New("cannot open token env file")
+		return "", false, errors.New("cannot open env file")
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() || !os.SameFile(entry, info) || info.Size() > 1<<20 {
-		return "", errors.New("token env file must be a regular file of at most 1 MiB")
+		return "", false, errors.New("env file must be a regular file of at most 1 MiB")
 	}
 	data, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
 	if err != nil || len(data) > 1<<20 {
-		return "", errors.New("cannot read token env file within size limit")
+		return "", false, errors.New("cannot read env file within size limit")
 	}
-	token, seen := "", false
+	result, seen := "", false
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -41,11 +59,11 @@ func tokenFromEnvFile(path string) (string, error) {
 			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
 		}
 		key, value, ok := strings.Cut(line, "=")
-		if !ok || strings.TrimSpace(key) != "REET_TOKEN" {
+		if !ok || strings.TrimSpace(key) != wantKey {
 			continue
 		}
 		if seen {
-			return "", errors.New("duplicate REET_TOKEN in env file")
+			return "", false, fmt.Errorf("duplicate %s in env file", wantKey)
 		}
 		seen = true
 		value = strings.TrimSpace(value)
@@ -53,32 +71,23 @@ func tokenFromEnvFile(path string) (string, error) {
 			q := value[0]
 			end := strings.IndexByte(value[1:], q)
 			if end < 0 {
-				return "", errors.New("invalid REET_TOKEN quoting in env file")
+				return "", false, fmt.Errorf("invalid %s quoting in env file", wantKey)
 			}
 			end++
 			rest := strings.TrimSpace(value[end+1:])
 			if rest != "" && !strings.HasPrefix(rest, "#") {
-				return "", errors.New("invalid REET_TOKEN suffix in env file")
+				return "", false, fmt.Errorf("invalid %s suffix in env file", wantKey)
 			}
 			value = value[1:end]
 		} else if i := strings.Index(value, " #"); i >= 0 {
 			value = strings.TrimSpace(value[:i])
 		}
-		if strings.ContainsAny(value, "$`\\") {
-			return "", errors.New("REET_TOKEN must be literal; env file expansion is not supported")
-		}
-		if err := validateScanToken(value); err != nil {
-			return "", err
-		}
-		token = value
+		result = value
 	}
 	if scanner.Err() != nil {
-		return "", errors.New("invalid or oversized env file line")
+		return "", false, errors.New("invalid or oversized env file line")
 	}
-	if !seen || token == "" {
-		return "", errors.New("env file has no non-empty REET_TOKEN")
-	}
-	return token, nil
+	return result, seen, nil
 }
 
 func validateScanToken(value string) error {
@@ -198,6 +207,15 @@ func ResolveToken(explicit, envFile string, in io.Reader, out io.Writer) (string
 		token, err = tokenFromEnvFile(envFile)
 		if err != nil {
 			return "", err
+		}
+	}
+	if token == "" && envFile == "" {
+		// REET_ENV_FILE or ./.env, the same files the server and TUI read.
+		if file := Discover("", "", "").TokenFile; file != "" {
+			var err error
+			if token, err = tokenFromEnvFile(file); err != nil {
+				return "", err
+			}
 		}
 	}
 	if token == "" {

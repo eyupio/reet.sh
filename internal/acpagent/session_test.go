@@ -60,6 +60,7 @@ func TestFakeACP(t *testing.T) {
 	}
 	var promptID json.RawMessage
 	var session string
+	modeCalls := 0
 	for in.Scan() {
 		var message struct {
 			ID     json.RawMessage `json:"id"`
@@ -94,6 +95,13 @@ func TestFakeACP(t *testing.T) {
 			if params.ConfigID == "mode" {
 				// A profile's StartMode switch: confirmed in the reply, silently ignored, or refused.
 				switch scenario {
+				case "mode-lost":
+					// Applied or not, the answer never comes.
+				case "mode-lost-once":
+					modeCalls++
+					if modeCalls > 1 {
+						reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": params.Value}}})
+					}
 				case "mode-switch", "mode-live":
 					reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": params.Value}}})
 				case "mode-ignored":
@@ -131,7 +139,7 @@ func TestFakeACP(t *testing.T) {
 			reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "model", "currentValue": "stub/model"}, {"id": "mode", "currentValue": "build"}}})
 		case "session/new":
 			mode := "build"
-			if scenario == "mode-plan" || scenario == "mode-switch" || scenario == "mode-ignored" || scenario == "mode-silent" {
+			if scenario == "mode-plan" || scenario == "mode-lost" || scenario == "mode-lost-once" || scenario == "mode-switch" || scenario == "mode-ignored" || scenario == "mode-silent" {
 				mode = "plan"
 			}
 			session = "ses_fake_1"
@@ -1593,5 +1601,44 @@ func TestSetModeIsLimitedAndConfirmed(t *testing.T) {
 	}
 	if err := busy.SetMode(context.Background(), "build"); !errors.Is(err, ErrBusy) {
 		t.Fatalf("a switch during a turn: %v", err)
+	}
+}
+
+// A switch the agent never answers may or may not have been applied. The session
+// must not claim the old mode survived: it tries once to restore it, reports the
+// old mode only if the agent confirms that, and otherwise reports the mode unknown.
+func TestUnansweredModeSwitchIsNeverReportedAsTheOldMode(t *testing.T) {
+	old := modeRestoreTimeout
+	modeRestoreTimeout = 150 * time.Millisecond
+	defer func() { modeRestoreTimeout = old }()
+	for _, tc := range []struct {
+		scenario string
+		wantErr  error
+		wantMode string
+	}{
+		{"mode-lost", ErrModeUnconfirmed, ""},
+		{"mode-lost-once", ErrMode, "build"},
+	} {
+		opts, _ := options(t, tc.scenario, testVersion)
+		opts.Agent.RequireMode = ""
+		opts.Agent.ChoosableModes = []string{"build", "plan"}
+		session, err := Start(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The fake starts these scenarios in "plan" and the first switch asks for "build".
+		session.mu.Lock()
+		session.mode = "build"
+		session.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+		err = session.SetMode(ctx, "plan")
+		cancel()
+		if !errors.Is(err, tc.wantErr) {
+			t.Fatalf("%s: err %v, want %v", tc.scenario, err, tc.wantErr)
+		}
+		if got := session.Mode(); got != tc.wantMode {
+			t.Fatalf("%s: mode %q, want %q", tc.scenario, got, tc.wantMode)
+		}
+		session.Close()
 	}
 }

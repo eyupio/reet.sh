@@ -282,7 +282,7 @@ try {
   // launch bar in the address (ids only).
   const phone = await launch({width:320, height:700, touch:true, projects:long, sessionsPage:true})
   await phone.page.clock.install()
-  await phone.page.goto(`${base}/sessions`)
+  await phone.page.goto(`${base}/sessions?view=list`)
   const card = phone.page.locator('aside.rail .card').filter({hasText:'the-store-rewrite'})
   await card.scrollIntoViewIfNeeded()
   const at = await card.boundingBox()
@@ -320,7 +320,7 @@ try {
   expect(one.x + one.width).toBeLessThanOrEqual(320)
   expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   // Done leaves Select and gives focus back to the heading's menu button.
-  await phone.page.goto(`${base}/sessions`)
+  await phone.page.goto(`${base}/sessions?view=list`)
   await rail.getByRole('button',{name:'Projects menu'}).click()
   await phone.page.getByRole('menuitem',{name:'Select projects'}).click()
   await rail.getByRole('button',{name:'Done selecting'}).click()

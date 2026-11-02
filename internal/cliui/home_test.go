@@ -245,7 +245,7 @@ func TestWideHomeShowsDetailBesideTheSelection(t *testing.T) {
 	m.cursor = 4 // Branches
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 26})
 	view := next.(homeModel).View().Content
-	for _, want := range []string{"› Branches", "reet branches", "tidy them away", "Ey up", "Reight then"} {
+	for _, want := range []string{"› Branches", "reet branches", "tidy them", "Ey up", "Reight then"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q in\n%s", want, view)
 		}

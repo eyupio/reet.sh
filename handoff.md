@@ -51,6 +51,41 @@ implemented baseline, S/A/W/L task lists, start-agent-session protocol notes, Pr
 delivered, phone terminal/zoom/dialog notes, the ready-to-use continuation brief) are in
 [handoff-history.md](handoff-history.md), under "Moved from handoff.md on 27 October 2026".
 
+## Loading: compressed assets, one progress bar, skeletons everywhere (2 November 2026)
+
+**Scope:** how every page arrives and how it waits; no API, data or copy change. Branch
+`claude/optimistic-volta-ehhex6`.
+
+**Problem:** filmed on a slow connection (1.6 Mbit/s, 150 ms), a first load painted nothing for about five
+seconds: the built bundle is 1.3 MB of JavaScript and 440 KB of CSS and the server sent both uncompressed,
+with no cache header, so the boot shell could not appear until the render-blocking stylesheet had arrived
+and every visit paid for it again. Once the app was up, each page showed a bare `Loading…` sentence (or
+nothing at all) while its sections popped in one by one, and a request made from a page gave no sign it was
+in flight.
+
+**Fix:** `web/compress.go` gzips each built file once, on first request, and serves the compressed body to a
+browser that takes it (q-values honoured, `Vary` said either way, fonts and images left alone); the hashed
+files under `/assets/` are `immutable` for a year and `index.html` stays `no-cache` but goes compressed too.
+The main chunk is now 383 KB on the wire and the page 6 KB, so the boot shell paints in the first half
+second on the same link. In the app, `lib/inflight.ts` counts every request `api.ts` makes and
+`shell/ProgressBar.svelte` draws one thin bar along the top edge while anything is outstanding, after a
+200 ms grace and for at least 400 ms, so a fast answer shows nothing and a burst reads as one wait.
+`lib/Skeleton.svelte` is the one loading affordance for content (lines, rows or cards, the shape of what is
+coming, with a visually hidden label for a screen reader) and `lib/LoadingBoundary.svelte` renders the
+waiting, failed, empty and content states in one place; every bare `Loading…` line (twenty-two of them,
+including the machine list the UI audit's H9 named) now shows a skeleton, and the two ad hoc skeletons
+(the shelf, the machine grid) use the same component. A button that is doing what it was asked carries
+`aria-busy`, which `app.css` draws as a small turning ring beside its label; spinners live there and nowhere
+else.
+
+**Checks:** `go test ./web/` gained tests for the compressed and cached assets, the plain body for a client
+that refuses gzip, the uncompressed fonts and the compressed page; `lib/inflight.test.mjs` checks the two
+delays against a fake clock and that `api.ts` reports to it; `npm run check` (unit tests and svelte-check,
+0 errors) and `npm run build` pass; `first-run`, `first-skills`, `navigation`, `home`, `empty-states` and
+`first-machine` browser suites pass against the built preview. Filmed again on the same throttled
+connection, every route paints within 400 ms and the machines page shows card skeletons inside its own
+frame until the inventory lands.
+
 ## Boot shell: no crawler page, no bare loading screen (1 November 2026)
 
 **Scope:** the first paint of every route, signed in and signed out; no API, data or copy change beyond the

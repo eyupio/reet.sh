@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getSyncState, UnauthorizedError, type Machine } from './api'
   import { folderProjectList, terminalMachines, terminalSessions, updateFolderProject, type FolderProject, type TerminalMachine, type TerminalSession } from './terminal/api'
@@ -109,7 +110,7 @@
   {#if failed && !projects}
     <p class="empty">Couldn't read your projects just now.</p>
   {:else if !projects}
-    <p class="empty">Reading your projects…</p>
+    <Skeleton label="Reading your projects…" count={2} />
   {:else if projects.length === 0}
     <p class="empty">No projects yet. Add one on Home to start sessions in your folders from here.</p>
   {:else}

@@ -53,3 +53,4 @@
   .error { border:1px solid var(--bad); padding:14px; border-radius:8px; }
   @media(max-width:480px) { .actions { flex-direction:column-reverse; } .actions button { width:100%; } }
 </style>
+ aria-busy={busy}

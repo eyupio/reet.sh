@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getSoftwareMirror, type SoftwareMirrorStatus } from './api'
   import { shell } from './dialogShell'
@@ -242,7 +243,7 @@
     </header>
 
     {#if loading}
-      <p role="status">Reading the stored plans…</p>
+      <Skeleton label="Reading the stored plans…" shape="rows" count={3} />
     {:else if error}
       <p class="error" role="alert">{error}</p>
       <button class="btn" type="button" onclick={() => void load()}>Try again</button>

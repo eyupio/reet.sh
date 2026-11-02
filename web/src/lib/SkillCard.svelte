@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { tick } from 'svelte'
   import { groupLabel, installationStatus, type InstallationReport } from './machines'
   import { recordInstallCopy, type Environment, type Event, type Flags, type ListRef, type Skill, type Tag } from './api'
@@ -398,7 +399,7 @@
       {#if historyOpen}
         <div class="history">
           {#if historyLoading}
-            <p>Loading…</p>
+            <Skeleton label="Loading the history…" count={3} />
           {:else if history.length === 0}
             <p>Nothing recorded yet.</p>
           {:else}

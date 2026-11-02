@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getHosting, saveHostedSkill, type HostedSkill } from './api'
   import CopyButton from './CopyButton.svelte'
@@ -31,7 +32,7 @@
 
 <section class="hosted" aria-labelledby="hosted-shelf-title">
   <header><div><h2 id="hosted-shelf-title">Skills you create <span>{skills.length}</span></h2><p>Write, publish and share your own skills here.</p></div>{#if canWrite}<div class="actions"><a class="btn" href="/hosting?import=1">Import skills</a><a class="btn" href="/hosting?new=1">Create a skill</a></div>{/if}</header>
-  {#if loading}<p role="status">Loading your hosted skills…</p>
+  {#if loading}<Skeleton label="Loading your hosted skills…" shape="cards" count={3} />
   {:else if !skills.length && !error}<p class="empty">No hosted skills yet. <a href="/hosting?new=1">Create your first skill</a> or <a href="/hosting?import=1">import a skill folder</a>.</p>{/if}
   {#if skills.length > 5}<label class="search">Find a hosted skill<input type="search" bind:value={query} placeholder="Search hosted skills" /></label>{/if}
   <div class="hosted-list">

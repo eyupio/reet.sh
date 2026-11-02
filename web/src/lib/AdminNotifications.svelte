@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getNotificationDefaults, saveNotificationDefaults, type NotificationDefault } from './api'
 
@@ -66,9 +67,9 @@
   {#if !isOwner}
     <p class="muted">Only the owner can change the instance defaults.</p>
   {:else if loading}
-    <p class="muted" role="status">Loading defaults…</p>
+    <Skeleton label="Loading the defaults…" shape="rows" count={4} />
   {:else}
-    <div class="head"><span class="muted">Owner and administrator columns apply to staff notifications only.</span><button type="button" class="btn primary" onclick={save} disabled={saving}>{saving ? 'Saving…' : 'Save defaults'}</button></div>
+    <div class="head"><span class="muted">Owner and administrator columns apply to staff notifications only.</span><button type="button" class="btn primary" onclick={save} disabled={saving} aria-busy={saving}>{saving ? 'Saving…' : 'Save defaults'}</button></div>
     {#each groups as g (g.name)}
       <fieldset>
         <legend>{g.name}</legend>

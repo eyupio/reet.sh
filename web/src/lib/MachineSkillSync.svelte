@@ -67,7 +67,7 @@
    {#if request.syncRunId&&job?.message&&job.status==='failed'}<SyncProblem message={job.message} host={destination} onretry={()=>void retry()} retrying={busy} />{:else if request.error}<p class="error">{request.error.replaceAll('_',' ')}. Refresh the source machine, then request a new copy.</p>{/if}
    {#if step===2&&!complete&&!failed}<p role="status">{job?.stages?.find(stage=>stage.status==='running')?.detail??job?.message??'Waiting for the destination machine to report.'}</p>{/if}
    {#if run?.status==='review'}<a class="btn primary" href={`/sync?machine=${encodeURIComponent(destination)}#sync-jobs`}>Review changes</a>{/if}
-   {#if failed&&!request.syncRunId}<button class="btn primary" disabled={busy} onclick={retry}>{busy?'Trying…':'Fix and try again'}</button>{/if}
+   {#if failed&&!request.syncRunId}<button class="btn primary" disabled={busy} onclick={retry} aria-busy={busy}>{busy?'Trying…':'Fix and try again'}</button>{/if}
    {#if failed}<a class="btn" href={`/sync?machine=${encodeURIComponent(destination)}`}>Fix it in Sync</a>{/if}
   {/if}
   {#if error}<p class="error" role="alert">{error}</p><a href="/machines">Check machine connection and reet updates</a>{/if}

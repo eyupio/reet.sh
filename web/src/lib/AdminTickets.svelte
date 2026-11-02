@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import {
     adminAssignTicket, adminGetTicket, adminListTickets, adminNoteTicket, adminReplyTicket, adminSetTicketStatus,
@@ -158,7 +159,7 @@
       </label>
 
       {#if loading}
-        <p class="muted" role="status">Loading tickets…</p>
+        <Skeleton label="Loading tickets…" shape="rows" count={4} />
       {:else if visible.length === 0}
         <p class="empty">{tickets.length === 0 ? 'No tickets in this view.' : 'No ticket matches that search.'}</p>
       {:else}

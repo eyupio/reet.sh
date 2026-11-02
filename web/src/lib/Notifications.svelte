@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import {
     getNotificationPreferences, listNotifications, markNotificationsRead, saveNotificationPreferences,
@@ -114,7 +115,7 @@
       </div>
     </div>
     {#if loading}
-      <p class="muted" role="status">Loading notifications…</p>
+      <Skeleton label="Loading notifications…" shape="rows" count={4} />
     {:else if rows.length === 0}
       <p class="empty">{unreadOnly ? 'Nothing unread. Sorted.' : 'Nothing yet. Ticket replies, account notices and staff alerts appear here.'}</p>
     {:else}
@@ -138,7 +139,7 @@
   <section class="card" aria-labelledby="prefs-title">
     <div class="head">
       <h2 id="prefs-title">What you hear about</h2>
-      <button type="button" class="btn" onclick={savePrefs} disabled={saving}>{saving ? 'Saving…' : 'Save choices'}</button>
+      <button type="button" class="btn" onclick={savePrefs} disabled={saving} aria-busy={saving}>{saving ? 'Saving…' : 'Save choices'}</button>
     </div>
     <p class="muted">Your own choice wins over the instance defaults. Security notices are always sent and cannot be turned off.</p>
     {#if prefs.length === 0 && !loading}

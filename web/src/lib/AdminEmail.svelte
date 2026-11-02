@@ -206,7 +206,7 @@
           <label><span>DKIM selector</span><input bind:value={form.dkimSelector} placeholder="default" autocomplete="off" /></label>
         </div>
         <div class="actions">
-          <button type="submit" class="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
+          <button type="submit" class="btn primary" disabled={saving} aria-busy={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
           <button type="button" class="btn" disabled={saving} onclick={check}>Check connection</button>
           <button type="button" class="btn" disabled={saving} onclick={test}>Send test email</button>
           <button type="button" class="btn" disabled={saving} onclick={lookupDNS}>Check DNS</button>

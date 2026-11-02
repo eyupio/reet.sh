@@ -140,3 +140,4 @@
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   @media (pointer: coarse) { .refresh, .manage { min-height: 44px; display: inline-flex; align-items: center; } .refresh { padding: 0 14px; } }
 </style>
+ aria-busy={reading}

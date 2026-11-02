@@ -42,7 +42,7 @@
   {#snippet tokenSetup()}
     {#if accounts && canWrite}
       {#if !token}
-        <form onsubmit={event => { event.preventDefault(); void connectToken() }}><label>Token name <input bind:value={name} maxlength="100" required autocomplete="off" /></label><button class="btn" disabled={busy}>{busy ? 'Creating…' : 'Create machine token'}</button></form>
+        <form onsubmit={event => { event.preventDefault(); void connectToken() }}><label>Token name <input bind:value={name} maxlength="100" required autocomplete="off" /></label><button class="btn" disabled={busy} aria-busy={busy}>{busy ? 'Creating…' : 'Create machine token'}</button></form>
       {:else}<p role="status">Token created. Copy the one-time token below before leaving this page. Revoke it under Account → API tokens.</p>{/if}
       {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
     {:else}<p>Use the token configured for this instance when the CLI asks. Instances without authentication do not require one.</p>{/if}

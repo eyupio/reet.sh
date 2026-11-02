@@ -14,7 +14,7 @@ const {
   modelStatus, formatAge, effortChoices, moveFavourite, favouriteKey, starLabel, defaultLabel,
 } = await import(asURL(modelSource))
 const terminal = await import(asURL(compile('./terminal/api.ts').replace("from '../projects'", `from '${asURL('export {}')}'`)))
-const api = await import(asURL(compile('./api.ts')))
+const api = await import(asURL(compile('./api.ts').replace("from './inflight'", `from '${asURL(compile('./inflight.ts'))}'`)))
 
 test('providers, deduplication and recent models', () => {
   assert.equal(providerOf('anthropic/claude-sonnet-4-5'), 'anthropic')

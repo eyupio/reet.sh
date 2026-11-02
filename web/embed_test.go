@@ -1,7 +1,10 @@
 package web
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/xml"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -224,5 +227,138 @@ func TestSelfHostedFontsServedAsWOFF2(t *testing.T) {
 	}
 	if rec := get(t, Handler(""), "/fonts/OFL.txt"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "SIL OPEN FONT LICENSE") {
 		t.Fatalf("OFL.txt: status = %d", rec.Code)
+	}
+}
+
+// builtAsset finds one hashed file of the given extension under dist/assets, which only exists once the UI is built.
+func builtAsset(t *testing.T, ext string) string {
+	t.Helper()
+	requireBuilt(t)
+	sub, _ := fs.Sub(dist, "dist")
+	entries, err := fs.ReadDir(sub, "assets")
+	if err != nil {
+		t.Skip("web/dist has no assets directory")
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ext) {
+			return "/assets/" + e.Name()
+		}
+	}
+	t.Skipf("web/dist/assets has no %s file", ext)
+	return ""
+}
+
+// The bundle is over a megabyte of JavaScript and CSS, and a browser on a slow link waited for all of it before the
+// boot shell could be painted. Compressed once and cached for a year under its content hash, it is a few hundred
+// kilobytes the first time and nothing at all afterwards.
+func TestHashedAssetsAreCompressedAndCachedForAYear(t *testing.T) {
+	for _, ext := range []string{".js", ".css"} {
+		p := builtAsset(t, ext)
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+		rec := httptest.NewRecorder()
+		Handler("").ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d", p, rec.Code)
+		}
+		if enc := rec.Header().Get("Content-Encoding"); enc != "gzip" {
+			t.Errorf("%s: content-encoding = %q, want gzip", p, enc)
+		}
+		if vary := rec.Header().Get("Vary"); !strings.Contains(vary, "Accept-Encoding") {
+			t.Errorf("%s: vary = %q, want Accept-Encoding", p, vary)
+		}
+		if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=31536000, immutable" {
+			t.Errorf("%s: cache-control = %q", p, cc)
+		}
+		if cl := rec.Header().Get("Content-Length"); cl == "" || cl == "0" {
+			t.Errorf("%s: a compressed body needs its length for the browser's progress bar, got %q", p, cl)
+		}
+		zr, err := gzip.NewReader(rec.Body)
+		if err != nil {
+			t.Fatalf("%s: body is not gzip: %v", p, err)
+		}
+		plain, err := io.ReadAll(zr)
+		if err != nil {
+			t.Fatalf("%s: reading the gzip body: %v", p, err)
+		}
+		sub, _ := fs.Sub(dist, "dist")
+		want, _ := fs.ReadFile(sub, strings.TrimPrefix(p, "/"))
+		if !bytes.Equal(plain, want) {
+			t.Errorf("%s: the compressed body does not decompress to the file (%d bytes, want %d)", p, len(plain), len(want))
+		}
+		if len(rec.Body.Bytes()) >= len(want) {
+			t.Errorf("%s: compressed body (%d bytes) is no smaller than the file (%d)", p, rec.Body.Len(), len(want))
+		}
+	}
+}
+
+// A client that does not take gzip, or one that refuses it with q=0, gets the file as it is, with the same caching.
+func TestAssetsAreServedPlainToAClientThatDoesNotTakeGzip(t *testing.T) {
+	p := builtAsset(t, ".js")
+	for _, accept := range []string{"", "gzip;q=0, identity", "br"} {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		if accept != "" {
+			req.Header.Set("Accept-Encoding", accept)
+		}
+		rec := httptest.NewRecorder()
+		Handler("").ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("accept %q: status = %d", accept, rec.Code)
+		}
+		if enc := rec.Header().Get("Content-Encoding"); enc != "" {
+			t.Errorf("accept %q: content-encoding = %q, want none", accept, enc)
+		}
+		if vary := rec.Header().Get("Vary"); !strings.Contains(vary, "Accept-Encoding") {
+			t.Errorf("accept %q: vary = %q; a cache must keep the plain and gzip bodies apart", accept, vary)
+		}
+		if cc := rec.Header().Get("Cache-Control"); cc != "public, max-age=31536000, immutable" {
+			t.Errorf("accept %q: cache-control = %q", accept, cc)
+		}
+	}
+}
+
+// Fonts are already compressed and are not content-hashed: gzip would make them larger and a year's cache would
+// outlive a changed file, so they get neither.
+func TestFontsAreNeitherCompressedNorCachedForAYear(t *testing.T) {
+	requireBuilt(t)
+	req := httptest.NewRequest(http.MethodGet, "/fonts/fraunces-latin-600-normal.woff2", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+	Handler("").ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if enc := rec.Header().Get("Content-Encoding"); enc != "" {
+		t.Errorf("content-encoding = %q, want none", enc)
+	}
+	if cc := rec.Header().Get("Cache-Control"); strings.Contains(cc, "immutable") {
+		t.Errorf("cache-control = %q; an unhashed file must not be immutable", cc)
+	}
+}
+
+// index.html carries the request's origin and the boot shell for its route, so it is made per request; it is still
+// twenty kilobytes of markup and inline styles that a slow link is better off receiving compressed.
+func TestIndexIsCompressedWhenTheClientTakesGzip(t *testing.T) {
+	requireBuilt(t)
+	req := httptest.NewRequest(http.MethodGet, "/machines", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+	Handler("").ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if enc := rec.Header().Get("Content-Encoding"); enc != "gzip" {
+		t.Fatalf("content-encoding = %q, want gzip", enc)
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("cache-control = %q; the page itself must stay no-cache", cc)
+	}
+	zr, err := gzip.NewReader(rec.Body)
+	if err != nil {
+		t.Fatalf("body is not gzip: %v", err)
+	}
+	plain, _ := io.ReadAll(zr)
+	if !strings.Contains(string(plain), `data-boot="app"`) {
+		t.Errorf("the decompressed page is not the app shell for /machines")
 	}
 }

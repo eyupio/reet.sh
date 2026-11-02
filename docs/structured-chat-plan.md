@@ -377,6 +377,36 @@ connector restart is not implemented and not claimed.
 and confirm the process group is gone, rather than leaving it busy; (2) tests for gaps 2 and 3 first, fixing only what they show; (3) say why a chat ended
 when the connector restarted; (4) descriptor-driven controls when a second agent needs them.
 
+### SC5 progress: pending approvals after a full detached backlog (2 November 2026, draft)
+
+Independent work while the owner login/device checks are pending; based on main `9905e8b`. A replacement control connection used to rebuild its
+outbox with the last status and retained pending approval cards **before** the buffered history. At either queue limit, replaying that history evicted
+the recovery records again. A running agent could therefore remain waiting while the replacement controller received no approval card. The current
+idle status after a cancellation could be lost the same way.
+
+`seedRecoveredChatEvents` now replays history first, removes buffered copies of currently pending approvals, then appends their current snapshots
+and the latest status. Overflow discards old output before current approvals, resolution receipts and the latest buffered status, so a stalled
+replacement transport cannot let fresh output evict the recovery records again. Requeueing a failed send applies the same trimming policy.
+The original token and complete card travel unchanged. Resolved approvals retain their historical events and are not recreated
+from the pending set. The outbox still uses its existing 1,000-event and 256 KiB limits. No process is replaced and no new/load or approval call is
+introduced by preparing recovery.
+
+Delivery record:
+- **Task / scope:** SC5 retained approval/status recovery over a replacement control connection to the surviving connector process.
+- **Branch:** `fix/recover-pending-chat-approvals`; exact implementation commit and draft PR are recorded with publication.
+- **Compatibility:** existing events, tokens, generation and memory limits; no protocol field, database, dependency, adapter capability or UI control added.
+- **Checks:** the event-limit and byte-limit regressions failed before the fix, as did recovery of the resolved idle status. They pass under `-race`
+  with existing reconnect/startup tests. Tests also check complete command retention, answering the original process, the replacement generation,
+  replay budgets, and a buffered approval appearing once alongside resolved history. A blocked-transport test failed under continued output;
+  a failed-send variant also reproduced a 1,001-event outbox. Both now pass under the race detector. Control-state-only overflow also remains
+  bounded by the existing ceilings. Vet and race tests pass for terminalagent, terminalbroker and terminalproto; the four
+  known container `TestModels*` failures were excluded from that local package run (already confirmed on main; the model-discovery code is unchanged).
+  The production web build passed. Full CI results are recorded in the PR.
+- **Not performed:** real-provider, physical-device, screen-reader and genuine-login checks. Existing fake-process/control-link fixtures exercise this slice.
+- **Next unchecked work:** owner checks still start with section 3 Run B in `docs/device-checks.md`. Broader native-process recovery and descriptor
+  contracts remain future SC5 work. Pending typed-question recovery is outside this approval slice; the form capability remains off.
+- **Publication:** opened as a draft for owner review; no merge or deployment claimed.
+
 ## Delivery and completion evidence
 
 Keep one bounded stage per PR. Reuse protocol fixtures, fake children and browser

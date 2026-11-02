@@ -264,8 +264,10 @@ against the restored controller once it answers at the address they use.
 ### Import into a running controller
 
 The server cannot swap the database it is serving, so an import is staged and
-applied at the next start. The owner sends a sealed copy (the `.reetbackup` or
-the downloaded `.zip`) to the running controller:
+applied at the next start. The owner does this under **Admin → Backups → Import
+a copy from another controller**: choose the copy, enter its password if it has
+one, and say whether personal tokens are kept. The page shows the report and a
+**Discard** button while it waits. The same thing over the API:
 
 ```sh
 curl -X POST --data-binary @copy.reetbackup \

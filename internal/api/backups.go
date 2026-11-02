@@ -662,11 +662,7 @@ func (s *server) adminImportStage(w http.ResponseWriter, r *http.Request) {
 	keep := r.URL.Query().Get("keepTokens") == "1"
 	rep, err := svc.StageImport(r.Context(), s.st.Dir(), raw, r.Header.Get("X-Copy-Password"), backup.RestoreOptions{KeepTokens: keep})
 	if err != nil {
-		code := 400
-		if errors.Is(err, backup.ErrPasswordRequired) {
-			code = http.StatusUnauthorized
-		}
-		writeErr(w, code, err.Error())
+		writeErr(w, 400, err.Error())
 		return
 	}
 	s.event(s.uid(r), "backup", "backup-import-staged", "", map[string]any{"id": rep.ID, "keepTokens": keep})

@@ -61,7 +61,7 @@ jobs:
             ubuntu:22.04 \
             bash -ec '
               apt-get update -qq
-              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux >/dev/null
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux git >/dev/null
               tmux -V
               tmux -V | grep -Eq "^tmux 3\.2"
               /terminalhost.test -test.timeout=3m

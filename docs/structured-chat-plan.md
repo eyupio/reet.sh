@@ -305,7 +305,17 @@ The pinned adapter source confirms that `checkAuthorization` asks `account/read`
 required and no account was returned. Its status shapes are `account` (for example "ChatGPT Pro", with email separately under `account.email`),
 `api_key`, `none`, `gateway` and `external`. This is source evidence, not a successful real ChatGPT login run.
 
-Checks and publication are recorded in the draft PR. Codex remains behind `REET_EXPERIMENTAL_CODEX_CHAT`; section 3 Run B in the device checks is still
+Delivery record:
+- **Task / scope:** SC4 Codex login access, actionable start refusal and label-only notice.
+- **Branch / implementation / PR:** `fix/codex-login-access`, `d593b86`, [draft #391](https://github.com/eyupio/reet.sh/pull/391). Main `99828de` was merged with `b0389dd`; history was not rewritten.
+- **Compatibility:** existing notice and refusal messages, no protocol or database change; the login-folder route is set only on the Codex profile.
+- **Checks run:** the new tests failed before implementation; Codex and connector race regressions passed, as did the web checks (zero Svelte errors/warnings), production build, Codex browser fixture including notice replay, and `go vet ./...`. Final broader check and CI results are recorded in the PR.
+- **Existing container failures:** a detached `99828de` checkout reproduces `TestCloseKillsOrphanedGroupMembers` and `TestModelsOneAtATime`, `TestModelsFloorReturnsTheLastResult`, `TestModelsReplyShapeAndOperation`, `TestModelsLateRunAnswersTimedOut`; they are outside this slice.
+- **Not run / limitation:** real ChatGPT login, physical-device and screen-reader checks. Source inspection and fake children do not close those gates.
+- **Next unchecked task:** section 3 Run B in `docs/device-checks.md`, then its signed-out follow-up; read that section and this progress note first. If the signed-in start still fails, bring the decision to the owner.
+- **Publication:** draft PR only; no merge or deployment.
+
+Codex remains behind `REET_EXPERIMENTAL_CODEX_CHAT`; section 3 Run B in the device checks is still
 required before enabling it. If that run still returns "Authentication required", stop and ask the owner which way to go. Claude and typed-question
 checks, retiring either switch, generic controls and recovery remain separate work.
 

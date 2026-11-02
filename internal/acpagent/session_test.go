@@ -43,6 +43,7 @@ func TestFakeACP(t *testing.T) {
 		t.Skip("fake child")
 	}
 	scenario, version := os.Getenv("ACP_SCENARIO"), os.Getenv("ACP_VERSION")
+	codexLoginScenario := scenario == "codex-login" || scenario == "codex-auth-required" || scenario == "codex-other-error"
 	in := bufio.NewScanner(os.Stdin)
 	out := bufio.NewWriter(os.Stdout)
 	defer out.Flush()
@@ -73,7 +74,7 @@ func TestFakeACP(t *testing.T) {
 		switch message.Method {
 		case "initialize":
 			name, protocol := "OpenCode", 1
-			if strings.HasPrefix(scenario, "codex-") {
+			if codexLoginScenario {
 				name = "@agentclientprotocol/codex-acp"
 			}
 			if scenario == "wrong-name" {
@@ -88,7 +89,7 @@ func TestFakeACP(t *testing.T) {
 			}
 			reply(message.ID, map[string]any{"protocolVersion": protocol, "agentInfo": map[string]string{"name": name, "version": version},
 				"agentCapabilities": capabilities})
-			if strings.HasPrefix(scenario, "codex-") {
+			if codexLoginScenario {
 				status := map[string]any{"kind": "account", "label": "ChatGPT Pro", "account": map[string]any{"email": "private@example.test"}}
 				if scenario == "codex-auth-required" {
 					status = map[string]any{"kind": "none", "label": "Not logged in"}

@@ -6,7 +6,7 @@ import ts from 'typescript'
 const { outputText } = ts.transpileModule(readFileSync(new URL('./software.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 })
-const { batchCanAbandon, batchFailedMember, batchMemberAction, batchMemberLabel, batchMemberNote, batchStateLabel, fleetSoftwareCanApply, fleetSoftwareLabel, fleetSoftwareWarning, softwareLine, softwarePlanActions } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { batchCanAbandon, batchFailedMember, batchMemberAction, batchMemberLabel, batchMemberNote, batchStateLabel, fleetSoftwareCanApply, fleetSoftwareGuide, fleetSoftwareLabel, fleetSoftwareWarning, softwareLine, softwarePlanActions } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
 const installed = { tool: 'opencode', state: 'installed', version: '1.19.5', manager: 'reet', package: 'opencode-ai', path: '/home/me/.reet/software/opencode/versions/1.19.5/opencode', platform: 'linux', arch: 'amd64', source: 'verified_tarball', managed: true, operations: ['plan_update', 'plan_remove'], checkedAt: 1 }
 const missing = { tool: 'opencode', state: 'missing', package: 'opencode-ai', source: 'npm', platform: 'linux', arch: 'amd64', reason: 'not_installed', operations: ['plan_install'], checkedAt: 1 }
@@ -87,4 +87,21 @@ test('batch state and abandon rules follow what is running', () => {
   assert.equal(batchCanAbandon({ state: 'done', members: [{ state: 'applied' }] }), false)
   assert.equal(batchCanAbandon({ state: 'abandoned', members: [] }), false)
   assert.equal(batchFailedMember({ members: [{ state: 'applied' }, { state: 'failed' }, { state: 'pending' }] })?.state, 'failed')
+})
+
+test('an attention row says why, what to run, and what to do next', () => {
+  const row = reason => ({ state: 'unknown', host: 'Elitebook', reason })
+  assert.equal(fleetSoftwareGuide({ state: 'none', host: 'a' }), null)
+  assert.equal(fleetSoftwareGuide({ state: 'update', host: 'a' }), null)
+  const old = fleetSoftwareGuide(row('agent_too_old'))
+  assert.equal(old.title, 'Update reet on Elitebook')
+  assert.equal(old.command, 'reet upgrade')
+  assert.match(old.then, /press Refresh/)
+  assert.equal(fleetSoftwareGuide(row('unreadable_install')).command, 'reet doctor')
+  assert.equal(fleetSoftwareGuide(row('no_opencode_evidence')).command, 'reet upgrade')
+  assert.equal(fleetSoftwareGuide(row('no_plan')).command, undefined)
+  assert.equal(fleetSoftwareGuide(row('read_failed')).command, undefined)
+  const fallback = fleetSoftwareGuide(row(undefined))
+  assert.match(fallback.title, /Elitebook/)
+  assert.ok(fallback.why && fallback.then)
 })

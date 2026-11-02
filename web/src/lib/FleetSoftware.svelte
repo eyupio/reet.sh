@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { getSoftwareMirror, type SoftwareMirrorStatus } from './api'
   import { shell } from './dialogShell'
+  import CopyButton from './CopyButton.svelte'
   import {
     abandonSoftwareBatch,
     activeSoftwareBatch,
@@ -22,6 +23,7 @@
     batchStateLabel,
     fleetSoftwareCanApply,
     fleetSoftwareLabel,
+    fleetSoftwareGuide,
     fleetSoftwareWarning,
   } from './software'
 
@@ -323,6 +325,7 @@
           {#each rows as row (row.agentId)}
             {@const warning = fleetSoftwareWarning(row)}
             {@const canApply = fleetSoftwareCanApply(row)}
+            {@const guide = fleetSoftwareGuide(row)}
             <li data-machine={row.host} data-state={row.state}>
               {#if !batchActive && canApply}
                 <label class="pick">
@@ -337,7 +340,18 @@
               <div class="copy">
                 <strong>{row.host}{#if row.version}<code> {row.version}</code>{/if}</strong>
                 <small class="label">{fleetSoftwareLabel(row)}</small>
-                <small>{row.sentence}</small>
+                {#if guide}
+                  <div class="guide" role="group" aria-label={`What to do for ${row.host}`}>
+                    <strong class="guide-title">{guide.title}</strong>
+                    <small><b>Why:</b> {guide.why}</small>
+                    {#if guide.command}
+                      <div class="guide-cmd"><code>{guide.command}</code><CopyButton text={guide.command} label="Copy" compact ariaLabel={`Copy ${guide.command} for ${row.host}`} /></div>
+                    {/if}
+                    <small><b>Then:</b> {guide.then}</small>
+                  </div>
+                {:else}
+                  <small>{row.sentence}</small>
+                {/if}
                 {#if warning}<small class="warn">{warning}</small>{/if}
                 {#if notice[row.agentId]}<small class="notice-line">{notice[row.agentId]}</small>{/if}
                 {#if applyError[row.agentId]}<small class="error">{applyError[row.agentId]}</small>{/if}
@@ -431,6 +445,10 @@
   .copy small { color: var(--muted); font-size: 0.78rem; line-height: 1.5; overflow-wrap: anywhere; }
   .copy .label { color: var(--ink); font-weight: 600; }
   .copy .warn { color: var(--warn); }
+  .guide { display: grid; gap: 6px; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 10px; }
+  .guide-title { font-size: 0.95rem; }
+  .guide-cmd { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 6px 6px 10px; border-radius: 8px; background: color-mix(in srgb, var(--ink) 8%, transparent); }
+  .guide-cmd code { font-family: ui-monospace, monospace; font-size: 0.85rem; }
   .copy .notice-line { color: var(--good); }
   .copy .source { font: 0.72rem/1.4 var(--mono, monospace); }
   .apply { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.8rem; }

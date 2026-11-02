@@ -481,6 +481,9 @@ func TestFleetSoftwarePlansReadStoredEvidence(t *testing.T) {
 	if row := byHost["laptop"]; row.State != "update" || row.Version != "1.18.0" || row.SessionsRunning != 1 || !row.CanApply || row.Target != "1.19.5" {
 		t.Fatalf("laptop row = %+v", row)
 	}
+	if row := byHost["current"]; row.Reason != "" {
+		t.Fatalf("a row that is not unknown carries a reason: %+v", row)
+	}
 	if row := byHost["current"]; row.State != "none" || !strings.Contains(row.Sentence, "rollback") {
 		t.Fatalf("current row = %+v", row)
 	}
@@ -490,7 +493,7 @@ func TestFleetSoftwarePlansReadStoredEvidence(t *testing.T) {
 	if row := byHost["system"]; row.State != "install" || !strings.Contains(row.Sentence, "alongside") {
 		t.Fatalf("system row = %+v", row)
 	}
-	if row := byHost["older"]; row.State != "unknown" || !strings.Contains(row.Sentence, "Update reet") {
+	if row := byHost["older"]; row.State != "unknown" || !strings.Contains(row.Sentence, "Update reet") || row.Reason != reasonAgentTooOld {
 		t.Fatalf("older row = %+v", row)
 	}
 }

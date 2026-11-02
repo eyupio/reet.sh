@@ -718,7 +718,19 @@ type fleetSoftwareRow struct {
 	SessionsRunning int    `json:"sessionsRunning"`
 	CanApply        bool   `json:"canApply"`
 	Sentence        string `json:"sentence"`
+	// Reason says why a row is "unknown", so the page can tell a person what
+	// to do about it. It is empty for every other state.
+	Reason string `json:"reason,omitempty"`
 }
+
+// Reasons a machine's software could not be reviewed.
+const (
+	reasonAgentTooOld = "agent_too_old"
+	reasonNoEvidence  = "no_opencode_evidence"
+	reasonUnreadable  = "unreadable_install"
+	reasonNoPlan      = "no_plan"
+	reasonReadFailed  = "read_failed"
+)
 
 func (s *server) fleetSoftwarePlans(w http.ResponseWriter, r *http.Request) {
 	uid := s.uid(r)
@@ -740,12 +752,12 @@ func (s *server) fleetSoftwarePlans(w http.ResponseWriter, r *http.Request) {
 		row := fleetSoftwareRow{AgentID: agent.ID, Host: agent.Host, SessionsRunning: running[agent.ID]}
 		caps, err := s.st.RemoteCapabilitiesFor(uid, agent.ID)
 		if errors.Is(err, store.ErrRemoteNotFound) {
-			row.State, row.Sentence = "unknown", sentenceSoftwareUpdate
+			row.State, row.Sentence, row.Reason = "unknown", sentenceSoftwareUpdate, reasonAgentTooOld
 			rows = append(rows, row)
 			continue
 		}
 		if err != nil {
-			row.State, row.Sentence = "unknown", "reet couldn't read that machine's software."
+			row.State, row.Sentence, row.Reason = "unknown", "reet couldn't read that machine's software.", reasonReadFailed
 			rows = append(rows, row)
 			continue
 		}
@@ -758,9 +770,9 @@ func (s *server) fleetSoftwarePlans(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if entry == nil {
-			row.State, row.Sentence = "unknown", "reet has no OpenCode evidence for this machine."
+			row.State, row.Sentence, row.Reason = "unknown", "reet has no OpenCode evidence for this machine.", reasonNoEvidence
 			if len(caps.Capabilities.Software) == 0 {
-				row.Sentence = sentenceSoftwareUpdate
+				row.Sentence, row.Reason = sentenceSoftwareUpdate, reasonAgentTooOld
 			}
 			rows = append(rows, row)
 			continue
@@ -780,7 +792,7 @@ func (s *server) fleetSoftwarePlans(w http.ResponseWriter, r *http.Request) {
 		case entry.State == terminalproto.SoftwareMissing:
 			action = agentsoftware.Install
 		default:
-			row.State, row.Sentence = "unknown", "reet couldn't read how OpenCode is installed."
+			row.State, row.Sentence, row.Reason = "unknown", "reet couldn't read how OpenCode is installed.", reasonUnreadable
 		}
 		if row.State == "unknown" && action == "" {
 			rows = append(rows, row)
@@ -792,7 +804,7 @@ func (s *server) fleetSoftwarePlans(w http.ResponseWriter, r *http.Request) {
 		}
 		plan, planErr := agentsoftware.For(*entry, action, agent.Host, row.SessionsRunning)
 		if planErr != nil {
-			row.State, row.Sentence = "unknown", "No reviewed plan is available for this machine."
+			row.State, row.Sentence, row.Reason = "unknown", "No reviewed plan is available for this machine.", reasonNoPlan
 			rows = append(rows, row)
 			continue
 		}

@@ -112,3 +112,46 @@ export function batchCanAbandon(batch: Pick<SoftwareBatch, 'state' | 'members'>)
 export function batchFailedMember(batch: Pick<SoftwareBatch, 'members'>): SoftwareBatchMember | undefined {
   return batch.members.find(member => member.state === 'failed')
 }
+
+/** What a person should do about a machine whose software could not be reviewed. */
+export type SoftwareGuide = { title: string; why: string; command?: string; then: string }
+
+/** Guidance for an "unknown" fleet row: what to do, what to run on that machine, and why. Null when nothing needs doing. */
+export function fleetSoftwareGuide(row: Pick<FleetSoftwareRow, 'state' | 'host' | 'reason'>): SoftwareGuide | null {
+  if (row.state !== 'unknown') return null
+  switch (row.reason) {
+    case 'agent_too_old': return {
+      title: `Update reet on ${row.host}`,
+      why: 'That machine runs a reet version that cannot report its installed software yet, so reet has nothing to plan from.',
+      command: 'reet upgrade',
+      then: 'Run it in a terminal on that machine, then press Refresh.',
+    }
+    case 'no_opencode_evidence': return {
+      title: `Refresh ${row.host}'s software report`,
+      why: 'The machine reported its software, but its report has no OpenCode entry.',
+      command: 'reet upgrade',
+      then: 'Run it on that machine, then press Refresh. If this stays, run reet doctor there and check its output.',
+    }
+    case 'unreadable_install': return {
+      title: `Check OpenCode on ${row.host}`,
+      why: 'reet found OpenCode but could not tell how it was installed, so it will not guess at a plan.',
+      command: 'reet doctor',
+      then: 'Run it on that machine to see what reet found, then press Refresh.',
+    }
+    case 'no_plan': return {
+      title: `No plan for ${row.host}`,
+      why: 'reet has no reviewed plan for this machine\'s platform or installation, so it cannot change it safely.',
+      then: 'Nothing to run. Manage OpenCode on that machine yourself, or check back after a reet release.',
+    }
+    case 'read_failed': return {
+      title: `Couldn't read ${row.host}`,
+      why: 'reet failed to load that machine\'s record just now. This is usually temporary.',
+      then: 'Press Refresh to try again. If it keeps failing, check that the machine is still connected.',
+    }
+    default: return {
+      title: `Check ${row.host}`,
+      why: 'reet could not review this machine\'s software.',
+      then: 'Press Refresh. If it stays, run reet doctor on that machine.',
+    }
+  }
+}

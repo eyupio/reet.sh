@@ -2002,6 +2002,9 @@ Validation on main `1e626ff` plus this change:
 - `gaffer-progress.e2e.mjs`: image loading, contextual phases, quote rotation,
   pause, timer/replay, summary collapse, failure and end states, keyboard controls,
   and reduced motion in both themes at 320, 390 and 768 px with no overflow.
+- The full `chat.e2e.mjs` fixture passes against the production build, covering
+  streaming, permissions, typed questions, queued messages, attachments, stop,
+  continuation and the skill picker.
 
 The desktop mocks below are the approved placement with illustrative session
 content. The phone captures use the same real chat fixture. The GIF records 64

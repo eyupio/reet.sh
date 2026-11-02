@@ -6,7 +6,7 @@ These are directions, not commitments: there are no dates.
 
 Next, in this order:
 
-- **Structured chats across agents.** OpenCode in Gaffer is available. Per-agent capability reporting and tool-bound continuation prepare the next integration without enabling unverified adapters. Claude Code's adapter has been probed (approvals, questions, cancellation, history, models) but stays disabled until its repository-hook and process-retirement gaps are closed. Next: close those gaps, verify the Codex adapter, then add typed agent questions and extend recovery. See the [implementation plan](structured-chat-plan.md).
+- **Structured chats across agents.** OpenCode in Gaffer is available. Claude Code and Codex chats are built and wired but dark: a machine reports them only when its connector runs with `REET_EXPERIMENTAL_CLAUDE_CHAT=1` or `REET_EXPERIMENTAL_CODEX_CHAT=1`, and nobody is offered them otherwise. Claude waits on the real-login checks; Codex waits on the signed-in run and on letting its adapter see the person's own login. Typed agent questions, force-stop and late-callback handling, and Codex's approvals modes (read-only, or let Codex decide) are done. Next: the device and login checks, then retire the switches. See the [implementation plan](structured-chat-plan.md) and the resume-here section of [handoff.md](../handoff.md).
 
 - **Richer run orchestration.** More control over agent runs than opening a terminal session and continuing it later.
 

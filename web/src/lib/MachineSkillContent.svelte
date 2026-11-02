@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
  import { onMount, tick, untrack } from 'svelte'
  import { shell } from './dialogShell'
  import { ApiError, UnauthorizedError, adoptContent, getContentPins, getContentPreview, getContentPreviews, getContentReceipts, releaseContentReceipt, getPrivateBundles, getPrivateRevisions, removeContentPin, saveContentPin, type ContentPin, type ContentPreview, type ContentPreviewCapability, type ContentReceipt, type PrivateBundle, type PrivateRevision, type SyncState } from './api'
@@ -452,7 +453,7 @@
   {#if addable && step === 'pin'}<p class="add-machine"><button type="button" class="linklike" disabled={busy} onclick={addMachine}>Not listed? Add a machine</button></p>{/if}
   <div class="live" role="status" aria-live="polite">{notice}</div>
   {#if error}<div class="alert" role="alert"><p>{error}</p>{#if loadFailed}<button type="button" class="btn" onclick={() => void load()}>Try again</button>{:else if watcher.watchFailed}<button type="button" class="btn" onclick={() => watcher.retryWatch()}>Try again</button>{/if}</div>{/if}
-  {#if loading}<p class="intro" role="status">Loading pins and your library…</p>{/if}
+  {#if loading}<Skeleton label="Loading pins and your library…" count={2} />{/if}
   {#if checksDown && loaded}<div class="alert" role="status"><p>{CHECKS_DOWN}</p><button type="button" class="btn" onclick={() => void load()}>Try again</button></div>{/if}
   {#if loaded}
    {#if step === 'check' && selectedPin}

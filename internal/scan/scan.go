@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 )
 
 // Found is one installed skill in one place; Source is "owner/repo" when the skills CLI lock file knows it.
@@ -294,7 +296,7 @@ func runVersionAt(dir string, args []string, out io.Writer, version string) erro
 	reconcile := fs.Bool("reconcile", false, "repair hostname/--env aliases before refreshing inventories; never changes installed skills")
 	prune := fs.Bool("prune", false, "remove stale inventory reports for scanned environments; keeps installed files and shelf entries")
 	serverHost := fs.Bool("server-host", false, "register this process as a reet server")
-	envName := fs.String("env", os.Getenv("REET_ENV"), "environment name for this machine (default hostname)")
+	envName := fs.String("env", clientconfig.EnvName(), "environment name for this machine (default hostname)")
 	var dirs multi
 	fs.Var(&dirs, "dir", "extra skills folder to scan (repeatable)")
 	if err := fs.Parse(args); err != nil {

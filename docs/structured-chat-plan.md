@@ -1,7 +1,11 @@
 # Structured chats across agents
 
-Status: implementation plan, 31 October 2026. No additional agent adapter is
-enabled by this document. OpenCode remains the only structured chat integration.
+Status: implementation plan, last updated 2 November 2026. OpenCode is the only structured chat
+integration anyone is offered. Claude Code and Codex are built and wired but dark behind
+per-machine switches (`REET_EXPERIMENTAL_CLAUDE_CHAT`, `REET_EXPERIMENTAL_CODEX_CHAT`) until the
+device and login checks in [device-checks.md](device-checks.md) are recorded. The progress notes
+below are in the order they were written; the current position and the order of what is left are
+in the resume-here section of [handoff.md](../handoff.md).
 
 The goal is one reet conversation view for supported agents, with streamed
 messages, tool details, reviewed approvals, agent questions and honest recovery

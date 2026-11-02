@@ -81,7 +81,7 @@
   {#if tone}<span class="mark" aria-hidden="true">{#if tone === 'ok'}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 7v6M12 17h.01" /></svg>{/if}</span>{/if}
   <span class="msg">{message}</span>
   {#if actionLabel && onaction}
-    <button type="button" class="action" onclick={act} disabled={acting}>{acting ? 'Working…' : actionLabel}</button>
+    <button type="button" class="action" onclick={act} disabled={acting} aria-busy={acting}>{acting ? 'Working…' : actionLabel}</button>
   {/if}
   <button type="button" class="close" onclick={dismiss} aria-label="Dismiss">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">

@@ -1,9 +1,12 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getHosting, claimPublishingUsername, saveHostedSkill, renameHostedSkill, deleteHostedSkill, type HostedSkill } from './api'
-  import { MAX_BUNDLE_BYTES, addPrefix, prepareImports, renameSkillContent, sanitizeSkillName, uniqueSkillName, type ImportInput, type PreparedImport } from './skillImport'
+  import { MAX_BUNDLE_BYTES, addPrefix, parseFrontmatter, prepareImports, renameSkillContent, sanitizeSkillName, uniqueSkillName, type ImportInput, type PreparedImport } from './skillImport'
   import PageHeader from './PageHeader.svelte'
   import CopyButton from './CopyButton.svelte'
+  import { installPrompt } from './install'
+  import type { Skill } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
   let { canWrite = true }: { canWrite?: boolean } = $props()
@@ -33,6 +36,8 @@
   let filePicker = $state<HTMLInputElement>()
   let folderPicker = $state<HTMLInputElement>()
   const command = $derived(`npx skills add ${location.origin}/${username}/${originalSlug}`)
+  // The same prompt the shelf card and the Skills you create row offer, so a published skill can be handed to an agent from here too.
+  const prompt = $derived(installPrompt({ sourceType: 'hosted', url: `${location.origin}/${username}/${originalSlug}`, slug: originalSlug } as Skill) ?? '')
   const dirty = $derived(editor ? fingerprint(editor) !== baseline : false)
   const chosenImports = $derived(importBundles.filter(skill => skill.selected && !skill.problem))
   const publishedCount = $derived(skills.filter(skill => skill.published).length)
@@ -44,6 +49,12 @@
   )
   const slugBody = $derived(prefix && editor?.slug.startsWith(prefix) ? editor.slug.slice(prefix.length) : editor?.slug ?? '')
   const renameNeeded = $derived(!!originalSlug && !!editor && editor.slug !== originalSlug)
+  // The server refuses a SKILL.md whose frontmatter name differs from the skill name. Say so beside the editor as soon as
+  // they differ, with the one-press fix, rather than after a failed save with the reason at the top of the page.
+  const contentName = $derived(editor ? (parseFrontmatter(editor.content)?.fields.name ?? '').trim() : '')
+  const nameMismatch = $derived(!!editor && !!editor.slug && contentName !== '' && contentName !== editor.slug)
+  let saveError = $state('')
+  function matchContentName() { if (!editor) return; editor.content = renameSkillContent(editor.content, editor.slug); saveError = '' }
   const prefixMisplaced = $derived(!!prefix && !!originalSlug && !!editor && !editor.slug.startsWith(prefix))
   const showPrefixChip = $derived(!!prefix && (!originalSlug || (editor?.slug.startsWith(prefix) ?? false)))
   onMount(() => { void load().then(() => {
@@ -142,12 +153,14 @@
   }
   async function save(event: SubmitEvent) {
     event.preventDefault(); if (!editor) return
-    if (!editor.slug) { error = 'Give the skill a name before saving.'; return }
+    saveError = ''
+    if (!editor.slug) { saveError = 'Give the skill a name before saving.'; return }
+    if (nameMismatch) { saveError = `SKILL.md says name: ${contentName}, but this skill is ${editor.slug}. Make them match to save: use the Match name button above the instructions, or edit the frontmatter.`; return }
     if (prefix && (!originalSlug || editor.slug !== originalSlug) && !editor.slug.startsWith(prefix)) {
-      error = `Skill names must start with ${prefix}. Add the prefix or change it in Account → Profile.`
+      saveError = `Skill names must start with ${prefix}. Add the prefix or change it in Account → Profile.`
       return
     }
-    if (!originalSlug && skills.some(s => s.slug === editor?.slug)) { error = 'You already have a skill with this name. Select it from your skills to edit it.'; return }
+    if (!originalSlug && skills.some(s => s.slug === editor?.slug)) { saveError = 'You already have a skill with this name. Select it from your skills to edit it.'; return }
     busy = true; error = ''; notice = ''
     let didRename = false
     try {
@@ -166,7 +179,7 @@
       notice = didRename
         ? saved.published ? 'Renamed and published. The public URL and install command changed; existing installs are untouched. It is also on your shelf under To test.' : 'Renamed. Update any private links you shared.'
         : saved.published ? 'Skill published. It is also on your shelf so you can test it.' : 'Draft saved. Its page and install files are private.'
-    } catch (e) { fail(e) } finally { busy = false }
+    } catch (e) { saveError = e instanceof Error ? e.message : String(e) } finally { busy = false }
   }
   async function upload(event: Event, main = false) {
     const input = event.target as HTMLInputElement
@@ -342,7 +355,7 @@
 <PageHeader eyebrow="Publish on reet.sh" title="Host your own skills." lede="Write a skill, give it a home, and share one install command." />
 {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
 {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
-{#if loading}<p role="status">Loading your skills…</p>
+{#if loading}<Skeleton label="Loading your skills…" shape="cards" count={3} />
 {:else if !canWrite}<p class="notice">Your account is read-only. Ask an admin for publishing access.</p>
 {:else if !username}
   <section class="panel">
@@ -358,7 +371,7 @@
       <label for="publisher-name">Username</label>
       <input id="publisher-name" bind:value={wantedName} required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="64" autocomplete="off" placeholder="your-username" disabled={busy} />
       <small>Lowercase letters, numbers and single hyphens.</small>
-      <button class="btn primary" disabled={busy}>{busy ? 'Claiming…' : 'Claim username'}</button>
+      <button class="btn primary" disabled={busy} aria-busy={busy}>{busy ? 'Claiming…' : 'Claim username'}</button>
     </form>
   </section>
 {:else}
@@ -461,6 +474,7 @@
             <label for="hosted-content">SKILL.md</label>
             <textarea id="hosted-content" bind:value={editor.content} rows="16" required spellcheck="false" disabled={busy}></textarea>
             <small>Include YAML frontmatter with a matching name and a description, followed by your instructions.</small>
+            {#if nameMismatch}<p class="notice warn" role="status">SKILL.md says <code>name: {contentName}</code>, but this skill is <code>{editor.slug}</code>. They must match before it can be saved or installed. <button type="button" class="btn quiet" onclick={matchContentName} disabled={busy}>Match name</button></p>{/if}
           </div>
           <div class="form-block">
             <h3>Supporting files</h3>
@@ -480,8 +494,9 @@
             <label class="publish"><input type="checkbox" bind:checked={editor.published} disabled={busy} /> Publish publicly</label>
             <small>Publishing makes the instructions and supporting files available to everyone, and puts the skill on your shelf under To test. Uncheck and save to unpublish.</small>
           </div>
+          {#if saveError}<p class="notice bad" role="alert">{saveError}</p>{/if}
           <div class="actions">
-            <button class="btn primary" disabled={busy}>{busy ? 'Saving…' : renameNeeded ? 'Rename and save' : editor.published ? 'Save and publish' : 'Save draft'}</button>
+            <button class="btn primary" disabled={busy} aria-busy={busy}>{busy ? 'Saving…' : renameNeeded ? 'Rename and save' : editor.published ? 'Save and publish' : 'Save draft'}</button>
             {#if originalSlug}<button type="button" class="btn quiet" disabled={busy} onclick={() => deleting = skills.find(s => s.slug === originalSlug) ?? null}>Delete skill</button>{/if}
           </div>
         </form>
@@ -490,7 +505,7 @@
             <h3>Share and install</h3>
             <div class="install-links"><a href={`/${username}/${originalSlug}`} target="_blank" rel="noopener noreferrer">View public skill page ↗</a><a href="/">Open your shelf</a></div>
             <code>{command}</code>
-            <CopyButton text={command} label="Copy install command" />
+            <div class="install-actions"><CopyButton text={command} label="Copy install command" /><CopyButton text={prompt} label="Copy prompt" ariaLabel={`Copy prompt for ${originalSlug}`} /></div>
           </div>
         {/if}
       </section>
@@ -499,7 +514,7 @@
   {#if editor && !importing}
     <div class="save-dock" role="region" aria-label="Save your skill">
       <span class="save-state" aria-live="polite">{busy ? 'Saving…' : dirty ? 'Unsaved changes' : originalSlug ? 'All changes saved' : 'Not saved yet'}</span>
-      <button type="submit" form="skill-form" class="btn primary" disabled={busy}>{busy ? 'Saving…' : renameNeeded ? 'Rename and save' : editor.published ? 'Save and publish' : 'Save draft'}</button>
+      <button type="submit" form="skill-form" class="btn primary" disabled={busy} aria-busy={busy}>{busy ? 'Saving…' : renameNeeded ? 'Rename and save' : editor.published ? 'Save and publish' : 'Save draft'}</button>
     </div>
   {/if}
 {/if}
@@ -555,7 +570,11 @@
   .slug-prefix { display: flex; align-items: center; padding: 0 10px; border: 1px solid var(--line); border-right: 0; border-radius: 8px 0 0 8px; background: var(--tint); color: var(--muted); font-family: var(--mono); font-size: .85rem; }
   .slug-row .slug-prefix + input { border-radius: 0 8px 8px 0; }
   .file-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .install-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .install-links { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0 2px; font-size: .88rem; }
+  .notice { margin: 12px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .notice.good { border-color: var(--good); }
+  .notice.bad { border-color: var(--bad); }
   .notice.warn { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 7%, var(--card)); }
   .publish { display: flex; align-items: center; gap: 10px; }
   .publish input { width: auto; }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { listLists, audienceLabel, type SharedList } from './api'
   import { matchesListScope } from './lists'
@@ -27,7 +28,7 @@
   <div role="group" aria-label="List layout"><button class="btn quiet" aria-pressed={layout === 'rows'} onclick={() => chooseLayout('rows')}>Rows</button><button class="btn quiet" aria-pressed={layout === 'cards'} onclick={() => chooseLayout('cards')}>Cards</button></div>
 </div>
 {#if error}<p class="notice bad" role="alert">{error} <button class="btn quiet" onclick={load}>Try again</button></p>{/if}
-{#if loading}<p role="status">Loading lists…</p>
+{#if loading}<Skeleton label="Loading lists…" shape="cards" count={3} />
 {:else if !error}
   <p class="count" role="status">{shown.length} of {lists.length} lists · <a href="/community">Explore community</a></p>
   <div class:cards={layout === 'cards'} class:rows={layout === 'rows'}>

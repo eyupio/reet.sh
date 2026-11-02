@@ -238,3 +238,41 @@ func TestOutputWaitsForAnExplicitReturnOrQuit(t *testing.T) {
 		t.Fatal("q must exit")
 	}
 }
+
+func TestWideHomeShowsDetailBesideTheSelection(t *testing.T) {
+	m := newHome("dev")
+	m.colour = false
+	m.cursor = 4 // Branches
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 26})
+	view := next.(homeModel).View().Content
+	for _, want := range []string{"› Branches", "reet branches", "tidy them", "Ey up", "Reight then"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q in\n%s", want, view)
+		}
+	}
+	next, _ = next.(homeModel).Update(tea.WindowSizeMsg{Width: 60, Height: 26})
+	if strings.Contains(next.(homeModel).View().Content, "Ey up") {
+		t.Fatal("narrow terminals keep the single list")
+	}
+}
+
+func TestWideHomeKeepsItsFooterAtEveryHeightAndSelection(t *testing.T) {
+	for _, size := range [][2]int{{72, 16}, {100, 16}, {140, 20}} {
+		for cursor := range HomeCommands() {
+			m := newHome("dev")
+			m.colour = false
+			m.cursor = cursor
+			next, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+			view := next.(homeModel).View().Content
+			rows := strings.Split(view, "\n")
+			if len(rows) > size[1] || !strings.Contains(view, "q quit") {
+				t.Fatalf("%v cursor %d lost its footer (%d rows):\n%s", size, cursor, len(rows), view)
+			}
+			for _, row := range rows {
+				if ansi.StringWidth(row) > size[0] {
+					t.Fatalf("%v wide row %q", size, row)
+				}
+			}
+		}
+	}
+}

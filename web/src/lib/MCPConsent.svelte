@@ -32,7 +32,7 @@
     </div>
     <div class="details"><p><strong>Your control stays here.</strong> This does not grant access to account settings, passwords, API credentials, backups or administration. It does not install or execute skills.</p><p>Authorization lasts 30 days. Pause or revoke it at any time in Account → MCP access.</p>{#if !info.enabled}<p>Approving turns MCP access on for your account. Existing connections resume unless you paused them individually.</p>{/if}</div>
     <p class="callback">Return to <strong>{info.callbackHost}</strong> after approval. Client names are provided by the connecting app; approve only a connection you started.</p>
-    <div class="actions"><button type="button" class="btn" disabled={busy} onclick={() => answer(false)}>Cancel</button><button type="button" class="btn primary" disabled={busy} onclick={() => answer(true)}>{busy ? 'Connecting…' : scope === 'write' ? 'Allow read & manage' : 'Allow read access'}</button></div>
+    <div class="actions"><button type="button" class="btn" disabled={busy} onclick={() => answer(false)}>Cancel</button><button type="button" class="btn primary" disabled={busy} onclick={() => answer(true)} aria-busy={busy}>{busy ? 'Connecting…' : scope === 'write' ? 'Allow read & manage' : 'Allow read access'}</button></div>
   {/if}
 </section>
 

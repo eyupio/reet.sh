@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount, tick } from 'svelte'
   import {
     addModelFavourite, ApiError, getProfile, listModelFavourites, removeModelFavourite,
@@ -468,7 +469,7 @@
   {#if favNotice}<p class="notice good" role="status">{favNotice}</p>{/if}
 
   {#if favouritesLoading}
-    <p class="muted">Reading your favourite models…</p>
+    <Skeleton label="Reading your favourite models…" shape="rows" count={3} />
   {:else if groups.length === 0}
     <p class="muted">No favourite models yet. Add one below, or star one from a model picker.</p>
   {:else}

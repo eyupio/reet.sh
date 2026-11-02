@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
  import { onMount } from 'svelte'
  import { shell } from './dialogShell'
  import { getImports, getImport, requestImport, approveImport, cancelImport, stopImport, getPrivateBundles, getPrivateRevisions, type ImportRequest, type ImportState, type PrivateBundle, type PrivateRevision, type SyncState } from './api'
@@ -78,8 +79,8 @@
  <div class="body" data-shell-body>
   <p class="intro">Review a skill’s files, choose what to keep, then save a private copy. Your machine files, shelf choices and published skills stay separate.</p>
   {#if error}<p role="alert" class="error">{error}</p>{/if}
-  {#if loading}<p role="status">Loading imports and private copies…</p>{/if}
-  {#if !selected && selectedID}<p role="status">Loading selected import…</p>
+  {#if loading}<Skeleton label="Loading imports and private copies…" count={2} />{/if}
+  {#if !selected && selectedID}<Skeleton label="Loading the selected import…" count={2} />
   {:else if !selected}
    <section aria-label="Choose import source" class="form">
     <label>Source scope<select aria-label="Source scope" bind:value={environmentId} onchange={() => { name = ''; bundleId = ''; requestKey = crypto.randomUUID() }}><option value="">Choose a machine and agent scope</option>{#each environments as env (env.id)}<option value={env.id}>{env.host} · {agentLabels[env.agent] ?? env.agent}{env.project ? ` · ${env.project}` : ' · Home'}</option>{/each}</select></label>

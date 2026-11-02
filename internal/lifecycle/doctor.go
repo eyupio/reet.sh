@@ -206,6 +206,9 @@ func (a *App) DoctorReport(opts DoctorOptions) (Report, error) {
 	if controller == "" {
 		controller = os.Getenv("REET_CONTROLLER_URL")
 	}
+	if controller == "" {
+		controller = clientconfig.Discover("", "", opts.TokenFile).Server
+	}
 	token := os.Getenv("REET_TOKEN")
 	if os.Getenv("REET_URL") == "" && opts.Server == "" && os.Getenv("REET_CONTROLLER_URL") != "" {
 		token = os.Getenv("REET_CONTROLLER_TOKEN")

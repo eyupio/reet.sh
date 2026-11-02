@@ -183,7 +183,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	server := fs.String("server", os.Getenv("REET_URL"), "controller URL")
 	token := fs.String("token", "", "personal token for enrollment (env REET_TOKEN)")
 	tokenFile := fs.String("env-file", "", "read enrollment REET_TOKEN from an explicit env file")
-	host := fs.String("env", os.Getenv("REET_ENV"), "stable machine name")
+	host := fs.String("env", clientconfig.EnvName(), "stable machine name")
 	backup := fs.String("backup", "", "removed skill entry to restore")
 	targetID := fs.String("target", "", "target scope for restore")
 	once := fs.Bool("once", false, "poll once, then exit (useful for a scheduler)")

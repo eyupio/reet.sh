@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount, tick } from 'svelte'
   import type { Snippet } from 'svelte'
   import { getBuildInfo, getSyncState, mergeMachines, forgetMachine, listSetupProfiles, type SetupProfileSummary, type SyncState, type SyncEnvironment } from './api'
@@ -257,7 +258,7 @@
     {/if}
   {:else}
     {#if loading && !loaded}
-      <div class="skeleton-grid" role="status" aria-live="polite"><span class="vh">Reading your machines…</span>{#each [0, 1] as i (i)}<div class="skeleton-card" aria-hidden="true"><span></span><span></span><span></span></div>{/each}</div>
+      <Skeleton label="Reading your machines…" shape="cards" count={2} height="150px" />
     {:else if visibleMachines.length}
       <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {terminalAccess} {monitorAccess} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} highlight={justAdded} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e); void showOutcome() }} {onsignedout} onnotice={(message, href) => { notice = message; noticeHref = href ?? ''; void showOutcome() }} onimport={(source) => (importSource = source)} />
     {:else if loaded}
@@ -332,12 +333,6 @@
   .sync { margin-top: 24px; padding: clamp(14px, 2.4vw, 22px); border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
   .page-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
   .tools-status { flex: 1 1 240px; margin: 0; text-align: right; font-size: .75rem; }
-  .skeleton-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 14px; margin-top: 14px; }
-  .skeleton-card { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
-  .skeleton-card span { display: block; height: 12px; border-radius: 6px; background: color-mix(in srgb, var(--line) 70%, var(--card)); }
-  .skeleton-card span:first-child { width: 45%; height: 20px; }
-  .skeleton-card span:last-child { width: 70%; }
-  @media (prefers-reduced-motion: no-preference) { .skeleton-card span { animation: skeleton 1.4s ease-in-out infinite; } @keyframes skeleton { 50% { opacity: .45; } } }
   .hint { color: var(--muted); font-size: .83rem; margin: 6px 0; overflow-wrap: anywhere; }
   .machine-focus a { color: var(--accent-text); }
   .machine-focus strong { color: var(--ink); }

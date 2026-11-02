@@ -78,6 +78,40 @@ try {
  }
 
  // Hosting: what it gives you comes first, then the username form.
+ // A published skill's editor ends with both ways to hand it on: the install command and the prompt the shelf card offers.
+ if (run('hosting-share')) {
+  const now = Date.now()
+  const hosting = {username:'sam',prefix:'',skills:[{slug:'ui-refresh',description:'Published.',content:'---\nname: ui-refresh\ndescription: x\n---\nbody',files:{},published:true,createdAt:now,updatedAt:now}]}
+  const {context,page,errors} = await open({width:1440,hosting})
+  await page.goto(`${base}/hosting?edit=ui-refresh`)
+  await expect(page.getByRole('heading',{name:'Share and install'})).toBeVisible()
+  await expect(page.getByRole('button',{name:'Copy install command'})).toBeVisible()
+  await expect(page.getByRole('button',{name:'Copy prompt for ui-refresh'})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+ // A SKILL.md whose name differs from the skill's is explained beside the editor, fixed in one press, and never silently refused.
+ if (run('hosting-name')) {
+  const now = Date.now()
+  const hosting = {username:'sam',prefix:'',skills:[{slug:'ui-refresh',description:'Draft.',content:'---\nname: ui-refresh\ndescription: x\n---\nbody',files:{},published:false,createdAt:now,updatedAt:now}]}
+  const {context,page,errors} = await open({width:1440,hosting,routes:{'/api/v2/hosting/skills/ui-refresh':{status:400,json:{error:'the SKILL.md name must match the skill name in the URL'}}}})
+  await page.goto(`${base}/hosting?edit=ui-refresh`)
+  const content = page.locator('#hosted-content')
+  await content.fill('---\nname: other-name\ndescription: x\n---\nbody')
+  const warn = page.locator('.notice.warn',{hasText:'SKILL.md says'})
+  await expect(warn).toBeVisible()
+  await expect(warn).toContainText('other-name')
+  await expect(warn).toContainText('ui-refresh')
+  await page.locator('form .actions').getByRole('button',{name:'Save draft'}).click()
+  const alert = page.getByRole('alert')
+  await expect(alert).toContainText('Make them match to save')
+  await page.getByRole('button',{name:'Match name'}).click()
+  await expect(content).toHaveValue(/name: ui-refresh/)
+  await expect(warn).toHaveCount(0)
+  await expect(alert).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
  if (run('hosting')) {
   const {context,page} = await open({width:1440})
   await page.goto(`${base}/hosting`)

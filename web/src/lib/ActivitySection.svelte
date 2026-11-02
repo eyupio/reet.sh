@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { ApiError, listEvents, UnauthorizedError, type Event } from './api'
   import { eventCategory, eventLabel, eventRemedy, eventTitle, EVENT_CATEGORIES, type EventCategory } from './events'
@@ -258,7 +259,7 @@
   {/if}
 
   {#if loading && events.length === 0}
-    <p class="muted" role="status">Reading your activity…</p>
+    <Skeleton label="Reading your activity…" shape="rows" count={4} />
   {:else if events.length === 0}
     {#if !error}
       <div class="empty">
@@ -321,7 +322,7 @@
         <button type="button" class="btn" onclick={() => void loadRuns()} disabled={runsLoading}>{runsLoading ? 'Trying again…' : 'Try again'}</button>
       </div>
     {:else if !runs}
-      <p class="muted" role="status">Reading the runs…</p>
+      <Skeleton label="Reading the runs…" shape="rows" count={3} />
     {:else if runs.length === 0}
       <p class="muted">No runs were recorded.</p>
     {:else}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import {
     adminAssignTicket, adminGetTicket, adminListTickets, adminNoteTicket, adminReplyTicket, adminSetTicketStatus,
@@ -158,7 +159,7 @@
       </label>
 
       {#if loading}
-        <p class="muted" role="status">Loading tickets…</p>
+        <Skeleton label="Loading tickets…" shape="rows" count={4} />
       {:else if visible.length === 0}
         <p class="empty">{tickets.length === 0 ? 'No tickets in this view.' : 'No ticket matches that search.'}</p>
       {:else}
@@ -181,7 +182,7 @@
 
     <section class="detail" aria-labelledby="detail-title">
       {#if detailLoading}
-        <p class="muted" role="status">Loading the ticket…</p>
+        <Skeleton label="Loading the ticket…" count={4} />
       {:else if !selected}
         <div class="empty-detail"><h3 id="detail-title">Choose a ticket</h3><p>Its conversation, notes and controls appear here.</p></div>
       {:else}

@@ -98,6 +98,7 @@ jobs:
           node web/tests/admin-backups.e2e.mjs
           node web/tests/admin-settings.e2e.mjs
           node web/tests/admin-activity.e2e.mjs
+          node web/tests/account-sessions.e2e.mjs
           node web/tests/sync-activity.e2e.mjs
           node web/tests/skills-sync-simple.e2e.mjs
           node web/tests/machine-skill-sync.e2e.mjs

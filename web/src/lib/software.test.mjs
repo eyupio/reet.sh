@@ -106,3 +106,15 @@ test('an attention row says why, what to run, and what to do next', () => {
   assert.match(fallback.title, /Elitebook/)
   assert.ok(fallback.why && fallback.then)
 })
+
+test('an unreadable install says what the machine reported', () => {
+  const row = (evidence, reason = 'unreadable_install') => ({ state: 'unknown', host: 'PROD_Snicket', reason, evidence })
+  assert.equal(fleetSoftwareGuide(row(undefined)).found, undefined)
+  assert.equal(fleetSoftwareGuide(row({ reason: 'unreadable', path: '/usr/bin/opencode' })).found, "reet found OpenCode at /usr/bin/opencode but couldn't read its version.")
+  assert.match(fleetSoftwareGuide(row({ reason: 'package_unknown' })).found, /doesn't recognise the package/)
+  assert.match(fleetSoftwareGuide(row({ reason: 'managed_broken' })).found, /integrity check/)
+  assert.match(fleetSoftwareGuide(row({ reason: 'managed_broken' })).then, /delete the folder ~\/\.reet\/software\/opencode/)
+  assert.doesNotMatch(fleetSoftwareGuide(row({ reason: 'managed_broken' })).then, /Settings and reinstall/)
+  assert.match(fleetSoftwareGuide(row({ reason: 'platform_unsupported' }, 'no_plan')).found, /no reviewed OpenCode build/)
+  assert.equal(fleetSoftwareGuide(row({ reason: 'unreadable' })).command, undefined)
+})

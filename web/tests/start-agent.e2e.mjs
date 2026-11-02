@@ -895,12 +895,18 @@ try{
  await page.keyboard.press('Escape')
  await page.emulateMedia({reducedMotion:'no-preference',colorScheme:'light'})
 
- // The matrix wrote nothing to browser storage under any key not already written before it (the sign-in token's clean-up), and
- // nothing about a prompt, model or folder. Opening the sessions list the way a person does writes no layout either.
+ // The recap may store only sequence/timestamps in this tab. The launch dialog still writes no prompt, model, folder or layout.
  const keyOf=w=>w.split(' ',2).join(' ')
  const knownKeys=new Set(storageWrites.slice(0,writesBefore).map(keyOf))
  const matrixWrites=storageWrites.slice(writesBefore)
- expect(matrixWrites.filter(w=>!knownKeys.has(keyOf(w)))).toEqual([])
+ const visitWrites=matrixWrites.filter(w=>/^setItem reet-session-visit:session-[a-z0-9]+ /.test(w))
+ for(const write of visitWrites){
+  const marker=JSON.parse(write.slice(write.indexOf(' ',write.indexOf(' ')+1)+1))
+  expect(Object.keys(marker).sort()).toEqual(['activityAt','at','seq'])
+  expect(Object.values(marker).every(value=>Number.isSafeInteger(value)&&value>=0)).toBe(true)
+ }
+ expect(matrixWrites.filter(w=>!knownKeys.has(keyOf(w))&&!visitWrites.includes(w))).toEqual([])
+ expect(await page.evaluate(()=>Object.keys(localStorage).filter(key=>key.startsWith('reet-session-visit:')))).toEqual([])
  for(const secret of [LONG_DIR,'fix the failing build please','look around here'])expect(matrixWrites.join('\n').includes(secret)).toBe(false)
  theme='light'
  tmachines.pop();scopes.pop();agents.pop()
@@ -995,5 +1001,5 @@ try{
  await expect(d.getByText('dev-laptop doesn’t accept YOLO sessions.')).toBeVisible()
  await page.keyboard.press('Escape')
  expect(errors).toEqual([])
- console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old four otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and no new storage key. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
+ console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old four otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and only numeric recap markers in tab storage. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

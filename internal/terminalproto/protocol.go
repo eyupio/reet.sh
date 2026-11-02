@@ -169,6 +169,7 @@ type Capabilities struct {
 	// ShellDir is sent only when shell-dir-v1 was negotiated; a plain shell
 	// may then start in a chosen folder.
 	ShellDir bool `json:"shellDir,omitempty"`
+	Inspect  bool `json:"inspect,omitempty"`
 	// Attention is sent only when attention-v1 was negotiated.
 	Attention       bool `json:"attention,omitempty"`
 	TerminalControl bool `json:"terminalControl,omitempty"`
@@ -226,7 +227,7 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.Models && !c.TerminalControl || c.ModelsOff && (c.Models || !c.TerminalControl) {
 		return ErrInvalid
 	}
-	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ACPImages && !c.ACP || c.ACPApproval && !c.ACP || c.ACPQuestions && !c.ACP || c.ACPModel && !c.ACP || c.ACPAgentMode && !c.ACP || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
+	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ACPImages && !c.ACP || c.ACPApproval && !c.ACP || c.ACPQuestions && !c.ACP || c.ACPModel && !c.ACP || c.ACPAgentMode && !c.ACP || c.Inspect && !c.TerminalControl || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
 		return ErrInvalid
 	}
 	// A switch launches the tool in a terminal (launch-v1, which needs
@@ -648,6 +649,10 @@ func Decode(data []byte) (Message, error) {
 		b = &WorktreeState{}
 	case "worktree_result":
 		b = &WorktreeResult{}
+	case "inspect":
+		b = &Inspect{}
+	case "inspect_result":
+		b = &InspectResult{}
 	case "browse":
 		b = &Browse{}
 	case "browse_result":

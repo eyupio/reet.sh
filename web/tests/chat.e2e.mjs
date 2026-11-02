@@ -145,7 +145,7 @@ try {
     window.__chatStream.emit('chat', { seq: 4, kind: 'tool', toolCallId: 'c1', title: 'notes.txt', toolKind: 'edit', status: 'completed', text: 'Edit applied successfully.', path: '/home/dev/work/site/notes.txt', diff: '@@ -1 +1 @@\n-alpha\n+ALPHA', additions: 1, deletions: 1, durationMs: 179, locations: ['/home/dev/work/site/notes.txt'] })
     window.__chatStream.emit('chat', { seq: 5, kind: 'permission', permissionId: 'p1', toolCallId: 'c2', title: 'Run the tests', toolKind: 'execute', command: 'go test ./...', text: 'The tests write to /var/tmp, which the sandbox does not allow.' })
   })
-  await expect(page.getByText('Looking at the build.')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Gaffer in OpenCode · site' }).getByText('Looking at the build.')).toBeVisible()
   await expect(page.getByText('go test ./...')).toBeVisible()
   // The card shows the agent's own words for the request, attributed to the agent, above the command it is asking about.
   const reasonCard = page.locator('.approval').filter({ hasText: 'Run the tests' })

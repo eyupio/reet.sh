@@ -13,12 +13,13 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, onbusy }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, onbusy, onstate }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI
    *  switch; undefined until the stream has opened and its replay has been applied, as the chat cannot say before then. */
-  onbusy?: (busy: boolean | undefined) => void } = $props()
+  onbusy?: (busy: boolean | undefined) => void; onstate?: (state: ChatState) => void } = $props()
 
  let chat: ChatState = $state(initialChat())
+ $effect(() => { onstate?.(chat) })
  let selectedModel = $state(''), currentModel = $state(''), changingModel = $state(false)
  let modelSession = '', modelValue = ''
  $effect(() => {

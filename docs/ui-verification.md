@@ -1823,3 +1823,32 @@ Firefox. Jump reads the currently loaded shelf; while a shelf filter is active o
 Skills, its skill results follow that filtered set. The machine search matches
 observed reports, not saved sync intent, so a pending skill does not make a machine
 match until a scan reports it.
+
+
+## Setups under the directory contract — 2 November 2026
+
+The saved setups list now sits in the same collection panel as Lists, Community
+and Teams: a live count, a search when there are more than three profiles, one row
+anatomy with a revision and relative recency, and an empty search that recovers.
+The master-detail layout remains: the detail panel keeps coverage, commands,
+revision history and exclusions, and selecting a profile still loads it.
+
+The revision line now reads "Latest revision 2 · 1 kept" instead of "2 of 1"; the
+software evidence line has spacing between its name, version and package; the
+revision history uses a three-column row.
+
+Validation:
+
+- `npm run check`: pass, including the existing setup profile and directory unit
+  suites; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `setups.e2e.mjs`: count, search, empty recovery, selection and phone layout
+  at 390 and 320 px, with a 44 px search field and no horizontal overflow.
+- `empty-states.e2e.mjs` (the wizard copy), `phone-zoom.e2e.mjs` (the `/profiles`
+  screen) and `navigation.e2e.mjs` pass.
+
+![Setups, desktop](images/ui/setups-profiles-desktop.png)
+![Setups, phone](images/ui/setups-profiles-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The setup
+snapshot and restore paths are CLI flows and were not run by this page change.

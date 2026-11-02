@@ -6,6 +6,7 @@
     type SetupProfileOverrides, type SetupProfileRecord, type SetupProfileRevision, type SetupProfileSummary,
   } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
+  import CollectionPanel from './CollectionPanel.svelte'
   import PageHeader from './PageHeader.svelte'
   import CopyButton from './CopyButton.svelte'
   import { setupContents, compareSetups, shellQuote } from './setupProfiles'
@@ -28,11 +29,14 @@
   let excludedSources = $state('')
   const overrideKinds = ['settings', 'mcp', 'instructions', 'skills', 'memory']
 
+  let query = $state('')
   let selectedRevision = $state(0)
   let scopeMachine = $state(''), scopeProject = $state(''), creating = $state(false)
   let showAllRevisions = $state(false)
   const revisionLimit = 6
   const newest = $derived(selected?.revisions.at(-1) ?? null)
+  const searchedProfiles = $derived(profiles.filter((profile) => !query.trim() || profile.name.toLowerCase().includes(query.trim().toLowerCase())))
+  const profileCount = $derived(profiles.length === 0 ? 'No setups' : searchedProfiles.length === profiles.length ? `${profiles.length} ${profiles.length === 1 ? 'setup' : 'setups'}` : `${searchedProfiles.length} of ${profiles.length} setups`)
   const visibleRevisions = $derived(selected ? (showAllRevisions ? selected.revisions : selected.revisions.slice(-revisionLimit)) : [])
   const latest = $derived(selected?.revisions.find(revision => revision.revision === selectedRevision) ?? newest)
   const contents = $derived(setupContents(latest, scopeMachine, scopeProject))
@@ -188,6 +192,19 @@
     return new Date(value).toLocaleString()
   }
 
+  function updated(value: number): string {
+    if (!value) return 'Updated unknown'
+    const age = Math.max(0, Date.now() - value)
+    const minutes = Math.floor(age / 60_000)
+    if (minutes < 1) return 'Updated just now'
+    if (minutes < 60) return `Updated ${minutes} min ago`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `Updated ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`
+    const days = Math.floor(hours / 24)
+    if (days < 30) return `Updated ${days} ${days === 1 ? 'day' : 'days'} ago`
+    return `Updated ${new Date(value).toLocaleDateString()}`
+  }
+
   function when(value: string): string {
     if (!value) return ''
     const parsed = new Date(value)
@@ -232,23 +249,40 @@ reet setup profile push work</code></pre>
   </section>
 {:else}
   <div class="profiles">
-    <section class="profile-list" aria-label="Setup profiles">
-      {#each profiles as profile (profile.name)}
-        <button
-          type="button"
-          class="profile-row"
-          class:active={selected?.name === profile.name}
-          aria-pressed={selected?.name === profile.name}
-          onclick={() => choose(profile.name)}
-          disabled={busy !== ''}
-        >
-          <span class="name">{profile.name}</span>
-          <span class="revision">revision {profile.revision}</span>
-
-          <span class="updated">{stamp(profile.updatedAt)}</span>
-        </button>
-      {/each}
-    </section>
+    <CollectionPanel label="Setup profiles" count={profileCount}>
+      {#snippet toolbar()}
+        {#if profiles.length > 3 || query !== ''}
+          <div class="profile-toolbar">
+            <label class="profile-search">Search setups
+              <input type="search" bind:value={query} placeholder="Setup name" />
+            </label>
+          </div>
+        {/if}
+      {/snippet}
+      {#if searchedProfiles.length === 0}
+        <div class="list-empty">
+          <p>No setup matches “{query}”.</p>
+          <button type="button" class="btn" onclick={() => (query = '')}>Clear search</button>
+        </div>
+      {:else}
+        <div class="profile-list">
+          {#each searchedProfiles as profile (profile.name)}
+            <button
+              type="button"
+              class="profile-row"
+              class:active={selected?.name === profile.name}
+              aria-pressed={selected?.name === profile.name}
+              onclick={() => choose(profile.name)}
+              disabled={busy !== ''}
+            >
+              <span class="name">{profile.name}</span>
+              <span class="revision">Revision {profile.revision}</span>
+              <time class="updated" datetime={new Date(profile.updatedAt).toISOString()} title={stamp(profile.updatedAt)}>{updated(profile.updatedAt)}</time>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </CollectionPanel>
 
     <section class="profile-detail" aria-live="polite">
       {#if !selected}
@@ -258,7 +292,7 @@ reet setup profile push work</code></pre>
           <div>
             <p class="eyebrow">Setup profile</p>
             <h2>{selected.name}</h2>
-            <p class="muted">{latest.revision === newest?.revision ? 'Latest revision' : 'Viewing revision'} {latest.revision} of {selected.revisions.length}</p>
+            <p class="muted">{latest.revision === newest?.revision ? 'Latest revision' : 'Viewing revision'} {latest.revision}{#if latest.revision !== newest?.revision} of {newest?.revision ?? latest.revision}{/if} · {selected.revisions.length} kept</p>
           </div>
           {#if canWrite}
             <div class="detail-actions">
@@ -535,16 +569,22 @@ reet setup profile push work</code></pre>
   .scope-controls {display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}.scope-controls label {display:grid;gap:6px;font-size:.8rem;min-width:0;flex:1}.scope-controls select,.scope-controls input {max-width:100%;min-width:0}
   .prepare,.technical,.revision-diff {border-top:1px solid var(--line);padding:14px 0;margin-top:12px} .prepare summary,.technical summary,.revision-diff summary {cursor:pointer;font-weight:600;font-size:.9rem}.prepare ol {padding-left:22px}.prepare li {margin:16px 0;font-size:.85rem}.prepare p {color:var(--muted)}
   .profiles { display: grid; grid-template-columns: minmax(200px, 0.55fr) minmax(0, 1.6fr); gap: 18px; align-items: start; }
-  .profile-list { display: grid; gap: 8px; }
+  .profile-list { display: grid; }
+  .profile-toolbar { display: flex; align-items: end; gap: 12px; }
+  .profile-search { flex: 1; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .profile-search input { width: 100%; }
+  .list-empty { padding: 18px 0 6px; }
+  .list-empty p { margin: 0 0 10px; color: var(--muted); }
   .profile-row {
-    display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; text-align: left; padding: 12px 14px;
-    border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); cursor: pointer;
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; width: 100%; text-align: left; padding: 14px 2px;
+    border: 0; border-top: 1px solid var(--line-soft); border-radius: 0; background: transparent; color: var(--ink); cursor: pointer;
   }
-  .profile-row:hover { border-color: var(--muted); }
-  .profile-row.active { border-color: var(--accent); background: var(--tint); }
+  .profile-row:first-child { border-top: 0; }
+  .profile-row:hover { background: color-mix(in srgb, var(--tint) 45%, transparent); }
+  .profile-row.active { background: var(--tint); box-shadow: inset 3px 0 0 var(--accent); }
   .profile-row:disabled { opacity: 0.65; cursor: default; }
   .name { font-weight: 650; overflow-wrap: anywhere; }
-  .revision { color: var(--accent-text); font-size: 0.76rem; font-weight: 600; }
+  .revision { color: var(--accent-text); font-size: 0.76rem; font-weight: 600; white-space: nowrap; }
   .updated { grid-column: 1 / -1; color: var(--muted); font-size: 0.75rem; overflow-wrap: anywhere; }
   .profile-detail { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 20px; min-width: 0; }
   .detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -590,7 +630,8 @@ reet setup profile push work</code></pre>
   .omitted { margin-top: 10px; font-size: 0.8rem; }
   .omitted summary { cursor: pointer; color: var(--muted); }
   .omitted ul, .not-stored ul, .software ul { margin: 6px 0 0; padding-left: 18px; font-size: 0.8rem; }
-  .omitted li, .not-stored li, .software li { margin: 4px 0; overflow-wrap: anywhere; }
+  .omitted li, .not-stored li { margin: 4px 0; overflow-wrap: anywhere; }
+  .software li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; margin: 4px 0; overflow-wrap: anywhere; }
   .skills { margin-top: 16px; }
   .skills h3 { margin-bottom: 4px; }
   .skills ul { margin: 6px 0 0; padding-left: 18px; font-size: 0.8rem; }
@@ -599,8 +640,10 @@ reet setup profile push work</code></pre>
   .not-stored h3, .software h3 { margin-bottom: 4px; }
   .software { margin-top: 16px; }
   .history ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-  .history li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 6px 8px; border-radius: 6px; font-size: 0.8rem; }
-  .history li > .muted {grid-column:2}.history button {font-size:.8rem}.history li.current { background: var(--tint); }
+  .history li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px 14px; align-items: baseline; padding: 6px 8px; border-radius: 6px; font-size: 0.8rem; }
+  .history li > .muted { grid-column: 3; text-align: right; }
+  .history button { font-size: .8rem; }
+  .history li.current { background: var(--tint); }
   .rev { color: var(--accent-text); font-weight: 650; }
   .empty-state { border: 1px dashed var(--line); border-radius: 12px; padding: 24px; }
   .empty-state h2 { margin-top: 0; }
@@ -616,5 +659,8 @@ reet setup profile push work</code></pre>
   @media (max-width: 560px) {
     .profile-detail { padding: 16px; }
     .detail-head { flex-direction: column; }
+    .profile-search input { min-height: 44px; }
+    .history li { grid-template-columns: auto minmax(0, 1fr); }
+    .history li > .muted { grid-column: 2; text-align: left; }
   }
 </style>

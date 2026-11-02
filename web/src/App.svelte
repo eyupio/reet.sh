@@ -211,14 +211,14 @@
   const tabs = $derived<Tab[]>([
     { href: '/', label: 'Home', current: isHome },
     ...(sessionsAccess ? [{ href: '/sessions', label: 'Sessions', current: isTerminals || isSessions }] : []),
-    { href: '/machines', label: 'Machines', current: isMachines && !isSync && !((isTerminals || isSessions) && sessionsAccess) },
+    { href: '/machines', label: 'Machines', current: isMachines && !((isTerminals || isSessions) && sessionsAccess) },
     { href: '/skills', label: 'Skills', current: isSkills },
     ...(authMode === 'accounts' ? [] : [{ href: '/activity', label: 'Activity' as const, current: isActivity }]),
   ])
   const barTabs = $derived(tabs.filter(tab => ['/', '/sessions', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
     { href: '/profiles', label: 'Setups', group: 'Skills & distribution', current: isProfiles },
-    { href: '/sync', label: 'Sync', group: 'Skills & distribution', current: isSync },
+    { href: '/sync', label: 'Sync', group: 'Skills & distribution', current: false },
     { href: '/shared', label: 'Lists', group: 'Skills & distribution', current: isShared || isList },
     { href: '/community', label: 'Community', group: 'Help & community', current: isCommunity },
     { href: '/support', label: 'Support', group: 'Help & community', current: isSupport || isTicket },

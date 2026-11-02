@@ -1899,3 +1899,26 @@ Validation:
 
 **Not checked.** No physical phone or tablet and no screen reader. The ticket
 detail page and the email outbox were not changed. Activity was not repainted.
+
+## Skills and Sync clarity — 2 November 2026
+
+Two open findings from the Skills and sync UX review:
+
+- **Sync belongs to Machines.** `/sync` now marks the **Machines** top tab current
+  (and the phone's Machines bottom tab), with the page's own Sync subtab current.
+  The Sync link stays in **More** as a shortcut but is no longer a second current
+  page. `/profiles` still marks More, since it has no top-level tab.
+- **The shelf source says what it is.** The simple Sync form calls the shelf source
+  **Everything on my shelf**; “All my skills” is gone. The note still says new
+  skills follow with Keep synced on and that unpublished drafts are chosen
+  individually.
+
+The post-create path already names the next step: after saving or publishing a
+hosted skill, the notice carries **Put it on a machine →**, and the created-skill
+row keeps **Sync to machines…**.
+
+![Sync under Machines](images/ui/sync-machines-nav.png)
+
+Validation: `navigation.e2e.mjs` checks the current tab on `/sync` on desktop and
+phone and that `/profiles` still marks More; `skills-sync-simple.e2e.mjs` checks
+the new source name. `npm run check` and the production build pass.

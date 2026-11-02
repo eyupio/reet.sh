@@ -21,6 +21,8 @@ try {
   const {page}=fixture
   await page.goto(`${base}/sync`)
   await expect(page.getByRole('heading',{name:'Choose once. Keep in sync.'})).toBeVisible()
+  await expect(page.getByText('Everything on my shelf',{exact:true})).toBeVisible()
+  await expect(page.getByText('All my skills',{exact:true})).toHaveCount(0)
   await expect(page.getByRole('heading',{name:'Choose what to sync',exact:true})).not.toBeVisible()
   await page.getByRole('switch',{name:'Keep Elitebook synced'}).check()
   await expect(page.getByRole('switch',{name:'Keep Elitebook synced'})).toBeChecked()

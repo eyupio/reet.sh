@@ -336,7 +336,7 @@
               <button use:gafferTooltip type="button" class:on={chat} aria-pressed={chat} aria-disabled={!hasChat} title={hasChat ? '' : 'This machine does not offer Gaffer for that agent.'} onclick={() => { if (hasChat) pickTui(true) }}>Gaffer</button>
               <button type="button" class:on={!chat} aria-pressed={!chat} onclick={() => pickTui(false)}>{toolName(choice.agent)} TUI</button>
             </div>
-            <small>{chat ? (choice.agent === 'opencode' ? 'A native chat with approvals, history and images.' : 'A native chat that asks before it changes anything.') : `${toolName(choice.agent)}’s own terminal interface.`}</small>
+            <small>{chat ? (choice.agent === 'opencode' ? 'A native chat with approvals, history and images.' : choice.agent === 'codex' ? 'A native chat. Codex runs commands in its sandbox and asks before one leaves it.' : 'A native chat that asks before it changes anything.') : `${toolName(choice.agent)}’s own terminal interface.`}</small>
           </div>
           {#if chat}
             <div class="field"><span>Approvals</span>

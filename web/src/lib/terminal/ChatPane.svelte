@@ -3,17 +3,20 @@
  import { fade, fly } from 'svelte/transition'
  import { applyChatEvent, checkQuestionDraft, endedReason, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
- import { chatToolName, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
+ import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
  import { defaultLabel, type ModelFavourite } from '../models'
  import Toast from '../Toast.svelte'
  import ImageLightbox from './ImageLightbox.svelte'
 import SkillPicker from './SkillPicker.svelte'
+import AgentModeControl from './AgentModeControl.svelte'
 import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, onbusy }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, agentModes = [], onbusy }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+  /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
+  agentModes?: string[]
   /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI
    *  switch; undefined until the stream has opened and its replay has been applied, as the chat cannot say before then. */
   onbusy?: (busy: boolean | undefined) => void } = $props()
@@ -36,6 +39,15 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  }
  const tool = $derived(session.tool || 'opencode')
  const toolName = $derived(chatToolName(tool))
+ // The mode the machine last confirmed. A switch that failed leaves it unknown here until the session itself reports a mode again.
+ let modeOverride = $state<string | null>(null)
+ let modeSeen = ''
+ $effect(() => { const seen = `${session.id}:${session.agentMode ?? ''}`; if (seen !== modeSeen) { modeSeen = seen; modeOverride = null } })
+ const agentMode = $derived(modeOverride ?? session.agentMode ?? '')
+ async function chooseMode(mode: string) {
+  try { await setAgentMode(session.id, mode); modeOverride = mode }
+  catch (e) { modeOverride = ''; throw e }
+ }
  const agentDefault = $derived(favourites.find(f => f.tool === tool && f.agentDefault)?.model ?? '')
  const selectedIsDefault = $derived(!!selectedModel.trim() && selectedModel.trim() === agentDefault)
  const selectedIsFavourite = $derived(favourites.some(f => f.tool === tool && f.model === selectedModel.trim()))
@@ -491,7 +503,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  {#if feedback}<p class="notice bad" role="alert">{feedback}</p>{/if}
  <div class="log" role="log" bind:this={log} onscroll={onScroll}>
   {#if chat.items.length === 0}
-   <div class="empty"><h3>Ask {toolName} to change this project.</h3><p>It asks before it edits a file or runs a command. Allow once for one card, or allow that command or file for the rest of this session.</p></div>
+   <div class="empty"><h3>Ask {toolName} to change this project.</h3>{#if tool === 'codex'}<p>{toolName} runs commands inside its sandbox. It asks only when it wants to leave the sandbox, and in the mode where it decides for itself it may not ask at all. Choose the approvals mode below.</p>{:else}<p>It asks before it edits a file or runs a command. Allow once for one card, or allow that command or file for the rest of this session.</p>{/if}</div>
   {/if}
   {#each chat.items as item (item.key)}
    {#if item.kind === 'user'}
@@ -725,6 +737,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
     </section>
    {/if}
    {#if modelNote}<p class="notice" role="status">{modelNote}</p>{/if}
+   {#if agentModes.length}<AgentModeControl tool={toolName} modes={agentModes} current={agentMode} disabled={working || sending || uploading || changingModel || ended || chat.connection !== 'open'} onchoose={chooseMode} />{/if}
    {#if images.length}
     <ul class="attachments" aria-label="Images to attach">
      {#each images as image, i (image.id)}

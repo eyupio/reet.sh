@@ -52,6 +52,7 @@ func TestSupervisorResumesPersistedChat(t *testing.T) {
 		resumed <- opts
 		return proc, nil
 	}
+	sup.startResume()
 
 	var opts acpagent.Options
 	select {
@@ -134,6 +135,7 @@ func TestSupervisorRemembersAndResumesAcrossProcesses(t *testing.T) {
 		resumed <- opts
 		return second, nil
 	}
+	sup2.startResume()
 	select {
 	case opts := <-resumed:
 		if opts.Resume != first.SessionID() {

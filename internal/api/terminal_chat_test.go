@@ -582,3 +582,28 @@ func TestChatAgentModeSwitch(t *testing.T) {
 		}
 	}
 }
+
+// A message to a chat whose agent offers modes is refused with a clear 409 while its mode is unknown.
+func TestChatPromptIsRefusedWhileTheAgentModeIsUnknown(t *testing.T) {
+	caps := chatCaps()
+	caps.ACPAgentMode = true
+	entries := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", History: true, Approval: true, Modes: []string{"read-only", "agent"}}}
+	caps.ACPAgents = &entries
+	f := launchAPIFixture(t, caps)
+	code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "opencode", "structured": true, "trust": true, "dir": "/tmp"}))
+	if code != 200 {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	session := out["id"].(string)
+	prompt := "/api/v2/terminal/sessions/" + session + "/chat/prompt"
+	if code, _, body := f.do(t, f.cookie, "POST", prompt, map[string]any{"text": "hello"}); code != 200 {
+		t.Fatalf("a message in the chat's start mode: %d %s", code, body)
+	}
+	if err := f.st.RecordTerminalAgentModeFor(f.uid, session, ""); err != nil {
+		t.Fatal(err)
+	}
+	code, _, body = f.do(t, f.cookie, "POST", prompt, map[string]any{"text": "again"})
+	if code != 409 || !strings.Contains(body, "Choose an approvals mode") {
+		t.Fatalf("a message while the mode is unknown: %d %s", code, body)
+	}
+}

@@ -15,7 +15,7 @@ import (
 // MaxFolderProjects is the most folder projects one account can have.
 const MaxFolderProjects = 100
 
-const maxFolderProjectPromptBytes = 2000
+const maxFolderProjectPromptBytes = terminalproto.MaxPromptBytes
 
 // maxFolderProjectNoteBytes bounds the stored note, a JSON list of saved
 // Project names.

@@ -1,3 +1,4 @@
+import type { InsightView, SessionInsight } from '../sessionInsights'
 import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../projects'
 import type { MachineModels } from '../models'
 import type { SessionSkills } from './skills'
@@ -12,13 +13,13 @@ export type SoftwareOperation = 'plan_install' | 'plan_update' | 'plan_remove'
 export type SoftwareEntry = { tool: string; state: 'installed' | 'missing' | 'unknown' | 'unsupported'; version?: string; manager?: string; package?: string; path?: string; platform?: string; arch?: string; source?: string; evidence?: string; managed?: boolean; previous?: string; operations?: SoftwareOperation[]; reason?: string; checkedAt: number }
 export type SoftwarePlan = { host: string; tool: string; action: 'install' | 'update' | 'rollback' | 'remove'; state: 'ready' | 'noop'; package: string; current: string; target: string; source: string; command: string; steps: string[]; effects: string[]; executes: boolean; sentence: string; checkedAt: number }
 export type SoftwareApplyResult = { tool: string; action: 'install' | 'update' | 'rollback' | 'remove'; state: 'applied' | 'refused' | 'failed'; version?: string; previous?: string; reason?: string; entry?: SoftwareEntry }
-export type FleetSoftwareRow = { agentId: string; host: string; state: 'update' | 'install' | 'none' | 'unknown'; action?: 'install' | 'update'; version?: string; previous?: string; managed?: boolean; target?: string; source?: string; sessionsRunning: number; canApply: boolean; sentence: string; reason?: 'agent_too_old' | 'no_opencode_evidence' | 'unreadable_install' | 'no_plan' | 'read_failed' }
+export type FleetSoftwareRow = { agentId: string; host: string; state: 'update' | 'install' | 'none' | 'unknown'; action?: 'install' | 'update'; version?: string; previous?: string; managed?: boolean; target?: string; source?: string; sessionsRunning: number; canApply: boolean; sentence: string; reason?: 'agent_too_old' | 'no_opencode_evidence' | 'unreadable_install' | 'no_plan' | 'read_failed'; evidence?: { reason?: string; manager?: string; path?: string } }
 export type SoftwareBatchState = 'pending' | 'running' | 'stopped' | 'done' | 'abandoned'
 export type SoftwareBatchMemberState = 'pending' | 'running' | 'applied' | 'failed' | 'skipped' | 'excluded'
 export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
 export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
-export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion }
-export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion }
+export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -458,16 +459,18 @@ export async function setApprovalMode(id: string, mode: ApprovalMode): Promise<v
  *  no client deadline is set. `trust` answers an `acp_trust_required` refusal (the folder has OpenCode plugins). */
 export async function setSessionMode(id: string, mode: 'terminal' | 'chat', trust = false): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/mode`, { method: 'POST', body: JSON.stringify({ mode, trust }) }) }
 
+/** Moves a live chat to one of the modes its agent offers; resolves only once the machine has confirmed the mode with the agent. */
+export async function setAgentMode(id: string, mode: string): Promise<string> { return (await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/agent-mode`, { method: 'POST', body: JSON.stringify({ mode }) })).json()).mode }
 export async function chatModel(id: string, model: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/model`, { method: 'POST', body: JSON.stringify({ model }) }) }
 
 /** Local adapter evidence; available still checks --version and identity at launch. */
-export type StructuredAgent = { tool: string; adapter: string; state: 'available' | 'missing' | 'unverified' | 'incompatible'; version?: string; minimumVersion?: string; history?: boolean; images?: boolean; model?: boolean; approval?: boolean; questions?: boolean }
+export type StructuredAgent = { tool: string; adapter: string; state: 'available' | 'missing' | 'unverified' | 'incompatible'; version?: string; minimumVersion?: string; history?: boolean; images?: boolean; model?: boolean; approval?: boolean; questions?: boolean; modes?: string[] }
 
 /** The adapter each reviewed chat tool must report; a descriptor for any other adapter never makes a tool chat-capable. */
-const CHAT_ADAPTERS: Record<string, string> = { opencode: 'opencode', claude: 'claude-agent-acp' }
+const CHAT_ADAPTERS: Record<string, string> = { opencode: 'opencode', claude: 'claude-agent-acp', codex: 'codex-acp' }
 export function isChatTool(tool: string | undefined): boolean { return !!tool && tool in CHAT_ADAPTERS }
 /** The product name shown for a chat tool. */
-export function chatToolName(tool: string | undefined): string { return tool === 'claude' ? 'Claude Code' : 'OpenCode' }
+export function chatToolName(tool: string | undefined): string { return tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : 'OpenCode' }
 
 /** Explicit descriptors override legacy booleans; only reviewed tools may start. */
 export function structuredAgent(caps: Capabilities | undefined, tool: string | undefined): StructuredAgent | null {
@@ -479,4 +482,9 @@ export function structuredAgent(caps: Capabilities | undefined, tool: string | u
  // A machine that sent no descriptors predates every adapter but OpenCode.
  if (tool !== 'opencode') return null
  return { tool, adapter: 'opencode', state: 'available', history: caps.acpHistory === true, images: caps.acpImages === true, model: caps.acpModel === true, approval: caps.acpApproval === true }
+}
+
+export async function inspectSession(id: string, view: InsightView = 'status', path = '', signal?: AbortSignal): Promise<SessionInsight> {
+  const params = new URLSearchParams({ view }); if (path) params.set('path', path)
+  return (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/inspect?${params}`, { signal })).json()
 }

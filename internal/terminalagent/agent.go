@@ -28,7 +28,8 @@ import (
 
 var (
 	// browse is terminalhost.Browse; tests replace it to hold a browse.
-	browse = terminalhost.Browse
+	browse           = terminalhost.Browse
+	inspectWorkspace = terminalhost.InspectSession
 	// browseAnswerAfter is when a browse that has not returned is answered
 	// unreadable and its slot freed: after Browse's own 3 s deadline, before
 	// the controller's 6 s. Browse cannot cut short every call (resolving the
@@ -66,6 +67,7 @@ var (
 	prunesRunning   atomic.Int32
 	modelsRunning   atomic.Int32
 	softwareRunning atomic.Int32
+	inspectsRunning atomic.Int32
 )
 
 // softwareSlot serialises software applies on this connector process, not just
@@ -163,6 +165,8 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 		// browseSlot, branchesSlot and modelsSlot allow one browse, branch
 		// listing and model listing at a time on this connection, each run
 		// like a worktree request.
+		inspectSlot := make(chan struct{}, 1)
+		inspectGitHubSlot := make(chan struct{}, 1)
 		browseSlot := make(chan struct{}, 1)
 		branchesSlot := make(chan struct{}, 1)
 		pruneSlot := make(chan struct{}, 1)
@@ -332,6 +336,23 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			// negotiate a kind may drop the connection on its answer. Neither
 			// needs the manager (tmux).
 			switch op := msg.Body.(type) {
+			case *terminalproto.Inspect:
+				if !terminalproto.SupportsInspect(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+				if !allowed(opts.Consent) || ((op.View == "files" || op.View == "file") && !allowed(opts.BrowseConsent)) {
+					reply.Body = terminalproto.InspectResult{Reason: "denied"}
+					return send(callCtx, reply)
+				}
+				req, inspect := *op, inspectWorkspace
+				// A slow GitHub lookup must not hold local status or file reads.
+				slot := inspectSlot
+				if req.View == "github" {
+					slot = inspectGitHubSlot
+				}
+				return aside(callCtx, reply, slot, &inspectsRunning, 14*time.Second,
+					terminalproto.InspectResult{Reason: "busy"}, terminalproto.InspectResult{Reason: "timed_out"},
+					func(ctx context.Context) terminalproto.Body { return inspect(ctx, opts.Home, req) })
 			case *terminalproto.Browse:
 				if !terminalproto.SupportsBrowse(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid

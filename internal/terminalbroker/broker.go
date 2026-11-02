@@ -441,7 +441,7 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 	switch m.Body.(type) {
 	case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.WorktreeState, *terminalproto.WorktreeResult:
 		return nil
-	case *terminalproto.BrowseResult, *terminalproto.BranchesResult, *terminalproto.ModelsResult:
+	case *terminalproto.BrowseResult, *terminalproto.BranchesResult, *terminalproto.ModelsResult, *terminalproto.InspectResult:
 		// The machine answers a browse by 4 s, a listing by 8 s and a model
 		// list by its own deadline, which can be after the request gave up.
 		// Such an answer is read-only and has no request left to answer: it is

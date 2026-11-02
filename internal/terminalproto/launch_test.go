@@ -106,24 +106,24 @@ func TestCreateStaysComparable(t *testing.T) {
 
 func TestLaunchLimits(t *testing.T) {
 	cases := map[string]func(*Create){
-		"model leading dot":   func(c *Create) { c.Model = ".x" },
-		"model space":         func(c *Create) { c.Model = "a b" },
-		"model semicolon":     func(c *Create) { c.Model = "a;b" },
-		"model 101 bytes":     func(c *Create) { c.Model = strings.Repeat("a", 101) },
-		"dir relative":        func(c *Create) { c.Dir = "project" },
-		"dir 4097 bytes":      func(c *Create) { c.Dir = "/" + strings.Repeat("a", 4096) },
-		"dir bad utf8":        func(c *Create) { c.Dir = "/home/a\xffb" },
-		"dir C1 control":      func(c *Create) { c.Dir = "/home/a\u0085b" },
-		"dir NUL":             func(c *Create) { c.Dir = "/home/a\x00b" },
-		"dir newline":         func(c *Create) { c.Dir = "/home/a\nb" },
-		"prompt 2001 bytes":   func(c *Create) { c.Prompt = strings.Repeat("a", 2001) },
-		"prompt bad utf8":     func(c *Create) { c.Prompt = "a\xffb" },
-		"prompt tab":          func(c *Create) { c.Prompt = "a\tb" },
-		"prompt leading dash": func(c *Create) { c.Prompt = "-rf" },
-		"prompt escape":       func(c *Create) { c.Prompt = "a\x1bb" },
-		"unknown tool":        func(c *Create) { c.Tool = "bash" },
-		"model without tool":  func(c *Create) { *c = Create{Title: "A", Cols: 80, Rows: 24, Model: "m"} },
-		"prompt without tool": func(c *Create) { *c = Create{Title: "A", Cols: 80, Rows: 24, Prompt: "hi"} },
+		"model leading dot":     func(c *Create) { c.Model = ".x" },
+		"model space":           func(c *Create) { c.Model = "a b" },
+		"model semicolon":       func(c *Create) { c.Model = "a;b" },
+		"model 101 bytes":       func(c *Create) { c.Model = strings.Repeat("a", 101) },
+		"dir relative":          func(c *Create) { c.Dir = "project" },
+		"dir 4097 bytes":        func(c *Create) { c.Dir = "/" + strings.Repeat("a", 4096) },
+		"dir bad utf8":          func(c *Create) { c.Dir = "/home/a\xffb" },
+		"dir C1 control":        func(c *Create) { c.Dir = "/home/a\u0085b" },
+		"dir NUL":               func(c *Create) { c.Dir = "/home/a\x00b" },
+		"dir newline":           func(c *Create) { c.Dir = "/home/a\nb" },
+		"prompt over the limit": func(c *Create) { c.Prompt = strings.Repeat("a", MaxPromptBytes+1) },
+		"prompt bad utf8":       func(c *Create) { c.Prompt = "a\xffb" },
+		"prompt tab":            func(c *Create) { c.Prompt = "a\tb" },
+		"prompt leading dash":   func(c *Create) { c.Prompt = "-rf" },
+		"prompt escape":         func(c *Create) { c.Prompt = "a\x1bb" },
+		"unknown tool":          func(c *Create) { c.Tool = "bash" },
+		"model without tool":    func(c *Create) { *c = Create{Title: "A", Cols: 80, Rows: 24, Model: "m"} },
+		"prompt without tool":   func(c *Create) { *c = Create{Title: "A", Cols: 80, Rows: 24, Prompt: "hi"} },
 	}
 	for name, mutate := range cases {
 		c := launchCreate()
@@ -284,5 +284,17 @@ func TestCreateStrictDecodeRefusesLaunchSession(t *testing.T) {
 		if _, err := Decode(data); err != ErrInvalid {
 			t.Fatalf("%s accepted: %v", field, err)
 		}
+	}
+}
+
+// The largest prompt must encode inside one control frame even when every byte
+// is a character encoding/json escapes to six bytes (`<`, `>`, `&`).
+func TestLargestPromptFitsTheControlFrame(t *testing.T) {
+	c := launchCreate()
+	c.Prompt = strings.Repeat("<", MaxPromptBytes)
+	c.Model = strings.Repeat("m", MaxModelBytes)
+	c.Dir = "/" + strings.Repeat("d", MaxDirBytes-1)
+	if _, err := Encode(testMessage(c)); err != nil {
+		t.Fatalf("the largest valid create does not fit the control frame: %v", err)
 	}
 }

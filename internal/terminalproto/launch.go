@@ -9,7 +9,7 @@ import (
 const LaunchFeature = "launch-v1"
 const MaxModelBytes = 100
 const MaxDirBytes = 4096
-const MaxPromptBytes = 2000
+const MaxPromptBytes = 8000
 
 var launchTools = map[string]bool{"claude": true, "codex": true, "opencode": true, "gemini": true}
 

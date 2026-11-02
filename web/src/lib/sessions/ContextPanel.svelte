@@ -1,142 +1,176 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte'
-  import type { FleetCard } from '../home'
+  import { get } from 'svelte/store'
+  import { stateWord, type FleetCard } from '../home'
+  import { pendingPermissions, pendingQuestions, toolLabel, type ChatState } from '../chat'
   import type { WorktreeStatus } from '../projects'
   import { changedList, decisionsLine, worktreeTargetOf } from '../sessions'
-  import { worktreeStatus, type TerminalSession } from '../terminal/api'
+  import { inspectSession, worktreeStatus, type TerminalSession } from '../terminal/api'
+  import { chatInsight, elapsedWord, insightReason, type InsightFile, type InsightView, type SessionInsight } from '../sessionInsights'
+  import { rememberInsight, sessionInsights } from './insightStore'
+  import InsightIcon from './InsightIcon.svelte'
+  import WorkspaceFiles from './WorkspaceFiles.svelte'
+  import GitHubPane from './GitHubPane.svelte'
 
-  // The session screen's context panel: where the session is working, the files changed in its worktree, the skills line
-  // of its machine and the decisions in it. Everything comes from records reet already has: the session listing, the
-  // folder project, the machine's health report and sync state, and the worktree status, which is read once when the
-  // panel opens on a session and again only from Refresh (never polled, R19). Nothing here is stored.
-  let { session, host, status, project, skills, onkeydown, onclose, id }: {
-    session: TerminalSession; host: string
-    /** The machine's reporting state as the fleet strip words it, or undefined with no report yet. */
-    status: FleetCard['status'] | undefined
-    project: string; skills: FleetCard['skills'] | null | undefined
-    onkeydown?: (event: KeyboardEvent) => void; onclose?: () => void; id: string
+  let { session, host, status, project, skills, now, chat, supported = false, onterminal, onkeydown, onclose, id }: {
+    session: TerminalSession; host: string; status: FleetCard['status'] | undefined
+    project: string; skills: FleetCard['skills'] | null | undefined; now: number; chat?: ChatState; supported?: boolean
+    onterminal?: () => void; onkeydown?: (event: KeyboardEvent) => void; onclose?: () => void; id: string
   } = $props()
-
-  // The worktree as the listing names it. A listing that names it only later (an older connector catching up) is followed:
-  // the changed files are read once when it can first be named (or names another), never again for the same worktree.
+  type Tab = 'overview' | 'changes' | 'files' | 'github'
+  const tabs: { key: Tab; label: string }[] = [{ key: 'overview', label: 'Overview' }, { key: 'changes', label: 'Changes' }, { key: 'files', label: 'Files' }, { key: 'github', label: 'GitHub' }]
+  let tab = $state<Tab>('overview'), auto = $state(true)
+  let workspace = $state<SessionInsight | null>(null), github = $state<SessionInsight | null>(null), listing = $state<SessionInsight | null>(null), preview = $state<SessionInsight | null>(null)
+  let folder = $state(''), selected = $state(''), previewView = $state<'file' | 'diff'>('file')
+  let pending = $state<Record<string, boolean>>({}), errors = $state<Record<string, string>>({})
+  const requests = new Map<string, AbortController>()
+  let alive = true, lastLocal = 0, lastGitHub = 0
+  const canRead = $derived(supported && status !== 'offline' && status !== 'paused')
+  const view = $derived(tab === 'github' ? 'github' : tab === 'files' ? 'files' : 'status')
+  const current = $derived(tab === 'github' ? github : tab === 'files' ? listing : workspace)
+  const chatAttention = $derived(chat?.connection === 'open' ? ({ working: 'working', waiting: 'waiting', starting: 'starting', idle: 'quiet', error: 'failed', ended: 'finished', cancelled: 'quiet' } as const)[chat.status.state as 'working' | 'waiting' | 'starting' | 'idle' | 'error' | 'ended' | 'cancelled'] : undefined)
+  const sessionState = $derived(stateWord(chatAttention ? { ...session, attention: chatAttention, attentionSource: 'chat' } : session))
+  const activity = $derived(chatInsight(chat))
   const target = $derived(worktreeTargetOf(session))
-  const targetKey = $derived(target ? `${target.agentId}\u0000${target.project}\u0000${target.repo}\u0000${target.run}` : '')
-  let readFor = ''
-  let changes = $state<WorktreeStatus | null>(null), reading = $state(false), readFailed = $state(false)
-  let generation = 0
-  const life = new AbortController()
-  async function readChanges() {
-    if (!target || life.signal.aborted) return
-    const mine = ++generation
-    reading = true; readFailed = false
-    try {
-      const answer = await worktreeStatus(target, life.signal)
-      if (mine === generation) changes = answer
-    } catch {
-      if (mine === generation && !life.signal.aborted) readFailed = true
-    } finally {
-      if (mine === generation) reading = false
-    }
-  }
-  $effect(() => { const key = targetKey; if (key && key !== readFor) { readFor = key; untrack(() => void readChanges()) } })
-  onMount(() => () => life.abort())
+  const targetKey = $derived(target ? `${target.agentId}:${target.project}:${target.repo}:${target.run}` : '')
+  let legacyReadFor = ''
+  $effect(() => { const key = targetKey; if (!supported && key && key !== legacyReadFor) { legacyReadFor = key; untrack(() => { legacy = null; void readLegacy() }) } })
+  let legacy = $state<WorktreeStatus | null>(null), legacyBusy = $state(false), legacyFailed = $state(false)
+  const legacyList = $derived(legacy ? changedList(legacy) : null)
+  // Only sequence and time are stored, scoped to this tab and opaque session id.
+  const visitKey = $derived(`reet-session-visit:${session.id}`)
+  let baseline = $state<{ seq: number; at: number; activityAt?: number } | null>(null), visitReady = false
+  const newEvents = $derived(baseline && chat && chat.lastSeq >= baseline.seq ? chat.lastSeq - baseline.seq : 0)
+  const terminalAdvanced = $derived(!session.structured && baseline && (session.activityAt ?? 0) > (baseline.activityAt ?? baseline.at))
+  const attention = $derived(chat && chat.connection === 'open' ? pendingQuestions(chat)[0]?.question.message || pendingPermissions(chat)[0]?.title || (chat.status.state === 'waiting' ? 'The agent is waiting for your answer.' : '') : session.pendingQuestion?.message || session.pendingPermission?.title || (session.attention === 'waiting' ? 'The agent is waiting for your answer.' : ''))
+  const branch = $derived(workspace?.branch || session.worktreeBranch || '')
+  const freshAt = $derived(current?.checkedAt)
+  const stale = $derived(!!freshAt && (now - freshAt > (tab === 'github' ? 180_000 : 90_000) || status === 'offline' || !!errors[view]))
 
-  const list = $derived(changes ? changedList(changes) : null)
-  const statusWord = (s: FleetCard['status'] | undefined) => s === 'online' ? 'online' : s === 'paused' ? 'paused' : s === 'reconnecting' ? 'reconnecting' : s === 'offline' ? 'offline' : 'no report yet'
-  // Only a machine reporting with its sync running reads as good; a paused one says so in the warn tone.
-  const statusTone = (s: FleetCard['status'] | undefined) => s === 'online' ? 'good' : s === 'offline' || s === 'paused' ? 'warn' : 'muted'
+  function sentence(text: string) { return /[.!?]$/.test(text) ? text : `${text}.` }
+  function readVisit() {
+    try { const v = JSON.parse(sessionStorage.getItem(visitKey) || 'null'); if (v && Number.isSafeInteger(v.seq) && v.seq >= 0 && Number.isFinite(v.at)) baseline = v } catch { /* optional */ }
+  }
+  function saveVisit() {
+    if (!visitReady || document.hidden || (session.structured && (!chat || chat.connection !== 'open'))) return
+    try { sessionStorage.setItem(visitKey, JSON.stringify({ seq: chat?.lastSeq ?? 0, at: Date.now(), activityAt: session.activityAt ?? 0 })) } catch { /* optional */ }
+  }
+  $effect(() => { const seq = chat?.lastSeq, at = session.activityAt; if (!session.structured || chat?.connection === 'open') untrack(saveVisit) })
+  async function read(which: InsightView, path = '') {
+    if (!canRead || !alive) return
+    const key = which === 'file' || which === 'diff' ? 'preview' : which
+    requests.get(key)?.abort()
+    const life = new AbortController(); requests.set(key, life)
+    pending[key] = true; errors[key] = ''
+    if (which === 'status') lastLocal = Date.now()
+    if (which === 'github') lastGitHub = Date.now()
+    if (key === 'preview') preview = null
+    try {
+      const answer = await inspectSession(session.id, which, path, life.signal)
+      if (!alive || life.signal.aborted) return
+      if (answer.reason && (which === 'status' ? workspace && !workspace.reason : which === 'github' ? github?.pull : false)) { errors[key] = insightReason(answer.reason); return }
+      if (which === 'status') { workspace = answer; lastLocal = Date.now(); rememberInsight(session.id, 'status', answer) }
+      else if (which === 'github') { github = answer; lastGitHub = Date.now(); rememberInsight(session.id, 'github', answer) }
+      else if (which === 'files') listing = answer
+      else preview = answer
+    } catch (e) { if (alive && !life.signal.aborted) errors[key] = e instanceof Error ? e.message : 'Could not read this view. Try again.' }
+    finally { if (alive && !life.signal.aborted) pending[key] = false }
+  }
+  async function readLegacy() {
+    if (!target || legacyBusy) return
+    legacyBusy = true; legacyFailed = false
+    const life = new AbortController(); requests.set('legacy', life)
+    try { const data = await worktreeStatus(target, life.signal); if (alive) legacy = data }
+    catch { if (alive) legacyFailed = true }
+    finally { if (alive) legacyBusy = false }
+  }
+  function refresh() { if (!supported) void readLegacy(); else if (selected) void read(previewView, selected); else void read(view, tab === 'files' ? folder : '') }
+  function pick(next: Tab) {
+    tab = next; selected = ''; preview = null
+    requests.get('preview')?.abort(); pending.preview = false
+    if (next === 'github' && (!github || Date.now() - lastGitHub > 120_000)) void read('github')
+    if (next === 'files') void read('files', folder)
+    if ((next === 'changes' || next === 'overview') && (!workspace || Date.now() - lastLocal > 15_000)) void read('status')
+    if (!supported && next === 'changes' && !legacy) void readLegacy()
+  }
+  function openFile(file: InsightFile) {
+    if (file.directory) { folder = file.path; void read('files', folder); return }
+    selected = file.path; previewView = tab === 'changes' && file.status !== '??' ? 'diff' : 'file'
+    void read(previewView, selected)
+  }
+  function parentFolder() { folder = folder.split('/').slice(0, -1).join('/'); selected = ''; preview = null; void read('files', folder) }
+  function tabKeys(event: KeyboardEvent, index: number) {
+    let next = index
+    if (event.key === 'ArrowRight') next = (index + 1) % tabs.length
+    else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = tabs.length - 1
+    else return
+    event.preventDefault(); pick(tabs[next].key); document.getElementById(`${id}-tab-${tabs[next].key}`)?.focus()
+  }
+  $effect(() => { if (canRead) untrack(() => { if (!workspace && !pending.status) void read('status') }) })
+  onMount(() => {
+    const cached = get(sessionInsights)[session.id]; workspace = cached?.status ?? null; github = cached?.github ?? null
+    readVisit(); visitReady = true; saveVisit()
+    if (supported) void read('status'); else if (target) void readLegacy()
+    const visibility = () => {
+      if (document.hidden) return
+      readVisit(); saveVisit()
+      if (auto && canRead) { void read('status'); if (tab === 'github') void read('github') }
+    }
+    const timer = setInterval(() => {
+      if (!auto || document.hidden || !canRead) return
+      if (!pending.status && Date.now() - lastLocal >= (session.attention === 'working' ? 15_000 : 60_000)) void read('status')
+      if (tab === 'github' && !pending.github && Date.now() - lastGitHub >= 120_000) void read('github')
+    }, 5000)
+    document.addEventListener('visibilitychange', visibility)
+    return () => { saveVisit(); alive = false; clearInterval(timer); document.removeEventListener('visibilitychange', visibility); requests.forEach(r => r.abort()) }
+  })
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions (Escape closes the panel when it is shown over the terminal) -->
-<!-- data-keeps-focus: a reconnecting terminal behind the panel never takes focus out of it. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions (the parent owns sheet focus and Escape) -->
 <aside class="context-panel" aria-label="Session context" data-keeps-focus {id} {onkeydown}>
-  <!-- Shown only while the panel lies over the terminal (behind Details). -->
-  {#if onclose}<button type="button" class="close-details" onclick={onclose}>Close details</button>{/if}
-  <section aria-labelledby={`${id}-where`}>
-    <h3 id={`${id}-where`}>Where it's working</h3>
-    <dl class="card where">
-      <div><dt>Machine</dt><dd>{host} <span class="state {statusTone(status)}"><span aria-hidden="true">●</span> {statusWord(status)}</span></dd></div>
-      <div><dt>Project</dt><dd>{project || 'None'}</dd></div>
-      <div><dt>Branch</dt>{#if session.worktreeBranch}<dd class="mono" title={session.worktreeBranch}>{session.worktreeBranch}</dd>{:else}<dd class="quiet">Not recorded</dd>{/if}</div>
-      <div><dt>Worktree</dt><dd class="mono quiet">{session.worktreePath ? 'own copy' : 'the checkout'}</dd></div>
-    </dl>
-  </section>
-
-  <section class="changed" aria-labelledby={`${id}-changed`}>
-    <h3><span class="label" id={`${id}-changed`}>Changed files</span>{#if list}<span class="total">{list.total}</span>{/if}</h3>
-    {#if !session.worktreePath}
-      <p class="card note">Only sessions in their own worktree list changed files.</p>
-    {:else if !target}
-      <p class="card note">reet can't name this worktree, so its changes aren't listed here.</p>
+  <header class="panel-head">
+    <div class="panel-title"><strong>Session workspace</strong>{#if onclose}<button type="button" class="close-details" onclick={onclose}>Close details</button>{/if}</div>
+    <div class="panel-tools"><span class="connection" class:warn={status !== 'online'}><i></i>{status === 'online' ? 'Machine online' : status === 'offline' ? 'Machine offline' : status === 'paused' ? 'Machine paused' : 'Checking connection'}</span><button class="icon-button" aria-label="Refresh session workspace" title="Refresh session workspace" disabled={!!pending[view] || (supported && !canRead)} aria-busy={!!pending[view] || legacyBusy} onclick={refresh}><InsightIcon name="refresh" /></button></div>
+    <div class="tabs" role="tablist" aria-label="Session workspace views">{#each tabs as item, i}<button id={`${id}-tab-${item.key}`} role="tab" aria-selected={tab === item.key} aria-controls={`${id}-view`} tabindex={tab === item.key ? 0 : -1} onclick={() => pick(item.key)} onkeydown={e => tabKeys(e, i)}><InsightIcon name={item.key} /><span>{item.label}</span>{#if item.key === 'changes' && workspace?.changed}<small>{workspace.changed}</small>{/if}</button>{/each}</div>
+  </header>
+  <div class="panel-body" id={`${id}-view`} role="tabpanel" aria-labelledby={`${id}-tab-${tab}`} tabindex="0">
+    {#if tab === 'overview'}
+      <section class="session-summary" aria-label="Current session status">
+        <div class="eyebrow">Right now <span class="state {sessionState.tone}">{chat?.connection === 'reconnecting' ? 'Reconnecting' : sessionState.word}</span></div>
+        <h3>{attention ? 'Your input is needed' : activity.active[0] ? activity.active[0].title || toolLabel(activity.active[0].toolKind) : session.attention === 'working' ? 'The agent is working' : 'Session at a glance'}</h3>
+        <p class="quiet">{chat?.connection === 'reconnecting' ? 'Showing the last known activity while the conversation reconnects.' : sessionState.source}. Last activity {elapsedWord(session.activityAt, now)}.</p>
+        {#if chat?.status.state === 'error' && chat.status.detail}<p class="callout bad">{chat.status.detail}</p>{/if}
+        {#if attention}<p class="attention">{attention}</p><button class="primary-action" onclick={() => onterminal?.()}>Review and answer in session <InsightIcon name="arrow" /></button>{/if}
+        {#if baseline && ((chat && newEvents > 0) || terminalAdvanced)}<div class="return-summary"><InsightIcon name="clock" /><span><strong>Since your last visit</strong>{terminalAdvanced ? 'New terminal output' : `${newEvents} new event${newEvents === 1 ? '' : 's'}`} · last here {elapsedWord(baseline.at, now)}{#if chat?.truncated}<small>Earlier activity is outside the loaded history.</small>{/if}</span></div>{/if}
+        {#if session.structured}<div class="facts"><span><b>{activity.done.length}</b> tools done</span><span class:bad={activity.failed.length > 0}><b>{activity.failed.length}</b> failed</span><span><b>{activity.active.length}</b> active</span></div><p class="quiet">{!chat || chat.connection === 'connecting' ? 'Loading conversation activity…' : `Counts cover the loaded conversation${chat.truncated ? ' (earlier activity is not included)' : ''}.`}</p>{:else}<p class="quiet">Terminal state comes from process and output activity. Agent steps are available in Gaffer chats.</p>{/if}
+      </section>
+      {#if activity.latest}<section class="latest"><h4>Latest agent update</h4><p>{activity.latest.slice(0, 1800)}{activity.latest.length > 1800 ? '…' : ''}</p><button class="text-action" onclick={() => onterminal?.()}>Read in conversation <InsightIcon name="arrow" /></button></section>{/if}
+      {#if activity.active.length}<section><h4>In progress</h4>{#each activity.active.slice(-4) as tool}<div class="activity-row"><InsightIcon name="clock" /><span>{tool.title || toolLabel(tool.toolKind)}<small>{tool.command || tool.path || toolLabel(tool.toolKind)}</small></span></div>{/each}</section>{/if}
+      {#if activity.failed.length}<details class="failed-tools"><summary>{activity.failed.length} tool{activity.failed.length === 1 ? '' : 's'} reported failure</summary><p class="quiet">These are reported tool results; the agent may have recovered later.</p>{#each activity.failed.slice(-5) as tool}<p>{tool.title || toolLabel(tool.toolKind)}</p>{/each}</details>{/if}
+      <section class="change-summary"><h4>Workspace changes</h4>{#if workspace && !workspace.reason}<button onclick={() => pick('changes')}><InsightIcon name={workspace.conflicts ? 'conflict' : 'changes'} /><span><strong>{workspace.changed}{workspace.changedMore ? "+" : ""} changed files</strong><small>{workspace.conflicts ? `${workspace.conflicts} conflict${workspace.conflicts === 1 ? ' needs' : 's need'} attention` : workspace.upstream ? `${workspace.ahead} ahead · ${workspace.behind} behind upstream` : 'No upstream comparison reported'}</small></span><InsightIcon name="arrow" /></button>{:else}<p class="quiet">{pending.status ? 'Checking the workspace…' : workspace?.reason ? insightReason(workspace.reason) : supported ? errors.status || 'Workspace status has not been read.' : 'Update reet on this machine for checkout changes, files and GitHub status.'}</p>{/if}</section>
+      <section aria-labelledby={`${id}-where`}><h4 id={`${id}-where`}>Where it's working</h4><dl class="where"><div><dt>Machine</dt><dd>{host} <span class="state" class:warn={status === 'offline' || status === 'paused'} class:good={status === 'online'}>● {status || 'no report yet'}</span></dd></div><div><dt>Project</dt><dd>{project || 'None'}</dd></div><div><dt>Branch</dt><dd class="mono" title={branch}>{branch || 'Not recorded'}</dd></div><div><dt>Worktree</dt><dd>{session.worktreePath ? 'own copy' : 'the checkout'}</dd></div><div><dt>Started</dt><dd>{elapsedWord(session.createdAt, now)}</dd></div></dl>{#if session.worktreePath || session.dir}<p class="workspace-path" title={session.worktreePath || session.dir}>{session.worktreePath || session.dir}</p>{/if}</section>
+      <details class="session-details"><summary>Skills & session decisions</summary><h4>Skills on this machine</h4><div class="skills"><span class="skills-line">{skills === undefined ? 'Checking…' : skills === null ? 'Not checked' : skills.text}</span><a aria-label={`Manage skills on ${host}`} href={`/machines?view=compare&machine=${encodeURIComponent(host)}`}>Manage</a></div><h4>Decisions in this session</h4><p class="decisions">{decisionsLine(session)}{#if session.yolo} <a href="/activity">Activity</a>{/if}</p></details>
+    {:else if !supported}
+      {#if tab === 'changes'}<section aria-label="Changed files"><h3>Changed files</h3>{#if !session.worktreePath}<p class="empty">Update reet on this machine to inspect changes in the checkout.</p>{:else if !target}<p class="empty">reet can't name this worktree, so its changes aren't listed here.</p>{:else if legacyList}<p><span class="total">{legacyList.total}</span> changed files</p><ul class="legacy-files">{#each legacyList.shown as path}<li>{path}</li>{/each}</ul>{#if legacyList.more}<p class="quiet">and {legacyList.more} more not listed.</p>{/if}{:else}<p class="empty">{legacyFailed ? "Couldn't read the changed files just now." : 'Checking…'}</p>{/if}{#if target}<button class="secondary" disabled={legacyBusy} aria-busy={legacyBusy} onclick={() => void readLegacy()}>Refresh changed files</button>{/if}</section>{:else}<p class="empty">Update reet on this machine to use {tab === 'github' ? 'GitHub status' : 'read-only file browsing'}.</p>{/if}
     {:else}
-      <div class="card files">
-        {#if list && list.total === 0}<p class="note">No uncommitted changes.</p>
-        {:else if list}
-          <ul>{#each list.shown as path, i (i)}<li class="mono" title={path}>{path}</li>{/each}</ul>
-          {#if list.more > 0}<p class="note more">and {list.more} more not listed.</p>{/if}
-        {:else if readFailed}<p class="note bad">Couldn't read the changed files just now.</p>
-        {:else}<p class="note">Checking…</p>{/if}
-        <div class="foot">
-          <button type="button" class="refresh" aria-label="Refresh changed files" disabled={reading} onclick={() => void readChanges()} aria-busy={reading}>{reading ? 'Checking…' : 'Refresh'}</button>
-        </div>
-      </div>
+      {#if !canRead}<p class="callout">The machine is offline or unavailable. Showing the last known view. Refresh when it reconnects.</p>{/if}
+      {#if errors[view]}<p class="callout bad" role="status">{sentence(errors[view])}{current ? ' The previous result is shown below.' : ''}</p>{/if}
+      {#if selected}
+        <div class="preview-head"><button class="text-action" onclick={() => { selected = ''; requests.get('preview')?.abort(); pending.preview = false }}>← Back to {tab === 'changes' ? 'changes' : 'files'}</button><strong>{selected}</strong>{#if tab === 'changes'}<div class="preview-modes"><button aria-pressed={previewView === 'diff'} onclick={() => { previewView = 'diff'; void read('diff', selected) }}>Diff</button><button aria-pressed={previewView === 'file'} onclick={() => { previewView = 'file'; void read('file', selected) }}>File</button></div>{/if}</div>
+        {#if pending.preview}<p class="empty" role="status">Reading {previewView}…</p>{:else if errors.preview}<p class="callout bad" role="status">{errors.preview}</p>{:else if preview?.reason}<p class="empty">{insightReason(preview.reason)}</p>{:else if preview?.binary}<p class="empty">Binary file. Preview is unavailable.</p>{:else if preview}<!-- svelte-ignore a11y_no_noninteractive_tabindex (the read-only preview scrolls with the keyboard) --><div class="preview" role="region" aria-label={`${previewView === 'diff' ? 'Diff' : 'File'} preview for ${selected}`} tabindex="0"><pre>{#if previewView === 'diff'}{#each (preview.text || '').split('\n') as line}<span class:addition={line.startsWith('+')} class:deletion={line.startsWith('-')}>{line || ' '}</span>{/each}{:else}{preview.text || '(empty file)'}{/if}</pre></div>{#if preview.more}<p class="quiet">Preview truncated. Open the file on the machine for the full content.</p>{/if}{#if previewView === 'diff' && !preview.text}<p class="quiet">No diff against HEAD was reported. Untracked files can be viewed using File.</p>{/if}{/if}
+      {:else if pending[view] && !current}<p class="empty" role="status">Checking {tab === 'github' ? 'GitHub' : 'the workspace'}…</p>
+      {:else if current?.reason}<p class="empty">{insightReason(current.reason)}</p>
+      {:else if tab === 'github' && github?.pull}<GitHubPane data={github} />
+      {:else if tab === 'changes' && workspace}<h3>Changed files</h3><WorkspaceFiles data={workspace} changes onopen={openFile} />
+      {:else if tab === 'files'}<div class="folder-head">{#if folder}<button class="text-action" onclick={parentFolder}>← Up</button>{/if}<strong title={folder || '/'}>{folder || 'Workspace files'}</strong></div>{#if listing}<WorkspaceFiles data={listing} onopen={openFile} />{/if}
+      {:else if !errors[view]}<p class="empty">Refresh to read this view.</p>{/if}
     {/if}
-  </section>
-
-  <section aria-labelledby={`${id}-skills`}>
-    <h3 id={`${id}-skills`}>Skills on this machine</h3>
-    <div class="card skills">
-      {#if skills?.tone === 'good'}<span class="tick good" aria-hidden="true">✓</span>{/if}
-      <span class="skills-line {skills?.tone ?? 'muted'}">{skills === undefined ? 'Checking…' : skills === null ? 'Not checked' : skills.text}</span>
-      <a class="manage" href={`/machines?view=compare&machine=${encodeURIComponent(host)}`} aria-label={`Manage skills on ${host}`}>Manage</a>
-    </div>
-  </section>
-
-  <section aria-labelledby={`${id}-decisions`}>
-    <h3 id={`${id}-decisions`}>Decisions in this session</h3>
-    <p class="card decisions">{decisionsLine(session)}{#if session.yolo}{' '}<a href="/activity">Activity</a>{/if}</p>
-  </section>
+  </div>
+  <footer><span title={freshAt ? new Date(freshAt).toLocaleString() : ''}>{pending[view] ? 'Refreshing…' : freshAt ? `${stale ? 'Last known · ' : 'Checked '}${elapsedWord(freshAt, now)}` : supported ? 'No workspace snapshot yet' : 'Machine update needed'}</span>{#if supported}<label><input type="checkbox" bind:checked={auto} />Live updates</label>{/if}<button class="terminal-action" aria-label="Session" onclick={() => onterminal?.()} title="Focus the active session"><InsightIcon name="terminal" /><span>Session</span></button></footer>
 </aside>
 
 <style>
-  /* The mock-up's panel: 340 px on the sunk background, 20 px padding, each section a small uppercase label over a card. */
-  .context-panel { width: 340px; flex: none; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px; padding: 20px; border-left: 1px solid var(--line-soft); background: var(--bg-sunk); overflow-y: auto; min-height: 0; }
-  section { min-width: 0; }
-  h3 { display: flex; align-items: center; margin: 0 0 8px; font: 600 11px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
-  h3 .label { flex-grow: 1; }
-  h3 .total { font-weight: 400; letter-spacing: 0; text-transform: none; }
-  .card { margin: 0; border: 1px solid var(--line); border-radius: 11px; background: var(--card); font-size: 13px; }
-  .where { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; }
-  .where div { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
-  dt { color: var(--muted); flex: none; }
-  dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
-  .mono { font-family: var(--mono); }
-  .quiet { color: var(--muted); }
-  .state.good { color: var(--good); }
-  .state.warn { color: var(--warn); }
-  .state.muted { color: var(--muted); }
-  .note { margin: 0; padding: 12px 14px; color: var(--muted); }
-  .note.bad { color: var(--bad); }
-  .files { overflow: hidden; }
-  .files ul { list-style: none; margin: 0; padding: 0; }
-  .files li { padding: 9px 14px; border-bottom: 1px solid var(--line-soft); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .files .more { padding-top: 9px; padding-bottom: 9px; border-bottom: 1px solid var(--line-soft); }
-  .foot { display: flex; justify-content: flex-end; padding: 4px 6px; }
-  .refresh { min-height: 32px; padding: 0 10px; border: 0; border-radius: 7px; background: none; color: var(--muted); font: 500 12px var(--sans); cursor: pointer; }
-  .refresh:hover:not(:disabled) { background: var(--tint); color: var(--ink); }
-  .refresh:disabled { cursor: default; }
-  .skills { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
-  .skills-line { flex-grow: 1; min-width: 0; }
-  .skills-line.warn { color: var(--warn); }
-  .skills-line.muted { color: var(--muted); }
-  .tick.good { color: var(--good); }
-  .manage { color: var(--muted); text-decoration: none; }
-  .manage:hover { color: var(--accent-text); }
-  .decisions { padding: 12px 14px; color: var(--ink-soft); }
-  .decisions a { color: var(--accent-text); }
-  .refresh:focus-visible, .manage:focus-visible, .decisions a:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
-  .close-details { display: none; align-self: flex-end; min-height: 44px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card); color: var(--ink); font: 500 14px var(--sans); cursor: pointer; }
-  .close-details:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
-  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  @media (pointer: coarse) { .refresh, .manage { min-height: 44px; display: inline-flex; align-items: center; } .refresh { padding: 0 14px; } }
+  .context-panel{width:360px;flex:none;box-sizing:border-box;display:flex;flex-direction:column;min-height:0;border-left:1px solid var(--line-soft);background:var(--bg-sunk);overflow:hidden;color:var(--ink)}.panel-head{flex:none;padding:16px 16px 0;border-bottom:1px solid var(--line)}.panel-title,.panel-tools{display:flex;align-items:center;justify-content:space-between;gap:8px}.panel-title>strong{font-size:13px;font-weight:600}.panel-tools{margin:9px 0}.connection{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}.connection i{width:6px;height:6px;border-radius:50%;background:var(--good)}.connection.warn i{background:var(--warn)}button{font:inherit;cursor:pointer}button:disabled{opacity:.5;cursor:default}.icon-button{display:grid;place-items:center;width:28px;height:28px;background:none;color:var(--muted);border:0;border-radius:6px}.icon-button:hover{background:var(--tint);color:var(--ink)}.tabs{display:flex;margin:0 -5px}.tabs button{position:relative;display:flex;flex:1;min-width:0;justify-content:center;align-items:center;flex-wrap:nowrap;gap:4px;padding:12px 3px;border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);font-size:11px}.tabs button[aria-selected=true]{border-bottom-color:var(--accent);color:var(--ink)}.tabs button:hover{background:var(--tint)}.tabs small{position:absolute;top:2px;right:3px;font:9px var(--mono);padding:1px 4px;border-radius:4px;background:var(--tint)}.panel-body{flex:1;min-height:0;overflow:auto;padding:18px 16px;scrollbar-gutter:stable;outline-offset:-3px}.panel-body>section{margin-bottom:20px}.panel-body>section+section{padding-top:17px;border-top:1px solid var(--line-soft)}h3{font:600 16px/1.5 var(--sans);margin:10px 0 8px;overflow-wrap:anywhere}h4{margin:0 0 10px;font:600 11px var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}.eyebrow{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)}.state{border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:11px}.state.good{color:var(--good)}.state.warn{color:var(--warn)}.state.bad,.bad{color:var(--bad)}.quiet{font-size:11px;line-height:1.65;color:var(--muted);margin:8px 0}.attention{font-size:12px;line-height:1.6;padding:10px 12px;border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);border-radius:8px;background:color-mix(in srgb,var(--warn) 7%,transparent);overflow-wrap:anywhere}.primary-action{display:flex;width:100%;align-items:center;justify-content:center;gap:7px;min-height:36px;background:var(--accent);color:var(--accent-ink);border:0;border-radius:7px;font-size:12px}.return-summary{display:flex;align-items:flex-start;gap:9px;padding:12px;margin-top:14px;background:var(--tint);border-radius:8px;color:var(--ink-soft);font-size:11px;line-height:1.8}.return-summary strong{display:block;color:var(--ink)}.return-summary small{display:block}.facts{display:flex;gap:6px;margin-top:14px}.facts>span{flex:1;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:9px 6px;text-align:center;font-size:10px;color:var(--muted)}.facts>span.bad{color:var(--bad)}.facts b{display:block;font:500 20px var(--mono);color:var(--ink);margin-bottom:3px}.latest p{margin:0;white-space:pre-wrap;max-height:230px;overflow:auto;font-size:12px;line-height:1.75;overflow-wrap:anywhere}.text-action{display:inline-flex;align-items:center;gap:7px;border:0;background:none;padding:5px 0;min-height:30px;color:var(--ink);font-size:11px}.activity-row{display:flex;align-items:flex-start;gap:8px;padding:7px 0;font-size:12px}.activity-row>span{min-width:0;flex:1;overflow-wrap:anywhere}.activity-row small{display:block;margin-top:4px;font:10px var(--mono);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.change-summary>button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink)}.change-summary>button>span{flex:1;min-width:0}.change-summary strong{font-size:13px;font-weight:500}.change-summary small{display:block;color:var(--muted);font-size:10px;margin-top:5px}.where{display:grid;gap:8px;margin:0;font-size:12px}.where>div{display:flex;justify-content:space-between;gap:12px;min-width:0}dt{color:var(--muted);flex:none}dd{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}.mono,.workspace-path{font-family:var(--mono)}.workspace-path{font-size:10px;color:var(--muted);overflow-wrap:anywhere;line-height:1.6}.session-details{border-top:1px solid var(--line-soft);padding-top:10px;font-size:12px;line-height:1.7}.session-details summary,.failed-tools summary{min-height:32px;cursor:pointer;color:var(--muted);font-size:12px}.session-details h4{margin-top:16px}.skills{display:flex;justify-content:space-between;gap:10px}.session-details a{color:var(--ink);text-decoration:underline}.failed-tools{margin-bottom:16px;color:var(--bad);font-size:12px}.failed-tools summary{color:var(--bad)}footer{display:flex;align-items:center;gap:8px;padding:8px 12px;min-height:34px;border-top:1px solid var(--line);font-size:10px;color:var(--muted)}footer>span{flex:1;min-width:0}footer label{display:flex;align-items:center;gap:4px;white-space:nowrap}footer input{accent-color:var(--accent);width:12px;height:12px;margin:0}.terminal-action{display:flex;align-items:center;gap:4px;padding:5px;border:0;border-radius:5px;background:none;color:var(--muted);font-size:10px}.terminal-action:hover{background:var(--tint);color:var(--ink)}.close-details{display:none;min-height:32px;padding:5px 8px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--ink);font-size:11px}.empty{font-size:12px;line-height:1.8;color:var(--muted);padding:14px 0;margin:0}.callout{font-size:12px;line-height:1.7;padding:11px;border:1px solid var(--line);border-radius:8px;color:var(--warn);margin:0 0 14px}.callout.bad{color:var(--bad)}.folder-head{display:flex;align-items:center;gap:12px;min-width:0;font-size:12px}.folder-head strong{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font:500 12px var(--mono)}.preview-head{display:grid;gap:8px;min-width:0}.preview-head>strong{font:500 11px var(--mono);overflow-wrap:anywhere}.preview-modes{display:flex;gap:4px}.preview-modes button,.secondary{min-height:30px;font-size:11px;border:1px solid var(--line);border-radius:6px;padding:5px 10px;color:var(--muted);background:var(--card)}.preview-modes button[aria-pressed=true]{color:var(--accent-text);background:var(--tint)}.preview{max-height:65vh;overflow:auto;border:1px solid var(--line);border-radius:7px;background:var(--card);margin-top:12px}.preview pre{font:11px/1.7 var(--mono);padding:10px;margin:0;tab-size:2;white-space:pre}.preview pre span{display:block;min-height:1.7em;white-space:pre}.preview pre span.addition{color:var(--good);background:color-mix(in srgb,var(--good) 8%,transparent)}.preview pre span.deletion{color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,transparent)}.legacy-files{list-style:none;padding:0}.legacy-files li{font:11px/1.7 var(--mono);overflow-wrap:anywhere;padding:6px 0;border-bottom:1px solid var(--line-soft)}:is(button,a,input,summary):focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(pointer:coarse){.icon-button,.tabs button,.text-action,.terminal-action,.preview-modes button,.secondary,.close-details,.session-details summary,.failed-tools summary{min-height:44px}.icon-button,.terminal-action,.text-action,.preview-modes button{min-width:44px}.session-details a{display:inline-flex;align-items:center;min-width:44px;min-height:44px}footer label{min-height:44px}}@media(max-width:400px){.context-panel{width:100%}.tabs button{font-size:10px}.tabs :global(svg){width:13px}.panel-body{padding:14px}.terminal-action span{display:none}}
 </style>

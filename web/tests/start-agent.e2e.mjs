@@ -120,10 +120,10 @@ const parts=d=>({
  effort:d.getByRole('combobox',{name:'Thinking',exact:true}),
  prompt:d.getByRole('textbox',{name:/^Opening prompt/}),
  agent:d.getByRole('combobox',{name:'Agent',exact:true}),
- agentWhy:d.locator('[id$="-tool-why"]'),
+ agentWhy:d.getByRole('combobox',{name:'Agent',exact:true}),
  opt:name=>d.getByRole('combobox',{name:'Agent',exact:true}).locator('option').filter({hasText:new RegExp('^'+name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'( ·|$)')}),
  pick:name=>d.getByRole('combobox',{name:'Agent',exact:true}).selectOption({label:name}),
- chosen:name=>expect(d.getByRole('combobox',{name:'Agent',exact:true}).locator('option:checked')).toHaveText(new RegExp('^'+name+'( · unavailable)?$')),
+ chosen:name=>expect(d.getByRole('combobox',{name:'Agent',exact:true}).locator('option:checked')).toHaveText(new RegExp('^'+name+'( ·.*)?$')),
  status:d.getByRole('status'),
  sentence:d.locator('.sentence'),
  count:d.locator('.count'),
@@ -148,7 +148,7 @@ const submitAgain=d=>d.locator('form').evaluate(f=>f.requestSubmit())
 const body=i=>JSON.parse(posts.at(i))
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const LOST="We didn't hear back, so the agent may have started. Check your sessions before starting another. If you close this and start again, a second agent may start."
-const LONG='a'.repeat(1998)+'é'
+const LONG='a'.repeat(7998)+'é'
 const secrets=['fix the failing build please',LONG.slice(0,40),'opus-4.1','gpt-5-codex',SITE,'/home/dev/typed']
 const texts=async d=>{const t=await d.innerText();expect(t).not.toMatch(/verified|healthy/i);return t}
 // While a request is in flight or its outcome is unknown, nothing that would change the request can be touched.
@@ -172,8 +172,8 @@ try{
  await expect(p.opt('Gemini CLI')).toBeEnabled()
  await expect(p.opt('Cline')).toBeEnabled()
  await expect(p.opt('OpenCode')).toBeDisabled()
- await expect(p.agentWhy).toContainText('OpenCode: Not installed on dev-laptop')
- await expect(p.agentWhy).not.toContainText('Claude Code:')
+ await expect(p.agentWhy).toContainText('OpenCode · Not installed on dev-laptop')
+ await expect(p.agentWhy).not.toContainText('Claude Code ·')
  // The reason is text to read, not a disabled control: it is not faded (an axe scan found it below contrast when it was).
  expect(await p.agentWhy.evaluate(el=>{let o=1;for(let n=el;n&&n.tagName!=='DIALOG';n=n.parentElement)o*=Number(getComputedStyle(n).opacity);return o})).toBe(1)
  // Machines: every machine listed; the one not ready cannot be chosen.
@@ -225,19 +225,19 @@ try{
  await expect(p.status).toHaveText('')
 
  // Prompt rules, with the byte counter.
- await expect(p.count).toHaveText("0 of 2,000 bytes. Secrets don't belong here.")
+ await expect(p.count).toHaveText("0 of 8,000 bytes. Secrets don't belong here.")
  await p.prompt.fill('é')
- await expect(p.count).toHaveText("2 of 2,000 bytes. Secrets don't belong here.")
+ await expect(p.count).toHaveText("2 of 8,000 bytes. Secrets don't belong here.")
  await p.prompt.fill('-fix the build')
  await expect(d.getByText('Start the prompt with a word, not a dash.',{exact:true})).toBeVisible()
  await submitAgain(d)
  await expect(p.status).toHaveText('Start the prompt with a word, not a dash.')
  await expect(p.prompt).toBeFocused()
  await p.prompt.fill(LONG+'b')
- await expect(p.count).toHaveText("2,001 of 2,000 bytes. Secrets don't belong here.")
- await expect(d.getByText('That prompt is too long. Use at most 2000 bytes; accented letters and emoji take more than one.',{exact:true})).toBeVisible()
+ await expect(p.count).toHaveText("8,001 of 8,000 bytes. Secrets don't belong here.")
+ await expect(d.getByText('That prompt is too long. Use at most 8,000 bytes; accented letters and emoji take more than one.',{exact:true})).toBeVisible()
  await p.prompt.fill(LONG)
- await expect(p.count).toHaveText("2,000 of 2,000 bytes. Secrets don't belong here.")
+ await expect(p.count).toHaveText("8,000 of 8,000 bytes. Secrets don't belong here.")
  await expect(p.status).toHaveText('')
  await expect(d.getByText('That prompt is too long.',{exact:false})).toHaveCount(0)
  // One word could be read as a subcommand by claude and codex; gemini takes the prompt as a flag value, so one word is fine.
@@ -310,6 +310,9 @@ try{
  // A plain new terminal is unchanged: none of the launch keys.
  await page.locator('#terminal-sessions').getByRole('button',{name:'New terminal on dev-laptop',exact:true}).first().click()
  await page.getByRole('menuitem',{name:'Terminal',exact:true}).click()
+ await expect(page.getByRole('dialog',{name:'New terminal session'})).toBeVisible()
+ expect(posts).toHaveLength(1)
+ await page.getByRole('button',{name:'New terminal',exact:true}).click()
  await expect.poll(()=>posts.length).toBe(2)
  const plain=body(1)
  expect(Object.keys(plain)).toEqual(['agentId','requestId','title','cols','rows'])
@@ -446,7 +449,7 @@ try{
  await p.machine.selectOption(B)
  await expect(p.machine).toHaveAccessibleDescription('Update reet on this machine to start agents.')
  await expect(d.locator('p.reason')).toHaveText(['Update reet on this machine to start agents.'])
- for(const name of ['Claude Code','Codex','OpenCode','Gemini CLI','Cline']){await expect(p.opt(name)).toBeDisabled();await expect(p.agentWhy).toContainText(name+': Update reet on that machine')}
+ for(const name of ['Claude Code','Codex','OpenCode','Gemini CLI','Cline']){await expect(p.opt(name)).toBeDisabled();await expect(p.agentWhy).toContainText(name+' · Update reet on that machine')}
  await expect(p.opt('Pi')).toBeDisabled()
  await expect(p.opt('Cursor Agent')).toBeDisabled()
  await expect(p.start).toBeDisabled()
@@ -749,7 +752,7 @@ try{
  d=dialog();p=parts(d)
  await expect(p.machine).toHaveValue(LONG_ID)
  await expect(p.machine.locator('option:checked')).toHaveText(LONG_HOST)
- await expect(p.agentWhy).toContainText('Codex: Not installed on '+LONG_HOST)
+ await expect(p.agentWhy).toContainText('Codex · Not installed on '+LONG_HOST)
  await p.folder.selectOption(LONG_DIR)
  await expect(p.folder.locator('option:checked')).toHaveText(LONG_DIR)
  await expect(p.sentence).toHaveText(`Starts Claude Code in ${LONG_DIR} on ${LONG_HOST}. Nothing runs until you press Start.`)
@@ -789,7 +792,7 @@ try{
  await sweep('typed path with its message',[p.path,p.start])
  await p.path.fill(LONG_DIR.replace('/home/builder','/home/dev'))
  await p.prompt.fill(LONG+'b')
- await expect(p.count).toHaveText("2,001 of 2,000 bytes. Secrets don't belong here.")
+ await expect(p.count).toHaveText("8,001 of 8,000 bytes. Secrets don't belong here.")
  await sweep('long prompt with its counter',[p.prompt,p.count,p.start])
  await p.prompt.fill('-fix the build')
  await p.start.click()
@@ -895,12 +898,18 @@ try{
  await page.keyboard.press('Escape')
  await page.emulateMedia({reducedMotion:'no-preference',colorScheme:'light'})
 
- // The matrix wrote nothing to browser storage under any key not already written before it (the sign-in token's clean-up), and
- // nothing about a prompt, model or folder. Opening the sessions list the way a person does writes no layout either.
+ // The recap may store only sequence/timestamps in this tab. The launch dialog still writes no prompt, model, folder or layout.
  const keyOf=w=>w.split(' ',2).join(' ')
  const knownKeys=new Set(storageWrites.slice(0,writesBefore).map(keyOf))
  const matrixWrites=storageWrites.slice(writesBefore)
- expect(matrixWrites.filter(w=>!knownKeys.has(keyOf(w)))).toEqual([])
+ const visitWrites=matrixWrites.filter(w=>/^setItem reet-session-visit:session-[a-z0-9]+ /.test(w))
+ for(const write of visitWrites){
+  const marker=JSON.parse(write.slice(write.indexOf(' ',write.indexOf(' ')+1)+1))
+  expect(Object.keys(marker).sort()).toEqual(['activityAt','at','seq'])
+  expect(Object.values(marker).every(value=>Number.isSafeInteger(value)&&value>=0)).toBe(true)
+ }
+ expect(matrixWrites.filter(w=>!knownKeys.has(keyOf(w))&&!visitWrites.includes(w))).toEqual([])
+ expect(await page.evaluate(()=>Object.keys(localStorage).filter(key=>key.startsWith('reet-session-visit:')))).toEqual([])
  for(const secret of [LONG_DIR,'fix the failing build please','look around here'])expect(matrixWrites.join('\n').includes(secret)).toBe(false)
  theme='light'
  tmachines.pop();scopes.pop();agents.pop()
@@ -995,5 +1004,5 @@ try{
  await expect(d.getByText('dev-laptop doesn’t accept YOLO sessions.')).toBeVisible()
  await page.keyboard.press('Escape')
  expect(errors).toEqual([])
- console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old four otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and no new storage key. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
+ console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old four otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and only numeric recap markers in tab storage. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

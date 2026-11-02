@@ -2,7 +2,7 @@
   import { gafferTooltip } from '../gafferTooltip'
   import { onMount, tick, untrack } from 'svelte'
   import { addModelFavourite, listModelFavourites, removeModelFavourite, type Skill } from '../api'
-  import { cleanModel, modelSuggestions, toolName, validateDir, validateModel, validatePrompt } from '../agentLaunch'
+  import { MAX_PROMPT_BYTES, cleanModel, modelSuggestions, toolName, validateDir, validateModel, validatePrompt } from '../agentLaunch'
   import { CATALOGUE } from '../catalogue'
   import { shell } from '../dialogShell'
   import { installPrompt } from '../install'
@@ -270,7 +270,7 @@
         <label class="idea-toggle"><input type="checkbox" bind:checked={idea} /> <span><strong>Just capture an idea</strong><small>A placeholder so you don’t forget. It can’t be started until you add a prompt and switch this off.</small></span></label>
         <label class="field"><span>Session title <small>{idea ? 'Required if there’s no note' : 'Optional · suggested from your prompt'}</small></span><input aria-label="Session title" bind:value={title} oninput={() => titleTouched = true} maxlength="80" placeholder="A short name for this piece of work" /></label>
         <label class="field"><span>{idea ? 'Note' : 'Prompt'} <em>{idea ? 'Optional' : 'Required'}</em></span><textarea bind:this={promptInput} aria-label="Prompt" bind:value={prompt} rows="6" required={!idea} placeholder={idea ? 'A rough note is plenty. You can turn it into a full prompt later.' : 'What should the agent do? Include the context, the outcome you want, and anything it should keep in mind.'} onpaste={e => { const files = Array.from(e.clipboardData?.files ?? []); if (files.length) { e.preventDefault(); void attach(files) } }}></textarea></label>
-        <div class="prompt-foot"><div class="prompt-actions"><label class="attach">＋ Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={reading} onchange={e => { void attach(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }} /></label><button type="button" class="skill-add" bind:this={skillButton} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button></div><span class:over={bytes > 2000}>{bytes.toLocaleString()} / 2,000 bytes</span></div>
+        <div class="prompt-foot"><div class="prompt-actions"><label class="attach">＋ Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={reading} onchange={e => { void attach(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }} /></label><button type="button" class="skill-add" bind:this={skillButton} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button></div><span class:over={bytes > MAX_PROMPT_BYTES}>{bytes.toLocaleString()} / {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes</span></div>
         {#if images.length}<div class="images">{#each images as image, i}<div class="image"><img src={image.data} alt={image.name} /><span>{image.name}</span><button type="button" aria-label={`Remove ${image.name}`} onclick={() => images = images.filter((_, index) => index !== i)}>×</button></div>{/each}</div>{/if}
         <div class="section-title">Where should it work?</div>
         <div class="mode" role="group" aria-label="Session location"><button type="button" class:on={mode === 'project'} onclick={() => changeMode('project')}>In a project</button><button type="button" class:on={mode === 'folder'} onclick={() => changeMode('folder')}>Machine & folder</button></div>
@@ -301,7 +301,7 @@
       </fieldset>
       {#if message}<p class="error" role="alert">{message}</p>{/if}
     </div>
-    <footer data-shell-foot><span>{reading ? 'Reading images…' : 'Your prompt and images are saved to your account.'}</span><button type="button" class="btn" onclick={close} disabled={busy || reading}>Cancel</button><button class="btn primary" disabled={busy || reading || bytes > 2000 || !machines.length}>{busy ? 'Saving…' : draft ? 'Save changes' : idea ? 'Save idea' : 'Add to backlog'}</button></footer>
+    <footer data-shell-foot><span>{reading ? 'Reading images…' : 'Your prompt and images are saved to your account.'}</span><button type="button" class="btn" onclick={close} disabled={busy || reading}>Cancel</button><button class="btn primary" disabled={busy || reading || bytes > MAX_PROMPT_BYTES || !machines.length} aria-busy={busy}>{busy ? 'Saving…' : draft ? 'Save changes' : idea ? 'Save idea' : 'Add to backlog'}</button></footer>
   </form>
   {#if modelOpen}
     <SlotPicker label="Model" options={modelOptionsFor()} value={model} sheet={touch} opener={modelButton ?? null}

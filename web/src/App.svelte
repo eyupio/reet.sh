@@ -1024,7 +1024,7 @@
         <input id="add-input" bind:this={addEl} placeholder="Paste a skills.sh link or install command" autocomplete="off" bind:value={addInput}
           aria-invalid={addError ? 'true' : undefined}
           aria-describedby={addError ? 'add-hint add-error' : 'add-hint'} />
-        <button class="btn primary" type="submit" disabled={adding || !addInput.trim()}>{adding ? 'Adding…' : 'Add to shelf'}</button>
+        <button class="btn primary" type="submit" disabled={adding || !addInput.trim()} aria-busy={adding}>{adding ? 'Adding…' : 'Add to shelf'}</button>
       </form>
       <p class="add-hint" id="add-hint">Paste a link like <code>skills.sh/anthropics/skills/pdf</code>, or an <code>npx skills add</code> command.</p>
       {#if addError}<p class="add-error" id="add-error" role="alert">{addError}</p>{/if}
@@ -1176,7 +1176,7 @@
             {#each suggestions as item (item.slug)}
               <li>
                 <div><strong>{item.name}</strong><code>{item.slug}</code><span>{item.blurb}</span></div>
-                <button class="btn" type="button" onclick={() => addSuggestion(item.slug)} disabled={adding}>{adding ? 'Adding…' : 'Add'}</button>
+                <button class="btn" type="button" onclick={() => addSuggestion(item.slug)} disabled={adding} aria-busy={adding}>{adding ? 'Adding…' : 'Add'}</button>
               </li>
             {/each}
           </ul>

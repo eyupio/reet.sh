@@ -339,12 +339,13 @@
                 </label>
               {/if}
               <div class="copy">
-                <strong>{row.host}{#if row.version}<code> {row.version}</code>{/if}</strong>
+                <strong>{row.host}{#if row.version}{' '}<code>{row.version}</code>{/if}</strong>
                 <small class="label">{fleetSoftwareLabel(row)}</small>
                 {#if guide}
                   <div class="guide" role="group" aria-label={`What to do for ${row.host}`}>
                     <strong class="guide-title">{guide.title}</strong>
                     <small><b>Why:</b> {guide.why}</small>
+                    {#if guide.found}<small><b>Found:</b> {guide.found}</small>{/if}
                     {#if guide.command}
                       <div class="guide-cmd"><code>{guide.command}</code><CopyButton text={guide.command} label="Copy" compact ariaLabel={`Copy ${guide.command} for ${row.host}`} /></div>
                     {/if}

@@ -398,11 +398,11 @@
           <svg class="icon folder" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6.5A1.5 1.5 0 014.5 5H9l2 2h8.5A1.5 1.5 0 0121 8.5v9a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 17.5z" /></svg>
         {/if}
         <span class="name">{p.name}</span>
-        <span class="tag">{machineTag(p)}</span>
       </span>
       <span class="meta">
         {#if p.baseBranch}<span class="branch">{p.baseBranch}</span>{/if}
         {#if state}<span class="state {state.tone}">{state.text}</span>{/if}
+        <span class="tag">{machineTag(p)}</span>
         {#if wt}<span class="wt">{worktreesInUse(wt)}</span>{/if}
       </span>
     </button>
@@ -669,8 +669,9 @@
   .item:hover .grip, .card:focus-visible .grip { opacity: 1; }
   .icon.repo { fill: var(--repo); }
   .icon.folder { color: var(--muted); }
-  .name { flex-grow: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tag { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); border: 1px solid var(--line-mid); border-radius: 99px; padding: 1px 8px; }
+  /* A project's name is shown in full, over as many lines as it needs: two names that start the same must stay apart. */
+  .name { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+  .tag { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); border: 1px solid var(--line-mid); border-radius: 99px; padding: 1px 8px; }
   .meta { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 12px; color: var(--muted); }
   .branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
   .state { flex: none; }
@@ -729,6 +730,8 @@
     .close-panel, .head-more { width: 44px; height: 44px; }
     .add { height: 44px; }
     .card { padding-right: 96px; }
+    /* The card already keeps its content clear of the two buttons, so the top row needs no room of its own. */
+    .top { padding-right: 0; }
     .more, .start { opacity: 1; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border: 0; background: transparent; }
     .more { right: 4px; }
     .start { right: 48px; }

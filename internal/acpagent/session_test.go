@@ -206,6 +206,38 @@ func TestFakeACP(t *testing.T) {
 						"rawInput":  map[string]string{"filepath": "/tmp/hello.txt", "diff": "@@ -0,0 +1 @@\n+hello\n"}},
 					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "always", "kind": "allow_always", "name": "Always allow"}, {"optionId": "reject", "kind": "reject_once", "name": "Reject"}},
 				}})
+			case "codex-permission":
+				// Shape captured from the Codex adapter's escalation request: an
+				// execute call whose model justification rides in
+				// _meta.permission.description, and a reject option that ends the
+				// whole turn.
+				update(session, "tool_call", map[string]any{"toolCallId": "call_exec", "title": "Run command", "kind": "execute", "status": "pending"})
+				send(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "session/request_permission", "params": map[string]any{
+					"sessionId": session,
+					"toolCall": map[string]any{"toolCallId": "call_exec", "title": "Run command", "kind": "execute", "status": "pending",
+						"rawInput": map[string]string{"command": "go test ./...", "cwd": "/work"},
+						"_meta":    map[string]any{"permission": map[string]string{"description": "Run the tests outside the sandbox because they write to /var/tmp."}}},
+					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "always", "kind": "allow_always", "name": "Don't ask again for that command"}, {"optionId": "cancel", "kind": "reject_once", "name": "No, and tell Codex what to do differently"}},
+				}})
+			case "claude-permission":
+				// Shape captured from the Claude adapter's Write request: a
+				// rawInput description and no _meta, so the fallback carries it.
+				update(session, "tool_call", map[string]any{"toolCallId": "call_write", "title": "Write marker.txt", "kind": "edit", "status": "pending"})
+				send(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "session/request_permission", "params": map[string]any{
+					"sessionId": session,
+					"toolCall": map[string]any{"toolCallId": "call_write", "title": "Write marker.txt", "kind": "edit", "status": "pending",
+						"rawInput": map[string]string{"file_path": "/work/marker.txt", "description": "Write an isolated probe marker", "diff": "@@ -0,0 +1 @@\n+marker\n"}},
+					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "reject", "kind": "reject_once", "name": "Reject"}},
+				}})
+			case "bare-permission":
+				// Neither slot: the card is unchanged and carries no reason.
+				update(session, "tool_call", map[string]any{"toolCallId": "call_bare", "title": "Run command", "kind": "execute", "status": "pending"})
+				send(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "session/request_permission", "params": map[string]any{
+					"sessionId": session,
+					"toolCall": map[string]any{"toolCallId": "call_bare", "title": "Run command", "kind": "execute", "status": "pending",
+						"rawInput": map[string]string{"command": "ls"}},
+					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "reject", "kind": "reject_once", "name": "Reject"}},
+				}})
 			case "question", "question-bad", "question-off", "question-big":
 				properties := map[string]any{
 					"question_0": map[string]any{"type": "string", "title": "Probe", "oneOf": []map[string]string{
@@ -459,6 +491,40 @@ func TestPermissionAllowDeny(t *testing.T) {
 			}
 			if !resolved {
 				t.Fatal("no resolution")
+			}
+		})
+	}
+}
+
+func TestPermissionCarriesTheAgentsReason(t *testing.T) {
+	cases := []struct{ scenario, want string }{
+		{"codex-permission", "Run the tests outside the sandbox because they write to /var/tmp."},
+		{"claude-permission", "Write an isolated probe marker"},
+		{"bare-permission", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.scenario, func(t *testing.T) {
+			opts, got := options(t, tc.scenario, testVersion)
+			session, err := Start(context.Background(), opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer session.Close()
+			done := make(chan error, 1)
+			go func() { done <- session.Prompt(context.Background(), "run it") }()
+			var event Event
+			for event = got.next(t); event.Kind != "permission"; event = got.next(t) {
+			}
+			if event.Text != tc.want {
+				t.Fatalf("the card's reason is %q, want %q", event.Text, tc.want)
+			}
+			if err := session.Allow(event.PermissionID, true); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				t.Fatal("the answer did not end the turn")
 			}
 		})
 	}

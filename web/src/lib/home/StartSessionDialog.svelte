@@ -4,7 +4,7 @@
   import { shell } from '../dialogShell'
   import { getYoloSetting, UnauthorizedError, listModelFavourites, type Skill, type YoloSetting } from '../api'
   import { agentChoices, CATALOGUE } from '../catalogue'
-  import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateDir, validateModel } from '../agentLaunch'
+  import { MAX_PROMPT_BYTES, cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateDir, validateModel, validatePrompt } from '../agentLaunch'
   import { effortChoices, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
   import { installPrompt } from '../install'
   import { insertSkillPrompt } from '../skillPrompt'
@@ -51,6 +51,8 @@
   const hasChat = $derived(!!structuredAgent(machine?.capabilities, choice.agent))
   const chat = $derived(hasChat && choice.chat === true)
   const why = $derived(startable(choice, projects, machines, profile))
+  const promptBytes = $derived(new TextEncoder().encode(choice.prompt).length)
+  const promptProblem = $derived(validatePrompt(choice.agent, choice.prompt) ?? '')
   // The trust box is the one choice that stops a Gaffer start: say so beside the box, not only in the note.
   const trustMissing = $derived(chat && choice.agent === 'opencode' && choice.trust !== true)
   const yoloWhy = $derived.by(() => {
@@ -168,6 +170,10 @@
   }
   function pickMachine(value: string) { dir = ''; browse = false; choice = withHome(choice, value, profile, { machines }) }
   const dirProblem = $derived(mode === 'folder' && dir ? validateDir(dir) : null)
+  // The prompt's own error is shown under its box; the note below the fields carries everything else.
+  const noteText = $derived(message || imagesReason || dirProblem || (why && why !== promptProblem ? why : ''))
+  // A message while starting is progress; the same line after the attempt has stopped is a refusal or a failure.
+  const noteBad = $derived(!!imagesReason || !!dirProblem || (!!message && !busy))
   // Everything that shapes the request: a kept request is reused only while none of it has changed.
   const key = () => JSON.stringify([choice, title, mode === 'folder' ? dir : '', attachments.map(a => a.id)])
   // Trust is for one folder: a different folder asks again.
@@ -277,9 +283,11 @@
           <label class="field"><span>Session title <small>Optional · suggested from your prompt</small></span>
             <input aria-label="Session title" bind:value={title} oninput={() => titleTouched = true} maxlength="80" placeholder="A short name for this piece of work" /></label>
           <label class="field"><span>Prompt <em>Optional</em></span>
-            <textarea bind:this={promptInput} aria-label="Prompt" rows="6" bind:value={choice.prompt} onpaste={pasted} placeholder="What should the agent do? Include the context, the outcome you want, and anything it should keep in mind."></textarea></label>
+            <textarea bind:this={promptInput} aria-label="Prompt" rows="8" bind:value={choice.prompt} onpaste={pasted} aria-invalid={promptProblem ? 'true' : undefined} aria-describedby={`${id}-prompt-count${promptProblem ? ` ${id}-prompt-error` : ''}`} placeholder="What should the agent do? Include the context, the outcome you want, and anything it should keep in mind."></textarea></label>
           <div class="prompt-foot"><div class="prompt-actions"><button type="button" class="skill-add" bind:this={skillButton} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button>
-            <label class="attach">＋ Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={e => { addImages(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }} /></label></div></div>
+            <label class="attach">＋ Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={e => { addImages(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }} /></label></div>
+            <span class="prompt-count" class:over={promptBytes > MAX_PROMPT_BYTES} id={`${id}-prompt-count`}>{promptBytes.toLocaleString('en-GB')} / {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes</span></div>
+          {#if promptProblem}<p class="field-error" id={`${id}-prompt-error`} role="alert">{promptProblem}</p>{/if}
           {#if attachments.length}
             <ul class="attachments" aria-label="Images to attach">
               {#each attachments as item (item.id)}
@@ -336,7 +344,7 @@
               <button use:gafferTooltip type="button" class:on={chat} aria-pressed={chat} aria-disabled={!hasChat} title={hasChat ? '' : 'This machine does not offer Gaffer for that agent.'} onclick={() => { if (hasChat) pickTui(true) }}>Gaffer</button>
               <button type="button" class:on={!chat} aria-pressed={!chat} onclick={() => pickTui(false)}>{toolName(choice.agent)} TUI</button>
             </div>
-            <small>{chat ? (choice.agent === 'opencode' ? 'A native chat with approvals, history and images.' : 'A native chat that asks before it changes anything.') : `${toolName(choice.agent)}’s own terminal interface.`}</small>
+            <small>{chat ? (choice.agent === 'opencode' ? 'A native chat with approvals, history and images.' : choice.agent === 'codex' ? 'A native chat. Codex runs commands in its sandbox and asks before one leaves it.' : 'A native chat that asks before it changes anything.') : `${toolName(choice.agent)}’s own terminal interface.`}</small>
           </div>
           {#if chat}
             <div class="field"><span>Approvals</span>
@@ -357,11 +365,11 @@
           {/if}
         </fieldset>
       {/if}
-      {#if message || imagesReason || dirProblem || (why && (projects.length || machines.length))}<p class="note" role="status">{message || imagesReason || dirProblem || why}</p>{/if}
+      {#if noteText && (projects.length || machines.length)}<p class="note" class:bad={noteBad} role="status">{noteText}</p>{/if}
     </div>
     <footer data-shell-foot>
       <button type="button" class="btn" onclick={close} disabled={busy}>Cancel</button>
-      <button class="btn primary" disabled={busy || (!projects.length && !machines.length) || !!why || !!imagesReason || !!dirProblem}>{busy ? 'Starting…' : 'Start'}</button>
+      <button class="btn primary" disabled={busy || (!projects.length && !machines.length) || !!why || !!imagesReason || !!dirProblem} aria-busy={busy}>{busy ? 'Starting…' : 'Start'}</button>
     </footer>
   </form>
   {#if modelOpen}
@@ -384,15 +392,17 @@
 {/if}
 
 <style>
-  dialog { width: min(760px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--card); color: var(--ink); }
+  dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--card); color: var(--ink); overflow: hidden; }
+  dialog[open] { display: grid; grid-template-rows: minmax(0, 1fr); }
   dialog::backdrop { background: var(--scrim); }
-  .sheet { display: flex; flex-direction: column; max-height: 90dvh; }
+  /* Only the fields scroll. The dialog and the sheet take the same height, so no second scrollbar appears on the frame. */
+  .sheet { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; }
   header { display: flex; justify-content: space-between; gap: 16px; padding: 22px 24px 16px; border-bottom: 1px solid var(--line); }
   .eyebrow { margin: 0; font-size: 10px; font-weight: 650; letter-spacing: .13em; text-transform: uppercase; color: var(--accent-text); }
   h2 { font: 500 24px/1.2 var(--serif); margin: 6px 0; }
   .lede { margin: 0; color: var(--muted); font-size: 13px; }
   .close { align-self: start; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 22px; cursor: pointer; }
-  .body { padding: 18px 24px; overflow-y: auto; }
+  .body { padding: 18px 24px; overflow-y: auto; min-height: 0; }
   fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
   .field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 15px; font-size: 13px; font-weight: 600; }
   .field small { font-size: 11px; font-weight: 400; color: var(--muted); }
@@ -408,6 +418,9 @@
   .section-title { margin: 24px 0 12px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; font-weight: 650; }
   .field em { font-size: 10px; font-style: normal; font-weight: 400; color: var(--muted); margin-left: 8px; }
   .prompt-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: -10px; color: var(--muted); font-size: 11px; }
+  .prompt-count { flex: none; font-variant-numeric: tabular-nums; }
+  .prompt-count.over { color: var(--bad); font-weight: 650; }
+  .field-error { margin: -7px 0 14px; padding: 9px 11px; border: 1px solid var(--bad); border-radius: 8px; background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); font-size: 12px; font-weight: 600; line-height: 1.5; }
   .prompt-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; min-width: 0; }
   textarea { line-height: 1.65; }
   .picker { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); color: var(--ink); font: 400 13px var(--sans); text-align: left; cursor: pointer; }
@@ -432,6 +445,7 @@
   .trust.missing { color: var(--bad); }
   .trust-why { display: block; margin-top: 2px; font-weight: 600; }
   .note, .none { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+  .note.bad { padding: 9px 11px; border: 1px solid var(--bad); border-radius: 8px; background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); font-weight: 600; }
   footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; border-top: 1px solid var(--line); }
   @media (max-width: 650px) { input:not([type='checkbox']), select, textarea, .picker { font-size: 16px; } .settings, .checkout { grid-template-columns: 1fr; gap: 0; } .skill-add { min-height: 44px; } header, .body, footer { padding-left: 16px; padding-right: 16px; } }
 </style>

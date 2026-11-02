@@ -77,7 +77,7 @@
       <label>What is happening
         <textarea bind:value={form.body} rows="7" maxlength="20000" placeholder="What happened, what you expected, and what you have tried…" required></textarea>
       </label>
-      <button type="submit" class="btn primary" disabled={busy || !form.subject.trim() || !form.body.trim()}>{busy ? 'Opening…' : 'Open a ticket'}</button>
+      <button type="submit" class="btn primary" disabled={busy || !form.subject.trim() || !form.body.trim()} aria-busy={busy}>{busy ? 'Opening…' : 'Open a ticket'}</button>
     </form>
   </section>
 

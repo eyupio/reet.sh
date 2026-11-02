@@ -256,6 +256,39 @@ offer no modes are unchanged) and the session JSON carries `agentMode`. A new ch
 (a test pins the first `ChoosableModes` entry to `StartMode`). A confirmed switch records the new mode. A switch the machine did not confirm records "unknown" (empty) rather than the old mode,
 because the agent may have switched. The browser control, which reads `agentMode` and shows the plain-language wording, is the last slice.
 
+### SC4 progress: the approval card shows the agent's reason (2 November 2026)
+
+Both of the card gaps the Codex probes left behind are closed, on the shared card, so the browser is ready the day Codex leaves its switch.
+
+- **The reason the agent gave is on the card.** Codex puts the model's justification in `toolCall._meta.permission.description`; the machine now reads that
+  (`permissionParams` in `internal/acpagent/session.go`) and sends it in the permission event's existing `text` field, which already carried Claude's `rawInput.description`.
+  No new wire field, so a peer that decodes strictly still reads the event. The browser keeps it as `description` on the approval item (counted against the chat log's
+  bound), and the card shows it above the command under a `Why {agent} asks` label. Both shapes are pinned by `TestPermissionCarriesTheAgentsReason` (a Codex escalation,
+  a Claude write and a card with neither), and `chat.e2e.mjs` drives the card in a built browser.
+- **The reject button says what it does.** Codex ends the whole turn when an approval is rejected, not just the one tool, so its button reads "Deny and end the turn"
+  (`rejectLabel` in `web/src/lib/chat.ts`); every other reviewed agent keeps "Deny", because their rejection closes the tool the card is about. Pinned by
+  `chat.test.mjs`.
+- **The connector's mode switch has its own test.** `TestChatHostSwitchesAgentMode` covers what `setAgentMode` refuses (an unknown chat, a chat that is busy or no
+  longer running, and a process that offers no switch) and that the mode reaches the process unchanged and an agent's refusal comes back as it was, so nothing claims a
+  mode the adapter did not confirm.
+
+Codex stays dark behind `REET_EXPERIMENTAL_CODEX_CHAT` until the sign-in run in section 3 of the device checks is recorded.
+
+### SC4 progress: the Codex chat in the browser (2 November 2026)
+
+Last of the mode-control slices. `codex` is now a reviewed chat tool in the browser (`CHAT_ADAPTERS`, adapter `codex-acp`), so the Start dialog offers Gaffer for Codex only on a machine whose descriptor reports it available, which still
+needs `REET_EXPERIMENTAL_CODEX_CHAT=1` there. Codex takes no OpenCode plugin trust. The Start dialog and the Home dialog say what Codex does (it runs commands inside its sandbox and asks before one leaves it; in the other mode it may
+not ask). The chat screen shows an **Approvals** control, built from the descriptor's `modes`, with the two wordings agreed earlier: "Codex runs commands inside its sandbox and asks before one leaves it." and "Codex decides for itself what
+needs your approval. You may not be asked." A switch is shown only after the machine confirms it; a switch it does not confirm shows no active mode and says "Codex's mode isn't confirmed. Choose one before you send anything else." The empty
+chat screen explains the sandbox in the same terms. `web/tests/chat-codex.e2e.mjs` covers all of it and runs in the browser workflow.
+
+Still open before Codex can be offered to anyone: the real-login check (`docs/device-checks.md`, section 3) and the connector's way of letting the adapter see the person's own Codex login. Until then a Codex chat on a signed-in machine may
+fail to start ("Sign in to Codex on that machine first" is not built yet).
+
+Decided by the owner for that login: the Codex profile sets `CODEX_HOME` to the person's own Codex folder (`~/.codex`, or the `CODEX_HOME` the connector itself runs with) and passes nothing else from their real home, so the chat uses
+the same login they use in the terminal and the adapter can refresh it there. The alternatives (copying `auth.json` into a private folder each start, or passing the real `HOME`) were rejected: the copy goes stale when a token is refreshed in the chat,
+and the real `HOME` exposes everything the connector keeps from every other agent. It is built only after the signed-in run in `docs/device-checks.md` section 3 records how the adapter behaves with a real login.
+
 ### Device and credential checks (1 November 2026)
 
 What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real

@@ -394,7 +394,7 @@ test('a start in several projects words its own refusals', () => {
     [422, 'invalid_effort', "Choose low, medium or high thinking, or the agent's default."],
     [422, 'invalid_model', "That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit."],
     [422, 'request_id_required', 'Starting needs a request id: 16 to 128 letters, digits, hyphens or underscores.'],
-    [422, 'invalid_prompt', 'The prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash.'],
+    [422, 'invalid_prompt', 'The prompt must be valid text of at most 8,000 bytes, without control characters other than line breaks, and must not start with a dash.'],
     [404, 'project_not_found', "That project isn't on this account."],
     [429, 'project_rate_limited', 'Slow down a moment, then try again.'],
     [409, 'request_changed', 'That request changed. Start it again.'],
@@ -430,7 +430,24 @@ test('Claude gets a native chat only from a machine that reports the reviewed ad
   assert.notEqual(initialChoice([claudeProject], profile, { machines: [legacy] }).chat, true)
   assert.match(startable({ ...start, chat: true }, [claudeProject], [legacy], profile), /does not offer Gaffer/)
   // A tool that is not a reviewed chat tool is never sent as one, whatever the choice says.
-  assert.equal(toCreate({ ...start, agent: 'codex', chat: true }, claudeProject, 'r'.repeat(16), 'a'.repeat(16)).launch.structured, undefined)
+  assert.equal(toCreate({ ...start, agent: 'gemini', chat: true }, claudeProject, 'r'.repeat(16), 'a'.repeat(16)).launch.structured, undefined)
+})
+
+test('Codex gets a native chat only from a machine that reports the reviewed adapter as available, and takes no plugin trust', () => {
+  const codexAgent = (extra = {}) => ({ tool: 'codex', adapter: 'codex-acp', state: 'available', minimumVersion: '1.13.1', approval: true, modes: ['read-only', 'agent'], ...extra })
+  const optedIn = machine('m-studio', 'studio', { tools: ['codex'], acp: true, acpAgents: [codexAgent()] })
+  const codexProject = { ...reet, defaultTool: 'codex' }
+  const start = initialChoice([codexProject], profile, { machines: [optedIn] })
+  assert.equal(start.agent, 'codex')
+  assert.equal(start.chat, true)
+  assert.equal(startable(start, [codexProject], [optedIn], profile), null)
+  const create = toCreate({ ...start, trust: true }, codexProject, 'r'.repeat(16), 'a'.repeat(16))
+  assert.equal(create.launch.structured, true)
+  assert.equal(create.launch.trust, undefined)
+  for (const agents of [[codexAgent({ state: 'unverified' })], [codexAgent({ adapter: 'opencode' })], []]) {
+    const dark = machine('m-studio', 'studio', { tools: ['codex'], acp: true, acpAgents: agents })
+    assert.notEqual(initialChoice([codexProject], profile, { machines: [dark] }).chat, true)
+  }
 })
 
 test('OpenCode on an acp machine launches a native chat by default', () => {

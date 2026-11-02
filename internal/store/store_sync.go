@@ -42,6 +42,9 @@ type SyncSkill struct {
 	Slug       string `json:"slug"`
 	Source     string `json:"source"`
 	SourceType string `json:"sourceType"`
+	// Problem says why an owned draft cannot be synced right now (for example
+	// private storage is full). Such a candidate is listed but not installable.
+	Problem string `json:"problem,omitempty"`
 }
 
 type SyncTarget struct {

@@ -28,6 +28,12 @@ sends a file through the launch-upload path and puts its path in the message. A 
 history…**, which loads OpenCode's stored conversation into a new session row. The conditions, deadlines and limits are in
 [OpenCode in Gaffer](structured-sessions.md).
 
+For a plain shell, **New session**, the workspace’s **✦ Start a new Terminal session**, and the
+sidebar machine menu’s **Terminal** open the terminal settings dialog. Choose its machine, enter an
+absolute folder path (or leave it empty for that machine’s home folder), and name the session before
+pressing **New terminal**. Changing draft settings or closing the dialog leaves the current session
+in place. An unconfirmed creation preserves its original machine, folder, name and request ID for retry.
+
 ## Who sees it
 
 Only an account in accounts mode with a write role sees the entry points, just as for browser
@@ -38,7 +44,8 @@ local consent, and the session limits (8 per machine, 32 per account).
 ## Where to start it
 
 - **Sessions → New agent session.** It appears under **Your sessions** in the sessions sidebar,
-  in a machine's menu next to **New terminal**, and in the empty workspace next to **New terminal**.
+  in a machine's menu next to **New terminal**, and as **✦ Start a new agent session** in the empty
+  or ended workspace beside **✦ Start a new Terminal session**. Each opens its settings dialog.
   The machine you were on is preselected. On success the new session opens in the workspace.
 - **Machines → Start an agent** on every enrolled machine's card. While the machine isn't ready the
   button is disabled and the reason is written underneath; a machine the terminal list doesn't know
@@ -157,7 +164,7 @@ It is one screen:
 | **Model** (optional) | The shared picker: **Agent default**, the account's favourites for this agent, the machine's list by provider, reet's suggestions and **Other…** for any model name made of letters, digits and `. _ : / @ + -`, up to 100 characters. A star adds or removes a favourite. A list is only a hint; if a model name doesn't exist, the agent says so itself. Nothing is sent for Agent default. |
 | **Thinking** | Only for an agent that takes an effort level (Cline): **Agent default**, low, medium or high. Nothing is sent for Agent default. |
 | **Folder** | **Home folder**, the project folders that machine has reported, and **Type a path…**. A typed path must be absolute. The machine decides whether it may start there: the folder must exist and be inside the home folder it was enrolled with. |
-| **Opening prompt** (optional) | Up to 2,000 bytes, with a byte counter. It can't start with a dash. For Claude Code, Codex and Cline it must be at least two words, because a single word could be read as one of their subcommands. "Secrets don't belong here." |
+| **Opening prompt** (optional) | Up to 8,000 bytes, with a byte counter. It can't start with a dash. For Claude Code, Codex and Cline it must be at least two words, because a single word could be read as one of their subcommands. "Secrets don't belong here." |
 
 Opening the dialog with a project applies that project's default agent, model and thinking;
 otherwise the account defaults apply, then a favourite marked for the agent. Changing the machine or
@@ -241,7 +248,7 @@ attempt did start, it appears in your sessions list on the next refresh.
   syntax is confirmed.
 - Folder: inside the enrolled home, symlinks followed. Wider roots would be a deliberate later
   setting.
-- Model: 1 to 100 characters from the set above. Prompt: 2,000 bytes. Typed folder: 4,096 bytes.
+- Model: 1 to 100 characters from the set above. Prompt: 8,000 bytes. Typed folder: 4,096 bytes.
 - The opening prompt can't start with `-`. For Claude Code, Codex and Cline it must be at least two words.
 - No agent status (working, waiting or idle), no resuming an earlier conversation and no Windows
   machines. Several folders start together only from Home's Select (2 to 12 folder projects).

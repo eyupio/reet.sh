@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 func TestSessionBacklogAPIAuthorizationAndValidation(t *testing.T) {
@@ -40,7 +41,7 @@ func TestSessionBacklogAPIAuthorizationAndValidation(t *testing.T) {
 		t.Fatalf("origin: %d %s", code, raw)
 	}
 	for _, change := range []map[string]any{
-		{"agentId": "not-my-machine"}, {"model": "-bad"}, {"effort": "extreme"}, {"dir": "relative"}, {"tool": "unknown"}, {"prompt": strings.Repeat("a", 2001)},
+		{"agentId": "not-my-machine"}, {"model": "-bad"}, {"effort": "extreme"}, {"dir": "relative"}, {"tool": "unknown"}, {"prompt": strings.Repeat("a", terminalproto.MaxPromptBytes+1)},
 		{"images": []store.DraftImage{{Name: "fake.png", Data: "data:image/png;base64,aGVsbG8="}}}, {"projectId": "not-my-project"},
 		{"base": "main"}, {"worktree": true, "base": "bad branch"}, {"chat": true}, {"trust": true, "chat": true},
 	} {

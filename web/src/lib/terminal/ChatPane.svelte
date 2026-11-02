@@ -1,24 +1,28 @@
 <script lang="ts">
  import { onDestroy, onMount, tick, untrack } from 'svelte'
  import { fade, fly } from 'svelte/transition'
- import { applyChatEvent, checkQuestionDraft, endedReason, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
+ import { applyChatEvent, checkQuestionDraft, endedReason, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, rejectLabel, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
- import { chatToolName, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
+ import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
  import { defaultLabel, type ModelFavourite } from '../models'
  import Toast from '../Toast.svelte'
  import ImageLightbox from './ImageLightbox.svelte'
 import SkillPicker from './SkillPicker.svelte'
+import AgentModeControl from './AgentModeControl.svelte'
 import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, onbusy }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, agentModes = [], onbusy, onstate }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+  /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
+  agentModes?: string[]
   /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI
    *  switch; undefined until the stream has opened and its replay has been applied, as the chat cannot say before then. */
-  onbusy?: (busy: boolean | undefined) => void } = $props()
+  onbusy?: (busy: boolean | undefined) => void; onstate?: (state: ChatState) => void } = $props()
 
  let chat: ChatState = $state(initialChat())
+ $effect(() => { onstate?.(chat) })
  let selectedModel = $state(''), currentModel = $state(''), changingModel = $state(false)
  let modelSession = '', modelValue = ''
  $effect(() => {
@@ -36,6 +40,17 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  }
  const tool = $derived(session.tool || 'opencode')
  const toolName = $derived(chatToolName(tool))
+ // The mode the machine last confirmed. A switch that failed leaves it unknown here until the session itself reports a mode again.
+ let modeOverride = $state<string | null>(null)
+ let modeSeen = ''
+ $effect(() => { const seen = `${session.id}:${session.agentMode ?? ''}`; if (seen !== modeSeen) { modeSeen = seen; modeOverride = null } })
+ const agentMode = $derived(modeOverride ?? session.agentMode ?? '')
+ // An agent that offers modes does not get a message until its mode is confirmed: it may be in one that never asks. The machine refuses too.
+ const modeUnknown = $derived(agentModes.length > 0 && !agentMode)
+ async function chooseMode(mode: string) {
+  try { await setAgentMode(session.id, mode); modeOverride = mode }
+  catch (e) { modeOverride = ''; throw e }
+ }
  const agentDefault = $derived(favourites.find(f => f.tool === tool && f.agentDefault)?.model ?? '')
  const selectedIsDefault = $derived(!!selectedModel.trim() && selectedModel.trim() === agentDefault)
  const selectedIsFavourite = $derived(favourites.some(f => f.tool === tool && f.model === selectedModel.trim()))
@@ -259,7 +274,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  /** Send a message and its pictures now, or queue it while the agent is busy. */
  async function send() {
   const text = draft.trim()
-  if ((!text && !images.length) || sending || uploading || changingModel || ended || chat.connection === 'reconnecting') return
+  if ((!text && !images.length) || sending || uploading || changingModel || modeUnknown || ended || chat.connection === 'reconnecting') return
   const problem = messageProblem(text)
   if (problem) { feedback = problem; return }
   if (working || queued.length) { queueCurrent(text); return }
@@ -365,7 +380,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  })
  $effect(() => {
   const ready = queued.length > 0 && !queueHalted && !awaitingWork && !working && !pending.length && !asked.length && !ended
-   && chat.connection === 'open' && !sending && !uploading && !changingModel && !dispatching
+   && chat.connection === 'open' && !sending && !uploading && !changingModel && !modeUnknown && !dispatching
   if (!ready) return
   untrack(() => { void dispatchQueued() })
  })
@@ -491,7 +506,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  {#if feedback}<p class="notice bad" role="alert">{feedback}</p>{/if}
  <div class="log" role="log" bind:this={log} onscroll={onScroll}>
   {#if chat.items.length === 0}
-   <div class="empty"><h3>Ask {toolName} to change this project.</h3><p>It asks before it edits a file or runs a command. Allow once for one card, or allow that command or file for the rest of this session.</p></div>
+   <div class="empty"><h3>Ask {toolName} to change this project.</h3>{#if tool === 'codex'}<p>{toolName} runs commands inside its sandbox. It asks only when it wants to leave the sandbox, and in the mode where it decides for itself it may not ask at all. Choose the approvals mode below.</p>{:else}<p>It asks before it edits a file or runs a command. Allow once for one card, or allow that command or file for the rest of this session.</p>{/if}</div>
   {/if}
   {#each chat.items as item (item.key)}
    {#if item.kind === 'user'}
@@ -619,6 +634,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
       {#if decided}<span class="chevron" class:open={open} aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg></span>{/if}
      </svelte:element>
      {#if open}
+      {#if item.description}<div class="block"><span class="block-label">Why {toolName} asks</span><p class="approval-reason">{item.description}</p></div>{/if}
       {#if item.path}<p class="approval-path" title={item.path}>{displayPath(item.path, session.dir)}</p>{/if}
       {#if item.command}<div class="block"><span class="block-label">Command</span><pre class="command"><span class="prompt" aria-hidden="true">$</span>{' '}{item.command}</pre></div>{/if}
       {#if item.diff}<div class="block"><span class="block-label">Diff · {approvalCounts.additions} added, {approvalCounts.deletions} removed</span><pre class="diff">{#each item.diff.split('\n') as line, i (i)}<span class={diffClass(line)}>{line || ' '}</span>{/each}</pre></div>{/if}
@@ -627,7 +643,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
        <p class="decision">{item.decision === 'allowed' ? 'Allowed once.' : item.decision === 'denied' ? 'Denied.' : item.reason === 'timeout' ? 'Closed: the approval timed out.' : 'Closed without an answer.'}</p>
       {:else}
        <div class="approval-actions">
-        <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, false)}>Deny</button>
+        <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, false)}>{rejectLabel(tool)}</button>
         <button type="button" class="btn primary" disabled={!!answering || item.truncated} onclick={() => void answer(item.permissionId, true)}>Allow once</button>
         {#if (item.command || item.path) && !item.truncated}
          <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, true, true)}>{item.command ? 'Allow this command for this session' : 'Allow this file for this session'}</button>
@@ -692,7 +708,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
       <div class="approval-actions">
        <button type="button" class="btn" disabled={!!asking} title="Stops what the agent was doing" onclick={() => void respondQuestion(item, 'cancel')}>Cancel question</button>
        <button type="button" class="btn" disabled={!!asking} title="Let the agent carry on without an answer" onclick={() => void respondQuestion(item, 'decline')}>Skip</button>
-       <button type="submit" class="btn primary" disabled={!!asking}>{busy ? 'Sending…' : 'Send answer'}</button>
+       <button type="submit" class="btn primary" disabled={!!asking} aria-busy={busy}>{busy ? 'Sending…' : 'Send answer'}</button>
       </div>
      {/if}
     </form>
@@ -725,6 +741,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
     </section>
    {/if}
    {#if modelNote}<p class="notice" role="status">{modelNote}</p>{/if}
+   {#if agentModes.length}<AgentModeControl tool={toolName} modes={agentModes} current={agentMode} yolo={session.yolo === true} disabled={working || sending || uploading || changingModel || ended || chat.connection !== 'open'} onchoose={chooseMode} />{/if}
    {#if images.length}
     <ul class="attachments" aria-label="Images to attach">
      {#each images as image, i (image.id)}
@@ -743,7 +760,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
     <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="2" maxlength="2000" placeholder={working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…`} onkeydown={keydown} disabled={sending || uploading || changingModel || chat.connection === 'reconnecting'}></textarea>
     <div class="field-actions">
      {#if working}<button type="button" class="btn stop" onclick={() => void stop()}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>Stop</button>{/if}
-     <button type="button" class="btn primary send" disabled={sending || uploading || changingModel || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
+     <button type="button" class="btn primary send" disabled={sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
     </div>
    </div>
    <div class="composer-bar">
@@ -895,6 +912,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  .approval-head .state { margin-left: auto; color: var(--warn); }
  .approval.decided .approval-head .state { color: var(--muted); }
  .approval-path { margin: 0; font: 11.5px var(--mono); color: var(--ink-soft); overflow-wrap: anywhere; }
+ .approval-reason { margin: 0; font: 12.5px/1.5 var(--sans); color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
  .approval-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
  .approval-actions .btn { min-height: 36px; padding: 0 13px; font-size: 13px; }
  .decision { margin: 0; font-size: 12px; color: var(--muted); }

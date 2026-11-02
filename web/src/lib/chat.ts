@@ -49,7 +49,7 @@ export type QuestionDecision = 'answered' | 'declined' | 'cancelled'
 export type ChatItem =
   | { kind: 'user' | 'agent' | 'notice'; key: string; text: string; bad?: boolean }
   | { kind: 'tool'; key: string; toolCallId: string; title: string; toolKind: string; status: string; text: string; command: string; path: string; diff: string; additions: number; deletions: number; durationMs: number; locations: string[] }
-  | { kind: 'permission'; key: string; permissionId: string; title: string; toolKind: string; command: string; path: string; diff: string; locations: string[]; truncated: boolean; decision?: 'allowed' | 'denied' | 'cancelled'; reason?: string }
+  | { kind: 'permission'; key: string; permissionId: string; title: string; toolKind: string; command: string; path: string; diff: string; description: string; locations: string[]; truncated: boolean; decision?: 'allowed' | 'denied' | 'cancelled'; reason?: string }
   | { kind: 'question'; key: string; questionId: string; toolCallId: string; question: ChatQuestion; decision?: QuestionDecision; reason?: string }
 
 export type ChatState = {
@@ -101,7 +101,7 @@ function cancelPending(items: ChatItem[], reason: string): ChatItem[] {
 
 function itemChars(item: ChatItem): number {
   if (item.kind === 'tool') return item.title.length + item.text.length + item.locations.join('').length
-  if (item.kind === 'permission') return item.title.length + item.command.length + item.path.length + item.diff.length + item.locations.join('').length
+  if (item.kind === 'permission') return item.title.length + item.command.length + item.path.length + item.diff.length + item.description.length + item.locations.join('').length
   if (item.kind === 'question') return questionChars(item.question)
   return item.text.length
 }
@@ -194,6 +194,7 @@ function reduceChatEvent(state: ChatState, event: ChatEvent): ChatState {
         kind: 'permission', key: `p${event.permissionId}`, permissionId: event.permissionId,
         title: event.title ?? 'OpenCode tool call', toolKind: event.toolKind ?? '',
         command: event.command ?? '', path: event.path ?? '', diff: event.diff ?? '',
+        description: event.text ?? '',
         locations: event.locations ?? [], truncated: !!event.truncated,
       }
       if (at >= 0) {
@@ -393,6 +394,12 @@ export function endedReason(state: string, name: string): string {
 
 export function toolLabel(kind: string): string {
   return TOOL_LABELS[kind] ?? (kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : 'Tool')
+}
+
+/** The reject button says what pressing it does. Codex ends the whole turn on a rejection (the adapter answers `cancelled`, not just the
+ *  one tool), so that card says so before it is pressed; the other agents keep the shorter word they were reviewed with. */
+export function rejectLabel(tool: string): string {
+  return tool === 'codex' ? 'Deny and end the turn' : 'Deny'
 }
 
 export type ToolTone = 'good' | 'warn' | 'bad' | 'muted' | 'busy'

@@ -201,7 +201,7 @@ func TestSelectionRunLimits(t *testing.T) {
 		"no effort":     {ids[:2], RunLaunch{Tool: "claude", Effort: "low"}, ErrProjectInvalid},
 		"dash":          {ids[:2], RunLaunch{Tool: "claude", Prompt: "-rf everything"}, ErrProjectInvalid},
 		"one word":      {ids[:2], RunLaunch{Tool: "claude", Prompt: "update"}, ErrProjectInvalid},
-		"long":          {ids[:2], RunLaunch{Tool: "claude", Prompt: strings.Repeat("ab ", 700)}, ErrProjectInvalid},
+		"long":          {ids[:2], RunLaunch{Tool: "claude", Prompt: strings.Repeat("ab ", terminalproto.MaxPromptBytes/2)}, ErrProjectInvalid},
 		"control":       {ids[:2], RunLaunch{Tool: "claude", Prompt: "fix it\u0007 now"}, ErrProjectInvalid},
 	} {
 		_, _, err := s.StartSelectionRunFor(uid, syncID(), tc.ids, tc.l)

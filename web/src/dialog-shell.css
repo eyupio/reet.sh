@@ -8,12 +8,13 @@
    - scrolling inside it never hands the scroll on to the page behind it (or to pull-to-refresh);
    - the page behind it does not scroll at all. iOS Safari honours overflow: hidden on the root from iOS 16; on older
      versions the page can still be dragged, though not from inside a scrolling part.
-   A desktop with a mouse is left as it was: it keeps its scrollbar, so nothing shifts sideways when a dialog opens, and
-   overscroll-behavior there would only change how the text is painted. */
+   The page behind is locked everywhere, so its scrollbar never sits beside the dialog as a second, competing scroll
+   track; scrollbar-gutter keeps the layout still as that scrollbar goes. On a touch screen or a phone the page also
+   cannot be dragged behind the dialog. */
+html:has(dialog[data-shell][open]) { overflow: hidden; overscroll-behavior: none; scrollbar-gutter: stable; }
 @media (pointer: coarse), (max-width: 559.98px) {
   dialog[data-shell] [data-shell-foot] { bottom: 0; }
   dialog[data-shell], dialog[data-shell] [data-shell-body] { overscroll-behavior: contain; }
-  html:has(dialog[data-shell][open]) { overflow: hidden; overscroll-behavior: none; }
 }
 
 /* The keyboard is open and only the visual viewport shrank: fit the dialog into the part above the keyboard. */

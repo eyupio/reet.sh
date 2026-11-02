@@ -876,8 +876,9 @@ try{
   await skew(15*DAY)
   await expect(pp.status).toContainText('Still waiting. Check again.')
   await sweep('still waiting',d,[d.getByRole('button',{name:'Check again',exact:true})]);sweeps++
-  await skew(0)
+  // Check again is pressed while the clock is still ahead: resetting it first re-renders the wait and detaches the button.
   await d.getByRole('button',{name:'Check again',exact:true}).click()
+  await skew(0)
   await expect(pp.use(LONG)).toBeVisible()
   await closeDialog(d)
   scopes=scopes.filter(s=>s.host!==LONG);agents=agents.filter(a=>a.id!=='agent-long')

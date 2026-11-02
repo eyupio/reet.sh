@@ -53,12 +53,15 @@ findings fixed and resolved). It makes the controller refuse a message with a 40
 agent that offers modes is in an unknown mode, makes `codex` a reviewed chat tool in the browser, adds the Approvals control
 (`web/src/lib/terminal/AgentModeControl.svelte`, wired in `ChatPane.svelte`; the wording for each mode, Send held while the mode is
 unknown, a YOLO-aware sentence), the Start and Home dialog copy, and `web/tests/chat-codex.e2e.mjs` (added to the browser workflow).
-Its only red check is `phone-zoom`, which is red on main too (see below). Merge main into it once that is fixed; do not merge it
-while red unless the owner says so.
+**Every check is green, `phone-zoom` included** (2 November, after `main` was merged in and the branch took the Skills wrap itself),
+and it is `MERGEABLE`: it waits on the owner's merge.
 
 **Red on main, not ours:** `phone-zoom` ("Long names never zoom a phone out…", step 6 of that job) fails since #370 ("Skills and sync
-UX review"): the Skills page at 320 px is 355 px wide (`web/tests/phone-zoom.e2e.mjs`, "320px skills"). It needs a layout fix on the
-Skills page in its own change.
+UX review"): the Skills page at 320 px is 355 px wide (`web/tests/phone-zoom.e2e.mjs`, "320px skills"). The fix is its own change:
+**PR #380, "Let the skill card's sync line wrap long host names"** — `.sync-intent span { min-width: 0; overflow-wrap: anywhere; }` in
+`SkillCard.svelte`, green on `phone-zoom`, waiting on the owner. Until it lands on `main`, every other PR inherits the red check. #375
+already carries an equivalent, wider rule (`.sync-intent { min-width: 0; max-width: 100%; }` plus the same span rule), so merging `main`
+into it after #380 lands will conflict on those three lines of `SkillCard.svelte`; keep one copy.
 
 **Decisions already made (do not re-ask):**
 - Codex starts in `read-only` (the only mode that can ask before a command leaves the sandbox); `agent` is chosen per chat, never the
@@ -78,13 +81,13 @@ Skills page in its own change.
 2. **After section 3:** build the Codex login access (`CODEX_HOME` as decided; connector currently replaces `HOME`, so today a Codex
    chat cannot start for a signed-in person), the "Sign in to Codex on that machine first" start error, and the `_auth/status_update`
    label in the chat. Until then Codex stays dark.
-3. **Codex card gaps (not built):** show the model's justification (`_meta.permission.description`) on the approval card; say on the
-   reject button that a reject ends the whole turn; the connector's `setAgentMode` handler (`internal/terminalagent/chat.go`) has no
-   unit test of its own (it mirrors `setModel`).
+3. **Codex card gaps — done, in the owner's review queue:** PR #384 shows the model's justification (`_meta.permission.description`) on
+   the approval card, says on the reject button that a Codex reject ends the whole turn ("Deny and end the turn"), and gives the
+   connector's `setAgentMode` handler (`internal/terminalagent/chat.go`) its own test. Draft until the owner says otherwise.
 4. **After the checks are recorded:** retire `REET_EXPERIMENTAL_CLAUDE_CHAT` and `REET_EXPERIMENTAL_CODEX_CHAT` (and decide whether the
    browser needs a "sign in to Claude on that machine" message).
 5. **SC5 remainder:** descriptor-driven chat controls (the mode control is the second agent that needs them) and extending recovery.
-6. Fix the Skills page layout so `phone-zoom` is green on main (outside this workstream).
+6. Merge the Skills page fix so `phone-zoom` is green on main (outside this workstream): PR #380, green and waiting on the owner.
 
 **Working rules the owner set (keep following them):**
 - One item at a time: build it test-first, open a **draft** PR, watch it, and **merge only when the owner says so** (they often mark

@@ -481,11 +481,13 @@ approvals. Existing API errors provide feedback. No new wire field, message, neg
 Delivery record:
 - **Task / scope:** SC5 live model acknowledgement and unknown-state handling. Startup model confirmation, effort/mode option contracts and native-session
   adoption remain separate work.
-- **Branch / base:** `fix/confirm-chat-model-switch`, independently based on main `7e390b2`. The owner explicitly authorized this slice while #402 remains open;
+- **Branch / implementation / PR:** `fix/confirm-chat-model-switch`, `9054732`, [draft #406](https://github.com/eyupio/reet.sh/pull/406), independently based on main `7e390b2`. The owner explicitly authorized this slice while #402 remains open;
   that PR's pending-question recovery and native-fixture change are not duplicated or merged here.
 - **Checks:** new regressions failed before the fix for incomplete replies, strict-profile omitted replies, lost acknowledgements and stale stored models.
   A separate late internal-error regression failed before its fix too. Targeted core/controller race tests, web check/build and all 16 MCP tests pass;
-  final broader checks, bot review and CI results belong in the draft PR.
+  the API package also passes without race (73 s). A final full ACP package run passes under race with only the baseline orphan test excluded.
+  The initial broader local run compiled before the late internal-error fix and is not reported as a final pass; it also hit one Stop timeout.
+  The final ACP package and the same Stop test on current main both pass. Full broader results, bot review and CI are recorded in #406.
 - **Baseline:** the known model, orphan/process-group and missing-tmux tests were reproduced on current main `7e390b2` in this container.
 - **Evidence / limits:** Claude read-back follows the recorded real-adapter probe; OpenCode's pre-existing omitted-list compatibility is preserved.
   New edge cases are fake-child/control-link regressions, not claims that an adapter was observed sending malformed replies. No genuine-login,

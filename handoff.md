@@ -120,7 +120,7 @@ the fix and pass under the race detector. Full implementation CI passed on `ef2a
 and [#392](https://github.com/eyupio/reet.sh/pull/392) have merged. #392's bot review was blocked by account quota, and its terminal CI failure
 was reproduced on main and left outside its scope. Both experimental switches remain in place; signed-in Run B is still the next owner check.
 
-**Current SC5 model-confirmation slice (2 November):** branch `fix/confirm-chat-model-switch`, based independently on main `7e390b2`.
+**Current SC5 model-confirmation slice (2 November, draft [#406](https://github.com/eyupio/reet.sh/pull/406)):** branch `fix/confirm-chat-model-switch`, implementation `9054732`, based independently on main `7e390b2`.
 The owner explicitly asked to start this next slice while #402 remains open; #402 is left unmerged and its changes are not duplicated here.
 Live model changes now distinguish OpenCode's legacy omitted-list acknowledgement from explicit options and Claude's required read-back.
 Incomplete or ambiguous replies clear model state and report an error/notice. The controller clears its stored model after an unconfirmed or lost

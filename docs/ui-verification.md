@@ -1871,7 +1871,8 @@ and `phone-dialogs.e2e.mjs` cover the dialog at phone widths. No API change.
 
 The notification centre and Support now use the same collection panel as the
 directory pages. Notifications has a live `4 notifications · 3 unread` count, All
-and Unread chips, feed rows that mark themselves read in place, and a preferences
+and Unread chips (the Unread figure is the server's authoritative count, not the
+loaded page), feed rows that mark themselves read in place, and a preferences
 panel where a locked security notice is shown as an **Always on** fact rather than a
 disabled checkbox. Support has a ticket panel with a count, search and status chips
 whose figures follow the search, plus a recoverable empty state; the Open a ticket
@@ -1885,9 +1886,9 @@ Validation:
 - `npm run check`: pass; svelte-check reports zero errors and zero warnings.
 - `npm run build`: pass.
 - New `inbox.e2e.mjs`: notification counts, All/Unread, reading a row in place,
-  Mark all read, the locked-preference badge, support counts under a search,
-  status chips, empty recovery, 44 px scope targets and no horizontal overflow at
-  390 and 320 px.
+  Mark all read, an unread notice older than the newest 50 notifications, the
+  locked-preference badge, support counts under a search, status chips, empty
+  recovery, 44 px scope targets and no horizontal overflow at 390 and 320 px.
 - `phone-zoom.e2e.mjs` covers both pages at 320, 360, 390 and 412 px;
   `navigation.e2e.mjs` and `phone-dialogs.e2e.mjs` pass.
 

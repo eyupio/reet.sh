@@ -12,6 +12,7 @@
   let { onchange }: { onchange?: () => void } = $props()
 
   let rows = $state<Notification[]>([])
+  let unread = $state(0)
   let prefs = $state<NotificationPreference[]>([])
   let unreadOnly = $state(false)
   let loading = $state(true)
@@ -29,16 +30,15 @@
     }
     return out
   })
-  const unreadRows = $derived(rows.filter((n) => !n.readAt))
-  const visible = $derived(unreadOnly ? unreadRows : rows)
-  const countLabel = $derived(loading ? 'Reading notifications…' : loadError ? 'Notifications unavailable' : unreadOnly ? `${unreadRows.length} unread` : `${rows.length} ${rows.length === 1 ? 'notification' : 'notifications'}${unreadRows.length ? ` · ${unreadRows.length} unread` : ''}`)
+  const countLabel = $derived(loading ? 'Reading notifications…' : loadError ? 'Notifications unavailable' : unreadOnly ? (rows.length === unread ? `${unread} unread` : `${rows.length} of ${unread} unread`) : `${rows.length} ${rows.length === 1 ? 'notification' : 'notifications'}${unread ? ` · ${unread} unread` : ''}`)
 
   async function load() {
     loading = true
     loadError = ''
     try {
-      const [list, p] = await Promise.all([listNotifications(), getNotificationPreferences()])
+      const [list, p] = await Promise.all([listNotifications(unreadOnly), getNotificationPreferences()])
       rows = list.notifications
+      unread = list.unread
       prefs = p.preferences
       error = ''
     } catch (e) {
@@ -48,11 +48,34 @@
     }
   }
 
+  async function loadFeed(only: boolean) {
+    loading = true
+    loadError = ''
+    try {
+      const list = await listNotifications(only)
+      rows = list.notifications
+      unread = list.unread
+      error = ''
+    } catch (e) {
+      loadError = e instanceof Error ? e.message : String(e)
+    } finally {
+      loading = false
+    }
+  }
+
+  function show(only: boolean) {
+    if (unreadOnly === only) return
+    unreadOnly = only
+    void loadFeed(only)
+  }
+
   async function follow(n: Notification) {
     if (!n.readAt) {
       try {
-        await markNotificationsRead([n.id])
+        const r = await markNotificationsRead([n.id])
+        unread = r.unread
         n.readAt = Date.now()
+        if (unreadOnly) rows = rows.filter((row) => row.id !== n.id)
         onchange?.()
       } catch (e) {
         error = e instanceof Error ? e.message : String(e)
@@ -66,7 +89,7 @@
     try {
       await markNotificationsRead()
       onchange?.()
-      await load()
+      await loadFeed(unreadOnly)
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     }
@@ -110,13 +133,13 @@
 <div class="layout">
   <CollectionPanel label="Your notifications" count={countLabel}>
     {#snippet actions()}
-      <button type="button" class="btn quiet" onclick={markAll} disabled={unreadRows.length === 0}>Mark all read</button>
-      <button type="button" class="btn quiet" onclick={load} disabled={loading}>Refresh</button>
+      <button type="button" class="btn quiet" onclick={markAll} disabled={unread === 0}>Mark all read</button>
+      <button type="button" class="btn quiet" onclick={() => loadFeed(unreadOnly)} disabled={loading}>Refresh</button>
     {/snippet}
     {#snippet toolbar()}
       <div class="scopes" role="group" aria-label="Show notifications">
-        <button type="button" class="scope" aria-pressed={!unreadOnly} onclick={() => (unreadOnly = false)}>All<small>{rows.length}</small></button>
-        <button type="button" class="scope" aria-pressed={unreadOnly} onclick={() => (unreadOnly = true)}>Unread<small>{unreadRows.length}</small></button>
+        <button type="button" class="scope" aria-pressed={!unreadOnly} onclick={() => show(false)}>All<small>{rows.length}</small></button>
+        <button type="button" class="scope" aria-pressed={unreadOnly} onclick={() => show(true)}>Unread<small>{unread}</small></button>
       </div>
     {/snippet}
 
@@ -125,17 +148,17 @@
     {:else if loadError}
       <div class="state error" role="alert">
         <p>{loadError}</p>
-        <button type="button" class="btn" onclick={load}>Try again</button>
+        <button type="button" class="btn" onclick={() => loadFeed(unreadOnly)}>Try again</button>
       </div>
-    {:else if visible.length === 0}
+    {:else if rows.length === 0}
       <div class="state">
         <h2>{unreadOnly ? 'Nothing unread. Sorted.' : 'Nothing yet.'}</h2>
         <p>{unreadOnly ? 'Everything has been read.' : 'Ticket replies, account notices and staff alerts appear here.'}</p>
-        {#if unreadOnly}<button type="button" class="btn" onclick={() => (unreadOnly = false)}>Show all</button>{/if}
+        {#if unreadOnly}<button type="button" class="btn" onclick={() => show(false)}>Show all</button>{/if}
       </div>
     {:else}
       <div class="feed">
-        {#each visible as n (n.id)}
+        {#each rows as n (n.id)}
           <button type="button" class="notification" class:unread={!n.readAt} onclick={() => follow(n)}>
             <span class="dot" aria-hidden="true"></span>
             <span class="main">

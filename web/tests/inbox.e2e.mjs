@@ -27,9 +27,12 @@ const tickets = [
   { id: 3, opener: 'Sam Taylor', subject: 'Terminal paste strips indentation', status: 'closed', messages: 5, updatedAt: now - 1.7e8 },
 ]
 const notificationRoutes = () => ({
-  '/api/v2/notifications': () => {
-    const unread = notifications.filter((n) => !n.readAt).length
-    return { notifications, unread }
+  '/api/v2/notifications': request => {
+    const only = new URL(request.url()).searchParams.get('unread') === '1'
+    return {
+      notifications: only ? notifications.filter((n) => !n.readAt) : notifications,
+      unread: notifications.filter((n) => !n.readAt).length,
+    }
   },
   '/api/v2/notifications/preferences': { preferences: prefs },
   '/api/v2/notifications/read': request => {
@@ -73,6 +76,33 @@ try {
     // A locked security notice is a fact, not a disabled checkbox.
     await expect(page.getByText('Always on', { exact: true })).toBeVisible()
     await expect(page.getByRole('checkbox', { name: /Sign-in and password notices/ })).toHaveCount(0)
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // The server-side unread query still reaches an old unread notification when the newest page is read.
+  if (run('unread beyond the first page')) {
+    const old = { ...note(51, 'An older unread notice', 'This one sits below the newest page.', false), createdAt: now - 90 * 86_400_000, updatedAt: now - 90 * 86_400_000 }
+    const pageRows = [
+      ...notifications.map((n, i) => ({ ...n, id: 100 + i, readAt: now - 1000, title: `Read notice ${i + 1}`, body: '' })),
+      ...Array.from({ length: 46 }, (_, i) => ({ ...note(200 + i, `Read notice ${i + 5}`, '', true), readAt: now - 1000 })),
+    ].slice(0, 50)
+    const { context, page, errors } = await openWorkspace(browser, {
+      width: 1440,
+      routes: {
+        '/api/v2/notifications': request => {
+          const only = new URL(request.url()).searchParams.get('unread') === '1'
+          return { notifications: only ? [old] : pageRows, unread: 1 }
+        },
+        '/api/v2/notifications/preferences': { preferences: prefs },
+      },
+    })
+    await page.goto(`${base}/notifications`)
+    await expect(count(page, 'Your notifications')).toHaveText('50 notifications · 1 unread')
+    await expect(scope(page, 'Show notifications', /^Unread/)).toHaveText(/Unread\s*1/)
+    await scope(page, 'Show notifications', /^Unread/).click()
+    await expect(count(page, 'Your notifications')).toHaveText('1 unread')
+    await expect(page.getByRole('button', { name: /An older unread notice/ })).toBeVisible()
     expect(errors).toEqual([])
     await context.close()
   }

@@ -35,9 +35,10 @@ two more ways to read a count, a filter and a record.
 
 ## Rulings
 
-- **Notifications loads all and filters Unread in the browser.** That makes both
-  chip counts honest from the same response. *Cost if wrong:* the request is larger;
-  the endpoint already caps the list.
+- **Notifications keeps the server-side Unread query.** The All list is the loaded
+  page; the Unread chip and Mark all read use the server's count, so an old unread
+  beyond the newest page stays reachable. *Cost if wrong:* switching tabs makes one
+  request rather than filtering in memory.
 - **A locked security notice is a fact, not a disabled control.** *Cost if wrong:*
   a person cannot see the control in its disabled state; the badge says the same
   thing without implying it can be changed.

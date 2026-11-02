@@ -120,6 +120,8 @@
   $effect(()=>()=>{chromeFocus.session=false})
   let detailsOpen = $state(false)
   let healthIssue=$state(''),showCreate=$state(false)
+  // New session asks what to start before showing either form: an agent session, or a plain shell.
+  let newSessionOpen=$state(false)
   // The Start an agent dialog, with the button that opened it, and the folders the machines have reported (read when it opens).
   let agentStart=$state<{agent:string;opener:HTMLElement|null;dir?:string;projectId?:string}|null>(null),agentFolders=$state<Machine[]|undefined>(),folderRead=0
   // Add a project from the session panel: the same dialog as Home, without leaving the terminal.
@@ -226,7 +228,18 @@
     selectTerminalMachine(agent);showCreate=true;closeDrawer()
   }
   function quickCreate(agent:string){openTerminalStart(agent)}
-  function newSession(){openTerminalStart()}
+  function newSession(){
+    if(!machines.length||busy||accessDenied)return
+    // An unconfirmed creation keeps its own retry: New session opens that, never a second choice.
+    if(pendingCreation){openTerminalStart();return}
+    newSessionOpen=true
+  }
+  async function chooseNewSession(kind:'agent'|'terminal'){
+    newSessionOpen=false
+    await tick()
+    if(kind==='agent'){const agent=selectedAgent||(machines.find(m=>m.ready)??machines[0]).agentId;openAgentStart(agent,null);return}
+    openTerminalStart()
+  }
   function submitCreate(){void create()}
   async function create() {
     if(busy||accessDenied||!createMachine?.ready||createMachine.serverEnabled===false||!validTerminalTitle(title.trim())||dirError||createAtQuota&&!requestId)return
@@ -541,6 +554,13 @@
   <label class="machine-search">Machine or shell user<input type="search" bind:this={machineSearchInput} bind:value={machineSearch} placeholder="Search connected machines…" /></label>
   <nav class="machine-results" aria-label="Matching machines">{#each matchingMachines as item (item.agentId)}<button class="machine-result" aria-current={item.agentId===selectedAgent?'true':undefined} onclick={()=>chooseMachine(item.agentId)}><strong>{item.host}</strong><span>{item.capabilities?.osUser || 'Shell user unavailable'} · {item.ready?'Ready':readiness(item)}</span></button>{:else}<p>No machines match.</p>{/each}</nav>
 </WorkspaceDialog>{/if}
+{#if newSessionOpen}<WorkspaceDialog title="New session" onclose={() => newSessionOpen = false}>
+  <p class="dialog-copy">Choose what to start on <strong>{machine?.host || 'your machine'}</strong>.</p>
+  <div class="new-session-choice">
+    <button type="button" class="new-session-option" aria-label="Agent session" onclick={() => void chooseNewSession('agent')}><strong>Agent session</strong><span>Give an agent a brief and let it work in a folder.</span></button>
+    <button type="button" class="new-session-option" aria-label="Terminal session" onclick={() => void chooseNewSession('terminal')}><strong>Terminal session</strong><span>A shell on the machine, with no agent.</span></button>
+  </div>
+</WorkspaceDialog>{/if}
 {#if showCreate}<WorkspaceDialog title="New terminal session" onclose={() => showCreate = false}><p class="dialog-copy">Choose where your terminal will run.</p>{#if error}<p class="dialog-copy" role="alert">{error}</p>{/if}{@render createForm()}</WorkspaceDialog>{/if}
 {#if agentStart}<StartAgentDialog {machines} {projects} snapshot={agentFolders} initialAgent={agentStart.agent} initialDir={agentStart.dir ?? ''} projectId={agentStart.projectId ?? ''} opener={agentStart.opener} onstarted={agentStarted} onaddmachine={()=>location.assign('/machines#add-machine')} onclose={closeAgentStart} />{/if}
 {#if addingProject}<AddProjectDialog {machines} opener={addingProject.opener} onadded={projectAdded} onsignedout={()=>{accessDenied=true;addingProject=null}} onclose={()=>addingProject=null} />{/if}
@@ -573,6 +593,7 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   @media (max-width:650px){.workspace:has(:global(.session-screen)) .workspace-title>a{display:none}}
   .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:14px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:.75rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:.65rem;border-radius:20px;background:var(--tint);padding:1px 5px}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:.85rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:.75rem}.create-form input,.create-form select{width:100%;min-width:0}.create-form p{grid-column:1/-1;font-size:.72rem;color:var(--muted);line-height:1.5;margin:0 0 16px}.workspace-notice{margin:0;padding:7px 12px;background:var(--tint);font-size:.74rem;flex-shrink:0;display:flex;align-items:center;gap:10px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:.8rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:14px;border-radius:8px}.setup-notice pre{font-size:.75rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:.85rem;margin:0 0 10px}.shortcut-help p+p{margin-top:8px}
   .creation-error{color:var(--bad)!important}.find-machine{font-size:.72rem;padding:6px 8px;min-height:34px}.machine-search{display:grid;gap:8px;font-size:.8rem}.machine-results{display:grid;gap:8px;max-height:50dvh;overflow:auto}.machine-result{display:grid;gap:5px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}.machine-result[aria-current=true]{border-color:var(--accent)}.machine-result span{font-size:.74rem;color:var(--muted)}
+  .new-session-choice{display:grid;gap:10px}.new-session-option{display:grid;gap:5px;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);cursor:pointer}.new-session-option:hover,.new-session-option:focus-visible{border-color:var(--accent)}.new-session-option strong{font-size:.9rem}.new-session-option span{font-size:.78rem;color:var(--muted);line-height:1.5}
   .end-options{display:grid;gap:14px;margin-top:16px;font-size:.8rem}.end-options .option{display:grid;gap:5px}.end-options label{display:flex;align-items:flex-start;gap:9px;line-height:1.5;cursor:pointer}.end-options input{flex:none;width:16px;height:16px;min-height:0;margin:2px 0 0;padding:0;border:0;background:none;accent-color:var(--accent)}.end-options p,.end-options a{margin:0;font-size:.72rem;line-height:1.6;color:var(--muted)}.end-options p{margin-left:25px}.end-options a{justify-self:start;color:var(--accent-text)}
   .mobile-label{display:none}
   .viewport-debug{position:fixed;top:4px;right:4px;z-index:200;margin:0;padding:4px 6px;max-width:calc(100vw - 8px);white-space:pre-wrap;font:10px/1.3 var(--mono);color:#fff;background:rgb(0 0 0 / .72);border-radius:4px;pointer-events:none;user-select:none}

@@ -76,7 +76,7 @@ const pane=page.locator('.pane')
 const selected=()=>new URL(page.url()).searchParams.get('session')
 async function live(){await expect(pane).toHaveAttribute('data-connection-state','live')}
 async function chooseMachine(id){const host=machines.find(m=>m.agentId===id)?.host||id;await page.getByRole('button',{name:'Find machine',exact:true}).click();await page.getByLabel('Machine or shell user').fill(host);await page.getByRole('navigation',{name:'Matching machines'}).getByRole('button',{name:new RegExp(`^${host.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}`)}).click()}
-async function create(name){await page.getByRole('button',{name:'New session',exact:true}).click();await page.getByLabel('New session name').fill(name);await page.getByRole('button',{name:'New terminal',exact:true}).click()}
+async function create(name){await page.getByRole('button',{name:'New session',exact:true}).click();await page.getByRole('button',{name:'Terminal session',exact:true}).click();await page.getByLabel('New session name').fill(name);await page.getByRole('button',{name:'New terminal',exact:true}).click()}
 async function refresh(){const toggle=page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/});if(await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();await page.getByRole('button',{name:'Refresh status',exact:true}).click()}
 async function manage(name){await page.locator('.session-menu summary').click();await page.getByRole('button',{name,exact:true}).click()}
 try{
@@ -202,6 +202,7 @@ try{
  for(let i=0;i<8;i++)sessions.push(makeSession(agentA,`Quota ${i}`))
  await refresh()
  await page.getByRole('button',{name:'New session',exact:true}).click()
+ await page.getByRole('button',{name:'Terminal session',exact:true}).click()
  await expect(page.getByRole('dialog')).toContainText('Session limit reached')
  await expect(page.getByRole('button',{name:'New terminal',exact:true})).toBeDisabled()
  await page.getByRole('button',{name:'Close New terminal session'}).click()

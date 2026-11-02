@@ -220,6 +220,11 @@ including enrolled hosts that need connection/setup. Each machine remembers its
 last selected session while this workspace is mounted. The selected user/host
 remains visible on phones; moving from desktop to phone closes the panel.
 
+**New session** first asks what to start: an **Agent session** opens the Start an
+agent dialog, and a **Terminal session** opens the shell form (asking for a
+machine first when none is selected). An unconfirmed creation skips the question
+and opens its own retry instead.
+
 Each unconfirmed creation keeps its immutable request ID and original title per
 machine while the workspace is mounted. Switching machines cannot discard or
 retarget that retry. **Review creation** or **New session** opens the original retry;
@@ -346,7 +351,7 @@ reet refuses the install, and says why, when:
 | --- | --- |
 | Disconnect | Close this browser attachment; leave the shell running |
 | Reconnect | Attach to that existing shell; do not create another |
-| New session | Explicitly create a shell; preserve retry IDs on uncertain responses |
+| New session | Choose an agent session or a shell, then create it; preserve retry IDs on uncertain responses |
 | Manage → Rename | Change the title; preserve process identity |
 | Manage → End session | Confirm and request termination of the exact shell and its work |
 | History | Search saved Bash/Zsh commands; paste to edit or explicitly review and run |

@@ -70,7 +70,7 @@ type chatSession struct {
 
 	// outbox holds events produced while no control connection is attached,
 	// oldest first. It is bounded by the same event and byte ceilings as the
-	// controller's ring, and sheds the oldest first.
+	// controller's ring, shedding old output before current approval state.
 	outbox      []terminalproto.ACPEvent
 	outboxBytes int
 }
@@ -261,6 +261,7 @@ func (s *chatSupervisor) flush(h *chatHost) {
 			}
 			cs.outbox = append([]terminalproto.ACPEvent{event}, cs.outbox...)
 			cs.outboxBytes += chatEventBytes(event)
+			trimChatOutbox(cs)
 			s.mu.Unlock()
 			return
 		}
@@ -863,10 +864,16 @@ func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 		s.mu.Unlock()
 		return
 	}
+	previousStatus := cs.lastStatus
 	recordChatSessionEvent(cs, wire)
 	link := s.link
 	if link == nil || !link.live {
 		bufferChatEvent(cs, wire)
+		// A resolution can settle the retained waiting status without a native
+		// status event. Keep that new state available during a stalled replay.
+		if wire.Kind != "status" && cs.lastStatus != nil && cs.lastStatus != previousStatus {
+			bufferChatEvent(cs, *cs.lastStatus)
+		}
 		s.mu.Unlock()
 		return
 	}
@@ -957,46 +964,33 @@ func recordChatSessionEvent(cs *chatSession, wire terminalproto.ACPEvent) {
 	}
 }
 
+// seedRecoveredChatEvents ends the replay with the current pending approvals
+// and status. Putting them before a full backlog would evict them again as the
+// bounded outbox is rebuilt. An approval already buffered is moved to its
+// current snapshot rather than replayed twice; resolved approvals keep their
+// original history and are never recreated from the pending set.
 func seedRecoveredChatEvents(cs *chatSession) {
-	if cs.state != terminalproto.Running {
+	if cs.state != terminalproto.Running || cs.lastStatus == nil && len(cs.pending) == 0 {
 		return
 	}
-	var prefix []terminalproto.ACPEvent
-	if cs.lastStatus != nil {
-		hasStatus := false
-		for _, e := range cs.outbox {
-			if e.Kind == "status" {
-				hasStatus = true
-				break
-			}
-		}
-		if !hasStatus {
-			prefix = append(prefix, *cs.lastStatus)
-		}
-	}
-	for _, p := range cs.pending {
-		inOutbox := false
-		for _, e := range cs.outbox {
-			if (e.Kind == "permission" || e.Kind == "permission_resolved" || e.Kind == "permission_cancelled") && e.PermissionID == p.PermissionID {
-				inOutbox = true
-				break
-			}
-		}
-		if !inOutbox {
-			prefix = append(prefix, p)
-		}
-	}
-	if len(prefix) == 0 {
-		return
+	pending := make(map[string]bool, len(cs.pending))
+	for _, approval := range cs.pending {
+		pending[approval.PermissionID] = true
 	}
 	saved := cs.outbox
 	cs.outbox = nil
 	cs.outboxBytes = 0
-	for _, e := range prefix {
-		bufferChatEvent(cs, e)
+	for _, event := range saved {
+		if event.Kind == "permission" && pending[event.PermissionID] {
+			continue
+		}
+		bufferChatEvent(cs, event)
 	}
-	for _, e := range saved {
-		bufferChatEvent(cs, e)
+	for _, approval := range cs.pending {
+		bufferChatEvent(cs, approval)
+	}
+	if cs.lastStatus != nil {
+		bufferChatEvent(cs, *cs.lastStatus)
 	}
 }
 
@@ -1007,10 +1001,55 @@ func bufferChatEvent(cs *chatSession, event terminalproto.ACPEvent) {
 	}
 	cs.outbox = append(cs.outbox, event)
 	cs.outboxBytes += size
+	trimChatOutbox(cs)
+}
+
+func trimChatOutbox(cs *chatSession) {
 	for len(cs.outbox) > maxDetachedChatEvents || cs.outboxBytes > maxDetachedChatBytes {
-		cs.outboxBytes -= chatEventBytes(cs.outbox[0])
-		cs.outbox = cs.outbox[1:]
+		drop := oldestChatHistoryEvent(cs)
+		cs.outboxBytes -= chatEventBytes(cs.outbox[drop])
+		if drop == 0 {
+			cs.outbox[0] = terminalproto.ACPEvent{}
+			cs.outbox = cs.outbox[1:]
+		} else {
+			copy(cs.outbox[drop:], cs.outbox[drop+1:])
+			cs.outbox[len(cs.outbox)-1] = terminalproto.ACPEvent{}
+			cs.outbox = cs.outbox[:len(cs.outbox)-1]
+		}
 	}
+}
+
+// Evict old history before pending approvals and the latest buffered status.
+// These records still need to survive if native output
+// continues while a replacement transport is blocked. The hard queue ceilings
+// also apply when the entire buffer consists of approval state.
+func oldestChatHistoryEvent(cs *chatSession) int {
+	latestStatus := -1
+	for i := len(cs.outbox) - 1; i >= 0; i-- {
+		if cs.outbox[i].Kind == "status" {
+			latestStatus = i
+			break
+		}
+	}
+	for i, event := range cs.outbox {
+		if i == latestStatus {
+			continue
+		}
+		if event.Kind == "permission" {
+			pending := false
+			for _, approval := range cs.pending {
+				if approval.PermissionID == event.PermissionID {
+					pending = true
+					break
+				}
+			}
+			if pending {
+				continue
+			}
+		}
+		return i
+	}
+	return 0
 }
 
 func chatEventBytes(event terminalproto.ACPEvent) int {

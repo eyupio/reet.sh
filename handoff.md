@@ -90,20 +90,20 @@ wide at 320 px since #370.
   start says "Sign in to Codex on that machine first"; the adapter's `_auth/status_update` label is shown in the chat, never the email.
 - The current mode is stored on the session, not sent only as an event.
 
-**Current slice (2 November, [draft #391](https://github.com/eyupio/reet.sh/pull/391)):** the owner approved building Codex login access from source evidence and keeping section 3's signed-in Run B as
+**Codex login access merged (2 November, [#391](https://github.com/eyupio/reet.sh/pull/391)):** the owner approved building Codex login access from source evidence and keeping section 3's signed-in Run B as
 final verification. The profile now routes `CODEX_HOME` to the connector's own setting or original `HOME/.codex`, keeps replacement `HOME`, drops XDG
 home directories for Codex, never calls `authenticate`, maps the authentication-required start error and forwards only the bounded status label as a notice.
 Neither feature switch is retired. See the new progress note in the plan and source checkpoint in the probe report; test and publication results belong
-in the draft PR. The earlier requirement to wait for section 3 before coding is superseded for this slice. Run B remains the next owner check; if it still
+in that PR. The earlier requirement to wait for section 3 before coding is superseded for this slice. Run B remains the next owner check; if it still
 says "Authentication required", stop and ask the owner which way to go. No hardware or genuine-login check has been completed here.
 
 **What is left, in order:**
 1. **Needs the owner's hardware:** `docs/device-checks.md` section 3 (Codex signed out and signed in, `scripts/probe-codex-start.py
    --auth none [--codex-home <copy>]`); section 2 (Claude logged out and logged in); section 1 (touch device and screen reader for typed
    questions). Record each result in the probe report and the PR.
-2. **After section 3:** build the Codex login access (`CODEX_HOME` as decided; connector currently replaces `HOME`, so today a Codex
-   chat cannot start for a signed-in person), the "Sign in to Codex on that machine first" start error, and the `_auth/status_update`
-   label in the chat. Until then Codex stays dark.
+2. **Codex login access — merged (#391):** the profile routes `CODEX_HOME` as decided, returns "Sign in to Codex on that machine first" for
+   the authentication-required start error, and shows only the adapter's `_auth/status_update` label. Section 3 Run B is the final verification;
+   Codex stays dark until its signed-in behaviour is recorded. If it still answers "Authentication required", ask the owner which way to go.
 3. **Codex card gaps — done and merged (#384):** the model's justification (`_meta.permission.description`) is on the approval card,
    the reject button says a Codex reject ends the whole turn ("Deny and end the turn"), and the connector's `setAgentMode` handler
    (`internal/terminalagent/chat.go`) has its own test.
@@ -111,6 +111,14 @@ says "Authentication required", stop and ask the owner which way to go. No hardw
    browser needs a "sign in to Claude on that machine" message).
 5. **SC5 remainder:** descriptor-driven chat controls (the mode control is the second agent that needs them) and extending recovery.
 6. ~~Merge the Skills page fix~~ — done: #380 merged on 2 November and `phone-zoom` is green on main again.
+
+**Current independent recovery slice (2 November, draft [#396](https://github.com/eyupio/reet.sh/pull/396)):** the owner asked for more work while the login/device checks wait. Branch
+`fix/recover-pending-chat-approvals`, with main `0e6a3b2` merged without rewriting history, fixes retained approval/status snapshots being evicted again when reconnect recovery
+rebuilds a full detached outbox. History is replayed first, then current pending cards and status. Overflow prioritizes approval state over old output,
+and a failed replay send is requeued within the same limits. The new tests fail before
+the fix and pass under the race detector. See the SC5 recovery progress note in the plan for scope and evidence. [#391](https://github.com/eyupio/reet.sh/pull/391)
+and [#392](https://github.com/eyupio/reet.sh/pull/392) have merged. #392's bot review was blocked by account quota, and its terminal CI failure
+was reproduced on main and left outside its scope. Both experimental switches remain in place; signed-in Run B is still the next owner check.
 
 **Working rules the owner set (keep following them):**
 - One item at a time: build it test-first, open a **draft** PR, watch it, and **merge only when the owner says so** (they often mark

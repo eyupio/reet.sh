@@ -52,7 +52,7 @@ Closing the tab or **End session** ends the reet session and its process. Losing
 control connection detaches it without killing the agent; the next connection adopts the running session and drains events
 queued while it was away. Recovery puts the retained pending approvals and current status after that buffered output, so a full queue
 cannot immediately evict the recovered card during replay preparation. If output continues during a stalled replay, the queue discards old output
-before current approvals, their resolution receipts and the latest status. It retains the original approval token and command, keeps resolved approvals
+before current pending approvals and the latest status. It retains the original approval token and command, keeps resolved approvals
 resolved, and uses the existing 1,000-event / 256 KiB queue limits, including after a failed send. Restarting the agent process ends its chats.
 
 ## The transcript

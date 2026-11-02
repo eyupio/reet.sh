@@ -1013,8 +1013,8 @@ func trimChatOutbox(cs *chatSession) {
 	}
 }
 
-// Evict old output before pending approvals, their resolution receipts and the
-// latest buffered status. These records still need to survive if native output
+// Evict old history before pending approvals and the latest buffered status.
+// These records still need to survive if native output
 // continues while a replacement transport is blocked. The hard queue ceilings
 // also apply when the entire buffer consists of approval state.
 func oldestChatHistoryEvent(cs *chatSession) int {
@@ -1026,7 +1026,7 @@ func oldestChatHistoryEvent(cs *chatSession) int {
 		}
 	}
 	for i, event := range cs.outbox {
-		if i == latestStatus || event.Kind == "permission_resolved" || event.Kind == "permission_cancelled" {
+		if i == latestStatus {
 			continue
 		}
 		if event.Kind == "permission" {

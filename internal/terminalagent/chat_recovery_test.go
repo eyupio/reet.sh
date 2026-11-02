@@ -120,10 +120,8 @@ func TestResolvedChatApprovalIsNotRevivedByBacklogRecovery(t *testing.T) {
 	if cards := out.events("permission"); len(cards) != 0 {
 		t.Fatalf("revived a cancelled approval: %+v", cards)
 	}
-	receipts := out.events("permission_cancelled")
-	if len(receipts) != 1 || receipts[0].PermissionID != recoveryPermissionID || receipts[0].Reason != "timeout" {
-		t.Fatal("lost the cancellation receipt during overflow")
-	}
+	// The final idle status retires any card retained by the controller even
+	// when its historical cancellation receipt has fallen out of the backlog.
 	statuses := out.events("status")
 	if len(statuses) == 0 || statuses[len(statuses)-1].State != "idle" {
 		t.Fatalf("lost resolved state: %+v", statuses)
@@ -256,5 +254,19 @@ func TestDetachedApprovalStateStillObeysHardQueueLimits(t *testing.T) {
 			// past the existing hard limits or keep retrying eviction forever.
 			assertRecoveryBudget(t, h)
 		})
+	}
+}
+
+func TestHistoricalChatReceiptsDoNotStarveNewOutput(t *testing.T) {
+	h, proc := openRecoveryChat(t)
+	h.close()
+	for i := 0; i < maxDetachedChatEvents+8; i++ {
+		proc.onEvent(acpagent.Event{Kind: "permission_cancelled", PermissionID: "permission-old-" + strconv.Itoa(i), Reason: "timeout"})
+	}
+	proc.onEvent(acpagent.Event{Kind: "agent", MessageID: "msg_latest", Text: "Latest answer"})
+	_, out := reattachRecoveryChat(t, h)
+	events := out.events("agent")
+	if len(events) != 1 || events[0].Text != "Latest answer" {
+		t.Fatal("old approval receipts displaced new output")
 	}
 }

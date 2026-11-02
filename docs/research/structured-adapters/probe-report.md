@@ -377,3 +377,20 @@ Until 1 and 2 are recorded, Claude chats stay behind `REET_EXPERIMENTAL_CLAUDE_C
 `ClaudeCandidate` with no prompt, so no model call. Observed: the adapter identity and version floor pass, the session starts in
 the required Manual (`default`) mode with a UUID-form id, `Close` returns with the process group retired, and a profile whose floor is
 above the installed adapter refuses to start it. It does not test credentials, turns, approvals or resume.
+
+
+## Codex login source check (2 November 2026; runtime check still pending)
+
+The owner approved implementing the login route from source evidence and keeping the real signed-in run as final verification. The pinned
+`@agentclientprotocol/codex-acp@1.13.1` package source was inspected, without reading a person's credentials or making a model call:
+
+- `checkAuthorization` uses `authRequired`, which calls `accountRead({refreshToken: false})` and returns `requiresOpenaiAuth && !account`.
+  An existing account therefore needs no ACP `authenticate` call according to the source. This has not yet been observed with a real ChatGPT login.
+- `_auth/status_update` carries `authStatus.kind` and `label`. ChatGPT is kind `account`, with a label such as "ChatGPT Pro" and a separate
+  `account.email`. Other kinds are `none` ("Not logged in"), `api_key` ("OpenAI API key"), `gateway` and `external`. The first push is scheduled
+  after initialize; later account changes can push another status.
+- The integration uses the person's actual `CODEX_HOME` (or original `HOME/.codex`), while keeping replacement `HOME`. It decodes only the public label
+  and known kind, discarding account and detail. It never calls `authenticate` or copies `auth.json`.
+
+The fake-child regressions establish reet's routing, mode confirmation and error/notice handling; they do not establish provider authentication.
+Section 3 Run B in `docs/device-checks.md` remains the signed-in release gate. Neither switch is retired by this change.

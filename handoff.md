@@ -25,9 +25,10 @@ photographed at desktop and phone widths in light and dark, reviewed, and merged
 green. Contracts and rulings are in `docs/superpowers/specs/2026-11-02-directory-pages-refresh.md`,
 `...-skills-machines-findability.md`, `...-inbox-pages.md`, `...-admin-users.md`,
 `...-admin-team-usage.md`, `...-admin-tickets.md`, `...-admin-email.md` and
-`...-admin-notifications.md`, `...-admin-backups.md`, `...-admin-settings.md` and
-`...-admin-activity.md`; checks are in [docs/ui-verification.md](docs/ui-verification.md). The refresh
-merged through #424. Merge main into the next branch as later work lands.
+`...-admin-notifications.md`, `...-admin-backups.md`, `...-admin-settings.md`,
+`...-admin-activity.md` and `...-account-sessions.md`; checks are in
+[docs/ui-verification.md](docs/ui-verification.md). The refresh merged through #425. Merge main into
+the next branch as later work lands.
 
 **Merged, all with every required check green:**
 
@@ -46,7 +47,8 @@ merged through #424. Merge main into the next branch as later work lands.
 | #421 | `90fa3a6` | Admin → Notifications as one grouped defaults panel: count, Save, locked facts, retry; no search. |
 | #422 | `a08acb1` | Admin → Backups copies and runs in the collection grammar: counts, search, overlapping location chips, verify damage, retry; settings unchanged. |
 | #423 | `6fc3197` | Admin → Settings as one instance panel: six grouped settings, Save, read-only view; immediate cards now only on Settings. |
-| #424 | this PR | Admin → Activity as one audit panel: newest 100, count, search, area chips, one row anatomy; no API change. |
+| #424 | `ba3ce32` | Admin → Activity as one audit panel: newest 100, count, search, area chips, one row anatomy; no API change. |
+| #425 | this PR | Account → Sessions as one browser panel: count, search, this/other chips, sign-out actions; search reads friendly devices. |
 
 **What the refresh established.** The directory pages (Lists, Community, Teams, Setups) share one
 bounded surface, a count, search, scope chips whose figures follow the search, one row anatomy and
@@ -75,7 +77,8 @@ the schedule, destinations and import stay as they were. Settings is the seventh
 instance settings in one panel with Save, plus the immediate Approvals, Repository maintenance and
 Software artifact mirror cards that now appear only there. Activity is the eighth: the newest 100
 events with a count, search, area chips and one row anatomy. All seven Admin sections are now in the
-collection grammar.
+collection grammar. Account Sessions is the first Account page in it: count, search, this/other
+browsers and the existing sign-out actions.
 
 **Rulings recorded in the specs.** Scope chips keep no URL state; Rows and Cards both survive; the
 directory pages use rows; ownership and role are each printed once; recency is relative with the
@@ -86,11 +89,12 @@ select is shown. No API, store, permission or dependency was added for the refre
 
 **Not claimed.** No physical phone or tablet, no screen reader, and no Safari or Firefox for any of
 the refreshed pages. Touch sizes were measured in an emulated coarse-pointer viewport. The Machines
-search matches observed reports, not saved intent. All seven Admin sections are refreshed; the
-Account pages are not yet.
+search matches observed reports, not saved intent. All seven Admin sections are refreshed. Account
+Sessions is the first Account page refreshed; the rest are not yet.
 
 **Next UI work, in order:**
-1. **Account pages** (profile, security, sessions, tokens, backups, MCP access) in the same grammar.
+1. **Remaining Account pages**: profile, security, tokens, MCP access, Activity and Backups (the
+   Backups lists already inherit the refreshed component).
 2. **Skills/Machines follow-ups:** per-machine skill add/remove, the collapsed-badge summary for
    large fleets, and **Add now** where a scan is stale or not confirmed.
 3. **Machines audit minors:** N1 (mixed date formats), N7 (Commands dialog exits), H10 (icon
@@ -1425,6 +1429,7 @@ node web/tests/admin-notifications.e2e.mjs
 node web/tests/admin-backups.e2e.mjs
 node web/tests/admin-settings.e2e.mjs
 node web/tests/admin-activity.e2e.mjs
+node web/tests/account-sessions.e2e.mjs
 node web/tests/machines-search.e2e.mjs
 node web/tests/terminal-workspace.e2e.mjs
 node web/tests/terminal-lifecycle.e2e.mjs

@@ -879,3 +879,62 @@ func TestChatHostForwardsCodexLoginNoticeDuringStart(t *testing.T) {
 	}
 	t.Fatal("startup notice never reached the controller")
 }
+
+func TestChosenModelStartupRefusalDoesNotAnnounceOrPrompt(t *testing.T) {
+	h, proc, out := testChatHost(t)
+	t.Cleanup(h.sup.Close)
+	h.sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
+		if opts.Model != "stub/model" {
+			t.Errorf("chosen model not passed to admission: %q", opts.Model)
+		}
+		// The real ACP client closes a rejected startup and emits this final
+		// callback before Start returns its model refusal.
+		opts.OnEvent(acpagent.Event{Kind: "status", State: "ended"})
+		return nil, acpagent.ErrModel
+	}
+	_, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chosen model", Cols: 80, Rows: 24, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home, Model: "stub/model", Prompt: "opening prompt"})
+	if !errors.Is(err, acpagent.ErrModel) {
+		t.Fatalf("start refusal: %v", err)
+	}
+	if out.hasSession(terminalproto.Running) || out.hasSession(terminalproto.Exited) || h.find("session-0123456789") != nil {
+		t.Fatal("unadmitted chat leaked a lifecycle announcement or session")
+	}
+	proc.mu.Lock()
+	prompted := proc.prompted
+	proc.mu.Unlock()
+	if prompted != "" || out.chatText("opening prompt") {
+		t.Fatal("opening prompt was admitted after model refusal")
+	}
+	result := chatResult(err)
+	if result.Code != terminalproto.ACPUnavailable || !bytes.Contains([]byte(result.Detail), []byte("chosen model")) {
+		t.Fatalf("model refusal was hidden: %+v", result)
+	}
+}
+
+func TestProcessEndingDuringAdmissionIsObservedAfterAdmission(t *testing.T) {
+	h, proc, out := testChatHost(t)
+	t.Cleanup(h.sup.Close)
+	h.sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
+		opts.OnEvent(acpagent.Event{Kind: "status", State: "ended"})
+		proc.Close()
+		return proc, nil
+	}
+	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Short-lived chat", Cols: 80, Rows: 24, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home}); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "admitted process exit", func() bool {
+		snapshot, ok := h.snapshot("session-0123456789")
+		return ok && snapshot.State == terminalproto.Exited && out.hasSession(terminalproto.Exited)
+	})
+	out.mu.Lock()
+	defer out.mu.Unlock()
+	var last terminalproto.SessionState
+	for _, message := range out.msgs {
+		if state, ok := message.Body.(*terminalproto.SessionChanged); ok {
+			last = state.State
+		}
+	}
+	if last != terminalproto.Exited {
+		t.Fatalf("exit was overwritten by admission: %q", last)
+	}
+}

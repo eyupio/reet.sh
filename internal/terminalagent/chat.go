@@ -842,7 +842,11 @@ func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 		// option exists), and that is what the controller audits.
 		_ = process.Allow(event.PermissionID, true)
 	}
-	if event.Kind == "status" && event.State == "ended" {
+	// A rejected Start closes its child before returning the refusal. That
+	// callback must not turn the controller's pending create into an exited
+	// session before the refusal is recorded. Once admitted, Done also observes
+	// an exit that raced startup and publishes its final lifecycle state.
+	if event.Kind == "status" && event.State == "ended" && process != nil {
 		s.ended(cs, 0)
 	}
 }

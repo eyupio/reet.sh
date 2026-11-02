@@ -265,9 +265,18 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		s.Close()
 		return nil, fmt.Errorf("%s is not in %s mode; the chat was not started", spec.displayName(), spec.RequireMode)
 	}
-	if opts.Model != "" && model != "" && model != opts.Model {
-		s.Close()
-		return nil, ErrModel
+	// The launch environment carries a request, not an acknowledgement. A
+	// chosen model needs one unambiguous read-back on both new and load before
+	// this session can be announced or receive its opening prompt. Agent-default
+	// launches retain their existing behaviour when no model is reported.
+	if opts.Model != "" {
+		// Startup has no omitted-list exception, including for OpenCode.
+		confirmed, ok := acknowledgedModel(raw, opts.Model, false)
+		if !ok || confirmed != opts.Model {
+			s.Close()
+			return nil, ErrModel
+		}
+		model = confirmed
 	}
 	sessionID := created.SessionID
 	if !opened {

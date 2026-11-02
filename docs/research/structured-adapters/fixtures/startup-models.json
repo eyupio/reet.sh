@@ -1,0 +1,159 @@
+[
+  {
+    "agent": "opencode",
+    "requested": "",
+    "node": "v24.19.0",
+    "agentInfo": {
+      "name": "OpenCode",
+      "version": "1.19.5"
+    },
+    "new": {
+      "models": {
+        "currentModelId": null
+      },
+      "configOptions": [
+        {
+          "id": "model",
+          "currentValue": "opencode/big-pickle"
+        },
+        {
+          "id": "mode",
+          "currentValue": "build"
+        }
+      ]
+    },
+    "load": {
+      "models": {
+        "currentModelId": null
+      },
+      "configOptions": [
+        {
+          "id": "model",
+          "currentValue": "opencode/big-pickle"
+        },
+        {
+          "id": "mode",
+          "currentValue": "build"
+        }
+      ]
+    },
+    "methods": [
+      "initialize",
+      "session/new",
+      "session/load"
+    ]
+  },
+  {
+    "agent": "opencode",
+    "requested": "anthropic/claude-sonnet-4-5",
+    "node": "v24.19.0",
+    "agentInfo": {
+      "name": "OpenCode",
+      "version": "1.19.5"
+    },
+    "new": {
+      "models": {
+        "currentModelId": null
+      },
+      "configOptions": [
+        {
+          "id": "model",
+          "currentValue": "opencode/big-pickle"
+        },
+        {
+          "id": "mode",
+          "currentValue": "build"
+        }
+      ]
+    },
+    "load": {
+      "models": {
+        "currentModelId": null
+      },
+      "configOptions": [
+        {
+          "id": "model",
+          "currentValue": "opencode/big-pickle"
+        },
+        {
+          "id": "mode",
+          "currentValue": "build"
+        }
+      ]
+    },
+    "methods": [
+      "initialize",
+      "session/new",
+      "session/load"
+    ]
+  },
+  {
+    "agent": "claude",
+    "requested": "",
+    "node": "v24.19.0",
+    "agentInfo": {
+      "name": "@agentclientprotocol/claude-agent-acp",
+      "title": "Claude Agent",
+      "version": "0.99.1"
+    },
+    "new": {
+      "models": {
+        "currentModelId": null
+      },
+      "configOptions": [
+        {
+          "id": "mode",
+          "currentValue": "default"
+        },
+        {
+          "id": "model",
+          "currentValue": "default"
+        },
+        {
+          "id": "effort",
+          "currentValue": "default"
+        },
+        {
+          "id": "fast",
+          "currentValue": "off"
+        },
+        {
+          "id": "ultracode",
+          "currentValue": "off"
+        }
+      ]
+    },
+    "load": {
+      "models": {
+        "currentModelId": null
+      },
+      "configOptions": [
+        {
+          "id": "mode",
+          "currentValue": "default"
+        },
+        {
+          "id": "model",
+          "currentValue": "default"
+        },
+        {
+          "id": "effort",
+          "currentValue": "default"
+        },
+        {
+          "id": "fast",
+          "currentValue": "off"
+        },
+        {
+          "id": "ultracode",
+          "currentValue": "off"
+        }
+      ]
+    },
+    "methods": [
+      "initialize",
+      "session/new",
+      "session/load"
+    ]
+  }
+]

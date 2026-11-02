@@ -59,6 +59,34 @@ func TestFakeACP(t *testing.T) {
 		fields["sessionUpdate"] = kind
 		send(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": session, "update": fields}})
 	}
+	startupReply := func(id json.RawMessage, native string) bool {
+		if !strings.HasPrefix(scenario, "startup-model-") {
+			return false
+		}
+		shape := strings.TrimPrefix(scenario, "startup-model-")
+		options := []map[string]any{{"id": "mode", "currentValue": "build"}}
+		switch shape {
+		case "missing":
+		case "empty":
+			options = append(options, map[string]any{"id": "model", "currentValue": ""})
+		case "null":
+			options = append(options, map[string]any{"id": "model", "currentValue": nil})
+		case "no-value":
+			options = append(options, map[string]any{"id": "model"})
+		case "wrong-type":
+			options = append(options, map[string]any{"id": "model", "currentValue": 42})
+		case "other":
+			options = append(options, map[string]any{"id": "model", "currentValue": "provider/other"})
+		case "duplicate":
+			options = append(options, map[string]any{"id": "model", "currentValue": "provider/other"}, map[string]any{"id": "model", "currentValue": "stub/model"})
+		case "duplicate-same":
+			options = append(options, map[string]any{"id": "model", "currentValue": "stub/model"}, map[string]any{"id": "model", "currentValue": "stub/model"})
+		default:
+			options = append(options, map[string]any{"id": "model", "currentValue": "stub/model"})
+		}
+		reply(id, map[string]any{"sessionId": native, "configOptions": options})
+		return true
+	}
 	var promptID json.RawMessage
 	var session string
 	modeCalls := 0
@@ -166,6 +194,9 @@ func TestFakeACP(t *testing.T) {
 			}
 			_ = json.Unmarshal(message.Params, &params)
 			session = params.SessionID
+			if startupReply(message.ID, session) {
+				continue
+			}
 			if scenario == "load-plan" {
 				reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": "plan"}}})
 				continue
@@ -194,6 +225,9 @@ func TestFakeACP(t *testing.T) {
 				mode = "plan"
 			}
 			session = "ses_fake_1"
+			if startupReply(message.ID, session) {
+				continue
+			}
 			if scenario == "question-early" {
 				// Asked while the chat is still starting, before session/new has answered.
 				send(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "elicitation/create", "params": map[string]any{
@@ -1824,6 +1858,77 @@ func TestModelSwitchAcknowledgementContract(t *testing.T) {
 					t.Fatal("model switch replaced the conversation")
 				}
 			})
+		}
+	}
+}
+
+func TestStartupRequiresTheChosenModelToBeConfirmed(t *testing.T) {
+	for _, profile := range []string{"opencode", "claude"} {
+		for _, resume := range []bool{false, true} {
+			for _, shape := range []string{"matching", "other", "missing", "empty", "null", "no-value", "wrong-type", "duplicate", "duplicate-same"} {
+				t.Run(fmt.Sprintf("%s/resume=%v/%s", profile, resume, shape), func(t *testing.T) {
+					opts, got := options(t, "startup-model-"+shape, testVersion)
+					opts.Model = "stub/model"
+					if profile == "claude" {
+						// The child's transport identity/mode are synthetic; retain the real
+						// profile's environment and startup-model confirmation policy.
+						opts.Agent = ClaudeCandidate
+						opts.Agent.ExpectedName = "OpenCode"
+						opts.Agent.RequireMode = "build"
+					}
+					if resume {
+						opts.Resume = "ses_resumed_1"
+					}
+					session, err := Start(t.Context(), opts)
+					if shape == "matching" {
+						if err != nil {
+							t.Fatal(err)
+						}
+						defer session.Close()
+						if session.Model() != opts.Model {
+							t.Fatalf("confirmed model %q", session.Model())
+						}
+						if resume && session.SessionID() != opts.Resume {
+							t.Fatal("resume identity changed")
+						}
+						return
+					}
+					if session != nil {
+						session.Close()
+						t.Error("returned a usable chat without confirming the chosen model")
+					}
+					if err == nil {
+						t.Fatal("unconfirmed startup accepted")
+					}
+					if shape != "wrong-type" && !errors.Is(err, ErrModel) {
+						t.Fatalf("wrong refusal: %v", err)
+					}
+					got.mu.Lock()
+					defer got.mu.Unlock()
+					for _, event := range got.all {
+						if event.Kind == "status" && event.State == "idle" {
+							t.Fatalf("unconfirmed startup was announced idle: %+v", event)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestAgentDefaultStartupDoesNotRequireAnExplicitModel(t *testing.T) {
+	for _, resume := range []bool{false, true} {
+		opts, _ := options(t, "startup-model-missing", testVersion)
+		if resume {
+			opts.Resume = "ses_resumed_1"
+		}
+		session, err := Start(t.Context(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		session.Close()
+		if session.Model() != "" {
+			t.Fatalf("invented a confirmed default: %q", session.Model())
 		}
 	}
 }

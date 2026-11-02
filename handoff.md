@@ -103,12 +103,10 @@ dark: a machine reports one as available only when its connector runs with `REET
 (`internal/terminalproto/acp_agents.go`); the controller binds each to its reviewed adapter; the browser offers a chat only from
 a descriptor that says `available`.
 
-**Current independent slice (2 November, [#392](https://github.com/eyupio/reet.sh/pull/392), opened as a draft):** the owner asked to continue while the login checks are pending. Branch
-`fix/descriptor-chat-model-control` makes the live Model controls and their lookups follow the available agent descriptor (legacy OpenCode uses
-`acpModel`); capability loss clears options and retires pending lookups, and provider-error wording no longer points at an unavailable control.
-This is the first bounded SC5 controls slice, independently based on main. See the SC5 progress note in the plan. Codex login access is separately
-implemented in [#391](https://github.com/eyupio/reet.sh/pull/391), whose CI is green; the owner marked it ready, but bot review is blocked by account
-quota and signed-in Run B remains pending. Neither switch is retired, and no physical-device or genuine-login check is claimed.
+**Main integrated into this PR:** `f051948` includes the owner's merges of pending typed-question recovery (#402, `a78ffa6`) and live model acknowledgement (#406).
+The earlier documentation-only #401 merged as `d5a4e80`; do not duplicate it. The active bounded SC5 slice is startup model confirmation,
+branch `fix/confirm-startup-chat-model`, based on `1235328` with main `6973f08` and `f051948` merged without rewriting history. Implementation began at `a032345`.
+The owner authorized this slice and asked that this handoff be current when its draft PR is created.
 
 **On main (merged):**
 - SC1–SC2: per-agent descriptors; probes of the Claude and Codex adapters (report above).
@@ -160,58 +158,64 @@ Neither feature switch is retired. See the new progress note in the plan and sou
 in that PR. The earlier requirement to wait for section 3 before coding is superseded for this slice. Run B remains the next owner check; if it still
 says "Authentication required", stop and ask the owner which way to go. No hardware or genuine-login check has been completed here.
 
-**What is left, in order:**
-1. **Needs the owner's hardware:** `docs/device-checks.md` section 3 (Codex signed out and signed in, `scripts/probe-codex-start.py
-   --auth none [--codex-home <copy>]`); section 2 (Claude logged out and logged in); section 1 (touch device and screen reader for typed
-   questions). Record each result in the probe report and the PR.
-2. **Codex login access — merged (#391):** the profile routes `CODEX_HOME` as decided, returns "Sign in to Codex on that machine first" for
-   the authentication-required start error, and shows only the adapter's `_auth/status_update` label. Section 3 Run B is the final verification;
-   Codex stays dark until its signed-in behaviour is recorded. If it still answers "Authentication required", ask the owner which way to go.
-3. **Codex card gaps — done and merged (#384):** the model's justification (`_meta.permission.description`) is on the approval card,
-   the reject button says a Codex reject ends the whole turn ("Deny and end the turn"), and the connector's `setAgentMode` handler
-   (`internal/terminalagent/chat.go`) has its own test.
-4. **After the checks are recorded:** retire `REET_EXPERIMENTAL_CLAUDE_CHAT` and `REET_EXPERIMENTAL_CODEX_CHAT` (and decide whether the
-   browser needs a "sign in to Claude on that machine" message).
-5. **SC5 remainder:** broader descriptor contracts and recovery, including native-process adoption. Live model controls follow the agent descriptor (#392, merged); pending approvals and current status survive full reconnect backlogs (#396, merged).
-6. ~~Merge the Skills page fix~~ — done: #380 merged on 2 November and `phone-zoom` is green on main again.
+**Owner checks, still unverified:** the owner deferred section 3 signed-in Run B ("skip this, assume it works for now"). This is permission to
+continue independent SC5 work, not evidence of a real login. Do not re-ask while it remains deferred. When resumed, signed-in Run B runs first,
+then Run A's follow-up; if Run B still reports "Authentication required", stop and ask which direction to take. Next are section 2 Claude logged
+out/in and the decision about machine-side sign-in wording, then section 1 physical touch and screen-reader checks. Neither experimental switch nor
+`elicitation.form` is retired before its required evidence is recorded. Reet never calls `authenticate`.
 
-**Independent recovery slice merged (2 November, [#396](https://github.com/eyupio/reet.sh/pull/396)):** the owner asked for more work while the login/device checks wait. Branch
-`fix/recover-pending-chat-approvals`, with main `0e6a3b2` merged without rewriting history, fixes retained approval/status snapshots being evicted again when reconnect recovery
-rebuilds a full detached outbox. History is replayed first, then current pending cards and status. Overflow prioritizes approval state over old output,
-and a failed replay send is requeued within the same limits. The new tests fail before
-the fix and pass under the race detector. Full implementation CI passed on `ef2a418`; Linux native services passed its single allowed retry. The owner merged #396 as `35225eb`. Its automatic Codex review failed because the account’s review quota was exhausted; no submitted review or inline finding thread was produced, so that review did not complete before the merge. See the SC5 recovery progress note in the plan for scope and evidence. [#391](https://github.com/eyupio/reet.sh/pull/391)
-and [#392](https://github.com/eyupio/reet.sh/pull/392) have merged. #392's bot review was blocked by account quota, and its terminal CI failure
-was reproduced on main and left outside its scope. Both experimental switches remain in place; signed-in Run B is still the next owner check.
+**Delivered SC5 slices:**
+- #392: live model controls and lookups follow each available agent descriptor. Merged; bot review was blocked by account quota and its terminal CI
+  failure was reproduced on main and left outside scope.
+- #396 (`35225eb`): pending approvals/current status survive full/stalled reconnect replay to the surviving connector. All implementation CI passed
+  on `ef2a418`; Linux native services used its single allowed retry. Codex review quota was exhausted: no submitted review or finding threads.
+- #402 (`a78ffa6`): delivered typed-question cards recover with original tokens, schema and deadline; detached resolutions retire state, older peers
+  receive no question frames and pending questions are cancelled. New questions without a negotiated recipient remain cancelled. All CI passed on
+  `7dec2cc`; Codex review completed without findings. The native fixture now waits for foreground startup readiness before status polling, which
+  otherwise can steal startup's enrollment lock; private failure logs are retained.
+- #406 (`6973f08`): live model replies must confirm applied state. OpenCode alone permits omitted-list live acknowledgements; malformed/ambiguous or
+  lost replies clear process/stored model and retained status detail. Explicit protocol refusals keep the prior model; later confirmation recovers.
+  All five CI workflows passed on final head `59f896f`, without retries; Codex review completed without findings
+  ([receipt](https://github.com/eyupio/reet.sh/pull/406#issuecomment-6585858018)). No genuine-login/device gate was closed.
 
-**Current SC5 slice (2 November, draft [#402](https://github.com/eyupio/reet.sh/pull/402)):** branch `fix/recover-pending-chat-questions`, based on main `9961b11` with main `d5a4e80` merged, restores complete typed-question cards
-already delivered before a transport disconnect. It extends the existing bounded replay and retains the original process, token, schema and deadline.
-Detached resolutions retire state; an older replacement peer gets no question frames and pending questions are cancelled. New questions without a live
-negotiated recipient are still cancelled. See the appended SC5 progress note for scope and the draft PR for validation/publication results.
-#401 merged as `d5a4e80` during this work; its documentation status corrections came in with main. The owner deferred Codex Run B for now:
-no real-login pass is recorded, neither experimental switch is retired, and form capability remains off. Native-session adoption after connector
-restart and broader descriptor contracts remain future work. The next owner check remains section 3 Run B, followed by the recorded order.
+**Active SC5 slice — startup model confirmation ([draft #409](https://github.com/eyupio/reet.sh/pull/409)):** an explicitly chosen model must have exactly one valid matching read-back from `session/new`
+or `session/load` before admission or the opening prompt. Startup has no omitted-list exception, even for OpenCode. Agent-default launches preserve
+existing behaviour. Definite failed chat creates clear unconfirmed model metadata but retain the operation fingerprint/refusal for replay;
+ordinary terminals and transport uncertainty are unchanged. A close callback before admission cannot announce a premature exited session; the admitted
+process's Done watcher still observes an exit racing startup. No extra model-setting RPC, wire field, database column or adapter capability is added.
 
-**#402 CI follow-up:** the Linux native-service fixture now waits for its foreground agent's startup message before polling status.
-Status checks briefly acquire the same enrollment lock as startup; polling immediately could make the fixture exit before taking the lock.
-The fixture retains private output for startup-failure diagnostics. A local subprocess reproduction confirmed that holding the status lock
-rejects foreground startup, while waiting for readiness before checking status succeeds. The full native-service check requires CI's real service manager.
+New fake-child/controller regressions failed before these fixes and pass under race. Real pinned OpenCode 1.19.5 and Claude adapter 0.99.1
+(SDK 0.3.312) were probed on Linux x86-64 with isolated homes, without prompts or `authenticate`. OpenCode new/load reported `opencode/big-pickle`;
+Claude new/load reported `default`. Requesting `anthropic/claude-sonnet-4-5` through OpenCode's private config still read back `opencode/big-pickle`:
+config alone did not establish that selection. Enhanced opt-in Go tests passed for explicit matching OpenCode new/load and Claude new. These are
+startup/profile checks, not real-login or model-turn evidence. Exact versions, reproduction and limits are in the probe report.
 
-**Current SC5 model-confirmation slice (2 November, draft [#406](https://github.com/eyupio/reet.sh/pull/406)):** branch `fix/confirm-chat-model-switch`, implementation `9054732`, based independently on main `7e390b2` with main `a78ffa6` merged.
-The owner explicitly asked to start this slice while #402 was open. The owner has since merged #402 as `a78ffa6`; that current main is merged here without rewriting history.
-Live model changes now distinguish OpenCode's legacy omitted-list acknowledgement from explicit options and Claude's required read-back.
-Incomplete or ambiguous replies clear model state and report an error/notice. The controller clears its stored model after an unconfirmed or lost
-reply; busy, missing-chat and pre-send failures retain it. Tests cover later confirmation without replacing the conversation. See the appended SC5
-progress note and the draft PR for exact checks/publication results. No login or physical-device pass is claimed; the owner deferred Run B, both
-experimental switches remain in place and form capability remains off. Broader option contracts and native-session adoption are still separate work.
+**#409 publication and validation:** draft PR is open and unmerged. All five CI workflows passed on implementation head `bd10520`, without retries:
+[full tests/image](https://github.com/eyupio/reet.sh/actions/runs/41513691712) (full Go vet/race, web and MCP),
+[terminal browser and both phone jobs](https://github.com/eyupio/reet.sh/actions/runs/41513691713),
+[macOS/Linux native services and minimum tmux](https://github.com/eyupio/reet.sh/actions/runs/41513691764),
+[private connection](https://github.com/eyupio/reet.sh/actions/runs/41513691722) and
+[binary release](https://github.com/eyupio/reet.sh/actions/runs/41513691723). Local affected-package race checks, Go vet, API tests, web check/build
+and all 16 MCP tests passed. The five known model-discovery/orphan container failures were reproduced on main `6973f08` before local exclusions;
+CI passed the full suite without those exclusions.
+
+Codex bot review did **not** complete: the account's code-review quota was exhausted
+([bot response](https://github.com/eyupio/reet.sh/pull/409#issuecomment-6586917713)); there are no submitted reviews or inline finding threads.
+The bot summary's finding flags do not establish findings when the review failed. This handoff-only follow-up records the completed implementation
+checks; any new-head CI results belong in the PR. Do not represent the earlier head's green checks as checks of a later documentation commit.
+No merge or deployment is authorized. Login/device checks remain deferred and unverified; both experimental switches and form capability stay off.
+
+**Next independent work:** broader descriptor contracts for mode/effort and other options, measured before implementation; native-session adoption
+after connector restart remains separate. #396/#402 recover transport reconnects to a surviving connector, not connector-process restarts.
 
 **Working rules the owner set (keep following them):**
 - One item at a time: build it test-first, open a **draft** PR, watch it, and **merge only when the owner says so** (they often mark
   PRs ready or merge them themselves). Then take the next item.
-- Decisions that are the owner's to make go through the `askme` skill, one question at a time, recommendation first.
-- Commit trailers: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` and the `Claude-Session:` URL; PR bodies use the repo
-  template headings (What and why / How I checked it / Checklist), end with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
-  and the session URL; GitHub comments end with `---` and `_Generated by [Claude Code](https://claude.ai/code)_`. Do not name any external
-  reference project in a commit or PR.
+- Decisions for the owner: one question at a time, recommendation first. Do not re-ask decisions recorded here.
+- Keep the requested commit trailer `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. Use truthful Codex generation attribution;
+  do not invent or request a Claude session URL. PR bodies use What and why / How I checked it / Checklist and end with
+  `🤖 Generated with [Codex](https://openai.com/codex/)`. GitHub comments end with `---` and `_Generated by [Codex](https://openai.com/codex/)_`.
+  Never name or link an external reference project in a commit or PR.
 - Every ready PR gets a Codex bot review. Treat each finding as a claim to verify against the code: fix what is real with a test that
   fails without the fix, reply on the thread, resolve it. Merge `main` into a branch for conflicts or a fix that landed after the branch
   was cut; never rewrite history. A failing CI job is re-run at most once; a second failure is real, or is shown to be red on `main` too.
@@ -220,6 +224,8 @@ experimental switches remain in place and form capability remains off. Broader o
   claim the old state.
 
 **Running things here:**
+- In this persistent workspace activate the cached toolchain first: `. /workspace/.reet-tools/activate.sh` (Go 1.27.1).
+  The system `go` is unrelated. Avoid reinstalling available tools; web/MCP dependencies are cached.
 - `go test ./internal/api` takes about two minutes without `-race`; with `-race` it can exceed a ten-minute timeout in a small
   container (CI allows sixty). Run the other Go packages with `-race`.
 - Browser tests: `npm --prefix web run build`, then `npm --prefix web run preview -- --host 127.0.0.1 --port 4173`, then
@@ -231,10 +237,9 @@ experimental switches remain in place and form capability remains off. Broader o
   `~/gotool/go/bin` on `PATH`. The first `go build ./...` downloads modules and takes minutes. `TestCloseKillsOrphanedGroupMembers`
   (internal/acpagent) and the `TestModels*` family (internal/terminalagent) fail in this container on `main` too (no OpenCode binary,
   no process-group control), so do not read them as a regression; check the same test on `main` before chasing one.
-- A **new** branch whose history contains a commit that changes `.github/workflows/` cannot be pushed here: the account's token is
-  refused with "refusing to allow a GitHub App to create or update workflow ... without `workflows` permission". Updates to an
-  existing branch are fine, so cut such a branch at the newest commit whose history is clear of those changes, say so in one comment
-  on the pull request, and check `git diff origin/main...HEAD` is only what you meant to change.
+- Creating a branch by pushing history containing workflow changes can fail with the token's missing `workflows` permission.
+  Create the remote branch from current main through GitHub's branch tool first, then push updates. Use command-scoped
+  `git -c 'credential.helper=!gh auth git-credential' fetch/push` if cached Git HTTPS auth fails. Never print credentials.
 - Never use `pkill -f '<pattern>'` or `grep` for a pattern that also appears in your own command line: it ends the shell.
 
 ## SR1 — Self-healing automatic sync (2 November 2026)

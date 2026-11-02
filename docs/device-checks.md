@@ -102,4 +102,4 @@ may write to it): `cp -r ~/.codex "$WORKSPACE/codex-home-copy"`, then `python3 -
 **Record** whether `session/new` succeeds with no `authenticate` call, that it starts in `agent`, and the `authStatusUpdates` (kind and label) the script prints (the email is never included
 out of what you share). Delete the copy afterwards; it holds your login.
 
-Only then wire the Codex start and its "Sign in to Codex on that machine first" message.
+Codex login access and its "Sign in to Codex on that machine first" message are already merged in #391, authorized from source evidence. Run B remains their real-login verification before retiring the switch. The owner deferred this run on 2 November; no pass is recorded.

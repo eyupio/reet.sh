@@ -414,6 +414,24 @@
   })
 </script>
 
+{#snippet endedView(heading:string,lede:string)}
+        <div class="empty ended" role="status">
+          <div class="ended-glow" aria-hidden="true"></div>
+          <span class="empty-icon ended-icon" aria-hidden="true">›_</span>
+          <h2>{heading}</h2>
+          <p>{lede}</p>
+          <div class="ended-actions">
+            <button type="button" class="btn primary ended-cta" disabled={!machines.length || atQuota} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>✦ Start a new agent session</button>
+          </div>
+          <div class="ended-card">{@render createForm()}</div>
+          {#if activeSessions.length}
+            <div class="ended-resume" aria-label="Running sessions">
+              <h3>Or jump back into a running session</h3>
+              <ul>{#each activeSessions.slice(0,4) as item (item.id)}<li><button type="button" onclick={()=>chooseSession(item)}><span class="ended-dot" aria-hidden="true"></span><span class="ended-name">{item.title}</span></button></li>{/each}</ul>
+            </div>
+          {/if}
+        </div>
+{/snippet}
 {#snippet createForm()}
   <form class="create-form" onsubmit={event => { event.preventDefault(); submitCreate() }}>
     {#if pendingCreation?.error}<p class="creation-error" role="alert">{pendingCreation.error} The creation is unconfirmed. Retry checks the original operation.</p>{/if}
@@ -482,22 +500,9 @@
           {/key}
         </SessionScreen>
       {:else if selectedSession}
-        <div class="empty ended" role="status">
-          <div class="ended-glow" aria-hidden="true"></div>
-          <span class="empty-icon ended-icon" aria-hidden="true">›_</span>
-          <h2>This session has ended</h2>
-          <p>It's no longer running, so there's nothing to reconnect to. Nothing was started in its place. Pick up where you left off, or start fresh.</p>
-          <div class="ended-actions">
-            <button type="button" class="btn primary ended-cta" disabled={!machines.length || atQuota} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>✦ Start a new agent session</button>
-          </div>
-          <div class="ended-card">{@render createForm()}</div>
-          {#if activeSessions.length}
-            <div class="ended-resume" aria-label="Running sessions">
-              <h3>Or jump back into a running session</h3>
-              <ul>{#each activeSessions.slice(0,4) as item (item.id)}<li><button type="button" onclick={()=>chooseSession(item)}><span class="ended-dot" aria-hidden="true"></span><span class="ended-name">{item.title}</span></button></li>{/each}</ul>
-            </div>
-          {/if}
-        </div>
+        {@render endedView('This session has ended', "It's no longer running, so there's nothing to reconnect to. Nothing was started in its place. Pick up where you left off, or start fresh.")}
+      {:else if machine && !setup}
+        {@render endedView('Start a new session', 'Nothing is open right now. Start a new agent session or a plain terminal, or jump back into one that is still running.')}
       {:else}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>{selectedSession ? 'This session is unavailable' : selectedAgent && !machine ? 'This machine is unavailable' : 'Your next shell starts here.'}</h2><p>{selectedSession ? 'Choose an existing session or create one explicitly. No replacement shell was created.' : setup || 'Create a terminal, then return to the same session whenever you need it.'}</p>{@render createForm()}{#if setup}<button class="btn" onclick={() => detailsOpen = true}>View setup &amp; connection details</button>{/if}</div>{/if}
     </div>
   </div>

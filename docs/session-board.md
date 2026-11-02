@@ -40,7 +40,7 @@ their bodies. An account can hold 100 unlaunched items and 32 MB of saved JSON
 content, including base64 image encoding. Saved images are sent through the
 existing machine upload route when Start is pressed, and their machine paths
 are appended to the prompt. The complete launch prompt must fit the existing
-2,000-byte limit. Model and effort use the same shared picker as the launch bar:
+8,000-byte limit. Model and effort use the same shared picker as the launch bar:
 the machine's list, favourites, suggestions, `Other…`, and an honest status line,
 with effort offered only for an agent whose catalogue row takes it. The prompt
 also has **Use a skill**, which searches the account's shelf and inserts that

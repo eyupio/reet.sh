@@ -3,7 +3,7 @@ import type { BranchesResult, FolderProject, LaunchRequest, TerminalMachine, Ter
 import { isChatTool, readiness, structuredAgent } from './terminal/api'
 import { CATALOGUE, agentChoices } from './catalogue'
 import { resolveLaunchDefaults, type ModelFavourite } from './models'
-import { cleanModel, codeSentence, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
+import { MAX_PROMPT_BYTES, cleanModel, codeSentence, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
 
 // The launch bar's logic: what the sentence says, what it starts from, whether Start may be pressed, and the one create
 // request per session. Pure: no DOM, no fetch, no storage. The controller and the machine check everything again.
@@ -423,7 +423,7 @@ const RUN_REFUSALS: Record<string, string> = {
   invalid_effort: "Choose low, medium or high thinking, or the agent's default.",
   invalid_model: "That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit.",
   request_id_required: 'Starting needs a request id: 16 to 128 letters, digits, hyphens or underscores.',
-  invalid_prompt: 'The prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash.',
+  invalid_prompt: `The prompt must be valid text of at most ${MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes, without control characters other than line breaks, and must not start with a dash.`,
   project_not_found: "That project isn't on this account.",
   project_rate_limited: 'Slow down a moment, then try again.',
 }

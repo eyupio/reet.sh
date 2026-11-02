@@ -148,7 +148,7 @@ const submitAgain=d=>d.locator('form').evaluate(f=>f.requestSubmit())
 const body=i=>JSON.parse(posts.at(i))
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const LOST="We didn't hear back, so the agent may have started. Check your sessions before starting another. If you close this and start again, a second agent may start."
-const LONG='a'.repeat(1998)+'é'
+const LONG='a'.repeat(7998)+'é'
 const secrets=['fix the failing build please',LONG.slice(0,40),'opus-4.1','gpt-5-codex',SITE,'/home/dev/typed']
 const texts=async d=>{const t=await d.innerText();expect(t).not.toMatch(/verified|healthy/i);return t}
 // While a request is in flight or its outcome is unknown, nothing that would change the request can be touched.
@@ -225,19 +225,19 @@ try{
  await expect(p.status).toHaveText('')
 
  // Prompt rules, with the byte counter.
- await expect(p.count).toHaveText("0 of 2,000 bytes. Secrets don't belong here.")
+ await expect(p.count).toHaveText("0 of 8,000 bytes. Secrets don't belong here.")
  await p.prompt.fill('é')
- await expect(p.count).toHaveText("2 of 2,000 bytes. Secrets don't belong here.")
+ await expect(p.count).toHaveText("2 of 8,000 bytes. Secrets don't belong here.")
  await p.prompt.fill('-fix the build')
  await expect(d.getByText('Start the prompt with a word, not a dash.',{exact:true})).toBeVisible()
  await submitAgain(d)
  await expect(p.status).toHaveText('Start the prompt with a word, not a dash.')
  await expect(p.prompt).toBeFocused()
  await p.prompt.fill(LONG+'b')
- await expect(p.count).toHaveText("2,001 of 2,000 bytes. Secrets don't belong here.")
- await expect(d.getByText('That prompt is too long. Use at most 2000 bytes; accented letters and emoji take more than one.',{exact:true})).toBeVisible()
+ await expect(p.count).toHaveText("8,001 of 8,000 bytes. Secrets don't belong here.")
+ await expect(d.getByText('That prompt is too long. Use at most 8,000 bytes; accented letters and emoji take more than one.',{exact:true})).toBeVisible()
  await p.prompt.fill(LONG)
- await expect(p.count).toHaveText("2,000 of 2,000 bytes. Secrets don't belong here.")
+ await expect(p.count).toHaveText("8,000 of 8,000 bytes. Secrets don't belong here.")
  await expect(p.status).toHaveText('')
  await expect(d.getByText('That prompt is too long.',{exact:false})).toHaveCount(0)
  // One word could be read as a subcommand by claude and codex; gemini takes the prompt as a flag value, so one word is fine.
@@ -789,7 +789,7 @@ try{
  await sweep('typed path with its message',[p.path,p.start])
  await p.path.fill(LONG_DIR.replace('/home/builder','/home/dev'))
  await p.prompt.fill(LONG+'b')
- await expect(p.count).toHaveText("2,001 of 2,000 bytes. Secrets don't belong here.")
+ await expect(p.count).toHaveText("8,001 of 8,000 bytes. Secrets don't belong here.")
  await sweep('long prompt with its counter',[p.prompt,p.count,p.start])
  await p.prompt.fill('-fix the build')
  await p.start.click()

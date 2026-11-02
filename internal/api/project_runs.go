@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -148,9 +149,10 @@ func (s *server) projectRunStart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, viewRun(run))
 }
 
+var sentenceRunPrompt = fmt.Sprintf("The prompt must be valid text of at most %d bytes, without control characters other than line breaks, and must not start with a dash.", terminalproto.MaxPromptBytes)
+
 const (
 	sentenceSelection      = "Choose 2 to 12 different projects."
-	sentenceRunPrompt      = "The prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash."
 	sentenceNoOption       = "That agent doesn't take that option."
 	sentenceYoloNotAllowed = "An owner or admin can allow YOLO for this account in Settings."
 	sentenceSelectionBusy  = "One of those projects is still starting. Wait for it to finish, then start again."

@@ -694,7 +694,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
       <div class="approval-actions">
        <button type="button" class="btn" disabled={!!asking} title="Stops what the agent was doing" onclick={() => void respondQuestion(item, 'cancel')}>Cancel question</button>
        <button type="button" class="btn" disabled={!!asking} title="Let the agent carry on without an answer" onclick={() => void respondQuestion(item, 'decline')}>Skip</button>
-       <button type="submit" class="btn primary" disabled={!!asking}>{busy ? 'Sending…' : 'Send answer'}</button>
+       <button type="submit" class="btn primary" disabled={!!asking} aria-busy={busy}>{busy ? 'Sending…' : 'Send answer'}</button>
       </div>
      {/if}
     </form>

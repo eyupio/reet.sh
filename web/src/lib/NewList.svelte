@@ -66,7 +66,7 @@
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <div class="actions" data-shell-foot>
       <button type="button" class="btn quiet" onclick={cancel} disabled={busy}>Cancel</button>
-      <button type="submit" class="btn primary" disabled={busy || !name.trim()}>{busy ? 'Saving…' : visibility === 'public' ? 'Publish to public community' : 'Create list'}</button>
+      <button type="submit" class="btn primary" disabled={busy || !name.trim()} aria-busy={busy}>{busy ? 'Saving…' : visibility === 'public' ? 'Publish to public community' : 'Create list'}</button>
     </div>
   </form>
 </dialog>

@@ -150,7 +150,7 @@
   </fieldset>
   <div class="finish">
     <p>Keep synced runs automatically on the machines where you turn it on. Other installed skills are kept.</p>
-    <div class="submit"><p>{selected.length} skills · {hosts.length} {hosts.length === 1 ? 'machine' : 'machines'}<small>Reet checks each change before applying it.</small></p><button type="button" class="btn primary" disabled={busy || loading || !canWrite || !selected.length || !hosts.length || blockedSources || !!toggling} onclick={sync}>{busy ? operation || 'Starting…' : 'Sync now'}</button></div>
+    <div class="submit"><p>{selected.length} skills · {hosts.length} {hosts.length === 1 ? 'machine' : 'machines'}<small>Reet checks each change before applying it.</small></p><button type="button" class="btn primary" disabled={busy || loading || !canWrite || !selected.length || !hosts.length || blockedSources || !!toggling} aria-busy={busy} onclick={sync}>{busy ? operation || 'Starting…' : 'Sync now'}</button></div>
   </div>
   {#each imports.filter(item=>item.syncSkillId&&item.destinationId&&(!item.syncRunId||snapshot.runs?.some(run=>run.id===item.syncRunId&&run.status!=='completed'))) as item (item.id)}
     {@const candidate=candidates.find(skill=>skill.id===item.syncSkillId)}

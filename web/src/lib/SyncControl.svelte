@@ -639,7 +639,7 @@
     {#if unknown.length}<p class="bad inline-blocked" role="alert">Unknown source blocks saving: {unknown.map(s => s.name).join(', ')}. <a href="/skills">Link the source on Skills</a> before selecting it.</p>{/if}
     <div class="save-dock">
       <p class="save-summary">{selected.length} of {candidates.length} skills selected · {targetEnvs.length} {targetEnvs.length === 1 ? 'scope' : 'scopes'} · {modeLabel(mode)}<span class="save-hint">No files change until a preview is approved.</span></p>
-      {#if canWrite}<button class="btn primary" disabled={busy || loading || !sourceLoaded || !ready || (!selected.length && !canClear) || unknown.length > 0 || sourceConflicts.length > 0 || conflicts.length > 0} onclick={reviewSave}>{busy ? 'Saving…' : canClear ? 'Clear this desired set' : 'Save desired set (no files change yet)'}</button>{/if}
+      {#if canWrite}<button class="btn primary" disabled={busy || loading || !sourceLoaded || !ready || (!selected.length && !canClear) || unknown.length > 0 || sourceConflicts.length > 0 || conflicts.length > 0} aria-busy={busy} onclick={reviewSave}>{busy ? 'Saving…' : canClear ? 'Clear this desired set' : 'Save desired set (no files change yet)'}</button>{/if}
     </div>
   {:else if machine}
     <p class="hint">Choose at least one agent scope on {machine.host} to compare.</p>

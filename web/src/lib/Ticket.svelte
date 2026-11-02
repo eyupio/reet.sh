@@ -97,7 +97,7 @@
       <label class="vh" for="ticket-reply">Reply</label>
       <textarea id="ticket-reply" bind:value={body} rows="5" maxlength="20000" placeholder="Add what you have tried, or answer the question…" required></textarea>
       <div class="actions">
-        <button type="submit" class="btn primary" disabled={busy || !body.trim()}>{busy ? 'Sending…' : ticket.status === 'closed' ? 'Reply and reopen' : 'Send reply'}</button>
+        <button type="submit" class="btn primary" disabled={busy || !body.trim()} aria-busy={busy}>{busy ? 'Sending…' : ticket.status === 'closed' ? 'Reply and reopen' : 'Send reply'}</button>
         {#if ticket.status !== 'closed'}<button type="button" class="btn quiet" onclick={close} disabled={busy}>Close ticket</button>{/if}
       </div>
     </form>

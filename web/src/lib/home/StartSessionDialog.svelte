@@ -369,7 +369,7 @@
     </div>
     <footer data-shell-foot>
       <button type="button" class="btn" onclick={close} disabled={busy}>Cancel</button>
-      <button class="btn primary" disabled={busy || (!projects.length && !machines.length) || !!why || !!imagesReason || !!dirProblem}>{busy ? 'Starting…' : 'Start'}</button>
+      <button class="btn primary" disabled={busy || (!projects.length && !machines.length) || !!why || !!imagesReason || !!dirProblem} aria-busy={busy}>{busy ? 'Starting…' : 'Start'}</button>
     </footer>
   </form>
   {#if modelOpen}

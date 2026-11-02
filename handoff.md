@@ -111,6 +111,14 @@ wide at 320 px since #370.
   The agent chooser in the Start dialog is a dropdown (`getByRole('combobox', { name: 'Agent' }).selectOption`), not radios.
 - The probe scripts are in `scripts/`, but the adapters they run are not in the repository: install the pinned versions with
   `npm install --ignore-scripts` as the probe report says.
+- A fresh container may have no Go toolchain: `curl -sSL https://go.dev/dl/go1.27.1.linux-amd64.tar.gz | tar -xz -C ~/gotool` and put
+  `~/gotool/go/bin` on `PATH`. The first `go build ./...` downloads modules and takes minutes. `TestCloseKillsOrphanedGroupMembers`
+  (internal/acpagent) and the `TestModels*` family (internal/terminalagent) fail in this container on `main` too (no OpenCode binary,
+  no process-group control), so do not read them as a regression; check the same test on `main` before chasing one.
+- A **new** branch whose history contains a commit that changes `.github/workflows/` cannot be pushed here: the account's token is
+  refused with "refusing to allow a GitHub App to create or update workflow ... without `workflows` permission". Updates to an
+  existing branch are fine, so cut such a branch at the newest commit whose history is clear of those changes, say so in one comment
+  on the pull request, and check `git diff origin/main...HEAD` is only what you meant to change.
 - Never use `pkill -f '<pattern>'` or `grep` for a pattern that also appears in your own command line: it ends the shell.
 
 ## Gaffer interface and Eli compatibility probe (1 November 2026)

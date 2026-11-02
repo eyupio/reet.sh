@@ -2140,3 +2140,29 @@ Validation:
 
 **Not checked.** No physical phone or tablet and no screen reader. The empty
 no-events state and a failed status read were not exercised by a new browser matrix.
+
+## Account sessions under the collection contract — 2 November 2026
+
+Account → Sessions now has one **Your sessions** panel with a live count, search and
+**All / This browser / Other browsers** chips whose figures follow the search. Each
+row has the friendly browser and device, the **this browser** tag, its last-seen and
+signed-in times, and **Sign out** for every other browser. **Refresh** and **Sign out
+the others** live in the panel head; the bulk action is not narrowed by the search or
+chip. Search reads the friendly device, not the raw user-agent string, so Chrome's
+user-agent does not match “Safari”. The first read shows a skeleton, an empty search
+offers **Clear filters**, and the separate **Session / Sign out** card remains below.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `account-sessions.e2e.mjs`: panel count, all three chips, search by browser,
+  empty recovery, the other-browser filter, one sign-out and the bulk sign-out, and
+  phone layouts at 390 and 320 px with no horizontal overflow.
+- `phone-zoom.e2e.mjs` (the account sessions screen) and `navigation.e2e.mjs` pass.
+
+![Account sessions, desktop](images/ui/account-sessions-desktop.png)
+![Account sessions, phone](images/ui/account-sessions-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. A failed sessions
+read was not exercised by a new browser matrix.

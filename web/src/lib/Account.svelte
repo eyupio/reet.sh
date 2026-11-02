@@ -1,6 +1,8 @@
 <script lang="ts">
   import NavigationMenu from './NavigationMenu.svelte'
   import { onMount } from 'svelte'
+  import CollectionPanel from './CollectionPanel.svelte'
+  import Skeleton from './Skeleton.svelte'
   import ActivitySection from './ActivitySection.svelte'
   import AgentsSettings from './AgentsSettings.svelte'
   import Backups from './Backups.svelte'
@@ -44,6 +46,9 @@
   let section = $state<Section>(sectionFromHash())
   let profile = $state<Profile>({ theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list', cardsExpanded: false, hostedPrefix: 'reet-', updatedAt: 0 })
   let sessions = $state<ProfileSession[]>([])
+  let sessionsLoading = $state(false)
+  let sessionSearch = $state('')
+  let sessionScope = $state<'all' | 'current' | 'other'>('all')
   let tokens = $state<APIToken[]>([])
   let freshToken = $state('')
   let tokenName = $state('scan token')
@@ -126,11 +131,14 @@
   }
 
   async function loadSessions() {
+    sessionsLoading = true
     try {
       sessions = (await listProfileSessions()).sessions
       error = ''
     } catch (e) {
       fail(e)
+    } finally {
+      sessionsLoading = false
     }
   }
 
@@ -276,6 +284,33 @@
     return `${browser?.[1] ?? 'Browser'} on ${os?.[1] ?? 'an unknown device'}`
   }
 
+  const searchedSessions = $derived.by(() => {
+    const term = sessionSearch.trim().toLowerCase()
+    return sessions.filter((session) => {
+      if (!term) return true
+      const haystack = `${device(session.device)} ${session.current ? 'this browser current' : 'other browser'}`.toLowerCase()
+      return term.split(/\s+/).every((word) => haystack.includes(word))
+    })
+  })
+  const sessionCounts = $derived({
+    all: searchedSessions.length,
+    current: searchedSessions.filter((session) => session.current).length,
+    other: searchedSessions.filter((session) => !session.current).length,
+  })
+  const visibleSessions = $derived(searchedSessions.filter((session) => sessionScope === 'all' || (sessionScope === 'current' ? session.current : !session.current)))
+  const sessionCountLabel = $derived(sessionCount(visibleSessions.length, sessions.length))
+
+  function sessionCount(shown: number, total: number): string {
+    if (total === 0) return 'No sessions'
+    if (shown === total) return `${total} ${total === 1 ? 'session' : 'sessions'}`
+    return `${shown} of ${total} sessions`
+  }
+
+  function clearSessionFilters() {
+    sessionSearch = ''
+    sessionScope = 'all'
+  }
+
   function sampleDate(): string {
     const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }
     if (profileForm.timezone) opts.timeZone = profileForm.timezone
@@ -410,35 +445,58 @@
       {/if}
     </section>
   {:else if section === 'sessions'}
-    <section class="block" aria-labelledby="sessions-title">
-      <div class="blockhead">
-        <div>
-          <h2 id="sessions-title">Sessions</h2>
-          <p class="muted">Every browser signed in to your account.</p>
-        </div>
-        <button type="button" class="btn" onclick={endOthers} disabled={busy === 'others' || sessions.length < 2}>
+    <CollectionPanel label="Your sessions" count={sessionCountLabel}>
+      {#snippet actions()}
+        <button type="button" class="btn quiet" onclick={loadSessions} disabled={sessionsLoading}>Refresh</button>
+        <button type="button" class="btn" onclick={endOthers} disabled={busy === 'others' || !sessions.some((session) => !session.current)}>
           {busy === 'others' ? 'Ending…' : 'Sign out the others'}
         </button>
-      </div>
-      {#if sessions.length === 0}
-        <p class="muted">No sessions listed.</p>
+      {/snippet}
+      {#snippet toolbar()}
+        <div class="session-toolbar">
+          <label class="session-search">Search sessions
+            <input type="search" bind:value={sessionSearch} placeholder="Browser or device" />
+          </label>
+          <div class="session-scopes" role="group" aria-label="Show sessions">
+            <button type="button" class="scope" aria-pressed={sessionScope === 'all'} onclick={() => (sessionScope = 'all')}>All<small>{sessionCounts.all}</small></button>
+            <button type="button" class="scope" aria-pressed={sessionScope === 'current'} onclick={() => (sessionScope = 'current')}>This browser<small>{sessionCounts.current}</small></button>
+            <button type="button" class="scope" aria-pressed={sessionScope === 'other'} onclick={() => (sessionScope = 'other')}>Other browsers<small>{sessionCounts.other}</small></button>
+          </div>
+        </div>
+      {/snippet}
+
+      {#if sessionsLoading}
+        <Skeleton label="Reading sessions…" shape="lines" count={3} />
+      {:else if sessions.length === 0}
+        <div class="state-block">
+          <h2>No sessions listed.</h2>
+          <p>Browsers signed in to your account appear here.</p>
+        </div>
+      {:else if visibleSessions.length === 0}
+        <div class="state-block">
+          <h2>No session matches that search or filter.</h2>
+          <p>Try another search, or show every browser.</p>
+          <button type="button" class="btn" onclick={clearSessionFilters}>Clear filters</button>
+        </div>
       {:else}
-        <ul class="rows">
-          {#each sessions as s (s.id)}
+        <ul class="session-list">
+          {#each visibleSessions as session (session.id)}
             <li>
-              <div>
-                <strong>{device(s.device)}</strong>
-                {#if s.current}<span class="tag">this browser</span>{/if}
-                <small>Last seen {when(s.lastSeen)} · signed in {when(s.createdAt)}</small>
+              <div class="session-main">
+                <strong>{device(session.device)}</strong>
+                {#if session.current}<span class="tag">this browser</span>{/if}
+                <small>Last seen {when(session.lastSeen)} · signed in {when(session.createdAt)}</small>
               </div>
-              {#if !s.current}
-                <button type="button" class="btn quiet danger" onclick={() => endSession(s.id)} disabled={busy === `session:${s.id}`}>Sign out</button>
+              {#if !session.current}
+                <div class="session-action">
+                  <button type="button" class="btn quiet danger" onclick={() => endSession(session.id)} disabled={busy === `session:${session.id}`}>Sign out</button>
+                </div>
               {/if}
             </li>
           {/each}
         </ul>
       {/if}
-    </section>
+    </CollectionPanel>
   {:else if section === 'activity'}
     <ActivitySection writer={writer ?? canWrite} onsignedout={onerror} timeZone={profile.timezone} dateFormat={profile.dateFormat} />
   {:else if section === 'machines'}
@@ -506,7 +564,6 @@
   .notice.bad { border-color: var(--bad); }
   .notice.good { border-color: var(--good); }
   .block { margin-top: 24px; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
-  .blockhead { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .muted { margin: 8px 0 0; color: var(--muted); }
   /* minmax(0, 1fr): a text field is about 20 characters wide by default, which overflowed the card on a 320 px phone. */
   form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 16px; }
@@ -521,6 +578,24 @@
   .prefix-toggle input { width: auto; }
   .prefix-input { flex: 1 1 140px; max-width: 220px; }
   .rows { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
+  .session-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
+  .session-search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .session-search input { width: 100%; }
+  .session-scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .scope:hover { border-color: var(--muted); color: var(--ink); }
+  .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .scope small { margin-left: 5px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .session-list { list-style: none; margin: 0; padding: 0; display: grid; }
+  .session-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 14px 2px; border-top: 1px solid var(--line-soft); }
+  .session-list > li:first-child { border-top: 0; }
+  .session-main { min-width: 0; }
+  .session-main strong { overflow-wrap: anywhere; }
+  .session-main small { display: block; margin-top: 3px; color: var(--muted); font-size: 0.78rem; line-height: 1.4; }
+  .session-action { justify-self: end; }
+  .state-block { padding: 24px 0 16px; max-width: 58ch; }
+  .state-block h2 { margin: 0; font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; }
+  .state-block p { margin: 6px 0 12px; color: var(--muted); }
   .rows li { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .rows small { display: block; color: var(--muted); font-size: 0.78rem; }
   /* Token, session and connection names can be one long word: they wrap rather than widen the card past the screen. */
@@ -538,8 +613,13 @@
     .grid2 { grid-template-columns: 1fr; }
     .idcard { gap: 12px; }
     .avatar { width: 52px; height: 52px; font-size: 1.05rem; }
+    .session-search { flex-basis: 100%; }
+    .session-list > li { grid-template-columns: 1fr; }
+    .session-action { justify-self: start; }
     /* One line: a wrapping column is as wide as its widest item, so the field ran out of the card. */
     .createrow { flex-direction: column; flex-wrap: nowrap; }
 
   }
+  @media (pointer: coarse) { .scope, .session-search input, .session-action .btn { min-height: 44px; } }
+  @media (prefers-reduced-motion: no-preference) { .scope { transition: background-color 0.15s, border-color 0.15s, color 0.15s; } }
 </style>

@@ -17,6 +17,16 @@ against in [docs/ui-verification.md](docs/ui-verification.md); the research behi
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## Whole-controller restore and import (2 November 2026)
+
+`reet backup restore` now adapts the copy before it replaces anything (`internal/backup/restore.go`, `internal/store/store_restore.go`):
+browser sessions and reset links end, personal tokens and MCP connections are revoked unless `--keep-tokens`, the private-connection
+identity is dropped, stored secrets the controller's key cannot open are named, and a copy stamped with a newer `PRAGMA user_version`
+(`store.SchemaVersion`, stamped by `store.Open`) is refused. The owner can stage a copy on a running controller with
+`POST /api/v2/admin/backups/import` (also `GET`, `DELETE`); `backup.ApplyPendingImport` swaps it in at the start of `serve`.
+Left for later: an Admin → Backups page for the import (the endpoint exists; the UI does not), and bumping `store.SchemaVersion`
+when a release changes the schema incompatibly. See [docs/backups.md](docs/backups.md).
+
 ## Structured chats (SC1–SC5): resume here (2 November 2026)
 
 **Read first:** [docs/structured-chat-plan.md](docs/structured-chat-plan.md) (the plan and every progress note),
@@ -29,6 +39,13 @@ dark: a machine reports one as available only when its connector runs with `REET
 `REET_EXPERIMENTAL_CODEX_CHAT=1` (`internal/acpagent/spec.go`: `ClaudeEnabled`, `CodexEnabled`). Descriptors are per agent
 (`internal/terminalproto/acp_agents.go`); the controller binds each to its reviewed adapter; the browser offers a chat only from
 a descriptor that says `available`.
+
+**Current independent slice (2 November, [#392](https://github.com/eyupio/reet.sh/pull/392), opened as a draft):** the owner asked to continue while the login checks are pending. Branch
+`fix/descriptor-chat-model-control` makes the live Model controls and their lookups follow the available agent descriptor (legacy OpenCode uses
+`acpModel`); capability loss clears options and retires pending lookups, and provider-error wording no longer points at an unavailable control.
+This is the first bounded SC5 controls slice, independently based on main. See the SC5 progress note in the plan. Codex login access is separately
+implemented in [#391](https://github.com/eyupio/reet.sh/pull/391), whose CI is green; the owner marked it ready, but bot review is blocked by account
+quota and signed-in Run B remains pending. Neither switch is retired, and no physical-device or genuine-login check is claimed.
 
 **On main (merged):**
 - SC1–SC2: per-agent descriptors; probes of the Claude and Codex adapters (report above).

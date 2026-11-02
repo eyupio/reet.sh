@@ -36,7 +36,7 @@ func TestRestoreInstanceReplacesTheLiveDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := RestoreInstance(context.Background(), New(st, cfg), dir, item.ID, "", st.Close)
+	result, err := RestoreInstance(context.Background(), New(st, cfg), dir, item.ID, "", RestoreOptions{}, st.Close)
 	if err != nil {
 		t.Fatal(err)
 	}

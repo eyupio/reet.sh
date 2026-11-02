@@ -1,6 +1,7 @@
 // A Codex chat, offered only where a machine reports the reviewed adapter as available: the dialog's copy and create body (no
 // OpenCode plugin trust), the session screen's wording, and the approvals-mode control that says what each mode means for the person.
 import { chromium, expect } from '@playwright/test'
+import { mkdir } from 'node:fs/promises'
 import { active, openWorkspace } from './helpers/workspace.mjs'
 
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
@@ -19,7 +20,12 @@ const { context, page, state, errors } = await openWorkspace(browser, {
       return { sessions: state.created ? [session] : [] }
     },
     '/api/v2/folder-projects': { projects: [], savedWaiting: 0 },
-    [`/api/v2/machines/${A}/models`]: { tool: 'codex', state: 'unavailable', models: [], more: false, source: '', version: '', fetchedAt: now, checkedAt: now, reason: 'no list', sentence: 'Model list unavailable.' },
+    [`/api/v2/machines/${A}/models`]: () => {
+      state.modelReads = (state.modelReads ?? 0) + 1
+      const answer = { tool: 'codex', state: 'listed', models: [{ id: state.deferModels ? 'codex/old-model' : 'codex/test-model' }], more: false, source: '', version: '', fetchedAt: now, checkedAt: now, reason: '', sentence: '' }
+      if (state.deferModels) { state.deferModels = false; return new Promise(resolve => { state.releaseModels = () => resolve(answer) }) }
+      return answer
+    },
     '/api/v2/profile/model-favourites': { version: 1, favourites: [] },
     [`/api/v2/terminal/sessions/${S}/chat/agent-mode`]: req => {
       state.modeBodies = [...(state.modeBodies ?? []), req.postDataJSON()]
@@ -58,6 +64,7 @@ try {
   await expect(dialog.getByText('you may not be asked', { exact: false })).toBeVisible()
   await expect(dialog.getByText('.opencode', { exact: false })).toHaveCount(0)
   await dialog.getByRole('textbox', { name: /Opening prompt/ }).fill('fix the failing build')
+  const readsBeforeChat = state.modelReads ?? 0
   state.created = true
   await dialog.getByRole('button', { name: 'Start', exact: true }).click()
   await page.waitForURL(new RegExp(`session=${S}`))
@@ -76,6 +83,50 @@ try {
     window.__chatStream.emit('chat', { seq: 1, kind: 'notice', text: 'Codex sign-in: ChatGPT Pro' })
   })
   await expect(page.getByText('Codex sign-in: ChatGPT Pro', { exact: true })).toHaveCount(1)
+  // Start the model-capability checks from a clean event sequence, as a fresh stream would.
+  await page.evaluate(() => window.__chatStream.emit('reset', { truncated: false }))
+  // The reviewed descriptor offers modes but no live model switch. A global flag cannot override it.
+  await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toHaveCount(0)
+  expect(state.modelReads ?? 0).toBe(readsBeforeChat)
+  machine.capabilities.acpModel = true
+  await page.getByRole('button', { name: 'Refresh status', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toHaveCount(0)
+  let errorSeq = 0
+  for (const [detail, guidance] of [
+    ['Authentication required', 'Check this provider’s credentials on the session’s machine, then send your message again.'],
+    ['insufficient_quota', 'This model has reached its usage or credit limit. Add credits with your provider, then send a message to continue.'],
+    ['429 rate limit', 'Wait for the provider’s rate limit to reset, then send your message again.'],
+    ['provider failure', 'Check the error details below. Resolve the provider issue, then send a message to continue.'],
+  ]) {
+    await page.evaluate(({ seq, detail }) => window.__chatStream.emit('chat', { seq, kind: 'status', state: 'error', detail }), { seq: ++errorSeq, detail })
+    await expect(page.getByRole('alert').getByText(guidance, { exact: true })).toBeVisible()
+  }
+  await page.evaluate(seq => window.__chatStream.emit('chat', { seq, kind: 'status', state: 'idle' }), ++errorSeq)
+  // Capability updates affect this same mounted pane, rather than requiring a reload.
+  state.deferModels = true
+  codexChat.model = true
+  await page.getByRole('button', { name: 'Refresh status', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toBeVisible()
+  await expect.poll(() => state.modelReads ?? 0).toBe(readsBeforeChat + 1)
+  const sameRefresh = page.waitForResponse(response => response.url().endsWith('/api/v2/terminal/machines'))
+  await page.getByRole('button', { name: 'Refresh status', exact: true }).click()
+  await sameRefresh
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  expect(state.modelReads ?? 0).toBe(readsBeforeChat + 1)
+
+  codexChat.model = false
+  await page.getByRole('button', { name: 'Refresh status', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toHaveCount(0)
+  // Releasing the old request after revocation cannot populate the next control's options.
+  state.releaseModels()
+  codexChat.model = true
+  await page.getByRole('button', { name: 'Refresh status', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toBeVisible()
+  await expect(page.locator(`datalist[id="${S}-models"] option[value="codex/test-model"]`)).toHaveCount(1)
+  await expect(page.locator(`datalist[id="${S}-models"] option[value="codex/old-model"]`)).toHaveCount(0)
+  codexChat.model = false
+  await page.getByRole('button', { name: 'Refresh status', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toHaveCount(0)
 
   await expect(page.getByText('Ask OpenCode', { exact: false })).toHaveCount(0)
   const group = page.getByRole('radiogroup', { name: 'Approvals' })
@@ -115,8 +166,17 @@ try {
   const yoloGroup = page.getByRole('radiogroup', { name: 'Approvals' })
   await expect(yoloGroup.getByText('YOLO is on for this chat, so when it asks to leave the sandbox you are not asked.', { exact: false })).toBeVisible()
   await expect(yoloGroup.getByText('and asks before one leaves it.', { exact: false })).toHaveCount(0)
+  if (process.env.REET_UI_SCREENSHOTS) await mkdir(process.env.REET_UI_SCREENSHOTS, { recursive: true })
+  for (const theme of ['dark', 'light']) for (const width of [1360, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme)
+    await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('radiogroup', { name: 'Approvals' })).toBeVisible()
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    if (process.env.REET_UI_SCREENSHOTS) await page.screenshot({ path: `${process.env.REET_UI_SCREENSHOTS}/codex-${theme}-${width}.png`, fullPage: true })
+  }
   expect(errors).toEqual([])
-  console.log('Codex chat UI passed: no Gaffer for Codex where the adapter is only unverified, Codex copy and no plugin warning where it is available, the create body is structured without trust, and the approvals control states each mode, sends a switch, and shows an unconfirmed switch as unknown.')
+  console.log('Codex chat UI passed: descriptor-controlled model visibility and requests, capability revocation and late replies, provider guidance, light/dark desktop/phone layouts; no Gaffer for Codex where the adapter is only unverified, Codex copy and no plugin warning where it is available, the create body is structured without trust, and the approvals control states each mode, sends a switch, and shows an unconfirmed switch as unknown.')
 } finally {
   await context.close()
   await browser.close()

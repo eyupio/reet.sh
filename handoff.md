@@ -40,6 +40,13 @@ dark: a machine reports one as available only when its connector runs with `REET
 (`internal/terminalproto/acp_agents.go`); the controller binds each to its reviewed adapter; the browser offers a chat only from
 a descriptor that says `available`.
 
+**Current independent slice (2 November, [#392](https://github.com/eyupio/reet.sh/pull/392), opened as a draft):** the owner asked to continue while the login checks are pending. Branch
+`fix/descriptor-chat-model-control` makes the live Model controls and their lookups follow the available agent descriptor (legacy OpenCode uses
+`acpModel`); capability loss clears options and retires pending lookups, and provider-error wording no longer points at an unavailable control.
+This is the first bounded SC5 controls slice, independently based on main. See the SC5 progress note in the plan. Codex login access is separately
+implemented in [#391](https://github.com/eyupio/reet.sh/pull/391), whose CI is green; the owner marked it ready, but bot review is blocked by account
+quota and signed-in Run B remains pending. Neither switch is retired, and no physical-device or genuine-login check is claimed.
+
 **On main (merged):**
 - SC1–SC2: per-agent descriptors; probes of the Claude and Codex adapters (report above).
 - SC3: typed agent questions, machine core to chat card; the form capability (`elicitation.form`) and Claude chats stay off until
@@ -82,6 +89,13 @@ wide at 320 px since #370.
   themselves; the Codex profile will set `CODEX_HOME` to their own Codex folder and pass nothing else from their real home; a failed
   start says "Sign in to Codex on that machine first"; the adapter's `_auth/status_update` label is shown in the chat, never the email.
 - The current mode is stored on the session, not sent only as an event.
+
+**Current slice (2 November, [draft #391](https://github.com/eyupio/reet.sh/pull/391)):** the owner approved building Codex login access from source evidence and keeping section 3's signed-in Run B as
+final verification. The profile now routes `CODEX_HOME` to the connector's own setting or original `HOME/.codex`, keeps replacement `HOME`, drops XDG
+home directories for Codex, never calls `authenticate`, maps the authentication-required start error and forwards only the bounded status label as a notice.
+Neither feature switch is retired. See the new progress note in the plan and source checkpoint in the probe report; test and publication results belong
+in the draft PR. The earlier requirement to wait for section 3 before coding is superseded for this slice. Run B remains the next owner check; if it still
+says "Authentication required", stop and ask the owner which way to go. No hardware or genuine-login check has been completed here.
 
 **What is left, in order:**
 1. **Needs the owner's hardware:** `docs/device-checks.md` section 3 (Codex signed out and signed in, `scripts/probe-codex-start.py

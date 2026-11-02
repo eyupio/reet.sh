@@ -60,7 +60,11 @@ control connection detaches it without killing the agent; the next connection ad
 queued while it was away. Recovery puts the retained pending approvals and current status after that buffered output, so a full queue
 cannot immediately evict the recovered card during replay preparation. If output continues during a stalled replay, the queue discards old output
 before current pending approvals and the latest status. It retains the original approval token and command, keeps resolved approvals
-resolved, and uses the existing 1,000-event / 256 KiB queue limits, including after a failed send. Restarting the agent process ends its chats.
+resolved, and uses the existing 1,000-event / 256 KiB queue limits, including after a failed send. Where typed questions are negotiated,
+recovery also restores already delivered pending questions with their original tokens and complete schemas. Their schemas count against the same
+queue limit. Resolutions while detached settle the retained waiting state; a replacement controller without question support receives no question
+frames and the connector cancels pending questions. Questions first asked without a live recipient are still cancelled. This recovery does not enable
+typed questions: form capability remains off pending the device checks. Restarting the agent process ends its chats.
 
 ## The transcript
 

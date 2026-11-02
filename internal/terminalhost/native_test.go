@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -141,12 +140,28 @@ func TestNativeAgentKillKeepsTmuxSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	standalone := exec.Command(agentBinary, "agent", "run", "--foreground", "--config", config)
-	standalone.Stdout = io.Discard
-	standalone.Stderr = io.Discard
+	standaloneLog := filepath.Join(dir, "standalone.log")
+	log, err := os.OpenFile(standaloneLog, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = log.Close() })
+	standalone.Stdout = log
+	standalone.Stderr = log
 	if err := standalone.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { standalone.Process.Kill(); standalone.Wait() })
+	// Status probes acquire the enrollment lock too. Wait until the fixture
+	// owns it and has opened local control before probing, or the first status
+	// command can make the new foreground process fail its nonblocking lock.
+	if !waitForNative(t, 10*time.Second, func() bool {
+		output, _ := os.ReadFile(standaloneLog)
+		return strings.Contains(string(output), "Agent running in the foreground")
+	}) {
+		output, _ := os.ReadFile(standaloneLog)
+		t.Fatalf("standalone regression fixture did not become ready:\n%s", output)
+	}
 	if !waitForNative(t, 10*time.Second, func() bool {
 		output, err := exec.Command(agentBinary, "agent", "status", "--config", config).CombinedOutput()
 		return err == nil && strings.Contains(string(output), "background/foreground process")

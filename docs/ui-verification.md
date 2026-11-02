@@ -2115,3 +2115,28 @@ Validation:
 
 **Not checked.** No physical phone or tablet and no screen reader. The read-only
 non-owner view and a failed save were not exercised by a new browser matrix.
+
+## Admin activity under the collection contract — 2 November 2026
+
+Admin → Activity now has one **Recent activity** panel with a live count, a search
+and **All / Agents / Projects / Skills / Lists / Account / Admin** chips whose figures
+follow the search. The page shows the newest 100 events the server sends rather than
+slicing them to 20. Each row keeps the existing sentence, adds its area and relative
+age, and keeps the exact time and source in the title. Search reads the sentence,
+actor, source, action, raw detail and area, so a ticket number, host or skill name
+finds its events. The area chips are exclusive and add up to All.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-activity.e2e.mjs`: panel count, every area chip, search by event text
+  and detail, empty recovery, an area filter, and phone layouts at 390 and 320 px
+  with no horizontal overflow.
+- `phone-zoom.e2e.mjs` (the admin activity screen) and `navigation.e2e.mjs` pass.
+
+![Admin activity, desktop](images/ui/admin-activity-desktop.png)
+![Admin activity, phone](images/ui/admin-activity-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The empty
+no-events state and a failed status read were not exercised by a new browser matrix.

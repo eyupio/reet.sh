@@ -9,7 +9,7 @@
   import PageHeader from './PageHeader.svelte'
   import {
     cacheSoftwareMirror, createInvite, deleteAdminUser, getAdminSso, getAdminStatus, getBranchPruneSetting, getRollup, getSoftwareMirror, getYoloSetting, listAdminUsers, resetUserPassword, revokeUserTokens,
-    saveAdminSettings, setBranchPruneSetting, setSoftwareMirror, setYoloSetting, transferOwner, updateAdminUser, type AdminStatus, type BranchPruneSetting, type Rollup, type RollupSkill, type SoftwareMirrorStatus, type UserMeta, type YoloSetting,
+    saveAdminSettings, setBranchPruneSetting, setSoftwareMirror, setYoloSetting, transferOwner, updateAdminUser, type AdminStatus, type BranchPruneSetting, type Event as AuditEvent, type Rollup, type RollupSkill, type SoftwareMirrorStatus, type UserMeta, type YoloSetting,
   } from './api'
   import AdminEmail from './AdminEmail.svelte'
   import AdminNotifications from './AdminNotifications.svelte'
@@ -17,7 +17,7 @@
   import Backups from './Backups.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CopyButton from './CopyButton.svelte'
-  import { eventLabel, eventTitle } from './events'
+  import { EVENT_CATEGORIES, eventCategory, eventLabel, eventTitle, type EventCategory } from './events'
   import { elapsed } from './time'
   import { adminRows, type AdminSso } from './sso'
   import { bytes } from './terminal/health'
@@ -96,6 +96,8 @@
   let rollupTag = $state('')
   let teamQuery = $state('')
   let rollupSort = $state<'adoption' | 'name'>('adoption')
+  let activitySearch = $state('')
+  let activityScope = $state<'all' | EventCategory>('all')
 
   async function load() {
     loading = true
@@ -182,6 +184,39 @@
     rollupList = 0
     rollupTag = ''
     rollupSort = 'adoption'
+  }
+
+  const activityCategories = new Map(EVENT_CATEGORIES.map((category) => [category.id, category.label]))
+  const activitySearched = $derived.by(() => {
+    const term = activitySearch.trim().toLowerCase()
+    return (status?.events ?? []).filter((event) => {
+      if (!term) return true
+      const category = activityCategories.get(eventCategory(event)) ?? 'Account'
+      const haystack = `${eventLabel(event)} ${event.actor ?? ''} ${event.source} ${event.action} ${event.detail ?? ''} ${category}`.toLowerCase()
+      return term.split(/\s+/).every((word) => haystack.includes(word))
+    })
+  })
+  const activityCounts = $derived.by(() => {
+    const counts: Record<'all' | EventCategory, number> = { all: activitySearched.length, agents: 0, projects: 0, skills: 0, lists: 0, account: 0, admin: 0 }
+    for (const event of activitySearched) counts[eventCategory(event)]++
+    return counts
+  })
+  const activityRows = $derived(activitySearched.filter((event) => activityScope === 'all' || eventCategory(event) === activityScope))
+  const activityCountLabel = $derived(activityCount(activityRows.length, status?.events.length ?? 0))
+
+  function activityCount(shown: number, total: number): string {
+    if (total === 0) return 'No events'
+    if (shown === total) return `${total} ${total === 1 ? 'event' : 'events'}`
+    return `${shown} of ${total} events`
+  }
+
+  function activityCategoryLabel(event: AuditEvent): string {
+    return activityCategories.get(eventCategory(event)) ?? 'Account'
+  }
+
+  function clearActivityFilters() {
+    activitySearch = ''
+    activityScope = 'all'
   }
 
   function usedMembers(skill: RollupSkill) {
@@ -848,21 +883,44 @@
       {/if}
     {/if}
     {#if section === 'activity'}
-    <section class="block" aria-labelledby="admin-events">
-      <h2 id="admin-events">Recent activity</h2>
+    <CollectionPanel label="Recent activity" count={activityCountLabel}>
+      {#snippet toolbar()}
+        <div class="activity-toolbar">
+          <label class="activity-search">Search activity
+            <input type="search" bind:value={activitySearch} placeholder="What happened, who or area" />
+          </label>
+          <div class="activity-scopes" role="group" aria-label="Show activity">
+            <button type="button" class="scope" aria-pressed={activityScope === 'all'} onclick={() => (activityScope = 'all')}>All<small>{activityCounts.all}</small></button>
+            {#each EVENT_CATEGORIES as category}
+              <button type="button" class="scope" aria-pressed={activityScope === category.id} onclick={() => (activityScope = category.id)}>{category.label}<small>{activityCounts[category.id]}</small></button>
+            {/each}
+          </div>
+        </div>
+        <p class="activity-note">The newest 100 events are kept here.</p>
+      {/snippet}
+
       {#if status.events.length === 0}
-        <p class="muted">Nothing recorded yet.</p>
+        <div class="state-block">
+          <h2>Nothing recorded yet.</h2>
+          <p>Changes around this instance appear here.</p>
+        </div>
+      {:else if activityRows.length === 0}
+        <div class="state-block">
+          <h2>No event matches that search or area.</h2>
+          <p>Try another search, or show every event.</p>
+          <button type="button" class="btn" onclick={clearActivityFilters}>Clear filters</button>
+        </div>
       {:else}
         <ul class="events">
-          {#each status.events.slice(0, 20) as event (event.id)}
+          {#each activityRows as event (event.id)}
             <li title={eventTitle(event)}>
-              <span>{eventLabel(event)}</span>
-              <time datetime={new Date(event.at).toISOString()}>{elapsed(event.at)}</time>
+              <span class="event-main">{eventLabel(event)}</span>
+              <span class="event-meta"><span class="event-cat">{activityCategoryLabel(event)}</span><time datetime={new Date(event.at).toISOString()}>{elapsed(event.at)}</time></span>
             </li>
           {/each}
         </ul>
       {/if}
-    </section>
+    </CollectionPanel>
     {/if}
     {#if section === 'settings'}
     {#if (role === 'owner' || role === 'admin') && yolo}
@@ -949,10 +1007,18 @@
   .readonly-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 24px; margin: 14px 0 0; }
   .readonly-settings dt { color: var(--muted); font-size: 0.78rem; font-weight: 600; }
   .readonly-settings dd { margin: 2px 0 0; overflow-wrap: anywhere; }
-  .events { list-style: none; margin: 8px 0 0; padding: 0; }
-  .events li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
-  .events li span { min-width: 0; overflow-wrap: anywhere; }
-  .events time { flex: none; font-variant-numeric: tabular-nums; }
+  .activity-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
+  .activity-search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .activity-search input { width: 100%; }
+  .activity-scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .activity-note { margin: 10px 0 0; color: var(--muted); font-size: 0.78rem; }
+  .events { list-style: none; margin: 0; padding: 0; display: grid; }
+  .events li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 12px 2px; border-top: 1px solid var(--line-soft); color: var(--ink); font-size: 0.85rem; }
+  .events li:first-child { border-top: 0; }
+  .event-main { min-width: 0; overflow-wrap: anywhere; line-height: 1.45; }
+  .event-meta { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.74rem; }
+  .event-cat { padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; }
+  .events time { font-variant-numeric: tabular-nums; white-space: nowrap; }
   .error { margin: 8px 0 0; color: var(--bad); font-size: 0.85rem; }
   .invite { margin-top: 12px; }
   .invite > label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 0.85rem; }
@@ -989,8 +1055,8 @@
   .state-block { padding: 24px 0 16px; max-width: 58ch; }
   .state-block h2 { font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; margin: 0; }
   .state-block p { margin: 6px 0 12px; color: var(--muted); }
-  @media (max-width: 650px) { .user-row { grid-template-columns: 1fr; } .user-tools { grid-column: 1; grid-row: auto; align-items: flex-start; } .user-search { flex-basis: 100%; } }
-  @media (pointer: coarse) { .scope, .user-search input, .instance-settings .check { min-height: 44px; } }
+  @media (max-width: 650px) { .user-row { grid-template-columns: 1fr; } .user-tools { grid-column: 1; grid-row: auto; align-items: flex-start; } .user-search { flex-basis: 100%; } .activity-search { flex-basis: 100%; } .events li { grid-template-columns: 1fr; gap: 4px; } .event-meta { justify-content: flex-start; } }
+  @media (pointer: coarse) { .scope, .user-search input, .activity-search input, .instance-settings .check { min-height: 44px; } }
   @media (min-width: 900px) { .instance-settings { grid-template-columns: 1fr 1fr; align-items: start; } .instance-settings .saved { grid-column: 1 / -1; } }
   @media (prefers-reduced-motion: no-preference) { .scope, .user-row { transition: background-color 0.15s, border-color 0.15s, color 0.15s; } }
 

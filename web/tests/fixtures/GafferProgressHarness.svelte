@@ -24,10 +24,14 @@
     if (name === 'Editing') return
     if (name === 'Approval') { send({ kind: 'permission', permissionId: 'preview-approval', toolKind: 'execute', title: 'Run the web checks', command: 'npm run check' }); send({ kind: 'status', state: 'waiting' }); return }
     if (name === 'Question') { send({ kind: 'question', questionId: 'preview-question', question: { message: 'How much Yorkshire should Gaffer bring?', fields: [{ key: 'tone', kind: 'single', required: true, title: 'Gaffer’s voice', options: [{ value: 'warm', label: 'Warm, with a little cheek' }, { value: 'more', label: 'Turn up the Yorkshire' }] }] } }); return }
-    send({ kind: 'tool', toolCallId: 'checks', toolKind: 'execute', command: 'npm run check', title: 'Run web checks', status: name === 'Finished' ? 'completed' : 'in_progress', text: name === 'Finished' ? 'All fixture checks passed.' : '' })
+    const finished = name === 'Finished' || name === 'Ended'
+    send({ kind: 'tool', toolCallId: 'checks', toolKind: 'execute', command: 'npm run check', title: 'Run web checks', status: finished ? 'completed' : name === 'Snag' ? 'failed' : 'in_progress', text: finished ? 'All fixture checks passed.' : name === 'Snag' ? 'One fixture check failed.' : '' })
     if (name === 'Reconnecting') { stream().disconnect(); return }
     if (name === 'Error') { send({ kind: 'status', state: 'error', detail: 'The provider’s rate limit was reached. Wait for it to reset or choose another configured model.' }); return }
-    if (name === 'Finished') { send({ kind: 'agent', messageId: 'done', text: 'The progress panel is ready to review. It shows the current tool, observed time and activity, with Gaffer keeping an eye on the agent.' }); send({ kind: 'status', state: 'idle' }) }
+    if (finished || name === 'Snag') {
+      send({ kind: 'agent', messageId: 'done', text: name === 'Snag' ? 'The progress panel was updated. One fixture check still needs attention; review its output before continuing.' : 'The progress panel is ready to review. Gaffer now has a younger face, expressive gestures and a cheekier voice. The recorded web check completed; review the changes before carrying on.' })
+      send({ kind: 'status', state: name === 'Ended' ? 'ended' : 'idle' })
+    }
   }
   function theme() { document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light' }
   onMount(() => { setTimeout(() => scene(new URLSearchParams(location.search).get('scene') || 'Editing'), 80) })
@@ -62,7 +66,7 @@
       <div class="pane"><ChatPane {session} /></div>
     </div>
   </div>
-  <nav class="scenes" aria-label="Preview states"><span>Try a state</span>{#each ['Thinking', 'Reading', 'Searching', 'Editing', 'Running', 'Approval', 'Question', 'Reconnecting', 'Error', 'Finished'] as name}<button type="button" class:chosen={current === name} aria-pressed={current === name} onclick={() => scene(name)}>{name}</button>{/each}</nav>
+  <nav class="scenes" aria-label="Preview states"><span>Try a state</span>{#each ['Thinking', 'Reading', 'Searching', 'Editing', 'Running', 'Approval', 'Question', 'Reconnecting', 'Error', 'Snag', 'Finished', 'Ended'] as name}<button type="button" class:chosen={current === name} aria-pressed={current === name} onclick={() => scene(name)}>{name}</button>{/each}</nav>
 </main>
 
 <style>

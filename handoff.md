@@ -12,10 +12,73 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [voice and copy](docs/voice-and-copy.md)); the agents-home mock-up in
 [docs/design/agents-home/](docs/design/agents-home/), its
 [plan](docs/superpowers/plans/2026-10-26-agents-home.md) and
-[spec](docs/superpowers/specs/2026-10-26-agents-home-design.md); what each UI change was checked
-against in [docs/ui-verification.md](docs/ui-verification.md); the research behind the queued work in
+[spec](docs/superpowers/specs/2026-10-26-agents-home-design.md); the 2 November UI refresh contracts in
+`docs/superpowers/specs/2026-11-02-*.md`; what each UI change was checked against in
+[docs/ui-verification.md](docs/ui-verification.md); the research behind the queued work in
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
+
+## UI refresh: directory, inbox, admin and machines (2 November 2026)
+
+The owner asked for a page-by-page UI refresh with a UX focus. Each family was built test-first,
+photographed at desktop and phone widths in light and dark, reviewed, and merged only after CI was
+green. Contracts and rulings are in `docs/superpowers/specs/2026-11-02-directory-pages-refresh.md`,
+`...-skills-machines-findability.md`, `...-inbox-pages.md` and `...-admin-users.md`; checks are in
+[docs/ui-verification.md](docs/ui-verification.md). The refresh merged through `d61c6c0`; merge main into the
+next branch as later work lands.
+
+**Merged, all with every required check green:**
+
+| PR | Merge | Scope |
+| --- | --- | --- |
+| #395 | `5c7463b` | Lists, Community and Teams into one collection grammar: panel, count, search, honest scope chips, one row anatomy, folded Teams management, phone toolbar. |
+| #400 | `01bb06f` | Jump finds shelf skills with saved sync intent; “Skills you create” rows say where each skill is; Machines search by host, alias and skill. |
+| #403 | `26797e8` | Setups list in the same panel with a count, search, relative recency and honest revision wording. |
+| #405 | `1235328` | Per-scope machine cleanup moved from the card disclosure into **Settings → Access** (audit H3). |
+| #407 | `3211b32` | Notifications and Support in one panel grammar; locked security preference is an **Always on** fact; Support status chips and search. A Codex review found that the unread list must stay server-side; fixed and regression-tested. |
+| #408 | `f051948` | `/sync` marks Machines current (desktop and phone); simple Sync source renamed **Everything on my shelf**. |
+| #410 | `d61c6c0` | Admin → Users as one people panel with count, search, role chips, per-person rows and the existing Manage actions; invite is its own card. |
+
+**What the refresh established.** The directory pages (Lists, Community, Teams, Setups) share one
+bounded surface, a count, search, scope chips whose figures follow the search, one row anatomy and
+panel-owned loading, empty and error states. Lists keeps Rows/Cards. Teams folds management per
+group. Setups keeps its master-detail layout.
+
+**Findability and safety.** Jump searches sessions, folder projects, shelf skills and machines; a
+skill result carries `Skill · <saved intent>` and opens `/skills?skill=<id>`. A created skill shows
+saved intent first, then observed state, then **Not on a machine yet**; published skills link to
+their shelf card. Machines search reads host, saved alias and every observed skill. Per-scope Forget,
+whole-machine Forget and Revoke now share **Settings → Access** with the usual confirmations.
+
+**Inbox and admin.** Notifications loads its unread tab with the server-side predicate, so an old
+unread beyond the newest page remains reachable; its chip and **Mark all read** use the server's
+authoritative count. Support has status chips whose counts follow the search. Admin Users is the
+proving page for Account & Admin: invite card, people panel, role chips, inline role change and the
+existing Manage disclosure, with no wide table or horizontal scroller.
+
+**Rulings recorded in the specs.** Scope chips keep no URL state; Rows and Cards both survive; the
+directory pages use rows; ownership and role are each printed once; recency is relative with the
+exact time in the title; Teams management stays in-page and folded; Jump reads the loaded shelf;
+machine search matches observed reports, not saved intent; the notification unread query stays
+server-side; the invite card stays above the people list; the role badge is hidden when the role
+select is shown. No API, store, permission or dependency was added for the refresh.
+
+**Not claimed.** No physical phone or tablet, no screen reader, and no Safari or Firefox for any of
+the refreshed pages. Touch sizes were measured in an emulated coarse-pointer viewport. The Machines
+search matches observed reports, not saved intent. Admin Users is the only Account/Admin page
+refreshed so far.
+
+**Next UI work, in order:**
+1. **Admin → Team usage** in the collection grammar (first files: `web/src/lib/Admin.svelte`,
+   `web/tests/admin-users.e2e.mjs` for the pattern, `web/tests/phone-zoom.e2e.mjs` for the screen),
+   then the remaining Admin sections: Backups, Settings, Email, Support, Notifications, Activity.
+2. **Account pages** (profile, security, sessions, tokens, backups, MCP access) in the same grammar.
+3. **Skills/Machines follow-ups:** per-machine skill add/remove, the collapsed-badge summary for
+   large fleets, and **Add now** where a scan is stale or not confirmed.
+4. **Machines audit minors:** N1 (mixed date formats), N7 (Commands dialog exits), H10 (icon
+   language), and attention sorting/status filter for large fleets.
+5. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
+   Do not claim these from the Chromium fixtures.
 
 ## Whole-controller restore and import (2 November 2026)
 
@@ -1255,6 +1318,13 @@ Then, from the repository root:
 
 ```sh
 node web/tests/control.e2e.mjs
+node web/tests/lists.e2e.mjs
+node web/tests/community.e2e.mjs
+node web/tests/spaces.e2e.mjs
+node web/tests/setups.e2e.mjs
+node web/tests/inbox.e2e.mjs
+node web/tests/admin-users.e2e.mjs
+node web/tests/machines-search.e2e.mjs
 node web/tests/terminal-workspace.e2e.mjs
 node web/tests/terminal-lifecycle.e2e.mjs
 ```

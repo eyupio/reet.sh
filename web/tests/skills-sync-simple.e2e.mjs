@@ -68,6 +68,7 @@ try {
  await expect(shelf.page.getByRole('heading',{name:/Skills you create/})).toBeVisible()
  await shelf.page.getByRole('button',{name:'Publish & share'}).click()
  await expect(shelf.page.getByRole('button',{name:'Copy share link for reet-review'})).toBeVisible()
+ await expect(shelf.page.locator('.hosted-list .where a', {hasText:'On your shelf'})).toHaveAttribute('href', `/skills?skill=${encodeURIComponent(`hosted/${new URL(base).host}/sam/reet-review`)}`)
  expect(hosted.files).toEqual({'guide.md':'keep this'});expect(hosted.published).toBe(true)
  await shelf.page.getByRole('switch',{name:'Make reet-review public'}).uncheck()
  await expect(shelf.page.getByText('Private draft',{exact:true})).toBeVisible()

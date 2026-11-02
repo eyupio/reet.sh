@@ -6,7 +6,7 @@
   import MachineHealthStrip from './terminal/MachineHealthStrip.svelte'
   import type { Machine, SyncAgent, SyncEnvironment, SyncJob, SyncState } from './api'
   import { controlSyncAgent, controlSyncJob, forgetEnvironment, forgetMachine, queueSyncJob, startSyncRun, updateSyncAgent } from './api'
-  import { agentBuild, agentGroups, agentUpdateTarget, groupLabel, updateJobFor } from './machines'
+  import { agentBuild, agentGroups, agentUpdateTarget, groupLabel, machineMatchesSearch, updateJobFor } from './machines'
   import { machineStatus, scanOnlyAgents, supportedAgents } from './machineSetup'
   import MachineCommands from './MachineCommands.svelte'
   import AgentUpdate from './AgentUpdate.svelte'
@@ -62,6 +62,7 @@
 
   type Pending = { title: string; body: string; confirmLabel: string; danger?: boolean; action: () => Promise<void> }
   let commandsFor = $state<Machine | null>(null)
+  let fleetQuery = $state('')
   let confirm = $state<Pending | null>(null)
   let busy = $state('')
   let contentSource = $state<{ environmentId: string; name?: string; opener: HTMLElement | null; note?: string } | null>(null)
@@ -70,6 +71,9 @@
   let settingsHost = $state('')
   let review = $state<{ agentId: string; initial: 'dev' | 'latest' } | null>(null)
   const settingsMachine = $derived(machines.find((machine) => machine.host === settingsHost))
+  // A just-added machine stays visible even while a search that does not name it is active.
+  const shownMachines = $derived(machines.filter((machine) => !fleetQuery.trim() || machineMatchesSearch(machine, fleetQuery) || machine.host === highlight))
+  const fleetCount = $derived(fleetQuery.trim() ? `${shownMachines.length} of ${machines.length} machines` : `${machines.length} ${machines.length === 1 ? 'machine' : 'machines'}`)
   const reviewAgent = $derived(review ? snapshot.agents?.find((agent) => agent.id === review?.agentId) : undefined)
   let health=$state<HealthResponse>({serverNow:Date.now(),machines:[]}), healthElapsed=$state(0),healthReceived=performance.now()
   onMount(()=>{if(!monitorAccess)return;const abort=new AbortController();let busy=false;async function refreshHealth(){if(busy||document.visibilityState!=='visible')return;busy=true;try{const next=await machineHealth(abort.signal);if(!abort.signal.aborted){health=next;healthReceived=performance.now();healthElapsed=0}}catch{/* inventory remains usable when health is unavailable */}finally{busy=false}}void refreshHealth();const wake=()=>void refreshHealth();document.addEventListener('visibilitychange',wake);window.addEventListener('online',wake);const timer=setInterval(wake,15000),clock=setInterval(()=>healthElapsed=performance.now()-healthReceived,1000);return()=>{abort.abort();clearInterval(timer);clearInterval(clock);document.removeEventListener('visibilitychange',wake);window.removeEventListener('online',wake)}})
@@ -336,8 +340,16 @@
 <svelte:window onclick={(event) => { if (!(event.target as Element | null)?.closest('.sync-menu')) closeMenus() }} onkeydown={menusKey} />
 
 <section class="fleet" aria-label="Machines">
+  {#if machines.length > 1}
+    <div class="fleet-tools">
+      <label class="fleet-search">Search machines
+        <input type="search" bind:value={fleetQuery} placeholder="Machine or skill" />
+      </label>
+      <p class="fleet-count" role="status">{fleetCount}</p>
+    </div>
+  {/if}
   <div class="machine-grid">
-    {#each machines as machine, m (machine.host)}
+    {#each shownMachines as machine, m (machine.host)}
       {@const enrolled = agentFor(machine)}
       {@const groups = agentGroups(machine)}
       {@const supported = supportedAgents(machine)}
@@ -462,6 +474,11 @@
           {/if}
         </details>
       </article>
+    {:else}
+      <div class="fleet-empty">
+        <p>No machine here matches “{fleetQuery}”.</p>
+        <button type="button" class="btn" onclick={() => (fleetQuery = '')}>Clear search</button>
+      </div>
     {/each}
   </div>
 </section>
@@ -515,6 +532,12 @@
 
 <style>
   .fleet { margin: 14px 0 0; }
+  .fleet-tools { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 12px 18px; margin-bottom: 12px; }
+  .fleet-search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .fleet-search input { width: 100%; }
+  .fleet-count { margin: 0; color: var(--muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+  .fleet-empty { grid-column: 1 / -1; padding: 24px; border: 1px dashed var(--line); border-radius: 12px; background: var(--card); }
+  .fleet-empty p { margin: 0 0 12px; color: var(--muted); }
   .machine-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 14px; }
   .added-note { margin: 2px 0 0; color: var(--good); font-size: .78rem; font-weight: 650; }
   .machine.just-added { border-color: var(--good); animation: just-added 6s ease-out; }
@@ -599,7 +622,11 @@
   .danger-zone > summary { cursor: pointer; color: var(--muted); font-size: 0.76rem; min-height: 32px; }
   .danger-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
   .danger-zone p { margin: 0; color: var(--muted); font-size: 0.74rem; }
-    @media (max-width: 560px) {
+    @media (max-width: 650px) {
+    .fleet-tools { gap: 10px; }
+    .fleet-search { flex-basis: 100%; }
+  }
+  @media (max-width: 560px) {
     .machine { padding: 14px; }
     .machine-head { flex-direction: column; align-items: flex-start; }
     .actions .btn { flex: 1 1 auto; }
@@ -608,6 +635,7 @@
   }
   /* Touch: every control on a card is a finger-sized (44 px) target. */
   @media (pointer: coarse) {
+    .fleet-search input { min-height: 44px; }
     .sync-now { min-height: 44px; }
     .sync-menu > summary { width: 44px; height: 44px; }
     .sync-menu-panel a, .sync-menu-panel button { min-height: 44px; }

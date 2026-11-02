@@ -339,7 +339,7 @@
                 </label>
               {/if}
               <div class="copy">
-                <strong>{row.host}{#if row.version}<code> {row.version}</code>{/if}</strong>
+                <strong>{row.host}{#if row.version}{' '}<code>{row.version}</code>{/if}</strong>
                 <small class="label">{fleetSoftwareLabel(row)}</small>
                 {#if guide}
                   <div class="guide" role="group" aria-label={`What to do for ${row.host}`}>

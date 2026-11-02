@@ -134,7 +134,9 @@ export function fleetSoftwareGuide(row: Pick<FleetSoftwareRow, 'state' | 'host' 
     }
     case 'unreadable_install': return {
       title: `Check OpenCode on ${row.host}`,
-      why: 'reet found OpenCode but could not tell how it was installed, so it will not guess at a plan.',
+      why: row.evidence?.reason === 'managed_broken'
+        ? 'reet installed OpenCode here itself, but that copy can no longer be trusted, so reet will not use or change it.'
+        : 'reet found OpenCode but could not tell how it was installed, so it will not guess at a plan.',
       found: evidenceFound(row.evidence),
       then: evidenceThen(row.evidence),
     }
@@ -167,7 +169,7 @@ function evidenceFound(evidence?: FleetEvidence): string | undefined {
     case 'unreadable': return `reet found OpenCode${where} but couldn't read its version.`
     case 'package_unknown': return `OpenCode is installed${where}, but reet doesn't recognise the package.`
     case 'platform_unsupported': return 'reet has no reviewed OpenCode build for that machine\'s platform.'
-    case 'managed_broken': return "reet's own copy of OpenCode failed its integrity check, so reet won't run or change it."
+    case 'managed_broken': return 'Its integrity check failed: the saved receipt or the program file no longer matches what reet installed.'
     default: return evidence.path ? `OpenCode was seen at ${evidence.path}.` : undefined
   }
 }

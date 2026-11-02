@@ -245,6 +245,13 @@ the agent confirmed it, 409 when the machine or agent does not offer it or the a
 Not in this slice, needed before the browser can show the mode: the current mode is not stored or sent to the browser (a reload would not know it), and the card wording. That is the third slice, which adds the stored mode on the
 session and the plain-language control.
 
+### SC4 progress: the chat's mode is stored on the session (2 November 2026)
+
+Owner decision: the confirmed agent mode is stored on the session, like the model, so a reload shows it. `terminal_sessions` gains `agent_mode` (empty by default, so existing rows and agents that
+offer no modes are unchanged) and the session JSON carries `agentMode`. A new chat records the first mode its descriptor lists, which the profile guarantees is the mode the machine opens it in
+(a test pins the first `ChoosableModes` entry to `StartMode`). A confirmed switch records the new mode. A switch the machine did not confirm records "unknown" (empty) rather than the old mode,
+because the agent may have switched. The browser control, which reads `agentMode` and shows the plain-language wording, is the last slice.
+
 ### Device and credential checks (1 November 2026)
 
 What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real

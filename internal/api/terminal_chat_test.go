@@ -562,6 +562,11 @@ func TestChatAgentModeSwitch(t *testing.T) {
 		if offered && (code != 200 || !strings.Contains(body, `"mode":"agent"`)) {
 			t.Fatalf("switch: %d %s", code, body)
 		}
+		// The session listing carries the confirmed mode, so a reload shows it.
+		listCode, _, list := f.do(t, f.cookie, "GET", "/api/v2/terminal/sessions", nil)
+		if listCode != 200 || strings.Contains(list, `"agentMode":"agent"`) != offered || strings.Contains(list, `"agentMode"`) != offered {
+			t.Fatalf("offered=%v: listing %d %s", offered, listCode, list)
+		}
 		if !offered && code != 409 {
 			t.Fatalf("a machine that offers no modes: %d %s", code, body)
 		}

@@ -934,9 +934,14 @@ func (b *Broker) SetAgentMode(ctx context.Context, uid int64, session, mode stri
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &terminalproto.ACPAgentMode{Mode: mode}}, chatCallTimeout)
 	if result, ok := reply.Body.(*terminalproto.Result); err == nil && ok && result.Code != terminalproto.OK && result.Code != terminalproto.Conflict && result.Code != terminalproto.NotFound {
+		// The agent may or may not have switched, so the stored mode is no longer known.
+		_ = b.st.RecordTerminalAgentModeFor(uid, session, "")
 		return ErrACPAgentModeRejected
 	}
-	return chatAck(reply, err)
+	if err := chatAck(reply, err); err != nil {
+		return err
+	}
+	return b.st.RecordTerminalAgentModeFor(uid, session, mode)
 }
 
 func (b *Broker) ModelChat(ctx context.Context, uid int64, session, model string) error {

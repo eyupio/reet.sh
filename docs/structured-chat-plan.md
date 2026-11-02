@@ -289,6 +289,36 @@ Decided by the owner for that login: the Codex profile sets `CODEX_HOME` to the 
 the same login they use in the terminal and the adapter can refresh it there. The alternatives (copying `auth.json` into a private folder each start, or passing the real `HOME`) were rejected: the copy goes stale when a token is refreshed in the chat,
 and the real `HOME` exposes everything the connector keeps from every other agent. It is built only after the signed-in run in `docs/device-checks.md` section 3 records how the adapter behaves with a real login.
 
+### SC4 progress: Codex login access (2 November 2026, draft)
+
+The owner approved implementing from source evidence with the real signed-in run kept as final verification, rather than a prerequisite to coding.
+The Codex profile routes `CODEX_HOME` to the connector's own setting, or to `.codex` under its original `HOME`. The adapter keeps the connector-owned
+replacement `HOME`; XDG home directories and other agents' credentials are not forwarded for Codex. The folder is used directly, so Codex can refresh
+its login there; reet neither copies credentials nor calls `authenticate`. An invalid or relative login path is refused before launch.
+
+A `session/new` error with code `-32000` and message "Authentication required" now reaches the browser as "Sign in to Codex on that machine first."
+Only Codex gets that mapping. `_auth/status_update` becomes a bounded notice in the existing chat stream: "Codex sign-in: {label}". Only the known
+status kind and public label are decoded; account/email and gateway detail are discarded, and labels containing an email or control characters are refused.
+There is no new private-protocol field or message. Other agents ignore this extension.
+
+The pinned adapter source confirms that `checkAuthorization` asks `account/read` with `refreshToken: false` and refuses only when authentication is
+required and no account was returned. Its status shapes are `account` (for example "ChatGPT Pro", with email separately under `account.email`),
+`api_key`, `none`, `gateway` and `external`. This is source evidence, not a successful real ChatGPT login run.
+
+Delivery record:
+- **Task / scope:** SC4 Codex login access, actionable start refusal and label-only notice.
+- **Branch / implementation / PR:** `fix/codex-login-access`, `d593b86`, [draft #391](https://github.com/eyupio/reet.sh/pull/391). Main `99828de` was merged with `b0389dd`; history was not rewritten.
+- **Compatibility:** existing notice and refusal messages, no protocol or database change; the login-folder route is set only on the Codex profile.
+- **Checks run:** the new tests failed before implementation; Codex and connector race regressions passed, as did the web checks (zero Svelte errors/warnings), production build, Codex browser fixture including notice replay, and `go vet ./...`. Final broader check and CI results are recorded in the PR.
+- **Existing container failures:** a detached `99828de` checkout reproduces `TestCloseKillsOrphanedGroupMembers` and `TestModelsOneAtATime`, `TestModelsFloorReturnsTheLastResult`, `TestModelsReplyShapeAndOperation`, `TestModelsLateRunAnswersTimedOut`; they are outside this slice.
+- **Not run / limitation:** real ChatGPT login, physical-device and screen-reader checks. Source inspection and fake children do not close those gates.
+- **Next unchecked task:** section 3 Run B in `docs/device-checks.md`, then its signed-out follow-up; read that section and this progress note first. If the signed-in start still fails, bring the decision to the owner.
+- **Publication:** draft PR only; no merge or deployment.
+
+Codex remains behind `REET_EXPERIMENTAL_CODEX_CHAT`; section 3 Run B in the device checks is still
+required before enabling it. If that run still returns "Authentication required", stop and ask the owner which way to go. Claude and typed-question
+checks, retiring either switch, generic controls and recovery remain separate work.
+
 ### Device and credential checks (1 November 2026)
 
 What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real

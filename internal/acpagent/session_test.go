@@ -43,6 +43,7 @@ func TestFakeACP(t *testing.T) {
 		t.Skip("fake child")
 	}
 	scenario, version := os.Getenv("ACP_SCENARIO"), os.Getenv("ACP_VERSION")
+	codexLoginScenario := scenario == "codex-login" || scenario == "codex-auth-required" || scenario == "codex-other-error"
 	in := bufio.NewScanner(os.Stdin)
 	out := bufio.NewWriter(os.Stdout)
 	defer out.Flush()
@@ -73,6 +74,9 @@ func TestFakeACP(t *testing.T) {
 		switch message.Method {
 		case "initialize":
 			name, protocol := "OpenCode", 1
+			if codexLoginScenario {
+				name = "@agentclientprotocol/codex-acp"
+			}
 			if scenario == "wrong-name" {
 				name = "Another Agent"
 			}
@@ -85,6 +89,13 @@ func TestFakeACP(t *testing.T) {
 			}
 			reply(message.ID, map[string]any{"protocolVersion": protocol, "agentInfo": map[string]string{"name": name, "version": version},
 				"agentCapabilities": capabilities})
+			if codexLoginScenario {
+				status := map[string]any{"kind": "account", "label": "ChatGPT Pro", "account": map[string]any{"email": "private@example.test"}}
+				if scenario == "codex-auth-required" {
+					status = map[string]any{"kind": "none", "label": "Not logged in"}
+				}
+				send(map[string]any{"jsonrpc": "2.0", "method": "_auth/status_update", "params": map[string]any{"authStatus": status}})
+			}
 		case "session/set_config_option":
 			var params struct {
 				ConfigID  string `json:"configId"`
@@ -102,7 +113,7 @@ func TestFakeACP(t *testing.T) {
 					if modeCalls > 1 {
 						reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": params.Value}}})
 					}
-				case "mode-switch", "mode-live":
+				case "mode-switch", "mode-live", "codex-login":
 					reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": params.Value}}})
 				case "mode-ignored":
 					reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": "plan"}}})
@@ -137,8 +148,22 @@ func TestFakeACP(t *testing.T) {
 			update(session, "tool_call", map[string]any{"toolCallId": "call_old", "title": "old command", "kind": "execute", "status": "in_progress"})
 			update(session, "agent_message_chunk", map[string]any{"messageId": "msg_old_reply", "content": map[string]string{"type": "text", "text": "old answer"}})
 			reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "model", "currentValue": "stub/model"}, {"id": "mode", "currentValue": "build"}}})
+		case "authenticate":
+			// Reet must never initiate a login flow. Fail immediately if it does.
+			os.Exit(2)
 		case "session/new":
+			if scenario == "codex-auth-required" || scenario == "codex-other-error" || scenario == "other-auth-required" {
+				code, text := -32000, "Authentication required"
+				if scenario == "codex-other-error" {
+					text = "some other startup problem"
+				}
+				send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": code, "message": text}})
+				continue
+			}
 			mode := "build"
+			if scenario == "codex-login" {
+				mode = "agent"
+			}
 			if scenario == "mode-plan" || scenario == "mode-lost" || scenario == "mode-lost-once" || scenario == "mode-switch" || scenario == "mode-ignored" || scenario == "mode-silent" {
 				mode = "plan"
 			}

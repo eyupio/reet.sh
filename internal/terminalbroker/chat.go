@@ -21,8 +21,8 @@ var (
 	ErrACPModelUnsupported = errors.New("Update reet on this machine to switch models during a session.")
 	// ErrACPAgentModeUnsupported means the machine or agent does not offer that mode switch.
 	ErrACPAgentModeUnsupported = errors.New("That agent cannot be switched to that mode on this machine. Update reet on the machine, or choose one of the modes it offers.")
-	// ErrACPAgentModeRejected means the agent did not confirm the new mode, so the chat is still in the old one.
-	ErrACPAgentModeRejected = errors.New("The agent did not switch modes, so the chat is still in the mode it was in.")
+	// ErrACPAgentModeRejected means the agent did not confirm the new mode. It may or may not have switched, so the message never claims the old mode survived.
+	ErrACPAgentModeRejected = errors.New("The agent did not confirm the new mode. Check which mode the chat is in before you send anything else.")
 	ErrACPBusy              = errors.New("the chat is already working")
 	ErrACPClosed            = errors.New("the chat is not running")
 	// ErrACPResumeNotFound means the requested OpenCode session is not one of

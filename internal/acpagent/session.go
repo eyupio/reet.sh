@@ -1551,9 +1551,19 @@ func (s *Session) Mode() string {
 	return s.mode
 }
 
+// modeRestoreTimeout bounds the one attempt to put a chat back in its previous
+// mode after a switch went unanswered.
+var modeRestoreTimeout = 3 * time.Second
+
 // SetMode moves a live chat to one of the profile's ChoosableModes. It is
 // refused while a turn is working, and reported as applied only when the
 // agent's reply names the requested mode, the same rule as the model switch.
+//
+// A switch the agent may have applied but did not confirm (no answer in time, or
+// an answer that does not name the mode) leaves the mode unknown: the session
+// then tries once to put the chat back in the mode it was in, and reports that
+// only if the agent confirms it. Otherwise it returns ErrModeUnconfirmed and
+// Mode is empty, so nothing claims the old mode survived.
 func (s *Session) SetMode(ctx context.Context, mode string) error {
 	allowed := false
 	for _, m := range s.opts.Agent.ChoosableModes {
@@ -1570,19 +1580,35 @@ func (s *Session) SetMode(ctx context.Context, mode string) error {
 		return ErrBusy
 	}
 	s.mu.Lock()
-	id := s.acpID
+	id, previous := s.acpID, s.mode
 	s.mu.Unlock()
 	applied, err := s.switchMode(ctx, id, mode)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrTimeout) {
+		// The agent answered with a refusal, or the request never left: unchanged.
 		return err
 	}
-	if applied != "" {
+	if err == nil && applied != "" {
 		s.mu.Lock()
 		s.mode = applied
 		s.mu.Unlock()
+		if applied != mode {
+			return ErrMode
+		}
+		return nil
 	}
-	if applied != mode {
-		return ErrMode
+	// Unanswered, or answered without naming a mode: the agent may have switched.
+	s.mu.Lock()
+	s.mode = ""
+	s.mu.Unlock()
+	if previous != "" && previous != mode {
+		restoreCtx, cancel := context.WithTimeout(context.Background(), modeRestoreTimeout)
+		defer cancel()
+		if back, rerr := s.switchMode(restoreCtx, id, previous); rerr == nil && back == previous {
+			s.mu.Lock()
+			s.mode = previous
+			s.mu.Unlock()
+			return ErrMode
+		}
 	}
-	return nil
+	return ErrModeUnconfirmed
 }

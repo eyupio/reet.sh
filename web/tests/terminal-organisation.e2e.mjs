@@ -86,7 +86,7 @@ try{
  await row('Builder renamed').press('Shift+F10')
  await menu.getByRole('menuitem',{name:'Stop session…'}).click()
  await page.getByLabel('Remove from history when this session ends').check()
- await page.getByLabel('Use this as my account default').check()
+ await page.getByLabel('Remove from history by default').check()
  await page.getByRole('dialog').getByRole('button',{name:'End session',exact:true}).click()
  await expect(row('Builder renamed')).toContainText('end requested')
  expect(mutations.find(m=>m.kind==='end')).toMatchObject({id:sessions[1].id,removeHistory:true})

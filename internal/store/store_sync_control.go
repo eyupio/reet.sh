@@ -701,7 +701,8 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 				return refuseSyncJobResult("job is no longer running")
 			}
 		}
-		if status != "failed" && status != "succeeded" && !(j.Kind == "update" && status == "rolled_back") && !((j.Kind == "preview" || j.Kind == "auto") && status == "awaiting-approval" && len(hash) == 64) {
+		replan := status == "replan" && (j.Kind == "preview" || j.Kind == "auto" || j.Kind == "apply")
+		if status != "failed" && status != "succeeded" && !replan && !(j.Kind == "update" && status == "rolled_back") && !((j.Kind == "preview" || j.Kind == "auto") && status == "awaiting-approval" && len(hash) == 64) {
 			return refuseSyncJobResult("invalid job result")
 		}
 		if status == "succeeded" && j.Kind == "apply" {
@@ -709,6 +710,7 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 			if err = tx.QueryRow(`SELECT revision FROM sync_targets WHERE user_id=? AND target_id=?`, uid, j.TargetID).Scan(&revision); err != nil || revision != j.Revision {
 				status = "failed"
 				message = "Desired revision changed during apply; rescan and preview."
+				replan = true
 			}
 			if status == "succeeded" {
 				_, err = tx.Exec(`UPDATE sync_options SET baseline=(SELECT desired FROM sync_targets WHERE target_id=? AND user_id=?),applied_revision=? WHERE target_id=?`, j.TargetID, uid, j.Revision, j.TargetID)
@@ -720,6 +722,14 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 		originalStatus := status
 		if message == "Desired revision changed during apply; rescan and preview." {
 			originalStatus = "succeeded"
+		}
+		if replan && status == "replan" {
+			// The machine refused before writing: report it as a failed attempt
+			// so history stays honest, and repair the run below.
+			status = "failed"
+			if strings.TrimSpace(message) == "" {
+				message = "The plan changed before it ran; preview again."
+			}
 		}
 		if _, err = tx.Exec(`INSERT INTO sync_receipts(job_id,status,hash) VALUES(?,?,?)`, id, originalStatus, hash); err != nil {
 			return err
@@ -752,6 +762,26 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 			if _, err = revertInstallTx(tx, id); err != nil {
 				return err
 			}
+		}
+		if replan && finalStatus == "failed" {
+			// A stale plan is recoverable: keep the automatic run where it is
+			// and ask the machine for a fresh plan, rather than stopping the
+			// remaining scopes behind a failure the person must clear by hand.
+			requeued, replanErr := s.replanSyncRunScopeTx(tx, uid, id)
+			if replanErr != nil {
+				return replanErr
+			}
+			replanMessage := "The plan changed before it ran. Retry to plan and sync the remaining changes."
+			if requeued {
+				replanMessage = "The plan changed before it ran. Reet asked the machine for a fresh plan and continues with this scope."
+			}
+			if _, err = tx.Exec(`UPDATE sync_jobs SET message=? WHERE id=?`, replanMessage, id); err != nil {
+				return err
+			}
+			if !requeued {
+				return s.finishSyncRun(tx, uid, id, runFailed)
+			}
+			return nil
 		}
 		outcome := runNext
 		switch {

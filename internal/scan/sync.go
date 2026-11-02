@@ -59,6 +59,27 @@ type syncOptions struct {
 
 var safeSlug = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 var githubSource = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*/[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+
+// Recoverable refusals: the machine did not change anything, and asking for a
+// fresh preview would clear them. The enrolled agent reports these to the
+// controller as "replan", which lets an automatic run repair itself instead of
+// leaving the person with a failed card to press.
+var (
+	errApprovedPlanChanged = errors.New("approved plan no longer matches local files or desired revision; preview again")
+	errTargetChanged       = errors.New("controller target changed; preview again")
+	errLocalSkillsChanged  = errors.New("local skills changed; preview again")
+	errSyncTargetChanged   = errors.New("target identity or revision changed")
+)
+
+// ErrReplanWorthAttempting reports whether err is a refusal a fresh preview
+// would clear without the person changing anything.
+func ErrReplanWorthAttempting(err error) bool {
+	return errors.Is(err, errApprovedPlanChanged) ||
+		errors.Is(err, errTargetChanged) ||
+		errors.Is(err, errLocalSkillsChanged) ||
+		errors.Is(err, errSyncTargetChanged)
+}
+
 var domainSource = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z0-9-]+$`)
 
 func syncSource(sk store.SyncSkill) (string, error) {
@@ -573,7 +594,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		options.onPlan(plan)
 	}
 	if options.approvedHash != "" && options.approvedHash != plan.Hash() {
-		return errors.New("approved plan no longer matches local files or desired revision; preview again")
+		return errApprovedPlanChanged
 	}
 	if len(actions) == 0 {
 		fmt.Fprintln(out, "Already in sync.")
@@ -608,7 +629,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		return err
 	}
 	if latest.Revision != target.Revision {
-		return errors.New("controller target changed; preview again")
+		return errTargetChanged
 	}
 	current, err := collect()
 	if err != nil {
@@ -617,7 +638,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	old, _ := json.Marshal(actions)
 	fresh, _ := json.Marshal(current)
 	if string(old) != string(fresh) {
-		return errors.New("local skills changed; preview again")
+		return errLocalSkillsChanged
 	}
 
 	for index, action := range actions {

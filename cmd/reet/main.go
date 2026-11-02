@@ -231,6 +231,17 @@ func printVersion(out io.Writer, version, commit string) {
 }
 
 func serve() error {
+	// An import staged through the running controller is put in place here,
+	// before anything opens the database it replaces.
+	switch applied, err := backup.ApplyPendingImport(env("REET_DATA_DIR", "./data")); {
+	case err != nil:
+		log.Printf("import: %v", err)
+	case applied != nil:
+		log.Printf("import: restored %s; the database that was live is %s", applied.ID, applied.Previous)
+		for _, l := range applied.Report.Lines() {
+			log.Printf("import: %s", l)
+		}
+	}
 	terminalControl, err := terminalcontrol.Open(env("REET_DATA_DIR", "./data"), os.Getenv("REET_REMOTE_TERMINALS") == "on")
 	if err != nil {
 		return err

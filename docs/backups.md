@@ -26,8 +26,11 @@ own: keep a copy of the file somewhere other than this machine, or the
 off-site copies become unreadable when the machine is lost. The fingerprint
 shown on the page identifies the key without revealing it.
 
-A destination's secret access key is sealed in the database with the same
-key, so a copy of `reet.db` does not expose it.
+A destination's secret access key, a stored copy password, the outgoing mail
+password and the private-connection identity are sealed in the database with
+the same key, so a copy of `reet.db` does not expose them. They only open under
+that key, which matters when a copy is restored onto a controller with another
+one (see below).
 
 ## Compression and a copy password
 
@@ -221,14 +224,67 @@ reet backup restore --yes --password-file ./password <id>   # a password copy
 A copy protected with a password uses the password it was given; with none
 it uses the one stored for that owner when the database is still there.
 
-The command opens the copy, checks it, moves the live `reet.db` aside to
-`reet.db.before-restore-<timestamp>`, removes stale `-wal`/`-shm` files, and
-writes the restored database in place. Start reet again afterwards. Nothing is
-deleted, so the database you replaced can be put back by hand.
+The command opens the copy, checks it, adapts it, moves the live `reet.db`
+aside to `reet.db.before-restore-<timestamp>`, removes stale `-wal`/`-shm`
+files, and writes the restored database in place. Start reet again afterwards.
+Nothing is deleted, so the database you replaced can be put back by hand.
 
-A copy that exists only at a destination is downloaded by the same command.
-The terminal interface's restore form does the same checks and keeps the same
-`reet.db.before-restore-<timestamp>` copy.
+### What a restore changes in the copy
+
+A copy is adapted before it replaces anything, so it is safe on the controller
+it lands on, and the command says what it did:
+
+- **Sign-ins end.** Every browser session and password-reset link in the copy
+  is removed.
+- **Personal tokens and MCP connections are revoked.** Otherwise a credential
+  from the old machine would open the new one. `--keep-tokens` leaves them
+  working, for a move where the old controller is being retired. Browser
+  sign-ins end either way.
+- **The private-connection identity is dropped.** The restored controller makes
+  its own on first use; two controllers never present one identity.
+- **Stored secrets are checked against this controller's key.** Anything sealed
+  under a different `REET_BACKUP_KEY` (a destination's access key, a stored copy
+  password, the mail password) cannot be opened; it is named in the report and
+  left in place, so starting with the old key still opens it. Otherwise enter it
+  again on its page. A copy protected with a password is the kind that opens on
+  any machine, and these are the secrets it does not carry.
+- **A copy from a newer reet is refused.** The database records a schema version
+  (`PRAGMA user_version`) that each build stamps when it opens it. A copy
+  stamped higher than the restoring build understands is refused with a message
+  to upgrade first, and nothing is touched. The check reads the version from the
+  opened copy, not from the manifest's release string: development builds have no
+  ordered release, and the database is what the binary actually has to read. A
+  copy from before versions were recorded reads as 0 and is accepted.
+- **The report says what came across:** accounts, skills on shelves, lists,
+  tags and environments.
+
+Machine connectors keep the credentials they were enrolled with, so they work
+against the restored controller once it answers at the address they use.
+
+### Import into a running controller
+
+The server cannot swap the database it is serving, so an import is staged and
+applied at the next start. The owner sends a sealed copy (the `.reetbackup` or
+the downloaded `.zip`) to the running controller:
+
+```sh
+curl -X POST --data-binary @copy.reetbackup \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/octet-stream' \
+  -H 'X-Copy-Password: the copy password' \
+  "$REET_URL/api/v2/admin/backups/import?keepTokens=1"
+```
+
+`X-Copy-Password` is only for a copy protected with a password, and
+`keepTokens=1` is optional (see above).
+
+The copy is opened, checked and adapted immediately, and the response is the
+same report a restore prints, so problems show before anything is replaced. The
+live database is not touched. `GET` on the same path shows what is staged and
+`DELETE` discards it. On the next start the staged database replaces the live
+one, which is kept as `reet.db.before-restore-<timestamp>`; the report is
+written to the log. A second import replaces the first. If the swap fails the
+staged folder is moved aside and the controller starts on the database it had.
 
 ### A machine rebuilt from nothing
 
@@ -240,7 +296,9 @@ The terminal interface's restore form does the same checks and keeps the same
    it under **Admin → Backups**.
 4. `reet backup list` shows the copies on the machine; a copy only at the
    destination is fetched by `reet backup restore`.
-5. `reet backup restore --yes <id>` and start reet.
+5. `reet backup restore --yes <id>` and start reet. If the key is not the one the
+   copy was sealed under, use a copy with a password; the report names the
+   stored secrets to enter again.
 
 ## Restoring a person's shelf
 

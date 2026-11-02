@@ -591,6 +591,14 @@ func (s *server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// backupImportUpload is the sealed copy an owner sends to be staged. It is
+// binary, so it cannot be JSON; a browser cannot send this Content-Type
+// cross-origin without a preflight, which keeps the check's purpose.
+func backupImportUpload(r *http.Request) bool {
+	return r.Method == http.MethodPost && r.URL.Path == "/api/v2/admin/backups/import" &&
+		strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/octet-stream")
+}
+
 func (s *server) requireOwner(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.role(r) != "owner" {
@@ -613,7 +621,7 @@ func (s *server) auth(next http.Handler) http.Handler {
 			// it is exempt on its exact path and nowhere else. An image upload is
 			// the one other non-JSON write: its own handler requires an exact
 			// image Content-Type and the terminal wrapper checks the origin.
-			if (r.Method == http.MethodPost || r.Method == http.MethodPatch) && r.URL.Path != ssoLogoutPath && !terminalUploadPath(r.URL.Path) &&
+			if (r.Method == http.MethodPost || r.Method == http.MethodPatch) && r.URL.Path != ssoLogoutPath && !terminalUploadPath(r.URL.Path) && !backupImportUpload(r) &&
 				!strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
 				writeErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 				return

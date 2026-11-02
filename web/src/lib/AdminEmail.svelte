@@ -1,6 +1,8 @@
 <script lang="ts">
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
+  import CollectionPanel from './CollectionPanel.svelte'
+  import { ADMIN_MAIL_SCOPES, adminMailCountLabel, adminMailMatchesSearch, adminMailStateCounts, filterAdminMail, type AdminMailScope } from './adminMail'
   import {
     checkMailSettings, getMailDNS, getMailSettings, listMailOutbox, resendMail, saveMailSettings, sendTestMail,
     type MailCheck, type MailDNS, type MailOutbox, type MailSettingsView,
@@ -18,7 +20,9 @@
   let form = $state<Form>({ host: '', port: 587, tls: 'starttls', user: '', from: '', fromName: 'reet.sh', replyTo: '', baseUrl: '', dkimSelector: '' })
   let password = $state('')
   let passwordAction = $state<'keep' | 'replace' | 'clear'>('keep')
-  let filter = $state('')
+  let scope = $state<AdminMailScope>('all')
+  let search = $state('')
+  let refreshing = $state(false)
   let loading = $state(true)
   let saving = $state(false)
   let notice = $state('')
@@ -139,12 +143,32 @@
     }
   }
 
-  const messages = $derived((outbox?.messages ?? []).filter((m) => !filter || m.state === filter))
+  const allMessages = $derived(outbox?.messages ?? [])
+  const searched = $derived(allMessages.filter((m) => adminMailMatchesSearch(m, search)))
+  const counts = $derived(adminMailStateCounts(searched))
+  const messages = $derived(filterAdminMail(allMessages, scope, search))
+  const countLabel = $derived(outbox ? adminMailCountLabel(messages.length, allMessages.length) : 'Reading the outbox…')
+  const stateLabels: Record<string, string> = { queued: 'Queued', sending: 'Sending', held: 'Held', delivered: 'Delivered', failed: 'Failed', bounced: 'Bounced' }
+  function stateLabel(state: string) {
+    return stateLabels[state] ?? state
+  }
+  async function refreshOutbox() {
+    refreshing = true
+    error = ''
+    try {
+      await loadOutbox()
+    } catch (e) {
+      fail(e)
+    } finally {
+      refreshing = false
+    }
+  }
+  function clearFilters() {
+    search = ''
+    scope = 'all'
+  }
   function when(ms?: number) {
     return ms ? new Date(ms).toLocaleString() : '—'
-  }
-  function count(state: string) {
-    return outbox?.counts?.[state] ?? 0
   }
   function dnsLine(label: string, rec: { state: string; record?: string; advice: string }) {
     return `${label}: ${rec.state}${rec.record ? ` — ${rec.record}` : ''}\n${rec.advice}`
@@ -153,8 +177,7 @@
   onMount(() => { void load() })
 </script>
 
-<section class="email" aria-labelledby="email-title">
-  <h2 id="email-title">Email</h2>
+<section class="email" aria-label="Email">
   <p class="muted">One mail server for the whole instance. Every message is written to the outbox first, so a slow or broken server costs a retry, not an email or a hanging page.</p>
 
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
@@ -239,48 +262,63 @@
       </div>
     {/if}
 
-    <section class="outbox" aria-labelledby="outbox-title">
-      <div class="outbox-head">
-        <h3 id="outbox-title">Outbox</h3>
-        <div class="filters" role="group" aria-label="Filter outbox">
-          {#each [['', 'All'], ['queued', 'Queued'], ['held', 'Held'], ['delivered', 'Delivered'], ['failed', 'Failed'], ['bounced', 'Bounced']] as [key, label]}
-            <button type="button" class="btn quiet" aria-pressed={filter === key} onclick={() => (filter = key)}>{label} <small>{key ? count(key) : Object.values(outbox?.counts ?? {}).reduce((a, b) => a + b, 0)}</small></button>
-          {/each}
+    <CollectionPanel label="Outbox" count={countLabel}>
+      {#snippet actions()}
+        <button type="button" class="btn quiet" onclick={refreshOutbox} disabled={refreshing || loading}>Refresh</button>
+      {/snippet}
+      {#snippet toolbar()}
+        <div class="outbox-toolbar">
+          <label class="search">Search outbox
+            <input type="search" bind:value={search} placeholder="Subject, recipient or template" />
+          </label>
+          <div class="scopes" role="group" aria-label="Show messages">
+            {#each ADMIN_MAIL_SCOPES as item}
+              <button type="button" class="scope" aria-pressed={scope === item.key} onclick={() => (scope = item.key)}>{item.label}<small>{counts[item.key]}</small></button>
+            {/each}
+          </div>
         </div>
-      </div>
-      {#if !messages.length}
-        <p class="muted">Nothing here yet.</p>
+      {/snippet}
+
+      {#if !outbox}
+        <div class="state-block error" role="alert">
+          <h3>The outbox could not be read.</h3>
+          <p>Try again without leaving this page.</p>
+          <button type="button" class="btn" onclick={refreshOutbox}>Try again</button>
+        </div>
+      {:else if messages.length === 0}
+        <div class="state-block">
+          <h3>{allMessages.length === 0 ? 'No messages yet.' : 'No message matches that search or state.'}</h3>
+          <p>{allMessages.length === 0 ? 'Invitations, sign-in links, password resets and notices appear here before they are sent.' : 'Try another search, or show every state.'}</p>
+          {#if allMessages.length > 0}<button type="button" class="btn" onclick={clearFilters}>Clear filters</button>{/if}
+        </div>
       {:else}
-        <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the wide table.) -->
-        <div class="tablewrap" tabindex="0" role="region" aria-label="Email outbox, scroll horizontally for more">
-          <table>
-            <thead><tr><th>Message</th><th>To</th><th>State</th><th>Created</th><th></th></tr></thead>
-            <tbody>
-              {#each messages as m (m.id)}
-                <tr>
-                  <td><strong>{m.subject || m.template}</strong><small>{m.template}{m.secret ? ' · sign-in link' : ''}</small></td>
-                  <td class="to">{m.to}</td>
-                  <td>
-                    <span class="state">{m.state}</span>
-                    {#if m.attempts}<small>{m.attempts} {m.attempts === 1 ? 'try' : 'tries'}</small>{/if}
-                    {#if m.nextAttemptAt && m.state === 'queued'}<small>next {when(m.nextAttemptAt)}</small>{/if}
-                    {#if m.lastError}<small class="problem">{m.lastError}</small>{/if}
-                  </td>
-                  <td>{when(m.createdAt)}</td>
-                  <td>{#if m.resendable && isOwner}<button type="button" class="btn quiet" disabled={saving} onclick={() => resend(m.id)}>Resend</button>{/if}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
+        <ul class="messages">
+          {#each messages as m (m.id)}
+            <li class:failing={m.state === 'failed' || m.state === 'bounced'}>
+              <div class="message-main">
+                <strong>{m.subject || m.template}</strong>
+                <small>{m.template}{m.secret ? ' · sign-in link' : ''} · to {m.to}</small>
+                {#if m.lastError}<small class="bad">{m.lastError}</small>{/if}
+              </div>
+              <div class="message-meta">
+                <span class="state {m.state}">{stateLabel(m.state)}</span>
+                <small>{when(m.createdAt)}</small>
+                {#if m.attempts}<small>{m.attempts} {m.attempts === 1 ? 'try' : 'tries'}</small>{/if}
+                {#if m.nextAttemptAt && m.state === 'queued'}<small>next {when(m.nextAttemptAt)}</small>{/if}
+              </div>
+              <div class="message-action">
+                {#if m.resendable && isOwner}<button type="button" class="btn quiet" disabled={saving} onclick={() => resend(m.id)}>Resend</button>{/if}
+              </div>
+            </li>
+          {/each}
+        </ul>
       {/if}
       {#if outbox?.warning}<p class="notice" role="status">{outbox.warning}</p>{/if}
-    </section>
+    </CollectionPanel>
   {/if}
 </section>
 
 <style>
-  .email h2 { margin: 0 0 8px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }
   .muted { margin: 4px 0 0; color: var(--muted); }
   .summary { margin: 16px 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
   .summary p { margin: 8px 0 0; overflow-wrap: anywhere; }
@@ -297,23 +335,45 @@
   .result.bad { border-color: var(--bad); }
   .result h3 { margin: 0 0 8px; font-size: 0.9rem; }
   pre { margin: 10px 0 0; padding: 12px; overflow: auto; border-radius: 8px; background: color-mix(in srgb, var(--tint) 18%, var(--card)); font-size: 0.76rem; line-height: 1.5; }
-  .outbox { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 18px; }
-  .outbox-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
-  .outbox h3 { margin: 0; font: 500 1.2rem/1.2 var(--serif); }
-  .filters { display: flex; flex-wrap: wrap; gap: 2px; }
-  .filters small { color: var(--muted); margin-left: 3px; }
-  .tablewrap { margin-top: 10px; overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
-  th { text-align: left; color: var(--muted); font-weight: 600; padding: 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  td { padding: 12px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  td small { display: block; color: var(--muted); font-size: 0.75rem; margin-top: 3px; overflow-wrap: anywhere; }
-  td.to { overflow-wrap: anywhere; min-width: 150px; }
-  .state { display: inline-block; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.74rem; }
+  .outbox-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
+  .search { flex: 1 1 240px; }
+  .scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .scope:hover { border-color: var(--muted); color: var(--ink); }
+  .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .scope small { margin-left: 5px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .messages { list-style: none; margin: 0; padding: 0; display: grid; }
+  .messages > li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; gap: 12px; padding: 14px 2px; border-top: 1px solid var(--line-soft); }
+  .messages > li:first-child { border-top: 0; }
+  .messages > li.failing { background: color-mix(in srgb, var(--bad) 4%, transparent); }
+  .message-main { display: grid; gap: 3px; min-width: 0; }
+  .message-main strong { overflow-wrap: anywhere; }
+  .message-main small { color: var(--muted); font-size: 0.76rem; line-height: 1.4; overflow-wrap: anywhere; }
+  .message-meta { display: grid; gap: 3px; justify-items: start; min-width: 0; color: var(--muted); font-size: 0.74rem; }
+  .message-meta small { font-size: 0.73rem; overflow-wrap: anywhere; }
+  .message-action { justify-self: end; }
+  .state { display: inline-block; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.74rem; white-space: nowrap; }
+  .state.queued, .state.sending { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent-text); }
+  .state.delivered { border-color: color-mix(in srgb, var(--good) 35%, var(--line)); color: var(--good); }
+  .state.held { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--warn); }
+  .state.failed, .state.bounced { border-color: color-mix(in srgb, var(--bad) 42%, var(--line)); color: var(--bad); }
+  .state-block { padding: 24px 0 16px; max-width: 58ch; }
+  .state-block h3 { margin: 0; font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; }
+  .state-block p { margin: 6px 0 12px; color: var(--muted); }
+  .state-block.error p { color: var(--ink); }
+  .bad { color: var(--bad) !important; }
   .notice { margin: 14px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.84rem; }
   .notice.bad { border-color: var(--bad); }
   .notice.good { border-color: var(--good); }
   @media (max-width: 720px) {
     .pair { grid-template-columns: 1fr; }
     label.wide { grid-column: auto; }
+    .outbox-toolbar { gap: 10px; }
+    .search { flex-basis: 100%; }
+    .messages > li { grid-template-columns: minmax(0, 1fr) auto; }
+    .message-meta { grid-column: 1; grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+    .message-action { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
   }
+  @media (pointer: coarse) { .scope, .search input, .message-action .btn { min-height: 44px; } }
+  @media (prefers-reduced-motion: no-preference) { .scope { transition: background-color 0.15s, border-color 0.15s, color 0.15s; } }
 </style>

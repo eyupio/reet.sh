@@ -50,7 +50,7 @@
 <dialog bind:this={dialog} role="alertdialog" use:shell={{ sheet: 'bottom' }} aria-labelledby={titleId} aria-describedby={`${titleId}-body`}
   oncancel={(event) => { event.preventDefault(); cancel() }}>
   <div class="box" data-shell-card>
-    <p class="warn" aria-hidden="true">!</p>
+    <p class="badge" aria-hidden="true">!</p>
     <h2 id={titleId}>{title}</h2>
     <p id={`${titleId}-body`}>{sentence}</p>
     <ul class="gates">
@@ -78,7 +78,7 @@
   dialog { max-width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; overflow-x: hidden; padding: 0; border: 0; background: transparent; color: var(--ink); }
   dialog::backdrop { background: color-mix(in srgb, var(--ink) 45%, transparent); backdrop-filter: blur(2px); }
   .box { padding: 28px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-dock); overflow-wrap: anywhere; }
-  .warn { margin: 0 0 8px; width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--warn); border-radius: 50%; color: var(--warn); font-weight: 700; }
+  .badge { margin: 0 0 8px; width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--warn); border-radius: 50%; color: var(--warn); font-weight: 700; }
   h2 { margin: 0; font: 600 1.5rem/1.15 var(--serif); letter-spacing: -0.02em; text-wrap: balance; }
   p { margin: 10px 0 0; color: var(--muted); }
   .gates, .terms { margin: 16px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }

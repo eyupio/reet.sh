@@ -73,6 +73,13 @@ wide at 320 px since #370.
   start says "Sign in to Codex on that machine first"; the adapter's `_auth/status_update` label is shown in the chat, never the email.
 - The current mode is stored on the session, not sent only as an event.
 
+**Current slice (2 November, [draft #391](https://github.com/eyupio/reet.sh/pull/391)):** the owner approved building Codex login access from source evidence and keeping section 3's signed-in Run B as
+final verification. The profile now routes `CODEX_HOME` to the connector's own setting or original `HOME/.codex`, keeps replacement `HOME`, drops XDG
+home directories for Codex, never calls `authenticate`, maps the authentication-required start error and forwards only the bounded status label as a notice.
+Neither feature switch is retired. See the new progress note in the plan and source checkpoint in the probe report; test and publication results belong
+in the draft PR. The earlier requirement to wait for section 3 before coding is superseded for this slice. Run B remains the next owner check; if it still
+says "Authentication required", stop and ask the owner which way to go. No hardware or genuine-login check has been completed here.
+
 **What is left, in order:**
 1. **Needs the owner's hardware:** `docs/device-checks.md` section 3 (Codex signed out and signed in, `scripts/probe-codex-start.py
    --auth none [--codex-home <copy>]`); section 2 (Claude logged out and logged in); section 1 (touch device and screen reader for typed

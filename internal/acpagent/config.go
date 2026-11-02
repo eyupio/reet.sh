@@ -6,8 +6,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -25,6 +27,9 @@ type LaunchEnv struct {
 // its reported version against the spec's floor. It returns the version that
 // was found, or "" when the spec has no external version gate.
 func ProbeVersion(ctx context.Context, binary string, spec Spec, dir, home string, base []string) (string, error) {
+	if _, err := loginHome(spec, base); err != nil {
+		return "", err
+	}
 	min, required := spec.minVersion()
 	if !required {
 		return "", nil
@@ -122,7 +127,7 @@ func minimalEnvironment(spec Spec, home string, base []string) []string {
 	values := map[string]string{}
 	for _, entry := range base {
 		key, value, ok := strings.Cut(entry, "=")
-		if !ok || key == "" || !allowed[key] {
+		if !ok || key == "" || !allowed[key] || spec.LoginHomeEnv != "" && strings.HasPrefix(key, "XDG_") {
 			continue
 		}
 		if strings.ContainsAny(value, "\x00\n\r") {
@@ -130,8 +135,44 @@ func minimalEnvironment(spec Spec, home string, base []string) []string {
 		}
 		values[key] = value
 	}
+	if spec.LoginHomeEnv != "" {
+		if path, err := loginHome(spec, base); err == nil {
+			values[spec.LoginHomeEnv] = path
+		}
+	}
 	values["HOME"] = home
 	return envList(values)
+}
+
+// loginHome resolves a profile-owned route without reading credentials or
+// changing the selected account. A malformed explicit path is refused, never
+// replaced with a different account's default folder.
+func loginHome(spec Spec, base []string) (string, error) {
+	if spec.LoginHomeEnv == "" {
+		return "", nil
+	}
+	home, path := "", ""
+	for _, entry := range base {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "HOME":
+			home = value
+		case spec.LoginHomeEnv:
+			path = value
+		}
+	}
+	if path == "" {
+		if filepath.IsAbs(home) && !strings.ContainsAny(home, "\x00\n\r") {
+			path = filepath.Join(home, spec.LoginHomeDir)
+		}
+	}
+	if !filepath.IsAbs(path) || strings.ContainsAny(path, "\x00\n\r") {
+		return "", fmt.Errorf("%s needs an absolute %s folder on that machine", spec.displayName(), spec.LoginHomeEnv)
+	}
+	return path, nil
 }
 
 // agentEnvironment is what an adapter process receives: the minimal inherited

@@ -68,6 +68,15 @@ try {
   await page.waitForFunction(() => window.__chatStream?.url.endsWith('/chat'))
   await page.evaluate(() => window.__chatStream.emit('reset', { truncated: false }))
   await expect(page.getByRole('textbox', { name: 'Message Codex' })).toBeVisible()
+  // The connector forwards only the account label as an existing notice; it survives replay.
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 1, kind: 'notice', text: 'Codex sign-in: ChatGPT Pro' }))
+  await expect(page.getByText('Codex sign-in: ChatGPT Pro', { exact: true })).toBeVisible()
+  await page.evaluate(() => {
+    window.__chatStream.emit('reset', { truncated: false })
+    window.__chatStream.emit('chat', { seq: 1, kind: 'notice', text: 'Codex sign-in: ChatGPT Pro' })
+  })
+  await expect(page.getByText('Codex sign-in: ChatGPT Pro', { exact: true })).toHaveCount(1)
+
   await expect(page.getByText('Ask OpenCode', { exact: false })).toHaveCount(0)
   const group = page.getByRole('radiogroup', { name: 'Approvals' })
   await expect(group.getByRole('radio', { name: 'Ask before leaving the sandbox' })).toBeChecked()

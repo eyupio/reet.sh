@@ -45,7 +45,7 @@ Every reply is `Cache-Control: no-store`. `projects` stays a reserved hosted use
 | Base branch | blank or a valid git branch name of at most 255 bytes |
 | Worktree for each session | `inherit` (the account default), `yes` or `no` |
 | Colour | blank, or `red`, `amber`, `green`, `blue` or `violet` (422 `invalid_colour`) |
-| Starter prompt | the opening-prompt rules: at most 2,000 bytes, valid text, no control characters but line breaks, not starting with `-`; for Claude Code and Codex at least two words |
+| Starter prompt | the opening-prompt rules: at most 8,000 bytes, valid text, no control characters but line breaks, not starting with `-`; for Claude Code and Codex at least two words |
 | Writes | 30 a minute per account (429 `project_rate_limited`) |
 | Body | 64 KiB (413 `too_large`); exactly one JSON object with no unknown fields (400 `invalid_request`) |
 

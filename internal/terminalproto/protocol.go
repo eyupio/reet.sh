@@ -15,7 +15,7 @@ import (
 
 const (
 	Version               = 1
-	MaxControlBytes       = 16 << 10
+	MaxControlBytes       = 64 << 10
 	MaxBinaryBytes        = 32 << 10
 	MaxQueuedOutputBytes  = 256 << 10
 	MaxTitleRunes         = 80

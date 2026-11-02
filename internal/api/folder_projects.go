@@ -163,12 +163,13 @@ func (in folderProjectInput) apply(p store.FolderProject) store.FolderProject {
 	return p
 }
 
+var sentenceFolderPrompt = fmt.Sprintf("The starter prompt must be valid text of at most %d bytes, without control characters other than line breaks, and must not start with a dash.", terminalproto.MaxPromptBytes)
+
 const (
 	sentenceFolderNotFound = "That project isn't on this account."
 	sentenceFolderChanged  = "Someone changed this project. Reload it, then try again."
 	sentenceFolderDir      = "The folder must be an absolute path starting with /, at most 4096 bytes, without control characters or line separators."
 	sentenceFolderName     = "Give the project a name of 1 to 80 characters, without line breaks or control characters."
-	sentenceFolderPrompt   = "The starter prompt must be valid text of at most 2,000 bytes, without control characters other than line breaks, and must not start with a dash."
 	sentenceFolderMachine  = "That machine isn't enrolled on this account."
 	sentenceFolderEffort   = "Choose low, medium or high thinking, or the agent's default."
 )

@@ -155,7 +155,7 @@ func TestSelectionRunRefusals(t *testing.T) {
 		"effort":        {with(func(b map[string]any) { b["effort"] = "high" }), 409, "launch_option_unsupported"},
 		"effort?":       {with(func(b map[string]any) { b["effort"] = "max" }), 422, "invalid_effort"},
 		"dash":          {with(func(b map[string]any) { b["prompt"] = "-" + selectionAPIPrompt }), 422, "invalid_prompt"},
-		"long":          {with(func(b map[string]any) { b["prompt"] = strings.Repeat(selectionAPIPrompt, 40) }), 422, "invalid_prompt"},
+		"long":          {with(func(b map[string]any) { b["prompt"] = strings.Repeat(selectionAPIPrompt, 200) }), 422, "invalid_prompt"},
 		"one word":      {with(func(b map[string]any) { b["prompt"] = "zebra-sentinel" }), 422, "prompt_unsupported"},
 		"yolo":          {with(func(b map[string]any) { b["yolo"] = true }), 409, "launch_option_unsupported"},
 		"unknown field": {with(func(b map[string]any) { b["sharedPrompt"] = selectionAPIPrompt }), 400, "invalid_request"},

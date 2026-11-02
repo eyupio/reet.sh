@@ -1707,3 +1707,119 @@ No live provider/model, real fleet machine, physical phone, Safari or Firefox
 was tested. Eli coordinator integration remains the staged work described in
 [the orchestration handoff](work-orchestration-handoff.md) and
 [the compatibility review](research/eli-reuse.md).
+
+## Directory pages refresh: Lists, Community and Teams — 2 November 2026
+
+Built on main `4e9132e`. The scope, contract and rulings are in [the directory
+pages spec](superpowers/specs/2026-11-02-directory-pages-refresh.md). This pass
+changes three pages that show a collection of records; it adds no route, write or
+server field.
+
+**The shared grammar.** Lists, Community and Teams now sit in the same bounded
+surface: a count in the panel head, search, scope chips with figures taken from the
+records the search leaves, and one row anatomy per record. Lists keeps its saved
+Rows/Cards choice. Community lists and skills share the row grammar; Teams folds
+each group's management inside its row. Empty, loading and error states live in
+the panel. On a phone the toolbar wraps and every scope, tab and summary is at
+least 44 px.
+
+**Lists.** The select became scope chips with counts; the page count is
+`N of M lists` while a filter narrows; ownership is said once (`Owned by you` or
+`By Alex Morgan · Can view`); recency is relative with the exact timestamp in the
+title; reading draws skeleton rows; an empty search recovers through **Clear
+filters**.
+
+**Community.** Lists and Skills became two honest tabs inside the panel, with the
+active count, search-matched figures and the same row anatomy as Lists. Saving a
+skill still writes to the personal shelf and copies its install command.
+
+**Teams.** Groups are scannable rows with kind, the member figure the API sent,
+and the person's role. Managing members, group settings and notifications opens
+under the group that owns them. The create form is the page's primary action,
+takes focus when it opens and returns focus to its button when cancelled.
+
+Validation:
+
+- `npm run check`: every unit suite passes, including the new `lists`, `community`
+  and `spaces` models; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- `web/tests/lists.e2e.mjs`, `community.e2e.mjs` and `spaces.e2e.mjs`: pass at
+  1440, 390 and 320 px. They cover the API count, every scope press, honest chip
+  counts under a search, the recoverable empty state, the saved Lists layout, the
+  focused Teams create form, member figures only where the API sent members, no
+  horizontal overflow and 44 px scope/row targets.
+- The new specs fail against the old build: the old Lists page has no panel count
+  or scope chips, so the first assertion cannot resolve.
+- `navigation`, `phone-dialogs` and `public-workspace` browser specs: pass.
+- `go vet ./...`: pass.
+- A full `go test -race ./...` is not green: `TestRunReportRefusesAnInteractiveLessScanWithoutServer`
+  in `internal/scan` fails. It also fails in a detached worktree at unchanged main
+  `4e9132e`, so it is not this change. The frontend change does not touch Go.
+- `phone-zoom.e2e.mjs`: pass at 320, 360, 390 and 412 px across all 46 screens.
+  The pre-existing 320 px failure on `/skills` (the sync-intent line let a long
+  host name widen the page) was fixed on main in `SkillCard.svelte`; this branch is
+  rebased onto it. The check is green in the merged tree.
+- Captures were checked at 1440, 834, 390 and 320 px in light and dark. No
+  horizontal overflow was found on the three refreshed pages.
+
+![Lists, desktop, dark](images/ui/lists-rows-desktop.png)
+![Lists, desktop, light](images/ui/lists-rows-desktop-light.png)
+![Lists, phone](images/ui/lists-rows-phone.png)
+![Community, desktop](images/ui/community-lists-desktop.png)
+![Community, phone](images/ui/community-lists-phone.png)
+![Teams and organisations, desktop](images/ui/teams-groups-desktop.png)
+![Teams and organisations, phone](images/ui/teams-groups-phone.png)
+
+**Not checked.** No physical phone or tablet, no screen reader, and no Safari or
+Firefox. The checks use Chromium with the workspace fixtures; touch sizes are
+measured in the emulated coarse-pointer viewport, not by hand. The Setups page is
+the next page under the same contract and is not part of this change.
+
+## Skills and Machines findability — 2 November 2026
+
+Follow-up to the directory pages refresh, built on the merged `5c7463b`. The
+contract and rulings are in [the Skills and Machines findability
+spec](superpowers/specs/2026-11-02-skills-machines-findability.md). No API, store or
+permission change.
+
+**Jump finds skills.** The field is now **Jump to a session, project, skill or
+machine**. A skill result carries `Skill · <saved sync intent>` (or its source until
+the sync state loads), and choosing it opens `/skills?skill=<id>` and brings that
+card into view once. Results keep the order sessions, Projects, skills, machines.
+
+**A created skill says where it is.** The “Skills you create” rows now show the
+saved intent first (“Pending on dev-laptop”), then the observed state (“On 2
+machines · 1 missing”), then “Not on a machine yet”. A published skill links to its
+shelf card; a draft keeps **Sync to machines…** and is never described as installed.
+The line says that saved selections and scans are separate.
+
+**Machines can be searched.** The fleet has one labelled field over host, saved
+aliases and every skill any agent scope reported, with an honest `1 of 2 machines`
+count, a **Clear search** empty state and a mobile layout. A just-added machine stays
+visible while a different search is active.
+
+Validation:
+
+- `npm run check`: all unit suites pass, including the new Jump ordering and machine
+  matching tests; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- `machines-search.e2e.mjs`, `navigation.e2e.mjs` (skill result and address),
+  `first-skills.e2e.mjs` (draft intent), `skills-sync-simple.e2e.mjs` (published shelf
+  link), `phone-layout.e2e.mjs`, `phone-zoom.e2e.mjs` and `control.e2e.mjs`: pass at
+  desktop and phone widths. The new search spec checks host, alias, skill, empty
+  recovery, the count, a 44 px field and no horizontal overflow.
+- `go vet ./...`: pass. The full race suite's only local failure remains the
+  environment-specific `TestRunReportRefusesAnInteractiveLessScanWithoutServer`,
+  which reproduces on unchanged main.
+- Captures were checked at 1440 px in dark and at phone width; the three below show
+  the new surfaces.
+
+![Jump finds a skill](images/ui/jump-skill.png)
+![Skills you create says where the skill is](images/ui/skills-created-state.png)
+![Machines filtered by skill](images/ui/machines-search.png)
+
+**Not checked.** No physical phone or tablet, no screen reader, and no Safari or
+Firefox. Jump reads the currently loaded shelf; while a shelf filter is active on
+Skills, its skill results follow that filtered set. The machine search matches
+observed reports, not saved sync intent, so a pending skill does not make a machine
+match until a scan reports it.

@@ -76,8 +76,8 @@ try {
     window.__keyboard=value=>{height=value;events.dispatchEvent(new Event('resize'))}
    })
    await page.goto(`${base}/skills`)
-   await page.getByRole('button',{name:'Jump to a session, project or machine'}).click()
-   const jump = page.getByRole('combobox',{name:'Jump to a session, project or machine'})
+   await page.getByRole('button',{name:'Jump to a session, project, skill or machine'}).click()
+   const jump = page.getByRole('combobox',{name:'Jump to a session, project, skill or machine'})
    await expect(jump).toBeFocused()
    expect(await jump.evaluate(el=>parseFloat(getComputedStyle(el).fontSize)), `${width}px: 16 px field`).toBeGreaterThanOrEqual(16)
    const keyboard = 400

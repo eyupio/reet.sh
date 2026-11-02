@@ -15,6 +15,17 @@ export function agentOnline(agent: Pick<SyncAgent, 'lastSeen'> | undefined, now 
 export function inventoryMachines(machines: Machine[]): Machine[] {
   return machines.filter(machine => agentGroups(machine).length > 0)
 }
+
+/** A machine is found by its host, an alias, or a skill any of its agent scopes reported. */
+export function machineMatchesSearch(machine: Machine, query: string): boolean {
+  const term = query.trim().toLowerCase()
+  if (!term) return true
+  const skills = agentGroups(machine)
+    .flatMap(group => (group.skills ?? []).map(skill => `${skill.name} ${skill.slug} ${skill.source}`))
+    .join(' ')
+  const haystack = `${machine.host} ${(machine.aliases ?? []).join(' ')} ${skills}`.toLowerCase()
+  return term.split(/\s+/).every(word => haystack.includes(word))
+}
 export function inventoryGroups(machine?: Machine, group = ''): SyncEnvironment[] { return agentGroups(machine).filter(g => !group || g.id === group) }
 export function inventory(groups: SyncEnvironment[]): SyncSkill[] {
   return [...new Map(groups.flatMap(g => g.skills ?? []).map(s => [s.id, s])).values()].sort((a, b) => a.name.localeCompare(b.name))

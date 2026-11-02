@@ -27,7 +27,7 @@
     send({ kind: 'tool', toolCallId: 'checks', toolKind: 'execute', command: 'npm run check', title: 'Run web checks', status: name === 'Finished' ? 'completed' : 'in_progress', text: name === 'Finished' ? 'All fixture checks passed.' : '' })
     if (name === 'Reconnecting') { stream().disconnect(); return }
     if (name === 'Error') { send({ kind: 'status', state: 'error', detail: 'The provider’s rate limit was reached. Wait for it to reset or choose another configured model.' }); return }
-    if (name === 'Finished') { send({ kind: 'agent', messageId: 'done', text: 'The progress panel is ready to review. It shows the current tool, observed time and activity, with Gaffer keeping an eye on the worker.' }); send({ kind: 'status', state: 'idle' }) }
+    if (name === 'Finished') { send({ kind: 'agent', messageId: 'done', text: 'The progress panel is ready to review. It shows the current tool, observed time and activity, with Gaffer keeping an eye on the agent.' }); send({ kind: 'status', state: 'idle' }) }
   }
   function theme() { document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light' }
   onMount(() => { setTimeout(() => scene(new URLSearchParams(location.search).get('scene') || 'Editing'), 80) })
@@ -53,7 +53,7 @@
       <div class="meet"><GafferAvatar active /></div>
       <p class="eyebrow">A proper pair of hands.</p>
       <h1>Meet the Gaffer.</h1>
-      <p>He minds the brief.<br />The worker gets stuck in.<br />You stay in the know.</p>
+      <p>He minds the brief.<br />The agent gets stuck in.<br />You stay in the know.</p>
       <div class="note">A little Yorkshire.<br />A lot of care.</div>
       <span class="demo-note">Scripted demo activity</span>
     </aside>

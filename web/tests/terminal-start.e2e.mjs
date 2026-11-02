@@ -66,6 +66,10 @@ try {
  const terminalDialog=page.getByRole('dialog',{name:'New terminal session'})
  for(const button of ['New session','✦ Start a new Terminal session']){
   await page.getByRole('button',{name:button,exact:true}).click()
+  if(button==='New session'){
+   await expect(page.getByRole('dialog',{name:'New session'})).toBeVisible()
+   await page.getByRole('button',{name:'Terminal session',exact:true}).click()
+  }
   await expect(terminalDialog).toBeVisible()
   await expect(terminalDialog.getByLabel('Machine',{exact:true})).toHaveValue('')
   await expect(terminalDialog.getByRole('button',{name:'New terminal',exact:true})).toBeDisabled()
@@ -113,6 +117,7 @@ try {
  expect(new URL(page.url()).searchParams.get('agent')).toBe(agentB)
  // From a running session, New session also opens settings and preserves the live view when cancelled.
  await page.getByRole('button',{name:'New session',exact:true}).click()
+ await page.getByRole('button',{name:'Terminal session',exact:true}).click()
  await terminalDialog.getByLabel('Machine',{exact:true}).selectOption(agentA)
  await expect(terminalDialog.getByLabel('Folder',{exact:true})).toHaveValue('')
  await page.getByRole('button',{name:'Close New terminal session'}).click()

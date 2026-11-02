@@ -59,7 +59,13 @@ try {
   releaseCreate();await created
   // The create that was released above is still settling (it refetches the inventory before clearing busy), and the
   // workspace ignores a new-session request while busy. Retry until the dialog actually opens.
-  await expect(async()=>{await page.getByRole('button',{name:'New session',exact:true}).click();await expect(page.getByRole('button',{name:'New terminal',exact:true})).toBeVisible({timeout:1000})}).toPass({timeout:15000})
+  await expect(async()=>{
+   await page.getByRole('button',{name:'New session',exact:true}).click()
+   const chooser=page.getByRole('dialog',{name:'New session'})
+   await expect(chooser).toBeVisible({timeout:1000})
+   await chooser.getByRole('button',{name:'Terminal session',exact:true}).click()
+   await expect(page.getByRole('button',{name:'New terminal',exact:true})).toBeVisible({timeout:1000})
+  }).toPass({timeout:15000})
   await expect(page.getByRole('button',{name:'New terminal',exact:true})).toBeDisabled()
   await page.getByRole('button',{name:'Close New terminal session'}).click()
   expect(new URL(page.url()).searchParams.get('agent')).toBe(otherAgent)
@@ -318,6 +324,7 @@ try {
   await expect(reference.locator('.badge')).toHaveText('Inactive')
   await page.getByRole('button',{name:'Close Machine & terminal details'}).click()
   await page.getByRole('button',{name:'New session',exact:true}).click()
+  await page.getByRole('button',{name:'Terminal session',exact:true}).click()
   await expect(page.getByRole('button',{name:'New terminal',exact:true})).toBeDisabled()
   expect(await state()).toEqual(original)
   await page.evaluate(async()=>{const response=await fetch('/_test/enable-terminals',{method:'POST'});if(!response.ok)throw new Error('reenable failed')})
@@ -350,6 +357,7 @@ try {
   await page.getByLabel('Machine or shell user').fill('builder')
   await page.getByRole('navigation',{name:'Matching machines'}).getByRole('button',{name:/builder/}).click()
   await page.getByRole('button',{name:'New session',exact:true}).click()
+  await page.getByRole('button',{name:'Terminal session',exact:true}).click()
   await page.getByLabel('New session name').fill('Builder work')
   await page.getByRole('button',{name:'New terminal',exact:true}).click()
   await expect(page.getByText(/The creation is unconfirmed/)).toBeVisible()

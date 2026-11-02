@@ -6,14 +6,15 @@ Signing in lands on **Home** (`/`). Every figure on it comes from a record that 
 left out or says so in words.
 
 **The tabs.** A desktop (1100 px and wider) shows Home, Sessions, Machines and Skills in the top bar, with
-**Jump to a session, project or machine**, the bell and the account menu. Activity is a section of the account page at
+**Jump to a session, project, skill or machine**, the bell and the account menu. Activity is a section of the account page at
 `/account/activity`; the old `/activity` address opens it. The account menu holds **More**:
 Setups, Sync, Lists, Community, Support, Teams & organisations and Host skills. An open instance has no
 account menu, so it keeps More in the top bar. A tablet (651–1099 px) keeps
 Home, Sessions and Machines in the top bar, with **More** beside them for the rest and a search button for Jump. A phone
 has a slim top bar (logo, search, bell, account) and a 64 px bottom tab bar: Home, Sessions, Machines and More. While
 the phone keyboard is up for Jump, the bottom bar steps aside, and Jump's results end above the keyboard. Sessions and
-the bell are for a writer in accounts mode only.
+the bell are for a writer in accounts mode only. Jump lists sessions, folder projects, shelf skills and machines; a
+skill row carries its saved sync intent, and choosing it brings that card into view on the shelf.
 
 **What Home shows today.**
 
@@ -220,6 +221,11 @@ including enrolled hosts that need connection/setup. Each machine remembers its
 last selected session while this workspace is mounted. The selected user/host
 remains visible on phones; moving from desktop to phone closes the panel.
 
+**New session** first asks what to start: an **Agent session** opens the Start an
+agent dialog, and a **Terminal session** opens the shell form (asking for a
+machine first when none is selected). An unconfirmed creation skips the question
+and opens its own retry instead.
+
 Each unconfirmed creation keeps its immutable request ID and original title per
 machine while the workspace is mounted. Switching machines cannot discard or
 retarget that retry. **Review creation** or **New session** opens the original retry;
@@ -346,7 +352,7 @@ reet refuses the install, and says why, when:
 | --- | --- |
 | Disconnect | Close this browser attachment; leave the shell running |
 | Reconnect | Attach to that existing shell; do not create another |
-| New session | Explicitly create a shell; preserve retry IDs on uncertain responses |
+| New session | Choose an agent session or a shell, then create it; preserve retry IDs on uncertain responses |
 | Manage → Rename | Change the title; preserve process identity |
 | Manage → End session | Confirm and request termination of the exact shell and its work |
 | History | Search saved Bash/Zsh commands; paste to edit or explicitly review and run |

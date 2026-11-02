@@ -134,7 +134,7 @@
   <span class="grow"></span>
   <JumpSearch load={jump} open={searchOpen} bind:input onclose={closeSearch}
     onfocuschange={(focused) => { searchFocused = focused; measureKeyboard() }} />
-  <button type="button" class="icon search-button" bind:this={searchButton} aria-label="Jump to a session, project or machine" aria-expanded={searchOpen}
+  <button type="button" class="icon search-button" bind:this={searchButton} aria-label="Jump to a session, project, skill or machine" aria-expanded={searchOpen}
     onclick={() => (searchOpen ? closeSearch() : void openSearch())}>
     <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
   </button>

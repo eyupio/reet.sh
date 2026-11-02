@@ -344,6 +344,7 @@
                   <div class="guide" role="group" aria-label={`What to do for ${row.host}`}>
                     <strong class="guide-title">{guide.title}</strong>
                     <small><b>Why:</b> {guide.why}</small>
+                    {#if guide.found}<small><b>Found:</b> {guide.found}</small>{/if}
                     {#if guide.command}
                       <div class="guide-cmd"><code>{guide.command}</code><CopyButton text={guide.command} label="Copy" compact ariaLabel={`Copy ${guide.command} for ${row.host}`} /></div>
                     {/if}

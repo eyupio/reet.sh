@@ -114,10 +114,10 @@ export function batchFailedMember(batch: Pick<SoftwareBatch, 'members'>): Softwa
 }
 
 /** What a person should do about a machine whose software could not be reviewed. */
-export type SoftwareGuide = { title: string; why: string; command?: string; then: string }
+export type SoftwareGuide = { title: string; why: string; found?: string; command?: string; then: string }
 
 /** Guidance for an "unknown" fleet row: what to do, what to run on that machine, and why. Null when nothing needs doing. */
-export function fleetSoftwareGuide(row: Pick<FleetSoftwareRow, 'state' | 'host' | 'reason'>): SoftwareGuide | null {
+export function fleetSoftwareGuide(row: Pick<FleetSoftwareRow, 'state' | 'host' | 'reason' | 'evidence'>): SoftwareGuide | null {
   if (row.state !== 'unknown') return null
   switch (row.reason) {
     case 'agent_too_old': return {
@@ -135,11 +135,13 @@ export function fleetSoftwareGuide(row: Pick<FleetSoftwareRow, 'state' | 'host' 
     case 'unreadable_install': return {
       title: `Check OpenCode on ${row.host}`,
       why: 'reet found OpenCode but could not tell how it was installed, so it will not guess at a plan.',
-      then: 'Nothing to run here. Open that machine\'s Settings to see what reet observed, fix or reinstall OpenCode there, then press Refresh.',
+      found: evidenceFound(row.evidence),
+      then: evidenceThen(row.evidence),
     }
     case 'no_plan': return {
       title: `No plan for ${row.host}`,
       why: 'reet has no reviewed plan for this machine\'s platform or installation, so it cannot change it safely.',
+      found: evidenceFound(row.evidence),
       then: 'Nothing to run. Manage OpenCode on that machine yourself, or check back after a reet release.',
     }
     case 'read_failed': return {
@@ -152,5 +154,28 @@ export function fleetSoftwareGuide(row: Pick<FleetSoftwareRow, 'state' | 'host' 
       why: 'reet could not review this machine\'s software.',
       then: 'Press Refresh. If it stays, open that machine\'s Settings to see what it reported.',
     }
+  }
+}
+
+type FleetEvidence = NonNullable<FleetSoftwareRow['evidence']>
+
+/** What the machine reported about OpenCode, in words, or undefined when it reported nothing useful. */
+function evidenceFound(evidence?: FleetEvidence): string | undefined {
+  if (!evidence) return undefined
+  const where = evidence.path ? ` at ${evidence.path}` : ''
+  switch (evidence.reason) {
+    case 'unreadable': return `reet found OpenCode${where} but couldn't read its version.`
+    case 'package_unknown': return `OpenCode is installed${where}, but reet doesn't recognise the package.`
+    case 'platform_unsupported': return 'reet has no reviewed OpenCode build for that machine\'s platform.'
+    case 'managed_broken': return `reet's own copy of OpenCode${where} is damaged.`
+    default: return evidence.path ? `OpenCode was seen at ${evidence.path}.` : undefined
+  }
+}
+
+function evidenceThen(evidence?: FleetEvidence): string {
+  switch (evidence?.reason) {
+    case 'managed_broken': return 'Open that machine\'s Settings and reinstall OpenCode from there, then press Refresh.'
+    case 'platform_unsupported': return 'Nothing to run. Manage OpenCode on that machine yourself, or check back after a reet release.'
+    default: return 'Nothing to run here. Fix or reinstall OpenCode on that machine, then press Refresh.'
   }
 }

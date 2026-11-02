@@ -86,7 +86,7 @@ try {
   expect(sockets).toBe(actionSockets);expect(await state()).toEqual(original)
 
   // The Sessions page lists the session; its row continues it.
-  await page.goto(`${base}/sessions`)
+  await page.goto(`${base}/sessions?view=list`)
   const listed=page.locator('main .session-row').filter({hasText:'Browser durability'})
   await expect(listed).toHaveCount(1)
   const continuedAt=Date.now()
@@ -217,7 +217,7 @@ try {
   expect(library.ok()).toBe(true)
   expect((await library.json()).commands.map(item=>item.command)).toEqual([savedText])
   // And shows it in its own library, opened from the Sessions page's Saved commands (Control's shortcut before it was folded in).
-  await secondPage.goto(`${base}/sessions`)
+  await secondPage.goto(`${base}/sessions?view=list`)
   await secondPage.getByRole('button',{name:'Saved commands',exact:true}).click()
   await expect(secondPage.getByRole('dialog').locator('code')).toHaveText(savedText)
   await secondContext.close()

@@ -148,8 +148,9 @@
   // view=terminal in the query it opens the terminal workspace there, with the session screen around the chosen session.
   const sessionsQuery = new URLSearchParams(location.search)
   const isSessionsPage = location.pathname === '/sessions'
-  const isTerminals = isSessionsPage && (sessionsQuery.has('session') || sessionsQuery.has('agent') || machineView === 'terminal') || legacyMachinePage && machineView === 'terminal'
-  const isSessions = isSessionsPage && !isTerminals
+  // A bare /sessions is the workspace too (its empty state offers a new session); the older list stays at /sessions?view=list.
+  const isSessions = isSessionsPage && machineView === 'list'
+  const isTerminals = isSessionsPage && !isSessions || legacyMachinePage && machineView === 'terminal'
   const isSync = location.pathname === '/sync' || legacyMachinePage && !isTerminals && (machineView === 'compare' || location.pathname === '/account/sync')
   const isHosting = location.pathname === '/hosting'
   const isCommunity = location.pathname === '/community'

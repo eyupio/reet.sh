@@ -55,7 +55,7 @@ const openQuickLaunch = async page => {
 // bar's Change sheet opened from Home.
 const home = {path:'/', extra:homeExtra, ready:async page => { for (const name of [HOST80, SESSION80, PROJECT80]) await page.getByText(name).first().waitFor({state:'attached', timeout:5000}) }}
 // The Sessions screen with the same names: on a phone it holds the project rail (PR H).
-const sessionsRail = {path:'/sessions', extra:homeExtra, ready:async page => { for (const name of [SESSION80, PROJECT80]) await page.getByText(name).first().waitFor({state:'attached', timeout:5000}) }}
+const sessionsRail = {path:'/sessions?view=list', extra:homeExtra, ready:async page => { for (const name of [SESSION80, PROJECT80]) await page.getByText(name).first().waitFor({state:'attached', timeout:5000}) }}
 const SCREENS = [
  {name:'home', ...home},
  {name:'home: more list', ...home, action:async page => { await page.getByRole('navigation', {name:'Main navigation'}).getByRole('button', {name:'More'}).click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }},
@@ -74,7 +74,7 @@ const SCREENS = [
   await page.getByRole('form', {name:'Start a session'}).locator('.summary-text').filter({hasText:'2 projects'}).waitFor({timeout:5000})
   await page.getByRole('form', {name:'Start a session'}).getByRole('button', {name:'Start the session'}).click()
   await page.getByRole('dialog', {name:'Start in several projects'}).getByRole('button', {name:/^Retry /}).waitFor({timeout:3000}) }},
- {name:'sessions', path:'/sessions'},
+ {name:'sessions', path:'/sessions?view=list'},
  {name:'machines', path:'/machines'},
  {name:'machines: start agent dialog', path:'/machines', action:click('Start an agent')},
  {name:'machines: settings dialog', path:'/machines', action:async page => {

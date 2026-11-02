@@ -243,7 +243,7 @@ async function dockedPanel(){
 }
 try{
  // The Sessions page lists both sessions near the top; a failed refresh keeps them, and a row continues its session.
- await page.goto(`${base}/sessions`)
+ await page.goto(`${base}/sessions?view=list`)
  const links=page.locator('main .session-row a.open')
  await expect(links).toHaveCount(2)
  expect((await links.first().boundingBox()).y).toBeLessThan(400)
@@ -388,7 +388,7 @@ try{
  await page.setViewportSize({width:1360,height:900})
  await page.evaluate(()=>document.documentElement.dataset.theme='light')
  if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/workspace-desktop.png`})
- await page.goto(`${base}/sessions`)
+ await page.goto(`${base}/sessions?view=list`)
  await page.locator('main .session-row a.open').filter({hasText:'Deployment checks'}).click()
  await live();expect(tickets.at(-1)).toBe(sessionB);expect(writes).toHaveLength(0)
  await page.goto(`${base}/machines?view=terminal&agent=${agentA}&session=${sessionA}`)
@@ -408,7 +408,7 @@ try{
  await chooseMachine.getByRole('button',{name:/dev-laptop/}).click()
  await expect(page.getByRole('dialog',{name:'New terminal session'})).toContainText('dev-laptop')
  await page.getByRole('button',{name:'Close New terminal session'}).click()
- await expect(page.getByRole('heading',{name:'Your next shell starts here.'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Start a new session'})).toBeVisible()
  expect(writes).toHaveLength(0)
  // header badge equals the panel count with no machine selected (3 sessions on 2 machines): both count the account's live
  // sessions, not only the selected machine's. Finished sessions the panel also lists are named apart: 3 live + 1 exited +
@@ -428,7 +428,7 @@ try{
  await expect(sessionsToggle.locator('.count')).toHaveText('3')
  sessions.splice(2)
  // A denied refresh clears the private session list; viewers never fetch terminal APIs.
- await page.goto(`${base}/sessions`)
+ await page.goto(`${base}/sessions?view=list`)
  await expect(page.locator('main .session-row')).not.toHaveCount(0)
  denied=true
  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')))

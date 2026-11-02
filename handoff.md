@@ -42,8 +42,8 @@ The owner asked for a page-by-page UI refresh with a UX focus. Each family was b
 photographed at desktop and phone widths in light and dark, reviewed, and merged only after CI was
 green. Contracts and rulings are in `docs/superpowers/specs/2026-11-02-directory-pages-refresh.md`,
 `...-skills-machines-findability.md`, `...-inbox-pages.md` and `...-admin-users.md`; checks are in
-[docs/ui-verification.md](docs/ui-verification.md). The refresh merged through #415; earlier merges through `d61c6c0`. Merge main into the
-next branch as later work lands.
+[docs/ui-verification.md](docs/ui-verification.md). The refresh merged through #415 (`1e626ff`); earlier merges through `d61c6c0`. Merge main
+into the next branch as later work lands.
 
 **Merged, all with every required check green:**
 
@@ -56,7 +56,7 @@ next branch as later work lands.
 | #407 | `3211b32` | Notifications and Support in one panel grammar; locked security preference is an **Always on** fact; Support status chips and search. A Codex review found that the unread list must stay server-side; fixed and regression-tested. |
 | #408 | `f051948` | `/sync` marks Machines current (desktop and phone); simple Sync source renamed **Everything on my shelf**. |
 | #410 | `d61c6c0` | Admin → Users as one people panel with count, search, role chips, per-person rows and the existing Manage actions; invite is its own card. |
-| #415 | this PR | Admin → Team usage as one report panel: count, search, List/Tag/Sort, one row per skill with metrics and Team disclosure; wide table and duplicate mobile cards removed. |
+| #415 | `1e626ff` | Admin → Team usage as one report panel: count, search, List/Tag/Sort, one row per skill with metrics and Team disclosure; wide table and duplicate mobile cards removed. |
 
 **What the refresh established.** The directory pages (Lists, Community, Teams, Setups) share one
 bounded surface, a count, search, scope chips whose figures follow the search, one row anatomy and
@@ -198,8 +198,10 @@ out/in and the decision about machine-side sign-in wording, then section 1 physi
   lost replies clear process/stored model and retained status detail. Explicit protocol refusals keep the prior model; later confirmation recovers.
   All five CI workflows passed on final head `59f896f`, without retries; Codex review completed without findings
   ([receipt](https://github.com/eyupio/reet.sh/pull/406#issuecomment-6585858018)). No genuine-login/device gate was closed.
+- #409 (`c0b0c49`): explicit startup model confirmation before admission or the opening prompt. Its full validation is below.
+- #414 (`f64b407`): structured chats recover after a connector restart or reboot from the persisted live-chat registry. Its startup resume race is fixed in #416.
 
-**Active SC5 slice — startup model confirmation ([draft #409](https://github.com/eyupio/reet.sh/pull/409)):** an explicitly chosen model must have exactly one valid matching read-back from `session/new`
+**Merged SC5 slice — startup model confirmation ([#409](https://github.com/eyupio/reet.sh/pull/409), `c0b0c49`):** an explicitly chosen model must have exactly one valid matching read-back from `session/new`
 or `session/load` before admission or the opening prompt. Startup has no omitted-list exception, even for OpenCode. Agent-default launches preserve
 existing behaviour. Definite failed chat creates clear unconfirmed model metadata but retain the operation fingerprint/refusal for replay;
 ordinary terminals and transport uncertainty are unchanged. A close callback before admission cannot announce a premature exited session; the admitted
@@ -211,7 +213,7 @@ Claude new/load reported `default`. Requesting `anthropic/claude-sonnet-4-5` thr
 config alone did not establish that selection. Enhanced opt-in Go tests passed for explicit matching OpenCode new/load and Claude new. These are
 startup/profile checks, not real-login or model-turn evidence. Exact versions, reproduction and limits are in the probe report.
 
-**#409 publication and validation:** draft PR is open and unmerged. All five CI workflows passed on implementation head `bd10520`, without retries:
+**#409 publication and validation:** merged as `c0b0c49`. The checks below describe implementation head `bd10520`; later heads have their own CI. All five CI workflows passed on that head, without retries:
 [full tests/image](https://github.com/eyupio/reet.sh/actions/runs/41513691712) (full Go vet/race, web and MCP),
 [terminal browser and both phone jobs](https://github.com/eyupio/reet.sh/actions/runs/41513691713),
 [macOS/Linux native services and minimum tmux](https://github.com/eyupio/reet.sh/actions/runs/41513691764),
@@ -224,7 +226,11 @@ Codex bot review did **not** complete: the account's code-review quota was exhau
 ([bot response](https://github.com/eyupio/reet.sh/pull/409#issuecomment-6586917713)); there are no submitted reviews or inline finding threads.
 The bot summary's finding flags do not establish findings when the review failed. This handoff-only follow-up records the completed implementation
 checks; any new-head CI results belong in the PR. Do not represent the earlier head's green checks as checks of a later documentation commit.
-No merge or deployment is authorized. Login/device checks remain deferred and unverified; both experimental switches and form capability stay off.
+The slice is merged; no deployment is claimed. Login/device checks remain deferred and unverified; both experimental switches and form capability stay off.
+
+**Resume startup race fixed in #416 (this PR):** `newChatSupervisor` no longer starts persisted-chat adoption before a caller can install its
+process hooks. `NewChatSupervisor` and the connection-scoped fallback call `startResume()` once; the two resume tests call it after their fakes.
+The race in #415's `test` job reproduced on unchanged main and is fixed here. See the PR for the package race and vet results.
 
 **Next independent work:** broader descriptor contracts for mode/effort and other options, measured before implementation; native-session adoption
 after connector restart remains separate. #396/#402 recover transport reconnects to a surviving connector, not connector-process restarts.

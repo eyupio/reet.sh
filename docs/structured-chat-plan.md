@@ -434,7 +434,7 @@ connector restart is not implemented and not claimed.
 and confirm the process group is gone, rather than leaving it busy; (2) tests for gaps 2 and 3 first, fixing only what they show; (3) say why a chat ended
 when the connector restarted; (4) descriptor-driven controls when a second agent needs them.
 
-### SC5 progress: pending approvals after a full detached backlog (2 November 2026, draft)
+### SC5 progress: pending approvals after a full detached backlog (2 November 2026, merged #396)
 
 Independent work while the owner login/device checks are pending; initially based on main `9905e8b`, then main `0e6a3b2` (including #391 and #392)
 merged without rewriting history. A replacement control connection used to rebuild its
@@ -451,7 +451,7 @@ introduced by preparing recovery.
 
 Delivery record:
 - **Task / scope:** SC5 retained approval/status recovery over a replacement control connection to the surviving connector process.
-- **Branch:** `fix/recover-pending-chat-approvals`; implementation commits `5699548` and `40f67cd`; draft [#396](https://github.com/eyupio/reet.sh/pull/396).
+- **Branch:** `fix/recover-pending-chat-approvals`; implementation commits `5699548`, `40f67cd` and `ef2a418`; [#396](https://github.com/eyupio/reet.sh/pull/396).
 - **Compatibility:** existing events, tokens, generation and memory limits; no protocol field, database, dependency, adapter capability or UI control added.
 - **Checks:** the event-limit and byte-limit regressions failed before the fix, as did recovery of the resolved idle status. They pass under `-race`
   with existing reconnect/startup tests. Tests also check complete command retention, answering the original process, the replacement generation,
@@ -459,11 +459,11 @@ Delivery record:
   a failed-send variant also reproduced a 1,001-event outbox. Both now pass under the race detector. A cancellation during blocked replay also reproduced a stale waiting status; buffering the newly settled state fixes it. Control-state-only overflow also remains
   bounded by the existing ceilings. A separate regression reproduced old receipts displacing new answers; ordinary bounded receipt history fixes it. Vet and race tests pass for terminalagent, terminalbroker and terminalproto; the four
   known container `TestModels*` failures were excluded from that local package run (already confirmed on main; the model-discovery code is unchanged).
-  The production web build passed. Full CI results are recorded in the PR.
+  The production web build passed. Full implementation CI passed on `ef2a418`, including web/MCP checks, full Go vet and race tests without the local exclusions, release/private-connection checks, terminal-browser, both phone jobs, macOS/Linux native services and minimum tmux. Linux native services passed its single allowed retry after its standalone fixture failed to start at `native_test.go:154`; main `0e6a3b2` also passed that check ([run](https://github.com/eyupio/reet.sh/actions/runs/41483989031)).
 - **Not performed:** real-provider, physical-device, screen-reader and genuine-login checks. Existing fake-process/control-link fixtures exercise this slice.
 - **Next unchecked work:** owner checks still start with section 3 Run B in `docs/device-checks.md`. Broader native-process recovery and descriptor
   contracts remain future SC5 work. Pending typed-question recovery is outside this approval slice; the form capability remains off.
-- **Publication:** opened as a draft for owner review; no merge or deployment claimed.
+- **Publication / review:** [#396](https://github.com/eyupio/reet.sh/pull/396) was opened as a draft and marked ready after implementation CI passed. The automatic Codex bot review failed because the account’s code-review quota is exhausted ([bot response](https://github.com/eyupio/reet.sh/pull/396#issuecomment-6583179410)); submitted reviews and inline threads were empty. The owner subsequently merged #396 as `35225eb`; the bot review did not complete before that merge. No deployment or real-login/device completion is claimed.
 
 
 ### SC5 progress: delivered typed questions across transport reconnects (2 November 2026, draft)

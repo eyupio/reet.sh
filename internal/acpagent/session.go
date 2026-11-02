@@ -1537,6 +1537,9 @@ func (s *Session) unconfirmedModel() {
 	s.mu.Lock()
 	s.model = ""
 	s.mu.Unlock()
+	// The connector retains status for reconnects. Retire the old model detail
+	// as well as the process value, so replay cannot present it as current.
+	s.emit(Event{Kind: "status", State: "idle"})
 	s.emit(Event{Kind: "notice", Text: s.opts.Agent.displayName() + " did not confirm the model change. The current model is unknown."})
 }
 

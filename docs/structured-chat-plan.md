@@ -498,7 +498,7 @@ Delivery record:
 This independent slice distinguishes an omitted `configOptions` reply from an explicit replacement that cannot establish the model.
 Only the OpenCode profile permits its existing omitted-list acknowledgement. Claude requires the model's read-back `currentValue`, as measured
 in the SC2 probe. An explicit empty/null/malformed list, missing/empty/invalid model value, duplicate model entries, lost reply or internal RPC
-error cannot confirm the requested model. The machine clears its model, returns an error and emits a notice instead of reporting success.
+error cannot confirm the requested model. The machine clears its model and retained status detail, returns an error and emits a notice instead of reporting success.
 A confirmed different model is still recorded on the process and returned as a rejected choice, preserving the measured silent-reset handling.
 An explicit invalid-parameters or unsupported-method refusal retains the process's last confirmed model. A later confirmed switch recovers normally.
 
@@ -515,7 +515,9 @@ Delivery record:
   A separate late internal-error regression failed before its fix too. Targeted core/controller race tests, web check/build and all 16 MCP tests pass;
   the API package also passes without race (73 s). A final full ACP package run passes under race with only the baseline orphan test excluded.
   The initial broader local run compiled before the late internal-error fix and is not reported as a final pass; it also hit one Stop timeout.
-  The final ACP package and the same Stop test on current main both pass. Full broader results, bot review and CI are recorded in #406.
+  The final ACP package and the same Stop test on current main both pass. Merged-tree ACP/connector/broker/protocol race checks pass with only the five baseline-confirmed container tests excluded; vet and API tests pass.
+  A further regression reproduced the old model surviving in retained idle-status detail; the follow-up clears that detail for reconnect replay too.
+  Full broader results, bot review and CI are recorded in #406.
 - **Baseline:** the known model, orphan/process-group and missing-tmux tests were reproduced on current main `7e390b2` in this container.
 - **Evidence / limits:** Claude read-back follows the recorded real-adapter probe; OpenCode's pre-existing omitted-list compatibility is preserved.
   New edge cases are fake-child/control-link regressions, not claims that an adapter was observed sending malformed replies. No genuine-login,

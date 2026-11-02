@@ -1783,7 +1783,11 @@ func TestModelSwitchAcknowledgementContract(t *testing.T) {
 				}
 				defer s.Close()
 				id := s.SessionID()
-				ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+				timeout := 3 * time.Second
+				if shape == "lost" {
+					timeout = 100 * time.Millisecond
+				}
+				ctx, cancel := context.WithTimeout(t.Context(), timeout)
 				defer cancel()
 				err = s.SetModel(ctx, "provider/other")
 				success := shape == "confirmed" || shape == "absent" && !strict
@@ -1796,12 +1800,19 @@ func TestModelSwitchAcknowledgementContract(t *testing.T) {
 						t.Fatalf("unconfirmed switch: err=%v model=%q", err, s.Model())
 					}
 					got.mu.Lock()
+					var lastStatus Event
 					for _, event := range got.all {
+						if event.Kind == "status" {
+							lastStatus = event
+						}
 						if event.Kind == "status" && event.Detail == "provider/other" {
 							t.Error("reported an unconfirmed requested model")
 						}
 					}
 					got.mu.Unlock()
+					if lastStatus.State != "idle" || lastStatus.Detail != "" {
+						t.Errorf("unconfirmed switch retained stale status: %+v", lastStatus)
+					}
 					if !got.has("notice") {
 						t.Fatal("unconfirmed model change had no notice")
 					}

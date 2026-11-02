@@ -811,12 +811,19 @@ func (s *Store) SyncHostedFor(uid int64, origin string) ([]SyncSkill, error) {
 	}
 	out := []SyncSkill{}
 	for _, sk := range skills {
-		if !sk.Published {
-			continue
-		}
 		rf, err := ref.ParseAt(strings.TrimRight(origin, "/")+"/"+username+"/"+sk.Slug, u.Host)
 		if err != nil {
 			return nil, err
+		}
+		if !sk.Published {
+			// A draft has no public page, so the agent fetches its exact bytes
+			// from this controller as an owned private revision instead.
+			source, err := s.hostedPrivateSource(uid, sk)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, SyncSkill{ID: rf.ID, Name: sk.Slug, Slug: sk.Slug, Source: source, SourceType: "private"})
+			continue
 		}
 		out = append(out, SyncSkill{ID: rf.ID, Name: sk.Slug, Slug: sk.Slug, Source: rf.Source, SourceType: rf.SourceType, URL: rf.URL})
 	}

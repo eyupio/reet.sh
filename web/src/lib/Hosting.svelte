@@ -53,6 +53,8 @@
   const contentName = $derived(editor ? (parseFrontmatter(editor.content)?.fields.name ?? '').trim() : '')
   const nameMismatch = $derived(!!editor && !!editor.slug && contentName !== '' && contentName !== editor.slug)
   let saveError = $state('')
+  // Where a saved skill goes next: the Sync page with this skill pre-selected (drafts sync privately from this reet.sh).
+  const syncHref = $derived(originalSlug ? `/sync?skill=${encodeURIComponent(`hosted/${location.host.toLowerCase()}/${username}/${originalSlug}`)}` : '')
   function matchContentName() { if (!editor) return; editor.content = renameSkillContent(editor.content, editor.slug); saveError = '' }
   const prefixMisplaced = $derived(!!prefix && !!originalSlug && !!editor && !editor.slug.startsWith(prefix))
   const showPrefixChip = $derived(!!prefix && (!originalSlug || (editor?.slug.startsWith(prefix) ?? false)))
@@ -177,7 +179,7 @@
       skills = [...skills.filter(s => s.slug !== saved.slug), saved].sort((a, b) => a.slug.localeCompare(b.slug))
       notice = didRename
         ? saved.published ? 'Renamed and published. The public URL and install command changed; existing installs are untouched. It is also on your shelf under To test.' : 'Renamed. Update any private links you shared.'
-        : saved.published ? 'Skill published. It is also on your shelf so you can test it.' : 'Draft saved. Its page and install files are private.'
+        : saved.published ? 'Skill published. It is also on your shelf so you can test it.' : 'Draft saved. Only you can see it, and you can still sync it to your machines.'
     } catch (e) { saveError = e instanceof Error ? e.message : String(e) } finally { busy = false }
   }
   async function upload(event: Event, main = false) {
@@ -353,7 +355,7 @@
 <svelte:window ondragover={windowDragOver} ondrop={windowDrop} />
 <PageHeader eyebrow="Publish on reet.sh" title="Host your own skills." lede="Write a skill, give it a home, and share one install command." />
 {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
-{#if notice}<p class="notice good" role="status">{notice}</p>{/if}
+{#if notice}<p class="notice good" role="status">{notice}{#if syncHref && /saved|published|Renamed/.test(notice)} <a href={syncHref}>Put it on a machine →</a>{/if}</p>{/if}
 {#if loading}<p role="status">Loading your skills…</p>
 {:else if !canWrite}<p class="notice">Your account is read-only. Ask an admin for publishing access.</p>
 {:else if !username}

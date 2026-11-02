@@ -112,6 +112,31 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
+ // A draft you wrote can be chosen on the Sync page without publishing: it is listed beside shelf skills, named as a
+ // private draft, and the Skills page's created-skill row links straight to it pre-selected.
+ if (run('sync-draft')) {
+  const now = Date.now()
+  const draftId = 'hosted/127.0.0.1:4173/sam/reet-incident-notes'
+  const shelfSkill = skill('code-review')
+  const draft = {id:draftId,name:'reet-incident-notes',slug:'reet-incident-notes',source:'private:'+'a'.repeat(32)+':'+'b'.repeat(32)+':'+'c'.repeat(64),sourceType:'private'}
+  const scope = {id:'dev-laptop-agents',host:'dev-laptop',agent:'agents',name:'dev-laptop',skills:[],skillCount:0,complete:true,scannedAt:now,lastSeen:now,os:'linux',arch:'amd64',version:'test'}
+  const sync = {environments:[scope],machines:[{host:'dev-laptop',groups:[scope],skillCount:0}],agents:[{id:'a1',host:'dev-laptop',version:'1.2.3',lastSeen:now,paused:false,autoUpdate:false}],targets:[],jobs:[],runs:[],updateJobs:[]}
+  const hosting = {username:'sam',prefix:'reet-',skills:[{slug:'reet-incident-notes',description:'A private draft.',content:'---\nname: reet-incident-notes\ndescription: x\n---\nbody',files:{},published:false,createdAt:now,updatedAt:now}]}
+  const routes = {'/api/v2/sync/candidates': req => new URL(req.url()).searchParams.get('collection') === 'hosted' ? {skills:[draft]} : {skills:[shelfSkill]}}
+  const {context,page,errors} = await open({width:1440,skills:[shelfSkill],hosting,sync,routes})
+  await page.goto(`${base}/skills`)
+  const row = page.locator('.hosted-list').getByRole('link',{name:'Sync to machines…'})
+  await expect(row).toHaveAttribute('href',`/sync?skill=${encodeURIComponent(draftId)}`)
+  await page.goto(`${base}/sync?skill=${encodeURIComponent(draftId)}`)
+  await expect(page.getByRole('radio',{name:/Choose individual skills/})).toBeChecked()
+  const choice = page.locator('.skills label', {hasText:'reet-incident-notes'})
+  await expect(choice.getByRole('checkbox')).toBeChecked()
+  await expect(choice.getByRole('checkbox')).toBeEnabled()
+  await expect(choice).toContainText('Your private draft')
+  await expect(page.locator('.skills label', {hasText:'code-review'}).getByRole('checkbox')).not.toBeChecked()
+  expect(errors).toEqual([])
+  await context.close()
+ }
  if (run('hosting')) {
   const {context,page} = await open({width:1440})
   await page.goto(`${base}/hosting`)

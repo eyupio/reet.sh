@@ -10,7 +10,7 @@
   let locations = $state<Record<string, string[]>>({})
   let all = $state(true), query = $state(''), busy = $state(false), loading = $state(true)
   let imports=$state<ImportRequest[]>([]),copying=$state<{skill:SyncSkill;host:string;requestId:string}|null>(null)
-  let error = $state(''), result = $state(''), operation = $state(''), toggling = $state('')
+  let error = $state(''), result = $state(''), operation = $state(''), toggling = $state(''), hostedError = $state('')
   const connectHref = '/machines#add-machine'
   const fleet = $derived(inventoryMachines(snapshot.machines ?? []))
   const selectableHosts = $derived(fleet.filter(machine => snapshot.agents?.some(agent => agent.host.toLowerCase() === machine.host.toLowerCase())).map(machine => machine.host))
@@ -94,7 +94,11 @@
     const refreshImports=async()=>{if(!canWrite)return;try{const data=await getImports();if(alive)imports=data.requests}catch{}}
     void refreshImports()
     const timer=setInterval(()=>{if(document.visibilityState==='visible')void refreshImports()},5000)
-    void syncCandidates().then(response => { candidates = response.skills; chosen = chosen.filter(id => candidates.some(skill => skill.id === id)) }).catch(e => { error = e instanceof Error ? e.message : String(e) }).finally(() => { loading = false })
+    // Shelf skills first, then the skills this account wrote: a published one is already on the shelf, a draft is
+    // only here, served privately from this controller. If the hosted read fails the shelf still loads, with its reason.
+    void Promise.all([syncCandidates(), syncCandidates(0, 'hosted').catch(e => { hostedError = e instanceof Error ? e.message : String(e); return { skills: [] as SyncSkill[] } })])
+      .then(([shelf, hosted]) => { const seen = new Set(shelf.skills.map(skill => skill.id)); candidates = [...shelf.skills, ...hosted.skills.filter(skill => !seen.has(skill.id))]; chosen = chosen.filter(id => candidates.some(skill => skill.id === id)) })
+      .catch(e => { error = e instanceof Error ? e.message : String(e) }).finally(() => { loading = false })
     return()=>{alive=false;clearInterval(timer)}
   })
 </script>
@@ -104,7 +108,7 @@
   <fieldset disabled={busy || !canWrite}>
     <legend><span class="step">1</span> What do you want to sync?</legend>
     <div class="choices">
-      <label class:chosen={all}><input type="radio" name="skill-choice" checked={all} onchange={() => all = true} /><span><strong>All my skills</strong><small>Your whole shelf. With Keep synced on, new skills follow automatically.</small></span></label>
+      <label class:chosen={all}><input type="radio" name="skill-choice" checked={all} onchange={() => all = true} /><span><strong>All my skills</strong><small>Your whole shelf. With Keep synced on, new skills follow automatically. Unpublished drafts you wrote are chosen individually.</small></span></label>
       <label class:chosen={!all}><input type="radio" name="skill-choice" checked={!all} onchange={() => all = false} /><span><strong>Choose individual skills</strong><small>Only the skills you select.</small></span></label>
     </div>
     {#if loading}<p role="status">Loading your skills…</p>
@@ -114,10 +118,11 @@
       <div class="skills" aria-label="Choose skills">
         {#each filtered as skill (skill.id)}
           {@const installable = copyable.some(item=>item.id===skill.id)}
-          <label class="skill"><input type="checkbox" value={skill.id} bind:group={chosen} disabled={!installable} /><span><strong>{skill.name}</strong><small>{skill.source && skill.sourceType!=='local' ? skill.sourceType==='private'?'Private copy in reet.sh':skill.source : installable?'Copy privately from an installed machine':'Connect its source machine or link a source'}</small></span>{#if !installable}<a href={`/skills?search=${encodeURIComponent(skill.name)}`}>Link source</a>{/if}</label>
+          <label class="skill"><input type="checkbox" value={skill.id} bind:group={chosen} disabled={!installable} /><span><strong>{skill.name}</strong><small>{skill.source && skill.sourceType!=='local' ? skill.sourceType==='private'?(skill.id.startsWith('hosted/')?'Your private draft · synced from this reet.sh, not published':'Private copy in reet.sh'):skill.source : installable?'Copy privately from an installed machine':'Connect its source machine or link a source'}</small></span>{#if !installable}<a href={`/skills?search=${encodeURIComponent(skill.name)}`}>Link source</a>{/if}</label>
         {:else}<p>No skills match this search.</p>{/each}
       </div>
     {/if}
+    {#if hostedError}<p class="warning">Your own drafts could not be listed: {hostedError}</p>{/if}
     {#if blockedSources}<p class="warning">{candidates.length - copyable.length} skills have neither a linked source nor a reported machine copy. <a href="/skills">Link their sources</a>, or choose individual skills.</p>{/if}
   </fieldset>
   <fieldset disabled={busy || !canWrite}>

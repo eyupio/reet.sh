@@ -10,6 +10,8 @@
   let query = $state(''), showAll = $state(false)
   const visible = $derived(skills.filter(skill => `${skill.slug} ${skill.description}`.toLowerCase().includes(query.toLowerCase())))
   function url(skill: HostedSkill) { return `${location.origin}/${username}/${skill.slug}` }
+  // The id a draft or published skill has as a sync candidate (`hosted/<host>/<user>/<slug>`), so Sync can pre-select it.
+  function syncHref(skill: HostedSkill) { return `/sync?skill=${encodeURIComponent(`hosted/${location.host.toLowerCase()}/${username}/${skill.slug}`)}` }
   function prompt(skill: HostedSkill) { return installPrompt({ sourceType: 'hosted', url: url(skill), slug: skill.slug } as Skill) ?? '' }
   async function publish(skill: HostedSkill, published: boolean) {
     if (saving) return
@@ -44,6 +46,7 @@
         </div>
         <div class="actions">
           <a class="btn quiet" href={`/hosting?edit=${encodeURIComponent(skill.slug)}`}>Edit</a>
+          <a class="btn quiet" href={syncHref(skill)} title={skill.published ? 'Choose the machines this skill should be on.' : 'Drafts sync privately from this reet.sh; nothing is published.'}>Sync to machines…</a>
           {#if skill.published}<CopyButton text={url(skill)} label="Copy share link" ariaLabel={`Copy share link for ${skill.slug}`} compact /><CopyButton text={prompt(skill)} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.slug}`} compact />{:else}<button class="btn" disabled={!canWrite || !!saving} onclick={() => void publish(skill, true)}>{saving === skill.slug ? 'Publishing…' : 'Publish & share'}</button>{/if}
         </div>
       </article>

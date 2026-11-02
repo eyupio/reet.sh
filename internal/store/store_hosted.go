@@ -221,6 +221,9 @@ func (s *Store) DeleteHostedSkill(userID int64, slug string) error {
 	if err == nil && n == 0 {
 		return ErrNotFound
 	}
+	if err == nil {
+		err = s.forgetHostedSyncSource(userID, slug)
+	}
 	return err
 }
 
@@ -291,6 +294,11 @@ func (s *Store) RenameHostedSkill(userID int64, slug, newSlug string, oldRef, ne
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM hosted_skills WHERE user_id=? AND slug=?`, userID, slug); err != nil {
+			return err
+		}
+		// A private bundle's name is immutable, so the renamed skill binds to a
+		// fresh bundle on its next sync; the old slug's binding is dropped here.
+		if _, err := tx.Exec(`DELETE FROM hosted_sync_sources WHERE user_id=? AND slug=?`, userID, slug); err != nil {
 			return err
 		}
 		if err := moveHostedReferencesTx(tx, oldRef, newRef); err != nil {

@@ -28,16 +28,26 @@ func TestRealOpenCodeStart(t *testing.T) {
 	if session.SessionID() == "" || session.Model() == "" {
 		t.Fatalf("session %q model %q", session.SessionID(), session.Model())
 	}
-	id := session.SessionID()
+	id, model := session.SessionID(), session.Model()
 	session.Close()
-	resumed, err := Start(ctx, Options{Agent: OpenCode, Binary: binary, Dir: dir, Home: home, BaseEnv: []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}, Resume: id, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second})
+	resumed, err := Start(ctx, Options{Agent: OpenCode, Binary: binary, Dir: dir, Home: home, BaseEnv: []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}, Model: model, Resume: id, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resumed.Close()
-	if resumed.SessionID() != id {
-		t.Fatalf("loaded %q, wanted %q", resumed.SessionID(), id)
+	if resumed.SessionID() != id || resumed.Model() != model {
+		t.Fatalf("loaded %q/%q, wanted %q/%q", resumed.SessionID(), resumed.Model(), id, model)
 	}
+	resumed.Close()
+	chosen, err := Start(ctx, Options{Agent: OpenCode, Binary: binary, Dir: dir, Home: home, BaseEnv: []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}, Model: model, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer chosen.Close()
+	if chosen.Model() != model {
+		t.Fatalf("new chosen model %q, want %q", chosen.Model(), model)
+	}
+	t.Logf("new/load confirmed explicitly chosen model %q without a prompt", model)
 }
 
 // TestRealClaudeStart is opt-in: it starts the real Claude ACP adapter through the
@@ -64,10 +74,24 @@ func TestRealClaudeStart(t *testing.T) {
 	if !regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`).MatchString(session.SessionID()) {
 		t.Fatalf("session id %q is not the measured UUID form", session.SessionID())
 	}
+	model := session.Model()
 	session.Close()
 	if !session.GroupRetired() {
 		t.Fatal("Close did not confirm that every process the adapter started is gone")
 	}
+	chosen, err := Start(ctx, Options{Agent: ClaudeCandidate, Binary: binary, Dir: dir, Home: home, BaseEnv: base, Model: model, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model == "" || chosen.Model() != model {
+		chosen.Close()
+		t.Fatalf("chosen Claude model %q, want %q", chosen.Model(), model)
+	}
+	chosen.Close()
+	if !chosen.GroupRetired() {
+		t.Fatal("chosen-model process group was not retired")
+	}
+	t.Logf("new confirmed explicitly chosen model %q without a prompt", model)
 	// A profile whose floor is above the installed adapter must refuse it.
 	strict := ClaudeCandidate
 	strict.MinVersion = "99.0.0"

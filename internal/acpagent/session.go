@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 var (
@@ -239,11 +241,13 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		return nil, ErrExited
 	}
 	mode, model := "", ""
+	modelCount := 0
 	for _, option := range created.ConfigOptions {
 		switch option.ID {
 		case "mode":
 			mode = option.CurrentValue
 		case "model":
+			modelCount++
 			model = option.CurrentValue
 		}
 	}
@@ -263,7 +267,11 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		s.Close()
 		return nil, fmt.Errorf("%s is not in %s mode; the chat was not started", spec.displayName(), spec.RequireMode)
 	}
-	if opts.Model != "" && model != "" && model != opts.Model {
+	// The launch environment carries a request, not an acknowledgement. A
+	// chosen model needs one unambiguous read-back on both new and load before
+	// this session can be announced or receive its opening prompt. Agent-default
+	// launches retain their existing behaviour when no model is reported.
+	if opts.Model != "" && (modelCount != 1 || !terminalproto.ValidModel(model) || model != opts.Model) {
 		s.Close()
 		return nil, ErrModel
 	}

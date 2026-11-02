@@ -239,3 +239,49 @@ func TestLaunchFailedIsReportedOnFirstAttemptAndReplay(t *testing.T) {
 		t.Fatal("capacity refusal changed", s, err)
 	}
 }
+
+func TestRejectedChatStartupDoesNotRetainAnUnconfirmedModel(t *testing.T) {
+	for _, structured := range []bool{false, true} {
+		name := "terminal metadata unchanged"
+		if structured {
+			name = "rejected chat has no confirmed model"
+		}
+		t.Run(name, func(t *testing.T) {
+			caps := launchCapabilities("opencode")
+			caps.ACP = true
+			f := launchFixture(t, caps)
+			f.reply = func(terminalproto.Create) terminalproto.Body {
+				if structured {
+					return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not use the chosen model, so the chat was not started."}
+				}
+				return terminalproto.Result{Code: terminalproto.LaunchFailed}
+			}
+			in := terminalproto.Create{Title: "Chosen model", Cols: 80, Rows: 24, Tool: "opencode", Dir: "/tmp", Model: "stub/model", Structured: structured, Trust: structured, Prompt: "opening prompt"}
+			request := ID()
+			for attempt := 0; attempt < 2; attempt++ {
+				session, started, err := f.b.CreateSession(t.Context(), f.uid, f.agent, request, in)
+				if err == nil || started || session.State != terminalproto.Lost {
+					t.Fatalf("attempt %d: %+v started=%v err=%v", attempt, session, started, err)
+				}
+				want := in.Model
+				if structured {
+					want = ""
+					var refusal *ACPUnavailableError
+					if !errors.As(err, &refusal) {
+						t.Fatalf("model refusal lost: %v", err)
+					}
+				}
+				if session.Model != want {
+					t.Fatalf("attempt %d: stored model %q, want %q", attempt, session.Model, want)
+				}
+				stored, readErr := f.st.TerminalSessionFor(f.uid, session.ID)
+				if readErr != nil || stored.Model != want || stored.State != terminalproto.Lost {
+					t.Fatalf("persisted model: %+v %v", stored, readErr)
+				}
+			}
+			if len(f.sent()) != 1 {
+				t.Fatal("replaying a model refusal started the agent again")
+			}
+		})
+	}
+}

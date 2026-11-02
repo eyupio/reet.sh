@@ -1852,3 +1852,17 @@ Validation:
 
 **Not checked.** No physical phone or tablet and no screen reader. The setup
 snapshot and restore paths are CLI flows and were not run by this page change.
+
+## Machine settings: destructive actions in one place — 2 November 2026
+
+The machine card's “Forget a report…” disclosure is gone. Per-scope Forget now
+sits in the machine's **Settings → Access**, beside **Revoke live access** and
+**Forget this machine**, where every destructive action has the same explanation,
+confirmation, and 44 px touch target. The card keeps **Copy rescan command**.
+
+![Machine settings, Access](images/ui/machine-settings-access.png)
+
+Validation: `control.e2e.mjs` checks that the card no longer offers the old
+disclosure, that Settings lists **Forget Claude Code…**, and that it opens the
+usual **Forget Claude Code on dev-laptop?** confirmation. `phone-zoom.e2e.mjs`
+and `phone-dialogs.e2e.mjs` cover the dialog at phone widths. No API change.

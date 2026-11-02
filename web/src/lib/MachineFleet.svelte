@@ -286,6 +286,11 @@
     settingsHost = ''
     if (agent) askRevoke(agent)
   }
+  function forgetScopeFromSettings(group: SyncEnvironment) {
+    const machine = settingsMachine
+    settingsHost = ''
+    if (machine) askForgetGroup(group, machine)
+  }
   function confirmReview(version: string) {
     const agent = reviewAgent
     review = null
@@ -462,15 +467,6 @@
             <div class="agent-links">
               <button type="button" class="btn quiet" onclick={() => (commandsFor = machine)}>Copy rescan command</button>
             </div>
-            <details class="danger-zone">
-              <summary>Forget a report…</summary>
-              <div class="danger-actions">
-                {#each supported as group (group.id)}
-                  <button type="button" class="btn danger" onclick={() => askForgetGroup(group, machine)}>Forget {groupLabel(group)}…</button>
-                {/each}
-              </div>
-              <p>Revoke live access and forget the whole machine in Settings.</p>
-            </details>
           {/if}
         </details>
       </article>
@@ -511,6 +507,7 @@
     onswitch={() => { if (enrolled) openReview(enrolled, enrolled.version === 'dev' ? 'latest' : 'dev') }}
     onrevoke={revokeFromSettings}
     onforget={forgetFromSettings}
+    onforgetscope={forgetScopeFromSettings}
     onclose={() => (settingsHost = '')}
   />
 {/if}
@@ -618,10 +615,6 @@
   .scan-only { opacity: 0.82; }
   .empty-row { color: var(--muted); font-size: 0.8rem; }
   .agent-links { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; }
-  .danger-zone { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
-  .danger-zone > summary { cursor: pointer; color: var(--muted); font-size: 0.76rem; min-height: 32px; }
-  .danger-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
-  .danger-zone p { margin: 0; color: var(--muted); font-size: 0.74rem; }
     @media (max-width: 650px) {
     .fleet-tools { gap: 10px; }
     .fleet-search { flex-basis: 100%; }

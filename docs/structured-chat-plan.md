@@ -479,16 +479,19 @@ pending questions are cancelled through the original process. Questions first as
 
 Delivery record:
 - **Task / scope:** SC5 pending typed-question recovery over a replacement control connection; no connector-process restart adoption.
-- **Branch:** `fix/recover-pending-chat-questions`, based on main `9961b11`. The independent documentation-only status update remains in #401;
-  its changes are not duplicated here.
+- **Branch / PR:** `fix/recover-pending-chat-questions`, implementation `89fc305`, draft [#402](https://github.com/eyupio/reet.sh/pull/402). Based on main `9961b11`;
+  main `d5a4e80` (the independent documentation-only #401) merged without rewriting history.
 - **Compatibility:** existing negotiated events, tokens, generation and queue limits; no protocol field, dependency or database change.
-- **Checks:** regression and final validation results will be recorded in the draft PR. The initial regressions failed on main: missing cards even
-  without a backlog, stale waiting after a detached timeout, no cancellation for an older peer, and schema bytes omitted from accounting.
+- **Checks:** final targeted question/approval recovery and negotiation tests pass under `-race`, including stalled/failed replay and a late old-link
+  failure requeueing a frame during older-peer replay. Regressions fail against main `9961b11`: missing cards even without a backlog, stale waiting
+  after a detached timeout, no cancellation for an older peer, omitted schema bytes, mixed-card waiting loss, and the late-frame decoder hazard.
+  Web tests/check/build, all 16 MCP tests, full Go vet and whitespace checks pass. Full race/CI and bot review results are recorded in #402.
+  The four known `TestModels*` failures and `TestCloseKillsOrphanedGroupMembers` were reproduced on current main in this container.
 - **Not performed:** genuine login, physical-device, screen-reader or real-provider checks. The owner deferred signed-in Codex Run B in this session;
   it remains unverified, rather than recorded as a pass. Both experimental switches and the disabled form capability remain in place.
 - **Next unchecked work:** owner checks in `device-checks.md` section 3 Run B, then its signed-out follow-up, section 2 and section 1. Broader
   descriptor contracts and native-session adoption after connector restart remain independent SC5 work.
-- **Publication:** draft review only; no merge or deployment authorized.
+- **Publication:** #402 is open as a draft; Codex bot review requested. No merge or deployment authorized.
 
 ## Delivery and completion evidence
 

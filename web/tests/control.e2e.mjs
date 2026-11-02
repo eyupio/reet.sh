@@ -100,13 +100,21 @@ try {
  await openSettings(laptop)
  const settings=page.getByRole('dialog',{name:'dev-laptop'})
  await expect(settings.getByRole('switch',{name:'Automatic updates'})).toBeChecked()
+ await expect(settings.getByRole('button',{name:'Forget Claude Code…'})).toBeVisible()
+ await expect(laptop.getByText('Forget a report…')).toHaveCount(0)
  if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/machine-settings.png`})
  await settings.getByRole('switch',{name:'Automatic updates'}).click()
  expect(writes.at(-1)).toEqual({path:'/api/v2/sync/agents',body:{id:'a',action:'auto-update-off'}})
  await expect(settings.getByRole('switch',{name:'Automatic updates'})).not.toBeChecked()
  await expect(settings).toContainText('v1.4.2')
- // Forgetting hands over to the usual confirmation; the settings close first, so the machine must be read before they do.
+ // Forgetting an agent scope lives in Settings too, and hands over to the usual confirmation.
+ await settings.getByRole('button',{name:'Forget Claude Code…'}).click()
+ await expect(page.getByRole('dialog',{name:'Forget Claude Code on dev-laptop?'})).toBeVisible()
+ await page.getByRole('button',{name:'Cancel',exact:true}).click()
+ await expect(page.getByRole('dialog')).toHaveCount(0)
+ await openSettings(laptop)
  await settings.getByRole('button',{name:'Forget machine…'}).click()
+ // The settings close first, so the machine must be read before the confirmation opens.
  await expect(page.getByRole('dialog',{name:'Forget dev-laptop?'})).toBeVisible()
  await page.getByRole('button',{name:'Cancel',exact:true}).click()
  await expect(page.getByRole('dialog')).toHaveCount(0)

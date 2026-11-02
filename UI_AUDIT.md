@@ -169,3 +169,17 @@
 3. **C3 — Style and rename the toolbar button.** "Private skill imports" is a raw Chromium-default button (`rgb(107,107,107)`, 2px white border) sitting first in the primary toolbar, and its name collides with per-scope "Private skills".
 4. **C4 — Put the machines above the fold.** Drop the Projects rail from `/machines`, collapse the three stacked headings into one, and move the grid above the setup card. Measured first card: 814px at 1440×812, 1023px at 375×812.
 5. **C5 — Stop showing paused/offline in green.** `MachineFleet.svelte:377` colours every agent state with `--good`, so the paused card shows a green "● Sync paused" beside a red "Sync paused" band.
+
+---
+
+## Status, 2 November 2026
+
+- **H3 fixed.** Per-scope Forget and the whole-machine Forget now live in
+  **Settings → Access**, beside Revoke, with the usual confirmation and touch
+  targets. The card’s “Forget a report…” disclosure is gone; **Copy rescan
+  command** stays.
+- **N6 partly fixed.** The fleet now has a search over host, saved alias and every
+  reported skill, with an honest count and empty recovery. Attention sorting and a
+  compact status filter are still open.
+- **N1, N7, N8 and the icon language (H10)** remain open. Setups, the directory
+  pages and Jump findability have since been refreshed separately.

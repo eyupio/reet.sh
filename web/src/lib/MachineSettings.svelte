@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { shell } from './dialogShell'
-  import type { Machine, ReleaseInfo, SyncAgent } from './api'
-  import { agentBuild, channelBuild } from './machines'
+  import type { Machine, ReleaseInfo, SyncAgent, SyncEnvironment } from './api'
+  import { agentBuild, agentGroups, channelBuild, groupLabel } from './machines'
   import { CATALOGUE } from './catalogue'
   import { softwareLine, softwarePlanActions, type SoftwarePlanAction } from './software'
   import { formatAge, type MachineModels } from './models'
@@ -22,6 +22,7 @@
     onswitch,
     onrevoke,
     onforget,
+    onforgetscope,
     onclose,
   }: {
     machine: Machine
@@ -35,6 +36,7 @@
     onswitch: () => void
     onrevoke: () => void
     onforget: () => void
+    onforgetscope: (group: SyncEnvironment) => void
     onclose: () => void
   } = $props()
 
@@ -340,6 +342,19 @@
         </div>
         <button class="btn danger" type="button" disabled={busy} onclick={onforget}>Forget machine…</button>
       </div>
+      {#if agentGroups(machine).length}
+        <div class="row">
+          <div class="copy">
+            <strong>Forget one agent report</strong>
+            <small>Remove one agent scope's inventory report and saved sync reference. Installed files and shelf entries stay; a future scan can report it again.</small>
+          </div>
+        </div>
+        <div class="scope-actions">
+          {#each agentGroups(machine) as group (group.id)}
+            <button class="btn danger" type="button" disabled={busy} onclick={() => onforgetscope(group)}>Forget {groupLabel(group)}…</button>
+          {/each}
+        </div>
+      {/if}
     </section>
   </div>
 </dialog>
@@ -416,6 +431,8 @@
   .confirm-actions .btn { min-height: 38px; padding: 8px 14px; }
   .confirm-actions .primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
   .row .btn { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.8rem; }
+  .scope-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 0; }
+  .scope-actions .btn { min-height: 36px; padding: 7px 12px; font-size: 0.8rem; }
   .btn.danger { color: var(--bad); }
   .switch { position: relative; flex: none; width: 42px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); cursor: pointer; }
   .switch[aria-checked='true'] { background: var(--accent); border-color: var(--accent); }
@@ -423,6 +440,7 @@
   .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--card); box-shadow: 0 1px 2px rgb(0 0 0 / 0.25); }
   .switch[aria-checked='true'] .knob { transform: translateX(18px); }
+  @media (pointer: coarse) { .scope-actions .btn, .row .btn { min-height: 44px; } }
   @media (max-width: 560px) {
     .row { flex-wrap: wrap; }
     .row .btn { flex: 1 1 auto; }

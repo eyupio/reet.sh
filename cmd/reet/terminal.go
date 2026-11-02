@@ -93,7 +93,7 @@ func runTerminalInput(args []string, in io.Reader, out io.Writer) error {
 			if err := clientconfig.Apply(); err != nil {
 				return err
 			}
-			publicURL = os.Getenv("REET_URL")
+			publicURL = clientconfig.Discover("", "", "").Server
 		}
 		var ask func(string, string) (string, error)
 		if clientconfig.Interactive(in) {

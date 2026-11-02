@@ -243,6 +243,10 @@ func ResolveURL(value string, in io.Reader, out io.Writer) (string, error) {
 	if value != "" {
 		return value, nil
 	}
+	// A URL already in REET_URL, client.env or an env file is used without asking.
+	if found := Discover("", "", "").Server; found != "" {
+		return found, nil
+	}
 	if !Interactive(in) {
 		return "", errors.New("target server is missing; set REET_URL, pass --server/--url, or run reet configure")
 	}

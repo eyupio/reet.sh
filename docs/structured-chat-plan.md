@@ -434,7 +434,7 @@ connector restart is not implemented and not claimed.
 and confirm the process group is gone, rather than leaving it busy; (2) tests for gaps 2 and 3 first, fixing only what they show; (3) say why a chat ended
 when the connector restarted; (4) descriptor-driven controls when a second agent needs them.
 
-### SC5 progress: pending approvals after a full detached backlog (2 November 2026, ready for review)
+### SC5 progress: pending approvals after a full detached backlog (2 November 2026, merged #396)
 
 Independent work while the owner login/device checks are pending; initially based on main `9905e8b`, then main `0e6a3b2` (including #391 and #392)
 merged without rewriting history. A replacement control connection used to rebuild its
@@ -463,7 +463,7 @@ Delivery record:
 - **Not performed:** real-provider, physical-device, screen-reader and genuine-login checks. Existing fake-process/control-link fixtures exercise this slice.
 - **Next unchecked work:** owner checks still start with section 3 Run B in `docs/device-checks.md`. Broader native-process recovery and descriptor
   contracts remain future SC5 work. Pending typed-question recovery is outside this approval slice; the form capability remains off.
-- **Publication / review:** [#396](https://github.com/eyupio/reet.sh/pull/396) was opened as a draft and marked ready after implementation CI passed. The automatic Codex bot review failed because the account’s code-review quota is exhausted ([bot response](https://github.com/eyupio/reet.sh/pull/396#issuecomment-6583179410)); submitted reviews and inline threads were empty. The required bot review remains outstanding. The PR is unmerged; no deployment or real-login/device completion is claimed.
+- **Publication / review:** [#396](https://github.com/eyupio/reet.sh/pull/396) was opened as a draft and marked ready after implementation CI passed. The automatic Codex bot review failed because the account’s code-review quota is exhausted ([bot response](https://github.com/eyupio/reet.sh/pull/396#issuecomment-6583179410)); submitted reviews and inline threads were empty. The owner subsequently merged #396 as `35225eb`; the bot review did not complete before that merge. No deployment or real-login/device completion is claimed.
 
 ## Delivery and completion evidence
 

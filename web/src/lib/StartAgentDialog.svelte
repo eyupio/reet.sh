@@ -358,13 +358,15 @@
  function openPicker() { if (locked || !chosenTool) return; pickerOpen = true }
  function pickModel(value: string) { explicitModel = true; modelChoice = value; modelOther = ''; edited() }
  // Choosing a project moves to its machine and folder and borrows its defaults; "No project" leaves the machine as it is.
+ const projectReady = (item: FolderProject) => machines.some(m => m.agentId === item.host && m.ready)
  function pickProject(next: string) {
   if (locked) return
   projectSel = next
   const item = projects.find(p => p.id === next)
   void loadProject(next)
   if (!item) { folderChoice = ''; typedDir = ''; edited(); return }
-  if (machines.some(m => m.agentId === item.host && m.ready)) agentId = item.host
+  if (!projectReady(item)) { projectSel = ''; void loadProject(''); return }
+  agentId = item.host
   const listed = folderChoices(machines.find(m => m.agentId === item.host), snapshot).some(f => f.path === item.dir)
   folderChoice = listed ? item.dir : TYPED
   typedDir = listed ? '' : item.dir
@@ -383,10 +385,17 @@
  function selectTool(next: string) { if (locked) return; explicitTool = next; tool = next; edited() }
 
  // The project is read once for its own defaults; a failure falls back to the account and favourites.
+ let projectReadSeq = 0
  async function loadProject(id: string) {
-  if (!id) { projectData = null; return }
-  try { projectData = await getFolderProject(id, life.signal) }
-  catch (e) {
+  // The newest selection owns projectData: an earlier read that finishes late, or after "No project", is ignored.
+  const seq = ++projectReadSeq
+  projectData = null
+  if (!id) return
+  try {
+   const next = await getFolderProject(id, life.signal)
+   if (seq === projectReadSeq) projectData = next
+  } catch (e) {
+   if (seq !== projectReadSeq) return
    if (!life.signal.aborted && (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401)) onsignedout?.(new UnauthorizedError())
    else if (!life.signal.aborted) projectData = null
   }
@@ -560,7 +569,7 @@
      <label for={`${id}-project`}>Project <span class="optional">optional</span></label>
      <select id={`${id}-project`} value={projectSel} onchange={(event) => pickProject((event.currentTarget as HTMLSelectElement).value)}>
       <option value="">No project</option>
-      {#each projects as item (item.id)}<option value={item.id}>{item.name}{item.machine ? ` · ${item.machine}` : ''}</option>{/each}
+      {#each projects as item (item.id)}<option value={item.id} disabled={item.id !== projectSel && !projectReady(item)}>{item.name}{item.machine ? ` · ${item.machine}` : ''}{projectReady(item) ? '' : ' · machine not ready'}</option>{/each}
      </select>
      <p class="hint">A project fills in its machine and folder, and the session is listed under it.</p>
     </div>

@@ -310,6 +310,9 @@ try{
  // A plain new terminal is unchanged: none of the launch keys.
  await page.locator('#terminal-sessions').getByRole('button',{name:'New terminal on dev-laptop',exact:true}).first().click()
  await page.getByRole('menuitem',{name:'Terminal',exact:true}).click()
+ await expect(page.getByRole('dialog',{name:'New terminal session'})).toBeVisible()
+ expect(posts).toHaveLength(1)
+ await page.getByRole('button',{name:'New terminal',exact:true}).click()
  await expect.poll(()=>posts.length).toBe(2)
  const plain=body(1)
  expect(Object.keys(plain)).toEqual(['agentId','requestId','title','cols','rows'])

@@ -3,6 +3,7 @@
  import type { ChatState } from '../chat'
   import { onMount, tick, untrack } from 'svelte'
   import {getProfile,getSyncState,saveProfile,type Machine} from '../api'
+  import { validateDir } from '../agentLaunch'
   import StartAgentDialog from '../StartAgentDialog.svelte'
   import AddProjectDialog from '../home/AddProjectDialog.svelte'
   import SessionSidebar from './SessionSidebar.svelte'
@@ -91,17 +92,22 @@
   let health = $state<HealthResponse>({ serverNow:Date.now(),machines:[] })
   let receivedAt = performance.now(), elapsed = $state(0)
   let loading = $state(true), busy = $state(false), error = $state(''), title = $state('Shell')
-  type Creation = { requestId: string; title: string; error: string }
+  type Creation = { requestId: string; title: string; dir: string; error: string }
   let creations = $state<Record<string, Creation>>({})
   // A continuation whose reply was lost keeps its request id and launch, so Continue again replays the same operation.
   type Continuation = { requestId: string; title: string; launch: LaunchRequest }
   let continuations = $state<Record<string, Continuation>>({})
   const pendingCreation = $derived(creations[selectedAgent])
-  const requestId = $derived(pendingCreation?.requestId || '')
+  // Draft settings do not switch the workspace behind the dialog.
+  let terminalAgent=$state(''),terminalDir=$state('')
+  const createMachine=$derived(machines.find(item=>item.agentId===terminalAgent))
+  const formCreation=$derived(creations[terminalAgent])
+  const requestId=$derived(formCreation?.requestId || '')
+  const createActive=$derived(sessions.filter(item=>item.agentId===terminalAgent&&['creating','running','end_requested'].includes(item.state)).length)
+  const dirError=$derived(terminalDir ? validateDir(terminalDir) : null)
   let accessDenied=$state(false), machineSearchInput=$state<HTMLInputElement>()
   let creationRequest:AbortController|undefined
   let statusError = $state(''), machineSearch = $state(''), machineSearchOpen = $state(false)
-  let machinePrompt = $state<''|'quick'|'create'>('')
   const matchingMachines = $derived(machines.filter(item => `${item.host} ${item.capabilities?.osUser || ''}`.toLowerCase().includes(machineSearch.toLowerCase())))
   const rememberedSessions = new Map<string, string>()
   let workspace = $state<HTMLElement>(), workspaceHeight = $state(Math.max(120, innerHeight - 78))
@@ -127,7 +133,7 @@
   const ownSessions = $derived(sessions.filter(item=>item.agentId===selectedAgent))
   const activeSessions = $derived(ownSessions.filter(item=>['creating','running','end_requested'].includes(item.state)))
   const accountActive = $derived(sessions.filter(item=>['creating','running','end_requested'].includes(item.state)).length)
-  const atQuota = $derived(activeSessions.length>=8 || accountActive>=32)
+  const createAtQuota=$derived(createActive>=8||accountActive>=32)
   const session = $derived(ownSessions.find(item=>item.id===selectedSession))
   const machineStatus = $derived(health.machines.find(item=>item.agentId===selectedAgent))
   const setup = $derived(readiness(machine))
@@ -145,7 +151,7 @@
     }
     document.title = tabTitle
   })
-  $effect(()=>{if(machineSearchOpen||machinePrompt)machineSearchInput?.focus()})
+  $effect(()=>{if(machineSearchOpen)machineSearchInput?.focus()})
   // A saved default that arrives after the dialog opened shows in the toggle until the user changes it themselves.
   $effect(()=>{if(!defaultEdited)defaultOn=removeDefault})
   // The session screen's tabs (R20): the sessions opened in this browser tab since it loaded, in memory only, at most eight.
@@ -210,33 +216,41 @@
     }
   }
   function canCreateFor(agent:string){return !busy&&!actionBusy&&!accessDenied&&!!machines.find(m=>m.agentId===agent&&m.serverEnabled!==false)?.ready&&(!!creations[agent]||accountActive<32&&sessions.filter(s=>s.agentId===agent&&['creating','running','end_requested'].includes(s.state)).length<8)}
-  function quickCreate(agent:string){if(!canCreateFor(agent))return;if(selectedAgent&&selectedSession)rememberedSessions.set(selectedAgent,selectedSession);selectedAgent=agent;selectedSession='';title=creations[agent]?.title||'Shell';showCreate=false;error='';remember();closeDrawer();void create()}
-  function requestMachinePrompt(mode:'quick'|'create'){machineSearch='';machinePrompt=mode}
-  function pickMachineForNew(id:string){const mode=machinePrompt;machinePrompt='';if(mode==='quick')return quickCreate(id);if(selectedAgent&&selectedSession)rememberedSessions.set(selectedAgent,selectedSession);selectedAgent=id;selectedSession='';title=creations[id]?.title||'Shell';error='';showCreate=true;remember();closeDrawer()}
-  function newSession(){if(!machines.length)return;if(!selectedAgent)return requestMachinePrompt('create');if(session){title=pendingCreation?.title||title;showCreate=true}else workspace?.querySelector<HTMLInputElement>('.create-form input')?.focus()}
-  function submitCreate(){if(!selectedAgent&&machines.length)return requestMachinePrompt('create');void create()}
+  function selectTerminalMachine(agent:string){
+    terminalAgent=agent
+    const pending=creations[agent]
+    title=pending?.title||'Shell';terminalDir=pending?.dir||'';error=''
+  }
+  function openTerminalStart(agent=selectedAgent){
+    if(accessDenied||!machines.length||busy)return
+    selectTerminalMachine(agent);showCreate=true;closeDrawer()
+  }
+  function quickCreate(agent:string){openTerminalStart(agent)}
+  function newSession(){openTerminalStart()}
+  function submitCreate(){void create()}
   async function create() {
-    if(busy||!machine?.ready||!validTerminalTitle(title.trim())||atQuota&&!requestId)return
+    if(busy||accessDenied||!createMachine?.ready||createMachine.serverEnabled===false||!validTerminalTitle(title.trim())||dirError||createAtQuota&&!requestId)return
     busy=true;error=''
     // One immutable retry operation per machine, including its original title.
-    const agent=selectedAgent
-    const operation=creations[agent] || {requestId:crypto.randomUUID(),title:title.trim(),error:''}
+    const agent=terminalAgent
+    const originAgent=selectedAgent,originSession=selectedSession
+    const operation=creations[agent] || {requestId:crypto.randomUUID(),title:title.trim(),dir:terminalDir,error:''}
     creations={...creations,[agent]:{...operation,error:''}}
     const request=new AbortController();creationRequest=request
     const timeout=setTimeout(()=>request.abort(),15000)
     try {
-      const created=await createTerminal(agent,operation.requestId,operation.title,100,30,request.signal)
+      const created=await createTerminal(agent,operation.requestId,operation.title,100,30,request.signal,operation.dir?{dir:operation.dir}:undefined)
       if(disposed)return
       inventoryVersion++
       // A retry can resolve to an old closed record; let the filtered history list
       // determine visibility instead of reintroducing an archived session locally.
       if(!terminalClosed(created.state))sessions=[created,...sessions.filter(item=>item.id!==created.id)]
       if(creations[agent]?.requestId===operation.requestId){const next={...creations};delete next[agent];creations=next}
-      if(selectedAgent===agent){selectedSession=created.id;showCreate=false;remember()}
+      if(selectedAgent===originAgent&&selectedSession===originSession){showCreate=false;chooseSession(created)}
       await refresh()
     } catch(e){
       if(disposed)return
-      if(e instanceof TerminalError&&e.status===400){const next={...creations};delete next[agent];creations=next;if(selectedAgent===agent)error=e.message}
+      if(e instanceof TerminalError&&e.status===400){const next={...creations};delete next[agent];creations=next;if(terminalAgent===agent)error=e.message}
       else creations={...creations,[agent]:{...operation,error:e instanceof Error?e.message:'Creation could not be confirmed. Retry the same operation.'}}
     } finally{clearTimeout(timeout);busy=false}
   }
@@ -424,10 +438,7 @@
           <span class="empty-icon ended-icon" aria-hidden="true">›_</span>
           <h2>{heading}</h2>
           <p>{lede}</p>
-          <div class="ended-actions">
-            <button type="button" class="btn primary ended-cta" disabled={!machines.length || atQuota} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>✦ Start a new agent session</button>
-          </div>
-          <div class="ended-card">{@render createForm()}</div>
+          {@render startActions()}
           {#if activeSessions.length}
             <div class="ended-resume" aria-label="Running sessions">
               <h3>Or jump back into a running session</h3>
@@ -436,21 +447,33 @@
           {/if}
         </div>
 {/snippet}
+{#snippet startActions()}
+  <div class="ended-actions">
+    <button type="button" class="btn primary ended-cta" disabled={!machines.length || accountActive>=32} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>✦ Start a new agent session</button>
+    <button type="button" class="btn ended-cta" disabled={!machines.length || busy} onclick={()=>openTerminalStart()}>✦ Start a new Terminal session</button>
+  </div>
+{/snippet}
 {#snippet createForm()}
   <form class="create-form" onsubmit={event => { event.preventDefault(); submitCreate() }}>
-    {#if pendingCreation?.error}<p class="creation-error" role="alert">{pendingCreation.error} The creation is unconfirmed. Retry checks the original operation.</p>{/if}
+    {#if formCreation?.error}<p class="creation-error" role="alert">{formCreation.error} The creation is unconfirmed. Retry checks the original operation.</p>{/if}
+    <label>Machine<select aria-label="Machine" value={terminalAgent} disabled={busy} required onchange={event=>selectTerminalMachine(event.currentTarget.value)}>
+      <option value="" disabled>Choose a machine…</option>
+      {#each machines as item (item.agentId)}<option value={item.agentId}>{item.host}{item.ready?'':' · Unavailable'}</option>{/each}
+    </select></label>
+    <label>Folder<input bind:value={terminalDir} disabled={busy || !!requestId} placeholder="Home folder (default)" aria-invalid={!!dirError} aria-describedby="terminal-folder-help" /></label>
+    <p id="terminal-folder-help">{dirError || 'Leave empty for the machine’s home folder, or enter a full path starting with /.'}</p>
     <label>New session name<input bind:value={title} disabled={busy || !!requestId} maxlength="80" required placeholder="Build, deploy, investigate…" /></label>
-    <button class="btn primary" disabled={busy || !validTerminalTitle(title.trim()) || (selectedAgent ? !machine?.ready || atQuota && !requestId : !machines.length)} aria-busy={busy}>{busy ? 'Creating…' : requestId ? 'Retry creation' : 'New terminal'}</button>
-    <button type="button" class="btn new-agent" disabled={!machines.length} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>New agent session</button>
-    {#if !machine?.ready}<p class="create-reason" role="status">{setup || 'Choose a machine before creating a shell.'}</p>{/if}
-    <p>{activeSessions.length} / 8 active on this machine · {accountActive} / 32 across your account{atQuota ? ' · Session limit reached' : ''}. Existing shells keep running when you switch or disconnect.</p>
+    {#if !createMachine?.ready || createMachine.serverEnabled===false}<p class="create-reason" role="status">{readiness(createMachine) || 'Choose a machine before creating a shell.'}</p>{/if}
+    <p>{createActive} / 8 active on this machine · {accountActive} / 32 across your account{createAtQuota ? ' · Session limit reached' : ''}. Existing shells keep running when you switch or disconnect.</p>
+    <button class="btn primary" disabled={busy || !validTerminalTitle(title.trim()) || !!dirError || !createMachine?.ready || createMachine.serverEnabled===false || createAtQuota && !requestId} aria-busy={busy}>{busy ? 'Creating…' : requestId ? 'Retry creation' : 'New terminal'}</button>
+
   </form>
 {/snippet}
 
 <section class="workspace" class:theatre class:keyboard class:resizing bind:this={workspace} style={`--workspace-height:${workspaceHeight}px;--sidebar-width:${sidebarWidth}px;--panel-width:${shown==='mini'?MINI_WIDTH:panelWidth}px`} aria-label="Remote terminal workspace">
   <header class="workspace-toolbar">
     <div class="workspace-title"><a href="/sessions" aria-label="Back to sessions">←</a><h1>Sessions</h1></div>
-    {#if panelView==='closed'}<button class="btn quick-machine" aria-label={selectedAgent ? `New terminal on ${machine?.host || 'selected machine'}` : 'Choose a machine for a new terminal'} title={selectedAgent ? 'Start a terminal on this machine' : 'Choose a machine for a new terminal'} disabled={selectedAgent ? !canCreateFor(selectedAgent) : !machines.length} onclick={()=>selectedAgent?quickCreate(selectedAgent):requestMachinePrompt('quick')}>+</button>{/if}
+    {#if panelView==='closed'}<button class="btn quick-machine" aria-label={selectedAgent ? `New terminal on ${machine?.host || 'selected machine'}` : 'Choose a machine for a new terminal'} title={selectedAgent ? 'Start a terminal on this machine' : 'Choose a machine for a new terminal'} disabled={selectedAgent ? !canCreateFor(selectedAgent) : !machines.length} onclick={()=>openTerminalStart()}>+</button>{/if}
     <button class="btn find-machine" onclick={()=>{machineSearch='';machineSearchOpen=true}} aria-label="Find machine">Find</button>
     <!-- The session screen's tabs share this row, so the terminal keeps its height. -->
     {#if session && !loading && !accessDenied && !phone}<SessionTabs tabs={tabSessions} current={session.id} onselect={chooseSession} onclose={closeSessionTab} />{/if}
@@ -458,7 +481,7 @@
   </header>
   {#if preferenceError}<p class="workspace-notice bad" role="status">{preferenceError}</p>{/if}
   {#if statusError}<p class="workspace-notice bad" role="status">{statusError} <button onclick={()=>void refresh()}>Retry status</button></p>{/if}
-  {#if pendingCreation && !showCreate && session}<p class="workspace-notice" role="status">A creation on this machine is unconfirmed. <button onclick={()=>{title=pendingCreation?.title||title;showCreate=true}}>Review creation</button></p>{/if}
+  {#if pendingCreation && !showCreate && session}<p class="workspace-notice" role="status">A creation on this machine is unconfirmed. <button onclick={()=>openTerminalStart()}>Review creation</button></p>{/if}
   {#if error && !showCreate}<p class="workspace-notice bad" role="alert">{error} <button onclick={() => void refresh()}>Retry status</button></p>{/if}
   <div class="workspace-body" class:docked={shown==='docked'||shown==='mini'} bind:clientWidth={bodyWidth}>
     {#if shown!=='closed'}<SessionSidebar {machines} {sessions} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} health={health.machines} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
@@ -494,7 +517,7 @@
             {/if}
           {/snippet}
           {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
-          {#if terminalClosed(session.state)}<div class="workspace-notice ended-banner" role="status"><span>This session has ended. Its output stays below.</span><span class="ended-banner-actions"><button type="button" disabled={!machines.length || atQuota} onclick={event=>openAgentStart(session.agentId,event.currentTarget)}>Start a new agent session</button><button type="button" disabled={!machine?.ready || atQuota} onclick={()=>showCreate=true}>New terminal</button></span></div>{/if}
+          {#if terminalClosed(session.state)}<div class="workspace-notice ended-banner" role="status"><span>This session has ended. Its output stays below.</span><span class="ended-banner-actions"><button type="button" disabled={!machines.length || accountActive>=32} onclick={event=>openAgentStart(session.agentId,event.currentTarget)}>Start a new agent session</button><button type="button" disabled={!machines.length || busy} onclick={()=>openTerminalStart()}>New terminal</button></span></div>{/if}
           <!-- Keyed by the session and its mode, so a switch between Gaffer and the OpenCode TUI mounts the other pane. -->
           {#key session.id + ':' + (session.structured ? 'chat' : 'term')}
             {#if session.structured}
@@ -506,9 +529,9 @@
         </SessionScreen>
       {:else if selectedSession}
         {@render endedView('This session has ended', "It's no longer running, so there's nothing to reconnect to. Nothing was started in its place. Pick up where you left off, or start fresh.")}
-      {:else if (!selectedAgent || machine) && !setup}
+      {:else if !selectedAgent || machine && !setup}
         {@render endedView('Start a new session', 'Nothing is open right now. Start a new agent session or a plain terminal, or jump back into one that is still running.')}
-      {:else}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>{selectedSession ? 'This session is unavailable' : selectedAgent && !machine ? 'This machine is unavailable' : 'Your next shell starts here.'}</h2><p>{selectedSession ? 'Choose an existing session or create one explicitly. No replacement shell was created.' : setup || 'Create a terminal, then return to the same session whenever you need it.'}</p>{@render createForm()}{#if setup}<button class="btn" onclick={() => detailsOpen = true}>View setup &amp; connection details</button>{/if}</div>{/if}
+      {:else}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>{selectedSession ? 'This session is unavailable' : selectedAgent && !machine ? 'This machine is unavailable' : 'Your next shell starts here.'}</h2><p>{selectedSession ? 'Choose an existing session or create one explicitly. No replacement shell was created.' : setup || 'Create a terminal, then return to the same session whenever you need it.'}</p>{@render startActions()}{#if setup}<button class="btn" onclick={() => detailsOpen = true}>View setup &amp; connection details</button>{/if}</div>{/if}
     </div>
   </div>
 </section>
@@ -518,12 +541,7 @@
   <label class="machine-search">Machine or shell user<input type="search" bind:this={machineSearchInput} bind:value={machineSearch} placeholder="Search connected machines…" /></label>
   <nav class="machine-results" aria-label="Matching machines">{#each matchingMachines as item (item.agentId)}<button class="machine-result" aria-current={item.agentId===selectedAgent?'true':undefined} onclick={()=>chooseMachine(item.agentId)}><strong>{item.host}</strong><span>{item.capabilities?.osUser || 'Shell user unavailable'} · {item.ready?'Ready':readiness(item)}</span></button>{:else}<p>No machines match.</p>{/each}</nav>
 </WorkspaceDialog>{/if}
-{#if machinePrompt}<WorkspaceDialog title="Choose a machine" onclose={()=>machinePrompt=''}>
-  <p class="dialog-copy">Select the machine where this terminal should run.</p>
-  <label class="machine-search">Machine or shell user<input type="search" bind:this={machineSearchInput} bind:value={machineSearch} placeholder="Search connected machines…" /></label>
-  <nav class="machine-results" aria-label="Machines for a new terminal">{#each matchingMachines as item (item.agentId)}<button class="machine-result" aria-current={item.agentId===selectedAgent?'true':undefined} disabled={!canCreateFor(item.agentId)} onclick={()=>pickMachineForNew(item.agentId)}><strong>{item.host}</strong><span>{item.capabilities?.osUser || 'Shell user unavailable'} · {item.ready?'Ready':readiness(item)}</span></button>{:else}<p>No machines match.</p>{/each}</nav>
-</WorkspaceDialog>{/if}
-{#if showCreate}<WorkspaceDialog title="New terminal session" onclose={() => showCreate = false}><p class="dialog-copy">Create a shell on <strong>{machine?.host || 'the selected machine'}</strong>. Changing machines does not stop existing sessions.</p>{#if error}<p class="dialog-copy" role="alert">{error}</p>{/if}{@render createForm()}</WorkspaceDialog>{/if}
+{#if showCreate}<WorkspaceDialog title="New terminal session" onclose={() => showCreate = false}><p class="dialog-copy">Choose where your terminal will run.</p>{#if error}<p class="dialog-copy" role="alert">{error}</p>{/if}{@render createForm()}</WorkspaceDialog>{/if}
 {#if agentStart}<StartAgentDialog {machines} {projects} snapshot={agentFolders} initialAgent={agentStart.agent} initialDir={agentStart.dir ?? ''} projectId={agentStart.projectId ?? ''} opener={agentStart.opener} onstarted={agentStarted} onaddmachine={()=>location.assign('/machines#add-machine')} onclose={closeAgentStart} />{/if}
 {#if addingProject}<AddProjectDialog {machines} opener={addingProject.opener} onadded={projectAdded} onsignedout={()=>{accessDenied=true;addingProject=null}} onclose={()=>addingProject=null} />{/if}
 {#if detailsOpen}<WorkspaceDialog title="Machine & terminal details" onclose={() => detailsOpen = false}>
@@ -540,9 +558,8 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
 <style>
   .ended{position:relative;overflow:hidden}.ended>*{position:relative}.ended-glow{position:absolute!important;inset:-20% 20% auto;height:60%;background:radial-gradient(closest-side,color-mix(in srgb,var(--accent-text) 22%,transparent),transparent);filter:blur(30px);pointer-events:none}
   .ended-icon{font-size:2.8rem;animation:ended-blink 1.2s steps(2) infinite}@keyframes ended-blink{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.ended-icon{animation:none}}
-  .ended h2{font-size:2rem}.ended-actions{margin:0 0 18px}.ended-cta{font-size:1rem;padding:12px 22px;min-height:48px}
+  .ended h2{font-size:2rem}.ended-actions{display:flex;flex-direction:column;gap:12px;margin:0 0 18px;max-width:100%}.ended-cta{font-size:1rem;padding:12px 22px;min-height:48px}
   .ended-banner-actions{display:flex;gap:14px;flex-wrap:wrap}.ended-banner button{font-weight:600}
-  .ended-card{width:100%;max-width:520px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--bg-sunk,var(--card))}
   .ended-resume{margin-top:22px;max-width:520px;width:100%;text-align:left}.ended-resume h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px;color:var(--muted)}
   .ended-resume ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}.ended-resume button{width:100%;display:flex;align-items:center;gap:10px;min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-size:.82rem;text-align:left}.ended-resume button:hover{border-color:var(--accent-text)}
   .ended-dot{width:7px;height:7px;border-radius:50%;background:var(--good)}.ended-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -554,7 +571,7 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   .side-terminal-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
   .side-terminal-head button { min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font-size: .78rem; }
   @media (max-width:650px){.workspace:has(:global(.session-screen)) .workspace-title>a{display:none}}
-  .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:14px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:.75rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:.65rem;border-radius:20px;background:var(--tint);padding:1px 5px}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:.85rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:.75rem}.create-form input{width:100%;min-width:0}.create-form .new-agent{grid-column:1/-1;justify-self:start}.create-form p{grid-column:1/-1;font-size:.72rem;color:var(--muted);line-height:1.5;margin:0 0 16px}.workspace-notice{margin:0;padding:7px 12px;background:var(--tint);font-size:.74rem;flex-shrink:0;display:flex;align-items:center;gap:10px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:.8rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:14px;border-radius:8px}.setup-notice pre{font-size:.75rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:.85rem;margin:0 0 10px}.shortcut-help p+p{margin-top:8px}
+  .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:14px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:.75rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:.65rem;border-radius:20px;background:var(--tint);padding:1px 5px}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:.85rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:.75rem}.create-form input,.create-form select{width:100%;min-width:0}.create-form p{grid-column:1/-1;font-size:.72rem;color:var(--muted);line-height:1.5;margin:0 0 16px}.workspace-notice{margin:0;padding:7px 12px;background:var(--tint);font-size:.74rem;flex-shrink:0;display:flex;align-items:center;gap:10px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:.8rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:14px;border-radius:8px}.setup-notice pre{font-size:.75rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:.85rem;margin:0 0 10px}.shortcut-help p+p{margin-top:8px}
   .creation-error{color:var(--bad)!important}.find-machine{font-size:.72rem;padding:6px 8px;min-height:34px}.machine-search{display:grid;gap:8px;font-size:.8rem}.machine-results{display:grid;gap:8px;max-height:50dvh;overflow:auto}.machine-result{display:grid;gap:5px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}.machine-result[aria-current=true]{border-color:var(--accent)}.machine-result span{font-size:.74rem;color:var(--muted)}
   .end-options{display:grid;gap:14px;margin-top:16px;font-size:.8rem}.end-options .option{display:grid;gap:5px}.end-options label{display:flex;align-items:flex-start;gap:9px;line-height:1.5;cursor:pointer}.end-options input{flex:none;width:16px;height:16px;min-height:0;margin:2px 0 0;padding:0;border:0;background:none;accent-color:var(--accent)}.end-options p,.end-options a{margin:0;font-size:.72rem;line-height:1.6;color:var(--muted)}.end-options p{margin-left:25px}.end-options a{justify-self:start;color:var(--accent-text)}
   .mobile-label{display:none}

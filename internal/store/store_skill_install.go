@@ -144,7 +144,9 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 			return hostedErr
 		}
 		for _, sk := range published {
-			if sk.Slug == in.Slug {
+			// The session picker installs public skills only; a draft reaches a
+			// machine through the Sync page, where its private transfer is chosen.
+			if sk.Slug == in.Slug && sk.SourceType != "private" {
 				skill, found = sk, true
 				break
 			}

@@ -1,6 +1,6 @@
 # Reet.sh skills and enrolled machines
 
-Compare & sync now starts from **Reet.sh shelf & lists**, **My published reet.sh skills**, or a reported machine/agent scope. A reference machine is not required to prepare a new machine. Select skills, choose the target agent/project scope, and save a desired set. Nothing installs merely because a skill is bookmarked or a desired set is saved.
+Compare & sync now starts from **Reet.sh shelf & lists**, **My reet.sh skills** (published skills by their public URL, and unpublished drafts served privately from this controller), or a reported machine/agent scope. A reference machine is not required to prepare a new machine. Select skills, choose the target agent/project scope, and save a desired set. Nothing installs merely because a skill is bookmarked or a desired set is saved.
 
 ## Connect an installation
 
@@ -96,3 +96,7 @@ Unreadable scopes, permission errors on skill entries and broken symlinks produc
 Controller state, enrollment hashes, jobs/receipts, desired sets and baselines live in SQLite and survive restart. Use a consistent full database backup to retain them. Personal shelf JSON exports do not include these operational records. Keep each local enrollment configuration private and backed up separately.
 
 See [the control centre workflow](control-centre.md) for fleet controls and selecting all machines.
+
+## Your own drafts sync without publishing
+
+A skill written on the Hosting page reaches a machine the same way an imported private copy does: the agent downloads an immutable, account-owned private revision from this controller with its own token (`GET /api/v2/skill-bundles/{bundle}/revisions/{revision}`) and writes the files itself. Nothing is published and no public URL is created. The controller binds each hosted slug to the revision holding its current bytes (`hosted_sync_sources`); listing candidates for an unchanged draft writes nothing, and editing the draft appends one revision the next time it is listed or saved into a selection. Private storage is append-only and bounded (128 bundles, 256 revisions, 64 MiB per account), so a draft that is edited and re-synced very often will eventually need that limit raised deliberately. A published skill keeps its public install source, so a machine that held the draft privately replaces it with the public install on its next sync. Drafts are chosen individually on the Sync page; **All my skills** still means the shelf. The session skill picker still installs public skills only.

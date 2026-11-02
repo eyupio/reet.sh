@@ -46,7 +46,7 @@ func (s *Store) SyncCandidatesFor(uid int64, role string, listID int64) ([]SyncS
 			}
 			out = append(out, candidate)
 		}
-		return out, nil
+		return s.applyDraftSources(uid, out)
 	}
 	skills, _, err := s.ListFor(uid, Filter{Sort: "name"})
 	if err != nil {
@@ -59,7 +59,7 @@ func (s *Store) SyncCandidatesFor(uid int64, role string, listID int64) ([]SyncS
 		}
 		out = append(out, candidate)
 	}
-	return out, nil
+	return s.applyDraftSources(uid, out)
 }
 
 type DesiredSelection struct {
@@ -151,6 +151,23 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 				}
 			}
 		}
+		// The account's own hosted skills are authoritative for their IDs: a
+		// shelf entry left behind by unpublishing must not outrank the draft.
+		replace := func(list []SyncSkill) {
+			for _, sk := range list {
+				replaced := false
+				for i := range candidates {
+					if candidates[i].ID == sk.ID {
+						candidates[i] = sk
+						replaced = true
+					}
+				}
+				if !replaced {
+					seen[sk.ID] = true
+					candidates = append(candidates, sk)
+				}
+			}
+		}
 		if source != "shelf" {
 			shelf, e := s.SyncCandidatesFor(uid, role, 0)
 			if e != nil {
@@ -163,7 +180,7 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		// a usable origin nothing is added and the save works as before.
 		if source != "hosted" && in.Origin != "" {
 			if hosted, e := s.SyncHostedFor(uid, in.Origin); e == nil {
-				add(hosted)
+				replace(hosted)
 			}
 		}
 	}
@@ -198,6 +215,11 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 			}
 		}
 		if len(linked) == 0 {
+			for _, sk := range bySlug[slug] {
+				if sk.Problem != "" {
+					return errors.New(sk.Problem)
+				}
+			}
 			return errors.New("link unknown sources before saving; local copies cannot be installed")
 		}
 		if len(linked) > 1 && (linked[0].Source != linked[1].Source || linked[0].SourceType != linked[1].SourceType) {
@@ -811,12 +833,15 @@ func (s *Store) SyncHostedFor(uid int64, origin string) ([]SyncSkill, error) {
 	}
 	out := []SyncSkill{}
 	for _, sk := range skills {
-		if !sk.Published {
-			continue
-		}
 		rf, err := ref.ParseAt(strings.TrimRight(origin, "/")+"/"+username+"/"+sk.Slug, u.Host)
 		if err != nil {
 			return nil, err
+		}
+		if !sk.Published {
+			// A draft has no public page, so the agent fetches its exact bytes
+			// from this controller as an owned private revision instead.
+			out = append(out, s.privateDraftCandidate(uid, rf.ID, sk))
+			continue
 		}
 		out = append(out, SyncSkill{ID: rf.ID, Name: sk.Slug, Slug: sk.Slug, Source: rf.Source, SourceType: rf.SourceType, URL: rf.URL})
 	}

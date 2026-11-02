@@ -394,20 +394,23 @@ try{
  await page.goto(`${base}/machines?view=terminal&agent=${agentA}&session=${sessionA}`)
  await live();await bounds(1360,900)
  await dockedPanel()
- // A new session always names its machine first; arriving without one attaches nothing.
+ // Both empty-state actions open settings; cancelling never creates or switches sessions.
  await page.goto(`${base}/sessions?view=terminal`)
- await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
- expect(await page.locator('.workspace-toolbar').innerText()).not.toContain('dev-laptop')
- await page.getByRole('button',{name:'New session',exact:true}).click()
- await expect(page.getByRole('dialog',{name:'Choose a machine'})).toBeVisible()
- await page.getByRole('button',{name:'Close Choose a machine'}).click()
- await expect(page.getByRole('button',{name:'New terminal',exact:true})).toBeEnabled()
- await page.getByRole('button',{name:'New terminal',exact:true}).click()
- const chooseMachine=page.getByRole('dialog',{name:'Choose a machine'})
- await expect(chooseMachine).toBeVisible()
- await chooseMachine.getByRole('button',{name:/dev-laptop/}).click()
- await expect(page.getByRole('dialog',{name:'New terminal session'})).toContainText('dev-laptop')
- await page.getByRole('button',{name:'Close New terminal session'}).click()
+ await expect(page.getByRole('heading',{name:'Start a new session'})).toBeVisible()
+ await expect(page.locator('.ended .create-form')).toHaveCount(0)
+ await page.getByRole('button',{name:'✦ Start a new agent session',exact:true}).click()
+ await expect(page.getByRole('dialog')).toBeVisible()
+ await page.keyboard.press('Escape')
+ const terminalDialog=page.getByRole('dialog',{name:'New terminal session'})
+ for(const button of ['New session','✦ Start a new Terminal session']){
+  await page.getByRole('button',{name:button,exact:true}).click()
+  await expect(terminalDialog).toBeVisible()
+  await expect(terminalDialog.getByLabel('Machine',{exact:true})).toHaveValue('')
+  await expect(terminalDialog.getByRole('button',{name:'New terminal',exact:true})).toBeDisabled()
+  await terminalDialog.getByLabel('Machine',{exact:true}).selectOption(agentA)
+  await expect(terminalDialog.getByRole('button',{name:'New terminal',exact:true})).toBeEnabled()
+  await page.getByRole('button',{name:'Close New terminal session'}).click()
+ }
  await expect(page.getByRole('heading',{name:'Start a new session'})).toBeVisible()
  expect(writes).toHaveLength(0)
  // header badge equals the panel count with no machine selected (3 sessions on 2 machines): both count the account's live
@@ -445,4 +448,4 @@ try{
  expect(terminalRequests).toEqual([])
  expect(errors).toEqual([])
  console.log('Terminal workspace passed: viewport bounds, quick continuation, per-session targeting, no creation, drawers, native control keys, guarded context paste, intentional disconnect, responsive layouts and role isolation.')
-}catch(error){if(process.env.REET_UI_SCREENSHOTS){await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true});await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/workspace-failure.png`,fullPage:true})}throw error}finally{await browser.close()}
+}catch(error){console.error('Browser errors:',errors);if(process.env.REET_UI_SCREENSHOTS){await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true});await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/workspace-failure.png`,fullPage:true})}throw error}finally{await browser.close()}

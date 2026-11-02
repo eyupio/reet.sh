@@ -28,6 +28,12 @@ sends a file through the launch-upload path and puts its path in the message. A 
 history…**, which loads OpenCode's stored conversation into a new session row. The conditions, deadlines and limits are in
 [OpenCode in Gaffer](structured-sessions.md).
 
+For a plain shell, **New session**, the workspace’s **✦ Start a new Terminal session**, and the
+sidebar machine menu’s **Terminal** open the terminal settings dialog. Choose its machine, enter an
+absolute folder path (or leave it empty for that machine’s home folder), and name the session before
+pressing **New terminal**. Changing draft settings or closing the dialog leaves the current session
+in place. An unconfirmed creation preserves its original machine, folder, name and request ID for retry.
+
 ## Who sees it
 
 Only an account in accounts mode with a write role sees the entry points, just as for browser
@@ -38,7 +44,8 @@ local consent, and the session limits (8 per machine, 32 per account).
 ## Where to start it
 
 - **Sessions → New agent session.** It appears under **Your sessions** in the sessions sidebar,
-  in a machine's menu next to **New terminal**, and in the empty workspace next to **New terminal**.
+  in a machine's menu next to **New terminal**, and as **✦ Start a new agent session** in the empty
+  or ended workspace beside **✦ Start a new Terminal session**. Each opens its settings dialog.
   The machine you were on is preselected. On success the new session opens in the workspace.
 - **Machines → Start an agent** on every enrolled machine's card. While the machine isn't ready the
   button is disabled and the reason is written underneath; a machine the terminal list doesn't know

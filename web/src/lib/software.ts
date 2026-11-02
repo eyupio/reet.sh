@@ -130,13 +130,12 @@ export function fleetSoftwareGuide(row: Pick<FleetSoftwareRow, 'state' | 'host' 
       title: `Refresh ${row.host}'s software report`,
       why: 'The machine reported its software, but its report has no OpenCode entry.',
       command: 'reet upgrade',
-      then: 'Run it on that machine, then press Refresh. If this stays, run reet doctor there and check its output.',
+      then: 'Run it on that machine, then press Refresh. If this stays, open that machine\'s Settings to see what it reported.',
     }
     case 'unreadable_install': return {
       title: `Check OpenCode on ${row.host}`,
       why: 'reet found OpenCode but could not tell how it was installed, so it will not guess at a plan.',
-      command: 'reet doctor',
-      then: 'Run it on that machine to see what reet found, then press Refresh.',
+      then: 'Nothing to run here. Open that machine\'s Settings to see what reet observed, fix or reinstall OpenCode there, then press Refresh.',
     }
     case 'no_plan': return {
       title: `No plan for ${row.host}`,
@@ -151,7 +150,7 @@ export function fleetSoftwareGuide(row: Pick<FleetSoftwareRow, 'state' | 'host' 
     default: return {
       title: `Check ${row.host}`,
       why: 'reet could not review this machine\'s software.',
-      then: 'Press Refresh. If it stays, run reet doctor on that machine.',
+      then: 'Press Refresh. If it stays, open that machine\'s Settings to see what it reported.',
     }
   }
 }

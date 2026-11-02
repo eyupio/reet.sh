@@ -1,0 +1,73 @@
+import { readFileSync } from 'node:fs'
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import ts from 'typescript'
+// Compile the pure helper without a browser or an extra test dependency.
+const { outputText } = ts.transpileModule(readFileSync(new URL('./skillSync.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
+const { skillSyncIntent, skillSyncSummary, matchesSyncFilter, SYNC_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+
+const sk = id => ({ id, name: id, slug: id, source: 'demo/toolkit', sourceType: 'github' })
+const target = (host, agent, desired, missing = []) => ({ target: { id: `${host}-${agent}`, host, agent, name: host }, sourceId: 'shelf', sourceName: 'Shelf', desired, missing, extra: [], revision: 'r1', updatedAt: 0 })
+const snapshot = targets => ({ environments: [], targets })
+const report = (host, installed, complete = true) => ({ host, installed: new Set(installed), complete, groupCount: 1 })
+
+test('a skill in no saved selection is not set to sync anywhere', () => {
+  const intent = skillSyncIntent('a', snapshot([target('laptop', 'agents', [sk('b')])]))
+  assert.deepEqual(intent, { set: [], pending: [] })
+  assert.equal(skillSyncSummary(intent), 'Not set to sync')
+})
+
+test('a desired skill that the machine already has is set; one still missing is pending', () => {
+  const snap = snapshot([target('laptop', 'agents', [sk('a')]), target('box', 'claude', [sk('a')], [sk('a')])])
+  const intent = skillSyncIntent('a', snap)
+  assert.deepEqual(intent, { set: ['laptop'], pending: ['box'] })
+  assert.equal(skillSyncSummary(intent), 'Pending on box · synced to laptop')
+})
+
+test('a host with several scopes counts once and is pending if any scope is', () => {
+  const snap = snapshot([target('laptop', 'agents', [sk('a')]), target('laptop', 'claude', [sk('a')], [sk('a')])])
+  assert.deepEqual(skillSyncIntent('a', snap), { set: [], pending: ['laptop'] })
+})
+
+test('hosts are listed alphabetically and aliases match case-insensitively', () => {
+  const snap = snapshot([target('Zed', 'agents', [sk('a')]), target('alpha', 'agents', [sk('a')]), { ...target('old-name', 'agents', [sk('a')]), hostAliases: ['ALPHA'] }])
+  assert.deepEqual(skillSyncIntent('a', snap).set, ['alpha', 'old-name', 'Zed'])
+  assert.equal(skillSyncSummary({ set: ['alpha', 'Zed'], pending: [] }), 'Set to sync to alpha, Zed')
+})
+
+test('the summary folds long host lists', () => {
+  assert.equal(skillSyncSummary({ set: ['a', 'b', 'c', 'd'], pending: [] }), 'Set to sync to a, b and 2 more')
+  assert.equal(skillSyncSummary({ set: [], pending: ['a', 'b', 'c', 'd'] }), 'Pending on a, b and 2 more')
+})
+
+test('an empty or missing snapshot is simply not set', () => {
+  assert.deepEqual(skillSyncIntent('a', undefined), { set: [], pending: [] })
+  assert.deepEqual(skillSyncIntent('a', { environments: [], targets: undefined }), { set: [], pending: [] })
+})
+
+test('sync filters answer where-is-it questions from intent and observed reports', () => {
+  const snap = snapshot([target('laptop', 'agents', [sk('a'), sk('c')]), target('box', 'agents', [sk('c')], [sk('c')])])
+  const reports = [report('laptop', ['a', 'b']), report('box', []), report('new', [], false)]
+  assert.deepEqual(SYNC_FILTERS.map(f => f.id), ['nowhere', 'missing', 'not-set', 'pending'])
+  // a: installed on laptop, set there, missing on box, not pending
+  assert.equal(matchesSyncFilter('nowhere', 'a', snap, reports), false)
+  assert.equal(matchesSyncFilter('missing', 'a', snap, reports), true)
+  assert.equal(matchesSyncFilter('not-set', 'a', snap, reports), false)
+  assert.equal(matchesSyncFilter('pending', 'a', snap, reports), false)
+  // b: installed on laptop, in no selection
+  assert.equal(matchesSyncFilter('not-set', 'b', snap, reports), true)
+  assert.equal(matchesSyncFilter('nowhere', 'b', snap, reports), false)
+  // c: on no machine, pending on box
+  assert.equal(matchesSyncFilter('nowhere', 'c', snap, reports), true)
+  assert.equal(matchesSyncFilter('pending', 'c', snap, reports), true)
+  // d: unknown everywhere except confirmed absent on laptop and box
+  assert.equal(matchesSyncFilter('nowhere', 'd', snap, reports), true)
+  assert.equal(matchesSyncFilter('missing', 'd', snap, reports), true)
+  assert.equal(matchesSyncFilter('', 'd', snap, reports), true)
+})
+
+test('a stale scan never counts as missing, but it does count as not installed', () => {
+  const reports = [report('new', [], false)]
+  assert.equal(matchesSyncFilter('missing', 'a', snapshot([]), reports), false)
+  assert.equal(matchesSyncFilter('nowhere', 'a', snapshot([]), reports), true)
+})

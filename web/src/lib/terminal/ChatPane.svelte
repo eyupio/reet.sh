@@ -15,7 +15,9 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, agentModes = [], onbusy, onstate }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+  /** Whether this agent descriptor permits a confirmed live model switch. */
+  acpModel?: boolean
   /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
   agentModes?: string[]
   /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI
@@ -39,6 +41,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  function flash(text: string, bad = false) {
   toast = { id: ++toastSeq, text, bad }
  }
+ const modelAgentId = $derived(session.agentId)
  const tool = $derived(session.tool || 'opencode')
  const toolName = $derived(chatToolName(tool))
  // The mode the machine last confirmed. A switch that failed leaves it unknown here until the session itself reports a mode again.
@@ -56,15 +59,23 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  const selectedIsDefault = $derived(!!selectedModel.trim() && selectedModel.trim() === agentDefault)
  const selectedIsFavourite = $derived(favourites.some(f => f.tool === tool && f.model === selectedModel.trim()))
  const failed = $derived(chat.status.state === 'error')
- const guidance = $derived(/credit|quota|usage limit|billing|balance|insufficient_quota/i.test(chat.status.detail)
-  ? 'This model has reached its usage or credit limit. Choose another model below, or add credits with your provider, then send a message to continue.'
-  : /rate.?limit|too many requests|429/i.test(chat.status.detail)
-  ? 'Wait for the provider’s rate limit to reset, or choose another model below, then send your message again.'
-  : /unauthori|api.?key|authentication|401|403/i.test(chat.status.detail)
-  ? 'Check this provider’s credentials on the session’s machine, or choose a model from another configured provider below.'
-  : 'Check the error details below. You can choose another model or resolve the provider issue, then send a message to continue.')
+ const guidance = $derived.by(() => {
+  const detail = chat.status.detail
+  if (/credit|quota|usage limit|billing|balance|insufficient_quota/i.test(detail)) return acpModel
+   ? 'This model has reached its usage or credit limit. Choose another model below, or add credits with your provider, then send a message to continue.'
+   : 'This model has reached its usage or credit limit. Add credits with your provider, then send a message to continue.'
+  if (/rate.?limit|too many requests|429/i.test(detail)) return acpModel
+   ? 'Wait for the provider’s rate limit to reset, or choose another model below, then send your message again.'
+   : 'Wait for the provider’s rate limit to reset, then send your message again.'
+  if (/unauthori|api.?key|authentication|401|403/i.test(detail)) return acpModel
+   ? 'Check this provider’s credentials on the session’s machine, or choose a model from another configured provider below.'
+   : 'Check this provider’s credentials on the session’s machine, then send your message again.'
+  return acpModel
+   ? 'Check the error details below. You can choose another model or resolve the provider issue, then send a message to continue.'
+   : 'Check the error details below. Resolve the provider issue, then send a message to continue.'
+ })
  async function changeModel() {
-  if (!selectedModel || changingModel || working || ended) return
+  if (!acpModel || !selectedModel || changingModel || working || ended) return
   changingModel = true; feedback = ''; modelNote = ''; if (toast && !toast.bad) toast = null
   try { await chatModel(session.id, selectedModel); currentModel = selectedModel; flash(`Model changed to ${selectedModel}.`) }
   catch (e) { feedback = e instanceof Error ? e.message : 'The model could not be changed. Try again.' }
@@ -72,7 +83,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  }
  async function toggleDefault() {
   const model = selectedModel.trim()
-  if (!model || favouriteBusy) return
+  if (!acpModel || !model || favouriteBusy) return
   const wasDefault = selectedIsDefault
   favouriteBusy = true
   try {
@@ -471,17 +482,28 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  }
  function iconPaths(kind: string) { return ICON_PATHS[kind] ?? ICON_PATHS.other }
 
- onMount(() => {
+ // Capabilities can change while this pane stays mounted. Retire requests and
+ // option lists with the descriptor, so a late response cannot restore a control.
+ $effect(() => {
+  const supported = acpModel, agentId = modelAgentId, agentTool = tool
+  models = []; favourites = []; modelNote = ''
+  if (!supported) return
   const life = new AbortController()
-  void machineModels(session.agentId, session.tool || 'opencode', life.signal).then(result => { models = result.models.map(model => model.id) }).catch(() => { if (!life.signal.aborted) modelNote = 'Model list unavailable. Enter a model ID configured on this machine.' })
+  void machineModels(agentId, agentTool, life.signal).then(result => {
+   if (!life.signal.aborted) models = result.models.map(model => model.id)
+  }).catch(() => { if (!life.signal.aborted) modelNote = 'Model list unavailable. Enter a model ID configured on this machine.' })
   void listModelFavourites(life.signal).then(answer => { if (!life.signal.aborted) favourites = answer.favourites }).catch(() => {})
+  return () => life.abort()
+ })
+
+ onMount(() => {
   const stream = new EventSource(chatURL(session.id))
   source = stream
   stream.addEventListener('reset', readReset)
   stream.addEventListener('chat', readEvent)
   stream.onopen = () => { chat = { ...chat, connection: 'open' } }
   stream.onerror = () => { if (alive) { chat = { ...chat, connection: 'reconnecting' }; stopSettle(); replayed = false } }
-  return () => { alive = false; life.abort(); skillsLife?.abort(); pendingEvents = []; stopFlush(); stopSettle(); if (copyTimer !== undefined) clearTimeout(copyTimer); closeStream() }
+  return () => { alive = false; skillsLife?.abort(); pendingEvents = []; stopFlush(); stopSettle(); if (copyTimer !== undefined) clearTimeout(copyTimer); closeStream() }
  })
  onDestroy(() => { clearTimeout(awaitingTimer); for (const image of images) URL.revokeObjectURL(image.preview); for (const url of sentUrls) URL.revokeObjectURL(url); for (const item of queued) for (const image of item.payload) URL.revokeObjectURL(image.preview) })
 </script>
@@ -742,7 +764,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
      </ol>
     </section>
    {/if}
-   {#if modelNote}<p class="notice" role="status">{modelNote}</p>{/if}
+   {#if acpModel && modelNote}<p class="notice" role="status">{modelNote}</p>{/if}
    {#if agentModes.length}<AgentModeControl tool={toolName} modes={agentModes} current={agentMode} yolo={session.yolo === true} disabled={working || sending || uploading || changingModel || ended || chat.connection !== 'open'} onchoose={chooseMode} />{/if}
    {#if images.length}
     <ul class="attachments" aria-label="Images to attach">
@@ -769,7 +791,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
     <div class="composer-tools">
      <button type="button" class="skills-btn" aria-label="Skills" aria-haspopup="dialog" title={skillsOff || 'Insert a skill into your message'} disabled={!!skillsOff} onclick={() => openSkills()}>+ Skills</button>
      {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image · or paste or drop one" disabled={sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
-     <div class="model-controls" data-keeps-focus>
+     {#if acpModel}<div class="model-controls" data-keeps-focus>
       <label for={`${session.id}-model`}>Model</label>
       <input id={`${session.id}-model`} data-combo-list={`${session.id}-models`} bind:value={selectedModel} disabled={working || sending || changingModel || chat.connection !== 'open'} placeholder="provider/model" spellcheck="false" autocomplete="off" />
       <datalist id={`${session.id}-models`}>{#each models as model}<option value={model}></option>{/each}</datalist>
@@ -780,7 +802,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
        <svg viewBox="0 0 24 24" fill={selectedIsDefault ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z" /></svg>
        <span class="star-word">{favouriteBusy ? 'Saving…' : selectedIsDefault ? 'Default' : 'Make default'}</span>
       </button>
-     </div>
+     </div>{/if}
     </div>
     <span class="hint">Enter to send · Shift + Enter for a new line</span>
    </div>

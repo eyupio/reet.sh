@@ -30,6 +30,13 @@ dark: a machine reports one as available only when its connector runs with `REET
 (`internal/terminalproto/acp_agents.go`); the controller binds each to its reviewed adapter; the browser offers a chat only from
 a descriptor that says `available`.
 
+**Current independent slice (2 November, [#392](https://github.com/eyupio/reet.sh/pull/392), opened as a draft):** the owner asked to continue while the login checks are pending. Branch
+`fix/descriptor-chat-model-control` makes the live Model controls and their lookups follow the available agent descriptor (legacy OpenCode uses
+`acpModel`); capability loss clears options and retires pending lookups, and provider-error wording no longer points at an unavailable control.
+This is the first bounded SC5 controls slice, independently based on main. See the SC5 progress note in the plan. Codex login access is separately
+implemented in [#391](https://github.com/eyupio/reet.sh/pull/391), whose CI is green; the owner marked it ready, but bot review is blocked by account
+quota and signed-in Run B remains pending. Neither switch is retired, and no physical-device or genuine-login check is claimed.
+
 **On main (merged):**
 - SC1–SC2: per-agent descriptors; probes of the Claude and Codex adapters (report above).
 - SC3: typed agent questions, machine core to chat card; the form capability (`elicitation.form`) and Claude chats stay off until

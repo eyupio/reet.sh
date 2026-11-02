@@ -6,7 +6,7 @@ const A = 'connector-laptop000000001', S = 'session-chat000000000000001', S2 = '
 const now = Date.now()
 const session = { id: S, agentId: A, title: 'OpenCode · site', state: 'running', createdAt: now, updatedAt: now, exitCode: null, tool: 'opencode', model: '', effort: '', yolo: false, projectId: null, dir: SITE, structured: true }
 const closedSession = { ...session, id: S2, state: 'exited', exitCode: 0, model: 'anthropic/claude-sonnet-4-5', acpSessionId: 'ses_fake000000000000000000000001' }
-const machine = { agentId: A, host: 'dev-laptop', ready: true, serverEnabled: true, capabilities: { protocolVersion: 1, terminalControl: true, os: 'linux', osUser: 'dev', terminalEnabled: true, healthEnabled: true, readiness: 'ready', launch: true, agentsV2: true, models: true, acp: true, acpHistory: true, acpImages: true, uploads: true, tools: ['opencode'] } }
+const machine = { agentId: A, host: 'dev-laptop', ready: true, serverEnabled: true, capabilities: { protocolVersion: 1, terminalControl: true, os: 'linux', osUser: 'dev', terminalEnabled: true, healthEnabled: true, readiness: 'ready', launch: true, agentsV2: true, models: true, acp: true, acpModel: true, acpHistory: true, acpImages: true, uploads: true, tools: ['opencode'] } }
 
 const useDescriptors = process.env.REET_CHAT_DESCRIPTORS === '1'
 const availableChat = { tool: 'opencode', adapter: 'opencode', state: 'available', minimumVersion: '1.19.5', history: true, images: true, model: true, approval: false }

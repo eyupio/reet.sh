@@ -56,3 +56,17 @@ func TestResolveUsesProjectEnvWithoutPrompting(t *testing.T) {
 		t.Fatalf("token %q %v out=%q", token, err, out.String())
 	}
 }
+
+func TestDiscoverIgnoresControllerURLAlias(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	for _, k := range []string{"REET_URL", "REET_TOKEN", "REET_ENV", "REET_ENV_FILE"} {
+		t.Setenv(k, "")
+	}
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("REET_CONTROLLER_URL=https://remote.example\nREET_TOKEN=local\n"), 0o600)
+	t.Chdir(dir)
+	if c := Discover("", "", ""); c.Server != "" {
+		t.Fatalf("controller URL must not pair with REET_TOKEN: %+v", c)
+	}
+}

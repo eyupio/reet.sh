@@ -6,14 +6,16 @@ import (
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 )
 
-// tokenField asks for a token only when none can be found already. A token in
-// REET_TOKEN, an env file or the saved token is used silently; the form says
-// where it came from so nobody retypes a secret the machine already has.
+// tokenField never makes anyone retype a token the machine already has: when one
+// is found the field says where, and leaving it empty keeps it. Typing a value
+// still overrides it, for example after switching to another controller.
 func tokenField(value *string, conn clientconfig.Connection) huh.Field {
 	if conn.HasToken() {
-		return huh.NewNote().
+		return huh.NewInput().
 			Title("Token").
-			Description("Using the token from " + conn.TokenFrom + ". Nothing to enter.")
+			Description("Using the token from " + conn.TokenFrom + ". Leave empty to keep it, or enter another (hidden).").
+			EchoMode(huh.EchoModePassword).
+			Value(value)
 	}
 	return huh.NewInput().
 		Title("Token").

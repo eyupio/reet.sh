@@ -59,10 +59,10 @@ func Discover(server, host, tokenFile string) Connection {
 			setServer(values["REET_URL"], "saved defaults")
 		}
 	}
-	for _, key := range []string{"REET_URL", "REET_CONTROLLER_URL"} {
-		v, p := fileValue(key)
-		setServer(v, p)
-	}
+	// REET_CONTROLLER_URL is deliberately not an alias: it pairs with
+	// REET_CONTROLLER_TOKEN, a different credential from the REET_TOKEN found below.
+	v, p := fileValue("REET_URL")
+	setServer(v, p)
 
 	c.Host = strings.TrimSpace(host)
 	if c.Host == "" {

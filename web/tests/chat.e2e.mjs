@@ -143,10 +143,16 @@ try {
     window.__chatStream.emit('chat', { seq: 2, kind: 'agent', messageId: 'm1', text: 'Looking ' })
     window.__chatStream.emit('chat', { seq: 3, kind: 'agent', messageId: 'm1', text: 'at the build.' })
     window.__chatStream.emit('chat', { seq: 4, kind: 'tool', toolCallId: 'c1', title: 'notes.txt', toolKind: 'edit', status: 'completed', text: 'Edit applied successfully.', path: '/home/dev/work/site/notes.txt', diff: '@@ -1 +1 @@\n-alpha\n+ALPHA', additions: 1, deletions: 1, durationMs: 179, locations: ['/home/dev/work/site/notes.txt'] })
-    window.__chatStream.emit('chat', { seq: 5, kind: 'permission', permissionId: 'p1', toolCallId: 'c2', title: 'Run the tests', toolKind: 'execute', command: 'go test ./...' })
+    window.__chatStream.emit('chat', { seq: 5, kind: 'permission', permissionId: 'p1', toolCallId: 'c2', title: 'Run the tests', toolKind: 'execute', command: 'go test ./...', text: 'The tests write to /var/tmp, which the sandbox does not allow.' })
   })
   await expect(page.getByText('Looking at the build.')).toBeVisible()
   await expect(page.getByText('go test ./...')).toBeVisible()
+  // The card shows the agent's own words for the request, attributed to the agent, above the command it is asking about.
+  const reasonCard = page.locator('.approval').filter({ hasText: 'Run the tests' })
+  await expect(reasonCard.locator('.approval-reason')).toHaveText('The tests write to /var/tmp, which the sandbox does not allow.')
+  await expect(reasonCard.locator('.block-label').first()).toHaveText('Why OpenCode asks')
+  // OpenCode's rejection closes the tool, so its button keeps the short word; Codex's says it ends the turn (chat.test.mjs covers that).
+  await expect(reasonCard.getByRole('button', { name: 'Deny', exact: true })).toBeVisible()
   // A completed tool is one scannable row: kind, relative target, diff counts, duration and state, with its diff folded away.
   const editRow = page.locator('.tool').filter({ hasText: 'notes.txt' })
   await expect(editRow).toContainText('Edit')

@@ -77,7 +77,7 @@
         {:else if readFailed}<p class="note bad">Couldn't read the changed files just now.</p>
         {:else}<p class="note">Checking…</p>{/if}
         <div class="foot">
-          <button type="button" class="refresh" aria-label="Refresh changed files" disabled={reading} onclick={() => void readChanges()}>{reading ? 'Checking…' : 'Refresh'}</button>
+          <button type="button" class="refresh" aria-label="Refresh changed files" disabled={reading} onclick={() => void readChanges()} aria-busy={reading}>{reading ? 'Checking…' : 'Refresh'}</button>
         </div>
       </div>
     {/if}
@@ -140,4 +140,3 @@
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   @media (pointer: coarse) { .refresh, .manage { min-height: 44px; display: inline-flex; align-items: center; } .refresh { padding: 0 14px; } }
 </style>
- aria-busy={reading}

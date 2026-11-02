@@ -31,6 +31,22 @@ try {
   expect(pausedAnimation).toBe('paused')
   await panel.getByRole('button', { name: 'Resume Gaffer animation and quotes' }).click()
 
+  // Reconnection replays the same prompt after a transient empty reset; that is not a new turn or a new timer.
+  await page.evaluate(() => window.__gaffer.disconnect())
+  await expect(panel).toHaveAttribute('data-phase', 'reconnecting')
+  await page.clock.fastForward(5_000)
+  const elapsedSeconds = text => { const minutes = /^(\d+)m/.exec(text); const seconds = /(\d+)s/.exec(text); return Number(minutes?.[1] ?? 0) * 60 + Number(seconds?.[1] ?? 0) }
+  const beforeReplay = elapsedSeconds(await panel.locator('.elapsed').textContent())
+  await page.evaluate(() => {
+    window.__gaffer.reconnect()
+    window.__gaffer.reset()
+    window.__gaffer.emit({ seq: 1, kind: 'user', text: 'The same prompt replayed' })
+    window.__gaffer.emit({ seq: 2, kind: 'status', state: 'working' })
+    window.__gaffer.emit({ seq: 3, kind: 'tool', toolCallId: 'replayed', toolKind: 'edit', status: 'in_progress', path: '/home/dev/reet.sh/web/src/app.css' })
+  })
+  await expect(panel).toHaveAttribute('data-phase', 'editing')
+  expect(elapsedSeconds(await panel.locator('.elapsed').textContent())).toBeGreaterThanOrEqual(beforeReplay)
+
   for (const [name, phase] of [['Thinking', 'planning'], ['Reading', 'reading'], ['Searching', 'searching'], ['Running', 'running'], ['Approval', 'approval'], ['Question', 'question'], ['Reconnecting', 'reconnecting'], ['Error', 'error'], ['Finished', 'idle']]) {
     await page.getByRole('button', { name, exact: true }).click()
     await expect(panel).toHaveAttribute('data-phase', phase)

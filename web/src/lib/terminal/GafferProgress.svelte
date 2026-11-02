@@ -16,8 +16,10 @@
 
   $effect(() => {
     const phase = view.phase, turn = view.turnKey, visible = view.visible, isPaused = paused
+    const confirmed = replayed && chat.connection === 'open'
     untrack(() => {
-      if (turn !== observedTurn) { observedTurn = turn; observedAt = 0; seconds = 0; details = false }
+      // A stream reset briefly removes the prompt while history replays. Only a confirmed new prompt starts a new timer.
+      if (confirmed && turn !== 'unavailable' && turn !== observedTurn) { observedTurn = turn; observedAt = 0; seconds = 0; details = false }
       if (phase !== lastPhase && !isPaused) { quote = gafferQuote(phase, quote); lastPhase = phase; quoteAt = Date.now() }
       if (visible && view.active && !observedAt) observedAt = Date.now()
     })

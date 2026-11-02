@@ -93,19 +93,28 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 	if req.View == "github" {
 		return inspectGitHub(ctx, dir, git, r)
 	}
+	// Status and numstat both detect renames, regardless of checkout preferences.
+	// Listing individual untracked files keeps new directories selectable in Changes.
+	out, err := git("status", "--porcelain=v1", "-z", "--renames", "--untracked-files=all", "--ignore-submodules=all")
+	if err != nil {
+		r.Reason = "git_failed"
+		return r
+	}
+	renameSources := inspectRenameSources(out)
 	if req.View == "diff" {
-		out, err := git("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--ignore-submodules=all", "HEAD", "--", req.Path)
+		args := []string{"diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--ignore-submodules=all", "HEAD", "--", req.Path}
+		// Restricting a rename to its destination makes Git present a new file. Include
+		// its recorded source too, so the preview has the same baseline as the counts.
+		if source := renameSources[req.Path]; source != "" {
+			args = append(args, source)
+		}
+		out, err := git(args...)
 		if err != nil {
 			r.Reason = "git_failed"
 			return r
 		}
 		r.Text, r.More = inspectText(out, 6500)
 		fitInspect(&r)
-		return r
-	}
-	out, err := git("status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignore-submodules=all")
-	if err != nil {
-		r.Reason = "git_failed"
 		return r
 	}
 	r.More = len(out) >= 128<<10
@@ -159,18 +168,30 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 	})
 	// Numstat against HEAD includes staged and unstaged changes together. An unborn HEAD
 	// still has the status listing; it has no baseline for line counts.
-	stats, statsErr := git("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--numstat", "-z", "--ignore-submodules=all", "HEAD", "--")
+	stats, statsErr := git("diff", "--no-ext-diff", "--no-textconv", "--find-renames", "--numstat", "-z", "--ignore-submodules=all", "HEAD", "--")
 	counts := map[string]terminalproto.InspectFile{}
 	r.CountsKnown = statsErr == nil && len(stats) < 128<<10
 	if r.CountsKnown {
-		for _, line := range strings.Split(string(stats), "\x00") {
-			p := strings.SplitN(line, "\t", 3)
+		records := strings.Split(string(stats), "\x00")
+		for i := 0; i < len(records); i++ {
+			p := strings.SplitN(records[i], "\t", 3)
 			if len(p) != 3 {
 				continue
 			}
+			name := p[2]
+			// Rename numstat records have an empty path followed by old and new
+			// NUL-terminated names. Attribute the edit counts to the destination.
+			if name == "" {
+				if i+2 >= len(records)-1 {
+					r.CountsKnown = false
+					break
+				}
+				name = records[i+2]
+				i += 2
+			}
 			a, _ := strconv.Atoi(p[0])
 			d, _ := strconv.Atoi(p[1])
-			counts[p[2]] = terminalproto.InspectFile{Added: a, Removed: d, Binary: p[0] == "-"}
+			counts[name] = terminalproto.InspectFile{Added: a, Removed: d, Binary: p[0] == "-"}
 		}
 	}
 	for i := range r.Files {
@@ -178,6 +199,13 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 			r.Files[i].Added = n.Added
 			r.Files[i].Removed = n.Removed
 			r.Files[i].Binary = n.Binary
+			// A rename edited beyond Git's similarity threshold appears as a deletion
+			// and addition in the HEAD diff; retain both sides in its displayed totals.
+			if old, exists := counts[renameSources[r.Files[i].Path]]; exists {
+				r.Files[i].Added += old.Added
+				r.Files[i].Removed += old.Removed
+				r.Files[i].Binary = r.Files[i].Binary || old.Binary
+			}
 		}
 	}
 	upstream, err := git("rev-list", "--left-right", "--count", "HEAD...@{upstream}")
@@ -518,3 +546,20 @@ func inspectPromisor(meta string) bool {
 }
 
 func inspectConflict(s string) bool { return strings.Contains(s, "U") || s == "AA" || s == "DD" }
+
+// Porcelain v1 -z emits a rename's destination followed by its original path.
+func inspectRenameSources(data []byte) map[string]string {
+	sources := make(map[string]string)
+	records := strings.Split(string(data), "\x00")
+	for i := 0; i < len(records)-1; i++ {
+		line := records[i]
+		if len(line) < 4 || !strings.ContainsAny(line[:2], "RC") {
+			continue
+		}
+		if i+1 < len(records)-1 && terminalproto.ValidInspectPath(line[3:]) && terminalproto.ValidInspectPath(records[i+1]) {
+			sources[line[3:]] = records[i+1]
+		}
+		i++
+	}
+	return sources
+}

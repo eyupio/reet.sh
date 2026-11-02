@@ -166,3 +166,70 @@ func TestInspectGitHubRemoteAndPriority(t *testing.T) {
 		t.Fatalf("github %+v", r)
 	}
 }
+
+func TestInspectListsFilesInsideUntrackedDirectories(t *testing.T) {
+	home, repo := inspectRepo(t)
+	path := filepath.Join(repo, "newdir", "nested")
+	if err := os.MkdirAll(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "new.txt"), []byte("new content\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r := InspectSession(t.Context(), home, terminalproto.Inspect{Dir: repo, View: "status"})
+	assertInspect(t, r)
+	if r.Reason != "" || r.Changed != 1 || len(r.Files) != 1 || r.Files[0].Path != "newdir/nested/new.txt" || r.Files[0].Status != "??" {
+		t.Fatalf("untracked files missing: %+v", r)
+	}
+	preview := InspectSession(t.Context(), home, terminalproto.Inspect{Dir: repo, View: "file", Path: r.Files[0].Path})
+	if preview.Reason != "" || preview.Text != "new content\n" {
+		t.Fatalf("untracked preview: %+v", preview)
+	}
+}
+
+func TestInspectRenameCountsAndPreviewUseTheSameBaseline(t *testing.T) {
+	for _, modified := range []bool{false, true} {
+		name := "pure"
+		if modified {
+			name = "edited"
+		}
+		t.Run(name, func(t *testing.T) {
+			home, repo := inspectRepo(t)
+			original := strings.Repeat("unchanged line\n", 20) + "old tail\n"
+			if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte(original), 0600); err != nil {
+				t.Fatal(err)
+			}
+			inspectGit(t, repo, "commit", "-am", "long fixture")
+			// Inspection must remain consistent even when the checkout disables rename detection.
+			inspectGit(t, repo, "config", "status.renames", "false")
+			inspectGit(t, repo, "config", "diff.renames", "false")
+			inspectGit(t, repo, "mv", "file.txt", "renamed.txt")
+			if modified {
+				if err := os.WriteFile(filepath.Join(repo, "renamed.txt"), []byte(strings.Replace(original, "old tail", "new tail", 1)), 0600); err != nil {
+					t.Fatal(err)
+				}
+				inspectGit(t, repo, "add", "renamed.txt")
+			}
+			r := InspectSession(t.Context(), home, terminalproto.Inspect{Dir: repo, View: "status"})
+			assertInspect(t, r)
+			if r.Reason != "" || r.Changed != 1 || !r.CountsKnown || len(r.Files) != 1 || r.Files[0].Path != "renamed.txt" || !strings.Contains(r.Files[0].Status, "R") {
+				t.Fatalf("rename status: %+v", r)
+			}
+			want := 0
+			if modified {
+				want = 1
+			}
+			if r.Files[0].Added != want || r.Files[0].Removed != want {
+				t.Fatalf("rename counts: %+v", r.Files[0])
+			}
+			preview := InspectSession(t.Context(), home, terminalproto.Inspect{Dir: repo, View: "diff", Path: "renamed.txt"})
+			assertInspect(t, preview)
+			if preview.Reason != "" || !strings.Contains(preview.Text, "rename from file.txt") || !strings.Contains(preview.Text, "rename to renamed.txt") || strings.Contains(preview.Text, "new file mode") {
+				t.Fatalf("rename preview: %+v", preview)
+			}
+			if modified && (!strings.Contains(preview.Text, "-old tail") || !strings.Contains(preview.Text, "+new tail")) {
+				t.Fatalf("edited rename preview: %+v", preview)
+			}
+		})
+	}
+}

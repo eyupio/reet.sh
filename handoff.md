@@ -112,11 +112,11 @@ says "Authentication required", stop and ask the owner which way to go. No hardw
 5. **SC5 remainder:** descriptor-driven chat controls (the mode control is the second agent that needs them) and extending recovery.
 6. ~~Merge the Skills page fix~~ — done: #380 merged on 2 November and `phone-zoom` is green on main again.
 
-**Current independent recovery slice (2 November, draft [#396](https://github.com/eyupio/reet.sh/pull/396)):** the owner asked for more work while the login/device checks wait. Branch
+**Current independent recovery slice (2 November, ready for review [#396](https://github.com/eyupio/reet.sh/pull/396)):** the owner asked for more work while the login/device checks wait. Branch
 `fix/recover-pending-chat-approvals`, with main `0e6a3b2` merged without rewriting history, fixes retained approval/status snapshots being evicted again when reconnect recovery
 rebuilds a full detached outbox. History is replayed first, then current pending cards and status. Overflow prioritizes approval state over old output,
 and a failed replay send is requeued within the same limits. The new tests fail before
-the fix and pass under the race detector. See the SC5 recovery progress note in the plan for scope and evidence. [#391](https://github.com/eyupio/reet.sh/pull/391)
+the fix and pass under the race detector. Full implementation CI passed on `ef2a418`; Linux native services passed its single allowed retry. #396 is ready for review and unmerged. Its automatic Codex review failed because the account’s review quota is exhausted; no submitted review or inline finding thread was produced, so the bot-review gate remains outstanding. See the SC5 recovery progress note in the plan for scope and evidence. [#391](https://github.com/eyupio/reet.sh/pull/391)
 and [#392](https://github.com/eyupio/reet.sh/pull/392) have merged. #392's bot review was blocked by account quota, and its terminal CI failure
 was reproduced on main and left outside its scope. Both experimental switches remain in place; signed-in Run B is still the next owner check.
 

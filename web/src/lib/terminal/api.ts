@@ -1,3 +1,4 @@
+import type { InsightView, SessionInsight } from '../sessionInsights'
 import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../projects'
 import type { MachineModels } from '../models'
 import type { SessionSkills } from './skills'
@@ -18,7 +19,7 @@ export type SoftwareBatchMemberState = 'pending' | 'running' | 'applied' | 'fail
 export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
 export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion }
-export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -479,4 +480,9 @@ export function structuredAgent(caps: Capabilities | undefined, tool: string | u
  // A machine that sent no descriptors predates every adapter but OpenCode.
  if (tool !== 'opencode') return null
  return { tool, adapter: 'opencode', state: 'available', history: caps.acpHistory === true, images: caps.acpImages === true, model: caps.acpModel === true, approval: caps.acpApproval === true }
+}
+
+export async function inspectSession(id: string, view: InsightView = 'status', path = '', signal?: AbortSignal): Promise<SessionInsight> {
+  const params = new URLSearchParams({ view }); if (path) params.set('path', path)
+  return (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/inspect?${params}`, { signal })).json()
 }

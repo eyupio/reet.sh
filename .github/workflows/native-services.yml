@@ -43,7 +43,8 @@ concurrency:
 jobs:
   tmux-minimum:
     name: tmux minimum (3.2)
-    runs-on: zoomies-linux-x64
+    # Keep PR validation available when the self-hosted pool is offline.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +61,7 @@ jobs:
             ubuntu:22.04 \
             bash -ec '
               apt-get update -qq
-              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux >/dev/null
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux git >/dev/null
               tmux -V
               tmux -V | grep -Eq "^tmux 3\.2"
               /terminalhost.test -test.timeout=3m

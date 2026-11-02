@@ -1,7 +1,8 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { groupLabel, installationStatus, type InstallationReport } from './machines'
-  import { recordInstallCopy, type Environment, type Event, type Flags, type ListRef, type Skill, type Tag } from './api'
+  import { recordInstallCopy, type Environment, type Event, type Flags, type ListRef, type Skill, type SyncState, type Tag } from './api'
+  import { skillSyncIntent, skillSyncSummary } from './skillSync'
   import CopyButton from './CopyButton.svelte'
   import { copyText } from './clipboard'
   import { eventLabel, eventTitle } from './events'
@@ -12,7 +13,7 @@
 
   let {
     skill, stage, tagOptions, selecting, selectedIDs, onselect, canWrite, compact = false, expanded = false, onexpand, installationReports = [],
-    onpatch, onrefresh, onlink, onremove, onfiltertag, onfilterenv, ontags, onhistory, onopenlist, oninstall, installing = '',
+    onpatch, onrefresh, onlink, onremove, onfiltertag, onfilterenv, ontags, onhistory, onopenlist, oninstall, installing = '', syncSnapshot = undefined,
   }: {
     skill: Skill
     stage: Stage
@@ -38,6 +39,8 @@
     oninstall?: (s: Skill, host: string) => void
     /** The install action already running, as `skillId:host`, so its button says Adding… */
     installing?: string
+    /** The saved sync selections, so the card can say where this skill is set to sync, apart from what scans observed. */
+    syncSnapshot?: SyncState
   } = $props()
 
   let editing = $state(false)
@@ -96,6 +99,9 @@
   const installedSomewhere = $derived(installations.some(report => report.status === 'installed'))
   const leadWithInstall = $derived(!!command && !installedSomewhere)
   const installationLabels = { installed: 'Installed', missing: 'Missing', unknown: 'Not confirmed' }
+  const syncIntent = $derived(skillSyncIntent(skill.id, syncSnapshot))
+  const syncIntentText = $derived(skillSyncSummary(syncIntent))
+  const syncIntentTone = $derived(syncIntent.pending.length ? 'pending' : syncIntent.set.length ? 'set' : 'none')
 
   $effect(() => {
     if (!descEl || descOpen) return
@@ -286,6 +292,13 @@
         <li><button type="button" class="environment-more" onclick={() => onexpand(true)} aria-label={`Show all ${installations.length} environments for ${skill.name}`}>+{installations.length - visibleInstallations.length} more</button></li>
       {/if}
     </ul>
+    {#if syncSnapshot}
+      <p class="sync-intent {syncIntentTone}" title={syncIntentTone === 'none' ? 'No saved sync selection on any machine includes this skill. Add now or Sync to machines… sets one.' : 'From your saved sync selections. Badges above say what each machine last reported.'}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.7L20 8M20 4v4h-4M20 12a8 8 0 0 1-13.7 5.7L4 16M4 20v-4h4" /></svg>
+        <span>{syncIntentText}</span>
+        {#if syncIntentTone === 'none' && canWrite}<a href={`/sync?skill=${encodeURIComponent(skill.id)}`} onclick={(event) => event.stopPropagation()}>Sync to machines…</a>{/if}
+      </p>
+    {/if}
   {/if}
   <div class="actions quick-actions" role="group" aria-label={`Quick actions for ${skill.name}`}>
     {#if canWrite}
@@ -533,6 +546,11 @@
   .installation-badges { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 10px 0 0; }
   .installation-badge { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); font-size: 0.75rem; }
   .installation-badge .host { overflow-wrap: anywhere; min-width: 0; }
+  .sync-intent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 0; color: var(--muted); font-size: 0.75rem; }
+  .sync-intent svg { width: 13px; height: 13px; flex: none; }
+  .sync-intent.set { color: var(--good); }
+  .sync-intent.pending { color: var(--warn); }
+  .sync-intent a { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
   .installation-badge strong { font-weight: 600; flex: none; }
   .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
   .installation-badge.installed { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); background: color-mix(in srgb, var(--good) 5%, var(--card)); }
@@ -651,10 +669,11 @@
   .compact .edit.link input { width: 100%; flex-basis: 100%; }
   @media (min-width: 900px) {
     .skill.collapsed:not(.compact) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 8px 20px; padding: 12px 16px; }
-    .collapsed:not(.compact) .row { grid-column: 1; grid-row: 1 / 4; }
+    .collapsed:not(.compact) .row { grid-column: 1; grid-row: 1 / 5; }
     .collapsed:not(.compact) .core-data { grid-column: 2; grid-row: 1; margin: 0; }
     .collapsed:not(.compact) .installation-badges { grid-column: 2; grid-row: 2; margin: 0; }
-    .collapsed:not(.compact) .quick-actions { grid-column: 2; grid-row: 3; margin: 0; }
+    .collapsed:not(.compact) .sync-intent { grid-column: 2; grid-row: 3; margin: 0; }
+    .collapsed:not(.compact) .quick-actions { grid-column: 2; grid-row: 4; margin: 0; }
   }
   @media (max-width: 560px) {
     .skill { padding: 18px 16px; }

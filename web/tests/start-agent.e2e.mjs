@@ -119,7 +119,11 @@ const parts=d=>({
  path:d.getByRole('textbox',{name:'Folder path',exact:true}),
  effort:d.getByRole('combobox',{name:'Thinking',exact:true}),
  prompt:d.getByRole('textbox',{name:/^Opening prompt/}),
- tool:name=>d.getByRole('radio',{name,exact:true}),
+ agent:d.getByRole('combobox',{name:'Agent',exact:true}),
+ agentWhy:d.locator('[id$="-tool-why"]'),
+ opt:name=>d.getByRole('combobox',{name:'Agent',exact:true}).locator('option').filter({hasText:new RegExp('^'+name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'( ·|$)')}),
+ pick:name=>d.getByRole('combobox',{name:'Agent',exact:true}).selectOption({label:name}),
+ chosen:name=>expect(d.getByRole('combobox',{name:'Agent',exact:true}).locator('option:checked')).toHaveText(new RegExp('^'+name+'( · unavailable)?$')),
  status:d.getByRole('status'),
  sentence:d.locator('.sentence'),
  count:d.locator('.count'),
@@ -149,7 +153,7 @@ const secrets=['fix the failing build please',LONG.slice(0,40),'opus-4.1','gpt-5
 const texts=async d=>{const t=await d.innerText();expect(t).not.toMatch(/verified|healthy/i);return t}
 // While a request is in flight or its outcome is unknown, nothing that would change the request can be touched.
 const locked=async p=>{
- for(const field of [p.machine,p.model,p.folder,p.prompt,p.tool('Claude Code'),p.tool('Codex'),p.tool('Gemini CLI')])await expect(field).toBeDisabled()
+ for(const field of [p.machine,p.model,p.folder,p.prompt,p.agent])await expect(field).toBeDisabled()
  for(const field of [p.effort,p.path])if(await field.count())await expect(field).toBeDisabled()
 }
 const openFromSidebar=async()=>{await sidebarEntry().click();const d=dialog();await expect(d).toBeVisible();return d}
@@ -163,15 +167,15 @@ try{
  await expect(p.machine).toBeFocused()
  await texts(d)
  // Agents: what the machine reports, the rest listed and disabled with the reason.
- await expect(p.tool('Claude Code')).toBeChecked()
- await expect(p.tool('Codex')).toBeEnabled()
- await expect(p.tool('Gemini CLI')).toBeEnabled()
- await expect(p.tool('Cline')).toBeEnabled()
- await expect(p.tool('OpenCode')).toBeDisabled()
- await expect(p.tool('OpenCode')).toHaveAccessibleDescription('Not installed on dev-laptop')
- await expect(p.tool('Claude Code')).toHaveAccessibleDescription('')
+ await p.chosen('Claude Code')
+ await expect(p.opt('Codex')).toBeEnabled()
+ await expect(p.opt('Gemini CLI')).toBeEnabled()
+ await expect(p.opt('Cline')).toBeEnabled()
+ await expect(p.opt('OpenCode')).toBeDisabled()
+ await expect(p.agentWhy).toContainText('OpenCode: Not installed on dev-laptop')
+ await expect(p.agentWhy).not.toContainText('Claude Code:')
  // The reason is text to read, not a disabled control: it is not faded (an axe scan found it below contrast when it was).
- expect(await d.getByText('Not installed on dev-laptop',{exact:true}).evaluate(el=>{let o=1;for(let n=el;n&&n.tagName!=='DIALOG';n=n.parentElement)o*=Number(getComputedStyle(n).opacity);return o})).toBe(1)
+ expect(await p.agentWhy.evaluate(el=>{let o=1;for(let n=el;n&&n.tagName!=='DIALOG';n=n.parentElement)o*=Number(getComputedStyle(n).opacity);return o})).toBe(1)
  // Machines: every machine listed; the one not ready cannot be chosen.
  await expect(p.machine.locator('option')).toHaveText(['dev-laptop','old-box','spare-box · not ready'])
  await expect(p.machine.locator(`option[value="${C}"]`)).toBeDisabled()
@@ -185,16 +189,16 @@ try{
  await page.keyboard.press('Escape')
  await expect(list).toBeHidden()
  await expect(p.model).toBeFocused()
- await p.tool('Codex').check()
+ await p.pick('Codex')
  list=await openModel(d)
  await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^gpt-5-codex/})).toBeVisible()
  await page.keyboard.press('Escape')
- await p.tool('Gemini CLI').check()
+ await p.pick('Gemini CLI')
  list=await openModel(d)
  await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^gemini-2.5-pro/})).toBeVisible()
  await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^gemini-2.5-flash/})).toBeVisible()
  await page.keyboard.press('Escape')
- await p.tool('Claude Code').check()
+ await p.pick('Claude Code')
  // Folders: home first, each reported project once, never a relative path or another machine's.
  await expect(p.folder.locator('option')).toHaveText(['Home folder',SITE,'Type a path…'])
  // The line that says what will happen, without and then with a prompt.
@@ -239,15 +243,15 @@ try{
  // One word could be read as a subcommand by claude and codex; gemini takes the prompt as a flag value, so one word is fine.
  await p.prompt.fill('purge')
  await expect(d.getByText('Write the opening prompt as at least two words.',{exact:true})).toBeVisible()
- await p.tool('Codex').check()
+ await p.pick('Codex')
  await expect(d.getByText('Write the opening prompt as at least two words.',{exact:true})).toBeVisible()
- await p.tool('Gemini CLI').check()
+ await p.pick('Gemini CLI')
  await expect(d.getByText('Write the opening prompt as at least two words.',{exact:true})).toHaveCount(0)
  await expect(p.prompt).not.toHaveAttribute('aria-invalid','true')
  // A different agent re-resolves the model (here no project/account default, so Agent default) and starts the folder afresh.
  await expect(p.model).toHaveAccessibleName('Model: Agent default')
  await expect(p.folder).toHaveValue('')
- await p.tool('Claude Code').check()
+ await p.pick('Claude Code')
  await expect(p.model).toHaveAccessibleName('Model: Agent default')
  await expect(p.folder).toHaveValue('')
 
@@ -305,6 +309,7 @@ try{
 
  // A plain new terminal is unchanged: none of the launch keys.
  await page.locator('#terminal-sessions').getByRole('button',{name:'New terminal on dev-laptop',exact:true}).first().click()
+ await page.getByRole('menuitem',{name:'Terminal',exact:true}).click()
  await expect.poll(()=>posts.length).toBe(2)
  const plain=body(1)
  expect(Object.keys(plain)).toEqual(['agentId','requestId','title','cols','rows'])
@@ -335,7 +340,7 @@ try{
 
  // ── A lost reply: plain words, Retry focused, the same request id and body; nothing changes while it is in flight. ──
  d=await openFromSidebar();p=parts(d)
- await p.tool('Codex').check()
+ await p.pick('Codex')
  await pickModel(d,'gpt-5-codex')
  await p.prompt.fill('tidy the readme')
  answers.push('drop')
@@ -352,7 +357,7 @@ try{
  await expect.poll(()=>machineReads).toBeGreaterThan(readsBefore)
  await settle()
  await expect(p.sentence).toHaveText(heldSentence)
- await expect(p.tool('Codex')).toBeChecked()
+ await p.chosen('Codex')
  await expect(p.model).toHaveAccessibleName('Model: gpt-5-codex')
  await expect(p.prompt).toHaveValue('tidy the readme')
  await locked(p)
@@ -391,7 +396,7 @@ try{
  await p.prompt.fill('look around here')
  const refusals=[
   {answer:{status:422,json:{error:"That folder isn't available on that machine.",code:'folder_unavailable',message:"That folder isn't available on that machine.",field:'dir'}},text:"That folder isn't available on that machine.",focus:p.path},
-  {answer:{status:422,json:{error:"That agent isn't installed on that machine.",code:'tool_not_installed',message:"That agent isn't installed on that machine.",field:'tool'}},text:"That agent isn't installed on that machine.",focus:p.tool('Claude Code')},
+  {answer:{status:422,json:{error:"That agent isn't installed on that machine.",code:'tool_not_installed',message:"That agent isn't installed on that machine.",field:'tool'}},text:"That agent isn't installed on that machine.",focus:p.agent},
   {answer:{status:422,json:{error:'Write the opening prompt as at least two words.',code:'prompt_unsupported',message:'Write the opening prompt as at least two words.',field:'prompt'}},text:'Write the opening prompt as at least two words.',focus:p.prompt},
   {answer:{status:409,json:{error:'Update reet on that machine to start agents.',code:'launch_unsupported',message:'Update reet on that machine to start agents.'}},text:'Update reet on that machine to start agents.',focus:p.machine},
   {answer:{status:409,json:{error:'terminal session limit reached'}},text:'The terminal session limit has been reached. End a session and try again.',focus:p.start},
@@ -441,9 +446,9 @@ try{
  await p.machine.selectOption(B)
  await expect(p.machine).toHaveAccessibleDescription('Update reet on this machine to start agents.')
  await expect(d.locator('p.reason')).toHaveText(['Update reet on this machine to start agents.'])
- for(const name of ['Claude Code','Codex','OpenCode','Gemini CLI','Cline']){await expect(p.tool(name)).toBeDisabled();await expect(p.tool(name)).toHaveAccessibleDescription('Update reet on that machine')}
- await expect(p.tool('Pi')).toBeDisabled()
- await expect(p.tool('Cursor Agent')).toBeDisabled()
+ for(const name of ['Claude Code','Codex','OpenCode','Gemini CLI','Cline']){await expect(p.opt(name)).toBeDisabled();await expect(p.agentWhy).toContainText(name+': Update reet on that machine')}
+ await expect(p.opt('Pi')).toBeDisabled()
+ await expect(p.opt('Cursor Agent')).toBeDisabled()
  await expect(p.start).toBeDisabled()
  await expect(p.sentence).toHaveCount(0)
  const before=posts.length
@@ -512,7 +517,7 @@ try{
  await cardEntry('dev-laptop').click()
  d=dialog();p=parts(d)
  await expect(p.machine).toHaveValue(A)
- await p.tool('Gemini CLI').check()
+ await p.pick('Gemini CLI')
  await p.start.click()
  await expect(page).toHaveURL(/\/sessions\?/)
  const simple=body(-1)
@@ -584,7 +589,7 @@ try{
  await projectEntry.click()
  d=dialog();p=parts(d)
  await expect(p.machine).toHaveValue(A)
- await expect(p.tool('Cline')).toBeChecked()
+ await p.chosen('Cline')
  await expect(p.folder).toHaveValue(PROJECT_DIR)
  await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
  await expect(p.effort).toHaveValue('high')
@@ -592,13 +597,13 @@ try{
  await expect(p.model).toHaveAccessibleName('Model: Agent default')
  await expect(p.effort).toHaveCount(0)
  await p.machine.selectOption(A)
- await expect(p.tool('Cline')).toBeChecked()
+ await p.chosen('Cline')
  await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
  await expect(p.effort).toHaveValue('high')
- await p.tool('Claude Code').check()
+ await p.pick('Claude Code')
  await expect(p.model).toHaveAccessibleName('Model: Agent default')
  await expect(p.effort).toHaveCount(0)
- await p.tool('Cline').check()
+ await p.pick('Cline')
  await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
  await expect(p.effort).toHaveValue('high')
  await p.folder.selectOption(PROJECT_DIR)
@@ -613,13 +618,13 @@ try{
  await page.goto(`${base}/machines`)
  await cardEntry('dev-laptop').click()
  d=dialog();p=parts(d)
- await expect(p.tool('Cline')).toBeChecked()
+ await p.chosen('Cline')
  await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
  await expect(p.effort).toHaveValue('medium')
  await p.close.click()
  await page.goto(`${base}/sessions?agent=${A}`)
  d=await openFromSidebar();p=parts(d)
- await expect(p.tool('Cline')).toBeChecked()
+ await p.chosen('Cline')
  await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
  await expect(p.effort).toHaveValue('medium')
  await page.keyboard.press('Escape')
@@ -630,7 +635,7 @@ try{
  await page.goto(`${base}/machines`)
  await cardEntry('dev-laptop').click()
  d=dialog();p=parts(d)
- await p.tool('Claude Code').check()
+ await p.pick('Claude Code')
  list=await openModel(d)
  await list.getByRole('button',{name:'Star anthropic/claude-sonnet-4-5 for Claude Code',exact:true}).click()
  await expect(list).toBeVisible()
@@ -736,7 +741,7 @@ try{
 
  // Open, as it first appears.
  d=await openAt(A);p=parts(d)
- await sweep('open default (OpenCode not installed)',[p.start,p.close,p.tool('OpenCode')])
+ await sweep('open default (OpenCode not installed)',[p.start,p.close,p.agent])
  // Long names, from the card: the select shows what fits and the whole value is in the option and in the sentence, which wraps.
  await page.keyboard.press('Escape')
  await page.goto(`${base}/machines`)
@@ -744,7 +749,7 @@ try{
  d=dialog();p=parts(d)
  await expect(p.machine).toHaveValue(LONG_ID)
  await expect(p.machine.locator('option:checked')).toHaveText(LONG_HOST)
- await expect(p.tool('Codex')).toHaveAccessibleDescription('Not installed on '+LONG_HOST)
+ await expect(p.agentWhy).toContainText('Codex: Not installed on '+LONG_HOST)
  await p.folder.selectOption(LONG_DIR)
  await expect(p.folder.locator('option:checked')).toHaveText(LONG_DIR)
  await expect(p.sentence).toHaveText(`Starts Claude Code in ${LONG_DIR} on ${LONG_HOST}. Nothing runs until you press Start.`)
@@ -818,7 +823,7 @@ try{
  await p.prompt.fill('look around here')
  for(const r of [
   {name:'folder refused',answer:{status:422,json:{error:'x',code:'folder_unavailable',message:'x'}},focus:p.folder},
-  {name:'agent not installed',answer:{status:422,json:{error:'x',code:'tool_not_installed',message:'x'}},focus:p.tool('Claude Code')},
+  {name:'agent not installed',answer:{status:422,json:{error:'x',code:'tool_not_installed',message:'x'}},focus:p.agent},
   {name:'one-word prompt refused',answer:{status:422,json:{error:'x',code:'prompt_unsupported',message:'x'}},focus:p.prompt},
   {name:'update reet',answer:{status:409,json:{error:'x',code:'launch_unsupported',message:'x'}},focus:p.machine},
   {name:'session limit',answer:{status:409,json:{error:'terminal session limit reached'}},focus:p.start},
@@ -947,13 +952,13 @@ try{
  tmachines[0].capabilities.yolo=true
  yoloAllowed=false
  d=await openAt(A);p=parts(d)
- await p.tool('Cline').check()
+ await p.pick('Cline')
  await expect(d.getByRole('radio',{name:'YOLO',exact:true})).toBeDisabled()
  await expect(d.getByText('An owner or admin can allow YOLO for this account in Settings.')).toBeVisible()
  await page.keyboard.press('Escape')
  yoloAllowed=true
  d=await openAt(A);p=parts(d)
- await p.tool('Cline').check()
+ await p.pick('Cline')
  const yolo=d.getByRole('radio',{name:'YOLO',exact:true}),askMe=d.getByRole('radio',{name:'Ask me',exact:true}),confirm=page.getByRole('alertdialog')
  await expect(yolo).toBeEnabled()
  await expect(askMe).toBeChecked()
@@ -968,14 +973,14 @@ try{
  await expect.poll(()=>posts.length).toBe(yoloPosts+1)
  expect(JSON.parse(posts.at(-1))).not.toHaveProperty('yolo')
  d=await openAt(A);p=parts(d)
- await p.tool('Cline').check()
+ await p.pick('Cline')
  await d.getByRole('radio',{name:'YOLO',exact:true}).click()
  await page.getByRole('alertdialog').getByRole('button',{name:'Start with YOLO'}).click()
  await expect(d.getByRole('radio',{name:'YOLO',exact:true})).toBeChecked()
  // Changing the machine or the agent drops the confirmation: it named them.
- await p.tool('Codex').check()
+ await p.pick('Codex')
  await expect(d.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
- await p.tool('Cline').check()
+ await p.pick('Cline')
  await d.getByRole('radio',{name:'YOLO',exact:true}).click()
  await page.getByRole('alertdialog').getByRole('button',{name:'Start with YOLO'}).click()
  yoloPosts=posts.length
@@ -985,7 +990,7 @@ try{
  // A machine that does not accept it says so and keeps Ask me.
  tmachines[0].capabilities.yolo=false
  d=await openAt(A);p=parts(d)
- await p.tool('Cline').check()
+ await p.pick('Cline')
  await expect(d.getByRole('radio',{name:'YOLO',exact:true})).toBeDisabled()
  await expect(d.getByText('dev-laptop doesn’t accept YOLO sessions.')).toBeVisible()
  await page.keyboard.press('Escape')

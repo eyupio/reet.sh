@@ -2,7 +2,10 @@
   import { gafferTooltip } from './gafferTooltip'
  import { onMount, tick, untrack } from 'svelte'
  import { shell } from './dialogShell'
- import { UnauthorizedError, addModelFavourite, getProfile, getYoloSetting, listModelFavourites, removeModelFavourite, setModelFavouriteDefault, type Machine, type YoloSetting } from './api'
+ import { UnauthorizedError, addModelFavourite, getProfile, getYoloSetting, listModelFavourites, removeModelFavourite, setModelFavouriteDefault, type Machine, type Skill, type YoloSetting } from './api'
+ import { installPrompt } from './install'
+ import { insertSkillPrompt } from './skillPrompt'
+ import SkillPromptPicker from './home/SkillPromptPicker.svelte'
  import { CATALOGUE } from './catalogue'
  import { defaultLabel, effortChoices, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
  import { createTerminal, getFolderProject, machineModels, readiness, refreshMachineModels, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
@@ -16,11 +19,13 @@
  // folder and a prompt; the machine decides the program and its flags. Nothing here is kept in browser storage or the URL, and
  // the prompt lives only in this component: it is cleared when the dialog closes.
  // opener is the element the person pressed to open this, which gets focus back on close.
- let { machines, snapshot, initialAgent = '', initialDir = '', projectId = '', opener = null, onstarted, onleavefailed, onaddmachine, onsignedout, onclose }: {
+ let { machines, snapshot, projects = [], initialAgent = '', initialDir = '', projectId = '', opener = null, onstarted, onleavefailed, onaddmachine, onsignedout, onclose }: {
   /** The machines from /api/v2/terminal/machines, with their readiness and launch capabilities. */
   machines: TerminalMachine[]
   /** The machines' reported folders (from the sync state), or undefined while they are unknown: the home folder and a typed path still work. */
   snapshot: Machine[] | undefined
+  /** The folder projects the person can start in: choosing one fills in its machine and folder. */
+  projects?: FolderProject[]
   /** The machine this was opened from, preselected when it is ready. */
   initialAgent?: string
   /** A folder to start in on that machine (a folder project's), filled in when that machine is the one preselected. */
@@ -46,6 +51,11 @@
  const OTHER = '\u0000other', TYPED = '\u0000typed'
  let dialog = $state<HTMLDialogElement>(), machineSelect = $state<HTMLSelectElement>(), modelButton = $state<HTMLButtonElement>()
  let startButton = $state<HTMLButtonElement>()
+ // svelte-ignore state_referenced_locally
+ let projectSel = $state(projectId)
+ const pickedProject = $derived(projects.find(p => p.id === projectSel))
+ const curAgent = $derived(pickedProject ? pickedProject.host : initialAgent)
+ const curDir = $derived(pickedProject ? pickedProject.dir : projectSel === projectId ? initialDir : '')
  // svelte-ignore state_referenced_locally
  const opening = preselect(machines, initialAgent)
  let agentId = $state(opening.agentId)
@@ -115,7 +125,7 @@
    modelChoice = next.model; effort = next.effort ?? ''; folderChoice = next.folder; modelOther = ''; typedDir = ''
    tool = defaults.agent
    // The project's folder is the start for its own machine, including after a machine or agent change.
-   const projectDir = agentId === initialAgent ? initialDir : ''
+   const projectDir = projectSel && agentId === curAgent ? curDir : ''
    if (projectDir) {
     const listed = folderChoices(machines.find(m => m.agentId === agentId), snapshot).some(f => f.path === projectDir)
     folderChoice = listed ? projectDir : TYPED
@@ -347,13 +357,45 @@
  }
  function openPicker() { if (locked || !chosenTool) return; pickerOpen = true }
  function pickModel(value: string) { explicitModel = true; modelChoice = value; modelOther = ''; edited() }
+ // Choosing a project moves to its machine and folder and borrows its defaults; "No project" leaves the machine as it is.
+ const projectReady = (item: FolderProject) => machines.some(m => m.agentId === item.host && m.ready)
+ function pickProject(next: string) {
+  if (locked) return
+  projectSel = next
+  const item = projects.find(p => p.id === next)
+  void loadProject(next)
+  if (!item) { folderChoice = ''; typedDir = ''; edited(); return }
+  if (!projectReady(item)) { projectSel = ''; void loadProject(''); return }
+  agentId = item.host
+  const listed = folderChoices(machines.find(m => m.agentId === item.host), snapshot).some(f => f.path === item.dir)
+  folderChoice = listed ? item.dir : TYPED
+  typedDir = listed ? '' : item.dir
+  edited()
+ }
+ let skillOpen = $state(false), skillButton = $state<HTMLButtonElement>(), promptInput = $state<HTMLTextAreaElement>()
+ function useSkill(skill: Skill) {
+  const text = installPrompt(skill)
+  if (!text) { failed = true; message = 'That skill has no source to run it from. Link one on the Skills page.'; invalidMessage = true; return }
+  const at = promptInput?.selectionStart ?? prompt.length, end = promptInput?.selectionEnd ?? at
+  const inserted = insertSkillPrompt(prompt, text, at, end)
+  prompt = inserted.text
+  edited()
+  void tick().then(() => { promptInput?.focus(); promptInput?.setSelectionRange(inserted.caret, inserted.caret) })
+ }
  function selectTool(next: string) { if (locked) return; explicitTool = next; tool = next; edited() }
 
  // The project is read once for its own defaults; a failure falls back to the account and favourites.
- async function loadProject() {
-  if (!projectId) return
-  try { projectData = await getFolderProject(projectId, life.signal) }
-  catch (e) {
+ let projectReadSeq = 0
+ async function loadProject(id: string) {
+  // The newest selection owns projectData: an earlier read that finishes late, or after "No project", is ignored.
+  const seq = ++projectReadSeq
+  projectData = null
+  if (!id) return
+  try {
+   const next = await getFolderProject(id, life.signal)
+   if (seq === projectReadSeq) projectData = next
+  } catch (e) {
+   if (seq !== projectReadSeq) return
    if (!life.signal.aborted && (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401)) onsignedout?.(new UnauthorizedError())
    else if (!life.signal.aborted) projectData = null
   }
@@ -391,7 +433,7 @@
  async function focusAfter(target: () => HTMLElement | null | undefined) { await tick(); if (!life.signal.aborted) (target() ?? startButton)?.focus() }
  function focusFor(where: string) {
   if (where === 'machine') return field('machine')
-  if (where === 'tool') return dialog?.querySelector<HTMLElement>(`input[name="${CSS.escape(`${id}-tool`)}"]:checked`)
+  if (where === 'tool') return field('tool')
   if (where === 'model') return modelButton
   if (where === 'folder') return folderChoice === TYPED ? field('dir') : field('folder')
   if (where === 'prompt') return field('prompt')
@@ -413,7 +455,7 @@
    if (dir) launch.dir = dir
    if (prompt) launch.prompt = prompt
    if (yoloChosen && !yoloWhy) launch.yolo = true
-   if (projectId && machine.agentId === initialAgent && dir === initialDir) launch.projectId = projectId
+   if (projectSel && machine.agentId === curAgent && dir === curDir) launch.projectId = projectSel
    operation = { agentId: machine.agentId, host: machine.host, requestId: crypto.randomUUID(), title: titleFor(chosenTool, dir), launch }
   }
   const op = operation
@@ -492,7 +534,7 @@
   void loadFavourites()
   void loadAccount()
   void loadYolo()
-  if (projectId) void loadProject()
+  if (projectId) void loadProject(projectId)
   return () => { stopLeaving(); life.abort(); prompt = ''; coarse.removeEventListener?.('change', readPointer) }
  })
 </script>
@@ -522,15 +564,27 @@
     {#if onaddmachine}<button type="button" class="linklike" onclick={addMachine}>Not listed? Add a machine</button>{/if}
    </div>
 
-   <fieldset class="tools">
-    <legend>Agent</legend>
-    {#each choices as choice (choice.id)}
-     <div class="tool" class:off={!choice.available}>
-      <input type="radio" id={`${id}-tool-${choice.id}`} name={`${id}-tool`} value={choice.id} checked={choice.id === chosenTool} disabled={!choice.available} onchange={() => selectTool(choice.id)} aria-describedby={choice.available ? undefined : `${id}-why-${choice.id}`} />
-      <span><label for={`${id}-tool-${choice.id}`}>{choice.name}</label>{#if !choice.available}<small id={`${id}-why-${choice.id}`} class:vh={!machine?.capabilities?.launch}>{choice.reason}</small>{/if}</span>
-     </div>
-    {/each}
-   </fieldset>
+   {#if projects.length}
+    <div class="field">
+     <label for={`${id}-project`}>Project <span class="optional">optional</span></label>
+     <select id={`${id}-project`} value={projectSel} onchange={(event) => pickProject((event.currentTarget as HTMLSelectElement).value)}>
+      <option value="">No project</option>
+      {#each projects as item (item.id)}<option value={item.id} disabled={item.id !== projectSel && !projectReady(item)}>{item.name}{item.machine ? ` · ${item.machine}` : ''}{projectReady(item) ? '' : ' · machine not ready'}</option>{/each}
+     </select>
+     <p class="hint">A project fills in its machine and folder, and the session is listed under it.</p>
+    </div>
+   {/if}
+
+   <div class="field">
+    <label for={`${id}-tool`}>Agent</label>
+    <select id={`${id}-tool`} value={chosenTool} disabled={!choices.some(c => c.available)} aria-describedby={choices.some(c => !c.available) ? `${id}-tool-why` : undefined} onchange={(event) => selectTool((event.currentTarget as HTMLSelectElement).value)}>
+     {#if !chosenTool}<option value="" disabled>No agent available</option>{/if}
+     {#each choices as choice (choice.id)}<option value={choice.id} disabled={!choice.available}>{choice.name}{choice.available ? '' : ' · unavailable'}</option>{/each}
+    </select>
+    {#if choices.some(c => !c.available)}
+     <p class="hint" id={`${id}-tool-why`}>{choices.filter(c => !c.available).map(c => `${c.name}: ${c.reason}`).join(' ')}</p>
+    {/if}
+   </div>
 
    {#if chosenTool === 'opencode' && machine && !chatCapable}
     <p class="hint">This machine does not currently offer Gaffer for OpenCode. This starts the OpenCode TUI instead.</p>
@@ -539,7 +593,6 @@
    {#if chatCapable}
     <div class="field chat-choice">
      <label for={`${id}-session`}>Session</label>
-     <button type="button" use:gafferTooltip aria-label="About Gaffer">About Gaffer</button>
      <select use:gafferTooltip={structured} id={`${id}-session`} value={structured ? 'reet' : 'terminal'} onchange={(event) => { structured = (event.currentTarget as HTMLSelectElement).value === 'reet'; sessionTouched = true; edited() }}>
       <option value="reet">Gaffer</option>
       <option value="terminal">{toolName(chosenTool)} TUI</option>
@@ -592,9 +645,10 @@
 
    <div class="field">
     <label for={`${id}-prompt`}>Opening prompt <span class="optional">optional</span></label>
-    <textarea id={`${id}-prompt`} bind:value={prompt} rows="3" disabled={!chosenTool} aria-invalid={promptError ? 'true' : undefined} aria-describedby={`${id}-prompt-count${promptError ? ` ${id}-prompt-error` : ''}`}></textarea>
+    <textarea id={`${id}-prompt`} bind:this={promptInput} bind:value={prompt} rows="3" disabled={!chosenTool} aria-invalid={promptError ? 'true' : undefined} aria-describedby={`${id}-prompt-count${promptError ? ` ${id}-prompt-error` : ''}`}></textarea>
     <p class="hint count" id={`${id}-prompt-count`} class:over={promptBytes > MAX_PROMPT_BYTES}>{promptBytes.toLocaleString('en-GB')} of {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes. Secrets don't belong here.</p>
     {#if promptError}<p class="reason" id={`${id}-prompt-error`}>{promptError}</p>{/if}
+    <button type="button" class="linklike skill-add" bind:this={skillButton} disabled={!chosenTool} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button>
    </div>
 
    <!-- Approvals: Ask me is the default. YOLO opens a confirmation first and is never remembered. -->
@@ -621,6 +675,9 @@
  {#if yoloOpen && machine}
   <YoloDialog gates={yoloGateList} tool={chosenTool} {structured} machine={machine.host} oncancel={cancelYolo} onstart={startYolo} />
  {/if}
+ {#if skillOpen}
+  <SkillPromptPicker opener={skillButton ?? null} sheet={touch} oninsert={useSkill} onclose={() => { skillOpen = false }} />
+ {/if}
  {#if pickerOpen}
   <SlotPicker label="Model" options={modelOptionsFor()} value={model} sheet={touch} opener={modelButton ?? null}
    filter="Filter models" status={modelStatusLine} statusAction={modelStatusAction}
@@ -644,7 +701,7 @@
  .body { display: grid; gap: 16px; padding: 22px; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; }
  fieldset { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 18px; }
  .field { display: grid; gap: 6px; min-width: 0; }
- label, legend { font-size: .85rem; font-weight: 600; }
+ label { font-size: .85rem; font-weight: 600; }
  label.sub { font-weight: 500; margin-top: 4px; }
  .optional { color: var(--muted); font-weight: 400; font-size: .78rem; }
  select, input:not([type=radio]), textarea { min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
@@ -662,16 +719,6 @@
  .approval-choices label.on { border-color: var(--accent); background: var(--tint); }
  .approval-choices label.off { opacity: .55; cursor: not-allowed; }
  .approval-choices label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
- .tools { gap: 6px; }
- .tools legend { margin-bottom: 6px; padding: 0; }
- .tool { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
- .tool:has(input:checked) { border-color: var(--accent); }
- .tool input { flex: none; margin: 3px 0 0; accent-color: var(--accent); }
- .tool span { display: grid; gap: 2px; min-width: 0; }
- .tool label { font-size: .88rem; font-weight: 600; cursor: pointer; }
- .tool small { color: var(--muted); font-size: .78rem; }
- /* Only the name is dimmed; the reason beside it is text to read and keeps its full contrast. */
- .tool.off label { cursor: default; color: var(--muted); font-weight: 500; }
  .hint, small { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
  .count.over { color: var(--bad); }
  .reason { margin: 0; color: var(--bad); font-size: .83rem; line-height: 1.5; }
@@ -682,6 +729,5 @@
  .linklike { justify-self: start; padding: 4px 0; min-height: 32px; font: inherit; font-size: .83rem; color: var(--accent-text); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
  /* Always in view below the scrolling fields, so Start is reachable on a short screen. */
  footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 22px 22px; border-top: 1px solid var(--line); background: var(--card); overflow-wrap: anywhere; }
- .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
  @media (max-width: 500px) { header { padding: 16px; } .body { padding: 16px; } footer { padding: 12px 16px 16px; } h2 { font-size: 1.35rem; } footer .btn { width: 100%; } }
 </style>

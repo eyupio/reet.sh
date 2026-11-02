@@ -3,7 +3,7 @@
   import { onMount } from 'svelte'
   import {
     backupDownloadUrl, createBackupRemote, deleteBackup, deleteBackupRemote, deleteBackupRemoteCopy, getBackupStatus,
-    listBackupRemoteCopies, pruneBackupCopies, runBackupNow, restoreUserBackup, saveBackupSettings, shipBackupCopies,
+    listBackupRemoteCopies, pruneBackupCopies, getPendingImport, stageImport, cancelPendingImport, type RestoreReport, runBackupNow, restoreUserBackup, saveBackupSettings, shipBackupCopies,
     testBackupRemote, testBackupRemoteDraft, updateBackupRemote, verifyBackup,
     type BackupCheck, type BackupCompression, type BackupDestination, type BackupItem, type BackupRemote,
     type BackupRemoteInput, type BackupStatus,
@@ -37,6 +37,56 @@
   let deleteFor = $state<BackupItem | null>(null)
   let deleteRemoteFor = $state<BackupRemote | null>(null)
   let restoreFor = $state<BackupItem | null>(null)
+  let pendingImport = $state<RestoreReport | null>(null)
+  let importFile = $state<File | null>(null)
+  let importPassword = $state('')
+  let importKeepTokens = $state(false)
+  let importAskPassword = $state(false)
+
+  function reportLines(r: RestoreReport): string[] {
+    const l = [`${r.users} account(s), ${r.skills} skill(s) on shelves, ${r.lists} list(s), ${r.tags} tag(s) and ${r.environments} environment(s) come across.`,
+      `${r.sessionsEnded} browser sign-in(s) end.`]
+    l.push(r.tokensKept
+      ? 'Personal API tokens and MCP connections are kept, so the old controller\'s tokens open this one.'
+      : `${r.tokensRevoked} personal API token(s) and ${r.mcpConnectionsRevoked} MCP connection(s) are revoked.`)
+    if (r.identityDropped) l.push('The private-connection identity is dropped; this controller makes its own.')
+    return l
+  }
+
+  async function stage() {
+    if (!importFile) return
+    busy = 'import'
+    error = ''
+    saved = ''
+    try {
+      pendingImport = await stageImport(importFile, { password: importPassword, keepTokens: importKeepTokens })
+      importFile = null
+      importPassword = ''
+      importAskPassword = false
+      saved = 'Staged. Restart reet to put it in place.'
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      if (message.toLowerCase().includes('password')) importAskPassword = true
+      error = message
+      onerror?.(e)
+    } finally {
+      busy = ''
+    }
+  }
+
+  async function discardImport() {
+    busy = 'import'
+    try {
+      await cancelPendingImport()
+      pendingImport = null
+      saved = 'The staged import was discarded.'
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+      onerror?.(e)
+    } finally {
+      busy = ''
+    }
+  }
   let remoteError = $state('')
   let remoteCheck = $state<BackupCheck | null>(null)
 
@@ -54,6 +104,7 @@
     loading = true
     try {
       status = await getBackupStatus(admin)
+      if (admin && role === 'owner') pendingImport = await getPendingImport().catch(() => null)
       const every = status.settings.everySeconds
       form = {
         every: everyText(every), keep: String(status.settings.keep), destination: status.settings.destination || 'both',
@@ -749,6 +800,41 @@
       {#if admin}
         <p class="muted">An instance restore replaces the live database, so it runs with the server stopped: <code>reet backup restore --yes &lt;id&gt;</code>.</p>
       {/if}
+      {#if admin && canEdit}
+        <div class="banner import" role="group" aria-labelledby="import-title">
+          <strong id="import-title">Import a copy from another controller</strong>
+          <p class="muted">Choose a sealed copy (<code>.reetbackup</code> or the downloaded <code>.zip</code>). It is opened and checked now; it replaces this controller's database only when reet next starts, and the current one is kept beside it.</p>
+          {#if pendingImport}
+            <p><strong>{pendingImport.id}</strong> is staged. Restart reet to put it in place.</p>
+            <ul>
+              {#each reportLines(pendingImport) as line}<li>{line}</li>{/each}
+            </ul>
+            {#if pendingImport.unreadable.length}
+              <p>Sealed under a different backup key, so they cannot be opened here and are entered again afterwards:</p>
+              <ul>{#each pendingImport.unreadable as u}<li>{u}</li>{/each}</ul>
+            {/if}
+            <div class="formacts"><button type="button" class="btn" onclick={discardImport} disabled={busy === 'import'}>Discard the staged import</button></div>
+          {:else}
+            <label>
+              <span>Copy</span>
+              <input type="file" accept=".reetbackup,.sealed,.zip" onchange={(e) => (importFile = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
+            </label>
+            {#if importAskPassword}
+              <label>
+                <span>Copy password</span>
+                <input type="password" autocomplete="off" bind:value={importPassword} />
+              </label>
+            {/if}
+            <label class="keep">
+              <input type="checkbox" bind:checked={importKeepTokens} />
+              Keep personal API tokens and MCP connections (only if the old controller is being retired)
+            </label>
+            <div class="formacts">
+              <button type="button" class="btn primary" onclick={stage} disabled={!importFile || busy === 'import'}>{busy === 'import' ? 'Checking…' : 'Check and stage'}</button>
+            </div>
+          {/if}
+        </div>
+      {/if}
       {#if restoreFor}
         <div class="banner" role="note">
           {#if admin}
@@ -889,6 +975,10 @@
   td.rowacts .btn { padding: 4px 8px; min-height: 32px; }
   .where { display: flex; flex-wrap: wrap; gap: 2px; }
   .offsite { font-family: var(--mono); font-size: 0.7rem; max-width: 22rem; overflow-wrap: anywhere; }
+  .banner.import { border-color: var(--line); }
+  .banner.import input[type='file'] { width: 100%; min-width: 0; max-width: 100%; }
+  .keep { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; }
+  .keep input { width: 18px; height: 18px; min-height: 0; flex: none; }
   .cmdline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
   .cmdline code { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); overflow-wrap: anywhere; }
   @media (max-width: 560px) {

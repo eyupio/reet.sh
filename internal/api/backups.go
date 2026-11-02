@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -660,13 +661,14 @@ func (s *server) adminImportStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	keep := r.URL.Query().Get("keepTokens") == "1"
-	rep, err := svc.StageImport(r.Context(), s.st.Dir(), raw, r.Header.Get("X-Copy-Password"), backup.RestoreOptions{KeepTokens: keep})
+	password, err := importPassword(r)
 	if err != nil {
-		code := 400
-		if errors.Is(err, backup.ErrPasswordRequired) {
-			code = http.StatusUnauthorized
-		}
-		writeErr(w, code, err.Error())
+		writeErr(w, 400, err.Error())
+		return
+	}
+	rep, err := svc.StageImport(r.Context(), s.st.Dir(), raw, password, backup.RestoreOptions{KeepTokens: keep})
+	if err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
 	s.event(s.uid(r), "backup", "backup-import-staged", "", map[string]any{"id": rep.ID, "keepTokens": keep})
@@ -684,4 +686,20 @@ func (s *server) adminImportCancel(w http.ResponseWriter, r *http.Request) {
 	}
 	s.event(s.uid(r), "backup", "backup-import-cancelled", "", nil)
 	writeJSON(w, 200, map[string]any{"pending": nil})
+}
+
+// importPassword reads the copy password. A header cannot carry every
+// password a person may have chosen (non-Latin characters are refused and
+// surrounding spaces are trimmed), so the page sends the UTF-8 bytes
+// base64-encoded in X-Copy-Password-B64. The plain X-Copy-Password stays for
+// scripts whose passwords are simple.
+func importPassword(r *http.Request) (string, error) {
+	if enc := r.Header.Get("X-Copy-Password-B64"); enc != "" {
+		raw, err := base64.StdEncoding.DecodeString(enc)
+		if err != nil {
+			return "", errors.New("X-Copy-Password-B64 is not valid base64")
+		}
+		return string(raw), nil
+	}
+	return r.Header.Get("X-Copy-Password"), nil
 }

@@ -903,6 +903,26 @@ export async function restoreUserBackup(id: string, password?: string): Promise<
   const body = password ? { password } : {}
   return (await req(`/api/v2/backups/items/${encodeURIComponent(id)}/restore`, { method: 'POST', body: json(body) })).json()
 }
+export type RestoreReport = {
+  id: string; release?: string; takenAt: number; schemaVersion: number
+  users: number; skills: number; lists: number; tags: number; environments: number
+  sessionsEnded: number; tokensRevoked: number; mcpConnectionsRevoked: number; tokensKept: boolean; identityDropped: boolean
+  unreadable: string[]
+}
+export async function getPendingImport(): Promise<RestoreReport | null> {
+  return ((await (await req('/api/v2/admin/backups/import')).json()) as { pending: RestoreReport | null }).pending
+}
+/** Stages a sealed instance copy; it replaces the database at the controller's next start, not now. */
+export async function stageImport(file: File, opts: { password?: string; keepTokens?: boolean }): Promise<RestoreReport> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' }
+  // A header cannot carry every password: non-Latin characters throw and surrounding spaces are trimmed. Send the UTF-8 bytes.
+  if (opts.password) headers['X-Copy-Password-B64'] = btoa(String.fromCharCode(...new TextEncoder().encode(opts.password)))
+  const res = await req(`/api/v2/admin/backups/import${opts.keepTokens ? '?keepTokens=1' : ''}`, { method: 'POST', headers, body: file })
+  return ((await res.json()) as { report: RestoreReport }).report
+}
+export async function cancelPendingImport(): Promise<void> {
+  await req('/api/v2/admin/backups/import', { method: 'DELETE' })
+}
 export function backupDownloadUrl(admin: boolean, id: string): string {
   return `${bpath(admin)}/items/${encodeURIComponent(id)}/download?format=zip`
 }

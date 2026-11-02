@@ -24,7 +24,7 @@ browser sessions and reset links end, personal tokens and MCP connections are re
 identity is dropped, stored secrets the controller's key cannot open are named, and a copy stamped with a newer `PRAGMA user_version`
 (`store.SchemaVersion`, stamped by `store.Open`) is refused. The owner can stage a copy on a running controller with
 `POST /api/v2/admin/backups/import` (also `GET`, `DELETE`); `backup.ApplyPendingImport` swaps it in at the start of `serve`.
-Left for later: an Admin → Backups page for the import (the endpoint exists; the UI does not), and bumping `store.SchemaVersion`
+The import has an Admin → Backups control (`Backups.svelte`). Left for later: bumping `store.SchemaVersion`
 when a release changes the schema incompatibly. See [docs/backups.md](docs/backups.md).
 
 ## Structured chats (SC1–SC5): resume here (2 November 2026)

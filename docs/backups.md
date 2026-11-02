@@ -264,8 +264,10 @@ against the restored controller once it answers at the address they use.
 ### Import into a running controller
 
 The server cannot swap the database it is serving, so an import is staged and
-applied at the next start. The owner sends a sealed copy (the `.reetbackup` or
-the downloaded `.zip`) to the running controller:
+applied at the next start. The owner does this under **Admin → Backups → Import
+a copy from another controller**: choose the copy, enter its password if it has
+one, and say whether personal tokens are kept. The page shows the report and a
+**Discard** button while it waits. The same thing over the API:
 
 ```sh
 curl -X POST --data-binary @copy.reetbackup \
@@ -276,7 +278,9 @@ curl -X POST --data-binary @copy.reetbackup \
 ```
 
 `X-Copy-Password` is only for a copy protected with a password, and
-`keepTokens=1` is optional (see above).
+`keepTokens=1` is optional (see above). A password with non-Latin characters or
+spaces at either end cannot travel in a plain header: send its UTF-8 bytes
+base64-encoded as `X-Copy-Password-B64` instead (the page does).
 
 The copy is opened, checked and adapted immediately, and the response is the
 same report a restore prints, so problems show before anything is replaced. The

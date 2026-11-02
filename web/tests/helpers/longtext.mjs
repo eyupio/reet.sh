@@ -141,6 +141,7 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (path === '/api/v2/settings/branch-prune') return json({ afterWorktree: true, changedBy: 'Owner', changedAt: now - DAY })
     if (path === '/api/v2/backups') return json(backupStatus(false))
     if (path === '/api/v2/admin/backups') return json(backupStatus(true))
+    if (path === '/api/v2/admin/backups/import') return json({ pending: null })
     if (path === '/api/admin/status') return json(adminStatus)
     if (path === '/api/admin/rollup') return json(rollup)
     if (path === '/api/v2/admin/users') return json({ users })

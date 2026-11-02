@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -152,33 +153,76 @@ func syncAgent(agent string) string {
 	return ""
 }
 
-func fetchTarget(server, token, id string) (store.SyncTarget, error) {
+func listTargets(server, token string) ([]store.SyncTarget, error) {
 	req, err := http.NewRequest("GET", strings.TrimRight(server, "/")+"/api/v2/sync", nil)
 	if err != nil {
-		return store.SyncTarget{}, err
+		return nil, err
 	}
 	if token != "" {
 		req.Header.Set("X-Reet-Token", token)
 	}
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
-		return store.SyncTarget{}, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return store.SyncTarget{}, fmt.Errorf("controller replied %s", resp.Status)
+		return nil, fmt.Errorf("controller replied %s", resp.Status)
 	}
 	var state struct {
 		Targets  []store.SyncTarget `json:"targets"`
 		CanWrite bool               `json:"canWrite"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&state); err != nil {
-		return store.SyncTarget{}, err
+		return nil, err
 	}
 	if !state.CanWrite {
-		return store.SyncTarget{}, errors.New("this account cannot apply sync targets")
+		return nil, errors.New("this account cannot apply sync targets")
 	}
-	for _, target := range state.Targets {
+	return state.Targets, nil
+}
+
+// TargetChoice is one saved sync target, labelled for a picker.
+type TargetChoice struct {
+	ID, Label string
+}
+
+// ListTargetChoices returns the account's saved targets, those on host first, so
+// a person can pick one instead of typing an ID.
+func ListTargetChoices(server, token, host string) ([]TargetChoice, error) {
+	targets, err := listTargets(server, token)
+	if err != nil {
+		return nil, err
+	}
+	var here, other []TargetChoice
+	for _, t := range targets {
+		label := t.Target.Name
+		if label == "" {
+			label = t.Target.ID
+		}
+		detail := []string{t.Target.Host}
+		if t.Target.Project != "" {
+			detail = append(detail, t.Target.Project)
+		}
+		if t.Mode != "" {
+			detail = append(detail, t.Mode)
+		}
+		choice := TargetChoice{ID: t.Target.ID, Label: label + " (" + strings.Join(detail, ", ") + ")"}
+		if host != "" && t.Target.Host == host {
+			here = append(here, choice)
+		} else {
+			other = append(other, choice)
+		}
+	}
+	return append(here, other...), nil
+}
+
+func fetchTarget(server, token, id string) (store.SyncTarget, error) {
+	targets, err := listTargets(server, token)
+	if err != nil {
+		return store.SyncTarget{}, err
+	}
+	for _, target := range targets {
 		if target.Target.ID == id || slices.Contains(target.TargetAliases, id) {
 			return target, nil
 		}
@@ -213,7 +257,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	token := fs.String("token", "", "personal token (env REET_TOKEN)")
 	tokenFile := fs.String("env-file", "", "read REET_TOKEN from an explicit env file")
 	targetID := fs.String("target", "", "target ID from Your account")
-	host := fs.String("env", os.Getenv("REET_ENV"), "local environment name (default hostname)")
+	host := fs.String("env", clientconfig.EnvName(), "local environment name (default hostname)")
 	apply := fs.Bool("apply", false, "preview, then ask before installing/removing skills")
 	config := fs.String("config", agentConfigPath(), "enrolled machine configuration")
 	if err := fs.Parse(args); err != nil {
@@ -253,16 +297,34 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 		*server = value
 	}
-	targetValue, inputErr := clientconfig.Require(*targetID, "--target (target ID from Account)", false, in, os.Stderr)
-	if inputErr != nil {
-		return inputErr
-	}
-	*targetID = targetValue
 	tokenValue, inputErr := clientconfig.ResolveToken(*token, *tokenFile, in, os.Stderr)
 	if inputErr != nil {
 		return inputErr
 	}
 	*token = tokenValue
+	if *targetID == "" && clientconfig.Interactive(in) {
+		// Offer the account's saved targets instead of asking for an ID by heart.
+		if choices, err := ListTargetChoices(*server, *token, *host); err == nil && len(choices) > 0 {
+			fmt.Fprintln(os.Stderr, "Saved targets:")
+			for i, c := range choices {
+				fmt.Fprintf(os.Stderr, "  %d. %s\n", i+1, c.Label)
+			}
+			answer, err := clientconfig.Ask(in, os.Stderr, "Pick a number, or paste a target ID", "1")
+			if err != nil {
+				return err
+			}
+			if n, convErr := strconv.Atoi(answer); convErr == nil && n >= 1 && n <= len(choices) {
+				*targetID = choices[n-1].ID
+			} else {
+				*targetID = answer
+			}
+		}
+	}
+	targetValue, inputErr := clientconfig.Require(*targetID, "--target (target ID from Account)", false, in, os.Stderr)
+	if inputErr != nil {
+		return inputErr
+	}
+	*targetID = targetValue
 	if *host == "" {
 		*host, _ = os.Hostname()
 	}

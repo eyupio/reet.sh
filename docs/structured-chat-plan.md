@@ -289,6 +289,36 @@ Decided by the owner for that login: the Codex profile sets `CODEX_HOME` to the 
 the same login they use in the terminal and the adapter can refresh it there. The alternatives (copying `auth.json` into a private folder each start, or passing the real `HOME`) were rejected: the copy goes stale when a token is refreshed in the chat,
 and the real `HOME` exposes everything the connector keeps from every other agent. It is built only after the signed-in run in `docs/device-checks.md` section 3 records how the adapter behaves with a real login.
 
+### SC4 progress: Codex login access (2 November 2026, draft)
+
+The owner approved implementing from source evidence with the real signed-in run kept as final verification, rather than a prerequisite to coding.
+The Codex profile routes `CODEX_HOME` to the connector's own setting, or to `.codex` under its original `HOME`. The adapter keeps the connector-owned
+replacement `HOME`; XDG home directories and other agents' credentials are not forwarded for Codex. The folder is used directly, so Codex can refresh
+its login there; reet neither copies credentials nor calls `authenticate`. An invalid or relative login path is refused before launch.
+
+A `session/new` error with code `-32000` and message "Authentication required" now reaches the browser as "Sign in to Codex on that machine first."
+Only Codex gets that mapping. `_auth/status_update` becomes a bounded notice in the existing chat stream: "Codex sign-in: {label}". Only the known
+status kind and public label are decoded; account/email and gateway detail are discarded, and labels containing an email or control characters are refused.
+There is no new private-protocol field or message. Other agents ignore this extension.
+
+The pinned adapter source confirms that `checkAuthorization` asks `account/read` with `refreshToken: false` and refuses only when authentication is
+required and no account was returned. Its status shapes are `account` (for example "ChatGPT Pro", with email separately under `account.email`),
+`api_key`, `none`, `gateway` and `external`. This is source evidence, not a successful real ChatGPT login run.
+
+Delivery record:
+- **Task / scope:** SC4 Codex login access, actionable start refusal and label-only notice.
+- **Branch / implementation / PR:** `fix/codex-login-access`, `d593b86`, [draft #391](https://github.com/eyupio/reet.sh/pull/391). Main `99828de` was merged with `b0389dd`; history was not rewritten.
+- **Compatibility:** existing notice and refusal messages, no protocol or database change; the login-folder route is set only on the Codex profile.
+- **Checks run:** the new tests failed before implementation; Codex and connector race regressions passed, as did the web checks (zero Svelte errors/warnings), production build, Codex browser fixture including notice replay, and `go vet ./...`. Final broader check and CI results are recorded in the PR.
+- **Existing container failures:** a detached `99828de` checkout reproduces `TestCloseKillsOrphanedGroupMembers` and `TestModelsOneAtATime`, `TestModelsFloorReturnsTheLastResult`, `TestModelsReplyShapeAndOperation`, `TestModelsLateRunAnswersTimedOut`; they are outside this slice.
+- **Not run / limitation:** real ChatGPT login, physical-device and screen-reader checks. Source inspection and fake children do not close those gates.
+- **Next unchecked task:** section 3 Run B in `docs/device-checks.md`, then its signed-out follow-up; read that section and this progress note first. If the signed-in start still fails, bring the decision to the owner.
+- **Publication:** draft PR only; no merge or deployment.
+
+Codex remains behind `REET_EXPERIMENTAL_CODEX_CHAT`; section 3 Run B in the device checks is still
+required before enabling it. If that run still returns "Authentication required", stop and ask the owner which way to go. Claude and typed-question
+checks, retiring either switch, generic controls and recovery remain separate work.
+
 ### Device and credential checks (1 November 2026)
 
 What cannot be closed in CI is written up in `docs/device-checks.md`: the touch and screen-reader checks for typed questions, run on a fixture page served to a real
@@ -336,6 +366,33 @@ cancel ignored by an agent, output before completion, active approvals during
 reconnect and native process failure. Preserve the bounded SSE/ring contract.
 Durable controller history and detached per-session workers need their own
 retention, lifecycle and recovery design; they are not implied by this stage.
+
+### SC5 progress: live model controls follow the descriptor (2 November 2026, draft)
+
+The owner asked to continue independent work while the login checks are pending. This is one bounded SC5 slice, based on main independently of
+Codex login PR #391. No login or device gate is bypassed and neither experimental switch is retired.
+
+**Problem:** Codex's available descriptor offers approvals and modes, but no verified live model switch. The chat nevertheless rendered the Model field,
+Change model and Make default, requested model options and favourites, and told people to choose another model after provider errors. The controller
+already refused unsupported switches; the browser was offering an action its descriptor did not support.
+
+**Behaviour:** `TerminalWorkspace` passes `structuredAgent(...).model` to `ChatPane`. Missing, false or unavailable support hides the model controls and
+skips their lookups. Explicit descriptors remain authoritative over global flags; older OpenCode peers use `acpModel`. The pane reacts when support
+appears or disappears without remounting. Removal clears options and aborts requests; stale replies are ignored. An unchanged capability refresh does
+not refetch. The current confirmed model and mode-switch acknowledgement rules remain as before. Error guidance names only actions the pane offers.
+
+Delivery record:
+- **Task / scope:** SC5 descriptor-driven live model controls; no effort or new mode support.
+- **Branch / implementation / PR:** `fix/descriptor-chat-model-control`, `5d0c82c`, [#392](https://github.com/eyupio/reet.sh/pull/392), opened as a draft.
+- **Compatibility:** browser only; existing descriptor/legacy flags and API routes, no new wire field, Go change, database migration or dependency.
+- **Checks:** the Codex browser regression failed before the fix because a Model textbox was present. Web checks passed with zero Svelte errors/warnings;
+  production build and Claude/OpenCode browser fixtures passed (OpenCode through both legacy flags and explicit descriptors). The Codex fixture covers
+  capability changes, a delayed response after revocation, unchanged refreshes, four provider-error cases, and light/dark at 1360 and 390 px. Final CI
+  and check results are recorded in the PR.
+- **Not performed:** physical-device, screen-reader or genuine-login checks; no new adapter capability is enabled.
+- **Next unchecked work:** owner login/device checks remain pending. SC5 still needs broader descriptor-driven mode/effort option contracts and process
+  recovery; read this note and the audit below before choosing that next bounded slice.
+- **Publication:** open as a draft, owner controls ready/merge; no merge or deployment claimed.
 
 ### SC5 audit (1 November 2026)
 

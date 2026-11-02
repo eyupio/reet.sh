@@ -24,6 +24,8 @@ var (
 	ErrModel = errors.New("the agent did not use the chosen model")
 	// ErrUnsupported means the catalogue tool has no ACP adapter here.
 	ErrUnsupported = errors.New("that agent does not support chats")
+	// ErrCodexLogin means session creation needs a login made outside reet.
+	ErrCodexLogin = errors.New("Sign in to Codex on that machine first.")
 	// ErrMode means the requested mode is not one this profile lets a person
 	// choose, or the agent did not confirm the switch.
 	ErrMode = errors.New("the agent did not switch to that mode")
@@ -88,6 +90,12 @@ type Spec struct {
 	// EnvAllowlist names additional inherited variables the adapter may
 	// read (provider credentials), on top of the infrastructure allowlist.
 	EnvAllowlist []string
+	// LoginHomeEnv routes only this agent's own configuration directory through
+	// the replaced HOME. LoginHomeDir is its default subdirectory of the real
+	// HOME; an explicit environment value takes precedence. Paths must be absolute.
+	// Profiles using this route do not inherit XDG home directories.
+	LoginHomeEnv string
+	LoginHomeDir string
 	// SessionMeta is sent as _meta on session/new and session/load. A profile
 	// uses it for adapter options that must be fixed by reet, never by the
 	// repository. Nil sends no _meta.

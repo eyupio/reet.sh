@@ -81,6 +81,10 @@ Only then decide whether the browser needs a "sign in to Claude on that machine"
 
 ## 3. Codex sign-in (needed before Codex chats can start)
 
+**Current order (2 November):** run signed-in **Run B first**. The owner approved building login access from source evidence, with this run as final
+verification before Codex is enabled. If `session/new` still says "Authentication required", stop and bring that result back before any Run A follow-up.
+The implementation and fake-child tests do not count as a real signed-in result.
+
 Codex chats stay behind `REET_EXPERIMENTAL_CODEX_CHAT` and cannot start until reet knows how the adapter behaves for a person who is already signed in to Codex (ChatGPT).
 `scripts/probe-codex-start.py` makes no model call and no network request. Install the pinned adapter and CLI once:
 

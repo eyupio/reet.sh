@@ -41,6 +41,21 @@ func SupportsACPAgentMode(features string) bool {
 	return false
 }
 
+// ACPAgentOptionsFeature lets a machine describe the other selectable options
+// it was measured to offer (for example effort and model-config values) in an
+// agent's descriptor. It is descriptive only; no switch is introduced by it.
+// A controller without it never receives the options field.
+const ACPAgentOptionsFeature = "acp-agent-options-v1"
+
+func SupportsACPAgentOptions(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ACPAgentOptionsFeature {
+			return true
+		}
+	}
+	return false
+}
+
 // ACPImageFeature lets a controller send images with a prompt. The machine
 // reads the uploaded files and embeds their bytes in the ACP prompt so the
 // agent sees the image itself rather than a file path.

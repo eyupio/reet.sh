@@ -2,6 +2,7 @@ package terminalproto
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -209,5 +210,101 @@ func TestACPAgentModesInDescriptors(t *testing.T) {
 	c.ACPAgents = &agents
 	if a, found := c.ChatAgent("opencode"); !found || len(a.Modes) != 2 {
 		t.Fatalf("descriptor lost its modes: %+v %v", a, found)
+	}
+}
+
+// A descriptor may describe the other selectable options it was measured to
+// offer. They are bounded, well formed, distinct, and never claimed without
+// acp-agent-options-v1 or for an agent that is not available.
+func TestACPAgentOptionsInDescriptors(t *testing.T) {
+	ok := chatCapabilities()
+	ok.ACPAgentOptions = true
+	(*ok.ACPAgents)[0].Options = []ACPAgentOption{
+		{ID: "effort", Category: AgentOptionThoughtLevel, Values: []string{"default", "low", "high"}},
+		{ID: "fast-mode", Category: AgentOptionModelConfig, Values: []string{"off", "on"}},
+	}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("valid options: %v", err)
+	}
+	cases := map[string]func(*Capabilities){
+		"flag missing": func(c *Capabilities) { c.ACPAgentOptions = false },
+		"no ACP":       func(c *Capabilities) { c.ACP = false; c.ACPHistory = false },
+		"too many options": func(c *Capabilities) {
+			options := make([]ACPAgentOption, MaxACPAgentOptions+1)
+			for i := range options {
+				options[i] = ACPAgentOption{ID: "option" + string(rune('a'+i)), Category: AgentOptionModelConfig, Values: []string{"off"}}
+			}
+			(*c.ACPAgents)[0].Options = options
+		},
+		"duplicate id":     func(c *Capabilities) { (*c.ACPAgents)[0].Options[1].ID = "effort" },
+		"missing id":       func(c *Capabilities) { (*c.ACPAgents)[0].Options[0].ID = "" },
+		"malformed id":     func(c *Capabilities) { (*c.ACPAgents)[0].Options[0].ID = "Reasoning Effort" },
+		"unknown category": func(c *Capabilities) { (*c.ACPAgents)[0].Options[0].Category = "mode" },
+		"no values":        func(c *Capabilities) { (*c.ACPAgents)[0].Options[0].Values = nil },
+		"too many values": func(c *Capabilities) {
+			values := make([]string, MaxACPAgentOptionValues+1)
+			for i := range values {
+				values[i] = "value" + string(rune('a'+i))
+			}
+			(*c.ACPAgents)[0].Options[0].Values = values
+		},
+		"duplicate value": func(c *Capabilities) { (*c.ACPAgents)[0].Options[0].Values = []string{"low", "low"} },
+		"malformed value": func(c *Capabilities) { (*c.ACPAgents)[0].Options[0].Values = []string{"High"} },
+		"empty value":     func(c *Capabilities) { (*c.ACPAgents)[0].Options[0].Values = []string{""} },
+		"missing agent":   func(c *Capabilities) { (*c.ACPAgents)[0].State = "missing" },
+		"incompatible":    func(c *Capabilities) { (*c.ACPAgents)[0].State = "incompatible" },
+		"unverified":      func(c *Capabilities) { (*c.ACPAgents)[0].State = "unverified" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := ok
+			agents := append([]ACPAgent(nil), *ok.ACPAgents...)
+			agents[0].Options = append([]ACPAgentOption(nil), agents[0].Options...)
+			agents[0].Options[0].Values = append([]string(nil), agents[0].Options[0].Values...)
+			agents[0].Options[1].Values = append([]string(nil), agents[0].Options[1].Values...)
+			c.ACPAgents = &agents
+			mutate(&c)
+			if c.Validate() == nil {
+				t.Fatal("accepted invalid options")
+			}
+		})
+	}
+	c := ok
+	agents := append([]ACPAgent(nil), *ok.ACPAgents...)
+	c.ACPAgents = &agents
+	if a, found := c.ChatAgent("opencode"); !found || len(a.Options) != 2 || len(a.Options[0].Values) != 3 {
+		t.Fatalf("descriptor lost its options: %+v %v", a, found)
+	}
+}
+
+func TestACPAgentOptionsMustHaveACP(t *testing.T) {
+	c := chatCapabilities()
+	c.ACPAgentOptions = true
+	c.ACP = false
+	c.ACPHistory = false
+	if c.Validate() == nil {
+		t.Fatal("options flag accepted without chat support")
+	}
+}
+
+func TestACPAgentOptionsRoundTrip(t *testing.T) {
+	c := chatCapabilities()
+	c.ACPAgentOptions = true
+	(*c.ACPAgents)[0].Options = []ACPAgentOption{{ID: "effort", Category: AgentOptionThoughtLevel, Values: []string{"low", "high"}}}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	h := Handshake{ProtocolVersion: Version, RequestID: "request-0123456789", AgentInstanceID: "instance-0123456789", Capabilities: c}
+	wire, err := EncodeHandshake(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeHandshake(wire)
+	if err != nil || got.Capabilities.ACPAgents == nil || !got.Capabilities.ACPAgentOptions {
+		t.Fatalf("round trip: %+v %v", got, err)
+	}
+	options := (*got.Capabilities.ACPAgents)[0].Options
+	if len(options) != 1 || options[0].ID != "effort" || options[0].Category != AgentOptionThoughtLevel || !slices.Equal(options[0].Values, []string{"low", "high"}) {
+		t.Fatalf("options: %+v", options)
 	}
 }

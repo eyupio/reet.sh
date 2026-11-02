@@ -193,6 +193,15 @@ func TestACPAgentModeFeature(t *testing.T) {
 	}
 }
 
+func TestACPAgentOptionsFeature(t *testing.T) {
+	if SupportsACPAgentOptions(ACPFeature) || SupportsACPAgentOptions("not-"+ACPAgentOptionsFeature) {
+		t.Fatal("agent options must be negotiated separately")
+	}
+	if !SupportsACPAgentOptions(ACPFeature + "," + ACPAgentOptionsFeature) {
+		t.Fatal("agent options feature missing")
+	}
+}
+
 func validSessionMode() SessionMode {
 	return SessionMode{To: SessionModeChat, Tool: "opencode", Dir: "/home/u/proj", ACPSessionID: "ses_abc12345"}
 }

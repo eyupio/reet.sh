@@ -1,0 +1,54 @@
+{
+  "capturedAt": "2026-11-02",
+  "platform": "linux x86-64",
+  "node": "v24.21.0",
+  "method": "initialize and session/new only; Codex used a synthetic api-key authenticate. No session/prompt, model call, real credential or network request. Session IDs omitted.",
+  "claude": {
+    "adapter": "@agentclientprotocol/claude-agent-acp",
+    "version": "0.99.1",
+    "configOptions": [
+      {
+        "id": "effort",
+        "category": "thought_level",
+        "type": "select",
+        "values": ["default", "low", "medium", "high", "xhigh", "max"]
+      },
+      {
+        "id": "fast",
+        "category": "model_config",
+        "type": "select",
+        "values": ["on", "off"]
+      },
+      {
+        "id": "ultracode",
+        "category": "model_config",
+        "type": "select",
+        "values": ["on", "off"]
+      }
+    ]
+  },
+  "codex": {
+    "adapter": "@agentclientprotocol/codex-acp",
+    "version": "1.13.1",
+    "configOptions": [
+      {
+        "id": "collaboration_mode",
+        "category": "collaboration_mode",
+        "type": "select",
+        "values": ["default", "plan"]
+      },
+      {
+        "id": "reasoning_effort",
+        "category": "thought_level",
+        "type": "select",
+        "values": ["low", "medium", "high", "xhigh", "max", "ultra"]
+      },
+      {
+        "id": "fast-mode",
+        "category": "model_config",
+        "type": "select",
+        "values": ["off", "on"]
+      }
+    ]
+  }
+}

@@ -120,8 +120,21 @@ the fix and pass under the race detector. Full implementation CI passed on `ef2a
 and [#392](https://github.com/eyupio/reet.sh/pull/392) have merged. #392's bot review was blocked by account quota, and its terminal CI failure
 was reproduced on main and left outside its scope. Both experimental switches remain in place; signed-in Run B is still the next owner check.
 
-**Current SC5 model-confirmation slice (2 November, draft [#406](https://github.com/eyupio/reet.sh/pull/406)):** branch `fix/confirm-chat-model-switch`, implementation `9054732`, based independently on main `7e390b2`.
-The owner explicitly asked to start this next slice while #402 remains open; #402 is left unmerged and its changes are not duplicated here.
+**Current SC5 slice (2 November, draft [#402](https://github.com/eyupio/reet.sh/pull/402)):** branch `fix/recover-pending-chat-questions`, based on main `9961b11` with main `d5a4e80` merged, restores complete typed-question cards
+already delivered before a transport disconnect. It extends the existing bounded replay and retains the original process, token, schema and deadline.
+Detached resolutions retire state; an older replacement peer gets no question frames and pending questions are cancelled. New questions without a live
+negotiated recipient are still cancelled. See the appended SC5 progress note for scope and the draft PR for validation/publication results.
+#401 merged as `d5a4e80` during this work; its documentation status corrections came in with main. The owner deferred Codex Run B for now:
+no real-login pass is recorded, neither experimental switch is retired, and form capability remains off. Native-session adoption after connector
+restart and broader descriptor contracts remain future work. The next owner check remains section 3 Run B, followed by the recorded order.
+
+**#402 CI follow-up:** the Linux native-service fixture now waits for its foreground agent's startup message before polling status.
+Status checks briefly acquire the same enrollment lock as startup; polling immediately could make the fixture exit before taking the lock.
+The fixture retains private output for startup-failure diagnostics. A local subprocess reproduction confirmed that holding the status lock
+rejects foreground startup, while waiting for readiness before checking status succeeds. The full native-service check requires CI's real service manager.
+
+**Current SC5 model-confirmation slice (2 November, draft [#406](https://github.com/eyupio/reet.sh/pull/406)):** branch `fix/confirm-chat-model-switch`, implementation `9054732`, based independently on main `7e390b2` with main `a78ffa6` merged.
+The owner explicitly asked to start this slice while #402 was open. The owner has since merged #402 as `a78ffa6`; that current main is merged here without rewriting history.
 Live model changes now distinguish OpenCode's legacy omitted-list acknowledgement from explicit options and Claude's required read-back.
 Incomplete or ambiguous replies clear model state and report an error/notice. The controller clears its stored model after an unconfirmed or lost
 reply; busy, missing-chat and pre-send failures retain it. Tests cover later confirmation without replacing the conversation. See the appended SC5

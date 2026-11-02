@@ -77,7 +77,7 @@ page's job (browsing versus administration), the page keeps its job.
 | 1 | Lists | `/shared` | Proving page. Collection panel, scope chips with counts, one ownership line, relative recency, skeleton/empty/error states, phone toolbar. Introduces the kit. | Done |
 | 2 | Community | `/community` | Same panel and row anatomy for community lists and skills; counts in the panel head; tabs become a segmented scope with counts. | Done |
 | 3 | Teams & organisations | `/spaces` | Same panel; groups become scannable rows with member and role figures; management folds inside the row; create becomes the page's primary action. | Done |
-| 4 | Setups | `/profiles` | Same panel for saved profiles; the empty state keeps its wizard copy. | Not started |
+| 4 | Setups | `/profiles` | Same panel for saved profiles, with a count, search and relative recency; the empty state keeps its wizard copy. | Done |
 
 ## Rulings made on the person's behalf
 

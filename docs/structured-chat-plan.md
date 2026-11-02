@@ -465,6 +465,34 @@ Delivery record:
   contracts remain future SC5 work. Pending typed-question recovery is outside this approval slice; the form capability remains off.
 - **Publication / review:** [#396](https://github.com/eyupio/reet.sh/pull/396) was opened as a draft and marked ready after implementation CI passed. The automatic Codex bot review failed because the account’s code-review quota is exhausted ([bot response](https://github.com/eyupio/reet.sh/pull/396#issuecomment-6583179410)); submitted reviews and inline threads were empty. The owner subsequently merged #396 as `35225eb`; the bot review did not complete before that merge. No deployment or real-login/device completion is claimed.
 
+
+### SC5 progress: delivered typed questions across transport reconnects (2 November 2026, draft)
+
+This bounded follow-up to #396 retains complete, already delivered typed-question cards on the surviving connector process. Reconnect replay
+places their original tokens and schemas after buffered history, once, alongside pending approvals and current status. Old output is evicted
+before pending cards; question IDs and serialized schemas count against the unchanged 1,000-event / 256 KiB queue limits. The native process
+still owns deadlines, single-use tokens and answer validation. No new/load, new token or new adapter behaviour is introduced.
+
+Question resolution and timeout callbacks now retire local state while detached or replaying. Waiting settles only when neither approvals nor
+questions remain. A replacement peer without `acp-question-v1` receives no question frames, including historical frames from exited chats;
+pending questions are cancelled through the original process. Questions first asked without a live negotiated recipient are still cancelled.
+
+Delivery record:
+- **Task / scope:** SC5 pending typed-question recovery over a replacement control connection; no connector-process restart adoption.
+- **Branch / PR:** `fix/recover-pending-chat-questions`, implementation `89fc305`, draft [#402](https://github.com/eyupio/reet.sh/pull/402). Based on main `9961b11`;
+  main `d5a4e80` (the independent documentation-only #401) merged without rewriting history.
+- **Compatibility:** existing negotiated events, tokens, generation and queue limits; no protocol field, dependency or database change.
+- **Checks:** final targeted question/approval recovery and negotiation tests pass under `-race`, including stalled/failed replay and a late old-link
+  failure requeueing a frame during older-peer replay. Regressions fail against main `9961b11`: missing cards even without a backlog, stale waiting
+  after a detached timeout, no cancellation for an older peer, omitted schema bytes, mixed-card waiting loss, and the late-frame decoder hazard.
+  Web tests/check/build, all 16 MCP tests, full Go vet and whitespace checks pass. Full race/CI and bot review results are recorded in #402.
+  The four known `TestModels*` failures and `TestCloseKillsOrphanedGroupMembers` were reproduced on current main in this container.
+- **Not performed:** genuine login, physical-device, screen-reader or real-provider checks. The owner deferred signed-in Codex Run B in this session;
+  it remains unverified, rather than recorded as a pass. Both experimental switches and the disabled form capability remain in place.
+- **Next unchecked work:** owner checks in `device-checks.md` section 3 Run B, then its signed-out follow-up, section 2 and section 1. Broader
+  descriptor contracts and native-session adoption after connector restart remain independent SC5 work.
+- **Publication:** #402 is open as a draft; Codex bot review requested. No merge or deployment authorized.
+
 ### SC5 progress: confirmed live model switches (2 November 2026, draft)
 
 This independent slice distinguishes an omitted `configOptions` reply from an explicit replacement that cannot establish the model.
@@ -481,8 +509,8 @@ approvals. Existing API errors provide feedback. No new wire field, message, neg
 Delivery record:
 - **Task / scope:** SC5 live model acknowledgement and unknown-state handling. Startup model confirmation, effort/mode option contracts and native-session
   adoption remain separate work.
-- **Branch / implementation / PR:** `fix/confirm-chat-model-switch`, `9054732`, [draft #406](https://github.com/eyupio/reet.sh/pull/406), independently based on main `7e390b2`. The owner explicitly authorized this slice while #402 remains open;
-  that PR's pending-question recovery and native-fixture change are not duplicated or merged here.
+- **Branch / implementation / PR:** `fix/confirm-chat-model-switch`, `9054732`, [draft #406](https://github.com/eyupio/reet.sh/pull/406), independently based on main `7e390b2`. The owner explicitly authorized this slice while #402 was open.
+  The owner later merged #402 as `a78ffa6`; current main is merged into this branch without rewriting history. Its changes are not duplicated in this PR.
 - **Checks:** new regressions failed before the fix for incomplete replies, strict-profile omitted replies, lost acknowledgements and stale stored models.
   A separate late internal-error regression failed before its fix too. Targeted core/controller race tests, web check/build and all 16 MCP tests pass;
   the API package also passes without race (73 s). A final full ACP package run passes under race with only the baseline orphan test excluded.

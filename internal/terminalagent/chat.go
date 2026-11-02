@@ -4,11 +4,11 @@ package terminalagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -65,8 +65,9 @@ type chatSession struct {
 	bellAt     int64
 	lastStatus *terminalproto.ACPEvent
 	pending    []terminalproto.ACPEvent
-	// questions are the ids of typed questions delivered and not yet resolved.
-	questions []string
+	// questions retains complete cards delivered and not yet resolved. The
+	// process still owns their tokens, deadlines and answer validation.
+	questions []terminalproto.ACPEvent
 
 	// outbox holds events produced while no control connection is attached,
 	// oldest first. It is bounded by the same event and byte ceilings as the
@@ -211,10 +212,23 @@ func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func
 		return &chatHost{sup: s, link: link}
 	}
 	s.link = link
+	type cancellation struct {
+		cs *chatSession
+		id string
+	}
+	var cancelled []cancellation
 	for _, cs := range s.sessions {
-		seedRecoveredChatEvents(cs)
+		if !link.questions {
+			for _, question := range cs.questions {
+				cancelled = append(cancelled, cancellation{cs, question.QuestionID})
+			}
+		}
+		seedRecoveredChatEvents(cs, link.questions)
 	}
 	s.mu.Unlock()
+	for _, question := range cancelled {
+		s.cancelQuestion(question.cs, question.id)
+	}
 
 	h := &chatHost{sup: s, link: link}
 	s.flush(h)
@@ -247,6 +261,12 @@ func (s *chatSupervisor) flush(h *chatHost) {
 		}
 		cs.outbox = cs.outbox[1:]
 		cs.outboxBytes -= chatEventBytes(event)
+		if isQuestionKind(event.Kind) && !h.link.questions {
+			// A send on the previous link can fail after attach filtered history
+			// and put its frame back. Check negotiation at replay delivery too.
+			s.mu.Unlock()
+			continue
+		}
 		s.mu.Unlock()
 
 		if !h.link.details {
@@ -812,20 +832,6 @@ func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 		}
 		return
 	}
-	if isQuestionKind(wire.Kind) {
-		s.mu.Lock()
-		link := s.link
-		usable := link != nil && link.live && link.questions
-		s.mu.Unlock()
-		if !usable {
-			// Nobody connected can answer, and an older controller would reject the
-			// event. A question is never buffered for later: cancel it now.
-			if wire.Kind == "question" {
-				s.cancelQuestion(cs, wire.QuestionID)
-			}
-			return
-		}
-	}
 	s.deliver(cs, wire)
 	s.mu.Lock()
 	yolo, process := cs.yolo, cs.process
@@ -864,9 +870,25 @@ func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 		s.mu.Unlock()
 		return
 	}
+	link := s.link
+	if wire.Kind == "question" && (link == nil || !link.live || !link.questions) {
+		// Only an already delivered question survives a disconnect. A newly
+		// asked question still needs a live, negotiated recipient.
+		s.mu.Unlock()
+		s.cancelQuestion(cs, wire.QuestionID)
+		return
+	}
 	previousStatus := cs.lastStatus
 	recordChatSessionEvent(cs, wire)
-	link := s.link
+	if isQuestionKind(wire.Kind) && link != nil && !link.questions {
+		// Retire local state even for an older peer, but never send fields its
+		// strict decoder cannot read. A settled status uses the old protocol.
+		if cs.lastStatus == nil || cs.lastStatus == previousStatus {
+			s.mu.Unlock()
+			return
+		}
+		wire = *cs.lastStatus
+	}
 	if link == nil || !link.live {
 		bufferChatEvent(cs, wire)
 		// A resolution can settle the retained waiting status without a native
@@ -911,17 +933,25 @@ func recordChatSessionEvent(cs *chatSession, wire terminalproto.ACPEvent) {
 			cs.bellAt = 0
 		}
 	case "question":
-		if wire.QuestionID != "" && !slices.Contains(cs.questions, wire.QuestionID) {
-			cs.questions = append(cs.questions, wire.QuestionID)
+		if wire.QuestionID != "" {
+			for i := range cs.questions {
+				if cs.questions[i].QuestionID == wire.QuestionID {
+					cs.questions[i] = wire
+					return
+				}
+			}
+			cs.questions = append(cs.questions, wire)
 		}
 	case "question_resolved", "question_cancelled":
 		out := cs.questions[:0]
-		for _, id := range cs.questions {
-			if id != wire.QuestionID {
-				out = append(out, id)
+		for _, question := range cs.questions {
+			if question.QuestionID != wire.QuestionID {
+				out = append(out, question)
 			}
 		}
+		clear(cs.questions[len(out):])
 		cs.questions = out
+		settleChatWaitingStatus(cs)
 	case "permission":
 		if wire.PermissionID != "" {
 			replaced := false
@@ -948,46 +978,63 @@ func recordChatSessionEvent(cs *chatSession, wire terminalproto.ACPEvent) {
 				}
 			}
 			cs.pending = out
-			if len(cs.pending) == 0 {
-				cs.bellAt = 0
-				if cs.lastStatus != nil && cs.lastStatus.State == "waiting" {
-					next := "idle"
-					if cs.busy || (cs.process != nil && cs.process.Working()) {
-						next = "working"
-					}
-					cs.lastStatus = &terminalproto.ACPEvent{Kind: "status", State: next}
-				}
-			}
+			settleChatWaitingStatus(cs)
 		}
 	case "agent", "tool", "user":
 		cs.activityAt = nowMs
 	}
 }
 
-// seedRecoveredChatEvents ends the replay with the current pending approvals
+func settleChatWaitingStatus(cs *chatSession) {
+	if len(cs.pending) != 0 || len(cs.questions) != 0 {
+		return
+	}
+	cs.bellAt = 0
+	if cs.lastStatus != nil && cs.lastStatus.State == "waiting" {
+		next := "idle"
+		if cs.busy || (cs.process != nil && cs.process.Working()) {
+			next = "working"
+		}
+		cs.lastStatus = &terminalproto.ACPEvent{Kind: "status", State: next}
+	}
+}
+
+// seedRecoveredChatEvents ends the replay with the current pending cards
 // and status. Putting them before a full backlog would evict them again as the
 // bounded outbox is rebuilt. An approval already buffered is moved to its
 // current snapshot rather than replayed twice; resolved approvals keep their
 // original history and are never recreated from the pending set.
-func seedRecoveredChatEvents(cs *chatSession) {
-	if cs.state != terminalproto.Running || cs.lastStatus == nil && len(cs.pending) == 0 {
-		return
-	}
+func seedRecoveredChatEvents(cs *chatSession, questions bool) {
 	pending := make(map[string]bool, len(cs.pending))
 	for _, approval := range cs.pending {
 		pending[approval.PermissionID] = true
+	}
+	pendingQuestions := make(map[string]bool, len(cs.questions))
+	for _, question := range cs.questions {
+		pendingQuestions[question.QuestionID] = true
 	}
 	saved := cs.outbox
 	cs.outbox = nil
 	cs.outboxBytes = 0
 	for _, event := range saved {
+		if isQuestionKind(event.Kind) && (!questions || event.Kind == "question" && pendingQuestions[event.QuestionID]) {
+			continue
+		}
 		if event.Kind == "permission" && pending[event.PermissionID] {
 			continue
 		}
 		bufferChatEvent(cs, event)
 	}
+	if cs.state != terminalproto.Running {
+		return
+	}
 	for _, approval := range cs.pending {
 		bufferChatEvent(cs, approval)
+	}
+	if questions {
+		for _, question := range cs.questions {
+			bufferChatEvent(cs, question)
+		}
 	}
 	if cs.lastStatus != nil {
 		bufferChatEvent(cs, *cs.lastStatus)
@@ -1019,7 +1066,7 @@ func trimChatOutbox(cs *chatSession) {
 	}
 }
 
-// Evict old history before pending approvals and the latest buffered status.
+// Evict old history before pending cards and the latest buffered status.
 // These records still need to survive if native output
 // continues while a replacement transport is blocked. The hard queue ceilings
 // also apply when the entire buffer consists of approval state.
@@ -1047,13 +1094,30 @@ func oldestChatHistoryEvent(cs *chatSession) int {
 				continue
 			}
 		}
+		if event.Kind == "question" {
+			pending := false
+			for _, question := range cs.questions {
+				if question.QuestionID == event.QuestionID {
+					pending = true
+					break
+				}
+			}
+			if pending {
+				continue
+			}
+		}
 		return i
 	}
 	return 0
 }
 
 func chatEventBytes(event terminalproto.ACPEvent) int {
-	return len(event.Kind) + len(event.MessageID) + len(event.ToolCallID) + len(event.PermissionID) +
+	questionBytes := 0
+	if event.Question != nil {
+		data, _ := json.Marshal(event.Question)
+		questionBytes = len(data)
+	}
+	return questionBytes + len(event.QuestionID) + len(event.Kind) + len(event.MessageID) + len(event.ToolCallID) + len(event.PermissionID) +
 		len(event.Title) + len(event.ToolKind) + len(event.Status) + len(event.State) + len(event.Text) +
 		len(event.Command) + len(event.Path) + len(event.Diff) + len(event.Reason) + len(event.Detail) +
 		len(strings.Join(event.Locations, "")) + 48 // the numeric detail fields and their JSON separators

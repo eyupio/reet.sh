@@ -802,32 +802,50 @@
 
     {/if}
     {#if section === 'settings'}
-    <section class="block" aria-labelledby="admin-settings">
-      <h2 id="admin-settings">Jobs and instance</h2>
       {#if isOwner}
-        <form onsubmit={save}>
-          <label class="check"><input type="checkbox" bind:checked={form.refreshEnabled} /> Six-hourly metadata refresh</label>
-          <label class="check"><input type="checkbox" bind:checked={form.topicsEnabled} /> Daily skills.sh topic seed</label>
-          <label class="check"><input type="checkbox" bind:checked={form.linkListsEnabled} /> Let list owners share read-only links</label>
-          <label class="check"><input type="checkbox" bind:checked={form.rollupIndividual} /> Show per-person usage in the team rollup</label>
-          <label class="field">
-            <span>Prune empty reet-server reports older than (days)</span>
-            <input type="number" min="0" max="3650" bind:value={form.pruneServerEnvironmentsDays} placeholder="0 = off" />
-          </label>
-          <label class="field">
-            <span>Instance name</span>
-            <input bind:value={form.instanceName} placeholder="Team shelf" autocomplete="off" />
-          </label>
-          <div class="save">
-            <button type="submit" class="btn primary" disabled={saving} aria-busy={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
-            {#if saved}<span class="saved" role="status">{saved}</span>{/if}
-          </div>
-        </form>
+        <CollectionPanel label="Instance settings" count="6 settings">
+          {#snippet actions()}
+            <button type="submit" form="admin-settings-form" class="btn primary" disabled={saving} aria-busy={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
+          {/snippet}
+          {#snippet toolbar()}
+            <p class="note">These apply to the whole instance. The owner and administrators can still choose their own notification and approval defaults.</p>
+          {/snippet}
+          <form id="admin-settings-form" class="instance-settings" onsubmit={save}>
+            <fieldset>
+              <legend>Background jobs</legend>
+              <label class="check"><input type="checkbox" bind:checked={form.refreshEnabled} /> Six-hourly metadata refresh</label>
+              <label class="check"><input type="checkbox" bind:checked={form.topicsEnabled} /> Daily skills.sh topic seed</label>
+              <label class="field">
+                <span>Prune empty reet-server reports older than (days)</span>
+                <input type="number" min="0" max="3650" bind:value={form.pruneServerEnvironmentsDays} placeholder="0 = off" />
+              </label>
+            </fieldset>
+            <fieldset>
+              <legend>Sharing and identity</legend>
+              <label class="check"><input type="checkbox" bind:checked={form.linkListsEnabled} /> Let list owners share read-only links</label>
+              <label class="check"><input type="checkbox" bind:checked={form.rollupIndividual} /> Show per-person usage in the team rollup</label>
+              <label class="field">
+                <span>Instance name</span>
+                <input bind:value={form.instanceName} placeholder="Team shelf" autocomplete="off" />
+              </label>
+            </fieldset>
+            {#if saved}<p class="saved" role="status">{saved}</p>{/if}
+          </form>
+        </CollectionPanel>
       {:else}
-        <p class="muted">Only the owner can change these settings. Refresh is {form.refreshEnabled ? 'on' : 'off'}; the topic seed is {form.topicsEnabled ? 'on' : 'off'}; link sharing is {form.linkListsEnabled ? 'on' : 'off'}; per-person rollup rows are {form.rollupIndividual ? 'on' : 'off'}; empty reet-server reports are pruned after {form.pruneServerEnvironmentsDays > 0 ? `${form.pruneServerEnvironmentsDays} days` : 'never'}.</p>
+        <section class="block" aria-labelledby="admin-settings">
+          <h2 id="admin-settings">Instance settings</h2>
+          <p class="muted">Only the owner can change these settings.</p>
+          <dl class="readonly-settings">
+            <div><dt>Six-hourly metadata refresh</dt><dd>{form.refreshEnabled ? 'On' : 'Off'}</dd></div>
+            <div><dt>Daily skills.sh topic seed</dt><dd>{form.topicsEnabled ? 'On' : 'Off'}</dd></div>
+            <div><dt>Read-only list links</dt><dd>{form.linkListsEnabled ? 'On' : 'Off'}</dd></div>
+            <div><dt>Per-person rollup rows</dt><dd>{form.rollupIndividual ? 'On' : 'Off'}</dd></div>
+            <div><dt>Empty reet-server reports</dt><dd>{form.pruneServerEnvironmentsDays > 0 ? `Pruned after ${form.pruneServerEnvironmentsDays} days` : 'Kept'}</dd></div>
+            <div><dt>Instance name</dt><dd>{form.instanceName || 'Not set'}</dd></div>
+          </dl>
+        </section>
       {/if}
-    </section>
-
     {/if}
     {#if section === 'activity'}
     <section class="block" aria-labelledby="admin-events">
@@ -846,6 +864,7 @@
       {/if}
     </section>
     {/if}
+    {#if section === 'settings'}
     {#if (role === 'owner' || role === 'admin') && yolo}
     <section class="block" aria-labelledby="admin-yolo">
       <h2 id="admin-yolo">Approvals</h2>
@@ -872,6 +891,7 @@
         <button class="btn" type="button" disabled={mirrorCaching || mirrorSaving} onclick={() => void cacheMirror()}>{mirrorCaching ? 'Caching…' : 'Cache the reviewed artifact now'}</button>
       {/if}
     </section>
+    {/if}
     {/if}
     {#if confirmAction}
       <ConfirmDialog
@@ -919,8 +939,16 @@
   .check input { min-height: 0; width: 18px; height: 18px; accent-color: var(--accent); }
   .field { display: grid; gap: 4px; font-size: 0.9rem; color: var(--muted); }
   .field input { width: 100%; }
-  .save { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .saved { color: var(--good); font-size: 0.85rem; }
+  .saved { color: var(--good); font-size: 0.85rem; margin: 0; }
+  .note { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+  .instance-settings { max-width: none; margin-top: 0; gap: 14px; }
+  .instance-settings fieldset { margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+  .instance-settings legend { padding: 0 5px; color: var(--muted); font-size: 0.78rem; font-weight: 600; }
+  .instance-settings .check { min-height: 32px; }
+  .instance-settings .field { max-width: 24rem; }
+  .readonly-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 24px; margin: 14px 0 0; }
+  .readonly-settings dt { color: var(--muted); font-size: 0.78rem; font-weight: 600; }
+  .readonly-settings dd { margin: 2px 0 0; overflow-wrap: anywhere; }
   .events { list-style: none; margin: 8px 0 0; padding: 0; }
   .events li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
   .events li span { min-width: 0; overflow-wrap: anywhere; }
@@ -962,7 +990,8 @@
   .state-block h2 { font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; margin: 0; }
   .state-block p { margin: 6px 0 12px; color: var(--muted); }
   @media (max-width: 650px) { .user-row { grid-template-columns: 1fr; } .user-tools { grid-column: 1; grid-row: auto; align-items: flex-start; } .user-search { flex-basis: 100%; } }
-  @media (pointer: coarse) { .scope, .user-search input { min-height: 44px; } }
+  @media (pointer: coarse) { .scope, .user-search input, .instance-settings .check { min-height: 44px; } }
+  @media (min-width: 900px) { .instance-settings { grid-template-columns: 1fr 1fr; align-items: start; } .instance-settings .saved { grid-column: 1 / -1; } }
   @media (prefers-reduced-motion: no-preference) { .scope, .user-row { transition: background-color 0.15s, border-color 0.15s, color 0.15s; } }
 
   .team-summary { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 12px; color: var(--muted); font-size: 0.84rem; }

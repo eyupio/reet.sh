@@ -2088,3 +2088,30 @@ Validation:
 **Not checked.** No physical phone or tablet and no screen reader. Download, restore,
 delete, destination editing and import were not exercised by a new browser matrix;
 their controls were left in place.
+
+## Admin settings under one panel — 2 November 2026
+
+Admin → Settings now has one **Instance settings** panel with a count of the six
+settings and **Save settings** in its head. The settings are grouped into **Background
+jobs** (metadata refresh, topic seed, empty reet-server report retention) and **Sharing
+and identity** (read-only list links, per-person rollup rows, instance name). Saving
+sends every value and reports **Sorted. Settings saved.** A non-owner sees the six
+values as labelled facts with no Save action. The **Approvals**, **Repository
+maintenance** and **Software artifact mirror** cards keep their immediate saves and now
+appear only on Settings, not at the bottom of every Admin section.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-settings.e2e.mjs`: panel count, both groups, the save payload, the
+  YOLO, branch-prune and mirror writes, caching the artifact, the three blocks being
+  absent from Activity, and phone layouts at 390 and 320 px with no horizontal
+  overflow.
+- `phone-zoom.e2e.mjs` (the admin settings screen) and `navigation.e2e.mjs` pass.
+
+![Admin settings, desktop](images/ui/admin-settings-desktop.png)
+![Admin settings, phone](images/ui/admin-settings-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The read-only
+non-owner view and a failed save were not exercised by a new browser matrix.

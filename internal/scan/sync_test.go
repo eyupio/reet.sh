@@ -223,6 +223,7 @@ func TestHelpNeverPrintsEnvironmentToken(t *testing.T) {
 func TestSyncCreatesMissingTargetDirectory(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	dir := filepath.Join(home, ".config", "opencode", "skills")
 	target := store.SyncTarget{Target: store.Environment{ID: "1/laptop/opencode", Name: "Laptop OpenCode", Host: "laptop", Agent: "opencode"}, SourceName: "Reference", Revision: "one", Desired: []store.SyncSkill{{ID: "owner/skills/improve", Name: "improve", Slug: "improve", Source: "owner/skills", SourceType: "github"}}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

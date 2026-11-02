@@ -700,3 +700,21 @@ func TestSetTerminalStructuredForOtherAccount(t *testing.T) {
 		t.Fatal("other account changed the row")
 	}
 }
+
+func TestStructuredChatMayBeRestoredFromLost(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	in := terminalproto.Create{Title: "Chat", Cols: 80, Rows: 24, Tool: "opencode", Structured: true, Dir: "/tmp"}
+	session, created, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in)
+	if err != nil || !created {
+		t.Fatal(err)
+	}
+	if err := s.ObserveTerminalStateFor(uid, a.ID, session.ID, c.Generation, terminalproto.Running, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ObserveTerminalStateFor(uid, a.ID, session.ID, c.Generation, terminalproto.Lost, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ObserveTerminalStateFor(uid, a.ID, session.ID, c.Generation, terminalproto.Running, nil); err != nil {
+		t.Fatal("structured chat was not restored", err)
+	}
+}

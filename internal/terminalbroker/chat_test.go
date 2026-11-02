@@ -558,3 +558,44 @@ func TestModelSwitchBeforeSendFailureKeepsStoredModel(t *testing.T) {
 		t.Fatalf("before-send failure: model=%q err=%v", got.Model, err)
 	}
 }
+
+func TestChatTranscriptSurvivesControllerRestart(t *testing.T) {
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	uid, err := st.DefaultOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const session = "session-0123456789"
+
+	b := New(st)
+	b.chatLog(uid, session).publish(terminalproto.ACPEvent{Kind: "user", Text: "hello"})
+	b.Close()
+
+	b2 := New(st)
+	t.Cleanup(b2.Close)
+	snapshot, truncated, _, cancel := b2.SubscribeChat(uid, session)
+	defer cancel()
+	if len(snapshot) != 1 || snapshot[0].Text != "hello" || snapshot[0].Seq != 1 || truncated {
+		t.Fatalf("restored transcript: %+v truncated=%v", snapshot, truncated)
+	}
+
+	b2.chatLog(uid, session).publish(terminalproto.ACPEvent{Kind: "agent", Text: "hi"})
+	snapshot, _, _, cancel2 := b2.SubscribeChat(uid, session)
+	defer cancel2()
+	if len(snapshot) != 2 || snapshot[1].Seq != 2 {
+		t.Fatalf("sequence after restart: %+v", snapshot)
+	}
+
+	b2.CloseChat(uid, session)
+	b3 := New(st)
+	t.Cleanup(b3.Close)
+	snapshot, _, _, cancel3 := b3.SubscribeChat(uid, session)
+	defer cancel3()
+	if len(snapshot) != 0 {
+		t.Fatalf("archived transcript: %+v", snapshot)
+	}
+}

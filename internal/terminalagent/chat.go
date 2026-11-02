@@ -43,6 +43,8 @@ type chatStarter func(context.Context, acpagent.Options) (chatProcess, error)
 type chatSession struct {
 	id, title string
 	tool      string
+	dir       string
+	model     string
 	acpID     string
 	state     terminalproto.SessionState
 	exit      *int
@@ -104,8 +106,11 @@ type chatSupervisor struct {
 	swapEpoch uint64
 	// holds counts the creates and ends in flight per session; a swap is
 	// refused while any runs, and they are refused while a swap runs.
-	holds  map[string]int
-	closed bool
+	holds map[string]int
+	// registry remembers live chats across connector restarts. It is nil when
+	// this connector has no private layout (tests and uninstalled callers).
+	registry *chatRegistry
+	closed   bool
 	// stop is closed when Close starts; background waits end on it.
 	stop  chan struct{}
 	wg    sync.WaitGroup
@@ -145,10 +150,16 @@ func newChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *c
 		sessions: map[string]*chatSession{}, requests: map[string]string{}, starting: map[string]string{},
 		swapping: map[string]string{}, holds: map[string]int{}, stop: make(chan struct{}),
 	}
+	if opts.Layout.Dir != "" {
+		s.registry = newChatRegistry(filepath.Join(opts.Layout.Dir, "structured-chats.json"))
+	}
 	go func() {
 		<-ctx.Done()
 		s.Close()
 	}()
+	if s.registry != nil {
+		go s.resumePersisted()
+	}
 	return s
 }
 
@@ -370,20 +381,12 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 	if err != nil {
 		return terminalproto.SessionChanged{}, err
 	}
-	spec, ok := acpagent.Lookup(in.Tool)
-	if !ok {
-		return terminalproto.SessionChanged{}, acpagent.ErrUnsupported
-	}
-	// A managed installation is preferred over PATH, the same as a terminal
-	// launch, so an install reviewed for this tool is the one a chat runs.
-	binary, err := h.sup.lookPath(spec.Command)
-	if managed, found, managedErr := agentsoftware.ManagedBinary(h.sup.opts.Home, in.Tool); managedErr != nil {
-		return terminalproto.SessionChanged{}, &acpagent.VersionError{Agent: spec.DisplayName, Required: spec.MinVersion, Reason: "reet's managed installation is broken"}
-	} else if found {
-		binary, err = managed, nil
-	}
+	h.sup.mu.Lock()
+	cs.dir, cs.model = dir, in.Model
+	h.sup.mu.Unlock()
+	spec, binary, err := h.sup.chatBinary(in.Tool)
 	if err != nil {
-		return terminalproto.SessionChanged{}, &acpagent.VersionError{Agent: spec.DisplayName, Required: spec.MinVersion, Reason: "the agent is not installed"}
+		return terminalproto.SessionChanged{}, err
 	}
 	// The start runs on the supervisor's process-lifetime context: a control
 	// connection lost during startup must not kill a chat the controller can
@@ -417,6 +420,7 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 	succeeded = true
 	h.sup.wg.Add(1)
 	h.sup.mu.Unlock()
+	h.sup.remember(cs)
 	// The create reply belongs to the connection that asked, which may already
 	// have been replaced while startup ran. Publish the running state to
 	// whichever link is attached now so a reconcile done during startup does
@@ -659,6 +663,7 @@ func (h *chatHost) mode(sessionID string, yolo bool) error {
 	cs.yolo = yolo
 	process := cs.process
 	h.sup.mu.Unlock()
+	h.sup.touchRecord(sessionID, yolo)
 	if yolo {
 		if allower, ok := process.(interface{ AllowAllPending() error }); ok {
 			_ = allower.AllowAllPending()
@@ -731,6 +736,7 @@ func (h *chatHost) end(sessionID string) (terminalproto.SessionChanged, error) {
 	// and reported missing.
 	h.sup.mu.Unlock()
 	cs.process.Close()
+	h.sup.forgetRecord(sessionID)
 	h.sup.ended(cs, 0)
 	return terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: reportedACP(cs.tool, cs.acpID, h.link.history)}, nil
 }
@@ -794,12 +800,14 @@ func idleLocked(cs *chatSession) bool {
 // the id is unique again. It is false for a chat that is still live.
 func (s *chatSupervisor) forget(sessionID string) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	cs := s.sessions[sessionID]
 	if cs == nil || cs.state.ReservesQuota() {
+		s.mu.Unlock()
 		return false
 	}
 	s.dropLocked(sessionID)
+	s.mu.Unlock()
+	s.forgetRecord(sessionID)
 	return true
 }
 
@@ -833,6 +841,9 @@ func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 		return
 	}
 	s.deliver(cs, wire)
+	if event.Kind == "user" && s.registry != nil {
+		s.registry.seen(cs.id)
+	}
 	s.mu.Lock()
 	yolo, process := cs.yolo, cs.process
 	s.mu.Unlock()

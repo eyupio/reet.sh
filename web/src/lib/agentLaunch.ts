@@ -108,7 +108,7 @@ export function folderChoices(machine: { host: string } | undefined, snapshot: M
 export function launchSentence(tool: string, dir: string, machine: string, hasPrompt: boolean, structured = false): string {
   if (structured) {
     const start = `Starts OpenCode in Gaffer in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start; OpenCode asks before it edits a file or runs a command.`
-    return hasPrompt ? `${start} The opening prompt is the first message. Its live history stays on the machine and in this server's memory.` : start
+    return hasPrompt ? `${start} The opening prompt is the first message. Its transcript is kept with the session.` : start
   }
   const start = `Starts ${nameOf(tool)} in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start.`
   return hasPrompt ? `${start} The prompt is kept with the session record and is visible to other users of that machine in its process list.` : start

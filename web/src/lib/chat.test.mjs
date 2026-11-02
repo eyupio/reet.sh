@@ -333,7 +333,7 @@ test('a closed chat says why it closed and what the person can do', () => {
   // An exited chat may have stopped on its own or been ended by the person; the wording must not blame either.
   assert.match(endedReason('exited', 'OpenCode'), /^This OpenCode chat has ended/)
   assert.doesNotMatch(endedReason('exited', 'OpenCode'), /You ended|OpenCode ended/)
-  // Every reason says the history is gone; none claims it can be continued.
+  // Every reason says what stays here; none claims the chat can be continued.
   for (const state of ['lost', 'ended', 'exited']) assert.doesNotMatch(endedReason(state, 'X'), /continue|resume|reopen/i)
   assert.notEqual(endedReason('lost', 'X'), endedReason('exited', 'X'))
 })

@@ -115,6 +115,11 @@ func (s *Store) migrateTerminalTables() error {
                 session_id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, agent_id TEXT NOT NULL,
                 archived_at INTEGER NOT NULL,
                 FOREIGN KEY(session_id,agent_id,user_id) REFERENCES terminal_sessions(id,agent_id,user_id) ON DELETE CASCADE)`,
+			`CREATE TABLE IF NOT EXISTS terminal_chat_events (
+				user_id INTEGER NOT NULL, session_id TEXT NOT NULL, seq INTEGER NOT NULL,
+				at INTEGER NOT NULL, event TEXT NOT NULL, bytes INTEGER NOT NULL,
+				PRIMARY KEY(user_id,session_id,seq))`,
+			`CREATE INDEX IF NOT EXISTS terminal_chat_events_transcript ON terminal_chat_events(user_id,session_id,seq)`,
 			`CREATE TABLE IF NOT EXISTS terminal_operations (
 				request_id TEXT NOT NULL, user_id INTEGER NOT NULL, agent_id TEXT NOT NULL, session_id TEXT NOT NULL,
 				kind TEXT NOT NULL CHECK(kind IN ('create','end')),
@@ -713,7 +718,15 @@ func (s *Store) ObserveTerminalStateFor(uid int64, agentID, sessionID string, ge
 		if t.State == terminalproto.EndRequested && observedRunning {
 			next = terminalproto.EndRequested
 		}
-		if !terminalproto.CanTransition(t.State, next) {
+		if t.State == terminalproto.Lost && next == terminalproto.Running {
+			// A structured chat can be reopened from the agent's own store
+			// after the machine's reet process restarted; the machine then
+			// reports it running under the same reet session id. A plain
+			// shell is never resurrected.
+			if !t.Structured {
+				return ErrTerminalConflict
+			}
+		} else if !terminalproto.CanTransition(t.State, next) {
 			return ErrTerminalConflict
 		}
 		if t.ExitCode != nil && (exitCode == nil || *t.ExitCode != *exitCode) {

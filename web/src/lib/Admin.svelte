@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import NavigationMenu from './NavigationMenu.svelte'
   import { groupLabel } from './machines'
@@ -448,7 +449,7 @@
   <NavigationMenu label="Admin" items={sections.map(s => ({ label: s.label, href: `/admin/${s.key}`, current: section === s.key }))} />
 
   {#if loading}
-    <p class="empty" role="status">Loading…</p>
+    <Skeleton label="Loading the administration page…" shape="cards" count={3} />
   {:else if !status}
     <p class="notice bad" role="alert">{error || 'Could not load the admin status.'}</p>
   {:else}
@@ -614,7 +615,7 @@
         <h2 id="admin-team" class="vh">Skill adoption</h2>
         {#if rollupError}<p class="error" role="alert">{rollupError}</p>{/if}
         {#if rollupLoading && !rollup}
-          <p class="muted">Loading rollup…</p>
+          <Skeleton label="Loading the rollup…" count={3} />
         {:else if rollup}
           <div class="rollup-summary">
             <span><strong>{rollup.teamSize}</strong> {rollup.teamSize === 1 ? 'person' : 'people'}</span>
@@ -786,7 +787,7 @@
             <input bind:value={form.instanceName} placeholder="Team shelf" autocomplete="off" />
           </label>
           <div class="save">
-            <button type="submit" class="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
+            <button type="submit" class="btn primary" disabled={saving} aria-busy={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
             {#if saved}<span class="saved" role="status">{saved}</span>{/if}
           </div>
         </form>
@@ -864,7 +865,6 @@
   .admin { padding-top: 4px; }
   h3, #admin-overview, #admin-backups { scroll-margin-top: 24px; }
   .block h2 { margin: 0 0 12px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }
-  .empty { text-align: center; color: var(--muted); font: italic 1.15rem/1.5 var(--serif); padding: 40px 0; }
   .notice { margin: 16px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
   .notice.bad { border-color: var(--bad); }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 22px; }

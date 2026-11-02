@@ -1,3 +1,24 @@
+# UI verification — 2 November 2026
+
+## Loading: compressed assets, progress bar and skeletons
+
+Filmed with Playwright on a throttled connection (1.6 Mbit/s down, 150 ms latency) against a built binary
+with one owner account: before, the first paint of every route waited about five seconds for the
+uncompressed bundle; after, every route paints within 400 ms and the machines page shows two card
+skeletons inside the inventory frame until `/api/v2/sync` answers.
+
+Validation on the updated source:
+
+- `go test ./web/`: compressed and immutably cached `/assets/*.js` and `.css`, the plain body for a client
+  that sends `gzip;q=0`, fonts neither compressed nor immutable, `index.html` compressed and `no-cache`.
+- `npm run check`: all unit suites pass, including the new `inflight.test.mjs`; svelte-check 0 errors, 0 warnings.
+- `npm run build`: pass. The main chunk is 383 KB over the wire with gzip.
+- Browser suites against `vite preview`: `first-run`, `first-skills` (the shelf skeleton is the shared
+  component, three `data-skeleton` cards), `navigation`, `home`, `empty-states`, `first-machine`.
+- Close-ups at 2x in dark: the progress bar along the top edge, and a busy sign-in button with its ring.
+
+No physical phone, Safari, Firefox or screen reader was tested.
+
 # UI verification — 21 October 2026
 
 ## UX follow-up: board and connection flow

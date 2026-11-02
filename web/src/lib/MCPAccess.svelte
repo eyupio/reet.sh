@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import CopyButton from './CopyButton.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -95,7 +96,7 @@
   </div>
   {#if error}<div class="notice bad" role="alert">{error} <button type="button" class="btn quiet" onclick={load} disabled={busy}>Retry</button></div>{/if}
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
-  {#if !access && !error}<p class="muted" role="status">Loading your connections…</p>{/if}
+  {#if !access && !error}<Skeleton label="Loading your connections…" shape="rows" count={3} />{/if}
   {#if access}
     <div class="statusline"><span class:active={access.enabled} class="dot" aria-hidden="true"></span><strong>{access.enabled ? 'MCP access is on' : 'MCP access is paused'}</strong><span class="muted">{access.enabled ? 'Permissions apply to your account only.' : 'OAuth, bearer tokens and browser tools cannot access your shelf.'}</span></div>
     <section class="connect-card" aria-labelledby="connect-mcp-title">

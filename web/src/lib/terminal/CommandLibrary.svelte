@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from '../Skeleton.svelte'
  import {onMount} from 'svelte'
  import WorkspaceDialog from './WorkspaceDialog.svelte'
  import TerminalIcon from './TerminalIcon.svelte'
@@ -65,7 +66,7 @@
     <button class="btn quiet refresh" aria-label="Refresh saved commands" title="Refresh saved commands" disabled={loading} onclick={()=>void refresh()}>↻</button>
    </div>
    <label class="search-field"><TerminalIcon name="search"/><span class="vh">Search saved commands</span><input type="search" aria-label="Search saved commands" bind:this={search} bind:value={query} placeholder="Find a command…" /></label>
-   {#if loading}<p class="empty" role="status">Loading your command library…</p>{:else if !items.length&&!error}<div class="empty"><span aria-hidden="true">⌘</span><h3>A shortcut to your next task.</h3><p>Save a command once. Find it from any connected machine.</p><button class="btn" onclick={()=>edit(null)}>Save your first command</button></div>{:else if !filtered.length}<div class="empty"><p>No commands match “{query}”.</p><button class="btn" onclick={()=>{query='';search?.focus()}}>Clear search</button></div>{:else}
+   {#if loading}<Skeleton label="Loading your command library…" shape="rows" count={3} />{:else if !items.length&&!error}<div class="empty"><span aria-hidden="true">⌘</span><h3>A shortcut to your next task.</h3><p>Save a command once. Find it from any connected machine.</p><button class="btn" onclick={()=>edit(null)}>Save your first command</button></div>{:else if !filtered.length}<div class="empty"><p>No commands match “{query}”.</p><button class="btn" onclick={()=>{query='';search?.focus()}}>Clear search</button></div>{:else}
     <ul class="command-list">{#each filtered as item (item.id)}<li oncontextmenu={(event)=>rowMenu(event,item)}>
      <div class="command-main"><div class="command-copy">
       <div class="command-heading"><strong title={item.name}>{item.name}</strong>{#if needsReview(item.command)}<span class="tag" title="Multiple lines insert with paste review">multi-line</span>{/if}</div>

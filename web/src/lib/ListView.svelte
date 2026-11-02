@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import AudiencePicker from './AudiencePicker.svelte'
   import { audienceLabel, type Audience } from './api'
@@ -302,7 +303,7 @@
 </script>
 
 {#if !detail && loading}
-  <p class="empty" role="status">Loading list…</p>
+  <Skeleton label="Loading the list…" shape="rows" count={4} />
 {:else if !detail}
   <section class="start">
     <p class="eyebrow">Shared list</p>
@@ -344,7 +345,7 @@
           <label class="field"><span>Description</span><input bind:value={form.description} maxlength="240" placeholder="What is this list for?" /></label>
           <AudiencePicker bind:visibility={form.visibility} bind:audience linkEnabled={detail.linkEnabled} legacyAllowed={detail.visibility === 'members'} />
           <div class="row">
-            <button type="submit" class="btn primary" disabled={busy}>{busy ? 'Saving…' : form.visibility === 'public' && detail.visibility !== 'public' ? 'Publish to public community' : 'Save settings'}</button>
+            <button type="submit" class="btn primary" disabled={busy} aria-busy={busy}>{busy ? 'Saving…' : form.visibility === 'public' && detail.visibility !== 'public' ? 'Publish to public community' : 'Save settings'}</button>
             <button type="button" class="btn quiet" onclick={cancelSettings} disabled={busy}>Cancel</button>
           </div>
         </form>

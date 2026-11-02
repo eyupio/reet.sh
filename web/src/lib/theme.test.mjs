@@ -179,7 +179,8 @@ test('no literal colour in a component', () => {
 
 // applyTheme leaves the choice where index.html's pre-paint script can read it,
 // so a dark preference is painted dark before the profile arrives.
-const { applyTheme } = await import(`data:text/javascript;base64,${Buffer.from(compile('./api.ts')).toString('base64')}`)
+const inflight = `data:text/javascript;base64,${Buffer.from(compile('./inflight.ts')).toString('base64')}`
+const { applyTheme } = await import(`data:text/javascript;base64,${Buffer.from(compile('./api.ts').replace("from './inflight'", `from '${inflight}'`)).toString('base64')}`)
 
 function page() {
   const store = new Map()

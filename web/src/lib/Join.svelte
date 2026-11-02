@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getInvite, joinAccount, type Invite, type User } from './api'
   import AuthCard from './AuthCard.svelte'
@@ -54,7 +55,7 @@
 
 <AuthCard eyebrow="Better together" title="Join reet.sh" lede={invite ? `You have been invited as ${invite.email}. Your team's agents, skills and setups are one sign-in away.` : 'Checking this invitation…'}>
   {#if loading}
-    <p class="muted">Loading…</p>
+    <Skeleton label="Reading the invitation…" count={3} />
   {:else if !invite}
     <p class="error" id="join-error" role="alert">{error || 'This invite is not valid any more.'}</p>
     <p class="muted"><a href="/">Go to your workspace</a></p>
@@ -68,7 +69,7 @@
       <label for="join-confirm">Confirm password</label>
       <PasswordInput id="join-confirm" bind:value={confirm} autocomplete="new-password" placeholder="Repeat the password" minlength={8} />
       {#if error}<p class="error" id="join-error" role="alert">{error}</p>{/if}
-      <button type="submit" class="btn primary submit" disabled={busy}>{busy ? 'Joining…' : 'Join the workspace'}</button>
+      <button type="submit" class="btn primary submit" disabled={busy} aria-busy={busy}>{busy ? 'Joining…' : 'Join the workspace'}</button>
     </form>
   {/if}
 </AuthCard>

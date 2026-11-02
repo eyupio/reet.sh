@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getCommunity, addSkill, type ListSkill, type SharedList } from './api'
   import PageHeader from './PageHeader.svelte'
@@ -21,7 +22,7 @@
 <p class="hint">This community contains lists explicitly published on this reet site. It does not expose private collections or search other reet servers.</p>
 {#if actionError}<p role="alert">{actionError}</p>{/if}
 {#if notice}<p role="status">{notice}</p>{/if}
-{#if loading}<p role="status">Loading community…</p>{:else if error}<p role="alert">{error}</p><button type="button" class="btn" onclick={load}>Retry</button>{:else if tab === 'lists'}
+{#if loading}<Skeleton label="Loading the community…" shape="cards" count={3} />{:else if error}<p role="alert">{error}</p><button type="button" class="btn" onclick={load}>Retry</button>{:else if tab === 'lists'}
   <div class="cards">{#each shownLists as list (list.id)}<article><span class="badge">Public community</span><h2><a href={`/l/${list.slug}`}>{list.name}</a></h2><p>{list.description || 'A community skill collection.'}</p><footer><span>{list.skillCount} skills</span><a href={`/l/${list.slug}`}>Explore list →</a></footer></article>{:else}<div class="empty"><h2>{term ? t('empty.community.title') : 'The community starts with a shared find.'}</h2><p>{term ? 'Try a different search.' : 'Create a list and deliberately choose Public community to publish it. Existing private lists stay private.'}</p><a class="btn" href="/shared">Create or manage your lists</a></div>{/each}</div>
 {:else}
   <div class="cards">{#each shownSkills as skill (skill.id)}<article><span class="badge">From a public list</span><h2>{skill.name}</h2><p class="source">{skill.source || 'Unknown source'}</p><p>{skill.description}</p><div class="skill-actions">{#if canSave}<button type="button" class="btn" disabled={!!saving || saved.includes(skill.id)} onclick={() => save(skill)}>{saved.includes(skill.id) ? 'Saved to your shelf' : saving === skill.id ? 'Saving…' : 'Save to personal shelf'}</button>{:else}<a href="/skills">Open your shelf to save</a>{/if}{#if installCommand(skill)}<CopyButton text={installCommand(skill)!} label="Copy install command" />{/if}</div></article>{:else}<p class="empty">{term ? t('empty.community.title') : 'Skills appear here when someone publishes a list containing them.'}</p>{/each}</div>

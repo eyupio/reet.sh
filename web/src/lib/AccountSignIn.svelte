@@ -90,7 +90,7 @@
     <label for="signin-password">Password</label>
     <PasswordInput id="signin-password" bind:value={password} autocomplete="current-password" placeholder="Your password" />
     {#if error}<p class="error" id="signin-error" role="alert">{error}</p>{/if}
-    <button type="submit" class={choices.button ? 'btn submit' : 'btn primary submit'} disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+    <button type="submit" class={choices.button ? 'btn submit' : 'btn primary submit'} disabled={busy} aria-busy={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
   </form>
 {/snippet}
 
@@ -125,7 +125,7 @@
         <form onsubmit={forgot} aria-busy={resetBusy}>
           <label for="forgot-email">Email</label>
           <input id="forgot-email" bind:value={resetEmail} type="email" autocomplete="email" placeholder="you@example.com" required />
-          <button type="submit" class="btn" disabled={resetBusy}>{resetBusy ? 'Sending…' : 'Email a reset link'}</button>
+          <button type="submit" class="btn" disabled={resetBusy} aria-busy={resetBusy}>{resetBusy ? 'Sending…' : 'Email a reset link'}</button>
         </form>
         {#if resetNotice}<p class="reset-note" role="status">{resetNotice}</p>{/if}
         {#if resetError}<p class="error" role="alert">{resetError}</p>{/if}

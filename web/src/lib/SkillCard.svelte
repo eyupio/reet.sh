@@ -549,6 +549,7 @@
   .installation-badge .host { overflow-wrap: anywhere; min-width: 0; }
   .sync-intent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 0; color: var(--muted); font-size: 0.75rem; }
   .sync-intent svg { width: 13px; height: 13px; flex: none; }
+  .sync-intent span { min-width: 0; overflow-wrap: anywhere; }
   .sync-intent.set { color: var(--good); }
   .sync-intent.pending { color: var(--warn); }
   .sync-intent a { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }

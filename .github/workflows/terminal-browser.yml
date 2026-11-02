@@ -89,6 +89,7 @@ jobs:
           node web/tests/spaces.e2e.mjs
           node web/tests/machines-search.e2e.mjs
           node web/tests/setups.e2e.mjs
+          node web/tests/inbox.e2e.mjs
           node web/tests/sync-activity.e2e.mjs
           node web/tests/skills-sync-simple.e2e.mjs
           node web/tests/machine-skill-sync.e2e.mjs

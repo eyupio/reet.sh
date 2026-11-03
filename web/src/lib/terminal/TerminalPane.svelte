@@ -488,7 +488,7 @@
   .identity,.controls {display:flex;align-items:center;gap:8px;min-width:0}
   .identity {flex:1;flex-wrap:wrap;column-gap:6px;row-gap:1px}
   .identity strong {font-size:.85rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .terminal-icon {font:700 1rem monospace;color:var(--accent-text)}
+  .terminal-icon {font:700 1rem var(--mono);color:var(--accent-text)}
   .host {font-size:.75rem;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .controls {flex-shrink:0}
   .state {font-size:.72rem;color:var(--muted);white-space:nowrap}

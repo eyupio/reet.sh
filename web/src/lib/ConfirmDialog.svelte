@@ -81,7 +81,7 @@
   }
   h2 { margin: 0; font: 600 1.5rem/1.15 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; text-wrap: balance; }
   p { margin: 10px 0 0; color: var(--muted); overflow-wrap: anywhere; }
-  .details { width:100%; box-sizing:border-box; margin:16px 0 0; padding:12px; max-height:240px; overflow:auto; resize:vertical; white-space:pre-wrap; overflow-wrap:anywhere; font:.76rem/1.5 ui-monospace,monospace; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); }
+  .details { width:100%; box-sizing:border-box; margin:16px 0 0; padding:12px; max-height:240px; overflow:auto; resize:vertical; white-space:pre-wrap; overflow-wrap:anywhere; font:.76rem/1.5 var(--mono); border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); }
   .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; flex-wrap: wrap; }
   .danger { background: var(--bad); border-color: var(--bad); color: var(--bg); }
   .secondary { color: var(--bad); }

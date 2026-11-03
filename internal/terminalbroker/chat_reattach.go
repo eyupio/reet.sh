@@ -75,8 +75,9 @@ func (b *Broker) reattachJoined(uid int64, session string, trust bool) int {
 //
 // trust confirms that the person trusts the chat's folder, which lets the
 // machine load OpenCode plugins there. It is sent only for this call and is
-// never stored: only a person's explicit request may set it, never an
-// automatic attempt.
+// never stored by the controller (the machine keeps a started chat's trust in
+// its restart record, see docs/structured-sessions.md): only a person's
+// explicit request may set it, never an automatic attempt.
 func (b *Broker) ReattachChat(ctx context.Context, uid int64, session string, trust bool) error {
 	k := reattachKey{chatKey{uid, session}, trust}
 	b.mu.Lock()
@@ -115,6 +116,13 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string, tr
 	if !s.Structured || s.Tool != "opencode" {
 		return ErrACPUnsupported
 	}
+	// An archived chat's transcript is gone: say so before the ended checks,
+	// whose answer offers a Continue with history there is nothing for.
+	if archived, err := b.st.TerminalArchivedFor(uid, session); err != nil {
+		return err
+	} else if archived {
+		return ErrReattachArchived
+	}
 	switch s.State {
 	case terminalproto.Lost, terminalproto.Exited:
 	case terminalproto.Ended:
@@ -130,11 +138,6 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string, tr
 		return err
 	} else if ended {
 		return ErrACPClosed
-	}
-	if archived, err := b.st.TerminalArchivedFor(uid, session); err != nil {
-		return err
-	} else if archived {
-		return ErrReattachArchived
 	}
 	if !terminalproto.ValidACPSessionIDFor(s.Tool, s.ACPSessionID) {
 		return ErrReattachNoConversation

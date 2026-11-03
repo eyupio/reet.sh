@@ -640,3 +640,40 @@ func TestReattachSingleFlightKeepsTrustApart(t *testing.T) {
 		}
 	}
 }
+
+// An archived chat answers archived even when a person also ended it (end and
+// archive in one tab, Reconnect from a stale other tab): its transcript is
+// gone, so the ended answer's Continue with history must not be offered.
+func TestReattachArchivedWinsOverEnded(t *testing.T) {
+	for _, name := range []string{"lost with end operation", "ended"} {
+		t.Run(name, func(t *testing.T) {
+			b, p, uid, agent, machine := reattachFixture(t)
+			s := switchChat(t, b, uid, agent)
+			if name == "ended" {
+				if _, err := b.End(t.Context(), uid, s.ID, ID()); err != nil {
+					t.Fatal(err)
+				}
+				if err := b.ReattachChat(t.Context(), uid, s.ID, false); !errors.Is(err, ErrACPClosed) {
+					t.Fatalf("ended before archive: %v", err)
+				}
+			} else {
+				if err := b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, terminalproto.Lost, nil); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := b.st.RequestTerminalEndFor(uid, agent, s.ID, ID()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := len(reattachSent(machine))
+			if err := b.st.ArchiveTerminalFor(uid, s.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := b.ReattachChat(t.Context(), uid, s.ID, true); !errors.Is(err, ErrReattachArchived) {
+				t.Fatalf("got %v, want ErrReattachArchived", err)
+			}
+			if sent := reattachSent(machine); len(sent) != before {
+				t.Fatalf("sent %+v", sent)
+			}
+		})
+	}
+}

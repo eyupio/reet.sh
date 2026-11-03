@@ -227,7 +227,7 @@ try {
   const menu = page.getByRole('menu',{name:'reet'})
   for (const item of ['New session here','Edit','Worktrees','Move up','Move down','Remove from reet']) await expect(menu.getByRole('menuitem',{name:item})).toBeVisible()
   await page.keyboard.press('Escape')
-  // Select (the heading's menu, or a long press on touch), then the chosen projects go to Home's launch bar in the address (ids only).
+  // Select (the heading's menu, or a long press on touch), then the chosen projects go to Home in the address (ids only).
   await rail.getByRole('button',{name:'Projects menu'}).click()
   await page.getByRole('menuitem',{name:'Select projects'}).click()
   await rail.getByRole('checkbox',{name:/^reet, /}).click()
@@ -235,11 +235,13 @@ try {
   await rail.getByRole('checkbox',{name:/^site, /}).click()
   await expect(rail.getByRole('link',{name:'Start in these on Home'})).toHaveAttribute('href','/?projects=p1,p2')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-  // A card opens Home's launch bar on that project; Home on a phone shows no rail.
+  // A card opens Home narrowed to that project, and the board's scope banner names it; Home on a phone shows no rail.
   await rail.getByRole('button',{name:'Done selecting'}).click()
   await rail.getByRole('button',{name:/^site, /}).click()
   await expect(page).toHaveURL(`${base}/?project=p2`)
-  await expect(page.locator('.summary-text b')).toHaveText('site')
+  const scope = page.locator('.scope')
+  await expect(scope.locator('.scope-kind')).toHaveText('Project')
+  await expect(scope.locator('strong')).toHaveText('site')
   await expect(page.locator('main aside.rail')).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()

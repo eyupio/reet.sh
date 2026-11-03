@@ -24,11 +24,18 @@ selections invoke the command directly. Home never adds `--yes`, `--apply` or
 authentication flags. Upgrade and installation retain their plans and exact
 `yes` confirmation; empty input does not approve a deployment change.
 
-After a command finishes, its original stdout and stderr stay in the terminal's
-normal scrollback. Enter or Escape returns home; `q` exits with that command's
-status. Returning home does not rerun a failed operation. Use the terminal's
-scrollback controls for long output. At narrow widths, descriptions move below
+Commands that only report run under an output view: their stdout and stderr are
+streamed inside the interface, and the view stays open with the exit status.
+Up/Down, `j`/`k`, Page Up/Page Down, Home and End scroll the captured output.
+Enter or Escape returns home; `q` exits with that command's status. Returning
+home does not rerun a failed operation. At narrow widths, descriptions move below
 the list and navigation scrolls to keep the selected command visible.
+
+Commands that may prompt, start a server or replace the running binary keep the
+real terminal instead: `configure`, `install`, `upgrade`, `serve`, and the
+interactive Terminal, Setups, Backups, Branches and Agent tasks. Their output
+stays in normal scrollback so passwords, confirmations and child processes work
+as before. Escape or Ctrl+C cancels reporting work before it finishes.
 
 On a terminal at least 72 columns wide and 16 rows tall, home becomes two panes:
 the grouped list on the left with the selected row as a solid block, and on the
@@ -58,8 +65,9 @@ download, backup or replacement. Ctrl+C or Escape during rendered work waits
 for that operation's cleanup. The launcher also waits for its child rather than
 killing it during recovery.
 
-The home renderer stops before starting a command. Progress renderers stop
-before approval prompts, password input, child processes and binary replacement.
+The home renderer stops before starting a command. Reporting commands restart
+the interface around captured output. Progress renderers stop before approval
+prompts, password input, child processes and binary replacement.
 Those stages use static feedback without taking ownership of terminal input.
 Managed upgrades preserve their verified SQLite copy, previous binary and
 rollback paths. Recovery uses a separate bounded context so cancellation cannot

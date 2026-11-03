@@ -220,8 +220,8 @@ func TestACPAgentOptionsOnlyAfterNegotiation(t *testing.T) {
 	}
 }
 
-// Capabilities.ChatReattach needs the negotiated feature, chats with their
-// history, and OpenCode among the chat tools.
+// chat-reattach-detail-v1 is echoed only when the controller advertised it,
+// and only beside chat-reattach-v1.
 func TestChatReattachDetailIsEchoedOnlyWhenAdvertised(t *testing.T) {
 	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPHistoryFeature + "," + terminalproto.ChatReattachFeature
 	for _, tc := range []struct {
@@ -246,6 +246,8 @@ func TestChatReattachDetailIsEchoedOnlyWhenAdvertised(t *testing.T) {
 	}
 }
 
+// Capabilities.ChatReattach needs the negotiated feature, chats with their
+// history, and OpenCode among the chat tools.
 func TestChatReattachCapabilityNeedsNegotiationAndHistory(t *testing.T) {
 	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature
 	for _, tc := range []struct {

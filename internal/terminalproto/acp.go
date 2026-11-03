@@ -82,16 +82,16 @@ const ACPQuestionFeature = "acp-question-v1"
 // never sends or receives the body.
 const SessionModeFeature = "session-mode-v1"
 
+// ChatReattachFeature lets a controller ask a machine to reconnect a lost or
+// crashed OpenCode chat in place (chat_reattach). A peer without it never
+// sends or receives the body.
+const ChatReattachFeature = "chat-reattach-v1"
+
 // ChatReattachDetailFeature is advertised by a controller that understands a
 // Conflict answer to chat_reattach carrying a detail marker (ConflictStarting:
 // the chat is still starting). A machine sends that marker only to a controller
 // that advertised it; any other gets a plain Conflict.
 const ChatReattachDetailFeature = "chat-reattach-detail-v1"
-
-// ChatReattachFeature lets a controller ask a machine to reconnect a lost or
-// crashed OpenCode chat in place (chat_reattach). A peer without it never
-// sends or receives the body.
-const ChatReattachFeature = "chat-reattach-v1"
 
 // SessionModeTimeout bounds one session_mode swap on the machine: stopping
 // the old process, starting the other and, on failure, restoring the first.

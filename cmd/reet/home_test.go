@@ -88,7 +88,7 @@ func TestUpgradeContinuationKeepsSelectedCommandAndFlagsAndClearsMarkers(t *test
 			pauses := 0
 			code, err := homeLoop(homeActions{
 				choose: func() ([]string, error) { return nil, nil },
-				run:    func([]string) (int, error) { runs++; return 0, nil },
+				run:    func([]string) (homeRun, error) { runs++; return homeRun{}, nil },
 				pause:  func(int) (bool, error) { pauses++; return false, nil },
 			}, nil, r)
 			if code != 0 || err != nil || runs != 0 || pauses != 1 {
@@ -144,21 +144,57 @@ func TestInvalidUpgradeContinuationCannotSkipAnotherCommand(t *testing.T) {
 	}
 }
 
+func TestOwnsTerminalClassification(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		own  bool
+	}{
+		{[]string{"doctor"}, false},
+		{[]string{"healthcheck"}, false},
+		{[]string{"scan", "--prune"}, false},
+		{[]string{"sync"}, true},
+		{[]string{"sync", "--target", "abc"}, true},
+		{[]string{"setup", "scan"}, false},
+		{[]string{"setup", "profile"}, true},
+		{[]string{"backup", "list"}, false},
+		{[]string{"backup", "restore"}, true},
+		{[]string{"branches", "status"}, false},
+		{[]string{"branches", "prune", "--yes"}, true},
+		{[]string{"terminal", "status"}, false},
+		{[]string{"terminal", "start"}, true},
+		{[]string{"agent", "status"}, false},
+		{[]string{"agent", "enroll"}, true},
+		{[]string{"install"}, true},
+		{[]string{"upgrade"}, true},
+		{[]string{"serve"}, true},
+	} {
+		if got := ownsTerminal(tc.args); got != tc.own {
+			t.Fatalf("%v owns terminal=%v, want %v", tc.args, got, tc.own)
+		}
+	}
+}
+
+func TestCapturedChildOutputGoesToTheWriterWithoutPrompts(t *testing.T) {
+	var out strings.Builder
+	code := runHomeCaptured(context.Background(), "/bin/sh", []string{"-c", "printf 'captured\\n'; test -z \"$REET_NON_INTERACTIVE\" && exit 9; exit 0"}, &out)
+	if code != 0 || !strings.Contains(out.String(), "captured") {
+		t.Fatalf("code=%d output=%q", code, out.String())
+	}
+}
+
 func TestHomePreservesFailureExitStatusAndDoesNotRetry(t *testing.T) {
 	runs := 0
 	code, err := homeLoop(homeActions{
 		choose: func() ([]string, error) { return []string{"doctor", "--json"}, nil },
-		run: func(args []string) (int, error) {
+		run: func(args []string) (homeRun, error) {
 			runs++
 			if !slices.Equal(args, []string{"doctor", "--json"}) {
 				t.Fatal(args)
 			}
-			return 7, nil
+			return homeRun{code: 7, quit: true}, nil
 		},
-		pause: func(code int) (bool, error) {
-			if code != 7 {
-				t.Fatal(code)
-			}
+		pause: func(int) (bool, error) {
+			t.Fatal("captured command used the scrollback pause")
 			return true, nil
 		},
 	}, nil, nil)

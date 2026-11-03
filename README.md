@@ -303,8 +303,9 @@ explicit `--token` or `--env-file` selection overrides it. Forget it with
 Run `reet` with no command in a terminal for its grouped home: Check & maintain,
 Skills & setups, Machines & access and More commands. Use arrows or `j`/`k`,
 Enter, `/` to search, `e` to edit the selected command's arguments and `?` for
-help. Escape returns and `q` quits. The real command owns prompts and passwords;
-its output stays in normal terminal scrollback until you return home or exit.
+help. Escape returns and `q` quits. Commands that only report keep their output
+in the terminal interface, where you can scroll it; commands that must prompt or
+own the terminal hand it back so passwords and confirmations still work.
 `REET_NO_TUI=1` keeps the no-command `serve` behaviour. Redirected output,
 containers, CI and services keep their existing entry points. The old dashboard
 is removed; legacy `--tui` runs the command and offers a return home.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -57,9 +58,14 @@ func resumeUpgrade(path string, args []string, reexec func(string, []string, []s
 	return reexec(path, append([]string{path}, args...), env)
 }
 
+type homeRun struct {
+	code int
+	quit bool
+}
+
 type homeActions struct {
 	choose func() ([]string, error)
-	run    func([]string) (int, error)
+	run    func([]string) (homeRun, error)
 	pause  func(int) (bool, error)
 }
 
@@ -80,13 +86,12 @@ func homeLoop(a homeActions, initial []string, resumed *homeResult) (int, error)
 				return 0, err
 			}
 		}
-		code, err := a.run(args)
+		result, err := a.run(args)
 		if err != nil {
 			return 1, err
 		}
-		quit, err := a.pause(code)
-		if quit || err != nil {
-			return code, err
+		if result.quit {
+			return result.code, nil
 		}
 	}
 }
@@ -104,8 +109,26 @@ func runHome(initial []string, resumed *homeResult) (int, error) {
 	return homeLoop(homeActions{
 		choose: func() ([]string, error) { return cliui.Choose(ctx, os.Stdin, os.Stdout, version) },
 		pause:  func(code int) (bool, error) { return cliui.Pause(ctx, os.Stdin, os.Stdout, code) },
-		run: func(args []string) (int, error) {
-			return runHomeSelection(path, args, func(args []string) int { return runHomeCommand(ctx, path, args) }, reexecBinary)
+		run: func(args []string) (homeRun, error) {
+			// Commands that must prompt or own the terminal keep their original
+			// handoff. The rest run under the output view so their results stay
+			// in the interface instead of the terminal's scrollback.
+			if ownsTerminal(args) {
+				code, err := runHomeSelection(path, args, func(args []string) int { return runHomeCommand(ctx, path, args) }, reexecBinary)
+				if err != nil {
+					return homeRun{}, err
+				}
+				quit, err := cliui.Pause(ctx, os.Stdin, os.Stdout, code)
+				return homeRun{code: code, quit: quit}, err
+			}
+			label := strings.Join(append([]string{"reet"}, args...), " ")
+			code, quit, err := cliui.RunOutput(ctx, os.Stdin, os.Stdout, label, func(ctx context.Context, out io.Writer) (int, error) {
+				return runHomeCaptured(ctx, path, args, out), nil
+			})
+			if err != nil {
+				return homeRun{}, err
+			}
+			return homeRun{code: code, quit: quit}, nil
 		},
 	}, initial, resumed)
 }
@@ -122,21 +145,59 @@ func runHomeSelection(path string, args []string, run func([]string) int, reexec
 	return code, nil
 }
 
+// Commands that may prompt, start a server, or replace the running binary own
+// the real terminal. Everything else is captured into the output view.
+func ownsTerminal(args []string) bool {
+	if len(args) == 0 {
+		return true
+	}
+	action := ""
+	if len(args) > 1 && !strings.HasPrefix(args[1], "-") {
+		action = args[1]
+	}
+	switch args[0] {
+	case "configure", "install", "init", "upgrade", "update", "serve", "sync":
+		return true
+	case "terminal":
+		return action == "start" || action == "restart"
+	case "setup":
+		return action == "profile" || action == "restore" || action == "rollback"
+	case "backup":
+		return action == "restore" || action == "open" || action == "escrow" ||
+			action == "unescrow" || action == "keygen"
+	case "branches":
+		return action == "prune"
+	case "agent":
+		return action == "enroll"
+	}
+	return false
+}
+
 // The launcher is fully stopped before the child starts. Inheriting the real
 // terminal preserves password input, confirmations and both output streams.
 // Do not use CommandContext: killing a child would interrupt its recovery.
 func runHomeCommand(ctx context.Context, path string, args []string) int {
+	return runHomeProcess(ctx, path, args, os.Stdin, os.Stdout, os.Stderr, nil)
+}
+
+// runHomeCaptured runs a command that cannot prompt. Its output is copied into
+// the view instead of the terminal, and no interactive input reaches it.
+func runHomeCaptured(ctx context.Context, path string, args []string, out io.Writer) int {
+	return runHomeProcess(ctx, path, args, nil, out, out, []string{"REET_NON_INTERACTIVE=1"})
+}
+
+func runHomeProcess(ctx context.Context, path string, args []string, in io.Reader, stdout, stderr io.Writer, extraEnv []string) int {
 	if ctx.Err() != nil {
 		return 130
 	}
 	cmd := exec.Command(path, args...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	cmd.Env = cleanHomeEnvironment(os.Environ())
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, stdout, stderr
+	cmd.Env = append(cleanHomeEnvironment(os.Environ()), extraEnv...)
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	done, joined := make(chan struct{}), make(chan struct{})
@@ -169,7 +230,7 @@ func runHomeCommand(ctx context.Context, path string, args []string) int {
 		return 130
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	return 0

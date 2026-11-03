@@ -18,13 +18,17 @@
   import { scopeEligibility } from './contentReview'
   import type { JoinContext } from './machineJoin'
   import ConfirmDialog from './ConfirmDialog.svelte'
+  import Icon from './Icon.svelte'
   import { agoLabel, machineSyncOverview } from './syncOverview'
+  import { formatWhen } from './time'
 
   let {
     machines,
     snapshot,
     site,
     canWrite,
+    timeZone = '',
+    dateFormat = 'locale',
     accounts=false,
     terminalAccess=false,
     monitorAccess=false,
@@ -42,6 +46,8 @@
     snapshot: SyncState
     site: string
     canWrite: boolean
+    timeZone?: string
+    dateFormat?: string
     accounts?: boolean
     terminalAccess?:boolean
     monitorAccess?:boolean
@@ -65,6 +71,7 @@
   let commandsFor = $state<Machine | null>(null)
   let addSkillFor = $state<Machine | null>(null)
   let fleetQuery = $state('')
+  let fleetFilter = $state<'all' | 'attention' | 'working' | 'synced'>('all')
   let confirm = $state<Pending | null>(null)
   let busy = $state('')
 
@@ -80,9 +87,24 @@
   let settingsHost = $state('')
   let review = $state<{ agentId: string; initial: 'dev' | 'latest' } | null>(null)
   const settingsMachine = $derived(machines.find((machine) => machine.host === settingsHost))
-  // A just-added machine stays visible even while a search that does not name it is active.
-  const shownMachines = $derived(machines.filter((machine) => !fleetQuery.trim() || machineMatchesSearch(machine, fleetQuery) || machine.host === highlight))
-  const fleetCount = $derived(fleetQuery.trim() ? `${shownMachines.length} of ${machines.length} machines` : `${machines.length} ${machines.length === 1 ? 'machine' : 'machines'}`)
+  const toneRank: Record<string, number> = { action: 0, review: 1, working: 2, attention: 3, setup: 4, synced: 5 }
+  function fleetGroup(machine: Machine): 'attention' | 'working' | 'synced' {
+    const tone = machineSyncOverview(machine, snapshot).tone
+    return tone === 'working' ? 'working' : tone === 'synced' ? 'synced' : 'attention'
+  }
+  // A just-added machine stays visible even while a search or status filter that does not name it is active.
+  const filteredMachines = $derived(machines.filter((machine) =>
+    (!fleetQuery.trim() || machineMatchesSearch(machine, fleetQuery) || machine.host === highlight) &&
+    (fleetFilter === 'all' || fleetGroup(machine) === fleetFilter)))
+  const shownMachines = $derived([...filteredMachines].sort((a, b) =>
+    (toneRank[machineSyncOverview(a, snapshot).tone] ?? 9) - (toneRank[machineSyncOverview(b, snapshot).tone] ?? 9) ||
+    a.host.localeCompare(b.host, undefined, { sensitivity: 'base' })))
+  const fleetCounts = $derived({
+    attention: machines.filter((machine) => fleetGroup(machine) === 'attention').length,
+    working: machines.filter((machine) => fleetGroup(machine) === 'working').length,
+    synced: machines.filter((machine) => fleetGroup(machine) === 'synced').length,
+  })
+  const fleetCount = $derived(fleetQuery.trim() || fleetFilter !== 'all' ? `${shownMachines.length} of ${machines.length} machines` : `${machines.length} ${machines.length === 1 ? 'machine' : 'machines'}`)
   const reviewAgent = $derived(review ? snapshot.agents?.find((agent) => agent.id === review?.agentId) : undefined)
   let health=$state<HealthResponse>({serverNow:Date.now(),machines:[]}), healthElapsed=$state(0),healthReceived=performance.now()
   onMount(()=>{if(!monitorAccess)return;const abort=new AbortController();let busy=false;async function refreshHealth(){if(busy||document.visibilityState!=='visible')return;busy=true;try{const next=await machineHealth(abort.signal);if(!abort.signal.aborted){health=next;healthReceived=performance.now();healthElapsed=0}}catch{/* inventory remains usable when health is unavailable */}finally{busy=false}}void refreshHealth();const wake=()=>void refreshHealth();document.addEventListener('visibilitychange',wake);window.addEventListener('online',wake);const timer=setInterval(wake,15000),clock=setInterval(()=>healthElapsed=performance.now()-healthReceived,1000);return()=>{abort.abort();clearInterval(timer);clearInterval(clock);document.removeEventListener('visibilitychange',wake);window.removeEventListener('online',wake)}})
@@ -193,7 +215,7 @@
     return agent.lastSeen > Date.now() - 90000 ? 'Sync agent online' : 'Sync agent offline'
   }
   function agentSeen(agent: SyncAgent): string {
-    return new Date(agent.lastSeen).toLocaleString()
+    return formatWhen(agent.lastSeen, timeZone, dateFormat)
   }
   function lastUpdate(machine: Machine): SyncJob | undefined {
     const agent = agentFor(machine)
@@ -362,6 +384,16 @@
       <label class="fleet-search">Search machines
         <input type="search" bind:value={fleetQuery} placeholder="Machine or skill" />
       </label>
+      {#if machines.length > 6}
+        <label class="fleet-status">Status
+          <select bind:value={fleetFilter}>
+            <option value="all">All machines</option>
+            <option value="attention">Needs attention ({fleetCounts.attention})</option>
+            <option value="working">Working ({fleetCounts.working})</option>
+            <option value="synced">Up to date ({fleetCounts.synced})</option>
+          </select>
+        </label>
+      {/if}
       <p class="fleet-count" role="status">{fleetCount}</p>
     </div>
   {/if}
@@ -376,7 +408,7 @@
       <article class="machine" class:just-added={highlight === machine.host} aria-labelledby={`machine-${machine.host}`} oncontextmenu={cardContextMenu}>
         <header class="machine-head">
           <div class="identity">
-            <span class="dot" class:current={!!enrolled && enrolled.lastSeen > Date.now() - 90000} class:offline={!!enrolled && enrolled.lastSeen <= Date.now() - 90000} aria-hidden="true"></span>
+            <span class="dot {enrolled ? (agentTone(enrolled) === 'online' ? 'current' : agentTone(enrolled)) : 'empty'}" aria-hidden="true"></span>
             <div>
               <h3 id={`machine-${machine.host}`} title={machine.host}>{machine.host}</h3>
               {#if highlight === machine.host}<p class="added-note">Just added</p>{/if}
@@ -400,7 +432,7 @@
               <a class="btn sync-now" href={sync.href}>{sync.tone === 'setup' ? 'Set up sync' : 'Open sync'}</a>
             {/if}
             <details class="sync-menu">
-              <summary aria-label={`More options for ${machine.host}`} title="More options"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg></summary>
+              <summary aria-label={`More options for ${machine.host}`} title="More options"><Icon name="more" size={18} /></summary>
               <div class="sync-menu-panel" role="menu">
                 {#if canWrite}<button type="button" role="menuitem" disabled={!enrolled} title={!enrolled ? 'Connect an agent first' : undefined} onclick={(event) => { closeMenu(event); addSkillFor = machine }}>Add a skill…</button>{/if}
                 <a role="menuitem" href={`/sync?machine=${encodeURIComponent(machine.host)}`}>Choose skills &amp; scopes</a>
@@ -421,7 +453,7 @@
         <div class="meta">
           <span><strong>{machine.skillCount}</strong> unique {machine.skillCount === 1 ? 'skill' : 'skills'}</span>
           <span><strong>{groups.length}</strong> agent {groups.length === 1 ? 'scope' : 'scopes'}</span>
-          <span>Last report <strong title={lastReport(machine) ? new Date(lastReport(machine)).toLocaleString() : undefined}>{lastSeen(machine)}</strong></span>
+          <span>Last report <strong title={lastReport(machine) ? formatWhen(lastReport(machine), timeZone, dateFormat) : undefined}>{lastSeen(machine)}</strong></span>
           {#if enrolled}<span class="live {agentTone(enrolled)}"><span aria-hidden="true">●</span> {agentState(enrolled)}</span><span class="build" title={enrolled.commit ? `commit ${enrolled.commit}` : undefined}>reet {agentBuild(enrolled)}</span>{/if}
         </div>
         <div class="agent-chips" aria-label="Agent scopes">
@@ -462,7 +494,7 @@
                 <span class="dot {group.complete && fresh(group) ? 'current' : group.complete ? 'stale' : 'partial'}" aria-hidden="true"></span>
                 <div class="agent-copy">
                   <strong>{groupLabel(group)}</strong>
-                  <small>{group.skillCount ?? 0} {group.skillCount === 1 ? 'skill' : 'skills'} · {group.complete ? 'Last full report' : 'Incomplete report'} {new Date(group.scannedAt || group.lastSeen).toLocaleString()}</small>
+                  <small>{group.skillCount ?? 0} {group.skillCount === 1 ? 'skill' : 'skills'} · {group.complete ? 'Last full report' : 'Incomplete report'} <span title={formatWhen(group.scannedAt || group.lastSeen, timeZone, dateFormat)}>{agoLabel(group.scannedAt || group.lastSeen)}</span></small>
                   {@render privateSkillsAction(group, `private-skills-${m}-${i}`)}
                   <ContentObservation content={group.content} onimport={canWrite && enrolled ? (name) => onimport({ environmentId: group.id, name }) : undefined} onpin={pinOpener(group)} />
                 </div>
@@ -487,8 +519,8 @@
       </article>
     {:else}
       <div class="fleet-empty">
-        <p>No machine here matches “{fleetQuery}”.</p>
-        <button type="button" class="btn" onclick={() => (fleetQuery = '')}>Clear search</button>
+        <p>{fleetQuery.trim() ? `No machine here matches “${fleetQuery}”.` : 'No machine matches that status.'}</p>
+        <button type="button" class="btn" onclick={() => { fleetQuery = ''; fleetFilter = 'all' }}>Clear filters</button>
       </div>
     {/each}
   </div>
@@ -555,6 +587,8 @@
   .fleet-search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
   .fleet-search input { width: 100%; }
   .fleet-count { margin: 0; color: var(--muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+  .fleet-status { flex: 0 1 auto; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .fleet-status select { min-width: 170px; }
   .fleet-empty { grid-column: 1 / -1; padding: 24px; border: 1px dashed var(--line); border-radius: 12px; background: var(--card); }
   .fleet-empty p { margin: 0 0 12px; color: var(--muted); }
   .machine-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 14px; }
@@ -567,6 +601,7 @@
   .identity { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
   .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; margin-top: 5px; background: var(--muted); }
   .dot.offline { background: transparent; border: 2px solid var(--muted); }
+  .dot.paused { background: var(--warn); }
   .dot.current { background: var(--good); }
   .dot.stale { background: var(--warn, #b45309); }
   .dot.partial { background: var(--bad); }
@@ -606,7 +641,6 @@
   .sync-menu > summary::-webkit-details-marker { display: none; }
   .sync-menu > summary:hover, .sync-menu[open] > summary { color: var(--ink); border-color: var(--muted); }
   .sync-menu > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .sync-menu > summary svg { width: 18px; height: 18px; }
   .sync-menu-panel { position: absolute; z-index: 20; right: 0; top: calc(100% + 6px); display: grid; min-width: 214px; padding: 6px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
   .sync-menu-panel a, .sync-menu-panel button { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 0.78rem; text-align: left; text-decoration: none; cursor: pointer; }
   .sync-menu-panel a:hover, .sync-menu-panel button:hover:not(:disabled) { background: var(--tint); }
@@ -639,8 +673,9 @@
   .agent-links { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; }
     @media (max-width: 650px) {
     .fleet-tools { gap: 10px; }
-    .fleet-search { flex-basis: 100%; }
+    .fleet-search, .fleet-status { flex-basis: 100%; }
   }
+  @media (pointer: coarse) { .fleet-status select { min-height: 44px; } }
   @media (max-width: 560px) {
     .machine { padding: 14px; }
     .machine-head { flex-direction: column; align-items: flex-start; }

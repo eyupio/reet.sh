@@ -73,6 +73,8 @@
   let q = $state('')
   let sort = $state<Sort>('recent')
   let view = $state<'list' | 'board'>('list')
+  let timeZone = $state('')
+  let dateFormat = $state('locale')
   let expandedSkills = $state<Record<string, boolean>>({})
   let defaultExpanded = $state(false)
   let viewSave = Promise.resolve()
@@ -476,6 +478,8 @@
       applyTheme(profile.theme)
       view = profile.shelfView
       defaultExpanded = profile.cardsExpanded
+      timeZone = profile.timezone
+      dateFormat = profile.dateFormat || 'locale'
     } catch {
       /* the shelf still works without a stored preference */
     }
@@ -1003,7 +1007,7 @@
   {:else if isSessions && sessionsAccess}
     <SessionsPage userId={currentUser?.id ?? 0} onsignedout={fail} onattention={(count, cards, seen, answered) => { attention = count; needsCards = cards; onMarkSeen = seen; onAnswered = answered }} />
   {:else if isMachines}
-    <Machines userId={currentUser?.id??0} onsignedout={fail} {canWrite} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} ontitle={title => (workspaceTitle = title)} />
+    <Machines userId={currentUser?.id??0} onsignedout={fail} {canWrite} {timeZone} {dateFormat} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} ontitle={title => (workspaceTitle = title)} />
   {:else if isProfiles}
     <SetupProfiles {canWrite} onerror={fail} />
   {:else if isNotifications}

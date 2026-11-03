@@ -14,6 +14,7 @@
     type ReleaseChannel,
   } from './machineSetup'
   import CopyButton from './CopyButton.svelte'
+  import Icon from './Icon.svelte'
 
   let {
     site,
@@ -364,7 +365,7 @@
         </div>
         {#if nameError}<p class="name-error" id="machine-name-error" role="alert">{nameError}</p>{/if}
         <p class="hint">Required. The machine name is how this machine appears here. Keep it stable between scans.</p>
-        <div class="step-actions"><button class="btn primary" type="button" onclick={() => continueTo(2)}>Continue to {mode === 'scratch' ? 'setup restore' : 'authentication'} →</button></div>
+        <div class="step-actions"><button class="btn primary" type="button" onclick={() => continueTo(2)}>Continue to {mode === 'scratch' ? 'setup restore' : 'authentication'}<Icon name="arrow-right" /></button></div>
       {:else if step === 2 && mode === 'connect'}
         <header>
           <p class="eyebrow">Step 2 · Authenticate</p>
@@ -380,7 +381,7 @@
           <div class="command-copy"><span>Save the connection</span><CopyButton text={configure} label="Copy connection command" compact /></div>
           <pre>{configure}</pre>
         </div>
-        <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => continueTo(3)}>Continue to terminal connection →</button></div>
+        <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => continueTo(3)}>Continue to terminal connection<Icon name="arrow-right" /></button></div>
       {:else if step === 2}
         <header>
           <p class="eyebrow">Step 2 · Restore setup</p>
@@ -391,7 +392,7 @@
           <div class="empty-choice">
             <strong>No setup profiles yet.</strong>
             <p>Create one on a machine that is already set up, then come back here.</p>
-            <a class="btn" href="/profiles">Open Setups →</a>
+            <a class="btn" href="/profiles">Open Setups<Icon name="arrow-right" /></a>
           </div>
         {:else}
           <label>Setup profile<select bind:value={profileName}>{#each profiles as profile}<option value={profile.name}>{profile.name} · revision {profile.revision}</option>{/each}</select></label>
@@ -414,7 +415,7 @@
           </div>
           <details class="advanced"><summary>Verify the restored files</summary><div class="command"><div class="command-copy"><span>Verify</span><CopyButton text={verify} label="Copy verify command" compact /></div><pre>{verify}</pre></div><p class="hint">Keep the journal for rollback. A file match does not prove the agents work.</p></details>
         {/if}
-        <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => continueTo(3)}>Continue to terminal connection →</button></div>
+        <div class="step-actions"><button class="btn" type="button" onclick={() => go(1)}>Back</button><button class="btn primary" type="button" onclick={() => continueTo(3)}>Continue to terminal connection<Icon name="arrow-right" /></button></div>
       {:else if step === 3}
         <header>
           <p class="eyebrow">Step 3 · Machine &amp; terminal connection</p>
@@ -459,7 +460,7 @@
           {#if terminalError}<p class="watch-error" role="alert">{terminalError} {checkFailures > 1 ? 'Still trying automatically.' : 'Trying again shortly.'}</p>{/if}
           <div class="watch-actions">
             <button class="btn" onclick={check} disabled={checking || !host.trim()}>{checking ? 'Checking…' : 'Check terminal connection'}</button>
-            {#if terminalReady && terminalHost}<a class="btn primary" href={`/sessions?agent=${encodeURIComponent(terminalHost.agentId)}`}>Open terminals for {terminalHost.host} →</a>{/if}
+            {#if terminalReady && terminalHost}<a class="btn primary" href={`/sessions?agent=${encodeURIComponent(terminalHost.agentId)}`}>Open terminals for {terminalHost.host}<Icon name="arrow-right" /></a>{/if}
           </div>
         </div>
 
@@ -478,7 +479,7 @@
         {/if}
 
         <details class="advanced"><summary>Already enrolled, or setup was interrupted?</summary><div class="command"><div class="command-copy"><span>Resume terminal setup</span><CopyButton text="reet agent terminal setup" label="Copy terminal setup wizard" compact /></div><pre>reet agent terminal setup</pre></div><p class="hint">This reuses the enrollment. The wizard diagnoses missing tmux and offers service repair. Enable browser terminals on the controller with <code>reet terminal start</code> if needed.</p></details>
-        <div class="step-actions"><button class="btn" type="button" onclick={() => go(2)}>Back</button><button class="btn primary" type="button" onclick={() => go(4)}>Continue to optional inventory &amp; sync →</button></div>
+        <div class="step-actions"><button class="btn" type="button" onclick={() => go(2)}>Back</button><button class="btn primary" type="button" onclick={() => go(4)}>Continue to optional inventory &amp; sync<Icon name="arrow-right" /></button></div>
       {:else}
         <header>
           <p class="eyebrow">Step 4 · Inventory &amp; sync</p>
@@ -505,8 +506,8 @@
               <div><dt>Agent</dt><dd>{enrolledAgent ? `reet ${agentBuild(enrolledAgent)}` : 'Reported'}</dd></div>
             </dl>
             <div class="joined-actions">
-              <a class="btn primary" href={syncLink(connected.host)}>Open compare &amp; sync for {connected.host} →</a>
-              {#if terminalReady && terminalHost}<a class="btn" href={`/sessions?agent=${encodeURIComponent(terminalHost.agentId)}`}>Open terminals →</a>{/if}
+              <a class="btn primary" href={syncLink(connected.host)}>Open compare &amp; sync for {connected.host}<Icon name="arrow-right" /></a>
+              {#if terminalReady && terminalHost}<a class="btn" href={`/sessions?agent=${encodeURIComponent(terminalHost.agentId)}`}>Open terminals<Icon name="arrow-right" /></a>{/if}
             </div>
           </div>
         {:else}

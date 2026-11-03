@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import Icon from './Icon.svelte'
   import { shell } from './dialogShell'
   import type { Machine, ReleaseInfo, SyncAgent, SyncEnvironment } from './api'
   import { agentBuild, agentGroups, channelBuild, groupLabel } from './machines'
@@ -205,7 +206,7 @@
         <h2 id={`${id}-title`}>{machine.host}</h2>
         <p class="lede" data-shell-aside>How this machine keeps itself current, and what the controller may ask of it. A change applies straight away.</p>
       </div>
-      <button class="icon" type="button" onclick={() => dialog?.close()} aria-label="Close settings" data-shell-close>×</button>
+      <button class="icon" type="button" onclick={() => dialog?.close()} aria-label="Close settings" data-shell-close><Icon name="x" size={18} /></button>
     </header>
 
     {#if agent}

@@ -2392,3 +2392,33 @@ Validation:
 
 **Not checked.** No physical phone or tablet and no screen reader. The save, preview
 and approval steps are the existing flow and were not re-run in this new matrix.
+
+## Machines: timestamps, Commands, icons, attention order — 2 November 2026
+
+Absolute times on machine cards and in sync activity now follow the account's time
+zone and date order, without seconds; the card's own recency stays relative and the
+absolute is in the title. The Commands dialog keeps its header close and drops the
+duplicate footer Done. Machine setup arrows, the Commands and Settings closes and the
+card overflow control share `Icon.svelte` instead of text glyphs. With more than six
+machines, a Status select orders and filters the fleet by action, review, working,
+attention, setup and synced; search and status combine, setup and paused machines
+count as needing attention, and an empty result clears both. The card's connection
+dot now follows the agent: green online, amber paused, hollow offline.
+
+Validation:
+
+- `npm run check`: pass, including the new `time.test.mjs` cases; svelte-check reports
+  zero errors and zero warnings.
+- `npm run build`: pass.
+- New `machines-fleet.e2e.mjs` checks attention order, the status filter and counts,
+  empty recovery with `Clear filters`, the paused dot, and the 44 px filter at 390 and
+  320 px with no horizontal overflow.
+- `machines-search.e2e.mjs`, `control.e2e.mjs` and the Commands case in
+  `phone-dialogs.e2e.mjs` pass with the renamed controls.
+- `phone-zoom.e2e.mjs` selected Machines screens pass at 320, 360, 390 and 412 px;
+  `navigation.e2e.mjs` passes.
+
+![Machines fleet with status filter](images/ui/machines-fleet-status.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The profile date
+order was unit-tested, not exercised with a signed-in account in a browser.

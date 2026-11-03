@@ -6,7 +6,7 @@
   import { createToken } from './api'
   import { describeError } from './contentReview'
   import { onMount, type Component } from 'svelte'
-  let { canWrite, accounts, monitoring=false, compare = false, userId=0, onsignedout, ontitle }: { canWrite: boolean; accounts: boolean; monitoring?:boolean; compare?: boolean;userId?:number; onsignedout?: (e: unknown) => void; ontitle?: (title: string) => void } = $props()
+  let { canWrite, accounts, monitoring=false, compare = false, userId=0, timeZone = '', dateFormat = 'locale', onsignedout, ontitle }: { canWrite: boolean; accounts: boolean; monitoring?:boolean; compare?: boolean;userId?:number; timeZone?: string; dateFormat?: string; onsignedout?: (e: unknown) => void; ontitle?: (title: string) => void } = $props()
   let token = $state(''), name = $state('machine token'), busy = $state(false), error = $state(''), softwareOpen = $state(false)
   // A session address (?session=, ?agent= or view=terminal) opens the workspace. A bare /sessions reaches this page only for
   // someone without Sessions (a viewer, a token or an open instance), who gets the Machines page itself.
@@ -38,7 +38,7 @@
     </div>
   </div>
   {/if}{:else}
-<EnvironmentSync {canWrite} {accounts} monitorAccess={monitoring} terminalAccess={accounts&&canWrite} {token} {onsignedout} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
+<EnvironmentSync {canWrite} {accounts} {timeZone} {dateFormat} monitorAccess={monitoring} terminalAccess={accounts&&canWrite} {token} {onsignedout} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
   {#snippet tokenSetup()}
     {#if accounts && canWrite}
       {#if !token}

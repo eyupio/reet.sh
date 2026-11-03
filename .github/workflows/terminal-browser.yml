@@ -88,6 +88,7 @@ jobs:
           node web/tests/community.e2e.mjs
           node web/tests/spaces.e2e.mjs
           node web/tests/machines-search.e2e.mjs
+          node web/tests/machines-fleet.e2e.mjs
           node web/tests/setups.e2e.mjs
           node web/tests/inbox.e2e.mjs
           node web/tests/admin-users.e2e.mjs

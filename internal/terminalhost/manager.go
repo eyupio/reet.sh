@@ -520,6 +520,7 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 	// reconcile tries again.
 	_ = m.applyClipboard(ctx)
 	changed := false
+	var listing map[string][]paneWindow
 	for id, s := range r.Sessions {
 		if !s.State.ReservesQuota() {
 			continue
@@ -537,9 +538,17 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 			}
 			s.State = terminalproto.Ended
 		} else {
-			panes, err := m.panes(ctx, id)
-			if err != nil {
-				return err
+			if listing == nil {
+				if listing, err = m.allPanes(ctx); err != nil {
+					return err
+				}
+			}
+			rows := listing[m.name(id)]
+			panes := make([]paneState, len(rows))
+			belled := false
+			for i, p := range rows {
+				panes[i] = p.paneState
+				belled = belled || p.bell
 			}
 			alive := false
 			for _, p := range panes {
@@ -551,7 +560,18 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 			}
 			if alive {
 				s.State = terminalproto.Running
-				if actAt, bellAt, attErr := m.readAttention(ctx, id); attErr == nil {
+				actAt, bellAt, attErr := int64(0), int64(0), error(nil)
+				if belled {
+					// Reading a bell also clears it, which takes tmux commands of
+					// its own; that path stays per session and runs only when a
+					// bell is set.
+					actAt, bellAt, attErr = m.readAttention(ctx, id)
+				} else {
+					for _, p := range rows {
+						actAt = max(actAt, p.activity*1000)
+					}
+				}
+				if attErr == nil {
 					if actAt > s.ActivityAt {
 						s.ActivityAt = actAt
 					}

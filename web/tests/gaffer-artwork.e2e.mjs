@@ -18,22 +18,31 @@ try {
       return image.naturalWidth
     })).toBeGreaterThan(400)
   }
-  for (const [button, scene, row] of [['Greeting', 'greeting', 0], ['Reading', 'reading', 1], ['Tea', 'tea', 2]]) {
+  for (const [button, scene, row] of [['Greeting', 'greeting', 0], ['Reading', 'reading', 1], ['Tea', 'tea', 2], ['Biscuit', 'biscuit', 0], ['Shrug', 'shrug', 1], ['Steady on', 'huff', 2]]) {
     await page.getByRole('button', { name: button, exact: true }).click()
     await expect(bust).toHaveAttribute('data-artwork', scene)
     expect(Number(await bust.locator('.frames').getAttribute('y'))).toBeCloseTo(-row * 1024 / 3)
-    // Sample every source frame, plus the resting frame after the one-shot gesture ends.
-    for (const [time, x] of [[0, 0], [500, -384], [1000, -768], [1500, -1152], [1801, 0]]) {
+    const duration = await bust.locator('.frames').evaluate(el => parseFloat(getComputedStyle(el).animationDuration) * 1000)
+    expect(duration).toBeGreaterThanOrEqual(3_800)
+    // Sample anticipation, action, held expression, and the still resting frame after playback.
+    for (const [fraction, x] of [[0, 0], [.24, -384], [.5, -768], [.8, -1152], [1.01, -1152]]) {
       expect(await bust.locator('.frames').evaluate((el, time) => {
         const [animation] = el.getAnimations(); animation.pause(); animation.currentTime = time
         return new DOMMatrix(getComputedStyle(el).transform).m41
-      }, time)).toBe(x)
+      }, duration * fraction)).toBe(x)
     }
+  }
+  // A click's nod/ponder must take over from the static reading sheet, with the right lifecycle duration.
+  for (const [button, reaction, milliseconds] of [['Reading nod', 'nod', 2_600], ['Reading ponder', 'ponder', 4_200]]) {
+    await page.getByRole('button', { name: button, exact: true }).click()
+    await expect(bust).toHaveAttribute('data-artwork', 'bust')
+    expect(await bust.locator('.head').evaluate(el => getComputedStyle(el).animationName)).toContain(reaction)
+    expect(await bust.locator('.head').evaluate(el => parseFloat(getComputedStyle(el).animationDuration) * 1000)).toBe(milliseconds)
   }
   await page.getByRole('button', { name: 'Reading', exact: true }).click()
   await page.getByRole('button', { name: 'Pause', exact: true }).click()
   expect(await bust.evaluate(el => el.getAnimations({ subtree: true }).length)).toBe(0)
-  expect(await bust.locator('.frames').evaluate(el => getComputedStyle(el).transform)).toBe('none')
+  expect(await bust.locator('.frames').evaluate(el => new DOMMatrix(getComputedStyle(el).transform).m41)).toBe(-1152)
   await page.getByRole('button', { name: 'Resume', exact: true }).click()
   await page.getByRole('button', { name: 'Disable animation', exact: true }).click()
   expect(await bust.evaluate(el => el.getAnimations({ subtree: true }).length)).toBe(0)
@@ -46,12 +55,12 @@ try {
   }
   const reduced = await browser.newPage({ reducedMotion: 'reduce' })
   await reduced.goto(`${harness.url}/tests/fixtures/gaffer-artwork.html`)
-  for (const scene of ['Greeting', 'Reading', 'Tea']) {
+  for (const scene of ['Greeting', 'Reading', 'Tea', 'Biscuit', 'Shrug', 'Steady on']) {
     await reduced.getByRole('button', { name: scene, exact: true }).click()
     expect(await reduced.locator('.gaffer-avatar').evaluateAll(avatars => avatars.every(el => el.getAnimations({ subtree: true }).length === 0))).toBe(true)
   }
   expect(errors).toEqual([])
-  console.log('Gaffer artwork: both approved portraits load; all three strips, frame bounds, resting frames, pause, preference, reduced motion and status priority passed.')
+  console.log('Gaffer artwork: both portraits, all six performances, frame bounds, resting frames, pause, preference, reduced motion and status priority passed.')
 } finally {
   await browser.close()
   await harness.close()

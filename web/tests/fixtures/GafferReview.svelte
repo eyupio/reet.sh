@@ -13,6 +13,9 @@
     { title: 'Snag duty', label: 'Session needs attention', phase: 'error', pose: 'concerned', reaction: 'shake', quote: 'Right, OpenCode. Read the error. My “give it a whack” policy is under review.', note: 'A concerned expression and a clear warning. No celebration or nap while there’s a problem.' },
     { title: 'Your call, boss', label: 'Waiting for your approval', phase: 'approval', pose: 'attention', reaction: 'listen', quote: 'Your call, boss. OpenCode is waiting. My cap doesn’t come with signing authority.', note: 'He leans in to listen. Your decision stays centre stage.' },
     { title: 'Ey up', label: 'Click Gaffer · or press Enter', phase: 'working', pose: 'duty', reaction: 'tip-cap', quote: 'That’s a flat cap, not a doorbell. OpenCode, make a note.', note: 'The approved cap-tip frames and a fresh quip. A short cooldown keeps the poking civilised.' },
+    { title: 'Biscuit inspection', label: 'A proper quality-control nibble', phase: 'working', pose: 'duty', reaction: 'biscuit', quote: 'That biscuit’s load-bearing. OpenCode, nobody touch the biscuit.', note: 'A considered dunk, a little nibble, and the expression of a man doing essential research.' },
+    { title: 'Now then', label: 'Another nudge · another opinion', phase: 'working', pose: 'duty', reaction: 'shrug', quote: 'Twice? Reet, that’s a meeting. OpenCode, take minutes. Very small ones.', note: 'Palms up, shoulders lift, then a slow settle. No rush. He’s paid by the eyebrow.' },
+    { title: 'Steady on', label: 'Keep poking · earn more eyebrow', phase: 'working', pose: 'duty', reaction: 'huff', quote: 'I’ve had less supervision from a pigeon with a chip. OpenCode, don’t encourage ’em.', note: 'Arms folded, a deadpan double take, and a knowing look. A quiet spell resets the teasing.' },
   ]
   let selected = $state(0), replay = $state(0), dark = $state(true)
   let livePose = $state<GafferPose>('duty'), liveReaction = $state<GafferReaction>('scan')
@@ -50,7 +53,7 @@
 <svelte:head><title>Gaffer · Design review</title></svelte:head>
 <main>
   <header><a href="#top">reet<span>.sh</span></a><span class="review-tag">Gaffer / design review</span><button class="theme" onclick={() => dark = !dark}>{dark ? 'Light' : 'Dark'} theme</button></header>
-  <section class="intro" id="top"><div><p class="eyebrow">GRID + PHOSPHOR / SELECTED DIRECTION</p><h1>After hours.<br />Still on the job.</h1><p class="lede">The filled cap, tiled face, raised eyebrow and stitched white outline. Same Gaffer, with the three gestures you chose.</p></div><div class="intro-art"><figure><div class="intro-avatar"><GafferAvatar phase="idle" paused={!$gafferAnimations} /></div><figcaption>02 / GRID</figcaption></figure><figure><div class="intro-avatar"><GafferAvatar variant="bust" phase="idle" paused={!$gafferAnimations} /></div><figcaption>03 / PHOSPHOR</figcaption></figure></div></section>
+  <section class="intro" id="top"><div><p class="eyebrow">MORE YORKSHIRE. MORE EYEBROW.</p><h1>Now then, boss.<br />You rang. Again.</h1><p class="lede">Six unhurried little performances, a biscuit with structural concerns, and more opinions every time you give him a nudge.</p></div><div class="intro-art"><figure><div class="intro-avatar"><GafferAvatar phase="idle" paused={!$gafferAnimations} /></div><figcaption>02 / GRID</figcaption></figure><figure><div class="intro-avatar"><GafferAvatar variant="bust" phase="idle" paused={!$gafferAnimations} /></div><figcaption>03 / PHOSPHOR</figcaption></figure></div></section>
   <div class="design-rules"><span><i></i> Brief gestures, long rests</span><span>Reacts to the actual job</span><span>Always leaves the facts in view</span></div>
   <section class="gallery" aria-label="Gaffer mock states">
     {#each scenes as item, index}

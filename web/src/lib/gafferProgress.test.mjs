@@ -165,7 +165,7 @@ test('summaries disclose truncated history, bound the handover, omit code blocks
   assert.equal(gafferProgress({ ...chat, items: chat.items.slice(1) }, '', true, true).visible, true)
 })
 
-const { gafferPose, gafferGesture, gafferAside } = await import(asURL(compile('./gafferPersonality.ts')))
+const { gafferPose, gafferGesture, gafferAside, gafferClickRun, gafferClickReaction, gafferClickAside } = await import(asURL(compile('./gafferPersonality.ts')))
 
 test('returning to work means tea, returning to a stopped session means sleep, and problems or decisions always win', () => {
   for (const phase of ['planning', 'reading', 'searching', 'editing', 'running', 'responding']) assert.equal(gafferPose(phase, true), 'tea')
@@ -192,6 +192,56 @@ test('click and return banter stays contextual, names the agent, and avoids imme
     if (pose !== 'duty' || kind !== 'return') assert.notEqual(gafferAside(kind, pose, 'Claude Code', first, () => 0), first)
   }
   assert.match(gafferAside('return', 'concerned', 'Agent'), /snag|needs a look/)
+})
+
+test('deliberate nudges build a short streak, accidental doubles are ignored, and a quiet spell resets it', () => {
+  const first = gafferClickRun({ count: 0, at: -Infinity }, 1_000)
+  assert.equal(first.count, 1)
+  assert.equal(gafferClickRun(first, 1_100), null)
+  const second = gafferClickRun(first, 1_700)
+  assert.equal(second.count, 2)
+  assert.equal(gafferClickRun(second, 22_000).count, 1)
+  assert.equal(gafferClickRun(second, 500).count, 1)
+})
+
+test('clicks offer a repertoire without immediate repeats and serious states keep their contextual reactions', () => {
+  let previous = ''
+  const seen = new Set()
+  for (let count = 1; count <= 14; count++) {
+    const reaction = gafferClickReaction('duty', count, previous)
+    assert.notEqual(reaction, previous)
+    seen.add(reaction); previous = reaction
+    assert.equal(gafferClickReaction('concerned', count, previous), 'shake')
+    assert.equal(gafferClickReaction('attention', count, previous), 'listen')
+    assert.equal(gafferClickReaction('asleep', count, previous), 'stretch')
+  }
+  for (const reaction of ['tip-cap', 'shrug', 'huff', 'biscuit', 'sip']) assert.ok(seen.has(reaction))
+})
+
+test('repeated-poke quips name the real agent, avoid repeats and keep decisions and errors in context', () => {
+  for (const pose of ['duty', 'tea', 'asleep', 'attention', 'concerned']) {
+    let previous = ''
+    for (let count = 1; count <= 12; count++) {
+      const quote = gafferClickAside(pose, 'Claude Code', count, previous, () => 0)
+      assert.match(quote, /Claude Code/)
+      assert.notEqual(quote, previous)
+      assert.doesNotMatch(quote, /\{agent\}/)
+      previous = quote
+    }
+  }
+  assert.match(gafferClickAside('duty', '', 5, '', () => 0), /Agent/)
+  assert.match(gafferClickAside('attention', 'OpenCode', 20, '', () => 0), /answer/)
+  assert.match(gafferClickAside('concerned', 'OpenCode', 20, '', () => 0), /snag/)
+})
+
+test('sprite performances have enough time for anticipation and settling, and the tea lifecycle uses its own duration', async () => {
+  const { gafferGestureMs } = await import('./gafferMotion.ts')
+  for (const reaction of ['tip-cap', 'scan', 'sip', 'biscuit', 'shrug', 'huff']) {
+    assert.ok(gafferGestureMs(reaction) >= 3_800)
+    assert.ok(gafferGestureMs(reaction) <= 6_000)
+  }
+  assert.ok(gafferGestureMs('sip') > gafferGestureMs('tip-cap'))
+  assert.ok(gafferGestureMs('biscuit') > gafferGestureMs('nod'))
 })
 
 test('a chat reconnecting in place reads as reconnecting, never as ended; a failed reconnect is ended again', () => {

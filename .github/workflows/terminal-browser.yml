@@ -248,6 +248,7 @@ jobs:
           node web/tests/question-card.e2e.mjs
           node web/tests/gaffer-artwork.e2e.mjs
           node web/tests/gaffer-return.e2e.mjs
+          node web/tests/gaffer-interaction.e2e.mjs
           node web/tests/gaffer-progress.e2e.mjs
           node web/tests/account.e2e.mjs
           node web/tests/launch.e2e.mjs

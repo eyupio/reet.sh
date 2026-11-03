@@ -1,5 +1,41 @@
 # UI verification — 3 November 2026
 
+## Gaffer: more Yorkshire, more eyebrow
+
+The follow-up to the selected Grid/Phosphor artwork adds biscuit inspection, a palms-up shrug and a
+deadpan double take alongside the cap-tip, reading and tea-sip strips. Performances last 3.8–5.6 seconds,
+with an anticipation beat, a held expression, gentle continuous body movement and a still final frame.
+The production welcome lifetime and gesture cleanup use those same durations. Each performance gets
+time to finish and settle before the next one starts; ambient gestures retain long, irregular rests.
+
+Deliberate nudges now count as a short run. The first gets a greeting, later nudges get more eyebrow and
+different Yorkshire patter, and a quiet spell resets the teasing. Accidental double clicks are ignored.
+The quip replies immediately; only the latest pending gesture waits, so repeated clicks cannot build
+an animation backlog or restart the current performance. Clicking during the return-to-session tea
+scene also lets the sip finish. Phase changes, errors, approvals, pause, hidden tabs and unmount cancel
+stale queued reactions. A poke is decoration and never sends a command or approval to the agent.
+
+Explicit click replies use polite live announcements, which switch off after the reply expires.
+Finished sessions show the reply alongside the retained handover. Reduced motion and the account
+preference keep the quips available with still artwork. New art is packaged locally as lossless WebP;
+no dependency or runtime provider call is added.
+
+Checked with `npm run check`, `npm run build`, and the artwork, return, interaction and progress browser
+suites. The interaction suite covers the real work card: keyboard/touch, immediate quips, a bounded
+reply queue, uninterrupted gestures, quiet-spell reset, status priority, no agent actions, the retained
+handover, and 390 px in both themes with reduced motion. The existing progress suite retains its
+320/390/768 px theme matrix. Source-frame checks cover all six strips and their resting poses.
+
+`node tests/gaffer-capture.mjs` reproduces the latest screenshots and, with FFmpeg installed, the
+six-second recording of the actual components:
+
+- [Six longer performances](images/ui/gaffer-variety-animation.gif)
+- [Nine-state review](images/ui/gaffer-variety-review.png)
+- [Desktop dark](images/ui/gaffer-variety-desktop-dark.png) / [desktop light](images/ui/gaffer-variety-desktop-light.png)
+- [Phone dark](images/ui/gaffer-variety-phone-dark.png) / [phone light](images/ui/gaffer-variety-phone-light.png)
+
+Chromium was exercised. Physical devices, Firefox and Safari were not.
+
 ## Gaffer: selected Grid and Phosphor artwork
 
 The owner selected the pale tiled flat cap, grid-filled face, dashed white silhouette and soft CRT glow,
@@ -29,7 +65,7 @@ Validation:
   resolved the initial theme-test git-output buffer error caused by the stale local base reference.
 - `npm run build`: production build passes. This UI-only change does not modify the Go runtime.
 
-`node tests/gaffer-capture.mjs` reproduces the actual component captures:
+Original captures of the selected-art implementation:
 
 - [Selected artwork and states](images/ui/gaffer-phosphor-review.png)
 - [Desktop dark](images/ui/gaffer-phosphor-desktop-dark.png) / [desktop light](images/ui/gaffer-phosphor-desktop-light.png)

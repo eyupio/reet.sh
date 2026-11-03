@@ -196,21 +196,21 @@ try {
  terminalReady=false
  await page.goto(`${base}/machines#connect-machine`)
  await page.getByLabel('Machine name',{exact:true}).fill('dev-laptop')
- await page.getByRole('button',{name:'Continue to authentication →',exact:true}).click()
- await page.getByRole('button',{name:'Continue to terminal connection →',exact:true}).click()
+ await page.getByRole('button',{name:'Continue to authentication',exact:true}).click()
+ await page.getByRole('button',{name:'Continue to terminal connection',exact:true}).click()
  await expect(page.getByRole('heading',{name:'Bring this machine into your workspace.'})).toBeVisible()
  await expect(page.getByText('Waiting for terminal readiness',{exact:true})).toBeVisible()
- await expect(page.getByRole('link',{name:'Open terminals for dev-laptop →',exact:true})).toHaveCount(0)
+ await expect(page.getByRole('link',{name:'Open terminals for dev-laptop',exact:true})).toHaveCount(0)
  terminalReady=true
  await page.getByRole('button',{name:'Check terminal connection',exact:true}).click()
- await expect(page.getByRole('link',{name:'Open terminals for dev-laptop →',exact:true})).toHaveAttribute('href','/sessions?agent=a')
+ await expect(page.getByRole('link',{name:'Open terminals for dev-laptop',exact:true})).toHaveAttribute('href','/sessions?agent=a')
  // The watch keeps its own beat: a machine that becomes ready after the
  // operator stops pressing buttons appears without another click.
  terminalReady=false
  await page.getByRole('button',{name:'Check terminal connection',exact:true}).click()
  await expect(page.getByText('Waiting for terminal readiness',{exact:true})).toBeVisible()
  terminalReady=true
- await expect(page.getByRole('link',{name:'Open terminals for dev-laptop →',exact:true})).toBeVisible({timeout:10000})
+ await expect(page.getByRole('link',{name:'Open terminals for dev-laptop',exact:true})).toBeVisible({timeout:10000})
  for(const width of [390,768,1440]){
   await page.setViewportSize({width,height:900})
   await page.goto(`${base}/machines`)

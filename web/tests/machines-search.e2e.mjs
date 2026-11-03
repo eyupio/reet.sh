@@ -52,7 +52,7 @@ try {
     await search.fill('nowt')
     await expect(count(page)).toHaveText('0 of 2 machines')
     await expect(page.getByText('No machine here matches “nowt”.')).toBeVisible()
-    await page.getByRole('button', { name: 'Clear search' }).click()
+    await page.getByRole('button', { name: 'Clear filters' }).click()
     await expect(count(page)).toHaveText('2 machines')
     await expect(page.getByRole('article')).toHaveCount(2)
     expect(errors).toEqual([])

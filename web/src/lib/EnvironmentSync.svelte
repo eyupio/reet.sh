@@ -17,8 +17,9 @@
   import SyncActivity from './SyncActivity.svelte'
   import MachineSkillImports from './MachineSkillImports.svelte'
   import { agoLabel } from './syncOverview'
+  import { formatWhen } from './time'
 
-  let { canWrite, accounts=false, terminalAccess=false, monitorAccess=false, token = '', tokenSetup, view = 'machines', startConnect = false, onsignedout }: { canWrite: boolean; accounts?: boolean; terminalAccess?:boolean;monitorAccess?:boolean;token?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; startConnect?: boolean; onsignedout?: (e: unknown) => void } = $props()
+  let { canWrite, accounts=false, terminalAccess=false, monitorAccess=false, token = '', timeZone = '', dateFormat = 'locale', tokenSetup, view = 'machines', startConnect = false, onsignedout }: { canWrite: boolean; accounts?: boolean; terminalAccess?:boolean;monitorAccess?:boolean;token?: string; timeZone?: string; dateFormat?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; startConnect?: boolean; onsignedout?: (e: unknown) => void } = $props()
 
   let syncState = $state<SyncState>({ environments: [], targets: [] })
   let machines = $derived(inventoryMachines(syncState.machines ?? []))
@@ -84,7 +85,7 @@
     loaded = true
   }
   function fresh(env: SyncEnvironment): boolean { return env.scannedAt > now - (env.agent === 'reet-server' ? 5 * 60000 : 14 * 86400000) }
-  function when(at: number): string { return at ? new Date(at).toLocaleString() : 'Not reported yet' }
+  function when(at: number): string { return at ? formatWhen(at, timeZone, dateFormat) : 'Not reported yet' }
   function humanWhen(at: number): string {
     if (!at) return 'Not reported yet'
     const value = elapsed(at)
@@ -268,7 +269,7 @@
     {#if loading && !loaded}
       <Skeleton label="Reading your machines…" shape="cards" count={2} height="150px" />
     {:else if visibleMachines.length}
-      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {terminalAccess} {monitorAccess} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} highlight={justAdded} onupdate={updateState} onerror={actionFailed} {onsignedout} onnotice={notify} onimport={(source) => (importSource = source)} />
+      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {timeZone} {dateFormat} {terminalAccess} {monitorAccess} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} highlight={justAdded} onupdate={updateState} onerror={actionFailed} {onsignedout} onnotice={notify} onimport={(source) => (importSource = source)} />
     {:else if loaded}
       <section class="sync-empty" aria-labelledby="machines-empty-title">
         <h3 id="machines-empty-title">No machines connected yet</h3>

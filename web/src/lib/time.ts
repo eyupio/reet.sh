@@ -34,6 +34,19 @@ export function sinceLabel(stage: Stage, ts: number): string {
   return `On the shelf ${elapsed(ts)}`
 }
 
+/** One absolute timestamp for a title: the person's date order and time zone, without seconds. */
+export function formatWhen(ts: number, timeZone = '', dateFormat = 'locale'): string {
+  if (!ts) return ''
+  const options: Intl.DateTimeFormatOptions = { dateStyle: 'medium', timeStyle: 'short' }
+  if (timeZone) options.timeZone = timeZone
+  const locale = dateFormat === 'dmy' ? 'en-GB' : dateFormat === 'mdy' ? 'en-US' : dateFormat === 'ymd' ? 'sv-SE' : undefined
+  try {
+    return new Date(ts).toLocaleString(locale, options)
+  } catch {
+    return new Date(ts).toLocaleString()
+  }
+}
+
 export function isStale(ts: number): boolean {
   return Date.now() - ts >= 30 * DAY
 }

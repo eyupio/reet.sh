@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { shell } from './dialogShell'
   import CopyButton from './CopyButton.svelte'
+  import Icon from './Icon.svelte'
   import { enrollCommands, scanCommand, syncLink, upgradeCommands } from './machineSetup'
 
   let {
@@ -63,7 +64,7 @@
         <h2 id="machine-commands-title">{machine}</h2>
         <p class="lede" data-shell-aside>Copy a command, run it on that machine, and come back to refresh the status.</p>
       </div>
-      <button class="icon" type="button" onclick={() => dialog?.close()} aria-label="Close machine commands" data-shell-close>×</button>
+      <button class="icon" type="button" onclick={() => dialog?.close()} aria-label="Close machine commands" data-shell-close><Icon name="x" size={18} /></button>
     </header>
 
     {#if enrolled}
@@ -90,8 +91,7 @@
     </div>
 
     <footer>
-      <a class="btn primary" href={syncLink(machine)}>Open compare &amp; sync →</a>
-      <button class="btn quiet" type="button" onclick={() => dialog?.close()}>Done</button>
+      <a class="btn primary" href={syncLink(machine)}>Open compare &amp; sync<Icon name="arrow-right" /></a>
     </footer>
   </div>
 </dialog>

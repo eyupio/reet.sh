@@ -235,11 +235,11 @@ try {
   await rail.getByRole('checkbox',{name:/^site, /}).click()
   await expect(rail.getByRole('link',{name:'Start in these on Home'})).toHaveAttribute('href','/?projects=p1,p2')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-  // A card opens Home's launch bar on that project; Home on a phone shows no rail.
+  // A card narrows Home's board to that project; Home on a phone shows no rail.
   await rail.getByRole('button',{name:'Done selecting'}).click()
   await rail.getByRole('button',{name:/^site, /}).click()
   await expect(page).toHaveURL(`${base}/?project=p2`)
-  await expect(page.locator('.summary-text b')).toHaveText('site')
+  await expect(page.locator('.scope')).toContainText('site')
   await expect(page.locator('main aside.rail')).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()

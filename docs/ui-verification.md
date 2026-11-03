@@ -2166,3 +2166,29 @@ Validation:
 
 **Not checked.** No physical phone or tablet and no screen reader. A failed sessions
 read was not exercised by a new browser matrix.
+
+## Account API tokens under the collection contract — 2 November 2026
+
+Account → API tokens now separates **Create a token** into its own card and puts the
+tokens in one **Personal API tokens** panel with a live count, search and **All /
+Used / Never used** chips whose figures follow the search. Each row has the token
+name, created and last-used time, and the existing **Revoke** action with its
+confirmation. A token with no recorded use is **Never used**. Creating a token adds
+it to the list and keeps the one-time secret in the create card. The first read shows
+a skeleton, an empty search offers **Clear filters**, and viewer accounts keep their
+message.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `account-tokens.e2e.mjs`: panel count, all three chips, search, empty recovery,
+  creating a token and its one-time secret, revoking a token, and phone layouts at
+  390 and 320 px with no horizontal overflow.
+- `phone-zoom.e2e.mjs` (the account tokens screen) and `navigation.e2e.mjs` pass.
+
+![Account API tokens, desktop](images/ui/account-tokens-desktop.png)
+![Account API tokens, phone](images/ui/account-tokens-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. A failed token
+read or a failed create was not exercised by a new browser matrix.

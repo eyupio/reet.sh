@@ -116,7 +116,7 @@ Failed or refused continuation rows are failed definitively rather than left `cr
 | OpenCode store missing / `session/load` refused | `failed` with reason; Try again and Start a new chat. |
 | Live process already owns the chat | Adopted, state `running`. |
 | Another row owns the conversation | `failed`: "This conversation is open in another session." |
-| The machine is still starting the chat | `chat_reattach_starting`: "Still reconnecting. Try again in a moment." (the machine's conflict result carries the detail `starting`). |
+| The machine is still starting the chat | `chat_reattach_starting`: "Still reconnecting. Try again in a moment." (the machine's conflict result carries the detail `starting` only when the controller advertised `chat-reattach-detail-v1`; otherwise a plain conflict, so either side can be updated first and an older controller shows its old "open in another session" wording for that rare moment). |
 | Account does not allow YOLO / machine YOLO consent off | `chat_reattach_yolo_not_allowed` / `chat_reattach_yolo_refused`; no Try again. |
 | Machine at its session limit | `chat_reattach_capacity`: "This machine has reached its session limit."; no Try again. |
 | Folder has OpenCode plugins | `chat_reattach_trust` with the files; Continue with history and Start a new chat, no Try again. |

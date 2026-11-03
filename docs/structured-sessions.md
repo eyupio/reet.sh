@@ -224,8 +224,11 @@ same machine call), bounds it at 75 seconds ("Reconnecting took too long. Try ag
 
 A wait that times out or finds the machine offline answers 503 "Reconnecting took too long. Try again.". A YOLO chat is a
 YOLO launch: the controller checks the account's **Allow YOLO** setting before it asks the machine. The machine marks a
-"still starting" conflict with the result detail `starting` (the only detail a `conflict` result may carry); a plain
-`conflict` means another session owns the conversation.
+"still starting" conflict with the result detail `starting` (the only detail a `conflict` result may carry) only for a
+controller that advertised **`chat-reattach-detail-v1`**; any other controller gets a plain `conflict`. A plain
+`conflict` means another session owns the conversation. Because the marker is negotiated, the controller and the machine
+can be updated in either order; an older controller shows its old "open in another session" wording for that rare
+moment.
 
 **A chat a person ended is never reconnected in place.** The machine answers a person's **End** of a Gaffer chat with
 `exited` (code 0); the controller records that close of an `end_requested` structured row as `ended` (no exit code). Rows

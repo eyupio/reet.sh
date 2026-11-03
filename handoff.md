@@ -53,8 +53,9 @@ operation (older rows stored `exited`/`lost`) with `chat_reattach_ended` ("You e
 a new session."), which the browser treats quietly on an automatic attempt. Reattach checks the account's Allow-YOLO setting
 first (`chat_reattach_yolo_not_allowed`), keeps the machine's YOLO refusal (`chat_reattach_yolo_refused`) and capacity
 (`chat_reattach_capacity`) instead of the retryable failure, and a chat still starting on the machine (its conflict result
-now carries the detail `starting`) answers `chat_reattach_starting` ("Still reconnecting. Try again in a moment.") instead
-of "open in another session". A non-OpenCode row answers "This chat cannot be reconnected in place."; the generic failure
+carries the detail `starting`, sent only to a controller that advertised `chat-reattach-detail-v1`, so either side can be
+updated first; an older controller shows its old "open in another session" wording for that rare moment) answers
+`chat_reattach_starting` ("Still reconnecting. Try again in a moment.") instead of "open in another session". A non-OpenCode row answers "This chat cannot be reconnected in place."; the generic failure
 now reads "The machine did not bring this chat back. Try again, or start a new chat.". Web: Try again only for retryable
 codes, the failure card is an alert, one live region while pending, "Reconnecting" for an exited row in the sidebar, and
 (ruling R10) a folder-trust refusal shows the plugin files and re-offers Continue with history (new row, `trust: true`) in

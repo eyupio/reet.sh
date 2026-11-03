@@ -17,7 +17,7 @@
   import SessionScreen from '../sessions/SessionScreen.svelte'
   import SessionTabs from '../sessions/SessionTabs.svelte'
   import { canContinue, canContinueChat, canReattachChat, closeTab, continueChatLaunch, continueLaunch, openTab } from '../sessions'
-  import { shouldAutoReattach } from './reattachState'
+  import { continuationFailureInPane, recoveryInFlight, shouldAutoReattach } from './reattachState'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import HealthHistory from './HealthHistory.svelte'
   import { renameTerminal, endTerminal, archiveTerminal, terminalClosed } from './api'
@@ -366,7 +366,7 @@
     catch{/* the shell stays listed; the panel is only a view */}
   }
   async function continueSession(target=session){
-    if(!target||actionBusy||continuing[target.id]?.phase==='pending')return
+    if(!target||actionBusy||recoveryInFlight(target.id,reattach,continuing))return
     const existing=continuations[target.id]
     const launch=existing?.launch??(target.structured?continueChatLaunch(target):continueLaunch(target,projects??[]))
     if(!launch)return
@@ -394,7 +394,9 @@
       if(definite)settle()
       const reason=e instanceof TerminalError?(e.message||'The session could not be continued.'):'The continuation may have started. Continue again to check the same operation.'
       if(shown)continuing={...continuing,[target.id]:{phase:'failed',reason}}
-      else error=reason
+      // Where the chat pane will not show it (another session on screen, or the pane offers Reconnect), the workspace says it.
+      const offersReconnect=canReattachChat(target,machines.find(item=>item.agentId===target.agentId))||!!reattach[target.id]
+      if(!continuationFailureInPane({structured:target.structured===true,selected:selectedSession===target.id,offersReconnect}))error=reason
     }
     finally{actionBusy=false}
   }
@@ -402,7 +404,7 @@
   // server also joins a second caller to the one in flight); it never navigates and never starts another session.
   const reattachAttempts = new Map<string, symbol>()
   async function reattachSession(target: TerminalSession, auto = false) {
-    if (reattach[target.id]?.phase === 'pending') return
+    if (recoveryInFlight(target.id, reattach, continuing)) return
     // A chat the person reconnected by hand is not also tried by itself later in this page load.
     if (!auto) autoTried.add(target.id)
     const attempt = Symbol(target.id)
@@ -435,9 +437,12 @@
     if (!target) return
     const canReattach = canReattachChat(target, machines.find(item => item.agentId === target.agentId))
     const phase = reattach[target.id]?.phase ?? 'idle'
+    // Not while a Continue with history of this chat is in flight; the effect runs again once it settles.
+    const continuingNow = continuing[target.id]?.phase === 'pending'
     untrack(() => {
       // A chat that is running again (reconnected from another tab, say) drops a failure left from before.
       if (phase === 'failed' && !terminalClosed(target.state)) { const next = { ...reattach }; delete next[target.id]; reattach = next; return }
+      if (continuingNow) return
       if (!shouldAutoReattach({ canReattach, phase, tried: autoTried, sessionId: target.id })) return
       autoTried.add(target.id)
       void reattachSession(target, true)
@@ -574,8 +579,8 @@
           onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}
           insightChat={insightChat?.id === session.id ? insightChat.state : undefined}
           chatBusy={session.structured && chatBusy?.id === session.id ? chatBusy.busy : undefined} onmode={modeSwitched}
-          oncontinue={reattach[session.id]?.phase === 'pending' ? undefined : session.structured
-            ? (canContinueChat(session, machines.find(item => item.agentId === session.agentId)) ? () => void continueSession(session) : undefined)
+          oncontinue={session.structured
+            ? (!canReattachChat(session, machines.find(item => item.agentId === session.agentId)) && canContinueChat(session, machines.find(item => item.agentId === session.agentId)) ? () => void continueSession(session) : undefined)
             : (canContinue(session, machines.find(item => item.agentId === session.agentId), projects ?? []) ? () => void continueSession(session) : undefined)}
           onterminal={() => void openPlainTerminal(session)}
           onside={!phone ? () => void openSideTerminal(session) : undefined}

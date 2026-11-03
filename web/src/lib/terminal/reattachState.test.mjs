@@ -25,3 +25,20 @@ test('a pending or failed attempt is never restarted automatically', () => {
 test('a chat the machine cannot reattach is left alone', () => {
   assert.equal(shouldAutoReattach(args({ canReattach: false })), false)
 })
+
+const { recoveryInFlight, continuationFailureInPane } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+
+test('a reconnect and a Continue with history of the same chat never run at once', () => {
+  assert.equal(recoveryInFlight('s1', {}, {}), false)
+  assert.equal(recoveryInFlight('s1', { s1: { phase: 'pending' } }, {}), true)
+  assert.equal(recoveryInFlight('s1', {}, { s1: { phase: 'pending' } }), true)
+  assert.equal(recoveryInFlight('s1', { s1: { phase: 'failed', reason: 'x' } }, { s1: { phase: 'failed', reason: 'y' } }), false)
+  assert.equal(recoveryInFlight('s1', { other: { phase: 'pending' } }, { other: { phase: 'pending' } }), false)
+})
+
+test('a failed Continue with history is shown in the pane only where the pane will show it', () => {
+  assert.equal(continuationFailureInPane({ structured: true, selected: true, offersReconnect: false }), true)
+  assert.equal(continuationFailureInPane({ structured: true, selected: true, offersReconnect: true }), false, 'the pane shows Reconnect instead')
+  assert.equal(continuationFailureInPane({ structured: true, selected: false, offersReconnect: false }), false, 'another session is on screen')
+  assert.equal(continuationFailureInPane({ structured: false, selected: true, offersReconnect: false }), false, 'a terminal has no chat pane')
+})

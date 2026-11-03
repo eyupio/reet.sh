@@ -193,3 +193,20 @@ test('click and return banter stays contextual, names the agent, and avoids imme
   }
   assert.match(gafferAside('return', 'concerned', 'Agent'), /snag|needs a look/)
 })
+
+test('a chat reconnecting in place reads as reconnecting, never as ended; a failed reconnect is ended again', () => {
+  let chat = applyChatEvent(initialChat(), { seq: 1, kind: 'user', text: 'Fix it' })
+  chat = { ...chat, connection: 'open' }
+  const pending = gafferProgress(chat, '', true, true, 'OpenCode', false, true)
+  assert.equal(pending.phase, 'reconnecting')
+  assert.equal(pending.visible, true)
+  assert.doesNotMatch(`${pending.label} ${pending.target}`, /ended|problem|shift|clocked/i)
+  // A lost session counted as failed is still shown as reconnecting while the attempt runs.
+  assert.equal(gafferProgress(chat, '', true, true, 'OpenCode', true, true).phase, 'reconnecting')
+  // Not pending (idle or failed): unchanged.
+  assert.equal(gafferProgress(chat, '', true, true, 'OpenCode').phase, 'ended')
+  assert.equal(gafferProgress(chat, '', true, true, 'OpenCode', false, false).phase, 'ended')
+  assert.equal(gafferProgress(chat, '', true, true, 'OpenCode', true, false).phase, 'error')
+  // Only a closed chat can be reconnecting in place; a live one ignores the flag.
+  assert.equal(gafferProgress(chat, '', true, false, 'OpenCode', false, true).phase, 'idle')
+})

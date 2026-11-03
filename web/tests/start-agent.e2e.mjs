@@ -987,6 +987,26 @@ try{
  expect(uploads).toHaveLength(1)
  expect(uploads[0].type).toBe('image/png')
  expect(JSON.parse(posts.at(-1)).prompt).toBe(`look at this please\n\nImage: ${UPLOAD_REF}`)
+ // The image paths must fit under the same limit as the prompt: an 8,000-byte prompt plus a path is refused before the
+ // session is asked to start, keeping the dialog and the attached image.
+ d=await openFromSidebar();p=parts(d)
+ await p.prompt.fill(`${'a'.repeat(7950)} b`)
+ await page.evaluate(() => {
+  const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], 'long.png', {type:'image/png'})
+  const transfer = new DataTransfer()
+  transfer.items.add(image)
+  const event = new Event('paste', {bubbles:true, cancelable:true})
+  Object.defineProperty(event, 'clipboardData', {value: transfer})
+  document.querySelector('dialog textarea').dispatchEvent(event)
+ })
+ const tooLongPosts=posts.length
+ await p.start.click()
+ await expect(p.status).toHaveText('The image paths push the opening prompt past 8,000 bytes. Shorten the prompt or remove an image.')
+ await expect(d).toBeVisible()
+ await expect(d.getByRole('list',{name:'Images to attach'})).toBeVisible()
+ expect(posts.length).toBe(tooLongPosts)
+ await page.keyboard.press('Escape')
+ await expect(d).toHaveCount(0)
  tmachines[0].capabilities.uploads=false
 
  // YOLO from the start dialog, as the left panel opens it: offered only when the account, the machine and the agent allow it,

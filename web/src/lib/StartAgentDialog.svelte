@@ -517,6 +517,13 @@
     }
     if (life.signal.aborted) return
     launch.prompt = imagePrompt(launch.prompt ?? '', references)
+    if (new TextEncoder().encode(launch.prompt).length > MAX_PROMPT_BYTES) {
+     // The machine rejects a prompt over the limit, so catch the paths' extra bytes before it is asked to start.
+     busy = false; failed = true; invalidMessage = true
+     message = `The image paths push the opening prompt past ${MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes. Shorten the prompt or remove an image.`
+     void focusAfter(() => field('prompt'))
+     return
+    }
    }
    operation = { agentId: machine.agentId, host: machine.host, requestId: crypto.randomUUID(), title: titleFor(chosenTool, dir), launch }
   }

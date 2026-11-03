@@ -427,6 +427,10 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 	process, err := h.sup.start(startCtx, acpagent.Options{
 		Agent: spec, Binary: binary, Dir: dir, Home: h.sup.opts.Home, Model: in.Model, Trust: in.Trust, Resume: in.ResumeACP,
 		BaseEnv: os.Environ(),
+		// Start calls OnReady after the replay and before its own closes of
+		// interrupted tool calls and its first idle status, which the
+		// controller needs even when the replay is dropped.
+		OnReady: func() { started.Store(true) },
 		OnEvent: func(event acpagent.Event) {
 			if started.Load() {
 				h.sup.publish(cs, event)

@@ -80,24 +80,57 @@ func TestReattachStartsLoadUnderSameSessionID(t *testing.T) {
 }
 
 // The controller keeps its own transcript, so what session/load replays must
-// not reach it a second time; what the agent says after startup must.
+// not reach it a second time. What Start emits after the replay must: the
+// close of a tool call the crash interrupted (or its card keeps spinning) and
+// the idle status with the confirmed model (or the row keeps showing the
+// crashed turn's working state). Later events are forwarded as usual.
 func TestReattachDropsReplay(t *testing.T) {
 	h, proc, out, loads := reattachHost(t)
 	h.sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
 		loads.record(opts)
+		// session/load replay, ending in a tool call that was still running.
 		opts.OnEvent(acpagent.Event{Kind: "user", Text: "old question"})
 		opts.OnEvent(acpagent.Event{Kind: "agent", MessageID: "msg_old1", Text: "old answer"})
 		opts.OnEvent(acpagent.Event{Kind: "user", Text: "older follow-up"})
+		opts.OnEvent(acpagent.Event{Kind: "tool", ToolCallID: "call_old", Status: "in_progress", ToolKind: "execute", Title: "make test"})
+		opts.OnEvent(acpagent.Event{Kind: "status", State: "working"})
+		// What acpagent.Start emits once the load has returned.
+		if opts.OnReady != nil {
+			opts.OnReady()
+		}
+		opts.OnEvent(acpagent.Event{Kind: "tool", ToolCallID: "call_old", Status: "failed", ToolKind: "other",
+			Title: "Interrupted tool call", Text: "Interrupted before this chat was reopened."})
+		opts.OnEvent(acpagent.Event{Kind: "status", State: "idle", Detail: "test/model"})
 		proc.mu.Lock()
 		proc.onEvent = opts.OnEvent
 		proc.mu.Unlock()
 		return proc, nil
 	}
-	if _, err := h.reattach(reattachRequestID, reattachSessionID, reattachBody(h, proc)); err != nil {
+	body := reattachBody(h, proc)
+	body.Model = "test/model"
+	if _, err := h.reattach(reattachRequestID, reattachSessionID, body); err != nil {
 		t.Fatal(err)
 	}
 	if replayed := append(out.events("user"), out.events("agent")...); len(replayed) != 0 {
 		t.Fatalf("session/load replay was forwarded: %+v", replayed)
+	}
+	tools := out.events("tool")
+	if len(tools) != 1 || tools[0].ToolCallID != "call_old" || tools[0].Status != "failed" {
+		t.Fatalf("interrupted tool close not forwarded alone: %+v", tools)
+	}
+	statuses := out.events("status")
+	if len(statuses) != 1 || statuses[0].State != "idle" || statuses[0].Detail != "test/model" {
+		t.Fatalf("post-load status not forwarded alone: %+v", statuses)
+	}
+	h.sup.mu.Lock()
+	cs := h.sup.sessions[reattachSessionID]
+	var lastStatus *terminalproto.ACPEvent
+	if cs != nil {
+		lastStatus = cs.lastStatus
+	}
+	h.sup.mu.Unlock()
+	if lastStatus == nil || lastStatus.State != "idle" {
+		t.Fatalf("machine kept no status for a later reconnect: %+v", lastStatus)
 	}
 	proc.onEvent(acpagent.Event{Kind: "agent", MessageID: "msg_new1", Text: "new answer"})
 	agent := out.events("agent")

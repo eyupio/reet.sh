@@ -15,8 +15,10 @@ const phases: Record<string, [GafferPhase, string]> = {
 
 const named = (text: string, agent: string): string => text.replaceAll('{agent}', agent.trim() || 'Agent')
 
-/** Only report evidence in the current turn. Replayed history, elapsed time and banter never imply new work or success. */
-export function gafferProgress(chat: ChatState, dir = '', replayed = true, ended = false, agent = 'Agent', sessionFailed = false): GafferProgress {
+/** Only report evidence in the current turn. Replayed history, elapsed time and banter never imply new work or success.
+ *  `reattaching`: a closed chat that reet is reconnecting in place reads as reconnecting, not as ended, until it is back
+ *  or the attempt fails. */
+export function gafferProgress(chat: ChatState, dir = '', replayed = true, ended = false, agent = 'Agent', sessionFailed = false, reattaching = false): GafferProgress {
   let start = -1
   for (let i = chat.items.length - 1; i >= 0; i--) { if (chat.items[i].kind === 'user') { start = i; break } }
   const items = chat.items.slice(start + 1)
@@ -33,6 +35,7 @@ export function gafferProgress(chat: ChatState, dir = '', replayed = true, ended
     visible: active || ['approval', 'question', 'waiting', 'reconnecting', 'error', 'cancelled'].includes(phase) || start >= 0
       || (chat.items.length > 0 && (phase === 'ended' || (phase === 'idle' && chat.truncated))),
   })
+  if (ended && reattaching) return result('reconnecting', named('Reconnecting {agent}', agent), 'Live progress returns once the chat is back.')
   if (sessionFailed || (ended && chat.status.state === 'error')) return result('error', 'This session ended with a problem', 'Review the session error and handover before starting again.')
   if (ended || chat.status.state === 'ended') return result('ended', 'This session has ended')
   if (chat.connection === 'reconnecting') return result('reconnecting', named('Reconnecting to {agent}', agent), 'Live progress is unavailable until the connection returns.')

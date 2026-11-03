@@ -23,6 +23,7 @@ func (s *server) registerTerminalChatRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/questions/{questionId}", s.terminal(s.terminalChatQuestion))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/approval-mode", s.terminal(s.terminalChatApprovalMode))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/mode", s.terminal(s.terminalSessionMode))
+	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/reattach", s.terminal(s.terminalChatReattach))
 }
 
 func (s *server) terminalChatSession(r *http.Request) (store.TerminalSession, bool) {
@@ -365,6 +366,50 @@ func (s *server) terminalSessionModeError(w http.ResponseWriter, err error) {
 		// A YOLO session moving to the OpenCode TUI is a YOLO launch; the
 		// same refusal and sentence as a launch.
 		writeErrCode(w, http.StatusForbidden, "yolo_not_allowed", "", "An owner or admin can allow YOLO for this account in Settings.", "")
+	default:
+		s.terminalChatError(w, err)
+	}
+}
+
+// terminalChatReattach reconnects a lost or exited OpenCode chat in place. The
+// call is held until the machine answers (up to about 75 s); the server sets no
+// response deadline, so the handler waits on the request context alone.
+func (s *server) terminalChatReattach(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !terminalproto.ValidID(id) {
+		writeErr(w, 400, "invalid terminal request")
+		return
+	}
+	if _, err := s.st.TerminalSessionFor(s.uid(r), id); err != nil {
+		writeErr(w, 404, "that reet session is not available")
+		return
+	}
+	if err := s.terminals.ReattachChat(r.Context(), s.uid(r), id); err != nil {
+		s.terminalReattachError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) terminalReattachError(w http.ResponseWriter, err error) {
+	var trust *terminalbroker.ACPTrustError
+	switch {
+	case errors.As(err, &trust):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "This folder has OpenCode plugins. Reconnect only in a folder you trust.", "code": "chat_reattach_trust", "detail": trust.Detail})
+	case errors.Is(err, terminalbroker.ErrReattachUnsupported), errors.Is(err, terminalbroker.ErrACPUnsupported):
+		writeErrCode(w, 409, "chat_reattach_unsupported", "", terminalbroker.ErrReattachUnsupported.Error(), "")
+	case errors.Is(err, terminalbroker.ErrReattachNotClosed), errors.Is(err, terminalbroker.ErrACPClosed):
+		writeErrCode(w, 409, "chat_reattach_not_closed", "", terminalbroker.ErrReattachNotClosed.Error(), "")
+	case errors.Is(err, terminalbroker.ErrReattachNoConversation):
+		writeErrCode(w, 409, "chat_reattach_no_conversation", "", err.Error(), "")
+	case errors.Is(err, terminalbroker.ErrReattachConflict):
+		writeErrCode(w, 409, "chat_reattach_conflict", "", err.Error(), "")
+	case errors.Is(err, terminalbroker.ErrReattachFailed):
+		writeErrCode(w, 502, "chat_reattach_failed", "", err.Error(), "")
+	case errors.Is(err, terminalbroker.ErrOffline):
+		// A timed-out wait also surfaces as ErrOffline and the machine may in
+		// fact have reattached, so the sentence is retryable.
+		writeErr(w, 503, "Reconnecting took too long. Try again.")
 	default:
 		s.terminalChatError(w, err)
 	}

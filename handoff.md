@@ -74,6 +74,28 @@ summaries, none non-zero; svelte-check `COMPLETED 360 FILES 0 ERRORS 0 WARNINGS 
 failed twice in its Skills-install section while the full Go race run loaded the machine, then passed on a third run
 after it finished; the same section also failed once on the unchanged baseline build in this session.
 
+Follow-up F1: refuse an archived chat (local branch `followups/reattach`, commit `dd9a731`). `Broker.ReattachChat` refuses a
+row with an entry in `terminal_session_archives` (new store helper `TerminalArchivedFor`, scoped by account) with
+`ErrReattachArchived` before any machine call; the route answers 409 `chat_reattach_archived` "This chat was archived, so
+its history is gone.", and the web treats it as final (no Try again, no Continue with history). In the final-review wave the
+archived check moved above the ended checks, so a chat that was both ended and archived answers archived too. Checks
+(`.superpowers/sdd/reattach-followups/f1-report.md`, not committed; all focused, none full): `go vet ./...` clean; `go test
+-race -count=1` for `internal/store -run 'Archiv|Reattach|Observe'`, `internal/terminalbroker -run Reattach` and
+`internal/api -run Reattach` all `ok` (timings not recorded); `reattachState.test.mjs` `pass 10 fail 0`; `npm run check` 0
+errors 0 warnings.
+
+Follow-up F2: negotiate the still-starting marker (commits `28f3e1c` code, `5e2555b` docs, nit `d3f0156`). New feature
+`chat-reattach-detail-v1`: the controller advertises it, the connector echoes it, and the machine sends `conflict` with the
+detail `starting` only to a controller that advertised it (any other gets a plain `conflict`), so the controller and the
+machine can be updated in either order. Checks (`f2-report.md`, `f2-verify.log`, `f2-api-full.log`, not committed):
+`go vet ./...` clean; full `internal/terminalproto` `ok 1.132s`, `internal/agenthealth` `ok 6.852s`, `internal/terminalagent`
+`ok 7.673s`; focused `internal/terminalbroker -run 'Reattach|Conflict|Feature'` `ok 10.679s` and `internal/api -run
+'PrivateControl|Reattach'` `ok 26.007s`; full `internal/api` `ok .../internal/api 714.878s` (an earlier run hit the default
+10-minute test timeout and was re-run with `-timeout 40m`).
+
+Full `internal/store` once on the final code before the final-review wave (`final-store-full.log`): `ok
+.../internal/store 255.988s`; it was not re-run after that wave, which did not touch `internal/store`.
+
 Follow-up F3: trusted in-place reconnect (local branch `followups/reattach`, commits `24c602b` Go, `b0b6fd9` web, and this
 docs commit). `POST /api/v2/terminal/sessions/{id}/reattach` takes an optional body: none, `null` or `{}` mean no trust,
 `{"trust": true}` passes trust for that request (the controller never stores it; each click is one request), anything

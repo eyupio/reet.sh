@@ -63,7 +63,9 @@ export function reattachTrust(opts: { auto?: boolean; trust?: boolean }): boolea
 }
 
 /** The machine's trust detail names the plugin files and ends with an instruction meant for a new chat; a reconnect's
- *  card shows only the files part, since the card's own sentence says what to do. Any other detail is shown as it is. */
+ *  card shows only the files part, since the card's own sentence says what to do. Any other detail is shown as it is.
+ *  The machine builds that string in internal/terminalagent/chat.go (chatResult, the acpagent.TrustError case):
+ *  "This folder has agent extensions: <files>. Start a chat only in a folder you trust." */
 const NEW_CHAT_TRUST_HINT = ' Start a chat only in a folder you trust.'
 export function reattachDetail(outcome: { phase: 'pending' | 'failed'; code?: string; detail?: string } | undefined): string | undefined {
   const detail = outcome?.detail

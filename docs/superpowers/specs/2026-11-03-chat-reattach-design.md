@@ -95,7 +95,7 @@ Handler `reattach(requestID, sessionID, body)` (`internal/terminalagent/chat_rea
 - On success the same view continues: no navigation, no new tab, no new row.
 - On failure: the reason in the pane (not a global error, announced as an alert) and **Start a new chat**, plus **Try
   again** only for a refusal a retry can fix (keyed off the route code: not for YOLO refusals, capacity, trust, ended,
-  unsupported or no conversation). A folder-trust refusal shows the plugin files and offers **Trust this folder and
+  archived, unsupported or no conversation). A folder-trust refusal shows the plugin files and offers **Trust this folder and
   reconnect** (in place; the route's optional body `{"trust": true}`, sent only from that click, never by the automatic
   attempt, never stored by the controller; the machine keeps it in its restart record as for any chat started with
   trust, up to 7 days or 3 failed reopens, and a later in-place reconnect asks again) beside the explicit **Continue with history** (new row, `trust: true`), which is offered again in
@@ -123,7 +123,7 @@ Failed or refused continuation rows are failed definitively rather than left `cr
 | Account does not allow YOLO / machine YOLO consent off | `chat_reattach_yolo_not_allowed` / `chat_reattach_yolo_refused`; no Try again. |
 | Machine at its session limit | `chat_reattach_capacity`: "This machine has reached its session limit."; no Try again. |
 | Folder has OpenCode plugins | `chat_reattach_trust` with the files; Trust this folder and reconnect (in place, `{"trust": true}` from that click only), Continue with history and Start a new chat, no Try again. |
-| Chat was archived (crafted request; archived rows are not listed) | `chat_reattach_archived`: "This chat was archived, so its history is gone."; refused before any machine call, no Try again, no Continue. |
+| Chat was archived (crafted request; archived rows are not listed) | `chat_reattach_archived`: "This chat was archived, so its history is gone."; refused before any machine call and before the ended checks (an ended and archived chat answers archived), no Try again, no Continue. |
 | A person ended the chat | `chat_reattach_ended`: "You ended this chat. Continue it with history as a new session." |
 | Reply lost | Operation stays pending; the next call with the same request id checks it. |
 

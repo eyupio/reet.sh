@@ -1274,6 +1274,8 @@ func chatResult(err error) terminalproto.Result {
 	var trust *acpagent.TrustError
 	switch {
 	case errors.As(err, &trust):
+		// The web's reattach card (web/src/lib/terminal/reattachState.ts
+		// reattachDetail) trims the trailing "Start a chat only…" sentence.
 		detail := "This folder has agent extensions: " + strings.Join(trust.Files, ", ") + ". Start a chat only in a folder you trust."
 		if len(detail) > 480 {
 			detail = cutText(detail, 480)

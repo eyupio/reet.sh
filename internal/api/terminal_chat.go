@@ -378,7 +378,8 @@ func (s *server) terminalSessionModeError(w http.ResponseWriter, err error) {
 // The body is optional: none, null or {} reconnect without trust, and
 // {"trust":true} is a person's explicit confirmation that they trust the
 // chat's folder (it may load OpenCode plugins). Trust applies to this request
-// only and is never stored.
+// only and is never stored by the controller (the machine keeps a started
+// chat's trust in its restart record, see docs/structured-sessions.md).
 func (s *server) terminalChatReattach(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !terminalproto.ValidID(id) {

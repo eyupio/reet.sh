@@ -943,6 +943,37 @@ export const THEME_EVENT = 'reet:theme'
 // The inline script in index.html reads this before the first paint, so the key
 // is shared with it and a stale copy is corrected here once the profile arrives.
 const THEME_KEY = 'reet-theme'
+// A choice made while signed out (on the landing or sign-in page) has no account to save it to yet, so it waits here
+// until the next sign-in can write it to the profile. Without it the profile's saved theme would silently replace the
+// visitor's choice the moment they sign in.
+const PENDING_THEME_KEY = 'reet-theme-pending'
+
+export function rememberThemeChoice(theme: string) {
+  if (theme !== 'light' && theme !== 'dark' && theme !== 'system') return
+  try {
+    localStorage.setItem(PENDING_THEME_KEY, theme)
+  } catch {
+    /* storage blocked: the choice still applies for this visit */
+  }
+}
+
+export function takeThemeChoice(): string | null {
+  try {
+    const theme = localStorage.getItem(PENDING_THEME_KEY)
+    localStorage.removeItem(PENDING_THEME_KEY)
+    return theme === 'light' || theme === 'dark' || theme === 'system' ? theme : null
+  } catch {
+    return null
+  }
+}
+
+export function clearThemeChoice() {
+  try {
+    localStorage.removeItem(PENDING_THEME_KEY)
+  } catch {
+    /* storage blocked: nothing was stored to clear */
+  }
+}
 
 export function applyTheme(theme: string) {
   const root = document.documentElement

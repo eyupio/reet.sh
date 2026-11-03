@@ -180,7 +180,7 @@ test('no literal colour in a component', () => {
 // applyTheme leaves the choice where index.html's pre-paint script can read it,
 // so a dark preference is painted dark before the profile arrives.
 const inflight = `data:text/javascript;base64,${Buffer.from(compile('./inflight.ts')).toString('base64')}`
-const { applyTheme } = await import(`data:text/javascript;base64,${Buffer.from(compile('./api.ts').replace("from './inflight'", `from '${inflight}'`)).toString('base64')}`)
+const { applyTheme, rememberThemeChoice, takeThemeChoice, clearThemeChoice } = await import(`data:text/javascript;base64,${Buffer.from(compile('./api.ts').replace("from './inflight'", `from '${inflight}'`)).toString('base64')}`)
 
 function page() {
   const store = new Map()
@@ -188,7 +188,7 @@ function page() {
   globalThis.document = { documentElement: root }
   globalThis.window = { dispatchEvent: () => true }
   globalThis.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = init?.detail } }
-  globalThis.localStorage = { getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) }
+  globalThis.localStorage = { getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, value), removeItem: key => store.delete(key) }
   return { root, store }
 }
 
@@ -215,6 +215,29 @@ test('a blocked store still applies the theme to this visit', () => {
   globalThis.localStorage.setItem = () => { throw new Error('storage disabled') }
   applyTheme('dark')
   assert.equal(root.dataset.theme, 'dark')
+})
+
+test('a theme chosen while signed out waits for the next sign-in', () => {
+  const { store } = page()
+  rememberThemeChoice('dark')
+  assert.equal(store.get('reet-theme-pending'), 'dark')
+  assert.equal(takeThemeChoice(), 'dark')
+  assert.equal(store.has('reet-theme-pending'), false)
+  assert.equal(takeThemeChoice(), null)
+})
+
+test('an unknown pending theme is ignored and cleared', () => {
+  const { store } = page()
+  store.set('reet-theme-pending', 'sepia')
+  assert.equal(takeThemeChoice(), null)
+  assert.equal(store.has('reet-theme-pending'), false)
+})
+
+test('signing out clears a pending theme so it cannot follow a later sign-in', () => {
+  const { store } = page()
+  rememberThemeChoice('light')
+  clearThemeChoice()
+  assert.equal(store.has('reet-theme-pending'), false)
 })
 
 test('the boot script reads the key applyTheme writes', () => {

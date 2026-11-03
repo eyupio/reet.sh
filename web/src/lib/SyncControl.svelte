@@ -398,22 +398,32 @@
         if (Number.isSafeInteger(requested) && requested > 0 && lists.some(list => list.id === requested)) listId = requested
         await loadSource()
         const requestedMachine = params.get('machine') ?? ''
+        const requestedRemove = params.get('remove') ?? ''
+        const prepareRemoval = () => {
+          if (!requestedRemove) return
+          selected = selected.filter(id => id !== requestedRemove)
+          mode = 'mirror'
+          notice = 'Removal prepared. Review the exact set below, then save; no files change until you preview and approve.'
+          const advanced = document.querySelector<HTMLDetailsElement>('details.advanced-selection')
+          if (advanced) advanced.open = true
+          document.getElementById('sync-selection')?.scrollIntoView({ behavior: 'instant', block: 'start' })
+        }
         const match = fleet.find(m => m.host === requestedMachine)
         if (requestedMachine === '*') selectMachine('*')
         else if (match) {
           selectMachine(match.host)
           const saved = targetFor(match.host)
-          if (saved) await hydrateTarget(saved)
+          if (saved) { await hydrateTarget(saved); prepareRemoval() }
         } else if (fleet.length === 1) {
           selectMachine(fleet[0].host)
           const saved = targetFor(fleet[0].host)
-          if (saved) await hydrateTarget(saved)
+          if (saved) { await hydrateTarget(saved); prepareRemoval() }
         } else {
           const withTarget = fleet.find(m => agentGroups(m).some(g => snapshot.targets.some(t => t.target.id === g.id)))
           if (withTarget) {
             selectMachine(withTarget.host)
             const saved = targetFor(withTarget.host)
-            if (saved) await hydrateTarget(saved)
+            if (saved) { await hydrateTarget(saved); prepareRemoval() }
           }
         }
       } catch (e) { error = e instanceof Error ? e.message : String(e) }

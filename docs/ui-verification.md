@@ -2366,3 +2366,29 @@ Validation:
 
 **Not checked.** No physical phone or tablet and no screen reader. Removing a skill
 from a machine remains a separate follow-up.
+
+## Skill removal prepared in Sync — 2 November 2026
+
+An installed skill badge now offers **Remove…** for a writer when that machine has a
+saved sync set. The link names the skill and machine for assistive tech and opens
+`/sync?machine=<host>&remove=<skill id>`. Sync selects the machine, opens **Advanced
+sync**, switches to **Exact set**, unticks the named skill and says **Removal
+prepared. Review the exact set below, then save; no files change until you preview
+and approve.** Opening the link makes no API write. If the exact set would remove
+other extras, the existing counts, differences and confirmation show them; shelf
+entries, notes and machine files are untouched until the person saves, previews and
+approves.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- `skill-card.e2e.mjs` checks the link's accessible name and URL.
+- New `sync-remove.e2e.mjs` checks the prepared exact-set review, the unticked skill,
+  the kept selection, no write, and the phone layout at 390 and 320 px.
+- `control.e2e.mjs` and `phone-zoom.e2e.mjs` pass.
+
+![Sync prepared for a skill removal](images/ui/sync-remove-prepared.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The save, preview
+and approval steps are the existing flow and were not re-run in this new matrix.

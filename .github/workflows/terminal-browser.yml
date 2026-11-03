@@ -104,6 +104,7 @@ jobs:
           node web/tests/account-security.e2e.mjs
           node web/tests/account-mcp.e2e.mjs
           node web/tests/sync-activity.e2e.mjs
+          node web/tests/sync-remove.e2e.mjs
           node web/tests/skills-sync-simple.e2e.mjs
           node web/tests/machine-skill-sync.e2e.mjs
           node web/tests/machine-add-skill.e2e.mjs

@@ -518,6 +518,9 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   <strong>{statusWord}</strong>
   {#if statusDetail && !failed}<span class="detail">{statusDetail}</span>{/if}
  </div>
+ {#if ended}
+  <p class="ended-note" class:lost={session.state === 'lost'} role="status">{endedReason(session.state, toolName)}</p>
+ {/if}
  {#if failed}
   <div class="error-panel" role="alert">
    <strong>{toolName} could not continue</strong>
@@ -740,7 +743,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  </div>
  <GafferProgress {chat} dir={session.dir} agent={toolName} {replayed} {ended} />
  {#if ended}
-  <p class="composer-note">{endedReason(session.state, toolName)}{#if queued.length} {queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.{/if}</p>
+  {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}
  {:else}
   <div class="composer" onpaste={pasted} class:dropping={dropping}>
    {#if queued.length}
@@ -1029,7 +1032,9 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  .thumb.ghost svg { width: 16px; height: 16px; flex: none; }
  .thumb.ghost span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
  @media (prefers-reduced-motion: reduce) { .tile, .thumb { transition: none; } .tile:hover, .thumb:hover { transform: none; } }
- .composer-note { margin: 0 14px 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--muted); font-size: 12px; }
+ .composer-note { margin: 0 14px 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--muted); font-size: 13px; }
+ .ended-note { margin: 0 14px 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); font-size: 14px; line-height: 1.5; }
+ .ended-note.lost { border-color: var(--warn); }
  .vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
  /* Narrow panes keep the target and state; line counts and durations give their room first. */
  @container chat-pane (max-width: 760px) {

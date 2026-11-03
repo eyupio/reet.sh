@@ -50,10 +50,10 @@ green. Contracts and rulings are in `docs/superpowers/specs/2026-11-02-directory
 `...-admin-team-usage.md`, `...-admin-tickets.md`, `...-admin-email.md` and
 `...-admin-notifications.md`, `...-admin-backups.md`, `...-admin-settings.md`,
 `...-admin-activity.md`, `...-account-sessions.md`, `...-account-tokens.md`,
-`...-account-profile.md`, `...-account-security.md`, `...-account-mcp.md` and
-`...-skill-card-machine-actions.md` and `...-machine-add-skill.md`; checks are in
-[docs/ui-verification.md](docs/ui-verification.md). The refresh merged through #434. Merge main into
-the next branch as later work lands.
+`...-account-profile.md`, `...-account-security.md`, `...-account-mcp.md`,
+`...-skill-card-machine-actions.md`, `...-machine-add-skill.md` and
+`...-skill-remove-from-machine.md`; checks are in [docs/ui-verification.md](docs/ui-verification.md).
+The refresh merged through #438. Merge main into the next branch as later work lands.
 
 **Merged, all with every required check green:**
 
@@ -80,6 +80,7 @@ the next branch as later work lands.
 | #429 | `f7e668c` | Account → MCP access clients in one panel: count, search, OAuth/bearer chips, connection actions; page sections unchanged. |
 | #432 | `106c2fc` | Skill cards: a large fleet collapses to one installed/missing/unconfirmed summary; unconfirmed machines offer Add now that queues a scan. |
 | #434 | `6d75e72` | Machines: Add a skill… picker on the card menu, shelf candidates with Installed tags, existing install intent; disabled without an agent. |
+| #438 | this PR | Skill cards: Remove… opens Sync with an exact-set removal prepared; no write until save, preview and approval. |
 
 **What the refresh established.** The directory pages (Lists, Community, Teams, Setups) share one
 bounded surface, a count, search, scope chips whose figures follow the search, one row anatomy and
@@ -128,16 +129,14 @@ the refreshed pages. Touch sizes were measured in an emulated coarse-pointer vie
 search matches observed reports, not saved intent. All seven Admin sections are refreshed. All
 Account list and form pages are refreshed: Sessions, API tokens, Profile, Password and MCP access;
 Account Backups inherits the refreshed Backups panels, and Account Activity already had its own
-count, filters and day groups. Skill cards now summarise a large fleet in one press and
-let an unconfirmed machine be scanned before adding.
+count, filters and day groups. Skill cards now summarise a large fleet in one press, let an
+unconfirmed machine be scanned before adding, and prepare a reviewed removal in Sync.
 
 **Next UI work, in order:**
-1. **Remove from {machine}** beside an installed skill, using the existing review-before-removal
-   flow.
-2. **Broader skills/sync vocabulary and authoring flow:** one glossary and one place for Sync.
-3. **Machines audit minors:** N1 (mixed date formats), N7 (Commands dialog exits), H10 (icon
+1. **Broader skills/sync vocabulary and authoring flow:** one glossary and one place for Sync.
+2. **Machines audit minors:** N1 (mixed date formats), N7 (Commands dialog exits), H10 (icon
    language), and attention sorting/status filter for large fleets.
-4. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
+3. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
    Do not claim these from the Chromium fixtures.
 
 ## Whole-controller restore and import (2 November 2026)
@@ -1489,6 +1488,7 @@ node web/tests/account-security.e2e.mjs
 node web/tests/account-mcp.e2e.mjs
 node web/tests/skill-card.e2e.mjs
 node web/tests/machine-add-skill.e2e.mjs
+node web/tests/sync-remove.e2e.mjs
 node web/tests/machines-search.e2e.mjs
 node web/tests/terminal-workspace.e2e.mjs
 node web/tests/terminal-lifecycle.e2e.mjs

@@ -24,7 +24,7 @@ const testEnrollment = "enrollment0123456789abcdef"
 func testSessionID(n int) string { return fmt.Sprintf("session0123456789-%08d", n) }
 func testRequestID(n int) string { return fmt.Sprintf("request0123456789-%08d", n) }
 
-func managerFixture(t *testing.T) (*Manager, ManagerOptions) {
+func managerFixture(t testing.TB) (*Manager, ManagerOptions) {
 	t.Helper()
 	tmux, err := FindTmux(context.Background())
 	if err != nil {

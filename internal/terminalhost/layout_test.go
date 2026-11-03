@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func shortTempDir(t *testing.T) string {
+func shortTempDir(t testing.TB) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "reet-test-")
 	if err != nil {
@@ -18,7 +18,7 @@ func shortTempDir(t *testing.T) string {
 	return dir
 }
 
-func privateLayout(t *testing.T) Layout {
+func privateLayout(t testing.TB) Layout {
 	t.Helper()
 	config := filepath.Join(shortTempDir(t), "agent.json")
 	if err := os.WriteFile(config, []byte("{}"), 0600); err != nil {

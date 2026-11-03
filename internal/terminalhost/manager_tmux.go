@@ -149,6 +149,56 @@ func (m *Manager) panes(ctx context.Context, sessionID string) ([]paneState, err
 	return panes, nil
 }
 
+// paneWindow is one pane row from a server-wide listing, with the window
+// fields attention needs. A window with several panes appears once per pane.
+type paneWindow struct {
+	paneState
+	window   int
+	activity int64
+	bell     bool
+}
+
+// allPanes lists every pane on the server in a single tmux call, grouped by
+// session name. The reconcile tick used to start two tmux processes per live
+// session; this makes the cost of a tick independent of the session count.
+// Rows are validated as strictly as panes and readAttention do for one
+// session, so a malformed row fails the call rather than reading as absence.
+func (m *Manager) allPanes(ctx context.Context) (map[string][]paneWindow, error) {
+	// The session name comes last and is split off with a limit, so a name
+	// containing the separator cannot shift the fields before it.
+	format := strings.Join([]string{"#{pane_id}", "#{pane_dead}", "#{pane_dead_status}", "#{window_index}", "#{window_activity}", "#{window_bell_flag}", "#{session_name}"}, fieldSep)
+	out, err := m.command(ctx, 1<<20, "list-panes", "-a", "-F", format)
+	if err != nil {
+		return nil, err
+	}
+	rows := map[string][]paneWindow{}
+	for _, line := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, fieldSep, 7)
+		if len(fields) != 7 || !paneID.MatchString(fields[0]) || fields[1] != "0" && fields[1] != "1" || fields[5] != "0" && fields[5] != "1" {
+			return nil, ErrNotRunning
+		}
+		row := paneWindow{paneState: paneState{id: fields[0], dead: fields[1] == "1"}, bell: fields[5] == "1"}
+		if fields[2] != "" {
+			code, err := strconv.Atoi(fields[2])
+			if err != nil || code < 0 || code > 255 {
+				return nil, ErrNotRunning
+			}
+			row.exit = &code
+		}
+		if row.window, err = strconv.Atoi(fields[3]); err != nil {
+			return nil, ErrNotRunning
+		}
+		if row.activity, err = strconv.ParseInt(fields[4], 10, 64); err != nil || row.activity < 0 {
+			return nil, ErrNotRunning
+		}
+		rows[fields[6]] = append(rows[fields[6]], row)
+	}
+	return rows, nil
+}
+
 // PaneProcesses returns the process id tmux started in each pane of a
 // session: the leader of the process group the pane's program runs in. A
 // caller that ends the session reads it first, so it can wait for those

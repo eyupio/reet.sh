@@ -79,7 +79,7 @@ the next branch as later work lands.
 | #428 | `f920dd2` | Account → Password as one panel: three fields, head action, mismatch check, successful body and notice. |
 | #429 | `f7e668c` | Account → MCP access clients in one panel: count, search, OAuth/bearer chips, connection actions; page sections unchanged. |
 | #432 | `106c2fc` | Skill cards: a large fleet collapses to one installed/missing/unconfirmed summary; unconfirmed machines offer Add now that queues a scan. |
-| #434 | this PR | Machines: Add a skill… picker on the card menu, shelf candidates with Installed tags, existing install intent; disabled without an agent. |
+| #434 | `6d75e72` | Machines: Add a skill… picker on the card menu, shelf candidates with Installed tags, existing install intent; disabled without an agent. |
 
 **What the refresh established.** The directory pages (Lists, Community, Teams, Setups) share one
 bounded surface, a count, search, scope chips whose figures follow the search, one row anatomy and

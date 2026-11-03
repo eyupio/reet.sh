@@ -38,8 +38,9 @@ ACP `session/load` on OpenCode's saved session.
 
 - New feature `chat-reattach-v1`, requiring `acp-v1`, `acp-history-v1`. Advertised and negotiated beside
   `session-mode-v1` (`internal/api/private_control.go`, `internal/agenthealth/agent.go`).
-- New control body `chat_reattach {id}` added to the closed body set and to `Message.Validate`
-  (`internal/terminalproto/protocol.go`). Reply: the existing `session_changed`.
+- New control body `chat_reattach {tool, dir, model?, yolo?, acpSessionId, title?, trust?}` (the row's launch data, like
+  `session_mode`, so the machine does not depend on its restart registry still holding a record) added to the closed
+  body set and to `Message.Validate` (`internal/terminalproto/protocol.go`). Reply: the existing `session_changed`.
 - The strict decoder rejects unknown kinds, so the body is never sent to a peer that did not negotiate the feature. Older
   peers keep the manual path (section 5).
 
@@ -58,15 +59,18 @@ Handler `reattach(id)`:
 
 - `Peer.reattach(ctx, session, request)`: requires state `lost` (or `exited` per Scope), `structured`, `tool=opencode`,
   a saved `acp_session_id`, and `chat.History` on the current peer generation. No row is created.
-- The attempt is a `terminal_operations` row, kind `reattach`, `pending` → `succeeded|failed` with code and reason.
+- The attempt is not persisted: single-flight lives in controller memory (a map beside `switching`), not in a
+  `terminal_operations` row. A controller restart mid-attempt leaves the row `lost`; the next automatic attempt re-sends
+  and the machine adopts the live process.
   **No new `SessionState`.** Session state stays `lost` until the machine reports `running`
   (`lost → running` already permitted for structured chats). `exited → running` is added for structured chats only,
   with the same guard.
-- Single-flight per row: a second request while one is pending returns the pending operation. A request id reuses the
-  same operation.
+- Single-flight per row (in memory): a second request while one is in flight joins it and gets its result.
 - `CanResumeACPToolSessionFor` stops accepting a row that is itself the product of a continuation that has not
   succeeded, closing the many-rows path in the legacy flow.
-- The session payload exposes `reattach: {state: "pending"|"failed", reason}` derived from the latest operation.
+- The session payload has no `reattach` field. The HTTP call is held until the machine answers (like create and
+  `session_mode`); the browser that made it shows "Reconnecting…", and other tabs see `lost → running` through normal
+  polling.
 
 ### 4. Web (`ChatPane.svelte`, `TerminalWorkspace.svelte`, `chat.ts`)
 

@@ -2192,3 +2192,28 @@ Validation:
 
 **Not checked.** No physical phone or tablet and no screen reader. A failed token
 read or a failed create was not exercised by a new browser matrix.
+
+## Account profile under one panel — 2 November 2026
+
+Account → Profile now has one **Your preferences** panel with a count of the eight
+preferences and **Save profile** in its head. The preferences are grouped into
+**Identity** (name), **Appearance** (theme, time zone, dates), **Shelf and terminal**
+(terminal history default, shelf layout, default cards) and **Publishing** (hosted
+skill prefix). A profile with no stored date format now shows **This device's order**
+instead of a blank select, and saving reports **Reet, defaults saved.** A viewer's
+name remains read-only while the other preferences are editable.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `account-profile.e2e.mjs`: panel count, the four groups, the blank-date
+  fallback, the save payload and phone layouts at 390 and 320 px with no horizontal
+  overflow.
+- `phone-zoom.e2e.mjs` (the account profile screen) and `navigation.e2e.mjs` pass.
+
+![Account profile, desktop](images/ui/account-profile-desktop.png)
+![Account profile, phone](images/ui/account-profile-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. A failed save and
+the viewer read-only name were not exercised by a new browser matrix.

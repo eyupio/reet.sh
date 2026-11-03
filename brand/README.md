@@ -19,8 +19,8 @@ Colours come straight from the web UI (`web/src/App.svelte`):
 
 The ribbon is ink, so on a light page the rose is literally a white rose in a
 dark bookmark; in dark mode the ribbon is cream and the rose shows the dark
-background. The wordmark keeps the header's existing treatment: `reet` in ink,
-`.sh` in the accent, with the dot as a filled accent circle.
+background. The wordmark is IBM Plex Sans SemiBold, the typeface the web UI is
+set in, drawn as outlines: `reet` in ink and `.sh`, dot included, in the accent.
 
 ## Files
 
@@ -87,8 +87,28 @@ python3 brand/generate.py        # rewrites every SVG in brand/logo
 python3 brand/contact-sheet.py   # rebuilds contact-sheet.html
 ```
 
-Letterforms, icon geometry and the colour table all live in `generate.py`.
-Change there, not in the SVGs. The generator also writes `web/src/lib/logo.svg`, the themeable lockup imported by the Svelte header, so the app always uses the same letter geometry as the brand assets. The `s` uses open cubic curves for readable shapes at small sizes.
+Icon geometry, layouts and the colour table live in `generate.py`. Change them
+there, not in the SVGs. The wordmark outlines are a generated block inside
+`generate.py`, written by `outline_wordmark.py` from IBM Plex Sans SemiBold
+(SIL Open Font License 1.1; the licence ships in `web/public/fonts/OFL.txt`).
+To change the weight or tracking, edit that script and run both:
+
+```sh
+pip install fonttools brotli uharfbuzz   # needed by outline_wordmark.py only
+python3 brand/outline_wordmark.py
+python3 brand/generate.py
+```
+
+`generate.py` itself needs no font and no packages. Besides `brand/logo/`, it
+writes the app's copies of the lockup, so the app always uses the same
+geometry as the brand assets:
+
+- `web/src/lib/logo.svg`, the themeable lockup imported by the Svelte header.
+- The inline lockup in the boot shell of `web/index.html`, shown before the
+  app bundle loads.
+
+After regenerating, rebuild `contact-sheet.png` and `web/public/og-image.png`
+(see "Export to PNG" and "Web icons and social image").
 
 ## Web icons and social image
 

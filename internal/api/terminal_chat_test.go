@@ -607,3 +607,148 @@ func TestChatPromptIsRefusedWhileTheAgentModeIsUnknown(t *testing.T) {
 		t.Fatalf("a message while the mode is unknown: %d %s", code, body)
 	}
 }
+
+func reattachCaps() terminalproto.Capabilities {
+	caps := chatCaps()
+	caps.ChatReattach = true
+	return caps
+}
+
+func reattachPath(session string) string {
+	return "/api/v2/terminal/sessions/" + session + "/reattach"
+}
+
+// lostChat starts a chat with an OpenCode session id and marks its row lost.
+func lostChat(t *testing.T, f *launchAPI) string {
+	t.Helper()
+	session := modeChat(t, f)
+	if err := f.st.ObserveTerminalStateFor(f.uid, f.agent.ID, session, f.peer.Generation, terminalproto.Lost, nil); err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+func TestReattachRouteSuccess204(t *testing.T) {
+	f := launchAPIFixture(t, reattachCaps())
+	session := lostChat(t, f)
+	code, _, body := f.do(t, f.cookie, "POST", reattachPath(session), nil)
+	if code != http.StatusNoContent || body != "" {
+		t.Fatalf("reattach: %d %q", code, body)
+	}
+	row, err := f.st.TerminalSessionFor(f.uid, session)
+	if err != nil || row.State != terminalproto.Running || !row.Structured {
+		t.Fatalf("row after reattach: %+v %v", row, err)
+	}
+	f.mu.Lock()
+	n := len(f.reattaches)
+	f.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("machine saw %d reattach requests", n)
+	}
+}
+
+func TestReattachRouteErrorCodes(t *testing.T) {
+	cases := []struct {
+		name   string
+		caps   func(*terminalproto.Capabilities)
+		ended  bool
+		noID   bool
+		reply  terminalproto.Body
+		wire   bool
+		id     string // overrides the session id
+		status int
+		code   string
+	}{
+		{name: "unsupported", caps: func(c *terminalproto.Capabilities) { c.ChatReattach = false }, status: 409, code: "chat_reattach_unsupported"},
+		{name: "not closed", ended: true, status: 409, code: "chat_reattach_not_closed"},
+		{name: "no conversation", noID: true, status: 409, code: "chat_reattach_no_conversation"},
+		{name: "conflict", wire: true, reply: terminalproto.Result{Code: terminalproto.Conflict}, status: 409, code: "chat_reattach_conflict"},
+		{name: "failed", wire: true, reply: terminalproto.Result{Code: terminalproto.LaunchFailed}, status: 502, code: "chat_reattach_failed"},
+		{name: "trust", wire: true, reply: terminalproto.Result{Code: terminalproto.ACPTrustRequired, Detail: ".opencode/plugins/x.js"}, status: 409, code: "chat_reattach_trust"},
+		{name: "unknown session", id: "nosuchsession0000000", status: 404},
+		{name: "invalid id", id: "bad%20id", status: 400},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			caps := reattachCaps()
+			if c.caps != nil {
+				c.caps(&caps)
+			}
+			f := launchAPIFixture(t, caps)
+			var session string
+			if c.noID {
+				code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "opencode", "structured": true, "trust": true, "dir": "/tmp"}))
+				if code != 200 {
+					t.Fatalf("create: %d %s", code, body)
+				}
+				session = out["id"].(string)
+				if err := f.st.ObserveTerminalStateFor(f.uid, f.agent.ID, session, f.peer.Generation, terminalproto.Lost, nil); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				session = lostChat(t, f)
+			}
+			if c.ended {
+				if err := f.st.ObserveTerminalStateFor(f.uid, f.agent.ID, session, f.peer.Generation, terminalproto.Running, nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.id != "" {
+				session = c.id
+			}
+			if c.reply != nil {
+				reply := c.reply
+				f.mu.Lock()
+				f.reattach = func(terminalproto.ChatReattach) terminalproto.Body { return reply }
+				f.mu.Unlock()
+			}
+			code, out, body := f.do(t, f.cookie, "POST", reattachPath(session), nil)
+			if code != c.status || c.code != "" && out["code"] != c.code {
+				t.Fatalf("got %d %s, want %d %s", code, body, c.status, c.code)
+			}
+			f.mu.Lock()
+			n := len(f.reattaches)
+			f.mu.Unlock()
+			if c.wire && n != 1 || !c.wire && n != 0 {
+				t.Fatalf("machine saw %d reattach requests, want wire=%v", n, c.wire)
+			}
+			if c.code == "chat_reattach_trust" && out["detail"] != ".opencode/plugins/x.js" {
+				t.Fatalf("trust detail: %s", body)
+			}
+		})
+	}
+}
+
+// A timed-out wait also surfaces as ErrOffline and the machine may have
+// reattached, so the sentence tells the person to try again.
+func TestReattachRouteOfflineIsRetryable(t *testing.T) {
+	f := launchAPIFixture(t, reattachCaps())
+	session := lostChat(t, f)
+	f.peer.Close()
+	code, out, body := f.do(t, f.cookie, "POST", reattachPath(session), nil)
+	if code != http.StatusServiceUnavailable || out["error"] != "Reconnecting took too long. Try again." {
+		t.Fatalf("offline: %d %s", code, body)
+	}
+}
+
+func TestReattachRouteRequiresSession(t *testing.T) {
+	f := launchAPIFixture(t, reattachCaps())
+	session := lostChat(t, f)
+	member, err := f.st.CreateUser("reattach-member@example.test", "Member", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := terminalLogin(t, f.st, member.ID)
+	code, _, real := f.do(t, other, "POST", reattachPath(session), nil)
+	missing, _, unknown := f.do(t, other, "POST", reattachPath("nosuchsession0000000"), nil)
+	if code != http.StatusNotFound || missing != http.StatusNotFound || real != unknown {
+		t.Fatalf("foreign id %d %q, unknown id %d %q", code, real, missing, unknown)
+	}
+	f.mu.Lock()
+	n := len(f.reattaches)
+	f.mu.Unlock()
+	row, err := f.st.TerminalSessionFor(f.uid, session)
+	if n != 0 || err != nil || row.State != terminalproto.Lost {
+		t.Fatalf("another account reattached: %d %+v %v", n, row, err)
+	}
+}

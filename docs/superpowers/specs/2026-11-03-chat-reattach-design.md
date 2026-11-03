@@ -60,7 +60,7 @@ Handler `reattach(requestID, sessionID, body)` (`internal/terminalagent/chat_rea
 
 ### 3. Controller (`internal/terminalbroker`, `internal/store`)
 
-- `Peer.reattach(ctx, session, request)`: requires state `lost` (or `exited` per Scope), `structured`, `tool=opencode`,
+- `Peer.reattach(ctx, session, request)`: requires state `lost` or `exited` (both are accepted), `structured`, `tool=opencode`,
   a saved `acp_session_id`, and `chat.History` on the current peer generation. No row is created.
 - The attempt is not persisted: single-flight lives in controller memory (a map beside `switching`), not in a
   `terminal_operations` row. A controller restart mid-attempt leaves the row `lost`; the next automatic attempt re-sends
@@ -77,8 +77,15 @@ Handler `reattach(requestID, sessionID, body)` (`internal/terminalagent/chat_rea
 
 ### 4. Web (`ChatPane.svelte`, `TerminalWorkspace.svelte`, `chat.ts`)
 
-- A chat that is `lost` on an online machine with `canReattach` triggers one automatic reattach on view or on machine
-  reconnect. It does not loop: after a failure only the person retries.
+- The selected `lost` or `exited` OpenCode chat triggers ONE automatic reattach per session id per page load, once the
+  machine is `ready`, advertises `chatReattach` and reports history support (`canReattachChat`). The attempt is recorded
+  when it starts and is never repeated, whether it succeeds or fails: after a failure only the person retries. If the
+  machine is not ready when the chat is first shown, nothing is attempted and the attempt is made the first time the
+  machine becomes ready within the same page load. It is also not made while a legacy Continue with history of the same
+  chat is in flight.
+- An offline machine (reattach needs `machine.ready`) shows the idle ended note with the legacy **Continue with history**
+  disabled, not a waiting state and not a banner. A reattach that fails with `ErrOffline` (503 "Reconnecting took too
+  long. Try again.") consumes the automatic attempt; **Try again** and **Reconnect** still work.
 - While pending: an inline status line "Reconnecting to your conversation…" in the pane; transcript stays visible; the
   composer is disabled with that reason. The "Earlier messages are no longer available" error is shown only if replay
   actually truncated.

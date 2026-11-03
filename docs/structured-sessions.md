@@ -203,9 +203,11 @@ session header menu no longer offers the new-row **Continue in Gaffer with histo
 
 The controller runs one reattach per session at a time (concurrent callers, such as two tabs or a double click, join the
 same machine call), bounds it at 75 seconds ("Reconnecting took too long. Try again."), never creates a row, and allows the
-`lost`/`exited` to `running` change for structured chats only (the exit code is cleared). The route is
-`POST /api/v2/terminal/sessions/{id}/reattach`; it answers 204, or one of the codes `chat_reattach_unsupported`,
-`not_closed`, `no_conversation`, `conflict`, `failed` or `trust`.
+`lost`/`exited` to `running` change for structured chats only (the exit code is cleared). The route
+`POST /api/v2/terminal/sessions/{id}/reattach` answers 204, or an error with one of the codes
+`chat_reattach_unsupported`, `chat_reattach_not_closed`, `chat_reattach_no_conversation` and `chat_reattach_conflict`
+(all 409), `chat_reattach_failed` (502), or `chat_reattach_trust` (409, with a `detail` naming the plugin files). A wait
+that times out or finds the machine offline answers 503 "Reconnecting took too long. Try again.".
 
 **An ended chat starts a new session.** A chat that a person ended (`ended`) keeps **Continue in Gaffer with history…**. That
 creates a **new** reet session row with `resumeAcp` set to the old id; the old row stays in history. The machine runs

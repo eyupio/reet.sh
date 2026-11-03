@@ -21,6 +21,10 @@ Validation:
   stop CSS motion, and error/approval states override intentionally conflicting decorations.
 - `node tests/gaffer-progress.e2e.mjs`: the existing work-card matrix passes, including summaries,
   reconnection/replay, keyboard controls, return reactions and 320/390/768 px in both themes.
+- `node tests/gaffer-return.e2e.mjs`: returning to an active session preserves the tea scene through
+  its last frame and rest before the startled reaction. Errors, approvals and pause still cancel
+  the pending welcome. This regression failed against the original 900 ms welcome timer; playback
+  and the welcome lifetime now share the same duration constant.
 - `npm run check`: web unit tests and Svelte/TypeScript diagnostics pass. Refreshing `origin/main`
   resolved the initial theme-test git-output buffer error caused by the stale local base reference.
 - `npm run build`: production build passes. This UI-only change does not modify the Go runtime.

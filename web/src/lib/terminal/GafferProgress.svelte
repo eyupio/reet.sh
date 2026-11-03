@@ -3,7 +3,7 @@
   import { toolLabel, toolState, toolTarget, type ChatState } from '../chat'
   import { gafferProgress, gafferQuote, observedTime, recentToolState, type GafferPhase } from '../gafferProgress'
   import { gafferSummary } from '../gafferSummary'
-  import { gafferAnimations } from '../gafferMotion'
+  import { GAFFER_GESTURE_MS, gafferAnimations } from '../gafferMotion'
   import { GAFFER_AWAY_AFTER, gafferAside, gafferGesture, gafferPose, type GafferPose, type GafferReaction } from '../gafferPersonality'
   import GafferAvatar from './GafferAvatar.svelte'
 
@@ -46,10 +46,12 @@
     quote = gafferAside('return', resting, agent, quote); quoteAt = Date.now()
     if ((resting === 'tea' || resting === 'asleep') && !still) {
       welcomePose = resting
+      // Let the sip finish and briefly rest before he notices the user. A doze still wakes promptly.
+      const welcomeDelay = resting === 'tea' ? GAFFER_GESTURE_MS + 200 : 900
       welcomeTimer = setTimeout(() => {
         welcomePose = null; gesture(resting === 'asleep' ? 'stretch' : 'startle')
-      }, 900)
-      settleTimer = setTimeout(() => { reaction = '' }, 3_500)
+      }, welcomeDelay)
+      settleTimer = setTimeout(() => { reaction = '' }, welcomeDelay + 2_100)
     } else gesture(gafferGesture(view.phase))
   }
   function greet() {

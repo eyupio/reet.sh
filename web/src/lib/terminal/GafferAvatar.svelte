@@ -3,7 +3,7 @@
   import grid from './gaffer-grid.webp'
   import phosphor from './gaffer-phosphor.webp'
   import gestures from './gaffer-gestures.webp'
-  import { gafferAnimations } from '../gafferMotion'
+  import { GAFFER_GESTURE_MS, gafferAnimations } from '../gafferMotion'
   import type { GafferPhase } from '../gafferProgress'
   import type { GafferPose, GafferReaction } from '../gafferPersonality'
 
@@ -22,7 +22,7 @@
 </script>
 
 {#key `${phase}:${pose}:${reaction}:${reactionKey}:${variant}`}
-<svg class="gaffer-avatar" class:active class:paused={paused || !$gafferAnimations} data-phase={phase} data-pose={pose} data-reaction={reaction} data-artwork={scene} viewBox="0 0 64 64" fill="none" aria-hidden="true">
+<svg class="gaffer-avatar" class:active class:paused={paused || !$gafferAnimations} data-phase={phase} data-pose={pose} data-reaction={reaction} data-artwork={scene} style:--gaffer-gesture-duration={`${GAFFER_GESTURE_MS}ms`} viewBox="0 0 64 64" fill="none" aria-hidden="true">
   <defs><clipPath id={`${id}-frame`}><rect width="384" height="341.333333" /></clipPath></defs>
   <rect class="screen" width="64" height="64" rx="6" />
   <g class="body">
@@ -70,7 +70,7 @@
   .zzz { stroke: var(--gaffer-paper); stroke-width: 1.5; }
   .thought { fill: var(--gaffer-paper); }
   /* Four approved frames play once, then rest. CSS keeps pause and reduced motion effective. */
-  .frames.play { animation: gesture-frames 1.8s steps(1, end); }
+  .frames.play { animation: gesture-frames var(--gaffer-gesture-duration) steps(1, end); }
   [data-pose='asleep'] .head { transform: translateY(2px) rotate(8deg); }
   .head.attention { transform: rotate(-3deg); }
   .head.concern { transform: rotate(3deg); }

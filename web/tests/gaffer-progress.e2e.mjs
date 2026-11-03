@@ -170,7 +170,7 @@ try {
     await page.clock.fastForward(120)
     await expect(panel.locator('.gaffer-avatar')).toHaveAttribute('data-pose', pose)
     if (pose === 'tea' || pose === 'asleep') {
-      await page.clock.fastForward(1_000)
+      await page.clock.fastForward(pose === 'tea' ? 2_100 : 1_000)
       await expect(panel.locator('.gaffer-avatar')).toHaveAttribute('data-pose', 'duty')
     }
     await expect(panel.locator('.gaffer-avatar')).toHaveAttribute('data-reaction', reaction)

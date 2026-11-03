@@ -624,7 +624,7 @@ reet setup profile push work</code></pre>
   .component code { display: block; margin-top: 4px; overflow-wrap: anywhere; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .chip { border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; background: var(--bg); font-size: 0.75rem; overflow-wrap: anywhere; }
-  .mono { font-family: monospace; }
+  .mono { font-family: var(--mono); }
   .fieldline { margin: 6px 0 0; font-size: 0.78rem; overflow-wrap: anywhere; }
   .tag.warn { color: var(--muted); border-color: var(--line); }
   .omitted { margin-top: 10px; font-size: 0.8rem; }

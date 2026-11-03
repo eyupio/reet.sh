@@ -450,7 +450,7 @@
   .guide { display: grid; gap: 6px; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 10px; }
   .guide-title { font-size: 0.95rem; }
   .guide-cmd { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 6px 6px 10px; border-radius: 8px; background: color-mix(in srgb, var(--ink) 8%, transparent); }
-  .guide-cmd code { font-family: ui-monospace, monospace; font-size: 0.85rem; }
+  .guide-cmd code { font-family: var(--mono); font-size: 0.85rem; }
   .copy .notice-line { color: var(--good); }
   .copy .source { font: 0.72rem/1.4 var(--mono, monospace); }
   .apply { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.8rem; }

@@ -117,15 +117,28 @@ func TestHostedSkillsPublicationAndOwnership(t *testing.T) {
 	if got := installCommand(aliceSkill); got != "npx skills add "+srv.URL+"/alice/reet-demo --skill reet-demo" {
 		t.Fatal(got)
 	}
+	shelfHas := func(uid int64, skillID string) bool {
+		t.Helper()
+		return strings.Contains(expect(uid, "GET", "/api/skills", nil, 200), `"id":"`+skillID+`"`)
+	}
+	if !shelfHas(alice.ID, aliceSkill.ID) || !shelfHas(bob.ID, aliceSkill.ID) {
+		t.Fatal("published skill missing from a shelf")
+	}
 	expect(bob.ID, "POST", "/api/skill/refresh", map[string]string{"id": aliceSkill.ID}, 200)
 	sk.Published = false
 	expect(alice.ID, "PUT", "/api/v2/hosting/skills/reet-demo", sk, 200)
+	if shelfHas(alice.ID, aliceSkill.ID) || shelfHas(bob.ID, aliceSkill.ID) {
+		t.Fatal("unpublished skill stayed on a shelf")
+	}
 	for _, path := range paths {
 		expect(0, "GET", path, nil, 404)
 	}
 	expect(bob.ID, "POST", "/api/skills", map[string]string{"input": srv.URL + "/alice/reet-demo"}, 400)
 	sk.Published = true
 	expect(alice.ID, "PUT", "/api/v2/hosting/skills/reet-demo", sk, 200)
+	if !shelfHas(alice.ID, aliceSkill.ID) || !shelfHas(bob.ID, aliceSkill.ID) {
+		t.Fatal("republished skill did not return to its shelves")
+	}
 	if err := st.SetUserDisabled(alice.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -134,6 +147,9 @@ func TestHostedSkillsPublicationAndOwnership(t *testing.T) {
 	}
 	st.SetUserDisabled(alice.ID, false)
 	expect(alice.ID, "DELETE", "/api/v2/hosting/skills/reet-demo", nil, 200)
+	if shelfHas(alice.ID, aliceSkill.ID) || shelfHas(bob.ID, aliceSkill.ID) {
+		t.Fatal("deleted skill stayed on a shelf")
+	}
 	for _, path := range paths {
 		expect(0, "GET", path, nil, 404)
 	}

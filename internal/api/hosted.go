@@ -117,6 +117,8 @@ func (s *server) hostedSave(w http.ResponseWriter, r *http.Request) {
 	s.eventRequest(r, "hosted-save", "", map[string]any{"name": saved.Slug, "published": saved.Published})
 	if saved.Published {
 		s.addHostedSkillToShelf(r, username, saved)
+	} else {
+		s.setHostedSkillVisible(r, username, saved.Slug, false)
 	}
 	writeJSON(w, 200, saved)
 }
@@ -132,7 +134,16 @@ func (s *server) addHostedSkillToShelf(r *http.Request, username string, skill s
 	if _, err := s.st.UpsertFor(s.uid(r), rf, store.Patch{Bookmarked: &test}); err != nil {
 		return
 	}
+	_ = s.st.SetHostedSkillVisible(rf.ID, true)
 	_ = s.st.SetMeta(rf.ID, skill.Slug, skill.Description, 0, 0, nil)
+}
+
+func (s *server) setHostedSkillVisible(r *http.Request, username, slug string, visible bool) {
+	rf, err := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+slug, r.Host)
+	if err != nil {
+		return
+	}
+	_ = s.st.SetHostedSkillVisible(rf.ID, visible)
 }
 
 func (s *server) hostedRename(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +204,14 @@ func (s *server) hostedRename(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) hostedDelete(w http.ResponseWriter, r *http.Request) {
-	err := s.st.DeleteHostedSkill(s.uid(r), r.PathValue("slug"))
+	slug := r.PathValue("slug")
+	skillID := ""
+	if username, err := s.st.PublishingUsername(s.uid(r)); err == nil && username != "" {
+		if rf, err := ref.ParseAt(requestOrigin(r)+"/"+username+"/"+slug, r.Host); err == nil {
+			skillID = rf.ID
+		}
+	}
+	err := s.st.DeleteHostedSkill(s.uid(r), slug, skillID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "skill not found")
 		return

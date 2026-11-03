@@ -163,7 +163,7 @@ const schema = `CREATE TABLE IF NOT EXISTS skills (
 	name TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
 	installs INTEGER NOT NULL DEFAULT 0, installs_week INTEGER NOT NULL DEFAULT 0, trend TEXT NOT NULL DEFAULT '',
 	liked INTEGER NOT NULL DEFAULT 0, bookmarked INTEGER NOT NULL DEFAULT 0, used INTEGER NOT NULL DEFAULT 0,
-	created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, fetched_at INTEGER NOT NULL DEFAULT 0)`
+	created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, fetched_at INTEGER NOT NULL DEFAULT 0, hidden INTEGER NOT NULL DEFAULT 0)`
 
 var schemaV12 = []string{
 	`CREATE TABLE IF NOT EXISTS scan_errors (env_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE, error TEXT NOT NULL)`,
@@ -427,6 +427,7 @@ func Open(dir string) (*Store, error) {
 		{"installs_week", "installs_week INTEGER NOT NULL DEFAULT 0"},
 		{"trend", "trend TEXT NOT NULL DEFAULT ''"},
 		{"fetched_at", "fetched_at INTEGER NOT NULL DEFAULT 0"},
+		{"hidden", "hidden INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := ensureColumn(db, c.name, c.ddl); err != nil {
 			db.Close()
@@ -608,11 +609,11 @@ func (s *Store) Get(id string) (Skill, bool, error) {
 
 func (s *Store) List(f Filter) ([]Skill, Counts, error) {
 	var c Counts
-	if err := s.db.QueryRow(`SELECT COUNT(*),COALESCE(SUM(liked),0),COALESCE(SUM(bookmarked),0),COALESCE(SUM(used),0) FROM skills`).
+	if err := s.db.QueryRow(`SELECT COUNT(*),COALESCE(SUM(liked),0),COALESCE(SUM(bookmarked),0),COALESCE(SUM(used),0) FROM skills WHERE hidden=0`).
 		Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
 		return nil, c, err
 	}
-	q := `SELECT ` + cols + ` FROM skills WHERE 1=1`
+	q := `SELECT ` + cols + ` FROM skills WHERE hidden=0`
 	var args []any
 	switch f.Tab {
 	case "liked", "bookmarked", "used":
@@ -958,7 +959,7 @@ func (s *Store) Resolve(oldID string, r ref.Ref) (Skill, error) {
 }
 
 func (s *Store) Export() ([]Skill, error) {
-	rows, err := s.db.Query(`SELECT ` + cols + ` FROM skills ORDER BY id`)
+	rows, err := s.db.Query(`SELECT ` + cols + ` FROM skills WHERE hidden=0 ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}

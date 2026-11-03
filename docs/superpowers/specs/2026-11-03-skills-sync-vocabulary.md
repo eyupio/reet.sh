@@ -56,8 +56,8 @@ actions.
 
 ## Deferred
 
-- Merging the two server records behind a written skill and its shelf entry
-  into one lifecycle.
+- A future schema merge of the hosted content and its shelf projection; the
+  lifecycle is already one.
 
 ## Testing
 

@@ -31,10 +31,10 @@ machine yet**. It never claims a file is installed from intent alone.
 - **The writing block is “Your drafts”, not “Skills you write”.** *Cost if
   wrong:* a published written skill is no longer listed under the authoring
   block on Skills; its shelf card carries the edit link instead.
-- **The two server records stay.** A hosted skill and its shelf entry are still
-  separate rows; the UI presents one card for a published skill. *Cost if
-  wrong:* the data model keeps a duplicate that a future lifecycle merge could
-  remove.
+- **The shelf entry is a hidden projection.** Its hosted content and shelf row
+  share one lifecycle; the UI presents one card for a published skill. *Cost if
+  wrong:* the underlying tables remain separate, though no behaviour depends on
+  that.
 - **Published skills are managed from the shelf, not the drafts block.** *Cost
   if wrong:* unpublishing takes two steps: Edit written skill, then uncheck
   Publish.

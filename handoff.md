@@ -76,11 +76,15 @@ after it finished; the same section also failed once on the unchanged baseline b
 
 Follow-up F3: trusted in-place reconnect (local branch `followups/reattach`, commits `24c602b` Go, `b0b6fd9` web, and this
 docs commit). `POST /api/v2/terminal/sessions/{id}/reattach` takes an optional body: none, `null` or `{}` mean no trust,
-`{"trust": true}` passes trust for that request only (never stored), anything else is 400 before the machine is asked.
+`{"trust": true}` passes trust for that request (the controller never stores it; each click is one request), anything
+else is 400 before the machine is asked. The machine keeps the trust in its restart record exactly as for any chat started
+with trust (including Continue with history), so its own restart reopens the chat with it (record kept up to 7 days or 3
+failed reopens); a later in-place reconnect from the controller asks again.
 `Broker.ReattachChat(ctx, uid, session, trust)` sends `Trust` on the wire, records `trust` in the `chat-reattach` audit
 event, and keys its single-flight on session and trust, so a trusting call never joins a non-trusting one. The
-`chat_reattach_trust` sentence is now "This folder has OpenCode plugins, so reet did not reconnect automatically. Reconnect
-only if you trust it.". Web: after that refusal the card offers **Trust this folder and reconnect** (primary), **Continue
+`chat_reattach_trust` sentence is now "This folder has OpenCode plugins, which run as code on this machine, so reet did not
+reconnect automatically. Reconnect only if you trust it.", and the card shows only the plugin-file list from the machine's
+detail (not its "Start a chat only…" sentence). Web: after that refusal the card offers **Trust this folder and reconnect** (primary), **Continue
 with history** and **Start a new chat**, still no Try again; only that click sends `{"trust":true}` (the automatic attempt
 and every other request send the earlier `{}` body). Checks (raw logs `.superpowers/sdd/reattach-followups/f3-*.log`, not
 committed): `go vet ./...` exit 0; full `go test -race -count=1 ./internal/terminalbroker/` printed `ok
@@ -88,6 +92,12 @@ committed): `go vet ./...` exit 0; full `go test -race -count=1 ./internal/termi
 and `internal/terminalproto` full `ok`; other Go packages were not re-run. In `web/`, `reattachState.test.mjs` `# pass 14`
 `# fail 0`, `npm run check` (svelte-check `COMPLETED 360 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS`), `npm run build`
 (`built in 9.64s`), and against a preview build `chat-recovery.e2e.mjs` and `sessions.e2e.mjs` passed.
+F3 fix round (review): the copy says plugins run as code on the machine, the card shows only the plugin-file list, the docs
+say what the machine keeps, and a terminalagent test pins the machine's trust gate on a reattach (refused without trust,
+nothing left running; starts with trust). Checks: `go vet ./...` exit 0; full `go test -race -count=1
+./internal/terminalagent/` `ok 7.914s`; `./internal/api/ -run 'Reattach|RefusalSentences'` `ok 35.018s`; `reattachState.test.mjs`
+`# pass 15` `# fail 0`; `npm run check` 0 errors; `npm run build` `built in 10.56s`; `chat-recovery.e2e.mjs` and
+`sessions.e2e.mjs` passed against a fresh preview of that build.
 
 ## CHAT-RECOVERY-1: continue a closed chat with saved history (3 November 2026)
 

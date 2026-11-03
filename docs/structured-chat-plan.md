@@ -571,6 +571,41 @@ Delivery record:
   adoption after connector restart remain separate SC5 work. No merge or deployment is authorized; publication results belong in the draft PR.
 
 
+### SC5 progress: measured descriptor option contract (2 November 2026)
+
+This bounded slice adds a descriptive contract for the selectable options a reviewed adapter was measured to offer, without adding a
+control or changing any launch. The descriptor already covers the model catalogue (`model`) and the permission-sensitive modes a person
+may switch (`modes`). It now also carries `options`, a bounded list of `{id, category, values}` for the other measured option categories:
+`thought_level`, `model_config` and `collaboration_mode`. A mode or model option is not duplicated there.
+
+The contract is negotiated by `acp-agent-options-v1`, like the mode contract: an older controller never receives the field, and a machine
+does not claim the capability without an available descriptor that has options. Values must be lower-case tokens, distinct within an option,
+and bounded (at most eight options and sixteen values each); unknown categories and malformed or duplicate values are refused. A descriptor
+for an agent that is missing, unverified or incompatible carries no options. The profile copies the measured values into each descriptor, so
+a caller cannot mutate the profile through it.
+
+The values were measured before implementation from the pinned adapters: Claude ACP 0.99.1 reports effort `default`, `low`, `medium`, `high`,
+`xhigh`, `max`, plus `fast` and `ultracode` (`on`/`off`); Codex ACP 1.13.1 reports `reasoning_effort` (`low` through `ultra`),
+`fast-mode` (`off`/`on`) and `collaboration_mode` (`default`/`plan`). OpenCode 1.19.5 reported only model and mode. The values can depend on
+the current model (and Codex also embeds effort in some model IDs), so the contract says what may be offered, not that every value is valid
+for every model. `scripts/probe-agent-options.py` reproduces the measurement with initialize and session/new only; Codex used a synthetic
+api-key placeholder, and no prompt, model call, real credential or network request was made.
+
+Delivery record:
+- **Task / scope:** SC5 descriptor option contract for measured non-permission options; no live switch, startup option, UI control, database
+  column or adapter capability beyond the negotiated description.
+- **Branch:** `feat/descriptor-chat-options`, based on main after #409 and #414/#415. Publication and CI results belong in the draft PR.
+- **Checks:** the new descriptor validation, negotiation, profile-copy and feature tests failed before implementation. They pass with the
+  existing descriptor and feature-list tests; the real probes above sent no prompt and used no real credential.
+- **Compatibility:** a new JSON field on `ACPAgent` behind a new feature; old peers and old controllers are unaffected. No model/mode switch
+  or permission behaviour changes.
+- **Not performed:** no genuine login, model turn, physical device, screen reader or provider-billing check. The contract does not close any
+  of those gates, and both experimental switches and the form capability remain off.
+- **Next:** a later bounded slice can use this contract to offer an effort control, reading the live option list from the adapter and
+  confirming a switch before reporting it. Native-session adoption after connector restart is already on main (#414); detached workers and
+  turn generations across a process restart remain future work.
+- **Publication:** draft PR only; no merge or deployment claimed.
+
 ## Delivery and completion evidence
 
 Keep one bounded stage per PR. Reuse protocol fixtures, fake children and browser

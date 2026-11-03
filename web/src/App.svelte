@@ -795,8 +795,13 @@
     try {
       const result = await installSkillOnMachine(skill, host)
       installFailure = null
-      syncWatch = { host: result.host, title: `Installing ${skill.name}`, note: `on ${result.host} · live progress` }
-      ok(`Installing ${skill.name} on ${result.host}. Follow the live progress in the corner.`)
+      if (result.scanRequested) {
+        syncWatch = { host: result.host, title: `Scanning ${result.host}`, note: `Add ${skill.name} when the scan reports` }
+        ok(`Scan requested for ${result.host}. Add ${skill.name} once the scan is complete.`)
+      } else {
+        syncWatch = { host: result.host, title: `Installing ${skill.name}`, note: `on ${result.host} · live progress` }
+        ok(`Installing ${skill.name} on ${result.host}. Follow the live progress in the corner.`)
+      }
       void loadMeta()
     } catch (e) {
       if(e instanceof MachineSourceRequired){error='';installFailure=null;machineCopy={skill,host};return}

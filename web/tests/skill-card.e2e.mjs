@@ -84,5 +84,67 @@ try {
   await expect(silent.page.getByRole('button',{name:'Missing somewhere'})).toBeEnabled()
   await silent.context.close()
  }
- console.log('Skill card: Copy install leads when installed nowhere, the shelf step leads once installed, the prompt is available while collapsed, and the card says where the skill is set to sync.')
+ // Four machines: two installed, one missing, one unconfirmed. Collapsed, the card answers in one line and expands to the full set.
+ if (run('large fleet summary')) {
+  const mine = skill('code-review')
+  const now = Date.now()
+  const scope = (host, skills, extra = {}) => ({id:`${host}-agents`,host,agent:'agents',name:host,skills,skillCount:skills.length,complete:true,scannedAt:now,lastSeen:now,os:'linux',arch:'amd64',version:'test',...extra})
+  const environments = [scope('one',[mine]), scope('two',[mine]), scope('three',[]), scope('four',[],{complete:false})]
+  const machines = ['one','two','three','four'].map(host=>({host,groups:environments.filter(env=>env.host===host),skillCount:environments.filter(env=>env.host===host).reduce((n,env)=>n+env.skillCount,0)}))
+  const {context,page,errors} = await open({width:1440,skills:[mine],inventory:{environments,machines}})
+  await page.goto(`${base}/skills`)
+  const card = page.locator(`[data-skill="${mine.id}"]`)
+  const summary = card.getByRole('button',{name:/^Show all 4 machines/})
+  await expect(summary).toHaveText(/On 2 of 4 · 1 missing · 1 not confirmed/)
+  await expect(card.locator('.installation-badge')).toHaveCount(0)
+  await summary.click()
+  await expect(card.locator('.installation-badge')).toHaveCount(4)
+  for (const host of ['one','two','three','four']) await expect(card.getByText(host,{exact:true})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // An unconfirmed scan offers Add now; the action queues a scan instead of pretending it can install without a fresh report.
+ if (run('scan before add')) {
+  const mine = skill('code-review')
+  const now = Date.now()
+  const old = {id:'pi-agents',host:'pi',agent:'agents',name:'pi',skills:[],skillCount:0,complete:false,scannedAt:now-15*86400000,lastSeen:now,os:'linux',arch:'amd64',version:'test'}
+  const inventory = {environments:[old],machines:[{host:'pi',groups:[old],skillCount:0}]}
+  const sync = {environments:[old],machines:[{host:'pi',groups:[old],skillCount:0}],agents:[{id:'pi-agent',host:'pi',version:'test',lastSeen:now,paused:false,autoUpdate:false}],targets:[],jobs:[],runs:[],updateJobs:[]}
+  let scanBody = null
+  const routes = {
+   '/api/v2/sync': sync,
+   '/api/v2/sync/candidates': {skills:[{...mine,source:'demo/toolkit',sourceType:'github'}]},
+   '/api/v2/sync/jobs': request => { scanBody = request.postDataJSON(); return {...sync,jobs:[{id:'scan-1',agentId:'pi-agent',targetId:'',kind:'scan',status:'queued',revision:'',hash:'',plan:{},message:'',createdAt:now,updatedAt:now}]} },
+  }
+  const {context,page,errors} = await open({width:1440,skills:[mine],inventory,sync,routes})
+  await page.goto(`${base}/skills`)
+  const card = page.locator(`[data-skill="${mine.id}"]`)
+  await card.getByRole('button',{name:'Scan pi and add code-review'}).click()
+  await expect(page.getByText('Scan requested for pi. Add code-review once the scan is complete.',{exact:true})).toBeVisible()
+  expect(scanBody).toEqual({agentId:'pi-agent',targetId:'',kind:'scan'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+ // The summary is a 44 px control on a phone and expanding it keeps the page at the device width.
+ if (run('large fleet phone')) {
+  const mine = skill('code-review')
+  const now = Date.now()
+  const scope = (host, skills, extra = {}) => ({id:`${host}-agents`,host,agent:'agents',name:host,skills,skillCount:skills.length,complete:true,scannedAt:now,lastSeen:now,os:'linux',arch:'amd64',version:'test',...extra})
+  const environments = [scope('one',[mine]), scope('two',[mine]), scope('three',[]), scope('four',[],{complete:false})]
+  const machines = ['one','two','three','four'].map(host=>({host,groups:environments.filter(env=>env.host===host),skillCount:environments.filter(env=>env.host===host).reduce((n,env)=>n+env.skillCount,0)}))
+  for (const width of [390,320]) {
+   const {context,page,errors} = await open({width,height:812,touch:true,skills:[mine],inventory:{environments,machines}})
+   await page.goto(`${base}/skills`)
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`document width at ${width}px`).toBe(true)
+   const summary = page.locator(`[data-skill="${mine.id}"]`).getByRole('button',{name:/^Show all 4 machines/})
+   const box = await summary.boundingBox()
+   expect(box.height,`summary height at ${width}px`).toBeGreaterThanOrEqual(44)
+   await summary.click()
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`expanded document width at ${width}px`).toBe(true)
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
+ console.log('Skill card: Copy install leads when installed nowhere, the shelf step leads once installed, the prompt is available while collapsed, the card says where the skill is set to sync, a large fleet collapses to one summary, an unconfirmed machine is scanned before adding, and the summary works on a phone.')
 } finally {await browser.close()}

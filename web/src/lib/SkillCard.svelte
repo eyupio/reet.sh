@@ -1,7 +1,7 @@
 <script lang="ts">
   import Skeleton from './Skeleton.svelte'
   import { tick } from 'svelte'
-  import { groupLabel, installationStatus, type InstallationReport } from './machines'
+  import { groupLabel, installationStatus, installationSummary, type InstallationReport } from './machines'
   import { recordInstallCopy, type Environment, type Event, type Flags, type ListRef, type Skill, type SyncState, type Tag } from './api'
   import { skillSyncIntent, skillSyncSummary } from './skillSync'
   import CopyButton from './CopyButton.svelte'
@@ -93,9 +93,10 @@
     const rank = { installed: 0, missing: 1, unknown: 2 }
     return rank[a.status] - rank[b.status] || a.host.localeCompare(b.host)
   }))
-  const visibleInstallations = $derived(expanded ? installations : installations.slice(0, 3))
   const canInstall = $derived(!!command || installations.some(report => report.status === 'installed'))
-  const missingReports = $derived(installations.filter(report => report.status === 'missing' && canInstall))
+  const collapsedInstallations = $derived(!expanded && installations.length > 3)
+  const fleetSummary = $derived(installationSummary(installationReports, skill.id))
+  const installableReports = $derived(installations.filter(report => (report.status === 'missing' || report.status === 'unknown') && canInstall))
   // Nothing has this skill yet: installing it is the step that does something, so it leads. Once a machine has it, the next shelf step does.
   const installedSomewhere = $derived(installations.some(report => report.status === 'installed'))
   const leadWithInstall = $derived(!!command && !installedSomewhere)
@@ -278,21 +279,28 @@
     {#if stage === 'try' && isStale(skill.updatedAt)}<span class="stale">still to test?</span>{/if}
   </div>
   {#if installations.length}
-    <ul class="installation-badges" aria-label={`Reported installation by environment for ${skill.name}`}>
-      {#each visibleInstallations as report (report.host)}
-        <li class="installation-badge {report.status}" title={report.status === 'installed' ? 'Present in at least one complete agent scan from the last 14 days.' : report.status === 'missing' ? 'Absent from all reported agent groups. All of this machine’s agent scans are complete and less than 14 days old.' : report.groupCount ? 'Rescan this machine: one or more agent inventories are incomplete or out of date.' : 'No agent inventory reported. A server heartbeat cannot confirm installed skills.'}>
-          <span class="status-dot" aria-hidden="true"></span><span class="host">{report.host}</span>
-          {#if report.status === 'missing' && canWrite && oninstall && canInstall}
-            <button type="button" class="install-now" disabled={!!installing} aria-label={`Install ${skill.name} on ${report.host} now`} onclick={(event) => { event.stopPropagation(); oninstall(skill, report.host) }}>{installing === `${skill.id}:${report.host}` ? 'Adding…' : 'Add now'}</button>
-          {:else}
-            <strong>{installationLabels[report.status]}</strong>
-          {/if}
-        </li>
-      {/each}
-      {#if !expanded && installations.length > visibleInstallations.length}
-        <li><button type="button" class="environment-more" onclick={() => onexpand(true)} aria-label={`Show all ${installations.length} environments for ${skill.name}`}>+{installations.length - visibleInstallations.length} more</button></li>
-      {/if}
-    </ul>
+    {#if collapsedInstallations}
+      <div class="installation-summary-row">
+        <button type="button" class="installation-summary" aria-expanded={false} aria-label={`Show all ${installations.length} machines for ${skill.name}: ${fleetSummary}`} onclick={() => onexpand(true)}>
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>{fleetSummary}</span>
+          <span class="summary-action">Show all</span>
+        </button>
+      </div>
+    {:else}
+      <ul class="installation-badges" aria-label={`Reported installation by environment for ${skill.name}`}>
+        {#each installations as report (report.host)}
+          <li class="installation-badge {report.status}" title={report.status === 'installed' ? 'Present in at least one complete agent scan from the last 14 days.' : report.status === 'missing' ? 'Absent from all reported agent groups. All of this machine’s agent scans are complete and less than 14 days old.' : report.groupCount ? 'Rescan this machine: one or more agent inventories are incomplete or out of date.' : 'No agent inventory reported. A server heartbeat cannot confirm installed skills.'}>
+            <span class="status-dot" aria-hidden="true"></span><span class="host">{report.host}</span>
+            {#if (report.status === 'missing' || report.status === 'unknown') && canWrite && oninstall && canInstall}
+              <button type="button" class="install-now" class:unknown={report.status === 'unknown'} disabled={!!installing} aria-label={report.status === 'unknown' ? `Scan ${report.host} and add ${skill.name}` : `Install ${skill.name} on ${report.host} now`} title={report.status === 'unknown' ? 'No recent complete scan from this machine. Add now asks it to rescan first; add the skill once the scan reports.' : undefined} onclick={(event) => { event.stopPropagation(); oninstall(skill, report.host) }}>{installing === `${skill.id}:${report.host}` ? 'Adding…' : 'Add now'}</button>
+            {:else}
+              <strong>{installationLabels[report.status]}</strong>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
     {#if syncSnapshot}
       <p class="sync-intent {syncIntentTone}" title={syncIntentTone === 'none' ? 'No saved sync selection on any machine includes this skill. Add now or Sync to machines… sets one.' : 'From your saved sync selections. Badges above say what each machine last reported.'}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.7L20 8M20 4v4h-4M20 12a8 8 0 0 1-13.7 5.7L4 16M4 20v-4h4" /></svg>
@@ -486,14 +494,14 @@
       style:left={`${Math.min(menuX, Math.max(8, window.innerWidth - 264))}px`}
       style:top={`${Math.min(menuY, Math.max(8, window.innerHeight - 360))}px`}>
       <p class="quick-menu-title">Quick actions</p>
-      {#each missingReports as report (report.host)}
+      {#each installableReports as report (report.host)}
         <button type="button" role="menuitem" disabled={!!installing} onclick={() => installFromMenu(report.host)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
-          {installing === `${skill.id}:${report.host}` ? 'Adding…' : `Install on ${report.host}`}
+          {installing === `${skill.id}:${report.host}` ? 'Adding…' : report.status === 'unknown' ? `Scan and add on ${report.host}` : `Install on ${report.host}`}
         </button>
       {/each}
-      {#if missingReports.length}
-        <a role="menuitem" href={`/sync?machine=${encodeURIComponent(missingReports[0].host)}`}>Review sync for {missingReports[0].host}</a>
+      {#if installableReports.length}
+        <a role="menuitem" href={`/sync?machine=${encodeURIComponent(installableReports[0].host)}`}>Review sync for {installableReports[0].host}</a>
       {/if}
       {#if command}<button type="button" role="menuitem" onclick={copyInstall}>Copy install command</button>{/if}
       {#if prompt}<button type="button" role="menuitem" onclick={() => { closeMenu(); void copyText(prompt) }}>Copy prompt</button>{/if}
@@ -543,7 +551,11 @@
   .metric > svg { width: 14px; height: 14px; flex: none; }
   .card-details:not([hidden]) { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   .quick-actions { margin-top: 10px; }
-  .environment-more { min-height: 32px; padding: 4px 8px; background: transparent; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); cursor: pointer; font-size: 0.75rem; }
+  .installation-summary-row { margin-top: 10px; }
+  .installation-summary { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 32px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); font: inherit; font-size: 0.75rem; text-align: left; cursor: pointer; }
+  .installation-summary:hover { border-color: var(--muted); color: var(--ink); }
+  .installation-summary > span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
+  .installation-summary .summary-action { flex: none; color: var(--accent-text); font-weight: 650; }
   .installation-badges { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 10px 0 0; }
   .installation-badge { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); font-size: 0.75rem; }
   .installation-badge .host { overflow-wrap: anywhere; min-width: 0; }
@@ -559,8 +571,10 @@
   .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
   .installation-badge.installed { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); background: color-mix(in srgb, var(--good) 5%, var(--card)); }
   .installation-badge.missing { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); background: color-mix(in srgb, var(--warn) 5%, var(--card)); }
+  .installation-badge.unknown { border-style: dashed; }
   .install-now { flex: none; min-height: 28px; padding: 2px 9px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); border-radius: 5px; background: var(--card); color: var(--ink); font: inherit; font-size: 0.72rem; font-weight: 650; cursor: pointer; }
   .install-now:hover:not(:disabled) { border-color: var(--ink); }
+  .install-now.unknown { border-color: color-mix(in srgb, var(--muted) 55%, var(--line)); }
   .install-now:disabled { opacity: 0.6; cursor: wait; }
   .menu-trigger { min-width: 40px; justify-content: center; font-size: 1rem; line-height: 1; color: var(--muted); }
   .quick-menu { position: fixed; z-index: 80; display: grid; min-width: 240px; max-width: min(300px, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
@@ -688,7 +702,7 @@
   }
   @media (pointer: coarse) {
     .source-link { min-height: 44px; }
-    .install-now, .quick-menu a, .quick-menu button { min-height: 44px; }
+    .install-now, .installation-summary, .quick-menu a, .quick-menu button { min-height: 44px; }
     .chip, .install-toggle, .seg button, .more, .tag, .envchip, .listchip { min-height: 44px; }
     .pickbox { width: 44px; height: 44px; }
     .box { width: 22px; height: 22px; }

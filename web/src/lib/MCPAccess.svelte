@@ -3,6 +3,7 @@
   import { onMount } from 'svelte'
   import CopyButton from './CopyButton.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
+  import CollectionPanel from './CollectionPanel.svelte'
   import { createMCPConnection, getMCPAccess, revokeMCPConnection, rotateMCPConnection, saveMCPAccess, updateMCPConnection, type MCPAccess, type MCPConnection } from './api'
 
   let { timeZone = '', dateFormat = 'locale' }: { timeZone?: string; dateFormat?: string } = $props()
@@ -23,6 +24,8 @@
   let confirmation = $state<{ title: string; body: string; label: string; run: () => Promise<void> } | null>(null)
   const browserSupported = typeof navigator !== 'undefined' && 'modelContext' in navigator
   const endpoint = $derived(access?.endpoint ?? `${location.origin}/mcp`)
+  let connectionSearch = $state('')
+  let connectionKind = $state<'all' | 'oauth' | 'bearer'>('all')
 
   function announce() { window.dispatchEvent(new Event('reet-mcp-changed')) }
   async function load() {
@@ -55,6 +58,33 @@
     if (connection.expiresAt <= Date.now()) return 'Expired'
     if (!connection.enabled) return 'Paused'
     return access?.enabled ? 'Active' : 'Access paused'
+  }
+
+  const searchedConnections = $derived.by(() => {
+    const term = connectionSearch.trim().toLowerCase()
+    return (access?.connections ?? []).filter((connection) => {
+      if (!term) return true
+      const kind = connection.kind === 'oauth' ? 'oauth' : 'bearer token'
+      return term.split(/\s+/).every((word) => `${connection.name} ${kind}`.toLowerCase().includes(word))
+    })
+  })
+  const connectionCounts = $derived({
+    all: searchedConnections.length,
+    oauth: searchedConnections.filter((connection) => connection.kind === 'oauth').length,
+    bearer: searchedConnections.filter((connection) => connection.kind === 'bearer').length,
+  })
+  const visibleConnections = $derived(searchedConnections.filter((connection) => connectionKind === 'all' || connection.kind === connectionKind))
+  const connectionCountLabel = $derived(connectionCount(visibleConnections.length, access?.connections.length ?? 0))
+
+  function connectionCount(shown: number, total: number): string {
+    if (total === 0) return 'No connections'
+    if (shown === total) return `${total} ${total === 1 ? 'connection' : 'connections'}`
+    return `${shown} of ${total} connections`
+  }
+
+  function clearConnectionFilters() {
+    connectionSearch = ''
+    connectionKind = 'all'
   }
   function when(value: number): string {
     if (!value) return 'Not used yet'
@@ -108,12 +138,34 @@
       {#if endpoint.startsWith('http:')}<p class="hint">Hosted AI services need a reachable HTTPS URL. A desktop client can connect directly to a localhost instance.</p>{/if}
     </section>
 
-    <section class="panel" aria-labelledby="connections-title">
-      <div class="rowhead"><div><h3 id="connections-title">Connected clients</h3><p class="muted">OAuth sign-ins and manual bearer tokens, together in one place.</p></div><button type="button" class="btn quiet" onclick={load} disabled={busy}>Refresh</button></div>
-      {#if access.connections.length === 0}<div class="empty-state"><strong>Your first connection starts with a URL.</strong><p>Copy the MCP URL above into your client. It will appear here after you approve access.</p></div>
+    <CollectionPanel label="Connected clients" count={connectionCountLabel}>
+      {#snippet actions()}
+        <button type="button" class="btn quiet" onclick={load} disabled={busy}>Refresh</button>
+      {/snippet}
+      {#snippet toolbar()}
+        <div class="connection-toolbar">
+          <label class="connection-search">Search connections
+            <input type="search" bind:value={connectionSearch} placeholder="Name or kind" />
+          </label>
+          <div class="connection-scopes" role="group" aria-label="Show connections">
+            <button type="button" class="scope" aria-pressed={connectionKind === 'all'} onclick={() => (connectionKind = 'all')}>All<small>{connectionCounts.all}</small></button>
+            <button type="button" class="scope" aria-pressed={connectionKind === 'oauth'} onclick={() => (connectionKind = 'oauth')}>OAuth<small>{connectionCounts.oauth}</small></button>
+            <button type="button" class="scope" aria-pressed={connectionKind === 'bearer'} onclick={() => (connectionKind = 'bearer')}>Bearer token<small>{connectionCounts.bearer}</small></button>
+          </div>
+        </div>
+      {/snippet}
+
+      {#if access.connections.length === 0}
+        <div class="empty-state"><strong>Your first connection starts with a URL.</strong><p>Copy the MCP URL above into your client. It will appear here after you approve access.</p></div>
+      {:else if visibleConnections.length === 0}
+        <div class="state-block">
+          <h3>No connection matches that search or kind.</h3>
+          <p>Try another search, or show every connection.</p>
+          <button type="button" class="btn" onclick={clearConnectionFilters}>Clear filters</button>
+        </div>
       {:else}
         <ul class="connections">
-          {#each access.connections as connection (connection.id)}
+          {#each visibleConnections as connection (connection.id)}
             <li>
               <div class="connection-head"><div><strong>{connection.name}</strong><span class="kind">{connection.kind === 'oauth' ? 'OAuth' : 'Bearer token'}</span></div><span class="state" class:live={status(connection) === 'Active'}>{status(connection)}</span></div>
               <p class="connection-meta">{connection.scope === 'write' && access.canWrite ? 'Read & manage' : 'Read only'} · Last used: {when(connection.lastUsedAt)}<br />Expires {when(connection.expiresAt)}</p>
@@ -130,9 +182,11 @@
             </li>
           {/each}
         </ul>
-        <button type="button" class="btn quiet danger revoke-all" disabled={busy} onclick={() => revoke()}>Revoke all connections</button>
       {/if}
-    </section>
+    </CollectionPanel>
+    {#if access.connections.length > 0}
+      <button type="button" class="btn quiet danger revoke-all" disabled={busy} onclick={() => revoke()}>Revoke all connections</button>
+    {/if}
 
     <section class="panel" aria-labelledby="browser-mcp-title">
       <div class="rowhead"><div><h3 id="browser-mcp-title">Browser WebMCP</h3><p class="muted">Let a browser assistant work with the reet.sh page you have open.</p></div><span class="badge subtle">{browserSupported ? 'Available in this browser' : 'Requires a compatible browser'}</span></div>
@@ -178,8 +232,20 @@
   .endpoint code { overflow-wrap:anywhere; min-width:0; font-size:.84rem; }
   .empty-state { padding:26px 0 8px; }
   .empty-state p { color:var(--muted); margin-bottom:0; }
-  .connections { list-style:none; margin:20px 0 0; padding:0; }
+  .connection-toolbar { display:flex; align-items:flex-end; flex-wrap:wrap; gap:12px 16px; }
+  .connection-search { flex:1 1 240px; display:grid; gap:6px; color:var(--muted); font-size:.8rem; }
+  .connection-search input { width:100%; }
+  .connection-scopes { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+  .scope { min-height:36px; padding:5px 10px; border:1px solid var(--line); border-radius:999px; background:transparent; color:var(--muted); font:inherit; font-size:.8rem; cursor:pointer; }
+  .scope:hover { border-color:var(--muted); color:var(--ink); }
+  .scope[aria-pressed='true'] { background:var(--tint); border-color:var(--accent); color:var(--ink); font-weight:600; }
+  .scope small { margin-left:5px; font-size:.75rem; font-variant-numeric:tabular-nums; }
+  .connections { list-style:none; margin:0; padding:0; }
   .connections li { padding:18px 0; border-top:1px solid var(--line); }
+  .connections li:first-child { border-top:0; padding-top:4px; }
+  .state-block { padding:24px 0 16px; max-width:58ch; }
+  .state-block h3 { margin:0; font:500 1.25rem/1.2 var(--serif); letter-spacing:-.02em; }
+  .state-block p { margin:6px 0 12px; color:var(--muted); }
   .connection-meta { font-size:.8rem; margin:8px 0 12px; line-height:1.7; }
   .actions { display:flex; gap:8px; flex-wrap:wrap; }
   .danger { color:var(--bad); }
@@ -199,4 +265,5 @@
   .bad { border-color:var(--bad); }
   .good { border-color:var(--good); }
   @media(max-width:640px) { .fields,.edit-form { grid-template-columns:1fr; } .endpoint { align-items:flex-start; } .heading > button { width:100%; } .browser-options > label { width:100%; } }
+  @media (pointer:coarse) { .scope, .connection-search input { min-height:44px; } }
 </style>

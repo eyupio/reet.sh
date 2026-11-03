@@ -248,6 +248,10 @@ try{
  const readout=debug.page.locator('.viewport-debug')
  await expect(readout).toContainText('innerHeight 844')
  await expect(readout).toContainText('keyboard closed')
+ // The sideways reading: the layout and visual widths, the page scale, and the viewport meta the workspace set.
+ await expect(readout).toContainText('innerWidth 390 · visualViewport.width 390 · scale 1')
+ await expect(readout).toContainText('scrollWidth 390')
+ await expect(readout).toContainText('interactive-widget=resizes-content')
  await expect(readout).toHaveCSS('pointer-events','none')
  await debug.page.getByRole('button',{name:'Focus terminal',exact:true}).click()
  await debug.page.evaluate(height=>window.__keyboard(height),keyboardTop)

@@ -511,6 +511,12 @@ const (
 	QuestionInvalid ResultCode = "question_invalid"
 )
 
+// ConflictStarting is the one detail a conflict result may carry: the session
+// is still starting (a create, a restore or another reattach), so the request
+// may succeed once it settles. A conflict without it means another session
+// owns what was asked for.
+const ConflictStarting = "starting"
+
 func (c ResultCode) Valid() bool {
 	return c == OK || c == Unavailable || c == Denied || c == Capacity || c == NotFound || c == Failed || c == Conflict || c == LaunchFailed || c == LaunchOptionUnsupported || c == YoloRefused || c == WorktreeChanged || c == WorktreeRefused || c == UploadsOff || c == UploadBusy || c == ACPUnavailable || c == ACPVersion || c == ACPTrustRequired || c == QuestionInvalid
 }
@@ -539,6 +545,8 @@ func (r Result) valid() bool {
 			return validChatText(r.Detail, 500)
 		case QuestionInvalid:
 			return validChatText(r.Detail, 200)
+		case Conflict:
+			return r.Detail == ConflictStarting
 		default:
 			return false
 		}

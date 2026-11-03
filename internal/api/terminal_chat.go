@@ -395,15 +395,33 @@ func (s *server) terminalReattachError(w http.ResponseWriter, err error) {
 	var trust *terminalbroker.ACPTrustError
 	switch {
 	case errors.As(err, &trust):
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "This folder has OpenCode plugins. Reconnect only in a folder you trust.", "code": "chat_reattach_trust", "detail": trust.Detail})
-	case errors.Is(err, terminalbroker.ErrReattachUnsupported), errors.Is(err, terminalbroker.ErrACPUnsupported):
-		writeErrCode(w, 409, "chat_reattach_unsupported", "", terminalbroker.ErrReattachUnsupported.Error(), "")
-	case errors.Is(err, terminalbroker.ErrReattachNotClosed), errors.Is(err, terminalbroker.ErrACPClosed):
-		writeErrCode(w, 409, "chat_reattach_not_closed", "", terminalbroker.ErrReattachNotClosed.Error(), "")
+		// Ruling R10: the browser shows the plugin files and offers Continue
+		// with history (a new row that confirms trust), not a retry.
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "This folder has OpenCode plugins, so reet did not reconnect the chat in place. Continue it with history only if you trust this folder.", "code": "chat_reattach_trust", "detail": trust.Detail})
+	case errors.Is(err, terminalbroker.ErrReattachUnsupported):
+		writeErrCode(w, 409, "chat_reattach_unsupported", "", err.Error(), "")
+	case errors.Is(err, terminalbroker.ErrACPUnsupported):
+		// Not an OpenCode chat (or the agent cannot chat there): updating reet
+		// would not help.
+		writeErrCode(w, 409, "chat_reattach_unsupported", "", "This chat cannot be reconnected in place.", "")
+	case errors.Is(err, terminalbroker.ErrACPClosed):
+		// A person ended it: continuing is a deliberate new row.
+		writeErrCode(w, 409, "chat_reattach_ended", "", "You ended this chat. Continue it with history as a new session.", "")
+	case errors.Is(err, terminalbroker.ErrReattachNotClosed):
+		writeErrCode(w, 409, "chat_reattach_not_closed", "", err.Error(), "")
 	case errors.Is(err, terminalbroker.ErrReattachNoConversation):
 		writeErrCode(w, 409, "chat_reattach_no_conversation", "", err.Error(), "")
+	case errors.Is(err, terminalbroker.ErrReattachStarting):
+		writeErrCode(w, 409, "chat_reattach_starting", "", err.Error(), "")
 	case errors.Is(err, terminalbroker.ErrReattachConflict):
 		writeErrCode(w, 409, "chat_reattach_conflict", "", err.Error(), "")
+	case errors.Is(err, terminalbroker.ErrYoloNotAllowed):
+		// The same sentence as a YOLO launch the account does not allow.
+		writeErrCode(w, 409, "chat_reattach_yolo_not_allowed", "", "An owner or admin can allow YOLO for this account in Settings.", "")
+	case errors.Is(err, terminalbroker.ErrYoloRefused):
+		writeErrCode(w, 409, "chat_reattach_yolo_refused", "", "YOLO is turned off on this machine, so this YOLO chat cannot be reconnected.", "")
+	case errors.Is(err, store.ErrTerminalCapacity):
+		writeErrCode(w, 409, "chat_reattach_capacity", "", "This machine has reached its session limit.", "")
 	case errors.Is(err, terminalbroker.ErrReattachFailed):
 		writeErrCode(w, 502, "chat_reattach_failed", "", err.Error(), "")
 	case errors.Is(err, terminalbroker.ErrOffline):

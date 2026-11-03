@@ -435,3 +435,27 @@ func TestSupportsChatReattach(t *testing.T) {
 		t.Fatal(ChatReattachFeature)
 	}
 }
+
+// A conflict may say the chat is still starting, and nothing else: every
+// other result code keeps refusing a detail it never carried.
+func TestConflictResultStartingDetail(t *testing.T) {
+	if ConflictStarting != "starting" {
+		t.Fatal(ConflictStarting)
+	}
+	if !(Result{Code: Conflict, Detail: ConflictStarting}).valid() || !(Result{Code: Conflict}).valid() {
+		t.Fatal("conflict refused")
+	}
+	for _, bad := range []Result{{Code: Conflict, Detail: "busy"}, {Code: Failed, Detail: ConflictStarting}, {Code: Capacity, Detail: ConflictStarting}} {
+		if bad.valid() {
+			t.Fatalf("accepted %+v", bad)
+		}
+	}
+	data, err := Encode(Message{Version: Version, RequestID: "request-0123456789", SessionID: "session-0123456789", Generation: 1, Body: Result{Code: Conflict, Detail: ConflictStarting}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := Decode(data)
+	if err != nil || m.Body.(*Result).Detail != ConflictStarting {
+		t.Fatalf("round trip %+v %v", m, err)
+	}
+}

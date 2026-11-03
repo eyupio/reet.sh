@@ -11,15 +11,17 @@
   import { saveDraft } from '../sessionBacklog'
   import { insertSkillPrompt } from '../skillPrompt'
   import { machineModels, refreshMachineModels, structuredAgent, type FolderProject, type TerminalMachine } from '../terminal/api'
-  import { cleanDraftOptions, draftOptionRules, ideaProblem } from '../draftOptions'
+  import { cleanDraftOptions, draftOptionRules, ideaProblem, type StartPlace } from '../draftOptions'
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import type { DraftImage, SessionDraft } from '../sessionBoard'
   import type { LaunchDefaults } from '../launchBar'
   import FolderBrowser from './FolderBrowser.svelte'
   import SkillPromptPicker from './SkillPromptPicker.svelte'
 
-  let { draft = null, projects, machines, profile, initialProject = '', onsaved, onclose, onerror }: {
+  let { draft = null, startNow = false, startCheck, projects, machines, profile, initialProject = '', onsaved, onclose, onerror }: {
     draft?: SessionDraft | null; projects: FolderProject[]; machines: TerminalMachine[]; profile: LaunchDefaults
+    /** Refine an idea to start it: it leaves Idea behind, and saving hands it straight on to be started. */
+    startNow?: boolean; startCheck?: (place: StartPlace) => string | null
     initialProject?: string; onsaved: (draft: SessionDraft) => void; onclose: () => void; onerror: (e: unknown) => void
   } = $props()
   const id = $props.id()
@@ -44,6 +46,8 @@
   const takesEffort = $derived(efforts.length > 1)
   const project = $derived(mode === 'project' ? projects.find(p => p.id === projectId) : undefined)
   const rules = $derived(draftOptionRules({ tool, isRepo: !!project?.isRepo, canChat: !!structuredAgent(machine?.capabilities, tool), chat }))
+  // Starting is only offered while the refined item could actually start; saving first would strand it half-done.
+  const blocker = $derived(startNow && startCheck ? startCheck({ agentId, tool, projectId: mode === 'project' ? projectId : '', dir, imageCount: images.length, effort }) : null)
   const modelStatusInfo = $derived.by(() => {
     const host = machine?.host ?? ''
     if (!machine) return modelStatus(null, host)
@@ -100,7 +104,7 @@
     if (draft) {
       title = draft.title; prompt = draft.prompt; projectId = draft.projectId; agentId = draft.agentId; dir = draft.dir
       tool = draft.tool; model = draft.model; effort = draft.effort; images = [...(draft.images ?? [])]
-      idea = draft.idea === true; yolo = draft.yolo === true; worktree = draft.worktree === true; base = draft.base ?? ''; chat = draft.chat === true; trust = draft.trust === true
+      idea = !startNow && draft.idea === true; yolo = draft.yolo === true; worktree = draft.worktree === true; base = draft.base ?? ''; chat = draft.chat === true; trust = draft.trust === true
       if (!CATALOGUE.find(agent => agent.id === tool)?.effort) effort = ''
       mode = projectId ? 'project' : 'folder'; titleTouched = true
     } else {
@@ -247,6 +251,7 @@
     event.preventDefault(); if (busy || reading) return
     const why = !agentId ? 'Choose a machine.' : mode === 'project' && !projectId ? 'Choose a project.' : idea ? ideaProblem({ idea, title, prompt }) || (prompt.trim() ? validatePrompt(tool, prompt) : null) || validateModel(model) || (dir ? validateDir(dir) : null) : !prompt.trim() ? 'Describe what the agent should do.' : validatePrompt(tool, prompt) || validateModel(model) || (dir ? validateDir(dir) : null)
     if (why) { message = why; return }
+    if (blocker) { message = blocker; return }
     busy = true; message = ''
     try {
       const saved = await saveDraft({ title: title.trim() || defaultTitle(prompt), prompt, idea, projectId: mode === 'project' ? projectId : '', agentId, dir, tool, model: model.trim(), effort, ...cleanDraftOptions({ tool, isRepo: !!project?.isRepo, canChat: !!structuredAgent(machine?.capabilities, tool), chat, worktree, base, trust, yolo }), images, version: draft?.version ?? 0 }, draft?.id, AbortSignal.timeout(20_000))
@@ -259,15 +264,18 @@
 <dialog bind:this={dialog} use:shell aria-labelledby={`${id}-heading`} oncancel={e => { e.preventDefault(); close() }}>
   <form onsubmit={save}>
     <header data-shell-head>
-      <div><span class="eyebrow">PLAN YOUR NEXT MOVE</span><h2 id={`${id}-heading`}>{draft ? 'Edit session' : 'A little planning. Proper progress.'}</h2><p data-shell-aside>Give your agent a clear brief. Start it when you’re ready.</p></div>
+      <div><span class="eyebrow">{startNow ? 'READY WHEN YOU ARE' : 'PLAN YOUR NEXT MOVE'}</span><h2 id={`${id}-heading`}>{startNow ? 'Turn this idea into a session' : draft ? 'Edit session' : 'A little planning. Proper progress.'}</h2><p data-shell-aside>{startNow ? 'Add the brief, check who’s on the job, then start it.' : 'Give your agent a clear brief. Start it when you’re ready.'}</p></div>
       <button type="button" class="close" data-shell-close aria-label="Close session composer" onclick={close} disabled={busy || reading}>×</button>
     </header>
     <div class="body" data-shell-body>
       {#if confirmClose}
         <div class="discard" role="alert" style="position: sticky; top: 0; z-index: 3"><strong>Discard your unsaved changes?</strong><div><button type="button" class="btn" onclick={() => confirmClose = false}>Keep editing</button><button type="button" class="btn" onclick={onclose}>Discard changes</button></div></div>
       {/if}
+      {#if startNow && blocker}
+        <div class="blocked" role="note" style="position: sticky; top: 0; z-index: 3"><strong>Can’t start yet.</strong> {blocker}</div>
+      {/if}
       <fieldset disabled={busy || reading}>
-        <label class="idea-toggle"><input type="checkbox" bind:checked={idea} /> <span><strong>Just capture an idea</strong><small>A placeholder so you don’t forget. It can’t be started until you add a prompt and switch this off.</small></span></label>
+        {#if !startNow}<label class="idea-toggle"><input type="checkbox" bind:checked={idea} /> <span><strong>Just capture an idea</strong><small>A placeholder so you don’t forget. Choose Start on it later and you’ll add the prompt then.</small></span></label>{/if}
         <label class="field"><span>Session title <small>{idea ? 'Required if there’s no note' : 'Optional · suggested from your prompt'}</small></span><input aria-label="Session title" bind:value={title} oninput={() => titleTouched = true} maxlength="80" placeholder="A short name for this piece of work" /></label>
         <label class="field"><span>{idea ? 'Note' : 'Prompt'} <em>{idea ? 'Optional' : 'Required'}</em></span><textarea bind:this={promptInput} aria-label="Prompt" bind:value={prompt} rows="6" required={!idea} placeholder={idea ? 'A rough note is plenty. You can turn it into a full prompt later.' : 'What should the agent do? Include the context, the outcome you want, and anything it should keep in mind.'} onpaste={e => { const files = Array.from(e.clipboardData?.files ?? []); if (files.length) { e.preventDefault(); void attach(files) } }}></textarea></label>
         <div class="prompt-foot"><div class="prompt-actions"><label class="attach">＋ Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={reading} onchange={e => { void attach(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }} /></label><button type="button" class="skill-add" bind:this={skillButton} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button></div><span class:over={bytes > MAX_PROMPT_BYTES}>{bytes.toLocaleString()} / {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes</span></div>
@@ -297,11 +305,12 @@
           {#if rules.showTrust}<label class="check"><input type="checkbox" bind:checked={trust} /> I trust this folder; OpenCode plugins in <code>.opencode</code> may run.</label>{/if}
         </div>
         {#if yolo}<p class="hint yolo-hint" role="note">YOLO is saved as a plan only. You’ll be asked to confirm, with the account and machine checks, when you start it.</p>{/if}
-        <p class="hint">{machine && !machine.ready ? 'This machine is offline. You can save now and start when it reconnects.' : 'Saving to the backlog keeps everything ready for later.'}</p>
+        {#if startNow}<p class="hint">Starting saves this to your backlog first, so nothing is lost if the session can’t start.</p>
+        {:else}<p class="hint">{machine && !machine.ready ? 'This machine is offline. You can save now and start when it reconnects.' : 'Saving to the backlog keeps everything ready for later.'}</p>{/if}
       </fieldset>
       {#if message}<p class="error" role="alert">{message}</p>{/if}
     </div>
-    <footer data-shell-foot><span>{reading ? 'Reading images…' : 'Your prompt and images are saved to your account.'}</span><button type="button" class="btn" onclick={close} disabled={busy || reading}>Cancel</button><button class="btn primary" disabled={busy || reading || bytes > MAX_PROMPT_BYTES || !machines.length} aria-busy={busy}>{busy ? 'Saving…' : draft ? 'Save changes' : idea ? 'Save idea' : 'Add to backlog'}</button></footer>
+    <footer data-shell-foot><span>{reading ? 'Reading images…' : 'Your prompt and images are saved to your account.'}</span><button type="button" class="btn" onclick={close} disabled={busy || reading}>Cancel</button><button class="btn primary" disabled={busy || reading || bytes > MAX_PROMPT_BYTES || !machines.length || !!blocker} aria-busy={busy}>{busy ? (startNow ? 'Starting…' : 'Saving…') : startNow ? 'Start session' : draft ? 'Save changes' : idea ? 'Save idea' : 'Add to backlog'}</button></footer>
   </form>
   {#if modelOpen}
     <SlotPicker label="Model" options={modelOptionsFor()} value={model} sheet={touch} opener={modelButton ?? null}
@@ -373,8 +382,8 @@
   .yolo-hint { color: var(--warn); margin-bottom: 8px; }
   footer { display: flex; align-items: center; gap: 8px; padding: 18px 28px; border-top: 1px solid var(--line); background: var(--bg); }
   footer > span { flex: 1; font-size: 11px; color: var(--muted); }
-  .error, .discard { border: 1px solid var(--warn); padding: 12px; border-radius: 8px; color: var(--warn); font-size: 13px; }
-  .discard { margin-bottom: 18px; background: var(--card); }.discard div { display: flex; gap: 8px; margin-top: 10px; }
+  .error, .discard, .blocked { border: 1px solid var(--warn); padding: 12px; border-radius: 8px; color: var(--warn); font-size: 13px; }
+  .discard, .blocked { margin-bottom: 18px; background: var(--card); }.discard div { display: flex; gap: 8px; margin-top: 10px; }
   .over { color: var(--bad); }
   @media (max-width: 650px) { input, textarea, select, .picker { font-size: 16px; } header, .body, footer { padding: 18px; } h2 { font-size: 23px; } .settings { grid-template-columns: 1fr; gap: 0; } .field small { display: block; margin: 2px 0 0; } footer > span { display: none; } footer { justify-content: flex-end; } .skill-add { min-height: 44px; } }
 </style>

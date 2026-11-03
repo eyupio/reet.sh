@@ -25,11 +25,30 @@ test('hidden choices are cleared before saving', () => {
 })
 
 test('an idea needs a title or a note, nothing more', () => {
-  const { ideaProblem, IDEA_START_NOTE } = ideaApi
+  const { ideaProblem } = ideaApi
   assert.equal(ideaProblem({ idea: true, title: '', prompt: '' }), 'Give the idea a title or a note.')
   assert.equal(ideaProblem({ idea: true, title: '  ', prompt: ' ' }), 'Give the idea a title or a note.')
   assert.equal(ideaProblem({ idea: true, title: 'Faster filters', prompt: '' }), '')
   assert.equal(ideaProblem({ idea: true, title: '', prompt: 'rough note' }), '')
   assert.equal(ideaProblem({ idea: false, title: '', prompt: '' }), '')
-  assert.match(IDEA_START_NOTE, /switch off Idea/)
+})
+
+// What the card, and the idea's start dialog, check before a session can start. The board resolves the machine facts.
+const item = { projectId: 'p1', imageCount: 0, effort: '' }
+const ready = { readiness: '', agent: { available: true }, uploads: true, effort: true, projectCurrent: true }
+test('a ready item has no start problem', () => {
+  const { startProblem } = ideaApi
+  assert.equal(startProblem(item, ready), null)
+})
+test('start problems come back in the order a person would fix them', () => {
+  const { startProblem } = ideaApi
+  assert.equal(startProblem(item, { ...ready, readiness: 'Choose an enrolled machine.', agent: undefined }), 'Choose an enrolled machine.')
+  assert.equal(startProblem(item, { ...ready, agent: { available: false, reason: 'Not installed on studio' } }), 'Not installed on studio')
+  assert.equal(startProblem(item, { ...ready, agent: undefined }), 'This agent is unavailable on that machine.')
+  assert.equal(startProblem({ ...item, imageCount: 2 }, { ...ready, uploads: false }), 'Image uploads are unavailable on this machine.')
+  assert.equal(startProblem({ ...item, imageCount: 0 }, { ...ready, uploads: false }), null)
+  assert.equal(startProblem({ ...item, effort: 'high' }, { ...ready, effort: false }), 'Update reet on this machine to choose effort.')
+  assert.equal(startProblem(item, { ...ready, projectCurrent: false }), 'The project changed or was removed. Edit this backlog item first.')
+  // An item in a plain folder has no project to go stale.
+  assert.equal(startProblem({ ...item, projectId: '' }, { ...ready, projectCurrent: false }), null)
 })

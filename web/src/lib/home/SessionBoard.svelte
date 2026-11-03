@@ -5,7 +5,7 @@
   import { getYoloSetting, type YoloSetting } from '../api'
   import { yoloGates } from '../launchBar'
   import YoloDialog from '../launch/YoloDialog.svelte'
-  import { IDEA_START_NOTE } from '../draftOptions'
+  import { startProblem, type StartPlace, type StartTarget } from '../draftOptions'
   import { shortAge, stateWord } from '../home'
   import { listDrafts, getDraft, deleteDraft, startDraft } from '../sessionBacklog'
   import { boardItems, emptyFilters, filterBoard, filterCount, sortBoard, STAGES, type BoardView, type SessionDraft } from '../sessionBoard'
@@ -32,7 +32,8 @@
   let drafts = $state<SessionDraft[] | undefined>(), problem = $state(''), notice = $state('')
   let view = $state<BoardView>('board'), sort = $state('newest'), compact = $state(false)
   let filters = $state(emptyFilters()), filtersOpen = $state(false)
-  let composer = $state<{ draft: SessionDraft | null; opener: HTMLElement } | null>(null)
+  // `start` opens an idea to be refined and started, rather than just edited.
+  let composer = $state<{ draft: SessionDraft | null; opener: HTMLElement; start?: boolean } | null>(null)
   let starting = $state<{ opener: HTMLElement } | null>(null)
   let removing = $state<SessionDraft | null>(null), deleteBusy = $state(false)
   let working = $state(''), phase = $state(''), loadingId = $state('')
@@ -89,10 +90,10 @@
     if (filtersOpen && !filterPanel?.contains(e.target as Node) && !filterButton?.contains(e.target as Node)) closeFilters()
   }
   function keydown(e: KeyboardEvent) { if (e.key === 'Escape' && filtersOpen) { e.preventDefault(); closeFilters(true) } }
-  async function edit(draft: SessionDraft, opener: HTMLElement) {
+  async function edit(draft: SessionDraft, opener: HTMLElement, start = false) {
     if (loadingId || working) return
     loadingId = draft.id; notice = ''
-    try { const full = await getDraft(draft.id, signal()); if (!life.signal.aborted) composer = { draft: full, opener } }
+    try { const full = await getDraft(draft.id, signal()); if (!life.signal.aborted) composer = { draft: full, opener, start } }
     catch (e) { error(e); notice = e instanceof Error ? e.message : "Couldn't open that item." }
     finally { loadingId = '' }
   }
@@ -100,21 +101,27 @@
   function startedHere(session: TerminalSession) { starting = null; if (onstarted) onstarted(session); else { notice = `Started “${session.title}”. You’ll find it in Active.`; void onchanged() } }
   function closeComposer() { const opener = composer?.opener; composer = null; void tick().then(() => opener?.focus()) }
   function saved(draft: SessionDraft) {
+    const start = composer?.start
     generation++; drafts = [...(drafts ?? []).filter(d => d.id !== draft.id), { ...draft, images: undefined }]
-    closeComposer(); notice = 'Sorted. Session saved to your backlog.'; void load()
+    closeComposer()
+    // A refined idea is now a normal backlog item, so it starts exactly like one.
+    if (start) { void activate(draft); return }
+    notice = 'Sorted. Session saved to your backlog.'; void load()
   }
-  function startReason(draft: SessionDraft): string | null {
-    const machine = machines.find(m => m.agentId === draft.agentId)
-    if (draft.idea) return IDEA_START_NOTE
-    const why = readiness(machine)
-    if (why) return why
-    const choice = machine && agentChoices(machine).find(c => c.agent.id === draft.tool)
-    if (!choice?.available) return choice?.reason ?? 'This agent is unavailable on that machine.'
-    if (draft.imageCount && (!machine?.capabilities?.uploads || machine.capabilities.uploadsOff)) return 'Image uploads are unavailable on this machine.'
-    if (draft.effort && !machine?.capabilities?.agentsV2) return 'Update reet on this machine to choose effort.'
-    if (draft.projectId && !projects.some(p => p.id === draft.projectId && p.host === draft.agentId && p.dir === draft.dir)) return 'The project changed or was removed. Edit this backlog item first.'
-    return null
+  // What the machine and project lists say about where an item would run; the shared rules turn it into a reason.
+  function startTarget(place: StartPlace): StartTarget {
+    const machine = machines.find(m => m.agentId === place.agentId)
+    return {
+      readiness: readiness(machine),
+      agent: machine && agentChoices(machine).find(c => c.agent.id === place.tool),
+      uploads: !!machine?.capabilities?.uploads && !machine.capabilities.uploadsOff,
+      effort: !!machine?.capabilities?.agentsV2,
+      projectCurrent: projects.some(p => p.id === place.projectId && p.host === place.agentId && p.dir === place.dir),
+    }
   }
+  const startCheck = (place: StartPlace) => startProblem(place, startTarget(place))
+  // An idea is never blocked on the card: Start opens it to be refined, and the same rules check the refined item there.
+  const startReason = (draft: SessionDraft) => draft.idea ? null : startCheck(draft)
   const yoloChoice = (d: SessionDraft) => ({ agent: d.tool, model: '', projectIds: d.projectId ? [d.projectId] : [], homeMachine: d.agentId, branch: '', worktree: d.worktree === true && !d.chat, effort: '' as const, prompt: '', approvals: 'yolo' as const })
   const yoloGateList = $derived(yoloAsk ? yoloGates(yoloChoice(yoloAsk), yoloSetting, projects, machines) : [])
   async function askYolo(item: SessionDraft) {
@@ -251,7 +258,7 @@
                 <footer class="card-foot">
                   {#if draft}
                     <span class="age" title={new Date(item.createdAt).toLocaleString()}>Saved {shortAge(Math.max(0, now - item.createdAt))} ago</span>
-                    <div class="card-actions">{#if !draft.starting}<button class="edit" disabled={!!working || !!loadingId} onclick={e => void edit(draft, e.currentTarget)} aria-label={`Edit ${draft.title}`}>Edit</button><button class="delete" disabled={!!working || !!loadingId} aria-label={`Delete ${draft.title}`} onclick={() => void askDelete(draft)}>Delete</button>{/if}<button class="start" disabled={!!reason || !!working} title={reason ?? 'Start this session on its machine'} onclick={() => void activate(draft)}>{working === draft.id ? phase : draft.starting ? 'Retry start' : 'Start'}<BoardIcon name="arrow" size={13}/></button></div>
+                    <div class="card-actions">{#if !draft.starting}<button class="edit" disabled={!!working || !!loadingId} onclick={e => void edit(draft, e.currentTarget)} aria-label={`Edit ${draft.title}`}>Edit</button><button class="delete" disabled={!!working || !!loadingId} aria-label={`Delete ${draft.title}`} onclick={() => void askDelete(draft)}>Delete</button>{/if}<button class="start" disabled={!!reason || !!working} title={reason ?? (draft.idea ? 'Refine this idea, then start it' : 'Start this session on its machine')} onclick={e => draft.idea ? void edit(draft, e.currentTarget, true) : void activate(draft)}>{working === draft.id ? phase : draft.starting ? 'Retry start' : 'Start'}<BoardIcon name="arrow" size={13}/></button></div>
                   {:else if session && word}
                     <span class="status {word.tone}" title={word.source}><i></i>{word.word}</span><a class="open-session" href={sessionHref(session)}>{stage.id === 'finished' ? 'Review' : 'Open'}<BoardIcon name="arrow" size={13}/></a>
                   {/if}
@@ -268,7 +275,7 @@
 </section>
 {#if starting}<StartSessionDialog {projects} {machines} {profile} {initialProject} onstarted={startedHere} {onsignedout} onclose={closeStart}/>{/if}
 {#if yoloAsk}<YoloDialog gates={yoloGateList} tool={yoloAsk.tool} structured={yoloAsk.chat === true} machine={machineNames.get(yoloAsk.agentId) || 'the machine'} oncancel={cancelYolo} onstart={confirmYolo} />{/if}
-{#if composer}<SessionComposer draft={composer.draft} {projects} {machines} {profile} {initialProject} onsaved={saved} onclose={closeComposer} onerror={error}/>{/if}
+{#if composer}<SessionComposer draft={composer.draft} startNow={composer.start === true} {startCheck} {projects} {machines} {profile} {initialProject} onsaved={saved} onclose={closeComposer} onerror={error}/>{/if}
 {#if removing}<dialog class="delete-dialog" bind:this={deleteDialog} aria-labelledby={`${id}-delete`} oncancel={e => { if (deleteBusy) e.preventDefault(); else removing = null }}><h2 id={`${id}-delete`}>Delete this backlog item?</h2><p>“{removing.title}” and its saved images will be removed.</p><div><button class="btn" disabled={deleteBusy} onclick={() => removing = null}>Keep session</button><button class="btn primary" disabled={deleteBusy} aria-busy={deleteBusy} onclick={() => void remove()}>{deleteBusy ? 'Deleting…' : 'Delete item'}</button></div></dialog>{/if}
 <SessionActions bind:this={actions} machines={health} {offline} terminals={machines} {removeDefault} {onsignedout} {onchanged} onnotice={n => notice = n?.text ?? ''}/>
 

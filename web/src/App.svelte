@@ -515,6 +515,7 @@
       return
     }
     await loadPreferences()
+    await applyPendingTheme()
     loading = true
     await load()
     await loadMeta()

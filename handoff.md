@@ -42,7 +42,8 @@ single-flight guard and an in-pane "Starting a new session…". Docs: `docs/stru
 Checks. Full run, earlier in Task 10: `go vet ./...` exit 0 and `go test -race -timeout 40m ./...` exit 0, 40 packages `ok`, including `internal/api` 791.503s and `internal/store` 339.278s. Those two slow packages were not re-run afterwards. Re-run in the fix round (raw logs `.superpowers/sdd/2026-11-03-chat-reattach/task-10-go.log` and `task-10-web.log`, not committed): `go vet ./...` exit 0 and `go test -race -count=1 ./cmd/... ./internal/terminalproto/ ./internal/terminalagent/ ./internal/terminalbroker/` printed `ok .../cmd/reet 16.283s`, `ok .../internal/terminalproto 1.184s`, `ok .../internal/terminalagent 8.255s`, `ok .../internal/terminalbroker 63.251s`. In `web/`, `npm run check` ran its unit tests (53 `# fail 0` summaries, no non-zero `# fail`) and svelte-check printed `COMPLETED 360 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS`; `npm run build` printed `built in 9.58s`.
 
 Known limitations: auto-reattach sends no folder-trust confirmation, so a folder with OpenCode plugins refuses with the
-trust message and the person continues with history as a new row (after the fix wave) or starts a new chat; YOLO chats are
+trust message (resolved by follow-up F3 below: the person can now reconnect in place with **Trust this folder and
+reconnect**, beside Continue with history and Start a new chat); YOLO chats are
 refused (not downgraded) if the account or the machine no longer allows YOLO; while the machine is offline the pane shows the idle ended note (not a waiting state) and a failure consumes the one
 automatic attempt; Claude/Codex chats are not covered. Not exercised: a live OpenCode provider reload and production chats.
 
@@ -72,6 +73,21 @@ summaries, none non-zero; svelte-check `COMPLETED 360 FILES 0 ERRORS 0 WARNINGS 
 (`built in 12.38s`), and against a preview build `chat-recovery.e2e.mjs` and `sessions.e2e.mjs` passed. `chat.e2e.mjs`
 failed twice in its Skills-install section while the full Go race run loaded the machine, then passed on a third run
 after it finished; the same section also failed once on the unchanged baseline build in this session.
+
+Follow-up F3: trusted in-place reconnect (local branch `followups/reattach`, commits `24c602b` Go, `b0b6fd9` web, and this
+docs commit). `POST /api/v2/terminal/sessions/{id}/reattach` takes an optional body: none, `null` or `{}` mean no trust,
+`{"trust": true}` passes trust for that request only (never stored), anything else is 400 before the machine is asked.
+`Broker.ReattachChat(ctx, uid, session, trust)` sends `Trust` on the wire, records `trust` in the `chat-reattach` audit
+event, and keys its single-flight on session and trust, so a trusting call never joins a non-trusting one. The
+`chat_reattach_trust` sentence is now "This folder has OpenCode plugins, so reet did not reconnect automatically. Reconnect
+only if you trust it.". Web: after that refusal the card offers **Trust this folder and reconnect** (primary), **Continue
+with history** and **Start a new chat**, still no Try again; only that click sends `{"trust":true}` (the automatic attempt
+and every other request send the earlier `{}` body). Checks (raw logs `.superpowers/sdd/reattach-followups/f3-*.log`, not
+committed): `go vet ./...` exit 0; full `go test -race -count=1 ./internal/terminalbroker/` printed `ok
+.../internal/terminalbroker 72.247s` and full `./internal/api/` printed `ok .../internal/api 733.013s`; `internal/agenthealth`
+and `internal/terminalproto` full `ok`; other Go packages were not re-run. In `web/`, `reattachState.test.mjs` `# pass 14`
+`# fail 0`, `npm run check` (svelte-check `COMPLETED 360 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS`), `npm run build`
+(`built in 9.64s`), and against a preview build `chat-recovery.e2e.mjs` and `sessions.e2e.mjs` passed.
 
 ## CHAT-RECOVERY-1: continue a closed chat with saved history (3 November 2026)
 

@@ -456,10 +456,14 @@
   {:else if section === 'agents'}
     <AgentsSettings {canWrite} onerror={onerror} />
   {:else if section === 'security'}
-    <section class="block" aria-labelledby="password-title">
-      <h2 id="password-title">Password</h2>
-      <p class="muted">Changing it signs out every other browser; this one stays signed in.</p>
-      <form onsubmit={change}>
+    <CollectionPanel label="Password" count="3 fields">
+      {#snippet actions()}
+        <button type="submit" form="password-form" class="btn primary" disabled={busy === 'password'}>{busy === 'password' ? 'Changing…' : 'Change password'}</button>
+      {/snippet}
+      {#snippet toolbar()}
+        <p class="note">Changing it signs out every other browser; this one stays signed in.</p>
+      {/snippet}
+      <form id="password-form" class="password-form" onsubmit={change}>
         <div class="grid2">
           <label class="wide"><span>Current password</span>
             <input type="password" bind:value={passwordForm.current} autocomplete="current-password" />
@@ -472,11 +476,8 @@
             <input type="password" bind:value={passwordForm.confirm} autocomplete="new-password" minlength="8" />
           </label>
         </div>
-        <div class="formacts">
-          <button type="submit" class="btn primary" disabled={busy === 'password'}>{busy === 'password' ? 'Changing…' : 'Change password'}</button>
-        </div>
       </form>
-    </section>
+    </CollectionPanel>
   {:else if section === 'sso'}
     <section class="block" aria-labelledby="sso-title">
       <h2 id="sso-title">Single sign-on</h2>
@@ -658,6 +659,7 @@
   .profile-form fieldset { margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
   .profile-form legend { padding: 0 5px; color: var(--muted); font-size: 0.78rem; font-weight: 600; }
   .profile-form .grid2 { gap: 12px; }
+  .password-form { margin-top: 0; }
   /* minmax(0, 1fr): a text field is about 20 characters wide by default, which overflowed the card on a 320 px phone. */
   form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 16px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }

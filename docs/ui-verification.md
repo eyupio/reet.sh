@@ -2217,3 +2217,28 @@ Validation:
 
 **Not checked.** No physical phone or tablet and no screen reader. A failed save and
 the viewer read-only name were not exercised by a new browser matrix.
+
+## Account password under one panel — 2 November 2026
+
+Account → Password now has one **Password** panel with a count of the three fields and
+**Change password** in its head. The three fields keep their minimum length and
+autocomplete hints. Different new passwords show **The new passwords do not match.**
+before any request; a successful change sends the same body as before, reports
+**Password changed. Every other session was signed out.** and reloads the session
+list. The panel note still says every other browser is signed out while this one
+stays.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `account-security.e2e.mjs`: panel count, the mismatch path sending no request,
+  the successful request body and notice, and phone layouts at 390 and 320 px with no
+  horizontal overflow.
+- `phone-zoom.e2e.mjs` (the account security screen) and `navigation.e2e.mjs` pass.
+
+![Account password, desktop](images/ui/account-security-desktop.png)
+![Account password, phone](images/ui/account-security-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. A failed password
+change was not exercised by a new browser matrix.

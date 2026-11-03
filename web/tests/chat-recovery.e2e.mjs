@@ -15,13 +15,20 @@ let row = { ...original }, next = null, failure = null, holdCreate = null
 let reattachMode = 'ok', reattachHold = null
 const requests = []
 const reattachCalls = []
+// The raw body of each reattach request, to tell a trusted reconnect from any other.
+const reattachBodies = []
+const TRUST_SENTENCE = 'This folder has OpenCode plugins, so reet did not reconnect automatically. Reconnect only if you trust it.'
+const TRUST_DETAIL = 'This folder has agent extensions: .opencode/plugins/x.js. Start a chat only in a folder you trust.'
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const { context, page, errors } = await openWorkspace(browser, {
   width: 1360, height: 900, terminalStatus: active, terminalMachines: machines,
   routes: {
     [`/api/v2/terminal/sessions/${S}/reattach`]: async req => {
       reattachCalls.push(req.method())
+      reattachBodies.push(req.postData())
       if (reattachHold) await reattachHold
+      // A plugin folder: refused unless the request confirms trust, as the machine does.
+      if (reattachMode === 'trust-required' && req.postData() !== '{"trust":true}') return { status: 409, json: { error: TRUST_SENTENCE, code: 'chat_reattach_trust', detail: TRUST_DETAIL } }
       if (reattachMode === 'fail-once') { reattachMode = 'ok'; return { status: 502, json: { error: 'The machine could not reattach this conversation.', code: 'chat_reattach_failed' } } }
       // A refusal object is answered on every call.
       if (typeof reattachMode === 'object') return reattachMode
@@ -129,7 +136,7 @@ try {
   const reconnecting = page.getByText('Reconnecting to your conversation…')
   const rowLabel = page.locator('.session-row', { hasText: original.title }).locator('small')
   const gate = () => { let release; const held = new Promise(resolve => { release = resolve }); return { held, release } }
-  const reset = (state = 'lost') => { row = { ...original, state }; next = null; failure = null; holdCreate = null; reattachMode = 'ok'; reattachHold = null; reattachCalls.length = 0; requests.length = 0 }
+  const reset = (state = 'lost') => { row = { ...original, state }; next = null; failure = null; holdCreate = null; reattachMode = 'ok'; reattachHold = null; reattachCalls.length = 0; reattachBodies.length = 0; requests.length = 0 }
   // The header menu offers Continue in Gaffer with history only where the chat cannot reconnect in place.
   const continueItem = page.getByRole('menuitem', { name: /Continue in Gaffer with history/ })
   const headerMenu = async present => {
@@ -295,18 +302,22 @@ try {
   await expect(page.getByRole('alert')).toContainText('Still reconnecting. Try again in a moment.')
   await expect(note.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
 
-  // 5f. A folder with plugins (ruling R10): the files are shown, Continue with history (trust: true, a new row) is
-  // offered again in the pane and the header menu, and there is no Try again.
-  reset(); reattachMode = { status: 409, json: { error: 'This folder has OpenCode plugins, so reet did not reconnect the chat in place. Continue it with history only if you trust this folder.', code: 'chat_reattach_trust', detail: 'This folder has agent extensions: .opencode/plugins/x.js. Start a chat only in a folder you trust.' } }
+  // 5f. A folder with plugins (ruling R10): the files are shown, Trust this folder and reconnect (in place) and
+  // Continue with history (trust: true, a new row) are offered, Continue also in the header menu, and there is no Try
+  // again. The automatic attempt confirmed no trust.
+  const trustReconnect = note.getByRole('button', { name: 'Trust this folder and reconnect', exact: true })
+  reset(); reattachMode = 'trust-required'
   await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
-  await expect(page.getByRole('alert')).toContainText('This folder has OpenCode plugins')
+  await expect(page.getByRole('alert')).toContainText(TRUST_SENTENCE)
   await expect(note).toContainText('.opencode/plugins/x.js')
   await expect(note.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
   await expect(note.getByRole('button', { name: 'Start a new chat', exact: true })).toBeVisible()
+  await expect(trustReconnect).toBeEnabled()
   const trusted = note.getByRole('button', { name: 'Continue with history', exact: true })
   await expect(trusted).toBeEnabled()
   await headerMenu(true)
   expect(reattachCalls).toHaveLength(1)
+  expect(reattachBodies).toEqual(['{}'])
   { const created = gate(); holdCreate = created.held
     await trusted.click()
     await expect(note).toContainText('Starting a new session…')
@@ -316,6 +327,63 @@ try {
   expect(requests).toHaveLength(1)
   expect(requests[0]).toMatchObject({ tool: 'opencode', structured: true, trust: true, resumeAcp: original.acpSessionId })
   expect(reattachCalls).toHaveLength(1)
+  expect(reattachBodies).toEqual(['{}'])
+
+  // 5g. Trust this folder and reconnect: one POST with {"trust":true}, the same pending state as any reconnect, and the
+  // row runs again IN PLACE (no new row, same URL); a real event after the flip renders. A double click sends one call.
+  for (const [width, theme] of [[1360, 'light'], [390, 'dark']]) {
+    reset(); reattachMode = 'trust-required'
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme)
+    await expect(trustReconnect).toBeVisible()
+    await page.waitForTimeout(300)
+    expect(reattachBodies).toEqual(['{}'])
+    expect(await overflow()).toBeLessThanOrEqual(0)
+    if (process.env.REET_UI_SCREENSHOTS) await page.screenshot({ path: join(process.env.REET_UI_SCREENSHOTS, `chat-reattach-trust-${width}-${theme}.png`), fullPage: true })
+    const held = gate(); reattachHold = held.held
+    await trustReconnect.evaluate(el => { el.click(); el.click() })
+    await expect(reconnecting).toBeVisible()
+    await expect(trustReconnect).toHaveCount(0)
+    await expect(note.getByRole('button', { name: 'Continue with history', exact: true })).toHaveCount(0)
+    await expect(prompt).toBeDisabled()
+    await page.waitForTimeout(300)
+    expect(reattachBodies).toEqual(['{}', '{"trust":true}'])
+    held.release()
+    await expect(prompt).toBeEnabled()
+    await expect(note).toHaveCount(0)
+    expect(new URL(page.url()).searchParams.get('session')).toBe(S)
+    await page.evaluate(() => window.__push([
+      { seq: 1, kind: 'agent', messageId: 'm-trust', text: 'Back in the trusted folder.' },
+      { seq: 2, kind: 'status', state: 'idle' },
+    ]))
+    await expect(page.locator('.log')).toContainText('Back in the trusted folder.')
+    await expect(note).toHaveCount(0)
+    await page.waitForTimeout(300)
+    expect(reattachBodies).toEqual(['{}', '{"trust":true}'])
+    expect(requests).toHaveLength(0)
+    expect(new URL(page.url()).searchParams.get('session')).toBe(S)
+  }
+  await page.setViewportSize({ width: 1360, height: 900 })
+
+  // 5h. A trusted reconnect refused for another reason shows that reason as usual (here a retryable failure: Try again,
+  // which does not confirm trust again), and nothing is trusted by itself afterwards.
+  reset(); reattachMode = 'trust-required'
+  await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
+  await expect(trustReconnect).toBeVisible()
+  reattachMode = 'fail-once'
+  await trustReconnect.click()
+  await expect(note).toContainText('The machine could not reattach this conversation.')
+  await expect(trustReconnect).toHaveCount(0)
+  await expect(note.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
+  await page.waitForTimeout(300)
+  expect(reattachBodies).toEqual(['{}', '{"trust":true}'])
+  reattachMode = 'trust-required'
+  await note.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText(TRUST_SENTENCE)
+  await expect(trustReconnect).toBeVisible()
+  expect(reattachBodies).toEqual(['{}', '{"trust":true}', '{}'])
+  expect(requests).toHaveLength(0)
 
   // 6. A machine without chatReattach keeps the old flow; while the create is held the pane says so and the button is off.
   machineLegacy.ready = true
@@ -336,7 +404,7 @@ try {
   machines[0] = machineLegacy
   reset()
   expect(errors).toEqual([])
-  console.log('Chat recovery passed: exact history ID, lost/ended/exited states, desktop and phone fit, uncertain-reply retry, reload refusal, unsupported history, offline machine, in-place reattach (auto, pending, failure, retry, double click, stream continuity), ended chat, crashed exited chat, quiet ended refusal, final refusals, still starting, plugin folder and legacy machine.')
+  console.log('Chat recovery passed: exact history ID, lost/ended/exited states, desktop and phone fit, uncertain-reply retry, reload refusal, unsupported history, offline machine, in-place reattach (auto, pending, failure, retry, double click, stream continuity), ended chat, crashed exited chat, quiet ended refusal, final refusals, still starting, plugin folder (trusted reconnect in place, Continue with history) and legacy machine.')
 } finally {
   await context.close()
   await browser.close()

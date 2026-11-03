@@ -18,7 +18,7 @@
   import SessionScreen from '../sessions/SessionScreen.svelte'
   import SessionTabs from '../sessions/SessionTabs.svelte'
   import { canContinue, canContinueChat, canReattachChat, closeTab, continueChatLaunch, continueLaunch, openTab } from '../sessions'
-  import { continuationFailureInPane, offersContinueAfterReattach, quietReattachRefusal, recoveryInFlight, shouldAutoReattach } from './reattachState'
+  import { continuationFailureInPane, offersContinueAfterReattach, quietReattachRefusal, reattachTrust, recoveryInFlight, shouldAutoReattach } from './reattachState'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import HealthHistory from './HealthHistory.svelte'
   import { renameTerminal, endTerminal, archiveTerminal, terminalClosed } from './api'
@@ -415,8 +415,12 @@
   }
   // Reconnect a lost chat in place: the same row, URL and transcript carry on. One attempt per chat at a time (the
   // server also joins a second caller to the one in flight); it never navigates and never starts another session.
+  // Trust of the folder (it has OpenCode plugins) is sent only from the person's explicit Trust this folder and
+  // reconnect: never by the automatic attempt, and never remembered for a later one.
   const reattachAttempts = new Map<string, symbol>()
-  async function reattachSession(target: TerminalSession, auto = false) {
+  async function reattachSession(target: TerminalSession, opts: { auto?: boolean; trust?: boolean } = {}) {
+    const auto = opts.auto === true
+    const trust = reattachTrust({ auto, trust: opts.trust })
     if (recoveryInFlight(target.id, reattach, continuing)) return
     // A chat the person reconnected by hand is not also tried by itself later in this page load.
     if (!auto) autoTried.add(target.id)
@@ -425,7 +429,7 @@
     reattach = { ...reattach, [target.id]: { phase: 'pending' } }
     const current = () => !disposed && reattachAttempts.get(target.id) === attempt
     try {
-      await reattachChat(target.id, AbortSignal.timeout(80000))
+      await reattachChat(target.id, { trust }, AbortSignal.timeout(80000))
       if (!current()) return
       // The controller recorded the row as running before it answered: the pane follows at once, and the listing is read again.
       inventoryVersion++
@@ -469,7 +473,7 @@
       if (continuingNow) return
       if (!shouldAutoReattach({ canReattach, phase, tried: autoTried, sessionId: target.id })) return
       autoTried.add(target.id)
-      void reattachSession(target, true)
+      void reattachSession(target, { auto: true })
     })
   })
   function openAction(kind:'rename'|'end'|'archive',target=session) { if(!target)return;actionSession=target.id;actionTitle=target.title;rename=target.title;removeOnClose=endKeys.get(target.id)?.remove??(target.state==='end_requested'?(target.removeHistory??false):removeDefault);defaultOn=removeDefault;defaultEdited=false;preferenceError='';action=kind }
@@ -625,7 +629,7 @@
           {#key session.id + ':' + (session.structured ? 'chat' : 'term')}
             {#if session.structured}
               {@const reattachable = reconnectable(session)}
-              <ChatPane {session} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session) : undefined} continuation={continuing[session.id]} oncontinue={continueOffered(session) && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=32||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} newChatOff={actionBusy||!machines.length||accountActive>=32} onstate={state => { insightChat = { id: session.id, state } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
+              <ChatPane {session} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false }) : undefined} ontrustreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false, trust: true }) : undefined} continuation={continuing[session.id]} oncontinue={continueOffered(session) && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=32||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} newChatOff={actionBusy||!machines.length||accountActive>=32} onstate={state => { insightChat = { id: session.id, state } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
             {:else}
               <TerminalPane {keyboard} footnote={phone ? '' : `Approvals: ${session.yolo ? 'YOLO' : 'Ask me'}`} holdSize={resizing} sessionsVisible={shown!=='closed'} onsessions={paneSessions} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />
             {/if}

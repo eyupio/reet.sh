@@ -49,3 +49,15 @@ export function quietReattachRefusal(code: string | undefined, auto: boolean): '
   if (auto && code === 'chat_reattach_not_closed') return 'drop'
   return null
 }
+
+/** A reconnect refused because the folder has OpenCode plugins offers the explicit Trust this folder and reconnect (in
+ *  place, beside Continue with history). Nothing else does: no other refusal is answered by trusting the folder. */
+export function offersTrustedReattach(outcome: { phase: 'pending' | 'failed'; code?: string } | undefined): boolean {
+  return outcome?.phase === 'failed' && outcome.code === 'chat_reattach_trust'
+}
+
+/** Whether a reconnect confirms trust of the chat's folder: only one the person asked for with trust exactly true. An
+ *  automatic attempt never does, whatever it is passed. */
+export function reattachTrust(opts: { auto?: boolean; trust?: boolean }): boolean {
+  return opts.auto !== true && opts.trust === true
+}

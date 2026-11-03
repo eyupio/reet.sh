@@ -18,7 +18,7 @@
   import SessionScreen from '../sessions/SessionScreen.svelte'
   import SessionTabs from '../sessions/SessionTabs.svelte'
   import { canContinue, canContinueChat, canReattachChat, closeTab, continueChatLaunch, continueLaunch, openTab } from '../sessions'
-  import { continuationFailureInPane, recoveryInFlight, shouldAutoReattach } from './reattachState'
+  import { continuationFailureInPane, offersContinueAfterReattach, quietReattachRefusal, recoveryInFlight, shouldAutoReattach } from './reattachState'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import HealthHistory from './HealthHistory.svelte'
   import { renameTerminal, endTerminal, archiveTerminal, terminalClosed } from './api'
@@ -100,12 +100,24 @@
   type Continuation = { requestId: string; title: string; launch: LaunchRequest }
   let continuations = $state<Record<string, Continuation>>({})
   // What the chat pane says about a Continue with history in flight for a saved chat, or why the last one failed.
-  type PaneOutcome = { phase: 'pending' | 'failed'; reason?: string }
+  type PaneOutcome = { phase: 'pending' | 'failed'; reason?: string; code?: string; detail?: string }
   let continuing = $state<Record<string, PaneOutcome>>({})
   // An in-place reconnect of a lost chat, per session: in flight, or why the last attempt failed. No entry is idle.
   let reattach = $state<Record<string, PaneOutcome>>({})
   // The chats this page load already reconnected by itself, so a failure is never retried in a loop: only the person retries.
   const autoTried = new Set<string>()
+  // Chats the server refused to reconnect because the person ended them (rows stored exited before ended chats were
+  // recorded as ended): from then on they are offered Continue with history, like any ended chat.
+  let personEnded = $state<Record<string, true>>({})
+  /** Whether a chat is offered a reconnect in place: the machine can reattach it and the server has not said the person ended it. */
+  function reconnectable(target: TerminalSession): boolean {
+    return !personEnded[target.id] && canReattachChat(target, machines.find(item => item.agentId === target.agentId))
+  }
+  /** Whether the explicit Continue with history is offered for a chat: where it cannot reconnect in place, or after a
+   *  folder-trust refusal of the reconnect (ruling R10). */
+  function continueOffered(target: TerminalSession): boolean {
+    return !reconnectable(target) || offersContinueAfterReattach(reattach[target.id])
+  }
   const reconnecting = $derived(new Set(Object.entries(reattach).filter(([, item]) => item.phase === 'pending').map(([id]) => id)))
   const pendingCreation = $derived(creations[selectedAgent])
   // Draft settings do not switch the workspace behind the dialog.
@@ -396,7 +408,7 @@
       const reason=e instanceof TerminalError?(e.message||'The session could not be continued.'):'The continuation may have started. Continue again to check the same operation.'
       if(shown)continuing={...continuing,[target.id]:{phase:'failed',reason}}
       // Where the chat pane will not show it (another session on screen, or the pane offers Reconnect), the workspace says it.
-      const offersReconnect=canReattachChat(target,machines.find(item=>item.agentId===target.agentId))||!!reattach[target.id]
+      const offersReconnect=(reconnectable(target)||!!reattach[target.id])&&!offersContinueAfterReattach(reattach[target.id])
       if(!continuationFailureInPane({structured:target.structured===true,selected:selectedSession===target.id,offersReconnect}))error=reason
     }
     finally{actionBusy=false}
@@ -425,10 +437,21 @@
     } catch (e) {
       if (!current()) return
       reattachAttempts.delete(target.id)
+      const code = e instanceof TerminalError ? e.code : undefined
+      const quiet = quietReattachRefusal(code, auto)
+      if (quiet) {
+        // Not a failure to show: an ended chat falls back to the ended note with Continue with history; a chat found still
+        // running is read again from the listing.
+        if (quiet === 'ended') personEnded = { ...personEnded, [target.id]: true }
+        const next = { ...reattach }; delete next[target.id]; reattach = next
+        if (quiet === 'drop') void refresh()
+        return
+      }
+      const detail = e instanceof TerminalError ? e.detail : undefined
       const reason = e instanceof TerminalError ? e.message
         : e instanceof DOMException && e.name === 'TimeoutError' ? 'Reconnecting took too long. Try again.'
         : 'reet could not be reached to reconnect this chat. Try again.'
-      reattach = { ...reattach, [target.id]: { phase: 'failed', reason } }
+      reattach = { ...reattach, [target.id]: { phase: 'failed', reason, ...(code ? { code } : {}), ...(detail ? { detail } : {}) } }
     }
   }
   // The open chat, once lost on a machine that can reattach it, reconnects by itself: once per chat per page load, on
@@ -436,7 +459,7 @@
   $effect(() => {
     const target = session
     if (!target) return
-    const canReattach = canReattachChat(target, machines.find(item => item.agentId === target.agentId))
+    const canReattach = reconnectable(target)
     const phase = reattach[target.id]?.phase ?? 'idle'
     // Not while a Continue with history of this chat is in flight; the effect runs again once it settles.
     const continuingNow = continuing[target.id]?.phase === 'pending'
@@ -581,7 +604,7 @@
           insightChat={insightChat?.id === session.id ? insightChat.state : undefined}
           chatBusy={session.structured && chatBusy?.id === session.id ? chatBusy.busy : undefined} onmode={modeSwitched}
           oncontinue={session.structured
-            ? (!canReattachChat(session, machines.find(item => item.agentId === session.agentId)) && canContinueChat(session, machines.find(item => item.agentId === session.agentId)) ? () => void continueSession(session) : undefined)
+            ? (continueOffered(session) && canContinueChat(session, machines.find(item => item.agentId === session.agentId)) ? () => void continueSession(session) : undefined)
             : (canContinue(session, machines.find(item => item.agentId === session.agentId), projects ?? []) ? () => void continueSession(session) : undefined)}
           onterminal={() => void openPlainTerminal(session)}
           onside={!phone ? () => void openSideTerminal(session) : undefined}
@@ -601,8 +624,8 @@
           <!-- Keyed by the session and its mode, so a switch between Gaffer and the OpenCode TUI mounts the other pane. -->
           {#key session.id + ':' + (session.structured ? 'chat' : 'term')}
             {#if session.structured}
-              {@const reattachable = canReattachChat(session, machine)}
-              <ChatPane {session} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session) : undefined} continuation={continuing[session.id]} oncontinue={!reattachable && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=32||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} newChatOff={actionBusy||!machines.length||accountActive>=32} onstate={state => { insightChat = { id: session.id, state } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
+              {@const reattachable = reconnectable(session)}
+              <ChatPane {session} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session) : undefined} continuation={continuing[session.id]} oncontinue={continueOffered(session) && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=32||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} newChatOff={actionBusy||!machines.length||accountActive>=32} onstate={state => { insightChat = { id: session.id, state } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
             {:else}
               <TerminalPane {keyboard} footnote={phone ? '' : `Approvals: ${session.yolo ? 'YOLO' : 'Ask me'}`} holdSize={resizing} sessionsVisible={shown!=='closed'} onsessions={paneSessions} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />
             {/if}

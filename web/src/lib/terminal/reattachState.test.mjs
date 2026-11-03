@@ -42,3 +42,26 @@ test('a failed Continue with history is shown in the pane only where the pane wi
   assert.equal(continuationFailureInPane({ structured: true, selected: false, offersReconnect: false }), false, 'another session is on screen')
   assert.equal(continuationFailureInPane({ structured: false, selected: true, offersReconnect: false }), false, 'a terminal has no chat pane')
 })
+
+const { reattachRetryable, offersContinueAfterReattach, quietReattachRefusal } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+
+test('only a refusal a retry can fix offers Try again', () => {
+  for (const code of [undefined, 'chat_reattach_failed', 'chat_reattach_starting', 'chat_reattach_conflict']) assert.equal(reattachRetryable(code), true, String(code))
+  for (const code of ['chat_reattach_yolo_not_allowed', 'chat_reattach_yolo_refused', 'chat_reattach_capacity', 'chat_reattach_trust', 'chat_reattach_ended', 'chat_reattach_unsupported', 'chat_reattach_no_conversation']) assert.equal(reattachRetryable(code), false, code)
+})
+
+test('a folder with plugins offers Continue with history again, nothing else does', () => {
+  assert.equal(offersContinueAfterReattach({ phase: 'failed', code: 'chat_reattach_trust', reason: 'x' }), true)
+  assert.equal(offersContinueAfterReattach({ phase: 'pending', code: 'chat_reattach_trust' }), false)
+  assert.equal(offersContinueAfterReattach({ phase: 'failed', code: 'chat_reattach_failed' }), false)
+  assert.equal(offersContinueAfterReattach(undefined), false)
+})
+
+test('a chat the person ended falls back quietly; a still-running chat does so only for an automatic attempt', () => {
+  assert.equal(quietReattachRefusal('chat_reattach_ended', true), 'ended')
+  assert.equal(quietReattachRefusal('chat_reattach_ended', false), 'ended')
+  assert.equal(quietReattachRefusal('chat_reattach_not_closed', true), 'drop')
+  assert.equal(quietReattachRefusal('chat_reattach_not_closed', false), null)
+  assert.equal(quietReattachRefusal('chat_reattach_failed', true), null)
+  assert.equal(quietReattachRefusal(undefined, true), null)
+})

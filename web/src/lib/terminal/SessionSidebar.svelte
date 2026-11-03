@@ -45,7 +45,7 @@
  // The rail's dot tells the state by shape as well as colour: running a filled circle, starting a ring, ending a half circle, lost a diamond, finished a hollow square.
  const dotShape=(state:string)=>state==='running'?'running':state==='creating'?'starting':state==='end_requested'?'ending':state==='lost'?'lost':'finished'
  // A lost chat being reconnected in place reads as starting again, not as lost.
- const isReconnecting=(item:TerminalSession)=>item.state==='lost'&&reconnecting.has(item.id)
+ const isReconnecting=(item:TerminalSession)=>(item.state==='lost'||item.state==='exited')&&reconnecting.has(item.id)
  const rowWord=(item:TerminalSession)=>isReconnecting(item)?'Reconnecting':stateWord(item.state)
  const rowDot=(item:TerminalSession)=>isReconnecting(item)?'starting':dotShape(item.state)
  const initial=(title:string)=>(Array.from(title.trim())[0]??'?').toLocaleUpperCase()

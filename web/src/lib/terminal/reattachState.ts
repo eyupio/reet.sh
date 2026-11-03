@@ -10,7 +10,7 @@ export function shouldAutoReattach(args: { canReattach: boolean; phase: Reattach
 }
 
 /** What the pane shows about one recovery of a chat: in flight, or why it failed. No entry is idle. */
-export type RecoveryOutcome = { phase: 'pending' | 'failed'; reason?: string }
+export type RecoveryOutcome = { phase: 'pending' | 'failed'; reason?: string; code?: string; detail?: string }
 
 /** A chat has one recovery at a time: an in-place reconnect and a Continue with history (a new row) of the same
  *  conversation never run together, whichever started first. */
@@ -22,4 +22,29 @@ export function recoveryInFlight(sessionId: string, reattach: Readonly<Record<st
  *  Reconnect instead. Anywhere else the failure goes to the workspace's own error line, so it is never invisible. */
 export function continuationFailureInPane(args: { structured: boolean; selected: boolean; offersReconnect: boolean }): boolean {
   return args.structured && args.selected && !args.offersReconnect
+}
+
+/** Refusals of an in-place reconnect that trying again cannot fix: the account or the machine refuses YOLO, the machine
+ *  is full, the folder has plugins (Continue with history is offered instead), the person ended the chat, or the row
+ *  cannot be reconnected at all. Anything else (no code, a failure, a chat still starting, another owner) may succeed. */
+const FINAL_REATTACH_REFUSALS = new Set(['chat_reattach_yolo_not_allowed', 'chat_reattach_yolo_refused', 'chat_reattach_capacity', 'chat_reattach_trust', 'chat_reattach_ended', 'chat_reattach_unsupported', 'chat_reattach_no_conversation'])
+
+/** Whether a failed reconnect offers Try again, from the server's refusal code. */
+export function reattachRetryable(code?: string): boolean {
+  return !code || !FINAL_REATTACH_REFUSALS.has(code)
+}
+
+/** A reconnect refused because the folder has OpenCode plugins offers the explicit Continue with history (a new row
+ *  that confirms trust) again, in the pane and the header menu (ruling R10). */
+export function offersContinueAfterReattach(outcome: { phase: 'pending' | 'failed'; code?: string } | undefined): boolean {
+  return outcome?.phase === 'failed' && outcome.code === 'chat_reattach_trust'
+}
+
+/** A refusal that is not a failure to show: the person ended the chat ('ended': it is no longer offered a reconnect and
+ *  shows the ended note with Continue with history), or an automatic attempt found it still running ('drop': forget the
+ *  attempt and read the listing again). null shows the failure. */
+export function quietReattachRefusal(code: string | undefined, auto: boolean): 'ended' | 'drop' | null {
+  if (code === 'chat_reattach_ended') return 'ended'
+  if (auto && code === 'chat_reattach_not_closed') return 'drop'
+  return null
 }

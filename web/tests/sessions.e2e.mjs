@@ -719,8 +719,10 @@ try {
   await screen(page).getByRole('button',{name:'Session actions'}).click()
   const item = page.getByRole('menuitem',{name:'Switch to Gaffer…'})
   await expect(item).toHaveAttribute('aria-disabled','true')
-  // The reason first, then Gaffer's own explanation, as on the header's Gaffer button.
-  await expect(item).toHaveAccessibleDescription("This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation. Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI.")
+  // Menu actions expose the disabled reason without opening the Gaffer explanation over the menu.
+  await expect(item).toHaveAccessibleDescription("This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.")
+  await item.focus()
+  await expect(page.locator('[role="tooltip"]:popover-open')).toHaveCount(0)
   await item.click({force:true})
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   // The menu stays open on it: a disabled item does nothing at all.
@@ -731,8 +733,10 @@ try {
   await screen(page).getByRole('button',{name:'Session actions'}).click()
   const offered = page.getByRole('menuitem',{name:'Switch to Gaffer…'})
   await expect(offered).not.toHaveAttribute('aria-disabled','true')
-  // Offered, it still carries Gaffer's own explanation, but no reason.
-  await expect(offered).toHaveAccessibleDescription("Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI.")
+  // An enabled action has no disabled reason or tooltip to cover the menu.
+  await expect(offered).toHaveAccessibleDescription('')
+  await offered.focus()
+  await expect(page.locator('[role="tooltip"]:popover-open')).toHaveCount(0)
   await offered.click()
   await expect(page.getByRole('alertdialog',{name:'Switch to Gaffer?'})).toBeVisible()
   expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])

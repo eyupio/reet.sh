@@ -318,12 +318,12 @@
 {#if menuAt}
   <!-- data-keeps-focus: a reconnecting terminal never takes focus out of the open menu. -->
   <div class="menu" role="menu" aria-label={`Actions for ${session.title}`} tabindex="-1" data-keeps-focus bind:this={menu} style={`left:${menuAt.x}px;top:${menuAt.y}px`} onkeydown={menuKey}>
-    {#if oncontinue}<button use:gafferTooltip={!!session.structured} role="menuitem" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue in Gaffer with history…' : 'Continue session…'}</button>{/if}
+    {#if oncontinue}<button role="menuitem" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue in Gaffer with history…' : 'Continue session…'}</button>{/if}
     {#if onterminal}<button role="menuitem" disabled={busy} onclick={openTerminal}>Open a terminal here…</button>{/if}
     {#if onside}<button role="menuitem" disabled={busy} onclick={openSideTerminal}>Open a terminal beside this session…</button>{/if}
     {#if live && session.tool === 'opencode'}
       <!-- aria-disabled with its reason, as the header's pair: it stays in the menu, and choosing it does nothing. -->
-      <button use:gafferTooltip={switchState.to === 'chat'} role="menuitem" aria-disabled={!canSwitch} aria-describedby={canSwitch ? undefined : `${id}-switch-why`} title={canSwitch ? undefined : whyNot}
+      <button role="menuitem" aria-disabled={!canSwitch} aria-describedby={canSwitch ? undefined : `${id}-switch-why`} title={canSwitch ? undefined : whyNot}
         onclick={() => { if (!canSwitch) return; closeMenu(false); openSwitch(menuButton ?? null) }}>Switch to {switchState.to === 'chat' ? tuiName(switchState.to) : `the ${tuiName(switchState.to)}`}…</button>
     {/if}
     {#if canSwitchApproval}

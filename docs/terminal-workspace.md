@@ -277,8 +277,8 @@ toolbar, where it appears for agent sessions only. It lists three groups:
 - skills on the machine for this session's agent, which you can insert (the
   shared `.agents/skills` folder counts for every agent);
 - skills on the machine for other agents, shown dimmed and not insertable;
-- reet-hosted skills that are not installed on the machine, listed but not
-  insertable. A published one has an **Install** button (see below).
+- reet skills that are not installed on the machine: a private draft or a
+  published one, each with an **Install** button (see below).
 
 Picking a skill inserts `Use the {name} skill.`. In Gaffer the text goes
 into the message box for you to edit and send. In the agent TUI it is typed into
@@ -298,13 +298,14 @@ picker too. The agent TUI has no `/` trigger because the agent owns that key.
 The list is as fresh as the machine's last scan, and the picker says when that
 was.
 
-### Installing a hosted skill
+### Installing a written or published skill
 
-A published reet-hosted skill that is not on the machine has an **Install**
-button in the picker. An unpublished one links to the hosted-skills page with
-"Publish this skill to install it." and has no button. A hosted skill whose
-name is already installed on the machine for a different agent is listed once,
-under the other agents, and has no Install button.
+A written reet skill that is not on the machine has an **Install** button in
+the picker, whether it is a private draft or published. A draft's source line
+says **Your skill · private draft** and its bytes come from the controller's
+private revision, never a public URL. A skill whose name is already installed
+on the machine for a different agent is listed once, under the other agents,
+and has no Install button.
 
 Pressing **Install** first asks you to confirm what will be added and where.
 reet then asks the machine to preview the install and shows you the plan. Only

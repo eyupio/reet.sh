@@ -14,7 +14,7 @@ test('groupSkills orders native, other, reet and omits empty groups', () => {
   const list = [skill('r', { source: 'reet', onMachine: false }), skill('o', { agent: 'codex' }), skill('n', { native: true })]
   const groups = s.groupSkills(list, '', 'claude')
   assert.deepEqual(groups.map(g => g.key), ['native', 'other', 'reet'])
-  assert.deepEqual(groups.map(g => g.label), ['On this machine for claude', 'On this machine for other agents', 'reet-hosted'])
+  assert.deepEqual(groups.map(g => g.label), ['On this machine for claude', 'On this machine for other agents', 'Your skills'])
   assert.deepEqual(s.groupSkills([skill('n', { native: true })], '', 'claude').map(g => g.key), ['native'])
   assert.deepEqual(s.groupSkills([], '', 'claude'), [])
 })

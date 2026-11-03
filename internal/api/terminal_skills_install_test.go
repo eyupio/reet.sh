@@ -26,7 +26,7 @@ type installFx struct {
 }
 
 // installFixture is the Phase 1 session fixture plus a complete recent scan of
-// the machine's user-level claude folder and two published hosted skills.
+// the machine's user-level claude folder, two published hosted skills and a draft.
 func installFixture(t *testing.T) *installFx {
 	t.Helper()
 	srv, st, agent, _, token := privateFixture(t, AuthAccounts, "")
@@ -157,6 +157,29 @@ func TestTerminalSkillInstallQueuesOnePreviewJob(t *testing.T) {
 	}
 }
 
+func TestTerminalSkillInstallDraftQueuesAPrivatePreview(t *testing.T) {
+	f := installFixture(t)
+	code, raw := f.install(`{"skill":"reet:draft"}`)
+	if code != 200 {
+		t.Fatal(code, raw)
+	}
+	b := decodeInstall(t, raw)
+	if b.Job == "" || b.Reused || b.Directory != "/home/u/.claude/skills" || b.Host != f.agent.Host {
+		t.Fatalf("body %s", raw)
+	}
+	targets, err := f.st.SyncTargetsFor(f.uid)
+	if err != nil || len(targets) != 1 {
+		t.Fatalf("targets %+v %v", targets, err)
+	}
+	if targets[0].SourceName != "My written skills" || len(targets[0].Desired) != 1 || targets[0].Desired[0].SourceType != "private" || !strings.HasPrefix(targets[0].Desired[0].Source, "private:") {
+		t.Fatalf("target %+v", targets[0])
+	}
+	jobs := f.jobs(t)
+	if len(jobs) != 1 || jobs[0].ID != b.Job || jobs[0].Kind != "preview" {
+		t.Fatalf("jobs %+v", jobs)
+	}
+}
+
 func TestTerminalSkillInstallErrorCodesAndStatuses(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -166,7 +189,7 @@ func TestTerminalSkillInstallErrorCodesAndStatuses(t *testing.T) {
 		skill  string
 		text   string
 	}{
-		{"unpublished", "unpublished", 422, nil, "reet:draft", "Publish this skill to install it."},
+		{"missing", "missing", 422, nil, "reet:gone", "This skill is no longer available. Refresh the list."},
 		{"no-scan", "no-scan", 422, func(t *testing.T, f *installFx) {
 			f.raw(t, `DELETE FROM environment_scans`)
 		}, "reet:pdf", "reet hasn't read " + "laptop" + "'s claude skills folder recently. Run a scan on laptop, then try again."},

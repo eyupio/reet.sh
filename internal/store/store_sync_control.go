@@ -87,7 +87,7 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 	source := in.SourceID
 	if source == "hosted" {
 		candidates, err = s.SyncHostedFor(uid, in.Origin)
-		name = "My published reet.sh skills"
+		name = "My written skills"
 	} else if source == "" || source == "shelf" {
 		source = "shelf"
 		candidates, err = s.SyncCandidatesFor(uid, role, in.ListID)

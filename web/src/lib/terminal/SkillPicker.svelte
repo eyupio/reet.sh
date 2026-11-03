@@ -128,19 +128,15 @@
                           <span class="name">{s.name}</span>
                           {#if s.description}<span class="description">{s.description}</span>{/if}
                           <span class="meta">
-                            <span class="source">{s.source === 'reet' ? 'reet-hosted' : `On this machine · ${s.agent}`}</span>
+                            <span class="source">{s.source === 'reet' ? (s.published ? 'Your skill · published' : 'Your skill · private draft') : `On this machine · ${s.agent}`}</span>
                             {#if !s.invocation}<span class="reason">{reason(s)}</span>{/if}
                           </span>
                         </div>
                       {/each}
                     </div>
-                    {#if hasAction(run[0])}
-                      {#if !run[0].published}
-                        <a class="publish" href="/hosting">Publish this skill to install it.</a>
-                      {:else if !unknownMachine}
-                        <!-- An unknown machine has no name to install on, so there is nothing to confirm. -->
-                        <button type="button" class="install" aria-label={`Install ${run[0].name}`} onclick={() => (installing = run[0])}>Install</button>
-                      {/if}
+                    {#if hasAction(run[0]) && !unknownMachine}
+                      <!-- An unknown machine has no name to install on, so there is nothing to confirm. -->
+                      <button type="button" class="install" aria-label={`Install ${run[0].name}`} onclick={() => (installing = run[0])}>Install</button>
                     {/if}
                   </div>
                 {/each}
@@ -176,7 +172,6 @@
   .list, .single { display: flex; flex-direction: column; gap: 2px; }
   .item { display: flex; flex-direction: column; align-items: stretch; }
   .install { align-self: flex-start; min-height: 36px; margin: 0 0 6px 10px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
-  .publish { margin: 0 0 6px 10px; padding: 2px 0; font-size: 12px; color: var(--accent); }
   .option { display: flex; flex-direction: column; gap: 2px; min-height: 40px; justify-content: center; padding: 6px 10px; border-radius: 8px; color: var(--ink); cursor: pointer; }
   .option:hover, .option:focus-visible { background: var(--tint); }
   .option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -194,6 +189,5 @@
   @media (pointer: coarse) {
     .option { min-height: 44px; padding: 8px 12px; }
     .filter, .retry, .install { min-height: 44px; }
-    .publish { display: inline-flex; align-items: center; min-height: 44px; }
   }
 </style>

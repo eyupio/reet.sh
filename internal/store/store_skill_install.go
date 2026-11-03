@@ -93,8 +93,8 @@ func RemoveDesired(existing []SyncSkill, slug string) []SyncSkill {
 	return out
 }
 
-// InstallHostedSkillFor merges one published hosted skill into the saved set of
-// the machine's user-level skills folder and queues a preview job for it. Only
+// InstallHostedSkillFor merges one written or published hosted skill into the saved
+// set of the machine's user-level skills folder and queues a preview job for it. Only
 // preview jobs are queued, so the plan is always shown and approved by hash.
 // The merge only adds: an existing set keeps its skills and mode, and an
 // additive set is created only when there was none. Every check runs before
@@ -105,7 +105,7 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		return res, installRefused("unsupported-agent", "Skills can't be installed for "+in.Tool+" from reet yet.")
 	}
 	// Read before the transaction: this helper uses the connection pool.
-	published, hostedErr := s.SyncHostedFor(uid, in.Origin)
+	hosted, hostedErr := s.SyncHostedFor(uid, in.Origin)
 	err := s.withTx(func(tx *sql.Tx) error {
 		host, err := resolveMachineHost(tx, uid, in.Host)
 		if err != nil {
@@ -143,16 +143,17 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		if hostedErr != nil {
 			return hostedErr
 		}
-		for _, sk := range published {
-			// The session picker installs public skills only; a draft reaches a
-			// machine through the Sync page, where its private transfer is chosen.
-			if sk.Slug == in.Slug && sk.SourceType != "private" {
+		for _, sk := range hosted {
+			if sk.Slug == in.Slug {
+				if sk.Problem != "" {
+					return installRefused("unavailable", sk.Problem)
+				}
 				skill, found = sk, true
 				break
 			}
 		}
 		if !found {
-			return installRefused("unpublished", "Publish this skill to install it.")
+			return installRefused("missing", "This skill is no longer available. Refresh the list.")
 		}
 		actual, err := environmentSkills(tx, uid, envID)
 		if err != nil {
@@ -231,7 +232,7 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 			revision = syncID()
 			if created {
 				baseline, _ := json.Marshal(actual)
-				if _, err = tx.Exec(`INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,?,?,?,?,?)`, uid, envID, "hosted", "My published reet.sh skills", string(merged), revision, at); err != nil {
+				if _, err = tx.Exec(`INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,?,?,?,?,?)`, uid, envID, "hosted", "My written skills", string(merged), revision, at); err != nil {
 					return err
 				}
 				if _, err = tx.Exec(`INSERT INTO sync_policies(target_id,follow_source) VALUES(?,0) ON CONFLICT(target_id) DO UPDATE SET follow_source=0,problem=''`, envID); err != nil {

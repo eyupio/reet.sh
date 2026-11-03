@@ -9,7 +9,8 @@ explains that recovery opens a new session and an interrupted reply needs a new 
 `web/tests/chat-recovery.e2e.mjs` passes against the production build: lost, exited and ended states; exact conversation,
 folder and model; no automatic opening prompt; uncertain-reply retry with the same operation id; reload refusal leaving
 the old row and both choices visible; missing ids, unsupported agents/history and offline machines. Layout checks cover
-1360 px light/dark, 390 px dark and 320 px light. The existing OpenCode chat browser contract also passes.
+1360 px light/dark, 390 px dark and 320 px light. The existing OpenCode chat browser contract also passes with both legacy
+capabilities and explicit descriptors, alongside the Claude and Codex browser contracts.
 
 Captures: [desktop, light](images/ui/chat-recovery-desktop.png) and [phone, dark](images/ui/chat-recovery-phone.png).
 These use synthetic API responses. Connector tests separately cover the retained native id after failed restore, replacement

@@ -122,10 +122,13 @@ Private bundles and the Private skills dialog run beside this and do not join it
 
 Rendered with the production build served by `vite preview` and the UI contract fixtures in `web/tests/helpers/workspace.mjs`; no server, machine or account was changed. Screenshots at 1440 and 390 px of `/skills`, `/skills` expanded, `/sync`, `/machines` and `/hosting?new=1` are in the review session's scratchpad and were used for the visual findings above. Code references are to the working tree at the review date.
 
-## Status, 2 November 2026
+## Status, 3 November 2026
 
-Jump now finds shelf skills with their saved sync intent; “Skills you create” rows
-say where each skill is; the Sync page marks Machines current and the simple form
-calls its source **Everything on my shelf**. The remaining open items are the
-broader vocabulary/authoring flow, per-machine add/remove controls, and the
-collapsed-badge summary for large fleets.
+Jump finds shelf skills with their saved sync intent; written-skill rows say where
+each skill is; the Sync page marks Machines current and the simple form calls its
+source **Everything on my shelf**. Per-machine add/remove controls and the
+collapsed-badge summary for large fleets are done. The vocabulary and authoring
+pass is also done: one glossary, Sync only under Machines, and **Write a skill**
+with a next-step link after every save. The remaining open items are merging a
+written skill and its shelf card into one record with one lifecycle, a Machines
+column on the authoring page, and draft support in the session skill picker.

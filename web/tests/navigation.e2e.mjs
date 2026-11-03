@@ -141,7 +141,7 @@ try {
    await expect(more).toBeVisible()
    const links = await more.getByRole('link').allInnerTexts()
    // Neither Control (folded into Home and Machines) nor Activity (in the account) is under More any more.
-   expect(links.map(t=>t.trim())).toEqual(['Skills','Setups','Sync','Lists','Host skills','Community','Support','Teams & organisations','Instance administration'])
+   expect(links.map(t=>t.trim())).toEqual(['Skills','Setups','Lists','Write a skill','Community','Support','Teams & organisations','Instance administration'])
    await page.keyboard.press('Escape')
    await expect(more).toBeHidden()
    await expect(bar.getByRole('button',{name:'More'})).toBeFocused()
@@ -203,12 +203,12 @@ try {
   await tabs(page).getByRole('button',{name:'More',exact:true}).click()
   const more = page.getByRole('dialog',{name:'More'})
   const names = await more.getByRole('link').allInnerTexts()
-  expect(names.map(t=>t.trim())).toEqual(['Setups','Sync','Lists','Host skills','Community','Support','Teams & organisations','Instance administration'])
-  await expect(more.getByRole('region',{name:'Skills & distribution'}).getByRole('link')).toHaveText(['Setups','Sync','Lists','Host skills'])
+  expect(names.map(t=>t.trim())).toEqual(['Setups','Lists','Write a skill','Community','Support','Teams & organisations','Instance administration'])
+  await expect(more.getByRole('region',{name:'Skills & distribution'}).getByRole('link')).toHaveText(['Setups','Lists','Write a skill'])
   await expect(more.getByRole('region',{name:'Help & community'}).getByRole('link')).toHaveText(['Community','Support'])
   await expect(more.getByRole('region',{name:'Workspace'}).getByRole('link')).toHaveText(['Teams & organisations','Instance administration'])
   const hrefs = [...await tabs(page).getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href'))), ...await more.getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href')))]
-  for (const former of ['/machines','/sessions','/skills','/profiles','/sync','/shared','/community','/support','/spaces','/hosting'])
+  for (const former of ['/machines','/sessions','/skills','/profiles','/shared','/community','/support','/spaces','/hosting'])
    expect(hrefs, `${former} is reachable`).toContain(former)
   await expect(page.locator('a[href="/control"], a[href="/terminals"]')).toHaveCount(0)
   await expect(more.getByRole('link',{name:'Control'})).toHaveCount(0)
@@ -351,15 +351,16 @@ try {
    await expect(tabs(page).locator('[aria-current]')).toHaveCount(1)
    await context.close()
   }
-  // Sync belongs to Machines: the Machines tab is current and the Sync link in More is not.
+  // Sync belongs to Machines: the Machines tab and its Sync subtab are current, and More has no Sync link.
   {
    const {context,page} = await open({width:1440})
    await page.goto(`${base}/sync`)
    await expect(tabs(page).getByRole('link',{name:'Machines',exact:true})).toHaveAttribute('aria-current','page')
    await expect(tabs(page).locator('[aria-current]')).toHaveCount(1)
    await expect(tabs(page).getByRole('button',{name:/^More/})).not.toHaveClass(/current/)
+   await expect(page.locator('nav[aria-label="Machines"]').getByRole('link',{name:'Sync',exact:true})).toHaveAttribute('aria-current','page')
    await tabs(page).getByRole('button',{name:/^More/}).click()
-   await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Sync',exact:true})).not.toHaveAttribute('aria-current','page')
+   await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Sync',exact:true})).toHaveCount(0)
    await context.close()
   }
   // A page that is only under More still marks More and its own link.
@@ -379,8 +380,9 @@ try {
   await page.goto(`${base}/sync`)
   await expect(tabs(page).getByRole('link',{name:'Machines',exact:true})).toHaveAttribute('aria-current','page')
   await expect(tabs(page).getByRole('button',{name:/^More/})).not.toHaveClass(/current/)
+  await expect(page.locator('nav[aria-label="Machines"]').getByRole('link',{name:'Sync',exact:true})).toHaveAttribute('aria-current','page')
   await tabs(page).getByRole('button',{name:/^More/}).click()
-  await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Sync'})).not.toHaveAttribute('aria-current','page')
+  await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Sync'})).toHaveCount(0)
   await context.close()
  }
 
@@ -451,6 +453,10 @@ try {
   await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toBeVisible()
   expect(await page.title()).toMatch(/^Skills ·/)
   await expect(page.getByRole('link',{name:'Sync skills',exact:true})).toHaveAttribute('href','/sync')
+  await page.getByRole('button',{name:/^More/}).first().click()
+  await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Sync',exact:true})).toHaveCount(0)
+  await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Write a skill',exact:true})).toHaveAttribute('href','/hosting')
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('link',{name:'Distribute skills'})).toHaveCount(0)
   await expect(page.getByText('Reusable AI setups')).toHaveCount(0)
   await expect(page.getByText('Skills & fleet sync')).toHaveCount(0)

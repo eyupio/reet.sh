@@ -158,7 +158,7 @@ test('presence reads Found, Not there yet or Couldn\'t tell, and never anything 
 test('folder ownership: only exclusive says nothing; shared says so; anything missing or unrecognised reads as unknown', () => {
   assert.equal(ownershipNote('exclusive'), '')
   const shared = ownershipNote('shared'), unknown = ownershipNote('unknown')
-  assert.match(shared, /another agent scope, or a link, reaches this same folder/i)
+  assert.match(shared, /another install location, or a link, reaches this same folder/i)
   assert.match(shared, /will not touch it/)
   assert.match(unknown, /couldn't tell/i)
   assert.notEqual(shared, unknown)

@@ -20,10 +20,10 @@
   <p>Compare the latest reported inventories, then decide which machine should follow which. Nothing changes while comparing.</p>
   <div class="pickers">
     <div><label>Reference machine <select aria-label="Reference machine" bind:value={leftHost} onchange={() => leftGroup = ''}><option value="">Choose a machine</option>{#each machines as m}<option value={m.host} disabled={m.host === rightHost}>{m.host}</option>{/each}</select></label>
-      {#if left}<label>Reference agent group <select aria-label="Reference agent group" bind:value={leftGroup}><option value="">All agent groups (unique skills)</option>{#each agentGroups(left) as g}<option value={g.id}>{groupLabel(g)} · {g.skillCount ?? 0}</option>{/each}</select></label>{/if}
+      {#if left}<label>Reference install location <select aria-label="Reference install location" bind:value={leftGroup}><option value="">All install locations (unique skills)</option>{#each agentGroups(left) as g}<option value={g.id}>{groupLabel(g)} · {g.skillCount ?? 0}</option>{/each}</select></label>{/if}
     </div>
     <div><label>Compare with machine <select aria-label="Compare with machine" bind:value={rightHost} onchange={() => rightGroup = ''}><option value="">Choose a machine</option>{#each machines as m}<option value={m.host} disabled={m.host === leftHost}>{m.host}</option>{/each}</select></label>
-      {#if right}<label>Target agent group <select aria-label="Target agent group" bind:value={rightGroup}><option value="">All agent groups (unique skills)</option>{#each agentGroups(right) as g}<option value={g.id}>{groupLabel(g)} · {g.skillCount ?? 0}</option>{/each}</select></label>{/if}
+      {#if right}<label>Compared install location <select aria-label="Compared install location" bind:value={rightGroup}><option value="">All install locations (unique skills)</option>{#each agentGroups(right) as g}<option value={g.id}>{groupLabel(g)} · {g.skillCount ?? 0}</option>{/each}</select></label>{/if}
     </div>
   </div>
   {#if ready}
@@ -32,14 +32,14 @@
       <p>{diff.common.length} shared · {diff.leftOnly.length} only on {leftHost} · {diff.rightOnly.length} only on {rightHost}</p>
       {#if !diff.confirmed}<p>Rescan both machines with <code>reet scan --env MACHINE_NAME --prune</code> and refresh. A server heartbeat does not confirm an agent inventory.</p>{/if}
       {#if diff.unknownSources}<p>Link unknown/local skills to their install sources before applying a sync.</p>{/if}
-      <p>Comparison uses skill identity and source, not installed file contents or versions. “All agent groups” compares each machine's combined skill set; choose agent groups to check their placement.</p>
+      <p>Comparison uses skill identity and source, not installed file contents or versions. “All install locations” compares each machine's combined skill set; choose install locations to check their placement.</p>
     </div>
     <div class="differences">
       <details open={diff.leftOnly.length > 0}><summary>Only on {leftHost} ({diff.leftOnly.length})</summary><ul>{#each diff.leftOnly as s}<li><strong>{s.name}</strong> <code>{s.source || 'Unknown source'}</code></li>{:else}<li>No unique skills.</li>{/each}</ul></details>
       <details open={diff.rightOnly.length > 0}><summary>Only on {rightHost} ({diff.rightOnly.length})</summary><ul>{#each diff.rightOnly as s}<li><strong>{s.name}</strong> <code>{s.source || 'Unknown source'}</code></li>{:else}<li>No unique skills.</li>{/each}</ul></details>
       <details><summary>Shared skills ({diff.common.length})</summary><ul>{#each diff.common as s}<li>{s.name} <code>{s.source || 'Unknown source'}</code></li>{:else}<li>No shared skills.</li>{/each}</ul></details>
     </div>
-    {#if canWrite}<button type="button" class="btn" disabled={!canReference} onclick={() => onreference(a[0].id, b[0].id)}>Use these groups for a sync reference</button><p class="hint">Choose one agent group on each machine to prepare a reference. You will review and save the snapshot below; applying it still requires confirmation on the target machine.</p>{/if}
+    {#if canWrite}<button type="button" class="btn" disabled={!canReference} onclick={() => onreference(a[0].id, b[0].id)}>Use these locations for a sync reference</button><p class="hint">Choose one install location on each machine to prepare a reference. You will review and save the snapshot below; applying it still requires confirmation on the target machine.</p>{/if}
   {:else}<p class="hint">Select two different machines. Agent installations are grouped inside each machine.</p>{/if}
 </section>
 

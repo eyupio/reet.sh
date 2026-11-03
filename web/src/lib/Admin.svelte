@@ -559,7 +559,7 @@
       <div class="environment-machines">
         {#each environmentHosts as host (host)}
           <details class="machine-group">
-            <summary><strong>{host}</strong><span>{status.environments.filter(env => env.host === host && !env.agent.startsWith('reet')).length} agent groups</span></summary>
+            <summary><strong>{host}</strong><span>{status.environments.filter(env => env.host === host && !env.agent.startsWith('reet')).length} install locations</span></summary>
             <ul>{#each status.environments.filter(env => env.host === host && !env.agent.startsWith('reet')) as env (env.id)}
               <li><div><strong>{groupLabel(env)}</strong><span>{env.skillCount ?? 0} skills · Last seen {when(String(env.lastSeen))}</span></div><code>{env.path || 'No path reported'}</code></li>
             {/each}</ul>

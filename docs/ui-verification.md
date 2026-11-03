@@ -2422,3 +2422,39 @@ Validation:
 
 **Not checked.** No physical phone or tablet and no screen reader. The profile date
 order was unit-tested, not exercised with a signed-in account in a browser.
+
+## Skills and sync vocabulary — 3 November 2026
+
+User-facing copy on Skills, Sync, written skills and the machine cards now uses one
+glossary: **skill**, **shelf**, **machine**, **install location**, **sync plan** and
+**Sync**. “Desired set”, “saved set”, “scope”, “environment”, “target” and
+“destination” are gone from the rendered advanced panel. Sync appears only as a
+Machines subtab; More no longer duplicates it. The authoring page is **Write a
+skill**, and a saved draft, renamed skill or published skill ends with **Next: Put
+it on a machine** linking to Sync with that skill selected. Published skills stay
+in **Skills you write** with an **On your shelf** link.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `sync-vocabulary.e2e.mjs` opens Advanced sync and fails if the rendered text
+  contains desired/saved set, scope, environment, target, destination or agent
+  group; it checks the Machine select, install-location heading, **Sync plans**,
+  **Edit sync plan**, the single Sync place under Machines, the **Write a skill**
+  title and the next-step link.
+- `control.e2e.mjs`, `sync-remove.e2e.mjs`, `skills-sync-simple.e2e.mjs`,
+  `navigation.e2e.mjs`, `account-profile.e2e.mjs`, `phone-layout.e2e.mjs`,
+  `machine-import.e2e.mjs`, `skill-card.e2e.mjs`, `add-machine.e2e.mjs` and
+  `first-skills.e2e.mjs` pass.
+- `phone-zoom.e2e.mjs` selected Sync, Skills and Write a skill screens pass at 320,
+  360, 390 and 412 px.
+
+![Sync with one vocabulary](images/ui/sync-vocabulary-desktop.png)
+![Sync vocabulary on a phone](images/ui/sync-vocabulary-phone.png)
+![Write a skill with its next step](images/ui/write-skill-desktop.png)
+![Write a skill on a phone](images/ui/write-skill-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. Merging a written
+skill and its shelf card into one record is deferred; the **On your shelf** link
+explains the current duplication.

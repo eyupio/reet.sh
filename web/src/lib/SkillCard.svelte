@@ -291,7 +291,7 @@
     {:else}
       <ul class="installation-badges" aria-label={`Reported installation by environment for ${skill.name}`}>
         {#each installations as report (report.host)}
-          <li class="installation-badge {report.status}" title={report.status === 'installed' ? 'Present in at least one complete agent scan from the last 14 days.' : report.status === 'missing' ? 'Absent from all reported agent groups. All of this machine’s agent scans are complete and less than 14 days old.' : report.groupCount ? 'Rescan this machine: one or more agent inventories are incomplete or out of date.' : 'No agent inventory reported. A server heartbeat cannot confirm installed skills.'}>
+          <li class="installation-badge {report.status}" title={report.status === 'installed' ? 'Present in at least one complete agent scan from the last 14 days.' : report.status === 'missing' ? 'Absent from all reported install locations. All of this machine’s agent scans are complete and less than 14 days old.' : report.groupCount ? 'Rescan this machine: one or more install locations are incomplete or out of date.' : 'No install location reported. A server heartbeat cannot confirm installed skills.'}>
             <span class="status-dot" aria-hidden="true"></span><span class="host">{report.host}</span>
             {#if (report.status === 'missing' || report.status === 'unknown') && canWrite && oninstall && canInstall}
               <button type="button" class="install-now" class:unknown={report.status === 'unknown'} disabled={!!installing} aria-label={report.status === 'unknown' ? `Scan ${report.host} and add ${skill.name}` : `Install ${skill.name} on ${report.host} now`} title={report.status === 'unknown' ? 'No recent complete scan from this machine. Add now asks it to rescan first; add the skill once the scan reports.' : undefined} onclick={(event) => { event.stopPropagation(); oninstall(skill, report.host) }}>{installing === `${skill.id}:${report.host}` ? 'Adding…' : 'Add now'}</button>
@@ -306,7 +306,7 @@
       </ul>
     {/if}
     {#if syncSnapshot}
-      <p class="sync-intent {syncIntentTone}" title={syncIntentTone === 'none' ? 'No saved sync selection on any machine includes this skill. Add now or Sync to machines… sets one.' : 'From your saved sync selections. Badges above say what each machine last reported.'}>
+      <p class="sync-intent {syncIntentTone}" title={syncIntentTone === 'none' ? 'No sync plan includes this skill. Add now or Sync to machines… sets one.' : 'From your sync plans. Badges above say what each machine last reported.'}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.7L20 8M20 4v4h-4M20 12a8 8 0 0 1-13.7 5.7L4 16M4 20v-4h4" /></svg>
         <span>{syncIntentText}</span>
         {#if syncIntentTone === 'none' && canWrite}<a href={`/sync?skill=${encodeURIComponent(skill.id)}`} onclick={(event) => event.stopPropagation()}>Sync to machines…</a>{/if}

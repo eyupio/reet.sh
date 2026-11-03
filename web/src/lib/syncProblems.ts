@@ -184,7 +184,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     return {
       kind: 'review',
       title: 'Local changes need a review first',
-      detail: 'The machine has skills that changed since the saved set. Review both sides, save the selection, then preview again. Nothing was changed.',
+      detail: 'The machine has skills that changed since the sync plan. Review both sides, save the plan, then preview again. Nothing was changed.',
       commands: [],
       retry: false,
       local: false,

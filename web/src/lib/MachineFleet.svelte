@@ -285,7 +285,7 @@
       let next = snapshot
       for (const item of targets) next = await queueSyncJob(agent.id, item.target.id, 'preview')
       return next
-    })) onnotice(`Preview queued for ${targets.length} agent ${targets.length === 1 ? 'scope' : 'scopes'} on ${machine.host}. Installed files stay unchanged until you approve.`)
+    })) onnotice(`Preview queued for ${targets.length} install ${targets.length === 1 ? 'location' : 'locations'} on ${machine.host}. Installed files stay unchanged until you approve.`)
   }
   async function updateAgent(agent: SyncAgent, version: string = agentUpdateTarget(agent)) {
     if (await run(`update-${agent.id}`, () => updateSyncAgent(agent.id, version))) {
@@ -350,7 +350,7 @@
     confirm = {
       title: `Forget ${groupLabel(group)} on ${machine.host}?`,
       body: 'This removes this agent report and its saved sync reference. Installed files and shelf entries stay. A future scan can report it again.',
-      confirmLabel: 'Forget agent scope',
+      confirmLabel: 'Forget install location',
       danger: true,
       action: async () => { if (await run(`forget-${group.id}`, () => forgetEnvironment(group.id))) onnotice(`Forgot ${groupLabel(group)}. Installed files are unchanged.`) },
     }
@@ -412,7 +412,7 @@
             <div>
               <h3 id={`machine-${machine.host}`} title={machine.host}>{machine.host}</h3>
               {#if highlight === machine.host}<p class="added-note">Just added</p>{/if}
-              {#if machine.aliases?.length}<p class="alias">Also known as {machine.aliases.join(', ')}</p>{:else}<p class="alias">Machine inventory and agent scopes</p>{/if}
+              {#if machine.aliases?.length}<p class="alias">Also known as {machine.aliases.join(', ')}</p>{:else}<p class="alias">Machine inventory and install locations</p>{/if}
             </div>
           </div>
           <span class="badge {state}">{stateLabel(machine)}</span>
@@ -435,7 +435,7 @@
               <summary aria-label={`More options for ${machine.host}`} title="More options"><Icon name="more" size={18} /></summary>
               <div class="sync-menu-panel" role="menu">
                 {#if canWrite}<button type="button" role="menuitem" disabled={!enrolled} title={!enrolled ? 'Connect an agent first' : undefined} onclick={(event) => { closeMenu(event); addSkillFor = machine }}>Add a skill…</button>{/if}
-                <a role="menuitem" href={`/sync?machine=${encodeURIComponent(machine.host)}`}>Choose skills &amp; scopes</a>
+                <a role="menuitem" href={`/sync?machine=${encodeURIComponent(machine.host)}`}>Choose skills &amp; locations</a>
                 {#if enrolled && savedTargets(machine).length}<button type="button" role="menuitem" disabled={!!busy || enrolled.paused || sync.tone === 'working'} onclick={(event) => { closeMenu(event); void previewNow(machine, enrolled) }}>Preview changes only</button>{/if}
                 {#if enrolled}<button type="button" role="menuitem" disabled={!!busy} onclick={(event) => { closeMenu(event); void scan(enrolled) }}>Rescan machine</button>{/if}
                 <button type="button" role="menuitem" onclick={(event) => { closeMenu(event); commandsFor = machine }}>Commands…</button>
@@ -452,11 +452,11 @@
 
         <div class="meta">
           <span><strong>{machine.skillCount}</strong> unique {machine.skillCount === 1 ? 'skill' : 'skills'}</span>
-          <span><strong>{groups.length}</strong> agent {groups.length === 1 ? 'scope' : 'scopes'}</span>
+          <span><strong>{groups.length}</strong> install {groups.length === 1 ? 'location' : 'locations'}</span>
           <span>Last report <strong title={lastReport(machine) ? formatWhen(lastReport(machine), timeZone, dateFormat) : undefined}>{lastSeen(machine)}</strong></span>
           {#if enrolled}<span class="live {agentTone(enrolled)}"><span aria-hidden="true">●</span> {agentState(enrolled)}</span><span class="build" title={enrolled.commit ? `commit ${enrolled.commit}` : undefined}>reet {agentBuild(enrolled)}</span>{/if}
         </div>
-        <div class="agent-chips" aria-label="Agent scopes">
+        <div class="agent-chips" aria-label="Install locations">
           {#each supported as group (group.id)}<span class="agent-chip">{groupLabel(group)} <strong>{group.skillCount ?? 0}</strong></span>{/each}
           {#each scanOnly as group (group.id)}<span class="agent-chip muted">{groupLabel(group)}</span>{/each}
         </div>
@@ -486,7 +486,7 @@
         <details class="agent-list">
           <summary>
             <span>Agents on this machine</span>
-            <span>{groups.length} {groups.length === 1 ? 'scope' : 'scopes'}</span>
+            <span>{groups.length} install {groups.length === 1 ? 'location' : 'locations'}</span>
           </summary>
           <ul>
             {#each supported as group, i (group.id)}

@@ -29,7 +29,7 @@ try {
  if (run('prefix')) {
   const {context,page,errors} = await open({width:375})
   await page.goto(`${base}/account`)
-  const input = page.getByLabel('Hosted skill name prefix',{exact:true})
+  const input = page.getByLabel('Your skill name prefix',{exact:true})
   await expect(input).toBeVisible()
   const box = await input.boundingBox()
   expect(box.width, 'prefix field width at 375px').toBeGreaterThanOrEqual(140)

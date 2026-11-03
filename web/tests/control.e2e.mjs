@@ -89,7 +89,7 @@ try {
  await expect(serverUpdates.getByRole('button',{name:/^Retry update to/})).toBeVisible()
  // A right-click anywhere on a machine card opens the same options menu as its ⋮ button.
  await laptop.click({button:'right'})
- await expect(page.getByRole('menuitem',{name:'Choose skills & scopes'})).toBeVisible()
+ await expect(page.getByRole('menuitem',{name:'Choose skills & locations'})).toBeVisible()
  await expect(page.getByRole('menuitem',{name:'Settings…',exact:true})).toBeVisible()
  await page.keyboard.press('Escape')
  await expect(page.getByRole('menuitem',{name:'Settings…',exact:true})).toBeHidden()
@@ -107,7 +107,7 @@ try {
  expect(writes.at(-1)).toEqual({path:'/api/v2/sync/agents',body:{id:'a',action:'auto-update-off'}})
  await expect(settings.getByRole('switch',{name:'Automatic updates'})).not.toBeChecked()
  await expect(settings).toContainText('v1.4.2')
- // Forgetting an agent scope lives in Settings too, and hands over to the usual confirmation.
+ // Forgetting an install location lives in Settings too, and hands over to the usual confirmation.
  await settings.getByRole('button',{name:'Forget Claude Code…'}).click()
  await expect(page.getByRole('dialog',{name:'Forget Claude Code on dev-laptop?'})).toBeVisible()
  await page.getByRole('button',{name:'Cancel',exact:true}).click()
@@ -131,7 +131,7 @@ try {
  await page.goto(`${base}/sync`)
  await page.locator('details.advanced-selection > summary').click()
  // The compare panel opens on the machine's saved set, not a blank form that contradicts it.
- await expect(page.getByText('Editing saved set · revision rev-laptop-shared')).toBeVisible()
+ await expect(page.getByText('Editing sync plan · revision rev-laptop-shared')).toBeVisible()
  await expect(page.getByText('3 of 3 skills selected')).toBeVisible()
  await expect(page.getByRole('button',{name:'Sync all · preview'})).toBeEnabled()
  await page.getByRole('button',{name:'Sync all · preview'}).click()
@@ -148,31 +148,31 @@ try {
  failQueue=false
  await page.goto(`${base}/sync?machine=*`)
  await page.locator('details.advanced-selection > summary').click()
- await expect(page.getByLabel('Destination',{exact:true})).toHaveValue('*')
+ await expect(page.getByLabel('Machine',{exact:true})).toHaveValue('*')
  // Nothing selected never offers a plain Save: an empty set is only cleared deliberately.
  await expect(page.getByText('0 of 3 skills selected')).toBeVisible()
- await expect(page.getByRole('button',{name:'Save desired set (no files change yet)'})).toHaveCount(0)
- await expect(page.getByRole('button',{name:'Clear this desired set'})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Save sync plan (no files change yet)'})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Clear this sync plan'})).toBeVisible()
  await expect(page.locator('.scope-option')).toHaveCount(3)
  await page.getByLabel('Find skills',{exact:true}).fill('code-review')
  await page.getByRole('button',{name:'Select visible',exact:true}).click()
  failSave=true
- await page.getByRole('button',{name:'Save desired set (no files change yet)',exact:true}).click()
- await expect(page.getByRole('alert')).toContainText('1 of 3 scopes saved')
+ await page.getByRole('button',{name:'Save sync plan (no files change yet)',exact:true}).click()
+ await expect(page.getByRole('alert')).toContainText('1 of 3 install locations saved')
  expect(writes.filter(w=>w.path.endsWith('/desired'))).toHaveLength(2)
  failSave=false
- await page.getByRole('button',{name:'Save desired set (no files change yet)',exact:true}).click()
- await expect(page.getByRole('status').filter({hasText:'Desired skills saved for 3 scopes across 2 machines'})).toBeVisible()
+ await page.getByRole('button',{name:'Save sync plan (no files change yet)',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Sync plan saved for 3 install locations across 2 machines'})).toBeVisible()
  expect(writes.filter(w=>w.path.endsWith('/desired')).slice(-3).map(w=>[w.body.targetId,w.body.skillIds])).toEqual(environments.map(e=>[e.id,['demo/toolkit/code-review']]))
  await page.getByLabel('Sync mode',{exact:true}).selectOption('bidirectional')
  const beforeCancel=writes.length
- await page.getByRole('button',{name:'Save desired set (no files change yet)',exact:true}).click()
+ await page.getByRole('button',{name:'Save sync plan (no files change yet)',exact:true}).click()
  await expect(page.getByRole('dialog')).toContainText('removes extra skills')
  await page.getByRole('button',{name:'Cancel',exact:true}).click()
  expect(writes.length).toBe(beforeCancel)
  await page.getByLabel('Sync mode',{exact:true}).selectOption('additive')
- await expect(page.getByText('Differences by destination',{exact:true})).toBeVisible()
- const incoming=page.locator('#sync-selection details').filter({has:page.locator('summary').filter({hasText:'Only on selected scopes (2)'})})
+ await expect(page.getByText('Differences by machine',{exact:true})).toBeVisible()
+ const incoming=page.locator('#sync-selection details').filter({has:page.locator('summary').filter({hasText:'Only on selected install locations (2)'})})
  await incoming.locator('summary').click()
  for(const checkbox of await incoming.getByRole('checkbox').all())await checkbox.check()
  await incoming.getByRole('button',{name:'Add selected to reet.sh',exact:true}).click()
@@ -180,8 +180,8 @@ try {
  expect(writes.filter(w=>w.path.endsWith('/adopt')).map(w=>[w.body.targetId,w.body.skillIds])).toEqual([['laptop-shared',['demo/toolkit/testing']],['build-shared',['demo/toolkit/deployment']]])
  await page.getByLabel('Source',{exact:true}).selectOption('build-shared')
  await page.getByRole('button',{name:'Select visible',exact:true}).click()
- await page.getByRole('button',{name:'Save desired set (no files change yet)',exact:true}).click()
- await expect(page.getByRole('status').filter({hasText:'Desired skills saved for 3 scopes across 2 machines'})).toBeVisible()
+ await page.getByRole('button',{name:'Save sync plan (no files change yet)',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Sync plan saved for 3 install locations across 2 machines'})).toBeVisible()
  expect(writes.filter(w=>w.path.endsWith('/desired')).slice(-3).every(w=>w.body.sourceId==='build-shared'&&w.body.skillIds.length===3)).toBe(true)
  await noOverflow()
  await page.goto(`${base}/skills`)
@@ -191,7 +191,7 @@ try {
  await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
  await page.goto(`${base}/machines?view=compare`)
  await page.locator('details.advanced-selection > summary').click()
- await expect(page.getByLabel('Destination',{exact:true})).toBeVisible()
+ await expect(page.getByLabel('Machine',{exact:true})).toBeVisible()
  // A scan is not proof of a live terminal connection. The wizard verifies both separately.
  terminalReady=false
  await page.goto(`${base}/machines#connect-machine`)
@@ -263,7 +263,7 @@ try {
  await page.goto(`${base}/sync?machine=*`)
  await page.locator('details.advanced-selection > summary').click()
  await expect(page.getByRole('alert').first()).toContainText('Source unavailable')
- await expect(page.getByRole('button',{name:'Save desired set (no files change yet)',exact:true})).toBeDisabled()
+ await expect(page.getByRole('button',{name:'Save sync plan (no files change yet)',exact:true})).toBeDisabled()
  failSource=false
  viewer=true
  await page.goto(`${base}/machines`)

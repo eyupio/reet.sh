@@ -221,12 +221,11 @@
   const barTabs = $derived(tabs.filter(tab => ['/', '/sessions', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
     { href: '/profiles', label: 'Setups', group: 'Skills & distribution', current: isProfiles },
-    { href: '/sync', label: 'Sync', group: 'Skills & distribution', current: false },
     { href: '/shared', label: 'Lists', group: 'Skills & distribution', current: isShared || isList },
     { href: '/community', label: 'Community', group: 'Help & community', current: isCommunity },
     ...(supportDesk ? [{ href: '/support', label: 'Support', group: 'Help & community', current: isSupport || isTicket }] : []),
     { href: '/spaces', label: 'Teams & organisations', group: 'Workspace', current: isSpaces },
-    ...(canWrite ? [{ href: '/hosting', label: 'Host skills', group: 'Skills & distribution', current: isHosting }] : []),
+    ...(canWrite ? [{ href: '/hosting', label: 'Write a skill', group: 'Skills & distribution', current: isHosting }] : []),
     ...(isAdminUser ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Workspace', current: isAdmin }] : []),
   ])
   // Jump searches what the workspace already lists: sessions, folder projects and machines (a writer's terminal machines,
@@ -917,7 +916,7 @@
     }
   }
   const defaultPageTitle = $derived(
-    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your whole AI setup, on every machine' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Host skills' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your whole AI setup, on every machine' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
@@ -1130,12 +1129,12 @@
     {/if}
 
     {#if shelfMachines.length > 0 || selectedEnv !== '' || selectedMachine !== '' || onlyOne}
-      <div class="filterbar" role="group" aria-label="Environments">
-        <span class="bar-label">Environments</span>
+      <div class="filterbar" role="group" aria-label="Machines">
+        <span class="bar-label">Machines</span>
         {#each shelfMachines as machine (machine.host)}
           <button type="button" class="chip" aria-pressed={selectedMachine === machine.host}
             onclick={() => { selectedMachine = selectedMachine === machine.host ? '' : machine.host; selectedEnv = '' }}
-            title={`${machine.groups.filter(g => !g.agent.startsWith('reet')).length} agent groups · ${machine.skillCount} unique skills`}>
+            title={`${machine.groups.filter(g => !g.agent.startsWith('reet')).length} install locations · ${machine.skillCount} unique skills`}>
             {machine.host}<small>{machine.skillCount}</small>
           </button>
         {/each}
@@ -1152,9 +1151,9 @@
         {/if}
       </div>
       {#if selectedMachine}
-        <div class="filterbar" role="group" aria-label="Agent groups on selected machine">
-          <span class="bar-label">Agent groups</span>
-          <button type="button" class="chip" aria-pressed={!selectedEnv} onclick={() => selectedEnv = ''}>All agents</button>
+        <div class="filterbar" role="group" aria-label="Install locations on selected machine">
+          <span class="bar-label">Install locations</span>
+          <button type="button" class="chip" aria-pressed={!selectedEnv} onclick={() => selectedEnv = ''}>All locations</button>
           {#each environments.filter(e => e.host === selectedMachine && !e.agent.startsWith('reet')) as env (env.id)}
             <button type="button" class="chip" class:old={isOldEnvironment(env.lastSeen)} aria-pressed={selectedEnv === env.id} onclick={() => toggleEnv(env.id)} title={envTitle(env)}>{groupLabel(env)}<small>{env.skillCount ?? 0}</small></button>
           {/each}
@@ -1278,7 +1277,7 @@
 {#if removePending}
   <ConfirmDialog
     title={`Remove ${removePending.name}?`}
-    body="This skill is on your scanner's list. It will come back on the next scan unless you ignore it. Installed files and saved sync sets stay as they are; review machine removals in Sync."
+    body="This skill is on your scanner's list. It will come back on the next scan unless you ignore it. Installed files and sync plans stay as they are; review machine removals in Sync."
     confirmLabel="Remove"
     secondaryLabel="Remove and ignore"
     danger
@@ -1291,7 +1290,7 @@
 {#if bulkRemoveOpen}
   <ConfirmDialog
     title={`Remove ${bulkRemoving.length} ${bulkRemoving.length === 1 ? 'skill' : 'skills'}?`}
-    body="They will be removed from the library. Installed files and saved sync sets stay as they are; review machine removals in Sync. Use Undo in the toast if you change your mind."
+    body="They will be removed from the library. Installed files and sync plans stay as they are; review machine removals in Sync. Use Undo in the toast if you change your mind."
     confirmLabel="Remove"
     danger
     onconfirm={confirmBulkRemove}

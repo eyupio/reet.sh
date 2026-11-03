@@ -347,7 +347,7 @@
         <div class="row">
           <div class="copy">
             <strong>Forget one agent report</strong>
-            <small>Remove one agent scope's inventory report and saved sync reference. Installed files and shelf entries stay; a future scan can report it again.</small>
+            <small>Remove one install location's inventory report and sync plan. Installed files and shelf entries stay; a future scan can report it again.</small>
           </div>
         </div>
         <div class="scope-actions">

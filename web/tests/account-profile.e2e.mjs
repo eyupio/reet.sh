@@ -54,7 +54,7 @@ try {
     await form.getByLabel('Terminal history default').selectOption({ label: 'Remove from history after it ends' })
     await form.getByLabel('Default shelf layout').selectOption('board')
     await form.getByLabel('Default skill cards').selectOption({ label: 'Expanded — all details' })
-    await form.getByLabel('Hosted skill name prefix').fill('acme-')
+    await form.getByLabel('Your skill name prefix').fill('acme-')
     await panel(page).getByRole('button', { name: 'Save profile' }).click()
     await expect(page.getByText('Reet, defaults saved. Your preferences follow you to every browser you sign in from.', { exact: true })).toBeVisible()
     expect(patches).toHaveLength(1)

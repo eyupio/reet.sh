@@ -26,7 +26,7 @@
     finally { busy = false }
   }
 </script>
-{#if !terminals}<PageHeader eyebrow={compare || !focus ? 'Machines' : 'Machine'} title={compare ? "Sync" : focus || "Your machines, connected."} lede={compare ? "Choose skills and machines, then sync. Turn on Keep synced to let reet maintain them automatically." : focus ? "Inspect this machine's agent scopes, health and saved skill sets, or continue in its terminal." : "Connect a machine, inspect its skills and agents, and open a terminal to put them to work."} />{/if}
+{#if !terminals}<PageHeader eyebrow={compare || !focus ? 'Machines' : 'Machine'} title={compare ? "Sync" : focus || "Your machines, connected."} lede={compare ? "Choose skills and machines, then sync. Turn on Keep synced to let reet maintain them automatically." : focus ? "Inspect this machine's install locations, health and sync plans, or continue in its terminal." : "Connect a machine, inspect its skills and agents, and open a terminal to put them to work."} />{/if}
 {#if !terminals}<nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare&&!terminals ? 'page' : undefined}>Inventory &amp; connection</a><a class="btn quiet" href="/sync" aria-current={compare ? 'page' : undefined}>Sync</a>{#if accounts && canWrite}<button class="btn quiet" type="button" onclick={() => (softwareOpen = true)}>Software</button>{/if}</nav>{/if}
 {#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView {userId} {ontitle} />{:else if error}<p class="notice bad" role="alert">{error}</p>{:else}
   <div class="workspace-boot" role="status" aria-busy="true" aria-label="Loading the terminal workspace">

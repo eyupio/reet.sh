@@ -60,8 +60,8 @@ export const failureText = (code: string): string => lookup(FAILURES, code)
 
 const PLAN_CODES = {
   adapter_unsupported: "This folder layout isn't supported for private skills yet.",
-  root_shared: 'Another agent scope, or a link, reaches this same folder, so reet will not touch it.',
-  root_unknown: "Couldn't tell whether another agent scope reaches this folder, so reet will not touch it.",
+  root_shared: 'Another install location, or a link, reaches this same folder, so reet will not touch it.',
+  root_unknown: "Couldn't tell whether another install location reaches this folder, so reet will not touch it.",
   generation_changed: 'The connector restarted after this folder was read.',
   inventory_changed: 'The machine reported a newer scan after this folder was read.',
   observation_unknown: "The folder couldn't be read completely.",

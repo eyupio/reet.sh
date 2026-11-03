@@ -18,8 +18,8 @@
   import { audienceLabel } from './lib/api'
   import { onMount, tick } from 'svelte'
   import {
-    addSkill, addSkillTags, applyTheme, clearToken, getAuthStatus, getNotificationCount, getProfile, getSyncState, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
-    patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, saveProfile, signOutAccount, tagSkills, UnauthorizedError,
+    addSkill, addSkillTags, applyTheme, clearThemeChoice, clearToken, getAuthStatus, getNotificationCount, getProfile, getSyncState, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
+    patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, saveProfile, signOutAccount, tagSkills, takeThemeChoice, UnauthorizedError,
     type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
   import Account from './lib/Account.svelte'
@@ -465,10 +465,25 @@
         needsAuth = status.mode === 'accounts' ? !status.user : false
       }
       if (status.user) await loadPreferences()
+      await applyPendingTheme()
     } catch {
       authMode = ''
     } finally {
       authChecked = true
+    }
+  }
+
+  // The profile's saved theme is the baseline, but a colour chosen on the public header while signed out is the most
+  // recent deliberate choice: apply it and make it the account's saved theme, so it survives sign-in.
+  async function applyPendingTheme() {
+    if (authMode !== 'accounts' || !currentUser) return
+    const pending = takeThemeChoice()
+    if (!pending) return
+    applyTheme(pending)
+    try {
+      await saveProfile({ theme: pending })
+    } catch {
+      /* the choice still applies for this visit */
     }
   }
 
@@ -536,6 +551,7 @@
         /* the local session is cleared even if the server call cannot be made */
       }
       currentUser = null
+      clearThemeChoice()
       gafferAnimations.set(true)
       applyTheme('system')
       needsAuth = true
@@ -934,6 +950,16 @@
   $effect(() => {
     if (authChecked || authIndependent) document.documentElement.dataset.ready = '1'
   })
+
+  // A link to a section (/welcome#self-host) lands before the app has drawn that section, so the browser has nowhere to
+  // scroll to. Once the page below the boot shell is real, take the fragment to its target ourselves.
+  $effect(() => {
+    if (!authChecked && !authIndependent) return
+    let id = location.hash.slice(1)
+    if (!id) return
+    try { id = decodeURIComponent(id) } catch { return }
+    document.getElementById(id)?.scrollIntoView({ block: 'start' })
+  })
 </script>
 
 <svelte:head>
@@ -966,7 +992,7 @@
       <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
     </div>
     {#if !authenticated && authMode==='accounts' && !isPublicList && !isCommunity && !isJoin}
-      <nav class="site-nav" aria-label="Public navigation">{#if !isWelcome}<a href="/welcome">Workspace</a>{/if}<a href="/welcome#self-host">Self-host</a><ThemePicker />{#if !setupRequired}<a class="entry-link" href="/signin">Sign in →</a>{/if}</nav>
+      <nav class="site-nav" aria-label="Public navigation">{#if !isWelcome}<a href="/welcome">Workspace</a>{/if}<a href={isWelcome ? '#self-host' : '/welcome#self-host'}>Self-host</a><ThemePicker />{#if !setupRequired}<a class="entry-link" href="/signin">Sign in →</a>{/if}</nav>
     {:else if isPublicList || isCommunity || isJoin}
       <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><ThemePicker /><a class="entry-link" href="/">Open your workspace →</a></nav>
     {/if}
@@ -1494,8 +1520,8 @@
     main { padding: 28px 16px 40px; }
     .header-inner { flex-wrap: wrap; gap: 14px; padding: 20px 16px; }
     .tag { margin-left: auto; max-width: 26ch; text-align: right; white-space: nowrap; }
-    .site-nav { width: 100%; }
-    .site-nav a { flex: 1; justify-content: center; border: 1px solid var(--line); }
+    .site-nav { width: 100%; justify-content: flex-end; }
+    .site-nav a { flex: none; justify-content: center; border: 1px solid var(--line); }
     .add { flex-direction: column; align-items: stretch; }
     .add input { flex: 1 1 auto; width: 100%; }
     .add .btn { width: 100%; flex: none; font-size: 0.9rem; }
@@ -1515,7 +1541,7 @@
   @media (max-width: 1000px) {
     main { padding: 24px 24px 40px; }
     .header-inner { display: flex; gap: 16px; padding: 16px 24px; }
-    .site-nav { flex-wrap: nowrap; width: 100%; min-width: 0; overflow-x: auto; padding-bottom: 8px; }
+    .site-nav { flex-wrap: nowrap; width: auto; margin-left: auto; justify-content: flex-end; min-width: 0; overflow-x: auto; padding-bottom: 8px; }
     .site-nav a { flex: none; justify-content: center; white-space: nowrap; border: 0; }
     .toolbar { position: static; padding: 10px 0; gap: 8px; }
     .filters { flex-wrap: wrap; width: 100%; min-width: 0; }
@@ -1532,6 +1558,9 @@
   @media (max-width: 560px) {
     main { padding: 20px 16px 36px; }
     .header-inner { padding-left: 16px; padding-right: 16px; }
+    /* The public links sit under the logo on a phone, at the right edge like the signed-in account menu. */
+    .site-nav { width: 100%; margin-left: 0; flex-wrap: wrap; justify-content: flex-end; }
+    .site-nav a { flex: none; }
     .controls { gap: 6px; }
     .controls select { padding-left: 8px; padding-right: 26px; }
   }

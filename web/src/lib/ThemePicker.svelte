@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { applyTheme, THEME_EVENT } from './api'
+  import { applyTheme, rememberThemeChoice, THEME_EVENT } from './api'
 
   // The public header's colour choice: light, dark or follow the device, as three icons with the
-  // chosen one ringed. It applies at once and is kept in this browser by applyTheme; after sign-in
-  // the profile's saved choice wins, so the control reads the page rather than keeping a copy, and
-  // follows a change made anywhere else.
+  // chosen one ringed. It applies at once and is kept in this browser by applyTheme; on the public
+  // header the choice is also held for the next sign-in, so the account starts with the theme the
+  // visitor picked rather than replacing it. The control reads the page rather than keeping a copy,
+  // so it follows a change made anywhere else.
   type Theme = 'system' | 'light' | 'dark'
   // A signed-in menu passes onchoose to save the choice; it applies at once either way, and a save
   // that fails puts the page's theme back through applyTheme, which this control then follows.
@@ -23,7 +24,10 @@
   function choose(next: Theme) {
     theme = next
     applyTheme(next)
-    void onchoose?.(next)
+    // A signed-in menu saves the choice to the profile through onchoose. Without one this is the public header, where
+    // the choice waits for the next sign-in instead of being replaced by whatever theme the account last saved.
+    if (onchoose) void onchoose(next)
+    else rememberThemeChoice(next)
   }
 </script>
 

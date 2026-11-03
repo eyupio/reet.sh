@@ -46,7 +46,7 @@ trust message and the person continues with history as a new row (after the fix 
 refused (not downgraded) if the account or the machine no longer allows YOLO; while the machine is offline the pane shows the idle ended note (not a waiting state) and a failure consumes the one
 automatic attempt; Claude/Codex chats are not covered. Not exercised: a live OpenCode provider reload and production chats.
 
-Final-review fix wave (commits `6ab51c5` Go, `0877508` web, and this docs commit). A person's End of a Gaffer chat is
+Final-review fix wave (commits `ae23404` Go, `c4cd2b0` web, and this docs commit). A person's End of a Gaffer chat is
 answered by the machine with `exited` (code 0), so ended chats were stored `exited` and auto-reattached; the store now
 records that close of an `end_requested` structured row as `ended`, and `ReattachChat` refuses any row with an end
 operation (older rows stored `exited`/`lost`) with `chat_reattach_ended` ("You ended this chat. Continue it with history as

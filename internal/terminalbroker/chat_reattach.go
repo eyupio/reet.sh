@@ -3,6 +3,7 @@ package terminalbroker
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
@@ -38,8 +39,16 @@ var (
 // start is bounded by 60 s, and the controller waits that long and a margin.
 const reattachCallTimeout = 60*time.Second + 15*time.Second
 
+// reattachKey names one in-flight ReattachChat: the session and whether the
+// caller confirmed trust. Trust is part of the key so a trusting caller never
+// joins a call that did not confirm it, and never lends its trust to one.
+type reattachKey struct {
+	chatKey
+	trust bool
+}
+
 // reattachCall is one in-flight ReattachChat; callers for the same session
-// join it and get its result.
+// and trust join it and get its result.
 type reattachCall struct {
 	done chan struct{}
 	err  error
@@ -48,11 +57,11 @@ type reattachCall struct {
 }
 
 // reattachJoined reports how many callers wait on a session's in-flight
-// reattach besides the one running it.
-func (b *Broker) reattachJoined(uid int64, session string) int {
+// reattach with that trust besides the one running it.
+func (b *Broker) reattachJoined(uid int64, session string, trust bool) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if c := b.reattaching[chatKey{uid, session}]; c != nil {
+	if c := b.reattaching[reattachKey{chatKey{uid, session}, trust}]; c != nil {
 		return c.joined
 	}
 	return 0
@@ -62,9 +71,14 @@ func (b *Broker) reattachJoined(uid int64, session string) int {
 // machine starts it again with session/load under the same reet session id,
 // and the row returns to running with its transcript. No row is created, and
 // the row is left as it was on any error. Concurrent calls for one session
-// share a single machine request and its result.
-func (b *Broker) ReattachChat(ctx context.Context, uid int64, session string) error {
-	k := chatKey{uid, session}
+// and trust share a single machine request and its result.
+//
+// trust confirms that the person trusts the chat's folder, which lets the
+// machine load OpenCode plugins there. It is sent only for this call and is
+// never stored: only a person's explicit request may set it, never an
+// automatic attempt.
+func (b *Broker) ReattachChat(ctx context.Context, uid int64, session string, trust bool) error {
+	k := reattachKey{chatKey{uid, session}, trust}
 	b.mu.Lock()
 	if c := b.reattaching[k]; c != nil {
 		c.joined++
@@ -77,7 +91,7 @@ func (b *Broker) ReattachChat(ctx context.Context, uid int64, session string) er
 		}
 	}
 	if b.reattaching == nil {
-		b.reattaching = map[chatKey]*reattachCall{}
+		b.reattaching = map[reattachKey]*reattachCall{}
 	}
 	c := &reattachCall{done: make(chan struct{}), err: ErrReattachFailed}
 	b.reattaching[k] = c
@@ -89,11 +103,11 @@ func (b *Broker) ReattachChat(ctx context.Context, uid int64, session string) er
 		b.mu.Unlock()
 		close(c.done)
 	}()
-	c.err = b.reattachChat(ctx, uid, session)
+	c.err = b.reattachChat(ctx, uid, session, trust)
 	return c.err
 }
 
-func (b *Broker) reattachChat(ctx context.Context, uid int64, session string) error {
+func (b *Broker) reattachChat(ctx context.Context, uid int64, session string, trust bool) error {
 	s, err := b.st.TerminalSessionFor(uid, session)
 	if err != nil {
 		return err
@@ -140,7 +154,7 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string) er
 	if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !caps.Capabilities.ChatReattachFor(s.Tool) || !ok || !chat.History {
 		return ErrReattachUnsupported
 	}
-	in := terminalproto.ChatReattach{Tool: s.Tool, Dir: s.Dir, Yolo: s.Yolo, ACPSessionID: s.ACPSessionID}
+	in := terminalproto.ChatReattach{Tool: s.Tool, Dir: s.Dir, Yolo: s.Yolo, ACPSessionID: s.ACPSessionID, Trust: trust}
 	if terminalproto.ValidModel(s.Model) {
 		in.Model = s.Model
 	}
@@ -181,7 +195,7 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string) er
 	}
 	b.restoreChat(uid, s)
 	_ = b.st.AddEventFor(uid, "machine", "chat-reattach", "", map[string]string{
-		"machine": s.AgentID, "tool": s.Tool, "session": session,
+		"machine": s.AgentID, "tool": s.Tool, "session": session, "trust": strconv.FormatBool(trust),
 	})
 	return nil
 }

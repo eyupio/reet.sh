@@ -784,7 +784,7 @@ func TestReattachRouteRefusalSentences(t *testing.T) {
 			}
 			return session
 		}, status: 409, code: "chat_reattach_archived", msg: "This chat was archived, so its history is gone."},
-		{name: "trust", reply: terminalproto.Result{Code: terminalproto.ACPTrustRequired, Detail: ".opencode/plugins/x.js"}, status: 409, code: "chat_reattach_trust", msg: "This folder has OpenCode plugins, so reet did not reconnect the chat in place. Continue it with history only if you trust this folder."},
+		{name: "trust", reply: terminalproto.Result{Code: terminalproto.ACPTrustRequired, Detail: ".opencode/plugins/x.js"}, status: 409, code: "chat_reattach_trust", msg: "This folder has OpenCode plugins, so reet did not reconnect automatically. Reconnect only if you trust it."},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -840,5 +840,53 @@ func TestReattachRouteRequiresSession(t *testing.T) {
 	row, err := f.st.TerminalSessionFor(f.uid, session)
 	if n != 0 || err != nil || row.State != terminalproto.Lost {
 		t.Fatalf("another account reattached: %d %+v %v", n, row, err)
+	}
+}
+
+// The reattach body is optional: no body, null or {} reconnect without
+// trust, as before; {"trust":true} passes trust to the machine; anything
+// else is refused with 400 before the machine is asked.
+func TestReattachRouteOptionalTrustBody(t *testing.T) {
+	cases := []struct {
+		name   string
+		body   string
+		status int
+		trust  bool
+	}{
+		{name: "empty", body: "", status: http.StatusNoContent},
+		{name: "null", body: "null", status: http.StatusNoContent},
+		{name: "empty object", body: "{}", status: http.StatusNoContent},
+		{name: "trust false", body: `{"trust":false}`, status: http.StatusNoContent},
+		{name: "trust true", body: `{"trust":true}`, status: http.StatusNoContent, trust: true},
+		{name: "malformed", body: `{"trust":`, status: http.StatusBadRequest},
+		{name: "unknown field", body: `{"trust":true,"yolo":true}`, status: http.StatusBadRequest},
+		{name: "wrong type", body: `{"trust":"true"}`, status: http.StatusBadRequest},
+		{name: "two values", body: `{"trust":true}{}`, status: http.StatusBadRequest},
+		{name: "not an object", body: `[true]`, status: http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := launchAPIFixture(t, reattachCaps())
+			session := lostChat(t, f)
+			code, _, body := f.do(t, f.cookie, "POST", reattachPath(session), c.body)
+			if code != c.status {
+				t.Fatalf("got %d %s, want %d", code, body, c.status)
+			}
+			f.mu.Lock()
+			sent := append([]terminalproto.ChatReattach(nil), f.reattaches...)
+			f.mu.Unlock()
+			if c.status != http.StatusNoContent {
+				if len(sent) != 0 {
+					t.Fatalf("machine asked for a refused body: %+v", sent)
+				}
+				if row, err := f.st.TerminalSessionFor(f.uid, session); err != nil || row.State != terminalproto.Lost {
+					t.Fatalf("row after refused body: %+v %v", row, err)
+				}
+				return
+			}
+			if len(sent) != 1 || sent[0].Trust != c.trust {
+				t.Fatalf("machine saw %+v, want one with Trust %v", sent, c.trust)
+			}
+		})
 	}
 }

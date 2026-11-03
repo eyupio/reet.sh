@@ -3,6 +3,7 @@ package terminalbroker
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -73,7 +74,7 @@ func noCreatingRows(t *testing.T, b *Broker, uid int64) []store.TerminalSession 
 func TestReattachLostChatBecomesRunningInPlace(t *testing.T) {
 	b, p, uid, agent, machine := reattachFixture(t)
 	s := lostChat(t, b, p, uid, agent)
-	if err := b.ReattachChat(t.Context(), uid, s.ID); err != nil {
+	if err := b.ReattachChat(t.Context(), uid, s.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	got := row(t, b, uid, s.ID)
@@ -112,7 +113,7 @@ func TestReattachExitedChat(t *testing.T) {
 	if err := b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, terminalproto.Exited, &code); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.ReattachChat(t.Context(), uid, s.ID); err != nil {
+	if err := b.ReattachChat(t.Context(), uid, s.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := row(t, b, uid, s.ID); got.State != terminalproto.Running || got.ExitCode != nil {
@@ -123,14 +124,14 @@ func TestReattachExitedChat(t *testing.T) {
 func TestReattachRefusedForEndedAndRunningAndShell(t *testing.T) {
 	b, p, uid, agent, machine := reattachFixture(t)
 	running := switchChat(t, b, uid, agent)
-	if err := b.ReattachChat(t.Context(), uid, running.ID); !errors.Is(err, ErrReattachNotClosed) {
+	if err := b.ReattachChat(t.Context(), uid, running.ID, false); !errors.Is(err, ErrReattachNotClosed) {
 		t.Fatalf("running: %v", err)
 	}
 	ended := switchChat(t, b, uid, agent)
 	if _, err := b.End(t.Context(), uid, ended.ID, ID()); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.ReattachChat(t.Context(), uid, ended.ID); !errors.Is(err, ErrACPClosed) {
+	if err := b.ReattachChat(t.Context(), uid, ended.ID, false); !errors.Is(err, ErrACPClosed) {
 		t.Fatalf("ended: %v", err)
 	}
 	shell, err := b.Create(t.Context(), uid, agent, ID(), terminalproto.Create{Title: "TUI", Cols: 100, Rows: 30, Tool: "opencode", Dir: "/tmp"})
@@ -140,7 +141,7 @@ func TestReattachRefusedForEndedAndRunningAndShell(t *testing.T) {
 	if err := b.st.ObserveTerminalStateFor(uid, agent, shell.ID, p.Generation, terminalproto.Lost, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.ReattachChat(t.Context(), uid, shell.ID); !errors.Is(err, ErrACPUnsupported) {
+	if err := b.ReattachChat(t.Context(), uid, shell.ID, false); !errors.Is(err, ErrACPUnsupported) {
 		t.Fatalf("shell: %v", err)
 	}
 	if got := row(t, b, uid, shell.ID); got.State != terminalproto.Lost {
@@ -168,7 +169,7 @@ func TestReattachRefusedAfterRealEndAnswer(t *testing.T) {
 	if got := row(t, b, uid, s.ID); got.State != terminalproto.Ended {
 		t.Fatalf("ended chat stored as %+v", got)
 	}
-	if err := b.ReattachChat(t.Context(), uid, s.ID); !errors.Is(err, ErrACPClosed) {
+	if err := b.ReattachChat(t.Context(), uid, s.ID, false); !errors.Is(err, ErrACPClosed) {
 		t.Fatalf("got %v", err)
 	}
 	if sent := reattachSent(machine); len(sent) != 0 {
@@ -195,7 +196,7 @@ func TestReattachRefusedForClosedRowWithEndOperation(t *testing.T) {
 			if _, err := b.st.RequestTerminalEndFor(uid, agent, s.ID, ID()); err != nil {
 				t.Fatal(err)
 			}
-			if err := b.ReattachChat(t.Context(), uid, s.ID); !errors.Is(err, ErrACPClosed) {
+			if err := b.ReattachChat(t.Context(), uid, s.ID, false); !errors.Is(err, ErrACPClosed) {
 				t.Fatalf("got %v", err)
 			}
 			if got := row(t, b, uid, s.ID); got.State != state {
@@ -219,7 +220,7 @@ func TestReattachRefusedWithoutFeatureOrHistory(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			b, p, uid, agent, machine := switchFixtureCaps(t, adjust)
 			s := lostChat(t, b, p, uid, agent)
-			if err := b.ReattachChat(t.Context(), uid, s.ID); !errors.Is(err, ErrReattachUnsupported) {
+			if err := b.ReattachChat(t.Context(), uid, s.ID, false); !errors.Is(err, ErrReattachUnsupported) {
 				t.Fatalf("got %v", err)
 			}
 			if sent := machine.sent(); len(sent) != 0 {
@@ -244,7 +245,7 @@ func TestReattachRefusedWithoutACPSessionID(t *testing.T) {
 	if err := b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, terminalproto.Lost, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.ReattachChat(t.Context(), uid, s.ID); !errors.Is(err, ErrReattachNoConversation) {
+	if err := b.ReattachChat(t.Context(), uid, s.ID, false); !errors.Is(err, ErrReattachNoConversation) {
 		t.Fatalf("got %v", err)
 	}
 	if sent := reattachSent(machine); len(sent) != 0 {
@@ -269,13 +270,13 @@ func TestReattachSingleFlightSendsOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[i] = b.ReattachChat(t.Context(), uid, s.ID)
+			errs[i] = b.ReattachChat(t.Context(), uid, s.ID, false)
 		}()
 	}
 	deadline := time.Now().Add(10 * time.Second)
-	for b.reattachJoined(uid, s.ID) < callers-1 {
+	for b.reattachJoined(uid, s.ID, false) < callers-1 {
 		if time.Now().After(deadline) {
-			t.Fatalf("joined %d callers", b.reattachJoined(uid, s.ID))
+			t.Fatalf("joined %d callers", b.reattachJoined(uid, s.ID, false))
 		}
 		time.Sleep(time.Millisecond)
 	}
@@ -294,7 +295,7 @@ func TestReattachSingleFlightSendsOnce(t *testing.T) {
 	}
 	// The in-flight entry is gone: a later call runs again (and is refused
 	// because the chat now runs).
-	if err := b.ReattachChat(t.Context(), uid, s.ID); !errors.Is(err, ErrReattachNotClosed) {
+	if err := b.ReattachChat(t.Context(), uid, s.ID, false); !errors.Is(err, ErrReattachNotClosed) {
 		t.Fatalf("later call: %v", err)
 	}
 }
@@ -305,7 +306,7 @@ func TestReattachOfflineLeavesRowLostAndNoCreatingRows(t *testing.T) {
 	machine.mu.Lock()
 	machine.reattachSendErr = errors.New("connection lost")
 	machine.mu.Unlock()
-	err := b.ReattachChat(t.Context(), uid, s.ID)
+	err := b.ReattachChat(t.Context(), uid, s.ID, false)
 	if !errors.Is(err, ErrOffline) {
 		t.Fatalf("got %v", err)
 	}
@@ -319,7 +320,7 @@ func TestReattachOfflineLeavesRowLostAndNoCreatingRows(t *testing.T) {
 	machine.mu.Lock()
 	machine.reattachSendErr = nil
 	machine.mu.Unlock()
-	if err := b.ReattachChat(t.Context(), uid, s.ID); err != nil {
+	if err := b.ReattachChat(t.Context(), uid, s.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := row(t, b, uid, s.ID); got.State != terminalproto.Running {
@@ -336,7 +337,7 @@ func TestReattachMachineConflictMapsToErrReattachConflict(t *testing.T) {
 		return terminalproto.Result{Code: terminalproto.Conflict}
 	}
 	machine.mu.Unlock()
-	err := b.ReattachChat(t.Context(), uid, s.ID)
+	err := b.ReattachChat(t.Context(), uid, s.ID, false)
 	if !errors.Is(err, ErrReattachConflict) || err.Error() != "This conversation is open in another session." {
 		t.Fatalf("got %v", err)
 	}
@@ -374,7 +375,7 @@ func TestReattachMachineRefusalsMap(t *testing.T) {
 			machine.mu.Lock()
 			machine.reattach = func(*Peer, terminalproto.Message, *terminalproto.ChatReattach) terminalproto.Body { return tc.reply }
 			machine.mu.Unlock()
-			if err := b.ReattachChat(t.Context(), uid, s.ID); !tc.check(err) {
+			if err := b.ReattachChat(t.Context(), uid, s.ID, false); !tc.check(err) {
 				t.Fatalf("got %v", err)
 			}
 			if got := row(t, b, uid, s.ID); got.State != terminalproto.Lost {
@@ -397,7 +398,7 @@ func TestReattachRecordsReportedACPSessionID(t *testing.T) {
 		return terminalproto.SessionChanged{State: terminalproto.Running}
 	}
 	machine.mu.Unlock()
-	if err := b.ReattachChat(t.Context(), uid, s.ID); err != nil {
+	if err := b.ReattachChat(t.Context(), uid, s.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := row(t, b, uid, s.ID); got.State != terminalproto.Running || got.ACPSessionID != switchACPID {
@@ -413,7 +414,7 @@ func TestReattachOtherAccountRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []int64{other.ID, uid + 1000} {
-		if err := b.ReattachChat(t.Context(), id, s.ID); err == nil {
+		if err := b.ReattachChat(t.Context(), id, s.ID, false); err == nil {
 			t.Fatalf("account %d reattached the chat", id)
 		}
 	}
@@ -443,7 +444,7 @@ func TestReattachSurvivesCancelledRequest(t *testing.T) {
 		return nil
 	}
 	machine.mu.Unlock()
-	if err := b.ReattachChat(ctx, uid, s.ID); err != nil {
+	if err := b.ReattachChat(ctx, uid, s.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := row(t, b, uid, s.ID); got.State != terminalproto.Running {
@@ -465,7 +466,7 @@ func TestReattachYoloChatNeedsAccountAllowYolo(t *testing.T) {
 	if err := b.st.SetSetting("terminal_allow_yolo", "0"); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.ReattachChat(t.Context(), uid, s.ID); !errors.Is(err, ErrYoloNotAllowed) {
+	if err := b.ReattachChat(t.Context(), uid, s.ID, false); !errors.Is(err, ErrYoloNotAllowed) {
 		t.Fatalf("got %v", err)
 	}
 	if sent := reattachSent(machine); len(sent) != 0 {
@@ -477,7 +478,7 @@ func TestReattachYoloChatNeedsAccountAllowYolo(t *testing.T) {
 	if err := b.st.SetSetting("terminal_allow_yolo", "1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.ReattachChat(t.Context(), uid, s.ID); err != nil {
+	if err := b.ReattachChat(t.Context(), uid, s.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	if sent := reattachSent(machine); len(sent) != 1 || !sent[0].Yolo {
@@ -506,7 +507,7 @@ func TestReattachMachineRefusalsKeepTheirMeaning(t *testing.T) {
 			machine.mu.Lock()
 			machine.reattach = func(*Peer, terminalproto.Message, *terminalproto.ChatReattach) terminalproto.Body { return tc.reply }
 			machine.mu.Unlock()
-			err := b.ReattachChat(t.Context(), uid, s.ID)
+			err := b.ReattachChat(t.Context(), uid, s.ID, false)
 			if !errors.Is(err, tc.want) || errors.Is(err, ErrReattachFailed) {
 				t.Fatalf("got %v", err)
 			}
@@ -536,7 +537,7 @@ func TestReattachRefusedForArchivedChat(t *testing.T) {
 			if err := b.st.ArchiveTerminalFor(uid, s.ID); err != nil {
 				t.Fatal(err)
 			}
-			if err := b.ReattachChat(t.Context(), uid, s.ID); !errors.Is(err, ErrReattachArchived) {
+			if err := b.ReattachChat(t.Context(), uid, s.ID, false); !errors.Is(err, ErrReattachArchived) {
 				t.Fatalf("archived: %v", err)
 			}
 			if sent := reattachSent(machine); len(sent) != 0 {
@@ -546,5 +547,96 @@ func TestReattachRefusedForArchivedChat(t *testing.T) {
 				t.Fatalf("row %+v", got)
 			}
 		})
+	}
+}
+
+// A reattach without trust sends Trust:false and records trust "false"; one
+// with trust sends Trust:true and records trust "true".
+func TestReattachTrustIsSentAndAudited(t *testing.T) {
+	for _, trust := range []bool{false, true} {
+		t.Run(map[bool]string{false: "default", true: "trusted"}[trust], func(t *testing.T) {
+			b, p, uid, agent, machine := reattachFixture(t)
+			s := lostChat(t, b, p, uid, agent)
+			if err := b.ReattachChat(t.Context(), uid, s.ID, trust); err != nil {
+				t.Fatal(err)
+			}
+			sent := reattachSent(machine)
+			if len(sent) != 1 || sent[0].Trust != trust {
+				t.Fatalf("sent %+v, want Trust %v", sent, trust)
+			}
+			events := reattachEvents(t, b, uid)
+			want := map[bool]string{false: `"trust":"false"`, true: `"trust":"true"`}[trust]
+			if len(events) != 1 || !strings.Contains(events[0], want) {
+				t.Fatalf("audit %+v, want %s", events, want)
+			}
+		})
+	}
+}
+
+// Trust is never remembered: after a trusted reattach, the next reattach of
+// the same chat without trust sends Trust:false.
+func TestReattachTrustIsNotRemembered(t *testing.T) {
+	b, p, uid, agent, machine := reattachFixture(t)
+	s := lostChat(t, b, p, uid, agent)
+	if err := b.ReattachChat(t.Context(), uid, s.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, terminalproto.Lost, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ReattachChat(t.Context(), uid, s.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	sent := reattachSent(machine)
+	if len(sent) != 2 || !sent[0].Trust || sent[1].Trust {
+		t.Fatalf("sent %+v", sent)
+	}
+}
+
+// A trusting call never joins a non-trusting call in flight (or the reverse):
+// each sends its own message with its own Trust.
+func TestReattachSingleFlightKeepsTrustApart(t *testing.T) {
+	b, p, uid, agent, machine := reattachFixture(t)
+	s := lostChat(t, b, p, uid, agent)
+	release := make(chan struct{})
+	machine.mu.Lock()
+	machine.reattach = func(_ *Peer, _ terminalproto.Message, in *terminalproto.ChatReattach) terminalproto.Body {
+		<-release
+		return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: in.ACPSessionID}
+	}
+	machine.mu.Unlock()
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i, trust := range []bool{false, true} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = b.ReattachChat(t.Context(), uid, s.ID, trust)
+		}()
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(reattachSent(machine)) < 2 {
+		if time.Now().After(deadline) {
+			close(release)
+			wg.Wait()
+			t.Fatalf("sent %d chat_reattach messages, want 2 (joined untrusted %d, trusted %d)",
+				len(reattachSent(machine)), b.reattachJoined(uid, s.ID, false), b.reattachJoined(uid, s.ID, true))
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+	wg.Wait()
+	sent := reattachSent(machine)
+	trusts := map[bool]int{}
+	for _, in := range sent {
+		trusts[in.Trust]++
+	}
+	if len(sent) != 2 || trusts[true] != 1 || trusts[false] != 1 {
+		t.Fatalf("sent %+v", sent)
+	}
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("caller %d: %v", i, err)
+		}
 	}
 }

@@ -374,17 +374,28 @@ func (s *server) terminalSessionModeError(w http.ResponseWriter, err error) {
 // terminalChatReattach reconnects a lost or exited OpenCode chat in place. The
 // call is held until the machine answers (up to about 75 s); the server sets no
 // response deadline, so the handler waits on the request context alone.
+//
+// The body is optional: none, null or {} reconnect without trust, and
+// {"trust":true} is a person's explicit confirmation that they trust the
+// chat's folder (it may load OpenCode plugins). Trust applies to this request
+// only and is never stored.
 func (s *server) terminalChatReattach(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !terminalproto.ValidID(id) {
 		writeErr(w, 400, "invalid terminal request")
 		return
 	}
+	var in struct {
+		Trust bool `json:"trust"`
+	}
+	if !terminalOptionalJSON(w, r, &in) {
+		return
+	}
 	if _, err := s.st.TerminalSessionFor(s.uid(r), id); err != nil {
 		writeErr(w, 404, "that reet session is not available")
 		return
 	}
-	if err := s.terminals.ReattachChat(r.Context(), s.uid(r), id); err != nil {
+	if err := s.terminals.ReattachChat(r.Context(), s.uid(r), id, in.Trust); err != nil {
 		s.terminalReattachError(w, err)
 		return
 	}
@@ -395,9 +406,9 @@ func (s *server) terminalReattachError(w http.ResponseWriter, err error) {
 	var trust *terminalbroker.ACPTrustError
 	switch {
 	case errors.As(err, &trust):
-		// Ruling R10: the browser shows the plugin files and offers Continue
-		// with history (a new row that confirms trust), not a retry.
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "This folder has OpenCode plugins, so reet did not reconnect the chat in place. Continue it with history only if you trust this folder.", "code": "chat_reattach_trust", "detail": trust.Detail})
+		// Ruling R10: the browser shows the plugin files and offers an
+		// explicit trusted reconnect or Continue with history, not a retry.
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "This folder has OpenCode plugins, so reet did not reconnect automatically. Reconnect only if you trust it.", "code": "chat_reattach_trust", "detail": trust.Detail})
 	case errors.Is(err, terminalbroker.ErrReattachUnsupported):
 		writeErrCode(w, 409, "chat_reattach_unsupported", "", err.Error(), "")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported):

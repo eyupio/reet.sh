@@ -58,24 +58,24 @@ async function workspace(width = 1440, theme = 'light', touch = false, entry = '
 }
 try {
   await mkdir('../work/screenshots', { recursive: true })
-  // Existing Sessions links and project handoffs must reveal their launch form,
-  // while a normal Home visit keeps the board as the primary view.
-  for (const [entry, projectLabel, focused, width] of [
-    ['/', '', false, 1440],
-    ['/#launch', '', true, 1440],
-    ['/?project=p2', 'Storefront', false, 1440],
-    ['/?projects=p1,p2', '2 projects', false, 1440],
-    ['/?projects=p1,p2#launch', '2 projects', true, 1440],
-    ['/#launch', '', true, 390],
+  // Existing Sessions links and project handoffs open the launch modal, while a normal Home visit keeps the board as the
+  // primary view and a chosen project narrows it.
+  for (const [entry, projectLabel, focused, width, launches] of [
+    ['/', '', false, 1440, false],
+    ['/#launch', '', true, 1440, true],
+    ['/?project=p2', 'Storefront', false, 1440, false],
+    ['/?projects=p1,p2', '2 projects', false, 1440, true],
+    ['/?projects=p1,p2#launch', '2 projects', true, 1440, true],
+    ['/#launch', '', true, 390, true],
   ]) {
     const app = await workspace(width, 'light', width === 390, entry)
-    const section = app.page.locator('details.quick-launch')
-    await expect(section).toHaveJSProperty('open', entry !== '/')
-    if (entry !== '/') {
+    await expect(app.page.locator('details.quick-launch')).toHaveCount(0)
+    if (entry === '/?project=p2') await expect(app.page.locator('.scope')).toContainText('Storefront')
+    if (launches) {
       const launch = app.page.getByRole('form', { name: 'Start a session', exact: true })
       await expect(launch).toBeVisible()
       await expect(launch.getByRole('textbox', { name: 'Describe the job', exact: true })).toBeVisible()
-      // The board keeps the second column beside the rail, and an open Quick launch stays in the viewport under a long board.
+      // The board keeps the second column beside the rail, and the modal stays in the viewport under a long board.
       const column = await app.page.locator('.column').boundingBox()
       // Home on a tablet or phone has no rail; it lives on the Sessions screen there.
       const railLocator = app.page.locator('aside.rail')

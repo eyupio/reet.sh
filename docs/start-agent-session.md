@@ -62,16 +62,17 @@ local consent, and the session limits (8 per machine, 32 per account).
 **Close** and Escape both close the dialog without sending anything and return focus to the button
 you pressed, except while a request is in flight (see below).
 
-Home has no Start an agent button. Its rail card's **+**, and **New session here** in the card's
-menu, start a session in that project at once with the project's default agent, model, base branch
-and worktree choice (no dialog, no prompt). Choosing the card itself still puts the project in the
-launch bar's sentence and moves focus to the prompt.
+Home starts an agent from the rail card's **+** (and **New session here** in the card's menu): the
+same **Start an agent** dialog that Machines, the Sessions panel and a project list open, with the
+project's machine, folder and defaults already chosen. Nothing starts until **Start** is pressed.
 
 ## On Home: the launch bar
 
-The bar is docked at the foot of Home (`web/src/lib/launch/LaunchBar.svelte`; its rules are in
-`web/src/lib/launchBar.ts`). It is a **Describe the job** box, **Start**, and the launch sentence,
-whose bold words are the choices.
+Home's launch bar (`web/src/lib/launch/LaunchBar.svelte`; its rules are in
+`web/src/lib/launchBar.ts`) opens in a modal (`web/src/lib/home/LaunchDialog.svelte`) for a start in
+several projects and for an address that hands Home projects (`#launch`, `/?project=<id>`,
+`/?projects=<id>,<id>`). It is a **Describe the job** box, **Start**, and the launch sentence, whose
+bold words are the choices. It no longer sits docked at the foot of the page.
 
 For OpenCode on a machine that advertises `acp`, the sentence says **in Gaffer** by default and Start
 opens Gaffer instead of the agent terminal UI. Home asks you to confirm **I trust this folder** first, because
@@ -95,15 +96,13 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   A project default is confirmed the same way when Start is pressed. YOLO is available only when an
   owner or admin has allowed it for the account, the machine accepts it and the agent has a reviewed
   option. The controller refuses it with 403 `yolo_not_allowed` or 409 `yolo_refused` otherwise.
-- **The rail.** Choosing a rail card puts that project in the sentence with its own default agent,
-  model, base branch and worktree choice, then moves focus to the prompt. `/?project=<id>` does the
-  same once. The card's **+** and **New session here** start at once instead, sending the bar's Start
-  with that project; a refusal appears on the bar, with the project left in the sentence so it can be
-  fixed. While a start is out or kept for a retry, any of these changes nothing and the status line
-  says "Finish or discard the current start first." ("Wait for the current start to finish." while the
-  request is out), after what the bar already said.
+- **The rail.** Choosing a rail card narrows the board to that project. Its **+** and **New session
+  here** open the Start an agent dialog with that project's machine, folder and defaults already
+  chosen; `/?project=<id>` opens the launch modal on it once. **Select projects** in the heading's
+  menu turns the cards into checkboxes; **Start in these projects** opens the launch bar's modal on
+  two or more of them.
 - **Machines on Home.** Each machine card's **+** and its menu's **New session…** ask what to start
-  there: one of that machine's folder projects, which starts at once with the project's defaults, or
+  there: one of that machine's folder projects, which opens Start an agent with it chosen, or
   **Terminal session**, a plain shell in the machine's home folder. Its menu also offers **New
   terminal**, **Open on Machines** and **Skills & sync**. The machine's pills report what its last
   scan says is installed: agents, skills and MCP (which no agent reports yet, so it reads "MCP —").

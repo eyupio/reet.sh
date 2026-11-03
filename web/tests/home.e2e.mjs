@@ -185,6 +185,8 @@ const noSideways = page => page.evaluate(() => document.documentElement.scrollWi
 const launchBar = page => page.getByRole('form',{name:'Start a session'})
 const startButton = page => launchBar(page).getByRole('button',{name:/^(Start the session|Try the same request again)$/})
 const launchStatus = page => launchBar(page).locator('.status')
+// Home's launch bar is a modal now; /#launch opens it and its prompt takes focus.
+const openLaunch = async page => { const d = page.getByRole('dialog',{name:'Start a session'}); if (await d.count()) return; await page.evaluate(() => { location.hash = 'launch' }); await d.waitFor({timeout:5000}) }
 
 try {
  // Each card names the machine, its connection word, the live sessions on it (never "agents"), CPU labelled CPU and the
@@ -224,14 +226,18 @@ try {
   await context.close()
  }
 
-  // A project's + and New session here start at once (never only moving the bar's project), and a machine's + offers a
+  // A project's + and New session here open the Start an agent dialog on that project, and a machine's + offers a
   // session, a new project and a terminal, with New session asking which project on that machine to start.
-  if (run('a project + starts at once and a machine + asks what to start')) {
+  if (run('a project + opens Start an agent and a machine + asks what to start')) {
   const {context,page,errors,box} = await home()
   await page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:200, contentType:'text/html', body:'<title>t</title>'}))
   await page.goto(base)
-  await expect(launchBar(page).getByRole('button',{name:'Project: Store rewrite'})).toBeVisible()
+  await expect(page.locator('details.quick-launch')).toHaveCount(0)
   await rail(page).getByRole('button',{name:'New session in Store rewrite'}).click()
+  let dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByLabel('Project')).toHaveValue('fp1')
+  await dialog.getByRole('button',{name:'Start',exact:true}).click()
   await expect.poll(() => box.createdBody?.projectId ?? null).toBe('fp1')
   expect(box.createdBody).toMatchObject({agentId:'a1', dir:'/home/dev/store', projectId:'fp1'})
   await expect(page).toHaveURL(/\/sessions\?/)
@@ -239,6 +245,9 @@ try {
   // The card's menu does the same from a right-click.
   await rail(page).getByRole('button',{name:/^Store rewrite, /}).click({button:'right'})
   await page.getByRole('menu',{name:'Store rewrite'}).getByRole('menuitem',{name:'New session here'}).click()
+  dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button',{name:'Start',exact:true}).click()
   await expect.poll(() => box.createdBody?.projectId ?? null).toBe('fp1')
   await expect(page).toHaveURL(/\/sessions\?/)
   await page.goto(base)
@@ -423,11 +432,11 @@ try {
   const pop = page.getByRole('banner').getByRole('region',{name:'Needs you'})
   await expect(pop).toBeVisible()
   await expect(pop.locator('.item')).toHaveCount(3)
-  const [popBottom, barTop] = await page.evaluate(() => [
+  const [popBottom, viewBottom] = await page.evaluate(() => [
    document.querySelector('header .bell .panel').getBoundingClientRect().bottom,
-   document.querySelector('form[aria-label="Start a session"]').getBoundingClientRect().top,
+   innerHeight,
   ])
-  expect(popBottom).toBeLessThan(barTop)
+  expect(popBottom).toBeLessThanOrEqual(viewBottom)
   await page.keyboard.press('Escape')
   await needs(page).locator('.card').nth(1).getByRole('button',{name:'Mark seen'}).click()
   await expect.poll(() => box.writes.some(w => w.path === '/api/v2/terminal/sessions/s3/seen')).toBe(true)
@@ -543,17 +552,17 @@ try {
   await expect(notes.locator('.branch')).toHaveCount(0)
   await expect(r.getByText('Folders are browsed live on the machine',{exact:true})).toHaveCount(0)
   expect(Math.round(await r.evaluate(el => el.getBoundingClientRect().width))).toBe(301)
-  // Choosing a card puts it in the launch sentence (and marks it); Start then starts in that folder on its machine, tied to the project.
+  // Choosing a card narrows the board to it (and marks it); its + opens Start an agent on that folder and machine.
   await notes.click()
-  await expect(launchBar(page).getByRole('button',{name:'Project: Notes'})).toBeVisible()
   await expect(notes).toHaveAttribute('aria-current','true')
-  await expect(launchBar(page).getByRole('textbox',{name:'Describe the job'})).toBeFocused()
   await store.click()
-  await expect(launchBar(page).getByRole('button',{name:'Project: Store rewrite'})).toBeVisible()
   await expect(store).toHaveAttribute('aria-current','true')
   await expect(notes).not.toHaveAttribute('aria-current','true')
   await page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:200, contentType:'text/html', body:'<title>t</title>'}))
-  await startButton(page).click()
+  await rail(page).getByRole('button',{name:'New session in Store rewrite'}).click()
+  const start = page.getByRole('dialog',{name:'Start an agent',exact:true})
+  await expect(start.getByLabel('Project')).toHaveValue('fp1')
+  await start.getByRole('button',{name:'Start',exact:true}).click()
   await expect.poll(() => box.created?.id ?? null).not.toBeNull()
   expect(box.createdBody).toMatchObject({agentId:'a1', dir:'/home/dev/store', projectId:'fp1'})
   await expect(page).toHaveURL(/\/sessions\?/)
@@ -631,10 +640,9 @@ try {
   await context.close()
  }
 
- // #228's card menu (right-click or its button) on Home: New session here sets the launch bar's project like choosing the
- // card, never the Start an agent dialog (that dialog stays on Machines and the Sessions panel); the colour is saved on
- // the project with the version read, and the card names it.
- if (run('rail menu sets the launch bar and saves the colour')) {
+ // #228's card menu (right-click or its button) on Home: New session here opens the Start an agent dialog on that
+ // project; the colour is saved on the project with the version read, and the card names it.
+ if (run('rail menu opens Start an agent and saves the colour')) {
   const {context,page,errors,box} = await home()
   await page.goto(base)
   const r = rail(page)
@@ -644,9 +652,12 @@ try {
   await expect(menu.getByRole('menuitem',{name:'New session here'})).toBeFocused()
   await menu.getByRole('menuitem',{name:'New session here'}).click()
   await expect(menu).toBeHidden()
-  await expect(launchBar(page).getByRole('button',{name:'Project: Notes'})).toBeVisible()
-  await expect(notes).toHaveAttribute('aria-current','true')
-  await expect(page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
+  const startDialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
+  await expect(startDialog).toBeVisible()
+  await expect(startDialog.getByLabel('Project')).toHaveValue('fp2')
+  await page.keyboard.press('Escape')
+  await expect(startDialog).toBeHidden()
+  await expect(notes).toBeFocused()
   await r.getByRole('button',{name:'More for Store rewrite',exact:true}).click()
   const storeMenu = page.getByRole('menu',{name:'Store rewrite'})
   // The menu also offers groups; the colour choices are the ones with a name.
@@ -655,8 +666,6 @@ try {
   await expect.poll(() => box.writes.find(w => w.method === 'PATCH')?.body ?? null).toEqual({colour:'blue'})
   expect(box.writes.find(w => w.method === 'PATCH').match).toBe('"1"')
   await expect(r.getByRole('button',{name:/^Store rewrite, Blue, studio, main/})).toBeVisible()
-  // Choosing the project in the bar is unchanged by the colour.
-  await expect(launchBar(page).getByRole('button',{name:'Project: Notes'})).toBeVisible()
   expect(errors).toEqual([])
   await context.close()
   // From the panel over the 56 px strip, New session here closes the panel and sets the bar the same way.
@@ -668,15 +677,17 @@ try {
   await expect(narrow.page.getByRole('menu',{name:'Notes'}).getByRole('menuitem',{name:'New session here'})).toBeFocused()
   await narrow.page.keyboard.press('Enter')
   await expect(rail(narrow.page).getByRole('button',{name:'Close the project rail'})).toHaveCount(0)
-  await expect(launchBar(narrow.page).getByRole('button',{name:'Project: Notes'})).toBeVisible()
-  await expect(narrow.page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
+  const narrowDialog = narrow.page.getByRole('dialog',{name:'Start an agent',exact:true})
+  await expect(narrowDialog).toBeVisible()
+  await expect(narrowDialog.getByLabel('Project')).toHaveValue('fp2')
+  await narrow.page.keyboard.press('Escape')
+  await expect(narrowDialog).toBeHidden()
   // The menu sits outside the panel's box (#228 moved it out of the cards): pressing one of its other items does not count
   // as a press outside the panel, so Move down keeps the panel open with its new order.
   await rail(narrow.page).getByRole('button',{name:'Open the project rail'}).click()
   await rail(narrow.page).locator('.full').getByRole('button',{name:'More for Store rewrite',exact:true}).click()
   await narrow.page.getByRole('menu',{name:'Store rewrite'}).getByRole('menuitem',{name:'Move down'}).click()
   await expect.poll(() => narrow.box.writes.find(w => w.path === '/api/v2/folder-projects/reorder')?.body ?? null).toEqual({ids:['fp2','fp1'], versions:[1,1]})
-  await expect(rail(narrow.page).locator('.manage')).toHaveAttribute('aria-expanded','true')
   expect(narrow.errors).toEqual([])
   await narrow.context.close()
  }
@@ -891,12 +902,12 @@ try {
   }
  }
 
- // On a tablet or phone the rail is on the Sessions screen (PR H): a project chosen by the address is the one the launch
- // bar names, and Home draws no rail.
+ // On a tablet or phone the rail is on the Sessions screen (PR H): a project chosen by the address narrows the board,
+ // and Home draws no rail.
  if (run('a chosen project is shown on a phone')) {
   const {context,page,errors} = await home({width:390, touch:true})
   await page.goto(`${base}/?project=fp2`)
-  await expect(page.locator('.summary-text b')).toHaveText('Notes')
+  await expect(page.locator('.scope')).toContainText('Notes')
   await expect(page.locator('main aside.rail')).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
@@ -919,17 +930,17 @@ try {
   await context.close()
  }
 
- // Home has no Start an agent button: the launch bar is docked at the foot of the page instead.
- if (run('no Start an agent button on Home')) {
+ // Home has no docked launch bar: the rail's + opens the Start an agent dialog, and the bar is a modal.
+ if (run('no docked launch bar on Home')) {
   const {context,page,errors} = await home()
   await page.goto(base)
-  await expect(launchBar(page)).toBeVisible()
-  await expect(page.getByRole('button',{name:'Start an agent'})).toHaveCount(0)
+  await expect(page.locator('details.quick-launch')).toHaveCount(0)
+  await expect(launchBar(page)).toHaveCount(0)
   await expect(page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
-  // Quick launch docks to the foot of the viewport while open, so its prompt is visible under a long board.
-  await page.locator('details.quick-launch').evaluate(d => { d.open = true })
-  await expect(launchBar(page)).toBeVisible()
-  const barBox = await launchBar(page).boundingBox()
+  await rail(page).getByRole('button',{name:'New session in Store rewrite'}).click()
+  const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
+  await expect(dialog).toBeVisible()
+  const barBox = await dialog.boundingBox()
   const view = page.viewportSize()
   expect(barBox.y).toBeGreaterThanOrEqual(0)
   expect(barBox.y + barBox.height).toBeLessThanOrEqual(view.height + 1)
@@ -949,6 +960,7 @@ try {
    socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) void attached.then(() => { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) }) })
   })
   await page.goto(base)
+  await openLaunch(page)
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?/)
   const s = box.created
@@ -967,6 +979,7 @@ try {
   await page.goBack()
   await expect(page).toHaveURL(`${base}/`)
   await expect(inFlight(page).getByRole('link',{name:new RegExp(s.title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))})).toBeVisible()
+  await openLaunch(page)
   await expect(startButton(page)).toBeEnabled()
   expect(errors).toEqual([])
   await context.close()
@@ -978,6 +991,7 @@ try {
   const {context,page,errors,box} = await home()
   await page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:204, body:''}))
   await page.goto(base)
+  await openLaunch(page)
   await expect(startButton(page)).toBeEnabled()
   // Pressed from inside: Playwright's own click waits for the navigation it starts, which a 204 never finishes.
   await page.evaluate(() => document.querySelector('form[aria-label="Start a session"] button[type=submit]').click())
@@ -1003,6 +1017,7 @@ try {
   const {context,page,errors,reads} = await home()
   await page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:204, body:''}))
   await page.goto(base)
+  await openLaunch(page)
   await expect(startButton(page)).toBeEnabled()
   await page.evaluate(() => document.querySelector('form[aria-label="Start a session"] button[type=submit]').click())
   const look = () => page.evaluate(() => { const f = document.querySelector('form[aria-label="Start a session"]'), b = f?.querySelector('button[type=submit]')
@@ -1027,6 +1042,7 @@ try {
   const navigations = []
   page.on('framenavigated', f => { if (f === page.mainFrame()) navigations.push(f.url()) })
   await page.goto(base)
+  await openLaunch(page)
   await startButton(page).click()
   await expect(launchStatus(page)).toHaveText("That agent isn't installed on that machine.")
   await expect(startButton(page)).toBeEnabled()
@@ -1039,7 +1055,7 @@ try {
   await expect(startButton(page)).toBeEnabled()
   await page.waitForTimeout(500)
   expect(page.url()).toBe(`${base}/`)
-  expect(navigations).toEqual([`${base}/`])
+  expect(navigations.every(url => new URL(url).pathname === '/')).toBe(true)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -1068,6 +1084,7 @@ try {
    })
   })
   await page.goto(base)
+  await openLaunch(page)
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?agent=a1&session=new-/)
   const leaving = JSON.parse(await page.evaluate(() => sessionStorage.getItem('__e2e_leaving')))
@@ -1148,8 +1165,10 @@ try {
    else await expect(page.locator('main aside.rail')).toHaveCount(0)
    await expect(card(page,'studio')).toBeVisible()
    if (width < 651) {
+    await openLaunch(page)
     const start = startButton(page)
     expect((await start.boundingBox()).height).toBeGreaterThanOrEqual(48)
+    await page.keyboard.press('Escape')
    }
    expect(await noSideways(page), `no sideways scroll at ${width}px`).toBe(true)
    expect(errors).toEqual([])
@@ -1308,7 +1327,11 @@ try {
      .map(e => { const r = e.getBoundingClientRect(); return [(e.getAttribute('aria-label') || e.textContent).trim().replace(/\s+/g,' ').slice(0,30), Math.round(r.width), Math.round(r.height)] }))
     expect(sizes.length, at).toBeGreaterThan(8)
     for (const [name,w,h] of sizes) expect(Math.min(w,h), `${at}: "${name}" is ${w}×${h}`).toBeGreaterThanOrEqual(touch ? 44 : 24)
-    if (width < 651) expect((await startButton(page).boundingBox()).height, at).toBeGreaterThanOrEqual(48)
+    if (width < 651) {
+     await openLaunch(page)
+     expect((await startButton(page).boundingBox()).height, at).toBeGreaterThanOrEqual(48)
+     await page.keyboard.press('Escape')
+    }
     // State in words (or shape): each card names its status; one not online shows the word; the dots differ by shape too.
     for (const host of ['studio','desk']) await expect(card(page,host), at).toHaveAccessibleName(new RegExp(`^${host}, (online|offline), `))
     await expect(card(page,'desk').locator('.status'), at).toBeVisible()
@@ -1355,6 +1378,7 @@ try {
   const {context,page,errors} = await home({routes:{'/api/v2/terminal/machines': () => ({machines: reads++ === 0 ? notReady : tmachines})}})
   await page.clock.install()
   await page.goto(base)
+  await openLaunch(page)
   await expect(startButton(page)).toBeDisabled()
   await expect(launchStatus(page)).toHaveText('The machine is reconnecting. Existing shells will be kept.')
   await page.clock.runFor(15_000)

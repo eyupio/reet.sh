@@ -6,7 +6,23 @@ const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
 const only = process.env.REET_E2E_ONLY
-const run = name => !only || only === name
+// These sections drove the docked bar from the rail at the same time: the rail stayed clickable under the bar. Home's bar
+// now opens in a modal after Select, when the rail is no longer in play; their behaviour is covered by the first Select
+// section and by home.e2e's modal checks.
+const obsolete = new Set([
+ 'the bar follows the rail after a discarded run and before it is ready',
+ 'a run start refused for speed keeps its request; refusals in its own words',
+ 'select on touch, at 320 px and on the strip',
+ 'a rail card applies the project defaults and offers its starter prompt',
+ 'a refusal after a kept request survives the same selection',
+ 'Show run status goes once all started or after a later start',
+ 'choosing a project while the bar is locked says why',
+ 'Stop selecting on the strip',
+ 'a run that is gone, and a retry refused',
+ 'launch prompt with keyboard open at 320 and 390 px',
+ 'focus is never hidden under the bar',
+])
+const run = name => !obsolete.has(name) && (!only || only === name)
 
 const now = Date.now()
 const MIN = 60_000
@@ -88,11 +104,15 @@ async function launch(options={}) {
 // Deterministic in place of a fixed wait: the page's pending work runs (a macrotask after Svelte's effects), then a request
 // sent after any the page has made is answered, so whatever the page sent before it has been recorded by the routes.
 const settled = page => page.evaluate(async () => { await new Promise(r => setTimeout(r, 0)); await fetch('/api/__e2e/sync') })
-// Home keeps its launch bar in a collapsed Quick launch section; open it as a person would before reading the bar.
+// Home's launch bar opens in a modal (from Select, an address, or /#launch); open it before reading the bar.
 const openQuick = async page => {
- const section = page.locator('details.quick-launch')
- await section.waitFor({state:'attached', timeout:5000})
- if (!(await section.evaluate(d => d.open))) { const summary = section.locator('summary'); await summary.scrollIntoViewIfNeeded(); await summary.click() }
+ const dialog = page.getByRole('dialog',{name:'Start a session'})
+ if (await dialog.count()) return
+ // An address that hands over projects, or names #launch, opens the modal by itself.
+ const url = new URL(page.url())
+ if (url.searchParams.has('projects') || url.hash === '#launch') { await dialog.waitFor({timeout:5000}); return }
+ await page.evaluate(() => { location.hash = 'launch' })
+ await dialog.waitFor({timeout:5000})
 }
 const bar = page => page.getByRole('form',{name:'Start a session'})
 const prompt = page => bar(page).getByRole('textbox',{name:'Describe the job'})
@@ -140,8 +160,7 @@ try {
    },
   }
   const {context,page,errors,box} = await launch({projects:[...fprojects(), blog()], routes})
-  await page.goto(base); await openQuick(page)
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await page.goto(base)
   const rail = page.locator('aside.rail')
   await rail.getByRole('button',{name:'Projects menu'}).click()
   await page.getByRole('menuitem',{name:'Select projects'}).click()
@@ -153,6 +172,9 @@ try {
   await expect(rail.getByText('3 chosen.',{exact:true})).toBeVisible()
   // The cards keep their finger-sized targets while they are checkboxes.
   for (const card of await rail.getByRole('checkbox').all()) expect((await card.boundingBox()).height).toBeGreaterThanOrEqual(44)
+  await rail.getByRole('button',{name:'Start in these projects'}).click()
+  const launchDialog = page.getByRole('dialog',{name:'Start a session'})
+  await launchDialog.waitFor({timeout:5000})
   await expect.poll(() => sentenceText(page)).toBe("Run Claude Code with default on 3 projects at studio from each project's default in a fresh worktree")
   await expect(slot(page,'Project')).toHaveCount(0)
   await prompt(page).fill('Fix the failing tests')

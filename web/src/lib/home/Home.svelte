@@ -6,14 +6,16 @@
   import { notStartedText, refusalText } from '../agentLaunch'
   import { announceWaiting, attentionCount, fleetCards, handedProjects, reporting, needsYou, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type HomeSession, type NeedCard } from '../home'
   import type { LaunchDefaults } from '../launchBar'
-  import LaunchBar from '../launch/LaunchBar.svelte'
+  import StartAgentDialog from '../StartAgentDialog.svelte'
   import FleetStrip from './FleetStrip.svelte'
   import SessionBoard from './SessionBoard.svelte'
   import NeedsYou from './NeedsYou.svelte'
   import ProjectRailHost from './ProjectRailHost.svelte'
   import NewSessionDialog from './NewSessionDialog.svelte'
+  import LaunchDialog from './LaunchDialog.svelte'
 
-  // Writers get the persistent session board, project rail and quick launch bar.
+  // Writers get the persistent session board and project rail. New agents start from the standard Start an agent modal;
+  // the launch bar opens in a modal for Select and an address that hands over projects.
   // SessionBoard owns backlog reads; these loaders supply sessions and the fleet.
   // Both refresh every 15 seconds and retain the last successful read on failure.
   let { userId, writer, canAdd, accounts, moved = false, legacyProject = '', onsignedout, onattention }: {
@@ -46,19 +48,19 @@
   let scope = $state<{ kind: 'project' | 'group'; id: string } | null>(null)
   // The rail folds to its strip on a wide desktop; the choice is remembered in this browser.
   let railCollapsed = $state(false)
-  // The terminal machines (with readiness and launch capabilities), read with the rest for the launch bar and every start.
+  // The terminal machines (with readiness and launch capabilities), read with the rest for Start an agent and every start.
   let terminals = $state<TerminalMachine[] | undefined>()
   let savedWaiting = $state(0)
-  // The project an address chose (/?project=<id>): its card is marked and the launch bar opens on it.
+  // The project an address chose (/?project=<id>): its card is marked and the board is narrowed to it.
   let chosen = $state(new URLSearchParams(location.search).get('project') ?? '')
-  // The account's launch defaults (base branch, worktrees by default), read once; the bar waits for the answer or its failure.
+  // The account's launch defaults (base branch, worktrees by default), read once; start dialogs wait for the answer or its failure.
   let profile = $state<LaunchDefaults>({}), profileRead = $state(false)
   // The account's choice for a session that ends: remove it from history too. Read with the launch defaults.
   let removeDefault = $state(false)
-  let bar = $state<LaunchBar>()
-  // Capture launch entry points before the launch bar and project handoff clean the URL.
-  const launchParams = new URLSearchParams(location.search)
-  let quickLaunch = $state(location.hash === '#launch' || ['project', 'projects'].some(key => !!launchParams.get(key)))
+  // The launch bar's modal, for Select and an address that hands Home projects.
+  let launchOpen = $state(false)
+  // The standard Start an agent dialog, opened from the rail's + or a machine's New session.
+  let agentStart = $state<{ opener: HTMLElement | null; project?: FolderProject } | null>(null)
   let now = $state(Date.now())
   let problem = $state('')
   let readOnce = false
@@ -156,7 +158,7 @@
   }
 
   // Tablet and phone widths leave the rail to the Sessions screen (the phone rail, PR H): Home keeps machines, Needs you,
-  // In flight and the launch bar there, and the launch sentence's project slot still chooses a project.
+  // the board and the start modal there.
   const NARROW = '(max-width: 1099px)'
   let narrow = $state(typeof matchMedia === 'function' && matchMedia(NARROW).matches)
 
@@ -176,7 +178,7 @@
     if (scope.kind === 'project' && !projects.some(p => p.id === scope?.id)) scope = null
     else if (scope.kind === 'group' && groups && !groups.some(g => g.id === scope?.id)) scope = null
   })
-  // An address that names a project (/?project=<id>) opens the board on it too, once the list is read.
+  // An address that names a project (/?project=<id>) opens the board on it, once the list is read.
   let chosenScoped = false
   $effect(() => {
     if (chosenScoped || !chosen || !projects) return
@@ -191,11 +193,9 @@
   // The rail and what its cards do (ProjectRailHost); the launch bar's project slot opens its Add project too.
   let host = $state<ProjectRailHost>()
   function openAdd(opener: HTMLElement) { void host?.openAdd(opener) }
-  // Choosing a card (or New session here) puts that project in the launch bar's sentence and moves to the prompt; the rail
-  // marks the project the sentence names.
-  // The project the launch bar names ('' for none: the home folder or several projects); null until the bar has a choice.
+  // Choosing a card marks it as the project the board's Start a session dialog starts in too.
   let launchProject = $state<string | null>(null)
-  function chooseProject(project: FolderProject) { quickLaunch = true; void tick().then(() => bar?.choose(project)) }
+  function chooseProject(project: FolderProject) { launchProject = project.id }
   // Select in the rail: the chosen projects, in rail order, are the launch bar's projects (Start in several projects). Only
   // this page holds them; nothing goes to browser storage. The Sessions screen (a tablet or phone, where the rail lives)
   // hands its choice over in the address, as project ids only (`/?projects=<id>,<id>`).
@@ -222,7 +222,7 @@
     if (handedApplied || !projects || handed === null) return
     handedApplied = true
     const ids = handedProjects(handed, projects)
-    if (ids.length) { selecting = true; selected = ids }
+    if (ids.length) { selecting = true; selected = ids; launchOpen = true }
     const url = new URL(location.href)
     url.searchParams.delete('projects')
     history.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`)
@@ -235,8 +235,7 @@
     try {
       const found = await folderProjectForLegacy(id, bounded())
       if (!found || life.signal.aborted) return
-      // An old /projects/<id> handoff is a launch handoff: reveal the bar, as /?project=<id> does.
-      quickLaunch = true
+      // An old /projects/<id> handoff chooses the project; the board is narrowed to it.
       chosen = found
       history.replaceState(history.state, '', `/?project=${encodeURIComponent(found)}`)
     } catch { /* no folder project was made from it: Home stays at / */ }
@@ -257,17 +256,17 @@
   }
 
   // A machine's + offers what to start there: a session (which asks which project on it, or a terminal), a new project on
-  // it, or a plain terminal. A project then starts through the launch bar, so its defaults, refusals and navigation are the
-  // same as the bar's Start.
+  // it, or a plain terminal. A project then opens Start an agent, so its defaults, refusals and navigation are the same as
+  // the modal's Start everywhere else in the app.
   let chooser = $state<{ card: FleetCard; opener: HTMLElement } | null>(null)
   function newSessionOn(card: FleetCard, opener: HTMLElement) { notice = null; chooser = { card, opener } }
   // New project opens the rail's Add project dialog with this machine already chosen.
   function newProjectOn(card: FleetCard, opener: HTMLElement) { notice = null; void host?.openAdd(opener, card.agentId) }
-  function startProjectNow(project: FolderProject) {
+  function startProjectNow(project: FolderProject, opener?: HTMLElement | null) {
+    const from = opener ?? chooser?.opener ?? null
     chooser = null
-    quickLaunch = true
-    if (!bar) { notice = { text: 'Home is still opening. Try again in a moment.', bad: true }; return }
-    void bar.startProject(project)
+    if (!terminals) { notice = { text: 'Home is still opening. Try again in a moment.', bad: true }; return }
+    agentStart = { opener: from, project }
   }
   // A terminal session is a shell on the machine: no agent, no prompt, no project. It goes straight to the new session.
   // A request whose reply was lost is kept per machine and sent again with the same request id, exactly as the launch
@@ -309,6 +308,10 @@
   let movedShown = $state(false)
   onMount(() => {
     try { railCollapsed = localStorage.getItem('reet.rail.collapsed') === '1' } catch { /* Open by default. */ }
+    // The session screen's + and the Sessions page's New session arrive at /#launch: the bar opens in its modal.
+    const launchAtHash = () => { if (location.hash === '#launch') launchOpen = true }
+    launchAtHash()
+    window.addEventListener('hashchange', launchAtHash)
     if (moved) void tick().then(() => { movedShown = true })
     void load()
     // The profile read gives up after 10 seconds, so the bar never waits on it for good (it then uses each project's own base).
@@ -327,7 +330,7 @@
     // it reads everything again. (The launch bar unlocks itself.)
     const restored = (e: PageTransitionEvent) => { if (e.persisted) void load(true) }
     window.addEventListener('pageshow', restored)
-    return () => { clearTimeout(giveUpTimer); query.removeEventListener('change', resized); clearInterval(timer); document.removeEventListener('visibilitychange', shown); window.removeEventListener('pageshow', restored); life.abort() }
+    return () => { clearTimeout(giveUpTimer); query.removeEventListener('change', resized); clearInterval(timer); document.removeEventListener('visibilitychange', shown); window.removeEventListener('pageshow', restored); window.removeEventListener('hashchange', launchAtHash); life.abort() }
   })
 </script>
 
@@ -341,7 +344,11 @@
       {scope} onscope={(next) => (scope = next)} collapsed={railCollapsed} oncollapsed={setRailCollapsed} {userId}
       onnew={startProjectNow}
       signal={bounded} onsettle={settle} onsettlegroups={settleGroups} onwaiting={(n) => (savedWaiting = n)} onmachines={(m) => (terminals = m)} onnotice={(n) => (notice = n)} onreload={() => void load(true)}
-      onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
+      onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }}>
+      {#snippet selectAction()}
+        {#if selected.length >= 2}<button type="button" class="start-chosen" onclick={() => (launchOpen = true)}>Start in these projects</button>{/if}
+      {/snippet}
+    </ProjectRailHost>
   {/if}
   <div class="column">
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
@@ -359,15 +366,24 @@
       </details>
       {#if chooser && writer}
         <NewSessionDialog host={chooser.card.name} agentId={chooser.card.agentId} machine={terminals?.find(m => m.agentId === chooser?.card.agentId)} machinesLoaded={terminals !== undefined} projects={projects ?? []}
-          loaded={projects !== undefined} onproject={startProjectNow}
+          loaded={projects !== undefined} onproject={(project) => startProjectNow(project, chooser?.opener)}
           onterminal={() => { const target = chooser; if (target) void startTerminalOn(target.card, target.opener) }}
           onclose={() => { const opener = chooser?.opener; chooser = null; opener?.focus() }} />
       {/if}
-      <details class="home-detail quick-launch" bind:open={quickLaunch}><summary>Quick launch <span>Start an agent now</span></summary>
-      <LaunchBar bind:this={bar} {projects} {projectsFailed} machines={terminals} sessions={sessions} {profile} initialProject={chosen} selection={selecting ? selected : []}
-        ready={projects !== undefined && (sessions !== undefined || sessionsFailed) && profileRead}
-        onproject={(id) => (launchProject = id)} onstarted={started} onrun={() => void load(true)} onrundone={() => { if (selecting) setSelecting(false) }} onleavefailed={leaveFailed} onaddproject={openAdd} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
-      </details>
+      {#if agentStart && terminals}
+        <StartAgentDialog machines={terminals} snapshot={sync?.machines ?? []} projects={projects ?? []}
+          initialAgent={agentStart.project?.host ?? ''} initialDir={agentStart.project?.dir ?? ''} projectId={agentStart.project?.id ?? ''}
+          opener={agentStart.opener} onstarted={started} onleavefailed={leaveFailed}
+          onaddmachine={() => location.assign(machinesAt(accounts ? 'add-machine' : 'connect-machine'))}
+          onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }}
+          onclose={() => (agentStart = null)} />
+      {/if}
+      {#if launchOpen}
+        <LaunchDialog {projects} {projectsFailed} machines={terminals} {sessions} {profile} initialProject={chosen} selection={selecting ? selected : []}
+          ready={projects !== undefined && (sessions !== undefined || sessionsFailed) && profileRead}
+          onproject={(id) => (launchProject = id)} onstarted={started} onrun={() => void load(true)} onrundone={() => { if (selecting) setSelecting(false) }} onleavefailed={leaveFailed} onaddproject={openAdd}
+          onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} onclose={() => (launchOpen = false)} />
+      {/if}
     {:else}
       <FleetStrip {cards} sessions={false} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined} />
     {/if}
@@ -376,8 +392,7 @@
 
 <style>
   /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
-     column's minimum height, so the docked launch bar starts at the foot of the first screen; if the header changes,
-     the cost is a small gap or a little extra scroll, never an overlap. */
+     column's minimum height; if the header changes, the cost is a small gap or a little extra scroll, never an overlap. */
   .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
   .home :global(p) { line-height: 1.55; }
   /* The rail is the mock-up's 272 px of cards inside 14 px padding and a 1 px rule: 301 px. */
@@ -399,14 +414,7 @@
   .home-detail > summary span { font-weight: 400; color: var(--muted); margin-left: 8px; font-size: 11px; }
   .home-detail[open] > summary { margin-bottom: 14px; }
   .attention-detail > summary { color: var(--warn); }
-  .quick-launch :global(.launch) { position: relative; bottom: auto; margin: 0; }
-  /* Quick launch is opened from a card, a machine or a link, often with a long board above it. While open it docks to the
-     foot of the viewport, so its prompt and Start are visible where the person is, not below the fold. */
-  .quick-launch[open] { position: sticky; bottom: calc(var(--bottom-chrome, 0px) + 14px); z-index: 3; padding: 10px 0 14px;
-    background: var(--bg); border-top-color: var(--line-strong); }
-  .quick-launch[open] > summary { margin-bottom: 10px; }
-  /* A bar in the Quick launch flow cannot use `bottom` for the phone keyboard; lift it with a transform instead. */
-  .quick-launch :global(.launch.lifted) { transform: translateY(calc(-1 * var(--lift, 0px))); }
+  .start-chosen { min-height: 34px; padding: 4px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent); color: var(--accent-ink); font: 600 13px var(--sans); cursor: pointer; }
   /* The live regions are always present, so a sentence put into one is announced; empty, they take no room. */
   .live:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
 

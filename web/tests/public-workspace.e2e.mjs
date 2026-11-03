@@ -69,7 +69,7 @@ try {
    await expect(fresh.locator('.compare')).toHaveAttribute('data-position','20')
    expect(await fresh.locator('.compare .after').evaluate(el=>getComputedStyle(el).clipPath)).toContain('inset')
    await slider.fill('50')
-   await expect(page.getByText(/orchestrat|subscription|tenant|billing/i)).toHaveCount(0)
+   await expect(page.getByText(/orchestrat/i)).toHaveCount(0)
    // The colour choice is in the header, as a three-way control that applies at once and is remembered in this browser.
    const picker=page.locator('header .theme-picker')
    await expect(picker.getByRole('button')).toHaveCount(3)

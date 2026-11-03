@@ -1,6 +1,8 @@
 <script lang="ts">
   import NavigationMenu from './NavigationMenu.svelte'
   import { onMount } from 'svelte'
+  import CollectionPanel from './CollectionPanel.svelte'
+  import Skeleton from './Skeleton.svelte'
   import ActivitySection from './ActivitySection.svelte'
   import AgentsSettings from './AgentsSettings.svelte'
   import Backups from './Backups.svelte'
@@ -44,7 +46,13 @@
   let section = $state<Section>(sectionFromHash())
   let profile = $state<Profile>({ theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list', cardsExpanded: false, hostedPrefix: 'reet-', updatedAt: 0 })
   let sessions = $state<ProfileSession[]>([])
+  let sessionsLoading = $state(false)
+  let sessionSearch = $state('')
+  let sessionScope = $state<'all' | 'current' | 'other'>('all')
   let tokens = $state<APIToken[]>([])
+  let tokensLoading = $state(false)
+  let tokenSearch = $state('')
+  let tokenScope = $state<'all' | 'used' | 'never'>('all')
   let freshToken = $state('')
   let tokenName = $state('scan token')
   let freshTokenId = $state(0)
@@ -115,7 +123,7 @@
       const r = await getProfile()
       who = r.user
       profile = r.profile
-      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat, shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false }
+      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat || 'locale', shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false }
       prefixEnabled = r.profile.hostedPrefix !== ''
       prefixValue = r.profile.hostedPrefix || 'reet-'
       applyTheme(r.profile.theme)
@@ -126,21 +134,27 @@
   }
 
   async function loadSessions() {
+    sessionsLoading = true
     try {
       sessions = (await listProfileSessions()).sessions
       error = ''
     } catch (e) {
       fail(e)
+    } finally {
+      sessionsLoading = false
     }
   }
 
   async function loadTokens() {
     if (!canWrite) return
+    tokensLoading = true
     try {
       tokens = (await listTokens()).tokens
       error = ''
     } catch (e) {
       fail(e)
+    } finally {
+      tokensLoading = false
     }
   }
 
@@ -276,6 +290,59 @@
     return `${browser?.[1] ?? 'Browser'} on ${os?.[1] ?? 'an unknown device'}`
   }
 
+  const searchedSessions = $derived.by(() => {
+    const term = sessionSearch.trim().toLowerCase()
+    return sessions.filter((session) => {
+      if (!term) return true
+      const haystack = `${device(session.device)} ${session.current ? 'this browser current' : 'other browser'}`.toLowerCase()
+      return term.split(/\s+/).every((word) => haystack.includes(word))
+    })
+  })
+  const sessionCounts = $derived({
+    all: searchedSessions.length,
+    current: searchedSessions.filter((session) => session.current).length,
+    other: searchedSessions.filter((session) => !session.current).length,
+  })
+  const visibleSessions = $derived(searchedSessions.filter((session) => sessionScope === 'all' || (sessionScope === 'current' ? session.current : !session.current)))
+  const sessionCountLabel = $derived(sessionCount(visibleSessions.length, sessions.length))
+
+  function sessionCount(shown: number, total: number): string {
+    if (total === 0) return 'No sessions'
+    if (shown === total) return `${total} ${total === 1 ? 'session' : 'sessions'}`
+    return `${shown} of ${total} sessions`
+  }
+
+  function clearSessionFilters() {
+    sessionSearch = ''
+    sessionScope = 'all'
+  }
+
+  const searchedTokens = $derived.by(() => {
+    const term = tokenSearch.trim().toLowerCase()
+    return tokens.filter((token) => {
+      if (!term) return true
+      return term.split(/\s+/).every((word) => token.name.toLowerCase().includes(word))
+    })
+  })
+  const tokenCounts = $derived({
+    all: searchedTokens.length,
+    used: searchedTokens.filter((token) => token.lastUsedAt).length,
+    never: searchedTokens.filter((token) => !token.lastUsedAt).length,
+  })
+  const visibleTokens = $derived(searchedTokens.filter((token) => tokenScope === 'all' || (tokenScope === 'used' ? Boolean(token.lastUsedAt) : !token.lastUsedAt)))
+  const tokenCountLabel = $derived(tokenCount(visibleTokens.length, tokens.length))
+
+  function tokenCount(shown: number, total: number): string {
+    if (total === 0) return 'No tokens'
+    if (shown === total) return `${total} ${total === 1 ? 'token' : 'tokens'}`
+    return `${shown} of ${total} tokens`
+  }
+
+  function clearTokenFilters() {
+    tokenSearch = ''
+    tokenScope = 'all'
+  }
+
   function sampleDate(): string {
     const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }
     if (profileForm.timezone) opts.timeZone = profileForm.timezone
@@ -313,64 +380,90 @@
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
 
   {#if section === 'profile'}
-    <section class="block" aria-labelledby="profile-title">
-      <h2 id="profile-title">Profile</h2>
-      <p class="muted">Make your workspace feel just reet. Set your terminal, theme and date preferences.</p>
-      <form onsubmit={save}>
-        <div class="grid2">
-          <label class="wide"><span>Name</span>
-            <input bind:value={profileForm.name} autocomplete="name" maxlength="100" placeholder="Your name" disabled={!canWrite} />
-            <small>Shown on lists and in the team rollup. Leave it empty to be shown by your address.</small>
-          </label>
-          <label><span>Theme</span>
-            <select bind:value={profileForm.theme}>
-              <option value="system">Match this device</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </label>
-          <label><span>Time zone</span>
-            <input bind:value={profileForm.timezone} placeholder="Europe/London" autocomplete="off" />
-            <small>An IANA name. Empty follows this device.</small>
-          </label>
-          <label><span>Dates</span>
-            <select bind:value={profileForm.dateFormat}>
-              <option value="locale">This device's order</option>
-              <option value="dmy">Day, month, year</option>
-              <option value="mdy">Month, day, year</option>
-              <option value="ymd">Year, month, day</option>
-            </select>
-            <small>Today reads {sampleDate()}.</small>
-          </label>
-          <label class="wide"><span>When stopping a terminal session</span><select aria-label="Terminal history default" bind:value={profileForm.terminalRemoveOnClose}><option value={false}>Keep the closed session in history</option><option value={true}>Remove from history after it ends</option></select><small>This sets the confirmation’s default. You can change it for each session. Running or pending sessions remain visible until the machine confirms closure.</small></label>
-          <label><span>Default shelf layout</span>
-            <select bind:value={profileForm.shelfView}><option value="list">List</option><option value="board">Board</option></select>
-            <small>Switching List/Board on your shelf also saves this preference.</small>
-          </label>
-          <label><span>Default skill cards</span>
-            <select bind:value={profileForm.cardsExpanded}><option value={false}>Collapsed — quick actions and core data</option><option value={true}>Expanded — all details</option></select>
-            <small>Individual cards and Expand all / Collapse all can override this during your visit.</small>
-          </label>
-          <div class="wide field"><span>Hosted skill name prefix</span>
-            <div class="prefix-row">
-              <span class="prefix-toggle"><input id="hosted-prefix-toggle" type="checkbox" bind:checked={prefixEnabled} /><label for="hosted-prefix-toggle">Prefix new and renamed hosted skills</label></span>
-              <input class="prefix-input" bind:value={prefixValue} placeholder="reet-" maxlength="33" disabled={!prefixEnabled} aria-label="Hosted skill name prefix" />
-            </div>
-            <small>Reet adds this to skills you host so they stand out from imports. Type a custom prefix such as <code>acme-</code>, or turn it off to use the bare skill name. Existing names are not changed automatically.</small>
+    <CollectionPanel label="Your preferences" count="8 preferences">
+      {#snippet actions()}
+        <button type="submit" form="profile-form" class="btn primary" disabled={busy === 'profile'}>{busy === 'profile' ? 'Saving…' : 'Save profile'}</button>
+      {/snippet}
+      {#snippet toolbar()}
+        <p class="note">Make your workspace feel just reet. These preferences follow you to every browser you sign in from.</p>
+      {/snippet}
+      <form id="profile-form" class="profile-form" onsubmit={save}>
+        <fieldset>
+          <legend>Identity</legend>
+          <div class="grid2">
+            <label class="wide"><span>Name</span>
+              <input bind:value={profileForm.name} autocomplete="name" maxlength="100" placeholder="Your name" disabled={!canWrite} />
+              <small>Shown on lists and in the team rollup. Leave it empty to be shown by your address.</small>
+            </label>
           </div>
-        </div>
-        <div class="formacts">
-          <button type="submit" class="btn primary" disabled={busy === 'profile'}>{busy === 'profile' ? 'Saving…' : 'Save profile'}</button>
-        </div>
+        </fieldset>
+        <fieldset>
+          <legend>Appearance</legend>
+          <div class="grid2">
+            <label><span>Theme</span>
+              <select bind:value={profileForm.theme}>
+                <option value="system">Match this device</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+            <label><span>Time zone</span>
+              <input bind:value={profileForm.timezone} placeholder="Europe/London" autocomplete="off" />
+              <small>An IANA name. Empty follows this device.</small>
+            </label>
+            <label><span>Dates</span>
+              <select bind:value={profileForm.dateFormat}>
+                <option value="locale">This device's order</option>
+                <option value="dmy">Day, month, year</option>
+                <option value="mdy">Month, day, year</option>
+                <option value="ymd">Year, month, day</option>
+              </select>
+              <small>Today reads {sampleDate()}.</small>
+            </label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Shelf and terminal</legend>
+          <div class="grid2">
+            <label class="wide"><span>When stopping a terminal session</span>
+              <select aria-label="Terminal history default" bind:value={profileForm.terminalRemoveOnClose}><option value={false}>Keep the closed session in history</option><option value={true}>Remove from history after it ends</option></select>
+              <small>This sets the confirmation’s default. You can change it for each session. Running or pending sessions remain visible until the machine confirms closure.</small>
+            </label>
+            <label><span>Default shelf layout</span>
+              <select bind:value={profileForm.shelfView}><option value="list">List</option><option value="board">Board</option></select>
+              <small>Switching List/Board on your shelf also saves this preference.</small>
+            </label>
+            <label><span>Default skill cards</span>
+              <select bind:value={profileForm.cardsExpanded}><option value={false}>Collapsed — quick actions and core data</option><option value={true}>Expanded — all details</option></select>
+              <small>Individual cards and Expand all / Collapse all can override this during your visit.</small>
+            </label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Publishing</legend>
+          <div class="grid2">
+            <div class="wide field"><span>Hosted skill name prefix</span>
+              <div class="prefix-row">
+                <span class="prefix-toggle"><input id="hosted-prefix-toggle" type="checkbox" bind:checked={prefixEnabled} /><label for="hosted-prefix-toggle">Prefix new and renamed hosted skills</label></span>
+                <input class="prefix-input" bind:value={prefixValue} placeholder="reet-" maxlength="33" disabled={!prefixEnabled} aria-label="Hosted skill name prefix" />
+              </div>
+              <small>Reet adds this to skills you host so they stand out from imports. Type a custom prefix such as <code>acme-</code>, or turn it off to use the bare skill name. Existing names are not changed automatically.</small>
+            </div>
+          </div>
+        </fieldset>
       </form>
-    </section>
+    </CollectionPanel>
   {:else if section === 'agents'}
     <AgentsSettings {canWrite} onerror={onerror} />
   {:else if section === 'security'}
-    <section class="block" aria-labelledby="password-title">
-      <h2 id="password-title">Password</h2>
-      <p class="muted">Changing it signs out every other browser; this one stays signed in.</p>
-      <form onsubmit={change}>
+    <CollectionPanel label="Password" count="3 fields">
+      {#snippet actions()}
+        <button type="submit" form="password-form" class="btn primary" disabled={busy === 'password'}>{busy === 'password' ? 'Changing…' : 'Change password'}</button>
+      {/snippet}
+      {#snippet toolbar()}
+        <p class="note">Changing it signs out every other browser; this one stays signed in.</p>
+      {/snippet}
+      <form id="password-form" class="password-form" onsubmit={change}>
         <div class="grid2">
           <label class="wide"><span>Current password</span>
             <input type="password" bind:value={passwordForm.current} autocomplete="current-password" />
@@ -383,11 +476,8 @@
             <input type="password" bind:value={passwordForm.confirm} autocomplete="new-password" minlength="8" />
           </label>
         </div>
-        <div class="formacts">
-          <button type="submit" class="btn primary" disabled={busy === 'password'}>{busy === 'password' ? 'Changing…' : 'Change password'}</button>
-        </div>
       </form>
-    </section>
+    </CollectionPanel>
   {:else if section === 'sso'}
     <section class="block" aria-labelledby="sso-title">
       <h2 id="sso-title">Single sign-on</h2>
@@ -410,35 +500,58 @@
       {/if}
     </section>
   {:else if section === 'sessions'}
-    <section class="block" aria-labelledby="sessions-title">
-      <div class="blockhead">
-        <div>
-          <h2 id="sessions-title">Sessions</h2>
-          <p class="muted">Every browser signed in to your account.</p>
-        </div>
-        <button type="button" class="btn" onclick={endOthers} disabled={busy === 'others' || sessions.length < 2}>
+    <CollectionPanel label="Your sessions" count={sessionCountLabel}>
+      {#snippet actions()}
+        <button type="button" class="btn quiet" onclick={loadSessions} disabled={sessionsLoading}>Refresh</button>
+        <button type="button" class="btn" onclick={endOthers} disabled={busy === 'others' || !sessions.some((session) => !session.current)}>
           {busy === 'others' ? 'Ending…' : 'Sign out the others'}
         </button>
-      </div>
-      {#if sessions.length === 0}
-        <p class="muted">No sessions listed.</p>
+      {/snippet}
+      {#snippet toolbar()}
+        <div class="session-toolbar">
+          <label class="session-search">Search sessions
+            <input type="search" bind:value={sessionSearch} placeholder="Browser or device" />
+          </label>
+          <div class="session-scopes" role="group" aria-label="Show sessions">
+            <button type="button" class="scope" aria-pressed={sessionScope === 'all'} onclick={() => (sessionScope = 'all')}>All<small>{sessionCounts.all}</small></button>
+            <button type="button" class="scope" aria-pressed={sessionScope === 'current'} onclick={() => (sessionScope = 'current')}>This browser<small>{sessionCounts.current}</small></button>
+            <button type="button" class="scope" aria-pressed={sessionScope === 'other'} onclick={() => (sessionScope = 'other')}>Other browsers<small>{sessionCounts.other}</small></button>
+          </div>
+        </div>
+      {/snippet}
+
+      {#if sessionsLoading}
+        <Skeleton label="Reading sessions…" shape="lines" count={3} />
+      {:else if sessions.length === 0}
+        <div class="state-block">
+          <h2>No sessions listed.</h2>
+          <p>Browsers signed in to your account appear here.</p>
+        </div>
+      {:else if visibleSessions.length === 0}
+        <div class="state-block">
+          <h2>No session matches that search or filter.</h2>
+          <p>Try another search, or show every browser.</p>
+          <button type="button" class="btn" onclick={clearSessionFilters}>Clear filters</button>
+        </div>
       {:else}
-        <ul class="rows">
-          {#each sessions as s (s.id)}
+        <ul class="session-list">
+          {#each visibleSessions as session (session.id)}
             <li>
-              <div>
-                <strong>{device(s.device)}</strong>
-                {#if s.current}<span class="tag">this browser</span>{/if}
-                <small>Last seen {when(s.lastSeen)} · signed in {when(s.createdAt)}</small>
+              <div class="session-main">
+                <strong>{device(session.device)}</strong>
+                {#if session.current}<span class="tag">this browser</span>{/if}
+                <small>Last seen {when(session.lastSeen)} · signed in {when(session.createdAt)}</small>
               </div>
-              {#if !s.current}
-                <button type="button" class="btn quiet danger" onclick={() => endSession(s.id)} disabled={busy === `session:${s.id}`}>Sign out</button>
+              {#if !session.current}
+                <div class="session-action">
+                  <button type="button" class="btn quiet danger" onclick={() => endSession(session.id)} disabled={busy === `session:${session.id}`}>Sign out</button>
+                </div>
               {/if}
             </li>
           {/each}
         </ul>
       {/if}
-    </section>
+    </CollectionPanel>
   {:else if section === 'activity'}
     <ActivitySection writer={writer ?? canWrite} onsignedout={onerror} timeZone={profile.timezone} dateFormat={profile.dateFormat} />
   {:else if section === 'machines'}
@@ -451,24 +564,58 @@
     {#if !canWrite}
       <p class="muted">Viewer accounts cannot create API tokens.</p>
     {:else}
-      <section class="block" aria-labelledby="tokens-title">
-        <h2 id="tokens-title">Personal API tokens</h2>
+      <section class="block" aria-labelledby="create-token-title">
+        <h2 id="create-token-title">Create a token</h2>
         <p class="muted">Use a token with <code>reet scan --token …</code> or an API client. A token is shown once, then only its name remains.</p>
         {@render tokenForm()}
+      </section>
 
-        {#if tokens.length}
-          <ul class="rows">
-            {#each tokens as token (token.id)}
+      <CollectionPanel label="Personal API tokens" count={tokenCountLabel}>
+        {#snippet actions()}
+          <button type="button" class="btn quiet" onclick={loadTokens} disabled={tokensLoading}>Refresh</button>
+        {/snippet}
+        {#snippet toolbar()}
+          <div class="token-toolbar">
+            <label class="token-search">Search tokens
+              <input type="search" bind:value={tokenSearch} placeholder="Token name" />
+            </label>
+            <div class="token-scopes" role="group" aria-label="Show tokens">
+              <button type="button" class="scope" aria-pressed={tokenScope === 'all'} onclick={() => (tokenScope = 'all')}>All<small>{tokenCounts.all}</small></button>
+              <button type="button" class="scope" aria-pressed={tokenScope === 'used'} onclick={() => (tokenScope = 'used')}>Used<small>{tokenCounts.used}</small></button>
+              <button type="button" class="scope" aria-pressed={tokenScope === 'never'} onclick={() => (tokenScope = 'never')}>Never used<small>{tokenCounts.never}</small></button>
+            </div>
+          </div>
+        {/snippet}
+
+        {#if tokensLoading}
+          <Skeleton label="Reading tokens…" shape="lines" count={3} />
+        {:else if tokens.length === 0}
+          <div class="state-block">
+            <h2>No API tokens yet.</h2>
+            <p>Tokens you create for scanners and API clients appear here.</p>
+          </div>
+        {:else if visibleTokens.length === 0}
+          <div class="state-block">
+            <h2>No token matches that search or filter.</h2>
+            <p>Try another search, or show every token.</p>
+            <button type="button" class="btn" onclick={clearTokenFilters}>Clear filters</button>
+          </div>
+        {:else}
+          <ul class="token-list">
+            {#each visibleTokens as token (token.id)}
               <li>
-                <div><strong>{token.name}</strong><small>created {when(token.createdAt)} · used {when(token.lastUsedAt)}</small></div>
-                <button type="button" class="btn quiet danger" onclick={() => (revokePending = token)} disabled={!!busy}>Revoke</button>
+                <div class="token-main">
+                  <strong>{token.name}</strong>
+                  <small>created {when(token.createdAt)} · used {when(token.lastUsedAt)}</small>
+                </div>
+                <div class="token-action">
+                  <button type="button" class="btn quiet danger" onclick={() => (revokePending = token)} disabled={!!busy}>Revoke</button>
+                </div>
               </li>
             {/each}
           </ul>
-        {:else}
-          <p class="muted">No API tokens yet.</p>
         {/if}
-      </section>
+      </CollectionPanel>
     {/if}
   {:else if section === 'mcp'}
     <MCPAccess timeZone={profile.timezone} dateFormat={profile.dateFormat} />
@@ -506,8 +653,13 @@
   .notice.bad { border-color: var(--bad); }
   .notice.good { border-color: var(--good); }
   .block { margin-top: 24px; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
-  .blockhead { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .muted { margin: 8px 0 0; color: var(--muted); }
+  .note { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+  .profile-form { margin-top: 0; gap: 14px; }
+  .profile-form fieldset { margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+  .profile-form legend { padding: 0 5px; color: var(--muted); font-size: 0.78rem; font-weight: 600; }
+  .profile-form .grid2 { gap: 12px; }
+  .password-form { margin-top: 0; }
   /* minmax(0, 1fr): a text field is about 20 characters wide by default, which overflowed the card on a 320 px phone. */
   form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 16px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -520,12 +672,25 @@
   .prefix-toggle { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 0.84rem; }
   .prefix-toggle input { width: auto; }
   .prefix-input { flex: 1 1 140px; max-width: 220px; }
-  .rows { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
-  .rows li { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); }
-  .rows small { display: block; color: var(--muted); font-size: 0.78rem; }
+  .session-toolbar, .token-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
+  .session-search, .token-search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .session-search input, .token-search input { width: 100%; }
+  .session-scopes, .token-scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .scope:hover { border-color: var(--muted); color: var(--ink); }
+  .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .scope small { margin-left: 5px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .session-list, .token-list { list-style: none; margin: 0; padding: 0; display: grid; }
+  .session-list > li, .token-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 14px 2px; border-top: 1px solid var(--line-soft); }
+  .session-list > li:first-child, .token-list > li:first-child { border-top: 0; }
+  .session-main, .token-main { min-width: 0; }
+  .session-main strong, .token-main strong { overflow-wrap: anywhere; }
+  .session-main small, .token-main small { display: block; margin-top: 3px; color: var(--muted); font-size: 0.78rem; line-height: 1.4; }
+  .session-action, .token-action { justify-self: end; }
+  .state-block { padding: 24px 0 16px; max-width: 58ch; }
+  .state-block h2 { margin: 0; font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; }
+  .state-block p { margin: 6px 0 12px; color: var(--muted); }
   /* Token, session and connection names can be one long word: they wrap rather than widen the card past the screen. */
-  .rows li > div { min-width: 0; }
-  .rows strong { overflow-wrap: anywhere; }
   .tag { margin-left: 6px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.65rem; }
   .fresh { margin-top: 14px; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--tint); }
   .fresh p { margin: 0 0 8px; font-size: 0.88rem; }
@@ -538,8 +703,13 @@
     .grid2 { grid-template-columns: 1fr; }
     .idcard { gap: 12px; }
     .avatar { width: 52px; height: 52px; font-size: 1.05rem; }
+    .session-search, .token-search { flex-basis: 100%; }
+    .session-list > li, .token-list > li { grid-template-columns: 1fr; }
+    .session-action, .token-action { justify-self: start; }
     /* One line: a wrapping column is as wide as its widest item, so the field ran out of the card. */
     .createrow { flex-direction: column; flex-wrap: nowrap; }
 
   }
+  @media (pointer: coarse) { .scope, .session-search input, .token-search input, .session-action .btn, .token-action .btn { min-height: 44px; } }
+  @media (prefers-reduced-motion: no-preference) { .scope { transition: background-color 0.15s, border-color 0.15s, color 0.15s; } }
 </style>

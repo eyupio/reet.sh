@@ -40,7 +40,37 @@ type ACPAgent struct {
 	// yet, so the connector's descriptor builder never sets it; a controller
 	// still honours it only on a connection that negotiated acp-question-v1.
 	Questions bool `json:"questions,omitempty"`
+	// Options describes the other selectable options the adapter was measured
+	// to offer. It is descriptive only: Modes remains the permission-sensitive
+	// list a person may switch, and Model reports the dynamic model catalogue.
+	// Sent only on a connection that negotiated acp-agent-options-v1.
+	Options []ACPAgentOption `json:"options,omitempty"`
 }
+
+// ACPAgentOption is one non-permission selectable option, with the values the
+// pinned adapter was measured to offer. The values can depend on the current
+// model, so they describe what may be offered, not what is valid now.
+type ACPAgentOption struct {
+	ID       string   `json:"id"`
+	Category string   `json:"category"`
+	Values   []string `json:"values"`
+}
+
+// The measured non-permission option categories. A mode or model option is
+// represented by ACPAgent.Modes and ACPAgent.Model instead, because those are
+// permission-sensitive and dynamically listed respectively.
+const (
+	AgentOptionThoughtLevel      = "thought_level"
+	AgentOptionModelConfig       = "model_config"
+	AgentOptionCollaborationMode = "collaboration_mode"
+)
+
+// MaxACPAgentOptions and MaxACPAgentOptionValues bound a descriptor's option
+// contract. The measured adapters offer at most three options and six values.
+const (
+	MaxACPAgentOptions      = 8
+	MaxACPAgentOptionValues = 16
+)
 
 // ReviewedChatTool is the closed set with a verified structured integration.
 // Merely advertising another tool cannot enable its launch or history access.
@@ -68,9 +98,9 @@ func (a ACPAgent) Valid() bool {
 	}
 	switch a.State {
 	case "available":
-		return ReviewedChatTool(a.Tool) && a.Adapter == chatAdapter(a.Tool) && a.MinimumVersion != "" && validAgentModes(a.Modes)
+		return ReviewedChatTool(a.Tool) && a.Adapter == chatAdapter(a.Tool) && a.MinimumVersion != "" && validAgentModes(a.Modes) && validAgentOptions(a.Options)
 	case "missing", "unverified", "incompatible":
-		return !a.History && !a.Images && !a.Model && !a.Approval && !a.Questions && len(a.Modes) == 0
+		return !a.History && !a.Images && !a.Model && !a.Approval && !a.Questions && len(a.Modes) == 0 && len(a.Options) == 0
 	}
 	return false
 }
@@ -84,6 +114,49 @@ func validAgentModes(modes []string) bool {
 	}
 	for i, mode := range modes {
 		if !ValidAgentMode(mode) || slices.Contains(modes[:i], mode) {
+			return false
+		}
+	}
+	return true
+}
+
+func validAgentOptions(options []ACPAgentOption) bool {
+	if len(options) > MaxACPAgentOptions {
+		return false
+	}
+	ids := map[string]bool{}
+	for _, option := range options {
+		if !validAgentOptionToken(option.ID) || ids[option.ID] || !validAgentOptionCategory(option.Category) || len(option.Values) == 0 || len(option.Values) > MaxACPAgentOptionValues {
+			return false
+		}
+		ids[option.ID] = true
+		values := map[string]bool{}
+		for _, value := range option.Values {
+			if !validAgentOptionToken(value) || values[value] {
+				return false
+			}
+			values[value] = true
+		}
+	}
+	return true
+}
+
+func validAgentOptionCategory(category string) bool {
+	switch category {
+	case AgentOptionThoughtLevel, AgentOptionModelConfig, AgentOptionCollaborationMode:
+		return true
+	}
+	return false
+}
+
+// validAgentOptionToken accepts the short lower-case ids and values the
+// measured adapters use ("reasoning_effort", "fast-mode", "xhigh").
+func validAgentOptionToken(token string) bool {
+	if token == "" || len(token) > 32 {
+		return false
+	}
+	for _, r := range token {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
 			return false
 		}
 	}
@@ -110,7 +183,7 @@ func (c Capabilities) validACPAgents() bool {
 					installed = true
 				}
 			}
-			if !c.ACP || !installed || a.History && !c.ACPHistory || a.Images && !c.ACPImages || a.Model && !c.ACPModel || a.Approval && !c.ACPApproval || a.Questions && !c.ACPQuestions || len(a.Modes) > 0 && !c.ACPAgentMode {
+			if !c.ACP || !installed || a.History && !c.ACPHistory || a.Images && !c.ACPImages || a.Model && !c.ACPModel || a.Approval && !c.ACPApproval || a.Questions && !c.ACPQuestions || len(a.Modes) > 0 && !c.ACPAgentMode || len(a.Options) > 0 && !c.ACPAgentOptions {
 				return false
 			}
 		}

@@ -429,3 +429,37 @@ go test ./internal/acpagent -run '^TestReal(OpenCode|Claude)Start$' -v -count=1
 Both passed: OpenCode new/load confirm the explicitly selected observed default and preserve resume identity; Claude new confirms `default`,
 retires its process group and retains the strict-version refusal check. The direct probe also measured Claude load, but the Go profile test does not
 claim Claude resume coverage. No prompt or model call was sent. No real-login, provider-turn or physical-device gate is closed by these checks.
+
+## Structured chat option values (2 November 2026)
+
+Linux x86-64, Node v24.21.0; pinned Claude ACP 0.99.1 and Codex ACP 1.13.1. A new
+`scripts/probe-agent-options.py` starts one adapter with an isolated HOME and project, calls `initialize` and `session/new`, and prints
+the `configOptions` whose category is neither `mode` nor `model`. It sent no `session/prompt`, made no model call and used no real
+credential; Codex's `session/new` needs a synthetic `api-key` authenticate, which the probe sends as a placeholder. Session IDs are omitted.
+
+```sh
+python3 -I scripts/probe-agent-options.py --workspace /path/to/probe --agent claude
+python3 -I scripts/probe-agent-options.py --workspace /path/to/probe --agent codex
+```
+
+Sanitized results are in `fixtures/agent-options.json`. Claude reported:
+
+| Option id | Category | Values |
+| --- | --- | --- |
+| `effort` | `thought_level` | `default`, `low`, `medium`, `high`, `xhigh`, `max` |
+| `fast` | `model_config` | `on`, `off` |
+| `ultracode` | `model_config` | `on`, `off` |
+
+Codex reported:
+
+| Option id | Category | Values |
+| --- | --- | --- |
+| `collaboration_mode` | `collaboration_mode` | `default`, `plan` |
+| `reasoning_effort` | `thought_level` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
+| `fast-mode` | `model_config` | `off`, `on` |
+
+Both adapters also listed `mode` and `model` options, which the descriptor already represents as `Modes` and `Model`. OpenCode 1.19.5's
+measured `configOptions` (see `fixtures/startup-models.json`) contain only `model` and `mode`, so its descriptor carries no other option
+contract. The effort values are what these adapters reported for the model the probe opened with; an adapter can offer a different list
+for another model, and Codex also embeds effort in some model IDs. The descriptor therefore describes what may be offered and does not
+claim that every value is valid for every model. This is installation evidence, not a model turn, login or provider-billing check.

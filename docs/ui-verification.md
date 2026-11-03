@@ -2018,3 +2018,296 @@ frames of the live component’s CSS animation over 6.4 seconds.
 
 **Not checked.** No physical phone or tablet, screen reader, Safari, Firefox or
 live provider. The fixtures use a scripted stream and do not modify a project.
+
+## Admin ticket queue under the collection contract — 2 November 2026
+
+The admin Support queue now has one **Ticket queue** panel with a live count and
+**Refresh**, a search and **Open / Waiting / Closed / All** chips whose figures
+follow the search. The queue reads all tickets once and filters in the browser, so
+status changes do not re-fetch. Each row keeps its subject, number, opener/team,
+message count, age, compact status badge and assignee. The conversation detail,
+thread and composer are unchanged.
+
+Validation:
+
+- `npm run check`: pass, including the new `adminTickets` unit suite; svelte-check
+  reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-tickets.e2e.mjs`: count and status chips, search, empty recovery,
+  selected ticket and conversation, and phone layouts at 390 and 320 px with no
+  horizontal overflow.
+- `phone-zoom.e2e.mjs` and `navigation.e2e.mjs` pass.
+
+![Admin support queue, desktop](images/ui/admin-tickets-desktop.png)
+![Admin support queue, phone](images/ui/admin-tickets-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The reply/note
+composer was checked through the existing detail assertions, not a new messaging
+matrix.
+
+## Admin email outbox under the collection contract — 2 November 2026
+
+The admin Email outbox now has one **Outbox** panel with a live message count and
+**Refresh**, a search over subject, recipient, template, last error and id, and
+**All / Queued / Sending / Held / Delivered / Failed / Bounced** chips whose figures
+follow the search. The outbox is read once and filtered in the browser. Each message
+is one row with its subject, template and sign-in marker, recipient, state, age,
+tries, next attempt, last error and a **Resend** action only when the server offers
+one. The wide table and its horizontal scroller are gone. The mail server summary,
+form, checks, DNS result and held-mail warning are unchanged.
+
+Validation:
+
+- `npm run check`: pass, including the new `adminMail` unit suite; svelte-check
+  reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-email.e2e.mjs`: count and every state chip, search by subject and
+  error, empty recovery, an unreadable outbox and its retry, row anatomy and resend
+  offer, and phone layouts at 390 and 320 px with no horizontal overflow.
+- `phone-zoom.e2e.mjs` (the admin email screen) and `navigation.e2e.mjs` pass.
+
+![Admin email outbox, desktop](images/ui/admin-email-desktop.png)
+![Admin email outbox, phone](images/ui/admin-email-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. Saving settings,
+resending and the connection/DNS checks were not exercised by a new browser matrix;
+the existing form and actions were left in place.
+
+## Admin notification defaults under one panel — 2 November 2026
+
+The admin Notifications page now has one **Notification defaults** panel with a live
+count of the kinds and **Save defaults** in its head. The owner/admin note sits
+beneath, and the kinds keep their area fieldsets: Machines, Sync, Support, Security,
+and any others the server offers. Each editable row keeps **On**, **Delivery** and,
+for staff notices, **Owner** and **Admins**. A locked kind such as a security notice
+keeps its sentence and has no controls; the save payload leaves it out. An
+unreadable list offers **Try again**, and the phone layouts stack each row.
+
+Validation:
+
+- `npm run check`: pass, including the new `adminNotifications` unit suite;
+  svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-notifications.e2e.mjs`: panel count, every group, the locked security
+  row with no controls, a staff row's three controls, a save's payload, an
+  unreadable list and its retry, and phone layouts at 390 and 320 px with no
+  horizontal overflow.
+- `phone-zoom.e2e.mjs` (the admin notifications screen) and `navigation.e2e.mjs`
+  pass.
+
+![Admin notification defaults, desktop](images/ui/admin-notifications-desktop.png)
+![Admin notification defaults, phone](images/ui/admin-notifications-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The empty list
+was not exercised by a new browser matrix; its panel rendering is shared with the
+other admin sections.
+
+## Admin backup copies and runs under the collection contract — 2 November 2026
+
+Admin → Backups now has two collection panels. **Backup copies** carries a live
+count, search and **All / This machine / Off-site / Damaged** chips whose figures
+follow the search; a copy can be in both location chips and is **Damaged** only after
+**Verify** finds a problem. Each copy row has its id and verification badge, taken
+time, size and version, location tags, the damaged problem, and the existing Verify,
+Download, Restore and Delete actions. **Recent runs** carries a count, search and
+**All / Succeeded / Failed / Running** chips, with one row per trigger, start time,
+outcome, size, destination and error. The wide tables and their horizontal scrollers
+are gone. The key and schedule cards, findings, schedule form, destinations, import,
+restore and confirmations are unchanged.
+
+Validation:
+
+- `npm run check`: pass, including the new `adminBackups` unit suite; svelte-check
+  reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-backups.e2e.mjs`: both panel counts, every chip, copy and run search,
+  empty recovery, a verify that marks a copy damaged, and phone layouts at 390 and
+  320 px with no horizontal overflow.
+- `phone-zoom.e2e.mjs` (the admin backups screen) and `navigation.e2e.mjs` pass.
+
+![Admin backup copies and runs, desktop](images/ui/admin-backups-desktop.png)
+![Admin backup copies, phone](images/ui/admin-backups-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. Download, restore,
+delete, destination editing and import were not exercised by a new browser matrix;
+their controls were left in place.
+
+## Admin settings under one panel — 2 November 2026
+
+Admin → Settings now has one **Instance settings** panel with a count of the six
+settings and **Save settings** in its head. The settings are grouped into **Background
+jobs** (metadata refresh, topic seed, empty reet-server report retention) and **Sharing
+and identity** (read-only list links, per-person rollup rows, instance name). Saving
+sends every value and reports **Sorted. Settings saved.** A non-owner sees the six
+values as labelled facts with no Save action. The **Approvals**, **Repository
+maintenance** and **Software artifact mirror** cards keep their immediate saves and now
+appear only on Settings, not at the bottom of every Admin section.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-settings.e2e.mjs`: panel count, both groups, the save payload, the
+  YOLO, branch-prune and mirror writes, caching the artifact, the three blocks being
+  absent from Activity, and phone layouts at 390 and 320 px with no horizontal
+  overflow.
+- `phone-zoom.e2e.mjs` (the admin settings screen) and `navigation.e2e.mjs` pass.
+
+![Admin settings, desktop](images/ui/admin-settings-desktop.png)
+![Admin settings, phone](images/ui/admin-settings-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The read-only
+non-owner view and a failed save were not exercised by a new browser matrix.
+
+## Admin activity under the collection contract — 2 November 2026
+
+Admin → Activity now has one **Recent activity** panel with a live count, a search
+and **All / Agents / Projects / Skills / Lists / Account / Admin** chips whose figures
+follow the search. The page shows the newest 100 events the server sends rather than
+slicing them to 20. Each row keeps the existing sentence, adds its area and relative
+age, and keeps the exact time and source in the title. Search reads the sentence,
+actor, source, action, raw detail and area, so a ticket number, host or skill name
+finds its events. The area chips are exclusive and add up to All.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `admin-activity.e2e.mjs`: panel count, every area chip, search by event text
+  and detail, empty recovery, an area filter, and phone layouts at 390 and 320 px
+  with no horizontal overflow.
+- `phone-zoom.e2e.mjs` (the admin activity screen) and `navigation.e2e.mjs` pass.
+
+![Admin activity, desktop](images/ui/admin-activity-desktop.png)
+![Admin activity, phone](images/ui/admin-activity-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The empty
+no-events state and a failed status read were not exercised by a new browser matrix.
+
+## Account sessions under the collection contract — 2 November 2026
+
+Account → Sessions now has one **Your sessions** panel with a live count, search and
+**All / This browser / Other browsers** chips whose figures follow the search. Each
+row has the friendly browser and device, the **this browser** tag, its last-seen and
+signed-in times, and **Sign out** for every other browser. **Refresh** and **Sign out
+the others** live in the panel head; the bulk action is not narrowed by the search or
+chip. Search reads the friendly device, not the raw user-agent string, so Chrome's
+user-agent does not match “Safari”. The first read shows a skeleton, an empty search
+offers **Clear filters**, and the separate **Session / Sign out** card remains below.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `account-sessions.e2e.mjs`: panel count, all three chips, search by browser,
+  empty recovery, the other-browser filter, one sign-out and the bulk sign-out, and
+  phone layouts at 390 and 320 px with no horizontal overflow.
+- `phone-zoom.e2e.mjs` (the account sessions screen) and `navigation.e2e.mjs` pass.
+
+![Account sessions, desktop](images/ui/account-sessions-desktop.png)
+![Account sessions, phone](images/ui/account-sessions-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. A failed sessions
+read was not exercised by a new browser matrix.
+
+## Account API tokens under the collection contract — 2 November 2026
+
+Account → API tokens now separates **Create a token** into its own card and puts the
+tokens in one **Personal API tokens** panel with a live count, search and **All /
+Used / Never used** chips whose figures follow the search. Each row has the token
+name, created and last-used time, and the existing **Revoke** action with its
+confirmation. A token with no recorded use is **Never used**. Creating a token adds
+it to the list and keeps the one-time secret in the create card. The first read shows
+a skeleton, an empty search offers **Clear filters**, and viewer accounts keep their
+message.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `account-tokens.e2e.mjs`: panel count, all three chips, search, empty recovery,
+  creating a token and its one-time secret, revoking a token, and phone layouts at
+  390 and 320 px with no horizontal overflow.
+- `phone-zoom.e2e.mjs` (the account tokens screen) and `navigation.e2e.mjs` pass.
+
+![Account API tokens, desktop](images/ui/account-tokens-desktop.png)
+![Account API tokens, phone](images/ui/account-tokens-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. A failed token
+read or a failed create was not exercised by a new browser matrix.
+
+## Account profile under one panel — 2 November 2026
+
+Account → Profile now has one **Your preferences** panel with a count of the eight
+preferences and **Save profile** in its head. The preferences are grouped into
+**Identity** (name), **Appearance** (theme, time zone, dates), **Shelf and terminal**
+(terminal history default, shelf layout, default cards) and **Publishing** (hosted
+skill prefix). A profile with no stored date format now shows **This device's order**
+instead of a blank select, and saving reports **Reet, defaults saved.** A viewer's
+name remains read-only while the other preferences are editable.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `account-profile.e2e.mjs`: panel count, the four groups, the blank-date
+  fallback, the save payload and phone layouts at 390 and 320 px with no horizontal
+  overflow.
+- `phone-zoom.e2e.mjs` (the account profile screen) and `navigation.e2e.mjs` pass.
+
+![Account profile, desktop](images/ui/account-profile-desktop.png)
+![Account profile, phone](images/ui/account-profile-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. A failed save and
+the viewer read-only name were not exercised by a new browser matrix.
+
+## Account password under one panel — 2 November 2026
+
+Account → Password now has one **Password** panel with a count of the three fields and
+**Change password** in its head. The three fields keep their minimum length and
+autocomplete hints. Different new passwords show **The new passwords do not match.**
+before any request; a successful change sends the same body as before, reports
+**Password changed. Every other session was signed out.** and reloads the session
+list. The panel note still says every other browser is signed out while this one
+stays.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `account-security.e2e.mjs`: panel count, the mismatch path sending no request,
+  the successful request body and notice, and phone layouts at 390 and 320 px with no
+  horizontal overflow.
+- `phone-zoom.e2e.mjs` (the account security screen) and `navigation.e2e.mjs` pass.
+
+![Account password, desktop](images/ui/account-security-desktop.png)
+![Account password, phone](images/ui/account-security-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. A failed password
+change was not exercised by a new browser matrix.
+
+## Account MCP clients under the collection contract — 2 November 2026
+
+Account → MCP access now has one **Connected clients** panel with a live count, search
+and **All / OAuth / Bearer token** chips whose figures follow the search. The kind chips
+are exclusive, so the two figures add up to All. Each connection keeps its card with
+name, kind, state, permission, last use, expiry and the existing Manage, Pause/Resume,
+Replace token and Revoke actions. Search reads the name and kind. An empty search
+offers **Clear filters**, and **Revoke all connections** stays below the panel. The
+connect card, status line, Browser WebMCP panel and manual bearer-token form are
+unchanged.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `account-mcp.e2e.mjs`: panel count, all three kind chips, search, empty
+  recovery, the OAuth filter, pausing a connection and phone layouts at 390 and 320 px
+  with no horizontal overflow.
+- `phone-zoom.e2e.mjs` (the account MCP screen) and `navigation.e2e.mjs` pass.
+
+![Account MCP access, desktop](images/ui/account-mcp-desktop.png)
+![Account MCP access, phone](images/ui/account-mcp-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. A failed connection
+read or a failed pause was not exercised by a new browser matrix.

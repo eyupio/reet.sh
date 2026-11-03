@@ -46,9 +46,13 @@ Next: review the draft PR and its checks; merge only on the owner’s instructio
 The owner asked for a page-by-page UI refresh with a UX focus. Each family was built test-first,
 photographed at desktop and phone widths in light and dark, reviewed, and merged only after CI was
 green. Contracts and rulings are in `docs/superpowers/specs/2026-11-02-directory-pages-refresh.md`,
-`...-skills-machines-findability.md`, `...-inbox-pages.md` and `...-admin-users.md`; checks are in
-[docs/ui-verification.md](docs/ui-verification.md). The refresh merged through #415 (`1e626ff`); earlier merges through `d61c6c0`. Merge main
-into the next branch as later work lands.
+`...-skills-machines-findability.md`, `...-inbox-pages.md`, `...-admin-users.md`,
+`...-admin-team-usage.md`, `...-admin-tickets.md`, `...-admin-email.md` and
+`...-admin-notifications.md`, `...-admin-backups.md`, `...-admin-settings.md`,
+`...-admin-activity.md`, `...-account-sessions.md`, `...-account-tokens.md`,
+`...-account-profile.md`, `...-account-security.md` and `...-account-mcp.md`; checks are in
+[docs/ui-verification.md](docs/ui-verification.md). The refresh merged through #429. Merge main into
+the next branch as later work lands.
 
 **Merged, all with every required check green:**
 
@@ -62,6 +66,17 @@ into the next branch as later work lands.
 | #408 | `f051948` | `/sync` marks Machines current (desktop and phone); simple Sync source renamed **Everything on my shelf**. |
 | #410 | `d61c6c0` | Admin → Users as one people panel with count, search, role chips, per-person rows and the existing Manage actions; invite is its own card. |
 | #415 | `1e626ff` | Admin → Team usage as one report panel: count, search, List/Tag/Sort, one row per skill with metrics and Team disclosure; wide table and duplicate mobile cards removed. |
+| #419 | `d374e00` | Admin → Support as one ticket queue panel: count, search, status chips whose figures follow the search, one row anatomy; detail and composer unchanged. |
+| #420 | `4f18c10` | Admin → Email as one outbox panel: count, search, state chips whose figures follow the search, one row anatomy, retry; settings unchanged. |
+| #421 | `90fa3a6` | Admin → Notifications as one grouped defaults panel: count, Save, locked facts, retry; no search. |
+| #422 | `a08acb1` | Admin → Backups copies and runs in the collection grammar: counts, search, overlapping location chips, verify damage, retry; settings unchanged. |
+| #423 | `6fc3197` | Admin → Settings as one instance panel: six grouped settings, Save, read-only view; immediate cards now only on Settings. |
+| #424 | `ba3ce32` | Admin → Activity as one audit panel: newest 100, count, search, area chips, one row anatomy; no API change. |
+| #425 | `85bde14` | Account → Sessions as one browser panel: count, search, this/other chips, sign-out actions; search reads friendly devices. |
+| #426 | `415d2dd` | Account → API tokens as a create card plus one token panel: count, search, used/never chips, one-time secret, revoke. |
+| #427 | `00840c7` | Account → Profile as one grouped preferences panel: count, Save, blank-date fallback; viewer name read-only. |
+| #428 | `f920dd2` | Account → Password as one panel: three fields, head action, mismatch check, successful body and notice. |
+| #429 | `f7e668c` | Account → MCP access clients in one panel: count, search, OAuth/bearer chips, connection actions; page sections unchanged. |
 
 **What the refresh established.** The directory pages (Lists, Community, Teams, Setups) share one
 bounded surface, a count, search, scope chips whose figures follow the search, one row anatomy and
@@ -80,7 +95,23 @@ authoritative count. Support has status chips whose counts follow the search. Ad
 proving page for Account & Admin: invite card, people panel, role chips, inline role change and the
 existing Manage disclosure, with no wide table or horizontal scroller. Team usage is the second:
 one report panel with its existing filters, one row per skill, and the drift and people views still
-folded below.
+folded below. The Support queue is the third: one ticket panel with a live count, search, status
+chips whose figures follow the search, and the conversation detail unchanged. The Email outbox is
+the fourth: one message panel with a live count, search, a chip for every state, and rows that stack
+on a phone; the mail settings stay above it. Notification defaults is the fifth: one grouped panel
+with a count, Save, the existing locked security facts and rows that stack on a phone. Backups is
+the sixth: copies and runs each have a count, search, chips, one row anatomy and a phone layout;
+the schedule, destinations and import stay as they were. Settings is the seventh: six grouped
+instance settings in one panel with Save, plus the immediate Approvals, Repository maintenance and
+Software artifact mirror cards that now appear only there. Activity is the eighth: the newest 100
+events with a count, search, area chips and one row anatomy. All seven Admin sections are now in the
+collection grammar. Account Sessions is the first Account page in it: count, search, this/other
+browsers and the existing sign-out actions. API tokens is the second: a create card, then a token
+panel with count, search, used/never chips and the existing revoke confirmation. Profile is the
+third: eight preferences in four groups with Save in the panel head and a blank date format shown as
+the device's order. Password is the fourth: three fields in one panel with the mismatch check and
+the existing successful-change notice. MCP access is the fifth: one Connected clients panel with a
+count, search and OAuth/bearer chips; the connect card and other sections stay.
 
 **Rulings recorded in the specs.** Scope chips keep no URL state; Rows and Cards both survive; the
 directory pages use rows; ownership and role are each printed once; recency is relative with the
@@ -91,19 +122,17 @@ select is shown. No API, store, permission or dependency was added for the refre
 
 **Not claimed.** No physical phone or tablet, no screen reader, and no Safari or Firefox for any of
 the refreshed pages. Touch sizes were measured in an emulated coarse-pointer viewport. The Machines
-search matches observed reports, not saved intent. Admin Users and Team usage are the only
-Account/Admin pages refreshed so far.
+search matches observed reports, not saved intent. All seven Admin sections are refreshed. All
+Account list and form pages are refreshed: Sessions, API tokens, Profile, Password and MCP access;
+Account Backups inherits the refreshed Backups panels, and Account Activity already had its own
+count, filters and day groups.
 
 **Next UI work, in order:**
-1. **Remaining Admin sections** in the collection grammar: Backups, Settings, Email, Support,
-   Notifications, Activity (first files: `web/src/lib/Admin.svelte`,
-   `web/tests/admin-users.e2e.mjs` for the pattern, `web/tests/phone-zoom.e2e.mjs` for the screens).
-2. **Account pages** (profile, security, sessions, tokens, backups, MCP access) in the same grammar.
-3. **Skills/Machines follow-ups:** per-machine skill add/remove, the collapsed-badge summary for
+1. **Skills/Machines follow-ups:** per-machine skill add/remove, the collapsed-badge summary for
    large fleets, and **Add now** where a scan is stale or not confirmed.
-4. **Machines audit minors:** N1 (mixed date formats), N7 (Commands dialog exits), H10 (icon
+2. **Machines audit minors:** N1 (mixed date formats), N7 (Commands dialog exits), H10 (icon
    language), and attention sorting/status filter for large fleets.
-5. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
+3. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
    Do not claim these from the Chromium fixtures.
 
 ## Whole-controller restore and import (2 November 2026)
@@ -129,10 +158,10 @@ dark: a machine reports one as available only when its connector runs with `REET
 (`internal/terminalproto/acp_agents.go`); the controller binds each to its reviewed adapter; the browser offers a chat only from
 a descriptor that says `available`.
 
-**Main integrated into this PR:** `f051948` includes the owner's merges of pending typed-question recovery (#402, `a78ffa6`) and live model acknowledgement (#406).
-The earlier documentation-only #401 merged as `d5a4e80`; do not duplicate it. The active bounded SC5 slice is startup model confirmation,
-branch `fix/confirm-startup-chat-model`, based on `1235328` with main `6973f08` and `f051948` merged without rewriting history. Implementation began at `a032345`.
-The owner authorized this slice and asked that this handoff be current when its draft PR is created.
+**Main state (2 November 2026):** #409 merged as `c0b0c49`; #414 (connector-restart recovery) as `f64b407`; the UI refresh through
+#415 as `1e626ff`. The earlier documentation-only #401 merged as `d5a4e80`. The active bounded SC5 slice is now the measured descriptor
+option contract on branch `feat/descriptor-chat-options`; it adds no control, login gate or process behaviour. Older notes below describe
+the slices' publication state at the time, not current `main`.
 
 **On main (merged):**
 - SC1–SC2: per-agent descriptors; probes of the Claude and Codex adapters (report above).
@@ -150,7 +179,7 @@ The owner authorized this slice and asked that this handoff be current when its 
   the confirmed mode is stored on the session (`terminal_sessions.agent_mode`, JSON `agentMode`; empty means unknown), set to the
   first listed mode at create, to the new mode on a confirmed switch, and cleared on an unconfirmed or lost one.
 - Probe scripts: `scripts/probe-codex-turn.py`, `scripts/probe-codex-start.py` (no model call; `--auth none|api-key|chat-gpt`,
-  `--codex-home`).
+  `--codex-home`) and `scripts/probe-agent-options.py` (initialize and `session/new` only; measured option values, no prompt).
 
 **Merged on 2 November:** #375, "Offer Codex chats in the browser with an approvals-mode control that says what each mode means", and
 #384, "Show the agent's reason on an approval card and say a Codex reject ends the turn". #375 makes the controller refuse a message
@@ -227,7 +256,7 @@ startup/profile checks, not real-login or model-turn evidence. Exact versions, r
 and all 16 MCP tests passed. The five known model-discovery/orphan container failures were reproduced on main `6973f08` before local exclusions;
 CI passed the full suite without those exclusions.
 
-Codex bot review did **not** complete: the account's code-review quota was exhausted
+Codex bot review did **not** complete before the merge: the account's code-review quota was exhausted
 ([bot response](https://github.com/eyupio/reet.sh/pull/409#issuecomment-6586917713)); there are no submitted reviews or inline finding threads.
 The bot summary's finding flags do not establish findings when the review failed. This handoff-only follow-up records the completed implementation
 checks; any new-head CI results belong in the PR. Do not represent the earlier head's green checks as checks of a later documentation commit.
@@ -237,8 +266,23 @@ The slice is merged; no deployment is claimed. Login/device checks remain deferr
 process hooks. `NewChatSupervisor` and the connection-scoped fallback call `startResume()` once; the two resume tests call it after their fakes.
 The race in #415's `test` job reproduced on unchanged main and is fixed here. See the PR for the package race and vet results.
 
-**Next independent work:** broader descriptor contracts for mode/effort and other options, measured before implementation; native-session adoption
-after connector restart remains separate. #396/#402 recover transport reconnects to a surviving connector, not connector-process restarts.
+**Delivered SC5 slice — connector-restart recovery ([#414](https://github.com/eyupio/reet.sh/pull/414), merged `f64b407`):** a recorded chat
+is reopened with `session/load` under the same reet session id after the connector restarts, the replay is dropped because the controller
+already has the transcript, and the controller stores the same bounded transcript in SQLite. Archiving drops the record and transcript;
+records older than seven days are dropped, and a failed reopen is attempted at most three times. Detached per-session workers and turn
+generations across a native process restart remain future work; a turn in flight when the connector stopped is reported as stopped.
+
+**Active SC5 slice — measured descriptor option contract (`feat/descriptor-chat-options`):** a new negotiated descriptor field `options`
+describes the non-permission selectable options a pinned adapter was measured to offer. It is bounded, ordered, distinct and descriptive
+only: no switch, startup option, UI control, database column or adapter capability is added beyond `acp-agent-options-v1`. The existing
+`modes` list remains the permission-sensitive switch list and `model` the dynamic catalogue, so mode and model are not duplicated. Measured
+values are Claude ACP 0.99.1 effort `default`/`low`/`medium`/`high`/`xhigh`/`max`, `fast` and `ultracode` (`on`/`off`); Codex ACP 1.13.1
+`reasoning_effort` `low` through `ultra`, `fast-mode` (`off`/`on`) and `collaboration_mode` (`default`/`plan`). OpenCode 1.19.5 reported no
+other option. Values can depend on the current model, so the contract says what may be offered, not what is valid now. The probe sent no
+prompt, made no model call and used no real credential; Codex used a synthetic api-key placeholder for `session/new`.
+
+**Next independent work after this slice:** a bounded effort control can use this contract, reading the live option list from the adapter and
+confirming a switch before reporting it. Detached workers and turn generations across a native process restart remain future work.
 
 **Working rules the owner set (keep following them):**
 - One item at a time: build it test-first, open a **draft** PR, watch it, and **merge only when the owner says so** (they often mark
@@ -1427,6 +1471,17 @@ node web/tests/setups.e2e.mjs
 node web/tests/inbox.e2e.mjs
 node web/tests/admin-users.e2e.mjs
 node web/tests/admin-team.e2e.mjs
+node web/tests/admin-tickets.e2e.mjs
+node web/tests/admin-email.e2e.mjs
+node web/tests/admin-notifications.e2e.mjs
+node web/tests/admin-backups.e2e.mjs
+node web/tests/admin-settings.e2e.mjs
+node web/tests/admin-activity.e2e.mjs
+node web/tests/account-sessions.e2e.mjs
+node web/tests/account-tokens.e2e.mjs
+node web/tests/account-profile.e2e.mjs
+node web/tests/account-security.e2e.mjs
+node web/tests/account-mcp.e2e.mjs
 node web/tests/machines-search.e2e.mjs
 node web/tests/terminal-workspace.e2e.mjs
 node web/tests/terminal-lifecycle.e2e.mjs

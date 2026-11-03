@@ -10,6 +10,12 @@
   } from './api'
   import CopyButton from './CopyButton.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
+  import CollectionPanel from './CollectionPanel.svelte'
+  import {
+    BACKUP_COPY_SCOPES, BACKUP_RUN_SCOPES, backupCopyCountLabel, backupCopyMatchesSearch, backupCopyScopeCounts,
+    backupRunCountLabel, backupRunMatchesSearch, backupRunScopeCounts, filterBackupCopies, filterBackupRuns,
+    type BackupCopyScope, type BackupRunScope,
+  } from './adminBackups'
 
   let {
     onerror, role = 'owner', admin = false, canWrite = true, timeZone = '', dateFormat = 'locale',
@@ -42,6 +48,10 @@
   let importPassword = $state('')
   let importKeepTokens = $state(false)
   let importAskPassword = $state(false)
+  let copySearch = $state('')
+  let copyScope = $state<BackupCopyScope>('all')
+  let runSearch = $state('')
+  let runScope = $state<BackupRunScope>('all')
 
   function reportLines(r: RestoreReport): string[] {
     const l = [`${r.users} account(s), ${r.skills} skill(s) on shelves, ${r.lists} list(s), ${r.tags} tag(s) and ${r.environments} environment(s) come across.`,
@@ -441,13 +451,32 @@
       return new Date(ms).toLocaleString()
     }
   }
+
+  const copyItems = $derived(status?.items ?? [])
+  const searchedCopies = $derived(copyItems.filter((item) => backupCopyMatchesSearch(item, copySearch, verified)))
+  const copyCounts = $derived(backupCopyScopeCounts(searchedCopies, verified))
+  const shownCopies = $derived(filterBackupCopies(copyItems, copyScope, copySearch, verified))
+  const copyCountLabel = $derived(backupCopyCountLabel(shownCopies.length, copyItems.length))
+  const runItems = $derived(status?.runs ?? [])
+  const searchedRuns = $derived(runItems.filter((run) => backupRunMatchesSearch(run, runSearch)))
+  const runCounts = $derived(backupRunScopeCounts(searchedRuns))
+  const shownRuns = $derived(filterBackupRuns(runItems, runScope, runSearch))
+  const runCountLabel = $derived(backupRunCountLabel(shownRuns.length, runItems.length))
+
+  function clearCopyFilters() {
+    copySearch = ''
+    copyScope = 'all'
+  }
+
+  function clearRunFilters() {
+    runSearch = ''
+    runScope = 'all'
+  }
 </script>
 
-<section class="backups" aria-labelledby="backups-title">
+<section class="backups" aria-label="Backups">
   <div class="head">
     <div>
-      <p class="eyebrow">{admin ? 'Instance administration' : 'Your account'}</p>
-      <h2 id="backups-title">Backups</h2>
       <p class="lede">
         {admin
           ? 'Sealed copies of the whole database, kept on this machine and shipped to any S3-compatible destination.'
@@ -752,51 +781,65 @@
       {/if}
     </section>
 
-    <section class="block" aria-labelledby="copies-title">
-      <h3 id="copies-title">Copies</h3>
-      {#if status.items.length === 0}
-        <p class="empty">No copy has been taken yet.</p>
-      {:else}
-        <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users must be able to scroll this overflow region.) -->
-        <div class="tablewrap" tabindex="0" role="region" aria-label="Backup copies">
-          <table>
-            <thead><tr><th>Backup</th><th>Taken</th><th>Size</th><th>Where</th><th></th></tr></thead>
-            <tbody>
-              {#each status.items as item (item.id)}
-                <tr>
-                  <td><code>{item.id}</code>{#if verified[item.id]}<span class="tag" class:bad={!verified[item.id].ok}>{verified[item.id].ok ? 'verified' : 'damaged'}</span>{/if}</td>
-                  <td>{when(item.takenAt)}</td>
-                  <td class="num">{bytes(item.bytes)}</td>
-                  <td>
-                    <span class="where">
-                      {#if item.local}<span class="tag">this machine</span>{/if}
-                      {#each item.remotes as r (r)}<span class="tag">{r}</span>{/each}
-                    </span>
-                  </td>
-                  <td class="rowacts">
-                    <button type="button" class="btn quiet" onclick={() => verify(item)} disabled={busy === `verify:${item.id}`}>
-                      {busy === `verify:${item.id}` ? 'Verifying…' : 'Verify'}
-                    </button>
-                    <a class="btn quiet" href={backupDownloadUrl(admin, item.id)} download>Download</a>
-                    {#if !admin && canEdit}
-                      <button type="button" class="btn quiet" onclick={() => (restoreFor = item)}>Restore</button>
-                    {/if}
-                    {#if admin && item.local && canEdit}
-                      <button type="button" class="btn quiet" onclick={() => (restoreFor = item)}>Restore…</button>
-                    {/if}
-                    {#if item.local && canEdit}
-                      <button type="button" class="btn quiet danger" onclick={() => (deleteFor = item)} disabled={busy === `delete:${item.id}`}>Delete</button>
-                    {/if}
-                  </td>
-                </tr>
-                {#if verified[item.id] && !verified[item.id].ok}
-                  <tr><td colspan="5" class="bad">{verified[item.id].problems.join(' ')}</td></tr>
-                {/if}
-              {/each}
-            </tbody>
-          </table>
+    <CollectionPanel label="Backup copies" count={copyCountLabel}>
+      {#snippet toolbar()}
+        <div class="copy-toolbar">
+          <label class="search">Search copies
+            <input type="search" bind:value={copySearch} placeholder="Copy, destination or problem" />
+          </label>
+          <div class="scopes" role="group" aria-label="Show copies">
+            {#each BACKUP_COPY_SCOPES as item}
+              <button type="button" class="scope" aria-pressed={copyScope === item.key} onclick={() => (copyScope = item.key)}>{item.label}<small>{copyCounts[item.key]}</small></button>
+            {/each}
+          </div>
         </div>
+      {/snippet}
+
+      {#if copyItems.length === 0}
+        <div class="state-block">
+          <h3>No copy has been taken yet.</h3>
+          <p>Take one now, or wait for the schedule.</p>
+        </div>
+      {:else if shownCopies.length === 0}
+        <div class="state-block">
+          <h3>No copy matches that search or filter.</h3>
+          <p>Try another search, or show every copy.</p>
+          <button type="button" class="btn" onclick={clearCopyFilters}>Clear filters</button>
+        </div>
+      {:else}
+        <ul class="copy-list">
+          {#each shownCopies as item (item.id)}
+            <li>
+              <div class="copy-main">
+                <span class="copy-id"><code>{item.id}</code>{#if verified[item.id]}<span class="tag" class:bad={!verified[item.id].ok}>{verified[item.id].ok ? 'verified' : 'damaged'}</span>{/if}</span>
+                <small>{when(item.takenAt)} · {bytes(item.bytes)}{item.version ? ` · ${item.version}` : ''}</small>
+                {#if verified[item.id] && !verified[item.id].ok}<small class="bad">{verified[item.id].problems.join(' ')}</small>{/if}
+              </div>
+              <div class="copy-where">
+                {#if item.local}<span class="tag">this machine</span>{/if}
+                {#each item.remotes as remote (remote)}<span class="tag">{remote}</span>{/each}
+              </div>
+              <div class="copy-actions">
+                <button type="button" class="btn quiet" onclick={() => verify(item)} disabled={busy === `verify:${item.id}`}>
+                  {busy === `verify:${item.id}` ? 'Verifying…' : 'Verify'}
+                </button>
+                <a class="btn quiet" href={backupDownloadUrl(admin, item.id)} download>Download</a>
+                {#if !admin && canEdit}
+                  <button type="button" class="btn quiet" onclick={() => (restoreFor = item)}>Restore</button>
+                {/if}
+                {#if admin && item.local && canEdit}
+                  <button type="button" class="btn quiet" onclick={() => (restoreFor = item)}>Restore…</button>
+                {/if}
+                {#if item.local && canEdit}
+                  <button type="button" class="btn quiet danger" onclick={() => (deleteFor = item)} disabled={busy === `delete:${item.id}`}>Delete</button>
+                {/if}
+              </div>
+            </li>
+          {/each}
+        </ul>
       {/if}
+    </CollectionPanel>
+
       {#if admin}
         <p class="muted">An instance restore replaces the live database, so it runs with the server stopped: <code>reet backup restore --yes &lt;id&gt;</code>.</p>
       {/if}
@@ -875,33 +918,51 @@
           {#if admin}<div class="formacts"><button type="button" class="btn" onclick={() => (restoreFor = null)}>Close</button></div>{/if}
         </div>
       {/if}
-    </section>
 
-    <section class="block" aria-labelledby="runs-title">
-      <h3 id="runs-title">Recent runs</h3>
-      {#if status.runs.length === 0}
-        <p class="empty">Nothing has run yet.</p>
-      {:else}
-        <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users must be able to scroll this overflow region.) -->
-        <div class="tablewrap" tabindex="0" role="region" aria-label="Recent backup runs">
-          <table>
-            <thead><tr><th>Started</th><th>By</th><th>Outcome</th><th>Size</th><th>Off-site</th></tr></thead>
-            <tbody>
-              {#each status.runs as run (run.id)}
-                <tr>
-                  <td>{when(run.startedAt)}</td>
-                  <td>{run.trigger}</td>
-                  <td class:bad={run.state === 'failed'}>{run.state}</td>
-                  <td class="num">{bytes(run.bytes)}</td>
-                  <td class="offsite">{run.offsite || '—'}</td>
-                </tr>
-                {#if run.error}<tr><td colspan="5" class="bad">{run.error}</td></tr>{/if}
-              {/each}
-            </tbody>
-          </table>
+    <CollectionPanel label="Recent runs" count={runCountLabel}>
+      {#snippet toolbar()}
+        <div class="run-toolbar">
+          <label class="search">Search runs
+            <input type="search" bind:value={runSearch} placeholder="Trigger, outcome, destination or error" />
+          </label>
+          <div class="scopes" role="group" aria-label="Show runs">
+            {#each BACKUP_RUN_SCOPES as item}
+              <button type="button" class="scope" aria-pressed={runScope === item.key} onclick={() => (runScope = item.key)}>{item.label}<small>{runCounts[item.key]}</small></button>
+            {/each}
+          </div>
         </div>
+      {/snippet}
+
+      {#if runItems.length === 0}
+        <div class="state-block">
+          <h3>Nothing has run yet.</h3>
+          <p>A scheduled or manual copy appears here with its outcome.</p>
+        </div>
+      {:else if shownRuns.length === 0}
+        <div class="state-block">
+          <h3>No run matches that search or outcome.</h3>
+          <p>Try another search, or show every run.</p>
+          <button type="button" class="btn" onclick={clearRunFilters}>Clear filters</button>
+        </div>
+      {:else}
+        <ul class="run-list">
+          {#each shownRuns as run (run.id)}
+            <li>
+              <div class="run-main">
+                <strong>{run.trigger}</strong>
+                <small>{when(run.startedAt)}</small>
+                {#if run.error}<small class="bad">{run.error}</small>{/if}
+              </div>
+              <div class="run-meta">
+                <span class="state {run.state}">{run.state}</span>
+                <small>{bytes(run.bytes)}</small>
+                <small>{run.offsite || 'This machine only'}</small>
+              </div>
+            </li>
+          {/each}
+        </ul>
       {/if}
-    </section>
+    </CollectionPanel>
   {/if}
 </section>
 
@@ -915,15 +976,13 @@
 <style>
   .backups { padding-top: 4px; }
   .head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px; }
-  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-  h2 { margin: 8px 0 0; font: 500 2rem/1.15 var(--serif); letter-spacing: -0.03em; }
-  .lede { margin: 8px 0 0; max-width: 62ch; color: var(--muted); }
+  .lede { margin: 0; max-width: 62ch; color: var(--muted); }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .notice, .banner { margin: 16px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
   .notice.good { border-color: var(--good); }
   .notice.bad, .banner { border-color: var(--bad); }
   .banner { line-height: 1.6; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 22px; }
+  .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 22px; }
   .cards article { padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
   .cards h3, .block h3 { margin: 0; color: var(--muted); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
   .block h3 { font-size: 1rem; letter-spacing: -0.01em; text-transform: none; color: var(--ink); font-family: var(--serif); font-weight: 500; }
@@ -965,27 +1024,55 @@
   .grid2 label.check { display: flex; align-items: center; gap: 8px; align-self: end; }
   .grid2 label.check input { width: 18px; height: 18px; min-height: 0; }
   .formacts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-  .tablewrap { margin-top: 12px; overflow-x: auto; }
-  table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 0.82rem; }
-  th { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); color: var(--muted); font-weight: 600; white-space: nowrap; }
-  td { padding: 12px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
-  td code { font-size: 0.75rem; overflow-wrap: anywhere; }
-  td.rowacts { white-space: nowrap; text-align: right; }
-  td.rowacts .btn { padding: 4px 8px; min-height: 32px; }
-  .where { display: flex; flex-wrap: wrap; gap: 2px; }
-  .offsite { font-family: var(--mono); font-size: 0.7rem; max-width: 22rem; overflow-wrap: anywhere; }
+  .copy-toolbar, .run-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
+  .search { flex: 1 1 240px; }
+  .scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .scope:hover { border-color: var(--muted); color: var(--ink); }
+  .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .scope small { margin-left: 5px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .copy-list, .run-list { list-style: none; margin: 0; padding: 0; display: grid; }
+  .copy-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; gap: 12px; padding: 14px 2px; border-top: 1px solid var(--line-soft); }
+  .copy-list > li:first-child, .run-list > li:first-child { border-top: 0; }
+  .copy-main, .run-main { display: grid; gap: 3px; min-width: 0; }
+  .copy-id { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+  .copy-id code { font-size: 0.78rem; overflow-wrap: anywhere; }
+  .copy-main small, .run-main small { color: var(--muted); font-size: 0.76rem; line-height: 1.4; overflow-wrap: anywhere; }
+  .copy-where { display: flex; flex-wrap: wrap; gap: 4px; max-width: 16rem; }
+  .copy-where .tag { margin-left: 0; }
+  .copy-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+  .copy-actions .btn { padding: 4px 8px; min-height: 32px; }
+  .run-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 14px 2px; border-top: 1px solid var(--line-soft); }
+  .run-main strong { overflow-wrap: anywhere; }
+  .run-meta { display: grid; justify-items: end; gap: 3px; color: var(--muted); font-size: 0.74rem; text-align: right; }
+  .run-meta small { overflow-wrap: anywhere; }
+  .state { display: inline-block; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.72rem; text-transform: capitalize; }
+  .state.succeeded { border-color: color-mix(in srgb, var(--good) 35%, var(--line)); color: var(--good); }
+  .state.failed { border-color: color-mix(in srgb, var(--bad) 42%, var(--line)); color: var(--bad); }
+  .state.running { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent-text); }
+  .state-block { padding: 24px 0 16px; max-width: 58ch; }
+  .state-block h3 { margin: 0; font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; }
+  .state-block p { margin: 6px 0 12px; color: var(--muted); }
   .banner.import { border-color: var(--line); }
   .banner.import input[type='file'] { width: 100%; min-width: 0; max-width: 100%; }
   .keep { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; }
   .keep input { width: 18px; height: 18px; min-height: 0; flex: none; }
   .cmdline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
   .cmdline code { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); overflow-wrap: anywhere; }
+  @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 560px) {
-    h2 { font-size: 1.6rem; }
+    .cards { grid-template-columns: 1fr; }
     .settings { display: grid; grid-template-columns: 1fr 1fr; }
     .settings input { width: 100%; }
     .settings .btn { grid-column: 1 / -1; }
     .actions, .actions .btn { width: 100%; }
+    .copy-toolbar, .run-toolbar { gap: 10px; }
+    .search { flex-basis: 100%; }
+    .copy-list > li { grid-template-columns: 1fr; }
+    .copy-where, .copy-actions { grid-column: 1; grid-row: auto; }
+    .copy-actions { justify-content: flex-start; }
+    .run-meta { justify-items: start; text-align: left; }
   }
+  @media (pointer: coarse) { .scope, .search input, .copy-actions .btn { min-height: 44px; } }
+  @media (prefers-reduced-motion: no-preference) { .scope { transition: background-color 0.15s, border-color 0.15s, color 0.15s; } }
 </style>

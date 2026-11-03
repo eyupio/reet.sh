@@ -45,7 +45,11 @@ A live model change is reported as applied only after the adapter confirms it. O
 omitted; an explicit list must contain one valid model value. Claude requires that read-back. Incomplete or ambiguous replies clear the confirmed
 model and retained status detail, and show a notice. The controller also clears its stored model if an acknowledgement is lost after sending; busy or pre-send failures leave it
 unchanged. The person can choose a model again; the conversation and approvals are preserved.
-No effort control is added. An explicitly chosen startup model must also be confirmed before admission or the opening prompt; see below.
+No effort control is added yet. On a connection that negotiated `acp-agent-options-v1`, an available descriptor also lists the
+other selectable options the pinned adapter was measured to offer (for Claude and Codex: effort and model-config values), bounded,
+ordered and distinct. It is descriptive only: no control sends an option, and a value can depend on the current model. **Modes**
+remain the permission-sensitive switch list and **Model** the dynamic catalogue, so mode and model are not duplicated in this
+contract. An explicitly chosen startup model must also be confirmed before admission or the opening prompt; see below.
 
 
 ## Starting one

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // CodexCandidate is the launch profile for the Codex ACP adapter (SC2 probes and
@@ -35,6 +37,14 @@ var CodexCandidate = Spec{
 	// leaves the sandbox and the one where an automatic reviewer decides. Never
 	// "agent-full-access".
 	ChoosableModes: []string{"read-only", "agent"},
+	// Measured from codex-acp 1.13.1 (2 November 2026). These are descriptive
+	// only; no effort or other option control is offered yet. Reasoning effort
+	// can also be embedded in a model id, and the values can depend on the model.
+	Options: []terminalproto.ACPAgentOption{
+		{ID: "collaboration_mode", Category: terminalproto.AgentOptionCollaborationMode, Values: []string{"default", "plan"}},
+		{ID: "reasoning_effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+		{ID: "fast-mode", Category: terminalproto.AgentOptionModelConfig, Values: []string{"off", "on"}},
+	},
 	// session/cancel ends a turn in about a second but leaves a running command
 	// alive (probe report, "Codex gates, re-run"). Stop therefore ends the chat
 	// when a command is running, so nothing keeps running behind a stopped chat.

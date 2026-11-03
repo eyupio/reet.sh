@@ -92,6 +92,17 @@ jobs:
           node web/tests/inbox.e2e.mjs
           node web/tests/admin-users.e2e.mjs
           node web/tests/admin-team.e2e.mjs
+          node web/tests/admin-tickets.e2e.mjs
+          node web/tests/admin-email.e2e.mjs
+          node web/tests/admin-notifications.e2e.mjs
+          node web/tests/admin-backups.e2e.mjs
+          node web/tests/admin-settings.e2e.mjs
+          node web/tests/admin-activity.e2e.mjs
+          node web/tests/account-sessions.e2e.mjs
+          node web/tests/account-tokens.e2e.mjs
+          node web/tests/account-profile.e2e.mjs
+          node web/tests/account-security.e2e.mjs
+          node web/tests/account-mcp.e2e.mjs
           node web/tests/sync-activity.e2e.mjs
           node web/tests/skills-sync-simple.e2e.mjs
           node web/tests/machine-skill-sync.e2e.mjs

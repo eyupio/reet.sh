@@ -8,6 +8,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // ProtocolVersion is the ACP protocol this client speaks.
@@ -111,6 +113,11 @@ type Spec struct {
 	// offers no switch. A mode outside the list is refused even if the agent has
 	// it (Codex's "agent-full-access" is never offered).
 	ChoosableModes []string
+	// Options describes other selectable options the pinned adapter was
+	// measured to offer, such as effort or model-config values. It is
+	// descriptive only: it does not authorize a switch, and Modes remains the
+	// permission-sensitive list. Values can depend on the current model.
+	Options []terminalproto.ACPAgentOption
 	// EndChatOnStopWhileToolRuns ends the whole chat when a person stops a turn
 	// that has a tool still running. For an adapter whose session/cancel ends the
 	// turn but leaves the command alive (Codex), the only way to be sure nothing

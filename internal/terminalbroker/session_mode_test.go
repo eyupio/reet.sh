@@ -15,8 +15,9 @@ import (
 
 const switchACPID = "ses_fake000000000000000000000001"
 
-// switchMachine is a scripted connector for session-mode tests: it answers
-// creates and ends like chatFixture and records every SessionMode it is sent.
+// switchMachine is a scripted connector for session-mode and reattach tests:
+// it answers creates and ends like chatFixture and records every SessionMode
+// and ChatReattach it is sent.
 type switchMachine struct {
 	mu sync.Mutex
 	// reply answers a SessionMode; nil acknowledges it as running.
@@ -26,6 +27,11 @@ type switchMachine struct {
 	modes    []terminalproto.Message
 	// noChatID answers a structured create without an OpenCode session id.
 	noChatID bool
+	// reattach answers a ChatReattach; nil acknowledges it as running with
+	// the sent OpenCode session id.
+	reattach func(p *Peer, m terminalproto.Message, in *terminalproto.ChatReattach) terminalproto.Body
+	// reattachSendErr fails the send of a ChatReattach, as a lost connection.
+	reattachSendErr error
 }
 
 func (m *switchMachine) sent() []terminalproto.Message {
@@ -87,6 +93,20 @@ func switchFixtureCaps(t *testing.T, adjust func(*terminalproto.Capabilities)) (
 			}
 		case *terminalproto.End:
 			reply.Body = terminalproto.SessionChanged{State: terminalproto.Ended}
+		case *terminalproto.ChatReattach:
+			if machine.reattachSendErr != nil {
+				err := machine.reattachSendErr
+				machine.mu.Unlock()
+				return err
+			}
+			machine.modes = append(machine.modes, in)
+			script := machine.reattach
+			machine.mu.Unlock()
+			reply.Body = terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: op.ACPSessionID}
+			if script != nil {
+				reply.Body = script(p, in, op)
+			}
+			machine.mu.Lock()
 		case *terminalproto.SessionMode:
 			machine.modes = append(machine.modes, in)
 			script := machine.reply

@@ -9,7 +9,7 @@ const session = {id:'session-insights-001',agentId:'a1',title:'Improve session w
 const machine = {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:caps}
 const snapshot = () => ({checkedAt:Date.now(),repo:true,branch:'feature/session-workspace',ahead:2,behind:1,upstream:true,changed:3,conflicts:1,countsKnown:true,files:[{path:'src/session.ts',status:' M',added:42,removed:12},{path:'src/conflict.ts',status:'UU',added:3,removed:1},{path:'new.md',status:'??',added:0,removed:0}]})
 const pull = () => ({...snapshot(),pull:{number:42,title:'Improve the session workspace',url:'https://github.com/example/project/pull/42',state:'OPEN',draft:false,review:'CHANGES_REQUESTED',mergeable:'CONFLICTING',added:45,removed:13,checks:[{name:'Browser checks',state:'FAILURE',url:'https://github.com/example/project/actions/runs/1'},{name:'Build',state:'IN_PROGRESS'},{name:'Unit tests',state:'SUCCESS'}]}})
-async function open(width=1600,theme='dark', supported=true) {
+async function open(width=1600,theme='dark', supported=true, hold=null) {
  const calls=[], box={fail:false, answer:null}
  const routes={
   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
@@ -23,6 +23,7 @@ async function open(width=1600,theme='dark', supported=true) {
   '/api/v2/yolo':{allowed:false},
   [`/api/v2/terminal/sessions/${session.id}/inspect`]:async request=>{
    const q=new URL(request.url()).searchParams,view=q.get('view'),path=q.get('path');calls.push({view,path})
+   if(hold&&view==='status')await hold
    if(box.answer)return box.answer(view,path)
    if(box.fail)return {status:503,json:{error:'Machine unavailable'}}
    if(view==='status')return snapshot()
@@ -115,6 +116,52 @@ try {
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   await page.keyboard.press('Escape');await expect(panel).not.toBeVisible();await expect(page.getByRole('button',{name:'Details',exact:true})).toBeFocused()
   expect(errors).toEqual([]);await context.close()
+ }
+ // The overview keeps every section where it is while the current task changes: only the text inside the live slots changes.
+ for(const width of [1600,375]){
+  const steady=await open(width,'dark'),{page:sp,panel:sw}=steady
+  await expect(sw.getByText('3 changed files',{exact:true})).toBeVisible()
+  await expect(sw.getByText('Latest agent update')).toBeVisible()
+  const pinned=()=>sw.evaluate(el=>{const top=n=>Math.round(n.getBoundingClientRect().top),h=name=>[...el.querySelectorAll('.panel-body h4')].find(n=>n.textContent.trim().toLowerCase()===name);return{changes:top(h('workspace changes')),where:top(h("where it's working")),details:top(el.querySelector('.session-details > summary'))}})
+  const settle=()=>sp.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
+  const baseline=await pinned()
+  const longTitle='Edit web/src/lib/sessions/ContextPanel.svelte so the overview keeps every section where it is while the current task changes'
+  const longAsk='Allow the agent to run a command that rewrites several generated files across the whole repository before the build starts?'
+  const paragraphs=Array.from({length:14},(_,i)=>`Paragraph ${i+1} of a long agent update that wraps over several lines in a narrow panel.`).join('\n\n')
+  const tool=(id,title,status,extra={})=>({kind:'tool',toolCallId:id,title,toolKind:'edit',status,...extra})
+  const steps=[
+   ['a short task starts',[tool('s1','Run git status','in_progress',{command:'git status'})]],
+   ['a long task title',[tool('s1','Run git status','completed'),tool('s2',longTitle,'in_progress',{path:'web/src/lib/sessions/ContextPanel.svelte'})]],
+   ['a long agent update',[{kind:'agent',messageId:'long',text:paragraphs}]],
+   ['three tasks at once',[tool('s3','Run tests','in_progress',{command:'npm test'}),tool('s4','Read a file','in_progress',{path:'a.ts'}),tool('s5','Search the repository','in_progress',{command:'rg value'})]],
+   ['a task fails',[tool('s3','Run tests','failed')]],
+   ['nothing is running',[tool('s2','Edit','completed'),tool('s4','Read','completed'),tool('s5','Search','completed')]],
+   ['the agent asks permission',[{kind:'permission',permissionId:'ask1',title:longAsk,toolKind:'execute'}]],
+   ['the permission is answered',[{kind:'permission_resolved',permissionId:'ask1',allow:true}]],
+   ['the chat reports an error',[{kind:'status',state:'error',detail:longAsk+' '+longAsk}]],
+   ['work resumes',[{kind:'status',state:'working'},tool('s6','Run browser checks','in_progress',{command:'npm run check'})]],
+  ]
+  let seq=20
+  for(const [name,events] of steps){
+   for(const event of events)await sp.evaluate(e=>window.__insightStream.emit('chat',e),{seq:seq++,...event})
+   await settle()
+   expect(await pinned(),`${width}px: sections moved after ${name}`).toEqual(baseline)
+  }
+  // The updates did reach the panel: the headline carries the live task, and nothing wrapped to push the page sideways.
+  await expect(sw.locator('.session-summary h3')).toHaveText('Run browser checks')
+  expect(await sp.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  expect(steady.errors).toEqual([]);await steady.context.close()
+ }
+ // The first workspace read replaces a short "Checking…" line with the changes card, and the section after it stays put.
+ {
+  let release;const held=new Promise(done=>{release=done})
+  const first=await open(1600,'dark',true,held)
+  const whereTop=()=>first.panel.evaluate(el=>Math.round([...el.querySelectorAll('.panel-body h4')].find(n=>n.textContent.trim().toLowerCase()==="where it's working").getBoundingClientRect().top))
+  await expect(first.panel.getByText('Checking the workspace…')).toBeVisible()
+  const loading=await whereTop();release()
+  await expect(first.panel.getByText('3 changed files',{exact:true})).toBeVisible()
+  expect(await whereTop(),'sections moved when the workspace status arrived').toBe(loading)
+  expect(first.errors).toEqual([]);await first.context.close()
  }
  const returning=await open()
  await expect(returning.panel.getByText('3 changed files',{exact:true})).toBeVisible()

@@ -1,5 +1,13 @@
 # UI verification — 3 November 2026
 
+## Account card headline (3 November 2026)
+
+The card on the sign-in, sign-up and first-run setup pages now says "Your whole AI setup. Ready to control." The
+`authfit` section of `first-run.e2e.mjs` holds the words and failed against the old card ("On every machine.") before the
+change. Checked in Chromium against `vite preview` at 1280 and 390 px: the line break is kept, the headline fits and
+nothing scrolls sideways on the three pages. The dark scheme was not confirmed visually: the screenshot helper rendered
+the light palette at 390 px, so that colour pairing is unchanged and unchecked here.
+
 ## Landing page: the control room (3 November 2026)
 
 The signed-out page now leads with what reet.sh is for. Checked in Chromium against a production build with the

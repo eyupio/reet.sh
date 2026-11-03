@@ -69,7 +69,7 @@ try {
   const {context,page} = await open({width:375,height:812,status:{user:null,setupRequired:route==='/setup'}})
   await page.goto(`${base}${route}`)
   const headline = await page.locator('.headline').innerText()
-  expect(headline).toContain('Your whole AI setup. On every machine.')
+  expect(headline).toContain('Your whole AI setup. Ready to control.')
   const submit = await page.locator('form button[type="submit"]').evaluate(el=>el.getBoundingClientRect().bottom)
   expect(submit, `submit button bottom on ${route} at 375x812`).toBeLessThanOrEqual(812)
   await context.close()

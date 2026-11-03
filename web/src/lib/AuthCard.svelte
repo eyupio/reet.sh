@@ -7,7 +7,7 @@
 <section class="auth" aria-labelledby="auth-title">
   <aside class="intro" aria-label="About your workspace">
     <p class="eyebrow">{eyebrow}</p>
-    <p class="headline">Your whole AI setup. <br />On every machine.</p>
+    <p class="headline">Your whole AI setup. <br />Ready to control.</p>
     <p class="intro-copy">Enrol the machines you work on and your agents, skills and setups go with you. Open a terminal to use your installed tools and return to ongoing work.</p>
     <ol class="stages" aria-label="How your workspace works">
       <li><span aria-hidden="true">01</span><div><strong>Your machines</strong><small>Enrol a laptop, a VPS or a lab box with one command.</small></div></li>

@@ -18,6 +18,13 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## AUTH-CARD-1: the account card agrees with the landing page (3 November 2026)
+
+Branch `claude/fervent-wright-5omayg`. Copy only. The card on the sign-in, sign-up and first-run owner-setup pages
+(`AuthCard.svelte`) now says "Your whole AI setup. Ready to control." instead of "...On every machine.", so it agrees with the
+landing page's h1. The page title and meta description keep "on every machine" on purpose. `first-run.e2e.mjs` (`authfit`)
+holds the words. Checks and screenshots in [UI verification](docs/ui-verification.md).
+
 ## LANDING-1: the control-room landing page (3 November 2026)
 
 Branch `claude/fervent-wright-5omayg`. Copy and UI only; no API, database or server change. The signed-out page now says
@@ -29,7 +36,7 @@ an empty machine up to speed with one command. The h1 second line is "Your whole
 three new steps, and `StartFresh.svelte` (before and after slider, native range input with a label and `aria-valuetext`).
 The terminal palette lives in `landingTerminal.css` because `theme.test.mjs` forbids literal colours in components. The "On
 the workbench" line now says "Agent software: OpenCode today, more agents to come." and the sync card says a machine applies
-a plan only when its owner has opted in. The sign-in card headline ("Your whole AI setup. On every machine.") was left alone.
+a plan only when its owner has opted in. The sign-in card headline was left alone at first; see AUTH-CARD-1 below.
 
 Checks: `npm run check` (unit suites, svelte-check 0 errors, 0 warnings), `public-workspace.e2e.mjs` and `first-run.e2e.mjs`
 against `vite preview`, `go test ./web/`. Screenshots and scope in [UI verification](docs/ui-verification.md). The copy chip

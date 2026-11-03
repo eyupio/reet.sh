@@ -399,11 +399,15 @@ const TOOL_LABELS: Record<string, string> = {
 /** Why a closed chat is closed, in words. The transcript already shown stays on screen even when the machine can no
  *  longer reopen the chat, so the message says what can be done next rather than claiming the shown history is gone.
  *  `name` is the tool's product name. */
-export function endedReason(state: string, name: string): string {
-  if (state === 'lost') return `reet lost contact with this ${name} chat on the machine, for example when the connection closed or the reet service there restarted. The chat could not be restored from the agent's own history on the machine, so start a new chat to carry on. What was already shown stays here.`
-  if (state === 'ended') return `You ended this ${name} chat. What was already shown stays here; start a new chat to carry on.`
-  // An exited chat is one that stopped on its own or that the person ended: the state does not say which, so it does not guess.
-  return `This ${name} chat has ended. What was already shown stays here; start a new chat to carry on.`
+export function endedReason(state: string, name: string, canContinue = false): string {
+  // A missing process does not establish whether the agent still has its saved conversation.
+  const reason = state === 'lost'
+    ? `reet lost contact with this ${name} chat on the machine, for example when the connection closed or the reet service there restarted.`
+    : state === 'ended' ? `You ended this ${name} chat.` : `This ${name} chat has ended.`
+  const next = canContinue
+    ? 'Try Continue with history to load this conversation from the agent’s saved history into a new session. Any interrupted reply needs a new prompt.'
+    : 'Start a new chat to carry on.'
+  return `${reason} What was already shown stays here. ${next}`
 }
 
 export function toolLabel(kind: string): string {

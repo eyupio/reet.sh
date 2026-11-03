@@ -258,6 +258,8 @@ To start an AI agent instead of a shell, use **New agent session** in Terminals 
 
 A closed agent session offers **Continue session…** under its actions: reet starts a new terminal in the same folder and asks the agent to resume its last conversation there. OpenCode is supported today; other agents wait for a reviewed resume command, and the machine must run a reet that negotiated `resume-v1`.
 
+For a closed OpenCode chat, **Continue with history** appears beside the reason it ended when the conversation id is saved and the machine supports history. This loads that exact conversation into a new session, including after a lost connection or a failed restart restore. The old transcript stays in history. An interrupted reply needs a new prompt; recovery still depends on OpenCode's saved history being available on the machine.
+
 Keep the folders you work in as **projects** in the rail on Home: one folder on one machine each, picked by browsing the machine's folders live. Choosing one opens Start an agent with that folder filled in; saved multi-repository Projects were moved into the rail, and their old runs stay readable in Activity, where their worktrees can still be checked and removed; reet never removes a worktree by itself. [How projects work and their limits](docs/projects.md).
 
 Machine terminals retain the OS account’s usual sudo permissions and authentication. See [sudo setup and migration](docs/terminal-controller-commands.md#sudo-in-a-machine-terminal) for older restricted Linux service units.

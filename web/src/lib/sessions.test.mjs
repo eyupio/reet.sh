@@ -180,6 +180,14 @@ test('session header: agent · model · started, and the decisions line', () => 
   assert.equal(canContinueChat({ tool: 'opencode', structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: { acp: true, acpHistory: true } }), true)
   assert.equal(canContinueChat({ tool: 'opencode', structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: { acp: true } }), false)
   assert.equal(canContinueChat({ tool: 'opencode', structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }, { capabilities: {} }), false)
+  for (const state of ['lost', 'ended', 'exited']) {
+    const closed = { tool: 'opencode', structured: true, acpSessionId: 'ses_original', state, dir: '/home/u/site' }
+    assert.equal(canContinueChat(closed, { capabilities: { acp: true, acpHistory: true } }), true)
+    assert.equal(continueChatLaunch(closed).resumeAcp, 'ses_original')
+    assert.equal(continueChatLaunch(closed).prompt, undefined)
+    assert.equal(canContinueChat({ ...closed, acpSessionId: '' }, { capabilities: { acp: true, acpHistory: true } }), false)
+    assert.equal(canContinueChat({ ...closed, tool: 'claude' }, { capabilities: { acp: true, acpHistory: true } }), false)
+  }
 })
 
 test('changed files: at most twenty paths and the total', () => {

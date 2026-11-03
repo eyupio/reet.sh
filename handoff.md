@@ -18,6 +18,28 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## CHAT-RECOVERY-1: continue a closed chat with saved history (3 November 2026)
+
+Branch `fix/chat-history-recovery`, based on main `e91afad`, adds **Continue with history** beside the ended-chat reason
+when the OpenCode conversation id is saved and the machine advertises history support. It uses the existing exact-id
+continuation operation, creates a new row with the same folder/model, and sends no prompt automatically. A missing process
+no longer claims that native history could not be restored. The banner keeps the fresh-chat choice.
+
+Failed connector-start restores retain the native id in their lifecycle reports. A successful manual continuation replaces
+the old restart record. Manual and automatic loads share a supervisor gate that refuses a conversation already starting,
+running, or held by a process whose termination is unconfirmed. No protocol or database migration and no dependency added.
+
+Checks: web unit suites, svelte-check (0 errors/warnings), production build, the dedicated recovery browser contract,
+existing OpenCode chat browser contract, Claude/Codex browser contracts and Go vet pass. The recovery contract covers
+1360/390/320 px, both themes, lost/exited/ended states, unsupported history, offline machines, reload refusal and the same
+operation id after an uncertain reply. New Go recovery tests pass under race; the retained-id and restart-record tests and
+the web wording tests fail on unchanged main. Captures and scope are in [UI verification](docs/ui-verification.md).
+
+The repository race run is not green: `TestCloseKillsOrphanedGroupMembers` also fails on unchanged main in this environment.
+Broader validation results and the draft PR are recorded with the final change. Production chats, live provider reloads,
+macOS service recovery and preservation of a running reply across connector death were not exercised. Nothing is deployed
+or merged. Next: review the draft and CI; restoring a lost conversation still depends on its native store being available.
+
 ## Gaffer block mascot and executive summaries (2 November 2026)
 
 Draft [#418](https://github.com/eyupio/reet.sh/pull/418), branch `feat/gaffer-block-mascot`, based on main `1e626ff`, carries the owner-approved block portrait,

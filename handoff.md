@@ -27,8 +27,8 @@ green. Contracts and rulings are in `docs/superpowers/specs/2026-11-02-directory
 `...-admin-team-usage.md`, `...-admin-tickets.md`, `...-admin-email.md` and
 `...-admin-notifications.md`, `...-admin-backups.md`, `...-admin-settings.md`,
 `...-admin-activity.md`, `...-account-sessions.md`, `...-account-tokens.md`,
-`...-account-profile.md` and `...-account-security.md`; checks are in
-[docs/ui-verification.md](docs/ui-verification.md). The refresh merged through #428. Merge main into
+`...-account-profile.md`, `...-account-security.md` and `...-account-mcp.md`; checks are in
+[docs/ui-verification.md](docs/ui-verification.md). The refresh merged through #429. Merge main into
 the next branch as later work lands.
 
 **Merged, all with every required check green:**
@@ -52,7 +52,8 @@ the next branch as later work lands.
 | #425 | `85bde14` | Account → Sessions as one browser panel: count, search, this/other chips, sign-out actions; search reads friendly devices. |
 | #426 | `415d2dd` | Account → API tokens as a create card plus one token panel: count, search, used/never chips, one-time secret, revoke. |
 | #427 | `00840c7` | Account → Profile as one grouped preferences panel: count, Save, blank-date fallback; viewer name read-only. |
-| #428 | this PR | Account → Password as one panel: three fields, head action, mismatch check, successful body and notice. |
+| #428 | `f920dd2` | Account → Password as one panel: three fields, head action, mismatch check, successful body and notice. |
+| #429 | this PR | Account → MCP access clients in one panel: count, search, OAuth/bearer chips, connection actions; page sections unchanged. |
 
 **What the refresh established.** The directory pages (Lists, Community, Teams, Setups) share one
 bounded surface, a count, search, scope chips whose figures follow the search, one row anatomy and
@@ -86,7 +87,8 @@ browsers and the existing sign-out actions. API tokens is the second: a create c
 panel with count, search, used/never chips and the existing revoke confirmation. Profile is the
 third: eight preferences in four groups with Save in the panel head and a blank date format shown as
 the device's order. Password is the fourth: three fields in one panel with the mismatch check and
-the existing successful-change notice.
+the existing successful-change notice. MCP access is the fifth: one Connected clients panel with a
+count, search and OAuth/bearer chips; the connect card and other sections stay.
 
 **Rulings recorded in the specs.** Scope chips keep no URL state; Rows and Cards both survive; the
 directory pages use rows; ownership and role are each printed once; recency is relative with the
@@ -98,11 +100,11 @@ select is shown. No API, store, permission or dependency was added for the refre
 **Not claimed.** No physical phone or tablet, no screen reader, and no Safari or Firefox for any of
 the refreshed pages. Touch sizes were measured in an emulated coarse-pointer viewport. The Machines
 search matches observed reports, not saved intent. All seven Admin sections are refreshed. Account
-Sessions, API tokens, Profile and Password are refreshed; the rest of the Account pages are not yet.
+Sessions, API tokens, Profile, Password and MCP access are refreshed; Activity and Backups remain.
 
 **Next UI work, in order:**
-1. **Remaining Account pages**: MCP access, Activity and Backups (the Backups lists already inherit
-   the refreshed component).
+1. **Remaining Account pages**: Activity and Backups (the Backups lists already inherit the refreshed
+   component).
 2. **Skills/Machines follow-ups:** per-machine skill add/remove, the collapsed-badge summary for
    large fleets, and **Add now** where a scan is stale or not confirmed.
 3. **Machines audit minors:** N1 (mixed date formats), N7 (Commands dialog exits), H10 (icon
@@ -1441,6 +1443,7 @@ node web/tests/account-sessions.e2e.mjs
 node web/tests/account-tokens.e2e.mjs
 node web/tests/account-profile.e2e.mjs
 node web/tests/account-security.e2e.mjs
+node web/tests/account-mcp.e2e.mjs
 node web/tests/machines-search.e2e.mjs
 node web/tests/terminal-workspace.e2e.mjs
 node web/tests/terminal-lifecycle.e2e.mjs

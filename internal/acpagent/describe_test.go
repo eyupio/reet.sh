@@ -2,7 +2,12 @@
 
 package acpagent
 
-import "testing"
+import (
+	"slices"
+	"testing"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
+)
 
 func TestDescribeInstalledAdapterEvidence(t *testing.T) {
 	for _, tc := range []struct {
@@ -103,5 +108,49 @@ func TestCodexIsDarkUntilTheMachineOptsIn(t *testing.T) {
 	t.Setenv(ClaudeSwitch, "")
 	if _, ok := Lookup("claude"); ok {
 		t.Fatal("the codex switch registered claude")
+	}
+}
+
+// The descriptor carries the option values measured from each pinned adapter,
+// in the adapter's order, and a caller cannot mutate the profile through it.
+func TestDescribeAgentOptionValues(t *testing.T) {
+	t.Setenv(ClaudeSwitch, "1")
+	t.Setenv(CodexSwitch, "1")
+	for _, tc := range []struct {
+		tool, version string
+		want          []terminalproto.ACPAgentOption
+	}{
+		{"claude", "0.99.1", []terminalproto.ACPAgentOption{
+			{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"default", "low", "medium", "high", "xhigh", "max"}},
+			{ID: "fast", Category: terminalproto.AgentOptionModelConfig, Values: []string{"on", "off"}},
+			{ID: "ultracode", Category: terminalproto.AgentOptionModelConfig, Values: []string{"on", "off"}},
+		}},
+		{"codex", "1.13.1", []terminalproto.ACPAgentOption{
+			{ID: "collaboration_mode", Category: terminalproto.AgentOptionCollaborationMode, Values: []string{"default", "plan"}},
+			{ID: "reasoning_effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+			{ID: "fast-mode", Category: terminalproto.AgentOptionModelConfig, Values: []string{"off", "on"}},
+		}},
+	} {
+		got := Describe(tc.tool, true, tc.version)
+		if got.State != "available" || !got.Valid() {
+			t.Fatalf("%s descriptor: %+v", tc.tool, got)
+		}
+		if len(got.Options) != len(tc.want) {
+			t.Fatalf("%s options: %+v", tc.tool, got.Options)
+		}
+		for i := range tc.want {
+			if got.Options[i].ID != tc.want[i].ID || got.Options[i].Category != tc.want[i].Category || !slices.Equal(got.Options[i].Values, tc.want[i].Values) {
+				t.Fatalf("%s option %d: %+v, want %+v", tc.tool, i, got.Options[i], tc.want[i])
+			}
+		}
+		// The descriptor is a copy, not the profile's slice.
+		spec, _ := Lookup(tc.tool)
+		got.Options[0].Values[0] = "mutated"
+		if spec.Options[0].Values[0] == "mutated" {
+			t.Fatalf("%s descriptor aliased the profile", tc.tool)
+		}
+	}
+	if got := Describe("opencode", true, "1.19.5"); len(got.Options) != 0 || !got.Valid() {
+		t.Fatalf("opencode options: %+v", got)
 	}
 }

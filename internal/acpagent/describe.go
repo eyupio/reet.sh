@@ -27,6 +27,7 @@ func Describe(tool string, installed bool, version string) terminalproto.ACPAgen
 	}
 	entry.State = "available"
 	entry.Modes = append([]string(nil), spec.ChoosableModes...)
+	entry.Options = cloneAgentOptions(spec.Options)
 	if tool == "claude" {
 		// Only what the probe verified: approvals and a read-back model switch.
 		// Native-session replay and image prompts were not verified, so they stay off.
@@ -41,4 +42,16 @@ func Describe(tool string, installed bool, version string) terminalproto.ACPAgen
 	}
 	entry.History, entry.Images, entry.Model, entry.Approval = true, true, true, true
 	return entry
+}
+
+func cloneAgentOptions(in []terminalproto.ACPAgentOption) []terminalproto.ACPAgentOption {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]terminalproto.ACPAgentOption, len(in))
+	for i, option := range in {
+		out[i] = option
+		out[i].Values = append([]string(nil), option.Values...)
+	}
+	return out
 }

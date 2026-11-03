@@ -60,6 +60,7 @@ type AgentConfig struct {
 	acpHistory        bool
 	acpModel          bool
 	acpAgentMode      bool
+	acpAgentOptions   bool
 	acpImages         bool
 	acpApproval       bool
 	sessionMode       bool
@@ -743,6 +744,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpHistory = terminalproto.SupportsACPHistory(advertised)
 	cfg.acpModel = terminalproto.SupportsACPModel(advertised)
 	cfg.acpAgentMode = terminalproto.SupportsACPAgentMode(advertised)
+	cfg.acpAgentOptions = terminalproto.SupportsACPAgentOptions(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
 	cfg.acpApproval = terminalproto.SupportsACPApproval(advertised)
 	// session-mode-v1 stands on chats, their history and launches; it is
@@ -811,6 +813,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpAgentMode {
 		features = append(features, terminalproto.ACPAgentModeFeature)
+	}
+	if cfg.acpAgentOptions {
+		features = append(features, terminalproto.ACPAgentOptionsFeature)
 	}
 	if cfg.acpHistory {
 		features = append(features, terminalproto.ACPHistoryFeature)
@@ -956,6 +961,9 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 					if !cfg.acpAgentMode {
 						entry.Modes = nil
 					}
+					if !cfg.acpAgentOptions {
+						entry.Options = nil
+					}
 					entry.Questions = entry.Questions && cfg.acpQuestion
 				}
 				entries = append(entries, entry)
@@ -986,8 +994,11 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ACPModel:   acp && cfg.acpModel,
 		// Only when a descriptor lists a mode, so the flag never appears without one.
 		ACPAgentMode: acp && cfg.acpAgentMode && anyModes(chatAgents),
-		ACPImages:    acp && cfg.acpImages,
-		ACPApproval:  acp && cfg.acpApproval,
+		// Only when a descriptor lists another option, so the flag never appears
+		// without one.
+		ACPAgentOptions: acp && cfg.acpAgentOptions && anyOptions(chatAgents),
+		ACPImages:       acp && cfg.acpImages,
+		ACPApproval:     acp && cfg.acpApproval,
 		// Only on a connection that negotiated session-mode-v1, with chats and
 		// their history, and only when OpenCode can be launched in a
 		// terminal: a switch opens the OpenCode TUI.
@@ -1061,6 +1072,18 @@ func anyModes(agents *[]terminalproto.ACPAgent) bool {
 	}
 	for _, a := range *agents {
 		if len(a.Modes) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func anyOptions(agents *[]terminalproto.ACPAgent) bool {
+	if agents == nil {
+		return false
+	}
+	for _, a := range *agents {
+		if len(a.Options) > 0 {
 			return true
 		}
 	}

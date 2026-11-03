@@ -2,6 +2,8 @@
 
 package acpagent
 
+import "github.com/eyupio/reet.sh/internal/terminalproto"
+
 // ClaudeCandidate is the measured launch profile for the Claude Code ACP
 // adapter (SC2 probe, 31 October 2026). It is deliberately NOT in the agents
 // registry: Claude stays disabled until the remaining gates in the probe report
@@ -19,6 +21,15 @@ var ClaudeCandidate = Spec{
 	// session that starts in any other mode (acceptEdits, plan, auto) is refused
 	// rather than switched, so a profile can never weaken the approval contract.
 	RequireMode: "default",
+	// Measured from claude-agent-acp 0.99.1 (2 November 2026). These are
+	// descriptive only; no effort or model-config control is offered yet. The
+	// effort values are the ones that adapter reported for its default model,
+	// and can differ for another model.
+	Options: []terminalproto.ACPAgentOption{
+		{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"default", "low", "medium", "high", "xhigh", "max"}},
+		{ID: "fast", Category: terminalproto.AgentOptionModelConfig, Values: []string{"on", "off"}},
+		{ID: "ultracode", Category: terminalproto.AgentOptionModelConfig, Values: []string{"on", "off"}},
+	},
 	// Only credentials the probe and the adapter source show it reads. Provider
 	// redirects (ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_USE_BEDROCK,
 	// CLAUDE_CODE_USE_VERTEX, CLAUDE_CONFIG_DIR, ANTHROPIC_MODEL) are never

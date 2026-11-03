@@ -184,3 +184,38 @@ func TestACPAgentModesOnlyAfterNegotiation(t *testing.T) {
 		t.Fatal("flag set with no mode to choose")
 	}
 }
+
+// Other selectable options are listed, and the capability flag set, only on a
+// connection that negotiated acp-agent-options-v1 and only when an available
+// agent offers one.
+func TestACPAgentOptionsOnlyAfterNegotiation(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }, StructuredAgents: func() []terminalproto.ACPAgent {
+		return []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", Approval: true, Options: []terminalproto.ACPAgentOption{
+			{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low", "high"}},
+		}}}
+	}}
+	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPAgentsFeature + "," + terminalproto.ACPApprovalFeature
+	negotiateFeatures(&cfg, base)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if c.ACPAgentOptions || c.ACPAgents == nil || len((*c.ACPAgents)[0].Options) != 0 {
+		t.Fatalf("options leaked to a peer that did not negotiate them: %+v", c)
+	}
+	if terminalproto.SupportsACPAgentOptions(terminalFeatures(cfg)) {
+		t.Fatal("advertised the feature the peer did not offer")
+	}
+	negotiateFeatures(&cfg, base+","+terminalproto.ACPAgentOptionsFeature)
+	c = capabilitiesFor(cfg, true, terminalproto.Ready)
+	if !c.ACPAgentOptions || len((*c.ACPAgents)[0].Options) != 1 || c.Validate() != nil {
+		t.Fatalf("negotiated options: %+v %v", c, c.Validate())
+	}
+	if !terminalproto.SupportsACPAgentOptions(terminalFeatures(cfg)) {
+		t.Fatal("did not advertise the negotiated feature")
+	}
+	// No agent offers another option: the flag stays off even when negotiated.
+	cfg.StructuredAgents = func() []terminalproto.ACPAgent {
+		return []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", Approval: true}}
+	}
+	if c = capabilitiesFor(cfg, true, terminalproto.Ready); c.ACPAgentOptions {
+		t.Fatal("flag set with no option to describe")
+	}
+}

@@ -155,6 +155,9 @@ type Capabilities struct {
 	ACPModel   bool `json:"acpModel,omitempty"`
 	// ACPAgentMode is set on a connection that negotiated acp-agent-mode-v1.
 	ACPAgentMode bool `json:"acpAgentMode,omitempty"`
+	// ACPAgentOptions is set on a connection that negotiated
+	// acp-agent-options-v1 and an available descriptor has options to describe.
+	ACPAgentOptions bool `json:"acpAgentOptions,omitempty"`
 	// ACPImages is sent only when acp-image-v1 was negotiated as well.
 	ACPImages bool `json:"acpImages,omitempty"`
 	// ACPApproval is sent only when acp-approval-v1 was negotiated; a live
@@ -227,7 +230,7 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.Models && !c.TerminalControl || c.ModelsOff && (c.Models || !c.TerminalControl) {
 		return ErrInvalid
 	}
-	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ACPImages && !c.ACP || c.ACPApproval && !c.ACP || c.ACPQuestions && !c.ACP || c.ACPModel && !c.ACP || c.ACPAgentMode && !c.ACP || c.Inspect && !c.TerminalControl || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
+	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ACPImages && !c.ACP || c.ACPApproval && !c.ACP || c.ACPQuestions && !c.ACP || c.ACPModel && !c.ACP || c.ACPAgentMode && !c.ACP || c.ACPAgentOptions && !c.ACP || c.Inspect && !c.TerminalControl || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
 		return ErrInvalid
 	}
 	// A switch launches the tool in a terminal (launch-v1, which needs

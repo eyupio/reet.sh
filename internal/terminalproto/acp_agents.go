@@ -256,6 +256,12 @@ func validUUIDSessionID(s string) bool {
 	return true
 }
 
+// ChatReattachFor reports whether a lost chat of tool can be reattached in
+// place on this machine. Only OpenCode supports it.
+func (c Capabilities) ChatReattachFor(tool string) bool {
+	return c.ChatReattach && tool == "opencode"
+}
+
 // SessionModeFor reports whether a session of tool can switch between the
 // chat and the tool's own terminal on this machine: it negotiated
 // session-mode-v1 and can launch the tool in a terminal (launch-v1 with the

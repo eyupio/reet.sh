@@ -82,6 +82,11 @@ const ACPQuestionFeature = "acp-question-v1"
 // never sends or receives the body.
 const SessionModeFeature = "session-mode-v1"
 
+// ChatReattachFeature lets a controller ask a machine to reconnect a lost or
+// crashed OpenCode chat in place (chat_reattach). A peer without it never
+// sends or receives the body.
+const ChatReattachFeature = "chat-reattach-v1"
+
 // SessionModeTimeout bounds one session_mode swap on the machine: stopping
 // the old process, starting the other and, on failure, restoring the first.
 // The connector enforces it and the controller waits longer than it.
@@ -128,6 +133,16 @@ func SupportsACPToolDetails(features string) bool {
 func SupportsACPApproval(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == ACPApprovalFeature {
+			return true
+		}
+	}
+	return false
+}
+
+// SupportsChatReattach reports whether the peer negotiated chat-reattach-v1.
+func SupportsChatReattach(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ChatReattachFeature {
 			return true
 		}
 	}
@@ -382,6 +397,26 @@ func (m SessionMode) valid() bool {
 	default:
 		return false
 	}
+	return ValidACPSessionIDFor(m.Tool, m.ACPSessionID) && ValidDir(m.Dir) &&
+		(m.Model == "" || ValidModel(m.Model)) && (m.Title == "" || ValidTitle(m.Title))
+}
+
+// ChatReattach asks the machine to start the tool's chat again with
+// session/load under the existing reet session id, so a lost or crashed chat
+// keeps its row and transcript. It carries the row's launch data, like
+// SessionMode, so the machine does not depend on its own restart registry.
+type ChatReattach struct {
+	Tool         string `json:"tool"`
+	Dir          string `json:"dir"`
+	Model        string `json:"model,omitempty"`
+	Yolo         bool   `json:"yolo,omitempty"`
+	ACPSessionID string `json:"acpSessionId"`
+	Title        string `json:"title,omitempty"`
+	Trust        bool   `json:"trust,omitempty"`
+}
+
+func (ChatReattach) kind() string { return "chat_reattach" }
+func (m ChatReattach) valid() bool {
 	return ValidACPSessionIDFor(m.Tool, m.ACPSessionID) && ValidDir(m.Dir) &&
 		(m.Model == "" || ValidModel(m.Model)) && (m.Title == "" || ValidTitle(m.Title))
 }

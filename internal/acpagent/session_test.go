@@ -1932,3 +1932,58 @@ func TestAgentDefaultStartupDoesNotRequireAnExplicitModel(t *testing.T) {
 		}
 	}
 }
+
+// A caller that drops the load replay needs to know where it ends: OnReady
+// runs after the replay and before Start's own interrupted-tool and idle
+// events.
+func TestResumeSignalsReadyAfterReplay(t *testing.T) {
+	opts, got := options(t, "basic", testVersion)
+	opts.Resume = "ses_fake000000000000000000000001"
+	var mu sync.Mutex
+	readyAt := -1
+	opts.OnReady = func() {
+		got.mu.Lock()
+		n := len(got.all)
+		got.mu.Unlock()
+		mu.Lock()
+		readyAt = n
+		mu.Unlock()
+	}
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	mu.Lock()
+	at := readyAt
+	mu.Unlock()
+	if at < 0 {
+		t.Fatal("OnReady was not called")
+	}
+	got.mu.Lock()
+	before, after := append([]Event(nil), got.all[:at]...), append([]Event(nil), got.all[at:]...)
+	got.mu.Unlock()
+	replayed := false
+	for _, event := range before {
+		if event.Kind == "user" || event.Kind == "agent" {
+			replayed = true
+		}
+		if event.Kind == "status" || event.Kind == "tool" && event.Status == "failed" {
+			t.Fatalf("Start's own event arrived before OnReady: %+v", event)
+		}
+	}
+	if !replayed {
+		t.Fatal("replay arrived after OnReady")
+	}
+	interrupted, idle := false, false
+	for _, event := range after {
+		if event.Kind == "user" || event.Kind == "agent" {
+			t.Fatalf("replay arrived after OnReady: %+v", event)
+		}
+		interrupted = interrupted || event.Kind == "tool" && event.ToolCallID == "call_old" && event.Status == "failed"
+		idle = idle || event.Kind == "status" && event.State == "idle"
+	}
+	if !interrupted || !idle {
+		t.Fatalf("missing post-ready events: %+v", after)
+	}
+}

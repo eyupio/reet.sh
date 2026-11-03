@@ -287,6 +287,11 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	s.mode = mode
 	s.model = model
 	s.mu.Unlock()
+	// Every replayed update was handled by the reader before the load reply
+	// it precedes, so the replay has been delivered by now.
+	if opts.OnReady != nil {
+		opts.OnReady()
+	}
 	if !opened {
 		s.markInterrupted()
 	}

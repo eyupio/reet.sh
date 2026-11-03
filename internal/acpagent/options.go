@@ -42,6 +42,12 @@ type Options struct {
 	// ForceStopGrace is how long an agent has to end a turn after it is asked to
 	// cancel. After that the chat is ended explicitly instead of staying busy.
 	ForceStopGrace time.Duration
+	// OnReady, when set, is called once from Start after the session is open
+	// and any session/load replay has been delivered through OnEvent, and
+	// before the events Start emits itself: the interrupted-tool closes of a
+	// load and the first idle status. A caller that drops the replay opens its
+	// gate here so those events still reach it.
+	OnReady func()
 	// OnEvent receives bounded structured events in order. It must not block
 	// indefinitely; the connector's sender has its own deadline.
 	OnEvent func(Event)

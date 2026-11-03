@@ -2,6 +2,7 @@ package terminalproto
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -356,5 +357,81 @@ func TestCapabilitiesSessionModeSurvivesRoundTrip(t *testing.T) {
 	wire, _ = json.Marshal(c)
 	if strings.Contains(string(wire), "sessionMode") {
 		t.Fatalf("false sessionMode encoded: %s", wire)
+	}
+}
+
+func validChatReattach() ChatReattach {
+	return ChatReattach{Tool: "opencode", Dir: "/home/u/site", ACPSessionID: "ses_fake000000000000000000000001"}
+}
+
+func TestChatReattachDecodes(t *testing.T) {
+	m := validChatReattach()
+	data, err := Encode(acpMessage(&m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := decoded.Body.(*ChatReattach)
+	if !ok || *got != m || decoded.SessionID == "" {
+		t.Fatalf("decoded %T %+v", decoded.Body, decoded.Body)
+	}
+	if got.kind() != "chat_reattach" {
+		t.Fatalf("kind %q", got.kind())
+	}
+}
+
+func TestChatReattachRejectsBadFields(t *testing.T) {
+	bad := func(f func(*ChatReattach)) ChatReattach {
+		m := validChatReattach()
+		f(&m)
+		return m
+	}
+	for name, m := range map[string]ChatReattach{
+		"empty session id":        bad(func(m *ChatReattach) { m.ACPSessionID = "" }),
+		"relative dir":            bad(func(m *ChatReattach) { m.Dir = "../x" }),
+		"claude with opencode id": bad(func(m *ChatReattach) { m.Tool = "claude" }),
+		"bad model":               bad(func(m *ChatReattach) { m.Model = "a\x00b" }),
+		"control title":           bad(func(m *ChatReattach) { m.Title = "a\x1bb" }),
+	} {
+		m := m
+		if _, err := Encode(acpMessage(&m)); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("%s: encode err %v", name, err)
+		}
+	}
+	m := validChatReattach()
+	m.Model, m.Title, m.Yolo, m.Trust = "anthropic/x", "Site", true, true
+	if _, err := Encode(acpMessage(&m)); err != nil {
+		t.Fatalf("full body refused: %v", err)
+	}
+}
+
+func TestCapabilitiesChatReattachNeedsHistory(t *testing.T) {
+	c := testCapabilities()
+	c.TerminalControl, c.ACP, c.ChatReattach = true, true, true
+	if err := c.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("chat reattach without history: %v", err)
+	}
+	c.ACPHistory = true
+	if err := c.Validate(); err != nil {
+		t.Fatalf("chat reattach with acp and history refused: %v", err)
+	}
+	if !c.ChatReattachFor("opencode") || c.ChatReattachFor("claude") {
+		t.Fatal("ChatReattachFor must be true only for opencode")
+	}
+	c.ChatReattach = false
+	if c.ChatReattachFor("opencode") {
+		t.Fatal("reported without the capability")
+	}
+}
+
+func TestSupportsChatReattach(t *testing.T) {
+	if !SupportsChatReattach("acp-v1, "+ChatReattachFeature) || SupportsChatReattach("acp-v1") {
+		t.Fatal("chat reattach feature negotiation")
+	}
+	if ChatReattachFeature != "chat-reattach-v1" {
+		t.Fatal(ChatReattachFeature)
 	}
 }

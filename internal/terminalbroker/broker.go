@@ -42,7 +42,10 @@ type Broker struct {
 	approvals map[chatKey]map[string]bool
 	// switching holds the sessions a SwitchSessionMode is moving.
 	switching map[chatKey]struct{}
-	closed    bool
+	// reattaching holds the in-flight ReattachChat of each session; a second
+	// caller joins it instead of sending another request.
+	reattaching map[chatKey]*reattachCall
+	closed      bool
 	// lateRemoved hears of a remove whose ok answer came after its call.
 	lateRemoved func(uid int64, target WorktreeTarget, result terminalproto.WorktreeResult)
 	// lateReplies counts browse and branches answers that came after their

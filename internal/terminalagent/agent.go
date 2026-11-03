@@ -281,6 +281,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				if !terminalproto.SupportsSessionMode(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
 				}
+			case *terminalproto.ChatReattach:
+				if !terminalproto.SupportsChatReattach(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
 			case *terminalproto.ACPQuestionAnswer:
 				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) || !terminalproto.SupportsACPQuestion(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
@@ -578,7 +582,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			// as long as it runs, so a swap cannot start under it either.
 			held := false
 			switch msg.Body.(type) {
-			case *terminalproto.Create, *terminalproto.End:
+			case *terminalproto.Create, *terminalproto.End, *terminalproto.ChatReattach:
 				if !chats.sup.hold(msg.SessionID) {
 					return respond(terminalhost.ErrOperationConflict)
 				}
@@ -629,6 +633,31 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					swapCtx, cancel := context.WithTimeout(context.WithoutCancel(callCtx), sessionModeTimeout)
 					defer cancel()
 					changed, err := switcher.swap(swapCtx, msg.RequestID, msg.SessionID, in)
+					if callCtx.Err() != nil {
+						return
+					}
+					if err != nil {
+						reply.Body = chatResult(err)
+					} else {
+						reply.Body = changed.ForFeatures(headers.Get(terminalproto.FeatureHeader))
+					}
+					_ = send(callCtx, reply)
+				}(*op)
+				return nil
+			case *terminalproto.ChatReattach:
+				// A reattach starts OpenCode with session/load; answer from its
+				// own goroutine like a structured create. The start is bounded
+				// by openChat's 60 s timeout on the supervisor's context, so a
+				// connection lost meanwhile does not kill a chat the controller
+				// can adopt by sending the reattach again.
+				if !chats.sup.addWork() {
+					return respond(terminalhost.ErrManagerClosed)
+				}
+				held = false
+				go func(in terminalproto.ChatReattach) {
+					defer chats.sup.wg.Done()
+					defer chats.sup.unhold(msg.SessionID)
+					changed, err := chats.reattach(msg.RequestID, msg.SessionID, in)
 					if callCtx.Err() != nil {
 						return
 					}

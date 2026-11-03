@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shirou/gopsutil/v4/cpu"
+
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -152,5 +154,21 @@ func TestDefaultCollectorProducesBoundedReadings(t *testing.T) {
 		if reading.Value != nil && reading.Reason != "" {
 			t.Fatalf("%s had both a value and a reason", name)
 		}
+	}
+}
+
+func TestBusyAccountingIgnoresStealAndGuest(t *testing.T) {
+	// A machine that did 10s of work, idled 10s and was denied 80s by the
+	// hypervisor, with 4s of guest time already counted inside user.
+	before := cpu.TimesStat{}
+	after := cpu.TimesStat{User: 10, Idle: 10, Steal: 80, Guest: 4}
+	var sampler CPUSampler
+	at := time.Unix(0, 0)
+	total, idle := busyAccounting(before)
+	sampler.Observe(total, idle, at)
+	total, idle = busyAccounting(after)
+	got := sampler.Observe(total, idle, at.Add(30*time.Second))
+	if got.Value == nil || math.Abs(*got.Value-50) > 1e-9 {
+		t.Fatalf("busy share with steal and guest time: %+v, want 50", got)
 	}
 }

@@ -125,10 +125,21 @@ func cpuTimes(ctx context.Context) (float64, float64) {
 	}
 	var total, idle float64
 	for _, stat := range stats {
-		total += stat.Total()
-		idle += stat.Idle + stat.Iowait
+		t, i := busyAccounting(stat)
+		total += t
+		idle += i
 	}
 	return total, idle
+}
+
+// busyAccounting returns the CPU time this machine was given and the part of
+// it spent idle. Steal is time the hypervisor took away, so it is left out of
+// both: counting it as busy made a machine look loaded when it had simply been
+// denied the CPU. Guest time is already inside user time in /proc/stat, and
+// gopsutil's Total adds it a second time, so it is left out as well.
+func busyAccounting(stat cpu.TimesStat) (total, idle float64) {
+	total = stat.Total() - stat.Steal - stat.Guest - stat.GuestNice
+	return total, stat.Idle + stat.Iowait
 }
 
 func memoryReading(ctx context.Context) terminalproto.CapacityReading {

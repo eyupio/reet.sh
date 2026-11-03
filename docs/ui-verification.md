@@ -2296,3 +2296,30 @@ Validation:
 **Not checked.** No physical phone or tablet and no screen reader. A scan that never
 reports, and the per-machine picker on the Machines page, were not exercised by this
 pass.
+
+## Machines: add a skill from the machine card — 2 November 2026
+
+A machine card's menu now offers **Add a skill…** for a writer with an enrolled agent.
+The picker lists shelf skills with a linked source, marks the ones already installed
+with **Installed** and no Add button, and filters by name or source. Adding a skill
+reuses `installSkillOnMachine`, so it saves the existing additive intent, reuses a
+fresh saved set, or asks for a rescan when the machine has no recent complete scan.
+A normal add says **Installing {skill} on {machine}. Follow it on the card.**; a
+scan-first add says **Scan requested for {machine}. Add {skill} once it reports.**
+The menu item is disabled when the machine has no enrolled agent.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `machine-add-skill.e2e.mjs`: opens the picker from the card menu, checks the
+  installed and available rows, adds a skill and asserts the saved-intent and run
+  bodies, and checks the phone layout at 390 and 320 px with no horizontal overflow
+  and 44 px search/add targets.
+- `control.e2e.mjs`, `phone-zoom.e2e.mjs` and `navigation.e2e.mjs` pass.
+
+![Add a skill from a machine, desktop](images/ui/machine-add-skill-desktop.png)
+![Add a skill from a machine, phone](images/ui/machine-add-skill-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. Removing a skill
+from a machine remains a separate follow-up.

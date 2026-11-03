@@ -30,8 +30,8 @@ const keyboardHook = () => {
  window.__keyboard=value=>{height=value;events.dispatchEvent(new Event('resize'))}
 }
 // A phone (touch) on a session's screen, or on `path`.
-async function openSession({width, height, path='/sessions?agent=a1&session=s1', gates={}}) {
- const opened = await open({width, height, touch:true, gates, terminalStatus:active, terminalMachines:tmachines, routes:{
+async function openSession({width, height, path='/sessions?agent=a1&session=s1', gates={}, touch=true}) {
+ const opened = await open({width, height, touch, gates, terminalStatus:active, terminalMachines:tmachines, routes:{
   '/api/v2/machines/health': () => health(),
   '/api/v2/terminal/sessions': {sessions:fsessions},
   '/api/v2/folder-projects': {projects:fprojects,savedWaiting:0},
@@ -174,9 +174,10 @@ try {
   await context.close()
  }
 
- // The hover card shows the agent and model the session was started with, alongside where it runs.
+ // The hover card shows the agent and model the session was started with, alongside where it runs. The card is only
+ // offered on a hover-capable pointer, so this narrow layout has a mouse rather than touch.
  if (run('hover card model')) {
-  const {context,page,errors} = await openSession({width:390,height:844})
+  const {context,page,errors} = await openSession({width:390,height:844,touch:false})
   await page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
   const row = page.locator('aside#terminal-sessions').getByRole('button',{name:/^Refactor the store layer on studio/})
   await row.focus()

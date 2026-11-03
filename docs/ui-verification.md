@@ -2020,45 +2020,65 @@ Validation:
 people disclosures were checked only through their existing content, not with a
 new browser matrix. The other Admin and Account pages are unchanged.
 
-## Gaffer block mascot and executive summary — 2 November 2026
+## Gaffer flat cap, reactions and animation preference — 3 November 2026
 
-The approved portrait is a finer block mascot with a bald silhouette, small ears,
-blue eyes and short stubble. The status card is compact, uses the app’s normal
-surface, and keeps its factual tool update separate from the Yorkshire quip.
-Stepped bobs, glances, blinks and winks vary with the work state. Pause stops all
-decoration, including idle expressions; reduced motion removes animation and
-timed quote rotation.
+The approved portrait wears a brown herringbone flat cap, with the peak centred
+above his brow. Every work, attention, error, tea-break and sleeping pose uses the
+same shared avatar. The cap tips with his head. Reading glasses, a magnifier,
+pencil, stopwatch and notes follow the reported activity.
 
-The executive summary opens when a settled turn finishes, stops or reports an
-error. It shows a bounded excerpt of the agent’s final handover, reported file
-operations, tool totals, command statuses, snags and a next step. A closed session
-covers all retained activity. Missing handovers, interrupted commands and partial
-history are labelled; completed tools do not establish that tests passed. Hide /
-Show gives the conversation more room.
+Gestures play once and settle, with irregular 18–32 second rests during active
+work and an occasional blink. The library has 114 contextual work quotes and 23
+click/return asides. Active-work quotes rotate every 30 seconds without an
+immediate repeat; a phase change updates the quip immediately. Clicking Gaffer,
+or activating him with Enter or Space, gets a short reaction and contextual quip,
+with a two-second cooldown.
 
-Validation on main `1e626ff` plus this change:
+After at least 15 seconds away, returning to active work catches him with a brew
+before he startles back to duty. Returning to a finished turn or closed session
+catches him asleep before a stretch. Errors, lost sessions, reconnects and pending
+questions or approvals take priority. Session switching and tab visibility both
+work; stream replay must settle before a welcome reaction.
 
-- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+**Account → Profile → Appearance → Gaffer animation** saves the motion preference
+with the account, including for read-only users. Existing accounts migrate with
+animation on. Disabling animation, the view's pause button, and the device's
+reduced-motion setting stop the avatar while retaining Gaffer, quotes, factual
+updates, activity and executive summaries. The preference applies to all avatar
+instances, including the preview portraits.
+
+Validation on main `81121d8` plus this change:
+
+- `npm run check`: pass, with zero Svelte errors or warnings.
 - `npm run build`: pass, retaining the existing large-chunk warning.
-- `gafferProgress.test.mjs`: live/reconnecting/replay gates, latest-turn and
-  whole-session scopes, tool update deduplication, failed and unfinished tools,
-  final-handover selection, bounded plain text and truncated history.
-- `gaffer-progress.e2e.mjs`: image loading, contextual phases, quote rotation,
-  pause, timer/replay, summary collapse, failure and end states, keyboard controls,
-  and reduced motion in both themes at 320, 390 and 768 px with no overflow.
-- The full `chat.e2e.mjs` fixture passes against the production build, covering
-  streaming, permissions, typed questions, queued messages, attachments, stop,
-  continuation and the skill picker.
+- `gafferProgress.test.mjs`: quote variation, return poses and priority, failed
+  closed sessions, current-turn progress, replay and executive summaries.
+- `gaffer-progress.e2e.mjs`: gestures settle between events; quote timing, pause,
+  click cooldown, keyboard controls, leaving and returning to sessions, error and
+  approval priority, animation off without hiding summaries, timer/replay, and
+  both themes at 320, 390 and 768 px.
+- `account-profile.e2e.mjs`: preference saved and retained after reload, with phone
+  layouts at 320 and 390 px.
+- `chat.e2e.mjs` and `chat-recovery.e2e.mjs`: pass.
+- `go vet ./...`: pass. Focused race-enabled profile API and migration tests pass,
+  including partial updates, viewer preferences, account isolation and reopen.
+- The full local Go race run was stopped after
+  `TestCloseKillsOrphanedGroupMembers` failed. That failure also reproduces on the
+  clean starting revision; the process-cleanup code is unchanged by this PR.
 
-The desktop mocks below are the approved placement with illustrative session
-content. The phone captures use the same real chat fixture. The GIF records 64
-frames of the live component’s CSS animation over 6.4 seconds.
+The screenshots below use the real shared components and scripted activity. The
+GIF shows enlarged tea-break and sleeping return reactions over 70 frames at
+10 frames per second. All visible cap peaks were checked for central alignment.
 
-![Gaffer working, approved desktop mock](images/ui/gaffer-working-desktop.png)
-![Gaffer executive summary, approved desktop mock](images/ui/gaffer-summary-desktop.png)
-![Gaffer animation](images/ui/gaffer-animation.gif)
+![Gaffer working, desktop](images/ui/gaffer-working-desktop.png)
+![Gaffer executive summary, desktop](images/ui/gaffer-summary-desktop.png)
+![Gaffer tea-break and sleeping returns](images/ui/gaffer-animation.gif)
 ![Gaffer summary, phone light](images/ui/gaffer-summary-phone-light.png)
 ![Gaffer summary, phone dark](images/ui/gaffer-summary-phone-dark.png)
+![Gaffer activity and return mocks](images/ui/gaffer-personality-mocks.png)
+
+Run `node tests/serve-fixture.mjs gaffer-review` from `web/` for the interactive
+mock, or use `gaffer-progress` for the full scripted chat.
 
 **Not checked.** No physical phone or tablet, screen reader, Safari, Firefox or
 live provider. The fixtures use a scripted stream and do not modify a project.

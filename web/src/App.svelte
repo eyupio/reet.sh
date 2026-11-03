@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gafferAnimations } from './lib/gafferMotion'
   import Skeleton from './lib/Skeleton.svelte'
   import AppShell from './lib/shell/AppShell.svelte'
   import ProgressBar from './lib/shell/ProgressBar.svelte'
@@ -293,6 +294,7 @@
       clearToken()
       token = ''
       if (authMode === 'accounts') currentUser = null
+      gafferAnimations.set(true)
       needsAuth = true
       toast = null
       removePending = null
@@ -475,6 +477,7 @@
       const { profile } = await getProfile()
       if (actor !== currentUser?.id) return
       applyTheme(profile.theme)
+      gafferAnimations.set(profile.gafferAnimations ?? true)
       view = profile.shelfView
       defaultExpanded = profile.cardsExpanded
       timeZone = profile.timezone
@@ -532,6 +535,7 @@
         /* the local session is cleared even if the server call cannot be made */
       }
       currentUser = null
+      gafferAnimations.set(true)
       applyTheme('system')
       needsAuth = true
       token = ''

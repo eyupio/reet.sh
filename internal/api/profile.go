@@ -44,6 +44,7 @@ func (s *server) profileGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	var in struct {
+		GafferAnimations      *bool   `json:"gafferAnimations"`
 		Name                  *string `json:"name"`
 		Theme                 *string `json:"theme"`
 		Timezone              *string `json:"timezone"`
@@ -186,6 +187,10 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.CardsExpanded != nil {
 		profile.CardsExpanded = *in.CardsExpanded
 		detail["cardsExpanded"] = *in.CardsExpanded
+	}
+	if in.GafferAnimations != nil {
+		profile.GafferAnimations = *in.GafferAnimations
+		detail["gafferAnimations"] = *in.GafferAnimations
 	}
 	if in.TerminalRemoveOnClose != nil {
 		profile.TerminalRemoveOnClose = *in.TerminalRemoveOnClose

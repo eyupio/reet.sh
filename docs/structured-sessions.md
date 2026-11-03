@@ -90,11 +90,18 @@ remains the one card that asks for an answer.
 
 ## Gaffer’s work update
 
-Above the message box, Gaffer is a compact block portrait with a bald silhouette, blue eyes, small ears and short
-stubble. Stepped bobs, glances, blinks and winks accompany contextual Yorkshire quips: encouragement while the agent
-reads, searches, edits, runs commands or writes a reply; a quieter instruction to wait for an approval or answer. Quips rotate every
-eight seconds during active work without immediately repeating. They are presentation copy, not extra instructions
-sent to the agent or evidence of work completing.
+Above the message box, Gaffer is a compact block portrait with a front-facing tweed flat cap, blue eyes and short stubble.
+Brief, smooth gestures follow the agent’s activity: a thoughtful tilt while planning, a glance and glasses for reading,
+a magnifying glass for searches, a pencil for edits and a stopwatch for commands. Gestures settle after a second or two,
+with irregular 18–32 second rests during active work. Only an occasional blink loops. Contextual Yorkshire quips rotate
+every 30 seconds during active work without immediately repeating; status changes get a relevant quip immediately.
+They are presentation copy, not extra instructions sent to the agent or evidence of work completing.
+
+Click Gaffer (or focus him and press Enter or Space) for a cap-tip, wink or nod and a contextual quip. A two-second
+cooldown prevents repeated clicks from continually restarting him. After at least 15 seconds away from a session,
+returning catches him with a brew during active work or asleep after a finished turn or session, before he startles or
+stretches awake. This works when switching sessions as well as leaving the tab; short focus changes do not trigger it.
+An error, failed session, lost connection or pending decision always takes priority over a tea break or nap.
 
 The update uses the chat stream to show the current tool and target. A disclosure lists the five latest tool calls
 in this turn with their reported states, alongside counts of completed, active (pending or running) and failed tools.
@@ -105,8 +112,10 @@ that began before the chat opened.
 
 Approvals, questions, errors, stopped turns and reconnects override working messages. Reconnecting labels the tool
 counts as last seen, and finishes as a compact handover without claiming checks passed. Working, waiting and finished
-states have distinct decorative expressions. **Pause Gaffer animation and quotes** freezes all decoration while factual updates keep arriving.
-Reduced motion disables the animation and timed quote rotation; changing work states still updates the message.
+states have distinct decorative expressions. **Pause Gaffer animation** keeps him still for this view while quotes and
+factual updates keep arriving. **Account → Profile → Appearance → Gaffer animation** saves the animation preference
+with your account across browsers. Turning it off never hides Gaffer, quirky quotes, live updates, activity or the
+executive summary. The device’s reduced-motion preference also disables all Gaffer motion without silencing quotes.
 The avatar is decorative, changing facts are announced politely, and timers and quips do not repeatedly interrupt
 screen readers. Hidden tabs pause the decorative work.
 
@@ -121,10 +130,16 @@ the conversation, with the latest handover and a reminder to start a new session
 the bounded history is unavailable. The summary waits for replay to settle, disappears when new work starts, and
 can be hidden to give the conversation more room. It uses the existing stream without a model call or stored report.
 
-Approved appearance and placement, with illustrative session content:
+Approved appearance and placement, with illustrative session content. All poses use the same front-facing cap with its peak centred above the brow:
 
 ![Gaffer working](images/ui/gaffer-working-desktop.png)
 ![Gaffer session summary](images/ui/gaffer-summary-desktop.png)
+
+The activity, tea-break, sleeping, error, approval and click mocks share the same avatar:
+
+![Gaffer activity and return mocks](images/ui/gaffer-personality-mocks.png)
+
+For the interactive scripted preview, run `node tests/serve-fixture.mjs gaffer-review` from `web/`.
 
 The review fixture at `web/tests/fixtures/gaffer-progress.html` uses the real chat pane with a scripted stream. It has
 controls for work, approval, question, reconnect, failure, finished and ended states and both themes. It never contacts a

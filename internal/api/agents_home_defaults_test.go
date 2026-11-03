@@ -15,18 +15,18 @@ func TestProfileDefaultsRoundTrip(t *testing.T) {
 	f := launchAPIFixture(t, launchCaps("claude"))
 	code, out, raw := f.do(t, f.cookie, "GET", "/api/v2/profile", nil)
 	profile, _ := out["profile"].(map[string]any)
-	if code != 200 || profile["worktreesByDefault"] != true || profile["defaultBaseBranch"] != "" {
+	if code != 200 || profile["gafferAnimations"] != true || profile["worktreesByDefault"] != true || profile["defaultBaseBranch"] != "" {
 		t.Fatal("new person", code, raw)
 	}
-	code, out, raw = f.do(t, f.cookie, "PATCH", "/api/v2/profile", map[string]any{"defaultBaseBranch": "release/2.0", "worktreesByDefault": false})
+	code, out, raw = f.do(t, f.cookie, "PATCH", "/api/v2/profile", map[string]any{"defaultBaseBranch": "release/2.0", "worktreesByDefault": false, "gafferAnimations": false})
 	profile, _ = out["profile"].(map[string]any)
-	if code != 200 || profile["worktreesByDefault"] != false || profile["defaultBaseBranch"] != "release/2.0" {
+	if code != 200 || profile["gafferAnimations"] != false || profile["worktreesByDefault"] != false || profile["defaultBaseBranch"] != "release/2.0" {
 		t.Fatal("save", code, raw)
 	}
 	// Leaving a field out keeps it; the other settings are untouched.
 	code, out, raw = f.do(t, f.cookie, "PATCH", "/api/v2/profile", map[string]any{"theme": "dark"})
 	profile, _ = out["profile"].(map[string]any)
-	if code != 200 || profile["worktreesByDefault"] != false || profile["defaultBaseBranch"] != "release/2.0" || profile["theme"] != "dark" {
+	if code != 200 || profile["gafferAnimations"] != false || profile["worktreesByDefault"] != false || profile["defaultBaseBranch"] != "release/2.0" || profile["theme"] != "dark" {
 		t.Fatal("partial save", code, raw)
 	}
 	for _, bad := range []string{"..", "-main", "a b", "main.lock", "refs//x", "x~1", strings.Repeat("b", 256)} {
@@ -43,6 +43,23 @@ func TestProfileDefaultsRoundTrip(t *testing.T) {
 	profile, _ = out["profile"].(map[string]any)
 	if code != 200 || profile["worktreesByDefault"] != true || profile["defaultBaseBranch"] != "" {
 		t.Fatal("clear", code, raw)
+	}
+	code, out, raw = f.do(t, f.cookie, "PATCH", "/api/v2/profile", map[string]any{"gafferAnimations": true})
+	profile, _ = out["profile"].(map[string]any)
+	if code != 200 || profile["gafferAnimations"] != true {
+		t.Fatal("resume Gaffer animation", code, raw)
+	}
+	viewer, err := f.st.CreateUser("gaffer-viewer@example.test", "Viewer", "viewer", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out, raw = f.do(t, terminalLogin(t, f.st, viewer.ID), "PATCH", "/api/v2/profile", map[string]any{"gafferAnimations": false})
+	profile, _ = out["profile"].(map[string]any)
+	if code != 200 || profile["gafferAnimations"] != false {
+		t.Fatal("viewer preference", code, raw)
+	}
+	if owner, err := f.st.ProfileFor(f.uid); err != nil || !owner.GafferAnimations {
+		t.Fatal("viewer preference changed owner", err, owner)
 	}
 }
 

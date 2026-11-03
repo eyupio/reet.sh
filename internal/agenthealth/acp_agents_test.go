@@ -222,6 +222,30 @@ func TestACPAgentOptionsOnlyAfterNegotiation(t *testing.T) {
 
 // Capabilities.ChatReattach needs the negotiated feature, chats with their
 // history, and OpenCode among the chat tools.
+func TestChatReattachDetailIsEchoedOnlyWhenAdvertised(t *testing.T) {
+	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPHistoryFeature + "," + terminalproto.ChatReattachFeature
+	for _, tc := range []struct {
+		name     string
+		features string
+		want     bool
+	}{
+		{"advertised", base + "," + terminalproto.ChatReattachDetailFeature, true},
+		{"not advertised", base, false},
+		{"detail without reattach", terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPHistoryFeature + "," + terminalproto.ChatReattachDetailFeature, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
+			negotiateFeatures(&cfg, tc.features)
+			if got := terminalproto.SupportsChatReattachDetail(terminalFeatures(cfg)); got != tc.want {
+				t.Fatalf("detail = %v, want %v: %q", got, tc.want, terminalFeatures(cfg))
+			}
+			if err := capabilitiesFor(cfg, true, terminalproto.Ready).Validate(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestChatReattachCapabilityNeedsNegotiationAndHistory(t *testing.T) {
 	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature
 	for _, tc := range []struct {

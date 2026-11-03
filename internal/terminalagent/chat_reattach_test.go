@@ -356,8 +356,21 @@ func TestReattachWhileStartingSaysStarting(t *testing.T) {
 	if !errors.Is(err, terminalhost.ErrOperationConflict) {
 		t.Fatalf("got %v", err)
 	}
-	if got := chatResult(err); got != (terminalproto.Result{Code: terminalproto.Conflict, Detail: terminalproto.ConflictStarting}) {
+	if got := resultFor(err, terminalproto.ChatReattachFeature+","+terminalproto.ChatReattachDetailFeature); got != (terminalproto.Result{Code: terminalproto.Conflict, Detail: terminalproto.ConflictStarting}) {
 		t.Fatalf("result %+v", got)
+	}
+	// A controller that did not advertise the detail gets the plain conflict.
+	if got := resultFor(err, terminalproto.ChatReattachFeature); got != (terminalproto.Result{Code: terminalproto.Conflict}) {
+		t.Fatalf("result without the detail feature %+v", got)
+	}
+	if got := chatResult(err); got != (terminalproto.Result{Code: terminalproto.Conflict}) {
+		t.Fatalf("chatResult %+v", got)
+	}
+	// Every other error is unchanged by the features.
+	for _, e := range []error{terminalhost.ErrOperationConflict, terminalhost.ErrManagerClosed, errors.New("boom")} {
+		if resultFor(e, terminalproto.ChatReattachDetailFeature) != result(e) {
+			t.Fatalf("resultFor changed %v", e)
+		}
 	}
 	if loads.count() != 0 {
 		t.Fatalf("session/load sent %d times", loads.count())
@@ -379,8 +392,22 @@ func TestReattachOwnedElsewhereIsPlainConflict(t *testing.T) {
 }
 
 // The still-starting conflict reaches the controller as a valid result that
-// carries the starting detail.
+// carries the starting detail when the controller negotiated it, and is a
+// plain conflict when it did not.
 func TestReattachDispatchStartingSaysStarting(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		features string
+		detail   string
+	}{
+		{"detail negotiated", "," + terminalproto.ChatReattachDetailFeature, terminalproto.ConflictStarting},
+		{"detail not negotiated", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) { reattachDispatchStarting(t, tc.features, tc.detail) })
+	}
+}
+
+func reattachDispatchStarting(t *testing.T, extra, detail string) {
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	home := t.TempDir()
@@ -394,7 +421,7 @@ func TestReattachDispatchStartingSaysStarting(t *testing.T) {
 	sup.sessions[reattachSessionID] = &chatSession{id: reattachSessionID, tool: "opencode", acpID: proc.SessionID(), state: terminalproto.Creating}
 	sup.mu.Unlock()
 	headers := http.Header{terminalproto.FeatureHeader: {terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," +
-		terminalproto.ACPHistoryFeature + "," + terminalproto.ChatReattachFeature}}
+		terminalproto.ACPHistoryFeature + "," + terminalproto.ChatReattachFeature + extra}}
 	out := &sent{}
 	handle, cleanup := FactoryWithChats(opts, &ChatSupervisor{s: sup})(ctx, http.DefaultClient, headers, 1, out.send)
 	defer cleanup()
@@ -405,7 +432,7 @@ func TestReattachDispatchStartingSaysStarting(t *testing.T) {
 	}
 	reply := out.waitFor(t, func(m terminalproto.Message) bool { return m.RequestID == reattachRequestID })
 	got, ok := reply.Body.(terminalproto.Result)
-	if !ok || got.Code != terminalproto.Conflict || got.Detail != terminalproto.ConflictStarting {
+	if !ok || got.Code != terminalproto.Conflict || got.Detail != detail {
 		t.Fatalf("reply %#v", reply.Body)
 	}
 	if err := reply.Validate(); err != nil {

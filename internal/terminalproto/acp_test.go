@@ -436,6 +436,15 @@ func TestSupportsChatReattach(t *testing.T) {
 	}
 }
 
+func TestSupportsChatReattachDetail(t *testing.T) {
+	if !SupportsChatReattachDetail("chat-reattach-v1, "+ChatReattachDetailFeature) || SupportsChatReattachDetail("chat-reattach-v1") || SupportsChatReattachDetail("") {
+		t.Fatal("chat reattach detail feature negotiation")
+	}
+	if ChatReattachDetailFeature != "chat-reattach-detail-v1" {
+		t.Fatal(ChatReattachDetailFeature)
+	}
+}
+
 // A conflict may say the chat is still starting, and nothing else: every
 // other result code keeps refusing a detail it never carried.
 func TestConflictResultStartingDetail(t *testing.T) {

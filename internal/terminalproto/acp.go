@@ -82,6 +82,12 @@ const ACPQuestionFeature = "acp-question-v1"
 // never sends or receives the body.
 const SessionModeFeature = "session-mode-v1"
 
+// ChatReattachDetailFeature is advertised by a controller that understands a
+// Conflict answer to chat_reattach carrying a detail marker (ConflictStarting:
+// the chat is still starting). A machine sends that marker only to a controller
+// that advertised it; any other gets a plain Conflict.
+const ChatReattachDetailFeature = "chat-reattach-detail-v1"
+
 // ChatReattachFeature lets a controller ask a machine to reconnect a lost or
 // crashed OpenCode chat in place (chat_reattach). A peer without it never
 // sends or receives the body.
@@ -143,6 +149,18 @@ func SupportsACPApproval(features string) bool {
 func SupportsChatReattach(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == ChatReattachFeature {
+			return true
+		}
+	}
+	return false
+}
+
+// SupportsChatReattachDetail reports whether the peer negotiated
+// chat-reattach-detail-v1: a controller that advertises it understands a
+// Conflict answer carrying a detail marker.
+func SupportsChatReattachDetail(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ChatReattachDetailFeature {
 			return true
 		}
 	}

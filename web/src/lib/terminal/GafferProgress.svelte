@@ -3,8 +3,8 @@
   import { toolLabel, toolState, toolTarget, type ChatState } from '../chat'
   import { gafferProgress, gafferQuote, observedTime, recentToolState, type GafferPhase } from '../gafferProgress'
   import { gafferSummary } from '../gafferSummary'
-  import { GAFFER_GESTURE_MS, gafferAnimations } from '../gafferMotion'
-  import { GAFFER_AWAY_AFTER, gafferAside, gafferGesture, gafferPose, type GafferPose, type GafferReaction } from '../gafferPersonality'
+  import { GAFFER_SETTLE_MS, gafferAnimations, gafferGestureMs } from '../gafferMotion'
+  import { GAFFER_AWAY_AFTER, gafferAside, gafferClickAside, gafferClickReaction, gafferClickRun, gafferGesture, gafferPose, type GafferPose, type GafferReaction } from '../gafferPersonality'
   import GafferAvatar from './GafferAvatar.svelte'
 
   let { chat, sessionId = '', dir = '', agent = 'Agent', replayed = true, ended = false, sessionFailed = false, reattaching = false }: { chat: ChatState; sessionId?: string; dir?: string; agent?: string; replayed?: boolean; ended?: boolean; sessionFailed?: boolean; reattaching?: boolean } = $props()
@@ -29,38 +29,62 @@
   let welcomePose = $state<GafferPose | null>(null), pendingReturn = $state(false)
   const pose = $derived(needsYou || gafferPose(view.phase) === 'concerned' ? gafferPose(view.phase) : welcomePose ?? gafferPose(view.phase))
   let welcomeTimer: ReturnType<typeof setTimeout> | undefined
-  let settleTimer: ReturnType<typeof setTimeout> | undefined
-  let lastGestureAt = -Infinity, nextGestureAt = 0, lastClickAt = -Infinity
+  let gestureTimer: ReturnType<typeof setTimeout> | undefined, asideTimer: ReturnType<typeof setTimeout> | undefined
+  let lastGestureAt = -Infinity, nextGestureAt = 0, gestureEndsAt = 0
+  let clicks = $state({ count: 0, at: -Infinity }), clickAside = $state('')
+  let lastClickReaction: GafferReaction = ''
+  let queuedClick: { reaction: GafferReaction; phase: GafferPhase; pose: GafferPose } | null = null
 
   function gesture(next: GafferReaction) {
     if (still) return
+    clearTimeout(gestureTimer)
     reaction = next; reactionKey++; lastGestureAt = Date.now()
-    nextGestureAt = Date.now() + 18_000 + Math.random() * 14_000
+    const lifetime = gafferGestureMs(next) + GAFFER_SETTLE_MS
+    gestureEndsAt = Date.now() + lifetime
+    nextGestureAt = gestureEndsAt + 18_000 + Math.random() * 14_000
+    gestureTimer = setTimeout(() => {
+      const pending = queuedClick; queuedClick = null
+      reaction = ''; gestureEndsAt = 0
+      // At most one reply waits. Changed work, a snag or a decision invalidates the old nudge.
+      if (pending && !still && !welcomePose && pending.phase === view.phase && pending.pose === pose) gesture(pending.reaction)
+    }, lifetime)
+  }
+  function stopGesture() {
+    clearTimeout(gestureTimer); queuedClick = null; gestureEndsAt = 0; reaction = ''
+  }
+  function clearAside() {
+    clearTimeout(asideTimer); clickAside = ''
   }
   function cancelWelcome() {
-    clearTimeout(welcomeTimer); clearTimeout(settleTimer); welcomePose = null
+    clearTimeout(welcomeTimer); welcomePose = null
   }
   function welcome() {
     pendingReturn = false
+    stopGesture(); clearAside()
     const resting = gafferPose(view.phase, true)
     quote = gafferAside('return', resting, agent, quote); quoteAt = Date.now()
     if ((resting === 'tea' || resting === 'asleep') && !still) {
       welcomePose = resting
       // Let the sip finish and briefly rest before he notices the user. A doze still wakes promptly.
-      const welcomeDelay = resting === 'tea' ? GAFFER_GESTURE_MS + 200 : 900
+      const welcomeDelay = resting === 'tea' ? gafferGestureMs('sip') + GAFFER_SETTLE_MS : 900
       welcomeTimer = setTimeout(() => {
         welcomePose = null; gesture(resting === 'asleep' ? 'stretch' : 'startle')
       }, welcomeDelay)
-      settleTimer = setTimeout(() => { reaction = '' }, welcomeDelay + 2_100)
     } else gesture(gafferGesture(view.phase))
   }
   function greet() {
-    if (Date.now() - lastClickAt < 2_000) return
-    lastClickAt = Date.now()
+    const click = gafferClickRun(clicks, Date.now())
+    if (!click) return
+    clicks = click
     const resting = pose
-    cancelWelcome()
-    quote = gafferAside('click', resting, agent, quote); quoteAt = Date.now()
-    gesture(resting === 'asleep' ? 'stretch' : resting === 'tea' ? 'startle' : resting === 'concerned' ? 'shake' : resting === 'attention' ? 'listen' : 'tip-cap')
+    clickAside = gafferClickAside(resting, agent, click.count, clickAside || quote); quoteAt = Date.now()
+    clearTimeout(asideTimer); asideTimer = setTimeout(() => { clickAside = '' }, 12_000)
+    // The quip responds immediately, even with motion off. Never restart a performance mid-gesture.
+    if (still || welcomePose) return
+    const next = gafferClickReaction(resting, click.count, lastClickReaction)
+    lastClickReaction = next
+    if (Date.now() < gestureEndsAt) queuedClick = { reaction: next, phase: view.phase, pose: resting }
+    else gesture(next)
   }
 
   // Offer Read more only when the three-line clamp really hides text; re-measure when the pane resizes.
@@ -83,7 +107,7 @@
       // Stream replay can briefly remove the prompt. Only a confirmed new prompt restarts the timer.
       if (confirmed && turn !== 'unavailable' && turn !== observedTurn) { observedTurn = turn; observedAt = 0; seconds = 0; details = false }
       if (phase !== lastPhase) {
-        cancelWelcome()
+        cancelWelcome(); stopGesture(); clearAside()
         quote = gafferQuote(phase, agent, quote); lastPhase = phase; quoteAt = Date.now()
         if (visible && (needsYou || phase === 'error' || Date.now() - lastGestureAt >= 5_000)) gesture(gafferGesture(phase))
         else reaction = ''
@@ -93,7 +117,7 @@
       if (returning && confirmed && visible && !isHidden) welcome()
     })
   })
-  $effect(() => { if (still) untrack(() => { cancelWelcome(); reaction = '' }) })
+  $effect(() => { if (still) untrack(() => { cancelWelcome(); stopGesture() }) })
 
   onMount(() => {
     const media = matchMedia('(prefers-reduced-motion: reduce)')
@@ -108,7 +132,7 @@
     const leave = () => {
       hidden = true
       if (!awayAt) awayAt = Date.now()
-      cancelWelcome()
+      cancelWelcome(); stopGesture(); clearAside()
       try { if (storageKey && view.visible) sessionStorage.setItem(storageKey, String(awayAt)) } catch { /* optional decoration */ }
     }
     const arrive = () => {
@@ -133,7 +157,7 @@
       if (!still && view.active && !welcomePose && Date.now() >= nextGestureAt) gesture(gafferGesture(view.phase))
     }, 1000)
     return () => {
-      leave(); clearInterval(timer); cancelWelcome()
+      leave(); clearInterval(timer); cancelWelcome(); stopGesture(); clearAside()
       media.removeEventListener('change', motion); document.removeEventListener('visibilitychange', visibility)
       window.removeEventListener('blur', leave); window.removeEventListener('focus', arrive); window.removeEventListener('pagehide', leave)
     }
@@ -141,9 +165,9 @@
 </script>
 
 {#if view.visible}
-  <section class="gaffer-progress" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:compact={stopped} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase}>
+  <section class="gaffer-progress" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:compact={stopped} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-poke-count={clicks.count}>
     <div class="gaffer-main">
-      <button type="button" class="portrait" aria-label="Say ey up to Gaffer" title="Say ey up to Gaffer" onclick={greet}><GafferAvatar variant={stopped ? 'portrait' : 'bust'} active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} paused={still} /></button>
+      <button type="button" class="portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant={stopped ? 'portrait' : 'bust'} active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} paused={still} /></button>
       <div class="brief">
         <div class="byline"><strong>Gaffer</strong><span class="role">The boss</span><span class="agent">{agent}</span></div>
         <div class="live-update" role="status" aria-live="polite" aria-atomic="true">
@@ -158,8 +182,9 @@
             {#if longHandover}<button type="button" class="more" aria-expanded={handoverMore} onclick={() => handoverMore = !handoverMore}>{handoverMore ? 'Show less' : 'Read more'}</button>{/if}
           </div>
         {:else}
-          <p class="quote" aria-live="off"><span aria-hidden="true">“</span>{quote}<span aria-hidden="true">”</span></p>
+          <p class="quote" role={clickAside ? 'status' : undefined} aria-live={clickAside ? 'polite' : 'off'}><span aria-hidden="true">“</span>{clickAside || quote}<span aria-hidden="true">”</span></p>
         {/if}
+        {#if summary && clickAside}<p class="quote click-aside" role="status" aria-live="polite"><span aria-hidden="true">“</span>{clickAside}<span aria-hidden="true">”</span></p>{/if}
       </div>
       <button type="button" class="quiet pause" aria-label={paused ? 'Resume Gaffer animation' : 'Pause Gaffer animation'} title={!$gafferAnimations ? 'Animation is off in Account → Profile' : reduced ? 'Your device requests reduced motion' : paused ? 'Resume animation' : 'Pause animation; quotes and updates continue'} aria-pressed={paused || !$gafferAnimations || reduced} disabled={!$gafferAnimations || reduced} onclick={() => paused = !paused}>
         <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">{#if paused}<path d="m7 4 9 6-9 6z" />{:else}<rect x="5" y="4" width="3" height="12" rx="1" /><rect x="12" y="4" width="3" height="12" rx="1" />{/if}</svg>

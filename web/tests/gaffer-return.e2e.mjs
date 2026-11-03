@@ -28,6 +28,10 @@ try {
   // The production welcome timer must not remove the strip halfway through its playback.
   await page.clock.fastForward(duration / 2 + 100)
   await expect(avatar).toHaveAttribute('data-pose', 'tea')
+  const continuingSip = await frames.elementHandle()
+  await panel.getByRole('button', { name: 'Say ey up to Gaffer' }).click()
+  expect(await continuingSip.evaluate(el => el.isConnected)).toBe(true)
+  await expect(avatar).toHaveAttribute('data-pose', 'tea')
   // Virtual time controls lifecycle timers; sample CSS playback explicitly as the browser clock is separate.
   expect(await frames.evaluate((el, duration) => {
     const [animation] = el.getAnimations(); animation.pause(); animation.currentTime = duration * .8
@@ -36,9 +40,9 @@ try {
   expect(await frames.evaluate((el, duration) => {
     el.getAnimations()[0].currentTime = duration + 1
     return new DOMMatrix(getComputedStyle(el).transform).m41
-  }, duration)).toBe(0)
+  }, duration)).toBe(-1152)
   await expect(avatar).toHaveAttribute('data-pose', 'tea')
-  await page.clock.fastForward(duration)
+  await page.clock.fastForward(duration / 2 + 400)
   await expect(avatar).toHaveAttribute('data-pose', 'duty')
   await expect(avatar).toHaveAttribute('data-reaction', 'startle')
 

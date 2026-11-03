@@ -1,6 +1,9 @@
 // Reproducible screenshots of the actual components, using the scripted fixture rather than a live session.
 import { chromium, expect } from '@playwright/test'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startHarness } from './helpers/harness.mjs'
 
@@ -14,7 +17,7 @@ try {
   await page.locator('.intro-art image').evaluateAll(images => Promise.all(images.map(async el => {
     const image = new Image(); image.src = el.href.baseVal; await image.decode()
   })))
-  await page.screenshot({ path: `${directory}gaffer-phosphor-review.png`, fullPage: true })
+  await page.screenshot({ path: `${directory}gaffer-variety-review.png`, fullPage: true })
   for (const [theme, width] of [['dark', 1280], ['light', 1280], ['dark', 390], ['light', 390]]) {
     await page.setViewportSize({ width, height: width === 390 ? 1000 : 950 })
     await page.goto(`${harness.url}/tests/fixtures/gaffer-progress.html?theme=${theme}&scene=Reading`)
@@ -24,9 +27,28 @@ try {
       const image = new Image(); image.src = el.href.baseVal; await image.decode()
     })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    await page.screenshot({ path: `${directory}gaffer-phosphor-${width === 390 ? 'phone' : 'desktop'}-${theme}.png`, fullPage: true })
+    await panel.getByRole('button', { name: 'Say ey up to Gaffer' }).click()
+    await page.screenshot({ path: `${directory}gaffer-variety-${width === 390 ? 'phone' : 'desktop'}-${theme}.png`, fullPage: true })
   }
-  console.log('Saved selected-art review and actual Gaffer work cards in both themes at desktop and phone widths.')
+  await page.setViewportSize({ width: 1100, height: 1400 })
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.goto(`${harness.url}/tests/fixtures/gaffer-artwork.html`)
+  await page.locator('.repertoire image').evaluateAll(images => Promise.all(images.map(async el => {
+    const image = new Image(); image.src = el.href.baseVal; await image.decode()
+  })))
+  await page.evaluate(() => {
+    window.__repertoireAnimations = [...document.querySelectorAll('.repertoire .gaffer-avatar')].flatMap(el => el.getAnimations({ subtree: true }))
+    for (const animation of window.__repertoireAnimations) { animation.pause(); animation.currentTime = 0 }
+  })
+  const frames = await mkdtemp(join(tmpdir(), 'gaffer-variety-'))
+  try {
+    for (let frame = 0; frame < 90; frame++) {
+      await page.evaluate(time => { for (const animation of window.__repertoireAnimations) animation.currentTime = time }, frame * 1000 / 15)
+      await page.locator('.repertoire').screenshot({ path: join(frames, `${String(frame).padStart(3, '0')}.png`), animations: 'allow' })
+    }
+    execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-framerate', '15', '-i', join(frames, '%03d.png'), '-filter_complex', '[0:v]fps=12,scale=720:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle', '-loop', '0', `${directory}gaffer-variety-animation.gif`])
+  } finally { await rm(frames, { recursive: true, force: true }) }
+  console.log('Saved nine-state review, actual click replies in both themes at desktop/phone widths, and the six-performance animation.')
 } finally {
   await browser.close()
   await harness.close()

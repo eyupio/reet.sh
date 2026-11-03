@@ -123,7 +123,7 @@
       const r = await getProfile()
       who = r.user
       profile = r.profile
-      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat, shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false }
+      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat || 'locale', shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false }
       prefixEnabled = r.profile.hostedPrefix !== ''
       prefixValue = r.profile.hostedPrefix || 'reet-'
       applyTheme(r.profile.theme)
@@ -380,57 +380,79 @@
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
 
   {#if section === 'profile'}
-    <section class="block" aria-labelledby="profile-title">
-      <h2 id="profile-title">Profile</h2>
-      <p class="muted">Make your workspace feel just reet. Set your terminal, theme and date preferences.</p>
-      <form onsubmit={save}>
-        <div class="grid2">
-          <label class="wide"><span>Name</span>
-            <input bind:value={profileForm.name} autocomplete="name" maxlength="100" placeholder="Your name" disabled={!canWrite} />
-            <small>Shown on lists and in the team rollup. Leave it empty to be shown by your address.</small>
-          </label>
-          <label><span>Theme</span>
-            <select bind:value={profileForm.theme}>
-              <option value="system">Match this device</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </label>
-          <label><span>Time zone</span>
-            <input bind:value={profileForm.timezone} placeholder="Europe/London" autocomplete="off" />
-            <small>An IANA name. Empty follows this device.</small>
-          </label>
-          <label><span>Dates</span>
-            <select bind:value={profileForm.dateFormat}>
-              <option value="locale">This device's order</option>
-              <option value="dmy">Day, month, year</option>
-              <option value="mdy">Month, day, year</option>
-              <option value="ymd">Year, month, day</option>
-            </select>
-            <small>Today reads {sampleDate()}.</small>
-          </label>
-          <label class="wide"><span>When stopping a terminal session</span><select aria-label="Terminal history default" bind:value={profileForm.terminalRemoveOnClose}><option value={false}>Keep the closed session in history</option><option value={true}>Remove from history after it ends</option></select><small>This sets the confirmation’s default. You can change it for each session. Running or pending sessions remain visible until the machine confirms closure.</small></label>
-          <label><span>Default shelf layout</span>
-            <select bind:value={profileForm.shelfView}><option value="list">List</option><option value="board">Board</option></select>
-            <small>Switching List/Board on your shelf also saves this preference.</small>
-          </label>
-          <label><span>Default skill cards</span>
-            <select bind:value={profileForm.cardsExpanded}><option value={false}>Collapsed — quick actions and core data</option><option value={true}>Expanded — all details</option></select>
-            <small>Individual cards and Expand all / Collapse all can override this during your visit.</small>
-          </label>
-          <div class="wide field"><span>Hosted skill name prefix</span>
-            <div class="prefix-row">
-              <span class="prefix-toggle"><input id="hosted-prefix-toggle" type="checkbox" bind:checked={prefixEnabled} /><label for="hosted-prefix-toggle">Prefix new and renamed hosted skills</label></span>
-              <input class="prefix-input" bind:value={prefixValue} placeholder="reet-" maxlength="33" disabled={!prefixEnabled} aria-label="Hosted skill name prefix" />
-            </div>
-            <small>Reet adds this to skills you host so they stand out from imports. Type a custom prefix such as <code>acme-</code>, or turn it off to use the bare skill name. Existing names are not changed automatically.</small>
+    <CollectionPanel label="Your preferences" count="8 preferences">
+      {#snippet actions()}
+        <button type="submit" form="profile-form" class="btn primary" disabled={busy === 'profile'}>{busy === 'profile' ? 'Saving…' : 'Save profile'}</button>
+      {/snippet}
+      {#snippet toolbar()}
+        <p class="note">Make your workspace feel just reet. These preferences follow you to every browser you sign in from.</p>
+      {/snippet}
+      <form id="profile-form" class="profile-form" onsubmit={save}>
+        <fieldset>
+          <legend>Identity</legend>
+          <div class="grid2">
+            <label class="wide"><span>Name</span>
+              <input bind:value={profileForm.name} autocomplete="name" maxlength="100" placeholder="Your name" disabled={!canWrite} />
+              <small>Shown on lists and in the team rollup. Leave it empty to be shown by your address.</small>
+            </label>
           </div>
-        </div>
-        <div class="formacts">
-          <button type="submit" class="btn primary" disabled={busy === 'profile'}>{busy === 'profile' ? 'Saving…' : 'Save profile'}</button>
-        </div>
+        </fieldset>
+        <fieldset>
+          <legend>Appearance</legend>
+          <div class="grid2">
+            <label><span>Theme</span>
+              <select bind:value={profileForm.theme}>
+                <option value="system">Match this device</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+            <label><span>Time zone</span>
+              <input bind:value={profileForm.timezone} placeholder="Europe/London" autocomplete="off" />
+              <small>An IANA name. Empty follows this device.</small>
+            </label>
+            <label><span>Dates</span>
+              <select bind:value={profileForm.dateFormat}>
+                <option value="locale">This device's order</option>
+                <option value="dmy">Day, month, year</option>
+                <option value="mdy">Month, day, year</option>
+                <option value="ymd">Year, month, day</option>
+              </select>
+              <small>Today reads {sampleDate()}.</small>
+            </label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Shelf and terminal</legend>
+          <div class="grid2">
+            <label class="wide"><span>When stopping a terminal session</span>
+              <select aria-label="Terminal history default" bind:value={profileForm.terminalRemoveOnClose}><option value={false}>Keep the closed session in history</option><option value={true}>Remove from history after it ends</option></select>
+              <small>This sets the confirmation’s default. You can change it for each session. Running or pending sessions remain visible until the machine confirms closure.</small>
+            </label>
+            <label><span>Default shelf layout</span>
+              <select bind:value={profileForm.shelfView}><option value="list">List</option><option value="board">Board</option></select>
+              <small>Switching List/Board on your shelf also saves this preference.</small>
+            </label>
+            <label><span>Default skill cards</span>
+              <select bind:value={profileForm.cardsExpanded}><option value={false}>Collapsed — quick actions and core data</option><option value={true}>Expanded — all details</option></select>
+              <small>Individual cards and Expand all / Collapse all can override this during your visit.</small>
+            </label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Publishing</legend>
+          <div class="grid2">
+            <div class="wide field"><span>Hosted skill name prefix</span>
+              <div class="prefix-row">
+                <span class="prefix-toggle"><input id="hosted-prefix-toggle" type="checkbox" bind:checked={prefixEnabled} /><label for="hosted-prefix-toggle">Prefix new and renamed hosted skills</label></span>
+                <input class="prefix-input" bind:value={prefixValue} placeholder="reet-" maxlength="33" disabled={!prefixEnabled} aria-label="Hosted skill name prefix" />
+              </div>
+              <small>Reet adds this to skills you host so they stand out from imports. Type a custom prefix such as <code>acme-</code>, or turn it off to use the bare skill name. Existing names are not changed automatically.</small>
+            </div>
+          </div>
+        </fieldset>
       </form>
-    </section>
+    </CollectionPanel>
   {:else if section === 'agents'}
     <AgentsSettings {canWrite} onerror={onerror} />
   {:else if section === 'security'}
@@ -631,6 +653,11 @@
   .notice.good { border-color: var(--good); }
   .block { margin-top: 24px; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
   .muted { margin: 8px 0 0; color: var(--muted); }
+  .note { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+  .profile-form { margin-top: 0; gap: 14px; }
+  .profile-form fieldset { margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+  .profile-form legend { padding: 0 5px; color: var(--muted); font-size: 0.78rem; font-weight: 600; }
+  .profile-form .grid2 { gap: 12px; }
   /* minmax(0, 1fr): a text field is about 20 characters wide by default, which overflowed the card on a 320 px phone. */
   form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 16px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }

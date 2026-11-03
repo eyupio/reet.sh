@@ -128,6 +128,15 @@ try {
   const rowLabel = page.locator('.session-row', { hasText: original.title }).locator('small')
   const gate = () => { let release; const held = new Promise(resolve => { release = resolve }); return { held, release } }
   const reset = (state = 'lost') => { row = { ...original, state }; next = null; failure = null; holdCreate = null; reattachMode = 'ok'; reattachHold = null; reattachCalls.length = 0; requests.length = 0 }
+  // The header menu offers Continue in Gaffer with history only where the chat cannot reconnect in place.
+  const continueItem = page.getByRole('menuitem', { name: /Continue in Gaffer with history/ })
+  const headerMenu = async present => {
+    await page.locator('.session-screen').getByRole('button', { name: 'Session actions' }).click()
+    await expect(page.getByRole('menuitem').first()).toBeVisible()
+    await expect(continueItem).toHaveCount(present ? 1 : 0)
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('menuitem')).toHaveCount(0)
+  }
   const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
 
   // 1. Auto-reattach in place, and the same stream carries on afterwards.
@@ -167,7 +176,7 @@ try {
     await expect(note.getByRole('button')).toHaveCount(0)
     await expect(prompt).toBeDisabled()
     expect(await overflow()).toBeLessThanOrEqual(0)
-    expect(reattachCalls).toHaveLength(1)
+    await expect.poll(() => reattachCalls.length).toBe(1)
     if (process.env.REET_UI_SCREENSHOTS) await page.screenshot({ path: join(process.env.REET_UI_SCREENSHOTS, `chat-reattach-pending-${width}-${theme}.png`), fullPage: true })
     held.release()
     await expect(prompt).toBeEnabled()
@@ -179,6 +188,7 @@ try {
     await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
     await expect(reconnecting).toBeVisible()
     await expect(rowLabel).toContainText('Reconnecting')
+    await headerMenu(false)
     held.release(); await expect(prompt).toBeEnabled() }
 
   // 3. Failure then retry: no automatic second call; Try again sends exactly one more.
@@ -191,6 +201,7 @@ try {
   await page.waitForTimeout(500)
   expect(reattachCalls).toHaveLength(1)
   expect(requests).toHaveLength(0)
+  await headerMenu(false)
   await tryAgain.click()
   await expect(prompt).toBeEnabled()
   await expect(note).toHaveCount(0)
@@ -224,6 +235,7 @@ try {
   reset()
   await open()
   await expect(note.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0)
+  await headerMenu(true)
   const created = gate(); holdCreate = created.held
   await recover.click()
   await expect(banner).toContainText('Starting a new session…')

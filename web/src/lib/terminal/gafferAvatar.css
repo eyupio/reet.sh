@@ -1,22 +1,6 @@
-/* Illustration colours stay constant in both themes; the disc and halo use the app's theme tokens. */
+/* The approved monochrome artwork has its own CRT screen, readable in either app theme. */
 .gaffer-avatar {
-  --gaffer-lid: #f3a176; --gaffer-eye-line: #38271e;
-  --gaffer-cap-edge: #302720;
-  --gaffer-cap: #80684f;
-  --gaffer-cap-shadow: #62513e;
-  --gaffer-tweed: #9c8161;
-  --gaffer-seam: #594735;
-  --gaffer-brim: #44372c;
-  --gaffer-brim-light: #8f7456;
-  --gaffer-stitch: #b19a79;
-  --gaffer-prop-ink: #493d2d;
-  --gaffer-tea: #805b39;
-  --gaffer-paper: #f1e4c7;
-  --gaffer-mug-mark: #b88144;
-  --gaffer-steam: #c3b69b;
-  --gaffer-warning: #d8a950;
-  --gaffer-prop-edge: #59452a;
-  --gaffer-glass: #d9edf0;
-  --gaffer-pencil: #e2b85e;
-  --gaffer-eraser: #d68777;
+  --gaffer-screen: #070a0e;
+  --gaffer-paper: #dce6ee;
+  --gaffer-ink: #101923;
 }

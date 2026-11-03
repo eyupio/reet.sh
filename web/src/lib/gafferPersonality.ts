@@ -1,7 +1,7 @@
 import type { GafferPhase } from './gafferProgress'
 
 export type GafferPose = 'duty' | 'tea' | 'asleep' | 'attention' | 'concerned'
-export type GafferReaction = '' | 'ponder' | 'scan' | 'scribble' | 'watch' | 'nod' | 'tip-cap' | 'wink' | 'sip' | 'startle' | 'stretch' | 'shake' | 'listen'
+export type GafferReaction = '' | 'ponder' | 'scan' | 'scribble' | 'watch' | 'nod' | 'tip-cap' | 'sip' | 'startle' | 'stretch' | 'shake' | 'listen'
 export const GAFFER_AWAY_AFTER = 15_000
 
 /** Decoration follows confirmed status. A snag or a request for input always outranks a tea break. */

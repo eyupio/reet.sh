@@ -20,7 +20,7 @@ try {
     const portrait = new Image(); portrait.src = el.href.baseVal; await portrait.decode()
     return portrait.naturalWidth
   })).toBeGreaterThan(0)
-  expect(await panel.locator('.gaffer-avatar').evaluate(el => el.getAnimations({ subtree: true }).length)).toBeGreaterThanOrEqual(2)
+  expect(await panel.locator('.gaffer-avatar').evaluate(el => el.getAnimations({ subtree: true }).length)).toBeGreaterThanOrEqual(1)
   await expect(panel.getByRole('region', { name: 'Gaffer’s job sheet' })).toHaveCount(0)
   await expect(panel.locator('.handover')).toHaveCount(0)
   await panel.getByRole('button', { name: /Tool activity/ }).click()

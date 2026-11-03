@@ -51,9 +51,10 @@ green. Contracts and rulings are in `docs/superpowers/specs/2026-11-02-directory
 `...-admin-notifications.md`, `...-admin-backups.md`, `...-admin-settings.md`,
 `...-admin-activity.md`, `...-account-sessions.md`, `...-account-tokens.md`,
 `...-account-profile.md`, `...-account-security.md`, `...-account-mcp.md`,
-`...-skill-card-machine-actions.md`, `...-machine-add-skill.md` and
-`...-skill-remove-from-machine.md`; checks are in [docs/ui-verification.md](docs/ui-verification.md).
-The refresh merged through #441. Merge main into the next branch as later work lands.
+`...-skill-card-machine-actions.md`, `...-machine-add-skill.md`,
+`...-skill-remove-from-machine.md` and `...-skills-sync-vocabulary.md`; checks are in
+[docs/ui-verification.md](docs/ui-verification.md).
+The refresh merged through #446. Merge main into the next branch as later work lands.
 
 **Merged, all with every required check green:**
 
@@ -82,6 +83,7 @@ The refresh merged through #441. Merge main into the next branch as later work l
 | #434 | `6d75e72` | Machines: Add a skill… picker on the card menu, shelf candidates with Installed tags, existing install intent; disabled without an agent. |
 | #438 | `2a334ca` | Skill cards: Remove… opens Sync with an exact-set removal prepared; no write until save, preview and approval. |
 | #441 | `e91afad` | Machines audit minors: profile-format timestamps, a single Commands close, shared icons, attention order and a large-fleet status filter; paused cards show an amber dot. |
+| #446 | `d759055` | Skills and Sync vocabulary: one glossary, Sync only under Machines, **Write a skill** with a next-step link, and install locations and sync plans on cards and warnings. |
 
 **What the refresh established.** The directory pages (Lists, Community, Teams, Setups) share one
 bounded surface, a count, search, scope chips whose figures follow the search, one row anatomy and
@@ -131,12 +133,16 @@ search matches observed reports, not saved intent. All seven Admin sections are 
 Account list and form pages are refreshed: Sessions, API tokens, Profile, Password and MCP access;
 Account Backups inherits the refreshed Backups panels, and Account Activity already had its own
 count, filters and day groups. Skill cards now summarise a large fleet in one press, let an
-unconfirmed machine be scanned before adding, and prepare a reviewed removal in Sync. Machine
+unconfirmed machine be scanned before adding, and prepare a reviewed removal in Sync. A published
+written skill still appears in **Skills you write** and on the shelf; the **On your shelf** link
+explains the duplication until one record replaces them. Machine
 timestamps follow the profile's zone and date order; a large fleet sorts by attention and can be
-filtered by status.
+filtered by status. Skills and Sync use one glossary, Sync has one place under Machines, and the
+authoring page is **Write a skill** with **Next: Put it on a machine** after every save.
 
 **Next UI work, in order:**
-1. **Broader skills/sync vocabulary and authoring flow:** one glossary and one place for Sync.
+1. **One card per written skill:** merge the written skill and its shelf card into one record and
+   add a Machines column to the authoring page.
 2. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
    Do not claim these from the Chromium fixtures.
 

@@ -28,8 +28,8 @@
  .row { display: flex; align-items: center; gap: 16px; padding: 18px 20px; background: var(--card); }
  .row i { flex: 1; }
  .row i:first-child { flex: 0 0 32%; }
- @media (prefers-reduced-motion: no-preference) { i, .card, .row { animation: boot-pulse 1.7s ease-in-out infinite; } i:nth-child(2n) { animation-delay: 250ms; } }
- @keyframes boot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+ @media (prefers-reduced-motion: no-preference) { i { background: linear-gradient(90deg, var(--line) 0%, var(--line-soft) 50%, var(--line) 100%); background-size: 200% 100%; animation: boot-shimmer 1.8s ease-in-out infinite; } }
+ @keyframes boot-shimmer { to { background-position: -200% 0; } }
  @media (max-width: 850px) { .boot-page { padding: 26px 24px 44px; } .cards { grid-template-columns: 1fr; } }
  @media (max-width: 550px) { .boot-page { padding: 18px 16px 36px; } }
 </style>

@@ -184,8 +184,9 @@
 
       .boot-bar { border-bottom: 1px solid var(--boot-line); }
       .boot-bar-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: 1120px; margin: 0 auto; padding: 24px 40px; }
-      .boot-brand { font-weight: 700; letter-spacing: -.04em; font-size: 1.05rem; color: var(--boot-ink); }
-      .boot-brand span { color: var(--boot-accent); }
+      .boot-brand { display: block; width: 160px; max-width: 100%; animation: boot-in 320ms cubic-bezier(.23, 1, .32, 1) both; }
+      .boot-brand svg { display: block; width: 100%; height: auto; }
+      @keyframes boot-in { from { opacity: 0; transform: translateY(2px); } }
       .boot-nav { display: flex; align-items: center; gap: 12px; }
       .boot-pill { height: 30px; width: 74px; border-radius: 999px; background: var(--boot-line); }
       .boot-pill.wide { width: 96px; }
@@ -241,11 +242,10 @@
       html[data-theme='dark'] .boot-slow a { color: #ff8d63; }
 
       @media (prefers-reduced-motion: no-preference) {
-        #boot .boot-line, #boot .boot-pill, #boot .boot-button, #boot .boot-row, #boot .boot-preview .row { animation: boot-pulse 1.7s ease-in-out infinite; }
-        #boot .boot-line:nth-child(2n) { animation-delay: .25s; }
-        #boot .boot-button.primary { animation: none; }
+        #boot .boot-line, #boot .boot-pill, #boot .boot-button:not(.primary) { background: linear-gradient(90deg, var(--boot-line) 0%, var(--boot-line-soft) 50%, var(--boot-line) 100%); background-size: 200% 100%; animation: boot-shimmer 1.8s ease-in-out infinite; }
       }
-      @keyframes boot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+      @keyframes boot-shimmer { to { background-position: -200% 0; } }
+      @media (prefers-reduced-motion: reduce) { .boot-brand { animation: none; } }
 
       @media (max-width: 850px) {
         .boot-main { padding: 26px 24px 44px; }
@@ -267,7 +267,10 @@
     <div id="boot" aria-hidden="true">
       <div class="boot-bar">
         <div class="boot-bar-inner">
-          <span class="boot-brand">reet<span>.sh</span></span>
+          <span class="boot-brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 399 100">
+<g id="icon"><mask id="rose-boot"><rect width="100" height="100" fill="#fff"/><g transform="translate(50,41) scale(0.44)"><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(0)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(72)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(144)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(216)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><path d="M-9,-12H9L19,-45L0,-34L-19,-45Z" transform="rotate(288)" fill="#000" stroke="#000" stroke-width="5" stroke-linejoin="round"/><circle r="13" fill="#000"/><circle r="7.5" fill="#fff"/></g></mask><path mask="url(#rose-boot)" fill="var(--boot-ink)" stroke="var(--boot-ink)" stroke-width="6" stroke-linejoin="round" d="M24,10H76V90L50,70L24,90Z"/><circle cx="50" cy="41" r="3.3" fill="var(--boot-accent)"/></g>
+<g transform="translate(118,20.5) scale(0.42)"><g id="wordmark" fill="none" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"><path stroke="var(--boot-ink)" d="M12,150V86A36,36 0 0 1 48,50H56 M90,100H174A42,42 0 1 0 161.7,129.7 M214,100H298A42,42 0 1 0 285.7,129.7 M364,22V126A24,24 0 0 0 388,150H398 M338,50H392"/><circle fill="var(--boot-accent)" cx="434" cy="138" r="13"/><path stroke="var(--boot-accent)" d="M514,62C502,49 474,47 474,74C474,101 512,96 512,124C512,151 486,156 472,141 M554,0V150M554,94A44,44 0 0 1 642,94V150"/></g></g>
+</svg></span>
           <div class="boot-nav"><span class="boot-pill"></span><span class="boot-pill wide"></span></div>
         </div>
       </div>

@@ -6,13 +6,14 @@ const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const context=await browser.newContext({viewport:{width:1360,height:900}})
 const page=await context.newPage()
-const errors=[],posts=[],unmocked=[],urls=[]
+const errors=[],posts=[],unmocked=[],urls=[],uploads=[]
 page.on('pageerror',e=>errors.push(e.message))
 page.on('framenavigated',f=>{if(f===page.mainFrame())urls.push(f.url())})
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve}}
 
 // Server state.
 const A='connector-laptop000000001',B='connector-oldbox00000001',C='connector-spare000000001'
+const UPLOAD_REF='/home/dev/.local/state/reet/launch-uploads/launch0123456789abcdef/img-0123456789abcdef.png'
 const HOME_A='/home/dev',SITE='/home/dev/work/site'
 let authMode='accounts',viewer=false,machinesFail=false,theme='light',machineReads=0
 let yoloAllowed=true,profileDefaults={},modelsFail=false,favourites=[],folderProjects=[]
@@ -71,6 +72,13 @@ await page.route('**/api/**',async route=>{
   if(answer&&answer.state){const b=JSON.parse(body);return route.fulfill({json:{id:`session-${b.requestId.replaceAll('-','').slice(0,20)}`,agentId:b.agentId,title:b.title,state:answer.state,createdAt:Date.now(),updatedAt:Date.now(),exitCode:null}})}
   if(typeof answer==='object')return route.fulfill({status:answer.status,json:answer.json})
   return reply(route,body)
+ }
+ else if(path===`/api/v2/machines/${A}/uploads`&&method==='POST'){
+  uploads.push({type:req.headers()['content-type'],body:req.postDataBuffer()})
+  return route.fulfill({status:200,contentType:'application/json',body:'{"uploaded":true}',headers:{
+   'X-Reet-Upload-Path':encodeURIComponent(UPLOAD_REF),
+   'X-Reet-Upload-Reference':encodeURIComponent(UPLOAD_REF),
+  }})
  }
  else if(path.endsWith('/attachments'))data={ticket:'fixture-ticket00000000000'}
  else if(path.endsWith('/history'))return route.fulfill({body:''})
@@ -956,6 +964,51 @@ try{
  await expect(page.getByRole('heading',{name:'Sessions',exact:true,level:1})).toHaveCount(0)
  await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
 
+ // An image pasted before a start is uploaded to the machine, and its path joins the opening prompt.
+ viewer=false;authMode='accounts'
+ tmachines[0].capabilities.uploads=true
+ await page.goto(`${base}/sessions?agent=${A}`)
+ d=await openFromSidebar();p=parts(d)
+ await p.prompt.fill('look at this please')
+ await page.evaluate(() => {
+  const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], 'shot.png', {type:'image/png'})
+  const transfer = new DataTransfer()
+  transfer.items.add(image)
+  const event = new Event('paste', {bubbles:true, cancelable:true})
+  Object.defineProperty(event, 'clipboardData', {value: transfer})
+  document.querySelector('dialog textarea').dispatchEvent(event)
+ })
+ await expect(d.getByRole('list',{name:'Images to attach'})).toBeVisible()
+ await expect(d.getByText('shot.png',{exact:false})).toBeVisible()
+ const imagePosts=posts.length
+ await p.start.click()
+ await expect(d).toHaveCount(0)
+ await expect.poll(()=>posts.length).toBe(imagePosts+1)
+ expect(uploads).toHaveLength(1)
+ expect(uploads[0].type).toBe('image/png')
+ expect(JSON.parse(posts.at(-1)).prompt).toBe(`look at this please\n\nImage: ${UPLOAD_REF}`)
+ // The image paths must fit under the same limit as the prompt: an 8,000-byte prompt plus a path is refused before the
+ // session is asked to start, keeping the dialog and the attached image.
+ d=await openFromSidebar();p=parts(d)
+ await p.prompt.fill(`${'a'.repeat(7950)} b`)
+ await page.evaluate(() => {
+  const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], 'long.png', {type:'image/png'})
+  const transfer = new DataTransfer()
+  transfer.items.add(image)
+  const event = new Event('paste', {bubbles:true, cancelable:true})
+  Object.defineProperty(event, 'clipboardData', {value: transfer})
+  document.querySelector('dialog textarea').dispatchEvent(event)
+ })
+ const tooLongPosts=posts.length
+ await p.start.click()
+ await expect(p.status).toHaveText('The image paths push the opening prompt past 8,000 bytes. Shorten the prompt or remove an image.')
+ await expect(d).toBeVisible()
+ await expect(d.getByRole('list',{name:'Images to attach'})).toBeVisible()
+ expect(posts.length).toBe(tooLongPosts)
+ await page.keyboard.press('Escape')
+ await expect(d).toHaveCount(0)
+ tmachines[0].capabilities.uploads=false
+
  // YOLO from the start dialog, as the left panel opens it: offered only when the account, the machine and the agent allow it,
  // confirmed before it counts, never remembered, and sent as yolo:true only then.
  // The steps before this one left a viewer and a legacy sign-in; this is the owner again, with the machine accepting YOLO.
@@ -1006,5 +1059,5 @@ try{
  await expect(d.getByText('dev-laptop doesn’t accept YOLO sessions.')).toBeVisible()
  await page.keyboard.press('Escape')
  expect(errors).toEqual([])
- console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old four otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and only numeric recap markers in tab storage. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
+ console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old four otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, a pasted image uploaded before the start with its path joined to the opening prompt, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and only numeric recap markers in tab storage. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

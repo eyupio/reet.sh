@@ -8,7 +8,8 @@
  import SkillPromptPicker from './home/SkillPromptPicker.svelte'
  import { CATALOGUE } from './catalogue'
  import { defaultLabel, effortChoices, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
- import { createTerminal, getFolderProject, machineModels, readiness, refreshMachineModels, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
+ import { createTerminal, getFolderProject, launchUpload, machineModels, readiness, refreshMachineModels, refusalSentence, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
+ import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './terminal/upload'
  import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
  import { chatToolName, structuredAgent } from './terminal/api'
  import SlotPicker, { type SlotOption } from './launch/SlotPicker.svelte'
@@ -62,6 +63,10 @@
  // Said once, while the machine chosen for you is the one shown: why it is not the one you came from.
  const switchedNote = $derived(agentId === opening.agentId ? opening.note : '')
  let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), effort = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state(''), structured = $state(false), sessionTouched = $state(false)
+ // Images pasted or picked before a start live only in this dialog; each is uploaded to the machine as the
+ // session starts and its path joins the opening prompt.
+ type Attachment = { id: number; file: File; preview: string }
+ let attachments = $state<Attachment[]>([]), attachmentSeq = 0
  // An agent, model or thinking level the person chose survives a late project/profile/favourite read for the same agent.
  // svelte-ignore state_referenced_locally
  let explicitTool = $state(CATALOGUE.some(agent => agent.id === initialAgent) ? initialAgent : '')
@@ -201,6 +206,39 @@
  const dirError = $derived(folderChoice === TYPED && (attempted || typedDir !== '') ? validateDir(typedDir) ?? '' : '')
  const promptError = $derived(chosenTool ? validatePrompt(chosenTool, prompt) ?? '' : '')
  const locked = $derived(busy || operation !== null)
+ // Why attached images cannot be sent: the machine has to accept uploads. A machine with none listed is an older reet.
+ const imageReason = $derived.by(() => {
+  if (!attachments.length) return ''
+  if (!machine?.capabilities) return ''
+  if (!machine.capabilities.uploads) return machine.capabilities.uploadsOff ? 'Image uploads are off on this machine.' : 'Update reet on that machine to attach images.'
+  return ''
+ })
+ function addImages(files: File[]) {
+  if (locked || !files.length) return
+  const accepted: Attachment[] = [], reasons: string[] = []
+  let count = attachments.length, bytes = attachments.reduce((total, item) => total + item.file.size, 0)
+  for (const file of files) {
+   if (count >= MAX_IMAGES) { reasons.push(`Attach at most ${MAX_IMAGES} images.`); break }
+   if (bytes + file.size > MAX_IMAGE_TOTAL_BYTES) { reasons.push('Those images are larger than 50 MiB together.'); break }
+   const check = validateImage({ type: file.type, size: file.size })
+   if (!check.ok) { reasons.push(check.reason === 'empty' ? 'That image is empty.' : check.reason === 'size' ? 'That image is larger than 5 MiB.' : 'Attach a PNG, JPEG, GIF or WebP image.'); continue }
+   accepted.push({ id: ++attachmentSeq, file, preview: URL.createObjectURL(file) })
+   count++; bytes += file.size
+  }
+  if (accepted.length) attachments = [...attachments, ...accepted]
+  message = reasons.length === 1 ? reasons[0] : reasons.length ? `${reasons.length} images were refused. ${reasons[0]}` : ''
+ }
+ function removeImage(id: number) {
+  const item = attachments.find(a => a.id === id)
+  if (item) URL.revokeObjectURL(item.preview)
+  attachments = attachments.filter(a => a.id !== id)
+  message = ''
+ }
+ function pasted(event: ClipboardEvent) {
+  const files = imageFiles(event.clipboardData?.items)
+  if (!files.length) return
+  event.preventDefault(); addImages(files)
+ }
  // YOLO: the account setting, the confirmation, and whether this start was confirmed. It is never remembered; changing the
  // machine or the agent drops it, because the confirmation named them.
  let yoloSetting = $state<YoloSetting | null>(null), yoloOpen = $state(false), yoloChosen = $state(false)
@@ -416,6 +454,8 @@
   pickerOpen = false
   prompt = ''
   operation = null
+  for (const item of attachments) URL.revokeObjectURL(item.preview)
+  attachments = []
   dialog?.close()
   if (returnFocus && opener?.isConnected) opener.focus()
  }
@@ -448,6 +488,7 @@
    // The errors are derived, so they already count this attempt; no await here, or a second press could slip past the busy guard.
    const invalid = modelError ? ['model', modelError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
    if (invalid) { failed = true; message = invalid[1]; invalidMessage = true; field(invalid[0])?.focus(); return }
+   if (imageReason) { failed = true; field('prompt')?.focus(); return }
    const launch: LaunchRequest & { tool: string } = { tool: chosenTool }
    if (structured) { launch.structured = true; if (chosenTool === 'opencode') launch.trust = true }
    if (model) launch.model = model
@@ -456,6 +497,34 @@
    if (prompt) launch.prompt = prompt
    if (yoloChosen && !yoloWhy) launch.yolo = true
    if (projectSel && machine.agentId === curAgent && dir === curDir) launch.projectId = projectSel
+   if (attachments.length) {
+    // The images go to the machine before the session exists; their paths join the opening prompt.
+    busy = true
+    const references: string[] = []
+    try {
+     for (let i = 0; i < attachments.length; i++) {
+      message = attachments.length === 1 ? 'Attaching the image…' : `Attaching image ${i + 1} of ${attachments.length}…`
+      references.push((await launchUpload(machine.agentId, attachments[i].file, life.signal)).reference)
+     }
+    } catch (e) {
+     busy = false
+     if (life.signal.aborted) return
+     if (e instanceof UnauthorizedError || e instanceof TerminalError && e.status === 401) { onsignedout?.(new UnauthorizedError()); return }
+     failed = true
+     message = `Couldn't attach that image. ${refusalSentence(e)}`
+     void focusAfter(() => startButton)
+     return
+    }
+    if (life.signal.aborted) return
+    launch.prompt = imagePrompt(launch.prompt ?? '', references)
+    if (new TextEncoder().encode(launch.prompt).length > MAX_PROMPT_BYTES) {
+     // The machine rejects a prompt over the limit, so catch the paths' extra bytes before it is asked to start.
+     busy = false; failed = true; invalidMessage = true
+     message = `The image paths push the opening prompt past ${MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes. Shorten the prompt or remove an image.`
+     void focusAfter(() => field('prompt'))
+     return
+    }
+   }
    operation = { agentId: machine.agentId, host: machine.host, requestId: crypto.randomUUID(), title: titleFor(chosenTool, dir), launch }
   }
   const op = operation
@@ -464,6 +533,8 @@
   try {
    const session = await createTerminal(op.agentId, op.requestId, op.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(structured ? 60000 : 15000)]), op.launch)
    if (life.signal.aborted) return
+   for (const item of attachments) URL.revokeObjectURL(item.preview)
+   attachments = []
    // Answered, but the machine did not start it: nothing is running, so this request is done and the next Start is a new one.
    const notStarted = notStartedText(session.state)
    if (notStarted) {
@@ -535,7 +606,7 @@
   void loadAccount()
   void loadYolo()
   if (projectId) void loadProject(projectId)
-  return () => { stopLeaving(); life.abort(); prompt = ''; coarse.removeEventListener?.('change', readPointer) }
+  return () => { stopLeaving(); life.abort(); prompt = ''; for (const item of attachments) URL.revokeObjectURL(item.preview); coarse.removeEventListener?.('change', readPointer) }
  })
 </script>
 
@@ -645,7 +716,18 @@
      <label for={`${id}-prompt`}>Opening prompt <span class="optional">optional</span></label>
      <button type="button" class="linklike skill-add" bind:this={skillButton} disabled={!chosenTool} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button>
     </div>
-    <textarea id={`${id}-prompt`} bind:this={promptInput} bind:value={prompt} rows="3" disabled={!chosenTool} aria-invalid={promptError ? 'true' : undefined} aria-describedby={`${id}-prompt-count${promptError ? ` ${id}-prompt-error` : ''}`}></textarea>
+    <textarea id={`${id}-prompt`} bind:this={promptInput} bind:value={prompt} rows="3" disabled={!chosenTool} onpaste={pasted} aria-invalid={promptError ? 'true' : undefined} aria-describedby={`${id}-prompt-count${promptError ? ` ${id}-prompt-error` : ''}`}></textarea>
+    <div class="prompt-tools">
+     <label class="attach">＋ Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={locked || !chosenTool} onchange={(event) => { addImages(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = '' }} /></label>
+    </div>
+    {#if attachments.length}
+     <ul class="attachments" aria-label="Images to attach">
+      {#each attachments as item (item.id)}
+       <li><img src={item.preview} alt="" /><span>{item.file.name || 'image'} · {formatImageSize(item.file.size)}</span><button type="button" aria-label={`Remove ${item.file.name || 'image'}`} disabled={locked} onclick={() => removeImage(item.id)}>×</button></li>
+      {/each}
+     </ul>
+    {/if}
+    {#if imageReason}<p class="reason" id={`${id}-image-error`}>{imageReason}</p>{/if}
     <p class="hint count" id={`${id}-prompt-count`} class:over={promptBytes > MAX_PROMPT_BYTES}>{promptBytes.toLocaleString('en-GB')} of {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes. Secrets don't belong here.</p>
     {#if promptError}<p class="reason" id={`${id}-prompt-error`}>{promptError}</p>{/if}
    </div>
@@ -668,7 +750,7 @@
   <footer data-shell-foot>
    <p class="status" class:bad={failed} role="status" aria-live="polite" aria-atomic="true">{message}</p>
    <small data-shell-aside>reet.sh never sends a command line. The machine starts the agent itself.</small>
-   <button class="btn primary" type="submit" disabled={busy || (!operation && !!blocked)} aria-busy={busy} bind:this={startButton}>{busy ? 'Starting…' : operation ? 'Try the same request again' : 'Start'}</button>
+   <button class="btn primary" type="submit" disabled={busy || (!operation && (!!blocked || !!imageReason))} aria-busy={busy} bind:this={startButton}>{busy ? 'Starting…' : operation ? 'Try the same request again' : 'Start'}</button>
   </footer>
  </form>
  {#if yoloOpen && machine}
@@ -721,6 +803,17 @@
  .approval-choices label.off { opacity: .55; cursor: not-allowed; }
  .approval-choices label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
  .hint, small { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
+ .prompt-tools { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+ .attach { position: relative; align-self: start; padding: 4px 0; color: var(--accent-text); font-size: .83rem; font-weight: 600; cursor: pointer; }
+ .attach input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+ .attach:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
+ .attach:has(input:disabled) { opacity: .55; cursor: default; }
+ .attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+ .attachments li { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; font-size: .78rem; }
+ .attachments img { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; }
+ .attachments span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ .attachments button { min-width: 28px; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; }
+ .attachments button:disabled { cursor: default; opacity: .55; }
  .count.over { color: var(--bad); }
  .reason { margin: 0; color: var(--bad); font-size: .83rem; line-height: 1.5; }
  .chat-choice code { font-size: .9em; }

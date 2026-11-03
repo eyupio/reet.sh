@@ -19,11 +19,30 @@ export function needsInput(session: Pick<TerminalSession, 'attention' | 'changed
   return 'approval'
 }
 
-/** The row's status line: the state, or what the session is waiting for. */
+/**
+ * The row's status line: what the session is waiting for, then what the agent last did, else the lifecycle state. The
+ * agent's turn finishing leaves the session running, so attention says "finished" where the state alone still reads
+ * "running".
+ */
 export function statusLine(session: Pick<TerminalSession, 'state' | 'attention' | 'changedSinceSeen' | 'pendingPermission' | 'pendingQuestion'>): string {
   const need = needsInput(session)
   if (need) return `Needs you · ${need}`
+  if (session.attention === 'finished') return 'Finished'
+  if (session.attention === 'failed') return session.state === 'lost' ? 'Connection lost' : 'Failed'
   return session.state.replaceAll('_', ' ')
+}
+
+/** The dot beside a row and on the mini rail: what needs you, then the agent's attention, else the lifecycle state. */
+export function sessionMark(session: Pick<TerminalSession, 'state' | 'attention'>): 'needs' | 'running' | 'starting' | 'ending' | 'lost' | 'failed' | 'finished' {
+  if (session.attention === 'finished') return 'finished'
+  if (session.attention === 'failed') return session.state === 'lost' ? 'lost' : 'failed'
+  switch (session.state) {
+    case 'running': return 'running'
+    case 'creating': return 'starting'
+    case 'end_requested': return 'ending'
+    case 'lost': return 'lost'
+    default: return 'finished'
+  }
 }
 
 /** How many of the sessions need the person: the badge on a project row or a section header. */

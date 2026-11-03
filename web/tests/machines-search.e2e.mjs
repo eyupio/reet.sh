@@ -76,8 +76,10 @@ try {
   if (run('action feedback')) {
     for (const width of [1440, 390]) {
       let fail = false
+      const active = { ...sync, jobs: [{ id: 'scan-b', agentId: 'b', kind: 'scan', status: 'queued', createdAt: now, updatedAt: now }] }
       const { context, page, errors } = await open({ width, routes: {
-        '/api/v2/sync/jobs': () => fail ? { status: 409, json: { error: 'Machine is unavailable' } } : sync,
+        '/api/v2/sync/jobs': () => fail ? { status: 409, json: { error: 'Machine is unavailable' } } : active,
+        '/api/v2/sync': () => active,
       } })
       await page.goto(`${base}/machines`)
       const machine = page.getByRole('article', { name: 'build-server', exact: true })
@@ -89,6 +91,19 @@ try {
       await scan()
       const position = await page.evaluate(() => scrollY)
       await expect(page.locator('.toast.ok')).toContainText('Scan queued')
+      const dock = page.locator('.sync-dock')
+      const clearOfDock = async () => page.evaluate(() => {
+        const toast = document.querySelector('.toast'), dock = document.querySelector('.sync-dock')
+        if (!toast || !dock) return false
+        const t = toast.getBoundingClientRect(), d = dock.getBoundingClientRect()
+        const button = toast.querySelector('button.close'), b = button.getBoundingClientRect()
+        return t.top >= 0 && t.bottom <= d.top - 8 && button.contains(document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2))
+      })
+      await expect(dock).toBeVisible()
+      await expect.poll(clearOfDock).toBe(true)
+      await dock.locator('.dock-main').click()
+      await expect(dock).toHaveClass(/expanded/)
+      await expect.poll(clearOfDock).toBe(true)
       await expect.poll(() => page.evaluate(() => scrollY)).toBe(position)
       await expect(page.locator('.banners .notice')).toHaveCount(0)
       // Replacing a toast during its exit animation must not dismiss its successor.
@@ -98,6 +113,11 @@ try {
       await page.waitForTimeout(250)
       await expect(page.locator('.toast.bad')).toContainText('Machine is unavailable')
       await expect(page.locator('.toast.bad')).toHaveAttribute('role', 'alert')
+      await expect.poll(clearOfDock).toBe(true)
+      await dock.getByRole('button', { name: 'Minimise sync activity' }).click()
+      await expect.poll(clearOfDock).toBe(true)
+      await dock.getByRole('button', { name: 'Hide sync activity' }).click()
+      await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--sync-dock-clearance'))).toBe('')
       await expect(machine).toBeInViewport()
       expect(errors).toEqual([])
       await context.close()

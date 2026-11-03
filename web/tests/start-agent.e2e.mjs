@@ -554,9 +554,11 @@ try{
  expect(posts.length).toBe(postsBefore+1)
  // When it lets go it says what started, with the way to it, as Home does.
  const stalled=body(-1),stalledSession=`session-${stalled.requestId.replaceAll('-','').slice(0,20)}`
- const said=await page.evaluate(()=>{const n=[...document.querySelectorAll('.notice')].find(x=>x.textContent.startsWith('Started '));return{text:n?.textContent??null,href:n?.querySelector('a')?.getAttribute('href')??null}})
- expect(said).toEqual({text:`Started ${stalled.title} on dev-laptop. Open it`,href:`/sessions?agent=${A}&session=${stalledSession}`})
+ const said=await page.evaluate(()=>{const n=document.querySelector('.toast');return{text:n?.querySelector('.msg')?.textContent??null,action:n?.querySelector('button.action')?.textContent??null}})
+ expect(said).toEqual({text:`Started ${stalled.title} on dev-laptop.`,action:'Open it'})
  await page.unroute(onlyTerminals)
+ await page.evaluate(()=>document.querySelector('.toast button.action').click())
+ await expect(page).toHaveURL(`${base}/sessions?agent=${A}&session=${stalledSession}`)
 
  // A 401 from the card's dialog hands over to the sign-in card, as the page's other dialogs do.
  await page.goto(`${base}/machines`)

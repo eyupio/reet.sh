@@ -170,9 +170,11 @@
   const isMCPConsent = location.pathname === '/account/mcp/authorize'
   const isJoin = location.pathname.startsWith('/join')
   const isReset = location.pathname === '/reset'
-  const isSupport = location.pathname === '/support' || location.pathname === '/support/'
+  // Support exists only where the operator turned the support desk on; elsewhere its pages are not found.
+  let supportDesk = $state(false)
+  const isSupport = $derived(supportDesk && (location.pathname === '/support' || location.pathname === '/support/'))
   const supportMatch = location.pathname.match(/^\/support\/(\d+)\/?$/)
-  const isTicket = supportMatch !== null
+  const isTicket = $derived(supportDesk && supportMatch !== null)
   const isNotifications = location.pathname === '/notifications'
   const supportTicketID = supportMatch ? Number(supportMatch[1]) : 0
   const isWelcome = location.pathname === '/' || location.pathname === '/welcome'
@@ -221,7 +223,7 @@
     { href: '/sync', label: 'Sync', group: 'Skills & distribution', current: false },
     { href: '/shared', label: 'Lists', group: 'Skills & distribution', current: isShared || isList },
     { href: '/community', label: 'Community', group: 'Help & community', current: isCommunity },
-    { href: '/support', label: 'Support', group: 'Help & community', current: isSupport || isTicket },
+    ...(supportDesk ? [{ href: '/support', label: 'Support', group: 'Help & community', current: isSupport || isTicket }] : []),
     { href: '/spaces', label: 'Teams & organisations', group: 'Workspace', current: isSpaces },
     ...(canWrite ? [{ href: '/hosting', label: 'Host skills', group: 'Skills & distribution', current: isHosting }] : []),
     ...(isAdminUser ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Workspace', current: isAdmin }] : []),
@@ -435,6 +437,7 @@
       setupRequired = status.setupRequired
       bootstrapRequired = status.bootstrapRequired
       signupEnabled = status.signupEnabled ?? false
+      supportDesk = status.supportDesk ?? false
       contactEmail = status.contactEmail ?? ''
       passwordReset = status.passwordReset ?? false
       sso = status.sso
@@ -1033,7 +1036,7 @@
     <PageHeader eyebrow="Instance administration" title="Admin access is needed." />
     <p class="notice bad" role="alert">Admins only. Your account does not have access to this page.</p>
   {:else if isAdmin}
-    <Admin onerror={fail} {role} accounts={authMode === 'accounts'} currentEmail={currentUser?.email ?? ''} />
+    <Admin onerror={fail} {role} accounts={authMode === 'accounts'} {supportDesk} currentEmail={currentUser?.email ?? ''} />
   {:else if isSkills}
     <PageHeader eyebrow="Ey up. Your skill shelf." title="Skills." lede="Find, create and share skills. Sync the ones you want to your machines.">
       {#snippet actions()}{#if loading || counts.all > 0}<a class="btn" href="/sync">Sync skills</a>{/if}{#if canWrite && authMode !== 'accounts'}<a class="btn" href="/hosting">Create a skill</a>{/if}{/snippet}

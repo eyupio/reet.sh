@@ -10,6 +10,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
 
 func ticketSignIn(t *testing.T, srv *httptest.Server, email, password string) *http.Client {
@@ -187,5 +188,33 @@ func TestTicketValidationAndGroupAccess(t *testing.T) {
 	}
 	if code, _ := doClient(t, sam, m.srv, "POST", "/api/v2/tickets", `{"subject":"Help","body":"x","groupId":999}`); code != 403 {
 		t.Fatalf("unknown group: %d", code)
+	}
+}
+
+func TestTicketsAreNotFoundUntilTheOperatorTurnsTheSupportDeskOn(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		st, err := storetest.Open(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv := httptest.NewServer(New(st, deadFetcher(t), "bootstrap", WithAuthMode(AuthAccounts), WithSupportDesk(on)))
+		owner := setupMailOwner(t, srv)
+
+		_, status := doClient(t, owner, srv, "GET", "/api/v2/auth/status", "")
+		if got := strings.Contains(status, `"supportDesk":true`); got != on {
+			t.Fatalf("desk %v: status says %s", on, status)
+		}
+		for _, route := range []string{"/api/v2/tickets", "/api/v2/admin/tickets"} {
+			code, body := doClient(t, owner, srv, "GET", route, "")
+			if on && code != 200 || !on && code != 404 {
+				t.Fatalf("desk %v: GET %s answered %d %s", on, route, code, body)
+			}
+		}
+		code, body := doClient(t, owner, srv, "POST", "/api/v2/tickets", `{"subject":"Printer","body":"It will not print"}`)
+		if on && code != 201 || !on && code != 404 {
+			t.Fatalf("desk %v: opening a ticket answered %d %s", on, code, body)
+		}
+		srv.Close()
+		st.Close()
 	}
 }

@@ -8,7 +8,7 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
  // `touch` is a phone: a coarse pointer, so the touch-size rules apply.
  const context = await browser.newContext({viewport:{width,height},hasTouch:touch,isMobile:touch})
  const page = await context.newPage()
- const state = {patches:[],status:{mode:'accounts',setupRequired:false,bootstrapRequired:false,signupEnabled:false,user:owner,...status}, theme, unexpected:[]}
+ const state = {patches:[],status:{mode:'accounts',setupRequired:false,bootstrapRequired:false,signupEnabled:false,supportDesk:true,user:owner,...status}, theme, unexpected:[]}
  const errors = []
  page.on('pageerror',e=>errors.push(e.message))
  // `gates` maps an API path to a promise the answer waits for, so a test can look at the loading state.

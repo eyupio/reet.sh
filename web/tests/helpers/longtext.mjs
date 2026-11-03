@@ -81,7 +81,7 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     const req = route.request(), url = new URL(req.url()), path = url.pathname, method = req.method()
     const json = (data, s = 200) => route.fulfill({ status: s, json: data })
     if (extra[path] !== undefined) { const a = typeof extra[path] === 'function' ? extra[path](req) : extra[path]; return json(a) }
-    if (path === '/api/v2/auth/status') return json(status || { mode: 'accounts', setupRequired: false, bootstrapRequired: false, signupEnabled: true, user: owner, sso: { enabled: true, label: 'Company SSO' }, passwordReset: true })
+    if (path === '/api/v2/auth/status') return json(status || { mode: 'accounts', setupRequired: false, bootstrapRequired: false, signupEnabled: true, supportDesk: true, user: owner, sso: { enabled: true, label: 'Company SSO' }, passwordReset: true })
     if (path === '/api/v2/profile') return json({ user: owner, sessionCount: 3, accounts: true, profile: { theme: 'system', timezone: 'Europe/London', dateFormat: '', shelfView: 'list', cardsExpanded: false, hostedPrefix: 'reet-', updatedAt: now } })
     if (path === '/api/v2/profile/model-favourites') return json({ version: 0, favourites: [] })
     if (path === '/api/v2/settings/yolo') return json({ allowed: true, changedBy: 'Owner', changedAt: now })

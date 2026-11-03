@@ -1,5 +1,13 @@
 # Support tickets
 
+Support is off until the operator turns it on. Set `REET_SUPPORT_DESK=on` and
+restart: **Support** appears in **More**, **Admin → Support** appears for
+administrators, and the ticket API answers. Left unset, a self-hosted instance
+shows none of them, the ticket routes answer 404, and `/api/v2/auth/status`
+reports `supportDesk: false`. Tickets already stored are kept and come back when
+the desk is turned on again. Turn it on when your team runs this controller for
+other teams; a single-operator install has nobody to answer a ticket.
+
 Support is a conversation between the person who opened a ticket and the
 people who can answer it. A ticket is either personal or about a team.
 

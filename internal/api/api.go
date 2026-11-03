@@ -52,6 +52,7 @@ type server struct {
 	refreshJob   bool
 	authMode     AuthMode
 	signup       bool
+	supportDesk  bool
 	contactEmail string
 	limiter      *auth.Limiter
 	dummyHash    string
@@ -168,6 +169,14 @@ func WithAuthMode(mode AuthMode) Option {
 // default so an instance stays invite-only unless the operator opts in.
 func WithSignup(enabled bool) Option {
 	return func(s *server) { s.signup = enabled }
+}
+
+// WithSupportDesk turns on support tickets: the Support page, the ticket API and
+// the administrators' queue. It is off by default because a ticket needs
+// someone other than the requester to answer it; a team operating a controller
+// for other teams opts in.
+func WithSupportDesk(enabled bool) Option {
+	return func(s *server) { s.supportDesk = enabled }
 }
 
 // WithContactEmail publishes an optional admin contact for account and
@@ -1798,6 +1807,7 @@ func (s *server) authStatus(w http.ResponseWriter, r *http.Request) {
 		"setupRequired":     setupRequired,
 		"bootstrapRequired": bootstrapRequired,
 		"signupEnabled":     s.authMode == AuthAccounts && s.signup && !setupRequired,
+		"supportDesk":       s.supportDesk,
 		"contactEmail":      s.contactEmail,
 		"passwordReset":     s.mail != nil && s.mail.Delivers(),
 		"user":              user,

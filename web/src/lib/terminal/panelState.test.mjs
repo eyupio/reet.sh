@@ -27,6 +27,23 @@ test('the status line says what is awaited, else the state', () => {
   assert.equal(p.statusLine({ state: 'running' }), 'running')
 })
 
+test('a finished or failed turn is named over the still-running state', () => {
+  assert.equal(p.statusLine({ state: 'running', attention: 'finished' }), 'Finished')
+  assert.equal(p.statusLine({ state: 'running', attention: 'failed' }), 'Failed')
+  assert.equal(p.statusLine({ state: 'lost', attention: 'failed' }), 'Connection lost')
+  assert.equal(p.statusLine({ state: 'running', attention: 'working' }), 'running')
+})
+
+test('the row mark follows attention before the lifecycle state', () => {
+  assert.equal(p.sessionMark({ state: 'running', attention: 'finished' }), 'finished')
+  assert.equal(p.sessionMark({ state: 'running', attention: 'failed' }), 'failed')
+  assert.equal(p.sessionMark({ state: 'lost', attention: 'failed' }), 'lost')
+  assert.equal(p.sessionMark({ state: 'running' }), 'running')
+  assert.equal(p.sessionMark({ state: 'creating' }), 'starting')
+  assert.equal(p.sessionMark({ state: 'end_requested' }), 'ending')
+  assert.equal(p.sessionMark({ state: 'ended' }), 'finished')
+})
+
 test('needCount counts only sessions that need the person', () => {
   assert.equal(p.needCount([waiting({}), { state: 'running' }, waiting({ changedSinceSeen: false }), waiting({ pendingQuestion: { questionId: 'q' } })]), 2)
   assert.equal(p.needCount([]), 0)

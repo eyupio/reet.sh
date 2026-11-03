@@ -6,10 +6,12 @@
   import PageHeader from './PageHeader.svelte'
   import CopyButton from './CopyButton.svelte'
   import { installPrompt } from './install'
-  import type { Skill } from './api'
+  import { writtenSkillWhere } from './skillSync'
+  import type { InstallationReport } from './machines'
+  import type { Skill, SyncState } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
-  let { canWrite = true }: { canWrite?: boolean } = $props()
+  let { canWrite = true, reports = [], snapshot }: { canWrite?: boolean; reports?: InstallationReport[]; snapshot?: SyncState } = $props()
   let username = $state('')
   let prefix = $state('')
   let wantedName = $state('')
@@ -55,7 +57,9 @@
   const nameMismatch = $derived(!!editor && !!editor.slug && contentName !== '' && contentName !== editor.slug)
   let saveError = $state('')
   // Where a saved skill goes next: the Sync page with this skill pre-selected (drafts sync privately from this reet.sh).
-  const syncHref = $derived(originalSlug ? `/sync?skill=${encodeURIComponent(`hosted/${location.host.toLowerCase()}/${username}/${originalSlug}`)}` : '')
+  const syncHref = $derived(originalSlug ? `/sync?skill=${encodeURIComponent(hostedId(originalSlug))}` : '')
+  function hostedId(slug: string) { return `hosted/${location.host.toLowerCase()}/${username}/${slug}` }
+  function whereLine(skill: HostedSkill) { return writtenSkillWhere(hostedId(skill.slug), snapshot, reports) }
   function matchContentName() { if (!editor) return; editor.content = renameSkillContent(editor.content, editor.slug); saveError = '' }
   const prefixMisplaced = $derived(!!prefix && !!originalSlug && !!editor && !editor.slug.startsWith(prefix))
   const showPrefixChip = $derived(!!prefix && (!originalSlug || (editor?.slug.startsWith(prefix) ?? false)))
@@ -409,7 +413,7 @@
           <button class="skill-choice" aria-current={originalSlug === skill.slug ? 'true' : undefined} onclick={() => requestEdit(skill)} disabled={busy || importBusy}>
             <span class="choice-top"><strong>{skill.slug}</strong><span class="pill" class:published={skill.published}>{skill.published ? 'Published' : 'Draft'}</span></span>
             <small>{skill.description || 'No description yet'}</small>
-            <span class="choice-meta">Updated {new Date(skill.updatedAt).toLocaleDateString()}</span>
+            <span class="choice-meta"><span>Updated {new Date(skill.updatedAt).toLocaleDateString()}</span><span class="where">Machines: {whereLine(skill)}</span></span>
           </button>
         {/each}
       </div>
@@ -560,7 +564,8 @@
   .skill-choice span { font-size: .8rem; color: var(--muted); }
   .choice-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .choice-top strong { color: var(--ink); }
-  .choice-meta { font-size: .74rem !important; }
+  .choice-meta { display: grid; gap: 2px; font-size: .74rem !important; }
+  .choice-meta .where { color: var(--ink-soft); }
   .skill-choice small { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .pill { flex: none; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: .68rem !important; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
   .pill.published { border-color: color-mix(in srgb, var(--good) 45%, var(--line)); color: var(--good); }

@@ -2495,8 +2495,9 @@ glossary: **skill**, **shelf**, **machine**, **install location**, **sync plan**
 “destination” are gone from the rendered advanced panel. Sync appears only as a
 Machines subtab; More no longer duplicates it. The authoring page is **Write a
 skill**, and a saved draft, renamed skill or published skill ends with **Next: Put
-it on a machine** linking to Sync with that skill selected. Published skills stay
-in **Skills you write** with an **On your shelf** link.
+it on a machine** linking to Sync with that skill selected. At this stage a
+published written skill still appeared in **Skills you write** with an **On your
+shelf** link; the one-card pass below removes that duplicate.
 
 Validation:
 
@@ -2519,6 +2520,38 @@ Validation:
 ![Write a skill with its next step](images/ui/write-skill-desktop.png)
 ![Write a skill on a phone](images/ui/write-skill-phone.png)
 
-**Not checked.** No physical phone or tablet and no screen reader. Merging a written
-skill and its shelf card into one record is deferred; the **On your shelf** link
-explains the current duplication.
+**Not checked.** No physical phone or tablet and no screen reader. The one-card
+pass below carries the written-skill and shelf-card merge.
+
+## One card per written skill — 3 November 2026
+
+A published written skill now appears once on the Skills page: its shelf card.
+The writing block is **Your drafts**, listing only unpublished skills. The shelf
+card's quick actions add **Edit written skill**, which opens the authoring page
+with that skill selected. Publishing a draft removes it from **Your drafts** and
+adds the shelf card after the shelf reloads; unpublishing on the authoring page
+brings the draft back. The authoring page's skill list adds a **Machines** line
+for every skill, reading the saved sync plan first and complete scans second.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `written-skill-record.e2e.mjs`: checks the drafts-only block, one
+  published shelf card, the **Edit written skill** link, publish movement,
+  unpublish movement, and **Machines: Set to sync… / Not on a machine yet** on
+  the authoring page; it also asserts no unexpected API reads.
+- `skillSync.test.mjs` covers the saved-plan-first and observed-scan fallbacks.
+- `skills-sync-simple.e2e.mjs`, `sync-vocabulary.e2e.mjs` and
+  `first-skills.e2e.mjs` pass.
+- `phone-zoom.e2e.mjs` selected Skills and Write a skill screens pass at 320,
+  360, 390 and 412 px.
+
+![One card for a written skill](images/ui/written-skill-skills-desktop.png)
+![Your drafts on a phone](images/ui/written-skill-skills-phone.png)
+![Machines on the authoring page](images/ui/written-skill-authoring-desktop.png)
+![Machines on the authoring page, phone](images/ui/written-skill-authoring-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. The two
+server records behind a written skill and its shelf entry are still separate;
+this pass presents one card, it does not merge their lifecycle.

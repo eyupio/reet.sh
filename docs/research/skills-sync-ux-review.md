@@ -129,6 +129,8 @@ each skill is; the Sync page marks Machines current and the simple form calls it
 source **Everything on my shelf**. Per-machine add/remove controls and the
 collapsed-badge summary for large fleets are done. The vocabulary and authoring
 pass is also done: one glossary, Sync only under Machines, and **Write a skill**
-with a next-step link after every save. The remaining open items are merging a
-written skill and its shelf card into one record with one lifecycle, a Machines
-column on the authoring page, and draft support in the session skill picker.
+with a next-step link after every save. A published written skill now appears
+once as its shelf card with an **Edit written skill** link, the writing block is
+**Your drafts**, and the authoring page names the machines for every skill. The
+remaining open items are merging the two underlying server records into one
+lifecycle and draft support in the session skill picker.

@@ -405,6 +405,7 @@
       if (authenticated) {
         void loadNotificationCount()
         void loadAttention()
+        if (isHosting) void loadMeta()
       }
     })
     const changed = () => { if (authenticated) void reloadAll() }
@@ -1000,7 +1001,7 @@
     <PageHeader eyebrow="Connection problem" title="Your workspace is out of reach." />
     <p class="notice bad" role="alert">Could not check how this instance signs in. Reload the page to try again.</p>
   {:else if isHosting}
-    <Hosting {canWrite} />
+    <Hosting {canWrite} reports={machineReports} snapshot={syncSnapshot} />
   {:else if isShared}
     <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
   {:else if isActivity && authMode !== 'accounts'}

@@ -32,9 +32,9 @@ entry is removed. `/sync`, `/machines?view=compare` and the Skills
 is for, not only where the result is hosted. Choosing a publishing username and
 the Publish controls stay on the page. Every save notice ends with the next
 action: **Put it on a machine** links to Sync with the skill pre-selected.
-**Skills you write** on the Skills page says that published skills also appear
-on the shelf, so the same skill appearing twice is explained rather than
-surprising.
+The Skills page's writing block is **Your drafts**. A published written skill
+appears once, as its shelf card, with **Edit written skill** in its quick
+actions.
 
 ## Rulings
 
@@ -48,18 +48,16 @@ surprising.
 - **“Write a skill” is the authoring page, not “Host skills”.** *Cost if
   wrong:* publishing is less prominent in the page title, although its
   controls remain.
-- **A published skill stays in Skills you write with an “On your shelf” link.**
-  *Cost if wrong:* the skill still appears in two places; merging the records
-  is a larger lifecycle change and is deferred.
+- **A published written skill appears once, as its shelf card.** *Cost if
+  wrong:* unpublishing takes two steps: **Edit written skill**, then clear
+  **Publish publicly**.
 - **Keep “Source”, “List” and “Sync mode” as control labels.** *Cost if
   wrong:* these technical controls stay less plain-language than the rest.
 
 ## Deferred
 
-- Merging a written skill and its shelf card into one record with one
-  lifecycle.
-- A Machines column on the authoring page itself; the Skills page already
-  shows the saved intent and observed state for each written skill.
+- Merging the two server records behind a written skill and its shelf entry
+  into one lifecycle.
 
 ## Testing
 

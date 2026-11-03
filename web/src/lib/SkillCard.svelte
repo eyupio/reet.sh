@@ -509,6 +509,7 @@
       {/if}
       {#if command}<button type="button" role="menuitem" onclick={copyInstall}>Copy install command</button>{/if}
       {#if prompt}<button type="button" role="menuitem" onclick={() => { closeMenu(); void copyText(prompt) }}>Copy prompt</button>{/if}
+      {#if skill.sourceType === 'hosted'}<a role="menuitem" href={`/hosting?edit=${encodeURIComponent(skill.slug)}`}>Edit written skill</a>{/if}
       <a role="menuitem" href={`/sync?skill=${encodeURIComponent(skill.id)}`}>Sync to machines…</a>
       <button type="button" role="menuitem" onclick={() => { closeMenu(); void onpatch(skill, { liked: !skill.liked }, 'like') }}>{skill.liked ? 'Unlike' : 'Like'}</button>
       <button type="button" role="menuitem" onclick={() => { closeMenu(); onexpand(!expanded) }}>{expanded ? 'Collapse details' : 'Expand details'}</button>

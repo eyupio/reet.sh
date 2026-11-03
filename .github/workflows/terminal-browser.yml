@@ -90,6 +90,7 @@ jobs:
           node web/tests/machines-search.e2e.mjs
           node web/tests/machines-fleet.e2e.mjs
           node web/tests/sync-vocabulary.e2e.mjs
+          node web/tests/written-skill-record.e2e.mjs
           node web/tests/setups.e2e.mjs
           node web/tests/inbox.e2e.mjs
           node web/tests/admin-users.e2e.mjs

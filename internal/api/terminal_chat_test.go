@@ -777,6 +777,13 @@ func TestReattachRouteRefusalSentences(t *testing.T) {
 		{name: "capacity", reply: terminalproto.Result{Code: terminalproto.Capacity}, status: 409, code: "chat_reattach_capacity", msg: "This machine has reached its session limit."},
 		{name: "starting", reply: terminalproto.Result{Code: terminalproto.Conflict, Detail: terminalproto.ConflictStarting}, status: 409, code: "chat_reattach_starting", msg: "Still reconnecting. Try again in a moment."},
 		{name: "owner elsewhere", reply: terminalproto.Result{Code: terminalproto.Conflict}, status: 409, code: "chat_reattach_conflict", msg: "This conversation is open in another session."},
+		{name: "archived", setup: func(t *testing.T, f *launchAPI) string {
+			session := lostChat(t, f)
+			if err := f.st.ArchiveTerminalFor(f.uid, session); err != nil {
+				t.Fatal(err)
+			}
+			return session
+		}, status: 409, code: "chat_reattach_archived", msg: "This chat was archived, so its history is gone."},
 		{name: "trust", reply: terminalproto.Result{Code: terminalproto.ACPTrustRequired, Detail: ".opencode/plugins/x.js"}, status: 409, code: "chat_reattach_trust", msg: "This folder has OpenCode plugins, so reet did not reconnect the chat in place. Continue it with history only if you trust this folder."},
 	}
 	for _, c := range cases {

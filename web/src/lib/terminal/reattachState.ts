@@ -25,9 +25,9 @@ export function continuationFailureInPane(args: { structured: boolean; selected:
 }
 
 /** Refusals of an in-place reconnect that trying again cannot fix: the account or the machine refuses YOLO, the machine
- *  is full, the folder has plugins (Continue with history is offered instead), the person ended the chat, or the row
- *  cannot be reconnected at all. Anything else (no code, a failure, a chat still starting, another owner) may succeed. */
-const FINAL_REATTACH_REFUSALS = new Set(['chat_reattach_yolo_not_allowed', 'chat_reattach_yolo_refused', 'chat_reattach_capacity', 'chat_reattach_trust', 'chat_reattach_ended', 'chat_reattach_unsupported', 'chat_reattach_no_conversation'])
+ *  is full, the folder has plugins (Continue with history is offered instead), the person ended the chat, the chat was archived
+ *  (its history is gone), or the row cannot be reconnected at all. Anything else (no code, a failure, a chat still starting, another owner) may succeed. */
+const FINAL_REATTACH_REFUSALS = new Set(['chat_reattach_yolo_not_allowed', 'chat_reattach_yolo_refused', 'chat_reattach_capacity', 'chat_reattach_trust', 'chat_reattach_ended', 'chat_reattach_unsupported', 'chat_reattach_no_conversation', 'chat_reattach_archived'])
 
 /** Whether a failed reconnect offers Try again, from the server's refusal code. */
 export function reattachRetryable(code?: string): boolean {

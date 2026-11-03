@@ -226,3 +226,30 @@ func TestTerminalArchiveCannotReleaseActiveQuota(t *testing.T) {
 		t.Fatal("archive freed active quota", err)
 	}
 }
+
+func TestTerminalArchivedForReportsArchiveScopedByAccount(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	session := createTerminal(t, s, uid, a, c)
+	if err := s.ObserveTerminalStateFor(uid, a.ID, session.ID, c.Generation, terminalproto.Lost, nil); err != nil {
+		t.Fatal(err)
+	}
+	if archived, err := s.TerminalArchivedFor(uid, session.ID); err != nil || archived {
+		t.Fatalf("before archive: %v %v", archived, err)
+	}
+	if err := s.ArchiveTerminalFor(uid, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if archived, err := s.TerminalArchivedFor(uid, session.ID); err != nil || !archived {
+		t.Fatalf("after archive: %v %v", archived, err)
+	}
+	other, err := s.CreateUser("archived-other@example.test", "Other", "admin", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived, err := s.TerminalArchivedFor(other.ID, session.ID); err != nil || archived {
+		t.Fatalf("another account: %v %v", archived, err)
+	}
+	if _, err := s.TerminalArchivedFor(uid, "bad id"); !errors.Is(err, terminalproto.ErrInvalid) {
+		t.Fatalf("invalid id: %v", err)
+	}
+}

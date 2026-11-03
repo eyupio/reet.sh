@@ -409,6 +409,8 @@ func (s *server) terminalReattachError(w http.ResponseWriter, err error) {
 		writeErrCode(w, 409, "chat_reattach_ended", "", "You ended this chat. Continue it with history as a new session.", "")
 	case errors.Is(err, terminalbroker.ErrReattachNotClosed):
 		writeErrCode(w, 409, "chat_reattach_not_closed", "", err.Error(), "")
+	case errors.Is(err, terminalbroker.ErrReattachArchived):
+		writeErrCode(w, 409, "chat_reattach_archived", "", err.Error(), "")
 	case errors.Is(err, terminalbroker.ErrReattachNoConversation):
 		writeErrCode(w, 409, "chat_reattach_no_conversation", "", err.Error(), "")
 	case errors.Is(err, terminalbroker.ErrReattachStarting):

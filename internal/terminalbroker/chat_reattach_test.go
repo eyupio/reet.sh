@@ -519,3 +519,32 @@ func TestReattachMachineRefusalsKeepTheirMeaning(t *testing.T) {
 		t.Fatal(ErrReattachStarting)
 	}
 }
+
+func TestReattachRefusedForArchivedChat(t *testing.T) {
+	for _, state := range []terminalproto.SessionState{terminalproto.Lost, terminalproto.Exited} {
+		t.Run(string(state), func(t *testing.T) {
+			b, p, uid, agent, machine := reattachFixture(t)
+			s := switchChat(t, b, uid, agent)
+			var exit *int
+			if state == terminalproto.Exited {
+				one := 1
+				exit = &one
+			}
+			if err := b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, state, exit); err != nil {
+				t.Fatal(err)
+			}
+			if err := b.st.ArchiveTerminalFor(uid, s.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := b.ReattachChat(t.Context(), uid, s.ID); !errors.Is(err, ErrReattachArchived) {
+				t.Fatalf("archived: %v", err)
+			}
+			if sent := reattachSent(machine); len(sent) != 0 {
+				t.Fatalf("sent %+v", sent)
+			}
+			if got := row(t, b, uid, s.ID); got.State != state {
+				t.Fatalf("row %+v", got)
+			}
+		})
+	}
+}

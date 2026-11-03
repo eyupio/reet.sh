@@ -20,6 +20,9 @@ var (
 	// ErrReattachNoConversation means the row has no OpenCode session id to
 	// load.
 	ErrReattachNoConversation = errors.New("This chat has no saved conversation to reconnect.")
+	// ErrReattachArchived means the chat was archived: its transcript is gone,
+	// so it is not reconnected.
+	ErrReattachArchived = errors.New("This chat was archived, so its history is gone.")
 	// ErrReattachConflict means the machine refused with a conflict that is
 	// not a start in flight: another session owns the conversation.
 	ErrReattachConflict = errors.New("This conversation is open in another session.")
@@ -113,6 +116,11 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string) er
 		return err
 	} else if ended {
 		return ErrACPClosed
+	}
+	if archived, err := b.st.TerminalArchivedFor(uid, session); err != nil {
+		return err
+	} else if archived {
+		return ErrReattachArchived
 	}
 	if !terminalproto.ValidACPSessionIDFor(s.Tool, s.ACPSessionID) {
 		return ErrReattachNoConversation

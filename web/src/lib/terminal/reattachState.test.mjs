@@ -70,3 +70,9 @@ test('a chat the person ended falls back quietly for an automatic attempt only, 
   assert.equal(quietReattachRefusal('chat_reattach_failed', true), null)
   assert.equal(quietReattachRefusal(undefined, true), null)
 })
+
+test('an archived chat is a final refusal: no Try again, no Continue with history', () => {
+  assert.equal(reattachRetryable('chat_reattach_archived'), false)
+  assert.equal(offersContinueAfterReattach({ phase: 'failed', code: 'chat_reattach_archived', reason: 'x' }), false)
+  assert.equal(quietReattachRefusal('chat_reattach_archived', true), null)
+})

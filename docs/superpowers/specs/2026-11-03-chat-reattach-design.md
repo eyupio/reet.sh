@@ -120,6 +120,7 @@ Failed or refused continuation rows are failed definitively rather than left `cr
 | Account does not allow YOLO / machine YOLO consent off | `chat_reattach_yolo_not_allowed` / `chat_reattach_yolo_refused`; no Try again. |
 | Machine at its session limit | `chat_reattach_capacity`: "This machine has reached its session limit."; no Try again. |
 | Folder has OpenCode plugins | `chat_reattach_trust` with the files; Continue with history and Start a new chat, no Try again. |
+| Chat was archived (crafted request; archived rows are not listed) | `chat_reattach_archived`: "This chat was archived, so its history is gone."; refused before any machine call, no Try again, no Continue. |
 | A person ended the chat | `chat_reattach_ended`: "You ended this chat. Continue it with history as a new session." |
 | Reply lost | Operation stays pending; the next call with the same request id checks it. |
 

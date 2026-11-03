@@ -1031,6 +1031,18 @@ func (s *Store) RecordTerminalModelFor(uid int64, sessionID, model string) error
 
 // TerminalEndRequestedFor reports whether a person asked to end sessionID
 // (an end operation exists for it on agentID in this account).
+// TerminalArchivedFor reports whether a person's session was archived (hidden
+// from browser history, its transcript gone). An unknown or foreign session is
+// not archived.
+func (s *Store) TerminalArchivedFor(uid int64, sessionID string) (bool, error) {
+	if !terminalproto.ValidID(sessionID) {
+		return false, terminalproto.ErrInvalid
+	}
+	var ok bool
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM terminal_session_archives WHERE session_id=? AND user_id=?)`, sessionID, uid).Scan(&ok)
+	return ok, err
+}
+
 func (s *Store) TerminalEndRequestedFor(uid int64, agentID, sessionID string) (bool, error) {
 	if !terminalproto.ValidID(agentID) || !terminalproto.ValidID(sessionID) {
 		return false, terminalproto.ErrInvalid

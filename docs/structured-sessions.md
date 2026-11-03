@@ -213,6 +213,7 @@ same machine call), bounds it at 75 seconds ("Reconnecting took too long. Try ag
 | `chat_reattach_ended` | 409 | "You ended this chat. Continue it with history as a new session." | no (quiet when automatic, see below) |
 | `chat_reattach_not_closed` | 409 | "This chat is still running." | yes (quiet when automatic) |
 | `chat_reattach_no_conversation` | 409 | "This chat has no saved conversation to reconnect." | no |
+| `chat_reattach_archived` | 409 | "This chat was archived, so its history is gone." | no; nothing to continue |
 | `chat_reattach_starting` | 409 | "Still reconnecting. Try again in a moment." (the machine is still starting this chat) | yes |
 | `chat_reattach_conflict` | 409 | "This conversation is open in another session." | yes |
 | `chat_reattach_yolo_not_allowed` | 409 | "An owner or admin can allow YOLO for this account in Settings." | no |

@@ -53,7 +53,7 @@ func newMailSrv(t *testing.T) mailSrv {
 	q := &mail.Queue{Store: st, Settings: settings, Sender: fake}
 	m := &mail.Mailer{Store: st, Settings: settings, Queue: q}
 	n := &notify.Service{Store: st, Mail: m}
-	srv := httptest.NewServer(New(st, deadFetcher(t), "bootstrap", WithAuthMode(AuthAccounts), WithMail(m), WithNotify(n)))
+	srv := httptest.NewServer(New(st, deadFetcher(t), "bootstrap", WithAuthMode(AuthAccounts), WithMail(m), WithNotify(n), WithSupportDesk(true)))
 	t.Cleanup(func() { srv.Close(); st.Close() })
 	return mailSrv{srv: srv, st: st, fake: fake, q: q, notify: n}
 }

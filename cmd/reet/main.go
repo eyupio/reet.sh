@@ -39,6 +39,15 @@ var (
 	commit  = "unknown"
 )
 
+// truthy reads an on/off environment value: on, 1, true or yes, in any case.
+func truthy(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "on", "1", "true", "yes":
+		return true
+	}
+	return false
+}
+
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
@@ -144,6 +153,7 @@ Configuration (environment variables):
   REET_AUTH       accounts (default), token or none
   REET_TOKEN      Optional owner-setup bootstrap / legacy access token
   REET_SIGNUP     open to allow self-serve accounts (default invite-only)
+  REET_SUPPORT_DESK  on to offer support tickets answered by this instance's administrators (default off)
   REET_CONTACT_EMAIL  Optional admin address shown for account/reset requests
   REET_MAIL_OUTBOX_DIR  Local dev only: write emails here instead of sending
   REET_TOPICS     off to disable topic seeding
@@ -335,7 +345,7 @@ func serve() error {
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
 		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(publicURL),
 		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups),
-		api.WithSignup(signup), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer), api.WithNotify(notifier),
+		api.WithSignup(signup), api.WithSupportDesk(truthy(os.Getenv("REET_SUPPORT_DESK"))), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer), api.WithNotify(notifier),
 		api.WithPrivateConnection(bcfg.Sealer, os.Getenv("REET_RELAY_MAP_URL")),
 		api.WithReleaseChecker(releases), api.WithOIDC(sso))
 	defer func() { terminalControl.Close(); h.Close() }()

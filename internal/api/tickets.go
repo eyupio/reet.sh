@@ -19,18 +19,28 @@ import (
 // can read and answer its tickets. Internal notes never leave the admin side.
 
 func (s *server) registerTicketRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v2/tickets", s.ticketList)
-	mux.HandleFunc("POST /api/v2/tickets", s.ticketOpen)
-	mux.HandleFunc("GET /api/v2/tickets/{id}", s.ticketDetail)
-	mux.HandleFunc("POST /api/v2/tickets/{id}/reply", s.ticketReply)
-	mux.HandleFunc("POST /api/v2/tickets/{id}/close", s.ticketClose)
+	desk := func(h http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			// With the desk off the routes answer as if they did not exist; tickets already stored are kept, not read.
+			if !s.supportDesk {
+				http.NotFound(w, r)
+				return
+			}
+			h(w, r)
+		}
+	}
+	mux.HandleFunc("GET /api/v2/tickets", desk(s.ticketList))
+	mux.HandleFunc("POST /api/v2/tickets", desk(s.ticketOpen))
+	mux.HandleFunc("GET /api/v2/tickets/{id}", desk(s.ticketDetail))
+	mux.HandleFunc("POST /api/v2/tickets/{id}/reply", desk(s.ticketReply))
+	mux.HandleFunc("POST /api/v2/tickets/{id}/close", desk(s.ticketClose))
 
-	mux.HandleFunc("GET /api/v2/admin/tickets", s.requireAdmin(s.adminTicketQueue))
-	mux.HandleFunc("GET /api/v2/admin/tickets/{id}", s.requireAdmin(s.adminTicketDetail))
-	mux.HandleFunc("POST /api/v2/admin/tickets/{id}/reply", s.requireAdmin(s.adminTicketReply))
-	mux.HandleFunc("POST /api/v2/admin/tickets/{id}/note", s.requireAdmin(s.adminTicketNote))
-	mux.HandleFunc("POST /api/v2/admin/tickets/{id}/status", s.requireAdmin(s.adminTicketStatus))
-	mux.HandleFunc("POST /api/v2/admin/tickets/{id}/assign", s.requireAdmin(s.adminTicketAssign))
+	mux.HandleFunc("GET /api/v2/admin/tickets", desk(s.requireAdmin(s.adminTicketQueue)))
+	mux.HandleFunc("GET /api/v2/admin/tickets/{id}", desk(s.requireAdmin(s.adminTicketDetail)))
+	mux.HandleFunc("POST /api/v2/admin/tickets/{id}/reply", desk(s.requireAdmin(s.adminTicketReply)))
+	mux.HandleFunc("POST /api/v2/admin/tickets/{id}/note", desk(s.requireAdmin(s.adminTicketNote)))
+	mux.HandleFunc("POST /api/v2/admin/tickets/{id}/status", desk(s.requireAdmin(s.adminTicketStatus)))
+	mux.HandleFunc("POST /api/v2/admin/tickets/{id}/assign", desk(s.requireAdmin(s.adminTicketAssign)))
 }
 
 func ticketName(u store.User) string {

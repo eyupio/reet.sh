@@ -23,14 +23,14 @@
   import { bytes } from './terminal/health'
 
   let {
-    onerror, role = 'owner', accounts = false, currentEmail = '',
-  }: { onerror?: (e: unknown) => void; role?: string; accounts?: boolean; currentEmail?: string } = $props()
+    onerror, role = 'owner', accounts = false, currentEmail = '', supportDesk = false,
+  }: { onerror?: (e: unknown) => void; role?: string; accounts?: boolean; currentEmail?: string; supportDesk?: boolean } = $props()
 
   // svelte-ignore state_referenced_locally (Account mode is fixed for this page.)
   const sections = [
     { key: 'overview', label: 'Overview' }, { key: 'environments', label: 'Environments' },
     ...(accounts ? [{ key: 'users', label: 'Users' }, { key: 'team', label: 'Team usage' }] : []),
-    { key: 'support', label: 'Support' }, { key: 'email', label: 'Email' }, { key: 'notifications', label: 'Notifications' }, { key: 'backups', label: 'Backups' }, { key: 'settings', label: 'Settings' }, { key: 'activity', label: 'Activity' },
+    ...(supportDesk ? [{ key: 'support', label: 'Support' }] : []), { key: 'email', label: 'Email' }, { key: 'notifications', label: 'Notifications' }, { key: 'backups', label: 'Backups' }, { key: 'settings', label: 'Settings' }, { key: 'activity', label: 'Activity' },
   ]
   const legacy: Record<string, string> = { 'admin-overview': 'overview', 'admin-envs': 'environments', 'admin-users': 'users', 'admin-team': 'team', 'admin-backups': 'backups', 'admin-settings': 'settings', 'admin-events': 'activity' }
   const requested = legacy[location.hash.slice(1)] || location.pathname.split('/')[2] || 'overview'

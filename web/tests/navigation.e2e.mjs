@@ -11,6 +11,21 @@ const open = options => openWorkspace(browser, options)
 const tabs = page => page.getByRole('navigation',{name:'Main navigation'})
 
 try {
+ // Support belongs to an instance whose operator turned the support desk on; without it there is no entry, no admin tab
+ // and no page, so a plain self-hosted install never offers a ticket nobody could answer.
+ if (run('support is absent unless the support desk is on')) {
+  const {context,page,errors} = await open({width:1440,status:{supportDesk:false}})
+  await page.goto(`${base}/support`)
+  await expect.poll(() => page.title()).toBe('Page not found · reet.sh')
+  await page.goto(`${base}/admin/overview`)
+  await expect(page.getByRole('navigation',{name:'Admin',exact:true}).getByRole('link',{name:'Email',exact:true})).toBeVisible()
+  await expect(page.getByRole('navigation',{name:'Admin',exact:true}).getByRole('link',{name:'Support',exact:true})).toHaveCount(0)
+  await page.getByRole('button',{name:/^More/}).first().click()
+  await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Support',exact:true})).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // The desktop tabs are Home, Sessions, Machines and Skills for a writer, with Home current at /, the Jump search and
  // the bell beside them; the rest of the old navigation sits under the separate More panel, and Activity is in Account.
  if (run('writer desktop shows five tabs with Home current')) {

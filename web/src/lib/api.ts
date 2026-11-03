@@ -93,6 +93,7 @@ export type AuthStatus = {
   setupRequired: boolean
   bootstrapRequired: boolean
   signupEnabled?: boolean
+  supportDesk?: boolean
   contactEmail?: string
   passwordReset?: boolean
   sso?: import('./sso').SsoStatus

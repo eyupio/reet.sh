@@ -97,7 +97,7 @@ Handler `reattach(requestID, sessionID, body)` (`internal/terminalagent/chat_rea
   again** only for a refusal a retry can fix (keyed off the route code: not for YOLO refusals, capacity, trust, ended,
   unsupported or no conversation). A folder-trust refusal shows the plugin files and offers the explicit **Continue with
   history** (new row, `trust: true`) again, in the pane and the header menu (ruling R10). An automatic attempt refused
-  as `chat_reattach_ended` falls back quietly to the ended note with Continue with history.
+  as `chat_reattach_ended` falls back quietly to the ended note with Continue with history. A manual Reconnect or Try again refused this way shows the failure card with the server's message, Continue with history and Start a new chat, and no Try again.
 - The button copy changes from "Continue with history" to **Reconnect** for this path. The sidebar shows "Reconnecting"
   rather than "Lost" while pending.
 

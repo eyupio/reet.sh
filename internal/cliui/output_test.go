@@ -1,8 +1,11 @@
 package cliui
 
 import (
+	"context"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -71,4 +74,33 @@ func TestOutputScrollKeepsEarlierLinesVisible(t *testing.T) {
 func updateOutput(m outputModel, msg tea.Msg) (outputModel, tea.Cmd) {
 	next, cmd := m.Update(msg)
 	return next.(outputModel), cmd
+}
+
+func TestCancellingOutputWorkKeepsTheRendererAlive(t *testing.T) {
+	original := runOutputProgram
+	defer func() { runOutputProgram = original }()
+	started := make(chan struct{})
+	runOutputProgram = func(ctx context.Context, _ io.Reader, _ io.Writer, m outputModel) (outputModel, error) {
+		next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+		m = next.(outputModel)
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("renderer context was cancelled with the work: %v", err)
+		}
+		select {
+		case result := <-m.done:
+			next, _ = m.Update(result)
+			m = next.(outputModel)
+		case <-time.After(5 * time.Second):
+			t.Fatal("work did not stop after cancellation")
+		}
+		return m, nil
+	}
+	code, quit, err := RunOutput(context.Background(), strings.NewReader(""), io.Discard, "x", func(ctx context.Context, _ io.Writer) (int, error) {
+		close(started)
+		<-ctx.Done()
+		return 130, nil
+	})
+	if err != nil || quit || code != 130 {
+		t.Fatalf("code=%d quit=%v err=%v", code, quit, err)
+	}
 }

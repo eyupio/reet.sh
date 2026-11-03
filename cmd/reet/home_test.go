@@ -152,6 +152,8 @@ func TestOwnsTerminalClassification(t *testing.T) {
 		{[]string{"doctor"}, false},
 		{[]string{"healthcheck"}, false},
 		{[]string{"scan", "--prune"}, false},
+		{[]string{"sync"}, true},
+		{[]string{"sync", "--target", "abc"}, true},
 		{[]string{"setup", "scan"}, false},
 		{[]string{"setup", "profile"}, true},
 		{[]string{"backup", "list"}, false},

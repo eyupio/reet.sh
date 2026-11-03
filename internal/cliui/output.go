@@ -21,23 +21,26 @@ const outputLimit = 4 << 20
 // streams it, then stays open with the final exit status until the user
 // returns home or quits.
 func RunOutput(ctx context.Context, in io.Reader, out io.Writer, label string, work func(context.Context, io.Writer) (int, error)) (int, bool, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	// The child has its own cancellable context. Cancelling it must keep the
+	// renderer alive so the view can show the cancelled result and still let
+	// the user return home.
+	workCtx, cancelWork := context.WithCancel(ctx)
+	defer cancelWork()
 	buf := newOutputBuffer()
 	done := make(chan outputResult, 1)
 	finished := make(chan struct{})
 	go func() {
-		code, err := work(ctx, buf)
+		code, err := work(workCtx, buf)
 		buf.close()
 		close(finished)
 		done <- outputResult{code: code, err: err}
 	}()
-	model := outputModel{label: label, width: 80, height: 24, follow: true, running: true, buf: buf, done: done, cancel: cancel}
+	model := outputModel{label: label, width: 80, height: 24, follow: true, running: true, buf: buf, done: done, cancel: cancelWork}
 	final, uiErr := runOutputProgram(ctx, in, out, model)
 	select {
 	case <-finished:
 	default:
-		cancel()
+		cancelWork()
 		if uiErr == nil {
 			uiErr = errors.New("output renderer stopped before the command finished")
 		}

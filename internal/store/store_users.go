@@ -325,11 +325,11 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		f.Machine = host
 	}
 	var c Counts
-	if err := s.db.QueryRow(`SELECT COUNT(*),COALESCE(SUM(liked),0),COALESCE(SUM(bookmarked),0),COALESCE(SUM(used),0)
-		FROM shelf WHERE user_id=?`, userID).Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*),COALESCE(SUM(sh.liked),0),COALESCE(SUM(sh.bookmarked),0),COALESCE(SUM(sh.used),0)
+		FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`, userID).Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
 		return nil, c, err
 	}
-	q := `SELECT ` + shelfCols + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id WHERE sh.user_id=?`
+	q := `SELECT ` + shelfCols + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id WHERE sh.user_id=? AND s.hidden=0`
 	args := []any{userID}
 	tabWhere := map[string]string{
 		"liked":      ` AND sh.liked=1`,

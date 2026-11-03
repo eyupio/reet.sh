@@ -2553,5 +2553,33 @@ Validation:
 ![Machines on the authoring page, phone](images/ui/written-skill-authoring-phone.png)
 
 **Not checked.** No physical phone or tablet and no screen reader. The two
-server records behind a written skill and its shelf entry are still separate;
-this pass presents one card, it does not merge their lifecycle.
+server records behind a written skill and its shelf entry are still separate
+tables; the lifecycle pass below gives them one hide/show lifecycle.
+
+## Written-skill lifecycle — 3 November 2026
+
+The shelf card for a written skill is now a hidden projection of the hosted
+skill. Publishing unhides it and refreshes its metadata. Unpublishing hides it,
+so the shelf card disappears while its tags, notes and list membership stay for a
+later republish. Renaming moves the projection and its references with the hidden
+state intact. Deleting removes the hosted content and its sync binding, and hides
+the projection so another person's shelf data is not destroyed. The open shelf,
+per-person shelf and counts, shared-list rows and counts, admin rollup and export
+all exclude hidden rows.
+
+Validation:
+
+- `go test ./internal/store ./internal/api`: pass.
+- New `TestHostedDraftHidesItsShelfProjectionAndKeepsItsData` covers publish,
+  draft, rename while hidden, republish with notes intact, delete, the open shelf,
+  the per-person shelf, and a shared list's rows and count.
+- `TestHostedSkillsPublicationAndOwnership` now checks that a draft disappears
+  from the author's and another person's shelves, returns on republish, and
+  disappears after delete without colliding with another author's same-named
+  skill.
+- `go test ./internal/backup`: pass.
+- `go vet ./...`: pass.
+
+**Not checked.** No physical phone or tablet and no screen reader on the API
+paths. The hosted content and its shelf projection remain separate tables with
+one lifecycle; no schema merge is claimed.

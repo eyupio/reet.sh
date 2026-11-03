@@ -375,7 +375,7 @@ func TestDraftSyncCandidatesArePrivateSources(t *testing.T) {
 	}
 	s.db.Exec(`UPDATE users SET role='owner' WHERE id=?`, uid)
 	// Deleting the draft drops its binding; the immutable revisions stay, as the private store is append-only.
-	if err := s.DeleteHostedSkill(uid, "draft"); err != nil {
+	if err := s.DeleteHostedSkill(uid, "draft", ""); err != nil {
 		t.Fatal(err)
 	}
 	var bound int

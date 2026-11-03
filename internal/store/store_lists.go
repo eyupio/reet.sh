@@ -157,7 +157,7 @@ func (s *Store) SharedListByID(id int64) (SharedList, error) {
 }
 
 const listSummaryQuery = `SELECT l.id,l.owner_id,u.name,l.name,l.description,l.visibility,l.slug,
-	(SELECT COUNT(*) FROM list_skills ls WHERE ls.list_id=l.id),
+	(SELECT COUNT(*) FROM list_skills ls JOIN skills s ON s.id=ls.skill_id WHERE ls.list_id=l.id AND s.hidden=0),
 	1+(SELECT COUNT(*) FROM list_members m WHERE m.list_id=l.id),l.created_at,l.updated_at
 	FROM lists l JOIN users u ON u.id=l.owner_id`
 
@@ -208,7 +208,7 @@ func (s *Store) ListAccessFor(userID int64, userRole string, id int64) (ListAcce
 	var l SharedList
 	var memberRole string
 	err := s.db.QueryRow(`SELECT l.id,l.owner_id,u.name,l.name,l.description,l.visibility,l.slug,
-		(SELECT COUNT(*) FROM list_skills ls WHERE ls.list_id=l.id),
+		(SELECT COUNT(*) FROM list_skills ls JOIN skills s ON s.id=ls.skill_id WHERE ls.list_id=l.id AND s.hidden=0),
 		1+(SELECT COUNT(*) FROM list_members m WHERE m.list_id=l.id),
 		COALESCE((SELECT m.role FROM list_members m WHERE m.list_id=l.id AND m.user_id=?),''),
 		l.created_at,l.updated_at
@@ -324,7 +324,7 @@ func listSkillsFrom(query environmentQuerier, listID int64) ([]ListSkill, error)
 		ls.note,COALESCE(ls.added_by,0),COALESCE(u.name,'')
 		FROM list_skills ls JOIN skills s ON s.id=ls.skill_id
 		LEFT JOIN users u ON u.id=ls.added_by
-		WHERE ls.list_id=? ORDER BY ls.position ASC, ls.added_at ASC, lower(s.name)`, listID)
+		WHERE ls.list_id=? AND s.hidden=0 ORDER BY ls.position ASC, ls.added_at ASC, lower(s.name)`, listID)
 	if err != nil {
 		return nil, err
 	}

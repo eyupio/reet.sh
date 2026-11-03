@@ -212,18 +212,39 @@ func (s *Store) SaveHostedSkill(userID int64, sk HostedSkill) (HostedSkill, erro
 	return scanHosted(s.db.QueryRow(`SELECT `+hostedCols+` FROM hosted_skills WHERE user_id=? AND slug=?`, userID, sk.Slug))
 }
 
-func (s *Store) DeleteHostedSkill(userID int64, slug string) error {
-	result, err := s.db.Exec(`DELETE FROM hosted_skills WHERE user_id=? AND slug=?`, userID, slug)
-	if err != nil {
-		return err
+func (s *Store) DeleteHostedSkill(userID int64, slug, skillID string) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		result, err := tx.Exec(`DELETE FROM hosted_skills WHERE user_id=? AND slug=?`, userID, slug)
+		if err != nil {
+			return err
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrNotFound
+		}
+		if _, err := tx.Exec(`DELETE FROM hosted_sync_sources WHERE user_id=? AND slug=?`, userID, slug); err != nil {
+			return err
+		}
+		if skillID != "" {
+			if _, err := tx.Exec(`UPDATE skills SET hidden=1 WHERE id=?`, skillID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// SetHostedSkillVisible shows or hides the shelf projection of a written skill.
+// The row keeps its tags, notes and list membership while a draft or after delete.
+func (s *Store) SetHostedSkillVisible(id string, visible bool) error {
+	hidden := 1
+	if visible {
+		hidden = 0
 	}
-	n, err := result.RowsAffected()
-	if err == nil && n == 0 {
-		return ErrNotFound
-	}
-	if err == nil {
-		err = s.forgetHostedSyncSource(userID, slug)
-	}
+	_, err := s.db.Exec(`UPDATE skills SET hidden=? WHERE id=?`, hidden, id)
 	return err
 }
 
@@ -322,10 +343,10 @@ func moveHostedReferencesTx(tx *sql.Tx, oldRef, newRef ref.Ref) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`INSERT INTO skills(`+cols+`)
-			SELECT ?,?,?,?,?,?,description,notes,installs,installs_week,trend,liked,bookmarked,used,created_at,?
+	if _, err := tx.Exec(`INSERT INTO skills(`+cols+`,hidden)
+			SELECT ?,?,?,?,?,?,description,notes,installs,installs_week,trend,liked,bookmarked,used,created_at,?,hidden
 			FROM skills WHERE id=?
-			ON CONFLICT(id) DO UPDATE SET source=excluded.source, slug=excluded.slug, source_type=excluded.source_type, url=excluded.url`,
+			ON CONFLICT(id) DO UPDATE SET source=excluded.source, slug=excluded.slug, source_type=excluded.source_type, url=excluded.url, hidden=excluded.hidden`,
 		newRef.ID, newRef.Source, newRef.Slug, newRef.SourceType, newRef.URL, newRef.Slug, now(), oldRef.ID); err != nil {
 		return err
 	}

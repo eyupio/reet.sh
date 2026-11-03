@@ -3,6 +3,8 @@ package store
 import (
 	"strings"
 	"testing"
+
+	"github.com/eyupio/reet.sh/internal/ref"
 )
 
 func TestValidateHostedBundles(t *testing.T) {
@@ -87,4 +89,92 @@ func TestHostedPrefixNormalization(t *testing.T) {
 			t.Errorf("NormalizeHostedPrefix(%q) accepted", in)
 		}
 	}
+}
+
+func TestHostedDraftHidesItsShelfProjectionAndKeepsItsData(t *testing.T) {
+	s := newStore(t)
+	u, err := s.CreateUser("hide@example.com", "Hide", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClaimPublishingUsername(u.ID, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	sk := HostedSkill{Slug: "demo", Content: "---\nname: demo\ndescription: Description\n---\n\nInstructions\n", Published: true}
+	if _, err := s.SaveHostedSkill(u.ID, sk); err != nil {
+		t.Fatal(err)
+	}
+	rf, err := ref.ParseAt("https://reet.sh/alice/demo", "reet.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	test := true
+	if _, err := s.UpsertFor(u.ID, rf, Patch{Bookmarked: &test}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetHostedSkillVisible(rf.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	note := "Keep this note"
+	if _, err := s.PatchFor(u.ID, rf.ID, Patch{Notes: &note}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddSkillTagsFor(u.ID, rf.ID, []string{"keep"}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.CreateList(u.ID, "Kit", "", "private")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddListSkill(list.ID, rf.ID, "", u.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	assertVisible := func(want int, when string) {
+		t.Helper()
+		shelf, counts, err := s.ListFor(u.ID, Filter{})
+		if err != nil || len(shelf) != want || counts.All != want {
+			t.Fatalf("%s: shelf=%+v counts=%+v err=%v", when, shelf, counts, err)
+		}
+		items, err := s.listSkills(list.ID)
+		if err != nil || len(items) != want {
+			t.Fatalf("%s: list=%+v err=%v", when, items, err)
+		}
+		shared, err := s.SharedListByID(list.ID)
+		if err != nil || shared.SkillCount != want {
+			t.Fatalf("%s: list count=%+v err=%v", when, shared, err)
+		}
+		open, openCounts, err := s.List(Filter{})
+		if err != nil || len(open) != want || openCounts.All != want {
+			t.Fatalf("%s: open shelf=%+v counts=%+v err=%v", when, open, openCounts, err)
+		}
+	}
+	assertVisible(1, "published")
+	if err := s.SetHostedSkillVisible(rf.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	assertVisible(0, "draft")
+	renamedRef, err := ref.ParseAt("https://reet.sh/alice/demo-two", "reet.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RenameHostedSkill(u.ID, "demo", "demo-two", rf, renamedRef); err != nil {
+		t.Fatal(err)
+	}
+	assertVisible(0, "renamed draft")
+	if err := s.SetHostedSkillVisible(renamedRef.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	assertVisible(1, "renamed published")
+	shelf, _, err := s.ListFor(u.ID, Filter{})
+	if err != nil || shelf[0].Notes != note {
+		t.Fatalf("notes lost across the draft and rename: %+v %v", shelf, err)
+	}
+	if err := s.SetHostedSkillVisible(renamedRef.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteHostedSkill(u.ID, "demo-two", renamedRef.ID); err != nil {
+		t.Fatal(err)
+	}
+	assertVisible(0, "deleted")
 }

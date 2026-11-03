@@ -217,11 +217,11 @@ func (s *Store) RollupFor(includeIndividual bool) (Rollup, error) {
 	listSkillRows.Close()
 
 	skillRows, err := s.db.Query(`SELECT s.id,s.name,s.source FROM skills s
-		WHERE EXISTS (SELECT 1 FROM shelf sh JOIN users u ON u.id=sh.user_id
+		WHERE s.hidden=0 AND (EXISTS (SELECT 1 FROM shelf sh JOIN users u ON u.id=sh.user_id
 			WHERE sh.skill_id=s.id AND u.disabled_at=0)
 		OR EXISTS (SELECT 1 FROM list_skills ls WHERE ls.skill_id=s.id)
 		OR EXISTS (SELECT 1 FROM skill_envs se JOIN environments e ON e.id=se.env_id
-			JOIN users u ON u.id=e.user_id WHERE se.skill_id=s.id AND u.disabled_at=0)
+			JOIN users u ON u.id=e.user_id WHERE se.skill_id=s.id AND u.disabled_at=0))
 		ORDER BY lower(s.name), s.id`)
 	if err != nil {
 		return out, err

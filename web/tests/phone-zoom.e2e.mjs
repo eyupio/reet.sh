@@ -45,10 +45,9 @@ const launchRunExtra = (() => {
 
 // Dialogs open from the long-host machine's card, the one whose name is hardest to fit.
 const click = name => async page => { const b = page.getByRole('article', {name:LONGHOST}).getByRole('button', {name, exact:true}).first(); await b.scrollIntoViewIfNeeded(); await b.click(); await page.locator('dialog[open]').first().waitFor({timeout:3000}) }
-// Home keeps its launch bar in an expandable Quick launch section, closed on a plain visit; open it like a person would.
+// Home's launch bar opens in a modal; /#launch opens it as a person arriving from another page would.
 const openQuickLaunch = async page => {
- const section = page.locator('details.quick-launch');
- if (!(await section.evaluate(d => d.open))) { const summary = section.locator('summary'); await summary.scrollIntoViewIfNeeded(); await summary.click() }
+ await page.evaluate(() => { location.hash = 'launch' })
  await page.getByRole('form', {name:'Start a session'}).waitFor({state:'visible', timeout:3000})
 }
 // Home with 80-character machine, session and Project names, the More list opened over it, Jump's results and the launch

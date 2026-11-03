@@ -24,7 +24,7 @@
   // create through the idempotent create path and opens the new session. While the request is out the bar is locked; a reply
   // that never came keeps the same request for Retry. On a phone the sentence folds into one summary line with Change, and the
   // tab bar steps aside while the prompt has the keyboard up. The prompt lives only here.
-  let { projects, projectsFailed = false, machines, sessions, profile, ready, initialProject = '', selection = [], onproject, onstarted, onleavefailed, onsignedout, onaddproject, onrun, onrundone }: {
+  let { projects, projectsFailed = false, machines, sessions, profile, ready, initialProject = '', selection = [], onproject, onstarted, onleavefailed, onsignedout, onaddproject, onrun, onrundone, onworkchange }: {
     projects: FolderProject[] | undefined
     /** The projects could not be read (and none were read before): the bar says so instead of waiting silently. */
     projectsFailed?: boolean
@@ -51,6 +51,8 @@
     onrun?: () => void
     /** The status sheet of a start in several projects was closed: the rail leaves Select. */
     onrundone?: () => void
+    /** Whether a start is under way, so a modal holding the bar can refuse to close and forget it. */
+    onworkchange?: (working: boolean) => void
   } = $props()
 
   const id = $props.id()
@@ -67,6 +69,7 @@
   let busy = $state(false), leaving = $state(false), message = $state(''), failed = $state(false)
   // How long the current start has been going, so a slow machine reads as working rather than stuck.
   const working = $derived(busy || leaving)
+  $effect(() => { onworkchange?.(working) })
   // The step a start is at, for the stepper. The machine reports no finer progress, so each step is one the page really observes.
   type Phase = 'prepare' | 'upload' | 'start' | 'open'
   let phase = $state<Phase>('prepare'), hadImages = $state(false)

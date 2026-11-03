@@ -20,7 +20,7 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 
 ## CHAT-RECOVERY-1: continue a closed chat with saved history (3 November 2026)
 
-Draft [#445](https://github.com/eyupio/reet.sh/pull/445), branch `fix/chat-history-recovery`, implementation commit `e511a4a`,
+PR [#445](https://github.com/eyupio/reet.sh/pull/445), branch `fix/chat-history-recovery`, implementation commit `e511a4a`,
 based on main `e91afad`, adds **Continue with history** beside the ended-chat reason
 when the OpenCode conversation id is saved and the machine advertises history support. It uses the existing exact-id
 continuation operation, creates a new row with the same folder/model, and sends no prompt automatically. A missing process
@@ -43,8 +43,14 @@ ten-minute package budget while an unrelated authentication test was running; th
 terminalbroker and store. A separate affected-package run hit the timing-sensitive
 `TestSwapToChatTerminatesALingeringTerminal`; it passes in isolation on both main and this branch.
 
-Production chats, live provider reloads, macOS service recovery and preservation of a running reply across connector death
-were not exercised. The owner authorised the branch push and draft PR. Nothing is deployed or merged. Next: review
+CI on `c80bfce` passes the full browser matrix and native service jobs, including macOS. Its full race run exposed a
+timing race in `TestSupervisorResumesPersistedChat`: the provisional Running row preceded process installation and the
+registry write. The test now attaches before startup and waits for the real lifecycle receipt before ending the chat.
+Before the fix it failed three times in 100 repetitions; the fixed recovery/supervisor group passes 100 repetitions under
+race. Automated code review could not run because its usage limit was reached; the patch was reviewed directly.
+
+Production chats, live provider reloads and preservation of a running reply across connector death were not exercised.
+The owner authorised watching the PR, fixing failures and merging once CI is green. Nothing is deployed or merged. Next: watch
 [#445](https://github.com/eyupio/reet.sh/pull/445) and CI, starting with `internal/terminalagent/chat_registry.go` and
 `web/tests/chat-recovery.e2e.mjs`; restoring a lost conversation still depends on its native store being available.
 

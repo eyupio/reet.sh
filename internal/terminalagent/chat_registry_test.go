@@ -159,11 +159,14 @@ func TestSupervisorResumesPersistedChat(t *testing.T) {
 	proc := &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}
 	resumed := make(chan acpagent.Options, 1)
 	sup := newChatSupervisor(ctx, terminalhost.ManagerOptions{Home: home, Layout: terminalhost.Layout{Dir: layoutDir}})
+	t.Cleanup(sup.Close)
 	sup.lookPath = func(string) (string, error) { return "/bin/true", nil }
 	sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
 		resumed <- opts
 		return proc, nil
 	}
+	out := &sent{}
+	h := sup.attach(ctx, 1, out.send, true, true)
 	sup.startResume()
 
 	var opts acpagent.Options
@@ -179,25 +182,9 @@ func TestSupervisorResumesPersistedChat(t *testing.T) {
 		t.Fatalf("resume dir %q", opts.Dir)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		sup.mu.Lock()
-		cs := sup.sessions[id]
-		state := terminalproto.Creating
-		if cs != nil {
-			state = cs.state
-		}
-		sup.mu.Unlock()
-		if state == terminalproto.Running {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("resumed session state %q", state)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	h := sup.attach(ctx, 1, (&sent{}).send, true, true)
+	// The provisional row is already Running during session/load. Its real
+	// startup receipt follows process installation and the registry write.
+	waitUntil(t, "restored chat startup", func() bool { return out.hasSession(terminalproto.Running) })
 	if _, err := h.end(id); err != nil {
 		t.Fatal(err)
 	}

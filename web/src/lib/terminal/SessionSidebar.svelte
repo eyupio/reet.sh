@@ -81,7 +81,7 @@
  function openProject(p:FolderProject){closeProjectMenu(false);const item=newestProjectSession(p);if(item)onselect(item)}
  // A session's card on hover or keyboard focus. It repeats the row's label, and the readings come from the machine's last
  // report, so a stale one is named as last known rather than drawn as live.
- function showCard(el:HTMLElement,item:TerminalSession){const box=el.getBoundingClientRect(),width=336,height=270;card={item,x:Math.min(Math.max(8,box.right+10),Math.max(8,innerWidth-width-8)),y:Math.min(Math.max(8,box.top-8),Math.max(8,innerHeight-height-8))}}
+ function showCard(el:HTMLElement,item:TerminalSession){if(!matchMedia('(hover: hover)').matches)return;const box=el.getBoundingClientRect(),width=336,height=270;card={item,x:Math.min(Math.max(8,box.right+10),Math.max(8,innerWidth-width-8)),y:Math.min(Math.max(8,box.top-8),Math.max(8,innerHeight-height-8))}}
  function hideCard(){card=null}
 </script>
 <svelte:window onpointerdown={event=>{if((context||machineContext||projectMenu||newContext)&&!menu?.contains(event.target as Node)){closeMenu(false);closeProjectMenu(false)}}} onblur={()=>{closeMenu(false);closeProjectMenu(false);hideCard()}} onkeydown={event=>{if(event.key==='Escape')hideCard()}} />

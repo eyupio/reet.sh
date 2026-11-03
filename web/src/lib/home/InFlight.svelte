@@ -42,7 +42,7 @@
   const lastKnown = (s: HomeSession) => offline.some(m => m.agentId === s.agentId)
   // The row's card on hover or keyboard focus, with the machine's last readings and the way in. The row stays the link.
   let card = $state<{ item: HomeSession; x: number; y: number } | null>(null)
-  function showCard(el: HTMLElement, item: HomeSession) { const box = el.getBoundingClientRect(), width = 336, height = 270; card = { item, x: Math.min(Math.max(8, box.right + 10), Math.max(8, innerWidth - width - 8)), y: Math.min(Math.max(8, box.top - 8), Math.max(8, innerHeight - height - 8)) } }
+  function showCard(el: HTMLElement, item: HomeSession) { if (!matchMedia('(hover: hover)').matches) return; const box = el.getBoundingClientRect(), width = 336, height = 270; card = { item, x: Math.min(Math.max(8, box.right + 10), Math.max(8, innerWidth - width - 8)), y: Math.min(Math.max(8, box.top - 8), Math.max(8, innerHeight - height - 8)) } }
   function hideCard() { card = null }
 </script>
 

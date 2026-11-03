@@ -219,3 +219,38 @@ func TestACPAgentOptionsOnlyAfterNegotiation(t *testing.T) {
 		t.Fatal("flag set with no option to describe")
 	}
 }
+
+// Capabilities.ChatReattach needs the negotiated feature, chats with their
+// history, and OpenCode among the chat tools.
+func TestChatReattachCapabilityNeedsNegotiationAndHistory(t *testing.T) {
+	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature
+	for _, tc := range []struct {
+		name     string
+		features string
+		want     bool
+	}{
+		{"negotiated with history", base + "," + terminalproto.ACPHistoryFeature + "," + terminalproto.ChatReattachFeature, true},
+		{"negotiated without history", base + "," + terminalproto.ChatReattachFeature, false},
+		{"history without negotiation", base + "," + terminalproto.ACPHistoryFeature, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
+			negotiateFeatures(&cfg, tc.features)
+			c := capabilitiesFor(cfg, true, terminalproto.Ready)
+			if c.ChatReattach != tc.want {
+				t.Fatalf("ChatReattach = %v, want %v: %+v", c.ChatReattach, tc.want, c)
+			}
+			if got := terminalproto.SupportsChatReattach(terminalFeatures(cfg)); got != tc.want {
+				t.Fatalf("advertised = %v, want %v: %q", got, tc.want, terminalFeatures(cfg))
+			}
+			if err := c.Validate(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	noOpenCode := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return nil }}
+	negotiateFeatures(&noOpenCode, base+","+terminalproto.ACPHistoryFeature+","+terminalproto.ChatReattachFeature)
+	if c := capabilitiesFor(noOpenCode, true, terminalproto.Ready); c.ChatReattach {
+		t.Fatal("chat reattach reported without OpenCode")
+	}
+}

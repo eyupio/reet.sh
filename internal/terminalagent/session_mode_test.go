@@ -522,3 +522,34 @@ func TestSwapToChatWithoutTrustLeavesTerminalUntouched(t *testing.T) {
 		t.Fatalf("chat = %+v %v", s, ok)
 	}
 }
+
+func TestChatReattachRefusedWithoutFeature(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		features string
+		refused  bool
+	}{
+		{"none", "", true},
+		{"chat only", terminalproto.ACPFeature, true},
+		{"chat reattach", terminalproto.ACPFeature + "," + terminalproto.ACPHistoryFeature + "," + terminalproto.ChatReattachFeature, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make(replies, 4)
+			headers := http.Header{}
+			if tc.features != "" {
+				headers.Set(terminalproto.FeatureHeader, tc.features)
+			}
+			handle, cleanup := Factory(terminalhost.ManagerOptions{})(t.Context(), http.DefaultClient, headers, 1, got.send)
+			defer cleanup()
+			body := terminalproto.ChatReattach{Tool: "opencode", Dir: "/tmp", ACPSessionID: swapACP, Title: "Chat"}
+			msg := terminalproto.Message{Version: terminalproto.Version, Generation: 1, RequestID: "request-0123456789", SessionID: swapSession, Body: &body}
+			if err := msg.Validate(); err != nil {
+				t.Fatal("not a valid message", err)
+			}
+			err := handle(t.Context(), msg)
+			if tc.refused != errors.Is(err, terminalproto.ErrInvalid) {
+				t.Fatalf("features %q: err = %v, refused want %v", tc.features, err, tc.refused)
+			}
+		})
+	}
+}

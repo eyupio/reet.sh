@@ -64,6 +64,7 @@ type AgentConfig struct {
 	acpImages         bool
 	acpApproval       bool
 	sessionMode       bool
+	chatReattach      bool
 	acpQuestion       bool
 	inspect           bool
 	shellDir          bool
@@ -750,6 +751,9 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	// session-mode-v1 stands on chats, their history and launches; it is
 	// never claimed without all three.
 	cfg.sessionMode = terminalproto.SupportsSessionMode(advertised) && cfg.acp && cfg.acpHistory && cfg.launch
+	// chat-reattach-v1 stands on chats and their history; it is never
+	// claimed without both.
+	cfg.chatReattach = terminalproto.SupportsChatReattach(advertised) && cfg.acp && cfg.acpHistory
 	cfg.acpQuestion = terminalproto.SupportsACPQuestion(advertised)
 	cfg.inspect = terminalproto.SupportsInspect(advertised)
 	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
@@ -828,6 +832,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.sessionMode {
 		features = append(features, terminalproto.SessionModeFeature)
+	}
+	if cfg.chatReattach {
+		features = append(features, terminalproto.ChatReattachFeature)
 	}
 	if cfg.acpQuestion {
 		features = append(features, terminalproto.ACPQuestionFeature)
@@ -1002,7 +1009,10 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// Only on a connection that negotiated session-mode-v1, with chats and
 		// their history, and only when OpenCode can be launched in a
 		// terminal: a switch opens the OpenCode TUI.
-		SessionMode:     acp && cfg.acpHistory && cfg.sessionMode && launch && slices.Contains(tools, "opencode"),
+		SessionMode: acp && cfg.acpHistory && cfg.sessionMode && launch && slices.Contains(tools, "opencode"),
+		// Only on a connection that negotiated chat-reattach-v1, with chats and
+		// their history, and only for OpenCode.
+		ChatReattach:    acp && cfg.acpHistory && cfg.chatReattach && slices.Contains(tools, "opencode"),
 		ACPQuestions:    acp && cfg.acpQuestion,
 		Inspect:         cfg.inspect && control && enabled,
 		ShellDir:        cfg.shellDir && control && enabled,

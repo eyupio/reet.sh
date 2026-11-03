@@ -281,6 +281,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				if !terminalproto.SupportsSessionMode(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
 				}
+			case *terminalproto.ChatReattach:
+				if !terminalproto.SupportsChatReattach(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
 			case *terminalproto.ACPQuestionAnswer:
 				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) || !terminalproto.SupportsACPQuestion(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid

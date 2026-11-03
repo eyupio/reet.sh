@@ -60,7 +60,7 @@ try {
     await expect(page.getByRole('link', { name: 'Put it on a machine', exact: true })).toHaveAttribute('href', `/sync?skill=${encodeURIComponent(`hosted/${new URL(base).host}/sam/reet-review`)}`)
 
     await page.goto(`${base}/skills`)
-    await expect(page.getByRole('heading', { name: /Skills you write/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Your drafts/ })).toBeVisible()
     expect(errors).toEqual([])
     await context.close()
   }

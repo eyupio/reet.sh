@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 // Compile the pure helper without a browser or an extra test dependency.
 const { outputText } = ts.transpileModule(readFileSync(new URL('./skillSync.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { skillSyncIntent, skillSyncSummary, matchesSyncFilter, settledJobsKey, SYNC_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { skillSyncIntent, skillSyncSummary, writtenSkillWhere, matchesSyncFilter, settledJobsKey, SYNC_FILTERS } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
 const sk = id => ({ id, name: id, slug: id, source: 'demo/toolkit', sourceType: 'github' })
 const target = (host, agent, desired, missing = []) => ({ target: { id: `${host}-${agent}`, host, agent, name: host }, sourceId: 'shelf', sourceName: 'Shelf', desired, missing, extra: [], revision: 'r1', updatedAt: 0 })
@@ -78,4 +78,14 @@ test('the settled-jobs key changes only when a job reaches a final state', () =>
   assert.equal(settledJobsKey(undefined), '')
   assert.equal(settledJobsKey({ environments: [], targets: [], jobs: [job('a', 'queued'), job('b', 'running'), job('c', 'awaiting-approval')] }), '')
   assert.equal(settledJobsKey({ environments: [], targets: [], jobs: [job('b', 'done'), job('a', 'failed')] }), 'a:failed|b:done')
+})
+
+
+test('a written skill reads its saved plan first, then falls back to complete scans', () => {
+  const id = 'hosted/reet.sh/sam/review'
+  assert.equal(writtenSkillWhere(id, undefined, []), 'Not on a machine yet')
+  assert.equal(writtenSkillWhere(id, undefined, [report('laptop', [])]), 'Missing on 1 machine')
+  assert.equal(writtenSkillWhere(id, undefined, [report('laptop', [id]), report('box', [])]), 'On 1 machine · 1 missing')
+  assert.equal(writtenSkillWhere(id, snapshot([target('laptop', 'agents', [sk(id)], [sk(id)])]), [report('laptop', [])]), 'Pending on laptop')
+  assert.equal(writtenSkillWhere(id, snapshot([target('laptop', 'agents', [sk(id)])]), []), 'Set to sync to laptop')
 })

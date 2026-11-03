@@ -67,3 +67,14 @@ export function matchesSyncFilter(filter: SyncFilter, skillId: string, snapshot:
   if (filter === 'not-set') return !intent.set.length && !intent.pending.length
   return intent.pending.length > 0
 }
+
+/** One line for a written skill: the saved plan first, then what complete scans observed. */
+export function writtenSkillWhere(skillId: string, snapshot: SyncState | undefined, reports: InstallationReport[]): string {
+  const state = snapshot ? skillSyncSummary(skillSyncIntent(skillId, snapshot)) : ''
+  if (state && state !== 'Not set to sync') return state
+  const installed = reports.filter(report => report.installed.has(skillId)).length
+  const missing = reports.filter(report => report.complete && !report.installed.has(skillId)).length
+  if (installed) return `On ${installed} ${installed === 1 ? 'machine' : 'machines'}${missing ? ` · ${missing} missing` : ''}`
+  if (missing) return `Missing on ${missing} ${missing === 1 ? 'machine' : 'machines'}`
+  return 'Not on a machine yet'
+}

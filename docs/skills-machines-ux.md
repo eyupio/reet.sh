@@ -4,7 +4,7 @@ The signed-in Sync page now starts with two choices: **all shelf skills or indiv
 
 ## One vocabulary and one Sync place (3 November 2026)
 
-User-facing copy now follows one glossary: a **skill**, the **shelf**, a **machine**, an **install location** (one agent's skills folder), a **sync plan** (what a machine should have), and **Sync** as the verb. “Desired set”, “saved set”, “scope”, “environment”, “target” and “destination” are retired from the UI; the API keeps its field names. Sync is a subtab of Machines only, so the duplicate **Sync** entry in More is gone. The authoring page is **Write a skill**, and every save notice ends with **Next: Put it on a machine** linking to Sync with that skill selected. See [the vocabulary spec](superpowers/specs/2026-11-03-skills-sync-vocabulary.md).
+User-facing copy now follows one glossary: a **skill**, the **shelf**, a **machine**, an **install location** (one agent's skills folder), a **sync plan** (what a machine should have), and **Sync** as the verb. “Desired set”, “saved set”, “scope”, “environment”, “target” and “destination” are retired from the UI; the API keeps its field names. Sync is a subtab of Machines only, so the duplicate **Sync** entry in More is gone. The authoring page is **Write a skill**, and every save notice ends with **Next: Put it on a machine** linking to Sync with that skill selected. The Skills page's writing block is **Your drafts**; a published written skill appears only as its shelf card, whose quick actions link back to **Edit written skill**. See [the vocabulary spec](superpowers/specs/2026-11-03-skills-sync-vocabulary.md) and [the one-card spec](superpowers/specs/2026-11-03-written-skill-record.md).
 
 Each machine has one **Keep synced** switch. It is stored with its agent enrollment, survives restarts and is evaluated on authenticated agent polls, independently of the browser. A whole-shelf selection follows later shelf additions; an individual plan maintains those selected skills. Paused agents do no work, stale/incomplete inventories block work, pending jobs prevent duplicates, and a failed attempt stops automatic retries until it is deliberately retried or the plan changes. Source-access and validation failures preserve the last good selection and are shown on the machine card.
 
@@ -14,7 +14,7 @@ Live activity appears above setup. Current agents report read, plan, apply and v
 
 Each shelf card with machine badges also carries one line of **sync intent** under them, read from the sync plans rather than from scans: *Set to sync to dev-laptop*, *Pending on build-box · synced to dev-laptop*, or *Not set to sync* with a **Sync to machines…** link. Badges say what a machine last reported; the line says what you asked for, and never claims the files are there. The Machines filter row gains **Not on any machine**, **Missing somewhere**, **Not set to sync** and **Sync pending**, applied in the browser on top of the server filters (`web/src/lib/skillSync.ts`, unit tested; `skill-card.e2e.mjs` covers the line, the link and the four filters). The line is absent when the sync state cannot be read.
 
-**Skills you write** rows and the **Write a skill** editor's save notice link to **Sync to machines…**, which opens the Sync page with that skill pre-selected. A draft is listed there as *Your private draft · synced from this reet.sh, not published* and installs privately (see [controller sync](controller-sync.md#your-own-drafts-sync-without-publishing)); publishing is no longer the only way to get a skill you wrote onto your own machine.
+**Your drafts** rows and the **Write a skill** editor's save notice link to **Sync to machines…**, which opens the Sync page with that skill pre-selected. A draft is listed there as *Your private draft · synced from this reet.sh, not published* and installs privately (see [controller sync](controller-sync.md#your-own-drafts-sync-without-publishing)); publishing is no longer the only way to get a skill you wrote onto your own machine.
 
 Collapsed skill cards expose **Copy install** and **Copy prompt**. The Skills page also shows **Skills you create**, including private drafts, editing, public visibility and sharing. Publishing makes share-link and prompt copying available immediately. Large hosted libraries show a few entries first with search and Show all. Publishing and unpublishing remain explicit user actions; visibility changes read the latest content and preserve supporting files.
 
@@ -147,5 +147,5 @@ running Go server and an enrolled agent for a real end-to-end apply.
 
 - A guided first-run “put this skill on this machine” dialog for people with several
   install locations, so the default is explained rather than assumed.
-- One card per written skill: published skills still appear in **Skills you write**
-  with an **On your shelf** link as well as on the shelf.
+- Merge the two server records behind a written skill and its shelf entry into one
+  lifecycle. The UI already presents one card for a published written skill.

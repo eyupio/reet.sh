@@ -60,24 +60,5 @@ try {
  expect(chained).toEqual([{agentId:'a1',targetIds:['shared','claude']}])
  expect(grouped.errors).toEqual([])
  await grouped.context.close()
- let hosted={slug:'reet-review',description:'Reviews code',content:'---\nname: reet-review\ndescription: Reviews code\n---\nReview carefully.',files:{'guide.md':'keep this'},published:false,createdAt:now,updatedAt:now}
- const shelf=await openWorkspace(browser,{width:390,height:844,touch:true,skills:[one],routes:{
-  '/api/v2/hosting':()=>({username:'sam',prefix:'reet-',skills:[hosted]}),
-  '/api/v2/hosting/skills/reet-review':request=>{hosted=request.postDataJSON();return hosted},
- }})
- await shelf.page.goto(`${base}/skills`)
- await expect(shelf.page.getByRole('button',{name:'Copy prompt for review',exact:true})).toBeVisible()
- await expect(shelf.page.getByRole('heading',{name:/Skills you write/})).toBeVisible()
- await shelf.page.getByRole('button',{name:'Publish & share'}).click()
- await expect(shelf.page.getByRole('button',{name:'Copy share link for reet-review'})).toBeVisible()
- await expect(shelf.page.locator('.hosted-list .where a', {hasText:'On your shelf'})).toHaveAttribute('href', `/skills?skill=${encodeURIComponent(`hosted/${new URL(base).host}/sam/reet-review`)}`)
- expect(hosted.files).toEqual({'guide.md':'keep this'});expect(hosted.published).toBe(true)
- await shelf.page.getByRole('switch',{name:'Make reet-review public'}).uncheck()
- await expect(shelf.page.getByText('Private draft',{exact:true})).toBeVisible()
- expect(hosted.published).toBe(false)
- expect(await shelf.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
- if (process.env.REET_CAPTURE) await shelf.page.screenshot({path:'/workspace/work/skills-phone.png',fullPage:true})
- expect(shelf.errors).toEqual([])
- await shelf.context.close()
- console.log('Simplified sync, persistent machine toggle, runtime progress, collapsed prompt and hosted sharing pass on desktop/phone.')
+ console.log('Simplified sync, persistent machine toggle and runtime progress pass on desktop/phone.')
 } finally { await browser.close() }

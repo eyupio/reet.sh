@@ -89,9 +89,9 @@ green. Contracts and rulings are in `docs/superpowers/specs/2026-11-02-directory
 `...-account-profile.md`, `...-account-security.md`, `...-account-mcp.md`,
 `...-skill-card-machine-actions.md`, `...-machine-add-skill.md`,
 `...-skill-remove-from-machine.md`, `...-skills-sync-vocabulary.md`,
-`...-written-skill-record.md` and `...-written-skill-lifecycle.md`; checks are in
-[docs/ui-verification.md](docs/ui-verification.md).
-The refresh merged through #455. Merge main into the next branch as later work lands.
+`...-written-skill-record.md`, `...-written-skill-lifecycle.md` and
+`...-session-skill-drafts.md`; checks are in [docs/ui-verification.md](docs/ui-verification.md).
+The refresh merged through #457. Merge main into the next branch as later work lands.
 
 **Merged, all with every required check green:**
 
@@ -123,6 +123,7 @@ The refresh merged through #455. Merge main into the next branch as later work l
 | #446 | `d759055` | Skills and Sync vocabulary: one glossary, Sync only under Machines, **Write a skill** with a next-step link, and install locations and sync plans on cards and warnings. |
 | #450 | `5ee31b8` | Written skills: **Your drafts** holds unpublished skills, a published one appears once as its shelf card with **Edit written skill**, and the authoring list names the machines. |
 | #455 | `790a489` | Written-skill lifecycle: the shelf row is a hidden projection, so unpublish/delete hide it while tags, notes and list membership survive; rename carries the hidden state and all list readers exclude hidden rows. |
+| #457 | `b0b087a` | Session picker: **Your skills** installs a private draft or a published skill through the same private-revision preview/approve path; a missing or unavailable skill has its own refusal. |
 
 **What the refresh established.** The directory pages (Lists, Community, Teams, Setups) share one
 bounded surface, a count, search, scope chips whose figures follow the search, one row anatomy and
@@ -180,11 +181,11 @@ content and shelf row now share one lifecycle. The authoring list names the mach
 skill. Machine timestamps follow the profile's zone and date order; a large
 fleet sorts by attention and can be filtered by status. Skills and Sync use one glossary, Sync has
 one place under Machines, and the authoring page is **Write a skill** with **Next: Put it on a
-machine** after every save.
+machine** after every save. The session picker also installs a private draft
+through the same private-revision path, with no publish step.
 
-**Next UI work, in order:**
-1. **Session skill picker drafts:** the session picker still installs public skills only.
-2. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
+**Next UI work:**
+1. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
    Do not claim these from the Chromium fixtures.
 
 ## Whole-controller restore and import (2 November 2026)

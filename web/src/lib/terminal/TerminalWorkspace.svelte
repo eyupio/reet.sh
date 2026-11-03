@@ -530,7 +530,7 @@
             {/if}
           {/snippet}
           {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
-          {#if terminalClosed(session.state)}<div class="workspace-notice ended-banner" role="status"><span>This session has ended. Its output stays below.</span><span class="ended-banner-actions"><button type="button" disabled={!machines.length || accountActive>=32} onclick={event=>openAgentStart(session.agentId,event.currentTarget)}>Start a new agent session</button><button type="button" disabled={!machines.length || busy} onclick={()=>openTerminalStart()}>New terminal</button></span></div>{/if}
+          {#if terminalClosed(session.state)}<div class="workspace-notice ended-banner" role="status"><span>This session has ended. Its output stays below.</span><span class="ended-banner-actions">{#if !session.structured}<button type="button" disabled={!machines.length || accountActive>=32} onclick={event=>openAgentStart(session.agentId,event.currentTarget)}>Start a new agent session</button>{/if}<button type="button" disabled={!machines.length || busy} onclick={()=>openTerminalStart()}>New terminal</button></span></div>{/if}
           <!-- Keyed by the session and its mode, so a switch between Gaffer and the OpenCode TUI mounts the other pane. -->
           {#key session.id + ':' + (session.structured ? 'chat' : 'term')}
             {#if session.structured}

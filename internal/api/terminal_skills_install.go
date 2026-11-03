@@ -12,7 +12,7 @@ import (
 // installErrorStatus is the HTTP status for a refusal code of the store.
 func installErrorStatus(code string) int {
 	switch code {
-	case "unpublished", "no-scan", "unsupported-agent", "connector-offline":
+	case "missing", "unavailable", "no-scan", "unsupported-agent", "connector-offline":
 		return http.StatusUnprocessableEntity
 	case "follows-source", "slug-conflict", "install-in-progress", "already-installed", "cannot-cancel":
 		return http.StatusConflict
@@ -35,8 +35,8 @@ func writeInstallError(w http.ResponseWriter, err error) {
 	writeJSON(w, http.StatusInternalServerError, installErrorBody{Error: "The install could not be started. Try again.", Code: "internal"})
 }
 
-// terminalSkillInstall puts one published hosted skill on the session's
-// machine. The store queues a preview job only; the person approves the plan.
+// terminalSkillInstall puts one written or published hosted skill on the
+// session's machine. The store queues a preview job only; the person approves the plan.
 func (s *server) terminalSkillInstall(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Skill string `json:"skill"`

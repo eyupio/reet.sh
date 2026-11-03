@@ -10,7 +10,7 @@ export function groupSkills(skills: SessionSkill[], query: string, tool: string)
   const groups: SkillGroup[] = [
     { key: 'native', label: `On this machine for ${tool}`, skills: shown.filter(s => s.source === 'machine' && s.native) },
     { key: 'other', label: 'On this machine for other agents', skills: shown.filter(s => s.source === 'machine' && !s.native) },
-    { key: 'reet', label: 'reet-hosted', skills: shown.filter(s => s.source === 'reet') },
+    { key: 'reet', label: 'Your skills', skills: shown.filter(s => s.source === 'reet') },
   ]
   return groups.filter(g => g.skills.length > 0)
 }

@@ -1,6 +1,8 @@
 # Installing a reet-hosted skill from the session picker (Phase 2)
 
-Status: draft for review. Nothing here is built.
+Status: superseded in one point, 3 November 2026: private drafts are now
+installable through the same picker path, using their controller-private
+revision. The rest records the original published-only Phase 2 build.
 
 Builds on `2026-11-01-session-skills-design.md` (Phase 1, merged). Phase 1 lists reet-hosted skills in the picker but
 cannot insert them, because they are not on the session's machine. Phase 2 puts one on the machine, from the picker, so

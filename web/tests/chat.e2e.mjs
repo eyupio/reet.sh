@@ -599,12 +599,15 @@ try {
   const confirmInstall = async () => { await panelOf.getByRole('button', { name: 'Install', exact: true }).click() }
   const poll = () => page.clock.runFor(2000)
 
-  // The published reet-hosted row offers Install; the unpublished one says to publish it, as a link to the hosting page, with no button.
+  // Both a published and a private-draft reet row offer Install; the draft says so in its source line.
   resetInstall()
   await composer.fill('')
   await skillsButton.click()
   await expect(picker.getByRole('button', { name: 'Install pdf', exact: true })).toHaveCount(1)
-  await expect(picker.getByRole('link', { name: 'Publish this skill to install it.' })).toHaveAttribute('href', '/hosting')
+  await expect(picker.getByRole('button', { name: 'Install draft-notes', exact: true })).toHaveCount(1)
+  await expect(picker.getByText('Your skill · private draft', { exact: true })).toBeVisible()
+  await expect(picker.getByRole('link', { name: 'Publish this skill to install it.' })).toHaveCount(0)
+  if (process.env.REET_CAPTURE) await page.screenshot({ path: process.env.REET_CAPTURE })
   await page.keyboard.press('Escape')
   await expect(picker).toHaveCount(0)
   // A machine reet does not know has no name to install on, so no row offers Install.
@@ -788,7 +791,7 @@ try {
   await expect(picker.getByRole('option', { name: /draft-notes/ })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  // Refusals leave the panel on Confirm with the server's sentence; an unpublished skill closes it and reloads the list.
+  // Refusals leave the panel on Confirm with the server's sentence; a missing skill closes it and reloads the list.
   const refusals = [
     ['install-in-progress', 'Another skill is already being installed on dev-laptop.'],
     ['connector-offline', "This session's machine isn't connected to reet right now, so it can't install this skill."],
@@ -803,13 +806,13 @@ try {
     await page.keyboard.press('Escape')
   }
   resetInstall()
-  inst.installReply = () => { state.skills = { skills: [hostedDraft], machineSeen: Date.now(), host: 'dev-laptop' }; return { status: 409, json: { error: "This skill isn't published any more.", code: 'unpublished' } } }
+  inst.installReply = () => { state.skills = { skills: [hostedDraft], machineSeen: Date.now(), host: 'dev-laptop' }; return { status: 422, json: { error: 'This skill is no longer available. Refresh the list.', code: 'missing' } } }
   await openPanel()
-  const readsBeforeUnpublished = inst.skillReads
+  const readsBeforeMissing = inst.skillReads
   await confirmInstall()
   await expect(panelOf).toHaveCount(0)
-  await expect(picker.getByRole('link', { name: 'Publish this skill to install it.' })).toBeVisible()
-  expect(inst.skillReads).toBe(readsBeforeUnpublished + 1)
+  await expect(picker.getByRole('button', { name: 'Install draft-notes', exact: true })).toBeVisible()
+  expect(inst.skillReads).toBe(readsBeforeMissing + 1)
   expect(inst.installs).toHaveLength(1)
   await page.keyboard.press('Escape')
 
@@ -919,7 +922,7 @@ try {
   expect(state.resume.prompt).toBeUndefined()
   expect(state.resume.model).toBe('anthropic/claude-sonnet-4-5')
   expect(errors).toEqual([])
-  console.log('Structured OpenCode chat UI passed: the dialog offers Gaffer for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens Gaffer with the OpenCode TUI disabled and its reason (the machine predates session-mode-v1), agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, messages queue while it works and send when the turn ends, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id and cannot switch TUI; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet, with tablet and dark-mode passes that keep it inside the viewport and readable; a published reet-hosted skill installs from the picker through confirm, wait, review, approve (only for a plain add), install and done, with cancel, retry, refusals and a phone fit.')
+  console.log('Structured OpenCode chat UI passed: the dialog offers Gaffer for OpenCode, the create body carries structured, trust and the chosen model, the session screen opens Gaffer with the OpenCode TUI disabled and its reason (the machine predates session-mode-v1), agent chunks stream, a command approval is Allow once or Deny, a typed question is checked, refused and answered, skipped or cancelled and fits a phone, messages queue while it works and send when the turn ends, a message sends, an attached image uploads and is passed as an ACP image, Stop cancels, the phone fits, a truncated reset says so, and a closed chat reopens through the continue action with its OpenCode session id and cannot switch TUI; the skill picker fills the composer without sending, by button and by a leading slash, refuses disabled rows and over-long insertions, and fits a phone as a bottom sheet, with tablet and dark-mode passes that keep it inside the viewport and readable; a written or published reet skill installs from the picker through confirm, wait, review, approve (only for a plain add), install and done, with cancel, retry, refusals and a phone fit.')
 } finally {
   await context.close()
   await browser.close()

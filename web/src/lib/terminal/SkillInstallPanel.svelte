@@ -4,7 +4,7 @@
   import { getSyncState, controlSyncJob, type SyncJob } from '../api'
   import { installStep, installStatusLine, planVerdict, type SessionSkill } from './skills'
 
-  // Installs one reet-hosted skill on the session's machine: confirm, wait for the machine's plan, review it, approve it, watch it finish.
+  // Installs one written or published reet skill on the session's machine: confirm, wait for the machine's plan, review it, approve it, watch it finish.
   // Everything shown (names, plan lines, the machine's message) is untrusted text and is only ever rendered as text.
   // The panel never cancels a job by itself, and closing it (or the picker) leaves a started job as it is.
   let { sessionId, skill, host, tool, onclose }: {
@@ -94,7 +94,7 @@
       void focusPrimary()
     } catch (e) {
       if (!alive || life.signal.aborted) return
-      if (codeOf(e) === 'unpublished') { onclose(true); return }
+      if (codeOf(e) === 'missing' || codeOf(e) === 'unpublished') { onclose(true); return }
       fail(message(e, 'The install could not be started. Try again.'))
       busy = false
       void focusPrimary()

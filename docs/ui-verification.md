@@ -2583,3 +2583,35 @@ Validation:
 **Not checked.** No physical phone or tablet and no screen reader on the API
 paths. The hosted content and its shelf projection remain separate tables with
 one lifecycle; no schema merge is claimed.
+
+## Private drafts in the session skill picker — 3 November 2026
+
+The session picker's **Your skills** group now installs a private draft as well
+as a published skill. A draft row says **Your skill · private draft** and has the
+same **Install** button. The install uses the controller-private revision through
+the existing preview/approve path, so nothing is published and no public URL is
+created. A newly created saved set is named **My written skills**. A skill
+deleted between listing and install returns **missing** and reloads the picker;
+a draft whose private revision cannot be prepared returns **unavailable** and
+shows the reason.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- `chat.e2e.mjs`: both reet rows offer Install, the draft source line reads
+  **Your skill · private draft**, and a missing skill closes and reloads the
+  picker; the rest of the install, cancel, retry, review, phone and keyboard matrix
+  passes.
+- `skills.test.mjs` checks the **Your skills** group label.
+- `store_skill_install_test.go` installs the draft fixture and checks a private
+  desired source and the **My written skills** set name.
+- `terminal_skills_install_test.go` checks the draft install job, private source,
+  source name and the `missing` refusal.
+- `go test ./internal/store ./internal/api` and `go vet ./...`: pass.
+
+![A private draft offers Install in the session picker](images/ui/session-skill-drafts.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. No install was
+run against a live machine; the browser mock and the store/API fixtures cover the
+request, source and job state.

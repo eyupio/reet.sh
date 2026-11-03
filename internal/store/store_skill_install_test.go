@@ -198,6 +198,18 @@ func TestRemoveDesiredDropsOneSlug(t *testing.T) {
 	}
 }
 
+func TestInstallDraftCreatesAPrivateAdditiveSet(t *testing.T) {
+	e := installFixture(t)
+	res, err := e.s.InstallHostedSkillFor(e.uid, e.req("draft"))
+	if err != nil || res.JobID == "" || res.Reused {
+		t.Fatalf("%+v %v", res, err)
+	}
+	tg := e.target(t)
+	if tg.SourceName != "My written skills" || len(tg.Desired) != 1 || tg.Desired[0].SourceType != "private" || !strings.HasPrefix(tg.Desired[0].Source, "private:") {
+		t.Fatalf("%+v", tg)
+	}
+}
+
 func TestInstallCreatesAdditiveSetAndQueuesPreview(t *testing.T) {
 	e := installFixture(t)
 	if e.hasTarget() {
@@ -211,7 +223,7 @@ func TestInstallCreatesAdditiveSetAndQueuesPreview(t *testing.T) {
 		t.Fatalf("%+v", res)
 	}
 	tg := e.target(t)
-	if tg.Mode != "additive" || tg.FollowSource || tg.SourceID != "hosted" || tg.SourceName != "My published reet.sh skills" {
+	if tg.Mode != "additive" || tg.FollowSource || tg.SourceID != "hosted" || tg.SourceName != "My written skills" {
 		t.Fatalf("%+v", tg)
 	}
 	if !reflect.DeepEqual(slugs(tg.Desired), []string{"pdf"}) || tg.Desired[0].ID != e.hosts["pdf"].ID {
@@ -260,8 +272,7 @@ func TestInstallRefusals(t *testing.T) {
 		name, code, message string
 		prepare             func(t *testing.T, e *installEnv, in *InstallRequest)
 	}{
-		{"unpublished", "unpublished", "Publish this skill to install it.", func(t *testing.T, e *installEnv, in *InstallRequest) { in.Slug = "draft" }},
-		{"unknown skill", "unpublished", "", func(t *testing.T, e *installEnv, in *InstallRequest) { in.Slug = "nope" }},
+		{"unknown skill", "missing", "This skill is no longer available. Refresh the list.", func(t *testing.T, e *installEnv, in *InstallRequest) { in.Slug = "nope" }},
 		{"offline", "connector-offline", "laptop isn't connected to reet right now, so it can't install this skill.", func(t *testing.T, e *installEnv, in *InstallRequest) {
 			e.s.db.Exec(`UPDATE sync_agents SET last_seen=? WHERE id=?`, time.Now().Add(-time.Hour).UnixMilli(), e.agent.ID)
 		}},
@@ -516,9 +527,9 @@ func TestInstallSurfacesAHostedListError(t *testing.T) {
 	in.Tool = "codex"
 	_, err = e.s.InstallHostedSkillFor(e.uid, in)
 	wantInstallError(t, err, "unsupported-agent", "")
-	// A readable list without the slug is still unpublished.
+	// A readable list without the slug is missing.
 	_, err = e.s.InstallHostedSkillFor(e.uid, e.req("nope"))
-	wantInstallError(t, err, "unpublished", "")
+	wantInstallError(t, err, "missing", "This skill is no longer available. Refresh the list.")
 }
 
 func (e *installEnv) saveHostedSet(t *testing.T, mode string, slugs ...string) {

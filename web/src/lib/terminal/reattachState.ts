@@ -34,17 +34,18 @@ export function reattachRetryable(code?: string): boolean {
   return !code || !FINAL_REATTACH_REFUSALS.has(code)
 }
 
-/** A reconnect refused because the folder has OpenCode plugins offers the explicit Continue with history (a new row
- *  that confirms trust) again, in the pane and the header menu (ruling R10). */
+/** A reconnect refused because the folder has OpenCode plugins, or because the person ended the chat (a manual attempt
+ *  is told so), offers the explicit Continue with history (a new row) again, in the pane and the header menu (ruling R10). */
 export function offersContinueAfterReattach(outcome: { phase: 'pending' | 'failed'; code?: string } | undefined): boolean {
-  return outcome?.phase === 'failed' && outcome.code === 'chat_reattach_trust'
+  return outcome?.phase === 'failed' && (outcome.code === 'chat_reattach_trust' || outcome.code === 'chat_reattach_ended')
 }
 
-/** A refusal that is not a failure to show: the person ended the chat ('ended': it is no longer offered a reconnect and
- *  shows the ended note with Continue with history), or an automatic attempt found it still running ('drop': forget the
- *  attempt and read the listing again). null shows the failure. */
+/** A refusal that is not a failure to show, for an AUTOMATIC attempt only: the person ended the chat ('ended': it is no
+ *  longer offered a reconnect and shows the ended note with Continue with history), or the chat is still running
+ *  ('drop': forget the attempt and read the listing again). A reconnect the person asked for always gets its answer
+ *  (null shows the failure card). */
 export function quietReattachRefusal(code: string | undefined, auto: boolean): 'ended' | 'drop' | null {
-  if (code === 'chat_reattach_ended') return 'ended'
+  if (auto && code === 'chat_reattach_ended') return 'ended'
   if (auto && code === 'chat_reattach_not_closed') return 'drop'
   return null
 }

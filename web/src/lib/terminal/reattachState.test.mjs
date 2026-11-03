@@ -55,11 +55,16 @@ test('a folder with plugins offers Continue with history again, nothing else doe
   assert.equal(offersContinueAfterReattach({ phase: 'pending', code: 'chat_reattach_trust' }), false)
   assert.equal(offersContinueAfterReattach({ phase: 'failed', code: 'chat_reattach_failed' }), false)
   assert.equal(offersContinueAfterReattach(undefined), false)
+  assert.equal(offersContinueAfterReattach({ phase: 'failed', code: 'chat_reattach_ended', reason: 'x' }), true)
+  assert.equal(offersContinueAfterReattach({ phase: 'pending', code: 'chat_reattach_ended' }), false)
+  assert.equal(reattachRetryable('chat_reattach_ended'), false)
+  assert.equal(quietReattachRefusal('chat_reattach_trust', false), null)
+  assert.equal(quietReattachRefusal('chat_reattach_trust', true), null)
 })
 
-test('a chat the person ended falls back quietly; a still-running chat does so only for an automatic attempt', () => {
+test('a chat the person ended falls back quietly for an automatic attempt only, a manual one shows the refusal; a still-running chat does so only for an automatic attempt', () => {
   assert.equal(quietReattachRefusal('chat_reattach_ended', true), 'ended')
-  assert.equal(quietReattachRefusal('chat_reattach_ended', false), 'ended')
+  assert.equal(quietReattachRefusal('chat_reattach_ended', false), null)
   assert.equal(quietReattachRefusal('chat_reattach_not_closed', true), 'drop')
   assert.equal(quietReattachRefusal('chat_reattach_not_closed', false), null)
   assert.equal(quietReattachRefusal('chat_reattach_failed', true), null)

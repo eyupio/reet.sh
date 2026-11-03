@@ -114,7 +114,7 @@
     return !personEnded[target.id] && canReattachChat(target, machines.find(item => item.agentId === target.agentId))
   }
   /** Whether the explicit Continue with history is offered for a chat: where it cannot reconnect in place, or after a
-   *  folder-trust refusal of the reconnect (ruling R10). */
+   *  folder-trust refusal of the reconnect or one that says the person ended the chat (ruling R10). */
   function continueOffered(target: TerminalSession): boolean {
     return !reconnectable(target) || offersContinueAfterReattach(reattach[target.id])
   }
@@ -440,8 +440,8 @@
       const code = e instanceof TerminalError ? e.code : undefined
       const quiet = quietReattachRefusal(code, auto)
       if (quiet) {
-        // Not a failure to show: an ended chat falls back to the ended note with Continue with history; a chat found still
-        // running is read again from the listing.
+        // Only an automatic attempt is quiet: an ended chat falls back to the ended note with Continue with history; a chat
+        // found still running is read again from the listing. A reconnect the person asked for shows its refusal.
         if (quiet === 'ended') personEnded = { ...personEnded, [target.id]: true }
         const next = { ...reattach }; delete next[target.id]; reattach = next
         if (quiet === 'drop') void refresh()

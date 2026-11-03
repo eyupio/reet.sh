@@ -259,6 +259,22 @@ try {
   expect(reattachCalls).toHaveLength(1)
   expect(requests).toHaveLength(0)
 
+  // 5c2. The same ended refusal to a reconnect the PERSON asked for (Try again after an earlier failure) is answered, not
+  // hidden: the card says so, there is no Try again, and Continue with history (a new row) is offered beside Start a new chat.
+  reset('exited'); reattachMode = 'fail-once'
+  await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
+  await expect(note.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
+  reattachMode = { status: 409, json: { error: 'You ended this chat. Continue it with history as a new session.', code: 'chat_reattach_ended' } }
+  await note.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect.poll(() => reattachCalls.length).toBe(2)
+  await expect(page.getByRole('alert')).toContainText('You ended this chat. Continue it with history as a new session.')
+  await expect(note.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
+  await expect(note.getByRole('button', { name: 'Continue with history', exact: true })).toBeEnabled()
+  await expect(note.getByRole('button', { name: 'Start a new chat', exact: true })).toBeVisible()
+  await page.waitForTimeout(300)
+  expect(reattachCalls).toHaveLength(2)
+  expect(requests).toHaveLength(0)
+
   // 5d. Refusals a retry cannot fix say why and offer Start a new chat only.
   for (const [code, error] of [['chat_reattach_yolo_refused', 'YOLO is turned off on this machine, so this YOLO chat cannot be reconnected.'], ['chat_reattach_capacity', 'This machine has reached its session limit.'], ['chat_reattach_yolo_not_allowed', 'An owner or admin can allow YOLO for this account in Settings.']]) {
     reset(); reattachMode = { status: 409, json: { error, code } }

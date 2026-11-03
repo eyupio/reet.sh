@@ -95,9 +95,9 @@ beside it). Its parts:
 - **Gaffer pane** for a structured OpenCode session ([structured sessions](structured-sessions.md)): the streamed
   conversation, tool calls, approval cards with **Allow once** and **Deny**, a composer (Enter sends, Shift+Enter adds a
   line), **Attach image** (pasted, dropped or chosen; the machine embeds it in the prompt when it negotiated
-  `acp-image-v1`, otherwise the prompt names the uploaded path), **Stop**, and the watchdog's "still working" notice. A closed reet
-  session's menu offers **Continue in Gaffer with history…**, which opens a new Gaffer and loads OpenCode's stored
-  conversation. It asks before an edit or command; there is no shell in this
+  `acp-image-v1`, otherwise the prompt names the uploaded path), **Stop**, and the watchdog's "still working" notice. A lost or crashed
+  chat reconnects in place; a session a person ended offers **Continue in Gaffer with history…** in its menu, which opens
+  a new Gaffer and loads OpenCode's stored conversation. It asks before an edit or command; there is no shell in this
   session. It has no terminal or session tabs on a phone; the usual slim header and End actions stay.
 - **Context panel** (340 px): *Where it's working* (machine and whether it is reporting, project, branch, worktree: "own
   copy" or "the checkout"); *Changed files* for a session in its own worktree (the first 20 paths from the worktree status

@@ -182,27 +182,64 @@ folder, as the connector's user. All seven conditions are mandatory:
 
 ## Reopening a reet session and history
 
-A structured session row keeps OpenCode's own session id (`ses_…`) once the machine reports it. When a reet session is closed, its
-actions menu offers **Continue in Gaffer with history…**. That creates a **new** reet session row with `resumeAcp` set to the
-old id; the old row stays in history. The machine runs `session/load` with the same folder, checks mode `build`, and
-replays OpenCode's stored conversation before the new Gaffer is ready. The controller also keeps a bounded transcript of
-the conversation it has shown, restored with the session after a controller restart; the replay is still read from
-OpenCode, so a machine whose OpenCode store is gone cannot be continued with history.
+A structured session row keeps OpenCode's own session id (`ses_…`) once the machine reports it. The controller also keeps a
+bounded transcript of the conversation it has shown, restored with the session after a controller restart. What happens when
+a chat closes depends on how it closed and on what the machine supports.
 
-The ended-chat notice also offers **Continue with history** for lost, exited and ended chats with a saved id and history
-support. Losing the process does not establish that the saved conversation is gone. The button uses the same continuation
-operation as the actions menu, keeps the original folder and model, and sends no prompt automatically. If the reply is
-uncertain, clicking again checks the same operation id. A reload refusal leaves the old transcript and both recovery and
-fresh-chat choices visible. Without a saved id or verified history support, the notice offers a new chat.
+**A lost or crashed chat reconnects in place.** On a machine that negotiated `chat-reattach-v1` (it requires `acp-v1` and
+`acp-history-v1`; the capability is `chatReattach`), a chat that is `lost` or `exited` with a saved id comes back by itself,
+in the same reet session: same row, same URL, same transcript. The browser makes one automatic attempt per session per page
+load. The pane shows **Reconnecting to your conversation…** with the composer disabled and the Gaffer card reconnecting,
+and the conversation stays visible. The controller sends the machine a `chat_reattach` message that carries the row's launch
+data (folder, model, YOLO, saved id, trust), and the machine runs `session/load` on the saved OpenCode conversation. The
+replayed conversation is dropped because the controller already holds the transcript; the chat's idle status and any tool
+that was left running (shown as interrupted) are forwarded. A reply that was running is stopped, so the chat needs a new
+prompt. If the machine still has a live process for the conversation, it adopts that process instead of restarting it.
+A different reet session that already owns the same conversation is refused: "This conversation is open in another session."
+
+If the attempt fails, the pane shows the reason with **Try again** and **Start a new chat**. Nothing is created or changed
+by a failed attempt: the row stays as it was. The ended-chat notice also offers a manual **Reconnect** button, and the
+session header menu no longer offers the new-row **Continue in Gaffer with history…** for a chat that can reconnect.
+
+The controller runs one reattach per session at a time (concurrent callers, such as two tabs or a double click, join the
+same machine call), bounds it at 75 seconds ("Reconnecting took too long. Try again."), never creates a row, and allows the
+`lost`/`exited` to `running` change for structured chats only (the exit code is cleared). The route is
+`POST /api/v2/terminal/sessions/{id}/reattach`; it answers 204, or one of the codes `chat_reattach_unsupported`,
+`not_closed`, `no_conversation`, `conflict`, `failed` or `trust`.
+
+**An ended chat starts a new session.** A chat that a person ended (`ended`) keeps **Continue in Gaffer with history…**. That
+creates a **new** reet session row with `resumeAcp` set to the old id; the old row stays in history. The machine runs
+`session/load` with the same folder, checks mode `build`, and replays OpenCode's stored conversation before the new Gaffer
+is ready; the replay is read from OpenCode, so a machine whose OpenCode store is gone cannot be continued with history.
+A continuation row whose create operation failed cannot itself be continued, so repeated clicks no longer pile up rows.
+
+**Older connectors keep the manual path.** A connector that did not negotiate `chat-reattach-v1` is never sent
+`chat_reattach`. For lost, exited and ended chats with a saved id and history support, the ended-chat notice offers
+**Continue with history**, which uses the same new-row continuation as the actions menu, keeps the original folder and
+model, and sends no prompt automatically. The browser runs one continuation per saved conversation at a time, never
+alongside an in-place reconnect of the same chat, switches to the new row at once with "Starting a new session…" in the
+pane, and shows a failure there. If the reply is uncertain, clicking again checks the same operation id. A reload refusal
+leaves the old transcript and both recovery and fresh-chat choices visible. Without a saved id or verified history support,
+the notice offers a new chat.
 The machine refuses a second load while that conversation already has a live or starting process. A successful manual
 continuation replaces its older restart record so the next connector start restores one copy.
+
+**Limits of reconnecting.**
+
+- Automatic reconnect sends no folder-trust confirmation. A folder with OpenCode plugins is refused with the trust message;
+  use **Start a new chat**, which shows the plugin warning and asks for trust.
+- A YOLO chat is refused, not downgraded, if the machine's local YOLO consent is off.
+- While the machine is offline the pane shows the idle ended note, not a waiting state, and a failure uses up the one
+  automatic attempt (**Try again** or **Reconnect** still works).
+- Claude and Codex chats are not covered.
+- Recovery depends on OpenCode's saved history being present on the machine.
 
 Replayed tools left `pending` or `in_progress` are shown as interrupted, not as still working. Pending approvals are not restored; a new prompt starts cleanly. The controller will only load an id that belongs to one of the account's own closed
 structured sessions on that machine, so a crafted `resumeAcp` cannot read another project's OpenCode history.
 
 A connector that predates `acp-history-v1` can still run a new Gaffer, but it does not report or accept an OpenCode session
-id, so its reet sessions have no Continue action. The `acpHistory` capability is sent only to a controller that negotiated the
-feature, and the older controller's strict decoder never sees the new fields.
+id, so its reet sessions have no Continue action. The `acpHistory` and `chatReattach` capabilities are sent only to a controller
+that negotiated the feature, and the older controller's strict decoder never sees the new fields.
 
 ## Images
 
@@ -307,15 +344,15 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
   folder, or a disabled machine environment drops the record.
 - **Bounded and forgetful.** Records older than seven days are dropped, and a record that fails to reopen is retried at
   most three connector starts. A failed restore retains its conversation id so the person can explicitly try
-  **Continue with history** without restarting the connector. A connector that stops does not leave its chats in the controller's quota: the controller marks a
+  **Continue with history** (or **Reconnect**, on a machine with `chat-reattach-v1`) without restarting the connector. A connector that stops does not leave its chats in the controller's quota: the controller marks a
   chat lost only if the next connector does not report it running.
 
 ## Limits
 
 - **History is kept, bounded.** The controller keeps at most 1,000 events / 256 KiB per reet session in its SQLite database,
   and the live ring uses the same bounds. A controller restart or a reboot restores that transcript with the session; archiving
-  a session drops it. A closed Gaffer session can also be reopened from OpenCode's own store with Continue in Gaffer with
-  history…
+  a session drops it. A lost or crashed Gaffer session reconnects in place from OpenCode's own store, and a closed one can be
+  reopened as a new session with Continue in Gaffer with history…
 - **The browser's log is bounded too.** Gaffer keeps at most 400 items / 256 KiB of the conversation, drops the
   oldest first and says when earlier messages are no longer shown; an approval still waiting for an answer is never
   dropped. A continued chat replaying a long OpenCode history therefore stays responsive instead of building an

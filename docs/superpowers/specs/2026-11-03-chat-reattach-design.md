@@ -1,6 +1,6 @@
 # Seamless reattach of a lost structured chat
 
-Status: design, awaiting review. Date: 2026-11-03.
+Status: implemented (PRs #451 and #459); see the plan's Deviations for the three recorded changes. Date: 2026-11-03.
 
 ## Problem
 
@@ -46,13 +46,16 @@ ACP `session/load` on OpenCode's saved session.
 
 ### 2. Machine (`internal/terminalagent`)
 
-Handler `reattach(id)`:
+Handler `reattach(requestID, sessionID, body)` (`internal/terminalagent/chat_reattach.go`), driven by the launch data in the
+`chat_reattach` body, not by the restart registry (which may no longer hold a record):
 
-1. Look up the chat record (registry) for the id; unknown → `not_found`.
-2. If a live process already owns the conversation, **adopt it** and report `running`. This replaces today's 409 for the
-   same row. A different row holding the conversation still conflicts.
-3. Otherwise run the existing `resumeChat` path: same reet id, folder, model, trust; `session/load`; replay dropped.
-4. Idempotent on the request id; a repeated request returns the current state.
+1. Refuse any tool but OpenCode.
+2. If a live process already owns the conversation under this session id, **adopt it** and report `running`. This replaces
+   today's 409 for the same row. A different session holding the conversation, a start or swap in flight for this id, or a
+   retired process that may still be alive conflicts.
+3. Otherwise drop any stale `exited` receipt for the id and run the existing `openChat` path with `ResumeACP` set: same
+   reet id, folder, model, YOLO and trust; `session/load`; replay dropped.
+4. Idempotent on the request id; a repeated request answers from the first attempt's receipt.
 5. A failed start reports the reason (version, trust, load refusal) and leaves nothing running.
 
 ### 3. Controller (`internal/terminalbroker`, `internal/store`)
@@ -66,8 +69,8 @@ Handler `reattach(id)`:
   (`lost → running` already permitted for structured chats). `exited → running` is added for structured chats only,
   with the same guard.
 - Single-flight per row (in memory): a second request while one is in flight joins it and gets its result.
-- `CanResumeACPToolSessionFor` stops accepting a row that is itself the product of a continuation that has not
-  succeeded, closing the many-rows path in the legacy flow.
+- `CanResumeACPToolSessionFor` stops accepting a continuation row whose create operation failed, so it cannot itself be
+  continued, closing the many-rows path in the legacy flow.
 - The session payload has no `reattach` field. The HTTP call is held until the machine answers (like create and
   `session_mode`); the browser that made it shows "Reconnecting…", and other tabs see `lost → running` through normal
   polling.
@@ -94,7 +97,7 @@ Failed or refused continuation rows are failed definitively rather than left `cr
 
 | Case | Result |
 |---|---|
-| Machine offline | Pending until it returns; banner says the machine is offline. No attempt is consumed. |
+| Machine offline | The pane shows the idle ended note, not a waiting state. A failed automatic attempt consumes the one attempt; Try again and Reconnect still work. |
 | OpenCode store missing / `session/load` refused | `failed` with reason; Try again and Start a new chat. |
 | Live process already owns the chat | Adopted, state `running`. |
 | Another row owns the conversation | `failed`: "This conversation is open in another session." |
@@ -115,3 +118,12 @@ Failed or refused continuation rows are failed definitively rather than left `cr
 - `exited → running` widens the transition table; the guard (structured, controller-initiated operation only) must be
   covered by tests.
 - Auto-reattach on a machine whose OpenCode store was wiped fails fast once and then shows the retry card; acceptable.
+
+Known limitations of what was built:
+
+- Auto-reattach sends no folder-trust confirmation, so a folder with OpenCode plugins refuses with the trust message and the
+  person falls back to **Start a new chat**.
+- YOLO chats are refused (not downgraded) if local YOLO consent is off.
+- While the machine is offline the pane shows the idle ended note (not a waiting state), and a failure consumes the one
+  automatic attempt per session per page load.
+- Claude and Codex chats are not covered.

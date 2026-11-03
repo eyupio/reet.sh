@@ -29,6 +29,8 @@ theme close-ups, a physical phone, Safari, Firefox or a screen reader.
 
 ## Chat history recovery (3 November 2026)
 
+(Superseded for lost and crashed chats on machines with `chat-reattach-v1`, which reconnect in place; this is the older-connector and ended-chat path.)
+
 The ended-chat notice offers **Continue with history** for OpenCode conversations with a saved native id and a machine
 that advertises history support. Losing a process no longer claims the native history could not be restored. The notice
 explains that recovery opens a new session and an interrupted reply needs a new prompt.

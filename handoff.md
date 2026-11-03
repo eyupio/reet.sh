@@ -18,6 +18,34 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## CHAT-REATTACH-1: reconnect a lost chat in place (3 November 2026)
+
+PRs [#451](https://github.com/eyupio/reet.sh/pull/451) (merged: design, plan, protocol, negotiation, store, machine and
+controller) and [#459](https://github.com/eyupio/reet.sh/pull/459) (route, web, browser contract, docs), branch
+`claude/tender-johnson-k3xmf1`. A lost or crashed (`exited`) structured OpenCode chat now reconnects **in place**: same reet
+session row, URL and transcript, through `session/load`. Feature `chat-reattach-v1` (requires `acp-v1` and `acp-history-v1`),
+wire body `chat_reattach` carrying the row's launch data, capability `chatReattach`. The machine drops the replay (the
+controller holds the transcript), forwards the post-load idle status and interrupted-tool closes, adopts a live process
+instead of restarting it, and refuses a conversation another session owns ("This conversation is open in another session.").
+
+Controller `Broker.ReattachChat` is single-flight per session (concurrent callers join one machine call), bounded at 75 s,
+leaves the row untouched on error and never creates a row. The store allows `lost|exited -> running` for structured chats
+only (exit code cleared), and a continuation row whose create operation failed can no longer itself be continued, closing
+the many-rows path in the legacy flow. Route `POST /api/v2/terminal/sessions/{id}/reattach` (204; codes
+`chat_reattach_unsupported|not_closed|no_conversation|conflict|failed|trust`; 503 "Reconnecting took too long. Try again.").
+Web: one automatic attempt per session per page load; "Reconnecting to your conversation…"; failure shows the reason with
+**Try again** and **Start a new chat**; manual **Reconnect**; the header menu no longer offers the new-row "Continue in
+Gaffer with history…" for a chat that can reconnect. `ended` chats and older connectors keep the new-row path, now with a
+single-flight guard and an in-pane "Starting a new session…". Docs: `docs/structured-sessions.md`, spec and plan under
+`docs/superpowers/`.
+
+Checks (Task 10 run): `go vet ./...` exit 0; `go test -race -timeout 40m ./...` exit 0 with 40 packages `ok` and none failing (api 791.5 s, store 339.3 s, terminalbroker 114.5 s, terminalagent 13.1 s, cmd/reet 22.7 s); in `web/`, `npm run check` (unit tests all passing, svelte-check `360 FILES 0 ERRORS 0 WARNINGS`) and `npm run build` (`built in 14.75s`, chunk-size warning only).
+
+Known limitations: auto-reattach sends no folder-trust confirmation, so a folder with OpenCode plugins refuses with the
+trust message and the person falls back to Start a new chat; YOLO chats are refused (not downgraded) if local YOLO consent is
+off; while the machine is offline the pane shows the idle ended note (not a waiting state) and a failure consumes the one
+automatic attempt; Claude/Codex chats are not covered. Not exercised: a live OpenCode provider reload and production chats.
+
 ## CHAT-RECOVERY-1: continue a closed chat with saved history (3 November 2026)
 
 PR [#445](https://github.com/eyupio/reet.sh/pull/445), branch `fix/chat-history-recovery`, implementation commit `e511a4a`,

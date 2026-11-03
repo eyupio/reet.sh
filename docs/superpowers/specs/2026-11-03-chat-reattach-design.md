@@ -28,7 +28,9 @@ ACP `session/load` on OpenCode's saved session.
 
 - OpenCode (Gaffer) structured chats on a machine that negotiates the new feature.
 - Reattach from `lost`, and from `exited` when the chat process died without a person ending it.
-- User-ended (`ended`) chats keep **Continue in Gaffer with history…** (a deliberate new row).
+- User-ended (`ended`) chats keep **Continue in Gaffer with history…** (a deliberate new row). The machine answers a
+  person's End of a chat with `exited` (code 0), so the store records that close of an `end_requested` structured row as
+  `ended`; rows ended earlier are stored `exited` (or `lost`) and are refused by their end operation (final review fix).
 - Out of scope: ACP `session/resume` without replay, Claude/Codex (history unverified), terminal-mode sessions,
   recovering an interrupted reply (a new prompt is still needed, as today).
 
@@ -61,7 +63,8 @@ Handler `reattach(requestID, sessionID, body)` (`internal/terminalagent/chat_rea
 ### 3. Controller (`internal/terminalbroker`, `internal/store`)
 
 - `Peer.reattach(ctx, session, request)`: requires state `lost` or `exited` (both are accepted), `structured`, `tool=opencode`,
-  a saved `acp_session_id`, and `chat.History` on the current peer generation. No row is created.
+  no end operation for the row (`chat_reattach_ended` otherwise), a saved `acp_session_id`, the account's Allow-YOLO
+  setting for a YOLO row, and `chat.History` on the current peer generation. No row is created.
 - The attempt is not persisted: single-flight lives in controller memory (a map beside `switching`), not in a
   `terminal_operations` row. A controller restart mid-attempt leaves the row `lost`; the next automatic attempt re-sends
   and the machine adopts the live process.
@@ -90,14 +93,19 @@ Handler `reattach(requestID, sessionID, body)` (`internal/terminalagent/chat_rea
   composer is disabled with that reason. The "Earlier messages are no longer available" error is shown only if replay
   actually truncated.
 - On success the same view continues: no navigation, no new tab, no new row.
-- On failure: the reason in the pane (not a global error) and **Try again** plus **Start a new chat**.
+- On failure: the reason in the pane (not a global error, announced as an alert) and **Start a new chat**, plus **Try
+  again** only for a refusal a retry can fix (keyed off the route code: not for YOLO refusals, capacity, trust, ended,
+  unsupported or no conversation). A folder-trust refusal shows the plugin files and offers the explicit **Continue with
+  history** (new row, `trust: true`) again, in the pane and the header menu (ruling R10). An automatic attempt refused
+  as `chat_reattach_ended` falls back quietly to the ended note with Continue with history.
 - The button copy changes from "Continue with history" to **Reconnect** for this path. The sidebar shows "Reconnecting"
   rather than "Lost" while pending.
 
 ### 5. Older connectors / controllers
 
 A peer without `chat-reattach-v1` keeps today's **Continue with history** (new row). It gains: single-flight per saved
-id in the UI, switching to the new row immediately with a "Starting…" pane, and failures shown in the pane.
+id in the UI, the old row's pane showing "Starting a new session…" until the create returns (then the browser switches
+to the new row; ruling R9), and failures shown in the pane.
 Failed or refused continuation rows are failed definitively rather than left `creating`.
 
 ### 6. Error handling
@@ -108,6 +116,11 @@ Failed or refused continuation rows are failed definitively rather than left `cr
 | OpenCode store missing / `session/load` refused | `failed` with reason; Try again and Start a new chat. |
 | Live process already owns the chat | Adopted, state `running`. |
 | Another row owns the conversation | `failed`: "This conversation is open in another session." |
+| The machine is still starting the chat | `chat_reattach_starting`: "Still reconnecting. Try again in a moment." (the machine's conflict result carries the detail `starting`). |
+| Account does not allow YOLO / machine YOLO consent off | `chat_reattach_yolo_not_allowed` / `chat_reattach_yolo_refused`; no Try again. |
+| Machine at its session limit | `chat_reattach_capacity`: "This machine has reached its session limit."; no Try again. |
+| Folder has OpenCode plugins | `chat_reattach_trust` with the files; Continue with history and Start a new chat, no Try again. |
+| A person ended the chat | `chat_reattach_ended`: "You ended this chat. Continue it with history as a new session." |
 | Reply lost | Operation stays pending; the next call with the same request id checks it. |
 
 ## Testing
@@ -128,9 +141,10 @@ Failed or refused continuation rows are failed definitively rather than left `cr
 
 Known limitations of what was built:
 
-- Auto-reattach sends no folder-trust confirmation, so a folder with OpenCode plugins refuses with the trust message and the
-  person falls back to **Start a new chat**.
-- YOLO chats are refused (not downgraded) if local YOLO consent is off.
+- Auto-reattach sends no folder-trust confirmation, so a folder with OpenCode plugins refuses with the trust message; the
+  person continues with history as a new row (which confirms trust) or starts a new chat. A trust body on the route is a
+  follow-up.
+- YOLO chats are refused (not downgraded) if the account no longer allows YOLO or local YOLO consent is off.
 - While the machine is offline the pane shows the idle ended note (not a waiting state), and a failure consumes the one
   automatic attempt per session per page load.
 - Claude and Codex chats are not covered.

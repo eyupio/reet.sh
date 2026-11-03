@@ -640,6 +640,10 @@ device; the height rule below covers both answers.
 **Checking a phone.** Open the terminal with `?viewport-debug=1` added to its address.
 A small readout in the top corner shows, live, `visualViewport.height` and `offsetTop`,
 `innerHeight`, `screen.height`, the height used and whether the keyboard layout is on.
+Two more lines give the sideways reading: `innerWidth`, `visualViewport.width`, the page
+scale and `offsetLeft`, then the document's `clientWidth` and `scrollWidth`, `screen.width`,
+the pixel ratio and the viewport meta in force. Use them when the page looks narrower or
+zoomed after focusing a field (a tablet, say): the widths and scale say which.
 It never takes focus or touches, so the keyboard stays open while you read it; nothing
 is stored or sent. See `handoff.md` for what to record.
 

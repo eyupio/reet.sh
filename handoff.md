@@ -53,7 +53,7 @@ green. Contracts and rulings are in `docs/superpowers/specs/2026-11-02-directory
 `...-account-profile.md`, `...-account-security.md`, `...-account-mcp.md`,
 `...-skill-card-machine-actions.md`, `...-machine-add-skill.md` and
 `...-skill-remove-from-machine.md`; checks are in [docs/ui-verification.md](docs/ui-verification.md).
-The refresh merged through #438. Merge main into the next branch as later work lands.
+The refresh merged through #441. Merge main into the next branch as later work lands.
 
 **Merged, all with every required check green:**
 
@@ -81,6 +81,7 @@ The refresh merged through #438. Merge main into the next branch as later work l
 | #432 | `106c2fc` | Skill cards: a large fleet collapses to one installed/missing/unconfirmed summary; unconfirmed machines offer Add now that queues a scan. |
 | #434 | `6d75e72` | Machines: Add a skill… picker on the card menu, shelf candidates with Installed tags, existing install intent; disabled without an agent. |
 | #438 | `2a334ca` | Skill cards: Remove… opens Sync with an exact-set removal prepared; no write until save, preview and approval. |
+| #441 | `e91afad` | Machines audit minors: profile-format timestamps, a single Commands close, shared icons, attention order and a large-fleet status filter; paused cards show an amber dot. |
 
 **What the refresh established.** The directory pages (Lists, Community, Teams, Setups) share one
 bounded surface, a count, search, scope chips whose figures follow the search, one row anatomy and
@@ -130,13 +131,13 @@ search matches observed reports, not saved intent. All seven Admin sections are 
 Account list and form pages are refreshed: Sessions, API tokens, Profile, Password and MCP access;
 Account Backups inherits the refreshed Backups panels, and Account Activity already had its own
 count, filters and day groups. Skill cards now summarise a large fleet in one press, let an
-unconfirmed machine be scanned before adding, and prepare a reviewed removal in Sync.
+unconfirmed machine be scanned before adding, and prepare a reviewed removal in Sync. Machine
+timestamps follow the profile's zone and date order; a large fleet sorts by attention and can be
+filtered by status.
 
 **Next UI work, in order:**
 1. **Broader skills/sync vocabulary and authoring flow:** one glossary and one place for Sync.
-2. **Machines audit minors:** N1 (mixed date formats), N7 (Commands dialog exits), H10 (icon
-   language), and attention sorting/status filter for large fleets.
-3. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
+2. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
    Do not claim these from the Chromium fixtures.
 
 ## Whole-controller restore and import (2 November 2026)

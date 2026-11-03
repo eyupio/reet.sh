@@ -11,6 +11,7 @@
  import { createTerminal, getFolderProject, launchUpload, machineModels, readiness, refreshMachineModels, refusalSentence, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
  import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './terminal/upload'
  import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
+ import { projectSlug } from './launchBar'
  import { chatToolName, structuredAgent } from './terminal/api'
  import SlotPicker, { type SlotOption } from './launch/SlotPicker.svelte'
  import YoloDialog from './launch/YoloDialog.svelte'
@@ -20,7 +21,7 @@
  // folder and a prompt; the machine decides the program and its flags. Nothing here is kept in browser storage or the URL, and
  // the prompt lives only in this component: it is cleared when the dialog closes.
  // opener is the element the person pressed to open this, which gets focus back on close.
- let { machines, snapshot, projects = [], initialAgent = '', initialDir = '', projectId = '', opener = null, onstarted, onleavefailed, onaddmachine, onsignedout, onclose }: {
+ let { machines, snapshot, projects = [], initialAgent = '', initialDir = '', projectId = '', honourProjectDefaults = false, opener = null, onstarted, onleavefailed, onaddmachine, onsignedout, onclose }: {
   /** The machines from /api/v2/terminal/machines, with their readiness and launch capabilities. */
   machines: TerminalMachine[]
   /** The machines' reported folders (from the sync state), or undefined while they are unknown: the home folder and a typed path still work. */
@@ -34,6 +35,8 @@
   /** The folder project the folder belongs to: sent with the start while the machine and folder are still that project's,
    *  so the session is listed under it. */
   projectId?: string
+  /** Honour the project's and account's worktree and base-branch defaults, as Home's old launch bar did. */
+  honourProjectDefaults?: boolean
   opener?: HTMLElement | null
   /** Hands over the started session. A page that answers 'leaving' is opening it at another address: the dialog then stays in
    *  its Starting… state, with nothing left to press, until the page unloads. */
@@ -82,7 +85,7 @@
 
  // The project's own defaults (read once) and the account's: resolved with the catalogue's agent gate, never as a list read.
  let projectData = $state<FolderProject | null>(null)
- let accountDefaults = $state<{ defaultTool?: string; defaultModel?: string; defaultEffort?: string } | null>(null)
+ let accountDefaults = $state<{ defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean } | null>(null)
  // Favourites and the chosen machine's list are helpers only: a failed read changes the status line and nothing else.
  let favourites = $state<ModelFavourite[]>([])
  let favouritesLoadSeq = 0
@@ -442,7 +445,7 @@
   try {
    const answer = await getProfile()
    if (life.signal.aborted) return
-   accountDefaults = { defaultTool: answer.profile.defaultTool, defaultModel: answer.profile.defaultModel, defaultEffort: answer.profile.defaultEffort }
+   accountDefaults = { defaultTool: answer.profile.defaultTool, defaultModel: answer.profile.defaultModel, defaultEffort: answer.profile.defaultEffort, defaultBaseBranch: answer.profile.defaultBaseBranch, worktreesByDefault: answer.profile.worktreesByDefault }
   } catch (e) {
    if (!life.signal.aborted && e instanceof UnauthorizedError) onsignedout?.(e)
    else if (!life.signal.aborted) accountDefaults = null
@@ -496,7 +499,20 @@
    if (dir) launch.dir = dir
    if (prompt) launch.prompt = prompt
    if (yoloChosen && !yoloWhy) launch.yolo = true
-   if (projectSel && machine.agentId === curAgent && dir === curDir) launch.projectId = projectSel
+   const onProject = !!projectSel && machine.agentId === curAgent && dir === curDir
+   if (onProject) launch.projectId = projectSel
+   // Home's rail + and a machine's New session give a project's own defaults the same weight the launch bar did: a
+   // repository that asks for a worktree (or inherits the account's default) starts in one, from its own base branch.
+   const chosenProject = pickedProject
+   if (honourProjectDefaults && onProject && !structured && chosenProject?.isRepo) {
+    const worktree = chosenProject.worktreeDefault === 'yes' ? true : chosenProject.worktreeDefault === 'no' ? false : accountDefaults?.worktreesByDefault !== false
+    if (worktree && machine.capabilities?.worktree) {
+     launch.worktree = crypto.randomUUID().replaceAll('-', '')
+     launch.project = projectSlug(chosenProject.name)
+     const base = chosenProject.baseBranch || accountDefaults?.defaultBaseBranch || ''
+     if (base) launch.base = base
+    }
+   }
    if (attachments.length) {
     // The images go to the machine before the session exists; their paths join the opening prompt.
     busy = true

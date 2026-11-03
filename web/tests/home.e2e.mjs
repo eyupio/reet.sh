@@ -239,7 +239,8 @@ try {
   await expect(dialog.getByLabel('Project')).toHaveValue('fp1')
   await dialog.getByRole('button',{name:'Start',exact:true}).click()
   await expect.poll(() => box.createdBody?.projectId ?? null).toBe('fp1')
-  expect(box.createdBody).toMatchObject({agentId:'a1', dir:'/home/dev/store', projectId:'fp1'})
+  expect(box.createdBody).toMatchObject({agentId:'a1', dir:'/home/dev/store', projectId:'fp1', project:'store-rewrite', base:'main'})
+  expect(box.createdBody.worktree).toMatch(/^[0-9a-f]{32}$/)
   await expect(page).toHaveURL(/\/sessions\?/)
   await page.goto(base)
   // The card's menu does the same from a right-click.

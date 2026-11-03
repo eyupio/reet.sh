@@ -372,7 +372,7 @@
       {/if}
       {#if agentStart && terminals}
         <StartAgentDialog machines={terminals} snapshot={sync?.machines ?? []} projects={projects ?? []}
-          initialAgent={agentStart.project?.host ?? ''} initialDir={agentStart.project?.dir ?? ''} projectId={agentStart.project?.id ?? ''}
+          initialAgent={agentStart.project?.host ?? ''} initialDir={agentStart.project?.dir ?? ''} projectId={agentStart.project?.id ?? ''} honourProjectDefaults
           opener={agentStart.opener} onstarted={started} onleavefailed={leaveFailed}
           onaddmachine={() => location.assign(machinesAt(accounts ? 'add-machine' : 'connect-machine'))}
           onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }}

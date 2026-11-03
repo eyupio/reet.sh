@@ -29,8 +29,12 @@
 
   const id = $props.id()
   let dialog = $state<HTMLDialogElement>()
+  // A start under way cannot be cancelled by tearing the bar down: the server may already be starting it, and reopening
+  // would send a new request. Close, Escape and a backdrop press wait, as the Start an agent dialog does.
+  let working = $state(false)
 
   function close() {
+    if (working) return
     dialog?.close()
     onclose()
   }
@@ -42,18 +46,18 @@
 </script>
 
 <dialog bind:this={dialog} use:shell={{ sheet: 'bottom' }} aria-labelledby={`${id}-title`}
-  oncancel={(event) => { event.preventDefault(); close() }} onclick={(event) => { if (event.target === dialog) close() }}>
+  oncancel={(event) => { event.preventDefault(); close() }} onclick={(event) => { if (event.target === dialog) close() }} aria-busy={working}>
   <div class="sheet" data-shell-card>
     <header data-shell-head>
       <div>
         <p class="eyebrow" data-shell-aside>New session</p>
         <h2 id={`${id}-title`}>Start a session</h2>
       </div>
-      <button type="button" class="close" data-shell-close aria-label="Close" onclick={close}>×</button>
+      <button type="button" class="close" data-shell-close aria-label="Close" disabled={working} onclick={close}>×</button>
     </header>
     <div class="body" data-shell-body>
       <LaunchBar {projects} {projectsFailed} {machines} {sessions} {profile} {ready} {initialProject} {selection} {onproject} {onstarted} {onleavefailed} {onsignedout}
-        {onaddproject} {onrun} {onrundone} />
+        {onaddproject} {onrun} {onrundone} onworkchange={(next) => (working = next)} />
     </div>
   </div>
 </dialog>

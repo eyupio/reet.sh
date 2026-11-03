@@ -71,8 +71,8 @@ test('pending, thinking, response and generic waiting do not invent a running co
   assert.equal(gafferProgress(state(prompt, { kind: 'status', state: 'cancelled' })).phase, 'cancelled')
 })
 
-test('quotes are contextual, name the agent, do not immediately repeat, and single-choice states remain valid', () => {
-  for (const phase of ['planning', 'reading', 'editing', 'running', 'approval', 'question', 'error', 'reconnecting', 'idle']) {
+test('quotes are contextual, name the agent, do not immediately repeat, across every phase', () => {
+  for (const phase of ['starting', 'planning', 'reading', 'searching', 'editing', 'running', 'fetching', 'working', 'responding', 'approval', 'question', 'waiting', 'connecting', 'reconnecting', 'error', 'cancelled', 'ended', 'idle']) {
     const first = gafferQuote(phase, 'Claude Code', '', () => 0)
     const next = gafferQuote(phase, 'Claude Code', first, () => 0)
     assert.equal(typeof first, 'string')
@@ -81,7 +81,7 @@ test('quotes are contextual, name the agent, do not immediately repeat, and sing
     assert.doesNotMatch(first, /worker/i)
   }
   const ended = gafferQuote('ended')
-  assert.equal(gafferQuote('ended', 'Agent', ended), ended)
+  assert.notEqual(gafferQuote('ended', 'Agent', ended), ended)
   assert.equal(observedTime(0), '0s')
   assert.equal(observedTime(83), '1m 23s')
   assert.equal(observedTime(3601), '60m 01s')
@@ -163,4 +163,33 @@ test('summaries disclose truncated history, bound the handover, omit code blocks
   assert.match(summary.handover, /…$/)
   assert.equal(gafferProgress({ ...chat, truncated: true, items: chat.items.slice(1) }).visible, true)
   assert.equal(gafferProgress({ ...chat, items: chat.items.slice(1) }, '', true, true).visible, true)
+})
+
+const { gafferPose, gafferGesture, gafferAside } = await import(asURL(compile('./gafferPersonality.ts')))
+
+test('returning to work means tea, returning to a stopped session means sleep, and problems or decisions always win', () => {
+  for (const phase of ['planning', 'reading', 'searching', 'editing', 'running', 'responding']) assert.equal(gafferPose(phase, true), 'tea')
+  for (const phase of ['idle', 'ended']) assert.equal(gafferPose(phase, true), 'asleep')
+  for (const phase of ['error', 'cancelled', 'connecting', 'reconnecting']) assert.equal(gafferPose(phase, true), 'concerned')
+  for (const phase of ['approval', 'question']) assert.equal(gafferPose(phase, true), 'attention')
+  assert.equal(gafferPose('editing'), 'duty')
+  assert.equal(gafferGesture('error'), 'shake')
+  assert.notEqual(gafferGesture('reading'), gafferGesture('editing'))
+  assert.notEqual(gafferGesture('planning'), gafferGesture('running'))
+})
+
+test('a failed closed session keeps its error view instead of sleeping or implying success', () => {
+  const chat = state(prompt, working, tool('one'), { kind: 'status', state: 'error', detail: 'Provider failed' })
+  assert.equal(gafferProgress(chat, '', true, true).phase, 'error')
+  assert.equal(gafferProgress(state(prompt, { kind: 'status', state: 'ended' }), '', true, true, 'OpenCode', true).phase, 'error')
+  assert.equal(gafferSummary(chat, '', true, true).scope, 'session')
+})
+
+test('click and return banter stays contextual, names the agent, and avoids immediate repeats', () => {
+  for (const kind of ['click', 'return']) for (const pose of ['duty', 'tea', 'asleep', 'attention', 'concerned']) {
+    const first = gafferAside(kind, pose, 'Claude Code', '', () => 0)
+    assert.match(first, /Claude Code/)
+    if (pose !== 'duty' || kind !== 'return') assert.notEqual(gafferAside(kind, pose, 'Claude Code', first, () => 0), first)
+  }
+  assert.match(gafferAside('return', 'concerned', 'Agent'), /snag|needs a look/)
 })

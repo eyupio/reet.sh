@@ -12,7 +12,7 @@ const now = Date.now()
 const makeState = () => {
   let profile = {
     theme: 'system', timezone: 'Europe/London', dateFormat: 'locale', shelfView: 'list', cardsExpanded: false,
-    hostedPrefix: 'reet-', terminalRemoveOnClose: false, updatedAt: now,
+    hostedPrefix: 'reet-', terminalRemoveOnClose: false, gafferAnimations: true, updatedAt: now,
   }
   const patches = []
   return {
@@ -40,7 +40,7 @@ try {
   if (run('panel and save')) {
     const { context, page, errors, patches } = await open({})
     await page.goto(`${base}/account/profile`)
-    await expect(count(page)).toHaveText('8 preferences')
+    await expect(count(page)).toHaveText('9 preferences')
     for (const name of ['Identity', 'Appearance', 'Shelf and terminal', 'Publishing']) {
       await expect(page.getByRole('group', { name })).toBeVisible()
     }
@@ -49,6 +49,8 @@ try {
     const form = page.locator('#profile-form')
     await expect(form.getByLabel('Dates')).toHaveValue('locale')
     await form.getByLabel('Theme').selectOption('dark')
+    await expect(form.getByLabel('Gaffer animation', { exact: true })).toContainText('On — occasional gestures and reactions')
+    await form.getByLabel('Gaffer animation', { exact: true }).selectOption({ label: 'Off — keep Gaffer still' })
     await form.getByLabel('Time zone').fill('Europe/London')
     await form.getByLabel('Dates').selectOption('dmy')
     await form.getByLabel('Terminal history default').selectOption({ label: 'Remove from history after it ends' })
@@ -60,8 +62,10 @@ try {
     expect(patches).toHaveLength(1)
     expect(patches[0]).toMatchObject({
       name: 'Sam Taylor', theme: 'dark', timezone: 'Europe/London', dateFormat: 'dmy',
-      shelfView: 'board', cardsExpanded: true, terminalRemoveOnClose: true, hostedPrefix: 'acme-',
+      shelfView: 'board', cardsExpanded: true, terminalRemoveOnClose: true, gafferAnimations: false, hostedPrefix: 'acme-',
     })
+    await page.reload()
+    await expect(page.getByLabel('Gaffer animation', { exact: true })).toHaveValue('false')
     expect(errors).toEqual([])
     await context.close()
   }

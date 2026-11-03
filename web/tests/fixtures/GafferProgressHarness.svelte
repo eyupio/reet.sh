@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gafferAnimations } from '../../src/lib/gafferMotion'
   import { onMount } from 'svelte'
   import ChatPane from '../../src/lib/terminal/ChatPane.svelte'
   import GafferAvatar from '../../src/lib/terminal/GafferAvatar.svelte'
@@ -7,6 +8,8 @@
   const session = { id: 'session-gaffer-preview001', agentId: 'connector-preview00001', title: 'reet.sh · Gaffer', state: 'running', createdAt: 1, updatedAt: 1, exitCode: null, tool: 'opencode', model: '', effort: '', yolo: false, projectId: null, dir: '/home/dev/reet.sh', structured: true } as unknown as TerminalSession
   type Stream = { emit: (data: unknown) => void; reset: () => void; disconnect: () => void; reconnect: () => void }
   const stream = () => (window as unknown as { __gaffer: Stream }).__gaffer
+  let present = $state(true)
+  function visit() { present = !present; if (present) setTimeout(() => scene(current), 80) }
   let current = $state('Editing'), sequence = 0
   const send = (data: object) => stream().emit({ seq: ++sequence, ...data })
   function scene(name: string) {
@@ -29,7 +32,7 @@
     if (name === 'Reconnecting') { stream().disconnect(); return }
     if (name === 'Error') { send({ kind: 'status', state: 'error', detail: 'The provider’s rate limit was reached. Wait for it to reset or choose another configured model.' }); return }
     if (finished || name === 'Snag') {
-      send({ kind: 'agent', messageId: 'done', text: name === 'Snag' ? 'The progress panel was updated. One fixture check still needs attention; review its output before continuing.' : 'The progress panel is ready to review. Gaffer now has a younger face, expressive gestures and a cheekier voice. The recorded web check completed; review the changes before carrying on.' })
+      send({ kind: 'agent', messageId: 'done', text: name === 'Snag' ? 'The progress panel was updated. One fixture check still needs attention; review its output before continuing.' : 'The progress panel is ready to review. Gaffer now wears a front-facing tweed flat cap, with calmer gestures and a cheekier voice. The recorded web check completed; review the changes before carrying on.' })
       send({ kind: 'status', state: name === 'Ended' ? 'ended' : 'idle' })
     }
   }
@@ -63,10 +66,10 @@
     </aside>
     <div class="workspace">
       <div class="session-head"><div><span class="session-mark" aria-hidden="true">g</span><strong>Gaffer</strong><span class="project">reet.sh / web</span></div><span class="session-state"><i></i> Preview</span></div>
-      <div class="pane"><ChatPane {session} /></div>
+      <div class="pane">{#if present}<ChatPane {session} />{:else}<p>Session left open in the background.</p>{/if}</div>
     </div>
   </div>
-  <nav class="scenes" aria-label="Preview states"><span>Try a state</span>{#each ['Thinking', 'Reading', 'Searching', 'Editing', 'Running', 'Approval', 'Question', 'Reconnecting', 'Error', 'Snag', 'Finished', 'Ended'] as name}<button type="button" class:chosen={current === name} aria-pressed={current === name} onclick={() => scene(name)}>{name}</button>{/each}</nav>
+  <nav class="scenes" aria-label="Preview states"><span>Try a state</span><button type="button" onclick={visit}>{present ? 'Leave session' : 'Return to session'}</button><button type="button" onclick={() => gafferAnimations.update(enabled => !enabled)}>{$gafferAnimations ? 'Disable animation' : 'Enable animation'}</button>{#each ['Thinking', 'Reading', 'Searching', 'Editing', 'Running', 'Approval', 'Question', 'Reconnecting', 'Error', 'Snag', 'Finished', 'Ended'] as name}<button type="button" class:chosen={current === name} aria-pressed={current === name} onclick={() => scene(name)}>{name}</button>{/each}</nav>
 </main>
 
 <style>

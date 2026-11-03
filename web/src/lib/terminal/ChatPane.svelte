@@ -754,7 +754,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
    {/if}
   {/each}
  </div>
- <GafferProgress {chat} dir={session.dir} agent={toolName} {replayed} {ended} />
+ <GafferProgress sessionId={session.id} {chat} dir={session.dir} agent={toolName} {replayed} {ended} sessionFailed={terminalClosed(session.state) && (session.state === 'lost' || (session.exitCode != null && session.exitCode !== 0))} />
  {#if ended}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}
  {:else}

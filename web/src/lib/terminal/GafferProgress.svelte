@@ -3,66 +3,141 @@
   import { toolLabel, toolState, toolTarget, type ChatState } from '../chat'
   import { gafferProgress, gafferQuote, observedTime, recentToolState, type GafferPhase } from '../gafferProgress'
   import { gafferSummary } from '../gafferSummary'
+  import { gafferAnimations } from '../gafferMotion'
+  import { GAFFER_AWAY_AFTER, gafferAside, gafferGesture, gafferPose, type GafferPose, type GafferReaction } from '../gafferPersonality'
   import GafferAvatar from './GafferAvatar.svelte'
 
-  let { chat, dir = '', agent = 'Agent', replayed = true, ended = false }: { chat: ChatState; dir?: string; agent?: string; replayed?: boolean; ended?: boolean } = $props()
-  const view = $derived(gafferProgress(chat, dir, replayed, ended, agent))
+  let { chat, sessionId = '', dir = '', agent = 'Agent', replayed = true, ended = false, sessionFailed = false }: { chat: ChatState; sessionId?: string; dir?: string; agent?: string; replayed?: boolean; ended?: boolean; sessionFailed?: boolean } = $props()
+  const view = $derived(gafferProgress(chat, dir, replayed, ended, agent, sessionFailed))
   const summary = $derived(gafferSummary(chat, dir, replayed, ended))
   const needsYou = $derived(view.phase === 'approval' || view.phase === 'question')
   const stopped = $derived(['idle', 'error', 'cancelled', 'ended'].includes(view.phase))
   let paused = $state(false), reduced = $state(false), hidden = $state(false)
+  const still = $derived(paused || reduced || hidden || !$gafferAnimations)
   let quote = $state(''), lastPhase: GafferPhase | undefined, quoteAt = 0
   let seconds = $state(0), observedTurn = ''
   let observedAt = $state(0)
   let details = $state(false)
   let summaryExpanded = $state(true)
   let summaryKey = ''
+  let reaction = $state<GafferReaction>(''), reactionKey = $state(0)
+  let welcomePose = $state<GafferPose | null>(null), pendingReturn = $state(false)
+  const pose = $derived(needsYou || gafferPose(view.phase) === 'concerned' ? gafferPose(view.phase) : welcomePose ?? gafferPose(view.phase))
+  let welcomeTimer: ReturnType<typeof setTimeout> | undefined
+  let settleTimer: ReturnType<typeof setTimeout> | undefined
+  let lastGestureAt = -Infinity, nextGestureAt = 0, lastClickAt = -Infinity
+
+  function gesture(next: GafferReaction) {
+    if (still) return
+    reaction = next; reactionKey++; lastGestureAt = Date.now()
+    nextGestureAt = Date.now() + 18_000 + Math.random() * 14_000
+  }
+  function cancelWelcome() {
+    clearTimeout(welcomeTimer); clearTimeout(settleTimer); welcomePose = null
+  }
+  function welcome() {
+    pendingReturn = false
+    const resting = gafferPose(view.phase, true)
+    quote = gafferAside('return', resting, agent, quote); quoteAt = Date.now()
+    if ((resting === 'tea' || resting === 'asleep') && !still) {
+      welcomePose = resting
+      welcomeTimer = setTimeout(() => {
+        welcomePose = null; gesture(resting === 'asleep' ? 'stretch' : 'startle')
+      }, 900)
+      settleTimer = setTimeout(() => { reaction = '' }, 3_500)
+    } else gesture(gafferGesture(view.phase))
+  }
+  function greet() {
+    if (Date.now() - lastClickAt < 2_000) return
+    lastClickAt = Date.now()
+    const resting = pose
+    cancelWelcome()
+    quote = gafferAside('click', resting, agent, quote); quoteAt = Date.now()
+    gesture(resting === 'asleep' ? 'stretch' : resting === 'tea' ? 'startle' : resting === 'concerned' ? 'shake' : resting === 'attention' ? 'listen' : ['tip-cap', 'wink', 'nod'][Math.floor(Math.random() * 3)] as GafferReaction)
+  }
 
   $effect(() => {
     const key = summary ? `${summary.scope}:${view.turnKey}` : ''
     if (key !== summaryKey) { summaryKey = key; summaryExpanded = true }
   })
-
   $effect(() => {
-    const phase = view.phase, turn = view.turnKey, visible = view.visible, isPaused = paused
-    const confirmed = replayed && chat.connection === 'open'
+    const phase = view.phase, turn = view.turnKey, visible = view.visible
+    const confirmed = replayed && chat.connection === 'open', returning = pendingReturn, isHidden = hidden
     untrack(() => {
-      // A stream reset briefly removes the prompt while history replays. Only a confirmed new prompt starts a new timer.
+      // Stream replay can briefly remove the prompt. Only a confirmed new prompt restarts the timer.
       if (confirmed && turn !== 'unavailable' && turn !== observedTurn) { observedTurn = turn; observedAt = 0; seconds = 0; details = false }
-      if (phase !== lastPhase && !isPaused) { quote = gafferQuote(phase, agent, quote); lastPhase = phase; quoteAt = Date.now() }
+      if (phase !== lastPhase) {
+        cancelWelcome()
+        quote = gafferQuote(phase, agent, quote); lastPhase = phase; quoteAt = Date.now()
+        if (visible && (needsYou || phase === 'error' || Date.now() - lastGestureAt >= 5_000)) gesture(gafferGesture(phase))
+        else reaction = ''
+      }
       if (visible && view.active && !observedAt) observedAt = Date.now()
+      // Never infer completion or a tea break while history is still replaying.
+      if (returning && confirmed && visible && !isHidden) welcome()
     })
   })
+  $effect(() => { if (still) untrack(() => { cancelWelcome(); reaction = '' }) })
+
   onMount(() => {
     const media = matchMedia('(prefers-reduced-motion: reduce)')
+    const storageKey = sessionId ? `reet-gaffer-away:${sessionId}` : ''
+    let awayAt = 0
+    try {
+      const previous = storageKey ? Number(sessionStorage.getItem(storageKey)) : 0
+      pendingReturn = previous > 0 && Date.now() - previous >= GAFFER_AWAY_AFTER
+      if (storageKey) sessionStorage.removeItem(storageKey)
+    } catch { /* Private browsing can deny storage; tab visibility still works. */ }
     const motion = () => { reduced = media.matches }
-    const visibility = () => { hidden = document.hidden }
+    const leave = () => {
+      hidden = true
+      if (!awayAt) awayAt = Date.now()
+      cancelWelcome()
+      try { if (storageKey && view.visible) sessionStorage.setItem(storageKey, String(awayAt)) } catch { /* optional decoration */ }
+    }
+    const arrive = () => {
+      if (document.hidden) return
+      hidden = false
+      if (awayAt && Date.now() - awayAt >= GAFFER_AWAY_AFTER) pendingReturn = true
+      awayAt = 0; nextGestureAt = Date.now() + 18_000
+      try { if (storageKey) sessionStorage.removeItem(storageKey) } catch { /* optional decoration */ }
+    }
+    const visibility = () => { if (document.hidden) leave(); else arrive() }
     motion(); visibility()
     media.addEventListener('change', motion)
     document.addEventListener('visibilitychange', visibility)
+    window.addEventListener('blur', leave); window.addEventListener('focus', arrive)
+    window.addEventListener('pagehide', leave)
+    nextGestureAt = Date.now() + 18_000 + Math.random() * 14_000
     const timer = setInterval(() => {
       if (view.visible && !stopped && observedAt) seconds = Math.floor((Date.now() - observedAt) / 1000)
-      if (!view.active || paused || reduced || hidden) { quoteAt = Date.now(); return }
-      if (Date.now() - quoteAt >= 8_000) { quote = gafferQuote(view.phase, agent, quote); quoteAt = Date.now() }
+      if (hidden || !view.visible) return
+      // Banter and live facts continue when animation is disabled, including reduced motion.
+      if (view.active && Date.now() - quoteAt >= 30_000) { quote = gafferQuote(view.phase, agent, quote); quoteAt = Date.now() }
+      if (!still && view.active && !welcomePose && Date.now() >= nextGestureAt) gesture(gafferGesture(view.phase))
     }, 1000)
-    return () => { clearInterval(timer); media.removeEventListener('change', motion); document.removeEventListener('visibilitychange', visibility) }
+    return () => {
+      leave(); clearInterval(timer); cancelWelcome()
+      media.removeEventListener('change', motion); document.removeEventListener('visibilitychange', visibility)
+      window.removeEventListener('blur', leave); window.removeEventListener('focus', arrive); window.removeEventListener('pagehide', leave)
+    }
   })
 </script>
 
 {#if view.visible}
-  <section class="gaffer-progress" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:compact={stopped} class:paused={paused || hidden} aria-label="Gaffer’s work update" data-phase={view.phase}>
+  <section class="gaffer-progress" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:compact={stopped} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase}>
     <div class="gaffer-main">
-      <div class="portrait"><GafferAvatar active={view.active} phase={view.phase} paused={paused || hidden} /></div>
+      <button type="button" class="portrait" aria-label="Say ey up to Gaffer" title="Say ey up to Gaffer" onclick={greet}><GafferAvatar active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} paused={still} /></button>
       <div class="brief">
         <div class="byline"><strong>Gaffer</strong><span class="role">The boss</span><span class="agent">{agent}</span></div>
         <div class="live-update" role="status" aria-live="polite" aria-atomic="true">
-          <span class="signal" class:live={view.active} aria-hidden="true">{#if needsYou}?{:else if view.phase === 'idle'}✓{:else if view.phase === 'error'}!{:else}<i></i><i></i><i></i>{/if}</span>
+          <span class="signal" class:live={view.active} aria-hidden="true">{#if needsYou}?{:else if view.phase === 'idle'}✓{:else if view.phase === 'error' || view.phase === 'reconnecting'}!{:else}<i></i><i></i><i></i>{/if}</span>
           <strong>{view.label}</strong>
           {#if view.target}<span class="target" title={view.target}>{view.target}</span>{/if}
         </div>
         <p class="quote" aria-live="off"><span aria-hidden="true">“</span>{quote}<span aria-hidden="true">”</span></p>
       </div>
-      <button type="button" class="quiet pause" aria-label={paused ? 'Resume Gaffer animation and quotes' : 'Pause Gaffer animation and quotes'} title={paused ? 'Resume animation and quotes' : 'Pause animation and quotes'} aria-pressed={paused} onclick={() => paused = !paused}>
+      <button type="button" class="quiet pause" aria-label={paused ? 'Resume Gaffer animation' : 'Pause Gaffer animation'} title={!$gafferAnimations ? 'Animation is off in Account → Profile' : reduced ? 'Your device requests reduced motion' : paused ? 'Resume animation' : 'Pause animation; quotes and updates continue'} aria-pressed={paused || !$gafferAnimations || reduced} disabled={!$gafferAnimations || reduced} onclick={() => paused = !paused}>
         <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">{#if paused}<path d="m7 4 9 6-9 6z" />{:else}<rect x="5" y="4" width="3" height="12" rx="1" /><rect x="12" y="4" width="3" height="12" rx="1" />{/if}</svg>
       </button>
     </div>
@@ -121,7 +196,10 @@
   .needs-you { --tone: var(--warn); }
   .problem { --tone: var(--bad); }
   .gaffer-main { display: flex; align-items: center; gap: 10px; padding: 11px 12px; }
-  .portrait { width: 48px; height: 48px; flex: none; }
+  .portrait { width: 52px; height: 52px; flex: none; border: 0; padding: 0; background: none; cursor: pointer; border-radius: 8px; }
+  .portrait:hover { background: var(--line-soft); }
+  .portrait:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .pause:disabled { opacity: .55; cursor: default; }
   .brief { flex: 1; min-width: 0; }
   .byline { display: flex; align-items: baseline; gap: 9px; color: var(--muted); font: 10px/1.3 var(--sans); }
   .byline > strong { color: var(--ink); font: 600 12px/1.3 var(--mono); }
@@ -133,9 +211,9 @@
   .target::before { content: '· '; }
   .signal { display: inline-flex; gap: 2px; align-items: center; justify-content: center; width: 14px; height: 14px; flex: none; color: var(--tone); font: 600 12px var(--sans); }
   .signal i { width: 2px; height: 4px; border-radius: 2px; background: currentColor; }
-  .signal.live i { animation: graft 1.3s ease-in-out infinite; }
-  .signal.live i:nth-child(2) { animation-delay: .15s; }
-  .signal.live i:nth-child(3) { animation-delay: .3s; }
+  .signal.live i { height: 8px; }
+  .signal.live i:nth-child(2) { height: 11px; }
+  .signal.live i:nth-child(3) { height: 5px; }
   .quote { margin: 4px 0 0; color: var(--ink-soft); font: 11px/1.5 var(--sans); overflow-wrap: anywhere; }
   .quote > span { color: var(--tone); }
   .quiet { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 5px; border: 0; border-radius: 5px; padding: 0 6px; background: none; color: var(--muted); cursor: pointer; font: 11px var(--sans); }
@@ -159,9 +237,9 @@
   .tool-state { flex: none; color: var(--muted); font: 11px var(--sans); }
   .tool-state.bad { color: var(--bad); }
   .activity-line { position: absolute; inset: auto 0 0; height: 2px; overflow: hidden; background: color-mix(in srgb, var(--tone) 10%, transparent); }
-  .activity-line > span { display: block; height: 100%; width: 30%; background: linear-gradient(90deg, transparent, var(--tone), transparent); animation: sweep 3.8s ease-in-out infinite; }
+  .activity-line > span { display: block; height: 100%; width: 100%; opacity: .35; background: linear-gradient(90deg, transparent, var(--tone), transparent); }
   .compact .gaffer-main { padding-block: 9px; }
-  .compact .portrait { width: 40px; height: 40px; }
+  .compact .portrait { width: 44px; height: 44px; }
   .compact .role { display: none; }
   .compact .live-update { margin-top: 4px; }
   .compact .quote { font-size: 11px; min-height: 0; }
@@ -192,8 +270,6 @@
   .summary-partial { margin: 0 0 7px; color: var(--muted); font-size: 10px; }
   .paused .signal i, .paused .activity-line > span { animation-play-state: paused; }
   .vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
-  @keyframes graft { 50% { height: 11px; } }
-  @keyframes sweep { from { transform: translateX(-110%); } to { transform: translateX(440%); } }
   @container gaffer (max-width: 540px) {
     .gaffer-main { gap: 9px; padding: 11px 10px; }
     .portrait { width: 44px; height: 44px; align-self: flex-start; }

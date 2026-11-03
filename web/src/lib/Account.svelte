@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gafferAnimations } from './gafferMotion'
   import NavigationMenu from './NavigationMenu.svelte'
   import { onMount } from 'svelte'
   import CollectionPanel from './CollectionPanel.svelte'
@@ -62,7 +63,7 @@
   let busy = $state('')
 
   // svelte-ignore state_referenced_locally
-  let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list' as 'list' | 'board', cardsExpanded: false, terminalRemoveOnClose: false })
+  let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list' as 'list' | 'board', cardsExpanded: false, terminalRemoveOnClose: false, gafferAnimations: true })
   let prefixEnabled = $state(true)
   let prefixValue = $state('reet-')
   let passwordForm = $state({ current: '', password: '', confirm: '' })
@@ -123,10 +124,11 @@
       const r = await getProfile()
       who = r.user
       profile = r.profile
-      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat || 'locale', shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false }
+      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat || 'locale', shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false, gafferAnimations: r.profile.gafferAnimations ?? true }
       prefixEnabled = r.profile.hostedPrefix !== ''
       prefixValue = r.profile.hostedPrefix || 'reet-'
       applyTheme(r.profile.theme)
+      gafferAnimations.set(r.profile.gafferAnimations ?? true)
       error = ''
     } catch (e) {
       fail(e)
@@ -172,6 +174,7 @@
       prefixValue = r.profile.hostedPrefix || 'reet-'
       onuserchange?.(r.user)
       applyTheme(r.profile.theme)
+      gafferAnimations.set(r.profile.gafferAnimations ?? true)
       notice = 'Reet, defaults saved. Your preferences follow you to every browser you sign in from.'
       error = ''
     } catch (e) {
@@ -380,7 +383,7 @@
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
 
   {#if section === 'profile'}
-    <CollectionPanel label="Your preferences" count="8 preferences">
+    <CollectionPanel label="Your preferences" count="9 preferences">
       {#snippet actions()}
         <button type="submit" form="profile-form" class="btn primary" disabled={busy === 'profile'}>{busy === 'profile' ? 'Saving…' : 'Save profile'}</button>
       {/snippet}
@@ -406,6 +409,13 @@
                 <option value="light">Light</option>
                 <option value="dark">Dark</option>
               </select>
+            </label>
+            <label><span>Gaffer animation</span>
+              <select aria-label="Gaffer animation" bind:value={profileForm.gafferAnimations}>
+                <option value={true}>On — occasional gestures and reactions</option>
+                <option value={false}>Off — keep Gaffer still</option>
+              </select>
+              <small>Gaffer, quirky quotes, live updates and executive summaries stay visible. Your device’s reduced-motion setting is always respected.</small>
             </label>
             <label><span>Time zone</span>
               <input bind:value={profileForm.timezone} placeholder="Europe/London" autocomplete="off" />

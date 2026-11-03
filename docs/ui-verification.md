@@ -1,4 +1,31 @@
-# UI verification — 2 November 2026
+# UI verification — 3 November 2026
+
+## Session workspace: the Overview holds still while the agent works
+
+Reproduced in Chromium at 1600x1000 with a synthetic chat stream: across seven task updates (a short task, a title
+long enough to wrap to four lines, a first and then a long agent update, three tools at once, a failure) the top of
+**Workspace changes** moved from 494 px to 1037 px, because the headline wrapped (24 → 96 px) and the In progress,
+Latest agent update and failure blocks appeared and grew above it.
+
+After: the headline is one line (ellipsis, full text on hover), and the notice (request waiting, chat error, return
+summary or a calm line), In progress, failures and Latest agent update are slots of fixed height. The same seven
+updates leave **Workspace changes** at 854 px every time. The cost is that the idle Overview is about 360 px taller
+than before, so on a short window Where it's working is reached by scrolling the panel.
+
+Validation on the updated source:
+
+- `session-workspace.e2e.mjs` gained two checks that failed before the fix: ten task updates (long title, long agent
+  update, three tools, a failure, a permission request and its answer, a chat error, work resuming) at 1600 and 375 px
+  leave Workspace changes, Where it's working and the details toggle where they were; and the first status read
+  (held, then released) does not move Where it's working. It caught one bug in the first fix, a 12 px shift on touch
+  where the failure toggle is 44 px tall.
+- `sessions` and `terminal-workspace` browser suites pass. `npm run check`: all unit suites, svelte-check 0 errors
+  and 0 warnings.
+- Close-ups in dark at 1600 and 375 px: idle, busy with a long title and update, and a request waiting (two-line
+  message and Review button).
+
+Not run: the axe scan (axe-core is not installed here), `terminal.e2e.mjs` (needs the Go terminal fixture), light
+theme close-ups, a physical phone, Safari, Firefox or a screen reader.
 
 ## Loading: compressed assets, progress bar and skeletons
 

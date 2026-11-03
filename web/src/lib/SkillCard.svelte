@@ -104,6 +104,7 @@
   const syncIntent = $derived(skillSyncIntent(skill.id, syncSnapshot))
   const syncIntentText = $derived(skillSyncSummary(syncIntent))
   const syncIntentTone = $derived(syncIntent.pending.length ? 'pending' : syncIntent.set.length ? 'set' : 'none')
+  const hasSavedSetFor = (host: string) => (syncSnapshot?.targets ?? []).some((target) => target.target.host.toLowerCase() === host.toLowerCase())
 
   $effect(() => {
     if (!descEl || descOpen) return
@@ -296,6 +297,9 @@
               <button type="button" class="install-now" class:unknown={report.status === 'unknown'} disabled={!!installing} aria-label={report.status === 'unknown' ? `Scan ${report.host} and add ${skill.name}` : `Install ${skill.name} on ${report.host} now`} title={report.status === 'unknown' ? 'No recent complete scan from this machine. Add now asks it to rescan first; add the skill once the scan reports.' : undefined} onclick={(event) => { event.stopPropagation(); oninstall(skill, report.host) }}>{installing === `${skill.id}:${report.host}` ? 'Adding…' : 'Add now'}</button>
             {:else}
               <strong>{installationLabels[report.status]}</strong>
+              {#if report.status === 'installed' && canWrite && hasSavedSetFor(report.host)}
+                <a class="remove-from" href={`/sync?machine=${encodeURIComponent(report.host)}&remove=${encodeURIComponent(skill.id)}`} onclick={(event) => event.stopPropagation()} aria-label={`Remove ${skill.name} from ${report.host} in Sync`} title="Open Sync to review the exact set. No files change until you preview and approve.">Remove…</a>
+              {/if}
             {/if}
           </li>
         {/each}
@@ -575,6 +579,8 @@
   .install-now { flex: none; min-height: 28px; padding: 2px 9px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); border-radius: 5px; background: var(--card); color: var(--ink); font: inherit; font-size: 0.72rem; font-weight: 650; cursor: pointer; }
   .install-now:hover:not(:disabled) { border-color: var(--ink); }
   .install-now.unknown { border-color: color-mix(in srgb, var(--muted) 55%, var(--line)); }
+  .remove-from { color: var(--muted); font-size: 0.72rem; text-decoration: underline; text-underline-offset: 2px; }
+  .remove-from:hover { color: var(--accent-text); }
   .install-now:disabled { opacity: 0.6; cursor: wait; }
   .menu-trigger { min-width: 40px; justify-content: center; font-size: 1rem; line-height: 1; color: var(--muted); }
   .quick-menu { position: fixed; z-index: 80; display: grid; min-width: 240px; max-width: min(300px, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }

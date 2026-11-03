@@ -79,7 +79,6 @@
   let addInput = $state('')
   let adding = $state(false)
   let addError = $state('')
-  let message = $state('')
   let error = $state('')
   let loading = $state(true)
   let needsAuth = $state(false)
@@ -96,7 +95,7 @@
   let currentUser = $state<User | null>(null)
   let search = $state<HTMLInputElement>()
   let addEl = $state<HTMLInputElement>()
-  type ToastState = { id: number; message: string; actionLabel?: string; onaction?: () => void | Promise<void> }
+  type ToastState = { id: number; message: string; tone: 'ok' | 'bad'; actionLabel?: string; onaction?: () => void | Promise<void> }
   let toast = $state<ToastState | null>(null)
   let toastId = 0
   let environments = $state<Environment[]>([])
@@ -286,31 +285,26 @@
     return [...map.values()].sort((a, b) => a.tag.name.localeCompare(b.tag.name))
   })
 
-  let clearTimer: ReturnType<typeof setTimeout> | undefined
   function fail(e: unknown) {
     if (e instanceof UnauthorizedError) {
       clearToken()
       token = ''
       if (authMode === 'accounts') currentUser = null
       needsAuth = true
-      message = ''
       toast = null
       removePending = null
       installFailure = null
       return
     }
     error = e instanceof Error ? e.message : String(e)
-    message = ''
   }
   function ok(m: string) {
-    message = m
+    showToast(m)
     error = ''
     installFailure = null
-    clearTimeout(clearTimer)
-    clearTimer = setTimeout(() => (message = ''), 6000)
   }
-  function showToast(message: string, actionLabel?: string, onaction?: () => void | Promise<void>) {
-    toast = { id: ++toastId, message, actionLabel, onaction }
+  function showToast(message: string, actionLabel?: string, onaction?: () => void | Promise<void>, tone: 'ok' | 'bad' = 'ok') {
+    toast = { id: ++toastId, message, actionLabel, onaction, tone }
   }
   function dismissToast() {
     toast = null
@@ -448,7 +442,7 @@
       // A link that could not finish lands on a signed-in page with a code in the address: say it once.
       const ssoProblem = ssoErrorMessage(ssoErrorFromSearch(location.search))
       if (status.user && ssoProblem) {
-        showToast(ssoProblem)
+        showToast(ssoProblem, undefined, undefined, 'bad')
         window.history.replaceState(null, '', withoutSsoError(location.pathname + location.search + location.hash))
       }
       if (status.user && entryPaths.includes(location.pathname)) {
@@ -515,7 +509,6 @@
     const accepted = await load()
     if (accepted) {
       token = getToken()
-      message = ''
       await tick()
       if (canAutoFocus()) addEl?.focus()
       return null
@@ -537,7 +530,6 @@
       needsAuth = true
       token = ''
       clearToken()
-      message = ''
       error = ''
       toast = null
       removePending = null
@@ -550,7 +542,6 @@
     }
     clearToken()
     token = ''
-    message = ''
     error = ''
     toast = null
     removePending = null
@@ -1055,7 +1046,6 @@
           <p class="notice bad" role="alert">{error}</p>
         {/if}
       {/if}
-      <p class="notice good" role="status" hidden={!message}>{message}</p>
     </div>
 
     {#if authMode === 'accounts'}<HostedShelf {canWrite} reports={machineReports} snapshot={syncSnapshot} onchange={() => { void load(); void loadMeta() }} />{/if}
@@ -1310,6 +1300,7 @@
   {#key toast.id}
     <Toast
       message={toast.message}
+      tone={toast.tone}
       actionLabel={toast.actionLabel}
       onaction={toast.onaction}
       ondismiss={dismissToast}
@@ -1340,7 +1331,6 @@
 
   .notices { display: grid; gap: 8px; }
   .notice { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
-  .notice[hidden] { display: none; }
   .good { border-color: var(--good); }
   .bad { border-color: var(--bad); }
 

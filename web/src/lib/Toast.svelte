@@ -1,17 +1,19 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
 
-  let { message, actionLabel, onaction, ondismiss, duration = 8000, placement = 'center', tone = '' }: {
+  let { message, actionLabel, onaction, ondismiss, duration = 8000, placement = 'right', tone = 'ok' }: {
     message: string
     actionLabel?: string
     onaction?: () => void | Promise<void>
     ondismiss: () => void
     duration?: number
-    /** 'right' is the usual corner toast; 'center' is the original bottom-centre one. */
+    /** Action feedback uses the right corner by default. */
     placement?: 'center' | 'right'
     tone?: '' | 'ok' | 'bad'
   } = $props()
 
+  let disposed = false
+  let dismissTimer: ReturnType<typeof setTimeout> | undefined
   let leaving = $state(false)
   let acting = $state(false)
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -40,11 +42,11 @@
   }
 
   function dismiss() {
-    if (leaving) return
+    if (leaving || disposed) return
     leaving = true
     clearTimeout(timer)
     timer = undefined
-    setTimeout(ondismiss, 180)
+    dismissTimer = setTimeout(ondismiss, 180)
   }
 
   async function act() {
@@ -62,7 +64,7 @@
     remaining = duration
     start()
   })
-  onDestroy(() => clearTimeout(timer))
+  onDestroy(() => { disposed = true; clearTimeout(timer); clearTimeout(dismissTimer) })
 </script>
 
 <div
@@ -71,8 +73,8 @@
   class:right={placement === 'right'}
   class:ok={tone === 'ok'}
   class:bad={tone === 'bad'}
-  role="status"
-  aria-live="polite"
+  role={tone === 'bad' ? 'alert' : 'status'}
+  aria-live={tone === 'bad' ? 'assertive' : 'polite'}
   onmouseenter={pause}
   onmouseleave={resume}
   onfocusin={pause}

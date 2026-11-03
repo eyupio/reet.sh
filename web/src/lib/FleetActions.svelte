@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FeedbackToast from './FeedbackToast.svelte'
   import { queueSyncJob, type SyncState } from './api'
   import { fleetPlan, queueFleet, type FleetPlan } from './fleet'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -23,12 +24,12 @@
   {#if scan.skipped.length || sync.skipped.length}
     <ul class="skipped" aria-label="Skipped operations">{#each [...new Set([...scan.skipped, ...sync.skipped])] as reason}<li>{reason}</li>{/each}</ul>
   {/if}
-  {#if notice}<p class="feedback" role="status">{notice}</p>{/if}
+  <FeedbackToast message={notice} ondismiss={() => (notice = '')} />
   {#if failures.length}<div class="failure" role="alert"><strong>Some jobs could not be queued</strong><ul>{#each failures as failure}<li>{failure}</li>{/each}</ul><p>Refresh status before retrying failed destinations.</p></div>{/if}
 </section>
 {#if pending}<ConfirmDialog title={pending.kind === 'scan' ? 'Scan all available machines?' : 'Preview sync across your machines?'} body={`${pending.plan.operations.length} jobs will be queued. ${pending.plan.skipped.length} operations are skipped. ${pending.kind === 'scan' ? 'Each available machine will report its installed skills.' : 'Each machine will calculate its exact installs and removals. Installed files change only after you approve an individual plan.'}`} confirmLabel="Queue jobs" onconfirm={() => void submit()} oncancel={() => pending = null}><ul>{#each pending.plan.operations as operation}<li>{operation.label}</li>{/each}</ul></ConfirmDialog>{/if}
 <style>
-  .fleet-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px 24px;padding:16px 20px;border:1px solid var(--line);border-radius:12px;background:var(--card);margin:16px 0}.fleet-actions>div:first-child{flex:1}.buttons{display:flex;flex-wrap:wrap;gap:8px}strong{font-size:.87rem}p{color:var(--muted);font-size:.8rem;margin:4px 0 0}.hint,.skipped,.feedback,.failure{flex-basis:100%}.hint{font-size:.75rem}.skipped{display:flex;flex-wrap:wrap;gap:4px 14px;margin:2px 0 0;padding:0;list-style:none;color:var(--muted);font-size:.74rem}.choose-dest{display:inline-flex;align-items:center;min-height:24px}.failure{color:var(--bad)}li{overflow-wrap:anywhere}ul{padding-left:20px}.feedback{color:var(--good)}
+  .fleet-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px 24px;padding:16px 20px;border:1px solid var(--line);border-radius:12px;background:var(--card);margin:16px 0}.fleet-actions>div:first-child{flex:1}.buttons{display:flex;flex-wrap:wrap;gap:8px}strong{font-size:.87rem}p{color:var(--muted);font-size:.8rem;margin:4px 0 0}.hint,.skipped,.failure{flex-basis:100%}.hint{font-size:.75rem}.skipped{display:flex;flex-wrap:wrap;gap:4px 14px;margin:2px 0 0;padding:0;list-style:none;color:var(--muted);font-size:.74rem}.choose-dest{display:inline-flex;align-items:center;min-height:24px}.failure{color:var(--bad)}li{overflow-wrap:anywhere}ul{padding-left:20px}
   @media (pointer: coarse){.choose-dest{min-height:44px}}
   @media(max-width:600px){.buttons{width:100%}.buttons .btn{flex:1}}
 </style>

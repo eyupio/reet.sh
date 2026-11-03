@@ -18,14 +18,14 @@
   }
 </script>
 <section class="fleet-actions" aria-label="Fleet controls" aria-busy={busy}>
-  <div><strong>Fleet controls</strong><p>Refresh inventories or prepare every saved sync set for review.</p></div>
+  <div><strong>Fleet controls</strong><p>Refresh inventories or prepare every sync plan for review.</p></div>
   {#if canWrite}<div class="buttons"><button class="btn" disabled={busy || !scan.operations.length} aria-busy={busy} onclick={() => pending = { kind: 'scan', plan: scan }}>{busy ? 'Queueing…' : 'Scan all'}</button><button class="btn primary" disabled={busy || !sync.operations.length} onclick={() => pending = { kind: 'preview', plan: sync }}>Sync all · preview</button></div>{/if}
-  <p class="hint">{scan.operations.length} {scan.operations.length === 1 ? 'machine' : 'machines'} ready to scan · {sync.operations.length} saved {sync.operations.length === 1 ? 'scope' : 'scopes'} ready to preview. Offline, paused and pending scopes are skipped. <a class="choose-dest" href="#sync-selection">Choose destinations</a>.</p>
+  <p class="hint">{scan.operations.length} {scan.operations.length === 1 ? 'machine' : 'machines'} ready to scan · {sync.operations.length} saved install {sync.operations.length === 1 ? 'location' : 'locations'} ready to preview. Offline, paused and pending locations are skipped. <a class="choose-dest" href="#sync-selection">Choose install locations</a>.</p>
   {#if scan.skipped.length || sync.skipped.length}
     <ul class="skipped" aria-label="Skipped operations">{#each [...new Set([...scan.skipped, ...sync.skipped])] as reason}<li>{reason}</li>{/each}</ul>
   {/if}
   <FeedbackToast message={notice} ondismiss={() => (notice = '')} />
-  {#if failures.length}<div class="failure" role="alert"><strong>Some jobs could not be queued</strong><ul>{#each failures as failure}<li>{failure}</li>{/each}</ul><p>Refresh status before retrying failed destinations.</p></div>{/if}
+  {#if failures.length}<div class="failure" role="alert"><strong>Some jobs could not be queued</strong><ul>{#each failures as failure}<li>{failure}</li>{/each}</ul><p>Refresh status before retrying failed machines.</p></div>{/if}
 </section>
 {#if pending}<ConfirmDialog title={pending.kind === 'scan' ? 'Scan all available machines?' : 'Preview sync across your machines?'} body={`${pending.plan.operations.length} jobs will be queued. ${pending.plan.skipped.length} operations are skipped. ${pending.kind === 'scan' ? 'Each available machine will report its installed skills.' : 'Each machine will calculate its exact installs and removals. Installed files change only after you approve an individual plan.'}`} confirmLabel="Queue jobs" onconfirm={() => void submit()} oncancel={() => pending = null}><ul>{#each pending.plan.operations as operation}<li>{operation.label}</li>{/each}</ul></ConfirmDialog>{/if}
 <style>

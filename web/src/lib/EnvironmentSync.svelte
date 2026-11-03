@@ -273,7 +273,7 @@
     {:else if loaded}
       <section class="sync-empty" aria-labelledby="machines-empty-title">
         <h3 id="machines-empty-title">No machines connected yet</h3>
-        <p>Connect a machine with the reet CLI. It takes about two minutes: install reet once, save this server's address, then scan. Its skills and agent scopes appear here.</p>
+        <p>Connect a machine with the reet CLI. It takes about two minutes: install reet once, save this server's address, then scan. Its skills and install locations appear here.</p>
         {#if !canWrite}<p class="hint">Ask an owner or editor to connect the first machine.</p>{/if}
       </section>
     {/if}
@@ -301,7 +301,7 @@
         {#each machines as machine (machine.host)}
           <div class="fleet-command">
             <strong>{machine.host}</strong>
-            <p class="hint" role="status">{refreshedGroups(machine)} of {agentGroups(machine).length} agent groups refreshed since this check started.</p>
+            <p class="hint" role="status">{refreshedGroups(machine)} of {agentGroups(machine).length} install locations refreshed since this check started.</p>
             <div class="command"><pre>{refreshCommand(machine.host)}</pre><CopyButton text={refreshCommand(machine.host)} label="Copy refresh" ariaLabel={`Copy refresh for ${machine.host}`} /></div>
           </div>
         {/each}

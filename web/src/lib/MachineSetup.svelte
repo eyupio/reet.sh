@@ -500,7 +500,7 @@
               <span class="watch-badge ready">Connected</span>
             </div>
             <dl class="watch-facts">
-              <div><dt>Agent scopes</dt><dd>{agentGroups(connected).length}</dd></div>
+              <div><dt>Install locations</dt><dd>{agentGroups(connected).length}</dd></div>
               <div><dt>Skills found</dt><dd>{connected.skillCount}</dd></div>
               <div><dt>Last report</dt><dd>{ago(lastCheckedAt)}</dd></div>
               <div><dt>Agent</dt><dd>{enrolledAgent ? `reet ${agentBuild(enrolledAgent)}` : 'Reported'}</dd></div>

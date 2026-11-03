@@ -54,14 +54,14 @@
 </script>
 
 <section class="hosted" aria-labelledby="hosted-shelf-title">
-  <header><div><h2 id="hosted-shelf-title">Skills you create <span>{skills.length}</span></h2><p>Write, publish and share your own skills here.</p></div>{#if canWrite}<div class="actions"><a class="btn" href="/hosting?import=1">Import skills</a><a class="btn" href="/hosting?new=1">Create a skill</a></div>{/if}</header>
-  {#if loading}<Skeleton label="Loading your hosted skills…" shape="cards" count={3} />
-  {:else if !skills.length && !error}<p class="empty">No hosted skills yet. <a href="/hosting?new=1">Create your first skill</a> or <a href="/hosting?import=1">import a skill folder</a>.</p>{/if}
-  {#if skills.length > 5}<label class="search">Find a hosted skill<input type="search" bind:value={query} placeholder="Search hosted skills" /></label>{/if}
+  <header><div><h2 id="hosted-shelf-title">Skills you write <span>{skills.length}</span></h2><p>Drafts stay private. Published skills also appear on the shelf.</p></div>{#if canWrite}<div class="actions"><a class="btn" href="/hosting?import=1">Import skills</a><a class="btn" href="/hosting?new=1">Create a skill</a></div>{/if}</header>
+  {#if loading}<Skeleton label="Loading your skills…" shape="cards" count={3} />
+  {:else if !skills.length && !error}<p class="empty">No skills yet. <a href="/hosting?new=1">Create your first skill</a> or <a href="/hosting?import=1">import a skill folder</a>.</p>{/if}
+  {#if skills.length > 5}<label class="search">Find a skill<input type="search" bind:value={query} placeholder="Search your skills" /></label>{/if}
   <div class="hosted-list">
     {#each showAll || query ? visible : visible.slice(0, 3) as skill (skill.slug)}
       <article>
-        <div class="identity"><a class="name" href={`/hosting?edit=${encodeURIComponent(skill.slug)}`}>{skill.slug}</a><p>{skill.description || 'Add a description in the editor.'}</p><p class="where" title="Saved sync selections and the last complete machine scans are separate. Neither proves the files are there.">{whereLine(skill)}{#if skill.published} · <a href={`/skills?skill=${encodeURIComponent(hostedId(skill))}`}>On your shelf</a>{/if}</p></div>
+        <div class="identity"><a class="name" href={`/hosting?edit=${encodeURIComponent(skill.slug)}`}>{skill.slug}</a><p>{skill.description || 'Add a description in the editor.'}</p><p class="where" title="Sync plans and the last complete machine scans are separate. Neither proves the files are there.">{whereLine(skill)}{#if skill.published} · <a href={`/skills?skill=${encodeURIComponent(hostedId(skill))}`}>On your shelf</a>{/if}</p></div>
         <div class="sharing">
           <label><span class:public={skill.published}>{skill.published ? 'Public' : 'Private draft'}</span><input type="checkbox" role="switch" checked={skill.published} aria-label={`Make ${skill.slug} public`} disabled={!canWrite || !!saving} onchange={async event => { const input = event.currentTarget; await publish(skill, input.checked); input.checked = !!skills.find(item => item.slug === skill.slug)?.published }} /></label>
           <small>{skill.published ? 'Anyone with the link can use this skill.' : 'Only you can access this draft.'}</small>
@@ -74,7 +74,7 @@
       </article>
     {/each}
   </div>
-  {#if visible.length > 3 && !query}<button class="btn quiet" onclick={() => showAll = !showAll}>{showAll ? 'Show fewer' : `Show all ${visible.length} hosted skills`}</button>{/if}
+  {#if visible.length > 3 && !query}<button class="btn quiet" onclick={() => showAll = !showAll}>{showAll ? 'Show fewer' : `Show all ${visible.length} skills`}</button>{/if}
   {#if notice}<p class="feedback" role="status">{notice}</p>{/if}
   {#if error}<p class="feedback error" role="alert">{error}</p>{/if}
 </section>

@@ -41,7 +41,7 @@ try {
   expect(fixture.errors).toEqual([])
   await fixture.context.close()
  }
- // Grouped apply failures must chain scopes; exclusive auto jobs cannot be
+ // Grouped apply failures must chain install locations; exclusive auto jobs cannot be
  // independently queued while an earlier one waits on the same machine.
  const groupedState=initial()
  const second={...scope,id:'claude',agent:'claude'}
@@ -67,7 +67,7 @@ try {
  }})
  await shelf.page.goto(`${base}/skills`)
  await expect(shelf.page.getByRole('button',{name:'Copy prompt for review',exact:true})).toBeVisible()
- await expect(shelf.page.getByRole('heading',{name:/Skills you create/})).toBeVisible()
+ await expect(shelf.page.getByRole('heading',{name:/Skills you write/})).toBeVisible()
  await shelf.page.getByRole('button',{name:'Publish & share'}).click()
  await expect(shelf.page.getByRole('button',{name:'Copy share link for reet-review'})).toBeVisible()
  await expect(shelf.page.locator('.hosted-list .where a', {hasText:'On your shelf'})).toHaveAttribute('href', `/skills?skill=${encodeURIComponent(`hosted/${new URL(base).host}/sam/reet-review`)}`)

@@ -57,7 +57,7 @@ function scopeLabel(job: SyncJob, view: SyncActivityView): string {
   if (target) return groupLabel(target.target)
   const environment = (view.environments ?? []).find(item => item.id === job.targetId)
   if (environment) return groupLabel(environment)
-  return job.targetId ? 'Agent scope' : ''
+  return job.targetId ? 'Install location' : ''
 }
 
 function entryRank(entry: SyncActivityEntry): number {

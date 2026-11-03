@@ -51,7 +51,7 @@
   const agentTitle = (c: FleetCard) => c.installed.agents === null ? 'No agent scan has reported on this machine yet.'
     : c.installed.agents.length ? `Reported by the machine: ${c.installed.agents.join(', ')}` : 'No agents are installed on this machine.'
   const skillsTitle = (c: FleetCard) => c.installed.skills === null ? 'No agent scan has reported on this machine yet.'
-    : c.installed.skills ? `${c.installed.skills} distinct ${c.installed.skills === 1 ? 'skill' : 'skills'} across this machine’s agent scopes.` : 'No skills are installed on this machine.'
+    : c.installed.skills ? `${c.installed.skills} distinct ${c.installed.skills === 1 ? 'skill' : 'skills'} across this machine’s install locations.` : 'No skills are installed on this machine.'
   const mcpTitle = (c: FleetCard) => c.installed.mcp === null ? 'No agent reports its MCP servers yet.' : `${c.installed.mcp} MCP ${c.installed.mcp === 1 ? 'server' : 'servers'} reported.`
 
   // One machine menu at a time: the + opens what to start there (New session, New project, New terminal) and the ⋮ opens the

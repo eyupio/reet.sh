@@ -180,7 +180,7 @@
       skills = [...skills.filter(s => s.slug !== saved.slug), saved].sort((a, b) => a.slug.localeCompare(b.slug))
       notice = didRename
         ? saved.published ? 'Renamed and published. The public URL and install command changed; existing installs are untouched. It is also on your shelf under To test.' : 'Renamed. Update any private links you shared.'
-        : saved.published ? 'Skill published. It is also on your shelf so you can test it.' : 'Draft saved. Only you can see it, and you can still sync it to your machines.'
+        : saved.published ? 'Skill published. It is also on your shelf under To test.' : 'Draft saved. Only you can see it.'
     } catch (e) { saveError = e instanceof Error ? e.message : String(e) } finally { busy = false }
   }
   async function upload(event: Event, main = false) {
@@ -354,14 +354,14 @@
 </script>
 
 <svelte:window ondragover={windowDragOver} ondrop={windowDrop} />
-<PageHeader eyebrow="Publish on reet.sh" title="Host your own skills." lede="Write a skill, give it a home, and share one install command." />
+<PageHeader eyebrow="Write &amp; publish" title="Write a skill." lede="Keep it on your machines, or publish it for anyone to install." />
 {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
-{#if notice}<p class="notice good" role="status">{notice}{#if syncHref && /saved|published|Renamed/.test(notice)} <a href={syncHref}>Put it on a machine →</a>{/if}</p>{/if}
+{#if notice}<p class="notice good" role="status">{notice}{#if syncHref && /saved|published|Renamed/.test(notice)}<span class="next-action">Next: <a href={syncHref}>Put it on a machine</a>.</span>{/if}</p>{/if}
 {#if loading}<Skeleton label="Loading your skills…" shape="cards" count={3} />
 {:else if !canWrite}<p class="notice">Your account is read-only. Ask an admin for publishing access.</p>
 {:else if !username}
   <section class="panel">
-    <h2>What hosting gives you</h2>
+    <h2>What publishing gives you</h2>
     <p>Write a skill here and reet.sh serves it at its own address, ready to install with one command. For example:</p>
     <pre><code>npx skills add {location.origin}/your-username/skill-name</code></pre>
     <p>Your username is the first part of that address.</p>
@@ -389,11 +389,11 @@
     <div class="toolbar-actions"><button class="btn" onclick={openImport} disabled={busy || importBusy}>Import skills</button><button class="btn primary" onclick={requestNewSkill} disabled={busy || importBusy}>New skill</button></div>
   </div>
   <div class="workspace" class:with-dock={editor && !importing}>
-    <aside class="panel skills-panel" aria-label="Your hosted skills">
+    <aside class="panel skills-panel" aria-label="Your skills">
       <div class="panel-head"><h2>Your skills</h2></div>
       {#if skills.length}
-        <input class="search" type="search" bind:value={search} placeholder="Search your skills…" aria-label="Search your hosted skills" />
-        <div class="filters" role="group" aria-label="Filter hosted skills">
+        <input class="search" type="search" bind:value={search} placeholder="Search your skills…" aria-label="Search your skills" />
+        <div class="filters" role="group" aria-label="Filter skills">
           <button type="button" class="chip" class:on={filter === 'all'} onclick={() => filter = 'all'}>All</button>
           <button type="button" class="chip" class:on={filter === 'published'} onclick={() => filter = 'published'}>Published</button>
           <button type="button" class="chip" class:on={filter === 'draft'} onclick={() => filter = 'draft'}>Drafts</button>
@@ -431,7 +431,7 @@
           {#if prefix}
             <p class="hint">Imported names start with <code>{prefix}</code> from your profile. <a href="/account/profile">Change prefix</a>.</p>
           {:else}
-            <p class="hint">Your profile has the hosted skill prefix turned off, so imported names are used as they are. <a href="/account/profile">Add a prefix</a>.</p>
+            <p class="hint">Your profile has the skill name prefix turned off, so imported names are used as they are. <a href="/account/profile">Add a prefix</a>.</p>
           {/if}
           <ul class="import-list">
             {#each importBundles as skill, index (skill.key)}
@@ -576,6 +576,7 @@
   .install-links { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0 2px; font-size: .88rem; }
   .notice { margin: 12px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
   .notice.good { border-color: var(--good); }
+  .notice .next-action { margin-left: 6px; }
   .notice.bad { border-color: var(--bad); }
   .notice.warn { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 7%, var(--card)); }
   .publish { display: flex; align-items: center; gap: 10px; }

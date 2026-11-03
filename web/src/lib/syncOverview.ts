@@ -76,7 +76,7 @@ export type MachineSyncOverview = {
 }
 
 function envLabel(env?: { host: string; agent: string; project?: string }): string {
-  if (!env) return 'an agent scope'
+  if (!env) return 'an install location'
   return `${env.host} · ${env.agent}${env.project ? ' · project' : ''}`
 }
 
@@ -151,7 +151,7 @@ export function machineSyncOverview(machine: Machine, snapshot: SyncState, now =
     return { ...base, tone: 'review', label: 'Review needed', detail: `${count} planned ${count === 1 ? 'change needs' : 'changes need'} your approval before applying.`, canSync: false }
   }
   if (!targets.length) {
-    return { ...base, tone: 'setup', label: 'No skills set to sync', detail: 'Choose the agent scopes and skills this machine should have.', canSync: false }
+    return { ...base, tone: 'setup', label: 'No skills set to sync', detail: 'Choose the install locations and skills this machine should have.', canSync: false }
   }
   if (!fresh) {
     return { ...base, tone: 'attention', label: 'Rescan needed', detail: 'A complete agent scan from the last 14 days is needed before syncing.', canSync: false }

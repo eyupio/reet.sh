@@ -93,13 +93,13 @@
     const target = (sync?.targets ?? []).find(item => item.target.id === job.targetId)
     if (target) return groupLabel(target.target)
     const env = (sync?.environments ?? []).find(item => item.id === job.targetId)
-    return env ? groupLabel(env) : 'Agent scope'
+    return env ? groupLabel(env) : 'Install location'
   }
   function targetLabel(job: SyncJob): string {
     const target = (sync?.targets ?? []).find(item => item.target.id === job.targetId)
     if (target) return `${target.target.host} · ${groupLabel(target.target)}`
     const env = (sync?.environments ?? []).find(item => item.id === job.targetId)
-    return env ? `${env.host} · ${groupLabel(env)}` : 'Agent scope'
+    return env ? `${env.host} · ${groupLabel(env)}` : 'Install location'
   }
   function kindTitle(job: SyncJob): string {
     return job.kind === 'apply' ? 'Applying the approved plan' : job.kind === 'preview' ? 'Planning the exact changes' : job.kind === 'scan' ? 'Refreshing the inventory' : 'Automatic sync'

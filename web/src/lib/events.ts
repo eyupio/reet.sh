@@ -247,7 +247,7 @@ export function eventLabel(e: Event): string {
     case 'hosted-save':
       return `${d.published ? 'Published' : 'Saved a draft of'} ${name}`
     case 'hosted-delete':
-      return `Deleted hosted skill ${name}`
+      return `Deleted skill ${name}`
     case 'profile': {
       const changed: string[] = [], cleared: string[] = []
       const word = (xs: string[]): string => xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0] ?? ''

@@ -442,10 +442,10 @@
         <fieldset>
           <legend>Publishing</legend>
           <div class="grid2">
-            <div class="wide field"><span>Hosted skill name prefix</span>
+            <div class="wide field"><span>Your skill name prefix</span>
               <div class="prefix-row">
-                <span class="prefix-toggle"><input id="hosted-prefix-toggle" type="checkbox" bind:checked={prefixEnabled} /><label for="hosted-prefix-toggle">Prefix new and renamed hosted skills</label></span>
-                <input class="prefix-input" bind:value={prefixValue} placeholder="reet-" maxlength="33" disabled={!prefixEnabled} aria-label="Hosted skill name prefix" />
+                <span class="prefix-toggle"><input id="hosted-prefix-toggle" type="checkbox" bind:checked={prefixEnabled} /><label for="hosted-prefix-toggle">Prefix new and renamed skills</label></span>
+                <input class="prefix-input" bind:value={prefixValue} placeholder="reet-" maxlength="33" disabled={!prefixEnabled} aria-label="Your skill name prefix" />
               </div>
               <small>Reet adds this to skills you host so they stand out from imports. Type a custom prefix such as <code>acme-</code>, or turn it off to use the bare skill name. Existing names are not changed automatically.</small>
             </div>

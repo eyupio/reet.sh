@@ -99,7 +99,7 @@
     if (activity.review) return 'Automatic runs install additive changes; removals wait for your approval.'
     if (activity.cancelled) return 'A cancelled job changed no files.'
     if (latestFinished) return `Last job finished ${ago(latestFinished.job.updatedAt)}.`
-    return 'Preview a saved set or request a scan to start.'
+    return 'Preview a sync plan or request a scan to start.'
   })
   function ago(at: number) { const value = elapsed(at); return value === 'just now' ? value : `${value} ago` }
   function modeLabel(value: string): string { return value === 'additive' ? 'Additive' : value === 'bidirectional' ? 'Bidirectional review' : 'Exact set' }
@@ -107,7 +107,7 @@
     if (!targetEnvs.length) return ''
     const on = targetEnvs.filter(env => (env.skills ?? []).some(actual => actual.id === skill.id || actual.slug === skill.slug)).length
     if (!selected.includes(skill.id) && on > 0) return `Extra on ${on}`
-    if (on === targetEnvs.length) return 'On all selected scopes'
+    if (on === targetEnvs.length) return 'On all selected install locations'
     return `Missing on ${targetEnvs.length - on}`
   }
   function isUnknownSkill(skill: SyncSkill): boolean { return !skill.source || skill.sourceType === 'local' }
@@ -154,8 +154,8 @@
   async function save(revisions: Map<string, string>, allowEmpty = false) {
     await run(async () => {
       if (!sourceLoaded) throw new Error('Load and review the source before saving.')
-      if (!targetEnvs.length) throw new Error('Choose at least one destination scope.')
-      if (!selected.length && !allowEmpty) throw new Error('Choose at least one skill before saving, or clear the saved set deliberately.')
+      if (!targetEnvs.length) throw new Error('Choose at least one install location.')
+      if (!selected.length && !allowEmpty) throw new Error('Choose at least one skill before saving, or clear the sync plan deliberately.')
       const destinations = [...targetEnvs]
       let saved = 0
       for (const env of destinations) {
@@ -166,12 +166,12 @@
           if (destinations.length === 1) revision = next.targets.find(t => t.target.id === env.id)?.revision ?? ''
           saved++
         } catch (error) {
-          throw new Error(`${saved} of ${destinations.length} scopes saved. Could not save ${env.host} · ${groupLabel(env)}: ${error instanceof Error ? error.message : String(error)}. Review the saved sets before retrying.`)
+          throw new Error(`${saved} of ${destinations.length} install locations saved. Could not save ${env.host} · ${groupLabel(env)}: ${error instanceof Error ? error.message : String(error)}. Review the sync plans before retrying.`)
         }
       }
       notice = selected.length
-        ? `Sorted. Desired skills saved for ${saved} scopes across ${new Set(destinations.map(env => env.host)).size} machines. Preview before approving changes.`
-        : `Cleared. The desired set is now empty for ${saved} scopes. Installed files did not change.`
+        ? `Sorted. Sync plan saved for ${saved} install locations across ${new Set(destinations.map(env => env.host)).size} machines. Preview before approving changes.`
+        : `Cleared. The sync plan is now empty for ${saved} install locations. Installed files did not change.`
     })
   }
   function reviewSave() {
@@ -179,11 +179,11 @@
     const commit = () => save(revisions)
     if (!selected.length) {
       if (!hasSavedForSelection) { error = 'Choose at least one skill before saving.'; return }
-      confirm = { title: 'Clear this desired set?', body: `This saves an empty desired set for ${targetEnvs.length} agent ${targetEnvs.length === 1 ? 'scope' : 'scopes'}. ${toRemoveTotal} installed ${toRemoveTotal === 1 ? 'skill is' : 'skills are'} outside it; a later approved Exact set apply can remove them. Saving alone changes no files.`, confirmLabel: 'Clear desired set', action: () => save(revisions, true) }
+      confirm = { title: 'Clear this sync plan?', body: `This saves an empty sync plan for ${targetEnvs.length} install ${targetEnvs.length === 1 ? 'location' : 'locations'}. ${toRemoveTotal} installed ${toRemoveTotal === 1 ? 'skill is' : 'skills are'} outside it; a later approved Exact set apply can remove them. Saving alone changes no files.`, confirmLabel: 'Clear sync plan', action: () => save(revisions, true) }
       return
     }
     if (mode !== 'additive' && onlyMachine.length) {
-      confirm = { title: 'Save a set that removes extra skills?', body: `${onlyMachine.length} installed skills are outside this selection. A later approved apply can remove them from the selected agent scopes, keeping local backups. Shelf entries and notes remain. Saving alone does not change installed files.`, action: commit }
+      confirm = { title: 'Save a plan that removes extra skills?', body: `${onlyMachine.length} installed skills are outside this plan. A later approved apply can remove them from the selected install locations, keeping local backups. Shelf entries and notes remain. Saving alone does not change installed files.`, action: commit }
     } else void commit()
   }
   function targetFor(host: string) {
@@ -197,7 +197,7 @@
     source = item.sourceId === 'hosted' || groups.some(g => g.id === item.sourceId) ? item.sourceId : 'shelf'
     listId = item.sourceId.startsWith('list:') ? Number(item.sourceId.slice(5)) : 0
     await loadSource(); candidates = dedupeSkills([...candidates, ...item.desired]); selected = item.desired.map(s => s.id)
-    if (selected.length !== item.desired.length) notice = 'Some previous skills are no longer in this source. Review the selection and any removals.'
+    if (selected.length !== item.desired.length) notice = 'Some previous skills are no longer in this source. Review the plan and any removals.'
     if (scroll) document.getElementById('sync-selection')?.scrollIntoView({ behavior: 'instant', block: 'start' })
   }
   async function edit(item: SyncTarget) {
@@ -207,12 +207,12 @@
     await edit(item)
     await run(async () => {
       const result = await reconcileDesired(item.target.id)
-      if (result.revision !== revision) throw new Error('Desired skills changed. Refresh and review again.')
+      if (result.revision !== revision) throw new Error('The sync plan changed. Refresh and review again.')
       // All reported skills are already imported into the personal shelf. Offer
       // an explicit reviewed selection rather than changing shared lists silently.
       source = 'shelf'; listId = 0; await loadSource()
       selected = result.skills.map(s => s.id); conflicts = result.conflicts
-      notice = 'Local and web changes combined for review. Resolve conflicts, then save the selected set. No files changed.'
+      notice = 'Local and web changes combined for review. Resolve conflicts, then save the selected plan. No files changed.'
     })
   }
   async function adoptSelected() {
@@ -348,7 +348,7 @@
       let next = snapshot
       for (const item of group.items) next = await queueSyncJob(agent.id, item.target.id, 'preview')
       onupdate(next)
-      notice = `Preview queued for ${group.items.length} agent ${group.items.length === 1 ? 'scope' : 'scopes'} on ${group.host}.`
+      notice = `Preview queued for ${group.items.length} install ${group.items.length === 1 ? 'location' : 'locations'} on ${group.host}.`
     })
   }
   function startSync(group: { host: string; items: SyncTarget[] }) {
@@ -378,10 +378,10 @@
     const actions = job.plan.actions ?? []
     const installs = actions.filter(action => action.add).length
     const removals = actions.length - installs
-    const details = [`${job.plan.directory || 'selected scope'}`, ...planActions(job)].join('\n')
+    const details = [`${job.plan.directory || 'selected install location'}`, ...planActions(job)].join('\n')
     confirm = {
       title: 'Apply this plan on the machine?',
-      body: `${installs} ${installs === 1 ? 'install' : 'installs'} and ${removals} ${removals === 1 ? 'removal' : 'removals'} in ${job.plan.directory || 'the selected scope'}. Removed entries are backed up locally. The agent rechecks this exact plan before applying.`,
+      body: `${installs} ${installs === 1 ? 'install' : 'installs'} and ${removals} ${removals === 1 ? 'removal' : 'removals'} in ${job.plan.directory || 'the selected install location'}. Removed entries are backed up locally. The agent rechecks this exact plan before applying.`,
       details,
       confirmLabel: 'Apply changes',
       action: () => run(async () => { onupdate(await controlSyncJob(job.id, 'approve', job.hash)); notice = 'Approved plan queued for the enrolled machine.' })
@@ -504,7 +504,7 @@
           <ul>
             {#each entry.job.plan.actions as action}
               <li>{action.add ? 'Install' : 'Remove'} <strong>{action.skill.name}</strong> <small>{action.skill.source}</small></li>
-            {:else}<li>Already matches the desired set.</li>{/each}
+            {:else}<li>Already matches the sync plan.</li>{/each}
           </ul>
         </details>
       {/if}
@@ -568,29 +568,29 @@
 <details class="advanced-selection"><summary>Advanced sync · lists, reference machines &amp; removal rules</summary>
 <section id="sync-selection" class="control" aria-labelledby="selection-title">
   <h2 id="selection-title">Choose what to sync</h2>
-  <p>Choose skills from reet.sh, a list, or another machine. Compare, save the desired set, then preview and approve changes.</p>
+  <p>Choose skills from your shelf, a list, or another machine. Compare, save a sync plan, then preview and approve changes.</p>
   <div class="pickers">
-    <label>Source<select aria-label="Source" bind:value={source} onchange={loadSource} disabled={busy}><option value="shelf">Reet.sh shelf &amp; lists</option><option value="hosted">My published reet.sh skills</option>{#each fleet as m (m.host)}<optgroup label={m.host}>{#each agentGroups(m) as g (g.id)}<option value={g.id}>{groupLabel(g)}</option>{/each}</optgroup>{/each}</select></label>
+    <label>Source<select aria-label="Source" bind:value={source} onchange={loadSource} disabled={busy}><option value="shelf">Shelf &amp; lists</option><option value="hosted">My published skills</option>{#each fleet as m (m.host)}<optgroup label={m.host}>{#each agentGroups(m) as g (g.id)}<option value={g.id}>{groupLabel(g)}</option>{/each}</optgroup>{/each}</select></label>
     {#if source === 'shelf'}<label>List<select aria-label="List" bind:value={listId} onchange={loadSource} disabled={busy}><option value={0}>My shelf</option>{#each lists as list}<option value={list.id}>{list.name}</option>{/each}</select></label>{/if}
-    <label>Destination<select aria-label="Destination" bind:value={selectedMachine} onchange={() => selectMachine(selectedMachine)} disabled={busy}><option value="">Choose a machine</option><option value="*">All machines</option>{#each fleet as m (m.host)}<option value={m.host}>{m.host}</option>{/each}</select></label>
+    <label>Machine<select aria-label="Machine" bind:value={selectedMachine} onchange={() => selectMachine(selectedMachine)} disabled={busy}><option value="">Choose a machine</option><option value="*">All machines</option>{#each fleet as m (m.host)}<option value={m.host}>{m.host}</option>{/each}</select></label>
     <label>Sync mode<select aria-label="Sync mode" bind:value={mode} disabled={!canWrite || busy}><option value="additive">Additive</option><option value="bidirectional">Bidirectional review</option><option value="mirror">Exact set</option></select></label>
   </div>
   <p class="hint mode-hint">{mode === 'additive' ? 'Additive keeps local extras.' : mode === 'bidirectional' ? 'Bidirectional reviews both sides before applying; removals need approval.' : 'Exact set removes extras after approval.'}</p>
   <details class="decide">
     <summary>How sync decides</summary>
-    <p>Every selected scope receives the same desired set. Each keeps its own install target and review. All machines selects reported inventory scopes, including machines that are currently offline.</p>
+    <p>Every selected install location receives the same sync plan. Each keeps its own folder and review. All machines uses every install location a machine has reported, including machines that are offline.</p>
     <p>Bookmarks and “In use” are personal shelf choices. They never approve installation or removal. Matching here means skill identity/source, not file contents or versions.</p>
   </details>
   {#if machine || selectedMachine === '*'}
     <div class="agent-scopes">
-      <div class="scope-head"><strong>Agent scopes · {selectedMachine === '*' ? 'all machines' : machine?.host}</strong><div class="scope-bulk"><button type="button" class="mini-btn" onclick={() => (selectedAgents = selectableGroups.map(g => g.id))}>All</button><button type="button" class="mini-btn" onclick={() => (selectedAgents = [])}>None</button></div></div>
+      <div class="scope-head"><strong>Install locations · {selectedMachine === '*' ? 'all machines' : machine?.host}</strong><div class="scope-bulk"><button type="button" class="mini-btn" onclick={() => (selectedAgents = selectableGroups.map(g => g.id))}>All</button><button type="button" class="mini-btn" onclick={() => (selectedAgents = [])}>None</button></div></div>
       {#if selectableGroups.length > 10}
-        <label class="scope-find">Find a scope<input type="search" bind:value={scopeQuery} placeholder="Machine or agent" /></label>
+        <label class="scope-find">Find an install location<input type="search" bind:value={scopeQuery} placeholder="Machine or agent" /></label>
       {/if}
       <div class="scope-groups">
         {#each scopeGroups as group (group.host)}
           <div class="scope-group">
-            <div class="scope-group-head"><strong>{group.host}</strong><div class="scope-bulk"><button type="button" class="mini-btn" aria-label={`All scopes on ${group.host}`} onclick={() => (selectedAgents = [...new Set([...selectedAgents, ...group.items.map(g => g.id)])])}>All</button><button type="button" class="mini-btn" aria-label={`No scopes on ${group.host}`} onclick={() => (selectedAgents = selectedAgents.filter(id => !group.items.some(g => g.id === id)))}>None</button></div></div>
+            <div class="scope-group-head"><strong>{group.host}</strong><div class="scope-bulk"><button type="button" class="mini-btn" aria-label={`All install locations on ${group.host}`} onclick={() => (selectedAgents = [...new Set([...selectedAgents, ...group.items.map(g => g.id)])])}>All</button><button type="button" class="mini-btn" aria-label={`No install locations on ${group.host}`} onclick={() => (selectedAgents = selectedAgents.filter(id => !group.items.some(g => g.id === id)))}>None</button></div></div>
             <div class="scope-grid">
               {#each group.items as env (env.id)}
                 <div class="scope-cell">
@@ -604,14 +604,14 @@
             </div>
           </div>
         {:else}
-          <p class="hint">No scopes match that search.</p>
+          <p class="hint">No install locations match that search.</p>
         {/each}
       </div>
-      {#if scanOnlyGroups.length}<p class="hint">Scan-only: {scanOnlyGroups.map(g => groupLabel(g)).join(', ')}. These scopes cannot receive sync jobs.</p>{/if}
+      {#if scanOnlyGroups.length}<p class="hint">Scan-only: {scanOnlyGroups.map(g => groupLabel(g)).join(', ')}. These install locations cannot receive sync jobs.</p>{/if}
     </div>
   {/if}
   {#if editingRevision()}
-    <p class="editing"><span class="badge">Editing saved set · revision {revision}</span> <button type="button" class="mini-btn" onclick={() => selectMachine(selectedMachine)}>Start a new set</button></p>
+    <p class="editing"><span class="badge">Editing sync plan · revision {revision}</span> <button type="button" class="mini-btn" onclick={() => selectMachine(selectedMachine)}>Start a new plan</button></p>
   {/if}
   <label>Find skills<input type="search" bind:value={query} placeholder="Name or source" /></label>
   <div class="actions"><button class="btn quiet" disabled={loading || busy || !sourceLoaded} onclick={() => selected = [...new Set([...selected, ...filtered.map(s => preferred(s.id))])]}>Select visible</button><button class="btn quiet" disabled={busy} onclick={() => selected = []}>Clear selection</button><span>{selected.length} selected</span></div>
@@ -631,13 +631,13 @@
     {:else}<p>No skills here yet. Add skills to your shelf or report a machine inventory.</p>{/each}{/if}
   </div>
   {#if targetEnvs.length}
-    <p class:bad={!ready} role="status">{ready ? `Selected scopes last reported ${ago(oldestScan)}.` : 'One or more selected scopes need a fresh complete scan. Rescan before saving or applying.'}</p>
+    <p class:bad={!ready} role="status">{ready ? `Selected install locations last reported ${ago(oldestScan)}.` : 'One or more selected install locations need a fresh complete scan. Rescan before saving or applying.'}</p>
     {#each targetEnvs.filter(e => e.error) as env (env.id)}<p class="bad">{groupLabel(env)}: {env.error}</p>{/each}
     <div class="counts"><span>{toInstallTotal} to install</span><span>{toRemoveTotal} {mode === 'additive' ? 'extras kept' : 'to remove'}</span><span>{conflictCount} {conflictCount === 1 ? 'conflict' : 'conflicts'}</span></div>
     <div class="differences">
-      <h3>Differences by destination</h3>
+      <h3>Differences by machine</h3>
       <table>
-        <thead><tr><th scope="col">Scope</th><th scope="col">To install</th><th scope="col">Extra</th></tr></thead>
+        <thead><tr><th scope="col">Install location</th><th scope="col">To install</th><th scope="col">Extra</th></tr></thead>
         <tbody>
           {#each scopeDifferences as difference (difference.env.id)}
             <tr><td>{difference.env.host} · {groupLabel(difference.env)}</td><td>{difference.missing}</td><td>{difference.extra} {mode === 'additive' ? '(kept)' : '(review removals)'}</td></tr>
@@ -648,18 +648,18 @@
     {#if localDuplicates.length}<p class="hint">Local copies of {localDuplicates.map(s => s.name).join(', ')} will be backed up and replaced automatically with the selected source.</p>{/if}
     {#if sourceConflicts.length}<p class="bad">Source conflicts: {sourceConflicts.map(s => s.name).join(', ')}. Resolve the installed source before applying.</p>{/if}
     {#if conflicts.length}<p class="bad" role="alert">Concurrent changes: {conflicts.join(', ')}. Select the source you want for each conflict, or keep it absent, then <button class="btn quiet" onclick={() => conflicts = []}>Confirm conflict choices</button>.</p>{/if}
-    <details><summary>Only on selected scopes ({onlyMachine.length})</summary><p>Select skills to add to {listId && source === 'shelf' ? 'the selected reet.sh list' : 'your reet.sh shelf'}.</p>{#each onlyMachine as skill}<label class="skill"><input type="checkbox" value={skill.id} bind:group={adopt} disabled={!canWrite || busy} /><span>{skill.name}<small>{skill.source || 'Unknown source'}</small></span></label>{/each}{#if canWrite}<button class="btn" disabled={busy || loading || !sourceLoaded || !ready || !adopt.length || (source === 'shelf' && listId > 0 && !listEditable)} onclick={adoptSelected}>Add selected to reet.sh</button>{/if}</details>
+    <details><summary>Only on selected install locations ({onlyMachine.length})</summary><p>Select skills to add to {listId && source === 'shelf' ? 'the selected reet.sh list' : 'your reet.sh shelf'}.</p>{#each onlyMachine as skill}<label class="skill"><input type="checkbox" value={skill.id} bind:group={adopt} disabled={!canWrite || busy} /><span>{skill.name}<small>{skill.source || 'Unknown source'}</small></span></label>{/each}{#if canWrite}<button class="btn" disabled={busy || loading || !sourceLoaded || !ready || !adopt.length || (source === 'shelf' && listId > 0 && !listEditable)} onclick={adoptSelected}>Add selected to reet.sh</button>{/if}</details>
     {#if unknown.length}<p class="bad inline-blocked" role="alert">Unknown source blocks saving: {unknown.map(s => s.name).join(', ')}. <a href="/skills">Link the source on Skills</a> before selecting it.</p>{/if}
     <div class="save-dock">
-      <p class="save-summary">{selected.length} of {candidates.length} skills selected · {targetEnvs.length} {targetEnvs.length === 1 ? 'scope' : 'scopes'} · {modeLabel(mode)}<span class="save-hint">No files change until a preview is approved.</span></p>
-      {#if canWrite}<button class="btn primary" disabled={busy || loading || !sourceLoaded || !ready || (!selected.length && !canClear) || unknown.length > 0 || sourceConflicts.length > 0 || conflicts.length > 0} aria-busy={busy} onclick={reviewSave}>{busy ? 'Saving…' : canClear ? 'Clear this desired set' : 'Save desired set (no files change yet)'}</button>{/if}
+      <p class="save-summary">{selected.length} of {candidates.length} skills selected · {targetEnvs.length} install {targetEnvs.length === 1 ? 'location' : 'locations'} · {modeLabel(mode)}<span class="save-hint">No files change until a preview is approved.</span></p>
+      {#if canWrite}<button class="btn primary" disabled={busy || loading || !sourceLoaded || !ready || (!selected.length && !canClear) || unknown.length > 0 || sourceConflicts.length > 0 || conflicts.length > 0} aria-busy={busy} onclick={reviewSave}>{busy ? 'Saving…' : canClear ? 'Clear this sync plan' : 'Save sync plan (no files change yet)'}</button>{/if}
     </div>
   {:else if machine}
-    <p class="hint">Choose at least one agent scope on {machine.host} to compare.</p>
+    <p class="hint">Choose at least one install location on {machine.host} to compare.</p>
   {/if}
 </section>
 <section aria-labelledby="saved-sets">
-  <h3 id="saved-sets">Saved sync selections</h3>
+  <h3 id="saved-sets">Sync plans</h3>
   {#each targetGroups as group (group.host)}
     {@const agent = snapshot.agents?.find(a => a.host.toLowerCase() === group.host.toLowerCase())}
     {@const machineOnline = agentOnline(agent)}
@@ -667,14 +667,14 @@
       <header class="set-head">
         <div>
           <h4>{group.host}</h4>
-          <p>{group.items.length} agent {group.items.length === 1 ? 'scope' : 'scopes'} configured{#if agent && !machineOnline} · <span class="badge offline">Offline · last seen {ago(agent.lastSeen)}</span>{/if}</p>
+          <p>{group.items.length} install {group.items.length === 1 ? 'location' : 'locations'} configured{#if agent && !machineOnline} · <span class="badge offline">Offline · last seen {ago(agent.lastSeen)}</span>{/if}</p>
         </div>
         {#if agent}
           <details class="more-actions machine-menu">
             <summary>Machine actions</summary>
             <div class="more-list">
               <button class="btn" type="button" disabled={busy || agent.paused || !machineOnline} onclick={() => startSync(group)}>Sync now</button>
-              <button class="btn quiet" type="button" disabled={busy || agent.paused || !machineOnline} onclick={() => previewGroup(group)}>Preview all scopes</button>
+              <button class="btn quiet" type="button" disabled={busy || agent.paused || !machineOnline} onclick={() => previewGroup(group)}>Preview all locations</button>
             </div>
           </details>
         {:else}<span class="hint">Local preview commands below</span>{/if}
@@ -688,20 +688,20 @@
         {#each group.items as item (item.target.id)}
           {@const env = groups.find(g => g.id === item.target.id)}
           <div class="scope-set">
-            <div class="scope-title"><strong>{groupLabel(item.target)}</strong><span class="badge">{item.mode || 'mirror'} · {item.desired.length} desired</span></div>
+            <div class="scope-title"><strong>{groupLabel(item.target)}</strong><span class="badge">{modeLabel(item.mode || 'mirror')} · {item.desired.length} {item.desired.length === 1 ? 'skill' : 'skills'}</span></div>
             <p>{item.sourceName}</p>
             {#if item.problem}<p class="bad" role="status">{item.problem} <a href="/skills">Review skill sources</a></p>{/if}
             <p class:bad={!env?.complete || (env?.scannedAt ?? 0) < Date.now() - 14 * 86400000}>{env?.complete && env.scannedAt > Date.now() - 14 * 86400000 ? `${item.missing.length} to install · ${item.extra.length} extra${item.mode === 'additive' ? ' (kept)' : ' (review removals)'}` : 'Current differences unconfirmed — rescan required'}</p>
-            <p class="hint">Last report: {env?.scannedAt ? ago(env.scannedAt) : 'none'} · {item.appliedRevision === item.revision ? 'Desired revision acknowledged' : 'Desired revision not yet acknowledged'}</p>
+            <p class="hint">Last report: {env?.scannedAt ? ago(env.scannedAt) : 'none'} · {item.appliedRevision === item.revision ? 'Plan revision acknowledged' : 'Plan revision not yet acknowledged'}</p>
             {#if canWrite}
               <div class="actions">
                 {#if agent}<button class="btn primary" disabled={busy || agent.paused || !machineOnline} onclick={() => startScopeSync(agent, item)}>Sync now</button><button class="btn" disabled={busy || agent.paused || !machineOnline} onclick={() => run(async () => { onupdate(await queueSyncJob(agent.id, item.target.id, 'preview')); notice = 'Preview queued. The machine will report its exact plan.' })}>Preview</button>{/if}
                 <details class="more-actions">
                   <summary>More actions</summary>
                   <div class="more-list">
-                    <button class="btn quiet" disabled={busy} onclick={() => edit(item)}>Edit selection</button>
+                    <button class="btn quiet" disabled={busy} onclick={() => edit(item)}>Edit sync plan</button>
                     <button class="btn quiet" disabled={busy || !env?.complete} onclick={() => reconcile(item)}>Review local &amp; web changes</button>
-                    <button class="btn quiet danger" disabled={busy} onclick={() => confirm = { title: 'Stop tracking this set?', body: 'This removes the desired set. Installed skills, shelf entries and notes remain.', confirmLabel: 'Stop tracking', action: () => run(async () => onupdate(await deleteSyncTarget(item.target.id))) }}>Stop tracking</button>
+                    <button class="btn quiet danger" disabled={busy} onclick={() => confirm = { title: 'Delete this sync plan?', body: 'This removes the sync plan. Installed skills, shelf entries and notes remain.', confirmLabel: 'Delete plan', action: () => run(async () => onupdate(await deleteSyncTarget(item.target.id))) }}>Delete plan</button>
                   </div>
                 </details>
               </div>
@@ -711,7 +711,7 @@
         {/each}
       </div>
     </article>
-  {:else}<p class="hint">No desired skill sets yet. Choose a machine and at least one agent scope above to get started.</p>{/each}
+  {:else}<p class="hint">No sync plans yet. Choose a machine and at least one install location above to get started.</p>{/each}
 </section>
 <!-- Fleet-wide actions belong beside the activity they create, not between the person and the task. -->
 <FleetActions {snapshot} {canWrite} {onupdate} />

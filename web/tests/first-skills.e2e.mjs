@@ -154,7 +154,7 @@ try {
  if (run('hosting')) {
   const {context,page} = await open({width:1440})
   await page.goto(`${base}/hosting`)
-  const gives = page.getByRole('heading',{name:'What hosting gives you'})
+  const gives = page.getByRole('heading',{name:'What publishing gives you'})
   const claim = page.getByRole('heading',{name:'Choose your publishing username'})
   await expect(gives).toBeVisible()
   await expect(claim).toBeVisible()

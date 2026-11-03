@@ -664,7 +664,7 @@ try{
  await expect(dialog.getByRole('table',{name:'What a later apply would change'}).getByRole('row',{name:/SKILL\.md/})).toContainText('Would update')
  await expect(dialog).toContainText("Applying changes isn't available yet.")
  await expect(dialog).toContainText("Stays yours: this file isn't in the pinned revision")
- await expect(dialog).not.toContainText('Another agent scope')
+ await expect(dialog).not.toContainText('Another install location')
  await expect(dialog.getByRole('button',{name:/apply|install|adopt|record ownership/i})).toHaveCount(0)
  await expect(dialog).not.toContainText(/verified/i)
  await expect.poll(pendingPolls).toBe(1)
@@ -701,17 +701,17 @@ try{
  await expect(files.getByRole('row',{name:/SKILL\.md/})).toContainText('Not known')
  await expect(dialog.getByText('Not managed by reet')).toHaveCount(0)
  await expect(dialog.getByText('Up to date')).toHaveCount(0)
- // A root another agent scope reaches: the folder warning once, and no actions at all.
+ // A root another install location reaches: the folder warning once, and no actions at all.
  keys.push((await askAgain()).requestKey)
  setLatest({state:'captured',capturedAt:Date.now(),reviewHash:'h'.repeat(64),capture:captureOf('present',{rootOwnership:'shared',manifest:manifestOf([file('SKILL.md',120)])}),plan:planOf({ready:false,conflicts:[{path:'',code:'root_shared'}]})})
  await expect(heading('Found')).toBeVisible({timeout:SECOND})
- await expect(dialog.getByText('Another agent scope, or a link, reaches this same folder, so reet will not touch it.')).toHaveCount(1)
+ await expect(dialog.getByText('Another install location, or a link, reaches this same folder, so reet will not touch it.')).toHaveCount(1)
  await expect(dialog.getByText("Applying changes isn't available yet.")).toHaveCount(0)
  await expect(dialog.getByRole('table')).toHaveCount(0)
  // The same for a root whose ownership could not be told.
  keys.push((await askAgain()).requestKey)
  setLatest({state:'captured',capturedAt:Date.now(),reviewHash:'h'.repeat(64),capture:captureOf('present',{rootOwnership:'unknown'}),plan:planOf({ready:false,conflicts:[{path:'',code:'root_unknown'}]})})
- await expect(dialog.getByText("Couldn't tell whether another agent scope reaches this folder, so reet will not touch it.")).toHaveCount(1,{timeout:SECOND})
+ await expect(dialog.getByText("Couldn't tell whether another install location reaches this folder, so reet will not touch it.")).toHaveCount(1,{timeout:SECOND})
  await expect(dialog.getByRole('table')).toHaveCount(0)
 
  // Anything that is not a current capture shows its reason and Check again, never a verdict from its plan.
@@ -1129,7 +1129,7 @@ try{
  await notOffered({state:'superseded',reasons:['receipt_changed']},'The ownership record for this skill changed')
  await notOffered({reasons:['pin_changed']},'The pin changed after this check was made.')
  await notOffered({plan:planOf({ready:false,conflicts:[{path:'',code:'adoption_required'},{path:'x.md',code:'unmanaged_path'}]})},"reet doesn't own it")
- await notOffered({capture:captureOf('present',{rootOwnership:'shared',manifest:manifestOf([file('SKILL.md',120)])})},'Another agent scope')
+ await notOffered({capture:captureOf('present',{rootOwnership:'shared',manifest:manifestOf([file('SKILL.md',120)])})},'Another install location')
  await notOffered({capture:captureOf('absent'),plan:planOf({actions:[{path:'SKILL.md',kind:'create',after:file('SKILL.md',130)}]})},'Not there yet')
  await notOffered({reviewHash:undefined},'Files already there are not recorded as owned by reet yet.')
  // A captured read the browser has not renewed for thirty seconds is only "refreshing": the step goes until it is read again.

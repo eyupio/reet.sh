@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -332,6 +333,14 @@ func (s *chatSupervisor) detach(h *chatHost) {
 }
 
 func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (terminalproto.SessionChanged, error) {
+	return h.openChat(requestID, sessionID, in, false)
+}
+
+// openChat starts a structured chat under sessionID. With dropReplay set, the
+// events the agent emits before startup finishes (the conversation that
+// session/load replays) are not forwarded: the controller already holds that
+// transcript, so only what happens after the start reaches it.
+func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create, dropReplay bool) (terminalproto.SessionChanged, error) {
 	if in.Tool == agentsoftware.OpenCodeTool {
 		softwareGate.RLock()
 		defer softwareGate.RUnlock()
@@ -411,14 +420,23 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 	h.sup.mu.Lock()
 	cs.cancel = cancel
 	h.sup.mu.Unlock()
+	var started atomic.Bool
+	if !dropReplay {
+		started.Store(true)
+	}
 	process, err := h.sup.start(startCtx, acpagent.Options{
 		Agent: spec, Binary: binary, Dir: dir, Home: h.sup.opts.Home, Model: in.Model, Trust: in.Trust, Resume: in.ResumeACP,
 		BaseEnv: os.Environ(),
-		OnEvent: func(event acpagent.Event) { h.sup.publish(cs, event) },
+		OnEvent: func(event acpagent.Event) {
+			if started.Load() {
+				h.sup.publish(cs, event)
+			}
+		},
 	})
 	if err != nil {
 		return terminalproto.SessionChanged{}, err
 	}
+	started.Store(true)
 	acpID := process.SessionID()
 	h.sup.mu.Lock()
 	if h.sup.closed {

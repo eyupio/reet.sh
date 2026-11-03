@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#f7f6f2" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#14110f" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#1a1612" media="(prefers-color-scheme: dark)" />
 
     <!--
       The account holds the theme, but its profile only arrives after the API answers, so a dark preference painted light
@@ -140,8 +140,8 @@
     -->
     <style id="seo-fallback-style">
       html { background: #f7f6f2; }
-      html[data-theme='dark'] { background: #14110f; }
-      @media (prefers-color-scheme: dark) { html:not([data-theme='light']) { background: #14110f; } }
+      html[data-theme='dark'] { background: #1a1612; }
+      @media (prefers-color-scheme: dark) { html:not([data-theme='light']) { background: #1a1612; } }
 
       /* A browser runs the head script, so it never sees the crawler page; a crawler gets it instead of the shell. */
       html[data-js] .crawl-fallback { display: none; }
@@ -173,10 +173,10 @@
         position: fixed; inset: 0; z-index: 100; overflow: hidden; background: var(--boot-bg); color: var(--boot-ink);
         font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif; }
       @media (prefers-color-scheme: dark) {
-        #boot { --boot-bg: #14110f; --boot-card: #1a1613; --boot-line: #2a241f; --boot-line-soft: #1f1a16; --boot-ink: #f1ebe4; --boot-accent: #ff8d63; }
+        #boot { --boot-bg: #1a1612; --boot-card: #231d18; --boot-line: #2f2822; --boot-line-soft: #272019; --boot-ink: #f1ebe4; --boot-accent: #ff8d63; }
         html[data-theme='light'] #boot { --boot-bg: #f7f6f2; --boot-card: #fffdf9; --boot-line: #e8e4db; --boot-line-soft: #f0eee8; --boot-ink: #1d1c1a; --boot-accent: #c2410c; }
       }
-      html[data-theme='dark'] #boot { --boot-bg: #14110f; --boot-card: #1a1613; --boot-line: #2a241f; --boot-line-soft: #1f1a16; --boot-ink: #f1ebe4; --boot-accent: #ff8d63; }
+      html[data-theme='dark'] #boot { --boot-bg: #1a1612; --boot-card: #231d18; --boot-line: #2f2822; --boot-line-soft: #272019; --boot-ink: #f1ebe4; --boot-accent: #ff8d63; }
       html[data-theme='light'] #boot { --boot-bg: #f7f6f2; --boot-card: #fffdf9; --boot-line: #e8e4db; --boot-line-soft: #f0eee8; --boot-ink: #1d1c1a; --boot-accent: #c2410c; }
 
       html[data-ready] #boot { opacity: 0; pointer-events: none; transition: opacity 180ms cubic-bezier(.23, 1, .32, 1); }

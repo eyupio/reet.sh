@@ -137,9 +137,10 @@ the session was started with, the machine, project, branch, state, runtime and t
 CPU, memory and disk readings, named last known when the report is stale.
 
 The sessions panel scrolls independently and has three modes: **full**, a 64 px
-**mini rail**, and **closed**. **Sessions** in the workspace header opens or closes
-the full panel. The panel's chevron cycles full → mini → closed (on a phone it only
-closes). The rules live in `terminal/panelLayout.ts`, unit tested by
+**mini rail**, and **closed**. The sessions icon in the workspace header opens or
+closes the full panel, the same simple control and place whether it is open or closed
+(its tooltip names the action). The panel's own icon cycles full → mini → closed (on a
+phone it only closes). The rules live in `terminal/panelLayout.ts`, unit tested by
 `terminal/panelLayout.test.mjs`.
 
 - **Docked by default from 768 px, never over the terminal.** On a tablet or

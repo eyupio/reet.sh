@@ -718,9 +718,9 @@ func (s *Store) ObserveTerminalStateFor(uid int64, agentID, sessionID string, ge
 		if t.State == terminalproto.EndRequested && observedRunning {
 			next = terminalproto.EndRequested
 		}
-		if t.State == terminalproto.Lost && next == terminalproto.Running {
-			// A structured chat can be reopened from the agent's own store
-			// after the machine's reet process restarted; the machine then
+		if (t.State == terminalproto.Lost || t.State == terminalproto.Exited) && next == terminalproto.Running {
+			// A structured chat can be reopened (from lost or exited) from the
+			// agent's own store after the machine's reet process restarted; the machine then
 			// reports it running under the same reet session id. A plain
 			// shell is never resurrected.
 			if !t.Structured {
@@ -860,7 +860,7 @@ func (s *Store) CanResumeACPToolSessionFor(uid int64, agentID, tool, acpSessionI
 		return false, terminalproto.ErrInvalid
 	}
 	var ok bool
-	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM terminal_sessions WHERE user_id=? AND agent_id=? AND tool=? AND structured=1 AND state IN ('ended','exited','lost') AND acp_session_id=? AND dir=?)`, uid, agentID, tool, acpSessionID, dir).Scan(&ok)
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM terminal_sessions WHERE user_id=? AND agent_id=? AND tool=? AND structured=1 AND state IN ('ended','exited','lost') AND acp_session_id=? AND dir=? AND NOT EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.kind='create' AND o.state='failed'))`, uid, agentID, tool, acpSessionID, dir).Scan(&ok)
 	return ok, err
 }
 

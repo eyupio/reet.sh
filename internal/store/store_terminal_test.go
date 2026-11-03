@@ -718,3 +718,81 @@ func TestStructuredChatMayBeRestoredFromLost(t *testing.T) {
 		t.Fatal("structured chat was not restored", err)
 	}
 }
+
+func reserveChatRow(t *testing.T, s *Store, uid int64, a SyncAgent, c RemoteAgentCapabilities, structured bool, acpID string) TerminalSession {
+	t.Helper()
+	in := terminalproto.Create{Title: "Chat", Cols: 80, Rows: 24, Dir: "/tmp"}
+	if structured {
+		in.Tool, in.Structured = "opencode", true
+	}
+	row, created, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in)
+	if err != nil || !created {
+		t.Fatalf("reserve: created=%v err=%v", created, err)
+	}
+	if acpID != "" {
+		if err := s.RecordTerminalACPSessionFor(uid, a.ID, row.ID, acpID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return row
+}
+
+func observeAll(t *testing.T, s *Store, uid int64, a SyncAgent, c RemoteAgentCapabilities, id string, states ...terminalproto.SessionState) {
+	t.Helper()
+	for _, st := range states {
+		if err := s.ObserveTerminalStateFor(uid, a.ID, id, c.Generation, st, nil); err != nil {
+			t.Fatalf("observe %s: %v", st, err)
+		}
+	}
+}
+
+func TestObserveRunningReopensExitedStructuredChat(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	row := reserveChatRow(t, s, uid, a, c, true, "")
+	observeAll(t, s, uid, a, c, row.ID, terminalproto.Running, terminalproto.Exited)
+	observeAll(t, s, uid, a, c, row.ID, terminalproto.Running)
+	got, err := s.TerminalSessionFor(uid, row.ID)
+	if err != nil || got.State != terminalproto.Running {
+		t.Fatalf("state=%v err=%v", got.State, err)
+	}
+}
+
+func TestObserveRunningNeverReopensExitedShell(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	row := reserveChatRow(t, s, uid, a, c, false, "")
+	observeAll(t, s, uid, a, c, row.ID, terminalproto.Running, terminalproto.Exited)
+	if err := s.ObserveTerminalStateFor(uid, a.ID, row.ID, c.Generation, terminalproto.Running, nil); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatalf("exited shell: %v", err)
+	}
+	lost := reserveChatRow(t, s, uid, a, c, false, "")
+	observeAll(t, s, uid, a, c, lost.ID, terminalproto.Running, terminalproto.Lost)
+	if err := s.ObserveTerminalStateFor(uid, a.ID, lost.ID, c.Generation, terminalproto.Running, nil); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatalf("lost shell: %v", err)
+	}
+}
+
+func TestObserveRunningNeverReopensEndedChat(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	row := reserveChatRow(t, s, uid, a, c, true, "")
+	observeAll(t, s, uid, a, c, row.ID, terminalproto.Running, terminalproto.EndRequested, terminalproto.Ended)
+	if err := s.ObserveTerminalStateFor(uid, a.ID, row.ID, c.Generation, terminalproto.Running, nil); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatalf("ended chat: %v", err)
+	}
+}
+
+func TestCannotResumeFromFailedContinuationRow(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	id := "ses_fake000000000000000000000002"
+	good := reserveChatRow(t, s, uid, a, c, true, id)
+	observeAll(t, s, uid, a, c, good.ID, terminalproto.Running, terminalproto.Exited)
+	if ok, err := s.CanResumeACPSessionFor(uid, a.ID, id, "/tmp"); err != nil || !ok {
+		t.Fatalf("succeeded row: %v %v", ok, err)
+	}
+	// A separate account-scoped handle owned only by a never-started row.
+	id2 := "ses_fake000000000000000000000003"
+	bad := reserveChatRow(t, s, uid, a, c, true, id2)
+	observeAll(t, s, uid, a, c, bad.ID, terminalproto.Lost)
+	if ok, err := s.CanResumeACPSessionFor(uid, a.ID, id2, "/tmp"); err != nil || ok {
+		t.Fatalf("failed continuation resumable: %v %v", ok, err)
+	}
+}

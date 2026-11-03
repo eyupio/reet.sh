@@ -148,6 +148,11 @@ try {
   })
   await expect(page.getByRole('region', { name: 'Gaffer in OpenCode · site' }).getByText('Looking at the build.')).toBeVisible()
   await expect(page.locator('.approval .command').filter({ hasText: 'go test ./...' })).toBeVisible()
+  // On a touch screen every typeable field in the chat is at least 16px: a touch browser zooms the page in to a smaller field the
+  // moment it takes focus (this is the touch tablet width, above the app.css phone rule), and the page is then left scaled and clipped.
+  for (const field of [page.locator('.composer-input'), page.locator('.model-controls input')]) {
+    expect(Number.parseFloat(await field.evaluate(node => getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(16)
+  }
   // The card shows the agent's own words for the request, attributed to the agent, above the command it is asking about.
   const reasonCard = page.locator('.approval').filter({ hasText: 'Run the tests' })
   await expect(reasonCard.locator('.approval-reason')).toHaveText('The tests write to /var/tmp, which the sandbox does not allow.')

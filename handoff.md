@@ -42,9 +42,35 @@ single-flight guard and an in-pane "Starting a new session…". Docs: `docs/stru
 Checks. Full run, earlier in Task 10: `go vet ./...` exit 0 and `go test -race -timeout 40m ./...` exit 0, 40 packages `ok`, including `internal/api` 791.503s and `internal/store` 339.278s. Those two slow packages were not re-run afterwards. Re-run in the fix round (raw logs `.superpowers/sdd/2026-11-03-chat-reattach/task-10-go.log` and `task-10-web.log`, not committed): `go vet ./...` exit 0 and `go test -race -count=1 ./cmd/... ./internal/terminalproto/ ./internal/terminalagent/ ./internal/terminalbroker/` printed `ok .../cmd/reet 16.283s`, `ok .../internal/terminalproto 1.184s`, `ok .../internal/terminalagent 8.255s`, `ok .../internal/terminalbroker 63.251s`. In `web/`, `npm run check` ran its unit tests (53 `# fail 0` summaries, no non-zero `# fail`) and svelte-check printed `COMPLETED 360 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS`; `npm run build` printed `built in 9.58s`.
 
 Known limitations: auto-reattach sends no folder-trust confirmation, so a folder with OpenCode plugins refuses with the
-trust message and the person falls back to Start a new chat; YOLO chats are refused (not downgraded) if local YOLO consent is
-off; while the machine is offline the pane shows the idle ended note (not a waiting state) and a failure consumes the one
+trust message and the person continues with history as a new row (after the fix wave) or starts a new chat; YOLO chats are
+refused (not downgraded) if the account or the machine no longer allows YOLO; while the machine is offline the pane shows the idle ended note (not a waiting state) and a failure consumes the one
 automatic attempt; Claude/Codex chats are not covered. Not exercised: a live OpenCode provider reload and production chats.
+
+Final-review fix wave (commits `ae23404` Go, `c4cd2b0` web, and this docs commit). A person's End of a Gaffer chat is
+answered by the machine with `exited` (code 0), so ended chats were stored `exited` and auto-reattached; the store now
+records that close of an `end_requested` structured row as `ended`, and `ReattachChat` refuses any row with an end
+operation (older rows stored `exited`/`lost`) with `chat_reattach_ended` ("You ended this chat. Continue it with history as
+a new session."), which the browser treats quietly on an automatic attempt. Reattach checks the account's Allow-YOLO setting
+first (`chat_reattach_yolo_not_allowed`), keeps the machine's YOLO refusal (`chat_reattach_yolo_refused`) and capacity
+(`chat_reattach_capacity`) instead of the retryable failure, and a chat still starting on the machine (its conflict result
+now carries the detail `starting`) answers `chat_reattach_starting` ("Still reconnecting. Try again in a moment.") instead
+of "open in another session". A non-OpenCode row answers "This chat cannot be reconnected in place."; the generic failure
+now reads "The machine did not bring this chat back. Try again, or start a new chat.". Web: Try again only for retryable
+codes, the failure card is an alert, one live region while pending, "Reconnecting" for an exited row in the sidebar, and
+(ruling R10) a folder-trust refusal shows the plugin files and re-offers Continue with history (new row, `trust: true`) in
+the pane and the header menu, without Try again.
+
+Checks for the fix wave (raw logs `.superpowers/sdd/2026-11-03-chat-reattach/final-fix-go.log`, `final-fix-go-full.log`
+and `final-fix-web.log`, not committed): `go vet ./...` exit 0; `go test -race -count=1 ./internal/store
+./internal/terminalbroker ./internal/terminalagent ./internal/terminalproto ./internal/api -run
+'Reattach|Observe|End|Yolo|Resume'` all `ok`; full `go test -race -count=1 ./cmd/... ./internal/terminalproto/
+./internal/terminalagent/ ./internal/terminalbroker/ ./internal/terminalhost/` all `ok` (terminalbroker 63.564s); full
+`go test -race -count=1 -timeout 40m ./internal/api/ ./internal/store/` printed `ok .../internal/api 731.812s` and
+`ok .../internal/store 308.621s`. Other Go packages were not re-run in this wave. In `web/`, `npm run check` (53 `# fail 0`
+summaries, none non-zero; svelte-check `COMPLETED 360 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS`), `npm run build`
+(`built in 12.38s`), and against a preview build `chat-recovery.e2e.mjs` and `sessions.e2e.mjs` passed. `chat.e2e.mjs`
+failed twice in its Skills-install section while the full Go race run loaded the machine, then passed on a third run
+after it finished; the same section also failed once on the unchanged baseline build in this session.
 
 ## CHAT-RECOVERY-1: continue a closed chat with saved history (3 November 2026)
 

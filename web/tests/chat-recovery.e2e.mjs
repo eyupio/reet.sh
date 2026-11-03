@@ -23,6 +23,8 @@ const { context, page, errors } = await openWorkspace(browser, {
       reattachCalls.push(req.method())
       if (reattachHold) await reattachHold
       if (reattachMode === 'fail-once') { reattachMode = 'ok'; return { status: 502, json: { error: 'The machine could not reattach this conversation.', code: 'chat_reattach_failed' } } }
+      // A refusal object is answered on every call.
+      if (typeof reattachMode === 'object') return reattachMode
       row = { ...row, state: 'running' }
       return { status: 204, json: '' }
     },
@@ -229,6 +231,92 @@ try {
   await page.waitForTimeout(500)
   expect(reattachCalls).toHaveLength(0)
 
+  // 5b. An exited chat the person did not end (a crash) still reconnects by itself, and its sidebar row says Reconnecting.
+  reset('exited')
+  { const held = gate(); reattachHold = held.held
+    await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
+    await expect(reconnecting).toBeVisible()
+    await expect(rowLabel).toContainText('Reconnecting')
+    // While pending only the status line is a live region; the note itself does not announce again.
+    await expect(page.locator('.ended-note.reattaching')).not.toHaveAttribute('role', /.+/)
+    held.release() }
+  await expect(prompt).toBeEnabled()
+  expect(reattachCalls).toEqual(['POST'])
+  expect(requests).toHaveLength(0)
+
+  // 5c. An exited chat the controller knows the person ended (rows stored before ended chats were recorded as ended) is
+  // refused; the automatic attempt falls back quietly to the ended note with Continue with history, no failure card.
+  reset('exited'); reattachMode = { status: 409, json: { error: 'You ended this chat. Continue it with history as a new session.', code: 'chat_reattach_ended' } }
+  await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
+  await expect.poll(() => reattachCalls.length).toBe(1)
+  await expect(note.getByRole('button', { name: 'Continue with history', exact: true })).toBeVisible()
+  await expect(note.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
+  await expect(note.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(note).not.toContainText('Could not reconnect')
+  await headerMenu(true)
+  await page.waitForTimeout(300)
+  expect(reattachCalls).toHaveLength(1)
+  expect(requests).toHaveLength(0)
+
+  // 5c2. The same ended refusal to a reconnect the PERSON asked for (Try again after an earlier failure) is answered, not
+  // hidden: the card says so, there is no Try again, and Continue with history (a new row) is offered beside Start a new chat.
+  reset('exited'); reattachMode = 'fail-once'
+  await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
+  await expect(note.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
+  reattachMode = { status: 409, json: { error: 'You ended this chat. Continue it with history as a new session.', code: 'chat_reattach_ended' } }
+  await note.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect.poll(() => reattachCalls.length).toBe(2)
+  await expect(page.getByRole('alert')).toContainText('You ended this chat. Continue it with history as a new session.')
+  await expect(note.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
+  await expect(note.getByRole('button', { name: 'Continue with history', exact: true })).toBeEnabled()
+  await expect(note.getByRole('button', { name: 'Start a new chat', exact: true })).toBeVisible()
+  await page.waitForTimeout(300)
+  expect(reattachCalls).toHaveLength(2)
+  expect(requests).toHaveLength(0)
+
+  // 5d. Refusals a retry cannot fix say why and offer Start a new chat only.
+  for (const [code, error] of [['chat_reattach_yolo_refused', 'YOLO is turned off on this machine, so this YOLO chat cannot be reconnected.'], ['chat_reattach_capacity', 'This machine has reached its session limit.'], ['chat_reattach_yolo_not_allowed', 'An owner or admin can allow YOLO for this account in Settings.']]) {
+    reset(); reattachMode = { status: 409, json: { error, code } }
+    await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
+    await expect(page.getByRole('alert')).toContainText(error)
+    await expect(note.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
+    await expect(note.getByRole('button', { name: 'Start a new chat', exact: true })).toBeVisible()
+    await expect(note.getByRole('button', { name: 'Continue with history', exact: true })).toHaveCount(0)
+    // The heading is said once, not again in the reason.
+    await expect(note).toContainText('Could not reconnect.')
+    await headerMenu(false)
+    expect(reattachCalls).toHaveLength(1)
+  }
+
+  // 5e. A chat still starting on the machine is retryable.
+  reset(); reattachMode = { status: 409, json: { error: 'Still reconnecting. Try again in a moment.', code: 'chat_reattach_starting' } }
+  await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
+  await expect(page.getByRole('alert')).toContainText('Still reconnecting. Try again in a moment.')
+  await expect(note.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
+
+  // 5f. A folder with plugins (ruling R10): the files are shown, Continue with history (trust: true, a new row) is
+  // offered again in the pane and the header menu, and there is no Try again.
+  reset(); reattachMode = { status: 409, json: { error: 'This folder has OpenCode plugins, so reet did not reconnect the chat in place. Continue it with history only if you trust this folder.', code: 'chat_reattach_trust', detail: 'This folder has agent extensions: .opencode/plugins/x.js. Start a chat only in a folder you trust.' } }
+  await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
+  await expect(page.getByRole('alert')).toContainText('This folder has OpenCode plugins')
+  await expect(note).toContainText('.opencode/plugins/x.js')
+  await expect(note.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
+  await expect(note.getByRole('button', { name: 'Start a new chat', exact: true })).toBeVisible()
+  const trusted = note.getByRole('button', { name: 'Continue with history', exact: true })
+  await expect(trusted).toBeEnabled()
+  await headerMenu(true)
+  expect(reattachCalls).toHaveLength(1)
+  { const created = gate(); holdCreate = created.held
+    await trusted.click()
+    await expect(note).toContainText('Starting a new session…')
+    await expect(trusted).toBeDisabled()
+    created.release() }
+  await page.waitForURL(new RegExp(`session=${NEXT}`))
+  expect(requests).toHaveLength(1)
+  expect(requests[0]).toMatchObject({ tool: 'opencode', structured: true, trust: true, resumeAcp: original.acpSessionId })
+  expect(reattachCalls).toHaveLength(1)
+
   // 6. A machine without chatReattach keeps the old flow; while the create is held the pane says so and the button is off.
   machineLegacy.ready = true
   machines[0] = machineLegacy
@@ -248,7 +336,7 @@ try {
   machines[0] = machineLegacy
   reset()
   expect(errors).toEqual([])
-  console.log('Chat recovery passed: exact history ID, lost/ended/exited states, desktop and phone fit, uncertain-reply retry, reload refusal, unsupported history, offline machine, in-place reattach (auto, pending, failure, retry, double click, stream continuity), ended chat and legacy machine.')
+  console.log('Chat recovery passed: exact history ID, lost/ended/exited states, desktop and phone fit, uncertain-reply retry, reload refusal, unsupported history, offline machine, in-place reattach (auto, pending, failure, retry, double click, stream continuity), ended chat, crashed exited chat, quiet ended refusal, final refusals, still starting, plugin folder and legacy machine.')
 } finally {
   await context.close()
   await browser.close()

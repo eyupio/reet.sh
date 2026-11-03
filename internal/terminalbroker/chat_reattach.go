@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -19,12 +20,15 @@ var (
 	// ErrReattachNoConversation means the row has no OpenCode session id to
 	// load.
 	ErrReattachNoConversation = errors.New("This chat has no saved conversation to reconnect.")
-	// ErrReattachConflict means the machine refused with a conflict: another
-	// session owns the conversation, or a start for this one is in flight.
+	// ErrReattachConflict means the machine refused with a conflict that is
+	// not a start in flight: another session owns the conversation.
 	ErrReattachConflict = errors.New("This conversation is open in another session.")
+	// ErrReattachStarting means the machine is still starting this chat (an
+	// earlier reattach, a create or a restore): a retry soon may succeed.
+	ErrReattachStarting = errors.New("Still reconnecting. Try again in a moment.")
 	// ErrReattachFailed means the machine could not reopen the chat, or did
 	// not confirm it running. Trying again may help.
-	ErrReattachFailed = errors.New("The chat could not be reconnected. Try again, or start a new chat.")
+	ErrReattachFailed = errors.New("The machine did not bring this chat back. Try again, or start a new chat.")
 )
 
 // reattachCallTimeout bounds a reattach's acknowledgement: the machine's
@@ -102,8 +106,20 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string) er
 	default:
 		return ErrReattachNotClosed
 	}
+	// A person asked to end it. Rows ended before ended chats were recorded
+	// as ended are stored exited, or lost when the machine went away before
+	// it answered; the end operation refuses them all the same.
+	if ended, err := b.st.TerminalEndRequestedFor(uid, s.AgentID, session); err != nil {
+		return err
+	} else if ended {
+		return ErrACPClosed
+	}
 	if !terminalproto.ValidACPSessionIDFor(s.Tool, s.ACPSessionID) {
 		return ErrReattachNoConversation
+	}
+	// Reconnecting a YOLO chat is a YOLO launch the account must still allow.
+	if s.Yolo && !b.yoloAllowed() {
+		return ErrYoloNotAllowed
 	}
 	p, err := b.peer(uid, s.AgentID, true)
 	if err != nil {
@@ -139,18 +155,16 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string) er
 		}
 		return ErrReattachFailed
 	}
-	changed, err := reattachAck(reply)
-	if err != nil {
+	// The reply's OpenCode session id is not recorded: the machine loaded
+	// the stored one, and the store only ever fills an empty id, so the
+	// stored id always wins.
+	if _, err := reattachAck(reply); err != nil {
 		return err
 	}
 	if err := b.st.ObserveTerminalStateFor(uid, s.AgentID, session, p.Generation, terminalproto.Running, nil); err != nil {
 		// The row changed meanwhile (ended, or a new generation); the next
 		// reconcile settles it from what the machine reports.
 		return ErrReattachFailed
-	}
-	if changed.ACPSessionID != "" && changed.ACPSessionID != s.ACPSessionID {
-		// The store keeps the first id it recorded; this only fills a gap.
-		_ = b.st.RecordTerminalACPSessionFor(uid, s.AgentID, session, changed.ACPSessionID)
 	}
 	if fresh, err := b.st.TerminalSessionFor(uid, session); err == nil {
 		s = fresh
@@ -167,8 +181,10 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string) er
 // reattachAck maps the machine's answer to a reattach. Only a running session
 // is success; a session still starting (the answer to a resent request id) or
 // gone is a retryable failure. The machine encodes
-// terminalhost.ErrOperationConflict as terminalproto.Conflict (chatResult
-// falls through to result), and ACP refusals keep their own errors.
+// terminalhost.ErrOperationConflict as terminalproto.Conflict, with the
+// detail terminalproto.ConflictStarting while the chat is still starting.
+// YOLO refused and capacity keep the create path's errors, and ACP refusals
+// keep their own.
 func reattachAck(reply terminalproto.Message) (*terminalproto.SessionChanged, error) {
 	switch body := reply.Body.(type) {
 	case *terminalproto.SessionChanged:
@@ -176,8 +192,17 @@ func reattachAck(reply terminalproto.Message) (*terminalproto.SessionChanged, er
 			return body, nil
 		}
 	case *terminalproto.Result:
-		if body.Code == terminalproto.Conflict {
+		switch body.Code {
+		case terminalproto.Conflict:
+			if body.Detail == terminalproto.ConflictStarting {
+				return nil, ErrReattachStarting
+			}
 			return nil, ErrReattachConflict
+		case terminalproto.YoloRefused:
+			// YOLO is off on the machine: a retry cannot help.
+			return nil, ErrYoloRefused
+		case terminalproto.Capacity:
+			return nil, store.ErrTerminalCapacity
 		}
 		if refusal := acpRefusal(body.Code, body.Detail); refusal != nil {
 			return nil, refusal

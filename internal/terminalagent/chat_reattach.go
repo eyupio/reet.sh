@@ -3,11 +3,20 @@
 package terminalagent
 
 import (
+	"fmt"
+
 	"github.com/eyupio/reet.sh/internal/acpagent"
 	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
+
+// errReattachStarting refuses a reattach of a chat this machine is still
+// starting (a create, a restart restore or another reattach). It is an
+// ErrOperationConflict that result answers with the detail
+// terminalproto.ConflictStarting, so the controller can say to try again in a
+// moment rather than that another session owns the conversation.
+var errReattachStarting = fmt.Errorf("%w: the chat is still starting", terminalhost.ErrOperationConflict)
 
 // reattach brings a lost or crashed OpenCode chat back under the controller's
 // existing session id (chat_reattach). OpenCode keeps the conversation, so the
@@ -16,9 +25,9 @@ import (
 //
 // A chat this machine still runs under sessionID is adopted as it is: no
 // restart and no second session/load. An exited receipt left for sessionID is
-// replaced. A conversation another session still owns, a start or swap in
-// flight for sessionID, and a retired process that may still be alive are
-// refused with ErrOperationConflict. A retry with the same requestID answers
+// replaced. A conversation another session still owns and a retired process
+// that may still be alive are refused with ErrOperationConflict; a start in
+// flight for sessionID with errReattachStarting. A retry with the same requestID answers
 // from the first attempt's receipt.
 func (h *chatHost) reattach(requestID, sessionID string, in terminalproto.ChatReattach) (terminalproto.SessionChanged, error) {
 	if in.Tool != agentsoftware.OpenCodeTool {
@@ -45,7 +54,7 @@ func (h *chatHost) reattach(requestID, sessionID string, in terminalproto.ChatRe
 				// Still starting (a create, a restart restore or another
 				// reattach): the controller retries once it settles.
 				h.sup.mu.Unlock()
-				return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
+				return terminalproto.SessionChanged{}, errReattachStarting
 			default:
 				// An ended chat keeps its receipt to answer a lost reply. The
 				// controller is asking for this id again, so that receipt is

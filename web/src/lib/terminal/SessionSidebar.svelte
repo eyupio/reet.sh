@@ -43,7 +43,7 @@
  const groupNames:Record<string,string>={none:'no grouping',machine:'by machine',status:'by status',colour:'by colour'}
  // The rail's dot tells the state by shape as well as colour: running a filled circle, starting a ring, ending a half circle, lost a diamond, finished a hollow square.
  // A lost chat being reconnected in place reads as starting again, not as lost.
- const isReconnecting=(item:TerminalSession)=>item.state==='lost'&&reconnecting.has(item.id)
+ const isReconnecting=(item:TerminalSession)=>(item.state==='lost'||item.state==='exited')&&reconnecting.has(item.id)
  const rowWord=(item:TerminalSession)=>isReconnecting(item)?'Reconnecting':statusLine(item)
  const rowDot=(item:TerminalSession)=>isReconnecting(item)?'starting':sessionMark(item)
  const initial=(title:string)=>(Array.from(title.trim())[0]??'?').toLocaleUpperCase()

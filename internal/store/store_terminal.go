@@ -718,6 +718,12 @@ func (s *Store) ObserveTerminalStateFor(uid int64, agentID, sessionID string, ge
 		if t.State == terminalproto.EndRequested && observedRunning {
 			next = terminalproto.EndRequested
 		}
+		if t.Structured && next == terminalproto.Exited && (t.State == terminalproto.EndRequested || t.State == terminalproto.Ended) {
+			// A chat's machine answers a person's End with exited (code 0);
+			// that close was asked for, so it is recorded as ended and never
+			// reconnected in place. A repeat of that receipt stays ended.
+			next, exitCode = terminalproto.Ended, nil
+		}
 		if (t.State == terminalproto.Lost || t.State == terminalproto.Exited) && next == terminalproto.Running {
 			// A structured chat can be reopened (from lost or exited) from the
 			// agent's own store after the machine's reet process restarted; the machine then
@@ -1021,4 +1027,15 @@ func (s *Store) RecordTerminalModelFor(uid int64, sessionID, model string) error
 	}
 	_, err := s.db.Exec(`UPDATE terminal_sessions SET model=?,updated_at=? WHERE id=? AND user_id=? AND structured=1`, model, now(), sessionID, uid)
 	return err
+}
+
+// TerminalEndRequestedFor reports whether a person asked to end sessionID
+// (an end operation exists for it on agentID in this account).
+func (s *Store) TerminalEndRequestedFor(uid int64, agentID, sessionID string) (bool, error) {
+	if !terminalproto.ValidID(agentID) || !terminalproto.ValidID(sessionID) {
+		return false, terminalproto.ErrInvalid
+	}
+	var ok bool
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM terminal_operations WHERE user_id=? AND agent_id=? AND session_id=? AND kind='end')`, uid, agentID, sessionID).Scan(&ok)
+	return ok, err
 }

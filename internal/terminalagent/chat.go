@@ -365,13 +365,19 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{State: state, ExitCode: exit, ACPSessionID: reportedACP(in.Tool, acpID, history)}, nil
 	}
+	// For a reattach (dropReplay), a session that appeared under the id since
+	// reattach checked is another start in flight for it.
+	busy := terminalhost.ErrOperationConflict
+	if dropReplay {
+		busy = errReattachStarting
+	}
 	if _, ok := h.sup.sessions[sessionID]; ok {
 		h.sup.mu.Unlock()
-		return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
+		return terminalproto.SessionChanged{}, busy
 	}
 	if _, ok := h.sup.starting[requestID]; ok {
 		h.sup.mu.Unlock()
-		return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
+		return terminalproto.SessionChanged{}, busy
 	}
 	if h.sup.conversationInUseLocked(in.Tool, in.ResumeACP) {
 		h.sup.mu.Unlock()

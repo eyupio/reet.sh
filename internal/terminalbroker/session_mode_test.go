@@ -32,6 +32,8 @@ type switchMachine struct {
 	reattach func(p *Peer, m terminalproto.Message, in *terminalproto.ChatReattach) terminalproto.Body
 	// reattachSendErr fails the send of a ChatReattach, as a lost connection.
 	reattachSendErr error
+	// endExited answers an End as the real chat host does: exited, code 0.
+	endExited bool
 }
 
 func (m *switchMachine) sent() []terminalproto.Message {
@@ -93,6 +95,10 @@ func switchFixtureCaps(t *testing.T, adjust func(*terminalproto.Capabilities)) (
 			}
 		case *terminalproto.End:
 			reply.Body = terminalproto.SessionChanged{State: terminalproto.Ended}
+			if machine.endExited {
+				zero := 0
+				reply.Body = terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: &zero}
+			}
 		case *terminalproto.ChatReattach:
 			if machine.reattachSendErr != nil {
 				err := machine.reattachSendErr

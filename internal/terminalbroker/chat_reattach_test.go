@@ -154,6 +154,60 @@ func TestReattachRefusedForEndedAndRunningAndShell(t *testing.T) {
 	}
 }
 
+// The real machine answers a person's End of a chat with exited (code 0),
+// not ended: the chat must still never be reconnected in place.
+func TestReattachRefusedAfterRealEndAnswer(t *testing.T) {
+	b, _, uid, agent, machine := reattachFixture(t)
+	machine.mu.Lock()
+	machine.endExited = true
+	machine.mu.Unlock()
+	s := switchChat(t, b, uid, agent)
+	if _, err := b.End(t.Context(), uid, s.ID, ID()); err != nil {
+		t.Fatal(err)
+	}
+	if got := row(t, b, uid, s.ID); got.State != terminalproto.Ended {
+		t.Fatalf("ended chat stored as %+v", got)
+	}
+	if err := b.ReattachChat(t.Context(), uid, s.ID); !errors.Is(err, ErrACPClosed) {
+		t.Fatalf("got %v", err)
+	}
+	if sent := reattachSent(machine); len(sent) != 0 {
+		t.Fatalf("sent %+v", sent)
+	}
+}
+
+// A chat a person ended before ended chats were recorded as ended is stored
+// exited (or lost, when the machine went away meanwhile); its end operation
+// still refuses a reattach.
+func TestReattachRefusedForClosedRowWithEndOperation(t *testing.T) {
+	for _, state := range []terminalproto.SessionState{terminalproto.Exited, terminalproto.Lost} {
+		t.Run(string(state), func(t *testing.T) {
+			b, p, uid, agent, machine := reattachFixture(t)
+			s := switchChat(t, b, uid, agent)
+			var code *int
+			if state == terminalproto.Exited {
+				zero := 0
+				code = &zero
+			}
+			if err := b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, state, code); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := b.st.RequestTerminalEndFor(uid, agent, s.ID, ID()); err != nil {
+				t.Fatal(err)
+			}
+			if err := b.ReattachChat(t.Context(), uid, s.ID); !errors.Is(err, ErrACPClosed) {
+				t.Fatalf("got %v", err)
+			}
+			if got := row(t, b, uid, s.ID); got.State != state {
+				t.Fatalf("row %+v", got)
+			}
+			if sent := reattachSent(machine); len(sent) != 0 {
+				t.Fatalf("sent %+v", sent)
+			}
+		})
+	}
+}
+
 func TestReattachRefusedWithoutFeatureOrHistory(t *testing.T) {
 	for name, adjust := range map[string]func(*terminalproto.Capabilities){
 		"feature": func(c *terminalproto.Capabilities) {},
@@ -394,5 +448,74 @@ func TestReattachSurvivesCancelledRequest(t *testing.T) {
 	}
 	if got := row(t, b, uid, s.ID); got.State != terminalproto.Running {
 		t.Fatalf("row %+v", got)
+	}
+}
+
+// A YOLO chat is a YOLO launch: reconnecting it needs the account to allow
+// YOLO, checked before the machine is asked.
+func TestReattachYoloChatNeedsAccountAllowYolo(t *testing.T) {
+	b, p, uid, agent, machine := reattachFixture(t)
+	s := switchChat(t, b, uid, agent)
+	if err := b.st.SetTerminalYoloFor(uid, s.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, terminalproto.Lost, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.st.SetSetting("terminal_allow_yolo", "0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ReattachChat(t.Context(), uid, s.ID); !errors.Is(err, ErrYoloNotAllowed) {
+		t.Fatalf("got %v", err)
+	}
+	if sent := reattachSent(machine); len(sent) != 0 {
+		t.Fatalf("sent %+v", sent)
+	}
+	if got := row(t, b, uid, s.ID); got.State != terminalproto.Lost {
+		t.Fatalf("row %+v", got)
+	}
+	if err := b.st.SetSetting("terminal_allow_yolo", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ReattachChat(t.Context(), uid, s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if sent := reattachSent(machine); len(sent) != 1 || !sent[0].Yolo {
+		t.Fatalf("sent %+v", sent)
+	}
+}
+
+// Refusals that a retry cannot fix keep their own errors, not the
+// retryable ErrReattachFailed; a chat still starting is its own retryable
+// error, not "open in another session".
+func TestReattachMachineRefusalsKeepTheirMeaning(t *testing.T) {
+	cases := []struct {
+		name  string
+		reply terminalproto.Body
+		want  error
+	}{
+		{"yolo refused", terminalproto.Result{Code: terminalproto.YoloRefused}, ErrYoloRefused},
+		{"capacity", terminalproto.Result{Code: terminalproto.Capacity}, store.ErrTerminalCapacity},
+		{"starting", terminalproto.Result{Code: terminalproto.Conflict, Detail: terminalproto.ConflictStarting}, ErrReattachStarting},
+		{"owner elsewhere", terminalproto.Result{Code: terminalproto.Conflict}, ErrReattachConflict},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b, p, uid, agent, machine := reattachFixture(t)
+			s := lostChat(t, b, p, uid, agent)
+			machine.mu.Lock()
+			machine.reattach = func(*Peer, terminalproto.Message, *terminalproto.ChatReattach) terminalproto.Body { return tc.reply }
+			machine.mu.Unlock()
+			err := b.ReattachChat(t.Context(), uid, s.ID)
+			if !errors.Is(err, tc.want) || errors.Is(err, ErrReattachFailed) {
+				t.Fatalf("got %v", err)
+			}
+			if got := row(t, b, uid, s.ID); got.State != terminalproto.Lost {
+				t.Fatalf("row %+v", got)
+			}
+		})
+	}
+	if ErrReattachStarting.Error() != "Still reconnecting. Try again in a moment." {
+		t.Fatal(ErrReattachStarting)
 	}
 }

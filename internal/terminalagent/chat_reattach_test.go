@@ -345,3 +345,70 @@ func TestReattachDispatchAnswersRunning(t *testing.T) {
 		t.Fatalf("session/load ids %v", loads.loads)
 	}
 }
+
+// A chat still starting under the session id (a create, a restore or an
+// earlier reattach) is refused as a conflict that says so, so the controller
+// does not tell the person the conversation is open elsewhere.
+func TestReattachWhileStartingSaysStarting(t *testing.T) {
+	h, proc, _, loads := reattachHost(t)
+	h.sup.sessions[reattachSessionID] = &chatSession{id: reattachSessionID, tool: "opencode", acpID: proc.SessionID(), state: terminalproto.Creating}
+	_, err := h.reattach(reattachRequestID, reattachSessionID, reattachBody(h, proc))
+	if !errors.Is(err, terminalhost.ErrOperationConflict) {
+		t.Fatalf("got %v", err)
+	}
+	if got := chatResult(err); got != (terminalproto.Result{Code: terminalproto.Conflict, Detail: terminalproto.ConflictStarting}) {
+		t.Fatalf("result %+v", got)
+	}
+	if loads.count() != 0 {
+		t.Fatalf("session/load sent %d times", loads.count())
+	}
+}
+
+// Another row owning the conversation stays a plain conflict.
+func TestReattachOwnedElsewhereIsPlainConflict(t *testing.T) {
+	h, proc, _, _ := reattachHost(t)
+	if _, err := h.open("request-other0123456789", "session-other0123456789", terminalproto.Create{
+		Title: "Other", Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home, ResumeACP: proc.SessionID(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := h.reattach(reattachRequestID, reattachSessionID, reattachBody(h, proc))
+	if got := chatResult(err); got != (terminalproto.Result{Code: terminalproto.Conflict}) {
+		t.Fatalf("result %+v", got)
+	}
+}
+
+// The still-starting conflict reaches the controller as a valid result that
+// carries the starting detail.
+func TestReattachDispatchStartingSaysStarting(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	home := t.TempDir()
+	opts := terminalhost.ManagerOptions{Home: home}
+	sup := newChatSupervisor(ctx, opts)
+	t.Cleanup(sup.Close)
+	proc := &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}
+	sup.lookPath = func(string) (string, error) { return "/bin/true", nil }
+	sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) { return proc, nil }
+	sup.mu.Lock()
+	sup.sessions[reattachSessionID] = &chatSession{id: reattachSessionID, tool: "opencode", acpID: proc.SessionID(), state: terminalproto.Creating}
+	sup.mu.Unlock()
+	headers := http.Header{terminalproto.FeatureHeader: {terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," +
+		terminalproto.ACPHistoryFeature + "," + terminalproto.ChatReattachFeature}}
+	out := &sent{}
+	handle, cleanup := FactoryWithChats(opts, &ChatSupervisor{s: sup})(ctx, http.DefaultClient, headers, 1, out.send)
+	defer cleanup()
+	msg := terminalproto.Message{Version: terminalproto.Version, RequestID: reattachRequestID, SessionID: reattachSessionID, Generation: 1,
+		Body: &terminalproto.ChatReattach{Tool: "opencode", Dir: home, ACPSessionID: proc.SessionID(), Title: "Lost chat", Trust: true}}
+	if err := handle(ctx, msg); err != nil {
+		t.Fatal(err)
+	}
+	reply := out.waitFor(t, func(m terminalproto.Message) bool { return m.RequestID == reattachRequestID })
+	got, ok := reply.Body.(terminalproto.Result)
+	if !ok || got.Code != terminalproto.Conflict || got.Detail != terminalproto.ConflictStarting {
+		t.Fatalf("reply %#v", reply.Body)
+	}
+	if err := reply.Validate(); err != nil {
+		t.Fatalf("reply does not validate: %v", err)
+	}
+}

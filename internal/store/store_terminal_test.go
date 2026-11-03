@@ -840,3 +840,106 @@ func TestObserveExitedShellWithCodeStillConflicts(t *testing.T) {
 		t.Fatalf("chat different exit code: %v", err)
 	}
 }
+
+// A person ending a Gaffer chat is answered by the machine with exited (code
+// 0): the row records that as ended, so it is never reconnected in place.
+func TestObserveExitedAfterEndRequestOnChatRecordsEnded(t *testing.T) {
+	for _, remove := range []bool{false, true} {
+		s, uid, a, c := terminalFixture(t)
+		chat := reserveChatRow(t, s, uid, a, c, true, "")
+		observeAll(t, s, uid, a, c, chat.ID, terminalproto.Running)
+		request := syncID()
+		if _, err := s.RequestTerminalEndFor(uid, a.ID, chat.ID, request, remove); err != nil {
+			t.Fatal(err)
+		}
+		zero := 0
+		if err := s.ObserveTerminalStateFor(uid, a.ID, chat.ID, c.Generation, terminalproto.Exited, &zero); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.TerminalSessionFor(uid, chat.ID)
+		if err != nil || got.State != terminalproto.Ended || got.ExitCode != nil {
+			t.Fatalf("remove=%v: state=%v exit=%v err=%v", remove, got.State, got.ExitCode, err)
+		}
+		op, err := s.TerminalOperationFor(uid, a.ID, "end", request)
+		if err != nil || op.State != "succeeded" {
+			t.Fatalf("remove=%v: end op %+v %v", remove, op, err)
+		}
+		rows, err := s.TerminalSessionsFor(uid)
+		want := 1
+		if remove {
+			want = 0
+		}
+		if err != nil || len(rows) != want {
+			t.Fatalf("remove=%v: visible rows %d %v", remove, len(rows), err)
+		}
+		// The same receipt again is idempotent, never a conflict.
+		if err := s.ObserveTerminalStateFor(uid, a.ID, chat.ID, c.Generation, terminalproto.Exited, &zero); err != nil {
+			t.Fatalf("remove=%v: repeated exit: %v", remove, err)
+		}
+		if err := s.ObserveTerminalStateFor(uid, a.ID, chat.ID, c.Generation, terminalproto.Running, nil); !errors.Is(err, ErrTerminalConflict) {
+			t.Fatalf("remove=%v: ended chat reopened: %v", remove, err)
+		}
+	}
+}
+
+func TestObserveExitedAfterEndRequestOnShellStaysExited(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	shell := reserveChatRow(t, s, uid, a, c, false, "")
+	observeAll(t, s, uid, a, c, shell.ID, terminalproto.Running)
+	if _, err := s.RequestTerminalEndFor(uid, a.ID, shell.ID, syncID()); err != nil {
+		t.Fatal(err)
+	}
+	zero := 0
+	if err := s.ObserveTerminalStateFor(uid, a.ID, shell.ID, c.Generation, terminalproto.Exited, &zero); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.TerminalSessionFor(uid, shell.ID)
+	if err != nil || got.State != terminalproto.Exited || got.ExitCode == nil || *got.ExitCode != 0 {
+		t.Fatalf("state=%v exit=%v err=%v", got.State, got.ExitCode, err)
+	}
+}
+
+func TestObserveExitedWhileRunningChatStaysExited(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	chat := reserveChatRow(t, s, uid, a, c, true, "")
+	observeAll(t, s, uid, a, c, chat.ID, terminalproto.Running)
+	zero := 0
+	if err := s.ObserveTerminalStateFor(uid, a.ID, chat.ID, c.Generation, terminalproto.Exited, &zero); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.TerminalSessionFor(uid, chat.ID)
+	if err != nil || got.State != terminalproto.Exited || got.ExitCode == nil || *got.ExitCode != 0 {
+		t.Fatalf("state=%v exit=%v err=%v", got.State, got.ExitCode, err)
+	}
+	if ended, err := s.TerminalEndRequestedFor(uid, a.ID, chat.ID); err != nil || ended {
+		t.Fatalf("crash read as ended: %v %v", ended, err)
+	}
+}
+
+func TestTerminalEndRequestedForIsScoped(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	chat := reserveChatRow(t, s, uid, a, c, true, "")
+	observeAll(t, s, uid, a, c, chat.ID, terminalproto.Running)
+	code := 1
+	if err := s.ObserveTerminalStateFor(uid, a.ID, chat.ID, c.Generation, terminalproto.Exited, &code); err != nil {
+		t.Fatal(err)
+	}
+	if ended, err := s.TerminalEndRequestedFor(uid, a.ID, chat.ID); err != nil || ended {
+		t.Fatalf("before end: %v %v", ended, err)
+	}
+	if _, err := s.RequestTerminalEndFor(uid, a.ID, chat.ID, syncID()); err != nil {
+		t.Fatal(err)
+	}
+	if ended, err := s.TerminalEndRequestedFor(uid, a.ID, chat.ID); err != nil || !ended {
+		t.Fatalf("after end: %v %v", ended, err)
+	}
+	if ended, err := s.TerminalEndRequestedFor(uid+1000, a.ID, chat.ID); err != nil || ended {
+		t.Fatalf("other account: %v %v", ended, err)
+	}
+	if ended, err := s.TerminalEndRequestedFor(uid, syncID(), chat.ID); err != nil || ended {
+		t.Fatalf("other machine: %v %v", ended, err)
+	}
+	if _, err := s.TerminalEndRequestedFor(uid, a.ID, "bad"); !errors.Is(err, terminalproto.ErrInvalid) {
+		t.Fatalf("malformed id: %v", err)
+	}
+}

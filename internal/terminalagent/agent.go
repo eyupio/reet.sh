@@ -1060,6 +1060,9 @@ func result(err error) terminalproto.Result {
 	if r, ok := terminalhost.WorktreeResult(err); ok {
 		return r
 	}
+	if errors.Is(err, errReattachStarting) {
+		return terminalproto.Result{Code: terminalproto.Conflict, Detail: terminalproto.ConflictStarting}
+	}
 	return terminalproto.Result{Code: code(err)}
 }
 

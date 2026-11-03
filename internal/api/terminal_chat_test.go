@@ -719,6 +719,89 @@ func TestReattachRouteErrorCodes(t *testing.T) {
 	}
 }
 
+// Each refusal keeps its own code and an honest sentence: an ended chat, a
+// row that cannot be reconnected, YOLO the account or the machine refuses, a
+// full machine, a chat still starting, and a folder with plugins.
+func TestReattachRouteRefusalSentences(t *testing.T) {
+	cases := []struct {
+		name   string
+		setup  func(t *testing.T, f *launchAPI) string
+		reply  terminalproto.Body
+		status int
+		code   string
+		msg    string
+	}{
+		{name: "ended", setup: func(t *testing.T, f *launchAPI) string {
+			session := modeChat(t, f)
+			code, _, body := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/end", map[string]any{"requestId": terminalbroker.ID()})
+			if code != 200 {
+				t.Fatalf("end: %d %s", code, body)
+			}
+			return session
+		}, status: 409, code: "chat_reattach_ended", msg: "You ended this chat. Continue it with history as a new session."},
+		{name: "exited after end", setup: func(t *testing.T, f *launchAPI) string {
+			session := modeChat(t, f)
+			one := 1
+			if err := f.st.ObserveTerminalStateFor(f.uid, f.agent.ID, session, f.peer.Generation, terminalproto.Exited, &one); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.st.RequestTerminalEndFor(f.uid, f.agent.ID, session, terminalbroker.ID()); err != nil {
+				t.Fatal(err)
+			}
+			return session
+		}, status: 409, code: "chat_reattach_ended", msg: "You ended this chat. Continue it with history as a new session."},
+		{name: "not opencode chat", setup: func(t *testing.T, f *launchAPI) string {
+			session := modeChat(t, f)
+			if err := f.st.SetTerminalStructuredFor(f.uid, session, false); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.st.ObserveTerminalStateFor(f.uid, f.agent.ID, session, f.peer.Generation, terminalproto.Lost, nil); err != nil {
+				t.Fatal(err)
+			}
+			return session
+		}, status: 409, code: "chat_reattach_unsupported", msg: "This chat cannot be reconnected in place."},
+		{name: "yolo not allowed", setup: func(t *testing.T, f *launchAPI) string {
+			session := modeChat(t, f)
+			if err := f.st.SetTerminalYoloFor(f.uid, session, true); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.st.ObserveTerminalStateFor(f.uid, f.agent.ID, session, f.peer.Generation, terminalproto.Lost, nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.st.SetSetting("terminal_allow_yolo", "0"); err != nil {
+				t.Fatal(err)
+			}
+			return session
+		}, status: 409, code: "chat_reattach_yolo_not_allowed", msg: "An owner or admin can allow YOLO for this account in Settings."},
+		{name: "yolo refused", reply: terminalproto.Result{Code: terminalproto.YoloRefused}, status: 409, code: "chat_reattach_yolo_refused", msg: "YOLO is turned off on this machine, so this YOLO chat cannot be reconnected."},
+		{name: "capacity", reply: terminalproto.Result{Code: terminalproto.Capacity}, status: 409, code: "chat_reattach_capacity", msg: "This machine has reached its session limit."},
+		{name: "starting", reply: terminalproto.Result{Code: terminalproto.Conflict, Detail: terminalproto.ConflictStarting}, status: 409, code: "chat_reattach_starting", msg: "Still reconnecting. Try again in a moment."},
+		{name: "owner elsewhere", reply: terminalproto.Result{Code: terminalproto.Conflict}, status: 409, code: "chat_reattach_conflict", msg: "This conversation is open in another session."},
+		{name: "trust", reply: terminalproto.Result{Code: terminalproto.ACPTrustRequired, Detail: ".opencode/plugins/x.js"}, status: 409, code: "chat_reattach_trust", msg: "This folder has OpenCode plugins, so reet did not reconnect the chat in place. Continue it with history only if you trust this folder."},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := launchAPIFixture(t, reattachCaps())
+			var session string
+			if c.setup != nil {
+				session = c.setup(t, f)
+			} else {
+				session = lostChat(t, f)
+			}
+			if c.reply != nil {
+				reply := c.reply
+				f.mu.Lock()
+				f.reattach = func(terminalproto.ChatReattach) terminalproto.Body { return reply }
+				f.mu.Unlock()
+			}
+			code, out, body := f.do(t, f.cookie, "POST", reattachPath(session), nil)
+			if code != c.status || out["code"] != c.code || out["error"] != c.msg {
+				t.Fatalf("got %d %s, want %d %s %q", code, body, c.status, c.code, c.msg)
+			}
+		})
+	}
+}
+
 // A timed-out wait also surfaces as ErrOffline and the machine may have
 // reattached, so the sentence tells the person to try again.
 func TestReattachRouteOfflineIsRetryable(t *testing.T) {

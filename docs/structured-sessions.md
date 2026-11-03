@@ -187,7 +187,8 @@ bounded transcript of the conversation it has shown, restored with the session a
 a chat closes depends on how it closed and on what the machine supports.
 
 **A lost or crashed chat reconnects in place.** On a machine that negotiated `chat-reattach-v1` (it requires `acp-v1` and
-`acp-history-v1`; the capability is `chatReattach`), a chat that is `lost` or `exited` with a saved id comes back by itself,
+`acp-history-v1`; the capability is `chatReattach`), a chat that is `lost`, or `exited` without a person ending it (the
+OpenCode process died), with a saved id comes back by itself,
 in the same reet session: same row, same URL, same transcript. The browser makes one automatic attempt per session per page
 load. The pane shows **Reconnecting to your conversation…** with the composer disabled and the Gaffer card reconnecting,
 and the conversation stays visible. The controller sends the machine a `chat_reattach` message that carries the row's launch
@@ -197,19 +198,42 @@ that was left running (shown as interrupted) are forwarded. A reply that was run
 prompt. If the machine still has a live process for the conversation, it adopts that process instead of restarting it.
 A different reet session that already owns the same conversation is refused: "This conversation is open in another session."
 
-If the attempt fails, the pane shows the reason with **Try again** and **Start a new chat**. Nothing is created or changed
-by a failed attempt: the row stays as it was. The ended-chat notice also offers a manual **Reconnect** button, and the
+If the attempt fails, the pane shows the reason (announced as an alert) with **Start a new chat**, and **Try again** where a
+retry can help. Nothing is created or changed by a failed attempt: the row stays as it was. The ended-chat notice also offers a manual **Reconnect** button, and the
 session header menu no longer offers the new-row **Continue in Gaffer with history…** for a chat that can reconnect.
 
 The controller runs one reattach per session at a time (concurrent callers, such as two tabs or a double click, join the
 same machine call), bounds it at 75 seconds ("Reconnecting took too long. Try again."), never creates a row, and allows the
 `lost`/`exited` to `running` change for structured chats only (the exit code is cleared). The route
-`POST /api/v2/terminal/sessions/{id}/reattach` answers 204, or an error with one of the codes
-`chat_reattach_unsupported`, `chat_reattach_not_closed`, `chat_reattach_no_conversation` and `chat_reattach_conflict`
-(all 409), `chat_reattach_failed` (502), or `chat_reattach_trust` (409, with a `detail` naming the plugin files). A wait
-that times out or finds the machine offline answers 503 "Reconnecting took too long. Try again.".
+`POST /api/v2/terminal/sessions/{id}/reattach` answers 204, or an error with one of these codes:
 
-**An ended chat starts a new session.** A chat that a person ended (`ended`) keeps **Continue in Gaffer with history…**. That
+| Code | Status | Sentence | Try again |
+| --- | --- | --- | --- |
+| `chat_reattach_unsupported` | 409 | "Update reet on this machine to reconnect this chat." (machine without the feature or history), or "This chat cannot be reconnected in place." (not an OpenCode chat) | no |
+| `chat_reattach_ended` | 409 | "You ended this chat. Continue it with history as a new session." | no (quiet when automatic, see below) |
+| `chat_reattach_not_closed` | 409 | "This chat is still running." | yes (quiet when automatic) |
+| `chat_reattach_no_conversation` | 409 | "This chat has no saved conversation to reconnect." | no |
+| `chat_reattach_starting` | 409 | "Still reconnecting. Try again in a moment." (the machine is still starting this chat) | yes |
+| `chat_reattach_conflict` | 409 | "This conversation is open in another session." | yes |
+| `chat_reattach_yolo_not_allowed` | 409 | "An owner or admin can allow YOLO for this account in Settings." | no |
+| `chat_reattach_yolo_refused` | 409 | "YOLO is turned off on this machine, so this YOLO chat cannot be reconnected." | no |
+| `chat_reattach_capacity` | 409 | "This machine has reached its session limit." | no |
+| `chat_reattach_trust` | 409 | "This folder has OpenCode plugins, so reet did not reconnect the chat in place. Continue it with history only if you trust this folder." with a `detail` naming the plugin files | no; Continue with history is offered |
+| `chat_reattach_failed` | 502 | "The machine did not bring this chat back. Try again, or start a new chat." | yes |
+
+A wait that times out or finds the machine offline answers 503 "Reconnecting took too long. Try again.". A YOLO chat is a
+YOLO launch: the controller checks the account's **Allow YOLO** setting before it asks the machine. The machine marks a
+"still starting" conflict with the result detail `starting` (the only detail a `conflict` result may carry); a plain
+`conflict` means another session owns the conversation.
+
+**A chat a person ended is never reconnected in place.** The machine answers a person's **End** of a Gaffer chat with
+`exited` (code 0); the controller records that close of an `end_requested` structured row as `ended` (no exit code). Rows
+ended before this was recorded are stored `exited` (or `lost`, when the machine went away before it answered); the
+controller refuses a reattach of any row that has an end operation with `chat_reattach_ended`. When an automatic attempt
+gets that answer, the pane falls back quietly to the ended note with **Continue with history** (no failure card), and the
+header menu offers **Continue in Gaffer with history…** again. A manual **Reconnect** or **Try again** refused this way shows the failure card with the server's message, **Continue with history** and **Start a new chat**, and no **Try again**.
+
+**An ended chat starts a new session.** A chat that a person ended (`ended`, or refused as ended) keeps **Continue in Gaffer with history…**. That
 creates a **new** reet session row with `resumeAcp` set to the old id; the old row stays in history. The machine runs
 `session/load` with the same folder, checks mode `build`, and replays OpenCode's stored conversation before the new Gaffer
 is ready; the replay is read from OpenCode, so a machine whose OpenCode store is gone cannot be continued with history.
@@ -219,8 +243,8 @@ A continuation row whose create operation failed cannot itself be continued, so 
 `chat_reattach`. For lost, exited and ended chats with a saved id and history support, the ended-chat notice offers
 **Continue with history**, which uses the same new-row continuation as the actions menu, keeps the original folder and
 model, and sends no prompt automatically. The browser runs one continuation per saved conversation at a time, never
-alongside an in-place reconnect of the same chat, switches to the new row at once with "Starting a new session…" in the
-pane, and shows a failure there. If the reply is uncertain, clicking again checks the same operation id. A reload refusal
+alongside an in-place reconnect of the same chat. The old row's pane shows "Starting a new session…" until the create
+returns, then the browser switches to the new row; a failure is shown in that pane. If the reply is uncertain, clicking again checks the same operation id. A reload refusal
 leaves the old transcript and both recovery and fresh-chat choices visible. Without a saved id or verified history support,
 the notice offers a new chat.
 The machine refuses a second load while that conversation already has a live or starting process. A successful manual
@@ -229,8 +253,10 @@ continuation replaces its older restart record so the next connector start resto
 **Limits of reconnecting.**
 
 - Automatic reconnect sends no folder-trust confirmation. A folder with OpenCode plugins is refused with the trust message;
-  use **Start a new chat**, which shows the plugin warning and asks for trust.
-- A YOLO chat is refused, not downgraded, if the machine's local YOLO consent is off.
+  the pane shows the plugin files and offers the explicit **Continue with history** again (a new row that confirms trust,
+  as the manual path always did) beside **Start a new chat**, without **Try again**. The header menu offers **Continue in
+  Gaffer with history…** again for that chat.
+- A YOLO chat is refused, not downgraded, if the account no longer allows YOLO or the machine's local YOLO consent is off.
 - While the machine is offline the pane shows the idle ended note, not a waiting state, and a failure uses up the one
   automatic attempt (**Try again** or **Reconnect** still works).
 - Claude and Codex chats are not covered.

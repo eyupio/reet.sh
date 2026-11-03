@@ -12,6 +12,7 @@
 import SkillPicker from './SkillPicker.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
 import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
+import { offersContinueAfterReattach, reattachRetryable } from './reattachState'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
@@ -27,8 +28,9 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   /** Loads this exact conversation through the workspace's existing continuation operation. */
   oncontinue?: () => void
   continueOff?: boolean
-  /** An in-place reconnect of this lost chat: in flight, or why the last attempt failed. Absent while none is. */
-  reattach?: { phase: 'pending' | 'failed'; reason?: string }
+  /** An in-place reconnect of this lost chat: in flight, or why the last attempt failed (with the server's refusal code
+   *  and detail, such as the plugin files of a folder that needs trust). Absent while none is. */
+  reattach?: { phase: 'pending' | 'failed'; reason?: string; code?: string; detail?: string }
   /** Reconnects this chat in place (same session, same transcript); offered where the machine can reattach it. */
   onreattach?: () => void
   /** A Continue with history in flight for this chat (machines without in-place reconnect), or why it failed. */
@@ -536,16 +538,24 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   {#if statusDetail && !failed}<span class="detail">{statusDetail}</span>{/if}
  </div>
  {#if reattaching}
-  <div class="ended-note reattaching" role="status">
+  <!-- The status line above is the one live region while reconnecting; this note does not announce again. -->
+  <div class="ended-note reattaching">
    <p><span class="status-dot busy" aria-hidden="true"></span><strong>{pendingCopy.status}</strong> {pendingCopy.detail}</p>
   </div>
  {:else if reattachFailed}
   {@const failure = reattachCopy('failed', reattach?.reason)}
-  <div class="ended-note lost" role="status">
+  {@const retry = onreattach && reattachRetryable(reattach?.code) ? onreattach : undefined}
+  <!-- After a folder-trust refusal the explicit Continue with history (a new row) is offered again (ruling R10). -->
+  {@const trusted = offersContinueAfterReattach(reattach) ? oncontinue : undefined}
+  <div class="ended-note lost" role="alert">
    <p><strong>{failure.status}.</strong> {failure.detail}</p>
+   {#if reattach?.detail}<p class="ended-status">{reattach.detail}</p>{/if}
+   {#if trusted && continuation?.phase === 'pending'}<p class="ended-status">Starting a new session…</p>{/if}
+   {#if trusted && continuation?.phase === 'failed'}<p class="notice bad ended-status">{continuation.reason}</p>{/if}
    <div class="ended-actions">
-    {#if onreattach}<button type="button" class="btn primary" onclick={onreattach}>Try again</button>{/if}
-    {#if onnewchat}<button type="button" class="btn" class:primary={!onreattach} disabled={newChatOff} onclick={event => onnewchat(event.currentTarget)}>Start a new chat</button>{/if}
+    {#if retry}<button type="button" class="btn primary" onclick={retry}>Try again</button>{/if}
+    {#if trusted}<button type="button" class="btn primary" disabled={continueOff || continuation?.phase === 'pending'} aria-busy={continuation?.phase === 'pending' ? 'true' : undefined} onclick={trusted}>Continue with history</button>{/if}
+    {#if onnewchat}<button type="button" class="btn" class:primary={!retry && !trusted} disabled={newChatOff} onclick={event => onnewchat(event.currentTarget)}>Start a new chat</button>{/if}
    </div>
   </div>
  {:else if ended}

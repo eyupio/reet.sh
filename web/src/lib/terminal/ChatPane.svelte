@@ -1105,6 +1105,8 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  }
  @media (pointer: coarse) {
   .tool-head { min-height: 44px; }
+  /* A touch browser zooms the page in to a field under 16px when it takes focus and leaves it scaled; app.css only sets 16px up to 560px. */
+  .composer-input, .model-controls input, .qfield textarea { font-size: 16px; }
   .skills-btn, .icon-btn { min-height: 44px; min-width: 44px; }
   .queue-list li { min-height: 44px; }
   .queue-actions button { min-height: 36px; padding: 0 9px; }

@@ -174,9 +174,17 @@ try {
   await context.close()
  }
 
- // The hover card shows the agent and model the session was started with, alongside where it runs. The card is only
- // offered on a hover-capable pointer, so this narrow layout has a mouse rather than touch.
+ // The hover card shows the agent and model the session was started with, alongside where it runs. It is hover-only: a screen
+ // that cannot hover (a touch phone) never opens it on focus, and a narrow window with a mouse still does.
  if (run('hover card model')) {
+  const touched = await openSession({width:390,height:844})
+  await touched.page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
+  const touchRow = touched.page.locator('aside#terminal-sessions').getByRole('button',{name:/^Refactor the store layer on studio/})
+  await touchRow.focus()
+  await touched.page.waitForTimeout(300)
+  await expect(touched.page.locator('.session-card')).toHaveCount(0)
+  expect(touched.errors).toEqual([])
+  await touched.context.close()
   const {context,page,errors} = await openSession({width:390,height:844,touch:false})
   await page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
   const row = page.locator('aside#terminal-sessions').getByRole('button',{name:/^Refactor the store layer on studio/})

@@ -18,8 +18,13 @@
   let seconds = $state(0), observedTurn = ''
   let observedAt = $state(0)
   let details = $state(false)
-  let summaryExpanded = $state(true)
+  let sheet = $state(false), handoverMore = $state(false)
   let summaryKey = ''
+  const NO_HANDOVER = 'No final handover was recorded. Check the conversation before calling the job done.'
+  const handoverText = $derived(summary ? summary.handover || NO_HANDOVER : '')
+  let said = $state<HTMLElement>(), clamped = $state(false)
+  const longHandover = $derived(handoverMore || clamped)
+  const verdict = $derived(!summary ? '' : summary.failed || summary.attention.length ? 'Needs a look' : stopped ? 'Over to you' : '')
   let reaction = $state<GafferReaction>(''), reactionKey = $state(0)
   let welcomePose = $state<GafferPose | null>(null), pendingReturn = $state(false)
   const pose = $derived(needsYou || gafferPose(view.phase) === 'concerned' ? gafferPose(view.phase) : welcomePose ?? gafferPose(view.phase))
@@ -56,9 +61,18 @@
     gesture(resting === 'asleep' ? 'stretch' : resting === 'tea' ? 'startle' : resting === 'concerned' ? 'shake' : resting === 'attention' ? 'listen' : ['tip-cap', 'wink', 'nod'][Math.floor(Math.random() * 3)] as GafferReaction)
   }
 
+  // Offer Read more only when the three-line clamp really hides text; re-measure when the pane resizes.
+  $effect(() => {
+    const el = said
+    if (!el || handoverMore) return
+    const measure = () => { clamped = el.scrollHeight - el.clientHeight > 1 }
+    measure()
+    const watcher = new ResizeObserver(measure); watcher.observe(el)
+    return () => watcher.disconnect()
+  })
   $effect(() => {
     const key = summary ? `${summary.scope}:${view.turnKey}` : ''
-    if (key !== summaryKey) { summaryKey = key; summaryExpanded = true }
+    if (key !== summaryKey) { summaryKey = key; sheet = false; handoverMore = false }
   })
   $effect(() => {
     const phase = view.phase, turn = view.turnKey, visible = view.visible
@@ -131,20 +145,41 @@
       <div class="brief">
         <div class="byline"><strong>Gaffer</strong><span class="role">The boss</span><span class="agent">{agent}</span></div>
         <div class="live-update" role="status" aria-live="polite" aria-atomic="true">
-          <span class="signal" class:live={view.active} aria-hidden="true">{#if needsYou}?{:else if view.phase === 'idle'}✓{:else if view.phase === 'error' || view.phase === 'reconnecting'}!{:else}<i></i><i></i><i></i>{/if}</span>
+          <span class="signal" class:live={view.active} aria-hidden="true">{#if needsYou}?{:else if view.phase === 'idle'}✓{:else if view.phase === 'ended' || view.phase === 'cancelled'}<i class="sq"></i>{:else if view.phase === 'error' || view.phase === 'reconnecting'}!{:else}<i></i><i></i><i></i>{/if}</span>
           <strong>{view.label}</strong>
           {#if view.target}<span class="target" title={view.target}>{view.target}</span>{/if}
         </div>
-        <p class="quote" aria-live="off"><span aria-hidden="true">“</span>{quote}<span aria-hidden="true">”</span></p>
+        {#if summary}
+          <div class="handover" class:open={handoverMore}>
+            {#if summary.handover}<span class="lead">{agent}’s handover, via Gaffer</span>{/if}
+            <p class="said" bind:this={said} role="status" aria-live="polite" aria-atomic="true"><span aria-hidden="true">“</span>{handoverText}<span aria-hidden="true">”</span></p>
+            {#if longHandover}<button type="button" class="more" aria-expanded={handoverMore} onclick={() => handoverMore = !handoverMore}>{handoverMore ? 'Show less' : 'Read more'}</button>{/if}
+          </div>
+        {:else}
+          <p class="quote" aria-live="off"><span aria-hidden="true">“</span>{quote}<span aria-hidden="true">”</span></p>
+        {/if}
       </div>
       <button type="button" class="quiet pause" aria-label={paused ? 'Resume Gaffer animation' : 'Pause Gaffer animation'} title={!$gafferAnimations ? 'Animation is off in Account → Profile' : reduced ? 'Your device requests reduced motion' : paused ? 'Resume animation' : 'Pause animation; quotes and updates continue'} aria-pressed={paused || !$gafferAnimations || reduced} disabled={!$gafferAnimations || reduced} onclick={() => paused = !paused}>
         <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">{#if paused}<path d="m7 4 9 6-9 6z" />{:else}<rect x="5" y="4" width="3" height="12" rx="1" /><rect x="12" y="4" width="3" height="12" rx="1" />{/if}</svg>
       </button>
     </div>
+    {#if summary}
+      <ul class="chips" aria-label="Recorded tool results">
+        <li class="chip ok" title="Tool calls completed">{summary.completed} done</li>
+        {#if summary.failed}<li class="chip bad">{summary.failed} failed</li>{/if}
+        {#if summary.stopped}<li class="chip warn">{summary.stopped} unfinished</li>{/if}
+        {#if summary.files.length}<li class="chip" title="Files changed">{summary.files.length} file{summary.files.length === 1 ? '' : 's'}</li>{/if}
+      </ul>
+    {/if}
     <div class="foot">
-      <span class="supervising"><span aria-hidden="true">↳</span> {needsYou ? 'Waiting for your say-so' : view.phase === 'reconnecting' ? 'Waiting for a live connection' : stopped ? 'Over to you' : 'Gaffer’s keeping an eye on it'}</span>
+      <span class="supervising"><span aria-hidden="true">↳</span> {needsYou ? 'Waiting for your say-so' : view.phase === 'reconnecting' ? 'Waiting for a live connection' : verdict || (stopped ? 'Over to you' : 'Gaffer’s keeping an eye on it')}</span>
       {#if observedAt}<span class="elapsed" title="Time since this view first observed the agent active; includes waiting. Earlier work may have happened before you opened it." aria-live="off">{observedTime(seconds)} in view</span>{/if}
-      {#if view.recent.length}
+      {#if summary}
+        <button type="button" class="quiet activity" aria-expanded={sheet} aria-controls="job-sheet-{sessionId || 'x'}" onclick={() => sheet = !sheet}>
+          Job sheet
+          <svg class:open={sheet} viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+        </button>
+      {:else if view.recent.length}
         <button type="button" class="quiet activity" aria-expanded={details} onclick={() => details = !details}>
           {view.phase === 'reconnecting' ? 'Last seen: ' : view.partial ? 'Recent: ' : ''}{view.completed} done{#if view.running} · {view.running} active{/if}{#if view.failed} · {view.failed} failed{/if}
           <svg class:open={details} viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
@@ -152,32 +187,21 @@
         </button>
       {/if}
     </div>
-    {#if summary}
-      <section class="executive-summary" aria-label="Gaffer’s executive summary">
-        <div class="summary-heading"><h3>Executive summary</h3><span>{summary.scope === 'session' ? 'Whole session' : 'This turn'}</span><button type="button" class="quiet" aria-label={summaryExpanded ? 'Collapse executive summary' : 'Expand executive summary'} aria-expanded={summaryExpanded} onclick={() => summaryExpanded = !summaryExpanded}>{summaryExpanded ? 'Hide' : 'Show'}</button></div>
-        {#if summaryExpanded}
-        {#if summary.partial}<p class="summary-partial">Based on retained activity. Earlier history is unavailable, so this summary may be incomplete.</p>{/if}
-        <p class="handover"><strong>{summary.handover ? `${agent}’s handover` : 'Handover'}</strong>{summary.handover || 'No final handover was recorded. Review the conversation before treating the job as complete.'}</p>
-        {#if summary.attention.length}<div class="summary-attention"><strong>Needs a look</strong>{#each summary.attention as issue}<p>{issue}</p>{/each}</div>{/if}
-        <p class="summary-next"><strong>Next</strong>{summary.next}</p>
-        <div class="summary-counts" aria-label="Recorded tool results">
-          <span>{summary.completed} tool call{summary.completed === 1 ? '' : 's'} completed</span>
-          {#if summary.failed}<span class="snag">{summary.failed} failed</span>{/if}
-          {#if summary.stopped}<span class="snag">{summary.stopped} unfinished</span>{/if}
-        </div>
-        {#if summary.files.length}
-          <div class="summary-files"><strong>Files touched</strong>{#each summary.files.slice(0, 3) as file}<code>{file}</code>{/each}{#if summary.files.length > 3}<span>+{summary.files.length - 3} more in the conversation</span>{/if}</div>
-        {/if}
+    {#if summary && sheet}
+      <div class="sheet" id="job-sheet-{sessionId || 'x'}" role="region" aria-label="Gaffer’s job sheet">
+        <p class="sheet-scope">{summary.scope === 'session' ? 'Whole session' : 'This turn'}{#if summary.partial} · Based on retained activity. Earlier history is unavailable, so this may be incomplete.{/if}</p>
+        {#if summary.attention.length}<div class="sheet-block attention"><h4>Needs a look</h4>{#each summary.attention as issue}<p>{issue}</p>{/each}</div>{/if}
+        <div class="sheet-block next"><h4>Next</h4><p>{summary.next}</p></div>
+        {#if summary.files.length}<div class="sheet-block"><h4>Files touched</h4>{#each summary.files as file}<code>{file}</code>{/each}</div>{/if}
         {#if summary.commands.length}
-          <details class="summary-commands"><summary>Commands & results ({summary.commands.length})</summary>
-            <p>Recorded command status; see the conversation for output and test results.</p>
+          <div class="sheet-block"><h4>Commands &amp; results ({summary.commands.length})</h4>
+            <p class="hint">Recorded command status; see the conversation for output and test results.</p>
             <ul>{#each summary.commands as command (command.key)}<li><code>{command.target}</code><span class:snag={command.status !== 'completed'}>{toolState(command.status).word}</span></li>{/each}</ul>
-          </details>
+          </div>
         {/if}
-        {/if}
-      </section>
+      </div>
     {/if}
-    {#if details && view.recent.length}
+    {#if !summary && details && view.recent.length}
       <div class="activity-detail">
         <p>Latest tool calls this turn{view.partial ? ' · earlier activity may be unavailable' : ''}. Full output is in the conversation.</p>
         <ol>
@@ -211,6 +235,7 @@
   .target::before { content: '· '; }
   .signal { display: inline-flex; gap: 2px; align-items: center; justify-content: center; width: 14px; height: 14px; flex: none; color: var(--tone); font: 600 12px var(--sans); }
   .signal i { width: 2px; height: 4px; border-radius: 2px; background: currentColor; }
+  .signal i.sq { width: 8px; height: 8px; border-radius: 2px; }
   .signal.live i { height: 8px; }
   .signal.live i:nth-child(2) { height: 11px; }
   .signal.live i:nth-child(3) { height: 5px; }
@@ -243,31 +268,34 @@
   .compact .role { display: none; }
   .compact .live-update { margin-top: 4px; }
   .compact .quote { font-size: 11px; min-height: 0; }
-  .executive-summary { max-height: min(280px, 34dvh); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 12px 15px; border-top: 1px solid var(--line-soft); color: var(--ink-soft); font: 11px/1.6 var(--sans); }
-  .summary-heading { display: flex; align-items: baseline; gap: 10px; justify-content: space-between; margin-bottom: 8px; }
-  .summary-heading h3 { margin: 0; color: var(--ink); font: 600 14px/1.4 var(--serif); }
-  .summary-heading > span { margin-left: auto; color: var(--muted); font: 9px var(--mono); }
-  .summary-heading > button { min-height: 40px; min-width: 40px; }
-  .handover, .summary-next, .summary-attention p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
-  .handover > strong, .summary-files > strong, .summary-attention > strong { display: block; margin-bottom: 3px; color: var(--muted); font: 500 10px/1.5 var(--sans); }
-  .summary-counts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 9px 0; color: var(--muted); font-size: 10px; }
+  .handover { margin-top: 4px; }
+  .lead { display: block; margin-bottom: 1px; color: var(--muted); font: 10px/1.5 var(--sans); }
+  .said { margin: 0; color: var(--ink-soft); font: 11px/1.55 var(--sans); overflow-wrap: anywhere; white-space: pre-wrap; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+  .handover.open .said { display: block; -webkit-line-clamp: unset; line-clamp: unset; max-height: min(160px, 24dvh); overflow: auto; overscroll-behavior: contain; }
+  .said > span { color: var(--tone); }
+  .more { border: 0; background: none; padding: 0 2px; margin: 0 0 -2px -2px; min-height: 28px; color: var(--tone); font: 11px var(--sans); cursor: pointer; border-radius: 4px; }
+  .more:hover { text-decoration: underline; }
+  .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0 12px 10px 74px; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; color: var(--ink-soft); font: 10.5px/1.7 var(--sans); background: color-mix(in srgb, var(--bg-sunk) 50%, transparent); font-variant-numeric: tabular-nums; }
+  .chip.ok { color: var(--good); }
+  .chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+  .chip.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+  .sheet { max-height: min(240px, 40dvh); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 11px 15px 13px; border-top: 1px solid var(--line-soft); color: var(--ink-soft); font: 11px/1.6 var(--sans); }
+  .sheet-scope { margin: 0 0 8px; color: var(--muted); font-size: 10px; }
+  .sheet-block { margin: 0 0 10px; }
+  .sheet-block:last-child { margin-bottom: 0; }
+  .sheet-block h4 { margin: 0 0 3px; color: var(--muted); font: 500 10px/1.5 var(--sans); letter-spacing: .03em; }
+  .sheet-block p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .sheet-block code { display: block; overflow-wrap: anywhere; font: 10px/1.8 var(--mono); }
+  .sheet-block .hint { margin-bottom: 4px; color: var(--muted); font-size: 10px; }
+  .sheet-block ul { list-style: none; margin: 0; padding: 0; }
+  .sheet-block li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 2px 0; }
+  .sheet-block li > span { flex: none; font-size: 10px; color: var(--muted); }
+  .sheet-block li > span.snag { color: var(--bad); }
+  .sheet-block.attention { border-left: 2px solid var(--warn); padding-left: 9px; }
+  .sheet-block.next { border-left: 2px solid var(--tone); padding-left: 9px; }
   .snag { color: var(--bad); }
-  .summary-files { margin: 9px 0; }
-  .summary-files code { display: block; overflow-wrap: anywhere; font: 10px/1.8 var(--mono); }
-  .summary-files > span { color: var(--muted); font-size: 10px; }
-  .summary-commands { margin: 9px 0; }
-  .summary-commands summary { display: list-item; min-height: 28px; align-content: center; cursor: pointer; color: var(--ink); }
-  .summary-commands summary:focus-visible, .executive-summary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
-  .summary-commands p { margin: 3px 0 6px; color: var(--muted); font-size: 10px; }
-  .summary-commands ul { list-style: none; margin: 0; padding: 0; }
-  .summary-commands li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 3px 0; }
-  .summary-commands code { min-width: 0; overflow-wrap: anywhere; font: 10px/1.6 var(--mono); }
-  .summary-commands li > span { flex: none; font-size: 10px; }
-  .summary-attention { border-left: 2px solid var(--warn); padding-left: 9px; margin: 9px 0; }
-  .summary-attention p + p { margin-top: 4px; }
-  .summary-next { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
-  .summary-next strong { margin-right: 7px; color: var(--tone); }
-  .summary-partial { margin: 0 0 7px; color: var(--muted); font-size: 10px; }
   .paused .signal i, .paused .activity-line > span { animation-play-state: paused; }
   .vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
   @container gaffer (max-width: 540px) {
@@ -283,8 +311,9 @@
     .supervising { display: none; }
     .activity { margin-left: auto; }
     .quiet { min-height: 40px; }
-    .executive-summary { padding: 10px; max-height: 30dvh; }
-    .summary-commands summary { min-height: 40px; }
+    .chips { padding-left: 10px; }
+    .more { min-height: 40px; margin-block: -6px -8px; }
+    .sheet { padding: 10px; }
   }
   @media (prefers-reduced-motion: reduce) { .signal.live i, .activity-line > span { animation: none; } .activity-line > span { width: 100%; opacity: .35; } }
 </style>

@@ -115,15 +115,16 @@ counts as last seen, and finishes as a compact handover without claiming checks 
 states have distinct decorative expressions. **Pause Gaffer animation** keeps him still for this view while quotes and
 factual updates keep arriving. **Account → Profile → Appearance → Gaffer animation** saves the animation preference
 with your account across browsers. Turning it off never hides Gaffer, quirky quotes, live updates, activity or the
-executive summary. The device’s reduced-motion preference also disables all Gaffer motion without silencing quotes.
+handover and job sheet. The device’s reduced-motion preference also disables all Gaffer motion without silencing quotes.
 The avatar is decorative, changing facts are announced politely, and timers and quips do not repeatedly interrupt
 screen readers. Hidden tabs pause the decorative work.
 
-When a turn finishes, stops or reports an error, **Executive summary** opens below the status row. It quotes a bounded
-plain-text excerpt of the agent’s final handover, lists completed tool calls and reported file operations, and offers
-command statuses, snags and a next step. Opening **Commands & results** reveals the recorded command states; a
-completed tool call alone does not establish that tests passed. An opening plan or an earlier turn’s answer is never
-presented as the handover for unfinished work. Missing handovers and truncated history are called out.
+When a turn finishes, stops or reports an error, Gaffer gives the handover himself, in his own card: his speech line
+quotes a bounded plain-text excerpt of the agent’s final handover (three lines, with **Read more**), and a row of chips
+shows completed, failed and unfinished tool calls and files changed. **Job sheet** in the footer opens the rest: snags,
+a next step, reported file operations and recorded command statuses. It is closed by default so the conversation keeps
+its height. A completed tool call alone does not establish that tests passed. An opening plan or an earlier turn’s
+answer is never presented as the handover for unfinished work. Missing handovers and truncated history are called out.
 
 The live summary covers the latest prompt. When the session ends, **Whole session** covers all activity still held in
 the conversation, with the latest handover and a reminder to start a new session to continue. Earlier activity beyond

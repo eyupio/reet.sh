@@ -113,6 +113,7 @@ try {
   // On a phone the dropdown opens the native picker, so the explanation lives in the hint under it rather than a tooltip.
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(dialog.getByText('In Gaffer, OpenCode asks before it edits', { exact: false })).toBeVisible()
+  await page.mouse.move(0, 0)
   await page.keyboard.press('Escape')
   await page.setViewportSize({ width: 1360, height: 900 })
 
@@ -901,7 +902,8 @@ try {
   await page.goto(`${base}/sessions?agent=${A}&session=${S2}`)
   await expect(page.getByRole('button', { name: 'Session actions' })).toBeVisible()
   // A chat that exited does not say who ended it (it may have stopped on its own or been ended by the person), only what can be done next.
-  await expect(page.getByText('This OpenCode chat has ended. What was already shown stays here; start a new chat to carry on.')).toBeVisible()
+  await expect(page.locator('.ended-note')).toContainText('This OpenCode chat has ended. What was already shown stays here.')
+  await expect(page.locator('.ended-note').getByRole('button', { name: 'Continue with history', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Session actions' }).click()
   await page.getByRole('menuitem', { name: /Continue in Gaffer with history/ }).click()
   await expect.poll(() => state.resume).toMatchObject({ structured: true, trust: true, resumeAcp: closedSession.acpSessionId, dir: SITE })

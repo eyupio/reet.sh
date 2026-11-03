@@ -328,14 +328,26 @@ test('a closed chat says why it closed and what the person can do', () => {
   const lost = endedReason('lost', 'Claude Code')
   assert.match(lost, /lost contact with this Claude Code chat/)
   assert.match(lost, /service there restarted/)
-  assert.match(lost, /start a new chat/)
+  assert.match(lost, /Start a new chat/)
+  assert.doesNotMatch(lost, /could not be restored|history.*gone/i)
   assert.match(endedReason('ended', 'OpenCode'), /^You ended this OpenCode chat/)
   // An exited chat may have stopped on its own or been ended by the person; the wording must not blame either.
   assert.match(endedReason('exited', 'OpenCode'), /^This OpenCode chat has ended/)
   assert.doesNotMatch(endedReason('exited', 'OpenCode'), /You ended|OpenCode ended/)
-  // Every reason says what stays here; none claims the chat can be continued.
+  // Unsupported chats keep the fresh-chat guidance without promising recovery.
   for (const state of ['lost', 'ended', 'exited']) assert.doesNotMatch(endedReason(state, 'X'), /continue|resume|reopen/i)
   assert.notEqual(endedReason('lost', 'X'), endedReason('exited', 'X'))
+})
+
+test('recoverable chats offer an exact history load without promising to resume a reply', () => {
+  for (const state of ['lost', 'ended', 'exited']) {
+    const reason = endedReason(state, 'OpenCode', true)
+    assert.match(reason, /Try Continue with history/)
+    assert.match(reason, /into a new session/)
+    assert.match(reason, /interrupted reply needs a new prompt/)
+    assert.match(reason, /What was already shown stays here/)
+    assert.doesNotMatch(reason, /could not be restored|start a new chat/i)
+  }
 })
 
 test('queued prompts keep order, are capped, and can be edited, promoted and dropped', async () => {

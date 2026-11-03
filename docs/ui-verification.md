@@ -27,6 +27,23 @@ Validation on the updated source:
 Not run: the axe scan (axe-core is not installed here), `terminal.e2e.mjs` (needs the Go terminal fixture), light
 theme close-ups, a physical phone, Safari, Firefox or a screen reader.
 
+## Chat history recovery (3 November 2026)
+
+The ended-chat notice offers **Continue with history** for OpenCode conversations with a saved native id and a machine
+that advertises history support. Losing a process no longer claims the native history could not be restored. The notice
+explains that recovery opens a new session and an interrupted reply needs a new prompt.
+
+`web/tests/chat-recovery.e2e.mjs` passes against the production build: lost, exited and ended states; exact conversation,
+folder and model; no automatic opening prompt; uncertain-reply retry with the same operation id; reload refusal leaving
+the old row and both choices visible; missing ids, unsupported agents/history and offline machines. Layout checks cover
+1360 px light/dark, 390 px dark and 320 px light. The existing OpenCode chat browser contract also passes with both legacy
+capabilities and explicit descriptors, alongside the Claude and Codex browser contracts.
+
+Captures: [desktop, light](images/ui/chat-recovery-desktop.png) and [phone, dark](images/ui/chat-recovery-phone.png).
+These use synthetic API responses. Connector tests separately cover the retained native id after failed restore, replacement
+of the failed row's restart record and refusal of concurrent loads. They do not establish recovery of any production chat
+or restoration of a running reply after the connector process dies.
+
 ## Loading: compressed assets, progress bar and skeletons
 
 Filmed with Playwright on a throttled connection (1.6 Mbit/s down, 150 ms latency) against a built binary

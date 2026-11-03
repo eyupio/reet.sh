@@ -116,6 +116,13 @@ func (r *chatRegistry) snapshot() []chatRecord {
 func (r *chatRegistry) remember(rec chatRecord) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// A manual continuation replaces the failed row's restart record. Keeping
+	// both would load the same conversation twice on the next connector start.
+	for id, previous := range r.chats {
+		if id != rec.ID && previous.Tool == rec.Tool && previous.ACPSID == rec.ACPSID {
+			delete(r.chats, id)
+		}
+	}
 	rec.UpdatedAt = time.Now().UnixMilli()
 	rec.Attempts = 0
 	r.chats[rec.ID] = rec
@@ -286,14 +293,14 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 		yolo = false
 	}
 
-	cs := &chatSession{id: rec.ID, title: rec.Title, tool: rec.Tool, dir: dir, model: rec.Model,
+	cs := &chatSession{id: rec.ID, title: rec.Title, tool: rec.Tool, dir: dir, model: rec.Model, acpID: rec.ACPSID,
 		state: terminalproto.Running, busy: true, yolo: yolo, trust: rec.Trust}
 	s.mu.Lock()
 	if s.closed || s.quotaLocked() >= terminalproto.MaxSessionsPerAgent {
 		s.mu.Unlock()
 		return
 	}
-	if _, exists := s.sessions[rec.ID]; exists {
+	if _, exists := s.sessions[rec.ID]; exists || s.conversationInUseLocked(rec.Tool, rec.ACPSID) {
 		s.mu.Unlock()
 		return
 	}
@@ -327,7 +334,7 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 		s.mu.Unlock()
 		s.registry.failed(rec.ID)
 		s.publish(cs, acpagent.Event{Kind: "notice", Bad: true,
-			Text: "This chat could not be restored after reet restarted on the machine. Start a new chat to carry on."})
+			Text: "This chat could not be restored after reet restarted on the machine. You can try Continue with history again, or start a new chat."})
 		s.ended(cs, -1)
 		return
 	}

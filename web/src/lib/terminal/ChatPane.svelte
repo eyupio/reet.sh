@@ -15,7 +15,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Whether this agent descriptor permits a confirmed live model switch. */
   acpModel?: boolean
   /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
@@ -24,6 +24,9 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   onnewchat?: (opener: HTMLElement) => void
   /** True while the workspace cannot start another session (no ready machine, or the account is at its limit). */
   newChatOff?: boolean
+  /** Loads this exact conversation through the workspace's existing continuation operation. */
+  oncontinue?: () => void
+  continueOff?: boolean
   /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI
    *  switch; undefined until the stream has opened and its replay has been applied, as the chat cannot say before then. */
   onbusy?: (busy: boolean | undefined) => void; onstate?: (state: ChatState) => void } = $props()
@@ -523,7 +526,13 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   {#if statusDetail && !failed}<span class="detail">{statusDetail}</span>{/if}
  </div>
  {#if ended}
-  <div class="ended-note" class:lost={session.state === 'lost'} role="status"><p>{endedReason(session.state, toolName)}</p>{#if onnewchat}<button type="button" class="btn primary" disabled={newChatOff} onclick={event => onnewchat(event.currentTarget)}>Start a new chat</button>{/if}</div>
+  <div class="ended-note" class:lost={session.state === 'lost'} role="status">
+   <p>{endedReason(session.state, toolName, !!oncontinue)}</p>
+   <div class="ended-actions">
+    {#if oncontinue}<button type="button" class="btn primary" disabled={continueOff} onclick={oncontinue}>Continue with history</button>{/if}
+    {#if onnewchat}<button type="button" class="btn" class:primary={!oncontinue} disabled={newChatOff} onclick={event => onnewchat(event.currentTarget)}>Start a new chat</button>{/if}
+   </div>
+  </div>
  {/if}
  {#if failed}
   <div class="error-panel" role="alert">
@@ -1039,6 +1048,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  .composer-note { margin: 0 14px 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--muted); font-size: 13px; }
  .ended-note { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 14px 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); font-size: 14px; line-height: 1.5; }
  .ended-note p { margin: 0; flex: 1 1 320px; }
+ .ended-actions { display: flex; flex-wrap: wrap; gap: 8px; }
  .ended-note .btn { flex: none; }
  .ended-note.lost { border-color: var(--warn); }
  .vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

@@ -173,6 +173,14 @@ replays OpenCode's stored conversation before the new Gaffer is ready. The contr
 the conversation it has shown, restored with the session after a controller restart; the replay is still read from
 OpenCode, so a machine whose OpenCode store is gone cannot be continued with history.
 
+The ended-chat notice also offers **Continue with history** for lost, exited and ended chats with a saved id and history
+support. Losing the process does not establish that the saved conversation is gone. The button uses the same continuation
+operation as the actions menu, keeps the original folder and model, and sends no prompt automatically. If the reply is
+uncertain, clicking again checks the same operation id. A reload refusal leaves the old transcript and both recovery and
+fresh-chat choices visible. Without a saved id or verified history support, the notice offers a new chat.
+The machine refuses a second load while that conversation already has a live or starting process. A successful manual
+continuation replaces its older restart record so the next connector start restores one copy.
+
 Replayed tools left `pending` or `in_progress` are shown as interrupted, not as still working. Pending approvals are not restored; a new prompt starts cleanly. The controller will only load an id that belongs to one of the account's own closed
 structured sessions on that machine, so a crafted `resumeAcp` cannot read another project's OpenCode history.
 
@@ -282,7 +290,8 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
   and a chat whose YOLO is no longer allowed reopens asking. A missing or broken OpenCode installation, an unresolvable
   folder, or a disabled machine environment drops the record.
 - **Bounded and forgetful.** Records older than seven days are dropped, and a record that fails to reopen is retried at
-  most three times. A connector that stops does not leave its chats in the controller's quota: the controller marks a
+  most three connector starts. A failed restore retains its conversation id so the person can explicitly try
+  **Continue with history** without restarting the connector. A connector that stops does not leave its chats in the controller's quota: the controller marks a
   chat lost only if the next connector does not report it running.
 
 ## Limits

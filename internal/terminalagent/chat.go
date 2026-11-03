@@ -364,6 +364,10 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
 	}
+	if h.sup.conversationInUseLocked(in.Tool, in.ResumeACP) {
+		h.sup.mu.Unlock()
+		return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
+	}
 	if h.sup.quotaLocked() >= terminalproto.MaxSessionsPerAgent {
 		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrSessionCapacity
@@ -372,7 +376,7 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrYoloRefused
 	}
-	cs := &chatSession{id: sessionID, title: in.Title, tool: in.Tool, state: terminalproto.Creating, yolo: in.Yolo, trust: in.Trust}
+	cs := &chatSession{id: sessionID, title: in.Title, tool: in.Tool, acpID: in.ResumeACP, state: terminalproto.Creating, yolo: in.Yolo, trust: in.Trust}
 	h.sup.sessions[sessionID] = cs
 	h.sup.requests[requestID] = sessionID
 	h.sup.starting[requestID] = sessionID
@@ -498,6 +502,21 @@ func (h *chatHost) snapshots() []terminalproto.SessionSnapshot {
 		out = out[:32]
 	}
 	return out
+}
+
+// A pending or unconfirmed process still owns its conversation. Both manual
+// continuation and restart recovery take this gate before starting a load;
+// the caller holds s.mu.
+func (s *chatSupervisor) conversationInUseLocked(tool, acpID string) bool {
+	if acpID == "" {
+		return false
+	}
+	for _, cs := range s.sessions {
+		if cs.tool == tool && cs.acpID == acpID && (cs.state.ReservesQuota() || cs.stray) {
+			return true
+		}
+	}
+	return false
 }
 
 // quotaLocked counts the chats that hold a slot of MaxSessionsPerAgent; the

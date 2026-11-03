@@ -13,7 +13,7 @@ const home = asURL(compile('./home.ts'))
 const colour = asURL(compile('./projectColour.ts'))
 const api = asURL(compile('./terminal/api.ts'))
 const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './catalogue'", `from '${catalogue}'`).replace("from './projectColour'", `from '${colour}'`).replaceAll("from './terminal/api'", `from '${api}'`)
-const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList, switchModeState, switchWhy } = await import(asURL(source))
+const { sessionColourOf, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, canReattachChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList, switchModeState, switchWhy } = await import(asURL(source))
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000
@@ -261,4 +261,20 @@ test('switchWhy: the switch always says why it cannot be used now', () => {
   assert.equal(switchWhy(off, undefined, true), 'Only a running session can switch.')
   assert.equal(switchWhy(on, undefined, true), 'Another action on this session is running.')
   assert.equal(switchWhy(on, undefined, false), '')
+})
+
+test('canReattachChat only for a lost or exited OpenCode chat on a ready machine that can reattach', () => {
+  const s = { state: 'lost', tool: 'opencode', structured: true, acpSessionId: 'ses_a' }
+  const m = { ready: true, capabilities: { acp: true, chatReattach: true, acpAgents: [{ tool: 'opencode', adapter: 'opencode', state: 'available', history: true }] } }
+  assert.equal(canReattachChat(s, m), true)
+  assert.equal(canReattachChat({ ...s, state: 'exited' }, m), true)
+  assert.equal(canReattachChat({ ...s, state: 'ended' }, m), false)
+  assert.equal(canReattachChat({ ...s, state: 'running' }, m), false)
+  assert.equal(canReattachChat({ ...s, acpSessionId: '' }, m), false)
+  assert.equal(canReattachChat({ ...s, structured: false }, m), false)
+  assert.equal(canReattachChat(s, { ...m, ready: false }), false)
+  assert.equal(canReattachChat(s, { ...m, capabilities: { ...m.capabilities, chatReattach: undefined } }), false)
+  assert.equal(canReattachChat(s, { ...m, capabilities: { ...m.capabilities, acpAgents: [{ ...m.capabilities.acpAgents[0], history: false }] } }), false)
+  assert.equal(canReattachChat({ ...s, tool: 'claude' }, m), false)
+  assert.equal(canReattachChat(s, undefined), false)
 })

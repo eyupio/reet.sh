@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { applyChatEvent, endedReason, enqueuePrompt, initialChat, isWorking, pendingPermissions, resetChat } from './chat.ts'
+import { applyChatEvent, endedReason, enqueuePrompt, initialChat, reattachCopy, isWorking, pendingPermissions, resetChat } from './chat.ts'
 
 const event = (seq, fields) => ({ seq, ...fields })
 
@@ -387,4 +387,13 @@ test('a tool still running when the turn stops is shown as stopped, and a later 
     state = applyChatEvent(state, event(6, { kind: 'tool', toolCallId: 'run', status: 'completed', text: 'ok' }))
     assert.equal(byId('run').status, 'completed', `${stop}: a later update was ignored`)
   }
+})
+
+test('reattach copy and the ended sentence', () => {
+  assert.deepEqual(reattachCopy('pending'), { status: 'Reconnecting to your conversation…', detail: 'Your earlier messages stay here. Any interrupted reply needs a new prompt.' })
+  assert.deepEqual(reattachCopy('failed'), { status: 'Could not reconnect', detail: 'The saved conversation could not be loaded.' })
+  assert.equal(reattachCopy('failed', 'Reconnecting took too long. Try again.').detail, 'Reconnecting took too long. Try again.')
+  const text = endedReason('lost', 'Gaffer', false, true)
+  assert.match(text, /Reconnect to carry on where you left off\./)
+  assert.doesNotMatch(text, /Continue with history/)
 })

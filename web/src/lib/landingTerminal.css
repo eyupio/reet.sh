@@ -1,0 +1,5 @@
+/* The terminal in the landing illustration is dark in both colour schemes, like a real terminal window. */
+.preview-shell {
+  --shell-bg: #171e26; --shell-line: #ffffff12; --shell-ink: #e4e8ee; --shell-text: #dce5ee; --shell-dim: #8797aa;
+  --shell-mute: #8594a7; --shell-foot: #8d9bae; --shell-ok: #9bc88f; --shell-prompt: #f4a56b; --shell-cursor: #eeb27e;
+}

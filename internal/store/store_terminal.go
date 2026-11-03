@@ -729,7 +729,10 @@ func (s *Store) ObserveTerminalStateFor(uid int64, agentID, sessionID string, ge
 		} else if !terminalproto.CanTransition(t.State, next) {
 			return ErrTerminalConflict
 		}
-		if t.ExitCode != nil && (exitCode == nil || *t.ExitCode != *exitCode) {
+		// A structured reopen to running clears the recorded exit code; every
+		// other observation must repeat the recorded code exactly.
+		reopened := (t.State == terminalproto.Lost || t.State == terminalproto.Exited) && next == terminalproto.Running
+		if !reopened && t.ExitCode != nil && (exitCode == nil || *t.ExitCode != *exitCode) {
 			return ErrTerminalConflict
 		}
 		if _, err := tx.Exec(`UPDATE terminal_sessions SET state=?,exit_code=?,updated_at=? WHERE id=?`, next, exitCode, now(), sessionID); err != nil {
@@ -859,6 +862,8 @@ func (s *Store) CanResumeACPToolSessionFor(uid int64, agentID, tool, acpSessionI
 	if !terminalproto.ValidID(agentID) || !terminalproto.ValidACPSessionIDFor(tool, acpSessionID) || dir != "" && !terminalproto.ValidDir(dir) {
 		return false, terminalproto.ErrInvalid
 	}
+	// A row whose create operation failed is a continuation that never
+	// started; resuming from it would pile up sessions, so it is excluded.
 	var ok bool
 	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM terminal_sessions WHERE user_id=? AND agent_id=? AND tool=? AND structured=1 AND state IN ('ended','exited','lost') AND acp_session_id=? AND dir=? AND NOT EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.kind='create' AND o.state='failed'))`, uid, agentID, tool, acpSessionID, dir).Scan(&ok)
 	return ok, err

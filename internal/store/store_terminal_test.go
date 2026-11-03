@@ -796,3 +796,47 @@ func TestCannotResumeFromFailedContinuationRow(t *testing.T) {
 		t.Fatalf("failed continuation resumable: %v %v", ok, err)
 	}
 }
+
+func TestObserveRunningReopensExitedStructuredChatWithExitCode(t *testing.T) {
+	for _, code := range []int{0, 1} {
+		s, uid, a, c := terminalFixture(t)
+		row := reserveChatRow(t, s, uid, a, c, true, "")
+		observeAll(t, s, uid, a, c, row.ID, terminalproto.Running)
+		if err := s.ObserveTerminalStateFor(uid, a.ID, row.ID, c.Generation, terminalproto.Exited, &code); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ObserveTerminalStateFor(uid, a.ID, row.ID, c.Generation, terminalproto.Running, nil); err != nil {
+			t.Fatalf("code %d: %v", code, err)
+		}
+		got, err := s.TerminalSessionFor(uid, row.ID)
+		if err != nil || got.State != terminalproto.Running || got.ExitCode != nil {
+			t.Fatalf("code %d: state=%v exit=%v err=%v", code, got.State, got.ExitCode, err)
+		}
+	}
+}
+
+func TestObserveExitedShellWithCodeStillConflicts(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	code := 0
+	row := reserveChatRow(t, s, uid, a, c, false, "")
+	observeAll(t, s, uid, a, c, row.ID, terminalproto.Running)
+	if err := s.ObserveTerminalStateFor(uid, a.ID, row.ID, c.Generation, terminalproto.Exited, &code); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ObserveTerminalStateFor(uid, a.ID, row.ID, c.Generation, terminalproto.Running, nil); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatalf("shell reopen: %v", err)
+	}
+	// A different exit code or a nil one for the same closed row keeps conflicting.
+	other := 2
+	if err := s.ObserveTerminalStateFor(uid, a.ID, row.ID, c.Generation, terminalproto.Exited, &other); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatalf("different code: %v", err)
+	}
+	chat := reserveChatRow(t, s, uid, a, c, true, "")
+	observeAll(t, s, uid, a, c, chat.ID, terminalproto.Running)
+	if err := s.ObserveTerminalStateFor(uid, a.ID, chat.ID, c.Generation, terminalproto.Exited, &code); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ObserveTerminalStateFor(uid, a.ID, chat.ID, c.Generation, terminalproto.Exited, &other); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatalf("chat different exit code: %v", err)
+	}
+}

@@ -2268,3 +2268,31 @@ Validation:
 
 **Not checked.** No physical phone or tablet and no screen reader. A failed connection
 read or a failed pause was not exercised by a new browser matrix.
+
+## Skill card: large fleets and unconfirmed machines — 2 November 2026
+
+A shelf card with more than three reported machines now collapses its badges into one
+summary button: `On 2 of 4 · 1 missing · 1 not confirmed`. Pressing it expands the
+card and shows every machine badge. Three or fewer machines keep the existing badges.
+A machine whose scan is stale or incomplete now offers **Add now** as well as
+**Not confirmed**; the action queues the existing scan job and says **Scan requested
+for pi. Add code-review once the scan is complete.** It never pretends the skill was
+installed. The ⋯ menu says **Scan and add on pi** for that machine, and an offline
+unconfirmed machine is refused with the reconnect message.
+
+Validation:
+
+- `npm run check`: pass, including the new `installationSummary` cases in
+  `machines.test.mjs`; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- `skill-card.e2e.mjs` now covers the four-machine summary and expansion, the
+  unconfirmed Add now queueing a scan, and the summary's 44 px target on 390 and
+  320 px phones.
+- `phone-zoom.e2e.mjs` and `navigation.e2e.mjs` pass.
+
+![Skill card fleet summary](images/ui/skill-card-fleet-summary.png)
+![Skill card scan before add](images/ui/skill-card-scan-add.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. A scan that never
+reports, and the per-machine picker on the Machines page, were not exercised by this
+pass.

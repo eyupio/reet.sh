@@ -1,4 +1,5 @@
-import { getSyncState, saveDesired, startSyncRun, syncCandidates, type Skill, type SyncSkill, type SyncState } from './api'
+import { getSyncState, queueSyncJob, saveDesired, startSyncRun, syncCandidates, type Skill, type SyncSkill, type SyncState } from './api'
+import { agentOnline } from './machines'
 import { fallbackInstallTarget, foldHost, pickSyncCandidate, savedInstallTargets } from './syncOverview'
 
 export class MachineSourceRequired extends Error {}
@@ -8,6 +9,8 @@ export type InstallResult = {
   host: string
   targets: number
   createdScope: boolean
+  /** No recent complete scan, so the machine was asked to rescan instead; pressing Add now again after it reports installs the skill. */
+  scanRequested?: boolean
 }
 
 async function candidatesFor(sourceId: string, state: SyncState, cache: Map<string, Promise<SyncSkill[]>>): Promise<SyncSkill[]> {
@@ -62,7 +65,11 @@ export async function installSkillOnMachine(skill: Pick<Skill, 'id' | 'slug' | '
   let createdScope = false
   if (!targetIds.length) {
     const fallback = fallbackInstallTarget(machine, state)
-    if (!fallback) throw new Error(`No recent complete agent scan on ${host}. Rescan the machine, then try again.`)
+    if (!fallback) {
+      if (!agentOnline(agent)) throw new Error(`${host} is offline. Reconnect it, then scan and add.`)
+      const next = await queueSyncJob(agent.id, '', 'scan')
+      return { state: next, host: machine.host, targets: 0, createdScope: false, scanRequested: true }
+    }
     if ((state.targets ?? []).some(target => target.target.id === fallback.targetId)) {
       throw new Error(`${skill.name} is not in the saved sync source for ${host}. Open Sync to add it to the existing set.`)
     }

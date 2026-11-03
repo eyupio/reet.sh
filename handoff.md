@@ -42,7 +42,8 @@ single-flight guard and an in-pane "Starting a new session…". Docs: `docs/stru
 Checks. Full run, earlier in Task 10: `go vet ./...` exit 0 and `go test -race -timeout 40m ./...` exit 0, 40 packages `ok`, including `internal/api` 791.503s and `internal/store` 339.278s. Those two slow packages were not re-run afterwards. Re-run in the fix round (raw logs `.superpowers/sdd/2026-11-03-chat-reattach/task-10-go.log` and `task-10-web.log`, not committed): `go vet ./...` exit 0 and `go test -race -count=1 ./cmd/... ./internal/terminalproto/ ./internal/terminalagent/ ./internal/terminalbroker/` printed `ok .../cmd/reet 16.283s`, `ok .../internal/terminalproto 1.184s`, `ok .../internal/terminalagent 8.255s`, `ok .../internal/terminalbroker 63.251s`. In `web/`, `npm run check` ran its unit tests (53 `# fail 0` summaries, no non-zero `# fail`) and svelte-check printed `COMPLETED 360 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS`; `npm run build` printed `built in 9.58s`.
 
 Known limitations: auto-reattach sends no folder-trust confirmation, so a folder with OpenCode plugins refuses with the
-trust message and the person continues with history as a new row (after the fix wave) or starts a new chat; YOLO chats are
+trust message (resolved by follow-up F3 below: the person can now reconnect in place with **Trust this folder and
+reconnect**, beside Continue with history and Start a new chat); YOLO chats are
 refused (not downgraded) if the account or the machine no longer allows YOLO; while the machine is offline the pane shows the idle ended note (not a waiting state) and a failure consumes the one
 automatic attempt; Claude/Codex chats are not covered. Not exercised: a live OpenCode provider reload and production chats.
 
@@ -53,8 +54,9 @@ operation (older rows stored `exited`/`lost`) with `chat_reattach_ended` ("You e
 a new session."), which the browser treats quietly on an automatic attempt. Reattach checks the account's Allow-YOLO setting
 first (`chat_reattach_yolo_not_allowed`), keeps the machine's YOLO refusal (`chat_reattach_yolo_refused`) and capacity
 (`chat_reattach_capacity`) instead of the retryable failure, and a chat still starting on the machine (its conflict result
-now carries the detail `starting`) answers `chat_reattach_starting` ("Still reconnecting. Try again in a moment.") instead
-of "open in another session". A non-OpenCode row answers "This chat cannot be reconnected in place."; the generic failure
+carries the detail `starting`, sent only to a controller that advertised `chat-reattach-detail-v1`, so either side can be
+updated first; an older controller shows its old "open in another session" wording for that rare moment) answers
+`chat_reattach_starting` ("Still reconnecting. Try again in a moment.") instead of "open in another session". A non-OpenCode row answers "This chat cannot be reconnected in place."; the generic failure
 now reads "The machine did not bring this chat back. Try again, or start a new chat.". Web: Try again only for retryable
 codes, the failure card is an alert, one live region while pending, "Reconnecting" for an exited row in the sidebar, and
 (ruling R10) a folder-trust refusal shows the plugin files and re-offers Continue with history (new row, `trust: true`) in
@@ -71,6 +73,53 @@ summaries, none non-zero; svelte-check `COMPLETED 360 FILES 0 ERRORS 0 WARNINGS 
 (`built in 12.38s`), and against a preview build `chat-recovery.e2e.mjs` and `sessions.e2e.mjs` passed. `chat.e2e.mjs`
 failed twice in its Skills-install section while the full Go race run loaded the machine, then passed on a third run
 after it finished; the same section also failed once on the unchanged baseline build in this session.
+
+Follow-up F1: refuse an archived chat (local branch `followups/reattach`, commit `dd9a731`). `Broker.ReattachChat` refuses a
+row with an entry in `terminal_session_archives` (new store helper `TerminalArchivedFor`, scoped by account) with
+`ErrReattachArchived` before any machine call; the route answers 409 `chat_reattach_archived` "This chat was archived, so
+its history is gone.", and the web treats it as final (no Try again, no Continue with history). In the final-review wave the
+archived check moved above the ended checks, so a chat that was both ended and archived answers archived too. Checks
+(`.superpowers/sdd/reattach-followups/f1-report.md`, not committed; all focused, none full): `go vet ./...` clean; `go test
+-race -count=1` for `internal/store -run 'Archiv|Reattach|Observe'`, `internal/terminalbroker -run Reattach` and
+`internal/api -run Reattach` all `ok` (timings not recorded); `reattachState.test.mjs` `pass 10 fail 0`; `npm run check` 0
+errors 0 warnings.
+
+Follow-up F2: negotiate the still-starting marker (commits `28f3e1c` code, `5e2555b` docs, nit `d3f0156`). New feature
+`chat-reattach-detail-v1`: the controller advertises it, the connector echoes it, and the machine sends `conflict` with the
+detail `starting` only to a controller that advertised it (any other gets a plain `conflict`), so the controller and the
+machine can be updated in either order. Checks (`f2-report.md`, `f2-verify.log`, `f2-api-full.log`, not committed):
+`go vet ./...` clean; full `internal/terminalproto` `ok 1.132s`, `internal/agenthealth` `ok 6.852s`, `internal/terminalagent`
+`ok 7.673s`; focused `internal/terminalbroker -run 'Reattach|Conflict|Feature'` `ok 10.679s` and `internal/api -run
+'PrivateControl|Reattach'` `ok 26.007s`; full `internal/api` `ok .../internal/api 714.878s` (an earlier run hit the default
+10-minute test timeout and was re-run with `-timeout 40m`).
+
+Full `internal/store` once on the final code before the final-review wave (`final-store-full.log`): `ok
+.../internal/store 255.988s`; it was not re-run after that wave, which did not touch `internal/store`.
+
+Follow-up F3: trusted in-place reconnect (local branch `followups/reattach`, commits `24c602b` Go, `b0b6fd9` web, and this
+docs commit). `POST /api/v2/terminal/sessions/{id}/reattach` takes an optional body: none, `null` or `{}` mean no trust,
+`{"trust": true}` passes trust for that request (the controller never stores it; each click is one request), anything
+else is 400 before the machine is asked. The machine keeps the trust in its restart record exactly as for any chat started
+with trust (including Continue with history), so its own restart reopens the chat with it (record kept up to 7 days or 3
+failed reopens); a later in-place reconnect from the controller asks again.
+`Broker.ReattachChat(ctx, uid, session, trust)` sends `Trust` on the wire, records `trust` in the `chat-reattach` audit
+event, and keys its single-flight on session and trust, so a trusting call never joins a non-trusting one. The
+`chat_reattach_trust` sentence is now "This folder has OpenCode plugins, which run as code on this machine, so reet did not
+reconnect automatically. Reconnect only if you trust it.", and the card shows only the plugin-file list from the machine's
+detail (not its "Start a chat only…" sentence). Web: after that refusal the card offers **Trust this folder and reconnect** (primary), **Continue
+with history** and **Start a new chat**, still no Try again; only that click sends `{"trust":true}` (the automatic attempt
+and every other request send the earlier `{}` body). Checks (raw logs `.superpowers/sdd/reattach-followups/f3-*.log`, not
+committed): `go vet ./...` exit 0; full `go test -race -count=1 ./internal/terminalbroker/` printed `ok
+.../internal/terminalbroker 72.247s` and full `./internal/api/` printed `ok .../internal/api 733.013s`; `internal/agenthealth`
+and `internal/terminalproto` full `ok`; other Go packages were not re-run. In `web/`, `reattachState.test.mjs` `# pass 14`
+`# fail 0`, `npm run check` (svelte-check `COMPLETED 360 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS`), `npm run build`
+(`built in 9.64s`), and against a preview build `chat-recovery.e2e.mjs` and `sessions.e2e.mjs` passed.
+F3 fix round (review): the copy says plugins run as code on the machine, the card shows only the plugin-file list, the docs
+say what the machine keeps, and a terminalagent test pins the machine's trust gate on a reattach (refused without trust,
+nothing left running; starts with trust). Checks: `go vet ./...` exit 0; full `go test -race -count=1
+./internal/terminalagent/` `ok 7.914s`; `./internal/api/ -run 'Reattach|RefusalSentences'` `ok 35.018s`; `reattachState.test.mjs`
+`# pass 15` `# fail 0`; `npm run check` 0 errors; `npm run build` `built in 10.56s`; `chat-recovery.e2e.mjs` and
+`sessions.e2e.mjs` passed against a fresh preview of that build.
 
 ## CHAT-RECOVERY-1: continue a closed chat with saved history (3 November 2026)
 

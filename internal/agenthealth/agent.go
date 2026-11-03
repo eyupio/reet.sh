@@ -37,51 +37,52 @@ const (
 // AgentConfig is the installed agent's private monitoring configuration. Health
 // reporting is independent of terminal opt-in.
 type AgentConfig struct {
-	commandHistory    bool
-	launch            bool
-	resume            bool
-	agentsV2          bool
-	worktree          bool
-	browse            bool
-	branches          bool
-	branchPrune       bool
-	browseAllowed     bool
-	clipboard         bool
-	clipboardAllowed  bool
-	uploads           bool
-	uploadsAllowed    bool
-	models            bool
-	modelsAllowed     bool
-	software          bool
-	softwareApply     bool
-	yoloAllowed       bool
-	acpAgents         bool
-	acp               bool
-	acpHistory        bool
-	acpModel          bool
-	acpAgentMode      bool
-	acpAgentOptions   bool
-	acpImages         bool
-	acpApproval       bool
-	sessionMode       bool
-	chatReattach      bool
-	acpQuestion       bool
-	inspect           bool
-	shellDir          bool
-	attention         bool
-	progress          bool
-	OnConnection      func(bool)
-	TerminalSession   TerminalFactory
-	control           func(context.Context, terminalproto.Message) error
-	ServerURL         string
-	Token             string
-	AgentID           string
-	Secret            string
-	Version           string
-	InstanceID        string
-	Home              string
-	TerminalEnabled   bool
-	TerminalReadiness terminalproto.Readiness
+	commandHistory     bool
+	launch             bool
+	resume             bool
+	agentsV2           bool
+	worktree           bool
+	browse             bool
+	branches           bool
+	branchPrune        bool
+	browseAllowed      bool
+	clipboard          bool
+	clipboardAllowed   bool
+	uploads            bool
+	uploadsAllowed     bool
+	models             bool
+	modelsAllowed      bool
+	software           bool
+	softwareApply      bool
+	yoloAllowed        bool
+	acpAgents          bool
+	acp                bool
+	acpHistory         bool
+	acpModel           bool
+	acpAgentMode       bool
+	acpAgentOptions    bool
+	acpImages          bool
+	acpApproval        bool
+	sessionMode        bool
+	chatReattach       bool
+	chatReattachDetail bool
+	acpQuestion        bool
+	inspect            bool
+	shellDir           bool
+	attention          bool
+	progress           bool
+	OnConnection       func(bool)
+	TerminalSession    TerminalFactory
+	control            func(context.Context, terminalproto.Message) error
+	ServerURL          string
+	Token              string
+	AgentID            string
+	Secret             string
+	Version            string
+	InstanceID         string
+	Home               string
+	TerminalEnabled    bool
+	TerminalReadiness  terminalproto.Readiness
 	// Consent is polled for local terminal opt-in and readiness changes.
 	Consent func() (enabled bool, readiness terminalproto.Readiness, err error)
 	// LaunchTools lists the agent CLIs this connector can start, from its
@@ -754,6 +755,9 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	// chat-reattach-v1 stands on chats and their history; it is never
 	// claimed without both.
 	cfg.chatReattach = terminalproto.SupportsChatReattach(advertised) && cfg.acp && cfg.acpHistory
+	// chat-reattach-detail-v1 only refines chat-reattach-v1's Conflict answer,
+	// so it is claimed with it and needs no capability field.
+	cfg.chatReattachDetail = terminalproto.SupportsChatReattachDetail(advertised) && cfg.chatReattach
 	cfg.acpQuestion = terminalproto.SupportsACPQuestion(advertised)
 	cfg.inspect = terminalproto.SupportsInspect(advertised)
 	cfg.shellDir = terminalproto.SupportsShellDir(advertised)
@@ -835,6 +839,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.chatReattach {
 		features = append(features, terminalproto.ChatReattachFeature)
+	}
+	if cfg.chatReattachDetail {
+		features = append(features, terminalproto.ChatReattachDetailFeature)
 	}
 	if cfg.acpQuestion {
 		features = append(features, terminalproto.ACPQuestionFeature)

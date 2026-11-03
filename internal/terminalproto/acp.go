@@ -87,6 +87,12 @@ const SessionModeFeature = "session-mode-v1"
 // sends or receives the body.
 const ChatReattachFeature = "chat-reattach-v1"
 
+// ChatReattachDetailFeature is advertised by a controller that understands a
+// Conflict answer to chat_reattach carrying a detail marker (ConflictStarting:
+// the chat is still starting). A machine sends that marker only to a controller
+// that advertised it; any other gets a plain Conflict.
+const ChatReattachDetailFeature = "chat-reattach-detail-v1"
+
 // SessionModeTimeout bounds one session_mode swap on the machine: stopping
 // the old process, starting the other and, on failure, restoring the first.
 // The connector enforces it and the controller waits longer than it.
@@ -143,6 +149,18 @@ func SupportsACPApproval(features string) bool {
 func SupportsChatReattach(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == ChatReattachFeature {
+			return true
+		}
+	}
+	return false
+}
+
+// SupportsChatReattachDetail reports whether the peer negotiated
+// chat-reattach-detail-v1: a controller that advertises it understands a
+// Conflict answer carrying a detail marker.
+func SupportsChatReattachDetail(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ChatReattachDetailFeature {
 			return true
 		}
 	}

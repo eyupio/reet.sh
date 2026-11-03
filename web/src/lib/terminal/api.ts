@@ -444,7 +444,12 @@ export async function pruneBranches(agentId: string, dir: string, base: string, 
 }
 export function chatURL(id: string): string { return `/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat` }
 export async function chatPrompt(id: string, text: string, images: string[] = []): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/prompt`, { method: 'POST', body: JSON.stringify(images.length ? { text, images } : { text }) }) }
-export async function reattachChat(sessionId: string, signal?: AbortSignal): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(sessionId)}/reattach`, { method: 'POST', body: '{}', signal }) }
+/** Reconnects a lost chat in place. `trust` confirms the person trusts the chat's folder (it has OpenCode plugins) and is
+ *  sent only when it is exactly true, from the person's explicit Trust this folder and reconnect; otherwise the request
+ *  is the earlier one, with no trust. */
+export async function reattachChat(sessionId: string, opts: { trust?: boolean } = {}, signal?: AbortSignal): Promise<void> {
+  await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(sessionId)}/reattach`, { method: 'POST', body: opts?.trust === true ? '{"trust":true}' : '{}', signal })
+}
 export async function chatCancel(id: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/cancel`, { method: 'POST', body: '{}' }) }
 export async function chatAnswer(id: string, permissionId: string, allow: boolean, forSession = false): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/permissions/${encodeURIComponent(permissionId)}`, { method: 'POST', body: JSON.stringify(forSession ? { allow, forSession: true } : { allow }) }) }
 /** accept sends answers; decline skips the question and lets the agent continue; cancel stops the agent's tool call. */

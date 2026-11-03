@@ -202,10 +202,20 @@ If the attempt fails, the pane shows the reason (announced as an alert) with **S
 retry can help. Nothing is created or changed by a failed attempt: the row stays as it was. The ended-chat notice also offers a manual **Reconnect** button, and the
 session header menu no longer offers the new-row **Continue in Gaffer with history…** for a chat that can reconnect.
 
-The controller runs one reattach per session at a time (concurrent callers, such as two tabs or a double click, join the
-same machine call), bounds it at 75 seconds ("Reconnecting took too long. Try again."), never creates a row, and allows the
+The controller runs one reattach per session and trust at a time (concurrent callers with the same trust, such as two
+tabs or a double click, join the same machine call). Two calls with different trust can be in flight at once (an
+automatic attempt and the click in another tab, say); the machine serialises them: the second adopts the chat if the
+first already has it running, or is refused as still starting. The controller bounds it at 75 seconds ("Reconnecting took too long. Try again."), never creates a row, and allows the
 `lost`/`exited` to `running` change for structured chats only (the exit code is cleared). The route
-`POST /api/v2/terminal/sessions/{id}/reattach` answers 204, or an error with one of these codes:
+`POST /api/v2/terminal/sessions/{id}/reattach` takes an optional JSON body: none, `null` or `{}` reconnect without folder
+trust, and `{"trust": true}` confirms the person trusts the chat's folder for this request (the audit event
+`chat-reattach` records `trust`). Any other body (malformed, an unknown field, a non-boolean `trust`) is
+refused with 400 before the machine is asked. A trusting and a non-trusting call never join each other's machine call.
+The controller never stores the confirmation: each click is one request. The machine keeps the folder trust a chat
+was started with in its restart record, as it does for any chat started with trust (a new chat in a trusted folder, or
+Continue with history), so after its own restart it reopens that chat with that trust, with no click; the record is kept
+up to 7 days or 3 failed reopens. A later in-place reconnect from the controller asks again.
+The route answers 204, or an error with one of these codes:
 
 | Code | Status | Sentence | Try again |
 | --- | --- | --- | --- |
@@ -213,18 +223,22 @@ same machine call), bounds it at 75 seconds ("Reconnecting took too long. Try ag
 | `chat_reattach_ended` | 409 | "You ended this chat. Continue it with history as a new session." | no (quiet when automatic, see below) |
 | `chat_reattach_not_closed` | 409 | "This chat is still running." | yes (quiet when automatic) |
 | `chat_reattach_no_conversation` | 409 | "This chat has no saved conversation to reconnect." | no |
+| `chat_reattach_archived` | 409 | "This chat was archived, so its history is gone." | no; nothing to continue |
 | `chat_reattach_starting` | 409 | "Still reconnecting. Try again in a moment." (the machine is still starting this chat) | yes |
 | `chat_reattach_conflict` | 409 | "This conversation is open in another session." | yes |
 | `chat_reattach_yolo_not_allowed` | 409 | "An owner or admin can allow YOLO for this account in Settings." | no |
 | `chat_reattach_yolo_refused` | 409 | "YOLO is turned off on this machine, so this YOLO chat cannot be reconnected." | no |
 | `chat_reattach_capacity` | 409 | "This machine has reached its session limit." | no |
-| `chat_reattach_trust` | 409 | "This folder has OpenCode plugins, so reet did not reconnect the chat in place. Continue it with history only if you trust this folder." with a `detail` naming the plugin files | no; Continue with history is offered |
+| `chat_reattach_trust` | 409 | "This folder has OpenCode plugins, which run as code on this machine, so reet did not reconnect automatically. Reconnect only if you trust it." with a `detail` naming the plugin files | no; **Trust this folder and reconnect** and Continue with history are offered |
 | `chat_reattach_failed` | 502 | "The machine did not bring this chat back. Try again, or start a new chat." | yes |
 
 A wait that times out or finds the machine offline answers 503 "Reconnecting took too long. Try again.". A YOLO chat is a
 YOLO launch: the controller checks the account's **Allow YOLO** setting before it asks the machine. The machine marks a
-"still starting" conflict with the result detail `starting` (the only detail a `conflict` result may carry); a plain
-`conflict` means another session owns the conversation.
+"still starting" conflict with the result detail `starting` (the only detail a `conflict` result may carry) only for a
+controller that advertised **`chat-reattach-detail-v1`**; any other controller gets a plain `conflict`. A plain
+`conflict` means another session owns the conversation. Because the marker is negotiated, the controller and the machine
+can be updated in either order; an older controller shows its old "open in another session" wording for that rare
+moment.
 
 **A chat a person ended is never reconnected in place.** The machine answers a person's **End** of a Gaffer chat with
 `exited` (code 0); the controller records that close of an `end_requested` structured row as `ended` (no exit code). Rows
@@ -252,9 +266,13 @@ continuation replaces its older restart record so the next connector start resto
 
 **Limits of reconnecting.**
 
-- Automatic reconnect sends no folder-trust confirmation. A folder with OpenCode plugins is refused with the trust message;
-  the pane shows the plugin files and offers the explicit **Continue with history** again (a new row that confirms trust,
-  as the manual path always did) beside **Start a new chat**, without **Try again**. The header menu offers **Continue in
+- Automatic reconnect never sends a folder-trust confirmation. A folder with OpenCode plugins is refused with the trust
+  message; the pane shows the plugin files and offers **Trust this folder and reconnect** (in place: the same row, URL and
+  transcript, with the same "Reconnecting to your conversation…" state), the explicit **Continue with history** (a new
+  row that confirms trust, as the manual path always did) and **Start a new chat**, without **Try again**. Only a click on
+  **Trust this folder and reconnect** sends `{"trust": true}`, as one request; the controller does not keep it, so a later in-place reconnect asks
+  again (the machine's own restart restores a trusted chat as it does any chat started with trust, see above). The card
+  shows only the plugin files from the machine's detail. A trusted attempt refused for another reason shows that reason as usual. The header menu offers **Continue in
   Gaffer with history…** again for that chat.
 - A YOLO chat is refused, not downgraded, if the account no longer allows YOLO or the machine's local YOLO consent is off.
 - While the machine is offline the pane shows the idle ended note, not a waiting state, and a failure uses up the one

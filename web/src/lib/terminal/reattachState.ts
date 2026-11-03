@@ -25,9 +25,9 @@ export function continuationFailureInPane(args: { structured: boolean; selected:
 }
 
 /** Refusals of an in-place reconnect that trying again cannot fix: the account or the machine refuses YOLO, the machine
- *  is full, the folder has plugins (Continue with history is offered instead), the person ended the chat, or the row
- *  cannot be reconnected at all. Anything else (no code, a failure, a chat still starting, another owner) may succeed. */
-const FINAL_REATTACH_REFUSALS = new Set(['chat_reattach_yolo_not_allowed', 'chat_reattach_yolo_refused', 'chat_reattach_capacity', 'chat_reattach_trust', 'chat_reattach_ended', 'chat_reattach_unsupported', 'chat_reattach_no_conversation'])
+ *  is full, the folder has plugins (Continue with history is offered instead), the person ended the chat, the chat was archived
+ *  (its history is gone), or the row cannot be reconnected at all. Anything else (no code, a failure, a chat still starting, another owner) may succeed. */
+const FINAL_REATTACH_REFUSALS = new Set(['chat_reattach_yolo_not_allowed', 'chat_reattach_yolo_refused', 'chat_reattach_capacity', 'chat_reattach_trust', 'chat_reattach_ended', 'chat_reattach_unsupported', 'chat_reattach_no_conversation', 'chat_reattach_archived'])
 
 /** Whether a failed reconnect offers Try again, from the server's refusal code. */
 export function reattachRetryable(code?: string): boolean {
@@ -48,4 +48,27 @@ export function quietReattachRefusal(code: string | undefined, auto: boolean): '
   if (auto && code === 'chat_reattach_ended') return 'ended'
   if (auto && code === 'chat_reattach_not_closed') return 'drop'
   return null
+}
+
+/** A reconnect refused because the folder has OpenCode plugins offers the explicit Trust this folder and reconnect (in
+ *  place, beside Continue with history). Nothing else does: no other refusal is answered by trusting the folder. */
+export function offersTrustedReattach(outcome: { phase: 'pending' | 'failed'; code?: string } | undefined): boolean {
+  return outcome?.phase === 'failed' && outcome.code === 'chat_reattach_trust'
+}
+
+/** Whether a reconnect confirms trust of the chat's folder: only one the person asked for with trust exactly true. An
+ *  automatic attempt never does, whatever it is passed. */
+export function reattachTrust(opts: { auto?: boolean; trust?: boolean }): boolean {
+  return opts.auto !== true && opts.trust === true
+}
+
+/** The machine's trust detail names the plugin files and ends with an instruction meant for a new chat; a reconnect's
+ *  card shows only the files part, since the card's own sentence says what to do. Any other detail is shown as it is.
+ *  The machine builds that string in internal/terminalagent/chat.go (chatResult, the acpagent.TrustError case):
+ *  "This folder has agent extensions: <files>. Start a chat only in a folder you trust." */
+const NEW_CHAT_TRUST_HINT = ' Start a chat only in a folder you trust.'
+export function reattachDetail(outcome: { phase: 'pending' | 'failed'; code?: string; detail?: string } | undefined): string | undefined {
+  const detail = outcome?.detail
+  if (!detail || outcome?.code !== 'chat_reattach_trust' || !detail.endsWith(NEW_CHAT_TRUST_HINT)) return detail
+  return detail.slice(0, -NEW_CHAT_TRUST_HINT.length)
 }

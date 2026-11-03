@@ -12,11 +12,11 @@
 import SkillPicker from './SkillPicker.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
 import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
-import { offersContinueAfterReattach, reattachRetryable } from './reattachState'
+import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, reattachRetryable } from './reattachState'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, continuation }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Whether this agent descriptor permits a confirmed live model switch. */
   acpModel?: boolean
   /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
@@ -33,6 +33,9 @@ import { offersContinueAfterReattach, reattachRetryable } from './reattachState'
   reattach?: { phase: 'pending' | 'failed'; reason?: string; code?: string; detail?: string }
   /** Reconnects this chat in place (same session, same transcript); offered where the machine can reattach it. */
   onreattach?: () => void
+  /** Reconnects this chat in place confirming trust of its folder (it has OpenCode plugins). Offered only after a
+   *  folder-trust refusal, and called only from the person's click on Trust this folder and reconnect. */
+  ontrustreattach?: () => void
   /** A Continue with history in flight for this chat (machines without in-place reconnect), or why it failed. */
   continuation?: { phase: 'pending' | 'failed'; reason?: string }
   /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI
@@ -545,17 +548,20 @@ import { offersContinueAfterReattach, reattachRetryable } from './reattachState'
  {:else if reattachFailed}
   {@const failure = reattachCopy('failed', reattach?.reason)}
   {@const retry = onreattach && reattachRetryable(reattach?.code) ? onreattach : undefined}
-  <!-- After a folder-trust refusal the explicit Continue with history (a new row) is offered again (ruling R10). -->
+  <!-- After a folder-trust refusal the explicit Continue with history (a new row) is offered again (ruling R10), beside
+       the explicit Trust this folder and reconnect (in place). Neither is ever pressed for the person. -->
   {@const trusted = offersContinueAfterReattach(reattach) ? oncontinue : undefined}
+  {@const trustReconnect = offersTrustedReattach(reattach) ? ontrustreattach : undefined}
   <div class="ended-note lost" role="alert">
    <p><strong>{failure.status}.</strong> {failure.detail}</p>
-   {#if reattach?.detail}<p class="ended-status">{reattach.detail}</p>{/if}
+   {#if reattachDetail(reattach)}<p class="ended-status">{reattachDetail(reattach)}</p>{/if}
    {#if trusted && continuation?.phase === 'pending'}<p class="ended-status">Starting a new session…</p>{/if}
    {#if trusted && continuation?.phase === 'failed'}<p class="notice bad ended-status">{continuation.reason}</p>{/if}
    <div class="ended-actions">
     {#if retry}<button type="button" class="btn primary" onclick={retry}>Try again</button>{/if}
-    {#if trusted}<button type="button" class="btn primary" disabled={continueOff || continuation?.phase === 'pending'} aria-busy={continuation?.phase === 'pending' ? 'true' : undefined} onclick={trusted}>Continue with history</button>{/if}
-    {#if onnewchat}<button type="button" class="btn" class:primary={!retry && !trusted} disabled={newChatOff} onclick={event => onnewchat(event.currentTarget)}>Start a new chat</button>{/if}
+    {#if trustReconnect}<button type="button" class="btn primary" disabled={continuation?.phase === 'pending'} onclick={trustReconnect}>Trust this folder and reconnect</button>{/if}
+    {#if trusted}<button type="button" class="btn" class:primary={!trustReconnect} disabled={continueOff || continuation?.phase === 'pending'} aria-busy={continuation?.phase === 'pending' ? 'true' : undefined} onclick={trusted}>Continue with history</button>{/if}
+    {#if onnewchat}<button type="button" class="btn" class:primary={!retry && !trusted && !trustReconnect} disabled={newChatOff} onclick={event => onnewchat(event.currentTarget)}>Start a new chat</button>{/if}
    </div>
   </div>
  {:else if ended}

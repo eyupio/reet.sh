@@ -95,8 +95,11 @@ Handler `reattach(requestID, sessionID, body)` (`internal/terminalagent/chat_rea
 - On success the same view continues: no navigation, no new tab, no new row.
 - On failure: the reason in the pane (not a global error, announced as an alert) and **Start a new chat**, plus **Try
   again** only for a refusal a retry can fix (keyed off the route code: not for YOLO refusals, capacity, trust, ended,
-  unsupported or no conversation). A folder-trust refusal shows the plugin files and offers the explicit **Continue with
-  history** (new row, `trust: true`) again, in the pane and the header menu (ruling R10). An automatic attempt refused
+  archived, unsupported or no conversation). A folder-trust refusal shows the plugin files and offers **Trust this folder and
+  reconnect** (in place; the route's optional body `{"trust": true}`, sent only from that click, never by the automatic
+  attempt, never stored by the controller; the machine keeps it in its restart record as for any chat started with
+  trust, up to 7 days or 3 failed reopens, and a later in-place reconnect asks again) beside the explicit **Continue with history** (new row, `trust: true`), which is offered again in
+  the pane and the header menu (ruling R10). An automatic attempt refused
   as `chat_reattach_ended` falls back quietly to the ended note with Continue with history. A manual Reconnect or Try again refused this way shows the failure card with the server's message, Continue with history and Start a new chat, and no Try again.
 - The button copy changes from "Continue with history" to **Reconnect** for this path. The sidebar shows "Reconnecting"
   rather than "Lost" while pending.
@@ -116,10 +119,11 @@ Failed or refused continuation rows are failed definitively rather than left `cr
 | OpenCode store missing / `session/load` refused | `failed` with reason; Try again and Start a new chat. |
 | Live process already owns the chat | Adopted, state `running`. |
 | Another row owns the conversation | `failed`: "This conversation is open in another session." |
-| The machine is still starting the chat | `chat_reattach_starting`: "Still reconnecting. Try again in a moment." (the machine's conflict result carries the detail `starting`). |
+| The machine is still starting the chat | `chat_reattach_starting`: "Still reconnecting. Try again in a moment." (the machine's conflict result carries the detail `starting` only when the controller advertised `chat-reattach-detail-v1`; otherwise a plain conflict, so either side can be updated first and an older controller shows its old "open in another session" wording for that rare moment). |
 | Account does not allow YOLO / machine YOLO consent off | `chat_reattach_yolo_not_allowed` / `chat_reattach_yolo_refused`; no Try again. |
 | Machine at its session limit | `chat_reattach_capacity`: "This machine has reached its session limit."; no Try again. |
-| Folder has OpenCode plugins | `chat_reattach_trust` with the files; Continue with history and Start a new chat, no Try again. |
+| Folder has OpenCode plugins | `chat_reattach_trust` with the files; Trust this folder and reconnect (in place, `{"trust": true}` from that click only), Continue with history and Start a new chat, no Try again. |
+| Chat was archived (crafted request; archived rows are not listed) | `chat_reattach_archived`: "This chat was archived, so its history is gone."; refused before any machine call and before the ended checks (an ended and archived chat answers archived), no Try again, no Continue. |
 | A person ended the chat | `chat_reattach_ended`: "You ended this chat. Continue it with history as a new session." |
 | Reply lost | Operation stays pending; the next call with the same request id checks it. |
 
@@ -142,8 +146,8 @@ Failed or refused continuation rows are failed definitively rather than left `cr
 Known limitations of what was built:
 
 - Auto-reattach sends no folder-trust confirmation, so a folder with OpenCode plugins refuses with the trust message; the
-  person continues with history as a new row (which confirms trust) or starts a new chat. A trust body on the route is a
-  follow-up.
+  person reconnects in place with **Trust this folder and reconnect** (the route's optional `{"trust": true}` body, for
+  that request only), continues with history as a new row (which confirms trust), or starts a new chat.
 - YOLO chats are refused (not downgraded) if the account no longer allows YOLO or local YOLO consent is off.
 - While the machine is offline the pane shows the idle ended note (not a waiting state), and a failure consumes the one
   automatic attempt per session per page load.

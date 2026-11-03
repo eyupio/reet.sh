@@ -663,6 +663,9 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					}
 					if err != nil {
 						reply.Body = chatResult(err)
+						if errors.Is(err, errReattachStarting) {
+							reply.Body = resultFor(err, headers.Get(terminalproto.FeatureHeader))
+						}
 					} else {
 						reply.Body = changed.ForFeatures(headers.Get(terminalproto.FeatureHeader))
 					}
@@ -1060,10 +1063,18 @@ func result(err error) terminalproto.Result {
 	if r, ok := terminalhost.WorktreeResult(err); ok {
 		return r
 	}
-	if errors.Is(err, errReattachStarting) {
+	return terminalproto.Result{Code: code(err)}
+}
+
+// resultFor is result for a controller whose negotiated features are given: a
+// reattach of a chat that is still starting carries its detail marker only
+// when the controller advertised chat-reattach-detail-v1; an older controller
+// rejects Conflict with a detail, so it gets the plain Conflict.
+func resultFor(err error, features string) terminalproto.Result {
+	if errors.Is(err, errReattachStarting) && terminalproto.SupportsChatReattachDetail(features) {
 		return terminalproto.Result{Code: terminalproto.Conflict, Detail: terminalproto.ConflictStarting}
 	}
-	return terminalproto.Result{Code: code(err)}
+	return result(err)
 }
 
 // answerWorktree runs a worktree status or remove: a status is answered with

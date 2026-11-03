@@ -152,6 +152,23 @@ func terminalJSON(w http.ResponseWriter, r *http.Request, out any) bool {
 	}
 	return true
 }
+
+// terminalOptionalJSON decodes an optional body as terminalJSON does: an
+// empty body leaves out untouched, anything else must be one valid JSON
+// value with no unknown fields.
+func terminalOptionalJSON(w http.ResponseWriter, r *http.Request, out any) bool {
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, terminalproto.MaxControlBytes))
+	if err != nil {
+		writeErr(w, 400, "invalid terminal request")
+		return false
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return true
+	}
+	r.Body = io.NopCloser(bytes.NewReader(data))
+	return terminalJSON(w, r, out)
+}
+
 func terminalError(w http.ResponseWriter, err error) {
 	status := 503
 	message := "terminal machine is reconnecting; retry after it reconnects"

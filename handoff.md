@@ -53,7 +53,7 @@ the next branch as later work lands.
 | #426 | `415d2dd` | Account → API tokens as a create card plus one token panel: count, search, used/never chips, one-time secret, revoke. |
 | #427 | `00840c7` | Account → Profile as one grouped preferences panel: count, Save, blank-date fallback; viewer name read-only. |
 | #428 | `f920dd2` | Account → Password as one panel: three fields, head action, mismatch check, successful body and notice. |
-| #429 | this PR | Account → MCP access clients in one panel: count, search, OAuth/bearer chips, connection actions; page sections unchanged. |
+| #429 | `f7e668c` | Account → MCP access clients in one panel: count, search, OAuth/bearer chips, connection actions; page sections unchanged. |
 
 **What the refresh established.** The directory pages (Lists, Community, Teams, Setups) share one
 bounded surface, a count, search, scope chips whose figures follow the search, one row anatomy and
@@ -99,17 +99,17 @@ select is shown. No API, store, permission or dependency was added for the refre
 
 **Not claimed.** No physical phone or tablet, no screen reader, and no Safari or Firefox for any of
 the refreshed pages. Touch sizes were measured in an emulated coarse-pointer viewport. The Machines
-search matches observed reports, not saved intent. All seven Admin sections are refreshed. Account
-Sessions, API tokens, Profile, Password and MCP access are refreshed; Activity and Backups remain.
+search matches observed reports, not saved intent. All seven Admin sections are refreshed. All
+Account list and form pages are refreshed: Sessions, API tokens, Profile, Password and MCP access;
+Account Backups inherits the refreshed Backups panels, and Account Activity already had its own
+count, filters and day groups.
 
 **Next UI work, in order:**
-1. **Remaining Account pages**: Activity and Backups (the Backups lists already inherit the refreshed
-   component).
-2. **Skills/Machines follow-ups:** per-machine skill add/remove, the collapsed-badge summary for
+1. **Skills/Machines follow-ups:** per-machine skill add/remove, the collapsed-badge summary for
    large fleets, and **Add now** where a scan is stale or not confirmed.
-3. **Machines audit minors:** N1 (mixed date formats), N7 (Commands dialog exits), H10 (icon
+2. **Machines audit minors:** N1 (mixed date formats), N7 (Commands dialog exits), H10 (icon
    language), and attention sorting/status filter for large fleets.
-4. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
+3. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
    Do not claim these from the Chromium fixtures.
 
 ## Whole-controller restore and import (2 November 2026)

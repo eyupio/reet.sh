@@ -47,6 +47,14 @@ also has **Use a skill**, which searches the account's shelf and inserts that
 skill's ready-to-run prompt at the caret. The inserted text is ordinary prompt
 text, so the person can edit it, add around it, or delete it.
 
+An item can be saved as an **idea**: a title or a note, with no prompt yet, kept
+so it isn't forgotten. Start on an idea opens a dialog to turn it into a session.
+Add the prompt, change the agent, model, project, or options if needed, then
+choose Start session. The item is saved as a normal backlog item first and then
+started like any other. If it could not start, for example because its machine is
+offline, the dialog says why and nothing is saved. Cancel leaves the idea as it
+was. The server still refuses to start an item that is marked as an idea.
+
 Start checks machine readiness, installed agents, image-upload capability, and
 project identity. The server freezes the launch parameters before dispatch and
 uses the backlog item's stable ID as the terminal create request ID. Concurrent

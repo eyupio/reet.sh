@@ -14,7 +14,7 @@ async function workspace(width = 1440, theme = 'light', touch = false, entry = '
   const box = {
     drafts: [draft('draft-design', 'Give the settings page a proper polish', 'Refine the account settings layout. Focus on spacing, clear labels and a calmer visual hierarchy.', { imageCount: 2 }), draft('draft-tests', 'Cover the session recovery edge cases', 'Add focused coverage for a reconnect after the browser goes offline.', { tool: 'cline', model: 'anthropic/claude-sonnet', effort: 'high', projectId: 'p2', dir: '/home/sam/storefront' }), draft('draft-site', 'Bring the case studies up to date', 'Refresh the project stories and add the new screenshots.', { agentId: 'm2', projectId: 'p3', dir: '/Users/sam/site', tool: 'opencode', model: 'anthropic/claude-sonnet' })],
     sessions: [session('s1', 'Build a faster project picker'), session('s2', 'Review the checkout changes', { attention: 'waiting', tool: 'claude', model: 'opus', projectId: 'p2', dir: '/home/sam/storefront' }), session('s3', 'Tidy up the keyboard shortcuts', { state: 'exited', attention: 'finished', exitCode: 0, updatedAt: now - 35 * minute }), session('s4', 'Document the new launch options', { state: 'ended', attention: 'finished', tool: 'claude', model: 'sonnet', updatedAt: now - 90 * minute })],
-    starts: [], saves: [], deletes: [], failList: false,
+    starts: [], saves: [], updates: [], deletes: [], failList: false,
   }
   const routes = {
     '/api/v2/machines/health': { serverNow: now, machines: machines.map(m => ({ agentId: m.agentId, host: m.host, state: m.ready ? 'connected' : 'unreachable', capabilities: caps })) },
@@ -38,7 +38,7 @@ async function workspace(width = 1440, theme = 'light', touch = false, entry = '
     routes[`/api/v2/session-backlog/${id}`] = request => {
       const found = box.drafts.find(d => d.id === id)
       if (request.method() === 'DELETE') { box.deletes.push(id); box.drafts = box.drafts.filter(d => d.id !== id); return { ok: true } }
-      if (request.method() === 'PUT') { const input = request.postDataJSON(); Object.assign(found, input, { version: found.version + 1, imageCount: input.images.length }); return found }
+      if (request.method() === 'PUT') { const input = request.postDataJSON(); box.updates.push(input); Object.assign(found, input, { version: found.version + 1, imageCount: input.images.length }); return found }
       return found
     }
     routes[`/api/v2/session-backlog/${id}/start`] = request => {
@@ -193,7 +193,7 @@ try {
   await yoloCard.getByRole('button', { name: 'Start', exact: true }).click()
   await page.getByRole('alertdialog').getByRole('button', { name: 'Start with YOLO' }).click()
   await expect.poll(() => box.starts.length).toBe(startsBefore + 1)
-  // An idea is a placeholder: saved without a prompt, never startable until promoted.
+  // An idea is a placeholder, saved without a prompt. Start on it opens a dialog to refine it, then starts it.
   await page.getByRole('button', { name: 'New session', exact: true }).click()
   const ideaForm = page.getByRole('dialog')
   await ideaForm.getByLabel('Just capture an idea').check()
@@ -205,9 +205,10 @@ try {
   expect(box.saves.at(-1)).toMatchObject({ idea: true, prompt: '', title: 'Rethink onboarding' })
   const ideaCard = page.locator('.session-card').filter({ hasText: 'Rethink onboarding' })
   await expect(ideaCard.locator('.idea-badge')).toHaveText('Idea')
-  await expect(ideaCard.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
-  await expect(ideaCard.locator('.start-note')).toContainText('switch off Idea')
+  await expect(ideaCard.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
+  await expect(ideaCard.locator('.start-note')).toHaveCount(0)
   const startsAfterIdea = box.starts.length
+  // Edit still promotes an idea without starting it.
   await page.getByRole('button', { name: 'Edit Rethink onboarding', exact: true }).click()
   const promote = page.getByRole('dialog')
   await promote.getByLabel('Just capture an idea').uncheck()
@@ -218,6 +219,57 @@ try {
   await expect(ideaCard.locator('.idea-badge')).toHaveCount(0)
   await expect(ideaCard.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
   expect(box.starts).toHaveLength(startsAfterIdea)
+  const captureIdea = async (title, projectId = '') => {
+    await page.getByRole('button', { name: 'New session', exact: true }).click()
+    const form = page.getByRole('dialog')
+    await form.getByLabel('Just capture an idea').check()
+    if (projectId) await form.getByLabel('Project', { exact: true }).selectOption(projectId)
+    await form.getByLabel('Session title', { exact: false }).fill(title)
+    await form.getByRole('button', { name: 'Save idea' }).click()
+    await expect(form).toHaveCount(0)
+    return page.locator('.session-card').filter({ hasText: title })
+  }
+  // Cancel leaves the idea exactly as it was; refining then starting saves it as a normal item and starts it once.
+  const notes = await captureIdea('Plan the release notes')
+  await expect(notes.locator('.idea-badge')).toHaveText('Idea')
+  const savesBeforeRefine = box.saves.length, updatesBeforeRefine = box.updates.length
+  const startsBeforeRefine = box.starts.length
+  await notes.getByRole('button', { name: 'Start', exact: true }).click()
+  const refine = page.getByRole('dialog')
+  await expect(refine.getByRole('heading', { name: 'Turn this idea into a session' })).toBeVisible()
+  await expect(refine.getByLabel('Just capture an idea')).toHaveCount(0)
+  await expect(refine.getByRole('textbox', { name: /^Prompt/ })).toHaveValue('')
+  await expect(refine.getByRole('button', { name: 'Start session', exact: true })).toBeEnabled()
+  expect(box.starts).toHaveLength(startsBeforeRefine)
+  await refine.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(refine).toHaveCount(0)
+  await expect(notes.locator('.idea-badge')).toHaveText('Idea')
+  expect(box.saves).toHaveLength(savesBeforeRefine)
+  expect(box.updates).toHaveLength(updatesBeforeRefine)
+  expect(box.starts).toHaveLength(startsBeforeRefine)
+  await notes.getByRole('button', { name: 'Start', exact: true }).click()
+  await refine.getByRole('textbox', { name: /^Prompt/ }).fill('Draft the release notes for this week')
+  await refine.getByRole('button', { name: 'Start session', exact: true }).click()
+  await expect(refine).toHaveCount(0)
+  await expect.poll(() => box.starts.length).toBe(startsBeforeRefine + 1)
+  expect(box.updates.at(-1)).toMatchObject({ idea: false, title: 'Plan the release notes', prompt: 'Draft the release notes for this week' })
+  expect(box.starts.at(-1)).toMatchObject({ prompt: 'Draft the release notes for this week' })
+  await expect(page.locator('.active .session-card').filter({ hasText: 'Plan the release notes' })).toHaveCount(1)
+  await expect(page.locator('.backlog .session-card').filter({ hasText: 'Plan the release notes' })).toHaveCount(0)
+  // An idea on an offline machine can still be opened. The dialog says why it can't start yet, and starts once refined.
+  const away = await captureIdea('Move the site to the new host', 'p3')
+  const startsBeforeAway = box.starts.length
+  await away.getByRole('button', { name: 'Start', exact: true }).click()
+  const offline = page.getByRole('dialog')
+  await offline.getByRole('textbox', { name: /^Prompt/ }).fill('Plan the move')
+  await expect(offline.getByRole('note')).toContainText('reconnecting')
+  await expect(offline.getByRole('button', { name: 'Start session', exact: true })).toBeDisabled()
+  await offline.getByLabel('Project', { exact: true }).selectOption('p1')
+  await expect(offline.getByRole('note')).toHaveCount(0)
+  await offline.getByRole('button', { name: 'Start session', exact: true }).click()
+  await expect(offline).toHaveCount(0)
+  await expect.poll(() => box.starts.length).toBe(startsBeforeAway + 1)
+  expect(box.updates.at(-1)).toMatchObject({ idea: false, agentId: 'm1', projectId: 'p1', prompt: 'Plan the move' })
   expect(app.errors).toEqual([])
   await app.context.close()
   for (const [width, theme, touch] of [[1440, 'dark', false], [390, 'light', true], [320, 'light', true], [768, 'light', true]]) {

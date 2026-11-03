@@ -885,7 +885,7 @@ import { offersContinueAfterReattach, reattachRetryable } from './reattachState'
  .star.on { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
  .star:disabled { opacity: .5; cursor: default; }
  .star:focus-visible, .tile:focus-visible, .thumb:focus-visible, .tile-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
- .chat-pane { display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--bg); container: chat-pane / inline-size; }
+ .chat-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; height: 100%; background: var(--bg); container: chat-pane / inline-size; }
  .chat-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 18px; border-bottom: 1px solid var(--line-soft); font-size: 12px; color: var(--muted); background: var(--bg); }
  .chat-status strong { font-weight: 500; color: var(--ink); }
  .chat-status .detail { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
@@ -895,10 +895,12 @@ import { offersContinueAfterReattach, reattachRetryable } from './reattachState'
  .status-dot.down { background: var(--bad); }
  @keyframes pulse { 50% { opacity: .35; } }
  @media (prefers-reduced-motion: reduce) { .status-dot.busy { animation: none; } }
- .log { flex: 1; min-height: 0; overflow: auto; padding: 14px clamp(12px, 2.4vw, 24px) 22px; display: flex; flex-direction: column; gap: 6px; scroll-behavior: smooth; }
+ .log { flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 14px clamp(12px, 2.4vw, 24px) 22px; display: flex; flex-direction: column; gap: 6px; scroll-behavior: smooth; }
  @media (prefers-reduced-motion: reduce) { .log { scroll-behavior: auto; } }
  /* Rows keep their natural height: the log scrolls, it never squashes a tool card to fit. */
- .log > * { flex: none; }
+ .log > * { flex: none; min-width: 0; max-width: 100%; box-sizing: border-box; }
+ /* Everything around the log keeps its height too, so a long reply can never squash or overlay the notice, queue or composer. */
+ .chat-pane > :not(.log) { flex: none; min-width: 0; }
  .empty { margin: auto; max-width: 40ch; text-align: center; color: var(--muted); }
  .empty h3 { margin: 0 0 6px; font: 600 17px/1.3 var(--serif); color: var(--ink); }
  .empty p { margin: 0; font-size: 12.5px; line-height: 1.55; }
@@ -957,7 +959,7 @@ import { offersContinueAfterReattach, reattachRetryable } from './reattachState'
  .chevron svg { width: 13px; height: 13px; }
  .chevron.open { transform: rotate(180deg); }
  @media (prefers-reduced-motion: reduce) { .chevron { transition: none; } }
- .tool-body { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; border-top: 1px solid var(--line-soft); background: var(--bg-sunk); }
+ .tool-body { min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; border-top: 1px solid var(--line-soft); background: var(--bg-sunk); }
  .block { min-width: 0; }
  .block-label { display: block; margin-bottom: 5px; font: 600 9.5px var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
  .tool-body pre, .approval pre { margin: 0; padding: 8px 10px; max-height: 18rem; overflow: auto; border: 1px solid var(--line-soft); border-radius: 7px; background: var(--bg); color: var(--ink-soft); font: 11.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -979,7 +981,7 @@ import { offersContinueAfterReattach, reattachRetryable } from './reattachState'
  .think-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: italic 12px var(--sans); color: var(--faint); }
  .think-body { margin: 0 10px 8px 31px; padding: 8px 10px; max-height: 12rem; overflow: auto; border-left: 2px solid var(--line); color: var(--ink-soft); font: italic 12px/1.6 var(--sans); white-space: pre-wrap; overflow-wrap: anywhere; }
  /* An approval is the one card that asks for something, so it carries the warning tone. */
- .approval { display: flex; flex-direction: column; gap: 9px; margin: 6px 0; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--warn) 38%, var(--line)); border-left: 3px solid var(--warn); border-radius: 10px; background: color-mix(in srgb, var(--warn) 5%, var(--card)); }
+ .approval { min-width: 0; display: flex; flex-direction: column; gap: 9px; margin: 6px 0; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--warn) 38%, var(--line)); border-left: 3px solid var(--warn); border-radius: 10px; background: color-mix(in srgb, var(--warn) 5%, var(--card)); }
  .approval.decided { border-color: var(--line); border-left-color: var(--line-strong); background: var(--card); }
  .approval-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
  button.approval-head { width: 100%; padding: 0; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; }

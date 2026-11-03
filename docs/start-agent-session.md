@@ -14,6 +14,11 @@ The browser never sends a command line. It names a tool id (`claude`, `codex`, `
 connector and decides the program and its flags itself. No preset uses a flag that skips the
 agent's own permission prompts.
 
+Paste an image into the **Opening prompt**, or use **Attach images**, and each file is uploaded to the
+machine before the session starts; its absolute path joins the opening prompt, so the agent starts
+with it in view. At most 20 images and 50 MiB at once. A machine with uploads off, or an older reet,
+says so and Start waits.
+
 ## Gaffer or the agent TUI
 
 For OpenCode on a machine that advertises `acp`, the dialog's **Session** choice is **Gaffer** by default; choose

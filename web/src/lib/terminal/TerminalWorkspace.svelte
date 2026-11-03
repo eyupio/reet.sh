@@ -510,7 +510,7 @@
       chromeFocus.session=typing
       keyboard=keyboardLikelyOpen(usable.shrink,{coarse:coarse.matches,narrow:narrow.matches,editing:typing,scale:window.visualViewport?.scale??1})
       workspaceHeight=Math.max(120,usable.height-Math.max(0,workspace.getBoundingClientRect().top-usable.top)-8)
-      if(viewportDebug){const visual=window.visualViewport;debugReading=`visualViewport.height ${visual?Math.round(visual.height):'none'} · offsetTop ${visual?Math.round(visual.offsetTop):'none'}\ninnerHeight ${innerHeight} · screen.height ${screen.height}\nused height ${Math.round(usable.height)} · keyboard ${keyboard?'open':'closed'}`}
+      if(viewportDebug){const visual=window.visualViewport;debugReading=`visualViewport.height ${visual?Math.round(visual.height):'none'} · offsetTop ${visual?Math.round(visual.offsetTop):'none'}\ninnerHeight ${innerHeight} · screen.height ${screen.height}\nused height ${Math.round(usable.height)} · keyboard ${keyboard?'open':'closed'}\ninnerWidth ${innerWidth} · visualViewport.width ${visual?Math.round(visual.width):'none'} · scale ${visual?Math.round(visual.scale*100)/100:'none'} · offsetLeft ${visual?Math.round(visual.offsetLeft):'none'}\nclientWidth ${document.documentElement.clientWidth} · scrollWidth ${document.documentElement.scrollWidth} · screen.width ${screen.width} · dpr ${devicePixelRatio}\nmeta ${viewportMeta?.getAttribute('content')??'none'}`}
     })}
     const observer=new ResizeObserver(measure),header=document.querySelector('.site-header')
     if(header)observer.observe(header)

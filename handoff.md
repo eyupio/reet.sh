@@ -51,8 +51,9 @@ green. Contracts and rulings are in `docs/superpowers/specs/2026-11-02-directory
 `...-admin-notifications.md`, `...-admin-backups.md`, `...-admin-settings.md`,
 `...-admin-activity.md`, `...-account-sessions.md`, `...-account-tokens.md`,
 `...-account-profile.md`, `...-account-security.md`, `...-account-mcp.md` and
-`...-skill-card-machine-actions.md`; checks are in [docs/ui-verification.md](docs/ui-verification.md).
-The refresh merged through #432. Merge main into the next branch as later work lands.
+`...-skill-card-machine-actions.md` and `...-machine-add-skill.md`; checks are in
+[docs/ui-verification.md](docs/ui-verification.md). The refresh merged through #434. Merge main into
+the next branch as later work lands.
 
 **Merged, all with every required check green:**
 
@@ -77,7 +78,8 @@ The refresh merged through #432. Merge main into the next branch as later work l
 | #427 | `00840c7` | Account → Profile as one grouped preferences panel: count, Save, blank-date fallback; viewer name read-only. |
 | #428 | `f920dd2` | Account → Password as one panel: three fields, head action, mismatch check, successful body and notice. |
 | #429 | `f7e668c` | Account → MCP access clients in one panel: count, search, OAuth/bearer chips, connection actions; page sections unchanged. |
-| #432 | this PR | Skill cards: a large fleet collapses to one installed/missing/unconfirmed summary; unconfirmed machines offer Add now that queues a scan. |
+| #432 | `106c2fc` | Skill cards: a large fleet collapses to one installed/missing/unconfirmed summary; unconfirmed machines offer Add now that queues a scan. |
+| #434 | this PR | Machines: Add a skill… picker on the card menu, shelf candidates with Installed tags, existing install intent; disabled without an agent. |
 
 **What the refresh established.** The directory pages (Lists, Community, Teams, Setups) share one
 bounded surface, a count, search, scope chips whose figures follow the search, one row anatomy and
@@ -130,8 +132,8 @@ count, filters and day groups. Skill cards now summarise a large fleet in one pr
 let an unconfirmed machine be scanned before adding.
 
 **Next UI work, in order:**
-1. **Per-machine add/remove on the Machines page:** an Add a skill… picker and a Remove from
-   {machine} action using the existing review-before-removal flow.
+1. **Remove from {machine}** beside an installed skill, using the existing review-before-removal
+   flow.
 2. **Broader skills/sync vocabulary and authoring flow:** one glossary and one place for Sync.
 3. **Machines audit minors:** N1 (mixed date formats), N7 (Commands dialog exits), H10 (icon
    language), and attention sorting/status filter for large fleets.
@@ -1486,6 +1488,7 @@ node web/tests/account-profile.e2e.mjs
 node web/tests/account-security.e2e.mjs
 node web/tests/account-mcp.e2e.mjs
 node web/tests/skill-card.e2e.mjs
+node web/tests/machine-add-skill.e2e.mjs
 node web/tests/machines-search.e2e.mjs
 node web/tests/terminal-workspace.e2e.mjs
 node web/tests/terminal-lifecycle.e2e.mjs

@@ -9,6 +9,7 @@
   import { agentBuild, agentGroups, agentUpdateTarget, groupLabel, machineMatchesSearch, updateJobFor } from './machines'
   import { machineStatus, scanOnlyAgents, supportedAgents } from './machineSetup'
   import MachineCommands from './MachineCommands.svelte'
+  import MachineAddSkill from './MachineAddSkill.svelte'
   import AgentUpdate from './AgentUpdate.svelte'
   import MachineSettings from './MachineSettings.svelte'
   import UpdateReview from './UpdateReview.svelte'
@@ -62,6 +63,7 @@
 
   type Pending = { title: string; body: string; confirmLabel: string; danger?: boolean; action: () => Promise<void> }
   let commandsFor = $state<Machine | null>(null)
+  let addSkillFor = $state<Machine | null>(null)
   let fleetQuery = $state('')
   let confirm = $state<Pending | null>(null)
   let busy = $state('')
@@ -390,6 +392,7 @@
             <details class="sync-menu">
               <summary aria-label={`More options for ${machine.host}`} title="More options"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg></summary>
               <div class="sync-menu-panel" role="menu">
+                {#if canWrite}<button type="button" role="menuitem" disabled={!enrolled} title={!enrolled ? 'Connect an agent first' : undefined} onclick={(event) => { closeMenu(event); addSkillFor = machine }}>Add a skill…</button>{/if}
                 <a role="menuitem" href={`/sync?machine=${encodeURIComponent(machine.host)}`}>Choose skills &amp; scopes</a>
                 {#if enrolled && savedTargets(machine).length}<button type="button" role="menuitem" disabled={!!busy || enrolled.paused || sync.tone === 'working'} onclick={(event) => { closeMenu(event); void previewNow(machine, enrolled) }}>Preview changes only</button>{/if}
                 {#if enrolled}<button type="button" role="menuitem" disabled={!!busy} onclick={(event) => { closeMenu(event); void scan(enrolled) }}>Rescan machine</button>{/if}
@@ -482,6 +485,13 @@
 {#if startAgent && terminalAccess && terminals}<StartAgentDialog machines={terminals} snapshot={snapshot.machines ?? []} initialAgent={startAgent.agent} opener={startAgent.opener} onstarted={agentStarted} onleavefailed={agentLeaveFailed} onaddmachine={addFromStart(startAgent)} {onsignedout} onclose={() => (startAgent = null)} />{/if}
 
 {#if contentSource}<MachineSkillContent {snapshot} source={contentSource} opener={contentSource.opener} note={contentSource.note ?? ''} onaddmachine={addFromPrivate(contentSource)} {canWrite} {accounts} {onsignedout} onclose={() => contentSource = null} />{/if}
+
+{#if addSkillFor}
+  <MachineAddSkill machine={addSkillFor} onclose={() => (addSkillFor = null)} onadded={(result, skill) => {
+    onupdate(result.state)
+    onnotice(result.scanRequested ? `Scan requested for ${result.host}. Add ${skill.name} once it reports.` : `Installing ${skill.name} on ${result.host}. Follow it on the card.`)
+  }} />
+{/if}
 
 {#if commandsFor}
   <MachineCommands

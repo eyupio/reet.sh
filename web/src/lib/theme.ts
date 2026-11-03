@@ -6,8 +6,8 @@ export type Palette = 'dark' | 'light'
 export const TOKENS: Record<Palette, Record<string, string>> = {
   dark: {
     '--bg': '#1a1612',
-    '--card': '#231d18',
-    '--card-raised': '#28211c',
+    '--card': '#29221d',
+    '--card-raised': '#2e2621',
     '--line-soft': '#2f2822',
     '--line': '#3a322b',
     '--line-strong': '#51463c',

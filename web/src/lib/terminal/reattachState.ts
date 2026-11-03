@@ -61,3 +61,12 @@ export function offersTrustedReattach(outcome: { phase: 'pending' | 'failed'; co
 export function reattachTrust(opts: { auto?: boolean; trust?: boolean }): boolean {
   return opts.auto !== true && opts.trust === true
 }
+
+/** The machine's trust detail names the plugin files and ends with an instruction meant for a new chat; a reconnect's
+ *  card shows only the files part, since the card's own sentence says what to do. Any other detail is shown as it is. */
+const NEW_CHAT_TRUST_HINT = ' Start a chat only in a folder you trust.'
+export function reattachDetail(outcome: { phase: 'pending' | 'failed'; code?: string; detail?: string } | undefined): string | undefined {
+  const detail = outcome?.detail
+  if (!detail || outcome?.code !== 'chat_reattach_trust' || !detail.endsWith(NEW_CHAT_TRUST_HINT)) return detail
+  return detail.slice(0, -NEW_CHAT_TRUST_HINT.length)
+}

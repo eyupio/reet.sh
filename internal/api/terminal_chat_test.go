@@ -784,7 +784,7 @@ func TestReattachRouteRefusalSentences(t *testing.T) {
 			}
 			return session
 		}, status: 409, code: "chat_reattach_archived", msg: "This chat was archived, so its history is gone."},
-		{name: "trust", reply: terminalproto.Result{Code: terminalproto.ACPTrustRequired, Detail: ".opencode/plugins/x.js"}, status: 409, code: "chat_reattach_trust", msg: "This folder has OpenCode plugins, so reet did not reconnect automatically. Reconnect only if you trust it."},
+		{name: "trust", reply: terminalproto.Result{Code: terminalproto.ACPTrustRequired, Detail: ".opencode/plugins/x.js"}, status: 409, code: "chat_reattach_trust", msg: "This folder has OpenCode plugins, which run as code on this machine, so reet did not reconnect automatically. Reconnect only if you trust it."},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

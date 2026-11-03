@@ -12,7 +12,7 @@
 import SkillPicker from './SkillPicker.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
 import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
-import { offersContinueAfterReattach, offersTrustedReattach, reattachRetryable } from './reattachState'
+import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, reattachRetryable } from './reattachState'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
@@ -554,7 +554,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachRetryable }
   {@const trustReconnect = offersTrustedReattach(reattach) ? ontrustreattach : undefined}
   <div class="ended-note lost" role="alert">
    <p><strong>{failure.status}.</strong> {failure.detail}</p>
-   {#if reattach?.detail}<p class="ended-status">{reattach.detail}</p>{/if}
+   {#if reattachDetail(reattach)}<p class="ended-status">{reattachDetail(reattach)}</p>{/if}
    {#if trusted && continuation?.phase === 'pending'}<p class="ended-status">Starting a new session…</p>{/if}
    {#if trusted && continuation?.phase === 'failed'}<p class="notice bad ended-status">{continuation.reason}</p>{/if}
    <div class="ended-actions">

@@ -140,3 +140,15 @@ test('a refused trusted reconnect surfaces the server code and detail', async ()
   fetchRecording(409, { error: 'This chat was archived, so its history is gone.', code: 'chat_reattach_archived' })
   await assert.rejects(api.reattachChat('s1', { trust: true }), err => err.code === 'chat_reattach_archived' && err.status === 409)
 })
+
+const { reattachDetail } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+
+test('a folder-trust refusal shows the plugin files, not the machine\'s new-chat instruction', () => {
+  const detail = 'This folder has agent extensions: .opencode/plugins/x.js, .opencode/package.json. Start a chat only in a folder you trust.'
+  assert.equal(reattachDetail({ phase: 'failed', code: 'chat_reattach_trust', detail }), 'This folder has agent extensions: .opencode/plugins/x.js, .opencode/package.json.')
+  // Any other detail, or a trust detail in another shape, is shown as it is.
+  assert.equal(reattachDetail({ phase: 'failed', code: 'chat_reattach_trust', detail: '.opencode/plugins/x.js' }), '.opencode/plugins/x.js')
+  assert.equal(reattachDetail({ phase: 'failed', code: 'chat_reattach_failed', detail }), detail)
+  assert.equal(reattachDetail({ phase: 'failed', code: 'chat_reattach_trust' }), undefined)
+  assert.equal(reattachDetail(undefined), undefined)
+})

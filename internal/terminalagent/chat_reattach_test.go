@@ -439,3 +439,86 @@ func reattachDispatchStarting(t *testing.T, extra, detail string) {
 		t.Fatalf("reply does not validate: %v", err)
 	}
 }
+
+// pluginFolder makes a folder under the machine's home that OpenCode would
+// load plugins from.
+func pluginFolder(t *testing.T, h *chatHost) string {
+	t.Helper()
+	dir := filepath.Join(h.sup.opts.Home, "plugin-project")
+	if err := os.MkdirAll(filepath.Join(dir, ".opencode", "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".opencode", "plugins", "x.js"), []byte("export default {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// The machine's own trust gate on a reattach in a folder with OpenCode
+// plugins: without the person's trust the real start refuses it before
+// anything runs (ACPTrustRequired, nothing left running); with trust it
+// starts.
+func TestReattachPluginFolderNeedsTrust(t *testing.T) {
+	t.Run("untrusted is refused", func(t *testing.T) {
+		h, proc, _, loads := reattachHost(t)
+		dir := pluginFolder(t, h)
+		h.sup.start = func(ctx context.Context, opts acpagent.Options) (chatProcess, error) {
+			loads.record(opts)
+			// The real start: its trust gate runs before any process does.
+			return acpagent.Start(ctx, opts)
+		}
+		h.sup.mu.Lock()
+		quota := h.sup.quotaLocked()
+		h.sup.mu.Unlock()
+		in := reattachBody(h, proc)
+		in.Dir, in.Trust = dir, false
+		_, err := h.reattach(reattachRequestID, reattachSessionID, in)
+		var trust *acpagent.TrustError
+		if !errors.As(err, &trust) || len(trust.Files) == 0 {
+			t.Fatalf("untrusted plugin folder: %v", err)
+		}
+		if r := chatResult(err); r.Code != terminalproto.ACPTrustRequired || r.Detail == "" {
+			t.Fatalf("result %+v", r)
+		}
+		if loads.count() != 1 || loads.dirs[0] != dir {
+			t.Fatalf("starts %v %v", loads.loads, loads.dirs)
+		}
+		if _, ok := h.snapshot(reattachSessionID); ok {
+			t.Fatal("a refused reattach left a session behind")
+		}
+		h.sup.mu.Lock()
+		after := h.sup.quotaLocked()
+		_, receipt := h.sup.requests[reattachRequestID]
+		h.sup.mu.Unlock()
+		if after != quota || receipt {
+			t.Fatalf("refused reattach leaked: quota %d -> %d, receipt=%v", quota, after, receipt)
+		}
+	})
+	t.Run("trusted starts", func(t *testing.T) {
+		h, proc, _, loads := reattachHost(t)
+		dir := pluginFolder(t, h)
+		h.sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
+			loads.record(opts)
+			// The gate the real start runs first, with what it is given.
+			if err := opts.Agent.CheckTrust(opts.Dir, opts.Trust); err != nil {
+				return nil, err
+			}
+			proc.mu.Lock()
+			proc.onEvent = opts.OnEvent
+			proc.mu.Unlock()
+			return proc, nil
+		}
+		in := reattachBody(h, proc)
+		in.Dir, in.Trust = dir, true
+		changed, err := h.reattach(reattachRequestID, reattachSessionID, in)
+		if err != nil || changed.State != terminalproto.Running {
+			t.Fatalf("trusted plugin folder: %+v %v", changed, err)
+		}
+		if loads.count() != 1 || loads.dirs[0] != dir {
+			t.Fatalf("starts %v %v", loads.loads, loads.dirs)
+		}
+		if snap, ok := h.snapshot(reattachSessionID); !ok || snap.State != terminalproto.Running {
+			t.Fatalf("snapshot %+v %v", snap, ok)
+		}
+	})
+}

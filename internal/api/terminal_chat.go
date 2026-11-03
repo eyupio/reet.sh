@@ -408,7 +408,7 @@ func (s *server) terminalReattachError(w http.ResponseWriter, err error) {
 	case errors.As(err, &trust):
 		// Ruling R10: the browser shows the plugin files and offers an
 		// explicit trusted reconnect or Continue with history, not a retry.
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "This folder has OpenCode plugins, so reet did not reconnect automatically. Reconnect only if you trust it.", "code": "chat_reattach_trust", "detail": trust.Detail})
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "This folder has OpenCode plugins, which run as code on this machine, so reet did not reconnect automatically. Reconnect only if you trust it.", "code": "chat_reattach_trust", "detail": trust.Detail})
 	case errors.Is(err, terminalbroker.ErrReattachUnsupported):
 		writeErrCode(w, 409, "chat_reattach_unsupported", "", err.Error(), "")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported):

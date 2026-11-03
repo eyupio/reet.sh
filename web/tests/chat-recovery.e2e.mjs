@@ -17,7 +17,7 @@ const requests = []
 const reattachCalls = []
 // The raw body of each reattach request, to tell a trusted reconnect from any other.
 const reattachBodies = []
-const TRUST_SENTENCE = 'This folder has OpenCode plugins, so reet did not reconnect automatically. Reconnect only if you trust it.'
+const TRUST_SENTENCE = 'This folder has OpenCode plugins, which run as code on this machine, so reet did not reconnect automatically. Reconnect only if you trust it.'
 const TRUST_DETAIL = 'This folder has agent extensions: .opencode/plugins/x.js. Start a chat only in a folder you trust.'
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const { context, page, errors } = await openWorkspace(browser, {
@@ -309,7 +309,9 @@ try {
   reset(); reattachMode = 'trust-required'
   await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
   await expect(page.getByRole('alert')).toContainText(TRUST_SENTENCE)
-  await expect(note).toContainText('.opencode/plugins/x.js')
+  await expect(note).toContainText('This folder has agent extensions: .opencode/plugins/x.js.')
+  // The machine's new-chat instruction is not shown as the reconnect's instruction.
+  await expect(note).not.toContainText('Start a chat only in a folder you trust.')
   await expect(note.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
   await expect(note.getByRole('button', { name: 'Start a new chat', exact: true })).toBeVisible()
   await expect(trustReconnect).toBeEnabled()

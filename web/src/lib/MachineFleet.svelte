@@ -56,7 +56,7 @@
     highlight?: string
     onupdate: (state: SyncState) => void
     onerror: (error: unknown) => void
-    onnotice: (message: string, href?: string) => void
+    onnotice: (message: string, href?: string, action?: { label: string; run: () => void | Promise<void> }) => void
     // The sign-in ran out inside a dialog: the page clears it and shows its sign-in card.
     onsignedout?: (error: unknown) => void
   } = $props()
@@ -67,6 +67,13 @@
   let fleetQuery = $state('')
   let confirm = $state<Pending | null>(null)
   let busy = $state('')
+
+  async function showUpdateProgress(agentId: string) {
+    await tick()
+    const panel = document.querySelector<HTMLElement>(`[data-agent-update="${CSS.escape(agentId)}"]`)
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    panel?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' })
+  }
   let contentSource = $state<{ environmentId: string; name?: string; opener: HTMLElement | null; note?: string } | null>(null)
   // The settings dialog and the review read the live snapshot by host and id,
   // so a change made inside them shows there at once instead of in a stale copy.
@@ -262,12 +269,15 @@
     if (await run(`update-${agent.id}`, () => updateSyncAgent(agent.id, version))) {
       const switching = (version === 'dev') !== (agent.version === 'dev')
       const target = version === 'dev' ? 'the development build' : 'the latest release'
-      onnotice(`${switching ? 'Switch' : 'Update'} to ${target} queued for ${agent.host}. The agent verifies the release, keeps the previous binary, then restarts and reports back.`)
+      onnotice(`${switching ? 'Switch' : 'Update'} to ${target} queued for ${agent.host}.`, undefined, { label: 'View progress', run: () => showUpdateProgress(agent.id) })
+      await showUpdateProgress(agent.id)
     }
   }
   async function cancelUpdate(job: SyncJob) {
     const host = machineOf(job)?.host
-    if (await run(`cancel-${job.id}`, () => controlSyncJob(job.id, 'cancel'))) onnotice(`Update cancelled for ${host ?? 'the machine'}. It stays on its current build.`)
+    if (await run(`cancel-${job.id}`, () => controlSyncJob(job.id, 'cancel'))) {
+      onnotice(`Update cancelled for ${host ?? 'the machine'}. It stays on its current build.`, undefined, { label: 'View progress', run: () => showUpdateProgress(job.agentId) })
+    }
   }
   function machineOf(job: SyncJob): Machine | undefined {
     return machines.find(machine => agentFor(machine)?.id === job.agentId)
@@ -420,15 +430,17 @@
         </div>
 
         {#if enrolled}
-          <AgentUpdate
-            agent={enrolled}
-            job={lastUpdate(machine)}
-            releases={snapshot.releases}
-            {canWrite}
-            busy={!!busy}
-            onreview={() => openReview(enrolled, enrolled.version === 'dev' ? 'dev' : 'latest')}
-            oncancel={() => { const update = lastUpdate(machine); if (update) void cancelUpdate(update) }}
-          />
+          <div data-agent-update={enrolled.id}>
+            <AgentUpdate
+              agent={enrolled}
+              job={lastUpdate(machine)}
+              releases={snapshot.releases}
+              {canWrite}
+              busy={!!busy}
+              onreview={() => openReview(enrolled, enrolled.version === 'dev' ? 'dev' : 'latest')}
+              oncancel={() => { const update = lastUpdate(machine); if (update) void cancelUpdate(update) }}
+            />
+          </div>
         {/if}
 
         {#if terminalAccess && enrolled}

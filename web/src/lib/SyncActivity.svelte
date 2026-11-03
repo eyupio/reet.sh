@@ -134,6 +134,22 @@
     }
   }
 
+  // Toasts share this corner. Publish the dock's actual top edge, including
+  // phone navigation, so collapsed and expanded activity both leave room.
+  function reserveToastSpace(node: HTMLElement) {
+    const root = document.documentElement
+    const measure = () => root.style.setProperty('--sync-dock-clearance', `${window.innerHeight - node.getBoundingClientRect().top}px`)
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    window.addEventListener('resize', measure)
+    measure()
+    return { destroy() {
+      observer.disconnect()
+      window.removeEventListener('resize', measure)
+      root.style.removeProperty('--sync-dock-clearance')
+    } }
+  }
+
   function toggle() {
     expanded = !expanded
   }
@@ -206,7 +222,7 @@
 {/snippet}
 
 {#if show}
-  <aside class="sync-dock" class:working={live} class:expanded aria-label="Sync activity" aria-live="polite">
+  <aside use:reserveToastSpace class="sync-dock" class:working={live} class:expanded aria-label="Sync activity" aria-live="polite">
     <div class="accent" aria-hidden="true"></div>
     {#if expanded}
       <header class="dock-head">

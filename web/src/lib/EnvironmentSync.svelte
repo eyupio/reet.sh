@@ -1,5 +1,6 @@
 <script lang="ts">
   import Skeleton from './Skeleton.svelte'
+  import FeedbackToast from './FeedbackToast.svelte'
   import { onMount, tick } from 'svelte'
   import type { Snippet } from 'svelte'
   import { getBuildInfo, getSyncState, mergeMachines, forgetMachine, listSetupProfiles, type SetupProfileSummary, type SyncState, type SyncEnvironment } from './api'
@@ -32,7 +33,9 @@
   let notice = $state('')
   // A link that goes with the notice ("Open it"), when it names something to open.
   let noticeHref = $state('')
-  let banner = $state<HTMLElement>()
+  let noticeId = $state(0)
+  let noticeAction = $state<{ label: string; run: () => void | Promise<void> } | undefined>()
+  let actionError = $state('')
   let lastRefresh = $state(0)
   let serverBuild = $state<{ version: string; commit: string } | null>(null)
   let loadGeneration = 0
@@ -110,15 +113,17 @@
     error = ''
     notice = ''
     noticeHref = ''
+    noticeAction = undefined
+    actionError = ''
     try {
       syncState = change.to ? await mergeMachines(change.from, change.to) : await forgetMachine(change.from)
       notice = change.to ? `Reet, reports now belong to ${change.to}. Old names remain aliases; future scans update this machine.` : `Forgot ${change.from}. Installed files and shelf entries are unchanged; a future scan can report it again.`
       maintenanceFrom = ''
       maintenanceTo = ''
       await tick()
-      document.getElementById('machine-list-title')?.focus()
+      document.getElementById('machine-list-title')?.focus({ preventScroll: true })
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      actionFailed(e)
     } finally {
       busy = false
     }
@@ -190,13 +195,17 @@
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     document.getElementById(`machine-${machine.host}`)?.closest('article')?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' })
   }
-  // The outcome of an action on a machine card appears up here; without this a
-  // person who acted far down the page sees the dialog close and nothing else.
-  // Background refresh failures set the banner too, but they are not the person's doing.
-  async function showOutcome() {
-    await tick()
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    banner?.querySelector('p')?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' })
+  function notify(message: string, href = '', action?: { label: string; run: () => void | Promise<void> }) {
+    noticeId++
+    noticeAction = action
+    actionError = ''
+    notice = message
+    noticeHref = href
+  }
+  function actionFailed(e: unknown) {
+    noticeId++
+    notice = ''
+    actionError = e instanceof Error ? e.message : String(e)
   }
   function joinStepByStep(name: string) {
     setupHost = name
@@ -241,9 +250,8 @@
   </div>
   {/if}
   {#if focusedMachine}<p class="hint machine-focus"><a href="/machines">All machines</a> / <strong>{focusedMachine.host}</strong></p>{:else if focusHost && !loading}<p class="hint">No machine named {focusHost} is connected. <a href="/machines">Show all machines</a>.</p>{/if}
-  <div class="banners" bind:this={banner}>
+  <div class="banners">
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    {#if notice}<p class="notice" role="status">{notice}{#if noticeHref}{' '}<a href={noticeHref}>Open it</a>{/if}</p>{/if}
   </div>
 
   {#if view === 'compare'}
@@ -260,7 +268,7 @@
     {#if loading && !loaded}
       <Skeleton label="Reading your machines…" shape="cards" count={2} height="150px" />
     {:else if visibleMachines.length}
-      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {terminalAccess} {monitorAccess} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} highlight={justAdded} onupdate={updateState} onerror={(e) => { error = e instanceof Error ? e.message : String(e); void showOutcome() }} {onsignedout} onnotice={(message, href) => { notice = message; noticeHref = href ?? ''; void showOutcome() }} onimport={(source) => (importSource = source)} />
+      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {terminalAccess} {monitorAccess} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} highlight={justAdded} onupdate={updateState} onerror={actionFailed} {onsignedout} onnotice={notify} onimport={(source) => (importSource = source)} />
     {:else if loaded}
       <section class="sync-empty" aria-labelledby="machines-empty-title">
         <h3 id="machines-empty-title">No machines connected yet</h3>
@@ -325,6 +333,11 @@
     confirmLabel={machineChange.to ? 'Save machine identity' : 'Forget machine'} danger={!machineChange.to} onconfirm={changeMachine} oncancel={() => (machineChange = null)} />
 {/if}
 
+<FeedbackToast message={notice} resetKey={noticeId} actionLabel={noticeAction?.label ?? (noticeHref ? 'Open it' : undefined)}
+  onaction={noticeAction?.run ?? (noticeHref ? () => { location.assign(noticeHref) } : undefined)}
+  ondismiss={() => { notice = ''; noticeHref = '' }} />
+<FeedbackToast message={actionError} resetKey={noticeId} tone="bad" ondismiss={() => (actionError = '')} />
+
 <style>
   .sync-empty { border: 1px dashed var(--line); border-radius: 12px; padding: 18px; background: var(--card); }
   .sync-empty h3 { margin: 0 0 12px; font: 500 1.3rem/1.2 var(--serif); letter-spacing: -0.02em; }
@@ -347,8 +360,7 @@
   .advanced-fleet { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px; }
   .advanced-fleet > summary { cursor: pointer; font-weight: 650; font-size: .88rem; }
   .banners { display: contents; }
-  .error, .notice { padding: 12px; border: 1px solid var(--bad); border-radius: 8px; overflow-wrap: anywhere; }
-  .notice { border-color: var(--good); }
+  .error { padding: 12px; border: 1px solid var(--bad); border-radius: 8px; overflow-wrap: anywhere; }
   @media (max-width: 560px) {
     .command { align-items: stretch; }
     .command :global(button) { width: 100%; }

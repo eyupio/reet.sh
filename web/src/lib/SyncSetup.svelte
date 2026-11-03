@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FeedbackToast from './FeedbackToast.svelte'
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { getSyncState, syncCandidates, saveDesired, startSyncRun, controlSyncAgent, queueSyncJob, syncFromMachine, getImports, type ImportRequest, type SyncState, type SyncSkill } from './api'
@@ -163,7 +164,7 @@
     {@const target=snapshot.environments.find(env=>env.id===item.destinationId)}
     {#if candidate&&target}<p class="result" role="status">{candidate.name} · {item.host} → {target.host} · {item.syncRunId?'Sync queued':item.state} <button class="btn quiet" onclick={()=>copying={skill:candidate,host:target.host,requestId:item.id}}>View progress</button></p>{/if}
   {/each}
-  {#if result}<p class="result" role="status">{result}</p>{/if}
+  <FeedbackToast message={result} ondismiss={() => (result = '')} />
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 </section>
 

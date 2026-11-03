@@ -1,17 +1,19 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
 
-  let { message, actionLabel, onaction, ondismiss, duration = 8000, placement = 'center', tone = '' }: {
+  let { message, actionLabel, onaction, ondismiss, duration = 8000, placement = 'right', tone = 'ok' }: {
     message: string
     actionLabel?: string
     onaction?: () => void | Promise<void>
     ondismiss: () => void
     duration?: number
-    /** 'right' is the usual corner toast; 'center' is the original bottom-centre one. */
+    /** Action feedback uses the right corner by default. */
     placement?: 'center' | 'right'
     tone?: '' | 'ok' | 'bad'
   } = $props()
 
+  let disposed = false
+  let dismissTimer: ReturnType<typeof setTimeout> | undefined
   let leaving = $state(false)
   let acting = $state(false)
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -40,11 +42,11 @@
   }
 
   function dismiss() {
-    if (leaving) return
+    if (leaving || disposed) return
     leaving = true
     clearTimeout(timer)
     timer = undefined
-    setTimeout(ondismiss, 180)
+    dismissTimer = setTimeout(ondismiss, 180)
   }
 
   async function act() {
@@ -62,7 +64,7 @@
     remaining = duration
     start()
   })
-  onDestroy(() => clearTimeout(timer))
+  onDestroy(() => { disposed = true; clearTimeout(timer); clearTimeout(dismissTimer) })
 </script>
 
 <div
@@ -71,8 +73,8 @@
   class:right={placement === 'right'}
   class:ok={tone === 'ok'}
   class:bad={tone === 'bad'}
-  role="status"
-  aria-live="polite"
+  role={tone === 'bad' ? 'alert' : 'status'}
+  aria-live={tone === 'bad' ? 'assertive' : 'polite'}
   onmouseenter={pause}
   onmouseleave={resume}
   onfocusin={pause}
@@ -92,7 +94,7 @@
 
 <style>
   .toast {
-    position: fixed; left: 50%; bottom: calc(24px + var(--bottom-chrome, 0px)); z-index: 20; transform: translate(-50%, 0);
+    position: fixed; left: 50%; bottom: max(calc(24px + var(--bottom-chrome, 0px)), calc(var(--sync-dock-clearance, 0px) + 12px)); z-index: 20; transform: translate(-50%, 0);
     display: flex; align-items: center; gap: 10px; width: max-content;
     max-width: min(460px, calc(100vw - 32px)); padding: 10px 10px 10px 14px;
     background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--accent);
@@ -122,7 +124,7 @@
     .action, .close { min-height: 44px; }
     .close { width: 44px; height: 44px; }
   }
-  @media (max-width: 560px) { .toast { bottom: calc(16px + var(--bottom-chrome, 0px)); } .toast.right { right: 16px; } }
+  @media (max-width: 560px) { .toast { bottom: max(calc(16px + var(--bottom-chrome, 0px)), calc(var(--sync-dock-clearance, 0px) + 12px)); } .toast.right { right: 16px; } }
   @media (prefers-reduced-motion: no-preference) {
     .toast { transition: opacity 180ms ease, transform 180ms var(--ease-out); }
     .toast.leaving { opacity: 0; transform: translate(-50%, 8px); }

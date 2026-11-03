@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FeedbackToast from './FeedbackToast.svelte'
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import SyncSetup from './SyncSetup.svelte'
@@ -19,6 +20,7 @@
   let source = $state('shelf'), selectedMachine = $state(''), selectedAgents = $state<string[]>([]), listId = $state(0), mode = $state('additive')
   let candidates = $state<SyncSkill[]>([]), selected = $state<string[]>([]), adopt = $state<string[]>([]), lists = $state<SharedList[]>([])
   let revision = $state(''), busy = $state(false), loading = $state(false), error = $state(''), notice = $state(''), query = $state('')
+  let actionError = $state('')
   let scopeQuery = $state('')
   let listEditable = $state(false), sourceLoaded = $state(false)
   let conflicts = $state<string[]>([])
@@ -121,7 +123,7 @@
     selected = selected.includes(choice) ? selected.filter(v => v !== choice) : [...selected, choice]
     conflicts = conflicts.filter(name => candidates.find(s => s.id === choice)?.slug !== name)
   }
-  async function run(fn: () => Promise<void>) { if (busy) return; busy = true; error = ''; notice = ''; try { await fn() } catch (e) { error = e instanceof Error ? e.message : String(e) } finally { busy = false } }
+  async function run(fn: () => Promise<void>) { if (busy) return; busy = true; error = ''; actionError = ''; notice = ''; try { await fn() } catch (e) { actionError = e instanceof Error ? e.message : String(e) } finally { busy = false } }
   let request = 0
   async function loadSource() {
     const generation = ++request; loading = true; sourceLoaded = false; error = ''; candidates = []; selected = []; adopt = []; conflicts = []; query = ''
@@ -428,7 +430,8 @@
 </script>
 
 {#if error}<p class="feedback bad" role="alert">{error}</p>{/if}
-{#if notice}<p class="feedback" role="status">{notice}</p>{/if}
+<FeedbackToast message={notice} ondismiss={() => (notice = '')} />
+<FeedbackToast message={actionError} tone="bad" ondismiss={() => (actionError = '')} />
 
 {#snippet jobRow(entry: SyncActivityEntry, startOpen: boolean)}
   {@const counts = jobPlanCounts(entry.job)}

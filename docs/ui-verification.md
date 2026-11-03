@@ -1,5 +1,42 @@
 # UI verification — 3 November 2026
 
+## Gaffer: selected Grid and Phosphor artwork
+
+The owner selected the pale tiled flat cap, grid-filled face, dashed white silhouette and soft CRT glow,
+plus the Ey up, On the job and Strategic brew gestures. Those approved drawings now replace the colour
+portrait in the real `GafferAvatar` component. Compact stopped cards use the Grid portrait; active cards
+use the Phosphor bust, with the approved four-frame strips for cap-tips, reading and tea sips. The dark
+screen belongs to the illustration and remains legible in both app themes. Source art is locally packaged
+as lossless WebP; there is no image service or provider request at runtime.
+
+Gestures play once and return to the first frame. The work card still schedules long rests, pauses on
+hidden tabs, honours the account animation preference, local pause and reduced motion. Snags and
+requests for input override decorative greetings and tea breaks. Clicking a working Gaffer now plays
+the selected cap-tip; pause continues to leave quotes, observed time, approvals and summaries live.
+
+Validation:
+
+- `node tests/gaffer-artwork.e2e.mjs`: both original portraits decode; all three source rows and all four
+  frames are selected correctly, the one-shot returns to rest, pause/account preference/reduced motion
+  stop CSS motion, and error/approval states override intentionally conflicting decorations.
+- `node tests/gaffer-progress.e2e.mjs`: the existing work-card matrix passes, including summaries,
+  reconnection/replay, keyboard controls, return reactions and 320/390/768 px in both themes.
+- `node tests/gaffer-return.e2e.mjs`: returning to an active session preserves the tea scene through
+  its last frame and rest before the startled reaction. Errors, approvals and pause still cancel
+  the pending welcome. This regression failed against the original 900 ms welcome timer; playback
+  and the welcome lifetime now share the same duration constant.
+- `npm run check`: web unit tests and Svelte/TypeScript diagnostics pass. Refreshing `origin/main`
+  resolved the initial theme-test git-output buffer error caused by the stale local base reference.
+- `npm run build`: production build passes. This UI-only change does not modify the Go runtime.
+
+`node tests/gaffer-capture.mjs` reproduces the actual component captures:
+
+- [Selected artwork and states](images/ui/gaffer-phosphor-review.png)
+- [Desktop dark](images/ui/gaffer-phosphor-desktop-dark.png) / [desktop light](images/ui/gaffer-phosphor-desktop-light.png)
+- [Phone dark](images/ui/gaffer-phosphor-phone-dark.png) / [phone light](images/ui/gaffer-phosphor-phone-light.png)
+
+Reviewed in Chromium. Physical devices, Firefox and Safari were not exercised.
+
 ## Account card headline (3 November 2026)
 
 The card on the sign-in, sign-up and first-run setup pages now says "Your whole AI setup. Ready to control." The

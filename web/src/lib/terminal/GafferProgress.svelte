@@ -3,7 +3,7 @@
   import { toolLabel, toolState, toolTarget, type ChatState } from '../chat'
   import { gafferProgress, gafferQuote, observedTime, recentToolState, type GafferPhase } from '../gafferProgress'
   import { gafferSummary } from '../gafferSummary'
-  import { gafferAnimations } from '../gafferMotion'
+  import { GAFFER_GESTURE_MS, gafferAnimations } from '../gafferMotion'
   import { GAFFER_AWAY_AFTER, gafferAside, gafferGesture, gafferPose, type GafferPose, type GafferReaction } from '../gafferPersonality'
   import GafferAvatar from './GafferAvatar.svelte'
 
@@ -46,10 +46,12 @@
     quote = gafferAside('return', resting, agent, quote); quoteAt = Date.now()
     if ((resting === 'tea' || resting === 'asleep') && !still) {
       welcomePose = resting
+      // Let the sip finish and briefly rest before he notices the user. A doze still wakes promptly.
+      const welcomeDelay = resting === 'tea' ? GAFFER_GESTURE_MS + 200 : 900
       welcomeTimer = setTimeout(() => {
         welcomePose = null; gesture(resting === 'asleep' ? 'stretch' : 'startle')
-      }, 900)
-      settleTimer = setTimeout(() => { reaction = '' }, 3_500)
+      }, welcomeDelay)
+      settleTimer = setTimeout(() => { reaction = '' }, welcomeDelay + 2_100)
     } else gesture(gafferGesture(view.phase))
   }
   function greet() {
@@ -58,7 +60,7 @@
     const resting = pose
     cancelWelcome()
     quote = gafferAside('click', resting, agent, quote); quoteAt = Date.now()
-    gesture(resting === 'asleep' ? 'stretch' : resting === 'tea' ? 'startle' : resting === 'concerned' ? 'shake' : resting === 'attention' ? 'listen' : ['tip-cap', 'wink', 'nod'][Math.floor(Math.random() * 3)] as GafferReaction)
+    gesture(resting === 'asleep' ? 'stretch' : resting === 'tea' ? 'startle' : resting === 'concerned' ? 'shake' : resting === 'attention' ? 'listen' : 'tip-cap')
   }
 
   // Offer Read more only when the three-line clamp really hides text; re-measure when the pane resizes.
@@ -141,7 +143,7 @@
 {#if view.visible}
   <section class="gaffer-progress" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:compact={stopped} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase}>
     <div class="gaffer-main">
-      <button type="button" class="portrait" aria-label="Say ey up to Gaffer" title="Say ey up to Gaffer" onclick={greet}><GafferAvatar active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} paused={still} /></button>
+      <button type="button" class="portrait" aria-label="Say ey up to Gaffer" title="Say ey up to Gaffer" onclick={greet}><GafferAvatar variant={stopped ? 'portrait' : 'bust'} active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} paused={still} /></button>
       <div class="brief">
         <div class="byline"><strong>Gaffer</strong><span class="role">The boss</span><span class="agent">{agent}</span></div>
         <div class="live-update" role="status" aria-live="polite" aria-atomic="true">
@@ -220,7 +222,7 @@
   .needs-you { --tone: var(--warn); }
   .problem { --tone: var(--bad); }
   .gaffer-main { display: flex; align-items: center; gap: 10px; padding: 11px 12px; }
-  .portrait { width: 52px; height: 52px; flex: none; border: 0; padding: 0; background: none; cursor: pointer; border-radius: 8px; }
+  .portrait { width: 64px; height: 64px; flex: none; border: 0; padding: 0; background: none; cursor: pointer; border-radius: 8px; }
   .portrait:hover { background: var(--line-soft); }
   .portrait:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .pause:disabled { opacity: .55; cursor: default; }
@@ -264,7 +266,7 @@
   .activity-line { position: absolute; inset: auto 0 0; height: 2px; overflow: hidden; background: color-mix(in srgb, var(--tone) 10%, transparent); }
   .activity-line > span { display: block; height: 100%; width: 100%; opacity: .35; background: linear-gradient(90deg, transparent, var(--tone), transparent); }
   .compact .gaffer-main { padding-block: 9px; }
-  .compact .portrait { width: 44px; height: 44px; }
+  .compact .portrait { width: 48px; height: 48px; }
   .compact .role { display: none; }
   .compact .live-update { margin-top: 4px; }
   .compact .quote { font-size: 11px; min-height: 0; }
@@ -300,7 +302,7 @@
   .vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
   @container gaffer (max-width: 540px) {
     .gaffer-main { gap: 9px; padding: 11px 10px; }
-    .portrait { width: 44px; height: 44px; align-self: flex-start; }
+    .portrait { width: 48px; height: 48px; align-self: flex-start; }
     .agent { display: none; }
     .live-update { flex-wrap: wrap; gap: 2px 6px; margin-top: 6px; }
     .live-update > strong { flex: 1; min-width: 0; }

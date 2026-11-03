@@ -247,6 +247,8 @@
       @keyframes boot-shimmer { to { background-position: -200% 0; } }
       @media (prefers-reduced-motion: reduce) { .boot-brand { animation: none; } }
 
+      /* The bar keeps the real header's padding at each breakpoint, so the logo does not shift when the shell hands over. */
+      @media (max-width: 1000px) { .boot-bar-inner { padding: 16px 24px; } }
       @media (max-width: 850px) {
         .boot-main { padding: 26px 24px 44px; }
         .boot-hero { grid-template-columns: 1fr; gap: 30px; }
@@ -254,8 +256,8 @@
         .boot-steps { grid-template-columns: 1fr; gap: 20px; }
         .boot-cards { grid-template-columns: 1fr; }
       }
-      @media (max-width: 550px) {
-        .boot-bar-inner { padding: 18px 16px; }
+      @media (max-width: 560px) {
+        .boot-bar-inner { padding: 20px 16px; }
         .boot-main { padding: 18px 16px 36px; }
         .boot-nav .boot-pill:not(.wide) { display: none; }
         .boot-preview .terminal { height: 120px; }

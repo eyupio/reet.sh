@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onDestroy, onMount, tick, untrack } from 'svelte'
  import { fade, fly } from 'svelte/transition'
- import { applyChatEvent, checkQuestionDraft, endedReason, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, rejectLabel, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
+ import { applyChatEvent, checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, rejectLabel, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
  import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
@@ -15,7 +15,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, continuation }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Whether this agent descriptor permits a confirmed live model switch. */
   acpModel?: boolean
   /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
@@ -27,6 +27,12 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
   /** Loads this exact conversation through the workspace's existing continuation operation. */
   oncontinue?: () => void
   continueOff?: boolean
+  /** An in-place reconnect of this lost chat: in flight, or why the last attempt failed. Absent while none is. */
+  reattach?: { phase: 'pending' | 'failed'; reason?: string }
+  /** Reconnects this chat in place (same session, same transcript); offered where the machine can reattach it. */
+  onreattach?: () => void
+  /** A Continue with history in flight for this chat (machines without in-place reconnect), or why it failed. */
+  continuation?: { phase: 'pending' | 'failed'; reason?: string }
   /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI
    *  switch; undefined until the stream has opened and its replay has been applied, as the chat cannot say before then. */
   onbusy?: (busy: boolean | undefined) => void; onstate?: (state: ChatState) => void } = $props()
@@ -197,15 +203,19 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  let copyTimer: ReturnType<typeof setTimeout> | undefined
 
  const ended = $derived(terminalClosed(session.state) || chat.status.state === 'ended')
+ // While the chat reconnects in place, the transcript stays and the message box waits, disabled, for it to come back.
+ const reattaching = $derived(ended && reattach?.phase === 'pending')
+ const reattachFailed = $derived(ended && reattach?.phase === 'failed')
+ const pendingCopy = reattachCopy('pending')
  // A dismissed `/` trigger re-arms whenever the draft stops being a leading-slash token, however the draft changed.
  $effect(() => { if (slashQuery(draft) === null) slashDismissed = false })
  const working = $derived(isWorking(chat))
  // One value says whether the message box can take text; the textarea, the Skills button and a pick all use it, so they cannot drift apart.
  const composerBlocked = $derived(sending || uploading || changingModel || working || chat.connection === 'reconnecting')
- const skillsOff = $derived(ended ? 'This reet session has ended.' : chat.connection !== 'open' ? 'Skills can be inserted once reet is connected.' : sending || uploading || changingModel ? 'Skills can be inserted once the message has been sent.' : working ? 'Skills can be inserted when the agent is idle.' : '')
+ const skillsOff = $derived(reattaching ? 'Skills can be inserted once the chat is back.' : ended ? 'This reet session has ended.' : chat.connection !== 'open' ? 'Skills can be inserted once reet is connected.' : sending || uploading || changingModel ? 'Skills can be inserted once the message has been sent.' : working ? 'Skills can be inserted when the agent is idle.' : '')
  const pending = $derived(pendingPermissions(chat))
  const asked = $derived(pendingQuestions(chat))
- const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : ended ? 'This reet session has ended.' : !replayed ? `Catching up with ${toolName}…` : pending.length ? 'Waiting for your approval.' : asked.length ? 'Waiting for your answer.' : working ? `${toolName} is working…` : chat.status.state === 'error' ? `${toolName} stopped with an error.` : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
+ const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : reattaching ? 'Reconnecting…' : ended ? 'This reet session has ended.' : !replayed ? `Catching up with ${toolName}…` : pending.length ? 'Waiting for your approval.' : asked.length ? 'Waiting for your answer.' : working ? `${toolName} is working…` : chat.status.state === 'error' ? `${toolName} stopped with an error.` : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
  $effect(() => { onbusy?.(replayed ? working || pending.length > 0 || asked.length > 0 : undefined) })
  const statusDetail = $derived(pending.length || asked.length || chat.status.state === 'waiting' ? '' : chat.status.detail)
  const canAttach = $derived(uploadsSupported && !uploadsOff && !ended)
@@ -521,16 +531,32 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
 
 <section class="chat-pane" aria-label={`Gaffer in ${session.title}`} ondragover={(event) => { if (canAttach) { event.preventDefault(); dropping = true } }} ondragleave={(event) => { if (event.currentTarget === event.target || !(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) dropping = false }} ondrop={(event) => { dropping = false; dropped(event) }}>
  <div class="chat-status" role="status" aria-live="polite">
-  <span class="status-dot" class:busy={working} class:wait={pending.length > 0} class:down={chat.connection === 'reconnecting'} aria-hidden="true"></span>
+  <span class="status-dot" class:busy={working || reattaching} class:wait={pending.length > 0} class:down={chat.connection === 'reconnecting'} aria-hidden="true"></span>
   <strong>{statusWord}</strong>
   {#if statusDetail && !failed}<span class="detail">{statusDetail}</span>{/if}
  </div>
- {#if ended}
-  <div class="ended-note" class:lost={session.state === 'lost'} role="status">
-   <p>{endedReason(session.state, toolName, !!oncontinue)}</p>
+ {#if reattaching}
+  <div class="ended-note reattaching" role="status">
+   <p><span class="status-dot busy" aria-hidden="true"></span><strong>{pendingCopy.status}</strong> {pendingCopy.detail}</p>
+  </div>
+ {:else if reattachFailed}
+  {@const failure = reattachCopy('failed', reattach?.reason)}
+  <div class="ended-note lost" role="status">
+   <p><strong>{failure.status}.</strong> {failure.detail}</p>
    <div class="ended-actions">
-    {#if oncontinue}<button type="button" class="btn primary" disabled={continueOff} onclick={oncontinue}>Continue with history</button>{/if}
-    {#if onnewchat}<button type="button" class="btn" class:primary={!oncontinue} disabled={newChatOff} onclick={event => onnewchat(event.currentTarget)}>Start a new chat</button>{/if}
+    {#if onreattach}<button type="button" class="btn primary" onclick={onreattach}>Try again</button>{/if}
+    {#if onnewchat}<button type="button" class="btn" class:primary={!onreattach} disabled={newChatOff} onclick={event => onnewchat(event.currentTarget)}>Start a new chat</button>{/if}
+   </div>
+  </div>
+ {:else if ended}
+  {@const offer = onreattach ? onreattach : oncontinue}
+  <div class="ended-note" class:lost={session.state === 'lost'} role="status">
+   <p>{endedReason(session.state, toolName, !!oncontinue, !!onreattach)}</p>
+   {#if !onreattach && continuation?.phase === 'pending'}<p class="ended-status">Starting a new session…</p>{/if}
+   {#if !onreattach && continuation?.phase === 'failed'}<p class="notice bad ended-status" role="alert">{continuation.reason}</p>{/if}
+   <div class="ended-actions">
+    {#if offer}<button type="button" class="btn primary" disabled={!onreattach && (continueOff || continuation?.phase === 'pending')} aria-busy={!onreattach && continuation?.phase === 'pending' ? 'true' : undefined} onclick={offer}>{onreattach ? 'Reconnect' : 'Continue with history'}</button>{/if}
+    {#if onnewchat}<button type="button" class="btn" class:primary={!offer} disabled={newChatOff} onclick={event => onnewchat(event.currentTarget)}>Start a new chat</button>{/if}
    </div>
   </div>
  {/if}
@@ -541,7 +567,7 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
    {#if statusDetail}<details open><summary>Error details</summary><p>{statusDetail}</p></details>{/if}
   </div>
  {/if}
- {#if chat.truncated}<p class="notice bad">Earlier messages in this reet session are no longer available.</p>{/if}
+ {#if chat.truncated && !reattaching}<p class="notice bad">Earlier messages in this reet session are no longer available.</p>{/if}
  {#if feedback}<p class="notice bad" role="alert">{feedback}</p>{/if}
  <div class="log" role="log" bind:this={log} onscroll={onScroll}>
   {#if chat.items.length === 0}
@@ -754,8 +780,8 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
    {/if}
   {/each}
  </div>
- <GafferProgress sessionId={session.id} {chat} dir={session.dir} agent={toolName} {replayed} {ended} sessionFailed={terminalClosed(session.state) && (session.state === 'lost' || (session.exitCode != null && session.exitCode !== 0))} />
- {#if ended}
+ <GafferProgress sessionId={session.id} {chat} dir={session.dir} agent={toolName} {replayed} {ended} {reattaching} sessionFailed={terminalClosed(session.state) && (session.state === 'lost' || (session.exitCode != null && session.exitCode !== 0))} />
+ {#if ended && !reattaching}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}
  {:else}
   <div class="composer" onpaste={pasted} class:dropping={dropping}>
@@ -797,10 +823,10 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
     <span class="field-prompt" aria-hidden="true">›</span>
-    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="2" maxlength="2000" placeholder={working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…`} onkeydown={keydown} disabled={sending || uploading || changingModel || chat.connection === 'reconnecting'}></textarea>
+    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="2" maxlength="2000" placeholder={reattaching ? pendingCopy.status : working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…`} title={reattaching ? pendingCopy.status : undefined} onkeydown={keydown} disabled={reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'}></textarea>
     <div class="field-actions">
-     {#if working}<button type="button" class="btn stop" onclick={() => void stop()}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>Stop</button>{/if}
-     <button type="button" class="btn primary send" disabled={sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
+     {#if working && !reattaching}<button type="button" class="btn stop" onclick={() => void stop()}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>Stop</button>{/if}
+     <button type="button" class="btn primary send" disabled={reattaching || sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
     </div>
    </div>
    <div class="composer-bar">
@@ -1051,6 +1077,8 @@ import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } fr
  .ended-actions { display: flex; flex-wrap: wrap; gap: 8px; }
  .ended-note .btn { flex: none; }
  .ended-note.lost { border-color: var(--warn); }
+ .ended-note .ended-status { flex: 1 1 100%; margin: 0; }
+ .ended-note .status-dot { display: inline-block; margin-right: 8px; vertical-align: 2px; }
  .vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
  /* Narrow panes keep the target and state; line counts and durations give their room first. */
  @container chat-pane (max-width: 760px) {

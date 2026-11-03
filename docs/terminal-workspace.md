@@ -95,9 +95,9 @@ beside it). Its parts:
 - **Gaffer pane** for a structured OpenCode session ([structured sessions](structured-sessions.md)): the streamed
   conversation, tool calls, approval cards with **Allow once** and **Deny**, a composer (Enter sends, Shift+Enter adds a
   line), **Attach image** (pasted, dropped or chosen; the machine embeds it in the prompt when it negotiated
-  `acp-image-v1`, otherwise the prompt names the uploaded path), **Stop**, and the watchdog's "still working" notice. A closed reet
-  session's menu offers **Continue in Gaffer with history…**, which opens a new Gaffer and loads OpenCode's stored
-  conversation. It asks before an edit or command; there is no shell in this
+  `acp-image-v1`, otherwise the prompt names the uploaded path), **Stop**, and the watchdog's "still working" notice. A lost or crashed
+  chat reconnects in place; a session a person ended offers **Continue in Gaffer with history…** in its menu, which opens
+  a new Gaffer and loads OpenCode's stored conversation. It asks before an edit or command; there is no shell in this
   session. It has no terminal or session tabs on a phone; the usual slim header and End actions stay.
 - **Context panel** (340 px): *Where it's working* (machine and whether it is reporting, project, branch, worktree: "own
   copy" or "the checkout"); *Changed files* for a session in its own worktree (the first 20 paths from the worktree status
@@ -137,9 +137,10 @@ the session was started with, the machine, project, branch, state, runtime and t
 CPU, memory and disk readings, named last known when the report is stale.
 
 The sessions panel scrolls independently and has three modes: **full**, a 64 px
-**mini rail**, and **closed**. **Sessions** in the workspace header opens or closes
-the full panel. The panel's chevron cycles full → mini → closed (on a phone it only
-closes). The rules live in `terminal/panelLayout.ts`, unit tested by
+**mini rail**, and **closed**. The sessions icon in the workspace header opens or
+closes the full panel, the same simple control and place whether it is open or closed
+(its tooltip names the action). The panel's own icon cycles full → mini → closed (on a
+phone it only closes). The rules live in `terminal/panelLayout.ts`, unit tested by
 `terminal/panelLayout.test.mjs`.
 
 - **Docked by default from 768 px, never over the terminal.** On a tablet or

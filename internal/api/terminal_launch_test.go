@@ -41,7 +41,11 @@ type launchAPI struct {
 	// session is running).
 	modes []terminalproto.SessionMode
 	mode  func(terminalproto.SessionMode) terminalproto.Body
-	peer  *terminalbroker.Peer
+	// reattaches records every chat_reattach request; reattach answers it
+	// (default: the chat is running).
+	reattaches []terminalproto.ChatReattach
+	reattach   func(terminalproto.ChatReattach) terminalproto.Body
+	peer       *terminalbroker.Peer
 }
 
 func (f *launchAPI) sent() []terminalproto.Create {
@@ -92,6 +96,15 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 			f.mu.Lock()
 			f.modes = append(f.modes, *op)
 			respond := f.mode
+			f.mu.Unlock()
+			reply.Body = terminalproto.SessionChanged{State: terminalproto.Running}
+			if respond != nil {
+				reply.Body = respond(*op)
+			}
+		case *terminalproto.ChatReattach:
+			f.mu.Lock()
+			f.reattaches = append(f.reattaches, *op)
+			respond := f.reattach
 			f.mu.Unlock()
 			reply.Body = terminalproto.SessionChanged{State: terminalproto.Running}
 			if respond != nil {

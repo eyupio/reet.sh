@@ -13,14 +13,16 @@
   import { projectRunning, sessionTabTitle } from '../home'
   import MachineHealthStrip from './MachineHealthStrip.svelte'
   import TerminalPane from './TerminalPane.svelte'
+  import TerminalIcon from './TerminalIcon.svelte'
   import ChatPane from './ChatPane.svelte'
   import SessionScreen from '../sessions/SessionScreen.svelte'
   import SessionTabs from '../sessions/SessionTabs.svelte'
-  import { canContinue, canContinueChat, closeTab, continueChatLaunch, continueLaunch, openTab } from '../sessions'
+  import { canContinue, canContinueChat, canReattachChat, closeTab, continueChatLaunch, continueLaunch, openTab } from '../sessions'
+  import { continuationFailureInPane, recoveryInFlight, shouldAutoReattach } from './reattachState'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import HealthHistory from './HealthHistory.svelte'
   import { renameTerminal, endTerminal, archiveTerminal, terminalClosed } from './api'
-  import { TerminalError, validTerminalTitle } from './api'
+  import { TerminalError, reattachChat, validTerminalTitle } from './api'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalCommandReference from './TerminalCommandReference.svelte'
   import { pageViewport, browserViewport, keyboardLikelyOpen, PHONE_SCREEN } from './sizing'
@@ -97,6 +99,14 @@
   // A continuation whose reply was lost keeps its request id and launch, so Continue again replays the same operation.
   type Continuation = { requestId: string; title: string; launch: LaunchRequest }
   let continuations = $state<Record<string, Continuation>>({})
+  // What the chat pane says about a Continue with history in flight for a saved chat, or why the last one failed.
+  type PaneOutcome = { phase: 'pending' | 'failed'; reason?: string }
+  let continuing = $state<Record<string, PaneOutcome>>({})
+  // An in-place reconnect of a lost chat, per session: in flight, or why the last attempt failed. No entry is idle.
+  let reattach = $state<Record<string, PaneOutcome>>({})
+  // The chats this page load already reconnected by itself, so a failure is never retried in a loop: only the person retries.
+  const autoTried = new Set<string>()
+  const reconnecting = $derived(new Set(Object.entries(reattach).filter(([, item]) => item.phase === 'pending').map(([id]) => id)))
   const pendingCreation = $derived(creations[selectedAgent])
   // Draft settings do not switch the workspace behind the dialog.
   let terminalAgent=$state(''),terminalDir=$state('')
@@ -357,18 +367,23 @@
     catch{/* the shell stays listed; the panel is only a view */}
   }
   async function continueSession(target=session){
-    if(!target||actionBusy)return
+    if(!target||actionBusy||recoveryInFlight(target.id,reattach,continuing))return
     const existing=continuations[target.id]
     const launch=existing?.launch??(target.structured?continueChatLaunch(target):continueLaunch(target,projects??[]))
     if(!launch)return
     const operation=existing??{requestId:crypto.randomUUID(),title:target.title,launch}
     continuations={...continuations,[target.id]:operation}
     actionBusy=true;error=''
+    // A chat's pane says the new session is starting, and keeps saying why if it could not.
+    const shown=target.structured
+    if(shown)continuing={...continuing,[target.id]:{phase:'pending'}}
     const settle=()=>{const next={...continuations};delete next[target.id];continuations=next}
+    const quiet=()=>{if(!shown)return;const next={...continuing};delete next[target.id];continuing=next}
     try{
       const created=await createTerminal(target.agentId,operation.requestId,operation.title,100,30,AbortSignal.timeout(operation.launch.structured?60000:15000),operation.launch)
       settle()
       if(disposed)return
+      quiet()
       inventoryVersion++
       if(!terminalClosed(created.state))sessions=[created,...sessions.filter(item=>item.id!==created.id)]
       chooseSession(created)
@@ -378,10 +393,62 @@
       // A stated refusal of this request started nothing; an uncertain failure may have, so the operation is kept.
       const definite=e instanceof TerminalError&&[400,401,403,409,422].includes(e.status)
       if(definite)settle()
-      error=e instanceof TerminalError?(e.message||'The session could not be continued.'):'The continuation may have started. Continue again to check the same operation.'
+      const reason=e instanceof TerminalError?(e.message||'The session could not be continued.'):'The continuation may have started. Continue again to check the same operation.'
+      if(shown)continuing={...continuing,[target.id]:{phase:'failed',reason}}
+      // Where the chat pane will not show it (another session on screen, or the pane offers Reconnect), the workspace says it.
+      const offersReconnect=canReattachChat(target,machines.find(item=>item.agentId===target.agentId))||!!reattach[target.id]
+      if(!continuationFailureInPane({structured:target.structured===true,selected:selectedSession===target.id,offersReconnect}))error=reason
     }
     finally{actionBusy=false}
   }
+  // Reconnect a lost chat in place: the same row, URL and transcript carry on. One attempt per chat at a time (the
+  // server also joins a second caller to the one in flight); it never navigates and never starts another session.
+  const reattachAttempts = new Map<string, symbol>()
+  async function reattachSession(target: TerminalSession, auto = false) {
+    if (recoveryInFlight(target.id, reattach, continuing)) return
+    // A chat the person reconnected by hand is not also tried by itself later in this page load.
+    if (!auto) autoTried.add(target.id)
+    const attempt = Symbol(target.id)
+    reattachAttempts.set(target.id, attempt)
+    reattach = { ...reattach, [target.id]: { phase: 'pending' } }
+    const current = () => !disposed && reattachAttempts.get(target.id) === attempt
+    try {
+      await reattachChat(target.id, AbortSignal.timeout(80000))
+      if (!current()) return
+      // The controller recorded the row as running before it answered: the pane follows at once, and the listing is read again.
+      inventoryVersion++
+      sessions = sessions.map(item => item.id === target.id ? { ...item, state: 'running' } : item)
+      await refresh()
+      if (!current()) return
+      reattachAttempts.delete(target.id)
+      const next = { ...reattach }; delete next[target.id]; reattach = next
+    } catch (e) {
+      if (!current()) return
+      reattachAttempts.delete(target.id)
+      const reason = e instanceof TerminalError ? e.message
+        : e instanceof DOMException && e.name === 'TimeoutError' ? 'Reconnecting took too long. Try again.'
+        : 'reet could not be reached to reconnect this chat. Try again.'
+      reattach = { ...reattach, [target.id]: { phase: 'failed', reason } }
+    }
+  }
+  // The open chat, once lost on a machine that can reattach it, reconnects by itself: once per chat per page load, on
+  // view or when its machine comes back. After a failure only the person retries.
+  $effect(() => {
+    const target = session
+    if (!target) return
+    const canReattach = canReattachChat(target, machines.find(item => item.agentId === target.agentId))
+    const phase = reattach[target.id]?.phase ?? 'idle'
+    // Not while a Continue with history of this chat is in flight; the effect runs again once it settles.
+    const continuingNow = continuing[target.id]?.phase === 'pending'
+    untrack(() => {
+      // A chat that is running again (reconnected from another tab, say) drops a failure left from before.
+      if (phase === 'failed' && !terminalClosed(target.state)) { const next = { ...reattach }; delete next[target.id]; reattach = next; return }
+      if (continuingNow) return
+      if (!shouldAutoReattach({ canReattach, phase, tried: autoTried, sessionId: target.id })) return
+      autoTried.add(target.id)
+      void reattachSession(target, true)
+    })
+  })
   function openAction(kind:'rename'|'end'|'archive',target=session) { if(!target)return;actionSession=target.id;actionTitle=target.title;rename=target.title;removeOnClose=endKeys.get(target.id)?.remove??(target.state==='end_requested'?(target.removeHistory??false):removeDefault);defaultOn=removeDefault;defaultEdited=false;preferenceError='';action=kind }
   async function performAction() {
     const kind=action,id=actionSession;action=null;if(!kind||actionBusy)return
@@ -490,14 +557,14 @@
     <button class="btn find-machine" onclick={()=>{machineSearch='';machineSearchOpen=true}} aria-label="Find machine">Find</button>
     <!-- The session screen's tabs share this row, so the terminal keeps its height. -->
     {#if session && !loading && !accessDenied && !phone}<SessionTabs tabs={tabSessions} current={session.id} onselect={chooseSession} onclose={closeSessionTab} />{/if}
-    <div class="workspace-actions"><button class="btn" aria-expanded={panelOpen} aria-controls="terminal-sessions" onclick={toggleSidebar}>{panelOpen?'Sessions':'Show sessions'} <span class="count">{accountActive}</span></button><button class="btn primary new-button" disabled={!machines.length} onclick={newSession} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Details & help" onclick={() => detailsOpen = true}><span class="wide-label">Details &amp; help</span><span class="mobile-label">Help</span></button></div>
+    <div class="workspace-actions"><button class="btn panel-toggle" aria-expanded={panelOpen} aria-controls="terminal-sessions" aria-label="Sessions panel" title={panelOpen?'Hide sessions panel':'Show sessions panel'} onclick={toggleSidebar}><TerminalIcon name="panel"/><span class="count" aria-hidden="true">{accountActive}</span></button><button class="btn primary new-button" disabled={!machines.length} onclick={newSession} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Details & help" onclick={() => detailsOpen = true}><span class="wide-label">Details &amp; help</span><span class="mobile-label">Help</span></button></div>
   </header>
   {#if preferenceError}<p class="workspace-notice bad" role="status">{preferenceError}</p>{/if}
   {#if statusError}<p class="workspace-notice bad" role="status">{statusError} <button onclick={()=>void refresh()}>Retry status</button></p>{/if}
   {#if pendingCreation && !showCreate && session}<p class="workspace-notice" role="status">A creation on this machine is unconfirmed. <button onclick={()=>openTerminalStart()}>Review creation</button></p>{/if}
   {#if error && !showCreate}<p class="workspace-notice bad" role="alert">{error} <button onclick={() => void refresh()}>Retry status</button></p>{/if}
   <div class="workspace-body" class:docked={shown==='docked'||shown==='mini'} bind:clientWidth={bodyWidth}>
-    {#if shown!=='closed'}<SessionSidebar {machines} {sessions} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} health={health.machines} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
+    {#if shown!=='closed'}<SessionSidebar {machines} {sessions} {reconnecting} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} health={health.machines} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
     {#if shown==='docked'||shown==='mini'}
       <!-- A focusable window splitter: drag (pointer capture), Left/Right 16 px, Home the mini rail, End the widest, double-click 280 px. -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -514,7 +581,7 @@
           insightChat={insightChat?.id === session.id ? insightChat.state : undefined}
           chatBusy={session.structured && chatBusy?.id === session.id ? chatBusy.busy : undefined} onmode={modeSwitched}
           oncontinue={session.structured
-            ? (canContinueChat(session, machines.find(item => item.agentId === session.agentId)) ? () => void continueSession(session) : undefined)
+            ? (!canReattachChat(session, machines.find(item => item.agentId === session.agentId)) && canContinueChat(session, machines.find(item => item.agentId === session.agentId)) ? () => void continueSession(session) : undefined)
             : (canContinue(session, machines.find(item => item.agentId === session.agentId), projects ?? []) ? () => void continueSession(session) : undefined)}
           onterminal={() => void openPlainTerminal(session)}
           onside={!phone ? () => void openSideTerminal(session) : undefined}
@@ -530,11 +597,12 @@
             {/if}
           {/snippet}
           {#if setup || session.state === 'end_requested'}<div class="workspace-notice" role="status">{session.state === 'end_requested' ? 'End requested. Waiting for this machine to confirm; the shell still counts towards its limit.' : setup}<button onclick={() => detailsOpen = true}>View details</button></div>{/if}
-          {#if terminalClosed(session.state)}<div class="workspace-notice ended-banner" role="status"><span>This session has ended. Its output stays below.</span><span class="ended-banner-actions">{#if !session.structured}<button type="button" disabled={!machines.length || accountActive>=32} onclick={event=>openAgentStart(session.agentId,event.currentTarget)}>Start a new agent session</button>{/if}<button type="button" disabled={!machines.length || busy} onclick={()=>openTerminalStart()}>New terminal</button></span></div>{/if}
+          {#if terminalClosed(session.state) && reattach[session.id]?.phase !== 'pending'}<div class="workspace-notice ended-banner" role="status"><span>This session has ended. Its output stays below.</span><span class="ended-banner-actions">{#if !session.structured}<button type="button" disabled={!machines.length || accountActive>=32} onclick={event=>openAgentStart(session.agentId,event.currentTarget)}>Start a new agent session</button>{/if}<button type="button" disabled={!machines.length || busy} onclick={()=>openTerminalStart()}>New terminal</button></span></div>{/if}
           <!-- Keyed by the session and its mode, so a switch between Gaffer and the OpenCode TUI mounts the other pane. -->
           {#key session.id + ':' + (session.structured ? 'chat' : 'term')}
             {#if session.structured}
-              <ChatPane {session} oncontinue={canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=32||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} newChatOff={actionBusy||!machines.length||accountActive>=32} onstate={state => { insightChat = { id: session.id, state } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
+              {@const reattachable = canReattachChat(session, machine)}
+              <ChatPane {session} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session) : undefined} continuation={continuing[session.id]} oncontinue={!reattachable && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=32||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} newChatOff={actionBusy||!machines.length||accountActive>=32} onstate={state => { insightChat = { id: session.id, state } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
             {:else}
               <TerminalPane {keyboard} footnote={phone ? '' : `Approvals: ${session.yolo ? 'YOLO' : 'Ask me'}`} holdSize={resizing} sessionsVisible={shown!=='closed'} onsessions={paneSessions} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />
             {/if}
@@ -591,7 +659,7 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   .side-terminal-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
   .side-terminal-head button { min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font-size: .78rem; }
   @media (max-width:650px){.workspace:has(:global(.session-screen)) .workspace-title>a{display:none}}
-  .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:14px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:.75rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:.65rem;border-radius:20px;background:var(--tint);padding:1px 5px}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:.85rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:.75rem}.create-form input,.create-form select{width:100%;min-width:0}.create-form p{grid-column:1/-1;font-size:.72rem;color:var(--muted);line-height:1.5;margin:0 0 16px}.workspace-notice{margin:0;padding:7px 12px;background:var(--tint);font-size:.74rem;flex-shrink:0;display:flex;align-items:center;gap:10px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:.8rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:14px;border-radius:8px}.setup-notice pre{font-size:.75rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:.85rem;margin:0 0 10px}.shortcut-help p+p{margin-top:8px}
+  .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:14px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:.75rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:.65rem;border-radius:20px;background:var(--tint);padding:1px 5px}.workspace-actions .panel-toggle{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}.workspace-actions .panel-toggle:hover{color:var(--ink)}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:.85rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:.75rem}.create-form input,.create-form select{width:100%;min-width:0}.create-form p{grid-column:1/-1;font-size:.72rem;color:var(--muted);line-height:1.5;margin:0 0 16px}.workspace-notice{margin:0;padding:7px 12px;background:var(--tint);font-size:.74rem;flex-shrink:0;display:flex;align-items:center;gap:10px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:.8rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:14px;border-radius:8px}.setup-notice pre{font-size:.75rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:.85rem;margin:0 0 10px}.shortcut-help p+p{margin-top:8px}
   .creation-error{color:var(--bad)!important}.find-machine{font-size:.72rem;padding:6px 8px;min-height:34px}.machine-search{display:grid;gap:8px;font-size:.8rem}.machine-results{display:grid;gap:8px;max-height:50dvh;overflow:auto}.machine-result{display:grid;gap:5px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}.machine-result[aria-current=true]{border-color:var(--accent)}.machine-result span{font-size:.74rem;color:var(--muted)}
   .new-session-choice{display:grid;gap:10px}.new-session-option{display:grid;gap:5px;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);cursor:pointer}.new-session-option:hover,.new-session-option:focus-visible{border-color:var(--accent)}.new-session-option strong{font-size:.9rem}.new-session-option span{font-size:.78rem;color:var(--muted);line-height:1.5}
   .end-options{display:grid;gap:14px;margin-top:16px;font-size:.8rem}.end-options .option{display:grid;gap:5px}.end-options label{display:flex;align-items:flex-start;gap:9px;line-height:1.5;cursor:pointer}.end-options input{flex:none;width:16px;height:16px;min-height:0;margin:2px 0 0;padding:0;border:0;background:none;accent-color:var(--accent)}.end-options p,.end-options a{margin:0;font-size:.72rem;line-height:1.6;color:var(--muted)}.end-options p{margin-left:25px}.end-options a{justify-self:start;color:var(--accent-text)}

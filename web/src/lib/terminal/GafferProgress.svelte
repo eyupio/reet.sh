@@ -7,8 +7,8 @@
   import { GAFFER_AWAY_AFTER, gafferAside, gafferGesture, gafferPose, type GafferPose, type GafferReaction } from '../gafferPersonality'
   import GafferAvatar from './GafferAvatar.svelte'
 
-  let { chat, sessionId = '', dir = '', agent = 'Agent', replayed = true, ended = false, sessionFailed = false }: { chat: ChatState; sessionId?: string; dir?: string; agent?: string; replayed?: boolean; ended?: boolean; sessionFailed?: boolean } = $props()
-  const view = $derived(gafferProgress(chat, dir, replayed, ended, agent, sessionFailed))
+  let { chat, sessionId = '', dir = '', agent = 'Agent', replayed = true, ended = false, sessionFailed = false, reattaching = false }: { chat: ChatState; sessionId?: string; dir?: string; agent?: string; replayed?: boolean; ended?: boolean; sessionFailed?: boolean; reattaching?: boolean } = $props()
+  const view = $derived(gafferProgress(chat, dir, replayed, ended, agent, sessionFailed, reattaching))
   const summary = $derived(gafferSummary(chat, dir, replayed, ended))
   const needsYou = $derived(view.phase === 'approval' || view.phase === 'question')
   const stopped = $derived(['idle', 'error', 'cancelled', 'ended'].includes(view.phase))

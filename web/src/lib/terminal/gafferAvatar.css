@@ -1,9 +1,4 @@
 /* Illustration colours stay constant in both themes; the disc and halo use the app's theme tokens. */
 .gaffer-avatar {
-  --gaffer-coat: #b7522b; --gaffer-collar: #d87342; --gaffer-coat-seam: #8a3b22; --gaffer-button: #773c29;
-  --gaffer-shirt: #e5d7bf; --gaffer-skin: #e9b98e; --gaffer-skin-shade: #dca27c; --gaffer-ear: #ce9673; --gaffer-skin-line: #bd825e;
-  --gaffer-cap: #53534b; --gaffer-cap-line: #777669; --gaffer-cap-brim: #343b34; --gaffer-cap-stitch: #92907a;
-  --gaffer-outline: #252a27; --gaffer-brow: #645244; --gaffer-eye: #30312b; --gaffer-glasses: #594c40;
-  --gaffer-moustache: #f0e4cf; --gaffer-smile: #89543d; --gaffer-board: #554b3c; --gaffer-paper: #eee1c6;
-  --gaffer-writing: #9e8d6c; --gaffer-clip: #b4b7a1; --gaffer-pencil: #efb44f;
+  --gaffer-lid: #f3a176; --gaffer-eye-line: #38271e;
 }

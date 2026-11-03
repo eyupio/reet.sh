@@ -1976,6 +1976,49 @@ Validation:
 people disclosures were checked only through their existing content, not with a
 new browser matrix. The other Admin and Account pages are unchanged.
 
+## Gaffer block mascot and executive summary — 2 November 2026
+
+The approved portrait is a finer block mascot with a bald silhouette, small ears,
+blue eyes and short stubble. The status card is compact, uses the app’s normal
+surface, and keeps its factual tool update separate from the Yorkshire quip.
+Stepped bobs, glances, blinks and winks vary with the work state. Pause stops all
+decoration, including idle expressions; reduced motion removes animation and
+timed quote rotation.
+
+The executive summary opens when a settled turn finishes, stops or reports an
+error. It shows a bounded excerpt of the agent’s final handover, reported file
+operations, tool totals, command statuses, snags and a next step. A closed session
+covers all retained activity. Missing handovers, interrupted commands and partial
+history are labelled; completed tools do not establish that tests passed. Hide /
+Show gives the conversation more room.
+
+Validation on main `1e626ff` plus this change:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass, retaining the existing large-chunk warning.
+- `gafferProgress.test.mjs`: live/reconnecting/replay gates, latest-turn and
+  whole-session scopes, tool update deduplication, failed and unfinished tools,
+  final-handover selection, bounded plain text and truncated history.
+- `gaffer-progress.e2e.mjs`: image loading, contextual phases, quote rotation,
+  pause, timer/replay, summary collapse, failure and end states, keyboard controls,
+  and reduced motion in both themes at 320, 390 and 768 px with no overflow.
+- The full `chat.e2e.mjs` fixture passes against the production build, covering
+  streaming, permissions, typed questions, queued messages, attachments, stop,
+  continuation and the skill picker.
+
+The desktop mocks below are the approved placement with illustrative session
+content. The phone captures use the same real chat fixture. The GIF records 64
+frames of the live component’s CSS animation over 6.4 seconds.
+
+![Gaffer working, approved desktop mock](images/ui/gaffer-working-desktop.png)
+![Gaffer executive summary, approved desktop mock](images/ui/gaffer-summary-desktop.png)
+![Gaffer animation](images/ui/gaffer-animation.gif)
+![Gaffer summary, phone light](images/ui/gaffer-summary-phone-light.png)
+![Gaffer summary, phone dark](images/ui/gaffer-summary-phone-dark.png)
+
+**Not checked.** No physical phone or tablet, screen reader, Safari, Firefox or
+live provider. The fixtures use a scripted stream and do not modify a project.
+
 ## Admin ticket queue under the collection contract — 2 November 2026
 
 The admin Support queue now has one **Ticket queue** panel with a live count and

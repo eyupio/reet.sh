@@ -30,7 +30,8 @@ export function gafferProgress(chat: ChatState, dir = '', replayed = true, ended
   }
   const result = (phase: GafferPhase, label: string, target = '', active = false): GafferProgress => ({
     ...base, phase, label, target, active,
-    visible: active || ['approval', 'question', 'waiting', 'reconnecting', 'error', 'cancelled'].includes(phase) || start >= 0,
+    visible: active || ['approval', 'question', 'waiting', 'reconnecting', 'error', 'cancelled'].includes(phase) || start >= 0
+      || (chat.items.length > 0 && (phase === 'ended' || (phase === 'idle' && chat.truncated))),
   })
   if (ended || chat.status.state === 'ended') return result('ended', 'This session has ended')
   if (chat.connection === 'reconnecting') return result('reconnecting', named('Reconnecting to {agent}', agent), 'Live progress is unavailable until the connection returns.')
@@ -55,15 +56,15 @@ export function gafferProgress(chat: ChatState, dir = '', replayed = true, ended
 
 // Gaffer directs and encourages; the named agent does the work. These are personality, never claims about tools or results.
 const quotes: Record<GafferPhase, readonly string[]> = {
-  starting: ['Reet, {agent}. Kettle’s on; let’s get this job lined up.', 'Ey up, {agent}. One good job at a time.', 'Right then, {agent}. You bring the graft; I’ll mind the brief.'],
-  planning: ['Measure twice, {agent}. We’ve only got the one project.', 'Have a proper think, {agent}. Clever beats hasty.', 'Steady on, {agent}. Even a good plan needs its boots on.', 'Work out the next step, {agent}. I’ll keep the big picture in view.'],
-  reading: ['Read the small print, {agent}. That’s where the plot twists hide.', 'Get to know the place, {agent}. We’re guests in this code.', 'Have a proper look, {agent}. No points for guessing.'],
-  searching: ['Keep looking, {agent}. It’ll be in the last place we look. Usually is.', 'Follow the clues, {agent}. Leave the wild goose to me.', 'Find the right bit first, {agent}. Saves a fair bit of bother.'],
-  editing: ['Nice and steady, {agent}. Good work’s worth the care.', 'Mind the edges, {agent}. That’s where the quality lives.', 'Make it tidy, {agent}. Future us has enough on.', 'Small, thoughtful changes, {agent}. I’m a gaffer, not a gambler.'],
-  running: ['Let the command do its bit, {agent}. I’ll supervise the supervising.', 'Watch the output, {agent}. It knows more than my hunch does.', 'Give it room, {agent}. No amount of staring makes a kettle quicker.'],
-  fetching: ['Bring back what we need, {agent}. No souvenirs.', 'Check the source, {agent}. Pub talk’s no specification.', 'Fetch carefully, {agent}. Quality in, quality out.'],
-  working: ['Keep at it, {agent}. I’ll mind the job sheet.', 'One step at a time, {agent}. We’ll get there together.', 'Crack on, {agent}. Give us a nudge if you need a hand.'],
-  responding: ['Put it plainly, {agent}. Good work deserves a clear handover.', 'Tell ’em what you found, {agent}. Leave the trumpet at home.', 'Make it useful, {agent}. Plain words, proper detail.'],
+  starting: ['Reet, {agent}. Kettle on. Big ideas. Unreasonably confident eyebrow.', 'Ey up, {agent}. Hard hats on. Metaphorical ones; mind the ceiling.', 'Right, {agent}. You bring the brains. I’ve brought a very official nod.', 'Boots on, {agent}. My motivational biscuit isn’t going to eat itself.'],
+  planning: ['Measure twice, {agent}. Interpretive dance once. Then a plan.', 'Have a think, {agent}. I’ll do my thoughtful eyebrow.', 'Steady, {agent}. A cunning plan beats a panicked spreadsheet.', 'Work out the next step, {agent}. My serious face doesn’t do crystal balls.'],
+  reading: ['Read the small print, {agent}. That’s where the plot twists live rent-free.', 'Have a proper look, {agent}. I’ve put my serious face on. Same face, different eyebrow.', 'Mind the footnotes, {agent}. Tiny writing, massive opinions.', 'Get to know the place, {agent}. No rearranging the furniture before we’ve found the door.'],
+  searching: ['Keep looking, {agent}. If it’s behind the sofa, I’m retiring.', 'Follow the clues, {agent}. I’ll interrogate this biscuit.', 'Find the right bit, {agent}. My “it’s probably over there” face isn’t evidence.', 'Any sign, {agent}? I’ve narrowed it down to somewhere in the project.'],
+  editing: ['Make it tidy, {agent}. Future us is already a bit cross with present us.', 'Careful with the edges, {agent}. This is a codebase, not a pie crust.', 'Small changes, {agent}. Save the big flourishes for my eyebrows.', 'Nice and steady, {agent}. I’m a gaffer, not a keyboard stunt double.'],
+  running: ['Let it run, {agent}. I’ll supervise the supervising. It’s a growth industry.', 'Watch the output, {agent}. My lucky eyebrow is not a test strategy.', 'Give it room, {agent}. I tried shouting “faster” at the kettle. Formal complaint pending.', 'Eyes on the command, {agent}. I’ll handle the competitive eyebrow exercises.'],
+  fetching: ['Bring back what we need, {agent}. No souvenir mugs. We’ve discussed this.', 'Check the source, {agent}. “A bloke down the pub” isn’t a dependency.', 'Fetch carefully, {agent}. The internet’s a big shed with some odd shelves.'],
+  working: ['Crack on, {agent}. I’m nodding with managerial intent.', 'One step at a time, {agent}. I run a strict no-chaos policy. In theory.', 'Keep at it, {agent}. I’ve put “supervise” on my list so I can tick something off.'],
+  responding: ['Put it plainly, {agent}. The executive summary doesn’t need a fog machine.', 'Tell ’em what you found, {agent}. I’ll put the tiny trumpet away.', 'Clear handover, {agent}. Fewer mystery novels, more useful details.'],
   approval: ['Hold there, {agent}. This one’s the customer’s call.', 'Tools down a moment, {agent}. We’ll wait for the go-ahead.', 'Ask first, {agent}. Good manners cost nowt.'],
   question: ['Ask away, {agent}. Better a question than a right old muddle.', 'Hold that thought, {agent}. Let’s hear what they reckon.', 'Give ’em a moment, {agent}. We don’t rush a good answer.'],
   waiting: ['Stand by, {agent}. We’ll wait for word before calling it progress.', 'Steady, {agent}. A quiet spell isn’t a finished job.', 'Let’s wait for the next update, {agent}. No tall tales on my watch.'],
@@ -71,8 +72,8 @@ const quotes: Record<GafferPhase, readonly string[]> = {
   reconnecting: ['Hold tight, {agent}. Let’s get the line back before we guess owt.', 'Lost the line, {agent}. I’ll save the patter till we’re back.'],
   error: ['Easy, {agent}. Let’s understand the snag before another go.', 'No blame, {agent}. Show us the snag and we’ll take it from there.'],
   cancelled: ['Tools down, {agent}. We’ll carry on when they’re ready.', 'Reet, {agent}. Park it there for now.'],
-  ended: ['That’s this shift over, {agent}. Cheers for the graft.'],
-  idle: ['Cheers for the graft, {agent}. Next move’s theirs.', 'Reet, {agent}. Let’s give them room to review.', 'Your turn to put your feet up, {agent}. Briefly, mind.'],
+  ended: ['That’s the shift, {agent}. Job sheet below. I’ve even used my neat handwriting.'],
+  idle: ['Reet, {agent}. Handover time. I’ll put my executive face on. It’s the same face.', 'Cheers, {agent}. Job sheet below; biscuit negotiations can wait.', 'Over to them, {agent}. A little less eyebrow, a little more handover.'],
 }
 
 export function gafferQuote(phase: GafferPhase, agent = 'Agent', previous = '', random = Math.random): string {

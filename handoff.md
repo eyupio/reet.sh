@@ -18,6 +18,29 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## Gaffer block mascot and executive summaries (2 November 2026)
+
+Draft [#418](https://github.com/eyupio/reet.sh/pull/418), branch `feat/gaffer-block-mascot`, based on main `1e626ff`, carries the owner-approved block portrait,
+stepped facial animation and compact status card. Yorkshire quips rotate every eight seconds while
+the agent works. Pause, hidden-tab handling and reduced motion cover the decoration, including idle
+expressions. The final working and summary mocks are in `docs/images/ui/gaffer-*-desktop.png`.
+
+The collapsible executive summary uses retained chat events: the latest turn while a session is
+open, all retained activity when it ends. It shows the agent’s final handover, reported file and
+command operations, failures, unfinished calls and a next step. Truncated history and missing
+handovers are explicit. No provider request or stored report is introduced.
+
+Web unit tests, svelte-check, the production build and the Gaffer browser matrix pass. The browser
+matrix covers replay, phase changes, animation pause, summaries, failures, session end, keyboard
+controls, both themes and 320/390/768 px widths. See [UI verification](docs/ui-verification.md) for
+the approved mocks, phone captures and animation recording. The full chat browser fixture, Go vet,
+race-enabled web/CLI packages and the API suite without race pass. The full race attempt exposed
+existing process, model-listing and missing-tmux fixture failures, reproduced on unchanged `1e626ff`.
+API uses the documented local non-race run; the completed UI build passes the web/CLI race rerun.
+Main `4959472` (#416) was merged without rewriting history to bring in the startup-hook race fix;
+both supervisor-resume regression tests now pass under race. CI results belong in the PR.
+Next: review the draft PR and its checks; merge only on the owner’s instruction.
+
 ## UI refresh: directory, inbox, admin and machines (2 November 2026)
 
 The owner asked for a page-by-page UI refresh with a UX focus. Each family was built test-first,

@@ -90,10 +90,10 @@ remains the one card that asks for an answer.
 
 ## Gaffer’s work update
 
-Above the message box, Gaffer wears his flat cap and keeps a clipboard while the agent does the work. His small nod,
-blink and pencil movement accompany contextual Yorkshire quips: encouragement while the agent reads, searches,
-edits, runs commands or writes a reply; a quieter instruction to wait for an approval or answer. Quips rotate every
-twelve seconds during active work without immediately repeating. They are presentation copy, not extra instructions
+Above the message box, Gaffer is a compact block portrait with a bald silhouette, blue eyes, small ears and short
+stubble. Stepped bobs, glances, blinks and winks accompany contextual Yorkshire quips: encouragement while the agent
+reads, searches, edits, runs commands or writes a reply; a quieter instruction to wait for an approval or answer. Quips rotate every
+eight seconds during active work without immediately repeating. They are presentation copy, not extra instructions
 sent to the agent or evidence of work completing.
 
 The update uses the chat stream to show the current tool and target. A disclosure lists the five latest tool calls
@@ -104,14 +104,30 @@ includes waits and reconnects, and freezes when the turn finishes or stops. It i
 that began before the chat opened.
 
 Approvals, questions, errors, stopped turns and reconnects override working messages. Reconnecting labels the tool
-counts as last seen, and finishes as a compact handover without claiming checks passed. Gaffer stops moving while
-waiting or stopped. **Pause Gaffer animation and quotes** freezes the decoration while factual updates keep arriving.
+counts as last seen, and finishes as a compact handover without claiming checks passed. Working, waiting and finished
+states have distinct decorative expressions. **Pause Gaffer animation and quotes** freezes all decoration while factual updates keep arriving.
 Reduced motion disables the animation and timed quote rotation; changing work states still updates the message.
 The avatar is decorative, changing facts are announced politely, and timers and quips do not repeatedly interrupt
 screen readers. Hidden tabs pause the decorative work.
 
+When a turn finishes, stops or reports an error, **Executive summary** opens below the status row. It quotes a bounded
+plain-text excerpt of the agent’s final handover, lists completed tool calls and reported file operations, and offers
+command statuses, snags and a next step. Opening **Commands & results** reveals the recorded command states; a
+completed tool call alone does not establish that tests passed. An opening plan or an earlier turn’s answer is never
+presented as the handover for unfinished work. Missing handovers and truncated history are called out.
+
+The live summary covers the latest prompt. When the session ends, **Whole session** covers all activity still held in
+the conversation, with the latest handover and a reminder to start a new session to continue. Earlier activity beyond
+the bounded history is unavailable. The summary waits for replay to settle, disappears when new work starts, and
+can be hidden to give the conversation more room. It uses the existing stream without a model call or stored report.
+
+Approved appearance and placement, with illustrative session content:
+
+![Gaffer working](images/ui/gaffer-working-desktop.png)
+![Gaffer session summary](images/ui/gaffer-summary-desktop.png)
+
 The review fixture at `web/tests/fixtures/gaffer-progress.html` uses the real chat pane with a scripted stream. It has
-controls for work, approval, question, reconnect, failure and finished states and both themes. It never contacts a
+controls for work, approval, question, reconnect, failure, finished and ended states and both themes. It never contacts a
 provider or changes a project. Run it with `node tests/serve-fixture.mjs gaffer-progress` from `web/`.
 
 ## The seven conditions

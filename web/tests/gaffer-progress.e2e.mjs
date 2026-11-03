@@ -16,6 +16,12 @@ try {
   await expect(panel.locator('.byline')).not.toContainText('worker')
   await expect(panel).toContainText('2 done')
   await expect(panel).toContainText('web/src/lib/terminal/GafferProgress.svelte')
+  expect(await panel.locator('.head image').evaluate(async el => {
+    const portrait = new Image(); portrait.src = el.href.baseVal; await portrait.decode()
+    return portrait.naturalWidth
+  })).toBeGreaterThan(0)
+  expect(await panel.locator('.gaffer-avatar').evaluate(el => el.getAnimations({ subtree: true }).length)).toBeGreaterThanOrEqual(6)
+  await expect(panel.getByRole('region', { name: 'Gaffer’s executive summary' })).toHaveCount(0)
   await panel.getByRole('button', { name: /Tool activity/ }).click()
   await expect(panel.getByRole('listitem')).toHaveCount(3)
   await expect(panel).toContainText('Latest tool calls this turn')
@@ -31,6 +37,7 @@ try {
   await expect(panel.locator('.elapsed')).not.toHaveText('0s in view')
   const pausedAnimation = await panel.locator('.head').evaluate(el => getComputedStyle(el).animationPlayState)
   expect(pausedAnimation).toBe('paused')
+  expect(await panel.locator('.gaffer-avatar').evaluate(el => el.getAnimations({ subtree: true }).every(a => a.playState === 'paused'))).toBe(true)
   await panel.getByRole('button', { name: 'Resume Gaffer animation and quotes' }).click()
 
   // Reconnection replays the same prompt after a transient empty reset; that is not a new turn or a new timer.
@@ -54,7 +61,7 @@ try {
     await expect(panel).toHaveAttribute('data-phase', phase)
     if (phase === 'approval' || phase === 'question' || phase === 'reconnecting' || phase === 'error' || phase === 'idle') {
       await expect(panel.locator('.activity-line')).toHaveCount(0)
-      expect(await panel.locator('.head').evaluate(el => getComputedStyle(el).animationName)).toBe('none')
+      expect(await panel.locator('.head').evaluate(el => getComputedStyle(el).animationName)).not.toBe('none')
     }
     if (phase === 'reconnecting') {
       await expect(panel).toContainText('Live progress is unavailable')
@@ -64,11 +71,34 @@ try {
 
   // Counts and observed time start again for a genuinely new prompt; idle does not claim tests passed.
   await expect(panel).toContainText('Turn finished')
+  const summary = panel.getByRole('region', { name: 'Gaffer’s executive summary' })
+  await expect(summary).toContainText('This turn')
+  await expect(summary).toContainText('younger face, expressive gestures')
+  await expect(summary).toContainText('4 tool calls completed')
+  await expect(summary).toContainText('Files touched')
+  await summary.getByText('Commands & results (1)').click()
+  await expect(summary).toContainText('npm run check')
+  await expect(summary).not.toContainText('All tests passed')
+  await summary.getByRole('button', { name: 'Collapse executive summary' }).click()
+  await expect(summary).not.toContainText('Files touched')
+  await summary.getByRole('button', { name: 'Expand executive summary' }).click()
+  await expect(summary).toContainText('Files touched')
+  await page.getByRole('button', { name: 'Snag', exact: true }).click()
+  await expect(summary).toContainText('1 failed')
+  await expect(summary).toContainText('Needs a look')
+  await expect(summary).toContainText('One fixture check still needs attention')
+  await page.getByRole('button', { name: 'Ended', exact: true }).click()
+  await expect(panel).toHaveAttribute('data-phase', 'ended')
+  await expect(summary).toContainText('Whole session')
+  await expect(summary).toContainText('Start a new session')
+  await expect(panel.getByRole('button', { name: 'Pause Gaffer animation and quotes' })).toBeVisible()
+  await page.getByRole('button', { name: 'Finished', exact: true }).click()
   await page.evaluate(() => {
     window.__gaffer.emit({ seq: 100, kind: 'user', text: 'A different job' })
     window.__gaffer.emit({ seq: 101, kind: 'status', state: 'working' })
   })
   await expect(panel).toHaveAttribute('data-phase', 'planning')
+  await expect(summary).toHaveCount(0)
   await expect(panel.getByRole('button', { name: /Tool activity/ })).toHaveCount(0)
   await expect(panel.locator('.elapsed')).toHaveText('0s in view')
   await page.close()
@@ -93,10 +123,20 @@ try {
     await expect(card).toHaveAttribute('data-phase', 'approval')
     await expect(phone.getByRole('button', { name: 'Allow once', exact: true })).toBeVisible()
     expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await phone.getByRole('button', { name: 'Finished', exact: true }).click()
+    const recap = card.getByRole('region', { name: 'Gaffer’s executive summary' })
+    await expect(recap).toBeVisible()
+    await expect(recap).toContainText('4 tool calls completed')
+    expect(await recap.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await recap.getByText('Commands & results (1)').focus()
+    await phone.keyboard.press('Enter')
+    await expect(recap.getByText('npm run check', { exact: true })).toBeVisible()
+    expect(await card.locator('.gaffer-avatar').evaluate(el => el.getAnimations({ subtree: true }).length)).toBe(0)
+    await expect(phone.getByRole('textbox', { name: /Message/ })).toBeVisible()
     await context.close()
   }
   expect(errors).toEqual([])
-  console.log('Gaffer: state, rotation, pause, timer, replay, keyboard and six responsive/theme checks passed.')
+  console.log('Gaffer: animation, pause, replay, executive summaries, failures, session end, keyboard and six responsive/theme checks passed.')
 } finally {
   await browser.close()
   await harness.close()

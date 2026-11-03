@@ -2242,3 +2242,29 @@ Validation:
 
 **Not checked.** No physical phone or tablet and no screen reader. A failed password
 change was not exercised by a new browser matrix.
+
+## Account MCP clients under the collection contract — 2 November 2026
+
+Account → MCP access now has one **Connected clients** panel with a live count, search
+and **All / OAuth / Bearer token** chips whose figures follow the search. The kind chips
+are exclusive, so the two figures add up to All. Each connection keeps its card with
+name, kind, state, permission, last use, expiry and the existing Manage, Pause/Resume,
+Replace token and Revoke actions. Search reads the name and kind. An empty search
+offers **Clear filters**, and **Revoke all connections** stays below the panel. The
+connect card, status line, Browser WebMCP panel and manual bearer-token form are
+unchanged.
+
+Validation:
+
+- `npm run check`: pass; svelte-check reports zero errors and zero warnings.
+- `npm run build`: pass.
+- New `account-mcp.e2e.mjs`: panel count, all three kind chips, search, empty
+  recovery, the OAuth filter, pausing a connection and phone layouts at 390 and 320 px
+  with no horizontal overflow.
+- `phone-zoom.e2e.mjs` (the account MCP screen) and `navigation.e2e.mjs` pass.
+
+![Account MCP access, desktop](images/ui/account-mcp-desktop.png)
+![Account MCP access, phone](images/ui/account-mcp-phone.png)
+
+**Not checked.** No physical phone or tablet and no screen reader. A failed connection
+read or a failed pause was not exercised by a new browser matrix.

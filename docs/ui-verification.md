@@ -1,5 +1,23 @@
 # UI verification — 3 November 2026
 
+## Landing page: the control room (3 November 2026)
+
+The signed-out page now leads with what reet.sh is for. Checked in Chromium against a production build with the
+auth endpoint faked, at 1280, 820, 390 and 320 px in light and dark, with nothing scrolling sideways at any of them.
+
+- The hero diagram shows a controller, three machines in sync and an empty `fresh-vps` that is enrolled, filled
+  and brought into sync, above the product's own `enrollCommands` lines. Below 600 px a second drawing stacks the
+  machines above and below the controller, so the words stay at 11 px or more instead of shrinking with the picture.
+- `public-workspace.e2e.mjs` gained checks that failed on the old page: the new h1 and lede, the copy chip, the four
+  tiles and their captions, the new steps, the slider (labelled, keyboard-driven, `data-position`, clipped overlay),
+  the OpenCode sentence, no word of orchestration, text at 11 px or more in the diagram, tiles and slider, and every
+  word fitting inside its machine box while the machine fills. A reduced-motion run at 1440, 390 and 320 px shows
+  the final state at once (no running wire, no progress bar, no Replay button); a motion run passes through
+  waiting, restoring and in sync, and Replay starts again.
+- `first-run.e2e.mjs` holds the crawler copy (new h1, lede and the new section) and `web/embed_test.go` the served page.
+
+Not run: a physical phone, Safari, Firefox, a screen reader, the axe scan.
+
 ## Session workspace: the Overview holds still while the agent works
 
 Reproduced in Chromium at 1600x1000 with a synthetic chat stream: across seven task updates (a short task, a title

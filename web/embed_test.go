@@ -105,7 +105,7 @@ func TestIndexHasCrawlableFallback(t *testing.T) {
 	if !strings.Contains(body, `"@type": "SoftwareApplication"`) {
 		t.Error("missing SoftwareApplication JSON-LD")
 	}
-	if !strings.Contains(body, "one self-hosted place") {
+	if !strings.Contains(body, "control room for your AI agents") {
 		t.Error("missing crawlable landing copy")
 	}
 	if strings.Contains(body, "<!--seo-fallback:start-->") {
@@ -116,10 +116,10 @@ func TestIndexHasCrawlableFallback(t *testing.T) {
 func TestWelcomeKeepsFallbackAndAppRoutesDoNot(t *testing.T) {
 	requireBuilt(t)
 	h := Handler("https://reet.sh")
-	if body := get(t, h, "/welcome").Body.String(); !strings.Contains(body, "one self-hosted place") {
+	if body := get(t, h, "/welcome").Body.String(); !strings.Contains(body, "control room for your AI agents") {
 		t.Error("/welcome should keep the crawlable landing copy")
 	}
-	if body := get(t, h, "/signin").Body.String(); strings.Contains(body, "one self-hosted place") {
+	if body := get(t, h, "/signin").Body.String(); strings.Contains(body, "control room for your AI agents") {
 		t.Error("/signin should not serve the marketing fallback")
 	}
 }
@@ -127,11 +127,11 @@ func TestWelcomeKeepsFallbackAndAppRoutesDoNot(t *testing.T) {
 func TestSignedInLandingRequestHidesFallback(t *testing.T) {
 	requireBuilt(t)
 	signedIn := Handler("https://reet.sh", WithSignedIn(func(*http.Request) bool { return true }))
-	if body := get(t, signedIn, "/").Body.String(); strings.Contains(body, "one self-hosted place") {
+	if body := get(t, signedIn, "/").Body.String(); strings.Contains(body, "control room for your AI agents") {
 		t.Error("a signed-in landing request should not serve the marketing fallback")
 	}
 	anonymous := Handler("https://reet.sh", WithSignedIn(func(*http.Request) bool { return false }))
-	if body := get(t, anonymous, "/").Body.String(); !strings.Contains(body, "one self-hosted place") {
+	if body := get(t, anonymous, "/").Body.String(); !strings.Contains(body, "control room for your AI agents") {
 		t.Error("an anonymous landing request should keep the crawlable landing copy")
 	}
 }

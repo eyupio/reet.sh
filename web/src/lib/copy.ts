@@ -423,8 +423,8 @@ export const copy = {
     surface: 'marketing',
   },
   'hero.title': {
-    standard: 'One command on any machine. Your whole AI setup shows up.',
-    reet: 'One command on any machine. Your whole AI setup shows up.',
+    standard: 'One command on any machine. Your whole AI setup shows up, ready to control.',
+    reet: 'One command on any machine. Your whole AI setup shows up, ready to control.',
     surface: 'marketing',
   },
   'hero.cta': {

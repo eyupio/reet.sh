@@ -18,6 +18,24 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## LANDING-1: the control-room landing page (3 November 2026)
+
+Branch `claude/fervent-wright-5omayg`. Copy and UI only; no API, database or server change. The signed-out page now says
+what reet.sh is for: command agents on any machine, sync skills and setups to one machine or all, back them up, and bring
+an empty machine up to speed with one command. The h1 second line is "Your whole AI setup shows up, ready to control."
+(`copy.ts`, `index.html` h1, meta description and crawler copy, README, `docs/yorkshire-copy.md`, tests). New:
+`ControlRoom.svelte` (hero diagram with a wide and a compact drawing, replay, terminal built from `enrollCommands` with env
+`fresh-vps`; final state at once under reduced motion, no Replay button), a copy chip under the buttons, a four-tile strip,
+three new steps, and `StartFresh.svelte` (before and after slider, native range input with a label and `aria-valuetext`).
+The terminal palette lives in `landingTerminal.css` because `theme.test.mjs` forbids literal colours in components. The "On
+the workbench" line now says "Agent software: OpenCode today, more agents to come." and the sync card says a machine applies
+a plan only when its owner has opted in. The sign-in card headline ("Your whole AI setup. On every machine.") was left alone.
+
+Checks: `npm run check` (unit suites, svelte-check 0 errors, 0 warnings), `public-workspace.e2e.mjs` and `first-run.e2e.mjs`
+against `vite preview`, `go test ./web/`. Screenshots and scope in [UI verification](docs/ui-verification.md). The copy chip
+omits `--server` as approved: the command takes the server from `REET_URL`, so it works on a machine where that is set.
+The boot-shell skeleton in `index.html` still draws the old hero shape; it is decoration and was not changed.
+
 ## CHAT-REATTACH-1: reconnect a lost chat in place (3 November 2026)
 
 PRs [#451](https://github.com/eyupio/reet.sh/pull/451) (merged: design, plan, protocol, negotiation, store, machine and

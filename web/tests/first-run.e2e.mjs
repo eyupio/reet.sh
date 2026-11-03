@@ -153,8 +153,10 @@ try {
   const crawler = await browser.newContext({viewport:{width:1280,height:800}, javaScriptEnabled:false})
   const plain = await crawler.newPage()
   await plain.goto(base)
-  await expect(plain.getByRole('heading',{name:'One command on any machine. Your whole AI setup shows up.'})).toBeVisible()
-  await expect(plain.getByText('One command on any machine. Your whole AI setup shows up.')).toBeVisible()
+  await expect(plain.getByRole('heading',{name:'One command on any machine. Your whole AI setup shows up, ready to control.'})).toBeVisible()
+  await expect(plain.getByText('One command on any machine. Your whole AI setup shows up, ready to control.')).toBeVisible()
+  await expect(plain.getByText('bring a brand-new, empty machine up to speed with one command.')).toBeVisible()
+  await expect(plain.getByRole('heading',{name:'Start with nothing. End with everything.'})).toBeVisible()
   await crawler.close()
  }
  // A public screen that needs nothing from the auth answer must not wait behind it.

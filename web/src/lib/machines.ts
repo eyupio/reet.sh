@@ -55,6 +55,23 @@ export function installationStatus(report: InstallationReport, skillId: string):
   if (report.installed.has(skillId)) return 'installed'
   return report.complete ? 'missing' : 'unknown'
 }
+
+/** A collapsed card's one-line fleet answer: "On 4 of 6 · 2 missing" (and unconfirmed scans when there are any). */
+export function installationSummary(reports: InstallationReport[], skillId: string): string {
+  let installed = 0
+  let missing = 0
+  let unknown = 0
+  for (const report of reports) {
+    const status = installationStatus(report, skillId)
+    if (status === 'installed') installed++
+    else if (status === 'missing') missing++
+    else unknown++
+  }
+  const parts = [`On ${installed} of ${reports.length}`]
+  if (missing) parts.push(`${missing} missing`)
+  if (unknown) parts.push(`${unknown} not confirmed`)
+  return parts.join(' · ')
+}
 export function compareInventories(left: SyncEnvironment[], right: SyncEnvironment[], now: number) {
   const a = inventory(left), b = inventory(right)
   const aIDs = new Set(a.map(s => s.id)), bIDs = new Set(b.map(s => s.id))

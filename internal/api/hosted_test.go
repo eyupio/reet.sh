@@ -47,6 +47,7 @@ func TestHostedSkillsPublicationAndOwnership(t *testing.T) {
 	expect(0, "POST", "/api/v2/hosting/username", map[string]string{"username": "anon"}, 401)
 	expect(viewer.ID, "POST", "/api/v2/hosting/username", map[string]string{"username": "viewer"}, 403)
 	expect(alice.ID, "POST", "/api/v2/hosting/username", map[string]string{"username": "api"}, 400)
+	expect(alice.ID, "POST", "/api/v2/hosting/username", map[string]string{"username": "docs"}, 400)
 	expect(alice.ID, "POST", "/api/v2/hosting/username", map[string]string{"username": "alice"}, 200)
 	expect(bob.ID, "POST", "/api/v2/hosting/username", map[string]string{"username": "alice"}, 409)
 	expect(alice.ID, "POST", "/api/v2/hosting/username", map[string]string{"username": "new-name"}, 409)

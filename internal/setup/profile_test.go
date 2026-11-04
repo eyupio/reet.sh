@@ -3,6 +3,7 @@ package setup
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -497,7 +498,7 @@ func (r *tokenRemote) Push(server, token string, profile SetupProfile) error {
 	if token == "good-token" {
 		return nil
 	}
-	return ErrProfileUnauthorized
+	return fmt.Errorf("%w: %w", ErrProfileUnauthorized, clientconfig.NewAuthError(401, "bootstrap token disabled"))
 }
 
 func (r *tokenRemote) Pull(server, token, name string) (SetupProfile, error) {
@@ -514,7 +515,8 @@ func TestProfilePushRetriesSavedToken(t *testing.T) {
 	}
 	remote := &tokenRemote{}
 	profile := SetupProfile{SchemaVersion: 1, Name: "work", Revisions: []SetupProfileRevision{{Revision: 1, SnapshotID: "setup-20261022T120000Z-abcdef01", SnapshotDigest: "digest"}}}
-	if err := pushProfile(remote, "https://reet.example", "bad-token", profile, io.Discard); err != nil {
+	cred := &clientconfig.Credential{Token: "bad-token", Source: clientconfig.SourceEnv, Server: "https://reet.example", Out: io.Discard}
+	if err := pushProfile(remote, "https://reet.example", cred, profile); err != nil {
 		t.Fatal(err)
 	}
 	if remote.calls != 2 {

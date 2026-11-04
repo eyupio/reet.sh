@@ -212,6 +212,13 @@ func listTargets(server, token string) ([]store.SyncTarget, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		var failure struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&failure)
+		if authErr := clientconfig.NewAuthError(resp.StatusCode, failure.Error); authErr != nil {
+			return nil, authErr
+		}
 		return nil, fmt.Errorf("controller replied %s", resp.Status)
 	}
 	var state struct {
@@ -332,15 +339,17 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	if fs.NArg() != 0 {
 		return errors.New("unexpected positional arguments; use --help")
 	}
+	tokenSource := clientconfig.SourceFlag
 	if *token == "" {
 		*token = os.Getenv("REET_TOKEN")
+		tokenSource = clientconfig.SourceEnv
 	}
 	if *token == "" && *tokenFile != "" {
-		value, err := clientconfig.ResolveToken("", *tokenFile, strings.NewReader(""), os.Stderr)
+		value, source, err := clientconfig.ResolveTokenSource("", *tokenFile, strings.NewReader(""), os.Stderr)
 		if err != nil {
 			return err
 		}
-		*token = value
+		*token, tokenSource = value, source
 	}
 	if c, e := loadAgentConfig(*config); e == nil {
 		if *server == "" {
@@ -348,6 +357,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 		if *token == "" && strings.TrimRight(*server, "/") == c.Server {
 			*token = c.Token
+			tokenSource = clientconfig.Source("this machine's enrollment in " + *config)
 		}
 		if *host == "" {
 			*host = c.Host
@@ -360,14 +370,23 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 		*server = value
 	}
-	tokenValue, inputErr := clientconfig.ResolveToken(*token, *tokenFile, in, os.Stderr)
+	cred, inputErr := clientconfig.NewCredential(*token, *tokenFile, *server, in, os.Stderr)
 	if inputErr != nil {
 		return inputErr
 	}
-	*token = tokenValue
+	if *token != "" {
+		cred.Source = tokenSource // NewCredential only sees the value, not where it was read
+	}
+	*token = cred.Token
 	if *targetID == "" && clientconfig.Interactive(in) {
 		// Offer the account's saved targets instead of asking for an ID by heart.
-		if choices, err := ListTargetChoices(*server, *token, *host); err == nil && len(choices) > 0 {
+		var choices []TargetChoice
+		listErr := clientconfig.Authorize(cred, func(token string) (err error) {
+			choices, err = ListTargetChoices(*server, token, *host)
+			return err
+		})
+		*token = cred.Token
+		if listErr == nil && len(choices) > 0 {
 			fmt.Fprintln(os.Stderr, "Saved targets:")
 			for i, c := range choices {
 				fmt.Fprintf(os.Stderr, "  %d. %s\n", i+1, c.Label)
@@ -393,7 +412,12 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	if *host == "" {
 		*host, _ = os.Hostname()
 	}
-	target, err := fetchTarget(*server, *token, *targetID)
+	var target store.SyncTarget
+	err := clientconfig.Authorize(cred, func(token string) (err error) {
+		target, err = fetchTarget(*server, token, *targetID)
+		return err
+	})
+	*token = cred.Token
 	if err != nil {
 		return err
 	}

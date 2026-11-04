@@ -24,7 +24,7 @@ Verification covers persistent automation, failed-job backoff, already-matching 
 
 The following records the earlier implementation and its original limitations; the workflow above supersedes those UX boundaries.
 
-# Skills and machines UX pass
+## Skills and machines UX pass
 
 This pass looked at the two surfaces people use together: the Skills shelf (`/skills`) and
 the machine workspace (`/machines`, `/sync`). The goal was a single obvious next action, live

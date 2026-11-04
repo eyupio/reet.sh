@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"golang.org/x/term"
 )
 
 // tokenFromEnvFile reads only REET_TOKEN. It never executes shell expressions or
@@ -201,52 +199,63 @@ func ForgetToken() (string, error) {
 	return path, nil
 }
 
+// ResolveToken returns the token to use, looking at the explicit value,
+// REET_TOKEN, an env file, the saved token and finally a terminal prompt.
 func ResolveToken(explicit, envFile string, in io.Reader, out io.Writer) (string, error) {
-	token := explicit
+	token, _, err := ResolveTokenSource(explicit, envFile, in, out)
+	return token, err
+}
+
+// ResolveTokenSource is ResolveToken that also says where the token came from.
+func ResolveTokenSource(explicit, envFile string, in io.Reader, out io.Writer) (string, Source, error) {
+	token, source := explicit, SourceFlag
 	if token == "" {
-		token = os.Getenv("REET_TOKEN")
+		token, source = os.Getenv("REET_TOKEN"), SourceEnv
 	}
 	if token == "" && envFile != "" {
 		var err error
 		token, err = tokenFromEnvFile(envFile)
 		if err != nil {
-			return "", err
+			return "", SourceNone, err
 		}
+		source = Source("env file " + envFile)
 	}
 	if token == "" && envFile == "" {
 		// REET_ENV_FILE or ./.env, the same files the server and TUI read.
 		if file := Discover("", "", "").TokenFile; file != "" {
 			var err error
 			if token, err = tokenFromEnvFile(file); err != nil {
-				return "", err
+				return "", SourceNone, err
 			}
+			source = Source("env file " + file)
 		}
 	}
 	if token == "" {
 		var err error
 		token, err = loadSavedToken()
 		if err != nil {
-			return "", err
+			return "", SourceNone, err
 		}
+		source = SourceSaved
 	}
-	if token == "" && Interactive(in) {
+	if token == "" && interactiveFn(in) {
 		fmt.Fprint(out, "Personal API token (Account on the target server; hidden, Enter for unauthenticated server): ")
-		secret, err := term.ReadPassword(int(in.(*os.File).Fd()))
+		entered, err := readSecret(in)
 		fmt.Fprintln(out)
 		if err != nil {
-			return "", errors.New("could not read token from terminal")
+			return "", SourceNone, err
 		}
-		token = string(secret)
-		for i := range secret {
-			secret[i] = 0
-		}
+		token, source = entered, SourcePrompt
 		if token != "" {
 			path, err := SaveToken(token)
 			if err != nil {
-				return "", err
+				return "", SourceNone, err
 			}
 			fmt.Fprintf(out, "Saved personal API token in %s for future scans. Remove it with reet configure --forget-token.\n", path)
 		}
 	}
-	return token, validateScanToken(token)
+	if token == "" {
+		source = SourceNone
+	}
+	return token, source, validateScanToken(token)
 }

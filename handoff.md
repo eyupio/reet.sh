@@ -33,6 +33,10 @@ change, with no new UI controls, wire fields or dependency. `docs/structured-ses
 `chatBounds.test.mjs` covers both failures and is included in `npm test`: a waiting approval and question followed by a
 long stream retain the cards and newest output within the limits; tool-only command/path/diff payloads also trim. Both
 tests failed against the unchanged reducer and pass with the fix. Validation and merge status are recorded in the PR.
+
+CI follow-up: the parallel terminal-upload fixture used arrival-order filenames for identical files, then asserted selection
+order, so reversed request arrival caused a false failure. Distinct file bytes now determine fixture paths; the second
+response deliberately completes first and the test still requires insertion in selection order. No upload runtime change.
 ## GAFFER-STATE-1: retain live choices and actionable replay (4 November 2026)
 
 Branch `fix/gaffer-recovery-state`. `chatHost.setModel` now copies the process's actual model read-back into the live

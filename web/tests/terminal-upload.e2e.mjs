@@ -10,7 +10,7 @@ const uploadDir = '/home/developer/.local/state/reet/uploads/session-build000000
 const uploadPath = index => `${uploadDir}/img-fixture${index}.png`
 const MAX = 5 << 20
 
-async function open({ uploads = true, uploadsOff = false, hold = false, delay = 300 } = {}) {
+async function open({ uploads = true, uploadsOff = false, hold = false, delay = 300, pathsByBody = [], reverseResponses = false } = {}) {
   const context = await browser.newContext({ viewport: { width: 1360, height: 900 } })
   const page = await context.newPage(), errors = [], inputs = [], received = [], sockets = []
   const capabilities = { osUser: 'developer', terminalEnabled: true, terminalControl: true, readiness: 'ready' }
@@ -18,6 +18,9 @@ async function open({ uploads = true, uploadsOff = false, hold = false, delay = 
   if (uploadsOff) capabilities.uploadsOff = true
   const machines = [{ agentId: agentA, host: 'dev-laptop', ready: true, serverEnabled: true, capabilities }]
   let send = () => {}, release = () => {}, fulfilSucceeded = 0, fulfilFailed = 0, index = 0
+  const fulfilOrder = []
+  let releaseFirst = () => {}
+  const secondFinished = reverseResponses ? new Promise(resolve => releaseFirst = resolve) : null
   const gate = hold ? new Promise(resolve => release = resolve) : null
   page.on('pageerror', error => errors.push(error.message))
   await page.addInitScript(() => {
@@ -35,12 +38,17 @@ async function open({ uploads = true, uploadsOff = false, hold = false, delay = 
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname
     if (request.method() === 'POST' && path === `/api/v2/terminal/sessions/${sessionA}/uploads`) {
-      const at = index++
-      received.push({ contentType: request.headers()['content-type'], body: Buffer.from(request.postDataBuffer() ?? []) })
+      const body = Buffer.from(request.postDataBuffer() ?? [])
+      // Request arrival order is independent of the person's selection order.
+      const identified = pathsByBody.findIndex(bytes => body.equals(bytes))
+      const at = identified < 0 ? index++ : identified
+      received.push({ contentType: request.headers()['content-type'], body })
       if (gate) await gate
       else if (delay) await new Promise(resolve => setTimeout(resolve, delay))
-      try { await route.fulfill({ headers: { 'X-Reet-Upload-Path': encodeURIComponent(uploadPath(at)), 'X-Reet-Upload-Reference': encodeURIComponent(uploadPath(at)) }, json: { uploaded: true } }); fulfilSucceeded++ }
+      if (secondFinished && at === 0) await secondFinished
+      try { await route.fulfill({ headers: { 'X-Reet-Upload-Path': encodeURIComponent(uploadPath(at)), 'X-Reet-Upload-Reference': encodeURIComponent(uploadPath(at)) }, json: { uploaded: true } }); fulfilSucceeded++; fulfilOrder.push(at) }
       catch { fulfilFailed++ }
+      if (at === 1) releaseFirst()
       return
     }
     if (path === `/api/v2/terminal/sessions/${sessionA}/history`) return route.fulfill({ status: 200, contentType: 'text/plain', body: 'earlier output\n' })
@@ -82,7 +90,7 @@ async function open({ uploads = true, uploadsOff = false, hold = false, delay = 
   await expect(pane).toHaveAttribute('data-connection-state', 'live')
   await page.waitForFunction(() => document.querySelector('.xterm-rows')?.textContent.includes('upload fixture'))
   const closeSocket = async () => { await sockets.at(-1).close() }
-  return { context, page, errors, inputs, received, pane, send, release: () => release(), closeSocket, stats: () => ({ fulfilSucceeded, fulfilFailed }) }
+  return { context, page, errors, inputs, received, pane, send, release: () => release(), closeSocket, stats: () => ({ fulfilSucceeded, fulfilFailed, fulfilOrder }) }
 }
 
 async function pickFiles(page, files) {
@@ -152,16 +160,19 @@ const wireText = inputs => inputs.join('').replace(/\x1b\[200~/g, '').replace(/\
 }
 
 {
-  // Two files upload in parallel and one insertion carries both references in order.
-  const { context, page, errors, inputs, received, release } = await open({ hold: true })
+  // Distinct bytes identify the selected files even if requests arrive backwards.
+  // Trailing bytes after PNG's IEND keep the image readable and distinguish it.
+  const secondPng = Buffer.concat([png, Buffer.from('second fixture')])
+  const { context, page, errors, inputs, received, release, stats } = await open({ hold: true, pathsByBody: [png, secondPng], reverseResponses: true })
   await pickFiles(page, [
     { name: 'one.png', mimeType: 'image/png', buffer: png },
-    { name: 'two.png', mimeType: 'image/png', buffer: png },
+    { name: 'two.png', mimeType: 'image/png', buffer: secondPng },
   ])
   await expect.poll(() => received.length).toBe(2)
   await expect(page.locator('.upload-chip')).toHaveCount(2)
   release()
   await expect(page.getByText('Uploaded 2 images and inserted their paths.', { exact: true })).toBeVisible()
+  expect(stats().fulfilOrder).toEqual([1, 0])
   expect(wireText(inputs)).toBe(` ${uploadPath(0)} ${uploadPath(1)} `)
   await expect(page.locator('.upload-chip')).toHaveCount(0)
   expect(errors).toEqual([])

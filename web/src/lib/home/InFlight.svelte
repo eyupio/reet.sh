@@ -2,6 +2,7 @@
   import { toolName } from '../agentLaunch'
   import { sessionHref, type MachineHealth, type TerminalMachine } from '../terminal/api'
   import { shortAge, stateWord, type GroupBy, type Group, type HomeSession, type SessionOwner } from '../home'
+  import { sessionStatus } from '../sessionStatus'
   import SessionActions from '../sessions/SessionActions.svelte'
   import SessionHoverCard from '../terminal/SessionHoverCard.svelte'
 
@@ -73,18 +74,19 @@
           <ul>
             {#each g.sessions as s (s.id)}
               {@const word = stateWord(s)}
+              {@const status = sessionStatus(s)}
               {@const owner = owners.get(s.id)}
-              <li>
+              <li data-status={status}>
                 <a class="row" href={sessionHref(s)} onmouseenter={(event) => showCard(event.currentTarget, s)} onmouseleave={hideCard} onfocus={(event) => showCard(event.currentTarget, s)} onblur={hideCard}
                   oncontextmenu={(event) => { hideCard(); void actions?.openMenu(event, s) }}
                   onkeydown={(event) => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { hideCard(); void actions?.openMenu(event, s) } }}>
-                  <span class="dot {word.tone}" aria-hidden="true"></span>
+                  <span class="dot" aria-hidden="true"></span>
                   <span class="main">
                     <span class="title">{s.title}{#if s.yolo}{' '}<span class="badge yolo">YOLO</span>{/if}</span>
                     <span class="where">{#if s.tool}{toolName(s.tool)}{' · '}{/if}{owner ? `${owner.name} · ` : ''}{hostOf(s.agentId)}{#if s.worktreeBranch}{' · '}<code class="branch">{s.worktreeBranch}</code>{/if}</span>
                   </span>
                   <span class="state">
-                    <span class="word {word.tone}">{word.word}{lastKnown(s) ? ' · last known' : ''}</span>
+                    <span class="word">{word.word}{lastKnown(s) ? ' · last known' : ''}</span>
                     <span class="source">{word.source}</span>
                   </span>
                   <span class="age"><span class="vh">changed </span>{shortAge(Math.max(0, now - s.updatedAt))}<span class="vh"> ago</span></span>
@@ -125,20 +127,15 @@
   .row { display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 10px 16px; color: var(--ink); text-decoration: none; border-top: 1px solid var(--line-soft); }
   li:first-child .row { border-top: 0; }
   .row:hover { background: var(--card-raised); }
-  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted); }
-  .dot.good { background: var(--good); }
-  .dot.warn { background: var(--warn); }
-  .dot.bad { background: var(--bad); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--status); }
+  li[data-status='working'] .row, li[data-status='waiting'] .row, li[data-status='starting'] .row, li[data-status='failed'] .row { box-shadow: inset 3px 0 var(--status); background: color-mix(in srgb, var(--status) 6%, transparent); }
   .main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
   .title { font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .badge.yolo { margin-left: 4px; padding: 0 5px; border: 1px solid var(--warn); border-radius: 5px; color: var(--warn); font-size: 10px; font-weight: 600; vertical-align: 1px; }
   .where { font-size: 12px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .branch { font-family: var(--mono); font-size: 12px; }
   .state { flex: none; display: flex; flex-direction: column; align-items: flex-end; text-align: right; max-width: 40%; }
-  .word { font-size: 13px; font-weight: 500; color: var(--muted); }
-  .word.good { color: var(--good); }
-  .word.warn { color: var(--warn); }
-  .word.bad { color: var(--bad); }
+  .word { font-size: 12px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 99px; padding: 2px 8px; }
   .source { font-size: 11px; color: var(--muted); }
   .age { flex: none; width: 34px; text-align: right; font-size: 12px; color: var(--muted); }
 

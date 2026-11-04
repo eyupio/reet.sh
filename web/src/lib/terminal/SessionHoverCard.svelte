@@ -2,6 +2,7 @@
   import type { MachineHealth, TerminalSession } from './api'
   import { age, bytes, fresh, percent, value } from './health'
   import { shortAge, stateWord } from '../home'
+  import { sessionStatus } from '../sessionStatus'
   import { projectColourHex } from '../projectColour'
   import { toolName } from '../agentLaunch'
 
@@ -34,7 +35,7 @@
   <header>
     <span class="swatch" class:empty={!projectColourHex(colour) || projectColourHex(colour) === 'transparent'}></span>
     <strong>{session.title}</strong>
-    <span class="state {word.tone}">{word.word}</span>
+    <span class="state" data-status={sessionStatus(session)}>{word.word}</span>
   </header>
   <p class="where">{project ? `${project} · ` : ''}{host}{#if session.worktreeBranch}{' · '}<code>{session.worktreeBranch}</code>{/if}</p>
   <p class="age">{['running', 'creating', 'end_requested'].includes(session.state) ? `Running for ${shortAge(Math.max(0, serverNow - session.createdAt))}` : `Changed ${shortAge(Math.max(0, serverNow - session.updatedAt))} ago`}</p>
@@ -55,10 +56,7 @@
   .swatch { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--card-colour); }
   .swatch.empty { display: none; }
   header strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; }
-  .state { flex: none; font-size: .68rem; padding: 1px 7px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); }
-  .state.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
-  .state.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
-  .state.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+  .state { flex: none; font-size: .68rem; padding: 1px 7px; border: 1px solid var(--status-edge); border-radius: 99px; color: var(--status); background: var(--status-wash); font-weight: 600; }
   .where { margin: 6px 0 0; color: var(--muted); overflow-wrap: anywhere; }
   code { font-family: var(--mono); font-size: .72rem; }
   .age { margin: 2px 0 0; color: var(--muted); font-size: .7rem; }

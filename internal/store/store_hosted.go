@@ -390,3 +390,28 @@ func (s *Store) PublishedHostedSkill(username, slug string) (HostedSkill, error)
 	}
 	return sk, err
 }
+
+// PublishedHostedSkillRef is the public address of a published skill.
+type PublishedHostedSkillRef struct {
+	Username  string
+	Slug      string
+	UpdatedAt int64
+}
+
+// PublishedHostedSkills lists the public skill pages, newest first. Disabled authors are left out, as their pages are.
+func (s *Store) PublishedHostedSkills() ([]PublishedHostedSkillRef, error) {
+	rows, err := s.db.Query(`SELECT p.username,h.slug,h.updated_at FROM hosted_skills h JOIN publishers p ON p.user_id=h.user_id JOIN users u ON u.id=p.user_id WHERE h.published=1 AND u.disabled_at=0 ORDER BY h.updated_at DESC,h.slug`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	refs := []PublishedHostedSkillRef{}
+	for rows.Next() {
+		var r PublishedHostedSkillRef
+		if err := rows.Scan(&r.Username, &r.Slug, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		refs = append(refs, r)
+	}
+	return refs, rows.Err()
+}

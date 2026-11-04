@@ -20,10 +20,17 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 
 Review batches: [process recovery #480](https://github.com/eyupio/reet.sh/pull/480),
 [retained state #485](https://github.com/eyupio/reet.sh/pull/485), and
-[browser bounds #484](https://github.com/eyupio/reet.sh/pull/484). Seven reproduced defects are addressed across the three
+[transcript retention #484](https://github.com/eyupio/reet.sh/pull/484). Eight reproduced defects are addressed across the three
 focused batches below. Each PR records its checks and merge state. All handoff entries are retained when integrating the stack.
 
 ## GAFFER-BOUNDS-1: keep history bounded around waiting cards (4 November 2026)
+
+Final asynchronous review follow-up: the process waiter could mark the chat closed before buffered final ACP frames reached
+a slow event sender. The connector now owns its stdout pipe, observes exit independently, retires descendants and gives the
+reader up to two seconds to drain before ending the session. A permanently blocked sender still cannot hide an exited agent.
+Tests reproduce loss of a flushed final chunk before the fix and cover bounded shutdown with a blocked callback. The fake
+child disables the race runtime's exit sleep for this case so that sleep cannot hide the shutdown race. This resolves the
+post-merge review on #485 as part of #484; independent exit detection and the inherited-stderr bound are preserved.
 
 Branch `fix/gaffer-transcript-bounds`. The browser reducer skips individual pending approvals and questions when evicting
 old history, so one unanswered card no longer pins every later item. Tool commands, paths and diffs now count towards the

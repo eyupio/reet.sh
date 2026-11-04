@@ -66,7 +66,9 @@ TUI** button switches the same live session to OpenCode's own terminal UI, and b
 Closing the tab or **End session** ends the reet session and its process. Losing the
 control connection detaches it without killing the agent; the next connection adopts the running session. If the agent
 closes its protocol output or sends an oversized frame, reet ends that process
-so the chat can be recovered instead of waiting on an unusable connection. A provider failure found in the agent's local
+so the chat can be recovered instead of waiting on an unusable connection. When an agent exits, reet retires its descendants
+and allows up to two seconds for final protocol messages to reach the event sender. A sender blocked beyond that bound can
+still lose those messages; it cannot keep the exited process appearing live indefinitely. A provider failure found in the agent's local
 log also ends the process if it ignores cancellation, while keeping the provider error visible. The next connection drains events
 queued while it was away. Recovery puts the retained pending approvals and current status after that buffered output, so a full queue
 cannot immediately evict the recovered card during replay preparation. If output continues during a stalled replay, the queue discards old output

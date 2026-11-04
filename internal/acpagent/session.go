@@ -37,6 +37,10 @@ var (
 
 const maxLineBytes = 1 << 20
 
+// An exited agent's final frames get a bounded chance to reach the sender.
+// A stuck callback must not keep the session alive indefinitely.
+const stdoutDrainTimeout = 2 * time.Second
+
 // Attachment is one image embedded in an ACP prompt. The bytes come from the
 // connector's private upload folder; no path is sent to the agent.
 type Attachment struct {
@@ -156,24 +160,45 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	// Own stdout ourselves: StdoutPipe would let cmd.Wait close the reader
+	// before the final buffered frames have been delivered.
+	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		_ = stdin.Close()
 		return nil, err
 	}
+	cmd.Stdout = stdoutWriter
 	stderr := &cappedBuffer{limit: 4 << 10}
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stdoutWriter.Close()
 		return nil, ErrExited
 	}
+	_ = stdoutWriter.Close()
 	s := &Session{opts: opts, binary: binary, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr,
 		calls: map[int64]chan rpcResult{}, pending: map[string]*pendingPermission{}, tools: map[string]string{},
 		toolStart: map[string]time.Time{}, done: make(chan struct{})}
-	go s.readLoop()
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		defer stdout.Close()
+		s.readLoop()
+	}()
 	go func() {
 		// Observe leader exit independently: a child may still hold stdout open.
 		_ = cmd.Wait()
+		s.killGroup()
+		// Killing descendants closes their inherited writers. Let the reader
+		// drain before ended marks the session closed and discards later emits.
+		timer := time.NewTimer(stdoutDrainTimeout)
+		defer timer.Stop()
+		select {
+		case <-readDone:
+		case <-timer.C:
+		}
+		_ = stdout.Close()
 		s.ended()
 	}()
 	initCtx, cancel := context.WithTimeout(ctx, 15*time.Second)

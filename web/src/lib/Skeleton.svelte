@@ -44,7 +44,7 @@
   i { display: block; height: 12px; border-radius: 6px; background: var(--line); }
   .lines { display: grid; gap: 10px; }
   .lines i.short { width: 60%; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 14px; }
   .card { display: grid; align-content: start; gap: 14px; min-height: 112px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
   .card i.title { width: 40%; height: 18px; }
   .card i.short { width: 70%; }

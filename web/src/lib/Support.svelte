@@ -114,7 +114,7 @@
     {/snippet}
 
     {#if loading}
-      <Skeleton label="Reading tickets…" shape="lines" count={4} />
+      <Skeleton label="Reading tickets…" shape="rows" count={5} />
     {:else if loadError}
       <div class="state-block error" role="alert">
         <p>{loadError}</p>

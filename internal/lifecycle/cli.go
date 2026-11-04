@@ -110,10 +110,12 @@ func (a *App) install(args []string) error {
 	if !ok {
 		return err
 	}
-	if *mode != "binary" && *mode != "native" && *mode != "compose" {
+	valid := *mode == "binary" || *mode == "native" || *mode == "compose"
+	if !valid {
 		return fmt.Errorf("mode must be binary, native or compose")
 	}
-	if *mode != "compose" && *tag != "" && *tag != "latest" {
+	composeTag := *tag != "" && *tag != "latest"
+	if *mode != "compose" && composeTag {
 		return fmt.Errorf("--version selects a Compose image; use reet upgrade --version for a native binary")
 	}
 	if *mode == "compose" {
@@ -153,10 +155,12 @@ func (a *App) install(args []string) error {
 		return fmt.Errorf("--addr must be HOST:PORT")
 	}
 	p, err := strconv.Atoi(port)
-	if err != nil || p < 1 || p > 65535 {
+	validPort := err == nil && p >= 1 && p <= 65535
+	if !validPort {
 		return fmt.Errorf("invalid server port")
 	}
-	if host != "" && host != "localhost" && net.ParseIP(host) == nil {
+	customHost := host != "" && host != "localhost"
+	if customHost && net.ParseIP(host) == nil {
 		return fmt.Errorf("--addr host must be localhost or an IP address")
 	}
 	source, err := a.executable()
@@ -169,8 +173,11 @@ func (a *App) install(args []string) error {
 	}
 	target := filepath.Join(dir, "reet")
 	info, e := os.Lstat(target)
-	if e == nil && (info.Mode()&os.ModeSymlink != 0 || !sameBinary(source, target)) {
-		return fmt.Errorf("%s already contains another binary or symlink; upgrade it or choose --dir", target)
+	if e == nil {
+		conflict := info.Mode()&os.ModeSymlink != 0 || !sameBinary(source, target)
+		if conflict {
+			return fmt.Errorf("%s already contains another binary or symlink; upgrade it or choose --dir", target)
+		}
 	}
 	if e != nil && !os.IsNotExist(e) {
 		return e
@@ -432,7 +439,9 @@ func (a *App) upgrade(args []string) error {
 	// generic "yes" must not silently replace the running dev CLI with stable
 	// and remove the very commands needed to recover it. Inspection stays usable;
 	// explicit --version still permits an intentional channel switch/downgrade.
-	if a.Version == "dev" && resolved != "dev" && d.Mode != "compose" && !explicitVersion {
+	channelSwitch := a.Version == "dev" && resolved != "dev"
+	switchable := channelSwitch && d.Mode != "compose"
+	if switchable && !explicitVersion {
 		path, e := a.executable()
 		if e != nil {
 			return fmt.Errorf("cannot identify running binary; select --version explicitly")
@@ -470,7 +479,9 @@ func (a *App) upgrade(args []string) error {
 		return fmt.Errorf("verified release binary cannot run on this host")
 	}
 	fields := strings.Fields(build)
-	if len(fields) != 3 || fields[0] != "reet" || strings.TrimPrefix(fields[1], "v") != strings.TrimPrefix(resolved, "v") {
+	valid := len(fields) == 3 && fields[0] == "reet" &&
+		strings.TrimPrefix(fields[1], "v") == strings.TrimPrefix(resolved, "v")
+	if !valid {
 		return fmt.Errorf("release binary version does not match the requested tag")
 	}
 	fmt.Fprintf(a.Out, "Verified: %s\n", strings.TrimSpace(build))

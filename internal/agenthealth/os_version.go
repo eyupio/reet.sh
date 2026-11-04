@@ -61,11 +61,13 @@ func osReleaseVersion(path string) string {
 	fields := map[string]string{}
 	for _, line := range strings.Split(string(raw), "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
-		if !ok || (key != "PRETTY_NAME" && key != "NAME" && key != "VERSION_ID") {
+		known := key == "PRETTY_NAME" || key == "NAME" || key == "VERSION_ID"
+		if !ok || !known {
 			continue
 		}
 		value = strings.TrimSpace(value)
-		if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+		quoted := len(value) >= 2 && (value[0] == '"' || value[0] == '\'')
+		if quoted && value[len(value)-1] == value[0] {
 			value = value[1 : len(value)-1]
 		}
 		fields[key] = value

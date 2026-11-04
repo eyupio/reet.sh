@@ -74,7 +74,9 @@ type CPUSampler struct {
 }
 
 func (s *CPUSampler) Observe(total, idle float64, at time.Time) terminalproto.Reading {
-	if math.IsNaN(total) || math.IsInf(total, 0) || math.IsNaN(idle) || math.IsInf(idle, 0) || total < 0 || idle < 0 {
+	validTotal := !math.IsNaN(total) && !math.IsInf(total, 0) && total >= 0
+	validIdle := !math.IsNaN(idle) && !math.IsInf(idle, 0) && idle >= 0
+	if !validTotal || !validIdle {
 		return terminalproto.Reading{Reason: terminalproto.CollectionFailed}
 	}
 	if !s.have {
@@ -144,7 +146,8 @@ func busyAccounting(stat cpu.TimesStat) (total, idle float64) {
 
 func memoryReading(ctx context.Context) terminalproto.CapacityReading {
 	stat, err := mem.VirtualMemoryWithContext(ctx)
-	if err != nil || stat == nil || stat.Total == 0 {
+	valid := err == nil && stat != nil && stat.Total != 0
+	if !valid {
 		reason := reasonFor(err)
 		return terminalproto.CapacityReading{
 			Total:     terminalproto.Reading{Reason: reason},
@@ -159,7 +162,8 @@ func diskReading(ctx context.Context, home string) terminalproto.CapacityReading
 		home = "/"
 	}
 	stat, err := disk.UsageWithContext(ctx, home)
-	if err != nil || stat == nil || stat.Total == 0 {
+	valid := err == nil && stat != nil && stat.Total != 0
+	if !valid {
 		reason := reasonFor(err)
 		return terminalproto.CapacityReading{
 			Total:     terminalproto.Reading{Reason: reason},

@@ -141,7 +141,8 @@ func DecodeObjectHeader(r io.Reader) (ObjectManifest, error) {
 	if err := json.Unmarshal(head, &m); err != nil {
 		return m, fmt.Errorf("reading the object's manifest: %w", err)
 	}
-	if m.Target == "" || m.PayloadSize < 0 || m.PayloadSHA256 == "" {
+	valid := m.Target != "" && m.PayloadSize >= 0 && m.PayloadSHA256 != ""
+	if !valid {
 		return m, errors.New("the object's manifest is missing what a copy needs")
 	}
 	return m, nil

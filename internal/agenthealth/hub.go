@@ -126,7 +126,10 @@ func hubKey(uid int64, agentID string) string {
 // Connect installs a new connection generation. Any previous connection for
 // the same enrollment is fenced and its last observation is retained.
 func (h *Hub) Connect(uid int64, agentID string, generation int64, instance string, caps terminalproto.Capabilities, send Sender) (*Conn, error) {
-	if h == nil || send == nil || !terminalproto.ValidCounter(generation) || !terminalproto.ValidID(agentID) || !terminalproto.ValidID(instance) || caps.Validate() != nil || !caps.HealthEnabled {
+	valid := h != nil && send != nil && terminalproto.ValidCounter(generation) &&
+		terminalproto.ValidID(agentID) && terminalproto.ValidID(instance) &&
+		caps.Validate() == nil && caps.HealthEnabled
+	if !valid {
 		return nil, terminalproto.ErrInvalid
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -145,7 +148,8 @@ func (h *Hub) Connect(uid int64, agentID string, generation int64, instance stri
 		return nil, store.ErrRemoteNotFound
 	}
 	old := h.live[key]
-	if old != nil && old.generation >= generation || h.last[key].Generation >= generation {
+	stale := old != nil && old.generation >= generation
+	if stale || h.last[key].Generation >= generation {
 		h.mu.Unlock()
 		cancel()
 		return nil, store.ErrTerminalConflict
@@ -330,7 +334,8 @@ func (c *Conn) Report(report terminalproto.HealthReport, received time.Time) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.closed || c.unreachable || report.Sequence <= c.lastSequence {
+	unavailable := c.closed || c.unreachable
+	if unavailable || report.Sequence <= c.lastSequence {
 		return
 	}
 	c.lastSequence = report.Sequence
@@ -357,7 +362,8 @@ func (c *Conn) ProbeResult(result terminalproto.ProbeResult, received time.Time)
 	}
 	delete(c.outstanding, result.Nonce)
 	rtt := received.Sub(attempt.at)
-	if rtt < 0 || rtt > c.hub.probeTimeout || rtt > 5*time.Second {
+	tooSlow := rtt > c.hub.probeTimeout || rtt > 5*time.Second
+	if rtt < 0 || tooSlow {
 		return
 	}
 	millis := float64(rtt) / float64(time.Millisecond)
@@ -416,7 +422,8 @@ func (c *Conn) rollMinuteLocked(now time.Time) {
 }
 
 func (c *Conn) persistLocked(now time.Time) {
-	if c.closed || !c.caps.HealthEnabled || c.hub.st == nil {
+	usable := !c.closed && c.caps.HealthEnabled
+	if !usable || c.hub.st == nil {
 		return
 	}
 	minute := now.Truncate(time.Minute).UnixMilli()
@@ -460,7 +467,9 @@ func (c *Conn) persistLoop() {
 			}
 			if err != nil && c.ctx.Err() == nil {
 				c.hub.logf("health summary write failed")
-				if errors.Is(err, store.ErrRemoteNotFound) || errors.Is(err, store.ErrTerminalNotReady) || errors.Is(err, store.ErrTerminalConflict) {
+				known := errors.Is(err, store.ErrRemoteNotFound) || errors.Is(err, store.ErrTerminalNotReady) ||
+					errors.Is(err, store.ErrTerminalConflict)
+				if known {
 					c.Close()
 					return
 				}
@@ -496,7 +505,8 @@ func (c *Conn) sendProbe() {
 		return
 	}
 	c.mu.Lock()
-	if c.closed || c.unreachable || len(c.outstanding) >= maxOutstanding {
+	closed := c.closed || c.unreachable
+	if closed || len(c.outstanding) >= maxOutstanding {
 		c.mu.Unlock()
 		return
 	}

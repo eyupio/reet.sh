@@ -131,8 +131,11 @@ func (a *App) DoctorReport(opts DoctorOptions) (Report, error) {
 			p = abs
 		}
 		if p, e := filepath.EvalSymlinks(p); e == nil {
-			if s, e := os.Stat(p); e == nil && s.Mode().IsRegular() && s.Mode()&0111 != 0 {
-				seen[p] = true
+			if s, e := os.Stat(p); e == nil {
+				valid := s.Mode().IsRegular() && s.Mode()&0111 != 0
+				if valid {
+					seen[p] = true
+				}
 			}
 		}
 	}
@@ -210,14 +213,17 @@ func (a *App) DoctorReport(opts DoctorOptions) (Report, error) {
 		controller = clientconfig.Discover("", "", opts.TokenFile).Server
 	}
 	token := os.Getenv("REET_TOKEN")
-	if os.Getenv("REET_URL") == "" && opts.Server == "" && os.Getenv("REET_CONTROLLER_URL") != "" {
+	hasFallback := os.Getenv("REET_URL") == "" && opts.Server == ""
+	if hasFallback && os.Getenv("REET_CONTROLLER_URL") != "" {
 		token = os.Getenv("REET_CONTROLLER_TOKEN")
 	}
 	input := a.In
 	if !opts.Interactive {
 		input = strings.NewReader("")
 	}
-	if controller == "" && !opts.JSON && opts.Interactive && clientconfig.Interactive(input) {
+	noController := controller == "" && !opts.JSON
+	canPrompt := noController && opts.Interactive
+	if canPrompt && clientconfig.Interactive(input) {
 		value, err := clientconfig.ResolveURL("", input, os.Stderr)
 		if err != nil {
 			return r, err
@@ -228,7 +234,9 @@ func (a *App) DoctorReport(opts DoctorOptions) (Report, error) {
 		add("controller", "warn", "No controller URL configured.", "Set REET_URL to the Account page site URL and REET_TOKEN to a personal API token, then run reet scan --prune.")
 	} else {
 		u, e := url.Parse(controller)
-		if e != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		invalidURL := e != nil || (u.Scheme != "https" && u.Scheme != "http") ||
+			u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != ""
+		if invalidURL {
 			add("controller", "fail", "Invalid controller URL.", "Use an http(s) site URL; keep tokens in REET_TOKEN, not the URL.")
 		} else {
 			if !opts.JSON || opts.TokenFile != "" {

@@ -205,7 +205,9 @@ func (a *App) pollHealthy(ctx context.Context, d *deployment) error {
 			OK      bool   `json:"ok"`
 			Version string `json:"version"`
 		}
-		if err == nil && json.Unmarshal(b, &health) == nil && health.OK && strings.TrimPrefix(health.Version, "v") == strings.TrimPrefix(d.Version, "v") {
+		healthy := err == nil && json.Unmarshal(b, &health) == nil && health.OK
+		sameVersion := strings.TrimPrefix(health.Version, "v") == strings.TrimPrefix(d.Version, "v")
+		if healthy && sameVersion {
 			return nil
 		}
 		select {

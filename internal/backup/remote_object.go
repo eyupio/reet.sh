@@ -121,7 +121,8 @@ func (s *Service) fetchRemoteSealed(ctx context.Context, ownerID int64, id strin
 		return nil, err
 	}
 	for _, r := range remotes {
-		if r.Disabled || r.Problem != "" || !r.S3.Configured() {
+		usable := !r.Disabled && r.Problem == "" && r.S3.Configured()
+		if !usable {
 			continue
 		}
 		ref, ok := s.findRemoteRef(ctx, r, ownerID, id)

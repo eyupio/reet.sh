@@ -91,7 +91,8 @@ func resolveRelease(ctx context.Context, client *http.Client, api, tag string) (
 		return "", fmt.Errorf("invalid release response")
 	}
 	parsed, err := normaliseTag(r.Tag)
-	if err != nil || parsed != r.Tag || r.Tag == "latest" {
+	valid := err == nil && parsed == r.Tag && r.Tag != "latest"
+	if !valid {
 		return "", fmt.Errorf("invalid published release tag")
 	}
 	if tag != "latest" && tag != r.Tag {
@@ -139,7 +140,8 @@ func fetchBinary(ctx context.Context, client *http.Client, root, tag, dir string
 		}
 	}
 	decoded, err := hex.DecodeString(checksum)
-	if err != nil || len(decoded) != sha256.Size || matches != 1 {
+	valid := err == nil && len(decoded) == sha256.Size && matches == 1
+	if !valid {
 		return "", fmt.Errorf("release must have exactly one valid checksum for %s", name)
 	}
 	archive, err := get(ctx, client, root+"/"+tag+"/"+name, 128<<20)
@@ -169,7 +171,8 @@ func fetchBinary(ctx context.Context, client *http.Client, root, tag, dir string
 		if h.Name != "reet" {
 			continue
 		}
-		if seen || h.Typeflag != tar.TypeReg || h.Size <= 0 || h.Size > 128<<20 {
+		invalid := seen || h.Typeflag != tar.TypeReg || h.Size <= 0 || h.Size > 128<<20
+		if invalid {
 			return "", fmt.Errorf("invalid executable in release archive")
 		}
 		seen = true

@@ -35,6 +35,8 @@
   .local { margin: 34px 0 0; padding-top: 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.8; overflow-wrap: anywhere; }
   .local strong { font-weight: 500; color: var(--ink); }
   .form-panel { min-width: 0; align-self: center; padding: 30px; background: var(--card); border: 1px solid var(--line); border-radius: 11px; box-shadow: 0 18px 50px color-mix(in srgb, var(--ink) 5%, transparent); }
+  /* Leave room around focused controls when a short viewport scrolls the form. */
+  .form-panel :global(:is(button, a, input, select, summary)) { scroll-margin-block: 16px; }
   .instance { display: flex; align-items: center; gap: 11px; padding-bottom: 23px; margin-bottom: 25px; border-bottom: 1px solid var(--line); }
   .instance-mark { width: 32px; height: 35px; flex: none; display: grid; place-items: center; background: var(--ink); color: var(--bg); border-radius: 5px; font: 600 21px var(--serif); }
   .instance > div { min-width: 0; flex: 1; }

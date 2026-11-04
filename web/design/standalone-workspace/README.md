@@ -23,3 +23,18 @@ Explicitly published community content, lists and hosted skills retain their exi
 ## Review
 
 Review the existing board and authentication flows with their full fixture data, not only the abbreviated design reference. Test source is in web/tests; the board test includes saving an idea without a prompt, refining it, then starting it with the selected options.
+
+## Whole application review
+
+The route review covers 35 populated application routes at 390 and 1440 pixels in light and dark mode. It checks for page overflow, runtime errors and unexpected API requests, then inspects captures of each page. The fixtures include long names, paths and content.
+
+| Area | Pages reviewed |
+| --- | --- |
+| Work | Home, Sessions, machine inventory and detail, Skills, Sync, Setups |
+| Account | Profile, agent defaults, password, SSO, sessions, MCP access, tokens, backups, activity |
+| Administration | Overview, environments, users, team usage, support, email, notifications, backups, settings, activity |
+| Sharing and help | Lists and list detail, community, teams, notifications, support and ticket detail, skill publishing |
+
+The existing browser contracts also exercise form submissions, settings persistence, permission restrictions and failure recovery. The phone zoom suite checks 46 screens and dialogs at 320, 360, 390 and 412 pixels, including account and administration pages. The add-machine matrix checks its dialog and signed-out state across four widths in both themes; focused entry controls retain space at the edge of short viewports.
+
+Actual application captures: [settings](settings-desktop.png), [dark settings](settings-desktop-dark.png), [phone settings](settings-mobile.png), [account](account-desktop.png), [machines](machines-desktop.png), [skills](skills-desktop.png), [sync](sync-desktop.png) and [setups](setups-desktop.png).

@@ -45,3 +45,15 @@ the visible header controls. All seven affected backend packages pass their comp
 
 Publication state and final-head checks are recorded on PR #493. Merge #490 first, then this follow-up when its checks and
 review are green. Resolve any new main changes without dropping either handoff or UI verification section.
+
+## Current head
+
+The branch now merges the current session action branch, which itself carries main through the public-page crawler test and
+the resizable session workspace panel (#495). That brings the Sessions phone expectation for the visible Running/project/
+machine line and the landscape controls-row budget into this branch, so the shared phone suite no longer asserts the old
+hidden header. The only conflict was `docs/handoffs/session-actions.md`; the session action branch's corrected text and its
+new integration section are kept in full. The startup option code is unchanged by the merge: both start dialogs, the backlog
+composer and the negotiated `acp-start-options-v1` contract are exactly as verified above.
+
+Final-head CI on this branch is the merge gate, and the head recorded in the pull request is authoritative. Merge #490
+first, then this branch, then the combined image preview branch.

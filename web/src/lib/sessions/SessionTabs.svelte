@@ -81,7 +81,7 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--status); }
   .state { flex: none; font-size: 11px; font-weight: 600; color: var(--status); white-space: nowrap; }
   @media (max-width: 1400px) { .state { display: none; } }
-  li[data-status] { border-top: 2px solid var(--status); }
+  li[data-status] { box-shadow: inset 0 2px var(--status); }
   li[data-status] .tab { color: var(--status); }
   li[data-status='working'], li[data-status='waiting'], li[data-status='starting'], li[data-status='failed'] { background: color-mix(in srgb, var(--status) 8%, transparent); }
   li.current[data-status] { background: var(--bg); }

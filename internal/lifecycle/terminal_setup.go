@@ -61,7 +61,8 @@ func (a *App) offerTerminalSetup(d *deployment, state string, running, skip bool
 			return
 		}
 		answer = strings.ToLower(strings.TrimSpace(value))
-		if answer == "y" || answer == "yes" || answer == "n" || answer == "no" {
+		valid := answer == "y" || answer == "yes" || answer == "n" || answer == "no"
+		if valid {
 			break
 		}
 		fmt.Fprintln(a.Out, "Choose yes or no.")

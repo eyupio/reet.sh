@@ -187,14 +187,20 @@ func RunAgent(ctx context.Context, cfg AgentConfig) error {
 
 func (cfg *AgentConfig) normalise() error {
 	u, err := url.Parse(cfg.ServerURL)
-	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" {
+	if err != nil {
+		return errors.New("private monitoring requires the controller origin")
+	}
+	noCredentials := u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
+	plainPath := u.Path == "" || u.Path == "/"
+	if !noCredentials || !plainPath {
 		return errors.New("private monitoring requires the controller origin")
 	}
 	if u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1")) {
 		return errors.New("private monitoring requires HTTPS")
 	}
 	cfg.ServerURL = strings.TrimRight(cfg.ServerURL, "/")
-	if cfg.Token == "" || cfg.AgentID == "" || cfg.Secret == "" {
+	valid := cfg.Token != "" && cfg.AgentID != "" && cfg.Secret != ""
+	if !valid {
 		return errors.New("private monitoring requires the controller token and enrollment credentials")
 	}
 	if !terminalproto.ValidID(cfg.AgentID) {
@@ -332,7 +338,9 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 		return false, errors.New("private handshake was not acknowledged")
 	}
 	reply, err := terminalproto.DecodeHandshakeReply(replyData)
-	if err != nil || reply.ProtocolVersion != terminalproto.Version || reply.RequestID != handshakeID {
+	valid := err == nil && reply.ProtocolVersion == terminalproto.Version &&
+		reply.RequestID == handshakeID
+	if !valid {
 		return false, errors.New("this agent protocol is not supported; update the agent or controller")
 	}
 	generation := reply.Generation
@@ -618,7 +626,12 @@ func consentControl(ctx context.Context, cfg AgentConfig, generation int64, enab
 		nextUploads := readUploadsAllowed(cfg)
 		nextModels := readModelsAllowed(cfg)
 		nextYolo := readYoloAllowed(cfg)
-		if nextEnabled == enabled && nextReadiness == readiness && nextBrowse == cfg.browseAllowed && nextClipboard == cfg.clipboardAllowed && nextUploads == cfg.uploadsAllowed && nextModels == cfg.modelsAllowed && nextYolo == cfg.yoloAllowed {
+		consentSame := nextEnabled == enabled && nextReadiness == readiness
+		browseSame := nextBrowse == cfg.browseAllowed && nextClipboard == cfg.clipboardAllowed
+		uploadsSame := nextUploads == cfg.uploadsAllowed && nextModels == cfg.modelsAllowed
+		yoloSame := nextYolo == cfg.yoloAllowed
+		allSame := consentSame && browseSame && uploadsSame && yoloSame
+		if allSame {
 			continue
 		}
 		previousBrowse, previousClipboard, previousUploads, previousModels, previousYolo := cfg.browseAllowed, cfg.clipboardAllowed, cfg.uploadsAllowed, cfg.modelsAllowed, cfg.yoloAllowed
@@ -713,7 +726,9 @@ func bootstrap(ctx context.Context, cfg AgentConfig) (string, error) {
 		ProtocolVersion int    `json:"protocolVersion"`
 		Address         string `json:"address"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&reply); err != nil || reply.ProtocolVersion != terminalproto.Version || reply.Address == "" {
+	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&reply)
+	valid := decodeErr == nil && reply.ProtocolVersion == terminalproto.Version && reply.Address != ""
+	if !valid {
 		return "", errors.New("private bootstrap reply is invalid")
 	}
 	return reply.Address, nil
@@ -881,7 +896,8 @@ func terminalFeatures(cfg AgentConfig) string {
 func launchTools(cfg AgentConfig) []string {
 	var tools []string
 	for _, tool := range cfg.LaunchTools() {
-		if (terminalproto.ValidTool(tool) || cfg.agentsV2 && terminalproto.ValidToolV2(tool)) && !slices.Contains(tools, tool) {
+		validTool := terminalproto.ValidTool(tool) || (cfg.agentsV2 && terminalproto.ValidToolV2(tool))
+		if validTool && !slices.Contains(tools, tool) {
 			tools = append(tools, tool)
 		}
 	}
@@ -923,7 +939,10 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		}
 	}
 	if !enabled {
-		if readiness == "" || readiness == terminalproto.Ready || readiness == terminalproto.TmuxUnavailable || readiness == terminalproto.SupervisorUnavailable || readiness == terminalproto.CapacityReached || readiness == terminalproto.Reconnecting {
+		resettable := readiness == "" || readiness == terminalproto.Ready ||
+			readiness == terminalproto.TmuxUnavailable || readiness == terminalproto.SupervisorUnavailable ||
+			readiness == terminalproto.CapacityReached || readiness == terminalproto.Reconnecting
+		if resettable {
 			if osName == "unknown" {
 				readiness = terminalproto.Unsupported
 			} else {
@@ -952,7 +971,8 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 	control := cfg.TerminalSession != nil && (osName == "linux" || osName == "darwin")
 	// Descriptors are read once, and only on a connection that negotiated them.
 	var described []terminalproto.ACPAgent
-	if cfg.acpAgents && cfg.acp && control && enabled && cfg.StructuredAgents != nil {
+	canDescribe := cfg.acpAgents && cfg.acp && control && enabled
+	if canDescribe && cfg.StructuredAgents != nil {
 		described = cfg.StructuredAgents()
 	}
 	// Chats are available when OpenCode is installed (what a controller without
@@ -960,22 +980,26 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 	// for a tool installed here, so Claude does not need OpenCode.
 	chatTool := slices.Contains(tools, "opencode")
 	for _, entry := range described {
-		if entry.Valid() && entry.State == "available" && slices.Contains(tools, entry.Tool) {
+		usable := entry.Valid() && entry.State == "available"
+		if usable && slices.Contains(tools, entry.Tool) {
 			chatTool = true
 		}
 	}
 	acp := cfg.acp && control && enabled && chatTool
 	var software []terminalproto.SoftwareEntry
-	if cfg.software && cfg.Software != nil && control {
+	softwareEnabled := cfg.software && cfg.Software != nil
+	if softwareEnabled && control {
 		software = softwareEntries(cfg)
 	}
 	var chatAgents *[]terminalproto.ACPAgent
-	if cfg.acpAgents && cfg.acp && control && enabled {
+	canDescribeAgents := cfg.acpAgents && cfg.acp && control && enabled
+	if canDescribeAgents {
 		entries := []terminalproto.ACPAgent{}
 		{
 			seen := map[string]bool{}
 			for _, entry := range described {
-				if !entry.Valid() || seen[entry.Tool] || len(entries) >= terminalproto.MaxACPAgents {
+				valid := entry.Valid() && !seen[entry.Tool]
+				if !valid || len(entries) >= terminalproto.MaxACPAgents {
 					continue
 				}
 				seen[entry.Tool] = true

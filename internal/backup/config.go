@@ -185,7 +185,8 @@ func FromEnv(getenv func(string) string) (Config, error) {
 			return def
 		}
 		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 || n > MaxKeep {
+		valid := err == nil && n >= 0 && n <= MaxKeep
+		if !valid {
 			errs = append(errs, fmt.Errorf("%s is %q, which is not a number of copies to keep (0 keeps every one)", name, v))
 			return def
 		}
@@ -252,7 +253,8 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		c.Sealer = sealer
 		c.Usable = true
 	}
-	if c.S3.Configured() && (c.S3.Bucket == "" || c.S3.AccessKey == "" || c.S3.SecretKey == "") {
+	incomplete := c.S3.Bucket == "" || c.S3.AccessKey == "" || c.S3.SecretKey == ""
+	if c.S3.Configured() && incomplete {
 		c.Findings = append(c.Findings, Finding{Severity: "error", Code: "backup.offsite_incomplete",
 			Message: "REET_BACKUP_S3_ENDPOINT names an endpoint but the bucket, access key id and secret access key are not all set, so nothing can be shipped to it."})
 	}

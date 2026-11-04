@@ -101,7 +101,9 @@ func (a *Accumulator) NoteReconnect() {
 }
 
 func (a *Accumulator) AddTraffic(input, output int64) {
-	if input < 0 || output < 0 || a.inputBytes > terminalproto.MaxCounter-input || a.outputBytes > terminalproto.MaxCounter-output {
+	validInput := input >= 0 && a.inputBytes <= terminalproto.MaxCounter-input
+	validOutput := output >= 0 && a.outputBytes <= terminalproto.MaxCounter-output
+	if !validInput || !validOutput {
 		return
 	}
 	a.inputBytes += input
@@ -130,7 +132,8 @@ func (a *Accumulator) Summary() terminalproto.HealthSummary {
 // sample set. Combined RTT percentiles must use the retained samples, never an
 // average of per-minute percentiles.
 func Percentile(samples []float64, p float64) *float64 {
-	if len(samples) == 0 || p < 0 || p > 1 {
+	valid := len(samples) > 0 && p >= 0 && p <= 1
+	if !valid {
 		return nil
 	}
 	sorted := append([]float64(nil), samples...)

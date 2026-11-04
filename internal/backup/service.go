@@ -119,7 +119,9 @@ type runtimeRemote struct {
 
 func anyUsableRemote(remotes []RemoteView) bool {
 	for _, r := range remotes {
-		if !r.Disabled && r.Problem == "" && r.HasSecret && r.Endpoint != "" {
+		usable := !r.Disabled && r.Problem == ""
+		ready := usable && r.HasSecret
+		if ready && r.Endpoint != "" {
 			return true
 		}
 	}
@@ -169,7 +171,8 @@ func (s *Service) loadRemotes(ownerID int64) ([]runtimeRemote, error) {
 	var out []runtimeRemote
 	if ownerID == 0 && s.cfg.S3.Configured() {
 		problem := ""
-		if s.cfg.S3.Bucket == "" || s.cfg.S3.AccessKey == "" || s.cfg.S3.SecretKey == "" {
+		valid := s.cfg.S3.Bucket != "" && s.cfg.S3.AccessKey != "" && s.cfg.S3.SecretKey != ""
+		if !valid {
 			problem = "the environment names an endpoint but not all of its bucket, access key id and secret access key"
 		}
 		out = append(out, runtimeRemote{
@@ -328,7 +331,9 @@ type SettingsInput struct {
 // SaveSettings stores a schedule, retention, where copies go and how they
 // are stored for one owner.
 func (s *Service) SaveSettings(ownerID int64, in SettingsInput) (store.BackupSettings, error) {
-	if in.EverySeconds < 0 || (in.EverySeconds > 0 && in.EverySeconds < 60) {
+	negative := in.EverySeconds < 0
+	tooSoon := in.EverySeconds > 0 && in.EverySeconds < 60
+	if negative || tooSoon {
 		return store.BackupSettings{}, errors.New("the shortest schedule is a minute; 0 turns it off")
 	}
 	if in.Keep < 0 || in.Keep > MaxKeep {
@@ -481,7 +486,9 @@ func (s *Service) localItems(ownerID int64) ([]Item, error) {
 		if err != nil {
 			continue
 		}
-		if !validID(m.ID) || m.Kind != scope || (ownerID != 0 && m.OwnerID != ownerID) {
+		wrongOwner := ownerID != 0 && m.OwnerID != ownerID
+		valid := validID(m.ID) && m.Kind == scope
+		if !valid || wrongOwner {
 			continue
 		}
 		out = append(out, Item{ID: m.ID, Kind: m.Kind, OwnerID: m.OwnerID, Target: m.Target,
@@ -520,7 +527,8 @@ func (s *Service) Items(ctx context.Context, ownerID int64) ([]Item, []string, e
 	}
 	var unreachable []string
 	for _, r := range remotes {
-		if r.Disabled || r.Problem != "" || !r.S3.Configured() {
+		usable := !r.Disabled && r.Problem == "" && r.S3.Configured()
+		if !usable {
 			continue
 		}
 		cl, err := newS3Client(r.S3)
@@ -698,7 +706,8 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 			item.Local = false
 		}
 	}
-	if destination == store.DestinationRemote && len(item.Remotes) == 0 && shipErr == nil {
+	remoteOnly := destination == store.DestinationRemote && len(item.Remotes) == 0
+	if remoteOnly && shipErr == nil {
 		shipErr = errors.New("no enabled destination took the copy, so it was kept on this machine")
 	}
 	if shipErr != nil {
@@ -723,7 +732,8 @@ func (s *Service) enabledRemotes(ownerID int64) ([]runtimeRemote, error) {
 	}
 	out := make([]runtimeRemote, 0, len(remotes))
 	for _, r := range remotes {
-		if r.Disabled || r.Problem != "" || !r.S3.Configured() {
+		usable := !r.Disabled && r.Problem == "" && r.S3.Configured()
+		if !usable {
 			continue
 		}
 		if _, err := newS3Client(r.S3); err != nil {
@@ -857,7 +867,8 @@ func (s *Service) pruneRemotes(ctx context.Context, ownerID int64, keep int) err
 
 // pruneOneRemote removes what one destination holds beyond its own count.
 func (s *Service) pruneOneRemote(ctx context.Context, ownerID int64, r runtimeRemote) ([]string, error) {
-	if r.Disabled || r.Problem != "" || r.Keep <= 0 {
+	usable := !r.Disabled && r.Problem == "" && r.Keep > 0
+	if !usable {
 		return nil, nil
 	}
 	cl, err := newS3Client(r.S3)
@@ -1143,7 +1154,11 @@ func ownedBy(m Manifest, ownerID int64) error {
 	if ownerID == 0 && m.Kind != "instance" {
 		return errors.New("that copy belongs to a person, not the instance")
 	}
-	if ownerID != 0 && (m.Kind != "user" || m.OwnerID != ownerID) {
+	wrongKind := m.Kind != "user"
+	wrongOwner := m.OwnerID != ownerID
+	scoped := ownerID != 0
+	wrong := wrongKind || wrongOwner
+	if scoped && wrong {
 		return errors.New("that copy belongs to somebody else")
 	}
 	return nil
@@ -1373,14 +1388,23 @@ func (s *Service) mergeRemote(in RemoteInput, r store.BackupRemote, creating, ch
 	if !remoteNamePattern.MatchString(r.Name) {
 		return r, fmt.Errorf("the name %q is not one a destination can have; use lower-case letters, digits and dashes", r.Name)
 	}
-	if checkEnv && s.cfg.S3.Configured() && r.Name == s.cfg.RemoteName {
+	sameName := s.cfg.S3.Configured() && r.Name == s.cfg.RemoteName
+	if checkEnv && sameName {
 		return r, errors.New("the environment already describes a destination with that name; choose another")
 	}
 	u, err := url.Parse(r.Endpoint)
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+	if err != nil {
 		return r, fmt.Errorf("the endpoint %q is not the service's URL; write one like https://s3.eu-west-2.amazonaws.com or http://minio:9000", r.Endpoint)
 	}
-	if u.Scheme != "https" && !s.cfg.AllowLocal && !onThisMachine(u.Hostname()) {
+	validScheme := u.Scheme == "http" || u.Scheme == "https"
+	plainPath := u.Path == "" || u.Path == "/"
+	noExtras := u.RawQuery == "" && u.Fragment == "" && u.User == nil
+	valid := u.Host != "" && validScheme && plainPath && noExtras
+	if !valid {
+		return r, fmt.Errorf("the endpoint %q is not the service's URL; write one like https://s3.eu-west-2.amazonaws.com or http://minio:9000", r.Endpoint)
+	}
+	insecure := u.Scheme != "https" && !s.cfg.AllowLocal
+	if insecure && !onThisMachine(u.Hostname()) {
 		return r, errors.New("use https:// for a destination on another machine; an http:// endpoint sends the access key id in the clear")
 	}
 	switch {
@@ -1498,7 +1522,8 @@ func (s *Service) UpdateRemote(ownerID int64, name string, in RemoteInput) (Remo
 		return RemoteView{}, err
 	}
 	if !ok {
-		if ownerID == 0 && name == s.cfg.RemoteName && s.cfg.S3.Configured() {
+		sameName := name == s.cfg.RemoteName && s.cfg.S3.Configured()
+		if ownerID == 0 && sameName {
 			return RemoteView{}, errors.New("that destination is described by the environment; change it there")
 		}
 		return RemoteView{}, store.ErrNotFound
@@ -1538,7 +1563,8 @@ func (s *Service) UpdateRemote(ownerID int64, name string, in RemoteInput) (Remo
 }
 
 func (s *Service) DeleteRemote(ownerID int64, name string) error {
-	if ownerID == 0 && name == s.cfg.RemoteName && s.cfg.S3.Configured() {
+	sameName := name == s.cfg.RemoteName && s.cfg.S3.Configured()
+	if ownerID == 0 && sameName {
 		return errors.New("that destination is described by the environment; remove it there")
 	}
 	return s.st.DeleteBackupRemote(ownerID, name)
@@ -1624,7 +1650,10 @@ func (s *Service) Start(ctx context.Context) {
 
 func (s *Service) runDue(ctx context.Context) {
 	now := time.Now().UnixMilli()
-	if settings, err := s.settingsFor(0); err == nil && settings.EverySeconds > 0 && (settings.NextAt == 0 || settings.NextAt <= now) {
+	settings, settingsErr := s.settingsFor(0)
+	due := settingsErr == nil && settings.EverySeconds > 0 &&
+		(settings.NextAt == 0 || settings.NextAt <= now)
+	if due {
 		if _, err := s.RunInstance(ctx, "schedule"); err != nil {
 			s.log.Error("scheduled instance backup failed", "error", err)
 		}

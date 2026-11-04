@@ -45,11 +45,14 @@ and `internal/terminalhost` landed in the second. This PR adds
 - `internal/api`: 87 → 0 (first PR).
 - `internal/terminalproto`: 97 → 0.
 - `internal/terminalhost`: 73 → 0.
-- `internal/setup`: 66 → 0 (this PR).
-- `internal/terminalbroker`: 46 → 0 (this PR).
-- `internal/scan`: 43 → 0 (this PR).
-- `internal/terminalagent`: 41 → 0 (this PR).
-- `internal/acpagent`: 32 → 0 (this PR).
+- `internal/setup`: 66 → 0 (previous PR).
+- `internal/terminalbroker`: 46 → 0 (previous PR).
+- `internal/scan`: 43 → 0 (previous PR).
+- `internal/terminalagent`: 41 → 0 (previous PR).
+- `internal/acpagent`: 32 → 0 (previous PR).
+- `internal/agenthealth`: 26 → 0 (this PR).
+- `internal/backup`: 19 → 0 (this PR).
+- `internal/lifecycle`: 18 → 0 (this PR).
 
 Conditions were grouped into named booleans, with expensive or
 short-circuit-sensitive checks kept inline (for example a nil check before a
@@ -61,23 +64,22 @@ Current AST audit after this PR:
 
 | Rule | Remaining |
 | --- | --- |
-| `cond>=3` | 198 |
-| `params>4` | 186 |
+| `cond>=3` | 136 |
+| `params>4` | 187 |
 | `index-loop` | 8 (all intentional, commented) |
 
 Top packages by remaining complex conditions:
 
 | Package | `cond>=3` |
 | --- | --- |
-| `internal/agenthealth` | 26 |
-| `internal/backup` | 19 |
-| `internal/lifecycle` | 18 |
 | `cmd/reet` | 17 |
 | `internal/agentsoftware` | 13 |
 | `internal/skillbundle` | 12 |
 | `internal/terminalcontrol` | 11 |
 | `internal/clientconfig` | 10 |
 | `internal/skillplan` | 9 |
+| `internal/mail` | 7 |
+| `internal/skillpreview` | 7 |
 
 `params>4` is untouched. It is a design change (options structs and call-site
 updates), not a mechanical rewrite. Functions with 5 and 6 parameters are the
@@ -96,7 +98,7 @@ Also untouched from the same style guide:
 
 - `gofmt` clean across the repository.
 - `go build ./...` passes.
-- `go test ./internal/setup ./internal/terminalbroker ./internal/terminalagent ./internal/acpagent -count=1` passes.
+- `go test ./internal/agenthealth ./internal/backup ./internal/lifecycle -count=1` passes.
 - `go test ./internal/scan -count=1` passes apart from the network-dependent
   test listed below.
 - Full `go test ./...` has two failures that also reproduce on pristine
@@ -119,10 +121,11 @@ counts, walk non-test `.go` files and count:
 
 ## Suggested next step
 
-Continue with `internal/agenthealth` (26 conditions) using the same approach,
-then `internal/backup` (19), `internal/lifecycle` (18) and `cmd/reet` (17). Do
-not start with `params>4` unless a package is being touched for another reason;
-options-struct refactors should be reviewed on their own.
+Continue with `cmd/reet` (17 conditions) using the same approach, then
+`internal/agentsoftware` (13), `internal/skillbundle` (12) and
+`internal/terminalcontrol` (11). Do not start with `params>4` unless a package
+is being touched for another reason; options-struct refactors should be
+reviewed on their own.
 
 Regressions caught locally during these PRs and fixed: `hasControl` briefly
 returned the wrong boolean, an `if`/`else` in `unpushedCount` was mangled while

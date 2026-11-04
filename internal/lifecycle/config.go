@@ -56,10 +56,13 @@ func load(state string) (*deployment, error) {
 	if err = json.Unmarshal(b, &d); err != nil {
 		return nil, fmt.Errorf("invalid deployment.json: %w", err)
 	}
-	if d.Mode != "binary" && d.Mode != "native" && d.Mode != "compose" {
+	valid := d.Mode == "binary" || d.Mode == "native" || d.Mode == "compose"
+	if !valid {
 		return nil, fmt.Errorf("unknown deployment mode")
 	}
-	if !filepath.IsAbs(d.Binary) || (d.Mode != "binary" && (!filepath.IsAbs(d.Data) || d.Addr == "")) {
+	badBinary := !filepath.IsAbs(d.Binary)
+	badServer := d.Mode != "binary" && (!filepath.IsAbs(d.Data) || d.Addr == "")
+	if badBinary || badServer {
 		return nil, fmt.Errorf("deployment paths must be absolute and server address present")
 	}
 	return &d, nil

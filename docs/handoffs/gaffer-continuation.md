@@ -107,7 +107,9 @@ feature handoff.
 ## Continuing after these merges
 
 1. Start from main (`0de8f7d` or later) and read `AGENTS.md` if present, `handoff.md`, this file and each feature handoff.
-2. Confirm current CI on main. The three feature PRs are merged; do not reopen them or push new work to their branches.
+2. Push-triggered runs on main use the self-hosted `zoomies-linux-x64` pool and stay queued when that pool is offline, so
+   the pull request matrices (which run on GitHub-hosted runners) were the green evidence for these merges. Do not reopen
+   the merged feature PRs or push new work to their branches; validate a follow-up with its own pull request checks.
 3. If a follow-up touches the session screen, keep both the visible action toolbar and the resizable/collapsible workspace
    panel, and keep the terminal's size held while the panel is dragged. The regression coverage is
    `web/tests/sessions.e2e.mjs`, `web/tests/session-workspace.e2e.mjs`, `web/tests/sessions-phone.e2e.mjs`,

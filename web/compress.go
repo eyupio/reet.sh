@@ -87,13 +87,21 @@ var gzipWriters = sync.Pool{New: func() any {
 // writeMaybeGzip writes body, compressed when the client takes gzip and the body is worth it. Vary is said either way
 // so a shared cache keeps the two bodies apart.
 func writeMaybeGzip(w http.ResponseWriter, r *http.Request, body []byte) {
+	writeMaybeGzipStatus(w, r, body, http.StatusOK)
+}
+
+// writeMaybeGzipStatus is writeMaybeGzip for a body whose status is not 200. The status is written after the encoding
+// headers, because Go ignores header changes made once WriteHeader has been called.
+func writeMaybeGzipStatus(w http.ResponseWriter, r *http.Request, body []byte, status int) {
 	w.Header().Add("Vary", "Accept-Encoding")
 	if len(body) < gzipMinSize || !acceptsGzip(r) {
 		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.WriteHeader(status)
 		_, _ = w.Write(body)
 		return
 	}
 	w.Header().Set("Content-Encoding", "gzip")
+	w.WriteHeader(status)
 	zw := gzipWriters.Get().(*gzip.Writer)
 	zw.Reset(w)
 	_, _ = zw.Write(body)

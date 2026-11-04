@@ -52,6 +52,103 @@ func TestRobotsTxtIsNotTheSPA(t *testing.T) {
 		if !strings.Contains(body, "User-agent: "+bot) {
 			t.Errorf("robots.txt missing %s", bot)
 		}
+		// A named crawler ignores the * group, so the private rules must be repeated in its own group.
+		if !strings.Contains(body, "User-agent: "+bot+"\nAllow: /\nDisallow: /api/") {
+			t.Errorf("robots.txt gives %s no private-path rules", bot)
+		}
+	}
+	for _, path := range []string{"/admin", "/account", "/lists/", "/sessions", "/machines", "/skills", "/signin", "/setup"} {
+		if !strings.Contains(body, "Disallow: "+path+"\n") {
+			t.Errorf("robots.txt does not disallow %s", path)
+		}
+	}
+}
+
+func TestCrawlerTextFilesArePlainText(t *testing.T) {
+	h := Handler("https://reet.sh")
+	for _, path := range []string{"/llms.txt", "/llms-full.txt", "/ai.txt"} {
+		rec := get(t, h, path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d", path, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+			t.Fatalf("%s: content-type = %q, want text/plain", path, ct)
+		}
+		body := rec.Body.String()
+		if strings.Contains(body, "<html") || strings.Contains(body, "data-boot") {
+			t.Fatalf("%s served the SPA instead of text:\n%s", path, body)
+		}
+		if !strings.Contains(body, "reet.sh") {
+			t.Fatalf("%s does not name the product", path)
+		}
+	}
+	missing := get(t, h, "/missing.txt")
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("missing text file: status = %d, want 404", missing.Code)
+	}
+}
+
+func TestUnknownRouteIsAReal404(t *testing.T) {
+	requireBuilt(t)
+	h := Handler("https://reet.sh")
+	for _, path := range []string{"/does-not-exist-xyz", "/docs/mcp", "/assets/missing.js", "/sitemap-index.xml"} {
+		rec := get(t, h, path)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s: status = %d, want 404", path, rec.Code)
+		}
+		if rec.Code == http.StatusNotFound && !strings.Contains(rec.Header().Get("X-Robots-Tag"), "noindex") {
+			t.Errorf("%s: missing noindex on a 404", path)
+		}
+	}
+}
+
+// The app screens are not search results. Public pages must stay indexable.
+func TestPrivateRoutesAreNoindexAndPublicRoutesAreNot(t *testing.T) {
+	requireBuilt(t)
+	h := Handler("https://reet.sh")
+	private := []string{"/signin", "/signup", "/setup", "/reset", "/join?token=t", "/admin/overview", "/account", "/lists/1", "/sessions", "/machines", "/skills", "/activity", "/sync", "/hosting", "/notifications", "/support", "/shared", "/spaces", "/profiles", "/setups"}
+	for _, path := range private {
+		rec := get(t, h, path)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: status = %d", path, rec.Code)
+		}
+		if !strings.Contains(rec.Header().Get("X-Robots-Tag"), "noindex") {
+			t.Errorf("%s: missing X-Robots-Tag noindex", path)
+		}
+		if !strings.Contains(rec.Body.String(), `name="robots" content="noindex`) {
+			t.Errorf("%s: missing meta robots noindex", path)
+		}
+	}
+	for _, path := range []string{"/", "/welcome", "/community", "/l/example"} {
+		rec := get(t, h, path)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: status = %d", path, rec.Code)
+		}
+		if strings.Contains(rec.Header().Get("X-Robots-Tag"), "noindex") || strings.Contains(rec.Body.String(), `name="robots" content="noindex`) {
+			t.Errorf("%s: public page is marked noindex", path)
+		}
+	}
+}
+
+func TestLegacyRoutesRedirectPermanently(t *testing.T) {
+	h := Handler("https://reet.sh")
+	cases := map[string]string{
+		"/control":       "/",
+		"/terminals":     "/sessions",
+		"/terminals?x=1": "/sessions?x=1",
+		"/sessions/":     "/sessions",
+		"/projects":      "/",
+		"/projects/abc":  "/?project=abc",
+	}
+	for from, want := range cases {
+		rec := get(t, h, from)
+		if rec.Code != http.StatusMovedPermanently {
+			t.Errorf("%s: status = %d, want 301", from, rec.Code)
+			continue
+		}
+		if got := rec.Header().Get("Location"); got != want {
+			t.Errorf("%s: Location = %q, want %q", from, got, want)
+		}
 	}
 }
 

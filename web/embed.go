@@ -4,6 +4,7 @@ package web
 import (
 	"bytes"
 	"embed"
+	"fmt"
 	"html"
 	"io/fs"
 	"mime"
@@ -104,12 +105,25 @@ func Handler(baseURL string, opts ...Option) http.Handler {
 	index, _ := fs.ReadFile(sub, "index.html")
 	gz := &gzipCache{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if target, ok := legacyRedirect(r); ok {
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			writeRobots(w, origin(r, baseURL))
 			return
 		case "/sitemap.xml":
 			writeSitemap(w, origin(r, baseURL))
+			return
+		case "/llms.txt":
+			writeText(w, r, llmsTxt, origin(r, baseURL))
+			return
+		case "/llms-full.txt":
+			writeText(w, r, llmsFullTxt, origin(r, baseURL))
+			return
+		case "/ai.txt":
+			writeText(w, r, aiTxt, origin(r, baseURL))
 			return
 		}
 		p := strings.TrimPrefix(r.URL.Path, "/")
@@ -125,8 +139,69 @@ func Handler(baseURL string, opts ...Option) http.Handler {
 			http.Error(w, "reet.sh UI is not built; run `npm run build` in web/", http.StatusNotFound)
 			return
 		}
+		if !spaRoute(r.URL.Path) {
+			serveIndexStatus(w, r, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r), http.StatusNotFound)
+			return
+		}
 		serveIndex(w, r, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r))
 	})
+}
+
+// legacyRedirect keeps old addresses working with a permanent redirect instead of letting the SPA rewrite them in the
+// browser. A crawler that reaches them sees one canonical target and does not index a duplicate.
+func legacyRedirect(r *http.Request) (string, bool) {
+	path := r.URL.Path
+	query := ""
+	if r.URL.RawQuery != "" {
+		query = "?" + r.URL.RawQuery
+	}
+	switch {
+	case path == "/control" || path == "/control/":
+		return "/" + query, true
+	case path == "/terminals" || path == "/terminals/":
+		return "/sessions" + query, true
+	case path == "/sessions/":
+		return "/sessions" + query, true
+	case path == "/projects" || path == "/projects/":
+		return "/" + query, true
+	case strings.HasPrefix(path, "/projects/"):
+		id := strings.TrimPrefix(path, "/projects/")
+		if id == "" {
+			return "/" + query, true
+		}
+		return "/?project=" + url.QueryEscape(id), true
+	}
+	return "", false
+}
+
+// spaRoute is the set of addresses the SPA knows how to draw. Anything else is a real 404: returning index.html with 200
+// for an unknown path is a soft 404, and it makes missing text and XML files look like successful HTML responses.
+func spaRoute(path string) bool {
+	switch path {
+	case "/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join",
+		"/sessions", "/machines", "/skills", "/activity", "/sync", "/hosting",
+		"/community", "/shared", "/spaces", "/profiles", "/setups", "/notifications", "/support",
+		"/admin", "/account":
+		return true
+	}
+	for _, prefix := range []string{
+		"/admin/", "/account/", "/join/", "/lists/", "/l/", "/support/",
+	} {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// publicIndexRoute is the subset of SPA routes meant for search engines. Every other SPA route is an app screen behind
+// sign-in, or an empty state, and is served with noindex.
+func publicIndexRoute(path string) bool {
+	switch path {
+	case "/", "/welcome", "/community":
+		return true
+	}
+	return strings.HasPrefix(path, "/l/")
 }
 
 // serveIndex serves the built index.html with the origin substituted. The
@@ -135,6 +210,10 @@ func Handler(baseURL string, opts ...Option) http.Handler {
 // visitor is going straight to the app, so both would otherwise paint the
 // logged-out landing page before the SPA mounts.
 func serveIndex(w http.ResponseWriter, r *http.Request, index []byte, path, origin string, signedIn bool) {
+	serveIndexStatus(w, r, index, path, origin, signedIn, http.StatusOK)
+}
+
+func serveIndexStatus(w http.ResponseWriter, r *http.Request, index []byte, path, origin string, signedIn bool, status int) {
 	if index == nil {
 		http.Error(w, "reet.sh UI is not built; run `npm run build` in web/", http.StatusNotFound)
 		return
@@ -151,9 +230,13 @@ func serveIndex(w http.ResponseWriter, r *http.Request, index []byte, path, orig
 	// The chosen shell is on the document before the head script runs, so a cookie-signed-in visitor on "/" gets the app
 	// shell rather than the landing hero the browser alone cannot know to skip.
 	body = bytes.Replace(body, []byte(`<html lang="en">`), []byte(`<html lang="en" data-boot="`+bootNames[variant]+`">`), 1)
+	if status != http.StatusOK || !publicIndexRoute(path) {
+		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+		body = bytes.Replace(body, []byte("<head>"), []byte("<head>\n    <meta name=\"robots\" content=\"noindex, nofollow\" />"), 1)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	writeMaybeGzip(w, r, body)
+	writeMaybeGzipStatus(w, r, body, status)
 }
 
 // serveFile answers a built file: a content-hashed one is cacheable for a year, and a text one goes compressed to a
@@ -263,6 +346,33 @@ func validHost(host string) bool {
 	return true
 }
 
+// robotsPrivate keeps the app, account and private-list screens out of search results. The public pages are /, /welcome,
+// /community, /l/<slug>, hosted skill pages and /docs/. A crawler with its own group below ignores the * group, so the
+// same rules are repeated for each named crawler.
+const robotsPrivate = `Disallow: /api/
+Disallow: /quick
+Disallow: /signin
+Disallow: /signup
+Disallow: /setup
+Disallow: /reset
+Disallow: /join
+Disallow: /admin
+Disallow: /account
+Disallow: /lists/
+Disallow: /sessions
+Disallow: /machines
+Disallow: /skills
+Disallow: /activity
+Disallow: /sync
+Disallow: /hosting
+Disallow: /notifications
+Disallow: /support
+Disallow: /shared
+Disallow: /spaces
+Disallow: /profiles
+Disallow: /setups
+`
+
 const robotsTxt = `# reet.sh — self-hosted control room for AI agents
 # Search engines and AI search crawlers may index the public pages.
 # Model-training crawlers are not restricted by default; add your own
@@ -270,28 +380,89 @@ const robotsTxt = `# reet.sh — self-hosted control room for AI agents
 
 User-agent: *
 Allow: /
-Disallow: /api/
-Disallow: /quick
-
+%[1]s
 User-agent: OAI-SearchBot
 Allow: /
-
+%[1]s
 User-agent: Claude-SearchBot
 Allow: /
-
+%[1]s
 User-agent: PerplexityBot
 Allow: /
-
+%[1]s
 User-agent: Googlebot
 Allow: /
-
-Sitemap: %s/sitemap.xml
+%[1]s
+Sitemap: %[2]s/sitemap.xml
 `
 
 func writeRobots(w http.ResponseWriter, origin string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=300")
-	_, _ = w.Write([]byte(strings.Replace(robotsTxt, "%s", html.EscapeString(origin), 1)))
+	_, _ = w.Write([]byte(fmt.Sprintf(robotsTxt, robotsPrivate, html.EscapeString(origin))))
+}
+
+// llmsTxt is a short index for assistants and agents. It points at public pages and the canonical source documentation
+// until the docs site is served from this origin.
+const llmsTxt = `# reet.sh
+
+> A self-hosted control room for the AI agents, skills and setups across your machines.
+
+## Public pages
+
+- [reet.sh](%[1]s/): product overview and install command
+- [Public community](%[1]s/community): published lists and their skills
+- [Source and documentation](https://github.com/eyupio/reet.sh): README, guides and the AGPL-3.0 licence
+
+## What it is
+
+reet.sh runs as one Go binary with one SQLite file. It connects machines through an outbound agent, lets you open
+terminals and start installed agents, and syncs skills and reusable setups with reviewable plans. It sends no telemetry.
+
+## Notes
+
+- The public community is readable without an account.
+- App, account and private-list pages are not intended for indexing.
+`
+
+// llmsFullTxt is a compact factual summary for assistants that request the longer form.
+const llmsFullTxt = `# reet.sh
+
+reet.sh is a self-hosted control room for the AI agents, skills and reusable setups on your machines.
+
+## Product
+
+- Connect a laptop, VPS or lab machine with an outbound enrolment command; no inbound port is required.
+- Open a browser terminal on any enrolled machine and work with agents already installed there.
+- Start and continue sessions with Claude Code, Codex, OpenCode and Gemini CLI.
+- Keep a central skill library, bring discoveries back, and distribute skills with a reviewed plan before anything changes.
+- Save reusable setup profiles and restore them on a new machine.
+- Back up the instance or a personal shelf with encrypted, verified copies.
+- Run as one Go binary and one SQLite file. Accounts, token mode and no-auth mode are available.
+- No telemetry is sent by default.
+
+## Links
+
+- Product: %[1]s/
+- Public community: %[1]s/community
+- Source, guides and licence: https://github.com/eyupio/reet.sh
+
+## Crawling
+
+Public pages may be indexed. App, account and private-list pages are not intended for indexing.
+`
+
+const aiTxt = `# reet.sh
+# A self-hosted control room for AI agents, skills and setups across machines.
+# Public pages: %[1]s/ and %[1]s/community
+# Source and documentation: https://github.com/eyupio/reet.sh
+`
+
+func writeText(w http.ResponseWriter, r *http.Request, body, origin string) {
+	text := fmt.Sprintf(body, html.EscapeString(origin))
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	writeMaybeGzip(w, r, []byte(text))
 }
 
 const sitemapXML = `<?xml version="1.0" encoding="UTF-8"?>

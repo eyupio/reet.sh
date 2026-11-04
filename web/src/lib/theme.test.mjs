@@ -17,15 +17,15 @@ const NAMES = ['--bg', '--card', '--card-raised', '--line-soft', '--line', '--li
 test('contrast follows WCAG relative luminance', () => {
   assert.equal(Math.round(contrast('#000000', '#ffffff') * 100) / 100, 21)
   assert.equal(contrast('#fff', '#fff'), 1)
-  assert.equal(Math.round(contrast('#c2410c', '#ffffff') * 100) / 100, Math.round(contrast('#ffffff', '#c2410c') * 100) / 100)
+  assert.equal(Math.round(contrast('#b84216', '#ffffff') * 100) / 100, Math.round(contrast('#ffffff', '#b84216') * 100) / 100)
   assert.throws(() => contrast('red', '#fff'))
 })
 
 test('both palettes define every token, with the designed dark values', () => {
   for (const p of PALETTES) for (const name of NAMES) assert.match(TOKENS[p][name] ?? '', /^#[0-9a-f]{6}$/, `${p} ${name}`)
-  const dark = { '--bg': '#1a1612', '--card': '#29221d', '--card-raised': '#2e2621', '--line-soft': '#2f2822', '--line': '#3a322b', '--line-strong': '#51463c', '--ink': '#f1ebe4', '--muted': '#a39a90', '--accent': '#c2410c', '--accent-text': '#ff8d63', '--accent-ink': '#ffffff', '--good': '#7fc79a', '--warn': '#e9b44c', '--info': '#7fb3d9', '--repo': '#5fc2a8', '--bad': '#f87171', '--status-working': '#22c55e', '--status-waiting': '#fbbf24', '--status-starting': '#f59e0b', '--status-finished': '#38bdf8', '--status-failed': '#f26969', '--status-ended': '#a39a90', '--status-quiet': '#a39a90', '--bg-sunk': '#120f0d', '--faint': '#968d84', '--ink-soft': '#cfc6bc', '--repo-line': '#2a5f52', '--line-deep': '#5a5047', '--line-mid': '#3d342d', '--dock-bg': '#120f0d' }
+  const dark = { '--bg': '#1d201c', '--card': '#262a24', '--card-raised': '#2a2e26', '--line-soft': '#333a2f', '--line': '#3b4237', '--line-strong': '#535f4b', '--ink': '#efeee5', '--muted': '#adb5a6', '--accent': '#b84216', '--accent-text': '#ed976e', '--accent-ink': '#ffffff', '--good': '#7fc79a', '--warn': '#e9b44c', '--info': '#7fb3d9', '--repo': '#5fc2a8', '--bad': '#f87171', '--status-working': '#22c55e', '--status-waiting': '#fbbf24', '--status-starting': '#f59e0b', '--status-finished': '#38bdf8', '--status-failed': '#f26969', '--status-ended': '#adb5a6', '--status-quiet': '#adb5a6', '--bg-sunk': '#191c18', '--faint': '#9aa492', '--ink-soft': '#d4d9cc', '--repo-line': '#2a5f52', '--line-deep': '#849175', '--line-mid': '#424c3b', '--dock-bg': '#191c18' }
   for (const [k, v] of Object.entries(dark)) assert.equal(TOKENS.dark[k], v, k)
-  const light = { '--bg': '#f7f6f2', '--card': '#fffdf9', '--ink': '#1d1c1a', '--muted': '#5f5c54', '--accent': '#c2410c', '--accent-text': '#c2410c', '--accent-ink': '#ffffff' }
+  const light = { '--bg': '#f6f5f0', '--card': '#fffefb', '--ink': '#292b25', '--muted': '#60675a', '--accent': '#b84216', '--accent-text': '#b84216', '--accent-ink': '#ffffff' }
   for (const [k, v] of Object.entries(light)) assert.equal(TOKENS.light[k], v, k)
 })
 
@@ -53,13 +53,10 @@ test('every text pair passes AA', () => {
   }
 })
 
-// Non-text contrast (WCAG 1.4.11): --line-deep is the only edge of an unchecked checkbox, so it needs 3:1 against the
-// surfaces it sits on. Light passes. Dark keeps the mock-up's #5a5047 (2.39:1 on --bg), an owner call recorded beside the
-// --line-strong gap; this pins it so a change is deliberate.
-test('the checkbox edge (--line-deep) is 3:1 in light; dark is the recorded mock-up value', () => {
-  for (const bg of ['--bg', '--card', '--card-raised', '--bg-sunk'])
-    assert.ok(contrast(TOKENS.light['--line-deep'], TOKENS.light[bg]) >= 3, `light --line-deep ${TOKENS.light['--line-deep']} on ${bg} is ${contrast(TOKENS.light['--line-deep'], TOKENS.light[bg]).toFixed(2)}`)
-  assert.equal(TOKENS.dark['--line-deep'], '#5a5047')
+// Checkbox boundaries meet WCAG non-text contrast on both workspace palettes.
+test('checkbox edges meet 3:1 in both palettes', () => {
+  for (const p of PALETTES) for (const bg of ['--bg', '--card', '--card-raised', '--bg-sunk'])
+    assert.ok(contrast(TOKENS[p]['--line-deep'], TOKENS[p][bg]) >= 3, p + ' checkbox boundary on ' + bg)
 })
 
 test('the pressed Liked filter draws its text in --bg, not a literal white', () => {

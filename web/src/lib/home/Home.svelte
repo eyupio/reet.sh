@@ -18,8 +18,9 @@
   // the launch bar opens in a modal for Select and an address that hands over projects.
   // SessionBoard owns backlog reads; these loaders supply sessions and the fleet.
   // Both refresh every 15 seconds and retain the last successful read on failure.
-  let { userId, writer, canAdd, accounts, moved = false, legacyProject = '', onsignedout, onattention }: {
+  let { userId, writer, canAdd, accounts, name = '', moved = false, legacyProject = '', onsignedout, onattention }: {
     userId: number
+    name?: string
     /** A writer in accounts mode: the full Home. Otherwise the read-only Home. */
     writer: boolean
     /** Whether this sign-in can add a machine. */
@@ -335,7 +336,7 @@
 </script>
 
 <div class="home" class:writer class:rail-collapsed={railCollapsed}>
-  <h1 class="vh">Home</h1>
+
   <!-- On a desktop the rail is the left column; on a tablet or phone it lives on the Sessions screen, and Home keeps only what
        adds a project from the launch sentence. -->
   {#if writer}
@@ -351,15 +352,21 @@
     </ProjectRailHost>
   {/if}
   <div class="column">
+    <header class="workspace-heading">
+      <p class="eyebrow">YOUR WORKSPACE / {location.host}</p>
+      <h1>All reet{name.trim() ? ', ' + name.trim().split(/\s+/)[0] : ''}.</h1>
+      <p class="welcome-note">Your ideas, ongoing work and finished sessions. Pick up the thread.</p>
+      <div class="workspace-summary"><span><i></i>{cards.filter(reporting).length} machines connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}</div>
+    </header>
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
+      {#if needs.length}
+        <details class="home-detail attention-detail" open><summary>Needs you <span>{needs.length}</span></summary><NeedsYou cards={needs} onseen={markSeen} onanswered={answered} /></details>
+      {/if}
       <SessionBoard {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault}
         scopeIds={scopedIds} scopeKind={scope?.kind} scopeName={scopeName} onclearscope={() => (scope = null)}
         onchanged={() => load(true)} onstarted={started} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
-      {#if needs.length}
-        <details class="home-detail attention-detail"><summary>Needs you <span>{needs.length}</span></summary><NeedsYou cards={needs} onseen={markSeen} onanswered={answered} /></details>
-      {/if}
       <details class="home-detail"><summary>Your machines <span>{cards.filter(reporting).length} of {cards.length} connected</span></summary>
         <FleetStrip {cards} sessions={sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
           onnew={newSessionOn} onproject={newProjectOn} onterminal={startTerminalOn} />
@@ -391,6 +398,14 @@
 </div>
 
 <style>
+  .workspace-heading { padding: 11px 0 9px; }
+  .workspace-heading .eyebrow { font: 9px var(--mono); letter-spacing: .1em; color: var(--accent-text); margin: 0 0 17px; overflow-wrap: anywhere; }
+  .workspace-heading h1 { font: 600 clamp(35px, 3.8vw, 49px)/1.08 var(--serif); letter-spacing: -.04em; margin: 0 0 14px; }
+  .welcome-note { color: var(--muted); font-size: 13px; margin: 0; }
+  .workspace-summary { display: flex; flex-wrap: wrap; gap: 24px; color: var(--muted); font-size: 11px; margin-top: 20px; }
+  .workspace-summary span { display: inline-flex; align-items: center; gap: 7px; }
+  .workspace-summary i { width: 5px; height: 5px; background: var(--good); border-radius: 50%; }
+  @media (max-width: 650px) { .workspace-heading { padding-top: 12px; } .workspace-heading h1 { font-size: 40px; } .workspace-heading .eyebrow { font-size: 8px; } .workspace-summary { margin-top: 18px; } }
   /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
      column's minimum height; if the header changes, the cost is a small gap or a little extra scroll, never an overlap. */
   .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }

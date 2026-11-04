@@ -191,7 +191,7 @@
 
 <section class="session-board" aria-labelledby={`${id}-heading`}>
   <header class="heading">
-    <div><div class="eyebrow">YOUR WORK, IN GOOD ORDER</div><h2 id={`${id}-heading`}>A reet good day’s work.</h2><p>Plan it. Start it. See it through. <span>One place for every session.</span></p></div>
+    <div><div class="eyebrow">YOUR WORK, IN GOOD ORDER</div><h2 id={`${id}-heading`}>Your work, in good order.</h2><p>Plan it. Start it. See it through. <span>One place for every session.</span></p></div>
     <button class="btn primary new-session" aria-label="New session" onclick={e => composer = { draft: null, opener: e.currentTarget }}><BoardIcon name="plus" />New session</button>
   </header>
   <div class="viewbar">

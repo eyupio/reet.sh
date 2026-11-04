@@ -45,11 +45,17 @@ A live model change is reported as applied only after the adapter confirms it. O
 omitted; an explicit list must contain one valid model value. Claude requires that read-back. Incomplete or ambiguous replies clear the confirmed
 model and retained status detail, and show a notice. The controller also clears its stored model if an acknowledgement is lost after sending; busy or pre-send failures leave it
 unchanged. The person can choose a model again; the conversation and approvals are preserved.
-No effort control is added yet. On a connection that negotiated `acp-agent-options-v1`, an available descriptor also lists the
-other selectable options the pinned adapter was measured to offer (for Claude and Codex: effort and model-config values), bounded,
-ordered and distinct. It is descriptive only: no control sends an option, and a value can depend on the current model. **Modes**
-remain the permission-sensitive switch list and **Model** the dynamic catalogue, so mode and model are not duplicated in this
-contract. An explicitly chosen startup model must also be confirmed before admission or the opening prompt; see below.
+On connectors that negotiate `acp-live-controls-v1`, Gaffer reads the active session's configuration selectors.
+**Model** can change during a turn when the agent advertises a model selector, and **Effort** appears only for the
+session's advertised `thought_level` choices. Changes use `session/set_config_option` and show success only after a matching
+read-back. A model can change the available effort values, so the whole selector snapshot is refreshed. An ambiguous reply
+shows the value as unconfirmed. Permission and approval modes remain separate controls. Confirmed model and effort values
+are saved for connector restart and in-place reconnect; a saved effort must be accepted before a reopened chat is ready.
+Older connectors keep the existing idle-only model control and do not show an effort selector.
+
+The runtime controls endpoint is `GET /api/v2/terminal/sessions/{id}/chat/controls`; `POST` accepts
+`{"action":"set","configId":"effort","value":"high"}` using an ID and value reported by that exact session.
+Only model and thought-level selectors are accepted. Static installation descriptors do not authorise a runtime switch.
 
 
 ## Starting one
@@ -413,11 +419,19 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
   separately from evictable history: a card never pins the output after it, and tool commands, paths and diffs count towards
   the text budget. If waiting cards alone exceed the budget they stay answerable. A continued chat replaying a long history stays responsive instead of building an
   unbounded page.
-- **Messages typed while it works are queued.** The composer stays usable during a turn: Enter queues the message
-  (with any images) instead of sending it, and the queue, at most ten items, sends one message as each turn finishes.
-  A queued item can be edited back into the composer or removed; a failed send stays put with **Retry**. The queue lives
-  only in the open chat and is never stored. Waiting for an approval or an answer holds the queue until the person has
-  answered.
+- **Messages typed while it works are queued.** On upgraded connectors, the queue holds at most ten messages per session
+  in the controller database and is shared by all tabs. Images are uploaded before enqueueing. Closing a browser or restarting
+  the controller preserves queued messages; sending normally waits for the actual turn to finish, including cancellation,
+  approvals and compaction. **Edit**, **Remove** and **Retry** use revisions so another tab cannot overwrite a delivery in progress.
+  **Send now** appears when the active agent explicitly supports mid-turn steering. It injects the selected message into that
+  turn. Only an explicit `promptRequired` response permits submitting it as a new turn. **Stop and send** cancels first, then
+  waits for the actual turn to end. If cancellation ends the session, the message stays available for recovery.
+  A lost acknowledgement or controller restart during delivery leaves the message **uncertain** and pauses ordinary queue
+  processing. It is never resent automatically. A failed agent turn also pauses ordinary delivery until an explicit edit or retry. Check the conversation and acknowledge the possible duplicate before retrying.
+  The queue API is `GET`/`POST`/`PATCH /api/v2/terminal/sessions/{id}/chat/queue`. Enqueues carry a stable client ID; completed
+  IDs retain only a receipt until session deletion. Archiving erases queued content. Uploaded images still follow the machine's
+  24-hour expiry; an expired image needs to be attached again. Older connectors retain their browser-only queue, which is lost
+  when the pane closes.
 - **A control connection loss does not end a reet session.** The connector owns one process per reet session for the life of
   the agent process. A reconnect adopts the running sessions, includes them in reconciliation, and drains the bounded event
   queue produced while detached. A connector restart or machine reboot reopens the recorded chats from OpenCode's store;

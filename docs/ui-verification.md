@@ -2747,3 +2747,14 @@ Validation:
 **Not checked.** No physical phone or tablet and no screen reader. No install was
 run against a live machine; the browser mock and the store/API fixtures cover the
 request, source and job state.
+
+
+## Live Gaffer controls (4 November 2026)
+
+`web/tests/chat-controls.e2e.mjs` exercises active-turn model and effort changes, server queue retention after a reload,
+Send now / Stop and send and explicit acknowledgement before retrying uncertain delivery. Checked at desktop (1360 px)
+and phone (390 px) widths in light and dark, with no page overflow or browser errors. Existing OpenCode, Claude, Codex
+and chat recovery browser suites also pass. The new suite runs in the terminal-browser workflow.
+
+[Desktop light](images/ui/gaffer-live-desktop-light.png) · [Desktop dark](images/ui/gaffer-live-desktop-dark.png) ·
+[Phone light](images/ui/gaffer-live-phone-light.png) · [Phone dark](images/ui/gaffer-live-phone-dark.png)

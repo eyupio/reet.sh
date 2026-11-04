@@ -120,6 +120,14 @@ func (s *Store) migrateTerminalTables() error {
 				at INTEGER NOT NULL, event TEXT NOT NULL, bytes INTEGER NOT NULL,
 				PRIMARY KEY(user_id,session_id,seq))`,
 			`CREATE INDEX IF NOT EXISTS terminal_chat_events_transcript ON terminal_chat_events(user_id,session_id,seq)`,
+			`CREATE TABLE IF NOT EXISTS terminal_chat_queue (
+				seq INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+				session_id TEXT NOT NULL REFERENCES terminal_sessions(id) ON DELETE CASCADE,
+				id TEXT NOT NULL, text TEXT NOT NULL, images TEXT NOT NULL,
+				state TEXT NOT NULL CHECK(state IN ('queued','sending','uncertain','failed','sent','removed')),
+				intent TEXT NOT NULL, note TEXT NOT NULL, revision INTEGER NOT NULL, owner TEXT NOT NULL,
+				UNIQUE(user_id,session_id,id))`,
+			`CREATE INDEX IF NOT EXISTS terminal_chat_queue_session ON terminal_chat_queue(user_id,session_id,state)`,
 			`CREATE TABLE IF NOT EXISTS terminal_operations (
 				request_id TEXT NOT NULL, user_id INTEGER NOT NULL, agent_id TEXT NOT NULL, session_id TEXT NOT NULL,
 				kind TEXT NOT NULL CHECK(kind IN ('create','end')),
@@ -467,6 +475,10 @@ func (s *Store) ArchiveTerminalFor(uid int64, sessionID string) error {
 			return ErrTerminalConflict
 		}
 		_, err = tx.Exec(`INSERT INTO terminal_session_archives(session_id,user_id,agent_id,archived_at) VALUES(?,?,?,?) ON CONFLICT(session_id) DO NOTHING`, session.ID, uid, session.AgentID, now())
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(`UPDATE terminal_chat_queue SET text='',images='[]',state='removed',note='',revision=revision+1 WHERE session_id=? AND user_id=?`, session.ID, uid)
 		return err
 	})
 }
@@ -1056,6 +1068,15 @@ func (s *Store) RecordTerminalModelFor(uid int64, sessionID, model string) error
 		return terminalproto.ErrInvalid
 	}
 	_, err := s.db.Exec(`UPDATE terminal_sessions SET model=?,updated_at=? WHERE id=? AND user_id=? AND structured=1`, model, now(), sessionID, uid)
+	return err
+}
+
+// RecordTerminalControlsFor stores one confirmed runtime snapshot atomically.
+func (s *Store) RecordTerminalControlsFor(uid int64, sessionID, model, effort string) error {
+	if model != "" && !terminalproto.ValidModel(model) || effort != "" && !terminalproto.ValidModel(effort) {
+		return terminalproto.ErrInvalid
+	}
+	_, err := s.db.Exec(`UPDATE terminal_sessions SET model=?,effort=?,updated_at=? WHERE id=? AND user_id=? AND structured=1 AND (model!=? OR effort!=?)`, model, effort, now(), sessionID, uid, model, effort)
 	return err
 }
 

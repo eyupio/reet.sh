@@ -11,12 +11,14 @@
  import GafferProgress from './GafferProgress.svelte'
 import SkillPicker from './SkillPicker.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
+import ChatQueue from './ChatQueue.svelte'
+import { chatControls, chatSetting, chatEnqueue, type ChatControls } from './api'
 import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
 import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, reattachRetryable } from './reattachState'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Whether this agent descriptor permits a confirmed live model switch. */
   acpModel?: boolean
   /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
@@ -52,6 +54,47 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   modelSession = id; modelValue = model
   selectedModel = model; currentModel = model
  })
+ let runtime = $state<ChatControls | null>(null), runtimeNote = $state(''), queuePulse = $state(0)
+ let settingSerial = 0
+ let queueAttempt: { signature: string; id: string } | null = null
+ const liveModel = $derived(runtime?.options.find(o => o.category === 'model'))
+ const modelAvailable = $derived(acpModel || !!liveModel)
+ const liveEffort = $derived(runtime?.options.find(o => o.category === 'thought_level'))
+ const modelBlocked = $derived.by(() => sending || changingModel || chat.connection !== 'open' || (liveControls ? !liveModel || runtime?.configuring : working))
+ $effect(() => {
+  const id = session.id, enabled = liveControls && !ended
+  runtime = null; runtimeNote = ''
+  if (!enabled) return
+  const life = new AbortController()
+  let timer: ReturnType<typeof setTimeout>
+  async function refresh() {
+   const serial = settingSerial
+   try {
+    const answer = await chatControls(id, life.signal)
+    if (!life.signal.aborted && serial === settingSerial && !changingModel) {
+     runtime = answer.controls; runtimeNote = ''
+     const previous = currentModel
+     currentModel = answer.controls.model
+     if (selectedModel === previous) selectedModel = currentModel
+    }
+   } catch { if (!life.signal.aborted) { runtime = null; runtimeNote = 'Live controls are unavailable while the machine reconnects.' } }
+   if (!life.signal.aborted) timer = setTimeout(refresh, 1500)
+  }
+  untrack(() => { void refresh() })
+  return () => { life.abort(); clearTimeout(timer) }
+ })
+ async function changeSetting(id: string, value: string) {
+  changingModel = true; feedback = ''; settingSerial++
+  try {
+   const answer = await chatSetting(session.id, id, value)
+   runtime = answer.controls; currentModel = answer.controls.model
+   if (answer.error) feedback = answer.error
+   else flash('Session setting updated.')
+  } catch (e) {
+   runtime = null; currentModel = ''
+   feedback = e instanceof Error ? e.message : 'The agent did not confirm that setting.'
+  } finally { changingModel = false; settingSerial++ }
+ }
  let models = $state<string[]>([]), modelNote = $state('')
  let favourites = $state<ModelFavourite[]>([]), favouriteBusy = $state(false)
  // Confirmations (model changed, default saved) say it once and fade away: the star and the model field already show the result.
@@ -93,7 +136,8 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
    : 'Check the error details below. Resolve the provider issue, then send a message to continue.'
  })
  async function changeModel() {
-  if (!acpModel || !selectedModel || changingModel || working || ended) return
+  if (!modelAvailable || !selectedModel || modelBlocked || ended) return
+  if (liveControls && liveModel) { await changeSetting(liveModel.id, selectedModel); return }
   changingModel = true; feedback = ''; modelNote = ''; if (toast && !toast.bad) toast = null
   try { await chatModel(session.id, selectedModel); currentModel = selectedModel; flash(`Model changed to ${selectedModel}.`) }
   catch (e) { feedback = e instanceof Error ? e.message : 'The model could not be changed. Try again.' }
@@ -312,7 +356,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   if ((!text && !images.length) || sending || uploading || changingModel || modeUnknown || ended || chat.connection === 'reconnecting') return
   const problem = messageProblem(text)
   if (problem) { feedback = problem; return }
-  if (working || queued.length) { queueCurrent(text); return }
+  if (!liveControls && (working || queued.length)) { queueCurrent(text); return }
   const sendingImages = images.slice()
   const ok = await deliver(text, sendingImages)
   if (!ok) return
@@ -357,7 +401,14 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
    if (new TextEncoder().encode(body.text).length > MAX_CHAT_BYTES) { feedback = 'That message and its image paths are too long. Keep the message under 2,000 bytes.'; return false }
    const echo = body.images.length ? { text: body.text.trim() || IMAGE_ONLY_ECHO, refs: uploads.map(upload => upload.path || upload.reference) } : null
    if (echo) echoes.push(echo)
-   try { await chatPrompt(session.id, body.text, body.images) }
+   try {
+    if (liveControls) {
+     const signature = JSON.stringify([text, pictures.map(picture => picture.id)])
+     if (queueAttempt?.signature !== signature) queueAttempt = { signature, id: crypto.randomUUID() }
+     await chatEnqueue(session.id, queueAttempt.id, body.text, body.images)
+     queueAttempt = null; queuePulse++
+    } else await chatPrompt(session.id, body.text, body.images)
+   }
    catch (e) { if (echo) echoes = echoes.filter(item => item !== echo); throw e }
    nearBottom = true
    return true
@@ -414,7 +465,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   untrack(() => { awaitingWork = false; clearTimeout(awaitingTimer) })
  })
  $effect(() => {
-  const ready = queued.length > 0 && !queueHalted && !awaitingWork && !working && !pending.length && !asked.length && !ended
+  const ready = !liveControls && queued.length > 0 && !queueHalted && !awaitingWork && !working && !pending.length && !asked.length && !ended
    && chat.connection === 'open' && !sending && !uploading && !changingModel && !modeUnknown && !dispatching
   if (!ready) return
   untrack(() => { void dispatchQueued() })
@@ -508,7 +559,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  // Capabilities can change while this pane stays mounted. Retire requests and
  // option lists with the descriptor, so a late response cannot restore a control.
  $effect(() => {
-  const supported = acpModel, agentId = modelAgentId, agentTool = tool
+  const supported = modelAvailable, agentId = modelAgentId, agentTool = tool
   models = []; favourites = []; modelNote = ''
   if (!supported) return
   const life = new AbortController()
@@ -810,9 +861,12 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  </div>
  <GafferProgress sessionId={session.id} {chat} dir={session.dir} agent={toolName} {replayed} {ended} {reattaching} sessionFailed={terminalClosed(session.state) && (session.state === 'lost' || (session.exitCode != null && session.exitCode !== 0))} />
  {#if ended && !reattaching}
+  {#if liveControls}<ChatQueue sessionId={session.id} controls={null} active={false} />{/if}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}
  {:else}
   <div class="composer" onpaste={pasted} class:dropping={dropping}>
+   {#if liveControls}<ChatQueue sessionId={session.id} controls={runtime} active={!ended} reloadKey={queuePulse} />{/if}
+   {#if runtimeNote}<p class="notice" role="status">{runtimeNote}</p>{/if}
    {#if queued.length}
     <section class="queue" aria-label="Queued messages">
      <header class="queue-head">
@@ -861,12 +915,19 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
     <div class="composer-tools">
      <button type="button" class="skills-btn" aria-label="Skills" aria-haspopup="dialog" title={skillsOff || 'Insert a skill into your message'} disabled={!!skillsOff} onclick={() => openSkills()}>+ Skills</button>
      {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image · or paste or drop one" disabled={sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
-     {#if acpModel}<div class="model-controls" data-keeps-focus>
+     {#if liveEffort}<div class="effort-controls" data-keeps-focus>
+      <label for={`${session.id}-effort`}>Effort</label>
+      <select id={`${session.id}-effort`} value={liveEffort.current} disabled={changingModel || runtime?.configuring || chat.connection !== 'open'} onchange={event => void changeSetting(liveEffort!.id, event.currentTarget.value)}>
+       {#if !liveEffort.current}<option value="" disabled>Unconfirmed</option>{/if}
+       {#each liveEffort.values as value}<option {value}>{value}</option>{/each}
+      </select>
+     </div>{/if}
+     {#if modelAvailable}<div class="model-controls" data-keeps-focus>
       <label for={`${session.id}-model`}>Model</label>
-      <input id={`${session.id}-model`} data-combo-list={`${session.id}-models`} bind:value={selectedModel} disabled={working || sending || changingModel || chat.connection !== 'open'} placeholder="provider/model" spellcheck="false" autocomplete="off" />
+      <input id={`${session.id}-model`} data-combo-list={`${session.id}-models`} bind:value={selectedModel} disabled={modelBlocked} placeholder="provider/model" spellcheck="false" autocomplete="off" />
       <datalist id={`${session.id}-models`}>{#each models as model}<option value={model}></option>{/each}</datalist>
       {#if selectedModel.trim() && selectedModel !== currentModel}
-       <button type="button" class="btn change" transition:fade={{ duration: 120 }} disabled={working || sending || changingModel || chat.connection !== 'open'} onclick={() => void changeModel()}>{changingModel ? 'Changing…' : 'Change model'}</button>
+       <button type="button" class="btn change" transition:fade={{ duration: 120 }} disabled={modelBlocked} onclick={() => void changeModel()}>{changingModel ? 'Changing…' : 'Change model'}</button>
       {/if}
       <button type="button" class="star" class:on={selectedIsDefault} disabled={!selectedModel.trim() || favouriteBusy || chat.connection !== 'open'} aria-pressed={selectedIsDefault} aria-label={defaultLabel(tool, selectedModel.trim(), selectedIsDefault)} title={selectedIsDefault ? `Default for new ${tool} sessions. Click to clear.` : `Make this the default for new ${tool} sessions`} onclick={() => void toggleDefault()}>
        <svg viewBox="0 0 24 24" fill={selectedIsDefault ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z" /></svg>
@@ -889,6 +950,8 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  .error-panel > strong { color: var(--bad); font-size: 1rem; }
  .error-panel p { margin: 8px 0; line-height: 1.5; }
  .error-panel summary { cursor: pointer; }
+ .effort-controls { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+ .effort-controls select { min-height: 30px; max-width: 10rem; color: var(--ink); background: var(--bg-sunk); border: 1px solid var(--line); border-radius: 6px; }
  /* The model is a quiet control in the composer's toolbar: a labelled field, a star for the default, and Change model only once the value differs. */
  .model-controls { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; max-width: 30rem; }
  .model-controls label { flex: none; font: 600 10px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--faint); }

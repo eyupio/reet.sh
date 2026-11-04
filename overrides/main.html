@@ -1,26 +1,37 @@
 {% extends "base.html" %}
 {% from "partials/icons-reet.html" import icon %}
 {% set layout = page.meta.layout if page else "notfound" %}
+{% set seo_title = page.meta.title if page and page.meta.title else page.title ~ ' · reet.sh' if page else 'Page not found · reet.sh' %}
+{% set social_image = config.site_url ~ 'assets/brand/social.png' %}
+{% set social_alt = 'reet.sh — Your agents. Your machines. All reet. A self-hosted AI agent control room.' %}
 
-{% block htmltitle %}<title>{{ page.meta.title if page and page.meta.title else page.title ~ ' · reet.sh' if page else 'Page not found · reet.sh' }}</title>{% endblock %}
+{% block htmltitle %}<title>{{ seo_title }}</title>{% endblock %}
 {% block extrahead %}
   {{ super() }}
   <link rel="preload" as="font" type="font/woff2" href="{{ 'assets/fonts/fraunces-latin-600-normal.woff2' | url }}" crossorigin>
   <link rel="preload" as="font" type="font/woff2" href="{{ 'assets/fonts/ibm-plex-sans-latin-400-normal.woff2' | url }}" crossorigin>
-  {% if config.extra.noindex %}<meta name="robots" content="noindex,nofollow">{% endif %}
+  {% if config.extra.noindex or not page %}
+  <meta name="robots" content="noindex,nofollow">
+  {% else %}
+  <meta name="robots" content="index,follow,max-image-preview:large">
+  {% endif %}
   {% if page %}
   <meta property="og:type" content="{{ 'article' if layout == 'article' else 'website' }}">
   <meta property="og:site_name" content="reet.sh">
-  <meta property="og:title" content="{{ page.meta.title if page.meta.title else page.title }}">
+  <meta property="og:title" content="{{ seo_title }}">
   <meta property="og:description" content="{{ page.meta.description | default(config.site_description, true) }}">
   <meta property="og:url" content="{{ page.canonical_url }}">
-  <meta property="og:image" content="{{ config.site_url }}assets/brand/social.png">
+  <meta property="og:image" content="{{ social_image }}">
+  {% if config.site_url.startswith('https://') %}<meta property="og:image:secure_url" content="{{ social_image }}">{% endif %}
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:locale" content="en_GB">
   <meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="reet.sh — Your agents. Your machines. All reet. A self-hosted AI agent control room.">
+  <meta property="og:image:alt" content="{{ social_alt }}">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="{{ page.meta.title if page.meta.title else page.title }}">
+  <meta name="twitter:title" content="{{ seo_title }}">
   <meta name="twitter:description" content="{{ page.meta.description | default(config.site_description, true) }}">
-  <meta name="twitter:image" content="{{ config.site_url }}assets/brand/social.png">
+  <meta name="twitter:image" content="{{ social_image }}">
+  <meta name="twitter:image:alt" content="{{ social_alt }}">
   {% if page.meta.schema %}<script type="application/ld+json">{{ page.meta.schema | tojson }}</script>{% endif %}
   {% endif %}
 {% endblock %}

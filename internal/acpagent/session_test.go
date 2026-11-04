@@ -260,6 +260,16 @@ func TestFakeACP(t *testing.T) {
 			session = params.SessionID
 			promptID = message.ID
 			switch scenario {
+			case "leader-exit-open-stdout", "leader-exit-open-stderr":
+				child := exec.Command("/bin/sh", "-c", "sleep 60")
+				child.Stdout = os.Stdout
+				if scenario == "leader-exit-open-stderr" {
+					child.Stderr = os.Stderr
+				}
+				if err := child.Start(); err != nil {
+					os.Exit(2)
+				}
+				os.Exit(0)
 			case "stdout-eof":
 				_ = os.Stdout.Close()
 			case "stdout-overflow":

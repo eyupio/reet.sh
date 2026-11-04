@@ -35,12 +35,16 @@ waiting approval/status at both ring limits. Tests also cover explicit refusal, 
 entirely with pending state. Validation and merge status are recorded in the PR. No wire or dependency changes.
 ## GAFFER-RECOVERY-1: retire unusable agent processes (4 November 2026)
 
-Branch `fix/gaffer-process-recovery`. The ACP stdout reader now drains before `cmd.Wait`, and an EOF or oversized frame
-retires the process group before pending calls and cards are closed. A broken output stream can no longer leave a chat
+Branch `fix/gaffer-process-recovery`, integrated by `fix/gaffer-recovery-state`. An EOF or oversized frame in the ACP stdout
+reader retires the process group. Process exit is observed independently because children may inherit stdout. A broken output stream can no longer leave a chat
 waiting on a live process until the turn timeout. Provider errors recovered from the local log also mark the turn as
 cancelled for incoming requests and arm the existing forced-stop grace, while keeping the provider error visible.
 
 Regression tests reproduce closed stdout, an oversized frame and a provider failure whose adapter ignores cancel.
+The integration regression also covers a leader exiting while a child keeps stdout open; waiting for the reader first
+delayed that exit, so the integration fix keeps the independent process waiter and kills the group when reading ends.
+A one-second `exec.Cmd.WaitDelay` also bounds inherited stderr held by a descendant after leader exit; both stdout-only
+and stdout-plus-stderr cases are covered. Without that bound, exec's stderr copier can hide the leader's exit indefinitely.
 All three failed before the fix and pass under the race detector afterwards. The full ACP race suite passes. The orphan
 cleanup test now checks live process-group retirement, matching production, because a container's PID 1 may retain exited
 zombies; the old test also failed on the unchanged baseline here. Full validation and merge status are

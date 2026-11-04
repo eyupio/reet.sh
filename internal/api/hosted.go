@@ -1,11 +1,13 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"html/template"
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -29,9 +31,13 @@ func (s *server) registerHostedRoutes(mux *http.ServeMux) {
 func WithHostedPages(api, fallback http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-		if len(parts) >= 2 && store.ValidHostedName(parts[0]) && !store.ReservedUsername(parts[0]) && store.ValidHostedName(parts[1]) {
-			api.ServeHTTP(w, r)
-			return
+		if len(parts) >= 2 {
+			validUser := store.ValidHostedName(parts[0]) && !store.ReservedUsername(parts[0])
+			validName := store.ValidHostedName(parts[1])
+			if validUser && validName {
+				api.ServeHTTP(w, r)
+				return
+			}
 		}
 		fallback.ServeHTTP(w, r)
 	})
@@ -105,7 +111,8 @@ func (s *server) hostedSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	if !existed && profile.HostedPrefix != "" && !strings.HasPrefix(sk.Slug, profile.HostedPrefix) {
+	newSkill := !existed && profile.HostedPrefix != ""
+	if newSkill && !strings.HasPrefix(sk.Slug, profile.HostedPrefix) {
 		writeErr(w, 400, "skill names must start with "+profile.HostedPrefix+" — change the prefix in Account → Profile")
 		return
 	}
@@ -289,9 +296,12 @@ func requestOrigin(r *http.Request) string {
 }
 
 var hostedPage = template.Must(template.New("hosted").Parse(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Skill.Slug}} by {{.Username}} · reet.sh</title><meta name="description" content="{{.Skill.Description}}"><style>
-:root{color-scheme:light dark;font-family:system-ui,sans-serif}body{max-width:850px;margin:0 auto;padding:32px 20px;line-height:1.6}a{color:inherit}header{display:flex;justify-content:space-between;gap:16px}h1{overflow-wrap:anywhere;margin-bottom:8px}.muted{opacity:.7}pre{padding:20px;background:light-dark(#f4f3ee,#222);border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere}code{font-size:.95em}li{overflow-wrap:anywhere}h2{margin-top:32px}</style></head>
-<body><header><a href="/">reet.sh</a><a href="/hosting">Host your own skills</a></header><main><p class="muted">Published by {{.Username}}</p><h1>{{.Skill.Slug}}</h1><p>{{.Skill.Description}}</p><h2>Install this skill</h2><pre><code>{{.Command}}</code></pre><p><a href="{{.Path}}/SKILL.md">Download SKILL.md</a></p><h2>Skill contents</h2><pre>{{.Skill.Content}}</pre>{{if .Files}}<h2>Supporting files</h2><ul>{{range .Files}}<li><a href="{{$.Path}}/.well-known/agent-skills/{{$.Skill.Slug}}/{{.}}">{{.}}</a></li>{{end}}</ul>{{end}}</main></body></html>`))
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Skill.Slug}} by {{.Username}} · reet.sh</title><meta name="description" content="{{.Skill.Description}}"><meta name="robots" content="index,follow"><link rel="canonical" href="{{.Origin}}{{.Path}}" />
+<meta property="og:type" content="article"><meta property="og:site_name" content="reet.sh"><meta property="og:title" content="{{.Skill.Slug}} by {{.Username}} · reet.sh"><meta property="og:description" content="{{.Skill.Description}}"><meta property="og:url" content="{{.Origin}}{{.Path}}"><meta property="og:image" content="{{.Origin}}/og-image.png"><meta property="og:image:alt" content="reet.sh: Your AI agents. Your machines. One control room." />
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{{.Skill.Slug}} by {{.Username}} · reet.sh"><meta name="twitter:description" content="{{.Skill.Description}}"><meta name="twitter:image" content="{{.Origin}}/og-image.png">
+<script type="application/ld+json">{{.StructuredData}}</script><style>
+:root{color-scheme:light dark;font-family:system-ui,sans-serif}body{max-width:850px;margin:0 auto;padding:32px 20px;line-height:1.6}a{color:inherit}header{display:flex;justify-content:space-between;gap:16px}h1{overflow-wrap:anywhere;margin-bottom:8px}.muted{opacity:.7}pre{padding:20px;background:light-dark(#f4f3ee,#222);border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere}code{font-size:.95em}li{overflow-wrap:anywhere}h2{margin-top:32px}nav[aria-label=Breadcrumb]{font-size:.85rem;opacity:.8;margin:0 0 18px}nav[aria-label=Breadcrumb] span{overflow-wrap:anywhere}</style></head>
+<body><header><a href="/">reet.sh</a><a href="/hosting">Host your own skills</a></header><main><nav aria-label="Breadcrumb"><a href="/">reet.sh</a> / <a href="/community">Community</a> / <span>{{.Username}}</span> / <span>{{.Skill.Slug}}</span></nav><p class="muted">Published by {{.Username}} · updated {{.Updated}}</p><h1>{{.Skill.Slug}}</h1><p>{{.Skill.Description}}</p><h2>Install this skill</h2><pre><code>{{.Command}}</code></pre><p><a href="{{.Path}}/SKILL.md">Download SKILL.md</a></p><h2>Skill contents</h2><pre>{{.Skill.Content}}</pre>{{if .Files}}<h2>Supporting files</h2><ul>{{range .Files}}<li><a href="{{$.Path}}/.well-known/agent-skills/{{$.Skill.Slug}}/{{.}}">{{.}}</a></li>{{end}}</ul>{{end}}<p><a href="/community">Browse the public community</a> · <a href="https://github.com/eyupio/reet.sh">Documentation and source</a></p></main></body></html>`))
 
 func (s *server) hostedPublic(w http.ResponseWriter, r *http.Request) {
 	sk, ok := s.publicHosted(w, r)
@@ -304,9 +314,38 @@ func (s *server) hostedPublic(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(files)
 	p := "/" + r.PathValue("username") + "/" + sk.Slug
+	origin := requestOrigin(r)
+	updated := time.UnixMilli(sk.UpdatedAt).UTC().Format(time.RFC3339)
+	structured, err := json.Marshal(map[string]any{
+		"@context": "https://schema.org",
+		"@graph": []any{
+			map[string]any{
+				"@type":          "SoftwareSourceCode",
+				"name":           sk.Slug,
+				"description":    sk.Description,
+				"url":            origin + p,
+				"codeRepository": origin + p + "/SKILL.md",
+				"dateModified":   updated,
+				"author":         map[string]any{"@type": "Person", "name": r.PathValue("username")},
+				"isPartOf":       map[string]any{"@type": "WebSite", "name": "reet.sh", "url": origin + "/"},
+			},
+			map[string]any{
+				"@type": "BreadcrumbList",
+				"itemListElement": []any{
+					map[string]any{"@type": "ListItem", "position": 1, "name": "reet.sh", "item": origin + "/"},
+					map[string]any{"@type": "ListItem", "position": 2, "name": "Community", "item": origin + "/community"},
+					map[string]any{"@type": "ListItem", "position": 3, "name": sk.Slug, "item": origin + p},
+				},
+			},
+		},
+	})
+	if err != nil {
+		http.Error(w, "could not render skill", 500)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
-	_ = hostedPage.Execute(w, map[string]any{"Skill": sk, "Username": r.PathValue("username"), "Path": p, "Files": files, "Command": "npx skills add " + requestOrigin(r) + p})
+	_ = hostedPage.Execute(w, map[string]any{"Skill": sk, "Username": r.PathValue("username"), "Path": p, "Files": files, "Command": "npx skills add " + origin + p, "Origin": origin, "Updated": updated, "StructuredData": template.JS(structured)})
 }
 
 func (s *server) parseSkillInput(r *http.Request, input string) (ref.Ref, error) {

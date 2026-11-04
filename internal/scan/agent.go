@@ -480,16 +480,20 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 	if _, err := checkPendingUpdate(c, config, version); err != nil {
 		return err
 	}
-	if handled, err := processRemoteImport(ctx, c, version); handled {
+	handled, err := processRemoteImport(ctx, c, version)
+	if handled {
 		return err
-	} else if err != nil {
+	}
+	if err != nil {
 		fmt.Fprintln(out, "Skill import channel unavailable; continuing inventory and sync work.")
 	}
 	// Metadata-only previews read files only after the controller names this
 	// process, and never write. They wait their turn behind an import, if any.
-	if handled, err := processContentPreview(ctx, c, version); handled {
+	handled, err = processContentPreview(ctx, c, version)
+	if handled {
 		return err
-	} else if err != nil {
+	}
+	if err != nil {
 		fmt.Fprintln(out, "Skill content preview channel unavailable; continuing inventory and sync work.")
 	}
 	var reply struct {

@@ -33,7 +33,12 @@ func (s *Store) saveRemoteHealthMinuteAt(uid int64, in RemoteHealthMinute, at ti
 	return s.saveRemoteHealthMinuteContext(context.Background(), uid, in, at)
 }
 func (s *Store) saveRemoteHealthMinuteContext(ctx context.Context, uid int64, in RemoteHealthMinute, at time.Time) error {
-	if !terminalproto.ValidID(in.AgentID) || !terminalproto.ValidCounter(in.Generation) || !terminalproto.ValidCounter(in.Revision) || in.Minute != at.Truncate(time.Minute).UnixMilli() || in.Summary.Validate() != nil {
+	validIdentity := terminalproto.ValidID(in.AgentID) &&
+		terminalproto.ValidCounter(in.Generation) && terminalproto.ValidCounter(in.Revision)
+	minuteMatches := in.Minute == at.Truncate(time.Minute).UnixMilli()
+	validSummary := in.Summary.Validate() == nil
+	valid := validIdentity && minuteMatches
+	if !valid || !validSummary {
 		return terminalproto.ErrInvalid
 	}
 	raw, _ := json.Marshal(in.Summary)
@@ -60,7 +65,9 @@ func (s *Store) saveRemoteHealthMinuteContext(ctx context.Context, uid int64, in
 			return err
 		}
 		if err == nil && generation == in.Generation {
-			if in.Revision < revision || in.Revision == revision && existing != string(raw) {
+			stale := in.Revision < revision
+			changed := in.Revision == revision && existing != string(raw)
+			if stale || changed {
 				return ErrTerminalConflict
 			}
 			if in.Revision == revision {

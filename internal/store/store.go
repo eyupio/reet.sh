@@ -1576,7 +1576,8 @@ func rederive(k *Skill) error {
 			return fmt.Errorf("invalid hosted skill URL")
 		}
 		r, err := ref.ParseAt(k.URL, u.Host)
-		if err != nil || r.SourceType != "hosted" || r.ID != k.ID {
+		sameHostedRef := err == nil && r.SourceType == "hosted" && r.ID == k.ID
+		if !sameHostedRef {
 			return fmt.Errorf("invalid hosted skill id %q", k.ID)
 		}
 		k.Source, k.Slug, k.SourceType, k.URL = r.Source, r.Slug, r.SourceType, r.URL

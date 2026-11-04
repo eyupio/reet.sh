@@ -138,7 +138,11 @@ func ValidateHostedSkill(sk *HostedSkill) error {
 	}
 	size := len(md)
 	for name, content := range sk.Files {
-		if !utf8.ValidString(name) || len(name) > 240 || path.IsAbs(name) || path.Clean(name) != name || strings.ContainsAny(name, "\\\x00\r\n?#%") || strings.Contains(name, "..") || strings.EqualFold(name, "SKILL.md") || name == "." || strings.HasPrefix(name, ".well-known/") {
+		cleanRelative := !path.IsAbs(name) && path.Clean(name) == name
+		noSeparators := !strings.ContainsAny(name, "\\\x00\r\n?#%") && !strings.Contains(name, "..")
+		notReserved := !strings.EqualFold(name, "SKILL.md") && name != "." && !strings.HasPrefix(name, ".well-known/")
+		validName := utf8.ValidString(name) && len(name) <= 240 && cleanRelative && noSeparators && notReserved
+		if !validName {
 			return fmt.Errorf("invalid supporting file path %q", name)
 		}
 		for _, part := range strings.Split(name, "/") {
@@ -332,7 +336,8 @@ func (s *Store) RenameHostedSkill(userID int64, slug, newSlug string, oldRef, ne
 }
 
 func moveHostedReferencesTx(tx *sql.Tx, oldRef, newRef ref.Ref) error {
-	if oldRef.SourceType != "hosted" || newRef.SourceType != "hosted" || oldRef.ID == newRef.ID {
+	notHosted := oldRef.SourceType != "hosted" || newRef.SourceType != "hosted"
+	if notHosted || oldRef.ID == newRef.ID {
 		return nil
 	}
 	var one int
@@ -389,4 +394,29 @@ func (s *Store) PublishedHostedSkill(username, slug string) (HostedSkill, error)
 		err = ErrNotFound
 	}
 	return sk, err
+}
+
+// PublishedHostedSkillRef is the public address of a published skill.
+type PublishedHostedSkillRef struct {
+	Username  string
+	Slug      string
+	UpdatedAt int64
+}
+
+// PublishedHostedSkills lists the public skill pages, newest first. Disabled authors are left out, as their pages are.
+func (s *Store) PublishedHostedSkills() ([]PublishedHostedSkillRef, error) {
+	rows, err := s.db.Query(`SELECT p.username,h.slug,h.updated_at FROM hosted_skills h JOIN publishers p ON p.user_id=h.user_id JOIN users u ON u.id=p.user_id WHERE h.published=1 AND u.disabled_at=0 ORDER BY h.updated_at DESC,h.slug`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	refs := []PublishedHostedSkillRef{}
+	for rows.Next() {
+		var r PublishedHostedSkillRef
+		if err := rows.Scan(&r.Username, &r.Slug, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		refs = append(refs, r)
+	}
+	return refs, rows.Err()
 }

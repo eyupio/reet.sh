@@ -43,9 +43,11 @@ func checkDB(ctx context.Context, path string) error {
 // VACUUM INTO includes committed WAL data without copying a partially written database.
 func backupDB(ctx context.Context, data, state string) (string, error) {
 	path := filepath.Join(data, "reet.db")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	_, err := os.Stat(path)
+	if os.IsNotExist(err) {
 		return "", nil
-	} else if err != nil {
+	}
+	if err != nil {
 		return "", err
 	}
 	dir := filepath.Join(state, "backups")

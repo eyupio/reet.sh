@@ -138,9 +138,11 @@ func InstallStaged(home, tool, version string, staged Staged) (Receipt, error) {
 		return Receipt{}, err
 	}
 	previous := ""
-	if existing, found, err := readReceipt(filepath.Join(root, "receipt.json")); err != nil {
+	existing, found, err := readReceipt(filepath.Join(root, "receipt.json"))
+	if err != nil {
 		return Receipt{}, err
-	} else if found && existing.Version != version {
+	}
+	if found && existing.Version != version {
 		previous = existing.Version
 	}
 	receipt.Previous = previous
@@ -193,9 +195,11 @@ func RemoveManaged(home, tool string) error {
 	if err != nil {
 		return err
 	}
-	if _, found, err := readReceipt(filepath.Join(root, "receipt.json")); err != nil {
+	_, found, err := readReceipt(filepath.Join(root, "receipt.json"))
+	if err != nil {
 		return err
-	} else if !found {
+	}
+	if !found {
 		return ErrNotManaged
 	}
 	return os.RemoveAll(root)

@@ -127,6 +127,7 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 		}
 	}
 	parts := strings.Split(string(out), "\x00")
+	// Index loop: the body steps past a rename's original path, which range cannot express.
 	for i := 0; i < len(parts); i++ {
 		line := parts[i]
 		if len(line) < 4 {
@@ -173,6 +174,7 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 	r.CountsKnown = statsErr == nil && len(stats) < 128<<10
 	if r.CountsKnown {
 		records := strings.Split(string(stats), "\x00")
+		// Index loop: the body consumes the two paths of a rename, which range cannot express.
 		for i := 0; i < len(records); i++ {
 			p := strings.SplitN(records[i], "\t", 3)
 			if len(p) != 3 {
@@ -551,6 +553,7 @@ func inspectConflict(s string) bool { return strings.Contains(s, "U") || s == "A
 func inspectRenameSources(data []byte) map[string]string {
 	sources := make(map[string]string)
 	records := strings.Split(string(data), "\x00")
+	// Index loop: the body steps past a rename's original path, which range cannot express.
 	for i := 0; i < len(records)-1; i++ {
 		line := records[i]
 		if len(line) < 4 || !strings.ContainsAny(line[:2], "RC") {

@@ -165,7 +165,8 @@ func (s *Store) UpdateProjectGroupFor(uid int64, g ProjectGroup, expect int64) (
 		cur, err := scanProjectGroup(tx.QueryRow(`SELECT `+groupColumns+` FROM project_groups WHERE user_id=? AND id=?`, uid, id))
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrProjectGroupNotFound
-		} else if err != nil {
+		}
+		if err != nil {
 			return err
 		}
 		if expect != 0 && expect != cur.Version {
@@ -186,9 +187,11 @@ func (s *Store) UpdateProjectGroupFor(uid int64, g ProjectGroup, expect int64) (
 		if err != nil {
 			return groupConflict(err)
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
-		} else if n != 1 {
+		}
+		if n != 1 {
 			return ErrProjectGroupChanged
 		}
 		return nil
@@ -217,9 +220,11 @@ func (s *Store) DeleteProjectGroupFor(uid int64, id string, expect int64) error 
 		if err != nil {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
-		} else if n != 1 {
+		}
+		if n != 1 {
 			return ErrProjectGroupChanged
 		}
 		return nil
@@ -293,9 +298,11 @@ func (s *Store) ReorderProjectGroupsFor(uid int64, ids []string, versions []int6
 			if err != nil {
 				return err
 			}
-			if n, err := res.RowsAffected(); err != nil {
+			n, err := res.RowsAffected()
+			if err != nil {
 				return err
-			} else if n != 1 {
+			}
+			if n != 1 {
 				return ErrProjectGroupChanged
 			}
 		}
@@ -318,7 +325,9 @@ func groupNameTaken(tx *sql.Tx, uid int64, name, self string) error {
 
 // groupConflict maps a unique-index refusal to the name error.
 func groupConflict(err error) error {
-	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") && strings.Contains(err.Error(), "name_key") {
+	uniqueName := strings.Contains(err.Error(), "UNIQUE constraint failed") &&
+		strings.Contains(err.Error(), "name_key")
+	if err != nil && uniqueName {
 		return ErrProjectGroupName
 	}
 	return err
@@ -478,9 +487,11 @@ func (s *Store) ReorderFolderProjectsInGroupsFor(uid int64, ids []string, versio
 			if err != nil {
 				return err
 			}
-			if n, err := res.RowsAffected(); err != nil {
+			n, err := res.RowsAffected()
+			if err != nil {
 				return err
-			} else if n != 1 {
+			}
+			if n != 1 {
 				return ErrFolderProjectChanged
 			}
 			if groupChanged {

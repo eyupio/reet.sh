@@ -98,7 +98,9 @@ func (s *server) mergeMachines(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, store.ErrMachineName) {
 			code = http.StatusBadRequest
 		}
-		if errors.Is(err, store.ErrMachineConflict) || errors.Is(err, store.ErrSkillContentReceiptMerge) || errors.Is(err, store.ErrSkillContentTargetMerge) {
+		mergeable := errors.Is(err, store.ErrMachineConflict) ||
+			errors.Is(err, store.ErrSkillContentReceiptMerge) || errors.Is(err, store.ErrSkillContentTargetMerge)
+		if mergeable {
 			code = http.StatusConflict
 		}
 		writeErr(w, code, err.Error())

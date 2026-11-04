@@ -171,7 +171,8 @@ func (s *server) projectGroupReorder(w http.ResponseWriter, r *http.Request) {
 	if !folderProjectBody(w, r, &in) {
 		return
 	}
-	if in.IDs == nil || len(in.IDs) != len(in.Versions) || len(in.IDs) > store.MaxProjectGroups {
+	hasIDs := in.IDs != nil && len(in.IDs) == len(in.Versions)
+	if !hasIDs || len(in.IDs) > store.MaxProjectGroups {
 		writeErrCode(w, http.StatusUnprocessableEntity, "invalid_order", "ids", "List every group once, each with the version you read.", "")
 		return
 	}

@@ -183,9 +183,11 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 				}
 			}
 		case "create":
-			if _, err := os.Lstat(action.Destination); err == nil {
+			_, err := os.Lstat(action.Destination)
+			if err == nil {
 				return RestoreApplyResult{}, fmt.Errorf("destination %q changed after the plan; preview again", action.Destination)
-			} else if !os.IsNotExist(err) {
+			}
+			if !os.IsNotExist(err) {
 				return RestoreApplyResult{}, fmt.Errorf("inspect destination %q: %w", action.Destination, err)
 			}
 		default:
@@ -494,10 +496,13 @@ func writeRestoreFile(path string, data []byte, overwrite bool, mode os.FileMode
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("create restore directory: %w", err)
 		}
-	} else if err != nil {
-		return fmt.Errorf("inspect restore directory: %w", err)
-	} else if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return fmt.Errorf("the restore directory %q must be a real directory, not a symlink or file", dir)
+	} else {
+		if err != nil {
+			return fmt.Errorf("inspect restore directory: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("the restore directory %q must be a real directory, not a symlink or file", dir)
+		}
 	}
 	f, err := os.CreateTemp(dir, ".reet-restore-*")
 	if err != nil {
@@ -522,9 +527,11 @@ func writeRestoreFile(path string, data []byte, overwrite bool, mode os.FileMode
 		return fmt.Errorf("write restored file: %w", closeErr)
 	}
 	if !overwrite {
-		if _, err := os.Lstat(path); err == nil {
+		_, err := os.Lstat(path)
+		if err == nil {
 			return fmt.Errorf("destination %q changed after the plan; preview again", path)
-		} else if !os.IsNotExist(err) {
+		}
+		if !os.IsNotExist(err) {
 			return fmt.Errorf("inspect destination %q: %w", path, err)
 		}
 	}

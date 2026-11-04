@@ -77,7 +77,7 @@ func inspectInstallation(a Agent) *InstallationObservation {
 	// Stop at the nearest package boundary, even if it is malformed or unrelated.
 	// An outer package must not be attributed to a nested dependency's executable.
 	dir := filepath.Dir(resolved)
-	for i := 0; i < maxPackageAncestors; i++ {
+	for range maxPackageAncestors {
 		path := filepath.Join(dir, "package.json")
 		info, err := os.Lstat(path)
 		if os.IsNotExist(err) {

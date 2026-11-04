@@ -35,11 +35,14 @@ func readTerminalCommand(row interface{ Scan(...any) error }) (TerminalCommand, 
 	return item, err
 }
 func validTerminalCommand(name, command, description string) bool {
-	if !terminalproto.ValidTitle(name) || !utf8.ValidString(command) || !utf8.ValidString(description) || strings.TrimSpace(command) == "" || len(command) > 16<<10 || utf8.RuneCountInString(description) > 500 {
+	validFields := terminalproto.ValidTitle(name) && utf8.ValidString(command) && utf8.ValidString(description)
+	validSize := strings.TrimSpace(command) != "" && len(command) <= 16<<10 && utf8.RuneCountInString(description) <= 500
+	if !validFields || !validSize {
 		return false
 	}
 	for _, r := range command {
-		if unicode.IsControl(r) && r != '\n' && r != '\r' && r != '\t' {
+		allowedWhitespace := r == '\n' || r == '\r' || r == '\t'
+		if unicode.IsControl(r) && !allowedWhitespace {
 			return false
 		}
 	}
@@ -81,7 +84,11 @@ func (s *Store) TerminalCommandsFor(uid int64) ([]TerminalCommand, error) {
 func (s *Store) SaveTerminalCommandFor(uid int64, id, name, command, description string, revision int64) (TerminalCommand, error) {
 	name = strings.TrimSpace(name)
 	var item TerminalCommand
-	if !validTerminalCommand(name, command, description) || id != "" && !terminalproto.ValidID(id) || id == "" && revision != 0 || id != "" && !terminalproto.ValidCounter(revision) {
+	commandOK := validTerminalCommand(name, command, description)
+	createOK := id != "" || revision == 0
+	updateOK := id == "" || (terminalproto.ValidID(id) && terminalproto.ValidCounter(revision))
+	validCommand := commandOK && createOK && updateOK
+	if !validCommand {
 		return item, terminalproto.ErrInvalid
 	}
 	err := s.withTx(func(tx *sql.Tx) error {

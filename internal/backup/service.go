@@ -1319,10 +1319,13 @@ func (s *Service) applyRemote(in RemoteInput, r store.BackupRemote, creating boo
 			return r, err
 		}
 		r.SecretSealed = sealed
-	} else if creating {
-		return r, errors.New("enter the secret access key")
-	} else if !strings.EqualFold(strings.TrimRight(oldEndpoint, "/"), r.Endpoint) && r.SecretSealed != "" {
-		return r, fmt.Errorf("the stored secret is for %s; enter it again to use it with %s", oldEndpoint, r.Endpoint)
+	} else {
+		if creating {
+			return r, errors.New("enter the secret access key")
+		}
+		if !strings.EqualFold(strings.TrimRight(oldEndpoint, "/"), r.Endpoint) && r.SecretSealed != "" {
+			return r, fmt.Errorf("the stored secret is for %s; enter it again to use it with %s", oldEndpoint, r.Endpoint)
+		}
 	}
 	return r, nil
 }

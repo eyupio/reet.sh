@@ -216,11 +216,15 @@ func validProjectColour(c string) bool {
 
 // folderNameShape is the store's name rule: 1 to 80 characters of plain text.
 func folderNameShape(name string) bool {
-	if n := utf8.RuneCountInString(name); n < 1 || n > store.MaxProjectNameRunes || !utf8.ValidString(name) {
+	n := utf8.RuneCountInString(name)
+	validLength := n >= 1 && n <= store.MaxProjectNameRunes
+	if !validLength || !utf8.ValidString(name) {
 		return false
 	}
 	for _, r := range name {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+		isControl := unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
+		isSeparator := unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r)
+		if isControl || isSeparator {
 			return false
 		}
 	}
@@ -262,7 +266,8 @@ func (s *server) checkFolderProject(names map[string]string, p *store.FolderProj
 		return &projectRefusal{422, "invalid_dir", "dir", sentenceFolderDir, ""}
 	}
 	p.Dir = dir
-	if saved == nil || p.Host != saved.Host || p.Dir != saved.Dir {
+	samePlace := saved != nil && p.Host == saved.Host && p.Dir == saved.Dir
+	if !samePlace {
 		if _, enrolled := names[p.Host]; !enrolled {
 			return &projectRefusal{422, "unknown_machine", "host", sentenceFolderMachine, ""}
 		}
@@ -289,13 +294,16 @@ func (s *server) checkFolderProject(names map[string]string, p *store.FolderProj
 		return &projectRefusal{422, "invalid_model", "defaultModel", sentenceModel, ""}
 	}
 	defaultsChanged := saved == nil || p.DefaultTool != saved.DefaultTool || p.DefaultModel != saved.DefaultModel || p.DefaultEffort != saved.DefaultEffort
-	if defaultsChanged && p.DefaultModel != "" && p.DefaultTool == "" {
+	missingTool := p.DefaultModel != "" && p.DefaultTool == ""
+	if defaultsChanged && missingTool {
 		return &projectRefusal{422, "invalid_model", "defaultModel", "Choose a default agent before setting a default model.", ""}
 	}
 	if !terminalproto.ValidEffort(p.DefaultEffort) {
 		return &projectRefusal{422, "invalid_effort", "defaultEffort", sentenceFolderEffort, ""}
 	}
-	if defaultsChanged && p.DefaultEffort != "" && (p.DefaultTool == "" || !terminalproto.ToolTakesEffort(p.DefaultTool)) {
+	checkEffort := defaultsChanged && p.DefaultEffort != ""
+	unsupported := p.DefaultTool == "" || !terminalproto.ToolTakesEffort(p.DefaultTool)
+	if checkEffort && unsupported {
 		return &projectRefusal{422, "invalid_effort", "defaultEffort", "A default effort needs a default agent that takes one.", ""}
 	}
 	// A saved prompt's shape is checked again only when it changes, so one
@@ -304,11 +312,15 @@ func (s *server) checkFolderProject(names map[string]string, p *store.FolderProj
 	// either changes.
 	promptChanged := saved == nil || p.StarterPrompt != saved.StarterPrompt
 	if p.StarterPrompt != "" && promptChanged {
-		if len(p.StarterPrompt) > terminalproto.MaxPromptBytes || strings.HasPrefix(p.StarterPrompt, "-") || !terminalproto.ValidPrompt(p.StarterPrompt) {
+		validLength := len(p.StarterPrompt) <= terminalproto.MaxPromptBytes &&
+			!strings.HasPrefix(p.StarterPrompt, "-")
+		if !validLength || !terminalproto.ValidPrompt(p.StarterPrompt) {
 			return &projectRefusal{422, "invalid_prompt", "starterPrompt", sentenceFolderPrompt, ""}
 		}
 	}
-	if (promptChanged || p.DefaultTool != saved.DefaultTool) && terminalproto.PromptNeedsWords(p.DefaultTool, p.StarterPrompt) {
+	toolChanged := saved != nil && p.DefaultTool != saved.DefaultTool
+	recheckPrompt := promptChanged || toolChanged
+	if recheckPrompt && terminalproto.PromptNeedsWords(p.DefaultTool, p.StarterPrompt) {
 		return &projectRefusal{422, "prompt_unsupported", "starterPrompt", "Write the starter prompt as at least two words.", ""}
 	}
 	return nil
@@ -647,7 +659,10 @@ func (s *server) folderProjectReorder(w http.ResponseWriter, r *http.Request) {
 	if !folderProjectBody(w, r, &in) {
 		return
 	}
-	if in.IDs == nil || len(in.IDs) != len(in.Versions) || (in.GroupIDs != nil && len(*in.GroupIDs) != len(in.IDs)) || len(in.IDs) > store.MaxFolderProjects {
+	idsMatchVersions := len(in.IDs) == len(in.Versions)
+	groupsMatch := in.GroupIDs == nil || len(*in.GroupIDs) == len(in.IDs)
+	validOrder := in.IDs != nil && idsMatchVersions && groupsMatch && len(in.IDs) <= store.MaxFolderProjects
+	if !validOrder {
 		writeErrCode(w, http.StatusUnprocessableEntity, "invalid_order", "ids", "List every project once, each with the version you read.", "")
 		return
 	}

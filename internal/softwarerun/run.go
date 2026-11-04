@@ -367,7 +367,7 @@ func reasonCode(reason terminalproto.SoftwareApplyReason) string {
 	if s == "" || len(s) > 40 {
 		return CodeApplyFailed
 	}
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		b := s[i]
 		if !(b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '_') {
 			return CodeApplyFailed

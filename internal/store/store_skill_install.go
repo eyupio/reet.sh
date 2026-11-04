@@ -72,7 +72,8 @@ func desiredStatus(existing []SyncSkill, add SyncSkill) (present, conflict bool)
 		if sk.Slug != add.Slug {
 			continue
 		}
-		if sk.ID == add.ID && sk.Source == add.Source && sk.SourceType == add.SourceType {
+		same := sk.ID == add.ID && sk.Source == add.Source && sk.SourceType == add.SourceType
+		if same {
 			present = true
 		} else {
 			conflict = true
@@ -118,7 +119,8 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		if err != nil || !complete || scanned < time.Now().Add(-14*24*time.Hour).UnixMilli() {
+		fresh := err == nil && complete && scanned >= time.Now().Add(-14*24*time.Hour).UnixMilli()
+		if !fresh {
 			return installRefused("no-scan", "reet hasn't read "+host+"'s "+in.Tool+" skills folder recently. Run a scan on "+host+", then try again.")
 		}
 		offline := installRefused("connector-offline", host+" isn't connected to reet right now, so it can't install this skill.")
@@ -135,7 +137,9 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		if agentHost, err = resolveMachineHost(tx, uid, agentHost); err != nil {
 			return err
 		}
-		if paused || !strings.EqualFold(agentHost, host) || seen < time.Now().Add(-installAgentOnline).UnixMilli() {
+		online := !paused && strings.EqualFold(agentHost, host) &&
+			seen >= time.Now().Add(-installAgentOnline).UnixMilli()
+		if !online {
 			return offline
 		}
 		var skill SyncSkill
@@ -317,7 +321,9 @@ func revertInstallTx(tx *sql.Tx, jobID string) (bool, error) {
 	}
 	var data, current string
 	err = tx.QueryRow(`SELECT desired,revision FROM sync_targets WHERE user_id=? AND target_id=?`, uid, target).Scan(&data, &current)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && current != revision) {
+	missing := errors.Is(err, sql.ErrNoRows)
+	staleRevision := err == nil && current != revision
+	if missing || staleRevision {
 		return false, nil
 	}
 	if err != nil {

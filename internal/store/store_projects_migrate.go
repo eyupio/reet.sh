@@ -396,7 +396,9 @@ func migrateAccountProjects(tx *sql.Tx, uid int64, rep *MigrationReport, source 
 				waiting = true
 				continue
 			}
-			if errors.Is(err, ErrFolderProjectInvalid) || errors.Is(err, ErrFolderProjectExists) || errors.Is(err, ErrFolderProjectName) {
+			knownFailure := errors.Is(err, ErrFolderProjectInvalid) ||
+				errors.Is(err, ErrFolderProjectExists) || errors.Is(err, ErrFolderProjectName)
+			if knownFailure {
 				if err := skip(key); err != nil {
 					return err
 				}
@@ -417,7 +419,9 @@ func migrateAccountProjects(tx *sql.Tx, uid int64, rep *MigrationReport, source 
 		}
 		// One event per Project, once it has a folder project or nothing left
 		// to wait for (another only when a later run adds to it).
-		if _, seen := mapped[p.ID]; !added && (seen || waiting) {
+		_, seen := mapped[p.ID]
+		pending := seen || waiting
+		if !added && pending {
 			continue
 		}
 		if err := record(p.ID, ""); err != nil {

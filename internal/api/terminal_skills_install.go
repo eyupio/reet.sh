@@ -45,7 +45,8 @@ func (s *server) terminalSkillInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slug, ok := strings.CutPrefix(in.Skill, "reet:")
-	if !ok || slug == "" || strings.ContainsAny(slug, `/\`) || strings.Contains(slug, "..") {
+	cleanSlug := slug != "" && !strings.ContainsAny(slug, `/\`) && !strings.Contains(slug, "..")
+	if !ok || !cleanSlug {
 		writeErr(w, 400, "invalid terminal request")
 		return
 	}

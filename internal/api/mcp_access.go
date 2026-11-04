@@ -167,7 +167,8 @@ func (s *server) mcpSettings(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	if in.Enabled == nil && in.BrowserEnabled == nil && in.BrowserScope == nil {
+	noChanges := in.Enabled == nil && in.BrowserEnabled == nil && in.BrowserScope == nil
+	if noChanges {
 		writeErr(w, 400, "supply an MCP access setting")
 		return
 	}
@@ -185,7 +186,9 @@ func (s *server) mcpSettings(w http.ResponseWriter, r *http.Request) {
 	if s.role(r) == "viewer" && in.BrowserScope == nil {
 		scope = "read"
 	}
-	if (scope != "read" && scope != "write") || (scope == "write" && s.role(r) == "viewer") {
+	validScope := scope == "read" || scope == "write"
+	viewerWrite := scope == "write" && s.role(r) == "viewer"
+	if !validScope || viewerWrite {
 		writeErr(w, 403, "choose a permission available to your account")
 		return
 	}
@@ -294,11 +297,14 @@ func (s *server) mcpUpdate(w http.ResponseWriter, r *http.Request) {
 	if in.Enabled != nil {
 		c.Enabled = *in.Enabled
 	}
-	if c.Kind == "oauth" && oldScope == "read" && in.Scope != nil && *in.Scope == "write" {
+	readOnlyOAuth := c.Kind == "oauth" && oldScope == "read"
+	widening := in.Scope != nil && *in.Scope == "write"
+	if readOnlyOAuth && widening {
 		writeErr(w, 400, "reconnect this client to approve broader OAuth permissions")
 		return
 	}
-	if s.role(r) == "viewer" && in.Scope != nil && c.Scope != "read" {
+	scopeGiven := in.Scope != nil && c.Scope != "read"
+	if s.role(r) == "viewer" && scopeGiven {
 		writeErr(w, 403, "viewer connections are read-only")
 		return
 	}

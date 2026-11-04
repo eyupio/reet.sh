@@ -76,8 +76,10 @@ func validMachineModels(row MachineModels) error {
 	if row.State == MachineModelsListed && row.Reason != "" {
 		return terminalproto.ErrInvalid
 	}
-	if len(row.Models) > terminalproto.MaxModels ||
-		!terminalproto.ValidPlainText(row.Source, 64) || !terminalproto.ValidPlainText(row.AgentVersion, 64) {
+	validCount := len(row.Models) <= terminalproto.MaxModels
+	validText := terminalproto.ValidPlainText(row.Source, 64) &&
+		terminalproto.ValidPlainText(row.AgentVersion, 64)
+	if !validCount || !validText {
 		return terminalproto.ErrInvalid
 	}
 	return nil

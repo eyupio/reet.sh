@@ -463,7 +463,8 @@ func (w *statusWriter) Write(b []byte) (int, error) {
 // logRequests records one line per write, never the query string (which can carry a token).
 func (s *server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path != "/quick" {
+		readMethod := r.Method == http.MethodGet || r.Method == http.MethodHead
+		if readMethod && r.URL.Path != "/quick" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -620,7 +621,9 @@ func (s *server) requireOwner(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		apiPath := strings.HasPrefix(r.URL.Path, "/api/")
+		writeMethod := r.Method != http.MethodGet && r.Method != http.MethodHead
+		if apiPath && writeMethod {
 			// Stops other websites from writing to a token-less instance through the visitor's browser.
 			if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 				writeErr(w, http.StatusForbidden, "cross-site requests are not allowed")
@@ -630,8 +633,11 @@ func (s *server) auth(next http.Handler) http.Handler {
 			// it is exempt on its exact path and nowhere else. An image upload is
 			// the one other non-JSON write: its own handler requires an exact
 			// image Content-Type and the terminal wrapper checks the origin.
-			if (r.Method == http.MethodPost || r.Method == http.MethodPatch) && r.URL.Path != ssoLogoutPath && !terminalUploadPath(r.URL.Path) && !backupImportUpload(r) &&
-				!strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+			writeMethod := r.Method == http.MethodPost || r.Method == http.MethodPatch
+			jsonType := strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json")
+			exempt := r.URL.Path == ssoLogoutPath || terminalUploadPath(r.URL.Path) || backupImportUpload(r)
+			needsJSON := writeMethod && !jsonType
+			if needsJSON && !exempt {
 				writeErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 				return
 			}
@@ -641,7 +647,9 @@ func (s *server) auth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey{}, s.defaultUser)))
 			return
 		case AuthToken:
-			if s.token != "" && !openAuthPath(r.URL.Path) && guardedPath(r.URL.Path) && !s.hasBootstrap(r) {
+			requiresToken := s.token != "" && !openAuthPath(r.URL.Path)
+			guarded := guardedPath(r.URL.Path) && !s.hasBootstrap(r)
+			if requiresToken && guarded {
 				writeErr(w, http.StatusUnauthorized, "missing or wrong token")
 				return
 			}
@@ -1098,7 +1106,9 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A reet-hosted skill is something to try, not just a link to file away.
-	if rf.SourceType == "hosted" && in.Bookmarked == nil && in.Used == nil {
+	hostedSkill := rf.SourceType == "hosted"
+	noFlags := in.Bookmarked == nil && in.Used == nil
+	if hostedSkill && noFlags {
 		test := true
 		in.Bookmarked = &test
 	}
@@ -1129,7 +1139,8 @@ func (s *server) patch(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "skill not found")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -1212,7 +1223,9 @@ func (s *server) refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func metaChanged(a, b store.Skill) bool {
-	if a.Name != b.Name || a.Description != b.Description || a.Installs != b.Installs || a.InstallsWeek != b.InstallsWeek {
+	nameChanged := a.Name != b.Name || a.Description != b.Description
+	countsChanged := a.Installs != b.Installs || a.InstallsWeek != b.InstallsWeek
+	if nameChanged || countsChanged {
 		return true
 	}
 	if len(a.Trend) != len(b.Trend) {
@@ -1240,7 +1253,8 @@ func (s *server) resolve(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "skill not found")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -1278,12 +1292,13 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 		}
 	}
 	if rf.ID == "" {
-		if r, err := s.parseSkillInput(request, name); err == nil {
-			rf = r
-		} else if strings.ContainsAny(name, "/\\\t\r\n") {
-			return "", false, false, fmt.Errorf("can't tell what %q is", name)
-		} else {
+		if r, err := s.parseSkillInput(request, name); err != nil {
+			if strings.ContainsAny(name, "/\\\t\r\n") {
+				return "", false, false, fmt.Errorf("can't tell what %q is", name)
+			}
 			local = true
+		} else {
+			rf = r
 		}
 	}
 	id := rf.ID
@@ -1413,7 +1428,8 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		if id != "" && err == nil && !wasIgnored {
+		found := id != "" && err == nil
+		if found && !wasIgnored {
 			key := store.EnvironmentIDFor(s.uid(r), item.Host, item.Agent, item.Project) + "\x00" + item.Name
 			itemIDs[key] = id
 		}
@@ -1678,10 +1694,12 @@ func (s *server) renameTag(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	if err := s.st.RenameTag(in.ID, in.Name); errors.Is(err, store.ErrNotFound) {
+	err := s.st.RenameTag(in.ID, in.Name)
+	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "tag not found")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			writeErr(w, 409, "that tag already exists")
 			return
@@ -1950,7 +1968,8 @@ func (s *server) signUp(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, store.ErrUserExists) {
 		writeErr(w, http.StatusConflict, "that email is already registered")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -2004,7 +2023,8 @@ func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
 	// tell anybody guessing whether a leaked password is still good. The sign-in
 	// page already points people at single sign-on.
 	passwordsOff := s.ssoOn() && !s.sso.PasswordLogin() && user.Role != "owner"
-	if user.DisabledAt != 0 || !good || passwordsOff {
+	unusable := user.DisabledAt != 0 || !good
+	if unusable || passwordsOff {
 		writeErr(w, http.StatusUnauthorized, "email or password is not correct")
 		return
 	}
@@ -2090,10 +2110,12 @@ func (s *server) revokeToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "id required")
 		return
 	}
-	if err := s.st.RevokeAPIToken(s.uid(r), id); errors.Is(err, store.ErrNotFound) {
+	err = s.st.RevokeAPIToken(s.uid(r), id)
+	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "token not found")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -2164,7 +2186,8 @@ func (s *server) adminUserUpdate(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, "use transfer ownership")
 			return
 		}
-		if role != "admin" && role != "member" && role != "viewer" {
+		validRole := role == "admin" || role == "member" || role == "viewer"
+		if !validRole {
 			writeErr(w, 400, "invalid role")
 			return
 		}
@@ -2340,7 +2363,8 @@ func (s *server) adminInvite(w http.ResponseWriter, r *http.Request) {
 	if role == "" {
 		role = "member"
 	}
-	if role != "admin" && role != "member" && role != "viewer" {
+	validRole := role == "admin" || role == "member" || role == "viewer"
+	if !validRole {
 		writeErr(w, 400, "invalid role")
 		return
 	}
@@ -2427,7 +2451,8 @@ func (s *server) join(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, store.ErrUserExists) {
 		writeErr(w, 409, "that email is already registered")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}

@@ -199,9 +199,11 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 			return ManagedSession{}, err
 		}
 		managed := ""
-		if path, found, managedErr := agentsoftware.ManagedBinary(m.home, in.Tool); managedErr != nil {
+		path, found, managedErr := agentsoftware.ManagedBinary(m.home, in.Tool)
+		if managedErr != nil {
 			return ManagedSession{}, launchUnavailable("managed installation is broken")
-		} else if found {
+		}
+		if found {
 			managed = path
 		}
 		if argv, err = launchArgv(in, m.lookPath, managed); err != nil {

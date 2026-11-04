@@ -47,7 +47,9 @@ func (s *Store) RequestMachineSkillSync(uid int64, skillID, destination, sourceI
 	var target *SyncEnvironment
 	for i := range envs {
 		e := &envs[i]
-		if strings.EqualFold(e.Host, destination) && Syncable(e.Agent) && (destinationID == "" && e.Project == "" || e.ID == destinationID) {
+		sameDestination := destinationID == "" && e.Project == "" || e.ID == destinationID
+		matches := strings.EqualFold(e.Host, destination) && Syncable(e.Agent) && sameDestination
+		if matches {
 			if target == nil || e.Agent == "agents" {
 				target = e
 			}
@@ -133,7 +135,8 @@ func (s *Store) AdvanceMachineSkillSyncs(uid int64, role string) error {
 		if e != nil {
 			return e
 		}
-		if r.DestinationID == "" || r.SyncRunID != "" || r.Receipt == nil {
+		ready := r.DestinationID != "" && r.SyncRunID == "" && r.Receipt != nil
+		if !ready {
 			continue
 		}
 		// A disconnected/stale destination must not prevent other machines
@@ -218,7 +221,8 @@ func (s *Store) advanceMachineSkillSync(uid int64, role string, r RemoteImport) 
 			}
 		}
 	}
-	if wantFollow && in.SourceID == "shelf" && in.ListID == 0 {
+	followShelf := wantFollow && in.SourceID == "shelf" && in.ListID == 0
+	if followShelf {
 		candidates, e := s.SyncCandidatesFor(uid, role, 0)
 		if e != nil {
 			return e

@@ -221,7 +221,9 @@ func normalizeFolder(p FolderProject, checkPrompt bool) (FolderProject, error) {
 // update that leaves the three launch defaults untouched, so a row written
 // before the model-needs-a-tool rule stays editable for other fields.
 func normalizeFolderWith(p FolderProject, checkPrompt, checkDefaults bool) (FolderProject, error) {
-	if p.Host == "" || len(p.Host) > maxFolderProjectHostBytes || strings.TrimSpace(p.Host) != p.Host || !plainText(p.Host) {
+	validHost := p.Host != "" && len(p.Host) <= maxFolderProjectHostBytes
+	plainHost := strings.TrimSpace(p.Host) == p.Host && plainText(p.Host)
+	if !validHost || !plainHost {
 		return p, folderInvalid("machine id is required, at most %d bytes, plain text", maxFolderProjectHostBytes)
 	}
 	dir, err := CleanProjectDir(p.Dir)
@@ -252,16 +254,23 @@ func normalizeFolderWith(p FolderProject, checkPrompt, checkDefaults bool) (Fold
 	if p.DefaultModel != "" && !terminalproto.ValidModel(p.DefaultModel) {
 		return p, folderInvalid("default model has characters or a length the connector would refuse")
 	}
-	if checkDefaults && p.DefaultModel != "" && p.DefaultTool == "" {
+	missingTool := checkDefaults && p.DefaultModel != "" && p.DefaultTool == ""
+	if missingTool {
 		return p, folderInvalid("default model needs a default agent")
 	}
 	if !terminalproto.ValidEffort(p.DefaultEffort) {
 		return p, folderInvalid("default effort must be blank, low, medium or high")
 	}
-	if checkDefaults && p.DefaultEffort != "" && (p.DefaultTool == "" || !terminalproto.ToolTakesEffort(p.DefaultTool)) {
+	checkEffort := checkDefaults && p.DefaultEffort != ""
+	unsupported := p.DefaultTool == "" || !terminalproto.ToolTakesEffort(p.DefaultTool)
+	if checkEffort && unsupported {
 		return p, folderInvalid("default effort needs a default agent that takes an effort level")
 	}
-	if checkPrompt && p.StarterPrompt != "" && (len(p.StarterPrompt) > maxFolderProjectPromptBytes || strings.HasPrefix(p.StarterPrompt, "-") || !terminalproto.ValidPrompt(p.StarterPrompt)) {
+	hasPrompt := p.StarterPrompt != ""
+	validPrompt := len(p.StarterPrompt) <= maxFolderProjectPromptBytes &&
+		!strings.HasPrefix(p.StarterPrompt, "-") && terminalproto.ValidPrompt(p.StarterPrompt)
+	validatePrompt := checkPrompt && hasPrompt
+	if validatePrompt && !validPrompt {
 		return p, folderInvalid("starter prompt must be valid text of at most %d bytes with no control characters except newline, and must not start with -", maxFolderProjectPromptBytes)
 	}
 	return p, nil
@@ -309,7 +318,8 @@ func resolveFolderName(tx *sql.Tx, uid int64, self string, p FolderProject) (str
 	if r := []rune(base); len(r) > MaxProjectNameRunes {
 		base = string(r[:MaxProjectNameRunes])
 	}
-	if base == "/" || base == "." || !validFolderProjectName(base) {
+	badBase := base == "/" || base == "." || !validFolderProjectName(base)
+	if badBase {
 		base = "project"
 	}
 	for i := 1; i < MaxFolderProjects+2; i++ {
@@ -430,7 +440,8 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 		cur, err := scanFolderProject(tx.QueryRow(`SELECT `+folderColumns+` FROM folder_projects WHERE id=? AND user_id=?`, id, uid))
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrFolderProjectNotFound
-		} else if err != nil {
+		}
+		if err != nil {
 			return err
 		}
 		if expect != 0 && expect != cur.Version {
@@ -456,9 +467,11 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 		if err != nil {
 			return folderConflict(err)
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
-		} else if n != 1 {
+		}
+		if n != 1 {
 			return ErrFolderProjectChanged
 		}
 		return nil
@@ -487,9 +500,11 @@ func (s *Store) DeleteFolderProjectFor(uid int64, id string, expect int64) error
 		if err != nil {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
-		} else if n != 1 {
+		}
+		if n != 1 {
 			return ErrFolderProjectChanged
 		}
 		return nil
@@ -598,9 +613,11 @@ func (s *Store) ReorderFolderProjectsFor(uid int64, ids []string, versions []int
 			if err != nil {
 				return err
 			}
-			if n, err := res.RowsAffected(); err != nil {
+			n, err := res.RowsAffected()
+			if err != nil {
 				return err
-			} else if n != 1 {
+			}
+			if n != 1 {
 				return ErrFolderProjectChanged
 			}
 		}

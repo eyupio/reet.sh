@@ -1352,6 +1352,7 @@ func (s *stringListFlag) Set(value string) error {
 
 func reorderFlags(f *flag.FlagSet, args []string) []string {
 	var options, positional []string
+	// Index loop: the body consumes a flag's separate value, which range cannot express.
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {

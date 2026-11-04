@@ -68,6 +68,7 @@ func checkConfigTree(value any, depth int, nodes *int) error {
 func stripJSONC(data []byte) ([]byte, error) {
 	out := append([]byte(nil), data...)
 	quoted, escaped := false, false
+	// Index loop: the body steps through a comment, which range cannot express.
 	for i := 0; i < len(out); i++ {
 		if quoted {
 			if escaped {
@@ -110,7 +111,7 @@ func stripJSONC(data []byte) ([]byte, error) {
 	}
 	quoted, escaped = false, false
 	var previous byte
-	for i := 0; i < len(out); i++ {
+	for i := range out {
 		c := out[i]
 		if quoted {
 			if escaped {

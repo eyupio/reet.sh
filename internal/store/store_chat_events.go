@@ -26,8 +26,9 @@ type StoredChatEvent struct {
 // its count and byte ceilings, oldest first. The primary key is the chat's own
 // sequence number, so a retry of the same event is idempotent.
 func (s *Store) AppendTerminalChatEventFor(uid int64, sessionID string, seq, at int64, event []byte) error {
-	if !terminalproto.ValidID(sessionID) || !terminalproto.ValidCounter(seq) || at <= 0 ||
-		len(event) == 0 || len(event) > maxStoredChatBytes || !json.Valid(event) {
+	validIdentity := terminalproto.ValidID(sessionID) && terminalproto.ValidCounter(seq) && at > 0
+	validEvent := len(event) > 0 && len(event) <= maxStoredChatBytes && json.Valid(event)
+	if !validIdentity || !validEvent {
 		return terminalproto.ErrInvalid
 	}
 	return s.withTx(func(tx *sql.Tx) error {

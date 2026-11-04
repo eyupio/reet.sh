@@ -41,7 +41,8 @@ func (s *server) contentObservation(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		var in contentobs.Report
-		if d.Decode(&in) != nil || d.Decode(new(any)) != io.EOF || in.Validate() != nil {
+		decoded := d.Decode(&in) == nil && d.Decode(new(any)) == io.EOF
+		if !decoded || in.Validate() != nil {
 			writeErr(w, 400, "Invalid or oversized content observation.")
 			return
 		}

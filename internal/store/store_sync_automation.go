@@ -13,7 +13,8 @@ import (
 // MaintainSync runs on authenticated agent polls, so saved policies continue
 // working after the browser closes. It never replays failed or approved work.
 func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
-	if !agent.KeepSynced || agent.Paused || role == "viewer" {
+	enabled := agent.KeepSynced && !agent.Paused
+	if !enabled || role == "viewer" {
 		return nil
 	}
 	targets, err := s.SyncTargetsFor(uid)
@@ -65,7 +66,8 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 			} else {
 				err = errors.New("source needs a recent complete scan")
 				for _, env := range envs {
-					if env.ID == target.SourceID && env.Complete && env.ScannedAt > time.Now().Add(-14*24*time.Hour).UnixMilli() {
+					matching := env.ID == target.SourceID && env.Complete
+					if matching && env.ScannedAt > time.Now().Add(-14*24*time.Hour).UnixMilli() {
 						candidates, err = env.Skills, nil
 					}
 				}
@@ -83,7 +85,9 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 			// the durable transfer queues this destination when the bytes arrive.
 			preparing := false
 			for _, sk := range candidates {
-				if target.SourceID != "shelf" || sk.Source != "" && sk.SourceType != "local" {
+				shelfSource := target.SourceID == "shelf"
+				customSource := sk.Source != "" && sk.SourceType != "local"
+				if !shelfSource || customSource {
 					continue
 				}
 				preparing = true
@@ -139,7 +143,9 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 		if latestStatus == "failed" || latestStatus == "cancelled" {
 			continue
 		}
-		if len(target.Missing) == 0 && (target.Mode == "additive" || len(target.Extra) == 0) {
+		noMissing := len(target.Missing) == 0
+		additive := target.Mode == "additive" || len(target.Extra) == 0
+		if noMissing && additive {
 			continue
 		}
 		if _, err = s.StartSyncRun(uid, agent.ID, []string{target.Target.ID}); err != nil {

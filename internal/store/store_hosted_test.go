@@ -178,3 +178,44 @@ func TestHostedDraftHidesItsShelfProjectionAndKeepsItsData(t *testing.T) {
 	}
 	assertVisible(0, "deleted")
 }
+
+func TestPublishedHostedSkillsListsOnlyPublicEnabledAuthors(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	alice, err := st.CreateUser("alice@example.com", "Alice", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ClaimPublishingUsername(alice.ID, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveHostedSkill(alice.ID, HostedSkill{Slug: "demo", Content: "---\nname: demo\ndescription: Demo\n---\n\nInstructions\n", Published: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveHostedSkill(alice.ID, HostedSkill{Slug: "draft", Content: "---\nname: draft\ndescription: Draft\n---\n\nInstructions\n"}); err != nil {
+		t.Fatal(err)
+	}
+	bob, err := st.CreateUser("bob@example.com", "Bob", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ClaimPublishingUsername(bob.ID, "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveHostedSkill(bob.ID, HostedSkill{Slug: "hidden", Content: "---\nname: hidden\ndescription: Hidden\n---\n\nInstructions\n", Published: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetUserDisabled(bob.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	refs, err := st.PublishedHostedSkills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 1 || refs[0].Username != "alice" || refs[0].Slug != "demo" {
+		t.Fatalf("published refs = %+v", refs)
+	}
+}

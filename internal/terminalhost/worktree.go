@@ -498,7 +498,7 @@ func validHeadLine(line string) bool {
 	if !ok || len(hash) != 40 && len(hash) != 64 {
 		return false
 	}
-	for i := 0; i < len(hash); i++ {
+	for i := range hash {
 		if !(hash[i] >= '0' && hash[i] <= '9' || hash[i] >= 'a' && hash[i] <= 'f') {
 			return false
 		}
@@ -785,7 +785,7 @@ func gitCount(ctx context.Context, git GitRunner, dir string, args ...string) (i
 	}
 	text := strings.TrimSuffix(string(out), "\n")
 	n := 0
-	for i := 0; i < len(text); i++ {
+	for i := range text {
 		if text[i] < '0' || text[i] > '9' || n > 1<<30 {
 			return 0, refuseWorktree(terminalproto.WorktreeGitFailed, "git counted commits unreadably")
 		}
@@ -822,6 +822,7 @@ func parseStatus(out []byte) (int, []string) {
 	fields := strings.Split(string(out), "\x00")
 	count := 0
 	var paths []string
+	// Index loop: the body steps past a rename's original path, which range cannot express.
 	for i := 0; i < len(fields); i++ {
 		entry := fields[i]
 		if len(entry) < 4 {

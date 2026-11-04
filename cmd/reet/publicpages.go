@@ -147,6 +147,11 @@ func publicURLsFor(st *store.Store) func() []string {
 				urls = append(urls, "/l/"+list.Slug)
 			}
 		}
+		if skills, err := st.PublishedHostedSkills(); err == nil {
+			for _, skill := range skills {
+				urls = append(urls, "/"+skill.Username+"/"+skill.Slug)
+			}
+		}
 		return urls
 	}
 }

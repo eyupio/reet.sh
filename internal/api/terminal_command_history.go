@@ -27,7 +27,9 @@ func (s *server) terminalCommandHistory(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 502, "The machine returned an invalid command history snapshot.")
 		return
 	}
-	if user, ok := s.sessionUser(r); !ok || user.ID != s.uid(r) || user.Role == "viewer" {
+	user, ok := s.sessionUser(r)
+	sameUser := ok && user.ID == s.uid(r)
+	if !sameUser || user.Role == "viewer" {
 		terminalError(w, terminalbroker.ErrDenied)
 		return
 	}

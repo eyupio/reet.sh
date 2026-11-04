@@ -128,11 +128,14 @@ func (s *server) ticketAccess(w http.ResponseWriter, r *http.Request) (store.Tic
 		return store.Ticket{}, store.User{}, false
 	}
 	u := s.currentUser(r)
-	if u.Role == "owner" || u.Role == "admin" || t.UserID == u.ID {
+	staff := u.Role == "owner" || u.Role == "admin"
+	if staff || t.UserID == u.ID {
 		return t, u, true
 	}
 	if t.GroupID != 0 {
-		if g, err := s.st.GroupFor(u.ID, u.Role, t.GroupID); err == nil && (g.Role == "owner" || g.Role == "manager") {
+		g, err := s.st.GroupFor(u.ID, u.Role, t.GroupID)
+		canManage := err == nil && (g.Role == "owner" || g.Role == "manager")
+		if canManage {
 			return t, u, true
 		}
 	}
@@ -162,7 +165,9 @@ func (s *server) ticketKind(t store.Ticket, u store.User, role string) string {
 		return "admin"
 	}
 	if t.GroupID != 0 {
-		if g, err := s.st.GroupFor(u.ID, role, t.GroupID); err == nil && (g.Role == "owner" || g.Role == "manager") {
+		g, err := s.st.GroupFor(u.ID, role, t.GroupID)
+		canManage := err == nil && (g.Role == "owner" || g.Role == "manager")
+		if canManage {
 			return "team"
 		}
 	}
@@ -384,7 +389,8 @@ func (s *server) managerRecipients(t store.Ticket, includeAdmins bool) []notify.
 	for _, r := range rs {
 		// When a staff kind is also emitted, an instance administrator
 		// already receives that and does not need the team copy too.
-		if !includeAdmins && (r.Role == "owner" || r.Role == "admin") {
+		isAdmin := r.Role == "owner" || r.Role == "admin"
+		if !includeAdmins && isAdmin {
 			continue
 		}
 		out = append(out, notify.Recipient{UserID: r.ID, Email: r.Email, Name: r.Name, Role: r.Role,
@@ -398,7 +404,8 @@ func (s *server) openerRecipient(t store.Ticket) []notify.Recipient {
 		return nil
 	}
 	u, ok, err := s.st.UserByID(t.UserID)
-	if err != nil || !ok || u.DisabledAt != 0 {
+	active := err == nil && ok
+	if !active || u.DisabledAt != 0 {
 		return nil
 	}
 	return []notify.Recipient{{UserID: u.ID, Email: u.Email, Name: u.Name, Role: u.Role}}

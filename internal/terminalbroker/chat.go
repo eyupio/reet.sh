@@ -320,11 +320,20 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 		}
 	}
 	l.seq++
-	l.events = append(l.events, ChatEvent{Seq: l.seq, ACPEvent: event})
+	published := ChatEvent{Seq: l.seq, ACPEvent: event}
+	l.events = append(l.events, published)
 	l.bytes += len(data)
 	for len(l.events) > maxChatEvents || l.bytes > maxChatBytes {
-		l.bytes -= len(mustJSON(l.events[0].ACPEvent))
-		l.events = l.events[1:]
+		drop := l.oldestHistoryEvent()
+		l.bytes -= len(mustJSON(l.events[drop].ACPEvent))
+		if drop == 0 {
+			l.events[0] = ChatEvent{}
+			l.events = l.events[1:]
+		} else {
+			copy(l.events[drop:], l.events[drop+1:])
+			l.events[len(l.events)-1] = ChatEvent{}
+			l.events = l.events[:len(l.events)-1]
+		}
 		l.truncated = true
 	}
 	if l.st != nil {
@@ -332,7 +341,7 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 	}
 	for id, ch := range l.subs {
 		select {
-		case ch <- l.events[len(l.events)-1]:
+		case ch <- published:
 		default:
 			// A subscriber that cannot keep up reconnects and gets a reset,
 			// rather than silently missing events.
@@ -340,6 +349,37 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 			close(ch)
 		}
 	}
+}
+
+// Keep actionable cards and the latest status ahead of old output, as the
+// connector's detached queue does. The hard ceilings still apply if pending
+// state alone fills the ring; in that case the oldest record is evicted.
+// The caller holds l.mu.
+func (l *chatLog) oldestHistoryEvent() int {
+	latestStatus := -1
+	for i := len(l.events) - 1; i >= 0; i-- {
+		if l.events[i].Kind == "status" {
+			latestStatus = i
+			break
+		}
+	}
+	for i, event := range l.events {
+		if i == latestStatus && (event.State != "waiting" || len(l.pending) > 0) {
+			continue
+		}
+		if event.Kind == "permission" {
+			if _, waiting := l.pending[event.PermissionID]; waiting {
+				continue
+			}
+		}
+		if event.Kind == "question" {
+			if _, waiting := l.pending["q:"+event.QuestionID]; waiting {
+				continue
+			}
+		}
+		return i
+	}
+	return 0
 }
 
 // ApplyChatAttention overlays live structured-chat attention state onto a

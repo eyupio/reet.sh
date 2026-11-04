@@ -382,6 +382,8 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
 
 - **OpenCode keeps the conversation.** The record holds only which `ses_…` belongs to which reet session, its folder,
   model, approval mode and folder trust. The conversation itself is read from OpenCode's own store.
+  A live model switch updates that record from the agent's confirmed model, even when it applies a different model than
+  requested. An unconfirmed switch clears the recorded model so a restart cannot force an old choice back onto the chat.
 - **Only chats that were live are reopened.** Ending a chat, archiving it, or switching it to the OpenCode TUI removes its
   record. A record left by a crash is retried on the next start.
 - **The replay is not shown twice.** The controller already holds the transcript (live, or restored from its own store),
@@ -399,7 +401,9 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
 ## Limits
 
 - **History is kept, bounded.** The controller keeps at most 1,000 events / 256 KiB per reet session in its SQLite database,
-  and the live ring uses the same bounds. A controller restart or a reboot restores that transcript with the session; archiving
+  and the live ring uses the same bounds. The live ring evicts ordinary output before waiting approvals, questions and the
+  latest status, so a browser reconnect can still show a pending card after a long stream. If pending state alone fills
+  the ring, the hard limits still apply. A controller restart or a reboot restores the stored transcript with the session; archiving
   a session drops it. A lost or crashed Gaffer session reconnects in place from OpenCode's own store, and a closed one can be
   reopened as a new session with Continue in Gaffer with history…
 - **The browser's log is bounded too.** Gaffer keeps at most 400 items / 256 KiB of the conversation, drops the

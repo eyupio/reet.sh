@@ -146,6 +146,9 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	}
 	args := append([]string(nil), spec.Args...)
 	cmd := exec.Command(binary, args...)
+	// A descendant can retain stderr after the leader exits. Bound exec's
+	// copy goroutine so it cannot hide that exit from the supervisor forever.
+	cmd.WaitDelay = time.Second
 	cmd.Dir = opts.Dir
 	cmd.Env = agentEnvironment(spec, opts.Home, opts.BaseEnv, LaunchEnv{Model: opts.Model, Password: password})
 	cmd.SysProcAttr = procAttr()
@@ -167,11 +170,9 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	s := &Session{opts: opts, binary: binary, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr,
 		calls: map[int64]chan rpcResult{}, pending: map[string]*pendingPermission{}, tools: map[string]string{},
 		toolStart: map[string]time.Time{}, done: make(chan struct{})}
+	go s.readLoop()
 	go func() {
-		// Drain stdout before Wait closes its pipe. EOF or a framing error also
-		// makes a live adapter unusable: retire it instead of leaving calls hung.
-		s.readLoop()
-		s.killGroup()
+		// Observe leader exit independently: a child may still hold stdout open.
 		_ = cmd.Wait()
 		s.ended()
 	}()
@@ -435,6 +436,9 @@ func (s *Session) readLoop() {
 		}
 		s.handle(message)
 	}
+	// EOF or a framing error makes a live adapter unusable. The independent
+	// waiter observes its exit and releases requests and cards after retirement.
+	s.killGroup()
 }
 
 func (s *Session) handle(message rpcMessage) {

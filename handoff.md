@@ -33,6 +33,21 @@ continues to restore retained pending cards after a controller restart.
 Regression tests first reproduced stale restart models (confirmed, unknown and different-model replies) and loss of a
 waiting approval/status at both ring limits. Tests also cover explicit refusal, question cancellation and a ring filled
 entirely with pending state. Validation and merge status are recorded in the PR. No wire or dependency changes.
+## GAFFER-RECOVERY-1: retire unusable agent processes (4 November 2026)
+
+Branch `fix/gaffer-process-recovery`. The ACP stdout reader now drains before `cmd.Wait`, and an EOF or oversized frame
+retires the process group before pending calls and cards are closed. A broken output stream can no longer leave a chat
+waiting on a live process until the turn timeout. Provider errors recovered from the local log also mark the turn as
+cancelled for incoming requests and arm the existing forced-stop grace, while keeping the provider error visible.
+
+Regression tests reproduce closed stdout, an oversized frame and a provider failure whose adapter ignores cancel.
+All three failed before the fix and pass under the race detector afterwards. The full ACP race suite passes. The orphan
+cleanup test now checks live process-group retirement, matching production, because a container's PID 1 may retain exited
+zombies; the old test also failed on the unchanged baseline here. Full validation and merge status are
+recorded in the PR. Follow-on review batches cover retained chat state and browser transcript limits.
+
+Recovery still requires the agent's saved conversation. A framing failure ends the process; it does not retry a prompt
+automatically. No wire format, dependency or agent availability changes.
 
 ## AUTH-CARD-1: the account card agrees with the landing page (3 November 2026)
 

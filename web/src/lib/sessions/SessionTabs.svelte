@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { stateWord } from '../home'
+  import { sessionStatus, statusLabel } from '../sessionStatus'
   import { sessionHref, terminalClosed, type TerminalSession } from '../terminal/api'
   import { overflowEdges } from '../terminal/sizing'
 
@@ -46,12 +47,13 @@
   <ul use:edges>
     {#each tabs as s (s.id)}
       {@const word = stateWord(s)}
-      <li class:current={s.id === current}>
+      {@const status = sessionStatus(s)}
+      <li class:current={s.id === current} data-status={status}>
         <a class="tab" href={sessionHref(s)} aria-current={s.id === current ? 'page' : undefined} title={s.title}
           onclick={event => choose(event, s)}
           onmousedown={event => { if (event.button === 1) event.preventDefault() }}
           onauxclick={event => { if (event.button === 1) { event.preventDefault(); void close(s) } }}>
-          <span class="dot {word.tone}" aria-hidden="true"></span><span class="name">{s.title}</span><span class="vh">, {word.word}</span>
+          <span class="dot" aria-hidden="true"></span><span class="name">{s.title}</span><span class="state" aria-hidden="true">{statusLabel(status)}</span><span class="vh">, {word.word}</span>
         </a>
         <button type="button" class="close" aria-label={`Close ${s.title}`} title={terminalClosed(s.state) ? 'Close the tab (the session stays in its history)' : 'Close the tab (the session keeps running)'} onclick={() => void close(s)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" /></svg>
@@ -76,10 +78,14 @@
   .tab { display: flex; align-items: center; gap: 8px; min-width: 0; height: 100%; padding: 0 4px 0 14px; color: inherit; text-decoration: none; white-space: nowrap; font-size: 14px; }
   .name { overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
   .tab:focus-visible, .close:focus-visible, .new:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; border-radius: 7px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
-  .dot.good { background: var(--good); }
-  .dot.warn { background: var(--warn); }
-  .dot.bad { background: var(--bad); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--status); }
+  .state { flex: none; font-size: 11px; font-weight: 600; color: var(--status); white-space: nowrap; }
+  @media (max-width: 1400px) { .state { display: none; } }
+  li[data-status] { border-top: 2px solid var(--status); }
+  li[data-status] .tab { color: var(--status); }
+  li[data-status='working'], li[data-status='waiting'], li[data-status='starting'], li[data-status='failed'] { background: color-mix(in srgb, var(--status) 8%, transparent); }
+  li.current[data-status] { background: var(--bg); }
+  li.current[data-status] .tab { color: var(--ink); }
   .close { flex: none; display: grid; place-items: center; width: 28px; height: 28px; margin-right: 4px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; opacity: 0; }
   li.current .close, li:hover .close, .close:focus-visible { opacity: 1; }
   .close:hover { background: var(--tint); color: var(--ink); }

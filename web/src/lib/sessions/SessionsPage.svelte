@@ -7,6 +7,7 @@
   import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
   import { addedLine } from '../folderBrowser'
   import { attentionCount, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy, type NeedCard } from '../home'
+  import { sessionStatus } from '../sessionStatus'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import { agentChoicesOf, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
   import { folderProjectList, listProjectGroups, machineHealth, markSessionSeen, sessionHref, terminalMachines, terminalSessions, TerminalError,
@@ -276,14 +277,14 @@
               {#each g.sessions as s (s.id)}
                 {@const word = stateWord(s)}
                 {@const colour = colourOf(s)}
-                <li class="session-row" class:coloured={!!colour} style={colour ? `--session-colour:${projectColourHex(colour)}` : undefined}>
+                <li class="session-row" class:coloured={!!colour} data-status={sessionStatus(s)} style={colour ? `--session-colour:${projectColourHex(colour)}` : undefined}>
                   <a class="open" href={sessionHref(s)} oncontextmenu={event => openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) openMenu(event, s) }}>
-                    <span class="dot {word.tone}" aria-hidden="true"></span>
+                    <span class="dot" aria-hidden="true"></span>
                     <span class="main">
                       <span class="line"><span class="title" title={s.title}>{s.title}</span>{#if s.yolo}<span class="badge yolo">YOLO</span>{/if}{#if s.worktreePath}<span class="badge wt">worktree</span>{/if}{#if colour}<span class="badge colour-name"><span class="swatch" aria-hidden="true"></span>{colourName(colour)}</span>{/if}</span>
                       <span class="meta" title={rowMeta(s)}>{rowMeta(s)}</span>
                     </span>
-                    <span class="word {word.tone}" title={word.source}>{word.word}{#if offline.has(s.agentId)}{' '}<span class="lk">· last known</span>{/if}</span>
+                    <span class="word" title={word.source}>{word.word}{#if offline.has(s.agentId)}{' '}<span class="lk">· last known</span>{/if}</span>
                     <span class="age"><span class="vh">changed </span>{shortAge(Math.max(0, now - s.updatedAt))}<span class="vh"> ago</span></span>
                   </a>
                   <button type="button" class="more" aria-label={`Actions for ${s.title}`} aria-haspopup="menu" aria-expanded={openActionsFor === s.id} onclick={event => openMenu(event, s)} oncontextmenu={event => openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) openMenu(event, s) }}>
@@ -416,20 +417,16 @@
   .session-row:hover { background: var(--card-raised); }
   .open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 4px 6px 14px; color: var(--ink); text-decoration: none; }
   .open:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
-  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted); }
-  .dot.good { background: var(--good); }
-  .dot.warn { background: var(--warn); }
-  .dot.bad { background: var(--bad); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--status); }
   .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
   .line { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; }
   .badge { flex: none; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 99px; font-size: 11px; line-height: 17px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }
   .meta { font-size: 12px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .word { flex: none; max-width: 34%; font-size: 13px; font-weight: 500; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .word.good { color: var(--good); }
-  .word.warn { color: var(--warn); }
-  .word.bad { color: var(--bad); }
+  .word { flex: none; max-width: 34%; font-size: 12px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 99px; padding: 1px 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .session-row[data-status='waiting'], .session-row[data-status='working'], .session-row[data-status='starting'], .session-row[data-status='failed'] { background: color-mix(in srgb, var(--status) 5%, transparent); box-shadow: inset 3px 0 var(--status); }
+  .session-row[data-status='waiting'] .title, .session-row[data-status='working'] .title, .session-row[data-status='failed'] .title { color: var(--status); }
   .age { flex: none; min-width: 28px; text-align: right; font-size: 12px; color: var(--muted); }
   .more { flex: none; width: 44px; display: grid; place-items: center; padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
   .more:hover { color: var(--accent-text); background: var(--tint); }

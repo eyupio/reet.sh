@@ -48,3 +48,16 @@ the menu does not duplicate it. The complete chat/recovery browser suites are be
 The full phone CI pass exposed an older Sessions-phone expectation for the previous hidden landscape header. It now checks
 the visible Running/project/machine line, compact controls and their measured terminal-row budget. A first CI attempt
 stalled in the unchanged launch suite; the full launch suite passes locally. Final-head CI remains the merge gate.
+
+## Main integration on the current head
+
+This branch now merges current main, which brought the delivered documentation pages, the public-page crawler test and the
+resizable/collapsible session workspace panel (#495). Only `web/src/lib/sessions/SessionScreen.svelte` and
+`web/src/lib/terminal/TerminalWorkspace.svelte` conflicted. Both keep every feature: the persistent Theatre action, the
+wrapping interface/approval/Terminal here toolbar, the `Session actions` menu without duplicates, the docked panel's
+separator, its saved width and open state and its sheet mode below 1100 px, and `holdSize` staying true while the panel
+is being dragged. The combined preview branch resolved the same overlap the same way, so the three branches agree.
+
+Web unit tests, Svelte check with zero errors and warnings, and the production build pass on the merged tree, as do the
+Sessions phone, session workspace panel and terminal workspace browser suites. Final-head CI on this branch is the merge
+gate; the branch head recorded in the pull request is authoritative.

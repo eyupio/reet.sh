@@ -72,7 +72,6 @@
     Notifications: () => loadPage(() => import('./lib/Notifications.svelte')),
     Support: () => loadPage(() => import('./lib/Support.svelte')),
     Ticket: () => loadPage(() => import('./lib/Ticket.svelte')),
-    Welcome: () => loadPage(() => import('./lib/Welcome.svelte')),
   }
 
   let skills = $state<Skill[]>([])
@@ -948,7 +947,7 @@
     }
   }
   const defaultPageTitle = $derived(
-    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : isWelcome && !currentUser && authMode === 'accounts' ? 'Your whole AI setup, on every machine' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
@@ -960,6 +959,7 @@
   // once on a public route that never depended on it. There is no half-drawn screen behind the fade either way.
   $effect(() => {
     if (authChecked || authIndependent) document.documentElement.dataset.ready = '1'
+    if (authChecked && (!authenticated || needsAuth || isPublicList || isJoin)) document.documentElement.removeAttribute('data-workspace-shell')
   })
 
   // A link to a section (/welcome#self-host) lands before the app has drawn that section, so the browser has nowhere to
@@ -1002,8 +1002,8 @@
     <div>
       <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
     </div>
-    {#if !authenticated && authMode==='accounts' && !isPublicList && !isCommunity && !isJoin}
-      <nav class="site-nav" aria-label="Public navigation">{#if !isWelcome}<a href="/welcome">Workspace</a>{/if}<a href={isWelcome ? '#self-host' : '/welcome#self-host'}>Self-host</a><ThemePicker />{#if !setupRequired}<a class="entry-link" href="/signin">Sign in →</a>{/if}</nav>
+    {#if !isPublicList && !isCommunity && !isJoin}
+      <nav class="site-nav" aria-label="Instance help"><span class="instance-address">{location.host}</span><a href={DOCS_URL} target="_blank" rel="noopener noreferrer">Documentation ↗</a><ThemePicker /></nav>
     {:else if isPublicList || isCommunity || isJoin}
       <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a href={DOCS_URL}>Docs</a><ThemePicker /><a class="entry-link" href="/">Open your workspace →</a></nav>
     {/if}
@@ -1011,7 +1011,7 @@
   </div>
   {/if}
 </header>
-<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout || (!authChecked && bootApp && bootLayout === 'workspace')} class:home-layout={homeLayout || (!authChecked && bootApp && bootLayout === 'home')} class:auth-page={(authChecked || !bootApp) && !isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
+<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout || (!authChecked && bootApp && bootLayout === 'workspace')} class:home-layout={homeLayout || (!authChecked && bootApp && bootLayout === 'home')} class:auth-page={(authChecked || !bootApp) && !isPublicList && !isCommunity && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}
     {#await pages.Community()}
       <RouteSkeleton variant="cards" />
@@ -1046,7 +1046,7 @@
     {/await}
   {:else if !authChecked}
     <BootSkeleton layout={bootApp ? bootLayout : 'content'} />
-  {:else if authMode === 'accounts' && setupRequired && !isWelcome}
+  {:else if authMode === 'accounts' && setupRequired}
     {#await pages.Setup()}
       <RouteSkeleton variant="auth" />
     {:then { default: Page }}
@@ -1055,15 +1055,7 @@
       <PageLoadError />
     {/await}
   {:else if authMode === 'accounts' && !currentUser}
-    {#if isWelcome}
-      {#await pages.Welcome()}
-      <RouteSkeleton variant="welcome" />
-    {:then { default: Page }}
-      <Page {signupEnabled} {contactEmail} {setupRequired} />
-    {:catch}
-      <PageLoadError />
-    {/await}
-    {:else if isSignUp && signupEnabled}
+    {#if isSignUp && signupEnabled}
       {#await pages.SignUp()}
       <RouteSkeleton variant="auth" />
     {:then { default: Page }}
@@ -1119,7 +1111,7 @@
     {#await pages.Home()}
       <RouteSkeleton variant={homeLayout && sessionsAccess ? 'home' : 'cards'} />
     {:then { default: Page }}
-      <Page userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={(count, cards, seen, answered) => { attention = count; needsCards = cards; onMarkSeen = seen; onAnswered = answered }} />
+      <Page userId={currentUser?.id ?? 0} name={currentUser?.name ?? ''} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={(count, cards, seen, answered) => { attention = count; needsCards = cards; onMarkSeen = seen; onAnswered = answered }} />
     {:catch}
       <PageLoadError />
     {/await}
@@ -1509,7 +1501,10 @@
   .skip { position: absolute; left: 8px; top: -48px; background: var(--accent); color: var(--accent-ink); padding: 8px 12px; border-radius: 8px; z-index: 10; }
   .skip:focus { top: 8px; }
   main { width: 100%; max-width: var(--content-width); margin: 0 auto; padding: 36px 40px 56px; flex: 1; }
-  main.auth-page { max-width: 960px; }
+  main.auth-page { max-width: 1150px; padding-top: clamp(32px, 7vh, 90px); }
+  @media (max-width: 760px) { main.auth-page { padding: 24px 20px 36px; } }
+  .instance-address { color: var(--muted); font: 11px var(--mono); margin-right: 16px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+  @media (max-width: 560px) { .instance-address { display: none; } }
   main.home-layout { max-width: none; padding: 0; }
   main:focus { outline: none; }
   .site-header { border-bottom: 1px solid var(--line-soft); }

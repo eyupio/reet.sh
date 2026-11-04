@@ -44,7 +44,7 @@ const (
 )
 
 // The boot shell in index.html holds the page's shape while the bundle loads. Only the variant that matches the route is
-// served, so a landing request never holds an app skeleton and an app request never holds a landing hero.
+// served, so an entry request never holds an app skeleton and an app request never holds a sign-in card.
 var bootZones = [][2]string{
 	{"<!--boot-welcome:start-->", "<!--boot-welcome:end-->"},
 	{"<!--boot-app:start-->", "<!--boot-app:end-->"},
@@ -59,12 +59,12 @@ const (
 
 var bootNames = [...]string{"welcome", "app", "auth"}
 
-// bootVariant picks the shell that matches what the app is about to draw: the landing hero for an anonymous landing
+// bootVariant picks the shell that matches what the app is about to draw: the account-entry card for an anonymous workspace
 // route, a centred card for the entry screens, and the page shell for everything else. A signed-in request to "/" is
 // Home, not the landing page.
 func bootVariant(path string, signedIn bool) int {
 	if !signedIn && (path == "/" || path == "/welcome") {
-		return bootWelcome
+		return bootAuth
 	}
 	switch {
 	case path == "/signin", path == "/signup", path == "/setup", path == "/reset", strings.HasPrefix(path, "/join"):
@@ -221,7 +221,7 @@ func spaRoute(path string) bool {
 // sign-in, or an empty state, and is served with noindex.
 func publicIndexRoute(path string) bool {
 	switch path {
-	case "/", "/welcome", "/community":
+	case "/community":
 		return true
 	}
 	return strings.HasPrefix(path, "/l/")
@@ -266,9 +266,14 @@ func serveIndexStatus(w http.ResponseWriter, r *http.Request, index []byte, path
 	// The chosen shell is on the document before the head script runs, so a cookie-signed-in visitor on "/" gets the app
 	// shell rather than the landing hero the browser alone cannot know to skip.
 	body = bytes.Replace(body, []byte(`<html lang="en">`), []byte(`<html lang="en" data-boot="`+bootNames[variant]+`">`), 1)
-	if status != http.StatusOK || !publicIndexRoute(path) {
+	if status == http.StatusOK && publicIndexRoute(path) && hasPage {
+		body = bytes.ReplaceAll(body, []byte(`<meta name="robots" content="noindex, nofollow" />`), nil)
+	} else {
 		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
-		body = bytes.Replace(body, []byte("<head>"), []byte("<head>\n    <meta name=\"robots\" content=\"noindex, nofollow\" />"), 1)
+		// A private installation is an app, not a copy of the public product website.
+		// Keep sharing metadata only for pages explicitly published by this instance.
+		body = canonicalRE.ReplaceAll(body, nil)
+		body = socialMetaRE.ReplaceAll(body, nil)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -276,6 +281,7 @@ func serveIndexStatus(w http.ResponseWriter, r *http.Request, index []byte, path
 }
 
 var (
+	socialMetaRE    = regexp.MustCompile(`<meta\s+(?:property="og:[^"]+"|name="twitter:[^"]+")[^>]*>`)
 	titleRE         = regexp.MustCompile(`(?s)<title>.*?</title>`)
 	descriptionRE   = regexp.MustCompile(`(?s)<meta\s+name="description"[^>]*>`)
 	canonicalRE     = regexp.MustCompile(`(?s)<link\s+rel="canonical"[^>]*>`)
@@ -446,10 +452,12 @@ func validHost(host string) bool {
 	return true
 }
 
-// robotsPrivate keeps the app, account and private-list screens out of search results. The public pages are /, /welcome,
-// /community, /l/<slug>, hosted skill pages and /docs/. A crawler with its own group below ignores the * group, so the
+// robotsPrivate keeps the app, account and private-list screens out of search results. Only explicitly published
+// /community, /l/<slug> and hosted skill pages are public. A crawler with its own group below ignores the * group, so the
 // same rules are repeated for each named crawler.
-const robotsPrivate = `Disallow: /api/
+const robotsPrivate = `Disallow: /$
+Disallow: /welcome
+Disallow: /api/
 Disallow: /quick
 Disallow: /signin
 Disallow: /signup
@@ -473,8 +481,9 @@ Disallow: /profiles
 Disallow: /setups
 `
 
-const robotsTxt = `# reet.sh — self-hosted control room for AI agents
-# Search engines and AI search crawlers may index the public pages.
+const robotsTxt = `# Reet standalone installation
+# The workspace and entry screens are excluded from indexing.
+# Only content explicitly published by this instance is indexable.
 # Model-training crawlers are not restricted by default; add your own
 # User-agent blocks if this instance should opt out of training.
 
@@ -510,17 +519,17 @@ const llmsTxt = `# reet.sh
 
 ## Start here
 
-- [reet.sh](%[1]s/): product overview and install command
-- [Documentation](%[1]s/docs/): install, connect machines, run agents, sync skills and operate an instance
-- [Install the binary](%[1]s/docs/binary-installation/): the supported install paths
+- [Reet documentation](https://reet.sh/docs/): product documentation and install command
+- [Documentation](https://reet.sh/): install, connect machines, run agents, sync skills and operate an instance
+- [Install the binary](https://reet.sh/binary-installation/): the supported install paths
 - [Public community](%[1]s/community): published lists and their skills
 
 ## Common tasks
 
-- [Connect your shelf to an AI client](%[1]s/docs/mcp/): the hosted MCP server and OAuth consent
-- [Skills and enrolled machines](%[1]s/docs/controller-sync/): reviewed skill distribution
-- [Backups](%[1]s/docs/backups/): encrypted, verified instance and shelf backups
-- [Command reference](%[1]s/docs/cli-reference/): every reet command
+- [Connect your shelf to an AI client](https://reet.sh/mcp/): the hosted MCP server and OAuth consent
+- [Skills and enrolled machines](https://reet.sh/controller-sync/): reviewed skill distribution
+- [Backups](https://reet.sh/backups/): encrypted, verified instance and shelf backups
+- [Command reference](https://reet.sh/cli-reference/): every reet command
 
 ## What it is
 
@@ -552,12 +561,12 @@ reet.sh is a self-hosted control room for the AI agents, skills and reusable set
 
 ## Links
 
-- Product: %[1]s/
-- Documentation: %[1]s/docs/
-- Install: %[1]s/docs/binary-installation/
-- MCP: %[1]s/docs/mcp/
-- Sync: %[1]s/docs/controller-sync/
-- Backups: %[1]s/docs/backups/
+- Product: https://reet.sh/
+- Documentation: https://reet.sh/docs/
+- Install: https://reet.sh/binary-installation/
+- MCP: https://reet.sh/mcp/
+- Sync: https://reet.sh/controller-sync/
+- Backups: https://reet.sh/backups/
 - Public community: %[1]s/community
 - Source and licence: https://github.com/eyupio/reet.sh
 
@@ -568,9 +577,9 @@ Public pages may be indexed. App, account and private-list pages are not intende
 
 const aiTxt = `# reet.sh
 # A self-hosted control room for AI agents, skills and setups across machines.
-# Public pages: %[1]s/ and %[1]s/community
-# Documentation: %[1]s/docs/
-# Install: %[1]s/docs/binary-installation/
+# Public pages: only content explicitly published by this instance, including %[1]s/community
+# Documentation: https://reet.sh/
+# Install: https://reet.sh/binary-installation/
 # Source: https://github.com/eyupio/reet.sh
 `
 
@@ -586,7 +595,7 @@ func sitemapPaths(fn func() []string) []string {
 	paths := make([]string, 0, 32)
 	add := func(p string) {
 		p = strings.TrimSpace(p)
-		if p == "" || p == "/" || !strings.HasPrefix(p, "/") || seen[p] {
+		if p == "" || (p == "/" || (spaRoute(p) && !publicIndexRoute(p))) || !strings.HasPrefix(p, "/") || seen[p] {
 			return
 		}
 		seen[p] = true
@@ -604,7 +613,6 @@ func writeSitemap(w http.ResponseWriter, origin string, extra []string) {
 	base := strings.TrimRight(html.EscapeString(origin), "/")
 	var b strings.Builder
 	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">")
-	b.WriteString("\n  <url>\n    <loc>" + base + "/</loc>\n  </url>")
 	for _, p := range extra {
 		b.WriteString("\n  <url>\n    <loc>" + base + html.EscapeString(p) + "</loc>\n  </url>")
 	}

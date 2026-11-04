@@ -10,7 +10,7 @@ try {
     for (const [path, chunk, shape, signedIn, ready] of [
       ['/machines', 'Machines', 'rows', true, /Your machines, connected/],
       ['/signin', 'AccountSignIn', 'auth', false, /Sign in/],
-      ['/welcome', 'Welcome', 'welcome', false, /One command on any machine/],
+      ['/welcome', 'AccountSignIn', 'auth', false, /Sign in/],
       ['/account', 'Account', 'form', true, /Sam/],
     ]) {
       const { context, page, errors } = await openWorkspace(browser, { width, theme, ...(!signedIn ? { status: { user: null } } : {}) })

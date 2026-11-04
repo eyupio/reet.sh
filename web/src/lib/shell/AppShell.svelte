@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick, type Snippet } from 'svelte'
   import Logo from '../Logo.svelte'
+  import WorkspaceSidebar from './WorkspaceSidebar.svelte'
   import { browserViewport, keyboardChrome, keyboardLikelyOpen, PHONE_SCREEN, ViewportTracker } from '../terminal/sizing'
   import Bell from './Bell.svelte'
   import BottomTabs from './BottomTabs.svelte'
@@ -114,6 +115,11 @@
   // Jump's focus change is.
   $effect(() => { void chromeFocus.launch; void chromeFocus.session; measureKeyboard() })
 
+  $effect(() => {
+    document.documentElement.toggleAttribute('data-workspace-shell', !compact && !phoneLayout)
+    return () => { document.documentElement.removeAttribute('data-workspace-shell') }
+  })
+
   // The page keeps room at its foot for the phone's tab bar (app.css reads this attribute under the phone rule).
   $effect(() => {
     const root = document.documentElement
@@ -128,8 +134,10 @@
 
 <svelte:window onkeydown={shortcut} bind:innerWidth={viewportWidth} />
 
-<div class="shell-bar" class:compact>
+{#if !compact && !phoneLayout}<WorkspaceSidebar {tabs} {moreCurrent} {moreOpen} onmore={openMore} />{/if}
+<div class="shell-bar" class:compact class:workspace={!compact && !phoneLayout}>
   <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
+  {#if !compact && !phoneLayout}<div class="workspace-label"><span>{location.host}</span><span aria-hidden="true">›</span><strong>{tabs.find(tab => tab.current)?.label ?? more.find(tab => tab.current)?.label ?? 'Workspace'}</strong></div>{/if}
   <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
   <span class="grow"></span>
   <JumpSearch load={jump} open={searchOpen} bind:input onclose={closeSearch}
@@ -151,6 +159,15 @@
 {#if moreOpen}<MoreSheet items={sheetItems} opener={moreOpener} onclose={() => (moreOpen = false)} />{/if}
 
 <style>
+  .workspace-label { display: none; }
+  @media (min-width: 1100px) {
+    .shell-bar.workspace { padding-left: 264px; gap: 20px; }
+    .workspace > .home { display: none; }
+    .workspace > :global(.top-tabs) { display: none; }
+    .workspace-label { display: flex; align-items: center; gap: 13px; font-size: 12px; color: var(--muted); min-width: 0; }
+    .workspace-label strong { color: var(--ink); font-weight: 500; white-space: nowrap; }
+    .workspace-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+  }
   .shell-bar { position: relative; display: flex; align-items: center; gap: 28px; height: 60px; line-height: 1.3; padding: 0 24px; }
   .shell-bar > :global(.top-tabs) { margin-left: 0; }
   .home { display: flex; align-items: center; flex: none; color: inherit; text-decoration: none; }

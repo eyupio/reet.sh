@@ -53,7 +53,7 @@ func TestRobotsTxtIsNotTheSPA(t *testing.T) {
 			t.Errorf("robots.txt missing %s", bot)
 		}
 		// A named crawler ignores the * group, so the private rules must be repeated in its own group.
-		if !strings.Contains(body, "User-agent: "+bot+"\nAllow: /\nDisallow: /api/") {
+		if !strings.Contains(body, "User-agent: "+bot+"\nAllow: /\nDisallow: /$\nDisallow: /welcome\nDisallow: /api/") {
 			t.Errorf("robots.txt gives %s no private-path rules", bot)
 		}
 	}
@@ -81,8 +81,8 @@ func TestCrawlerTextFilesArePlainText(t *testing.T) {
 		if !strings.Contains(body, "reet.sh") {
 			t.Fatalf("%s does not name the product", path)
 		}
-		if path != "/ai.txt" && (!strings.Contains(body, "https://reet.sh/docs/") || !strings.Contains(body, "https://reet.sh/docs/binary-installation/")) {
-			t.Fatalf("%s does not link the served documentation", path)
+		if path != "/ai.txt" && (!strings.Contains(body, "https://reet.sh/docs/") || !strings.Contains(body, "https://reet.sh/binary-installation/")) {
+			t.Fatalf("%s does not link the central documentation", path)
 		}
 	}
 	missing := get(t, h, "/missing.txt")
@@ -108,27 +108,31 @@ func TestUnknownRouteIsAReal404(t *testing.T) {
 // The app screens are not search results. Public pages must stay indexable.
 func TestPrivateRoutesAreNoindexAndPublicRoutesAreNot(t *testing.T) {
 	requireBuilt(t)
-	h := Handler("https://reet.sh")
-	private := []string{"/signin", "/signup", "/setup", "/reset", "/join?token=t", "/admin/overview", "/account", "/lists/1", "/sessions", "/machines", "/skills", "/activity", "/sync", "/hosting", "/notifications", "/support", "/shared", "/spaces", "/profiles", "/setups"}
+	h := Handler("https://reet.example", WithPublicPage(func(path string) (PublicPage, bool) {
+		if path == "/community" || path == "/l/example" {
+			return PublicPage{Path: path, Title: "Published content", HTML: "<main>Published content</main>"}, true
+		}
+		return PublicPage{}, false
+	}))
+	private := []string{"/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join?token=t", "/admin/overview", "/account", "/lists/1", "/sessions", "/machines", "/skills", "/activity", "/sync", "/hosting", "/notifications", "/support", "/shared", "/spaces", "/profiles", "/setups"}
 	for _, path := range private {
 		rec := get(t, h, path)
 		if rec.Code != http.StatusOK {
 			t.Errorf("%s: status = %d", path, rec.Code)
 		}
-		if !strings.Contains(rec.Header().Get("X-Robots-Tag"), "noindex") {
-			t.Errorf("%s: missing X-Robots-Tag noindex", path)
+		if !strings.Contains(rec.Header().Get("X-Robots-Tag"), "noindex") || !strings.Contains(rec.Body.String(), `name="robots" content="noindex`) {
+			t.Errorf("%s: missing noindex header or meta tag", path)
 		}
-		if !strings.Contains(rec.Body.String(), `name="robots" content="noindex`) {
-			t.Errorf("%s: missing meta robots noindex", path)
+		for _, publicTag := range []string{`rel="canonical"`, `property="og:`, `name="twitter:`, "SoftwareApplication"} {
+			if strings.Contains(rec.Body.String(), publicTag) {
+				t.Errorf("%s: private app carries public product metadata %s", path, publicTag)
+			}
 		}
 	}
-	for _, path := range []string{"/", "/welcome", "/community", "/l/example"} {
+	for _, path := range []string{"/community", "/l/example"} {
 		rec := get(t, h, path)
-		if rec.Code != http.StatusOK {
-			t.Errorf("%s: status = %d", path, rec.Code)
-		}
-		if strings.Contains(rec.Header().Get("X-Robots-Tag"), "noindex") || strings.Contains(rec.Body.String(), `name="robots" content="noindex`) {
-			t.Errorf("%s: public page is marked noindex", path)
+		if rec.Code != http.StatusOK || strings.Contains(rec.Header().Get("X-Robots-Tag"), "noindex") || strings.Contains(rec.Body.String(), `name="robots" content="noindex`) {
+			t.Errorf("%s: explicitly published content should be indexable", path)
 		}
 	}
 }
@@ -162,26 +166,19 @@ type sitemap struct {
 }
 
 func TestSitemapIsValidXML(t *testing.T) {
-	rec := get(t, Handler("https://reet.sh"), "/sitemap.xml")
+	rec := get(t, Handler("https://reet.example"), "/sitemap.xml")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
-	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/xml") {
-		t.Fatalf("content-type = %q, want application/xml", ct)
+	if !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/xml") {
+		t.Fatal("sitemap must be XML")
 	}
 	var doc sitemap
 	if err := xml.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
-		t.Fatalf("invalid sitemap XML: %v", err)
+		t.Fatal(err)
 	}
-	if len(doc.URLs) < 1 || doc.URLs[0].Loc != "https://reet.sh/" {
-		t.Fatalf("unexpected sitemap urls: %+v", doc.URLs)
-	}
-	got := map[string]bool{}
-	for _, u := range doc.URLs {
-		got[u.Loc] = true
-	}
-	if len(got) < 1 || !got["https://reet.sh/"] {
-		t.Errorf("sitemap missing the home page: %v", got)
+	if len(doc.URLs) != 0 {
+		t.Fatalf("an instance with no published content must not advertise private app URLs: %+v", doc.URLs)
 	}
 }
 
@@ -196,50 +193,42 @@ func TestCrawlerFilesDeriveOriginFromRequest(t *testing.T) {
 	}
 }
 
-func TestIndexHasCrawlableFallback(t *testing.T) {
+func TestIndexHasPrivateWorkspaceFallback(t *testing.T) {
 	requireBuilt(t)
-	rec := get(t, Handler("https://reet.sh"), "/")
+	rec := get(t, Handler("https://reet.example"), "/")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
 	body := rec.Body.String()
 	if strings.Contains(body, originToken) {
-		t.Fatal("origin token was not substituted")
+		t.Fatal("origin token not substituted")
 	}
-	if !strings.Contains(body, `rel="canonical" href="https://reet.sh/"`) {
-		t.Error("missing canonical")
+	if !strings.Contains(body, "Your workspace.") || !strings.Contains(body, "JavaScript is needed") {
+		t.Error("missing usable entry fallback")
 	}
-	if !strings.Contains(body, `"@type": "SoftwareApplication"`) {
-		t.Error("missing SoftwareApplication JSON-LD")
-	}
-	if !strings.Contains(body, "control room for your AI agents") {
-		t.Error("missing crawlable landing copy")
-	}
-	if strings.Contains(body, "<!--seo-fallback:start-->") {
-		t.Error("fallback markers should be removed from the served page")
+	for _, old := range []string{"SoftwareApplication", "One command on any machine", "<!--seo-fallback:start-->"} {
+		if strings.Contains(body, old) {
+			t.Errorf("private entry contains %s", old)
+		}
 	}
 }
 
-func TestWelcomeKeepsFallbackAndAppRoutesDoNot(t *testing.T) {
+func TestWelcomeKeepsWorkspaceFallbackAndAppRoutesDoNot(t *testing.T) {
 	requireBuilt(t)
-	h := Handler("https://reet.sh")
-	if body := get(t, h, "/welcome").Body.String(); !strings.Contains(body, "control room for your AI agents") {
-		t.Error("/welcome should keep the crawlable landing copy")
+	h := Handler("https://reet.example")
+	if !strings.Contains(get(t, h, "/welcome").Body.String(), "Your workspace.") {
+		t.Error("legacy entry should explain this workspace")
 	}
-	if body := get(t, h, "/signin").Body.String(); strings.Contains(body, "control room for your AI agents") {
-		t.Error("/signin should not serve the marketing fallback")
+	if strings.Contains(get(t, h, "/signin").Body.String(), `class="crawl-fallback"`) {
+		t.Error("sign-in should use its own form")
 	}
 }
 
 func TestSignedInLandingRequestHidesFallback(t *testing.T) {
 	requireBuilt(t)
-	signedIn := Handler("https://reet.sh", WithSignedIn(func(*http.Request) bool { return true }))
-	if body := get(t, signedIn, "/").Body.String(); strings.Contains(body, "control room for your AI agents") {
-		t.Error("a signed-in landing request should not serve the marketing fallback")
-	}
-	anonymous := Handler("https://reet.sh", WithSignedIn(func(*http.Request) bool { return false }))
-	if body := get(t, anonymous, "/").Body.String(); !strings.Contains(body, "control room for your AI agents") {
-		t.Error("an anonymous landing request should keep the crawlable landing copy")
+	h := Handler("https://reet.example", WithSignedIn(func(*http.Request) bool { return true }))
+	if strings.Contains(get(t, h, "/").Body.String(), `class="crawl-fallback"`) {
+		t.Error("signed-in Home should skip the entry fallback")
 	}
 }
 
@@ -255,8 +244,8 @@ func TestBootShellMatchesTheRoute(t *testing.T) {
 		path string
 		want string
 	}{
-		{"anonymous landing", anonymous, "/", `data-boot="welcome"`},
-		{"welcome", anonymous, "/welcome", `data-boot="welcome"`},
+		{"anonymous workspace", anonymous, "/", `data-boot="auth"`},
+		{"legacy entry", anonymous, "/welcome", `data-boot="auth"`},
 		{"sign in", anonymous, "/signin", `data-boot="auth"`},
 		{"sign up", anonymous, "/signup", `data-boot="auth"`},
 		{"join", anonymous, "/join?token=t", `data-boot="auth"`},
@@ -540,7 +529,7 @@ func TestSitemapIncludesSuppliedPublicPaths(t *testing.T) {
 	for _, u := range doc.URLs {
 		got = append(got, u.Loc)
 	}
-	want := []string{"https://reet.sh/", "https://reet.sh/community", "https://reet.sh/l/demo"}
+	want := []string{"https://reet.sh/community", "https://reet.sh/l/demo"}
 	have := map[string]bool{}
 	for _, loc := range got {
 		have[loc] = true

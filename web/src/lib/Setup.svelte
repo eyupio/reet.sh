@@ -56,7 +56,7 @@
   }
 </script>
 
-<AuthCard eyebrow="Ey up. Start here." title="Create your account" lede="You're setting up this reet.sh instance and will be its owner. Enrol your first machine, enable terminal access with local consent, and open your workspace. Everything stays on this server: no telemetry, one SQLite file.">
+<AuthCard eyebrow="Ey up. Start here." title="Create your account" lede="Create the owner account for this Reet installation.">
   <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? "setup-error" : undefined}>
     <label for="setup-name">Your name</label>
     <input id="setup-name" bind:this={nameInput} bind:value={name} autocomplete="name" placeholder="Sam" />
@@ -74,6 +74,7 @@
     {#if error}<p class="error" id="setup-error" role="alert">{error}</p>{/if}
     <button type="submit" class="btn primary submit" disabled={busy} aria-busy={busy}>{busy ? 'Creating…' : 'Create account'}</button>
   </form>
+  <p class="setup-next">Enrol your first machine, enable terminal access with local consent, and open your workspace. Everything stays on this server: no telemetry, one SQLite file.</p>
 </AuthCard>
 
 <style>
@@ -84,4 +85,5 @@
   .error { margin: 0; color: var(--bad); font-size: 0.9rem; }
   .hint { margin: 0; color: var(--muted); font-size: 0.82rem; }
   .hint code { font-size: 0.85em; color: var(--ink); overflow-wrap: anywhere; }
+  .setup-next { margin: 20px 0 0; padding-top: 17px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.8; }
 </style>

@@ -1,0 +1,29 @@
+/* The workspace keeps the existing feature components and responsive terminal geometry. */
+:root {
+  --workspace-rail: var(--bg-sunk);
+}
+@media (min-width: 1100px) {
+  html[data-workspace-shell] #main-content { margin-left: 228px; margin-right: 0; width: calc(100% - 228px); max-width: none; }
+  html[data-workspace-shell] #main-content ~ footer { margin-left: 228px; width: calc(100% - 228px); }
+}
+.session-board .heading h2 { font-size: clamp(25px, 2.1vw, 33px); letter-spacing: -.035em; }
+.session-board .session-card { border-radius: 8px; background: var(--card); box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 2%, transparent); }
+.session-board .stage { background: transparent; }
+.session-board .idea-badge { border-radius: 4px; background: color-mix(in srgb, var(--info) 11%, var(--card)); color: var(--info); border-color: color-mix(in srgb, var(--info) 25%, var(--line)); }
+.session-board .session-card h4 { font-size: 15px; line-height: 1.45; }
+.session-board .viewbar { margin-bottom: 4px; }
+.session-board .views { padding: 4px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg-sunk); }
+.session-board .views button { border-radius: 4px; }
+.session-board .views button.selected { background: var(--card); }
+.session-board .view-count { border-radius: 3px; }
+.session-board .stage-head h3 { font-weight: 600; }
+@media (max-width: 650px) {
+  .session-board .heading h2 { font-size: 27px; }
+}
+
+.session-board .card-foot { flex-wrap: wrap; row-gap: 10px; }
+.session-board .card-actions { flex-wrap: wrap; }
+.session-board .stage { container-type: inline-size; }
+.session-board .cards { grid-template-columns: minmax(0, 1fr); }
+.session-board .board.focused .cards { grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); }
+@container (max-width: 240px) { .session-board .card-foot > .age { flex-basis: 100%; } }

@@ -6,13 +6,13 @@
 @font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 /* Dark is the designed palette and the default; light is derived from reet's earlier light tokens. Both are in theme.ts, which theme.test.mjs checks against this file and WCAG AA. */
 :root {
-  --bg: #1a1612; --card: #29221d; --card-raised: #2e2621; --line-soft: #2f2822; --line: #3a322b; --line-strong: #51463c;
-  --ink: #f1ebe4; --muted: #a39a90; --accent: #c2410c; --accent-text: #ff8d63; --accent-ink: #ffffff; --tint: #3a2615; --accent-wash: #2b1a11; --shadow-dock: 0 -8px 30px rgb(0 0 0 / 0.25); --heart: #ff7a9c;
+  --bg: #1d201c; --card: #262a24; --card-raised: #2a2e26; --line-soft: #333a2f; --line: #3b4237; --line-strong: #535f4b;
+  --ink: #efeee5; --muted: #adb5a6; --accent: #b84216; --accent-text: #ed976e; --accent-ink: #ffffff; --tint: #3e2d24; --accent-wash: #34271f; --shadow-dock: 0 -8px 30px rgb(0 0 0 / 0.25); --heart: #ff7a9c;
   --good: #7fc79a; --warn: #e9b44c; --info: #7fb3d9; --repo: #5fc2a8; --bad: #f87171;
   /* Session states, after the long-standing CI status convention: working green, waiting amber, starting orange,
      finished blue, failed red, ended/quiet slate. Kept apart from the warm identity accents above. */
-  --status-working: #22c55e; --status-waiting: #fbbf24; --status-starting: #f59e0b; --status-finished: #38bdf8; --status-failed: #f26969; --status-ended: #a39a90; --status-quiet: #a39a90;
-  --bg-sunk: #120f0d; --dock-bg: #120f0d; --faint: #968d84; --ink-soft: #cfc6bc; --repo-line: #2a5f52; --line-deep: #5a5047; --line-mid: #3d342d; --scrim: rgb(0 0 0 / 0.62);
+  --status-working: #22c55e; --status-waiting: #fbbf24; --status-starting: #f59e0b; --status-finished: #38bdf8; --status-failed: #f26969; --status-ended: #adb5a6; --status-quiet: #adb5a6;
+  --bg-sunk: #191c18; --dock-bg: #191c18; --faint: #9aa492; --ink-soft: #d4d9cc; --repo-line: #2a5f52; --line-deep: #849175; --line-mid: #424c3b; --scrim: rgb(0 0 0 / 0.62);
   --serif: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
   --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
@@ -25,30 +25,30 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
     color-scheme: light;
-    --bg: #f7f6f2; --card: #fffdf9; --card-raised: #fffdf9; --line-soft: #e8e4db; --line: #dedbd2; --line-strong: #c9c3b6;
-    --ink: #1d1c1a; --muted: #5f5c54; --accent: #c2410c; --accent-text: #c2410c; --accent-ink: #ffffff; --tint: #feefe3; --accent-wash: #feefe3; --shadow-dock: 0 -8px 30px rgb(29 28 26 / 0.08); --heart: #be1f4a;
+    --bg: #f6f5f0; --card: #fffefb; --card-raised: #fffefb; --line-soft: #e6e7de; --line: #dddfd5; --line-strong: #c9cdbf;
+    --ink: #292b25; --muted: #60675a; --accent: #b84216; --accent-text: #b84216; --accent-ink: #ffffff; --tint: #f5e8dd; --accent-wash: #f5e8dd; --shadow-dock: 0 -8px 30px rgb(29 28 26 / 0.08); --heart: #be1f4a;
     --good: #15703b; --warn: #92400e; --info: #1d5f8a; --repo: #0f766e; --bad: #b91c1c;
     --status-working: #15803d; --status-waiting: #a16207; --status-starting: #b45309; --status-finished: #0369a1; --status-failed: #b91c1c; --status-ended: #52525b; --status-quiet: #52525b;
-    --bg-sunk: #f0eee8; --dock-bg: #f7f6f2; --faint: #6f6b62; --ink-soft: #3d3a35; --repo-line: #8fc7ba; --line-deep: #8f8679; --line-mid: #d4cfc4; --scrim: rgb(20 18 15 / 0.45);
+    --bg-sunk: #eeede6; --dock-bg: #f6f5f0; --faint: #656c5e; --ink-soft: #3a4233; --repo-line: #8fc7ba; --line-deep: #7c866f; --line-mid: #d2d8c8; --scrim: rgb(20 18 15 / 0.45);
   }
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --bg: #1a1612; --card: #29221d; --card-raised: #2e2621; --line-soft: #2f2822; --line: #3a322b; --line-strong: #51463c;
-  --ink: #f1ebe4; --muted: #a39a90; --accent: #c2410c; --accent-text: #ff8d63; --accent-ink: #ffffff; --tint: #3a2615; --accent-wash: #2b1a11; --shadow-dock: 0 -8px 30px rgb(0 0 0 / 0.25); --heart: #ff7a9c;
+  --bg: #1d201c; --card: #262a24; --card-raised: #2a2e26; --line-soft: #333a2f; --line: #3b4237; --line-strong: #535f4b;
+  --ink: #efeee5; --muted: #adb5a6; --accent: #b84216; --accent-text: #ed976e; --accent-ink: #ffffff; --tint: #3e2d24; --accent-wash: #34271f; --shadow-dock: 0 -8px 30px rgb(0 0 0 / 0.25); --heart: #ff7a9c;
   --good: #7fc79a; --warn: #e9b44c; --info: #7fb3d9; --repo: #5fc2a8; --bad: #f87171;
   /* Session states, after the long-standing CI status convention: working green, waiting amber, starting orange,
      finished blue, failed red, ended/quiet slate. Kept apart from the warm identity accents above. */
-  --status-working: #22c55e; --status-waiting: #fbbf24; --status-starting: #f59e0b; --status-finished: #38bdf8; --status-failed: #f26969; --status-ended: #a39a90; --status-quiet: #a39a90;
-  --bg-sunk: #120f0d; --dock-bg: #120f0d; --faint: #968d84; --ink-soft: #cfc6bc; --repo-line: #2a5f52; --line-deep: #5a5047; --line-mid: #3d342d; --scrim: rgb(0 0 0 / 0.62);
+  --status-working: #22c55e; --status-waiting: #fbbf24; --status-starting: #f59e0b; --status-finished: #38bdf8; --status-failed: #f26969; --status-ended: #adb5a6; --status-quiet: #adb5a6;
+  --bg-sunk: #191c18; --dock-bg: #191c18; --faint: #9aa492; --ink-soft: #d4d9cc; --repo-line: #2a5f52; --line-deep: #849175; --line-mid: #424c3b; --scrim: rgb(0 0 0 / 0.62);
 }
 :root[data-theme='light'] {
   color-scheme: light;
-  --bg: #f7f6f2; --card: #fffdf9; --card-raised: #fffdf9; --line-soft: #e8e4db; --line: #dedbd2; --line-strong: #c9c3b6;
-  --ink: #1d1c1a; --muted: #5f5c54; --accent: #c2410c; --accent-text: #c2410c; --accent-ink: #ffffff; --tint: #feefe3; --accent-wash: #feefe3; --shadow-dock: 0 -8px 30px rgb(29 28 26 / 0.08); --heart: #be1f4a;
+  --bg: #f6f5f0; --card: #fffefb; --card-raised: #fffefb; --line-soft: #e6e7de; --line: #dddfd5; --line-strong: #c9cdbf;
+  --ink: #292b25; --muted: #60675a; --accent: #b84216; --accent-text: #b84216; --accent-ink: #ffffff; --tint: #f5e8dd; --accent-wash: #f5e8dd; --shadow-dock: 0 -8px 30px rgb(29 28 26 / 0.08); --heart: #be1f4a;
   --good: #15703b; --warn: #92400e; --info: #1d5f8a; --repo: #0f766e; --bad: #b91c1c;
   --status-working: #15803d; --status-waiting: #a16207; --status-starting: #b45309; --status-finished: #0369a1; --status-failed: #b91c1c; --status-ended: #52525b; --status-quiet: #52525b;
-  --bg-sunk: #f0eee8; --dock-bg: #f7f6f2; --faint: #6f6b62; --ink-soft: #3d3a35; --repo-line: #8fc7ba; --line-deep: #8f8679; --line-mid: #d4cfc4; --scrim: rgb(20 18 15 / 0.45);
+  --bg-sunk: #eeede6; --dock-bg: #f6f5f0; --faint: #656c5e; --ink-soft: #3a4233; --repo-line: #8fc7ba; --line-deep: #7c866f; --line-mid: #d2d8c8; --scrim: rgb(20 18 15 / 0.45);
 }
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(--sans); min-width: 320px; }

@@ -1,5 +1,6 @@
 import { mount } from 'svelte'
 import './app.css'
+import './workspace.css'
 import './dialog-shell.css'
 import App from './App.svelte'
 import { installCombobox } from './lib/combobox'

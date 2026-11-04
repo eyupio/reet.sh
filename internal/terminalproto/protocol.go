@@ -151,8 +151,9 @@ type Capabilities struct {
 	// ACPAgents is present only after acp-agents-v1 negotiation.
 	ACPAgents *[]ACPAgent `json:"acpAgents,omitempty"`
 	// ACPHistory is sent only when acp-history-v1 was negotiated as well.
-	ACPHistory bool `json:"acpHistory,omitempty"`
-	ACPModel   bool `json:"acpModel,omitempty"`
+	ACPHistory      bool `json:"acpHistory,omitempty"`
+	ACPModel        bool `json:"acpModel,omitempty"`
+	ACPLiveControls bool `json:"acpLiveControls,omitempty"`
 	// ACPAgentMode is set on a connection that negotiated acp-agent-mode-v1.
 	ACPAgentMode bool `json:"acpAgentMode,omitempty"`
 	// ACPAgentOptions is set on a connection that negotiated
@@ -195,6 +196,9 @@ type Capabilities struct {
 
 func (c Capabilities) Validate() error {
 	var features []string
+	if c.ACPLiveControls {
+		features = append(features, ACPLiveControlsFeature)
+	}
 	if c.AgentsV2 {
 		features = append(features, AgentsFeature)
 	}
@@ -206,6 +210,9 @@ func (c Capabilities) Validate() error {
 
 // ValidateFor validates capabilities against the features negotiated by the peer.
 func (c Capabilities) ValidateFor(features string) error {
+	if c.ACPLiveControls && !SupportsACPLiveControls(features) {
+		return ErrInvalid
+	}
 	if c.ACPAgents != nil && !SupportsACPAgents(features) || !c.validACPAgents() {
 		return ErrInvalid
 	}
@@ -233,7 +240,7 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.Models && !c.TerminalControl || c.ModelsOff && (c.Models || !c.TerminalControl) {
 		return ErrInvalid
 	}
-	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ACPImages && !c.ACP || c.ACPApproval && !c.ACP || c.ACPQuestions && !c.ACP || c.ACPModel && !c.ACP || c.ACPAgentMode && !c.ACP || c.ACPAgentOptions && !c.ACP || c.Inspect && !c.TerminalControl || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
+	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ACPImages && !c.ACP || c.ACPApproval && !c.ACP || c.ACPQuestions && !c.ACP || c.ACPModel && !c.ACP || c.ACPLiveControls && !c.ACP || c.ACPAgentMode && !c.ACP || c.ACPAgentOptions && !c.ACP || c.Inspect && !c.TerminalControl || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
 		return ErrInvalid
 	}
 	// A switch launches the tool in a terminal (launch-v1, which needs
@@ -593,7 +600,7 @@ func (m Message) Validate() error {
 		return ErrInvalid
 	}
 	kind := m.Body.kind()
-	session := kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed" || kind == "upload" || kind == "acp_prompt" || kind == "acp_cancel" || kind == "acp_permission" || kind == "acp_question_answer" || kind == "acp_mode" || kind == "acp_agent_mode" || kind == "session_mode" || kind == "chat_reattach" || kind == "acp_model" || kind == "acp_event"
+	session := kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed" || kind == "upload" || kind == "acp_prompt" || kind == "acp_cancel" || kind == "acp_permission" || kind == "acp_question_answer" || kind == "acp_mode" || kind == "acp_agent_mode" || kind == "session_mode" || kind == "chat_reattach" || kind == "acp_model" || kind == "acp_event" || kind == "acp_control" || kind == "acp_control_result"
 	attachment := kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "history" || kind == "command_history" || kind == "upload" || kind == "result" && m.AttachmentID != ""
 	if session && !ValidID(m.SessionID) || !session && m.SessionID != "" && (kind != "result" || !ValidID(m.SessionID)) {
 		return ErrInvalid
@@ -704,6 +711,10 @@ func Decode(data []byte) (Message, error) {
 		b = &LaunchProgress{}
 	case "acp_prompt":
 		b = &ACPPrompt{}
+	case "acp_control":
+		b = &ACPControl{}
+	case "acp_control_result":
+		b = &ACPControlResult{}
 	case "acp_model":
 		b = &ACPModel{}
 	case "acp_cancel":

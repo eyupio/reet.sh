@@ -427,6 +427,7 @@ type ChatReattach struct {
 	Tool         string `json:"tool"`
 	Dir          string `json:"dir"`
 	Model        string `json:"model,omitempty"`
+	Effort       string `json:"effort,omitempty"`
 	Yolo         bool   `json:"yolo,omitempty"`
 	ACPSessionID string `json:"acpSessionId"`
 	Title        string `json:"title,omitempty"`
@@ -435,7 +436,7 @@ type ChatReattach struct {
 
 func (ChatReattach) kind() string { return "chat_reattach" }
 func (m ChatReattach) valid() bool {
-	return ValidACPSessionIDFor(m.Tool, m.ACPSessionID) && ValidDir(m.Dir) &&
+	return (m.Effort == "" || ValidModel(m.Effort)) && ValidACPSessionIDFor(m.Tool, m.ACPSessionID) && ValidDir(m.Dir) &&
 		(m.Model == "" || ValidModel(m.Model)) && (m.Title == "" || ValidTitle(m.Title))
 }
 

@@ -150,7 +150,7 @@ func TestSupervisorResumesPersistedChat(t *testing.T) {
 	const id = "session-0123456789"
 	const acpID = "ses_resume000000000000000000001"
 	writeChatRegistry(t, layoutDir, chatRecord{
-		ID: id, Title: "Recovered", Tool: "opencode", Dir: work, Model: "test/model",
+		ID: id, Title: "Recovered", Tool: "opencode", Dir: work, Model: "test/model", Effort: "high",
 		Trust: true, ACPSID: acpID, UpdatedAt: time.Now().UnixMilli(),
 	})
 
@@ -177,6 +177,9 @@ func TestSupervisorResumesPersistedChat(t *testing.T) {
 	}
 	if opts.Resume != acpID {
 		t.Fatalf("resume id %q", opts.Resume)
+	}
+	if opts.Effort != "high" {
+		t.Fatalf("saved effort lost: %q", opts.Effort)
 	}
 	if opts.Dir != work {
 		t.Fatalf("resume dir %q", opts.Dir)

@@ -17,6 +17,7 @@ type Options struct {
 	Dir    string
 	Home   string
 	Model  string
+	Effort string
 	Trust  bool
 	// Questions lets the session accept typed agent questions (elicitation/create).
 	// It is off in every launch today: the form capability is not advertised to

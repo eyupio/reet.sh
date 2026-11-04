@@ -29,6 +29,7 @@ type chatRecord struct {
 	Tool      string `json:"tool"`
 	Dir       string `json:"dir"`
 	Model     string `json:"model"`
+	Effort    string `json:"effort,omitempty"`
 	Yolo      bool   `json:"yolo,omitempty"`
 	Trust     bool   `json:"trust,omitempty"`
 	ACPSID    string `json:"acpSessionId"`
@@ -84,6 +85,8 @@ func (r *chatRegistry) load() {
 func (r *chatRegistry) valid(rec chatRecord) bool {
 	return terminalproto.ValidID(rec.ID) &&
 		terminalproto.ValidTitle(rec.Title) &&
+		(rec.Model == "" || terminalproto.ValidModel(rec.Model)) &&
+		(rec.Effort == "" || terminalproto.ValidModel(rec.Effort)) &&
 		terminalproto.ReviewedChatTool(rec.Tool) &&
 		acpagent.Describe(rec.Tool, true, "").History &&
 		terminalproto.ValidDir(rec.Dir) &&
@@ -159,6 +162,26 @@ func (r *chatRegistry) setModel(id, model string) {
 	r.saveLocked()
 }
 
+// setControls never recreates a record removed by End or mode handoff.
+func (r *chatRegistry) setControls(id string, state terminalproto.ACPControls) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec, ok := r.chats[id]
+	if !ok {
+		return
+	}
+	rec.Model = state.Model
+	rec.Effort = ""
+	for _, o := range state.Options {
+		if o.Category == "thought_level" {
+			rec.Effort = o.Current
+		}
+	}
+	rec.UpdatedAt = time.Now().UnixMilli()
+	r.chats[id] = rec
+	r.saveLocked()
+}
+
 // seen refreshes when a recorded chat last did something, so an active chat is
 // not dropped by the age bound while it is still in use.
 func (r *chatRegistry) seen(id string) {
@@ -229,7 +252,7 @@ func (s *chatSupervisor) remember(cs *chatSession) {
 	}
 	s.mu.Lock()
 	rec := chatRecord{
-		ID: cs.id, Title: cs.title, Tool: cs.tool, Dir: cs.dir, Model: cs.model,
+		ID: cs.id, Title: cs.title, Tool: cs.tool, Dir: cs.dir, Model: cs.model, Effort: cs.effort,
 		Yolo: cs.yolo, Trust: cs.trust, ACPSID: cs.acpID,
 	}
 	s.mu.Unlock()
@@ -308,7 +331,7 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 		yolo = false
 	}
 
-	cs := &chatSession{id: rec.ID, title: rec.Title, tool: rec.Tool, dir: dir, model: rec.Model, acpID: rec.ACPSID,
+	cs := &chatSession{id: rec.ID, title: rec.Title, tool: rec.Tool, dir: dir, model: rec.Model, effort: rec.Effort, acpID: rec.ACPSID,
 		state: terminalproto.Running, busy: true, yolo: yolo, trust: rec.Trust}
 	s.mu.Lock()
 	if s.closed || s.quotaLocked() >= terminalproto.MaxSessionsPerAgent {
@@ -333,7 +356,7 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 	// the replay is dropped here and only events after startup are forwarded.
 	var restored atomic.Bool
 	process, err := s.start(startCtx, acpagent.Options{
-		Agent: spec, Binary: binary, Dir: dir, Home: s.opts.Home, Model: rec.Model, Trust: rec.Trust, Resume: rec.ACPSID,
+		Agent: spec, Binary: binary, Dir: dir, Home: s.opts.Home, Model: rec.Model, Effort: rec.Effort, Trust: rec.Trust, Resume: rec.ACPSID,
 		BaseEnv: os.Environ(),
 		OnEvent: func(event acpagent.Event) {
 			if restored.Load() {
@@ -375,7 +398,7 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 	s.mu.Unlock()
 
 	s.registry.remember(chatRecord{ID: rec.ID, Title: rec.Title, Tool: rec.Tool, Dir: rec.Dir,
-		Model: rec.Model, Yolo: yolo, Trust: rec.Trust, ACPSID: acpID})
+		Model: rec.Model, Effort: rec.Effort, Yolo: yolo, Trust: rec.Trust, ACPSID: acpID})
 	s.announceRunning(cs)
 	s.publish(cs, acpagent.Event{Kind: "notice",
 		Text: "This chat was restored after reet restarted on the machine. A reply that was still running then was stopped."})

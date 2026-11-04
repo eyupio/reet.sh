@@ -68,6 +68,7 @@ var (
 	modelsRunning   atomic.Int32
 	softwareRunning atomic.Int32
 	inspectsRunning atomic.Int32
+	controlsRunning atomic.Int32
 )
 
 // softwareSlot serialises software applies on this connector process, not just
@@ -258,6 +259,13 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				}
 			}
 			switch body := msg.Body.(type) {
+			case *terminalproto.ACPControl:
+				if !terminalproto.SupportsACPLiveControls(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+				if len(body.Images) > 0 && !terminalproto.SupportsACPImages(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
 			case *terminalproto.ACPPrompt:
 				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
@@ -282,6 +290,9 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					return terminalproto.ErrInvalid
 				}
 			case *terminalproto.ChatReattach:
+				if body.Effort != "" && !terminalproto.SupportsACPLiveControls(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
 				if !terminalproto.SupportsChatReattach(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
 				}
@@ -702,6 +713,30 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				}
 				reply.Body = terminalproto.Result{Code: terminalproto.OK}
 				return send(callCtx, reply)
+			case *terminalproto.ACPControl:
+				if controlsRunning.Add(1) > maxAsideRunning {
+					controlsRunning.Add(-1)
+					return respond(terminalhost.ErrOperationConflict)
+				}
+				if !chats.sup.addWork() {
+					controlsRunning.Add(-1)
+					return respond(terminalhost.ErrManagerClosed)
+				}
+				operation := *op
+				go func() {
+					defer controlsRunning.Add(-1)
+					defer chats.sup.wg.Done()
+					controlCtx, cancel := context.WithTimeout(callCtx, 8*time.Second)
+					defer cancel()
+					answer, err := chats.control(controlCtx, msg.SessionID, operation)
+					if err != nil {
+						reply.Body = result(err)
+					} else {
+						reply.Body = answer
+					}
+					_ = send(callCtx, reply)
+				}()
+				return nil
 			case *terminalproto.ACPModel:
 				if !terminalproto.SupportsACPModel(headers.Get(terminalproto.FeatureHeader)) {
 					return respond(terminalhost.ErrOperationConflict)

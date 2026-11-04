@@ -97,6 +97,7 @@ type ChatEvent struct {
 }
 
 type chatLog struct {
+	controlMu sync.Mutex
 	mu        sync.Mutex
 	st        *store.Store
 	uid       int64
@@ -653,6 +654,7 @@ func (b *Broker) restoreAgentChats(uid int64, agent string) {
 	for _, s := range sessions {
 		if s.AgentID == agent && s.Structured && s.State.ReservesQuota() {
 			b.restoreChat(uid, s)
+			b.startChatQueue(uid, s.ID)
 		}
 	}
 }

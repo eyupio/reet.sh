@@ -86,6 +86,12 @@ type Session struct {
 	stdout io.ReadCloser
 	stderr *cappedBuffer
 
+	configMu     sync.Mutex
+	steerMu      sync.Mutex
+	settings     []terminalproto.ACPSetting
+	steering     bool
+	compacting   bool
+	configuring  bool
 	mu           sync.Mutex
 	writeMu      sync.Mutex
 	nextID       int64
@@ -204,6 +210,11 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	initCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	var initResult struct {
+		Meta struct {
+			Steering struct {
+				Supported bool `json:"supported"`
+			} `json:"steering"`
+		} `json:"_meta"`
 		ProtocolVersion int `json:"protocolVersion"`
 		AgentInfo       struct {
 			Name    string `json:"name"`
@@ -232,6 +243,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		return nil, ErrExited
 	}
 	s.promptImages = initResult.AgentCapabilities.PromptCapabilities.Image
+	s.steering = initResult.Meta.Steering.Supported
 	if initResult.ProtocolVersion != ProtocolVersion {
 		s.Close()
 		return nil, &VersionError{Agent: spec.displayName(), Found: fmt.Sprintf("ACP protocol %d", initResult.ProtocolVersion), Required: fmt.Sprintf("ACP protocol %d", ProtocolVersion)}
@@ -316,6 +328,27 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	s.mode = mode
 	s.model = model
 	s.mu.Unlock()
+	s.updateSettings(raw)
+	if opts.Model != "" && s.Model() != opts.Model {
+		s.Close()
+		return nil, ErrModel
+	}
+	if opts.Effort != "" {
+		effortID := ""
+		for _, o := range s.Controls().Options {
+			if o.Category == "thought_level" {
+				effortID = o.ID
+			}
+		}
+		if effortID == "" {
+			s.Close()
+			return nil, ErrControl
+		}
+		if err := s.SetOption(newCtx, effortID, opts.Effort); err != nil {
+			s.Close()
+			return nil, err
+		}
+	}
 	// Every replayed update was handled by the reader before the load reply
 	// it precedes, so the replay has been delivered by now.
 	if opts.OnReady != nil {
@@ -324,7 +357,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	if !opened {
 		s.markInterrupted()
 	}
-	s.emit(Event{Kind: "status", State: "idle", Detail: model})
+	s.emit(Event{Kind: "status", State: "idle", Detail: s.Model()})
 	return s, nil
 }
 
@@ -531,6 +564,24 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 	}
 	u := update.Update
 	switch u.SessionUpdate {
+	case "config_option_update", "config_options_update":
+		var envelope struct {
+			Update json.RawMessage `json:"update"`
+		}
+		if json.Unmarshal(raw, &envelope) == nil {
+			s.updateSettings(envelope.Update)
+		}
+	case "compaction_update":
+		var envelope struct {
+			Update struct {
+				Status string `json:"status"`
+			} `json:"update"`
+		}
+		if json.Unmarshal(raw, &envelope) == nil {
+			s.mu.Lock()
+			s.compacting = envelope.Update.Status == "in_progress"
+			s.mu.Unlock()
+		}
 	case "agent_message_chunk":
 		text := contentText(u.Content)
 		if text != "" {
@@ -1172,6 +1223,10 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		}
 	}
 	s.turnMu.Lock()
+	if s.configuring {
+		s.turnMu.Unlock()
+		return ErrBusy
+	}
 	if s.forceClosing {
 		s.turnMu.Unlock()
 		return ErrClosed
@@ -1195,6 +1250,7 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 	s.warned = false
 	s.mu.Lock()
 	s.lastEvent = s.turnStart
+	s.compacting = false
 	s.turnProgress = false
 	s.turnError = false
 	// No tool can be running when a turn begins; an entry left by an earlier turn
@@ -1217,6 +1273,9 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		<-watchStopped
 		s.turnMu.Lock()
 		s.working = false
+		s.mu.Lock()
+		s.compacting = false
+		s.mu.Unlock()
 		s.turnMu.Unlock()
 	}()
 	s.emit(Event{Kind: "status", State: "working"})
@@ -1549,6 +1608,8 @@ func (s *Session) Close() {
 
 // SetModel changes the model without replacing the ACP session or its history.
 func (s *Session) SetModel(ctx context.Context, model string) error {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	s.turnMu.Lock()
 	defer s.turnMu.Unlock()
 	if s.working {
@@ -1571,6 +1632,7 @@ func (s *Session) SetModel(ctx context.Context, model string) error {
 		s.unconfirmedModel()
 		return fmt.Errorf("%w: %w", ErrModelUnconfirmed, err)
 	}
+	s.updateSettings(raw)
 	applied, confirmed := acknowledgedModel(raw, model, s.opts.Agent.AllowOmittedModelAck)
 	if !confirmed {
 		s.unconfirmedModel()

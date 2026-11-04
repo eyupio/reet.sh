@@ -30,13 +30,16 @@ type key struct {
 	agent string
 }
 type Broker struct {
-	mu      sync.Mutex
-	wg      sync.WaitGroup
-	st      *store.Store
-	peers   map[key]*Peer
-	tickets map[string]ticket
-	bridges map[string]*Bridge
-	chats   map[chatKey]*chatLog
+	mu           sync.Mutex
+	wg           sync.WaitGroup
+	st           *store.Store
+	peers        map[key]*Peer
+	tickets      map[string]ticket
+	bridges      map[string]*Bridge
+	chats        map[chatKey]*chatLog
+	queueWorkers map[chatKey]bool
+	queueOwner   string
+	queueStop    chan struct{}
 	// approvals holds the permission signatures a person allowed for the rest
 	// of one chat. It is controller state only and never reaches the machine.
 	approvals map[chatKey]map[string]bool
@@ -155,7 +158,7 @@ func ID() string {
 	return hex.EncodeToString(b[:])
 }
 func New(st *store.Store) *Broker {
-	return &Broker{st: st, peers: map[key]*Peer{}, tickets: map[string]ticket{}, bridges: map[string]*Bridge{}, chats: map[chatKey]*chatLog{}, approvals: map[chatKey]map[string]bool{}}
+	return &Broker{st: st, peers: map[key]*Peer{}, tickets: map[string]ticket{}, bridges: map[string]*Bridge{}, chats: map[chatKey]*chatLog{}, approvals: map[chatKey]map[string]bool{}, queueWorkers: map[chatKey]bool{}, queueOwner: ID(), queueStop: make(chan struct{})}
 }
 
 func (b *Broker) Revoke(uid int64, agent string) {
@@ -188,6 +191,9 @@ func (b *Broker) RevokeSource(source string) {
 }
 func (b *Broker) Close() {
 	b.mu.Lock()
+	if !b.closed {
+		close(b.queueStop)
+	}
 	b.closed = true
 	ps := make([]*Peer, 0, len(b.peers))
 	for _, p := range b.peers {
@@ -443,7 +449,7 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 	// A late worktree answer is likewise dropped: status is read again before
 	// any remove, and a remove's outcome is read again by asking for status.
 	switch m.Body.(type) {
-	case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.WorktreeState, *terminalproto.WorktreeResult:
+	case *terminalproto.ACPControlResult, *terminalproto.ACPPreviewResult, *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.WorktreeState, *terminalproto.WorktreeResult:
 		return nil
 	case *terminalproto.BrowseResult, *terminalproto.BranchesResult, *terminalproto.ModelsResult, *terminalproto.InspectResult:
 		// The machine answers a browse by 4 s, a listing by 8 s and a model
@@ -747,12 +753,15 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if in.Yolo && !caps.Capabilities.Yolo {
 			return store.TerminalSession{}, false, ErrYoloRefused
 		}
-		if (in.Base != "" || in.Effort != "" || in.Tool != "" && !terminalproto.ValidTool(in.Tool)) && !caps.Capabilities.AgentsV2 {
+		if (in.Base != "" || !in.Structured && in.Effort != "" || in.Tool != "" && !terminalproto.ValidTool(in.Tool)) && !caps.Capabilities.AgentsV2 {
 			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
 		}
 		// Options the agent's preset has no mapping for are refused here, not
 		// by the machine after a session is reserved.
-		if in.Effort != "" && !terminalproto.ToolTakesEffort(in.Tool) || in.Model != "" && !terminalproto.ToolTakesModel(in.Tool) {
+		if in.Structured && in.Effort != "" && !caps.Capabilities.ACPStartOptions {
+			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
+		}
+		if !in.Structured && in.Effort != "" && !terminalproto.ToolTakesEffort(in.Tool) || in.Model != "" && !terminalproto.ToolTakesModel(in.Tool) {
 			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
 		}
 		// A peer without resume-v1 is never sent the resume field.

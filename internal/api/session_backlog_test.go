@@ -8,6 +8,30 @@ import (
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
+func TestSessionBacklogPreservesStructuredModelAndEffortThroughStart(t *testing.T) {
+	caps := chatCaps()
+	caps.ACPLiveControls = true
+	caps.ACPStartOptions = true
+	f := launchAPIFixture(t, caps)
+	in := map[string]any{"title": "Chosen options", "prompt": "Review the changes", "agentId": f.agent.ID, "dir": "/tmp", "tool": "opencode", "model": "provider/model", "effort": "ultra", "chat": true, "trust": true, "images": []any{}, "version": 0}
+	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/session-backlog", in)
+	if code != 201 {
+		t.Fatalf("save %d %s", code, raw)
+	}
+	id := out["id"].(string)
+	code, out, raw = f.do(t, f.cookie, "GET", "/api/v2/session-backlog/"+id, nil)
+	if code != 200 || out["effort"] != "ultra" || out["model"] != "provider/model" {
+		t.Fatalf("read %d %s", code, raw)
+	}
+	if code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/session-backlog/"+id+"/start", map[string]any{"version": out["version"], "prompt": out["prompt"]}); code != 200 {
+		t.Fatalf("start %d %s", code, raw)
+	}
+	sent := f.sent()
+	if len(sent) != 1 || sent[0].Effort != "ultra" || sent[0].Model != "provider/model" || !sent[0].Structured {
+		t.Fatalf("launch choices lost: %+v", sent)
+	}
+}
+
 func TestSessionBacklogAPIAuthorizationAndValidation(t *testing.T) {
 	f := projectFixture(t)
 	path := "/api/v2/session-backlog"
@@ -43,7 +67,7 @@ func TestSessionBacklogAPIAuthorizationAndValidation(t *testing.T) {
 	for _, change := range []map[string]any{
 		{"agentId": "not-my-machine"}, {"model": "-bad"}, {"effort": "extreme"}, {"dir": "relative"}, {"tool": "unknown"}, {"prompt": strings.Repeat("a", terminalproto.MaxPromptBytes+1)},
 		{"images": []store.DraftImage{{Name: "fake.png", Data: "data:image/png;base64,aGVsbG8="}}}, {"projectId": "not-my-project"},
-		{"base": "main"}, {"worktree": true, "base": "bad branch"}, {"chat": true}, {"trust": true, "chat": true},
+		{"base": "main"}, {"worktree": true, "base": "bad branch"}, {"chat": true, "tool": "gemini"}, {"trust": true, "chat": true},
 	} {
 		bad := map[string]any{}
 		for k, v := range input {

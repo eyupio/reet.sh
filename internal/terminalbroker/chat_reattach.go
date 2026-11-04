@@ -162,6 +162,9 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string, tr
 		return ErrReattachUnsupported
 	}
 	in := terminalproto.ChatReattach{Tool: s.Tool, Dir: s.Dir, Yolo: s.Yolo, ACPSessionID: s.ACPSessionID, Trust: trust}
+	if caps.Capabilities.ACPLiveControls {
+		in.Effort = s.Effort
+	}
 	if terminalproto.ValidModel(s.Model) {
 		in.Model = s.Model
 	}
@@ -201,6 +204,7 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string, tr
 		s.State = terminalproto.Running
 	}
 	b.restoreChat(uid, s)
+	b.startChatQueue(uid, s.ID)
 	_ = b.st.AddEventFor(uid, "machine", "chat-reattach", "", map[string]string{
 		"machine": s.AgentID, "tool": s.Tool, "session": session, "trust": strconv.FormatBool(trust),
 	})

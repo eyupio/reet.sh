@@ -911,6 +911,27 @@ func TestChosenModelStartupRefusalDoesNotAnnounceOrPrompt(t *testing.T) {
 	}
 }
 
+func TestChosenEffortStartupRefusalDoesNotAnnounceOrPrompt(t *testing.T) {
+	h, proc, out := testChatHost(t)
+	t.Cleanup(h.sup.Close)
+	h.sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
+		if opts.Model != "stub/model" || opts.Effort != "ultra" {
+			t.Errorf("launch choices lost: model=%q effort=%q", opts.Model, opts.Effort)
+		}
+		return nil, acpagent.ErrControl
+	}
+	_, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chosen effort", Cols: 80, Rows: 24, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home, Model: "stub/model", Effort: "ultra", Prompt: "opening prompt"})
+	if !errors.Is(err, acpagent.ErrControl) {
+		t.Fatal(err)
+	}
+	proc.mu.Lock()
+	prompted := proc.prompted
+	proc.mu.Unlock()
+	if prompted != "" || out.hasSession(terminalproto.Running) || out.chatText("opening prompt") || h.find("session-0123456789") != nil {
+		t.Fatal("unconfirmed effort admitted an agent or prompt")
+	}
+}
+
 func TestProcessEndingDuringAdmissionIsObservedAfterAdmission(t *testing.T) {
 	h, proc, out := testChatHost(t)
 	t.Cleanup(h.sup.Close)

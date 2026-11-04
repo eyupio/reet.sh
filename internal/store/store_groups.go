@@ -330,7 +330,7 @@ func (s *Store) SaveAudienceList(userID int64, userRole string, id int64, name, 
 	}
 	err = s.withTx(func(tx *sql.Tx) error {
 		if id == 0 {
-			slug := newListSlug()
+			slug := newListSlug(name)
 			if slug == "" {
 				return errors.New("cannot generate list link")
 			}

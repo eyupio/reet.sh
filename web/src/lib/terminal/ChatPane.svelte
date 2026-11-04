@@ -1,22 +1,25 @@
 <script lang="ts">
  import { onDestroy, onMount, tick, untrack } from 'svelte'
  import { fade, fly } from 'svelte/transition'
- import { applyChatEvent, checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, rejectLabel, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
+ import { applyChatEvent, checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, rejectLabel, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, approvalOutcome, foldApprovals, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
  import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
  import { defaultLabel, type ModelFavourite } from '../models'
  import Toast from '../Toast.svelte'
  import ImageLightbox from './ImageLightbox.svelte'
+ import ChatPreview from './ChatPreview.svelte'
  import GafferProgress from './GafferProgress.svelte'
 import SkillPicker from './SkillPicker.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
+import ChatQueue from './ChatQueue.svelte'
+import { chatControls, chatSetting, chatEnqueue, type ChatControls } from './api'
 import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
 import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, reattachRetryable } from './reattachState'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Whether this agent descriptor permits a confirmed live model switch. */
   acpModel?: boolean
   /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
@@ -52,6 +55,47 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   modelSession = id; modelValue = model
   selectedModel = model; currentModel = model
  })
+ let runtime = $state<ChatControls | null>(null), runtimeNote = $state(''), queuePulse = $state(0)
+ let settingSerial = 0
+ let queueAttempt: { signature: string; id: string } | null = null
+ const liveModel = $derived(runtime?.options.find(o => o.category === 'model'))
+ const modelAvailable = $derived(acpModel || !!liveModel)
+ const liveEffort = $derived(runtime?.options.find(o => o.category === 'thought_level'))
+ const modelBlocked = $derived.by(() => sending || changingModel || chat.connection !== 'open' || (liveControls ? !liveModel || runtime?.configuring : working))
+ $effect(() => {
+  const id = session.id, enabled = liveControls && !ended
+  runtime = null; runtimeNote = ''
+  if (!enabled) return
+  const life = new AbortController()
+  let timer: ReturnType<typeof setTimeout>
+  async function refresh() {
+   const serial = settingSerial
+   try {
+    const answer = await chatControls(id, life.signal)
+    if (!life.signal.aborted && serial === settingSerial && !changingModel) {
+     runtime = answer.controls; runtimeNote = ''
+     const previous = currentModel
+     currentModel = answer.controls.model
+     if (selectedModel === previous) selectedModel = currentModel
+    }
+   } catch { if (!life.signal.aborted) { runtime = null; runtimeNote = 'Live controls are unavailable while the machine reconnects.' } }
+   if (!life.signal.aborted) timer = setTimeout(refresh, 1500)
+  }
+  untrack(() => { void refresh() })
+  return () => { life.abort(); clearTimeout(timer) }
+ })
+ async function changeSetting(id: string, value: string) {
+  changingModel = true; feedback = ''; settingSerial++
+  try {
+   const answer = await chatSetting(session.id, id, value)
+   runtime = answer.controls; currentModel = answer.controls.model
+   if (answer.error) feedback = answer.error
+   else flash('Session setting updated.')
+  } catch (e) {
+   runtime = null; currentModel = ''
+   feedback = e instanceof Error ? e.message : 'The agent did not confirm that setting.'
+  } finally { changingModel = false; settingSerial++ }
+ }
  let models = $state<string[]>([]), modelNote = $state('')
  let favourites = $state<ModelFavourite[]>([]), favouriteBusy = $state(false)
  // Confirmations (model changed, default saved) say it once and fade away: the star and the model field already show the result.
@@ -93,7 +137,8 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
    : 'Check the error details below. Resolve the provider issue, then send a message to continue.'
  })
  async function changeModel() {
-  if (!acpModel || !selectedModel || changingModel || working || ended) return
+  if (!modelAvailable || !selectedModel || modelBlocked || ended) return
+  if (liveControls && liveModel) { await changeSetting(liveModel.id, selectedModel); return }
   changingModel = true; feedback = ''; modelNote = ''; if (toast && !toast.bad) toast = null
   try { await chatModel(session.id, selectedModel); currentModel = selectedModel; flash(`Model changed to ${selectedModel}.`) }
   catch (e) { feedback = e instanceof Error ? e.message : 'The model could not be changed. Try again.' }
@@ -220,6 +265,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  const skillsOff = $derived(reattaching ? 'Skills can be inserted once the chat is back.' : ended ? 'This reet session has ended.' : chat.connection !== 'open' ? 'Skills can be inserted once reet is connected.' : sending || uploading || changingModel ? 'Skills can be inserted once the message has been sent.' : working ? 'Skills can be inserted when the agent is idle.' : '')
  const pending = $derived(pendingPermissions(chat))
  const asked = $derived(pendingQuestions(chat))
+ const approvals = $derived(foldApprovals(chat.items))
  const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : reattaching ? 'Reconnecting…' : ended ? 'This reet session has ended.' : !replayed ? `Catching up with ${toolName}…` : pending.length ? 'Waiting for your approval.' : asked.length ? 'Waiting for your answer.' : working ? `${toolName} is working…` : chat.status.state === 'error' ? `${toolName} stopped with an error.` : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
  $effect(() => { onbusy?.(replayed ? working || pending.length > 0 || asked.length > 0 : undefined) })
  const statusDetail = $derived(pending.length || asked.length || chat.status.state === 'waiting' ? '' : chat.status.detail)
@@ -311,7 +357,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   if ((!text && !images.length) || sending || uploading || changingModel || modeUnknown || ended || chat.connection === 'reconnecting') return
   const problem = messageProblem(text)
   if (problem) { feedback = problem; return }
-  if (working || queued.length) { queueCurrent(text); return }
+  if (!liveControls && (working || queued.length)) { queueCurrent(text); return }
   const sendingImages = images.slice()
   const ok = await deliver(text, sendingImages)
   if (!ok) return
@@ -356,7 +402,14 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
    if (new TextEncoder().encode(body.text).length > MAX_CHAT_BYTES) { feedback = 'That message and its image paths are too long. Keep the message under 2,000 bytes.'; return false }
    const echo = body.images.length ? { text: body.text.trim() || IMAGE_ONLY_ECHO, refs: uploads.map(upload => upload.path || upload.reference) } : null
    if (echo) echoes.push(echo)
-   try { await chatPrompt(session.id, body.text, body.images) }
+   try {
+    if (liveControls) {
+     const signature = JSON.stringify([text, pictures.map(picture => picture.id)])
+     if (queueAttempt?.signature !== signature) queueAttempt = { signature, id: crypto.randomUUID() }
+     await chatEnqueue(session.id, queueAttempt.id, body.text, body.images)
+     queueAttempt = null; queuePulse++
+    } else await chatPrompt(session.id, body.text, body.images)
+   }
    catch (e) { if (echo) echoes = echoes.filter(item => item !== echo); throw e }
    nearBottom = true
    return true
@@ -413,7 +466,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   untrack(() => { awaitingWork = false; clearTimeout(awaitingTimer) })
  })
  $effect(() => {
-  const ready = queued.length > 0 && !queueHalted && !awaitingWork && !working && !pending.length && !asked.length && !ended
+  const ready = !liveControls && queued.length > 0 && !queueHalted && !awaitingWork && !working && !pending.length && !asked.length && !ended
    && chat.connection === 'open' && !sending && !uploading && !changingModel && !modeUnknown && !dispatching
   if (!ready) return
   untrack(() => { void dispatchQueued() })
@@ -507,7 +560,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  // Capabilities can change while this pane stays mounted. Retire requests and
  // option lists with the descriptor, so a late response cannot restore a control.
  $effect(() => {
-  const supported = acpModel, agentId = modelAgentId, agentTool = tool
+  const supported = modelAvailable, agentId = modelAgentId, agentTool = tool
   models = []; favourites = []; modelNote = ''
   if (!supported) return
   const life = new AbortController()
@@ -640,6 +693,8 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
       {/each}
      </div>
     </div>
+   {:else if item.kind === 'preview'}
+    <ChatPreview session={session.id} preview={item.preview} onresize={() => { if (nearBottom) void scrollToEnd() }} />
    {:else if item.kind === 'notice'}
     <p class="notice" class:bad={item.bad}>{item.text}</p>
    {:else if item.kind === 'tool'}
@@ -662,7 +717,9 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
      {@const target = toolTarget(item, session.dir)}
      {@const counts = item.additions || item.deletions || !item.diff ? { additions: item.additions, deletions: item.deletions } : diffCounts(item.diff)}
      {@const lines = lineCount(item.text)}
-     {@const hasBody = !!(item.command || item.diff || item.text)}
+     {@const approval = approvals.byTool.get(item.toolCallId)}
+     {@const outcome = approval ? approvalOutcome(approval) : undefined}
+     {@const hasBody = !!(item.command || item.diff || item.text || approval)}
      {@const open = isOpen(item.key)}
      <div class="tool" data-kind={item.toolKind || 'other'} class:open={open} class:failed={item.status === 'failed'}>
       <svelte:element this={hasBody ? 'button' : 'div'} type={hasBody ? 'button' : undefined} role={hasBody ? 'button' : undefined} class="tool-head"
@@ -672,6 +729,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
        <span class="kind">{toolLabel(item.toolKind)}</span>
        <span class="target">{#if item.toolKind === 'execute'}<span class="prompt" aria-hidden="true">$</span>{' '}{/if}{target}</span>
        <span class="meta">
+        {#if outcome}<span class="pill {outcome.tone}" title="Your answer to this approval">{outcome.word}</span>{/if}
         {#if counts.additions || counts.deletions}<span class="add">+{counts.additions}</span><span class="del">−{counts.deletions}</span>{/if}
         {#if lines > 1}<span class="lines">{lines} {item.toolKind === 'search' ? (lines === 1 ? 'match' : 'matches') : 'lines'}</span>{/if}
         {#if item.durationMs > 0}<span class="time">{formatDuration(item.durationMs)}</span>{/if}
@@ -681,6 +739,14 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
       </svelte:element>
       {#if hasBody && open}
        <div class="tool-body">
+        {#if approval}
+         <div class="block approval-note">
+          <span class="block-label">Approval</span>
+          <p class="decision"><strong class="outcome {outcome?.tone}">{outcome?.note}</strong>{#if approval.description}{' '}{toolName} asked: {approval.description}{/if}</p>
+          {#if approval.path && !item.locations.length}<p class="approval-path" title={approval.path}>{displayPath(approval.path, session.dir)}</p>{/if}
+          {#if approval.truncated}<p class="placeholder">The change was too large to review in full here.</p>{/if}
+         </div>
+        {/if}
         {#if item.toolKind === 'execute' && item.command && item.command !== item.title}
          <div class="block"><span class="block-label">Command</span><pre class="command"><span class="prompt" aria-hidden="true">$</span>{' '}{item.command}</pre></div>
         {/if}
@@ -701,7 +767,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
       {/if}
      </div>
     {/if}
-   {:else if item.kind === 'permission'}
+   {:else if item.kind === 'permission' && !approvals.folded.has(item.key)}
     {@const approvalCounts = item.diff ? diffCounts(item.diff) : { additions: 0, deletions: 0 }}
     {@const decided = !!item.decision}
     {@const open = decided ? isOpen(item.key) : true}
@@ -721,7 +787,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
       {#if item.diff}<div class="block"><span class="block-label">Diff · {approvalCounts.additions} added, {approvalCounts.deletions} removed</span><pre class="diff">{#each item.diff.split('\n') as line, i (i)}<span class={diffClass(line)}>{line || ' '}</span>{/each}</pre></div>{/if}
       {#if item.truncated}<p class="notice bad">This change is too large to review in full here. Deny it and use {toolName} in a terminal if you need to see all of it.</p>{/if}
       {#if item.decision}
-       <p class="decision">{item.decision === 'allowed' ? 'Allowed once.' : item.decision === 'denied' ? 'Denied.' : item.reason === 'timeout' ? 'Closed: the approval timed out.' : 'Closed without an answer.'}</p>
+       <p class="decision">{approvalOutcome(item).note}</p>
       {:else}
        <div class="approval-actions">
         <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, false)}>{rejectLabel(tool)}</button>
@@ -798,9 +864,12 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  </div>
  <GafferProgress sessionId={session.id} {chat} dir={session.dir} agent={toolName} {replayed} {ended} {reattaching} sessionFailed={terminalClosed(session.state) && (session.state === 'lost' || (session.exitCode != null && session.exitCode !== 0))} />
  {#if ended && !reattaching}
+  {#if liveControls}<ChatQueue sessionId={session.id} controls={null} active={false} />{/if}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}
  {:else}
   <div class="composer" onpaste={pasted} class:dropping={dropping}>
+   {#if liveControls}<ChatQueue sessionId={session.id} controls={runtime} active={!ended} reloadKey={queuePulse} />{/if}
+   {#if runtimeNote}<p class="notice" role="status">{runtimeNote}</p>{/if}
    {#if queued.length}
     <section class="queue" aria-label="Queued messages">
      <header class="queue-head">
@@ -849,12 +918,19 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
     <div class="composer-tools">
      <button type="button" class="skills-btn" aria-label="Skills" aria-haspopup="dialog" title={skillsOff || 'Insert a skill into your message'} disabled={!!skillsOff} onclick={() => openSkills()}>+ Skills</button>
      {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image · or paste or drop one" disabled={sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
-     {#if acpModel}<div class="model-controls" data-keeps-focus>
+     {#if liveEffort}<div class="effort-controls" data-keeps-focus>
+      <label for={`${session.id}-effort`}>Effort</label>
+      <select id={`${session.id}-effort`} value={liveEffort.current} disabled={changingModel || runtime?.configuring || chat.connection !== 'open'} onchange={event => void changeSetting(liveEffort!.id, event.currentTarget.value)}>
+       {#if !liveEffort.current}<option value="" disabled>Unconfirmed</option>{/if}
+       {#each liveEffort.values as value}<option {value}>{value}</option>{/each}
+      </select>
+     </div>{/if}
+     {#if modelAvailable}<div class="model-controls" data-keeps-focus>
       <label for={`${session.id}-model`}>Model</label>
-      <input id={`${session.id}-model`} data-combo-list={`${session.id}-models`} bind:value={selectedModel} disabled={working || sending || changingModel || chat.connection !== 'open'} placeholder="provider/model" spellcheck="false" autocomplete="off" />
+      <input id={`${session.id}-model`} data-combo-list={`${session.id}-models`} bind:value={selectedModel} disabled={modelBlocked} placeholder="provider/model" spellcheck="false" autocomplete="off" />
       <datalist id={`${session.id}-models`}>{#each models as model}<option value={model}></option>{/each}</datalist>
       {#if selectedModel.trim() && selectedModel !== currentModel}
-       <button type="button" class="btn change" transition:fade={{ duration: 120 }} disabled={working || sending || changingModel || chat.connection !== 'open'} onclick={() => void changeModel()}>{changingModel ? 'Changing…' : 'Change model'}</button>
+       <button type="button" class="btn change" transition:fade={{ duration: 120 }} disabled={modelBlocked} onclick={() => void changeModel()}>{changingModel ? 'Changing…' : 'Change model'}</button>
       {/if}
       <button type="button" class="star" class:on={selectedIsDefault} disabled={!selectedModel.trim() || favouriteBusy || chat.connection !== 'open'} aria-pressed={selectedIsDefault} aria-label={defaultLabel(tool, selectedModel.trim(), selectedIsDefault)} title={selectedIsDefault ? `Default for new ${tool} sessions. Click to clear.` : `Make this the default for new ${tool} sessions`} onclick={() => void toggleDefault()}>
        <svg viewBox="0 0 24 24" fill={selectedIsDefault ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z" /></svg>
@@ -877,6 +953,8 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  .error-panel > strong { color: var(--bad); font-size: 1rem; }
  .error-panel p { margin: 8px 0; line-height: 1.5; }
  .error-panel summary { cursor: pointer; }
+ .effort-controls { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+ .effort-controls select { min-height: 30px; max-width: 10rem; color: var(--ink); background: var(--bg-sunk); border: 1px solid var(--line); border-radius: 6px; }
  /* The model is a quiet control in the composer's toolbar: a labelled field, a star for the default, and Change model only once the value differs. */
  .model-controls { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; max-width: 30rem; }
  .model-controls label { flex: none; font: 600 10px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--faint); }
@@ -957,6 +1035,12 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  .meta .add { color: var(--good); }
  .meta .del { color: var(--bad); }
  .state { font: 500 11px var(--sans); color: var(--muted); white-space: nowrap; }
+ .pill { display: inline-flex; align-items: center; height: 18px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg-sunk); font: 600 10.5px var(--sans); letter-spacing: .02em; color: var(--muted); white-space: nowrap; }
+ .pill.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 38%, var(--line)); background: color-mix(in srgb, var(--good) 9%, var(--card)); }
+ .pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 38%, var(--line)); background: color-mix(in srgb, var(--bad) 9%, var(--card)); }
+ .approval-note .decision strong { font-weight: 600; }
+ .approval-note .outcome.good { color: var(--good); }
+ .approval-note .outcome.bad { color: var(--bad); }
  .state.good { color: var(--good); }
  .state.warn { color: var(--warn); }
  .state.bad { color: var(--bad); }

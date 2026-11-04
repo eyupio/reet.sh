@@ -2,12 +2,13 @@
   import { gafferTooltip } from '../gafferTooltip'
   import { onMount, tick, untrack } from 'svelte'
   import { addModelFavourite, listModelFavourites, removeModelFavourite, type Skill } from '../api'
+  import { launchEfforts, effortHelp } from '../terminal/launchOptions'
   import { MAX_PROMPT_BYTES, cleanModel, modelSuggestions, toolName, validateDir, validateModel, validatePrompt } from '../agentLaunch'
   import { CATALOGUE } from '../catalogue'
   import { shell } from '../dialogShell'
   import { installPrompt } from '../install'
   import { defaultTitle } from '../launchBar'
-  import { effortChoices, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from '../models'
+  import { favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { saveDraft } from '../sessionBacklog'
   import { insertSkillPrompt } from '../skillPrompt'
   import { machineModels, refreshMachineModels, structuredAgent, type FolderProject, type TerminalMachine } from '../terminal/api'
@@ -42,12 +43,14 @@
   const bytes = $derived(new TextEncoder().encode(prompt).length)
   const modelTargetKey = $derived(agentId && tool ? `${agentId}\u0000${tool}` : '')
   const modelMachine = $derived(modelKey === modelTargetKey ? modelRead : null)
-  const efforts = $derived(effortChoices(tool))
+  const efforts = $derived.by(() => launchEfforts(tool, machine?.capabilities, rules.chat))
   const takesEffort = $derived(efforts.length > 1)
   const project = $derived(mode === 'project' ? projects.find(p => p.id === projectId) : undefined)
-  const rules = $derived(draftOptionRules({ tool, isRepo: !!project?.isRepo, canChat: !!structuredAgent(machine?.capabilities, tool), chat }))
+  // An offline capability read must not turn an existing Gaffer plan into a terminal plan.
+  const canPlanChat = $derived(!!structuredAgent(machine?.capabilities, tool) || !!draft?.chat && draft.agentId === agentId && draft.tool === tool)
+  const rules = $derived(draftOptionRules({ tool, isRepo: !!project?.isRepo, canChat: canPlanChat, chat }))
   // Starting is only offered while the refined item could actually start; saving first would strand it half-done.
-  const blocker = $derived(startNow && startCheck ? startCheck({ agentId, tool, projectId: mode === 'project' ? projectId : '', dir, imageCount: images.length, effort }) : null)
+  const blocker = $derived(startNow && startCheck ? startCheck({ agentId, tool, projectId: mode === 'project' ? projectId : '', dir, imageCount: images.length, effort, chat: rules.chat }) : null)
   const modelStatusInfo = $derived.by(() => {
     const host = machine?.host ?? ''
     if (!machine) return modelStatus(null, host)
@@ -105,7 +108,7 @@
       title = draft.title; prompt = draft.prompt; projectId = draft.projectId; agentId = draft.agentId; dir = draft.dir
       tool = draft.tool; model = draft.model; effort = draft.effort; images = [...(draft.images ?? [])]
       idea = !startNow && draft.idea === true; yolo = draft.yolo === true; worktree = draft.worktree === true; base = draft.base ?? ''; chat = draft.chat === true; trust = draft.trust === true
-      if (!CATALOGUE.find(agent => agent.id === tool)?.effort) effort = ''
+      if (!draft.chat && !CATALOGUE.find(agent => agent.id === tool)?.effort) effort = ''
       mode = projectId ? 'project' : 'folder'; titleTouched = true
     } else {
       projectId = initialProject || projects[0]?.id || ''; mode = projectId ? 'project' : 'folder'
@@ -251,10 +254,12 @@
     event.preventDefault(); if (busy || reading) return
     const why = !agentId ? 'Choose a machine.' : mode === 'project' && !projectId ? 'Choose a project.' : idea ? ideaProblem({ idea, title, prompt }) || (prompt.trim() ? validatePrompt(tool, prompt) : null) || validateModel(model) || (dir ? validateDir(dir) : null) : !prompt.trim() ? 'Describe what the agent should do.' : validatePrompt(tool, prompt) || validateModel(model) || (dir ? validateDir(dir) : null)
     if (why) { message = why; return }
+    const retainedNativeEffort = !startNow && draft?.chat && rules.chat && draft.agentId === agentId && draft.tool === tool && draft.effort === effort
+    if (effort && !efforts.includes(effort) && !retainedNativeEffort) { message = 'Choose an effort offered by this machine, or Agent default.'; return }
     if (blocker) { message = blocker; return }
     busy = true; message = ''
     try {
-      const saved = await saveDraft({ title: title.trim() || defaultTitle(prompt), prompt, idea, projectId: mode === 'project' ? projectId : '', agentId, dir, tool, model: model.trim(), effort, ...cleanDraftOptions({ tool, isRepo: !!project?.isRepo, canChat: !!structuredAgent(machine?.capabilities, tool), chat, worktree, base, trust, yolo }), images, version: draft?.version ?? 0 }, draft?.id, AbortSignal.timeout(20_000))
+      const saved = await saveDraft({ title: title.trim() || defaultTitle(prompt), prompt, idea, projectId: mode === 'project' ? projectId : '', agentId, dir, tool, model: model.trim(), effort, ...cleanDraftOptions({ tool, isRepo: !!project?.isRepo, canChat: canPlanChat, chat, worktree, base, trust, yolo }), images, version: draft?.version ?? 0 }, draft?.id, AbortSignal.timeout(20_000))
       onsaved(saved)
     } catch (e) { onerror(e); message = e instanceof Error ? e.message : "Couldn't save this session. Your draft is still here." }
     finally { busy = false }
@@ -294,8 +299,8 @@
         <div class="section-title">Who’s on the job?</div>
         <div class="settings"><label class="field"><span>Agent</span><select aria-label="Agent" bind:value={tool} onchange={() => { model = ''; effort = '' }}>{#each enabled as agent}<option value={agent.id}>{agent.name}</option>{/each}</select></label>
         <div class="field"><span>Model</span><button type="button" class="picker" bind:this={modelButton} aria-label={`Model: ${model || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={modelOpen} disabled={busy || reading || !tool} onclick={() => modelOpen = !modelOpen}><span class="value">{model || 'Agent default'}</span><span class="chev" aria-hidden="true">▾</span></button></div>
-        <div class="field"><span>Effort</span><button type="button" class="picker" bind:this={effortButton} aria-label={`Effort: ${effort || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={effortOpen} disabled={busy || reading || !takesEffort} title={takesEffort ? '' : `${toolName(tool)} chooses its own effort.`} onclick={() => effortOpen = !effortOpen}><span class="value">{takesEffort ? effort || 'Agent default' : 'This agent decides'}</span>{#if takesEffort}<span class="chev" aria-hidden="true">▾</span>{/if}</button></div></div>
-        {#if !takesEffort}<p class="hint effort-hint">{toolName(tool)} chooses its own effort level.</p>{/if}
+        <div class="field"><span>Effort</span><button type="button" class="picker" bind:this={effortButton} aria-label={`Effort: ${effort || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={effortOpen} disabled={busy || reading || !takesEffort && !effort} title={effortHelp(tool, machine?.capabilities, rules.chat)} onclick={() => effortOpen = !effortOpen}><span class="value">{effort || 'Agent default'}</span>{#if takesEffort}<span class="chev" aria-hidden="true">▾</span>{/if}</button></div></div>
+        <p class="hint effort-hint">{effortHelp(tool, machine?.capabilities, rules.chat)}</p>
         <div class="section-title">How should it run?</div>
         <div class="options">
           <div class="field"><span>Approvals</span><div class="mode" role="group" aria-label="Approvals"><button type="button" class:on={!yolo} aria-pressed={!yolo} onclick={() => yolo = false}>Ask me</button><button type="button" class:on={yolo} aria-pressed={yolo} onclick={() => yolo = true}>YOLO</button></div></div>
@@ -304,6 +309,7 @@
             {#if worktree}<label class="field"><span>Base branch <small>Optional · leave empty for the default</small></span><input aria-label="Base branch" bind:value={base} placeholder="main" maxlength="200" /></label>{/if}{/if}
           {#if rules.showTrust}<label class="check"><input type="checkbox" bind:checked={trust} /> I trust this folder; OpenCode plugins in <code>.opencode</code> may run.</label>{/if}
         </div>
+        {#if rules.chat && !structuredAgent(machine?.capabilities, tool)}<p class="hint">Gaffer is saved for this plan. Reconnect or update this machine before starting it.</p>{/if}
         {#if yolo}<p class="hint yolo-hint" role="note">YOLO is saved as a plan only. You’ll be asked to confirm, with the account and machine checks, when you start it.</p>{/if}
         {#if startNow}<p class="hint">Starting saves this to your backlog first, so nothing is lost if the session can’t start.</p>
         {:else}<p class="hint">{machine && !machine.ready ? 'This machine is offline. You can save now and start when it reconnects.' : 'Saving to the backlog keeps everything ready for later.'}</p>{/if}

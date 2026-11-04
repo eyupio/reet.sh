@@ -45,18 +45,54 @@ A live model change is reported as applied only after the adapter confirms it. O
 omitted; an explicit list must contain one valid model value. Claude requires that read-back. Incomplete or ambiguous replies clear the confirmed
 model and retained status detail, and show a notice. The controller also clears its stored model if an acknowledgement is lost after sending; busy or pre-send failures leave it
 unchanged. The person can choose a model again; the conversation and approvals are preserved.
-No effort control is added yet. On a connection that negotiated `acp-agent-options-v1`, an available descriptor also lists the
-other selectable options the pinned adapter was measured to offer (for Claude and Codex: effort and model-config values), bounded,
-ordered and distinct. It is descriptive only: no control sends an option, and a value can depend on the current model. **Modes**
-remain the permission-sensitive switch list and **Model** the dynamic catalogue, so mode and model are not duplicated in this
-contract. An explicitly chosen startup model must also be confirmed before admission or the opening prompt; see below.
+On connectors that negotiate `acp-live-controls-v1`, Gaffer reads the active session's configuration selectors.
+**Model** can change during a turn when the agent advertises a model selector, and **Effort** appears only for the
+session's advertised `thought_level` choices. Changes use `session/set_config_option` and show success only after a matching
+read-back. A model can change the available effort values, so the whole selector snapshot is refreshed. An ambiguous reply
+shows the value as unconfirmed. Permission and approval modes remain separate controls. Confirmed model and effort values
+are saved for connector restart and in-place reconnect; a saved effort must be accepted before a reopened chat is ready.
+Older connectors keep the existing idle-only model control and do not show an effort selector.
 
+The runtime controls endpoint is `GET /api/v2/terminal/sessions/{id}/chat/controls`; `POST` accepts
+`{"action":"set","configId":"effort","value":"high"}` using an ID and value reported by that exact session.
+Only model and thought-level selectors are accepted. Static installation descriptors do not authorise a runtime switch.
+
+
+## Images returned by an agent
+
+Gaffer displays PNG, JPEG, GIF and WebP images returned by the agent, including screenshots and image resources from tools.
+It also captures a file preview when a completed read or write names an image, or an agent message contains a local Markdown
+image reference. A file fallback captures the current file when that update arrives; it is not a claim about an earlier file
+version. The agent must explicitly return or reference the image: reet does not scan folders for new files.
+
+Select a thumbnail to open it at full size; Escape closes it and restores focus. Images load as they approach the viewport.
+Offline loads offer Retry. Unavailable or expired previews keep their filename; ask the agent to read or recreate the image.
+A chosen unsupported format or oversized image is labelled instead of silently disappearing.
+
+This requires `acp-previews-v1` on an upgraded connector. Only opaque IDs scoped to the account/session reach the image API;
+browsers cannot request arbitrary machine paths. Local file captures must be regular files owned by the connector user,
+inside that user's home or temporary folder. Links cannot escape those roots. Remote URLs and SVG are not fetched.
+The controller validates chunks and the completed content hash before serving bytes with the image type and no caching.
+
+Each image is at most 5 MB, 16,384 pixels on either edge and 32 million pixels total. The connector's private cache holds at
+most 64 MB and 1,024 files, evicting oldest snapshots first. Reads refuse images older than 24 hours; expired files and empty
+session directories are removed on the next capture. The cache survives connector restarts. Image bytes are fetched separately
+from bounded conversation history, whose existing retention limits remain in place.
 
 ## Starting one
 
+Both **Start an agent** dialogs and the backlog composer include **Model** and **Effort**. Models use the machine catalogue,
+your favourites or a configured model ID. In Gaffer, effort suggestions come from the selected agent's advertised
+thought-level options on a connector that negotiated `acp-start-options-v1` (`acpStartOptions`). Older live-controls
+connectors must be upgraded before they can accept effort in a new chat. When no options are advertised, **Agent default** is
+shown with an explanation. A chosen effort is confirmed against the actual selected model before the chat becomes ready
+or receives the opening prompt; an unsupported choice refuses startup rather than silently falling back. The terminal
+interface keeps its existing effort mappings. Backlog save, edit, reload and Start retain both selected values.
+
+
 In **Start an agent**, choose OpenCode on a machine that advertises `acp`. The **Session** choice is **Gaffer** by
 default; choose **OpenCode TUI** for the terminal UI. The **Model** control chooses the model for the chat; leave it at
-**Agent default** to use the model configured in OpenCode. Thinking stays OpenCode's own. The opening prompt becomes the
+**Agent default** to use the model configured in OpenCode. Effort stays at Agent default unless this connector advertises a choice and you select one. The opening prompt becomes the
 first message. The dialog states that the folder's `.opencode` plugins run when it starts, and that a chat can be
 restored after reet restarts on the machine.
 
@@ -91,19 +127,24 @@ A failed row opens on its error; the rest stay folded so a long turn reads as a 
 The connector sends those tool details only to a controller that negotiated **`acp-tool-details-v1`**; an older controller
 receives the plain tool event and the row falls back to its title and location. Thinking is a quiet, foldable aside that
 stops running when the turn waits, finishes or stops. An agent message keeps its headings, lists and quotes, and its fenced code is rendered in its own block; an approval
-remains the one card that asks for an answer.
+remains the one card that asks for an answer. Once answered, it folds into its tool's row as an **Allowed**, **Denied**,
+**Timed out** or **Closed** pill; expanding the row shows the agent's reason and your answer above the command and output.
+An answered approval with no matching tool row stays a card of its own.
 
 ## Gaffer’s work update
 
 Above the message box, Gaffer is a compact block portrait with a front-facing tweed flat cap, blue eyes and short stubble.
-Brief, smooth gestures follow the agent’s activity: a thoughtful tilt while planning, a glance and glasses for reading,
-a magnifying glass for searches, a pencil for edits and a stopwatch for commands. Gestures settle after a second or two,
+Brief, smooth gestures follow the agent’s activity: a thoughtful pause while planning, a glance and glasses for reading,
+a magnifying glass for searches, a pencil for edits and a stopwatch for commands. Gestures take one to three and a half seconds and then settle,
 with irregular 18–32 second rests during active work. Only an occasional blink loops. Contextual Yorkshire quips rotate
 every 30 seconds during active work without immediately repeating; status changes get a relevant quip immediately.
 They are presentation copy, not extra instructions sent to the agent or evidence of work completing.
 
-Click Gaffer (or focus him and press Enter or Space) for a cap-tip, wink or nod and a contextual quip. A two-second
-cooldown prevents repeated clicks from continually restarting him. After at least 15 seconds away from a session,
+Gaffer moves like a person: nods, leans, glances and startles, never tilting his whole body, which the sprite would
+turn into a rocking shoulder line. Click Gaffer (or focus him and press Enter or Space) for a contextual quip and a short
+flinch, double nod or glance in whatever he is already doing. A click never swaps the scene, so a half-finished cup of tea
+stays a cup of tea. Clicks closer together than about two thirds of a second are ignored, so they cannot continually
+restart him. After at least 15 seconds away from a session,
 returning catches him with a brew during active work or asleep after a finished turn or session, before he startles or
 stretches awake. This works when switching sessions as well as leaving the tab; short focus changes do not trigger it.
 An error, failed session, lost connection or pending decision always takes priority over a tea break or nap.
@@ -118,7 +159,13 @@ that began before the chat opened.
 Approvals, questions, errors, stopped turns and reconnects override working messages. Reconnecting labels the tool
 counts as last seen, and finishes as a compact handover without claiming checks passed. Working, waiting and finished
 states have distinct decorative expressions. **Pause Gaffer animation** keeps him still for this view while quotes and
-factual updates keep arriving. **Account → Profile → Appearance → Gaffer animation** saves the animation preference
+factual updates keep arriving. **Minimise** folds the card into one line: the portrait, the status, Gaffer's own quip (or
+the handover once a turn finishes) and the done, failed and unfinished tally. The chips, job sheet and byline return when you
+expand it. A waiting approval or question keeps that one line with an amber edge, and a snag with a red one. Cards start
+minimised; **Account → Profile → Appearance → Gaffer progress card** chooses **One line** or **Full card** as the starting
+view across browsers, and a card's own button overrides it for that card until it closes. In light mode the portrait is
+drawn as dark line-work around a light face, so it reads the same as in dark mode.
+**Account → Profile → Appearance → Gaffer animation** saves the animation preference
 with your account across browsers. Turning it off never hides Gaffer, quirky quotes, live updates, activity or the
 handover and job sheet. The device’s reduced-motion preference also disables all Gaffer motion without silencing quotes.
 The avatar is decorative, changing facts are announced politely, and timers and quips do not repeatedly interrupt
@@ -413,11 +460,19 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
   separately from evictable history: a card never pins the output after it, and tool commands, paths and diffs count towards
   the text budget. If waiting cards alone exceed the budget they stay answerable. A continued chat replaying a long history stays responsive instead of building an
   unbounded page.
-- **Messages typed while it works are queued.** The composer stays usable during a turn: Enter queues the message
-  (with any images) instead of sending it, and the queue, at most ten items, sends one message as each turn finishes.
-  A queued item can be edited back into the composer or removed; a failed send stays put with **Retry**. The queue lives
-  only in the open chat and is never stored. Waiting for an approval or an answer holds the queue until the person has
-  answered.
+- **Messages typed while it works are queued.** On upgraded connectors, the queue holds at most ten messages per session
+  in the controller database and is shared by all tabs. Images are uploaded before enqueueing. Closing a browser or restarting
+  the controller preserves queued messages; sending normally waits for the actual turn to finish, including cancellation,
+  approvals and compaction. **Edit**, **Remove** and **Retry** use revisions so another tab cannot overwrite a delivery in progress.
+  **Send now** appears when the active agent explicitly supports mid-turn steering. It injects the selected message into that
+  turn. Only an explicit `promptRequired` response permits submitting it as a new turn. **Stop and send** cancels first, then
+  waits for the actual turn to end. If cancellation ends the session, the message stays available for recovery.
+  A lost acknowledgement or controller restart during delivery leaves the message **uncertain** and pauses ordinary queue
+  processing. It is never resent automatically. A failed agent turn also pauses ordinary delivery until an explicit edit or retry. Check the conversation and acknowledge the possible duplicate before retrying.
+  The queue API is `GET`/`POST`/`PATCH /api/v2/terminal/sessions/{id}/chat/queue`. Enqueues carry a stable client ID; completed
+  IDs retain only a receipt until session deletion. Archiving erases queued content. Uploaded images still follow the machine's
+  24-hour expiry; an expired image needs to be attached again. Older connectors retain their browser-only queue, which is lost
+  when the pane closes.
 - **A control connection loss does not end a reet session.** The connector owns one process per reet session for the life of
   the agent process. A reconnect adopts the running sessions, includes them in reconciliation, and drains the bounded event
   queue produced while detached. A connector restart or machine reboot reopens the recorded chats from OpenCode's store;

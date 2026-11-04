@@ -17,6 +17,7 @@ type Options struct {
 	Dir    string
 	Home   string
 	Model  string
+	Effort string
 	Trust  bool
 	// Questions lets the session accept typed agent questions (elicitation/create).
 	// It is off in every launch today: the form capability is not advertised to
@@ -91,6 +92,7 @@ func (o Options) maxTurn() time.Duration {
 // the client can be tested without a connector. The connector maps it to a
 // terminalproto.ACPEvent.
 type Event struct {
+	Preview      *Preview
 	Kind         string
 	MessageID    string
 	ToolCallID   string

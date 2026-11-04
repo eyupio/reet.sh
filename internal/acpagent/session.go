@@ -35,7 +35,8 @@ var (
 	ErrImages = errors.New("the agent does not accept images")
 )
 
-const maxLineBytes = 1 << 20
+// A bounded 5 MB preview needs room for base64 and the enclosing ACP update.
+const maxLineBytes = 8 << 20
 
 // An exited agent's final frames get a bounded chance to reach the sender.
 // A stuck callback must not keep the session alive indefinitely.
@@ -69,6 +70,11 @@ type rpcResult struct {
 	err    *rpcError
 }
 
+type rpcCall struct {
+	reply chan rpcResult
+	apply func(json.RawMessage)
+}
+
 type pendingPermission struct {
 	rpcID    json.RawMessage
 	allowID  string
@@ -86,10 +92,18 @@ type Session struct {
 	stdout io.ReadCloser
 	stderr *cappedBuffer
 
+	configMu     sync.Mutex
+	steerMu      sync.Mutex
+	settings     []terminalproto.ACPSetting
+	previewText  map[string]string
+	previewTools map[string]previewTarget
+	steering     bool
+	compacting   bool
+	configuring  bool
 	mu           sync.Mutex
 	writeMu      sync.Mutex
 	nextID       int64
-	calls        map[int64]chan rpcResult
+	calls        map[int64]rpcCall
 	pending      map[string]*pendingPermission
 	questions    map[string]*pendingQuestion
 	closed       bool
@@ -178,7 +192,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	}
 	_ = stdoutWriter.Close()
 	s := &Session{opts: opts, binary: binary, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr,
-		calls: map[int64]chan rpcResult{}, pending: map[string]*pendingPermission{}, tools: map[string]string{},
+		calls: map[int64]rpcCall{}, pending: map[string]*pendingPermission{}, tools: map[string]string{},
 		toolStart: map[string]time.Time{}, done: make(chan struct{})}
 	readDone := make(chan struct{})
 	go func() {
@@ -204,6 +218,11 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	initCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	var initResult struct {
+		Meta struct {
+			Steering struct {
+				Supported bool `json:"supported"`
+			} `json:"steering"`
+		} `json:"_meta"`
 		ProtocolVersion int `json:"protocolVersion"`
 		AgentInfo       struct {
 			Name    string `json:"name"`
@@ -232,6 +251,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		return nil, ErrExited
 	}
 	s.promptImages = initResult.AgentCapabilities.PromptCapabilities.Image
+	s.steering = initResult.Meta.Steering.Supported
 	if initResult.ProtocolVersion != ProtocolVersion {
 		s.Close()
 		return nil, &VersionError{Agent: spec.displayName(), Found: fmt.Sprintf("ACP protocol %d", initResult.ProtocolVersion), Required: fmt.Sprintf("ACP protocol %d", ProtocolVersion)}
@@ -316,6 +336,27 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	s.mode = mode
 	s.model = model
 	s.mu.Unlock()
+	s.updateSettings(raw)
+	if opts.Model != "" && s.Model() != opts.Model {
+		s.Close()
+		return nil, ErrModel
+	}
+	if opts.Effort != "" {
+		effortID := ""
+		for _, o := range s.Controls().Options {
+			if o.Category == "thought_level" {
+				effortID = o.ID
+			}
+		}
+		if effortID == "" {
+			s.Close()
+			return nil, ErrControl
+		}
+		if err := s.SetOption(newCtx, effortID, opts.Effort); err != nil {
+			s.Close()
+			return nil, err
+		}
+	}
 	// Every replayed update was handled by the reader before the load reply
 	// it precedes, so the replay has been delivered by now.
 	if opts.OnReady != nil {
@@ -324,7 +365,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	if !opened {
 		s.markInterrupted()
 	}
-	s.emit(Event{Kind: "status", State: "idle", Detail: model})
+	s.emit(Event{Kind: "status", State: "idle", Detail: s.Model()})
 	return s, nil
 }
 
@@ -403,6 +444,12 @@ func (s *Session) write(message any) error {
 }
 
 func (s *Session) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	return s.requestWithReply(ctx, method, params, nil)
+}
+
+// apply runs in protocol read order before a later notification can supersede
+// this reply. It must be bounded and must never wait for another RPC.
+func (s *Session) requestWithReply(ctx context.Context, method string, params any, apply func(json.RawMessage)) (json.RawMessage, error) {
 	id := s.nextRequestID()
 	ch := make(chan rpcResult, 1)
 	s.mu.Lock()
@@ -410,7 +457,7 @@ func (s *Session) request(ctx context.Context, method string, params any) (json.
 		s.mu.Unlock()
 		return nil, ErrClosed
 	}
-	s.calls[id] = ch
+	s.calls[id] = rpcCall{reply: ch, apply: apply}
 	s.mu.Unlock()
 	if err := s.write(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
 		s.mu.Lock()
@@ -498,11 +545,14 @@ func (s *Session) handle(message rpcMessage) {
 		return
 	}
 	s.mu.Lock()
-	ch := s.calls[id]
+	call := s.calls[id]
 	delete(s.calls, id)
 	s.mu.Unlock()
-	if ch != nil {
-		ch <- rpcResult{result: message.Result, err: message.Error}
+	if call.reply != nil {
+		if message.Error == nil && call.apply != nil {
+			call.apply(message.Result)
+		}
+		call.reply <- rpcResult{result: message.Result, err: message.Error}
 	}
 }
 
@@ -531,12 +581,32 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 	}
 	u := update.Update
 	switch u.SessionUpdate {
+	case "config_option_update", "config_options_update":
+		var envelope struct {
+			Update json.RawMessage `json:"update"`
+		}
+		if json.Unmarshal(raw, &envelope) == nil {
+			s.updateSettings(envelope.Update)
+		}
+	case "compaction_update":
+		var envelope struct {
+			Update struct {
+				Status string `json:"status"`
+			} `json:"update"`
+		}
+		if json.Unmarshal(raw, &envelope) == nil {
+			s.mu.Lock()
+			s.compacting = envelope.Update.Status == "in_progress"
+			s.mu.Unlock()
+		}
 	case "agent_message_chunk":
 		text := contentText(u.Content)
 		if text != "" {
 			s.markProgress()
 			s.emit(Event{Kind: "agent", MessageID: u.MessageID, Text: text})
+			s.emitPreviews(u.MessageID, "", s.messagePreviews(u.MessageID, text))
 		}
+		s.emitPreviews(u.MessageID, "", contentPreviews(u.Content))
 	case "user_message_chunk":
 		text := contentText(u.Content)
 		if text != "" {
@@ -575,6 +645,15 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 		s.emit(Event{Kind: "tool", ToolCallID: u.ToolCallID, Title: u.Title, ToolKind: u.Kind, Status: u.Status, Text: text,
 			Command: details.command, Path: details.path, Diff: details.diff, Additions: details.additions, Deletions: details.deletions,
 			DurationMs: durationMs, Locations: locations})
+		pictures := contentPreviews(u.Content)
+		if len(pictures) == 0 {
+			pictures = contentPreviews(u.RawOutput)
+		}
+		target := s.previewTarget(u.ToolCallID, u.Kind, details.path, u.Status)
+		if len(pictures) == 0 && target != "" {
+			pictures = append(pictures, Preview{Path: target})
+		}
+		s.emitPreviews("", u.ToolCallID, pictures)
 	case "agent_thought_chunk":
 		text := contentText(u.Content)
 		if text != "" {
@@ -1172,6 +1251,10 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		}
 	}
 	s.turnMu.Lock()
+	if s.configuring {
+		s.turnMu.Unlock()
+		return ErrBusy
+	}
 	if s.forceClosing {
 		s.turnMu.Unlock()
 		return ErrClosed
@@ -1195,6 +1278,7 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 	s.warned = false
 	s.mu.Lock()
 	s.lastEvent = s.turnStart
+	s.compacting = false
 	s.turnProgress = false
 	s.turnError = false
 	// No tool can be running when a turn begins; an entry left by an earlier turn
@@ -1217,6 +1301,9 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		<-watchStopped
 		s.turnMu.Lock()
 		s.working = false
+		s.mu.Lock()
+		s.compacting = false
+		s.mu.Unlock()
 		s.turnMu.Unlock()
 	}()
 	s.emit(Event{Kind: "status", State: "working"})
@@ -1465,10 +1552,10 @@ func (s *Session) ended() {
 	s.doneOnce.Do(func() {
 		s.mu.Lock()
 		s.closed = true
-		for _, ch := range s.calls {
-			ch <- rpcResult{err: &rpcError{Message: "the agent exited"}}
+		for _, call := range s.calls {
+			call.reply <- rpcResult{err: &rpcError{Message: "the agent exited"}}
 		}
-		s.calls = map[int64]chan rpcResult{}
+		s.calls = map[int64]rpcCall{}
 		pending := make([]string, 0, len(s.pending))
 		for id, p := range s.pending {
 			if p.timer != nil {
@@ -1549,6 +1636,8 @@ func (s *Session) Close() {
 
 // SetModel changes the model without replacing the ACP session or its history.
 func (s *Session) SetModel(ctx context.Context, model string) error {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	s.turnMu.Lock()
 	defer s.turnMu.Unlock()
 	if s.working {
@@ -1571,6 +1660,7 @@ func (s *Session) SetModel(ctx context.Context, model string) error {
 		s.unconfirmedModel()
 		return fmt.Errorf("%w: %w", ErrModelUnconfirmed, err)
 	}
+	s.updateSettings(raw)
 	applied, confirmed := acknowledgedModel(raw, model, s.opts.Agent.AllowOmittedModelAck)
 	if !confirmed {
 		s.unconfirmedModel()

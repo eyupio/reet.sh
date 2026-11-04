@@ -23,6 +23,31 @@ Review batches: [process recovery #480](https://github.com/eyupio/reet.sh/pull/4
 [transcript retention #484](https://github.com/eyupio/reet.sh/pull/484). Eight reproduced defects are addressed across the three
 focused batches below. Each PR records its checks and merge state. All handoff entries are retained when integrating the stack.
 
+## GAFFER-PREVIEWS-1: agent image previews and continuation (4 November 2026)
+
+Start a new environment with [the current continuation handoff](docs/handoffs/gaffer-continuation.md). It records the
+delivered Gaffer PRs, their final heads, validation results and merge shas using repository-relative paths. The image
+preview implementation is in [PR #498](https://github.com/eyupio/reet.sh/pull/498) on `feat/chat-image-previews`, merged as
+`0de8f7d`; its [feature handoff](docs/handoffs/chat-image-previews.md) covers the wire contract, private snapshot cache, UI,
+recovery, limits and checked screenshots. [PR #490](https://github.com/eyupio/reet.sh/pull/490) (session actions) merged as
+`99c7fd8` and [PR #493](https://github.com/eyupio/reet.sh/pull/493) (startup and backlog settings) merged as `918f452`.
+The handoff refresh that records all three landed as #503 (`4539386`) and #504 (`80ae4cc`). No Gaffer pull request remains
+open; follow the "Starting a fresh session" checklist in the continuation handoff before changing anything.
+
+## GAFFER-START-1: launch and backlog model/effort selection (4 November 2026)
+
+Implementation and verification are tracked in [the startup-options handoff](docs/handoffs/start-agent-options.md).
+Both start dialogs and backlog creation/editing retain model and native effort choices. The new `acp-start-options-v1`
+contract prevents older live-control connectors receiving unsupported create fields. Runtime confirmation precedes readiness
+and the opening prompt. The local web, browser and focused race checks pass. [PR #493](https://github.com/eyupio/reet.sh/pull/493) contains the follow-up
+and integrates #490 for combined verification; merge the toolbar PR first, then this PR when review and final-head checks pass.
+
+## GAFFER-LIVE-1: live settings and durable message delivery (4 November 2026)
+
+Implementation and verification are tracked in [the live-controls handoff](docs/handoffs/live-chat-controls.md).
+This covers negotiated runtime model/effort selectors, capability-aware steering, durable shared queues and recovery
+from uncertain delivery. [PR #488](https://github.com/eyupio/reet.sh/pull/488) merged as `ac5938d` after final-head checks and review fixes passed.
+
 ## GAFFER-BOUNDS-1: keep history bounded around waiting cards (4 November 2026)
 
 Final asynchronous review follow-up: the process waiter could mark the chat closed before buffered final ACP frames reached

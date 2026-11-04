@@ -36,7 +36,9 @@ type launchAPI struct {
 	// late, when set, receives a worktree request that got no answer.
 	late func(terminalproto.Message)
 	// prompts records every ACP prompt, including its image paths.
-	prompts []terminalproto.ACPPrompt
+	prompts  []terminalproto.ACPPrompt
+	controls func(*terminalproto.ACPControl) terminalproto.ACPControlResult
+	preview  func(*terminalproto.ACPPreview) terminalproto.ACPPreviewResult
 	// modes records every session_mode request; mode answers it (default: the
 	// session is running).
 	modes []terminalproto.SessionMode
@@ -82,6 +84,23 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 			}
 		case terminalproto.End:
 			reply.Body = terminalproto.SessionChanged{State: terminalproto.Ended}
+		case *terminalproto.ACPPreview:
+			f.mu.Lock()
+			respond := f.preview
+			f.mu.Unlock()
+			reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable}
+			if respond != nil {
+				reply.Body = respond(op)
+			}
+		case *terminalproto.ACPControl:
+			f.mu.Lock()
+			respond := f.controls
+			f.mu.Unlock()
+			answer := terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Working: true, Options: []terminalproto.ACPSetting{}}}
+			if respond != nil {
+				answer = respond(op)
+			}
+			reply.Body = answer
 		case *terminalproto.ACPPrompt:
 			f.mu.Lock()
 			f.prompts = append(f.prompts, *op)

@@ -244,7 +244,7 @@
   {/snippet}
 
   {#if loading}
-    <Skeleton label="Reading your groups…" shape="lines" count={4} />
+    <Skeleton label="Reading your groups…" shape="rows" count={5} />
   {:else if loadError}
     <div class="state error" role="alert">
       <p>{loadError}</p>

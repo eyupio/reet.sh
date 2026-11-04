@@ -280,3 +280,39 @@ func TestChatReattachCapabilityNeedsNegotiationAndHistory(t *testing.T) {
 		t.Fatal("chat reattach reported without OpenCode")
 	}
 }
+
+func TestStartupOptionsDoNotLeakToLiveControlsOnlyPeer(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
+	live := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPLiveControlsFeature
+	negotiateFeatures(&cfg, live)
+	if c := capabilitiesFor(cfg, true, terminalproto.Ready); !c.ACPLiveControls || c.ACPStartOptions {
+		t.Fatalf("legacy live peer changed: %+v", c)
+	}
+	negotiateFeatures(&cfg, live+","+terminalproto.ACPStartOptionsFeature)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if !c.ACPStartOptions || c.ValidateFor(terminalFeatures(cfg)) != nil {
+		t.Fatalf("startup options missing or not negotiated: %+v", c)
+	}
+	negotiateFeatures(&cfg, live)
+	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPStartOptions || terminalproto.SupportsACPStartOptions(terminalFeatures(cfg)) {
+		t.Fatal("startup feature survived reconnect to an older controller")
+	}
+}
+
+func TestPreviewCapabilityRequiresIndependentNegotiation(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
+	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature
+	negotiateFeatures(&cfg, base)
+	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPPreviews {
+		t.Fatal("preview leaked to older peer")
+	}
+	negotiateFeatures(&cfg, base+","+terminalproto.ACPPreviewsFeature)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if !c.ACPPreviews || c.ValidateFor(terminalFeatures(cfg)) != nil {
+		t.Fatal("negotiated preview missing", c)
+	}
+	negotiateFeatures(&cfg, base)
+	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPPreviews {
+		t.Fatal("preview survived reconnect to older peer")
+	}
+}

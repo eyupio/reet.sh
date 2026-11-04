@@ -80,8 +80,16 @@ try {
   await expect(panel.locator('.preview')).toContainText('export const status')
   await panel.getByRole('tab',{name:'GitHub',exact:true}).click()
   await expect(panel.getByText('Resolve merge conflicts')).toBeVisible()
+  await expect(panel.getByText('GitHub reports conflicts with the base branch. 1 check is also failing.')).toBeVisible()
+  await expect(panel.getByText('1 failing',{exact:true})).toBeVisible()
+  await expect(panel.getByText('1 running',{exact:true})).toBeVisible()
+  await expect(panel.getByText('1 passed',{exact:true})).toBeVisible()
+  await expect(panel.getByText('Changes requested',{exact:true})).toBeVisible()
+  await expect(panel.getByText('Conflicts with base',{exact:true})).toBeVisible()
+  await expect(panel.getByRole('link',{name:'Open failing check'})).toHaveAttribute('href','https://github.com/example/project/actions/runs/1')
   await audit(page,panel)
   await expect(panel.getByText('Browser checks',{exact:true})).toBeVisible()
+  await expect(panel.getByText('Failed',{exact:true})).toBeVisible()
   await expect(panel.getByText('Unit tests',{exact:true})).not.toBeVisible()
   await panel.getByText('1 passed or skipped',{exact:true}).click()
   await expect(panel.getByText('Unit tests',{exact:true})).toBeVisible()
@@ -179,5 +187,33 @@ try {
  const beforePaused=returning.calls.length;await returning.page.clock.fastForward(130000);expect(returning.calls.length).toBe(beforePaused)
  expect(returning.errors).toEqual([]);await returning.context.close()
  const old=await open(1600,'light',false);await old.panel.getByRole('tab',{name:'Files',exact:true}).click();await expect(old.panel.getByText(/Update reet on this machine to use read-only file browsing/)).toBeVisible();expect(old.calls).toEqual([]);expect(old.errors).toEqual([]);await old.context.close()
- console.log('Session workspace: tabs, return summary, changes, previews, folders, CI, stale data, sidebar signals and phone/tablet focus passed.')
+ // The context panel has the sessions panel's controls: a resize separator (drag, keys, double-click) and a collapse
+ // control that hands focus back to Details, with the width and open state kept for the person.
+ for(const theme of ['dark','light']){
+  const {page,context,panel,errors}=await open(1600,theme)
+  const details=page.locator('.session-screen').getByRole('button',{name:'Details',exact:true})
+  const separator=page.getByRole('separator',{name:'Resize session workspace'})
+  const width=async()=>Math.round((await panel.boundingBox()).width)
+  expect(await width()).toBe(360)
+  await expect(separator).toBeVisible()
+  // Dragging the separator left widens the panel.
+  const grip=await separator.boundingBox();await page.mouse.move(grip.x+grip.width/2,grip.y+grip.height/2);await page.mouse.down();await page.mouse.move(grip.x+grip.width/2-60,grip.y+grip.height/2,{steps:6});await page.mouse.up()
+  await expect.poll(width).toBeGreaterThan(400)
+  // Arrow keys follow the drag's direction; End reaches the widest, Home the narrowest.
+  await separator.focus();const widened=await width()
+  await page.keyboard.press('ArrowRight');await expect.poll(width).toBeLessThan(widened)
+  await page.keyboard.press('ArrowLeft');await expect.poll(width).toBe(widened)
+  await page.keyboard.press('End');const widest=await width();expect(widest).toBeGreaterThan(widened)
+  await page.keyboard.press('Home');await expect.poll(width).toBe(300)
+  await page.keyboard.press('End');expect(await width()).toBe(widest)
+  // Double-click resets to the default, and collapsing remembers the width when Details brings it back.
+  await separator.dblclick();await expect.poll(width).toBe(360)
+  await panel.getByRole('button',{name:'Collapse session workspace'}).click()
+  await expect(panel).toBeHidden();await expect(separator).toBeHidden()
+  await expect(details).toBeFocused();await expect(details).toHaveAttribute('aria-expanded','false')
+  await details.click();await expect(panel).toBeVisible();await expect(separator).toBeVisible();expect(await width()).toBe(360)
+  await expect(details).toHaveAttribute('aria-expanded','true')
+  expect(errors).toEqual([]);await context.close()
+ }
+ console.log('Session workspace: tabs, return summary, changes, previews, folders, CI, stale data, sidebar signals, context panel resize/collapse and phone/tablet focus passed.')
 }finally{await browser.close()}

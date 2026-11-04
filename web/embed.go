@@ -128,6 +128,9 @@ func Handler(baseURL string, opts ...Option) http.Handler {
 	index, _ := fs.ReadFile(sub, "index.html")
 	gz := &gzipCache{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveDocs(w, r, origin(r, baseURL)) {
+			return
+		}
 		if target, ok := legacyRedirect(r); ok {
 			http.Redirect(w, r, target, http.StatusMovedPermanently)
 			return
@@ -502,17 +505,25 @@ func writeRobots(w http.ResponseWriter, origin string) {
 	_, _ = w.Write([]byte(fmt.Sprintf(robotsTxt, robotsPrivate, html.EscapeString(origin))))
 }
 
-// llmsTxt is a short index for assistants and agents. It points at public pages and the canonical source documentation
-// until the docs site is served from this origin.
+// llmsTxt is a short index for assistants and agents. It points at the public pages and the documentation served from
+// this origin.
 const llmsTxt = `# reet.sh
 
 > A self-hosted control room for the AI agents, skills and setups across your machines.
 
-## Public pages
+## Start here
 
 - [reet.sh](%[1]s/): product overview and install command
+- [Documentation](%[1]s/docs/): install, connect machines, run agents, sync skills and operate an instance
+- [Install the binary](%[1]s/docs/binary-installation/): the supported install paths
 - [Public community](%[1]s/community): published lists and their skills
-- [Source and documentation](https://github.com/eyupio/reet.sh): README, guides and the AGPL-3.0 licence
+
+## Common tasks
+
+- [Connect your shelf to an AI client](%[1]s/docs/mcp/): the hosted MCP server and OAuth consent
+- [Skills and enrolled machines](%[1]s/docs/controller-sync/): reviewed skill distribution
+- [Backups](%[1]s/docs/backups/): encrypted, verified instance and shelf backups
+- [Command reference](%[1]s/docs/cli-reference/): every reet command
 
 ## What it is
 
@@ -523,6 +534,7 @@ terminals and start installed agents, and syncs skills and reusable setups with 
 
 - The public community is readable without an account.
 - App, account and private-list pages are not intended for indexing.
+- The documentation is served without JavaScript.
 `
 
 // llmsFullTxt is a compact factual summary for assistants that request the longer form.
@@ -544,8 +556,13 @@ reet.sh is a self-hosted control room for the AI agents, skills and reusable set
 ## Links
 
 - Product: %[1]s/
+- Documentation: %[1]s/docs/
+- Install: %[1]s/docs/binary-installation/
+- MCP: %[1]s/docs/mcp/
+- Sync: %[1]s/docs/controller-sync/
+- Backups: %[1]s/docs/backups/
 - Public community: %[1]s/community
-- Source, guides and licence: https://github.com/eyupio/reet.sh
+- Source and licence: https://github.com/eyupio/reet.sh
 
 ## Crawling
 
@@ -555,7 +572,9 @@ Public pages may be indexed. App, account and private-list pages are not intende
 const aiTxt = `# reet.sh
 # A self-hosted control room for AI agents, skills and setups across machines.
 # Public pages: %[1]s/ and %[1]s/community
-# Source and documentation: https://github.com/eyupio/reet.sh
+# Documentation: %[1]s/docs/
+# Install: %[1]s/docs/binary-installation/
+# Source: https://github.com/eyupio/reet.sh
 `
 
 func writeText(w http.ResponseWriter, r *http.Request, body, origin string) {
@@ -566,18 +585,23 @@ func writeText(w http.ResponseWriter, r *http.Request, body, origin string) {
 }
 
 func sitemapPaths(fn func() []string) []string {
-	if fn == nil {
-		return nil
-	}
 	seen := map[string]bool{}
-	paths := make([]string, 0, 8)
-	for _, p := range fn() {
+	paths := make([]string, 0, 32)
+	add := func(p string) {
 		p = strings.TrimSpace(p)
 		if p == "" || p == "/" || !strings.HasPrefix(p, "/") || seen[p] {
-			continue
+			return
 		}
 		seen[p] = true
 		paths = append(paths, p)
+	}
+	for _, p := range docsSitemapPaths() {
+		add(p)
+	}
+	if fn != nil {
+		for _, p := range fn() {
+			add(p)
+		}
 	}
 	return paths
 }

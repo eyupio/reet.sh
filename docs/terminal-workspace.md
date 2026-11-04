@@ -80,7 +80,7 @@ beside it). Its parts:
   its tooltip and read out; while this browser's connection to a live session is down it says that instead, such as
   "Reconnecting" or "Disconnected", from the connection), a **YOLO** badge when on (or **Ask me | YOLO** for a live structured chat that can switch), **Gaffer | the agent TUI** — the agent TUI chosen for a shell or terminal
   session, Gaffer chosen for a structured OpenCode session (and the agent TUI disabled there), and
-  Gaffer disabled with its reason for a shell — and the actions menu (⋮, or Shift+F10 on it): Rename, Theatre view, Copy branch,
+  Gaffer disabled with its reason for a shell. **Theatre view** is a direct header button that hides the panels without changing the session. Interface, approvals, **Terminal here** and (on larger screens) **Terminal beside** stay in a wrapping toolbar. The actions menu (More / ⋮, or Shift+F10 on it) contains Rename, Copy branch,
   End session or Remove from history, Check and remove worktree. Tab from the open menu goes on to the control after ⋮
   (Shift+Tab back to ⋮), and a reconnecting terminal never takes focus out of it. A terminal session shows no steps and no
   progress bar (R10). A tab's close button says the session keeps running, or for a finished one that it stays in its
@@ -114,12 +114,12 @@ beside it). Its parts:
   reaches into the panel's widened padding, covers no control and reaches no further over the terminal than its 24 px
   track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
   extra keys are 40 × 40 px.
-- **Phones** get one slim header (back to Sessions, title, project · machine, state, Details, ⋮); the tabs and Gaffer |
-  agent TUI are left out. With the keyboard up for the terminal the site's top bar steps aside (`keyboardChrome` with the
-  `session` focus, the same usable-height rule as Jump and the launch prompt); the slim header stays, 44 px tall while
-  typing, and the pane's own header gives its row to the terminal, so the keyboard-open rows are unchanged (24 at
-  390 × 844). While the connection is down the pane's header stays, so **Retry now**, **Reconnect** or **Continue here**
-  is reachable above the keyboard. Held sideways, the slim header gives its rows to the terminal and the toolbar keeps its back arrow.
+- **Phones** keep the same session actions as desktop. The identity row shows the session and its state, with labelled
+  **Theatre**, **Details** and **More** controls. Interface and approval choices stay visible below it, with 44 px touch
+  targets; the toolbar wraps instead of moving them into the menu. **Terminal here** opens a terminal in the same folder.
+  With the keyboard up, the site's top bar steps aside and the session controls remain reachable. In landscape, identity
+  and actions share a compact row where there is room. Connection recovery buttons remain available in the pane.
+
 
 The terminal route uses compact app navigation and the remaining usable viewport
 (see [Phones](#phones) for how that height is chosen while a keyboard is open).
@@ -654,7 +654,7 @@ The right-hand panel keeps the session's status and workspace alongside the conv
 - **Overview** shows the reported state and its source, last activity, requests waiting for your answer, active tools, failures and the latest agent update. Gaffer chats reuse the existing conversation stream. Tool counts cover loaded history; a failed tool can have been recovered by later work. A return summary counts new stream events since the last visit in this browser tab. Only a sequence number and time are stored in session storage. Terminal sessions report process/output activity rather than invented steps. The Overview never moves its sections when the agent moves on: the headline, the notice (a request waiting for you, a chat error, the return summary or a calm line), In progress, failures and the latest update each fill a slot of fixed height, so a new task changes the words inside a slot and nothing after it shifts. Long text is cut with an ellipsis or scrolls inside its slot, and the changes card holds its height while the first read is pending.
 - **Changes** reads both ordinary checkouts and linked worktrees. Changed files show status, added/removed line counts with proportional bars, and merge conflicts. Select a file for a read-only diff against HEAD or a file preview. Untracked files have no diff counts; unavailable counts are left unknown. Upstream ahead/behind counts are local observations, without fetching.
 - **Files** browses one folder at a time under the session's recorded workspace. Links, Git metadata and special-file previews are excluded. Previews and listings are bounded, with truncation labelled. File browsing respects the machine's local folder-browse consent.
-- **GitHub** reads the branch's PR using `gh pr view` on the session's machine. It needs an explicit github.com origin, the GitHub CLI and an existing sign-in there. It shows PR state, review decision, merge conflicts, change totals and CI checks. Failed and pending checks appear first; passing/skipped checks are folded. Check links open provider details. Missing checks do not establish success, and the panel does not claim merge eligibility from green checks alone.
+- **GitHub** reads the branch's PR using `gh pr view` on the session's machine. It needs an explicit github.com origin, the GitHub CLI and an existing sign-in there. It leads with what needs attention — merge conflicts, failing checks, requested changes, running checks or a review — and names the checks still running or failing. A coloured check meter and counts summarise failing, running and passing checks; failed and pending checks appear first, with passing/skipped checks folded. Review decision, merge conflicts and change totals follow below. Check links open provider details. Missing checks do not establish success, and the panel does not claim merge eligibility from green checks alone.
 
 Local status refreshes every 15 seconds while working and every minute while quiet. GitHub refreshes every two minutes while its tab is selected. Returning to a visible browser tab refreshes the current status and selected GitHub view. Hidden browser tabs pause inspection polling. **Live updates** pauses automatic reads; manual Refresh remains available. Files and previews refresh on navigation or manually. Each view displays its last check time; a failed refresh retains a clearly marked last-known result when available. Compact file/PR signals appear in the navigation for sessions inspected during this visit, with last-check tooltips.
 

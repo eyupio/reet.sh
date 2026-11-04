@@ -59,6 +59,9 @@ type AgentConfig struct {
 	acp                bool
 	acpHistory         bool
 	acpModel           bool
+	acpLiveControls    bool
+	acpStartOptions    bool
+	acpPreviews        bool
 	acpAgentMode       bool
 	acpAgentOptions    bool
 	acpImages          bool
@@ -745,6 +748,9 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpAgents = terminalproto.SupportsACPAgents(advertised)
 	cfg.acpHistory = terminalproto.SupportsACPHistory(advertised)
 	cfg.acpModel = terminalproto.SupportsACPModel(advertised)
+	cfg.acpLiveControls = terminalproto.SupportsACPLiveControls(advertised)
+	cfg.acpStartOptions = terminalproto.SupportsACPStartOptions(advertised)
+	cfg.acpPreviews = terminalproto.SupportsACPPreviews(advertised)
 	cfg.acpAgentMode = terminalproto.SupportsACPAgentMode(advertised)
 	cfg.acpAgentOptions = terminalproto.SupportsACPAgentOptions(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
@@ -815,6 +821,15 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpAgents {
 		features = append(features, terminalproto.ACPAgentsFeature)
+	}
+	if cfg.acpPreviews {
+		features = append(features, terminalproto.ACPPreviewsFeature)
+	}
+	if cfg.acpStartOptions {
+		features = append(features, terminalproto.ACPStartOptionsFeature)
+	}
+	if cfg.acpLiveControls {
+		features = append(features, terminalproto.ACPLiveControlsFeature)
 	}
 	if cfg.acpModel {
 		features = append(features, terminalproto.ACPModelFeature)
@@ -997,15 +1012,18 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		Browse:    cfg.browse && control && enabled && cfg.browseAllowed,
 		// Only on a connection that negotiated browse-v1: an older
 		// controller's strict decoder would refuse the field.
-		BrowseOff:  cfg.browse && control && enabled && !cfg.browseAllowed,
-		Clipboard:  cfg.clipboard && control && enabled && cfg.clipboardAllowed,
-		Uploads:    cfg.uploads && control && enabled && cfg.uploadsAllowed,
-		UploadsOff: cfg.uploads && control && enabled && !cfg.uploadsAllowed,
-		Models:     cfg.models && control && enabled && cfg.modelsAllowed,
-		ModelsOff:  cfg.models && control && enabled && !cfg.modelsAllowed,
-		ACP:        acp,
-		ACPHistory: acp && cfg.acpHistory,
-		ACPModel:   acp && cfg.acpModel,
+		BrowseOff:       cfg.browse && control && enabled && !cfg.browseAllowed,
+		Clipboard:       cfg.clipboard && control && enabled && cfg.clipboardAllowed,
+		Uploads:         cfg.uploads && control && enabled && cfg.uploadsAllowed,
+		UploadsOff:      cfg.uploads && control && enabled && !cfg.uploadsAllowed,
+		Models:          cfg.models && control && enabled && cfg.modelsAllowed,
+		ModelsOff:       cfg.models && control && enabled && !cfg.modelsAllowed,
+		ACP:             acp,
+		ACPHistory:      acp && cfg.acpHistory,
+		ACPModel:        acp && cfg.acpModel,
+		ACPLiveControls: acp && cfg.acpLiveControls,
+		ACPStartOptions: acp && cfg.acpLiveControls && cfg.acpStartOptions,
+		ACPPreviews:     acp && cfg.acpPreviews,
 		// Only when a descriptor lists a mode, so the flag never appears without one.
 		ACPAgentMode: acp && cfg.acpAgentMode && anyModes(chatAgents),
 		// Only when a descriptor lists another option, so the flag never appears

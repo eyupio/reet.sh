@@ -67,7 +67,7 @@ func communityPage(st *store.Store) web.PublicPage {
 	if len(lists) == 0 && len(skills) == 0 {
 		b.WriteString("<p>No lists have been published yet.</p>")
 	}
-	b.WriteString(`<p><a href="/">Open your workspace</a></p></main>`)
+	b.WriteString(`<p><a href="/docs/">Read the documentation</a> · <a href="/">Open your workspace</a></p></main>`)
 	page.HTML = b.String()
 	return page
 }
@@ -129,7 +129,7 @@ func publicListPage(st *store.Store, path string) web.PublicPage {
 		}
 		b.WriteString("</ul>")
 	}
-	b.WriteString(`<p>Open this list in reet.sh to copy the install commands. Only the skills and list notes are shown; member names, emails and personal notes stay private.</p><p><a href="/community">Browse the public community</a> · <a href="/">Open your workspace</a></p></main>`)
+	b.WriteString(`<p>Open this list in reet.sh to copy the install commands. Only the skills and list notes are shown; member names, emails and personal notes stay private.</p><p><a href="/docs/">Read the documentation</a> · <a href="/community">Browse the public community</a> · <a href="/">Open your workspace</a></p></main>`)
 	page.HTML = b.String()
 	return page
 }

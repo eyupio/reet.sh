@@ -81,6 +81,9 @@ func TestCrawlerTextFilesArePlainText(t *testing.T) {
 		if !strings.Contains(body, "reet.sh") {
 			t.Fatalf("%s does not name the product", path)
 		}
+		if path != "/ai.txt" && (!strings.Contains(body, "https://reet.sh/docs/") || !strings.Contains(body, "https://reet.sh/docs/binary-installation/")) {
+			t.Fatalf("%s does not link the served documentation", path)
+		}
 	}
 	missing := get(t, h, "/missing.txt")
 	if missing.Code != http.StatusNotFound {
@@ -170,8 +173,17 @@ func TestSitemapIsValidXML(t *testing.T) {
 	if err := xml.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
 		t.Fatalf("invalid sitemap XML: %v", err)
 	}
-	if len(doc.URLs) != 1 || doc.URLs[0].Loc != "https://reet.sh/" {
+	if len(doc.URLs) < 2 || doc.URLs[0].Loc != "https://reet.sh/" {
 		t.Fatalf("unexpected sitemap urls: %+v", doc.URLs)
+	}
+	got := map[string]bool{}
+	for _, u := range doc.URLs {
+		got[u.Loc] = true
+	}
+	for _, want := range []string{"https://reet.sh/docs/", "https://reet.sh/docs/mcp/", "https://reet.sh/docs/binary-installation/"} {
+		if !got[want] {
+			t.Errorf("sitemap missing %s", want)
+		}
 	}
 }
 
@@ -530,8 +542,85 @@ func TestSitemapIncludesSuppliedPublicPaths(t *testing.T) {
 	for _, u := range doc.URLs {
 		got = append(got, u.Loc)
 	}
-	want := []string{"https://reet.sh/", "https://reet.sh/community", "https://reet.sh/l/demo"}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("sitemap urls = %v, want %v", got, want)
+	want := []string{"https://reet.sh/", "https://reet.sh/community", "https://reet.sh/l/demo", "https://reet.sh/docs/mcp/"}
+	have := map[string]bool{}
+	for _, loc := range got {
+		have[loc] = true
+	}
+	for _, loc := range want {
+		if !have[loc] {
+			t.Errorf("sitemap missing %s", loc)
+		}
+	}
+}
+
+func TestDocsAreAPublicCrawlableSite(t *testing.T) {
+	h := Handler("https://reet.sh")
+	redirect := get(t, h, "/docs")
+	if redirect.Code != http.StatusMovedPermanently || redirect.Header().Get("Location") != "/docs/" {
+		t.Fatalf("/docs: %d %q", redirect.Code, redirect.Header().Get("Location"))
+	}
+	index := get(t, h, "/docs/")
+	if index.Code != http.StatusOK {
+		t.Fatalf("/docs/: status = %d", index.Code)
+	}
+	body := index.Body.String()
+	for _, want := range []string{
+		"<title>Documentation · reet.sh</title>",
+		`rel="canonical" href="https://reet.sh/docs/"`,
+		`href="/docs/binary-installation/"`,
+		`href="/docs/mcp/"`,
+		"Install the reet binary",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/docs/ missing %s", want)
+		}
+	}
+	page := get(t, h, "/docs/mcp/")
+	if page.Code != http.StatusOK {
+		t.Fatalf("/docs/mcp/: status = %d", page.Code)
+	}
+	pageBody := page.Body.String()
+	for _, want := range []string{
+		"<title>Connect your shelf to an AI client · reet.sh Docs</title>",
+		`rel="canonical" href="https://reet.sh/docs/mcp/"`,
+		`"@type":"TechArticle"`,
+		`"@type":"BreadcrumbList"`,
+		"<h1>Connect your shelf to an AI client</h1>",
+	} {
+		if !strings.Contains(pageBody, want) {
+			t.Errorf("/docs/mcp/ missing %s", want)
+		}
+	}
+	if strings.Contains(pageBody, "data-boot") {
+		t.Error("/docs/mcp/ served the SPA shell")
+	}
+	guide := get(t, h, "/docs/run-claude-code-on-a-vps/")
+	if guide.Code != http.StatusOK {
+		t.Fatalf("/docs/run-claude-code-on-a-vps/: status = %d", guide.Code)
+	}
+	for _, want := range []string{
+		"<title>Run Claude Code on a VPS from your browser · reet.sh Docs</title>",
+		`rel="canonical" href="https://reet.sh/docs/run-claude-code-on-a-vps/"`,
+		"<h1>Run Claude Code on a VPS from your browser</h1>",
+	} {
+		if !strings.Contains(guide.Body.String(), want) {
+			t.Errorf("guide missing %s", want)
+		}
+	}
+	compare := get(t, h, "/docs/compare-open-webui/")
+	if compare.Code != http.StatusOK || !strings.Contains(compare.Body.String(), `rel="canonical" href="https://reet.sh/docs/compare-open-webui/"`) || !strings.Contains(compare.Body.String(), "Open WebUI and reet.sh") {
+		t.Errorf("comparison page is not crawlable: %d", compare.Code)
+	}
+	if redirect := get(t, h, "/docs/mcp"); redirect.Code != http.StatusMovedPermanently || redirect.Header().Get("Location") != "/docs/mcp/" {
+		t.Errorf("/docs/mcp: %d %q", redirect.Code, redirect.Header().Get("Location"))
+	}
+	missing := get(t, h, "/docs/not-a-page/")
+	if missing.Code != http.StatusNotFound || !strings.Contains(missing.Header().Get("X-Robots-Tag"), "noindex") {
+		t.Errorf("missing docs page: %d %q", missing.Code, missing.Header().Get("X-Robots-Tag"))
+	}
+	image := get(t, h, "/docs/images/cli-home-light.png")
+	if image.Code != http.StatusOK || !strings.HasPrefix(image.Header().Get("Content-Type"), "image/png") {
+		t.Errorf("docs image: %d %q", image.Code, image.Header().Get("Content-Type"))
 	}
 }

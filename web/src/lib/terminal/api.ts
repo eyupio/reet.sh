@@ -19,7 +19,7 @@ export type SoftwareBatchMemberState = 'pending' | 'running' | 'applied' | 'fail
 export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
 export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion }
-export type Capabilities = { chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { acpPreviews?: boolean; acpStartOptions?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -39,7 +39,7 @@ export class TerminalError extends Error {
   constructor(status: number, message: string, code?: string, detail?: string, field?: string) { super(message); this.status = status; if (code) this.code = code; if (detail) this.detail = detail; if (field) this.field = field }
 }
 /** What to start instead of a plain shell. Only the fields that are set are sent; the machine decides the program and flags. */
-export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string; base?: string; effort?: 'low' | 'medium' | 'high'; yolo?: boolean; resume?: boolean; worktree?: string; project?: string; structured?: boolean; trust?: boolean; resumeAcp?: string
+export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string; base?: string; effort?: string; yolo?: boolean; resume?: boolean; worktree?: string; project?: string; structured?: boolean; trust?: boolean; resumeAcp?: string
   /** The folder project the session belongs to (checked by the controller, never sent to the machine). */
   projectId?: string }
 export function validTerminalTitle(title:string):boolean {return !!title.trim()&&Array.from(title).length<=80&&!/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(title)}
@@ -494,4 +494,32 @@ export function structuredAgent(caps: Capabilities | undefined, tool: string | u
 export async function inspectSession(id: string, view: InsightView = 'status', path = '', signal?: AbortSignal): Promise<SessionInsight> {
   const params = new URLSearchParams({ view }); if (path) params.set('path', path)
   return (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/inspect?${params}`, { signal })).json()
+}
+
+/** Runtime selectors and delivery capabilities reported by this exact session. */
+export type ChatSetting = { id: string; category: 'model' | 'thought_level'; current: string; values: string[] }
+export type ChatControls = { configuring: boolean; working: boolean; waiting: boolean; compacting: boolean; steering: boolean; model: string; options: ChatSetting[] }
+export type ChatControlAnswer = { controls: ChatControls; error?: string }
+export async function chatControls(id: string, signal?: AbortSignal): Promise<ChatControlAnswer> {
+ return (await terminalRequest(`${chatURL(id)}/controls`, { signal })).json()
+}
+export async function chatSetting(id: string, configId: string, value: string): Promise<ChatControlAnswer> {
+ return (await terminalRequest(`${chatURL(id)}/controls`, { method: 'POST', body: JSON.stringify({ action: 'set', configId, value }) })).json()
+}
+export type ServerQueuedMessage = { id: string; text: string; images: string[]; state: 'queued' | 'sending' | 'uncertain' | 'failed'; intent: string; note: string; revision: number }
+export async function chatQueue(id: string, signal?: AbortSignal): Promise<ServerQueuedMessage[]> {
+ return (await (await terminalRequest(`${chatURL(id)}/queue`, { signal })).json()).queue
+}
+export async function chatEnqueue(id: string, requestId: string, text: string, images: string[]): Promise<void> {
+ await terminalRequest(`${chatURL(id)}/queue`, { method: 'POST', body: JSON.stringify({ id: requestId, text, images }) })
+}
+export async function chatQueueChange(id: string, item: ServerQueuedMessage, action: string, text = '', acknowledge = false): Promise<ServerQueuedMessage[]> {
+ return (await (await terminalRequest(`${chatURL(id)}/queue`, { method: 'PATCH', body: JSON.stringify({ id: item.id, revision: item.revision, action, text, acknowledge }) })).json()).queue
+}
+
+export async function chatPreview(session: string, id: string, signal?: AbortSignal): Promise<Blob> {
+ const response = await terminalRequest(`${chatURL(session)}/previews/${encodeURIComponent(id)}`, { signal })
+ const blob = await response.blob()
+ if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(blob.type) || blob.size > 5 * 1024 * 1024 || !blob.size) throw new Error('This image preview could not be verified.')
+ return blob
 }

@@ -31,6 +31,10 @@ func chatFixtureCaps(t *testing.T, answerReply func(*terminalproto.ACPQuestionAn
 
 // chatFixtureFull also lets a test script the machine's reply to an agent mode switch.
 func chatFixtureFull(t *testing.T, answerReply func(*terminalproto.ACPQuestionAnswer) terminalproto.Result, mutate func(*terminalproto.Capabilities), modeReply func(*terminalproto.ACPAgentMode) (terminalproto.Result, bool), modelReply ...func(*terminalproto.ACPModel) (terminalproto.Result, bool)) (*Broker, *Peer, int64, string) {
+	return chatFixtureScript(t, answerReply, mutate, modeReply, nil, modelReply...)
+}
+
+func chatFixtureScript(t *testing.T, answerReply func(*terminalproto.ACPQuestionAnswer) terminalproto.Result, mutate func(*terminalproto.Capabilities), modeReply func(*terminalproto.ACPAgentMode) (terminalproto.Result, bool), script func(terminalproto.Message) (terminalproto.Body, bool), modelReply ...func(*terminalproto.ACPModel) (terminalproto.Result, bool)) (*Broker, *Peer, int64, string) {
 	t.Helper()
 	st, err := storetest.Open(t)
 	if err != nil {
@@ -76,6 +80,8 @@ func chatFixtureFull(t *testing.T, answerReply func(*terminalproto.ACPQuestionAn
 			if answerReply != nil {
 				reply.Body = answerReply(op)
 			}
+		case *terminalproto.ACPControl:
+			reply.Body = terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Working: true, Model: "provider/current", Options: []terminalproto.ACPSetting{{ID: "effort", Category: "thought_level", Current: "high", Values: []string{"low", "high"}}}}}
 		case *terminalproto.ACPModel:
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
 			if len(modelReply) > 0 {
@@ -101,6 +107,16 @@ func chatFixtureFull(t *testing.T, answerReply func(*terminalproto.ACPQuestionAn
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
 		default:
 			reply.Body = terminalproto.Result{Code: terminalproto.OK}
+		}
+		if script != nil {
+			body, deliver := script(m)
+			if body != nil {
+				reply.Body = body
+			}
+			if !deliver {
+				mu.Unlock()
+				return nil
+			}
 		}
 		mu.Unlock()
 		data, err := terminalproto.Encode(reply)

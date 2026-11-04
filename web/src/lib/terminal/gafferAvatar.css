@@ -5,3 +5,11 @@
   --gaffer-ink: var(--card);
   color: var(--ink);
 }
+
+/* Dark ink on a light card, light ink on a dark one; the light theme uses the line-work filter (see GafferAvatar). The theme
+   switches follow app.css: an explicit data-theme wins, otherwise the device decides. */
+.gaffer-avatar image { filter: var(--gaffer-ink-filter); }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) .gaffer-avatar image { filter: var(--gaffer-paper-filter); }
+}
+:root[data-theme='light'] .gaffer-avatar image { filter: var(--gaffer-paper-filter); }

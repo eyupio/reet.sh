@@ -90,7 +90,7 @@
   {/snippet}
 
   {#if loading}
-    <Skeleton label="Reading the community…" shape="lines" count={4} />
+    <Skeleton label="Reading the community…" shape="rows" count={5} />
   {:else if error}
     <div class="state error" role="alert">
       <p>{error}</p>

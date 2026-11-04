@@ -56,7 +56,8 @@ const pane=page.locator('.pane'),screen=page.getByRole('region',{name:'Remote te
 async function live(){await expect(pane).toHaveAttribute('data-connection-state','live')}
 async function bounds(width,height){
  await page.setViewportSize({width,height})
- await expect.poll(async()=>screen.evaluate(element=>Math.round(element.getBoundingClientRect().height))).toBeGreaterThan(height*(height<600?.2:width<650?.5:.6))
+ // Frequent session controls now stay visible; count their deliberate row with the usable terminal area.
+ await expect.poll(async()=>page.evaluate(()=>{const terminal=document.querySelector('[aria-label="Remote terminal screen"]'),tools=document.querySelector('.session-tools');return Math.round((terminal?.getBoundingClientRect().height||0)+(tools?.getBoundingClientRect().height||0))})).toBeGreaterThan(height*(height<600?.2:width<650?.5:.6))
  await expect.poll(async()=>screen.evaluate(element=>Math.round(element.getBoundingClientRect().bottom))).toBeLessThanOrEqual(height+1)
  const b=await screen.boundingBox()
  // The renderer itself must fit, including its final row; outer bounds alone miss clipped content.
@@ -64,7 +65,8 @@ async function bounds(width,height){
  console.log(`Screen ${width}x${height}: top=${Math.round(b.y)}, height=${Math.round(b.height)} (${Math.round(b.height/height*100)}%)`)
  // The session screen's header (title, state, Chat | Terminal) sits above the pane by design; the pane starts right under it.
  const head=await page.evaluate(()=>{const h=document.querySelector('.session-screen .head');return h&&h.getClientRects().length?h.getBoundingClientRect().height:0})
- expect(head).toBeLessThanOrEqual(104)
+ const tools=await page.locator('.session-tools').evaluate(el=>el.getBoundingClientRect().height)
+ expect(head).toBeLessThanOrEqual(68+tools)
  expect((await pane.boundingBox()).y).toBeLessThan(160+head)
  expect(b.y).toBeLessThan(240+head)
  expect(b.y+b.height).toBeLessThanOrEqual(height+1)

@@ -112,12 +112,38 @@ func listAccessFor(userID int64, userRole string, ownerID int64, memberRole, vis
 	return
 }
 
-func newListSlug() string {
-	var b [8]byte
+// newListSlug makes a readable, stable public address such as "design-ui-picks-4f2a9c1e". The random suffix keeps two
+// lists with the same name apart, and a later rename does not move links that have already been shared.
+func newListSlug(name string) string {
+	readable := slugWords(name)
+	var b [4]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return ""
+		return readable
 	}
-	return hex.EncodeToString(b[:])
+	return readable + "-" + hex.EncodeToString(b[:])
+}
+
+func slugWords(name string) string {
+	var b strings.Builder
+	lastDash := false
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		case !lastDash && b.Len() > 0:
+			b.WriteByte('-')
+			lastDash = true
+		}
+		if b.Len() >= 40 {
+			break
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	if slug == "" {
+		return "list"
+	}
+	return slug
 }
 
 // CreateList makes a list owned by userID.
@@ -136,7 +162,7 @@ func (s *Store) CreateList(userID int64, name, description, visibility string) (
 	}
 	t := now()
 	for range 3 {
-		slug := newListSlug()
+		slug := newListSlug(name)
 		res, err := s.db.Exec(`INSERT INTO lists(owner_id,name,description,visibility,slug,created_at,updated_at)
 			VALUES(?,?,?,?,?,?,?)`, userID, name, description, vis, slug, t, t)
 		if err != nil {

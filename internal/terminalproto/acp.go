@@ -224,27 +224,28 @@ func SupportsACPImages(features string) bool {
 //	question_resolved    the person's answer was delivered (QuestionID, Reason is accept or decline)
 //	question_cancelled   the question closed without an answer (QuestionID, Reason)
 type ACPEvent struct {
-	Kind         string   `json:"kind"`
-	MessageID    string   `json:"messageId,omitempty"`
-	ToolCallID   string   `json:"toolCallId,omitempty"`
-	PermissionID string   `json:"permissionId,omitempty"`
-	Title        string   `json:"title,omitempty"`
-	ToolKind     string   `json:"toolKind,omitempty"`
-	Status       string   `json:"status,omitempty"`
-	State        string   `json:"state,omitempty"`
-	Text         string   `json:"text,omitempty"`
-	Command      string   `json:"command,omitempty"`
-	Path         string   `json:"path,omitempty"`
-	Diff         string   `json:"diff,omitempty"`
-	Additions    int      `json:"additions,omitempty"`
-	Deletions    int      `json:"deletions,omitempty"`
-	DurationMs   int64    `json:"durationMs,omitempty"`
-	Locations    []string `json:"locations,omitempty"`
-	Allow        *bool    `json:"allow,omitempty"`
-	Bad          bool     `json:"bad,omitempty"`
-	Truncated    bool     `json:"truncated,omitempty"`
-	Reason       string   `json:"reason,omitempty"`
-	Detail       string   `json:"detail,omitempty"`
+	Preview      *ACPPreviewRef `json:"preview,omitempty"`
+	Kind         string         `json:"kind"`
+	MessageID    string         `json:"messageId,omitempty"`
+	ToolCallID   string         `json:"toolCallId,omitempty"`
+	PermissionID string         `json:"permissionId,omitempty"`
+	Title        string         `json:"title,omitempty"`
+	ToolKind     string         `json:"toolKind,omitempty"`
+	Status       string         `json:"status,omitempty"`
+	State        string         `json:"state,omitempty"`
+	Text         string         `json:"text,omitempty"`
+	Command      string         `json:"command,omitempty"`
+	Path         string         `json:"path,omitempty"`
+	Diff         string         `json:"diff,omitempty"`
+	Additions    int            `json:"additions,omitempty"`
+	Deletions    int            `json:"deletions,omitempty"`
+	DurationMs   int64          `json:"durationMs,omitempty"`
+	Locations    []string       `json:"locations,omitempty"`
+	Allow        *bool          `json:"allow,omitempty"`
+	Bad          bool           `json:"bad,omitempty"`
+	Truncated    bool           `json:"truncated,omitempty"`
+	Reason       string         `json:"reason,omitempty"`
+	Detail       string         `json:"detail,omitempty"`
 	// QuestionID and Question carry a typed question. They are meaningful only on
 	// the question kinds and must be absent on every other kind.
 	QuestionID string       `json:"questionId,omitempty"`
@@ -254,6 +255,12 @@ type ACPEvent struct {
 func (ACPEvent) kind() string { return "acp_event" }
 
 func (e ACPEvent) valid() bool {
+	if e.Kind == "preview" {
+		return e.Preview != nil && e.Preview.Valid() && (e.ToolCallID == "" || validACPID(e.ToolCallID)) && (e.MessageID == "" || validACPID(e.MessageID)) && e.PermissionID == "" && e.QuestionID == "" && e.Question == nil && e.Allow == nil && e.Text == ""
+	}
+	if e.Preview != nil {
+		return false
+	}
 	switch e.Kind {
 	case "question", "question_resolved", "question_cancelled":
 		return e.validQuestionEvent()
@@ -429,6 +436,7 @@ type ChatReattach struct {
 	Tool         string `json:"tool"`
 	Dir          string `json:"dir"`
 	Model        string `json:"model,omitempty"`
+	Effort       string `json:"effort,omitempty"`
 	Yolo         bool   `json:"yolo,omitempty"`
 	ACPSessionID string `json:"acpSessionId"`
 	Title        string `json:"title,omitempty"`
@@ -437,7 +445,7 @@ type ChatReattach struct {
 
 func (ChatReattach) kind() string { return "chat_reattach" }
 func (m ChatReattach) valid() bool {
-	return ValidACPSessionIDFor(m.Tool, m.ACPSessionID) && ValidDir(m.Dir) &&
+	return (m.Effort == "" || ValidModel(m.Effort)) && ValidACPSessionIDFor(m.Tool, m.ACPSessionID) && ValidDir(m.Dir) &&
 		(m.Model == "" || ValidModel(m.Model)) && (m.Title == "" || ValidTitle(m.Title))
 }
 

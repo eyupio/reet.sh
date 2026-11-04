@@ -46,12 +46,14 @@ type chatSession struct {
 	tool      string
 	dir       string
 	model     string
+	effort    string
 	acpID     string
 	state     terminalproto.SessionState
 	exit      *int
 	process   chatProcess
 	cancel    context.CancelFunc
 	busy      bool
+	changing  bool
 	yolo      bool
 	// trust is the folder trust the chat was opened with; a swap that has to
 	// restore this chat reopens it the same way.
@@ -111,6 +113,7 @@ type chatSupervisor struct {
 	// registry remembers live chats across connector restarts. It is nil when
 	// this connector has no private layout (tests and uninstalled callers).
 	registry *chatRegistry
+	previews *chatPreviewStore
 	closed   bool
 	// stop is closed when Close starts; background waits end on it.
 	stop       chan struct{}
@@ -129,6 +132,7 @@ type chatLink struct {
 	// questions is acp-question-v1 on this connection. Question events are sent
 	// only when it is set: an older controller's strict decoder rejects them.
 	questions bool
+	previews  bool
 	live      bool
 }
 
@@ -146,7 +150,7 @@ func NewChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *C
 
 func newChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *chatSupervisor {
 	s := &chatSupervisor{
-		ctx: ctx, opts: opts,
+		ctx: ctx, opts: opts, previews: newChatPreviewStore(opts.Layout.Dir, opts.Home),
 		start: func(ctx context.Context, opts acpagent.Options) (chatProcess, error) {
 			return acpagent.Start(ctx, opts)
 		},
@@ -228,7 +232,7 @@ func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalh
 }
 
 func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, questions ...bool) *chatHost {
-	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(questions) > 0 && questions[0]}
+	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(questions) > 0 && questions[0], previews: len(questions) > 1 && questions[1]}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -284,6 +288,10 @@ func (s *chatSupervisor) flush(h *chatHost) {
 		}
 		cs.outbox = cs.outbox[1:]
 		cs.outboxBytes -= chatEventBytes(event)
+		if event.Kind == "preview" && !h.link.previews {
+			s.mu.Unlock()
+			continue
+		}
 		if isQuestionKind(event.Kind) && !h.link.questions {
 			// A send on the previous link can fail after attach filtered history
 			// and put its frame back. Check negotiation at replay delivery too.
@@ -431,7 +439,7 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 		started.Store(true)
 	}
 	process, err := h.sup.start(startCtx, acpagent.Options{
-		Agent: spec, Binary: binary, Dir: dir, Home: h.sup.opts.Home, Model: in.Model, Trust: in.Trust, Resume: in.ResumeACP,
+		Agent: spec, Binary: binary, Dir: dir, Home: h.sup.opts.Home, Model: in.Model, Effort: in.Effort, Trust: in.Trust, Resume: in.ResumeACP,
 		BaseEnv: os.Environ(),
 		// Start calls OnReady after the replay and before its own closes of
 		// interrupted tool calls and its first idle status, which the
@@ -463,6 +471,16 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 	succeeded = true
 	h.sup.wg.Add(1)
 	h.sup.mu.Unlock()
+	if controls, ok := process.(liveChatControls); ok {
+		state := controls.Controls()
+		h.sup.mu.Lock()
+		for _, o := range state.Options {
+			if o.Category == "thought_level" {
+				cs.effort = o.Current
+			}
+		}
+		h.sup.mu.Unlock()
+	}
 	h.sup.remember(cs)
 	// The create reply belongs to the connection that asked, which may already
 	// have been replaced while startup ran. Publish the running state to
@@ -582,7 +600,7 @@ func (h *chatHost) find(sessionID string) *chatSession {
 
 func (h *chatHost) startPrompt(cs *chatSession, text string, images []acpagent.Attachment) bool {
 	h.sup.mu.Lock()
-	if cs.busy || cs.quiet || cs.state != terminalproto.Running {
+	if cs.busy || cs.changing || cs.quiet || cs.state != terminalproto.Running {
 		h.sup.mu.Unlock()
 		return false
 	}
@@ -850,7 +868,7 @@ func (h *chatHost) idle(sessionID string) bool {
 
 // idleLocked is idle for a session the caller holds the supervisor lock for.
 func idleLocked(cs *chatSession) bool {
-	return cs.state == terminalproto.Running && cs.process != nil && !cs.busy && !cs.quiet &&
+	return cs.state == terminalproto.Running && cs.process != nil && !cs.busy && !cs.changing && !cs.quiet &&
 		len(cs.pending) == 0 && len(cs.questions) == 0 && !cs.process.Working()
 }
 
@@ -891,7 +909,23 @@ func isQuestionKind(kind string) bool {
 }
 
 func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
-	wire, ok := wireEvent(event)
+	if event.Kind == "preview" {
+		s.mu.Lock()
+		skip := cs.quiet || s.link != nil && !s.link.previews
+		s.mu.Unlock()
+		if skip {
+			return
+		}
+	}
+	var wire terminalproto.ACPEvent
+	var ok bool
+	if event.Kind == "preview" && event.Preview != nil {
+		preview := s.previews.capture(cs.id, cs.dir, event.Preview)
+		wire = terminalproto.ACPEvent{Kind: "preview", MessageID: event.MessageID, ToolCallID: event.ToolCallID, Preview: &preview}
+		ok = terminalproto.ACPEventSize(wire)
+	} else {
+		wire, ok = wireEvent(event)
+	}
 	if !ok {
 		if event.Kind == "question" && event.QuestionID != "" {
 			s.cancelQuestion(cs, event.QuestionID)
@@ -944,6 +978,10 @@ func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 		return
 	}
 	link := s.link
+	if wire.Kind == "preview" && link != nil && !link.previews {
+		s.mu.Unlock()
+		return
+	}
 	if wire.Kind == "question" && (link == nil || !link.live || !link.questions) {
 		// Only an already delivered question survives a disconnect. A newly
 		// asked question still needs a live, negotiated recipient.
@@ -1303,6 +1341,9 @@ func chatResult(err error) terminalproto.Result {
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "That agent does not support chats on this machine."}
 	case errors.Is(err, acpagent.ErrPluginsUnreadable):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The folder's agent extensions could not be read, so the chat was not started."}
+	case errors.Is(err, acpagent.ErrControl):
+		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not confirm the chosen effort for this model. Choose an offered effort or Agent default. No opening prompt was sent."}
+
 	case errors.Is(err, acpagent.ErrModel):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not use the chosen model, so the chat was not started."}
 	default:
@@ -1330,7 +1371,7 @@ func (h *chatHost) setModel(ctx context.Context, sessionID, model string) error 
 		return terminalhost.ErrSessionMissing
 	}
 	h.sup.mu.Lock()
-	if cs.busy || cs.quiet || cs.state != terminalproto.Running {
+	if cs.busy || cs.changing || cs.quiet || cs.state != terminalproto.Running {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict
 	}
@@ -1370,7 +1411,7 @@ func (h *chatHost) setAgentMode(ctx context.Context, sessionID, mode string) err
 		return terminalhost.ErrSessionMissing
 	}
 	h.sup.mu.Lock()
-	if cs.busy || cs.quiet || cs.state != terminalproto.Running {
+	if cs.busy || cs.changing || cs.quiet || cs.state != terminalproto.Running {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict
 	}

@@ -100,7 +100,11 @@ func (c Create) validLaunch() bool {
 	if c.Tool == "" {
 		return c.Model == "" && (c.Dir == "" || validDir(c.Dir)) && c.Prompt == "" && c.Effort == "" && !c.Yolo && !c.Resume
 	}
-	return ValidToolV2(c.Tool) && (c.Effort == "" || c.Effort == "low" || c.Effort == "medium" || c.Effort == "high") && (c.Model == "" || validModel(c.Model)) && (c.Dir == "" || validDir(c.Dir)) && (c.Prompt == "" || validPrompt(c.Prompt))
+	validEffort := ValidEffort(c.Effort)
+	if c.Structured {
+		validEffort = c.Effort == "" || ValidModel(c.Effort)
+	}
+	return ValidToolV2(c.Tool) && validEffort && (c.Model == "" || validModel(c.Model)) && (c.Dir == "" || validDir(c.Dir)) && (c.Prompt == "" || validPrompt(c.Prompt))
 }
 
 // positionalPromptTools take the opening prompt as a positional operand after

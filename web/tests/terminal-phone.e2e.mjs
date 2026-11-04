@@ -286,6 +286,10 @@ try{
   await expect(p.locator('.pane>footer')).toBeHidden()
   await settle(p)
   const closedRows=await visibleRows(p)
+  // Session controls now stay available in landscape. Account for their one
+  // touch-sized row without relaxing the renderer bounds or host-size floor.
+  const controls=await p.evaluate(()=>{const head=document.querySelector('.session-screen .head').getBoundingClientRect(),rows=document.querySelectorAll('.xterm-rows>div').length,grid=document.querySelector('.xterm-screen').getBoundingClientRect().height;return {height:head.height,rows:Math.ceil(head.height/(grid/rows))}})
+  expect(controls.height).toBeLessThanOrEqual(52)
   // Every tool stays reachable: the toolbar fades at its hidden end and scrolls to the last control.
   const tools=p.locator('.tool-rows .terminal-toolbar')
   await expect(tools).toHaveClass(/more-end/)
@@ -310,8 +314,10 @@ try{
   await settle(p)
   const maximisedRows=await visibleRows(p),maximisedBottom=(await box(p,'.pane')).bottom
   console.log(`Sideways ${width}x${height}: ${closedRows} rows, ${openRows} with the keyboard open, ${maximisedRows} maximised with the keyboard open`)
-  expect(closedRows).toBeGreaterThanOrEqual(12)
-  expect(openRows).toBeGreaterThanOrEqual(6)
+  expect(closedRows).toBeGreaterThanOrEqual(8)
+  expect(closedRows+controls.rows).toBeGreaterThanOrEqual(12)
+  expect(openRows).toBeGreaterThanOrEqual(4)
+  expect(openRows+controls.rows).toBeGreaterThanOrEqual(6)
   expect(maximisedRows).toBeGreaterThanOrEqual(6)
   expect(paneBottom).toBeGreaterThanOrEqual(top-10);expect(paneBottom).toBeLessThanOrEqual(top+1)
   expect(Math.abs(maximisedBottom-top)).toBeLessThanOrEqual(2)

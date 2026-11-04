@@ -79,6 +79,7 @@ jobs:
           node web/tests/session-board.e2e.mjs
           node web/tests/phone-layout.e2e.mjs
           node web/tests/navigation.e2e.mjs
+          node web/tests/loading.e2e.mjs
           node web/tests/readiness.e2e.mjs
           node web/tests/single-sign-on.e2e.mjs
           node web/tests/first-machine.e2e.mjs
@@ -242,6 +243,9 @@ jobs:
           done
           node web/tests/phone-dialogs.e2e.mjs
           node web/tests/chat.e2e.mjs
+          node web/tests/chat-controls.e2e.mjs
+          node web/tests/chat-previews.e2e.mjs
+          node web/tests/launch-options.e2e.mjs
           node web/tests/chat-recovery.e2e.mjs
           node web/tests/chat-claude.e2e.mjs
           node web/tests/chat-codex.e2e.mjs

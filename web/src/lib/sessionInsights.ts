@@ -12,6 +12,14 @@ export function checkTone(state: string): 'good' | 'bad' | 'warn' {
   return 'warn'
 }
 export function checkWord(state: string): string { return state.toLowerCase().replaceAll('_', ' ') || 'unknown' }
+export function checkLabel(state: string): string {
+  const labels: Record<string, string> = {
+    SUCCESS: 'Passed', FAILURE: 'Failed', ERROR: 'Error', TIMED_OUT: 'Timed out', CANCELLED: 'Cancelled',
+    ACTION_REQUIRED: 'Action required', STARTUP_FAILURE: 'Startup failure', NEUTRAL: 'Neutral', SKIPPED: 'Skipped',
+    QUEUED: 'Queued', IN_PROGRESS: 'Running', PENDING: 'Pending', WAITING: 'Waiting', REQUESTED: 'Requested',
+  }
+  return labels[state] || checkWord(state)
+}
 export function safeInsightURL(link?: string): string | undefined {
   try { const u = new URL(link || ''); return u.protocol === 'https:' && !u.username && !u.password ? u.href : undefined } catch { return undefined }
 }

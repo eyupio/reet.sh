@@ -2747,3 +2747,60 @@ Validation:
 **Not checked.** No physical phone or tablet and no screen reader. No install was
 run against a live machine; the browser mock and the store/API fixtures cover the
 request, source and job state.
+
+
+## Active session actions (4 November 2026)
+
+Session identity and frequent controls occupy separate rows. Theatre view stays in the header; phone icons have visible
+captions. Interface and approvals remain directly available, with new-terminal actions alongside them. More contains
+management only, with no duplicates of the visible controls. Standalone terminal panes keep their Theatre control.
+
+Checked with `web/tests/sessions.e2e.mjs` on desktop, tablet, 390 px and 320 px phones, plus phone landscape, in light and
+dark. The regression checks touch sizes, viewport bounds, menu contents, disabled reasons, keyboard focus and unchanged
+chat stream identity when toggling Theatre. Terminal workspace checks include renderer fit and keyboard bounds. The
+landscape phone test accounts for the newly visible controls row and keeps at least four visible terminal rows in its
+172 px keyboard viewport; Maximise remains available for more space. Handoff: [session actions](handoffs/session-actions.md).
+
+[Desktop light](images/ui/session-actions-desktop-light.png) · [Desktop dark](images/ui/session-actions-desktop-dark.png) ·
+[Tablet light](images/ui/session-actions-tablet-light.png) · [Tablet dark](images/ui/session-actions-tablet-dark.png) ·
+[Phone light](images/ui/session-actions-phone-light.png) · [Phone dark](images/ui/session-actions-phone-dark.png)
+
+
+## Live Gaffer controls (4 November 2026)
+
+`web/tests/chat-controls.e2e.mjs` exercises active-turn model and effort changes, server queue retention after a reload,
+Send now / Stop and send and explicit acknowledgement before retrying uncertain delivery. Checked at desktop (1360 px)
+and phone (390 px) widths in light and dark, with no page overflow or browser errors. Existing OpenCode, Claude, Codex
+and chat recovery browser suites also pass. The new suite runs in the terminal-browser workflow.
+
+[Desktop light](images/ui/gaffer-live-desktop-light.png) · [Desktop dark](images/ui/gaffer-live-desktop-dark.png) ·
+[Phone light](images/ui/gaffer-live-phone-light.png) · [Phone dark](images/ui/gaffer-live-phone-dark.png)
+
+
+## Startup and backlog options (4 November 2026)
+
+`web/tests/launch-options.e2e.mjs` checks the workspace Start an agent modal, Home Start a session modal and backlog
+creation/reload/edit at 1360 px and 390 px. Model and native effort appear together and are carried in the create/save
+payloads; backlog reload preserves both. The phone modal scrolls its fields while keeping Start reachable. No horizontal
+overflow or browser errors were observed. Pure UI tests cover older connectors and absent thought-level options; backend
+race tests check independent capability negotiation, startup confirmation/refusal and saved backlog Start persistence.
+Legacy Codex and Start an agent browser suites also pass. No physical phone, Safari or live paid-provider turn was checked.
+
+| Flow | Desktop | Phone |
+| --- | --- | --- |
+| Workspace start | [View](images/ui/start-agent-options-desktop.png) | [View](images/ui/start-agent-options-phone.png) |
+| Home start | [View](images/ui/start-session-options-desktop.png) | [View](images/ui/start-session-options-phone.png) |
+| Saved backlog edit | [View](images/ui/backlog-options-desktop.png) | [View](images/ui/backlog-options-phone.png) |
+
+
+## Agent image previews (4 November 2026)
+
+`web/tests/chat-previews.e2e.mjs` passes at 1360 px and 390 px in light/dark themes. It checks an authenticated image fetch,
+offline refusal followed by Retry, successful browser decoding, the full-size keyboard viewer, Escape/focus return,
+reload/replay, explicit size-limit feedback, no horizontal overflow and object URL cleanup when history is retired.
+The fixture uses a real PNG screenshot. Backend tests separately cover actual PNG capture, restart persistence,
+cross-session/account refusal, path escapes, special files, cache expiry/quota, sparse tool completions, bounded chunks,
+content hashes, negotiation and production reply filtering. No live provider, physical phone, Safari or Windows run was made.
+
+[Desktop light](images/ui/agent-preview-desktop-light.png) · [Desktop dark](images/ui/agent-preview-desktop-dark.png) ·
+[Phone light](images/ui/agent-preview-phone-light.png) · [Phone dark](images/ui/agent-preview-phone-dark.png)

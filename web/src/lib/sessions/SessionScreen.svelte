@@ -15,16 +15,22 @@
   import ContextPanel from './ContextPanel.svelte'
   import type { ChatState } from '../chat'
   import SwitchModeDialog from './SwitchModeDialog.svelte'
+  import TerminalIcon from '../terminal/TerminalIcon.svelte'
+  import { CONTEXT_DEFAULT, CONTEXT_MIN, clampContextWidth, contextKeyWidth, contextLayoutRecord, readContextLayout, widestContext } from './contextLayout'
 
-  // The session screen: the strip of open sessions, the session's header (title, agent · model · started, the state in words
-  // with its source, YOLO, Gaffer | the agent TUI and the actions menu), the live terminal the workspace hosts here (children),
+  // The session screen: identity and persistent layout actions above a wrapping toolbar for interface, approvals
+  // and terminal creation. The menu contains management actions only, the live terminal the workspace hosts here (children),
   // Approvals under it, and the context panel beside it (behind Details under 1100 px and in theatre view). A terminal
   // session shows no steps and no progress bar (R10): only its state word and where that word came from.
   let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false, chatBusy, insightChat,
-    onaction, ontheatre, onrefresh, onmode, onsignedout, oncontinue, onterminal, onside, side, showSide = false, children }: {
+    onaction, ontheatre, onrefresh, onmode, onsignedout, oncontinue, onterminal, onside, side, showSide = false, contextKey = 'reet-session-context-panel', onresizing, children }: {
     session: TerminalSession; sessions: TerminalSession[]
     machines: TerminalMachine[]; health: MachineHealth[]; projects: FolderProject[] | undefined; now: number
     theatre?: boolean; keyboard?: boolean; busy?: boolean
+    /** Where the right panel's width and open state are saved, scoped to this person. */
+    contextKey?: string
+    /** Whether the right panel's separator is being dragged, so the terminal holds its size until it ends. */
+    onresizing?: (active: boolean) => void
     onaction: (kind: 'rename' | 'end' | 'archive') => void; ontheatre: () => void; onrefresh: () => void
     /** The open chat's own word on whether it is busy (a running turn, a waiting approval or question), once its stream has
      *  replayed; until then (undefined) the row's attention stands in for it. */
@@ -46,6 +52,22 @@
     const life = new AbortController()
     void getSyncState(life.signal).then(state => { sync = state }).catch(() => { if (!life.signal.aborted) sync = null })
     return () => life.abort()
+  })
+
+  // The panel's saved width and open state, and the room the screen actually gives it (the container query's 1100 px
+  // is measured on this element, so the docked decision matches what CSS used to decide).
+  onMount(() => {
+    let saved = ''
+    try { saved = localStorage.getItem(contextKey) ?? '' } catch { /* optional browser preference */ }
+    const layout = readContextLayout(saved)
+    contextWidth = layout.width ?? CONTEXT_DEFAULT
+    dockedOpen = layout.open ?? true
+    layoutLoaded = true
+    if (!screen) return
+    const measure = () => { screenWidth = screen!.clientWidth }
+    const observer = new ResizeObserver(measure)
+    observer.observe(screen); measure()
+    return () => observer.disconnect()
   })
 
   // Opening a session marks it seen on the controller so its Needs you card clears across devices.
@@ -164,27 +186,53 @@
     } finally { delete switching[target.id] }
   }
 
-  // Details: the context panel over the terminal under 1100 px (and in theatre view). Escape closes it and focus returns.
-  let detailsOpen = $state(false), detailsButton = $state<HTMLButtonElement>()
-  // The panel lies over the terminal (a sheet) while Details is shown, i.e. with under 1100 px of room or in theatre view.
-  const sheet = () => !!detailsButton && detailsButton.getClientRects().length > 0
+  // The context panel is a docked column beside the terminal from 1100 px (never in theatre view); below that, and in
+  // theatre view, Details opens it as a sheet over the terminal's edge. Docked it can also be collapsed and resized, and
+  // its open state and width are remembered in this browser for the person.
+  let screen = $state<HTMLElement>(), screenWidth = $state(0)
+  let dockedOpen = $state(true), sheetOpen = $state(false)
+  let contextWidth = $state(CONTEXT_DEFAULT), bodyWidth = $state(0), layoutLoaded = false
+  let detailsButton = $state<HTMLButtonElement>()
+  const docked = $derived(!theatre && screenWidth > 1099)
+  const hasSide = $derived(showSide && !!side)
+  const contextOpen = $derived(docked ? dockedOpen : sheetOpen)
+  // The separator's 8 px track sits between the terminal and the panel; the panel takes at most 40 % of what is left.
+  const CONTEXT_TRACK = 8
+  const contextRoom = $derived(Math.max(0, bodyWidth - CONTEXT_TRACK))
+  const shownContextWidth = $derived(clampContextWidth(contextWidth, contextRoom))
+  const contextMax = $derived(widestContext(contextRoom))
+  function saveContext() {
+    if (!layoutLoaded) return
+    try { localStorage.setItem(contextKey, JSON.stringify(contextLayoutRecord(dockedOpen, contextWidth))) } catch { /* optional browser preference */ }
+  }
   async function toggleDetails() {
-    detailsOpen = !detailsOpen
-    if (!detailsOpen) return
+    // A terminal opened beside the session takes the panel's place; Details has nothing to toggle until it closes.
+    if (hasSide) return
+    if (docked) { dockedOpen = !dockedOpen; saveContext(); return }
+    sheetOpen = !sheetOpen
+    if (!sheetOpen) return
     // Focus moves into the sheet (its Close details first), so it never stays on a control the sheet could cover.
     await tick()
     document.getElementById(`${id}-context`)?.querySelector<HTMLElement>('.close-details')?.focus()
   }
-  function hideDetails() { detailsOpen = false; detailsButton?.focus() }
+  // The panel's own collapse control, and the sheet's Close details: the panel goes and focus returns to Details.
+  async function collapseDetails() {
+    if (docked) dockedOpen = false; else sheetOpen = false
+    saveContext()
+    await tick()
+    detailsButton?.focus()
+  }
+  // Leaving the panel for the terminal only dismisses a sheet; a docked panel stays where the person put it.
+  function closeSheet() { if (!docked) sheetOpen = false }
   function closeDetails(event: KeyboardEvent) {
-    if (event.key !== 'Escape' || !detailsOpen) return
+    if (event.key !== 'Escape' || docked || !sheetOpen) return
     event.preventDefault(); event.stopPropagation()
-    hideDetails()
+    void collapseDetails()
   }
   // While it is a sheet, Tab and Shift+Tab go round its own controls; Escape and Close details give focus back to Details.
   function panelKey(event: KeyboardEvent) {
     if (event.key === 'Escape') return closeDetails(event)
-    if (event.key !== 'Tab' || !detailsOpen || !sheet()) return
+    if (event.key !== 'Tab' || !sheetOpen || docked) return
     const panel = event.currentTarget as HTMLElement
     const items = [...panel.querySelectorAll<HTMLElement>('a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary,[tabindex]')].filter(el => {
       if (el.tabIndex < 0 || !el.getClientRects().length || el.closest('[inert]')) return false
@@ -196,6 +244,32 @@
     event.preventDefault()
     items[at < 0 ? 0 : (at + (event.shiftKey ? -1 : 1) + items.length) % items.length].focus()
   }
+
+  // Dragging the right separator: the pointer is captured, so leaving the handle keeps the drag. Moving left widens the
+  // panel. The terminal holds its size and refits once when the drag ends, exactly as it does for the sessions panel.
+  let contextDrag: { x: number; width: number } | null = null, contextResizing = $state(false)
+  function contextSeparatorDown(event: PointerEvent) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    event.preventDefault()
+    const handle = event.currentTarget as HTMLElement
+    handle.setPointerCapture(event.pointerId); handle.focus({ preventScroll: true })
+    contextDrag = { x: event.clientX, width: shownContextWidth }
+    contextResizing = true; onresizing?.(true)
+  }
+  function contextSeparatorMove(event: PointerEvent) {
+    if (!contextDrag || !(event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) return
+    contextWidth = clampContextWidth(contextDrag.width - (event.clientX - contextDrag.x), contextRoom)
+  }
+  function contextSeparatorEnd() {
+    if (!contextDrag) return
+    contextDrag = null; contextResizing = false; onresizing?.(false); saveContext()
+  }
+  function contextSeparatorKey(event: KeyboardEvent) {
+    const next = contextKeyWidth(event.key, shownContextWidth, contextRoom)
+    if (next === null) return
+    event.preventDefault(); contextWidth = next; saveContext()
+  }
+  function contextSeparatorReset() { contextWidth = CONTEXT_DEFAULT; saveContext() }
 
   // The actions menu: its ⋮ button, or Shift+F10 / the menu key on it. Arrow keys move, Escape closes and gives focus back.
   let menu = $state<HTMLElement>(), menuButton = $state<HTMLButtonElement>()
@@ -269,16 +343,30 @@
 
 <!-- One grid: the header and status line, then the context panel, then the terminal, so the tab order is header → panel →
      terminal while the panel shows beside the terminal (right column) or over its edge (as a sheet below the header). -->
-<div class="session-screen" class:theatre class:keyboard class:details-open={detailsOpen}>
-  <div class="body">
+<div class="session-screen" class:theatre class:keyboard class:resizing={contextResizing}
+  bind:this={screen} style={`--context-width:${shownContextWidth}px`}>
+  <div class="body" class:context-docked={docked && contextOpen && !hasSide} class:context-sheet={!docked && contextOpen && !hasSide} bind:clientWidth={bodyWidth}>
     <header class="head">
+      <div class="identity-row">
       <a class="back" href="/sessions" aria-label="Back to sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></a>
       <div class="heading">
         <h2 class="title" title={session.title}>{session.title}</h2>
         <p class="sub">{headerMeta(session, session.createdAt, now)}</p>
-        <p class="where-phone">{[project, host].filter(Boolean).join(' · ')}</p>
+        <p class="where-phone">{[word.word, project, host].filter(Boolean).join(' · ')}</p>
       </div>
       <span class="pill {word.tone}" title={source}><span class="dot" aria-hidden="true"></span>{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
+      <div class="header-actions">
+        <button type="button" class="theatre-button" aria-pressed={theatre} aria-label={theatre ? 'Exit theatre view' : 'Theatre view'} title={theatre ? 'Restore the session panels' : 'Hide the panels and focus on this session'} onclick={theatreView}>
+          <TerminalIcon name="theatre" /><span class="wide-label">{theatre ? 'Exit theatre' : 'Theatre view'}</span><span class="compact-label">{theatre ? 'Exit' : 'Theatre'}</span>
+        </button>
+        <button type="button" class="details" bind:this={detailsButton} aria-label="Details" aria-expanded={hasSide ? false : contextOpen} aria-controls={`${id}-context`} title={docked ? (dockedOpen ? 'Collapse session workspace' : 'Show session workspace') : 'Session details'} onclick={() => void toggleDetails()} onkeydown={closeDetails}><TerminalIcon name="panel" /><span>Details</span></button>
+        <button type="button" class="more" bind:this={menuButton} aria-label="Session actions" aria-haspopup="menu" aria-expanded={menuAt !== null}
+          onclick={event => { if (menuAt) closeMenu(); else void openMenu(event) }} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event) }}>
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg><span>More</span>
+        </button>
+      </div>
+      </div>
+      <div class="session-tools" role="group" aria-label="Session controls" data-keeps-focus>
       {#if canSwitchApproval}
         <div class="approvals" role="group" aria-label="Approvals">
           <button type="button" aria-pressed={approvalMode === 'ask'} disabled={busy || modeBusy} onclick={askMode}>Ask me</button>
@@ -295,12 +383,11 @@
           aria-describedby={chatView && !canSwitch ? `${id}-switch-why` : undefined} title={chatView && !canSwitch ? whyNot : undefined}
           onclick={event => { if (chatView) openSwitch(event.currentTarget) }}>{terminalLabel}</button>
       </div>
-      <span class="vh" id={`${id}-switch-why`}>{whyNot}</span>
-      <button type="button" class="details" bind:this={detailsButton} aria-expanded={detailsOpen} aria-controls={`${id}-context`} onclick={() => void toggleDetails()} onkeydown={closeDetails}>Details</button>
-      <button type="button" class="more" bind:this={menuButton} aria-label="Session actions" aria-haspopup="menu" aria-expanded={menuAt !== null}
-        onclick={event => { if (menuAt) closeMenu(); else void openMenu(event) }} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event) }}>
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
-      </button>
+        <span class="vh" id={`${id}-switch-why`}>{whyNot}</span>
+        {#if live && onterminal}<button type="button" class="tool-action" disabled={busy || serverOff} onclick={openTerminal}><span aria-hidden="true">›_</span> Terminal here</button>{/if}
+        {#if live && onside}<button type="button" class="tool-action" disabled={busy || serverOff || showSide} onclick={openSideTerminal}><TerminalIcon name="panel" />{showSide ? 'Terminal open beside' : 'Terminal beside'}</button>{/if}
+        {#if oncontinue}<button type="button" class="tool-action" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue with history' : 'Continue session'}</button>{/if}
+      </div>
     </header>
     <!-- Always rendered (empty takes no room), so the first message in it is announced. -->
     <div class="live" role="status">{#if notice}<p class:bad={notice.bad}>{notice.text}</p>{/if}</div>
@@ -308,8 +395,20 @@
       <div class="side-terminal" data-keeps-focus>{@render side()}</div>
     {:else}
       {#key session.id}
-        <ContextPanel {session} {host} {status} {project} {skills} {now} chat={insightChat} supported={!!machineCaps?.inspect} onterminal={() => { hideDetails(); void tick().then(() => stage?.querySelector<HTMLElement>('.xterm-helper-textarea, textarea.composer-input')?.focus()) }} id={`${id}-context`} onkeydown={panelKey} onclose={hideDetails} />
+        <ContextPanel {session} {host} {status} {project} {skills} {now} chat={insightChat} supported={!!machineCaps?.inspect}
+          docked={docked}
+          onterminal={() => { closeSheet(); void tick().then(() => stage?.querySelector<HTMLElement>('.xterm-helper-textarea, textarea.composer-input')?.focus()) }}
+          id={`${id}-context`} onkeydown={panelKey} onclose={() => void collapseDetails()} />
       {/key}
+      {#if docked && contextOpen}
+        <!-- The right panel's separator, the same control as the sessions panel's: drag (pointer capture), Left widens,
+             Right narrows, Home the narrowest, End the widest, double-click 360 px. -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+        <div class="panel-separator context-separator" role="separator" tabindex="0" aria-label="Resize session workspace" aria-controls={`${id}-context`} aria-orientation="vertical"
+          aria-valuemin={CONTEXT_MIN} aria-valuemax={contextMax} aria-valuenow={shownContextWidth} aria-valuetext={`${shownContextWidth} pixels`}
+          title="Drag to resize · double-click resets" onpointerdown={contextSeparatorDown} onpointermove={contextSeparatorMove} onpointerup={contextSeparatorEnd}
+          onpointercancel={contextSeparatorEnd} onlostpointercapture={contextSeparatorEnd} onkeydown={contextSeparatorKey} ondblclick={contextSeparatorReset}></div>
+      {/if}
     {/if}
     <div class="stage" bind:this={stage}>{@render children()}</div>
   </div>
@@ -318,19 +417,7 @@
 {#if menuAt}
   <!-- data-keeps-focus: a reconnecting terminal never takes focus out of the open menu. -->
   <div class="menu" role="menu" aria-label={`Actions for ${session.title}`} tabindex="-1" data-keeps-focus bind:this={menu} style={`left:${menuAt.x}px;top:${menuAt.y}px`} onkeydown={menuKey}>
-    {#if oncontinue}<button role="menuitem" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue in Gaffer with history…' : 'Continue session…'}</button>{/if}
-    {#if onterminal}<button role="menuitem" disabled={busy} onclick={openTerminal}>Open a terminal here…</button>{/if}
-    {#if onside}<button role="menuitem" disabled={busy} onclick={openSideTerminal}>Open a terminal beside this session…</button>{/if}
-    {#if live && session.tool === 'opencode'}
-      <!-- aria-disabled with its reason, as the header's pair: it stays in the menu, and choosing it does nothing. -->
-      <button role="menuitem" aria-disabled={!canSwitch} aria-describedby={canSwitch ? undefined : `${id}-switch-why`} title={canSwitch ? undefined : whyNot}
-        onclick={() => { if (!canSwitch) return; closeMenu(false); openSwitch(menuButton ?? null) }}>Switch to {switchState.to === 'chat' ? tuiName(switchState.to) : `the ${tuiName(switchState.to)}`}…</button>
-    {/if}
-    {#if canSwitchApproval}
-      <button role="menuitem" disabled={busy || modeBusy} onclick={() => { closeMenu(false); if (approvalMode === 'yolo') askMode(); else yoloMode() }}>{approvalMode === 'yolo' ? 'Switch to Ask me' : 'Turn on YOLO…'}</button>
-    {/if}
     <button role="menuitem" disabled={busy || serverOff} onclick={() => act('rename')}>Rename…</button>
-    <button role="menuitem" onclick={theatreView}>{theatre ? 'Exit theatre view' : 'Theatre view'}</button>
     {#if session.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}
     {#if live}<button role="menuitem" class="danger" disabled={busy || serverOff} onclick={() => act('end')}>{session.state === 'end_requested' ? 'Retry end request…' : 'End session…'}</button>
     {:else}<button role="menuitem" disabled={busy} onclick={() => act('archive')}>Remove from history…</button>{/if}
@@ -355,12 +442,34 @@
   .head { grid-column: 1; grid-row: 1; }
   .live { grid-column: 1; grid-row: 2; }
   .stage { grid-column: 1; grid-row: 3; }
-  .body > :global(.context-panel) { grid-column: 2; grid-row: 1 / -1; }
+  /* The context panel is hidden until JS says it is docked or shown as a sheet; either way it keeps the same cell it
+     always had beside the terminal's right edge. */
+  .body > :global(.context-panel) { display: none; grid-column: 2; grid-row: 1 / -1; min-width: 0; }
+  .body.context-docked { grid-template-columns: minmax(0, 1fr) 8px var(--context-width); }
+  .body.context-docked > :global(.context-panel) { display: flex; grid-column: 3; }
+  .body.context-sheet > :global(.context-panel) { display: flex; grid-column: 1; grid-row: 3; justify-self: end; position: relative; z-index: 20; width: min(340px, 100%); box-shadow: var(--shadow); }
+  .body.context-sheet > :global(.context-panel .close-details) { display: inline-flex; align-items: center; }
+  /* The separator's 8 px track plus 8 px either side, the same control and 24 px hit area as the sessions panel's. */
+  .context-separator { grid-column: 2; grid-row: 1 / -1; }
+  .panel-separator { position: relative; z-index: 3; margin: 0 -8px; display: flex; align-items: center; justify-content: center; cursor: col-resize; touch-action: none; outline: 0; }
+  .panel-separator::after { content: ''; width: 4px; height: 40px; border-radius: 2px; background: var(--line); }
+  .panel-separator:hover::after, .session-screen.resizing .panel-separator::after { background: var(--accent); height: 64px; }
+  .panel-separator:focus-visible::after { background: var(--accent); height: 64px; outline: 2px solid var(--accent); outline-offset: 3px; }
+  .session-screen.resizing { cursor: col-resize; user-select: none; }
   .side-terminal { grid-column: 2; grid-row: 1 / -1; width: 340px; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line-soft); background: var(--bg-sunk); }
   .side-terminal :global(.pane) { flex: 1; min-height: 0; }
   .side-terminal :global(.pane > header), .side-terminal :global(.pane > footer) { display: none; }
-  /* The mock-up's header: 62 px, 28 px in from the sides, the title in Fraunces 21 px over a 13 px line. */
-  .head { flex: none; display: flex; align-items: center; gap: 14px; min-height: 62px; padding: 0 28px; box-sizing: border-box; }
+  /* Identity stays separate from controls, so long session names never push frequent actions into a menu. */
+  .head { min-width: 0; padding: 0 20px 8px; box-sizing: border-box; }
+  .identity-row { display: flex; align-items: center; gap: 12px; min-height: 58px; min-width: 0; }
+  .header-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+  .session-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+  .tool-action, .theatre-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--ink-soft); font: 500 12px var(--sans); cursor: pointer; }
+  .tool-action:hover:not(:disabled), .theatre-button:hover { background: var(--tint); color: var(--ink); }
+  .tool-action:disabled { opacity: .5; cursor: default; }
+  .compact-label { display: none; }
+  .theatre-button[aria-pressed=true] { border-color: var(--accent-text); background: var(--line-soft); color: var(--ink); }
+  .tool-action:focus-visible, .theatre-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .heading { flex-grow: 1; min-width: 0; }
   /* Back to the Sessions screen: the phone's slim header has it (the workspace toolbar's arrow gives way there). */
   .back { display: none; flex: none; width: 44px; height: 44px; align-items: center; justify-content: center; color: var(--ink-soft); border-radius: 10px; }
@@ -390,54 +499,60 @@
   .view button[aria-disabled=true] { cursor: not-allowed; }
   .view[aria-busy=true] button { cursor: progress; }
   .view button:focus-visible, .details:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
-  .details { display: none; flex: none; min-height: 44px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: none; color: var(--ink); font: 500 14px var(--sans); cursor: pointer; }
+  .details { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-height: 44px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: none; color: var(--ink); font: 500 14px var(--sans); cursor: pointer; }
   .details[aria-expanded=true] { background: var(--line-soft); }
-  .more { flex: none; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; }
+  .more { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 40px; min-height: 40px; padding: 0; border: 0; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; }
   .more:hover { background: var(--tint); color: var(--ink); }
   .more svg { width: 20px; height: 20px; }
+  .more span { font: 500 12px var(--sans); }
   .live p { margin: 0 28px 8px; font-size: 13px; color: var(--muted); }
   .live p.bad { color: var(--bad); }
   .stage { min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line-soft); }
   .menu { position: fixed; z-index: 110; width: 240px; max-height: calc(100dvh - 16px); overflow: auto; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
   .menu [role=menuitem] { display: block; min-height: 36px; padding: 8px 9px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 400 14px var(--sans); text-align: left; cursor: pointer; }
-  .menu [role=menuitem]:hover:not(:disabled):not([aria-disabled=true]), .menu [role=menuitem]:focus-visible { background: var(--tint); outline: none; }
-  .menu [role=menuitem]:disabled, .menu [role=menuitem][aria-disabled=true] { opacity: .45; cursor: default; }
+  .menu [role=menuitem]:hover:not(:disabled), .menu [role=menuitem]:focus-visible { background: var(--tint); outline: none; }
+  .menu [role=menuitem]:disabled { opacity: .45; cursor: default; }
   .menu .danger { color: var(--bad); }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  @media (pointer: coarse) { .menu [role=menuitem] { min-height: 44px; } .more { width: 44px; height: 44px; } .view button, .approvals button { min-height: 44px; } }
-  /* Under 1100 px of room (a narrower window, or the sessions panel docked beside it), and in theatre view, the context panel
-     waits behind Details and opens over the terminal's edge, so the terminal keeps most of the width. */
+  @media (pointer: coarse) { .menu [role=menuitem] { min-height: 44px; } .more, .tool-action, .theatre-button { min-width: 44px; min-height: 44px; } .view button, .approvals button { min-height: 44px; } }
   @container session-screen (max-width: 1099px) {
-    .details { display: inline-flex; align-items: center; }
-    .body > :global(.context-panel) { display: none; }
-    /* The sheet shares the terminal's cell, below the header, so it never covers Details or ⋮. */
-    .details-open .body > :global(.context-panel) { display: flex; grid-column: 1; grid-row: 3; justify-self: end; position: relative; z-index: 20; width: min(340px, 100%); box-shadow: var(--shadow); }
-    .details-open .body > :global(.context-panel .close-details) { display: inline-flex; align-items: center; }
-    /* The controls move under the title when the column is too narrow for both on one line. */
-    .head { flex-wrap: wrap; row-gap: 6px; padding: 8px 16px; gap: 10px; }
-    .heading { flex: 1 1 200px; }
+    .head { padding: 0 12px 8px; }
+    .heading { flex: 1 1 0; }
   }
-  .theatre .details { display: inline-flex; align-items: center; }
-  .theatre .body > :global(.context-panel) { display: none; }
-  .theatre.details-open .body > :global(.context-panel) { display: flex; grid-column: 1; grid-row: 3; justify-self: end; position: relative; z-index: 20; width: min(340px, 100%); box-shadow: var(--shadow); }
-  .theatre.details-open .body > :global(.context-panel .close-details) { display: inline-flex; align-items: center; }
-  /* Phones: one slim header (title, project · machine, the state), as the mock-up's phone session draws it; the tabs,
-     Gaffer | agent TUI switch and the Approvals line give their rows to the terminal. H3 lays out the rest. */
+  @media (pointer: coarse) { .context-separator::before { content: ''; position: absolute; top: 50%; left: calc(50% - 4px); width: 44px; height: 88px; transform: translateY(-50%); } }
+  /* Phones retain every control. Layout actions use 44 px icons; the toolbar wraps instead of hiding choices. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
-    .view, .sub { display: none; }
+    .sub, .identity-row > .pill { display: none; }
     .where-phone { display: block; font-size: 12px; }
     .back { display: flex; }
-    .head { flex-wrap: nowrap; min-height: 52px; padding: 0 4px 0 4px; gap: 6px; }
+    .head { padding: 0 6px 6px; }
+    .identity-row { min-height: 52px; gap: 4px; }
+    .header-actions { gap: 2px; }
+    .header-actions .theatre-button, .header-actions .details, .header-actions .more { width: 44px; min-width: 44px; min-height: 44px; padding: 0; }
+    .header-actions button { flex-direction: column; gap: 1px; }
+    .header-actions button span { display: block; font: 500 10px/12px var(--sans); }
+    .header-actions button .wide-label { display: none; }
+    .header-actions :global(svg) { width: 19px; height: 19px; }
+    .session-tools { gap: 6px; }
+    .view button { padding: 6px 10px; font-size: 12px; min-height: 44px; }
+    .approvals button { padding: 6px 10px; font-size: 12px; min-height: 44px; }
+    .tool-action { min-height: 44px; padding: 0 10px; }
     .heading { flex: 1 1 0; }
     .title { font: 600 15px/1.3 var(--sans); }
     .pill { height: 28px; padding: 0 10px; gap: 6px; font-size: 12px; }
     .pill .lk { display: none; }
     .badge { font-size: 11px; line-height: 18px; padding: 0 6px; }
-    .approvals { display: none; }
+
     .details { padding: 0 10px; }
   }
-  /* A phone held sideways keeps its few rows for the terminal: the pane's own header names the session. H3 lays it out. */
-  @media (max-height: 500px) and (pointer: coarse) and (orientation: landscape) { .head { display: none; } }
+  /* In landscape keep the controls reachable and trim secondary metadata. */
+  @media (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
+    .head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 0 4px 4px; }
+    .identity-row { flex: 1 1 190px; min-height: 44px; }
+    .heading { max-width: 100px; }
+    .where-phone { display: none; }
+    .session-tools { flex: 0 1 auto; }
+  }
   /* With the phone keyboard up the site's chrome steps aside (keyboardChrome) and the slim header stays, as the mock-up's phone
      session draws it; the status line gives its row to the terminal. */
   .keyboard .live { display: none; }

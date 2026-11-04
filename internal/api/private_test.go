@@ -295,7 +295,7 @@ func TestPrivatePeerRepliesIncludeModelsAndChatEvents(t *testing.T) {
 		&terminalproto.Result{}, &terminalproto.Reconcile{}, &terminalproto.SessionChanged{},
 		&terminalproto.WorktreeState{}, &terminalproto.WorktreeResult{},
 		&terminalproto.BrowseResult{}, &terminalproto.BranchesResult{}, &terminalproto.ModelsResult{},
-		&terminalproto.ACPEvent{},
+		&terminalproto.ACPEvent{}, &terminalproto.ACPControlResult{},
 	} {
 		if !isPeerReply(body) {
 			t.Fatalf("%T is not forwarded", body)
@@ -395,6 +395,15 @@ func TestPrivateControlStreamsProbesAndHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := conn.Write(ctx, websocket.MessageText, chatEvent); err != nil {
+		t.Fatal(err)
+	}
+	// A late live-control reply must pass the same production WebSocket filter.
+	// The following health report proves the connection remains usable.
+	controlReply, err := terminalproto.Encode(terminalproto.Message{Version: terminalproto.Version, RequestID: strings.Repeat("l", 32), SessionID: strings.Repeat("c", 32), Generation: reply.Generation, Body: terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Options: []terminalproto.ACPSetting{}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, controlReply); err != nil {
 		t.Fatal(err)
 	}
 	cpu := 18.0

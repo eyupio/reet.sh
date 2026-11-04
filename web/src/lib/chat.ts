@@ -2,9 +2,12 @@
 // person reads. It is pure so the streaming, approval and reconnect cases can be
 // tested without a browser or a live OpenCode process.
 
+export type ChatPreviewRef = { id?: string; name: string; mime?: string; size?: number; reason?: string }
+
 export type ChatEvent = {
+  preview?: ChatPreviewRef
   seq: number
-  kind: 'user' | 'agent' | 'tool' | 'notice' | 'status' | 'permission' | 'permission_resolved' | 'permission_cancelled' | 'question' | 'question_resolved' | 'question_cancelled'
+  kind: 'preview' | 'user' | 'agent' | 'tool' | 'notice' | 'status' | 'permission' | 'permission_resolved' | 'permission_cancelled' | 'question' | 'question_resolved' | 'question_cancelled'
   messageId?: string
   toolCallId?: string
   permissionId?: string
@@ -47,9 +50,10 @@ export type ChatQuestion = { message: string; fields: ChatQuestionField[] }
 export type QuestionDecision = 'answered' | 'declined' | 'cancelled'
 
 export type ChatItem =
+  | { kind: 'preview'; key: string; preview: ChatPreviewRef }
   | { kind: 'user' | 'agent' | 'notice'; key: string; text: string; bad?: boolean }
   | { kind: 'tool'; key: string; toolCallId: string; title: string; toolKind: string; status: string; text: string; command: string; path: string; diff: string; additions: number; deletions: number; durationMs: number; locations: string[] }
-  | { kind: 'permission'; key: string; permissionId: string; title: string; toolKind: string; command: string; path: string; diff: string; description: string; locations: string[]; truncated: boolean; decision?: 'allowed' | 'denied' | 'cancelled'; reason?: string }
+  | { kind: 'permission'; key: string; permissionId: string; toolCallId?: string; title: string; toolKind: string; command: string; path: string; diff: string; description: string; locations: string[]; truncated: boolean; decision?: 'allowed' | 'denied' | 'cancelled'; reason?: string }
   | { kind: 'question'; key: string; questionId: string; toolCallId: string; question: ChatQuestion; decision?: QuestionDecision; reason?: string }
 
 export type ChatState = {
@@ -111,6 +115,7 @@ function itemChars(item: ChatItem): number {
   if (item.kind === 'tool') return item.title.length + item.text.length + item.command.length + item.path.length + item.diff.length + item.locations.join('').length
   if (item.kind === 'permission') return item.title.length + item.command.length + item.path.length + item.diff.length + item.description.length + item.locations.join('').length
   if (item.kind === 'question') return questionChars(item.question)
+  if (item.kind === 'preview') return item.preview.name.length + (item.preview.id?.length ?? 0) + (item.preview.reason?.length ?? 0)
   return item.text.length
 }
 
@@ -139,6 +144,14 @@ export function applyChatEvent(state: ChatState, event: ChatEvent): ChatState {
 function reduceChatEvent(state: ChatState, event: ChatEvent): ChatState {
   const next = { ...state, lastSeq: event.seq }
   switch (event.kind) {
+    case 'preview': {
+      const preview = event.preview
+      if (!preview || typeof preview.name !== 'string' || preview.name.length > 200) return next
+      if (!preview.reason && (!preview.id || !/^[a-f0-9]{64}$/.test(preview.id) || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(preview.mime ?? '') || !Number.isInteger(preview.size) || preview.size! < 1 || preview.size! > 5 * 1024 * 1024)) return next
+      const key = `p${event.toolCallId || event.messageId || ''}:${preview.id || preview.name}`
+      if (state.items.some(item => item.key === key)) return next
+      return { ...next, items: [...state.items, { kind: 'preview', key, preview }] }
+    }
     case 'user':
       return { ...next, items: [...state.items, { kind: 'user', key: `u${event.seq}`, text: event.text ?? '' }] }
     case 'agent': {
@@ -200,7 +213,7 @@ function reduceChatEvent(state: ChatState, event: ChatEvent): ChatState {
       if (!event.permissionId) return next
       const at = state.items.findIndex(item => item.kind === 'permission' && item.permissionId === event.permissionId)
       const prompt: Extract<ChatItem, { kind: 'permission' }> = {
-        kind: 'permission', key: `p${event.permissionId}`, permissionId: event.permissionId,
+        kind: 'permission', key: `p${event.permissionId}`, permissionId: event.permissionId, toolCallId: event.toolCallId || undefined,
         title: event.title ?? 'OpenCode tool call', toolKind: event.toolKind ?? '',
         command: event.command ?? '', path: event.path ?? '', diff: event.diff ?? '',
         description: event.text ?? '',
@@ -442,6 +455,33 @@ export function toolState(status: string): ToolState {
     case 'pending': return { word: 'Pending', tone: 'warn' }
     default: return { word: status || 'Done', tone: 'muted' }
   }
+}
+
+export type PermissionItem = Extract<ChatItem, { kind: 'permission' }>
+export type ApprovalOutcome = { word: string; tone: 'good' | 'bad' | 'muted'; note: string }
+
+/** What a decided approval says, in one place so the pill on a tool row and the note in its detail never disagree. */
+export function approvalOutcome(item: Pick<PermissionItem, 'decision' | 'reason'>): ApprovalOutcome {
+  if (item.decision === 'allowed') return { word: 'Allowed', tone: 'good', note: 'Allowed once.' }
+  if (item.decision === 'denied') return { word: 'Denied', tone: 'bad', note: 'Denied.' }
+  if (item.reason === 'timeout') return { word: 'Timed out', tone: 'muted', note: 'Closed: the approval timed out.' }
+  return { word: 'Closed', tone: 'muted', note: 'Closed without an answer.' }
+}
+
+/** A decided approval belongs to the tool call it asked about, so it is shown on that tool's row instead of as a card of
+ *  its own. An approval still waiting for an answer, or one with no tool row to join, stays a card: nothing is hidden
+ *  that the person has yet to act on or could not find elsewhere. */
+export function foldApprovals(items: ChatItem[]): { byTool: Map<string, PermissionItem>; folded: Set<string> } {
+  const tools = new Set<string>()
+  for (const item of items) if (item.kind === 'tool') tools.add(item.toolCallId)
+  const byTool = new Map<string, PermissionItem>()
+  const folded = new Set<string>()
+  for (const item of items) {
+    if (item.kind !== 'permission' || !item.decision || !item.toolCallId || !tools.has(item.toolCallId)) continue
+    byTool.set(item.toolCallId, item) // a later approval for the same call is the one that settled it
+    folded.add(item.key)
+  }
+  return { byTool, folded }
 }
 
 /** A path relative to the folder the session works in, as the agent names it. */

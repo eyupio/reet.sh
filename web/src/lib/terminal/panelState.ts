@@ -21,21 +21,24 @@ export function needsInput(session: Pick<TerminalSession, 'attention' | 'changed
 
 /**
  * The row's status line: what the session is waiting for, then what the agent last did, else the lifecycle state. The
- * agent's turn finishing leaves the session running, so attention says "finished" where the state alone still reads
- * "running".
+ * agent's turn finishing leaves the session running, so attention says "finished", or "quiet" once the person has seen
+ * it, where the state alone still reads "running".
  */
 export function statusLine(session: Pick<TerminalSession, 'state' | 'attention' | 'changedSinceSeen' | 'pendingPermission' | 'pendingQuestion'>): string {
   const need = needsInput(session)
   if (need) return `Needs you · ${need}`
   if (session.attention === 'finished') return 'Finished'
   if (session.attention === 'failed') return session.state === 'lost' ? 'Connection lost' : 'Failed'
+  if (session.attention === 'quiet') return 'Quiet'
   return session.state.replaceAll('_', ' ')
 }
 
-/** The dot beside a row and on the mini rail: what needs you, then the agent's attention, else the lifecycle state. */
-export function sessionMark(session: Pick<TerminalSession, 'state' | 'attention'>): 'needs' | 'running' | 'starting' | 'ending' | 'lost' | 'failed' | 'finished' {
+/** The dot beside a row and on the mini rail: what needs you, then the agent's attention, else the lifecycle state. A
+ *  quiet chat's turn has stopped even though its session is still open, so it is marked finished rather than running. */
+export function sessionMark(session: Pick<TerminalSession, 'state' | 'attention' | 'attentionSource'>): 'needs' | 'running' | 'starting' | 'ending' | 'lost' | 'failed' | 'finished' {
   if (session.attention === 'finished') return 'finished'
   if (session.attention === 'failed') return session.state === 'lost' ? 'lost' : 'failed'
+  if (session.attention === 'quiet' && session.attentionSource === 'chat') return 'finished'
   switch (session.state) {
     case 'running': return 'running'
     case 'creating': return 'starting'

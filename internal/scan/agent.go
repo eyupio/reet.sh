@@ -222,7 +222,12 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			*server = value
 		}
 		u, err := url.Parse(*server)
-		if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" {
+		if err != nil {
+			return errors.New("use the controller origin, e.g. https://reet.sh")
+		}
+		noCredentials := u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
+		plainPath := u.Path == "" || u.Path == "/"
+		if !noCredentials || !plainPath {
 			return errors.New("use the controller origin, e.g. https://reet.sh")
 		}
 		if u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1")) {
@@ -386,7 +391,8 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 					if err != nil {
 						return false, terminalproto.Unsupported, err
 					}
-					if current.ID != c.ID || current.Secret != c.Secret || current.Server != c.Server {
+					same := current.ID == c.ID && current.Secret == c.Secret && current.Server == c.Server
+					if !same {
 						return false, terminalproto.DisabledLocally, errors.New("local enrollment changed; restart the agent")
 					}
 					return current.TerminalEnabled, terminalReadiness(*config, current.ID, current.TerminalEnabled), nil
@@ -572,7 +578,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 			}
 			if operationErr == nil {
 				args := []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--target", j.TargetID, "--config", config}
-				opts := syncOptions{cwd: dir, verifyEnrollment: true, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }, onProgress: func(stage, detail string) {
+				opts := syncOptions{cwd: dir, verifyEnrollment: true, preflight: requireNpx, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }, onProgress: func(stage, detail string) {
 					reportCtx, reportCancel := context.WithTimeout(ctx, 5*time.Second)
 					defer reportCancel()
 					_ = agentRequestContext(reportCtx, c, "/api/v2/sync/jobs/stage", map[string]string{"id": j.ID, "stage": stage, "detail": detail}, nil, version)
@@ -590,7 +596,8 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 					return cmd.Run()
 				}, version, opts)
 				cancel()
-				if operationErr == nil && (j.Kind == "preview" || j.Kind == "auto") {
+				kindOK := j.Kind == "preview" || j.Kind == "auto"
+				if operationErr == nil && kindOK {
 					result.Status = "awaiting-approval"
 				}
 			}

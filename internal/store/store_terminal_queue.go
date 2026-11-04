@@ -103,7 +103,8 @@ func (s *Store) ChangeTerminalQueueFor(uid int64, session, id string, revision i
 		if err != nil {
 			return err
 		}
-		if current != revision || state == "sending" || state == "sent" || state == "removed" {
+		terminalState := state == "sending" || state == "sent" || state == "removed"
+		if current != revision || terminalState {
 			return ErrChatQueueConflict
 		}
 		note := ""

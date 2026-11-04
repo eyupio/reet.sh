@@ -38,7 +38,7 @@ Report installed skills to your account.
 
 ## reet sync
 
-Preview a saved target; --apply asks first.
+Preview a saved target, then choose whether to apply it.
 
 ## reet setup
 

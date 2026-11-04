@@ -55,6 +55,23 @@ type syncOptions struct {
 	onPlan           func(SyncPlan)
 	onProgress       func(string, string)
 	onBackup         func(string)
+	preflight        func([]SyncAction) error
+}
+
+// requireNpx stops an apply that would install skills before any file changes
+// when the skills CLI's runtime is missing, so the person gets a remedy rather
+// than a failed install for the first skill in the plan.
+func requireNpx(actions []SyncAction) error {
+	for _, action := range actions {
+		if !action.Add || action.Skill.SourceType == "private" {
+			continue
+		}
+		if _, err := exec.LookPath("npx"); err != nil {
+			return errors.New("npx was not found in PATH; install Node.js (which provides npx and npm) on this machine, then sync again")
+		}
+		return nil
+	}
+	return nil
 }
 
 var safeSlug = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
@@ -83,7 +100,8 @@ func ErrReplanWorthAttempting(err error) bool {
 var domainSource = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z0-9-]+$`)
 
 func syncSource(sk store.SyncSkill) (string, error) {
-	if !safeSlug.MatchString(sk.Slug) || sk.Slug == "." || sk.Slug == ".." {
+	valid := safeSlug.MatchString(sk.Slug) && sk.Slug != "." && sk.Slug != ".."
+	if !valid {
 		return "", errors.New("invalid skill slug")
 	}
 	if sk.SourceType == "private" {
@@ -101,7 +119,13 @@ func syncSource(sk store.SyncSkill) (string, error) {
 			raw = "https://" + sk.Source + "/" + sk.Slug
 		}
 		u, err := url.Parse(raw)
-		if err == nil && (u.Scheme == "https" || u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1")) && u.Host+u.Path == sk.Source+"/"+sk.Slug && u.User == nil && u.RawQuery == "" && u.Fragment == "" && len(strings.Split(strings.Trim(u.Path, "/"), "/")) == 2 {
+		loopback := u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"
+		validScheme := u.Scheme == "https" || (u.Scheme == "http" && loopback)
+		validHost := u.Host+u.Path == sk.Source+"/"+sk.Slug
+		validQuery := u.User == nil && u.RawQuery == "" && u.Fragment == ""
+		validShape := len(strings.Split(strings.Trim(u.Path, "/"), "/")) == 2
+		valid := err == nil && validScheme && validHost && validQuery && validShape
+		if valid {
 			return u.String(), nil
 		}
 	}
@@ -251,6 +275,24 @@ func fetchTarget(server, token, id string) (store.SyncTarget, error) {
 	return store.SyncTarget{}, errors.New("sync target not found in this account; configure it on Your account")
 }
 
+// chooseSyncMode asks whether to stop at the preview or continue to apply.
+// Preview is the default so an empty answer never changes local files.
+func chooseSyncMode(in io.Reader, out io.Writer) (bool, error) {
+	for {
+		answer, err := clientconfig.Ask(in, out, "Preview or apply (preview/apply)", "preview")
+		if err != nil {
+			return false, err
+		}
+		switch strings.ToLower(answer) {
+		case "preview", "p":
+			return false, nil
+		case "apply", "a":
+			return true, nil
+		}
+		fmt.Fprintln(out, "Enter preview or apply.")
+	}
+}
+
 func RunSync(args []string, in io.Reader, out io.Writer) error {
 	return RunSyncVersion(args, in, out, "dev")
 }
@@ -265,7 +307,7 @@ func RunSyncVersion(args []string, in io.Reader, out io.Writer, version string) 
 		cmd.Stderr = out
 		cmd.Stdin = in
 		return cmd.Run()
-	}, version, syncOptions{verifyEnrollment: true})
+	}, version, syncOptions{verifyEnrollment: true, preflight: requireNpx})
 }
 
 func runSync(args []string, in io.Reader, out io.Writer, execute func([]string, string) error, version string) error {
@@ -279,7 +321,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	tokenFile := fs.String("env-file", "", "read REET_TOKEN from an explicit env file")
 	targetID := fs.String("target", "", "target ID from Your account")
 	host := fs.String("env", clientconfig.EnvName(), "local environment name (default hostname)")
-	apply := fs.Bool("apply", false, "preview, then ask before installing/removing skills")
+	apply := fs.Bool("apply", false, "apply the plan; without it you are offered preview or apply")
 	config := fs.String("config", agentConfigPath(), "enrolled machine configuration")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -334,7 +376,9 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			if err != nil {
 				return err
 			}
-			if n, convErr := strconv.Atoi(answer); convErr == nil && n >= 1 && n <= len(choices) {
+			n, convErr := strconv.Atoi(answer)
+			valid := convErr == nil && n >= 1 && n <= len(choices)
+			if valid {
 				*targetID = choices[n-1].ID
 			} else {
 				*targetID = answer
@@ -360,6 +404,13 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		return fmt.Errorf("this command is for %s, not %s; run it on the target machine", target.Target.Host, *host)
 	}
 	*host = target.Target.Host
+	if !*apply && clientconfig.Interactive(in) {
+		choice, err := chooseSyncMode(in, os.Stderr)
+		if err != nil {
+			return err
+		}
+		*apply = choice
+	}
 	if *apply && options.verifyEnrollment {
 		c, err := loadAgentConfig(*config)
 		if err != nil {
@@ -412,13 +463,19 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 		return RunVersion(args, out, version)
 	}
-	if target.Target.Project != "" && (!filepath.IsAbs(target.Target.Project) || filepath.Clean(resolvedCWD) != filepath.Clean(target.Target.Project)) {
+	projectMismatch := !filepath.IsAbs(target.Target.Project) ||
+		filepath.Clean(resolvedCWD) != filepath.Clean(target.Target.Project)
+	if target.Target.Project != "" && projectMismatch {
 		return fmt.Errorf("run this command from project %s", target.Target.Project)
 	}
-	if target.Target.Project == "" && target.Target.Agent == "claude" && os.Getenv("CLAUDE_CONFIG_DIR") != "" && filepath.Clean(os.Getenv("CLAUDE_CONFIG_DIR")) != filepath.Join(home, ".claude") {
+	customClaude := target.Target.Project == "" && target.Target.Agent == "claude" &&
+		os.Getenv("CLAUDE_CONFIG_DIR") != ""
+	if customClaude && filepath.Clean(os.Getenv("CLAUDE_CONFIG_DIR")) != filepath.Join(home, ".claude") {
 		return errors.New("custom CLAUDE_CONFIG_DIR requires manual sync")
 	}
-	if target.Target.Project == "" && target.Target.Agent == "opencode" && os.Getenv("XDG_CONFIG_HOME") != "" && filepath.Clean(os.Getenv("XDG_CONFIG_HOME")) != filepath.Join(home, ".config") {
+	customXDG := target.Target.Project == "" && target.Target.Agent == "opencode" &&
+		os.Getenv("XDG_CONFIG_HOME") != ""
+	if customXDG && filepath.Clean(os.Getenv("XDG_CONFIG_HOME")) != filepath.Join(home, ".config") {
 		return errors.New("custom XDG_CONFIG_HOME requires manual sync")
 	}
 	targetPath := ""
@@ -432,7 +489,12 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		// another agent's same-name skill with a different or unknown source.
 		for _, desired := range target.Desired {
 			for _, found := range inventory.Found {
-				if found.Project == target.Target.Project && found.Agent != target.Target.Agent && found.Host == *host && found.Name == desired.Slug && canonicalSource(found.Source) != canonicalSource(desired.Source) {
+				sameScope := found.Project == target.Target.Project && found.Agent != target.Target.Agent &&
+					found.Host == *host
+				sameName := found.Name == desired.Slug
+				differentSource := canonicalSource(found.Source) != canonicalSource(desired.Source)
+				conflict := sameScope && sameName
+				if conflict && differentSource {
 					// An unlinked local copy in another agent scope does not block
 					// replacing this scope's copy. Known, different sources still do.
 					if found.Source == "" {
@@ -443,7 +505,9 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			}
 		}
 		for _, found := range inventory.Found {
-			if found.Agent == target.Target.Agent && found.Project == target.Target.Project && found.Host == *host {
+			matches := found.Agent == target.Target.Agent &&
+				found.Project == target.Target.Project
+			if matches && found.Host == *host {
 				actual = append(actual, found)
 			}
 		}
@@ -559,7 +623,9 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			for _, action := range actions {
 				if !action.Add {
 					for _, found := range inventory.Found {
-						if found.Name == action.Skill.Slug && found.Host == *host && found.Project == target.Target.Project && found.Agent != "agents" {
+						matches := found.Name == action.Skill.Slug && found.Host == *host &&
+							found.Project == target.Target.Project
+						if matches && found.Agent != "agents" {
 							return nil, fmt.Errorf("%s is shared with %s; unlink that agent's copy before removing it from the shared folder", found.Name, found.Agent)
 						}
 					}
@@ -603,6 +669,11 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	if !*apply {
 		fmt.Fprintln(out, "Preview only. Add --apply to review and confirm these changes.")
 		return nil
+	}
+	if options.preflight != nil {
+		if err := options.preflight(actions); err != nil {
+			return err
+		}
 	}
 	if options.approvedHash == "" {
 		fmt.Fprintf(out, "Removals move entries into .reet-sync-backups beside the skills folder. This may affect skills available to this agent. Type %q to apply: ", target.Target.Name)
@@ -664,7 +735,9 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 					command = append(command, "--global")
 				}
 				operationErr = execute(command, cwd)
-				if operationErr == nil && target.Target.Project == "" && (agent == "cursor" || agent == "opencode") {
+				global := operationErr == nil && target.Target.Project == ""
+				supported := agent == "cursor" || agent == "opencode"
+				if global && supported {
 					operationErr = linkSharedInstall(home, targetPath, action.Skill.Slug)
 				}
 			}

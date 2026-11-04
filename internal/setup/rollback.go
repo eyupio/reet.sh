@@ -101,15 +101,22 @@ func RollbackRestore(journalPath string, snapshot SetupSnapshot, manifest sealed
 		target := rollbackTarget{index: i, action: action, expected: expected, destination: action.Destination}
 		if action.State == "replaced" {
 			backup := filepath.Clean(action.Backup)
-			if action.Backup == "" || filepath.Dir(backup) != journalDir || !strings.HasPrefix(filepath.Base(backup), strings.TrimSuffix(filepath.Base(journalPath), ".json")+"-") || !strings.HasSuffix(backup, ".bak") {
+			backupInDir := action.Backup != "" && filepath.Dir(backup) == journalDir
+			backupName := strings.HasPrefix(filepath.Base(backup), strings.TrimSuffix(filepath.Base(journalPath), ".json")+"-") &&
+				strings.HasSuffix(backup, ".bak")
+			if !backupInDir || !backupName {
 				return RestoreRollbackResult{}, fmt.Errorf("restore journal rollback copy for %q is not in the journal directory", action.Destination)
 			}
 			backupInfo, err := os.Lstat(backup)
-			if err != nil || backupInfo.Mode()&os.ModeSymlink != 0 || !backupInfo.Mode().IsRegular() {
+			invalid := err != nil || backupInfo.Mode()&os.ModeSymlink != 0 ||
+				!backupInfo.Mode().IsRegular()
+			if invalid {
 				return RestoreRollbackResult{}, fmt.Errorf("restore journal rollback copy for %q is missing or unsafe", action.Destination)
 			}
 			backupData, err := os.ReadFile(backup)
-			if err != nil || action.BackupSHA256 == "" || sha256Bytes(backupData) != action.BackupSHA256 {
+			valid := err == nil && action.BackupSHA256 != "" &&
+				sha256Bytes(backupData) == action.BackupSHA256
+			if !valid {
 				return RestoreRollbackResult{}, fmt.Errorf("restore journal rollback copy for %q is damaged", action.Destination)
 			}
 			target.backup = backupData
@@ -196,7 +203,9 @@ func loadRestoreJournal(path string) (restoreJournal, os.FileInfo, error) {
 	if journal.SchemaVersion != restoreJournalSchemaVersion {
 		return journal, nil, fmt.Errorf("unsupported restore journal schema version %d", journal.SchemaVersion)
 	}
-	if journal.SnapshotID == "" || journal.State == "" || len(journal.Actions) == 0 || journal.StartedAt.IsZero() {
+	valid := journal.SnapshotID != "" && journal.State != "" && len(journal.Actions) > 0 &&
+		!journal.StartedAt.IsZero()
+	if !valid {
 		return journal, nil, errors.New("the restore journal is incomplete")
 	}
 	return journal, info, nil

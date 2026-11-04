@@ -61,7 +61,8 @@ func previewRoots(c agentConfig, agent, project string) (skillpreview.Roots, err
 			break
 		}
 		for _, d := range projectDirs {
-			if canonical != "" && d.Agent == agent && sameDirectory(p, canonical) {
+			matches := d.Agent == agent && sameDirectory(p, canonical)
+			if canonical != "" && matches {
 				continue
 			}
 			roots.Others = append(roots.Others, filepath.Join(p, d.Dir))
@@ -98,7 +99,9 @@ func processContentPreviewUsing(ctx context.Context, c agentConfig, version, ins
 	// 404/405: an older controller. 403: the channel is not offered here. 409: not
 	// ready (paused, or a machine the controller cannot match yet). Each is a normal
 	// state, not an error to repeat every cycle, and none reads any file.
-	if err == controllerHTTPError(404) || err == controllerHTTPError(405) || err == controllerHTTPError(403) || err == controllerHTTPError(409) {
+	retryable := err == controllerHTTPError(404) || err == controllerHTTPError(405) ||
+		err == controllerHTTPError(403) || err == controllerHTTPError(409)
+	if retryable {
 		return false, nil
 	}
 	if err != nil {

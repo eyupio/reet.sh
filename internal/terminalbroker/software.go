@@ -45,7 +45,8 @@ func (b *Broker) SoftwareApply(ctx context.Context, uid int64, agentID string, i
 		return terminalproto.SoftwareApplyResult{}, err
 	}
 	result, ok := body.(*terminalproto.SoftwareApplyResult)
-	if !ok || result.Tool != in.Tool || result.Action != in.Action {
+	valid := ok && result.Tool == in.Tool && result.Action == in.Action
+	if !valid {
 		return terminalproto.SoftwareApplyResult{}, ErrSoftwareApplyAnswer
 	}
 	return *result, nil

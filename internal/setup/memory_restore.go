@@ -11,7 +11,9 @@ func addMemoryRestoreActions(plan *RestorePlan, snapshot SetupSnapshot, destinat
 		return
 	}
 	for _, memory := range snapshot.Memories {
-		if memory.AgentID != "codex" || !validMemoryName(memory.Name) || memoryDestinationRoot(destination) == "" {
+		valid := memory.AgentID == "codex" && validMemoryName(memory.Name) &&
+			memoryDestinationRoot(destination) != ""
+		if !valid {
 			plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "memory", Source: memory.Source, Reason: "memory_destination_unsupported"})
 			continue
 		}
@@ -62,7 +64,9 @@ func verifySetupMemories(snapshot SetupSnapshot, destination Report, result *Set
 			AgentID: memory.AgentID, Kind: "memory", Source: memory.Source,
 			Scope: memory.Scope, SelectedFields: 1,
 		}
-		if memory.AgentID != "codex" || !validMemoryName(memory.Name) || memoryDestinationRoot(destination) == "" {
+		valid := memory.AgentID == "codex" && validMemoryName(memory.Name) &&
+			memoryDestinationRoot(destination) != ""
+		if !valid {
 			entry.State, entry.Reason = "unsupported", "memory_destination_unsupported"
 			addVerifyComponent(result, entry)
 			continue
@@ -80,7 +84,8 @@ func verifySetupMemories(snapshot SetupSnapshot, destination Report, result *Set
 			addVerifyComponent(result, entry)
 			continue
 		}
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		invalid := err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()
+		if invalid {
 			entry.State, entry.Reason = "blocked", "destination_sqlite_unsupported"
 			addVerifyComponent(result, entry)
 			continue

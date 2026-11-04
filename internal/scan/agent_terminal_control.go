@@ -25,7 +25,8 @@ func terminalControl(ctx context.Context, config string, c agentConfig) agenthea
 		if err != nil {
 			return err
 		}
-		if current.ID != c.ID || current.Secret != c.Secret || current.Server != c.Server || !current.TerminalEnabled {
+		same := current.ID == c.ID && current.Secret == c.Secret && current.Server == c.Server
+		if !same || !current.TerminalEnabled {
 			return errors.New("terminal access disabled locally")
 		}
 		return nil
@@ -120,7 +121,8 @@ func currentTerminalConfig(config string, c agentConfig) (agentConfig, error) {
 	if err != nil {
 		return agentConfig{}, err
 	}
-	if current.ID != c.ID || current.Secret != c.Secret || current.Server != c.Server || !current.TerminalEnabled {
+	same := current.ID == c.ID && current.Secret == c.Secret && current.Server == c.Server
+	if !same || !current.TerminalEnabled {
 		return agentConfig{}, errors.New("terminal access disabled locally")
 	}
 	return current, nil

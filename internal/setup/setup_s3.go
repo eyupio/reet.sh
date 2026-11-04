@@ -136,7 +136,8 @@ func FetchSetupSnapshot(id, dir string) (SetupFetchResult, error) {
 		return SetupFetchResult{}, fmt.Errorf("download setup snapshot: %w", err)
 	}
 	manifest, err := sealed.ManifestOf(data)
-	if err != nil || manifest.Kind != setupSnapshotKind || manifest.ID != id {
+	valid := err == nil && manifest.Kind == setupSnapshotKind && manifest.ID == id
+	if !valid {
 		return SetupFetchResult{}, errors.New("the downloaded object is not the requested setup snapshot")
 	}
 	if dir == "" {

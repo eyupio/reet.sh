@@ -272,7 +272,10 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	if err != nil {
 		s.Close()
 		var rpcErr *rpcError
-		if spec.Key == CodexCandidate.Key && errors.As(err, &rpcErr) && rpcErr.Code == -32000 && rpcErr.Message == "Authentication required" {
+		isCodex := spec.Key == CodexCandidate.Key
+		authErr := errors.As(err, &rpcErr) && rpcErr.Code == -32000 &&
+			rpcErr.Message == "Authentication required"
+		if isCodex && authErr {
 			return nil, ErrCodexLogin
 		}
 		return nil, ErrExited
@@ -285,7 +288,8 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 			CurrentValue string `json:"currentValue"`
 		} `json:"configOptions"`
 	}
-	if json.Unmarshal(raw, &created) != nil || opened && created.SessionID == "" {
+	valid := json.Unmarshal(raw, &created) == nil && (!opened || created.SessionID != "")
+	if !valid {
 		s.Close()
 		return nil, ErrExited
 	}
@@ -300,7 +304,8 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	}
 	// A profile may name one mode to start in (StartMode). It is switched to only
 	// when the adapter's reply confirms it; otherwise the chat is refused below.
-	if spec.StartMode != "" && mode != "" && mode != spec.StartMode {
+	specified := spec.StartMode != "" && mode != ""
+	if specified && mode != spec.StartMode {
 		switched, err := s.switchMode(newCtx, sessionID0(created.SessionID, opts.Resume), spec.StartMode)
 		if err != nil || switched != spec.StartMode {
 			s.Close()
@@ -622,7 +627,8 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 			if !started {
 				s.toolStart[u.ToolCallID] = now
 			}
-			if u.Status == "completed" || u.Status == "failed" || u.Status == "cancelled" {
+			final := u.Status == "completed" || u.Status == "failed" || u.Status == "cancelled"
+			if final {
 				if started {
 					durationMs = now.Sub(start).Milliseconds()
 				}
@@ -786,7 +792,8 @@ const maxDiffBytes = 10 << 10
 // the card unapprovable. truncated reports that the bound cut the text.
 func typedDiff(blocks []permissionContent) (diff, path string, truncated, ok bool) {
 	for _, b := range blocks {
-		if b.Type != "diff" || b.NewText == nil || b.Path == "" {
+		valid := b.Type == "diff" && b.NewText != nil && b.Path != ""
+		if !valid {
 			continue
 		}
 		var sb strings.Builder
@@ -1654,7 +1661,8 @@ func (s *Session) SetModel(ctx context.Context, model string) error {
 		var refusal *rpcError
 		// Invalid parameters and an unsupported method are explicit protocol
 		// refusals. An internal error may come after applying the change.
-		if errors.As(err, &refusal) && (refusal.Code == -32602 || refusal.Code == -32601) {
+		unsupported := errors.As(err, &refusal) && (refusal.Code == -32602 || refusal.Code == -32601)
+		if unsupported {
 			return err
 		}
 		s.unconfirmedModel()
@@ -1709,7 +1717,9 @@ func acknowledgedModel(raw json.RawMessage, requested string, allowOmitted bool)
 		if option.ID != "model" {
 			continue
 		}
-		if found || json.Unmarshal(option.CurrentValue, &model) != nil || !terminalproto.ValidModel(model) {
+		invalid := found || json.Unmarshal(option.CurrentValue, &model) != nil ||
+			!terminalproto.ValidModel(model)
+		if invalid {
 			return "", false
 		}
 		found = true

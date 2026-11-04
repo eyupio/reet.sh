@@ -234,9 +234,12 @@ func readLock(path string, add func(name, source string)) {
 				if base == "" {
 					base = e.SourceURL
 				}
-				if u, err := url.Parse(base); err == nil && u.Host != "" && u.User == nil {
+				u, err := url.Parse(base)
+				valid := err == nil && u.Host != "" && u.User == nil
+				if valid {
 					parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-					if len(parts) == 2 && (parts[1] == name || parts[1] == key) {
+					match := len(parts) == 2 && (parts[1] == name || parts[1] == key)
+					if match {
 						source = u.Scheme + "://" + u.Host + "/" + parts[0]
 					}
 				}
@@ -265,7 +268,8 @@ func lockSkillName(key, skillPath string) string {
 		return key
 	}
 	base := path.Base(path.Dir(strings.ReplaceAll(skillPath, "\\", "/")))
-	if base == "." || base == "/" || base == "" {
+	invalid := base == "." || base == "/" || base == ""
+	if invalid {
 		return key
 	}
 	return base
@@ -328,7 +332,8 @@ func runVersionAt(dir string, args []string, out io.Writer, version string) erro
 			fmt.Fprintf(out, "Reet, hostname %s now reports as %s. Refreshing inventories.\n", from, to)
 		},
 	})
-	if err == nil || r.DryRun || r.Sent {
+	success := err == nil || r.DryRun
+	if success || r.Sent {
 		RenderResult(out, r)
 	}
 	return err

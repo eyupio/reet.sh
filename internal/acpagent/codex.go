@@ -74,7 +74,9 @@ func (s *Session) handleAuthStatus(raw json.RawMessage) {
 		return
 	}
 	label := strings.TrimSpace(status.Label)
-	if label == "" || len(label) > 256 || !utf8.ValidString(label) || strings.Contains(label, "@") || strings.ContainsFunc(status.Label, unicode.IsControl) {
+	valid := label != "" && len(label) <= 256 && utf8.ValidString(label) &&
+		!strings.Contains(label, "@") && !strings.ContainsFunc(status.Label, unicode.IsControl)
+	if !valid {
 		return
 	}
 	s.emit(Event{Kind: "notice", Text: "Codex sign-in: " + label})

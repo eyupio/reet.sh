@@ -158,7 +158,9 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string, tr
 	if err != nil || caps.Generation != p.Generation {
 		return ErrOffline
 	}
-	if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !caps.Capabilities.ChatReattachFor(s.Tool) || !ok || !chat.History {
+	chat, ok := caps.Capabilities.ChatAgent(s.Tool)
+	supported := caps.Capabilities.ChatReattachFor(s.Tool) && ok && chat.History
+	if !supported {
 		return ErrReattachUnsupported
 	}
 	in := terminalproto.ChatReattach{Tool: s.Tool, Dir: s.Dir, Yolo: s.Yolo, ACPSessionID: s.ACPSessionID, Trust: trust}

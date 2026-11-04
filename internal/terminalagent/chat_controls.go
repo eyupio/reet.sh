@@ -37,7 +37,9 @@ func (h *chatHost) control(ctx context.Context, session string, in terminalproto
 	case "set":
 		wasWorking := process.Working()
 		h.sup.mu.Lock()
-		if cs.changing || cs.quiet || cs.busy && !wasWorking {
+		busyBlocking := cs.busy && !wasWorking
+		inUse := cs.changing || cs.quiet
+		if inUse || busyBlocking {
 			h.sup.mu.Unlock()
 			return answer, terminalhost.ErrOperationConflict
 		}

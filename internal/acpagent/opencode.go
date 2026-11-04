@@ -258,10 +258,10 @@ func openCodeLogErrorAt(path, sessionID string, afterMS int64) string {
 	newest := int64(0)
 	message := ""
 	for _, line := range strings.Split(string(data), "\n") {
-		if !strings.Contains(line, "session.id="+sessionID) ||
-			!strings.Contains(line, "level=ERROR") ||
-			!strings.Contains(line, `message="stream error"`) ||
-			strings.Contains(line, "small=true") {
+		matches := strings.Contains(line, "session.id="+sessionID) &&
+			strings.Contains(line, "level=ERROR") &&
+			strings.Contains(line, `message="stream error"`)
+		if !matches || strings.Contains(line, "small=true") {
 			continue
 		}
 		created, ok := openCodeLogTimestamp(line)

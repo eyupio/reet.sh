@@ -240,7 +240,10 @@ func (b *Broker) Connect(uid int64, agent string, generation int64, enabled bool
 	defer b.mu.Unlock()
 	k := key{uid, agent}
 	old := b.peers[k]
-	if b.closed || send == nil || !terminalproto.ValidCounter(generation) || old != nil && old.Generation >= generation {
+	generationOK := terminalproto.ValidCounter(generation)
+	stale := old != nil && old.Generation >= generation
+	ready := !b.closed && send != nil && generationOK
+	if !ready || stale {
 		return nil, ErrOffline
 	}
 	if old != nil {
@@ -285,7 +288,10 @@ func (p *Peer) observe() {
 				code = s.ExitStatus
 			}
 			err := p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, m.SessionID, p.Generation, s.State, code)
-			if err == nil && (s.ActivityAt > 0 || s.BellAt > 0 || s.ExitStatus != nil || p.b.peerSupportsAttention(p.key.uid, p.key.agent)) {
+			hasActivity := s.ActivityAt > 0 || s.BellAt > 0
+			hasOutcome := s.ExitStatus != nil || p.b.peerSupportsAttention(p.key.uid, p.key.agent)
+			signal := hasActivity || hasOutcome
+			if err == nil && signal {
 				_ = p.b.st.ObserveTerminalAttentionFor(p.key.uid, p.key.agent, m.SessionID, p.Generation, s.ActivityAt, s.BellAt)
 			}
 			if err == nil {
@@ -295,7 +301,8 @@ func (p *Peer) observe() {
 			if err == nil && s.ACPSessionID != "" {
 				err = p.b.st.RecordTerminalACPSessionFor(p.key.uid, p.key.agent, m.SessionID, s.ACPSessionID)
 			}
-			if err != nil && !errors.Is(err, store.ErrRemoteNotFound) && !errors.Is(err, store.ErrTerminalConflict) {
+			unexpected := err != nil && !errors.Is(err, store.ErrRemoteNotFound)
+			if unexpected && !errors.Is(err, store.ErrTerminalConflict) {
 				p.Close()
 				return
 			}
@@ -505,7 +512,9 @@ func (p *Peer) callWithin(ctx context.Context, m terminalproto.Message, limit ti
 		return m, ErrOffline
 	}
 	answered := func(result terminalproto.Message) (terminalproto.Message, error) {
-		if result.SessionID != m.SessionID || result.AttachmentID != m.AttachmentID || result.AttachmentGeneration != m.AttachmentGeneration {
+		same := result.SessionID == m.SessionID && result.AttachmentID == m.AttachmentID &&
+			result.AttachmentGeneration == m.AttachmentGeneration
+		if !same {
 			return m, ErrConflict
 		}
 		return result, nil
@@ -580,7 +589,10 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 		if err := p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, s.ID, p.Generation, state, code); err != nil {
 			return err
 		}
-		if exists && (observed.ActivityAt > 0 || observed.BellAt > 0 || observed.ExitStatus != nil || p.b.peerSupportsAttention(p.key.uid, p.key.agent)) {
+		hasActivity := observed.ActivityAt > 0 || observed.BellAt > 0
+		hasOutcome := observed.ExitStatus != nil || p.b.peerSupportsAttention(p.key.uid, p.key.agent)
+		signal := hasActivity || hasOutcome
+		if exists && signal {
 			_ = p.b.st.ObserveTerminalAttentionFor(p.key.uid, p.key.agent, s.ID, p.Generation, observed.ActivityAt, observed.BellAt)
 		}
 		if exists {
@@ -588,7 +600,8 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 			// follows the mode the machine reports.
 			s = p.adoptSessionMode(s, observed, sessionMode)
 		}
-		if exists && s.Structured && state.ReservesQuota() {
+		reserves := s.Structured && state.ReservesQuota()
+		if exists && reserves {
 			if observed.ActivityAt > s.ActivityAt {
 				s.ActivityAt = observed.ActivityAt
 			}
@@ -753,15 +766,20 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if in.Yolo && !caps.Capabilities.Yolo {
 			return store.TerminalSession{}, false, ErrYoloRefused
 		}
-		if (in.Base != "" || !in.Structured && in.Effort != "" || in.Tool != "" && !terminalproto.ValidTool(in.Tool)) && !caps.Capabilities.AgentsV2 {
+		needsV2 := in.Base != "" || (!in.Structured && in.Effort != "") ||
+			(in.Tool != "" && !terminalproto.ValidTool(in.Tool))
+		if needsV2 && !caps.Capabilities.AgentsV2 {
 			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
 		}
 		// Options the agent's preset has no mapping for are refused here, not
 		// by the machine after a session is reserved.
-		if in.Structured && in.Effort != "" && !caps.Capabilities.ACPStartOptions {
+		needsStartOptions := in.Structured && in.Effort != ""
+		if needsStartOptions && !caps.Capabilities.ACPStartOptions {
 			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
 		}
-		if !in.Structured && in.Effort != "" && !terminalproto.ToolTakesEffort(in.Tool) || in.Model != "" && !terminalproto.ToolTakesModel(in.Tool) {
+		badEffort := !in.Structured && in.Effort != "" && !terminalproto.ToolTakesEffort(in.Tool)
+		badModel := in.Model != "" && !terminalproto.ToolTakesModel(in.Tool)
+		if badEffort || badModel {
 			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
 		}
 		// A peer without resume-v1 is never sent the resume field.
@@ -776,7 +794,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if _, ok := caps.Capabilities.ChatAgent(in.Tool); in.Structured && !ok {
 			return store.TerminalSession{}, false, ErrACPUnsupported
 		}
-		if chat, ok := caps.Capabilities.ChatAgent(in.Tool); in.ResumeACP != "" && (!ok || !chat.History) {
+		chat, ok := caps.Capabilities.ChatAgent(in.Tool)
+		validResume := ok && chat.History
+		if in.ResumeACP != "" && !validResume {
 			return store.TerminalSession{}, false, ErrACPHistoryUnsupported
 		}
 		if in.Tool == "" && in.Dir != "" {
@@ -807,7 +827,8 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 				return s, false, err
 			}
 			s, err = b.st.TerminalSessionFor(uid, s.ID)
-			if err == nil && s.State != terminalproto.Creating && s.State != terminalproto.Lost {
+			settled := s.State != terminalproto.Creating && s.State != terminalproto.Lost
+			if err == nil && settled {
 				b.auditYoloLaunch(uid, agent, in, s)
 			}
 			return s, err == nil && s.State != terminalproto.Creating && s.State != terminalproto.Lost, err
@@ -863,7 +884,10 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 			code = state.ExitStatus
 		}
 		err = b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, state.State, code)
-		if err == nil && (state.ActivityAt > 0 || state.BellAt > 0 || state.ExitStatus != nil || b.peerSupportsAttention(uid, agent)) {
+		hasActivity := state.ActivityAt > 0 || state.BellAt > 0
+		hasOutcome := state.ExitStatus != nil || b.peerSupportsAttention(uid, agent)
+		signal := hasActivity || hasOutcome
+		if err == nil && signal {
 			_ = b.st.ObserveTerminalAttentionFor(uid, agent, s.ID, p.Generation, state.ActivityAt, state.BellAt)
 		}
 		if err == nil && state.ACPSessionID != "" {
@@ -876,12 +900,13 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 				_ = b.st.RecordTerminalAgentModeFor(uid, s.ID, mode)
 			}
 		}
-		if err == nil && worktreeRequested(in) && b.recordWorktree(uid, agent, s.ID, state) != nil {
+		recordWorktree := err == nil && worktreeRequested(in)
+		if recordWorktree && b.recordWorktree(uid, agent, s.ID, state) != nil {
 			// The agent started, but the machine's report of where does not
 			// match this run; nothing is recorded.
 			refusal = ErrWorktreeMismatch
 		}
-	} else if r, ok := reply.Body.(*terminalproto.Result); ok && r.Code != terminalproto.OK && r.Code != terminalproto.Unavailable {
+	} else if r, ok := reply.Body.(*terminalproto.Result); ok && rejectedTerminalResult(r) {
 		err = b.st.FailTerminalCreateWithResultFor(uid, agent, request, p.Generation, *r)
 		switch r.Code {
 		case terminalproto.LaunchOptionUnsupported:
@@ -983,12 +1008,17 @@ func (b *Broker) Ticket(uid int64, source, session string, opts Options) (string
 	b.tickets[id] = ticket{uid: uid, source: source, session: session, agent: s.AgentID, attachment: ID(), generation: p.Generation, opts: opts, expires: now.Add(30 * time.Second)}
 	return id, nil
 }
+func rejectedTerminalResult(r *terminalproto.Result) bool {
+	return r.Code != terminalproto.OK && r.Code != terminalproto.Unavailable
+}
+
 func (b *Broker) consume(id string, uid int64, source string) (ticket, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	t, ok := b.tickets[id]
 	delete(b.tickets, id)
-	if !ok || t.uid != uid || t.source != source || !time.Now().Before(t.expires) {
+	valid := ok && t.uid == uid && t.source == source
+	if !valid || !time.Now().Before(t.expires) {
 		return ticket{}, ErrTicket
 	}
 	return t, nil
@@ -1021,7 +1051,8 @@ func (b *Broker) Bind(ctx context.Context, uid int64, agent string, h terminalpr
 	}
 	p.mu.Lock()
 	e := p.streams[h.RequestID]
-	if e == nil || e.hello != h || !time.Now().Before(e.expires) {
+	valid := e != nil && e.hello == h && time.Now().Before(e.expires)
+	if !valid {
 		p.mu.Unlock()
 		return ErrDenied
 	}
@@ -1061,7 +1092,8 @@ func (b *Broker) startAgentMode(uid int64, agent, tool string) string {
 		return ""
 	}
 	chat, ok := caps.Capabilities.ChatAgent(tool)
-	if !ok || !caps.Capabilities.ACPAgentMode || len(chat.Modes) == 0 {
+	valid := ok && caps.Capabilities.ACPAgentMode && len(chat.Modes) > 0
+	if !valid {
 		return ""
 	}
 	return chat.Modes[0]

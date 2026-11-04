@@ -142,7 +142,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						}.ForFeatures(headers.Get(terminalproto.FeatureHeader))
 						old, known := observed[s.ID]
 						sameCode := old.ExitCode == nil && state.ExitCode == nil || old.ExitCode != nil && state.ExitCode != nil && *old.ExitCode == *state.ExitCode
-						if !initial && (!known || old.State != state.State || !sameCode || old.ActivityAt != state.ActivityAt || old.BellAt != state.BellAt) {
+						changed := !known || old.State != state.State || !sameCode
+						timesChanged := old.ActivityAt != state.ActivityAt || old.BellAt != state.BellAt
+						modified := changed || timesChanged
+						if !initial && modified {
 							if send(ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: s.ID, Generation: generation, Body: state}) != nil {
 								return
 							}
@@ -238,26 +241,35 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			}
 			// Launch fields are served only on a generation that negotiated
 			// launch-v1; a plain shell is never substituted for them.
-			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Tool != "" && !terminalproto.SupportsLaunch(headers.Get(terminalproto.FeatureHeader)) {
+			launchCreate, launchOK := msg.Body.(*terminalproto.Create)
+			launchNeeded := launchOK && launchCreate.Tool != ""
+			if launchNeeded && !terminalproto.SupportsLaunch(headers.Get(terminalproto.FeatureHeader)) {
 				return respond(terminalhost.ErrLaunchUnavailable)
 			}
 			// A resume is accepted only on a generation that negotiated
 			// resume-v1; an older controller never sends it.
-			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Resume && !terminalproto.SupportsResume(headers.Get(terminalproto.FeatureHeader)) {
+			resumeCreate, resumeOK := msg.Body.(*terminalproto.Create)
+			resumeNeeded := resumeOK && resumeCreate.Resume
+			if resumeNeeded && !terminalproto.SupportsResume(headers.Get(terminalproto.FeatureHeader)) {
 				reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 				return send(callCtx, reply)
 			}
 			// Likewise a worktree is made only on a generation that negotiated
 			// worktree-v1; without it the agent is never started in the folder.
-			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Worktree != "" && !terminalproto.SupportsWorktree(headers.Get(terminalproto.FeatureHeader)) {
+			worktreeCreate, worktreeOK := msg.Body.(*terminalproto.Create)
+			worktreeNeeded := worktreeOK && worktreeCreate.Worktree != ""
+			if worktreeNeeded && !terminalproto.SupportsWorktree(headers.Get(terminalproto.FeatureHeader)) {
 				return respond(terminalhost.ErrLaunchUnavailable)
 			}
 			if create, ok := msg.Body.(*terminalproto.Create); ok {
-				if create.Structured && create.Effort != "" && !terminalproto.SupportsACPStartOptions(headers.Get(terminalproto.FeatureHeader)) {
+				needsStartOptions := create.Structured && create.Effort != ""
+				if needsStartOptions && !terminalproto.SupportsACPStartOptions(headers.Get(terminalproto.FeatureHeader)) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)
 				}
-				if (create.Base != "" || !create.Structured && create.Effort != "" || create.Yolo || create.Tool != "" && !terminalproto.ValidTool(create.Tool)) && !terminalproto.SupportsAgents(headers.Get(terminalproto.FeatureHeader)) {
+				needsAgents := create.Base != "" || (!create.Structured && create.Effort != "") ||
+					create.Yolo || (create.Tool != "" && !terminalproto.ValidTool(create.Tool))
+				if needsAgents && !terminalproto.SupportsAgents(headers.Get(terminalproto.FeatureHeader)) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)
 				}
@@ -309,11 +321,17 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					return terminalproto.ErrInvalid
 				}
 			}
-			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Tool == "" && create.Dir != "" && !terminalproto.SupportsShellDir(headers.Get(terminalproto.FeatureHeader)) {
-				reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
-				return send(callCtx, reply)
+			create, ok := msg.Body.(*terminalproto.Create)
+			if ok {
+				needsShellDir := create.Tool == "" && create.Dir != ""
+				if needsShellDir && !terminalproto.SupportsShellDir(headers.Get(terminalproto.FeatureHeader)) {
+					reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
+					return send(callCtx, reply)
+				}
 			}
-			if create, ok := msg.Body.(*terminalproto.Create); ok && create.Structured && !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
+			acpCreate, acpOK := msg.Body.(*terminalproto.Create)
+			needsACP := acpOK && acpCreate.Structured
+			if needsACP && !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
 				reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "Update reet on this machine to use OpenCode chats."}
 				return send(callCtx, reply)
 			}
@@ -363,7 +381,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				if !terminalproto.SupportsInspect(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
 				}
-				if !allowed(opts.Consent) || ((op.View == "files" || op.View == "file") && !allowed(opts.BrowseConsent)) {
+				browseView := op.View == "files" || op.View == "file"
+				denied := !allowed(opts.Consent)
+				browseDenied := browseView && !allowed(opts.BrowseConsent)
+				if denied || browseDenied {
 					reply.Body = terminalproto.InspectResult{Reason: "denied"}
 					return send(callCtx, reply)
 				}
@@ -885,7 +906,8 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				return respond(err)
 			case *terminalproto.Resize:
 				a := attachments[msg.SessionID]
-				if a == nil || a.ID != msg.AttachmentID || a.Generation != msg.AttachmentGeneration {
+				valid := a != nil && a.ID == msg.AttachmentID && a.Generation == msg.AttachmentGeneration
+				if !valid {
 					return respond(terminalhost.ErrAttachmentStale)
 				}
 				err := a.Resize(op.Cols, op.Rows)
@@ -893,7 +915,8 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				return respond(err)
 			case *terminalproto.Detach:
 				a := attachments[msg.SessionID]
-				if a != nil && a.ID == msg.AttachmentID && a.Generation == msg.AttachmentGeneration {
+				valid := a != nil && a.ID == msg.AttachmentID && a.Generation == msg.AttachmentGeneration
+				if valid {
 					a.Close()
 					delete(attachments, msg.SessionID)
 				}
@@ -1245,7 +1268,8 @@ func bridge(ctx context.Context, c *websocket.Conn, a *terminalhost.Attachment) 
 	}()
 	for {
 		kind, data, err := c.Read(ctx)
-		if err != nil || kind != websocket.MessageBinary || terminalproto.ValidateBinary(data) != nil {
+		valid := err == nil && kind == websocket.MessageBinary && terminalproto.ValidateBinary(data) == nil
+		if !valid {
 			break
 		}
 		if n, err := a.Write(data); err != nil || n != len(data) {

@@ -1073,7 +1073,9 @@ func (s *Store) RecordTerminalModelFor(uid int64, sessionID, model string) error
 
 // RecordTerminalControlsFor stores one confirmed runtime snapshot atomically.
 func (s *Store) RecordTerminalControlsFor(uid int64, sessionID, model, effort string) error {
-	if model != "" && !terminalproto.ValidModel(model) || effort != "" && !terminalproto.ValidModel(effort) {
+	invalidModel := model != "" && !terminalproto.ValidModel(model)
+	invalidEffort := effort != "" && !terminalproto.ValidModel(effort)
+	if invalidModel || invalidEffort {
 		return terminalproto.ErrInvalid
 	}
 	_, err := s.db.Exec(`UPDATE terminal_sessions SET model=?,effort=?,updated_at=? WHERE id=? AND user_id=? AND structured=1 AND (model!=? OR effort!=?)`, model, effort, now(), sessionID, uid, model, effort)

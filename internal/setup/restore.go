@@ -191,7 +191,10 @@ func BuildRestorePlan(snapshot SetupSnapshot, manifest sealed.Manifest, destinat
 		}
 		return plan.Unsupported[i].Reason < plan.Unsupported[j].Reason
 	})
-	if snapshot.Preview.OS != "" && destination.OS != "" && (snapshot.Preview.OS != destination.OS || snapshot.Preview.Architecture != destination.Architecture) {
+	differentPlatform := snapshot.Preview.OS != destination.OS ||
+		snapshot.Preview.Architecture != destination.Architecture
+	bothKnown := snapshot.Preview.OS != "" && destination.OS != ""
+	if bothKnown && differentPlatform {
 		plan.Warnings = append(plan.Warnings, fmt.Sprintf("Source setup was captured on %s/%s; this destination is %s/%s. Path mapping uses known locations only and cross-OS restore is not verified.", snapshot.Preview.OS, snapshot.Preview.Architecture, destination.OS, destination.Architecture))
 	}
 	plan.files = files
@@ -331,7 +334,8 @@ func addSkillLockRestoreActions(plan *RestorePlan, snapshot SetupSnapshot, desti
 			if current, exists := existingSkills[name]; exists {
 				currentMap, currentOK := current.(map[string]any)
 				entryMap, entryOK := entry.(map[string]any)
-				if currentOK && entryOK && currentMap["source"] != entryMap["source"] {
+				bothOK := currentOK && entryOK
+				if bothOK && currentMap["source"] != entryMap["source"] {
 					plan.Unsupported = append(plan.Unsupported, RestoreUnsupported{Kind: "skill_lock", Source: path, Reason: "skill_lock_source_conflict", Count: 1})
 				}
 				continue
@@ -381,7 +385,9 @@ func matchSkillRoot(candidates []destinationSkillCandidate, skill SetupSkill) (d
 	best := destinationSkillCandidate{}
 	bestScore := -1
 	for _, candidate := range candidates {
-		if candidate.agentID != skill.AgentID || candidate.scope != skill.Scope || sourceBase(candidate.root) != base {
+		matches := candidate.agentID == skill.AgentID && candidate.scope == skill.Scope &&
+			sourceBase(candidate.root) == base
+		if !matches {
 			continue
 		}
 		score := 0
@@ -390,10 +396,15 @@ func matchSkillRoot(candidates []destinationSkillCandidate, skill SetupSkill) (d
 		}
 		if skill.LocationSource != "" && candidate.source == skill.LocationSource {
 			score += 4
-		} else if skill.LocationSource != "" && skill.LocationSource != "default" && candidate.source == "default" {
-			score++
+		} else {
+			explicit := skill.LocationSource != "" && skill.LocationSource != "default"
+			if explicit && candidate.source == "default" {
+				score++
+			}
 		}
-		if score > bestScore || (score == bestScore && candidate.root < best.root) {
+		better := score > bestScore
+		tie := score == bestScore && candidate.root < best.root
+		if better || tie {
 			best, bestScore = candidate, score
 		}
 	}
@@ -470,7 +481,9 @@ func destinationCandidates(report Report) []destinationCandidate {
 	var out []destinationCandidate
 	for _, agent := range report.Agents {
 		for _, loc := range agent.Locations {
-			if loc.Kind != "configuration" && loc.Kind != "mcp_configuration" && loc.Kind != "instructions" && loc.Kind != "shared_instructions" {
+			exported := loc.Kind == "configuration" || loc.Kind == "mcp_configuration" ||
+				loc.Kind == "instructions" || loc.Kind == "shared_instructions"
+			if !exported {
 				continue
 			}
 			for _, path := range configPaths(agent.ID, loc) {
@@ -494,7 +507,9 @@ func matchDestination(candidates []destinationCandidate, component restoreCompon
 	base := sourceBase(component.path)
 	var matches []destinationCandidate
 	for _, candidate := range candidates {
-		if candidate.agentID == component.agentID && candidate.scope == component.scope && sourceBase(candidate.path) == base {
+		sameCandidate := candidate.agentID == component.agentID && candidate.scope == component.scope &&
+			sourceBase(candidate.path) == base
+		if sameCandidate {
 			matches = append(matches, candidate)
 		}
 	}

@@ -38,7 +38,9 @@ func readSettings(raw json.RawMessage) ([]terminalproto.ACPSetting, bool) {
 		if category == "" && o.ID == "model" {
 			category = "model"
 		}
-		if o.ID == "mode" || (o.ID == "model" && category != "model") {
+		isMode := o.ID == "mode"
+		isModel := o.ID == "model" && category != "model"
+		if isMode || isModel {
 			continue
 		}
 		if category != "model" && category != "thought_level" {
@@ -55,7 +57,8 @@ func readSettings(raw json.RawMessage) ([]terminalproto.ACPSetting, bool) {
 			return nil, false
 		}
 		add := func(v string) {
-			if len(setting.Values) < 16 && v != "" && !slices.Contains(setting.Values, v) {
+			canAdd := len(setting.Values) < 16 && v != ""
+			if canAdd && !slices.Contains(setting.Values, v) {
 				setting.Values = append(setting.Values, v)
 			}
 		}
@@ -141,7 +144,9 @@ func (s *Session) SetOption(ctx context.Context, id, value string) error {
 	if closed {
 		return ErrClosed
 	}
-	if setting == nil || value == "" || !terminalproto.ValidModel(value) || setting.Category == "thought_level" && !slices.Contains(setting.Values, value) {
+	invalid := setting == nil || value == "" || !terminalproto.ValidModel(value) ||
+		(setting.Category == "thought_level" && !slices.Contains(setting.Values, value))
+	if invalid {
 		return ErrControl
 	}
 	ackErr := ErrControl
@@ -150,7 +155,8 @@ func (s *Session) SetOption(ctx context.Context, id, value string) error {
 	})
 	if err != nil {
 		var refusal *rpcError
-		if !errors.As(err, &refusal) || refusal.Code != -32601 && refusal.Code != -32602 {
+		known := errors.As(err, &refusal) && (refusal.Code == -32601 || refusal.Code == -32602)
+		if !known {
 			s.forgetSetting(id)
 		}
 		return err
@@ -164,7 +170,8 @@ func (s *Session) applySettingReply(setting terminalproto.ACPSetting, value stri
 	if ok {
 		s.updateSettings(raw)
 		for _, o := range options {
-			if o.ID == id && o.Category == setting.Category && o.Current == value {
+			matches := o.ID == id && o.Category == setting.Category
+			if matches && o.Current == value {
 				return nil
 			}
 		}
@@ -217,7 +224,8 @@ func (s *Session) Steer(ctx context.Context, text string, images []Attachment) (
 	}
 	defer s.steerMu.Unlock()
 	state := s.Controls()
-	if !state.Steering || state.Waiting || state.Compacting || state.Configuring {
+	valid := state.Steering && !state.Waiting && !state.Compacting && !state.Configuring
+	if !valid {
 		return "rejected", nil
 	}
 	if !state.Working {
@@ -245,7 +253,8 @@ func (s *Session) Steer(ctx context.Context, text string, images []Attachment) (
 	raw, err := s.request(ctx, "_session/steering", map[string]any{"sessionId": id, "prompt": blocks, "_meta": map[string]any{"steering": map[string]string{"idleBehavior": "promptRequired"}}})
 	if err != nil {
 		var refusal *rpcError
-		if errors.As(err, &refusal) && (refusal.Code == -32601 || refusal.Code == -32602) {
+		unsupported := errors.As(err, &refusal) && (refusal.Code == -32601 || refusal.Code == -32602)
+		if unsupported {
 			return "rejected", nil
 		}
 		return "unknown", err

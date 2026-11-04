@@ -77,7 +77,8 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 		return RestoreApplyResult{}, errors.New("the restore plan has no selected content; rebuild it from the snapshot")
 	}
 	opts.Conflict = strings.ToLower(strings.TrimSpace(opts.Conflict))
-	if opts.Conflict != "" && opts.Conflict != "skip" && opts.Conflict != "replace" {
+	valid := opts.Conflict == "" || opts.Conflict == "skip" || opts.Conflict == "replace"
+	if !valid {
 		return RestoreApplyResult{}, fmt.Errorf("unknown conflict policy %q; use skip or replace", opts.Conflict)
 	}
 	actionsByDestination := map[string]RestoreAction{}
@@ -159,7 +160,8 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 			}
 			if policy == "replace" {
 				info, err := os.Lstat(action.Destination)
-				if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+				invalid := err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()
+				if invalid {
 					return RestoreApplyResult{}, fmt.Errorf("conflicting destination %q must be a regular file before it can be replaced", action.Destination)
 				}
 			} else if policy == "skip" {
@@ -169,7 +171,8 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 			}
 		case "merge":
 			info, err := os.Lstat(action.Destination)
-			if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			invalid := err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()
+			if invalid {
 				return RestoreApplyResult{}, fmt.Errorf("merge destination %q must be a regular file", action.Destination)
 			}
 			file, ok := plan.files[action.Destination]
@@ -336,7 +339,9 @@ func ApplyRestorePlan(plan RestorePlan, opts RestoreApplyOptions) (RestoreApplyR
 		if err != nil {
 			return fail(journalIndexForAction, err)
 		}
-		if action.State == "merge" || action.State == "conflict" && policy == "replace" {
+		merge := action.State == "merge"
+		replaceConflict := action.State == "conflict" && policy == "replace"
+		if merge || replaceConflict {
 			backup := restoreBackupPath(journalPath, journalIndexForAction)
 			if err := copyRestoreBackup(action.Destination, backup); err != nil {
 				return fail(journalIndexForAction, err)
@@ -606,7 +611,8 @@ func verifyAppliedAction(plan RestorePlan, destination string, entry restoreJour
 		return fmt.Errorf("restore journal for %q does not match the snapshot content", destination)
 	}
 	info, err := os.Lstat(destination)
-	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+	invalid := err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()
+	if invalid {
 		return fmt.Errorf("applied destination %q is not a regular file", destination)
 	}
 	if fileSHA256(destination) != expectedHash {
@@ -617,7 +623,8 @@ func verifyAppliedAction(plan RestorePlan, destination string, entry restoreJour
 
 func newRestoreJournalPath(dir, snapshotID string, now time.Time) (string, error) {
 	safe := strings.Map(func(r rune) rune {
-		if r == '-' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+		valid := r == '-' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+		if valid {
 			return r
 		}
 		return '-'

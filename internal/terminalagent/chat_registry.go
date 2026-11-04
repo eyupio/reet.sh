@@ -102,7 +102,8 @@ func (r *chatRegistry) snapshot() []chatRecord {
 	out := make([]chatRecord, 0, len(r.chats))
 	changed := false
 	for id, rec := range r.chats {
-		if rec.UpdatedAt <= 0 || now.Sub(time.UnixMilli(rec.UpdatedAt)) > maxChatResumeAge || rec.Attempts >= maxChatResumeAttempts {
+		stale := rec.UpdatedAt <= 0 || now.Sub(time.UnixMilli(rec.UpdatedAt)) > maxChatResumeAge
+		if stale || rec.Attempts >= maxChatResumeAttempts {
 			delete(r.chats, id)
 			changed = true
 			continue
@@ -122,7 +123,8 @@ func (r *chatRegistry) remember(rec chatRecord) {
 	// A manual continuation replaces the failed row's restart record. Keeping
 	// both would load the same conversation twice on the next connector start.
 	for id, previous := range r.chats {
-		if id != rec.ID && previous.Tool == rec.Tool && previous.ACPSID == rec.ACPSID {
+		sameChat := previous.Tool == rec.Tool && previous.ACPSID == rec.ACPSID
+		if id != rec.ID && sameChat {
 			delete(r.chats, id)
 		}
 	}
@@ -256,8 +258,9 @@ func (s *chatSupervisor) remember(cs *chatSession) {
 		Yolo: cs.yolo, Trust: cs.trust, ACPSID: cs.acpID,
 	}
 	s.mu.Unlock()
-	if rec.ACPSID == "" || !acpagent.Describe(rec.Tool, true, "").History ||
-		!terminalproto.ValidACPSessionIDFor(rec.Tool, rec.ACPSID) || !terminalproto.ValidDir(rec.Dir) {
+	valid := rec.ACPSID != "" && acpagent.Describe(rec.Tool, true, "").History &&
+		terminalproto.ValidACPSessionIDFor(rec.Tool, rec.ACPSID) && terminalproto.ValidDir(rec.Dir)
+	if !valid {
 		return
 	}
 	s.registry.remember(rec)
@@ -329,7 +332,8 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 		return
 	}
 	yolo := rec.Yolo
-	if yolo && (s.opts.YoloConsent == nil || s.opts.YoloConsent() != nil) {
+	consent := s.opts.YoloConsent == nil || s.opts.YoloConsent() != nil
+	if yolo && consent {
 		yolo = false
 	}
 

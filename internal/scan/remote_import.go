@@ -104,7 +104,9 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 		Work          *store.RemoteImport `json:"work"`
 	}
 	err := remoteImportPost(ctx, c, "work", map[string]any{"schemaVersion": skillimport.RemoteVersion, "instanceId": instance}, &response, version)
-	if err == controllerHTTPError(404) || err == controllerHTTPError(405) || err == controllerHTTPError(403) {
+	known := err == controllerHTTPError(404) || err == controllerHTTPError(405) ||
+		err == controllerHTTPError(403)
+	if known {
 		return false, nil
 	}
 	if err != nil {
@@ -157,7 +159,8 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 		}
 		return true, err
 	}
-	if work.State != "uploading" || work.Preview == nil || !work.Preview.Allowed(work.Excluded) {
+	valid := work.State == "uploading" && work.Preview != nil
+	if !valid || !work.Preview.Allowed(work.Excluded) {
 		return failure("transfer_failed")
 	}
 	_, files, err := skillbundle.ReadContents(root, work.Preview.SourceDigest)
@@ -178,7 +181,12 @@ func processRemoteImportWith(ctx context.Context, c agentConfig, version, instan
 	if err = remoteImportPost(ctx, c, "work", map[string]any{"schemaVersion": skillimport.RemoteVersion, "instanceId": instance}, &current, version); err != nil {
 		return true, err
 	}
-	if current.SchemaVersion != skillimport.RemoteVersion || current.Work == nil || current.Work.ID != work.ID || current.Work.State != "uploading" || current.Work.Digest != m.Digest {
+	if current.SchemaVersion != skillimport.RemoteVersion || current.Work == nil {
+		return true, nil
+	}
+	validWork := current.Work.ID == work.ID && current.Work.State == "uploading" &&
+		current.Work.Digest == m.Digest
+	if !validWork {
 		return true, nil
 	}
 	var result store.PrivateSkillResult

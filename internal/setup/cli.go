@@ -24,7 +24,8 @@ type ProfileRemote interface {
 // Run implements the standalone setup command. No server credentials are needed
 // unless profile push/pull is used with a supplied remote.
 func Run(args []string, out io.Writer, remote ...ProfileRemote) error {
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+	help := len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h"
+	if help {
 		_, err := fmt.Fprintln(out, `Usage: reet setup scan [--json] [--project PATH] [--components] [--probe-versions] [--inspect-installation] [--export-policy]
        reet setup backup --preview [--json] [--project PATH]
        reet setup backup [--password-file FILE] [--dir DIR] [--json] [--project PATH] [--probe-versions] [--inspect-installation] [--include-credentials] [--s3]
@@ -317,7 +318,9 @@ func runRestore(args []string, out io.Writer) error {
 		}
 		return err
 	}
-	if *profile == "" && f.NArg() == 0 && interactive() && !*asJSON {
+	noTarget := *profile == "" && f.NArg() == 0
+	interactiveRestore := noTarget && interactive()
+	if interactiveRestore && !*asJSON {
 		return runRestoreWizard(out, *dir, *project, *machine, restoreWizardOptions{PasswordFile: *passwordFile, Revision: *revision, ProbeVersions: *probeVersions, InspectInstallation: *inspectInstallation})
 	}
 	if (*profile == "") == (f.NArg() != 1) {
@@ -326,7 +329,8 @@ func runRestore(args []string, out io.Writer) error {
 	if *resume != "" {
 		*apply = true
 	}
-	if !*apply && (*onConflict != "" || len(conflicts) > 0) {
+	hasConflict := *onConflict != "" || len(conflicts) > 0
+	if !*apply && hasConflict {
 		return fmt.Errorf("--on-conflict and --conflict are only used with --apply")
 	}
 	passphrase, err := readSetupPassphrase(*passwordFile, false, os.Stderr)
@@ -481,7 +485,9 @@ func runRollback(args []string, out io.Writer) error {
 		}
 		return err
 	}
-	if (*profile == "") == (f.NArg() != 1) || (*journal == "" && !*last) || (*journal != "" && *last) {
+	validPair := (*profile == "") == (f.NArg() == 1)
+	invalidSource := (*journal == "" && !*last) || (*journal != "" && *last)
+	if !validPair || invalidSource {
 		return fmt.Errorf("usage: reet setup rollback (--journal FILE | --last) [--profile NAME [--revision N] | SNAPSHOT] [--json] [--dir DIR] [--password-file FILE] [--project PATH]")
 	}
 	passphrase, err := readSetupPassphrase(*passwordFile, false, os.Stderr)
@@ -646,7 +652,8 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 	if len(args) == 0 && interactive() {
 		return runProfileWizard("", out, remote...)
 	}
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+	help := len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h"
+	if help {
 		_, err := fmt.Fprintln(out, "Usage: reet setup profile (interactive wizard when run without a subcommand)\n       reet setup profile save [--exclude-kind KIND] [--exclude-source PATH] [--machine NAME] [--project PATH] [--json] [--dir DIR] [--password-file FILE] NAME [SNAPSHOT]\n       reet setup profile list [--json] [--dir DIR]\n       reet setup profile show [--json] [--dir DIR] [--revision N] NAME\n       reet setup profile remove [--yes] [--dir DIR] NAME\n       reet setup profile rename [--dir DIR] OLD NEW\n       reet setup profile push [--server URL] [--token TOKEN] [--env-file FILE] NAME\n       reet setup profile pull [--server URL] [--token TOKEN] [--env-file FILE] NAME")
 		return err
 	}
@@ -671,7 +678,8 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 			}
 			return err
 		}
-		if f.NArg() == 0 && interactive() && !*asJSON {
+		noTarget := f.NArg() == 0 && interactive()
+		if noTarget && !*asJSON {
 			return runProfileWizard(*dir, out, remote...)
 		}
 		if f.NArg() < 1 || f.NArg() > 2 {
@@ -691,7 +699,9 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 		snapshotRef := ""
 		if f.NArg() == 2 {
 			snapshotRef = f.Arg(1)
-			if !validSetupSnapshotID(snapshotRef) && !strings.HasSuffix(snapshotRef, setupSnapshotExtension) && !strings.ContainsAny(snapshotRef, `/\\`) {
+			validRef := validSetupSnapshotID(snapshotRef) ||
+				strings.HasSuffix(snapshotRef, setupSnapshotExtension) || strings.ContainsAny(snapshotRef, `/\\`)
+			if !validRef {
 				return fmt.Errorf("snapshot %q is not a local ID or path; use reet setup list or omit SNAPSHOT to use the newest", snapshotRef)
 			}
 		} else {
@@ -934,7 +944,8 @@ func runPrune(args []string, out io.Writer) error {
 }
 
 func runRemote(args []string, out io.Writer) error {
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+	help := len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h"
+	if help {
 		_, err := fmt.Fprintln(out, "Usage: reet setup remote list [--json]\n       reet setup remote test [--json]\n       reet setup remote delete --yes [--json] SNAPSHOT\n       reet setup remote prune --keep N [--apply] [--json]")
 		return err
 	}
@@ -1036,7 +1047,8 @@ func readSetupPassphrase(file string, confirm bool, promptOut io.Writer) (string
 	if file == "" && !interactive {
 		return "", errors.New("a setup snapshot passphrase is required; give --password-file FILE or --password-file - for standard input")
 	}
-	if file == "" || file == "-" && interactive {
+	fromStdin := file == "-" && interactive
+	if file == "" || fromStdin {
 		passphrase, err := promptSetupPassphrase(confirm, promptOut)
 		if err != nil {
 			return "", err

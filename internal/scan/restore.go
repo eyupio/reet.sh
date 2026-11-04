@@ -58,12 +58,15 @@ func restoreSkill(c agentConfig, targetID, backup string, in io.Reader, out io.W
 		return err
 	}
 	parts := strings.Split(rel, string(filepath.Separator))
-	if len(parts) != 2 || !strings.HasPrefix(parts[0], "removed-") || !safeSlug.MatchString(parts[1]) || parts[1] == ".." {
+	valid := len(parts) == 2 && strings.HasPrefix(parts[0], "removed-") &&
+		safeSlug.MatchString(parts[1]) && parts[1] != ".."
+	if !valid {
 		return errors.New("choose a removed skill entry from this target's .reet-sync-backups directory")
 	}
 	for _, p := range []string{root, filepath.Dir(absolute)} {
 		st, e := os.Lstat(p)
-		if e != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
+		invalid := e != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0
+		if invalid {
 			return errors.New("backup parent must be a real directory")
 		}
 	}

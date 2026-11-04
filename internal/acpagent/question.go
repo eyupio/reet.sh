@@ -163,7 +163,8 @@ func plainQuestionText(s string, max int) bool {
 		return false
 	}
 	for _, r := range s {
-		if r < 0x20 && r != '\n' && r != '\t' || r == 0x7f {
+		invalid := r < 0x20 && r != '\n' && r != '\t'
+		if invalid || r == 0x7f {
 			return false
 		}
 	}
@@ -211,7 +212,9 @@ func parseQuestion(raw json.RawMessage) (Question, string, error) {
 	sortQuestionKeys(keys)
 	q := Question{Message: params.Message, ToolCallID: params.ToolCallID}
 	for _, key := range keys {
-		if key == "" || !plainQuestionText(key, maxQuestionKey) || strings.ContainsAny(key, "\n\t") {
+		valid := key != "" && plainQuestionText(key, maxQuestionKey) &&
+			!strings.ContainsAny(key, "\n\t")
+		if !valid {
 			return Question{}, "", unsupported("field name %q is not allowed", key)
 		}
 		field, err := parseQuestionField(key, object.Properties[key], required[key])
@@ -280,7 +283,9 @@ func parseQuestionField(key string, raw json.RawMessage, required bool) (Questio
 	field := QuestionField{Key: key, Title: schema.Title, Description: schema.Description, Required: required}
 	switch schema.Type {
 	case "string":
-		if schema.Items != nil || schema.MinItems != nil || schema.MaxItems != nil || schema.UniqueItems != nil {
+		hasArrayKeywords := schema.Items != nil || schema.MinItems != nil ||
+			schema.MaxItems != nil || schema.UniqueItems != nil
+		if hasArrayKeywords {
 			return QuestionField{}, unsupported("field %q mixes string and array keywords", key)
 		}
 		options, err := stringOptions(key, schema)
@@ -303,7 +308,9 @@ func parseQuestionField(key string, raw json.RawMessage, required bool) (Questio
 		}
 		return field, nil
 	case "array":
-		if len(schema.OneOf) > 0 || len(schema.Enum) > 0 || schema.MaxLength != nil || schema.Items == nil {
+		valid := len(schema.OneOf) == 0 && len(schema.Enum) == 0 &&
+			schema.MaxLength == nil && schema.Items != nil
+		if !valid {
 			return QuestionField{}, unsupported("field %q is not a plain multi select", key)
 		}
 		options, err := itemOptions(key, *schema.Items)
@@ -318,7 +325,9 @@ func parseQuestionField(key string, raw json.RawMessage, required bool) (Questio
 			field.MinItems = *schema.MinItems
 		}
 		if schema.MaxItems != nil {
-			if *schema.MaxItems < 1 || *schema.MaxItems > len(options) || *schema.MaxItems < field.MinItems {
+			maxItems := *schema.MaxItems
+			invalid := maxItems < 1 || maxItems > len(options) || maxItems < field.MinItems
+			if invalid {
 				return QuestionField{}, unsupported("field %q has an impossible maximum", key)
 			}
 			field.MaxItems = *schema.MaxItems
@@ -338,7 +347,9 @@ func toOptions(key string, titled []schemaOption) ([]QuestionOption, error) {
 	seen := map[string]bool{}
 	options := make([]QuestionOption, 0, len(titled))
 	for _, option := range titled {
-		if option.Const == "" || !plainQuestionText(option.Const, maxQuestionValue) || seen[option.Const] {
+		valid := option.Const != "" && plainQuestionText(option.Const, maxQuestionValue) &&
+			!seen[option.Const]
+		if !valid {
 			return nil, unsupported("field %q has an empty, oversized or repeated option value", key)
 		}
 		if !plainQuestionText(option.Title, maxQuestionLabel) || !plainQuestionText(option.Description, maxQuestionDescription) {
@@ -393,7 +404,9 @@ func itemOptions(key string, items schemaItems) ([]QuestionOption, error) {
 			count++
 		}
 	}
-	if count != 1 || items.Type != "" && items.Type != "string" {
+	wrongCount := count != 1
+	wrongType := items.Type != "" && items.Type != "string"
+	if wrongCount || wrongType {
 		return nil, unsupported("field %q items are not a plain list of string choices", key)
 	}
 	switch {
@@ -430,7 +443,9 @@ func DecodeAnswers(data []byte) (map[string]json.RawMessage, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	token, err := decoder.Token()
-	if delim, ok := token.(json.Delim); err != nil || !ok || delim != '{' {
+	delim, ok := token.(json.Delim)
+	valid := err == nil && ok && delim == '{'
+	if !valid {
 		return nil, rejected("", "the answers are not a JSON object")
 	}
 	answers := map[string]json.RawMessage{}

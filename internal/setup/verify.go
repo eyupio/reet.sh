@@ -158,7 +158,10 @@ func VerifySetupSnapshot(snapshot SetupSnapshot, manifest sealed.Manifest, desti
 		}
 		return result.Components[i].Source < result.Components[j].Source
 	})
-	if snapshot.Preview.OS != "" && destination.OS != "" && (snapshot.Preview.OS != destination.OS || snapshot.Preview.Architecture != destination.Architecture) {
+	differentPlatform := snapshot.Preview.OS != destination.OS ||
+		snapshot.Preview.Architecture != destination.Architecture
+	bothKnown := snapshot.Preview.OS != "" && destination.OS != ""
+	if bothKnown && differentPlatform {
 		result.Limitations = append(result.Limitations, fmt.Sprintf("The snapshot was captured on %s/%s and this destination is %s/%s; cross-OS restore is not verified.", snapshot.Preview.OS, snapshot.Preview.Architecture, destination.OS, destination.Architecture))
 	}
 	result.Software = verifySoftware(snapshot.Software, destination.Agents)

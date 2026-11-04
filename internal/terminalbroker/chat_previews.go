@@ -36,7 +36,8 @@ func (b *Broker) ChatPreview(ctx context.Context, uid int64, session, id string)
 		return nil, "", err
 	}
 	caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID)
-	if err != nil || caps.Generation != p.Generation || !caps.Capabilities.ACPPreviews {
+	valid := err == nil && caps.Generation == p.Generation && caps.Capabilities.ACPPreviews
+	if !valid {
 		return nil, "", ErrPreviewUnavailable
 	}
 	var data []byte
@@ -49,7 +50,15 @@ func (b *Broker) ChatPreview(ctx context.Context, uid int64, session, id string)
 			return nil, "", err
 		}
 		part, ok := reply.Body.(*terminalproto.ACPPreviewResult)
-		if !ok || part.ID != id || part.Offset != in.Offset || part.Size < 1 || part.Size > terminalproto.MaxACPPreviewBytes || len(part.Data) == 0 || len(part.Data) > terminalproto.MaxACPPreviewChunk || in.Offset+int64(len(part.Data)) > part.Size {
+		if !ok {
+			return nil, "", ErrPreviewUnavailable
+		}
+		validPart := part.ID == id && part.Offset == in.Offset
+		validSize := part.Size >= 1 && part.Size <= terminalproto.MaxACPPreviewBytes &&
+			len(part.Data) > 0 && len(part.Data) <= terminalproto.MaxACPPreviewChunk
+		validOffset := in.Offset+int64(len(part.Data)) <= part.Size
+		valid := validPart && validSize && validOffset
+		if !valid {
 			return nil, "", ErrPreviewUnavailable
 		}
 		if data == nil {
@@ -64,7 +73,8 @@ func (b *Broker) ChatPreview(ctx context.Context, uid int64, session, id string)
 		}
 	}
 	detected, _, ok := terminalproto.SniffUploadMIME(data)
-	if !ok || mime != detected || fmt.Sprintf("%x", sha256.Sum256(data)) != id {
+	validImage := ok && mime == detected && fmt.Sprintf("%x", sha256.Sum256(data)) == id
+	if !validImage {
 		return nil, "", ErrPreviewUnavailable
 	}
 	return data, mime, nil

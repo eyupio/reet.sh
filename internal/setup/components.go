@@ -224,7 +224,8 @@ func readRegularFile(path string, before os.FileInfo, limit int64) ([]byte, stri
 	}
 	defer f.Close()
 	opened, err := f.Stat()
-	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+	invalid := err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened)
+	if invalid {
 		return nil, "file_changed"
 	}
 	data, err := io.ReadAll(io.LimitReader(f, limit+1))
@@ -235,7 +236,9 @@ func readRegularFile(path string, before os.FileInfo, limit int64) ([]byte, stri
 		return nil, "file_too_large"
 	}
 	after, err := f.Stat()
-	if err != nil || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) || int64(len(data)) != after.Size() {
+	changed := err != nil || before.Size() != after.Size() ||
+		!before.ModTime().Equal(after.ModTime()) || int64(len(data)) != after.Size()
+	if changed {
 		return nil, "file_changed"
 	}
 	return data, ""

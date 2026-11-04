@@ -68,7 +68,9 @@ func ApplyExportPolicies(r *Report) {
 		}
 		seen := map[string]bool{}
 		for _, loc := range a.Locations {
-			if loc.Kind != "configuration" && loc.Kind != "mcp_configuration" && loc.Kind != "instructions" && loc.Kind != "shared_instructions" {
+			exported := loc.Kind == "configuration" || loc.Kind == "mcp_configuration" ||
+				loc.Kind == "instructions" || loc.Kind == "shared_instructions"
+			if !exported {
 				continue
 			}
 			for _, path := range configPaths(a.ID, loc) {

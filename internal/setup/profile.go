@@ -88,7 +88,8 @@ func profileDir(dir string) (string, error) {
 func ValidProfileName(name string) bool { return validProfileName(name) }
 
 func validProfileName(name string) bool {
-	if name == "" || len(name) > 64 || name[0] == '-' {
+	valid := name != "" && len(name) <= 64 && name[0] != '-'
+	if !valid {
 		return false
 	}
 	for _, c := range name {
@@ -217,14 +218,18 @@ func ParseSetupProfile(data []byte, name string) (SetupProfile, error) {
 	if err := json.Unmarshal(data, &profile); err != nil {
 		return SetupProfile{}, errors.New("the profile is invalid")
 	}
-	if profile.SchemaVersion != setupProfileSchemaVersion || profile.Name != name || len(profile.Revisions) == 0 {
+	valid := profile.SchemaVersion == setupProfileSchemaVersion && profile.Name == name &&
+		len(profile.Revisions) > 0
+	if !valid {
 		return SetupProfile{}, errors.New("the profile is incomplete or from another version")
 	}
 	for i, revision := range profile.Revisions {
 		if err := ValidateSetupProfileOverrides(revision.Overrides); err != nil {
 			return SetupProfile{}, err
 		}
-		if revision.Revision != i+1 || revision.SnapshotID == "" || revision.SnapshotDigest == "" {
+		valid := revision.Revision == i+1 && revision.SnapshotID != "" &&
+			revision.SnapshotDigest != ""
+		if !valid {
 			return SetupProfile{}, errors.New("the profile revision history is inconsistent")
 		}
 	}
@@ -315,7 +320,8 @@ func ListSetupProfiles(dir string) (SetupProfileList, error) {
 	if os.IsNotExist(err) {
 		return list, nil
 	}
-	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+	invalid := err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir()
+	if invalid {
 		return SetupProfileList{}, errors.New("the profiles directory is not a real directory")
 	}
 	entries, err := os.ReadDir(profilesDir)
@@ -540,7 +546,8 @@ func ApplyProfileOverrides(snapshot SetupSnapshot, overrides *SetupProfileOverri
 	filtered.Skills = []SetupSkill{}
 	for _, skill := range snapshot.Skills {
 		source := filepath.Join(skill.Root, skill.Name)
-		if sources[source] || sources[skill.Root] || kinds["skills"] {
+		duplicate := sources[source] || sources[skill.Root]
+		if duplicate || kinds["skills"] {
 			continue
 		}
 		filtered.Skills = append(filtered.Skills, skill)
@@ -556,7 +563,8 @@ func ApplyProfileOverrides(snapshot SetupSnapshot, overrides *SetupProfileOverri
 	}
 	filtered.Preview.Skills = []SnapshotSkill{}
 	for _, skill := range snapshot.Preview.Skills {
-		if sources[skill.Source] || sources[filepath.Dir(skill.Source)] || kinds["skills"] {
+		duplicate := sources[skill.Source] || sources[filepath.Dir(skill.Source)]
+		if duplicate || kinds["skills"] {
 			for i := range filtered.Preview.Agents {
 				if filtered.Preview.Agents[i].ID == skill.AgentID {
 					filtered.Preview.Agents[i].Omitted = append(filtered.Preview.Agents[i].Omitted, SnapshotOmission{Kind: "skills", Source: skill.Source, Reason: "profile_excluded", Count: 1})

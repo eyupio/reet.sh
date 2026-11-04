@@ -127,12 +127,16 @@ func stripJSONC(data []byte) ([]byte, error) {
 		if c == '"' {
 			quoted = true
 		}
-		if c == ',' && previous != '[' && previous != '{' && previous != ',' && previous != ':' {
+		notAfterOpen := previous != '[' && previous != '{'
+		notAfterSeparator := previous != ',' && previous != ':'
+		afterValue := notAfterOpen && notAfterSeparator
+		if c == ',' && afterValue {
 			j := i + 1
 			for j < len(out) && jsonSpace(out[j]) {
 				j++
 			}
-			if j < len(out) && (out[j] == ']' || out[j] == '}') {
+			closing := j < len(out) && (out[j] == ']' || out[j] == '}')
+			if closing {
 				out[i] = ' '
 			}
 		}

@@ -14,6 +14,59 @@ import (
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
+func TestChooseSyncMode(t *testing.T) {
+	for _, tc := range []struct {
+		name, input string
+		apply       bool
+	}{
+		{name: "apply", input: "apply\n", apply: true},
+		{name: "apply shorthand", input: "a\n", apply: true},
+		{name: "uppercase apply", input: "APPLY\n", apply: true},
+		{name: "preview", input: "preview\n"},
+		{name: "preview shorthand", input: "p\n"},
+		{name: "empty answers preview", input: "\n"},
+		{name: "unknown then preview", input: "later\npreview\n"},
+		{name: "unknown then apply", input: "yes please\napply\n", apply: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			apply, err := chooseSyncMode(strings.NewReader(tc.input), &out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if apply != tc.apply {
+				t.Fatalf("apply = %t, want %t: %s", apply, tc.apply, out.String())
+			}
+			if strings.Contains(tc.input, "later") && !strings.Contains(out.String(), "Enter preview or apply.") {
+				t.Fatalf("unknown answer was not explained: %s", out.String())
+			}
+		})
+	}
+}
+
+func TestRequireNpxOnlyForInstalls(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	install := []SyncAction{{Add: true, Skill: store.SyncSkill{SourceType: "github"}}}
+	err := requireNpx(install)
+	if err == nil || !strings.Contains(err.Error(), "Node.js") {
+		t.Fatalf("missing npx = %v", err)
+	}
+	if err := requireNpx([]SyncAction{{Add: true, Skill: store.SyncSkill{SourceType: "private"}}}); err != nil {
+		t.Fatalf("private install should not need npx: %v", err)
+	}
+	if err := requireNpx([]SyncAction{{Add: false, Skill: store.SyncSkill{SourceType: "github"}}}); err != nil {
+		t.Fatalf("removal should not need npx: %v", err)
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "npx"), []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	if err := requireNpx(install); err != nil {
+		t.Fatalf("present npx = %v", err)
+	}
+}
+
 func TestSyncPreviewConfirmationAndApply(t *testing.T) {
 	for _, tc := range []struct {
 		name, input, problem         string

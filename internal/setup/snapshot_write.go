@@ -282,8 +282,10 @@ func verifySetupSnapshot(snapshot SetupSnapshot) error {
 		if !ok {
 			return errors.New("setup snapshot skill is not in the selected preview")
 		}
-		if preview.Name != skill.Name || preview.AgentID != skill.AgentID || preview.Scope != skill.Scope ||
-			preview.Origin != skill.Origin || preview.OriginType != skill.OriginType {
+		sameIdentity := preview.Name == skill.Name && preview.AgentID == skill.AgentID &&
+			preview.Scope == skill.Scope
+		sameOrigin := preview.Origin == skill.Origin && preview.OriginType == skill.OriginType
+		if !sameIdentity || !sameOrigin {
 			return errors.New("setup snapshot skill identity does not match its preview")
 		}
 		if preview.Digest != "" && preview.Digest != skill.Digest {
@@ -310,7 +312,9 @@ func verifySetupSnapshot(snapshot SetupSnapshot) error {
 		if !ok || preview.Digest == "" {
 			return errors.New("setup snapshot memory is not in the selected preview")
 		}
-		if preview.Name != memory.Name || preview.Bytes != int64(len(memory.Data)) || preview.Digest != memory.Digest || memory.sha256() != memory.Digest {
+		samePreview := preview.Name == memory.Name && preview.Bytes == int64(len(memory.Data))
+		sameDigest := preview.Digest == memory.Digest && memory.sha256() == memory.Digest
+		if !samePreview || !sameDigest {
 			return errors.New("setup snapshot memory content does not match its recorded digest")
 		}
 	}

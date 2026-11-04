@@ -2791,3 +2791,16 @@ Legacy Codex and Start an agent browser suites also pass. No physical phone, Saf
 | Workspace start | [View](images/ui/start-agent-options-desktop.png) | [View](images/ui/start-agent-options-phone.png) |
 | Home start | [View](images/ui/start-session-options-desktop.png) | [View](images/ui/start-session-options-phone.png) |
 | Saved backlog edit | [View](images/ui/backlog-options-desktop.png) | [View](images/ui/backlog-options-phone.png) |
+
+
+## Agent image previews (4 November 2026)
+
+`web/tests/chat-previews.e2e.mjs` passes at 1360 px and 390 px in light/dark themes. It checks an authenticated image fetch,
+offline refusal followed by Retry, successful browser decoding, the full-size keyboard viewer, Escape/focus return,
+reload/replay, explicit size-limit feedback, no horizontal overflow and object URL cleanup when history is retired.
+The fixture uses a real PNG screenshot. Backend tests separately cover actual PNG capture, restart persistence,
+cross-session/account refusal, path escapes, special files, cache expiry/quota, sparse tool completions, bounded chunks,
+content hashes, negotiation and production reply filtering. No live provider, physical phone, Safari or Windows run was made.
+
+[Desktop light](images/ui/agent-preview-desktop-light.png) · [Desktop dark](images/ui/agent-preview-desktop-dark.png) ·
+[Phone light](images/ui/agent-preview-phone-light.png) · [Phone dark](images/ui/agent-preview-phone-dark.png)

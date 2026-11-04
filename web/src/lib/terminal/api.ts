@@ -19,7 +19,7 @@ export type SoftwareBatchMemberState = 'pending' | 'running' | 'applied' | 'fail
 export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
 export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion }
-export type Capabilities = { acpStartOptions?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { acpPreviews?: boolean; acpStartOptions?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -515,4 +515,11 @@ export async function chatEnqueue(id: string, requestId: string, text: string, i
 }
 export async function chatQueueChange(id: string, item: ServerQueuedMessage, action: string, text = '', acknowledge = false): Promise<ServerQueuedMessage[]> {
  return (await (await terminalRequest(`${chatURL(id)}/queue`, { method: 'PATCH', body: JSON.stringify({ id: item.id, revision: item.revision, action, text, acknowledge }) })).json()).queue
+}
+
+export async function chatPreview(session: string, id: string, signal?: AbortSignal): Promise<Blob> {
+ const response = await terminalRequest(`${chatURL(session)}/previews/${encodeURIComponent(id)}`, { signal })
+ const blob = await response.blob()
+ if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(blob.type) || blob.size > 5 * 1024 * 1024 || !blob.size) throw new Error('This image preview could not be verified.')
+ return blob
 }

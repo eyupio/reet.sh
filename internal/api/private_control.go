@@ -16,7 +16,7 @@ import (
 // agreedControlFeatures is the feature list this connection negotiates: every
 // private control feature, with agents-v2 only for a machine that claims it.
 func agreedControlFeatures(c terminalproto.Capabilities) string {
-	features := []string{terminalproto.CommandHistoryFeature, terminalproto.LaunchFeature, terminalproto.ResumeFeature, terminalproto.WorktreeFeature, terminalproto.BrowseFeature, terminalproto.BranchesFeature, terminalproto.BranchPruneFeature, terminalproto.ClipboardFeature, terminalproto.UploadFeature, terminalproto.ModelsFeature, terminalproto.ACPFeature, terminalproto.ACPAgentsFeature, terminalproto.ACPHistoryFeature, terminalproto.ACPApprovalFeature, terminalproto.SessionModeFeature, terminalproto.ChatReattachFeature, terminalproto.ChatReattachDetailFeature, terminalproto.ACPQuestionFeature, terminalproto.ACPModelFeature, terminalproto.ACPLiveControlsFeature, terminalproto.ACPStartOptionsFeature, terminalproto.ACPAgentModeFeature, terminalproto.ACPAgentOptionsFeature, terminalproto.ACPToolDetailsFeature, terminalproto.ACPImageFeature, terminalproto.ShellDirFeature, terminalproto.AttentionFeature, terminalproto.SoftwareFeature, terminalproto.SoftwareApplyFeature, terminalproto.ProgressFeature, terminalproto.InspectFeature}
+	features := []string{terminalproto.CommandHistoryFeature, terminalproto.LaunchFeature, terminalproto.ResumeFeature, terminalproto.WorktreeFeature, terminalproto.BrowseFeature, terminalproto.BranchesFeature, terminalproto.BranchPruneFeature, terminalproto.ClipboardFeature, terminalproto.UploadFeature, terminalproto.ModelsFeature, terminalproto.ACPFeature, terminalproto.ACPAgentsFeature, terminalproto.ACPHistoryFeature, terminalproto.ACPApprovalFeature, terminalproto.SessionModeFeature, terminalproto.ChatReattachFeature, terminalproto.ChatReattachDetailFeature, terminalproto.ACPQuestionFeature, terminalproto.ACPModelFeature, terminalproto.ACPLiveControlsFeature, terminalproto.ACPStartOptionsFeature, terminalproto.ACPPreviewsFeature, terminalproto.ACPAgentModeFeature, terminalproto.ACPAgentOptionsFeature, terminalproto.ACPToolDetailsFeature, terminalproto.ACPImageFeature, terminalproto.ShellDirFeature, terminalproto.AttentionFeature, terminalproto.SoftwareFeature, terminalproto.SoftwareApplyFeature, terminalproto.ProgressFeature, terminalproto.InspectFeature}
 	if c.AgentsV2 {
 		features = append(features, terminalproto.AgentsFeature)
 	}
@@ -36,7 +36,7 @@ func isPeerReply(body terminalproto.Body) bool {
 	case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.SessionChanged,
 		*terminalproto.WorktreeState, *terminalproto.WorktreeResult,
 		*terminalproto.BrowseResult, *terminalproto.BranchesResult, *terminalproto.ModelsResult,
-		*terminalproto.ACPEvent, *terminalproto.ACPControlResult, *terminalproto.InspectResult:
+		*terminalproto.ACPEvent, *terminalproto.ACPControlResult, *terminalproto.ACPPreviewResult, *terminalproto.InspectResult:
 		return true
 	}
 	return false

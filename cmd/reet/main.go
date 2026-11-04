@@ -363,7 +363,7 @@ func serve() error {
 	mux.Handle("/mcp", h)
 	mux.Handle("/oauth/", h)
 	mux.Handle("/.well-known/", h)
-	mux.Handle("/", api.WithHostedPages(h, web.Handler(publicURL, web.WithSignedIn(h.SignedIn))))
+	mux.Handle("/", api.WithHostedPages(h, web.Handler(publicURL, web.WithSignedIn(h.SignedIn), web.WithPublicPage(publicPageFor(st)), web.WithSitemapURLs(publicURLsFor(st)))))
 	srv := &http.Server{Addr: env("REET_ADDR", ":8080"), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go reportServer(ctx, st)
 	go func() {

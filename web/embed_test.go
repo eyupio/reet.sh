@@ -459,3 +459,79 @@ func TestIndexIsCompressedWhenTheClientTakesGzip(t *testing.T) {
 		t.Errorf("the decompressed page is not the app shell for /machines")
 	}
 }
+
+func TestPublicPagesAreServerRenderedWithTheirOwnMetadata(t *testing.T) {
+	requireBuilt(t)
+	h := Handler("https://reet.sh", WithPublicPage(func(path string) (PublicPage, bool) {
+		switch path {
+		case "/community":
+			return PublicPage{Path: "/community", Title: "Public community · reet.sh", Description: "Published lists and their skills.", HTML: `<main class="crawl-fallback"><h1>Public community</h1><p>Browse published lists and their skills.</p></main>`}, true
+		case "/l/demo":
+			return PublicPage{Path: "/l/demo", Title: "Demo list · reet.sh", Description: "A public list of review skills.", HTML: `<main class="crawl-fallback"><h1>Demo list</h1><p>Code review and release skills.</p></main>`}, true
+		}
+		return PublicPage{}, false
+	}))
+	for _, c := range []struct {
+		path, title, description, html string
+	}{
+		{"/community", "Public community · reet.sh", "Published lists and their skills.", "Browse published lists"},
+		{"/l/demo", "Demo list · reet.sh", "A public list of review skills.", "Code review and release skills."},
+	} {
+		rec := get(t, h, c.path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d", c.path, rec.Code)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "<title>"+c.title+"</title>") {
+			t.Errorf("%s: missing title %q", c.path, c.title)
+		}
+		if !strings.Contains(body, `content="`+c.description+`"`) {
+			t.Errorf("%s: missing description", c.path)
+		}
+		if !strings.Contains(body, `rel="canonical" href="https://reet.sh`+c.path+`"`) {
+			t.Errorf("%s: canonical is not self-referential", c.path)
+		}
+		if !strings.Contains(body, `property="og:url" content="https://reet.sh`+c.path+`"`) {
+			t.Errorf("%s: og:url is not self-referential", c.path)
+		}
+		if !strings.Contains(body, c.html) {
+			t.Errorf("%s: missing server-rendered content", c.path)
+		}
+		if strings.Contains(body, "One command on any machine") {
+			t.Errorf("%s: still served the landing fallback", c.path)
+		}
+	}
+}
+
+func TestPublicPageCanReturnA404(t *testing.T) {
+	requireBuilt(t)
+	h := Handler("https://reet.sh", WithPublicPage(func(path string) (PublicPage, bool) {
+		return PublicPage{Path: path, Title: "That link is not available · reet.sh", Description: "The list is private or gone.", HTML: `<main class="crawl-fallback"><h1>That link is not available.</h1></main>`, Status: http.StatusNotFound}, true
+	}))
+	rec := get(t, h, "/l/gone")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+	if !strings.Contains(rec.Header().Get("X-Robots-Tag"), "noindex") {
+		t.Fatal("missing noindex on a missing public page")
+	}
+}
+
+func TestSitemapIncludesSuppliedPublicPaths(t *testing.T) {
+	h := Handler("https://reet.sh", WithSitemapURLs(func() []string {
+		return []string{"/community", "/l/demo", "/community", "/", "/l/demo"}
+	}))
+	rec := get(t, h, "/sitemap.xml")
+	var doc sitemap
+	if err := xml.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("invalid sitemap XML: %v", err)
+	}
+	got := make([]string, 0, len(doc.URLs))
+	for _, u := range doc.URLs {
+		got = append(got, u.Loc)
+	}
+	want := []string{"https://reet.sh/", "https://reet.sh/community", "https://reet.sh/l/demo"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("sitemap urls = %v, want %v", got, want)
+	}
+}

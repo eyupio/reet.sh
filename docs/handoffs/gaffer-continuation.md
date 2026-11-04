@@ -12,6 +12,20 @@ project in PR titles, descriptions, commits or merge messages. Do not spawn agen
 The requested features are active-session model/effort switching and queued-message steering, visible/responsive session
 actions, the same model/effort choices in both start dialogs and backlog plans, and inline previews of agent-produced/read images.
 
+## Starting a fresh session
+
+1. Read `handoff.md`, this file, `docs/handoffs/session-actions.md`, `docs/handoffs/start-agent-options.md` and
+   `docs/handoffs/chat-image-previews.md`. They record the delivered behaviour, the evidence and the limits.
+2. `git fetch origin` and read `gh pr list --state open`. The Gaffer batches are merged; anything still open belongs to a
+   different work stream and should be left to it.
+3. Confirm the merged state in main: `web/src/lib/sessions/SessionScreen.svelte` keeps both the action toolbar and the
+   resizable panel, and `internal/terminalagent/chat_previews.go`, `internal/terminalproto/acp_preview.go`,
+   `web/src/lib/terminal/ChatPreview.svelte`, `web/tests/chat-previews.e2e.mjs` and `web/tests/launch-options.e2e.mjs` exist.
+4. Re-run the checks below before changing anything. Push-triggered workflows on main need the self-hosted
+   `zoomies-linux-x64` pool, so use a pull request for any follow-up; do not reopen the merged PRs or push to their branches.
+5. If a follow-up is needed, keep the invariants in "Continuing after these merges" and add its own handoff section in the
+   same PR.
+
 ## Delivered work
 
 | Work | Branch / PR | Final state |
@@ -21,13 +35,15 @@ actions, the same model/effort choices in both start dialogs and backlog plans, 
 | Start dialogs and backlog model/effort | `feat/start-agent-options`, [#493](https://github.com/eyupio/reet.sh/pull/493) | Merged as `918f452`. Final head `906cb2d` was green across all twenty checks: source, test, web, phone-zoom, phone-dialogs, terminal-browser, native service on ubuntu and macos, local relay on ubuntu and macos, tmux minimum, private connection, image, binary release, build (linux, amd64), CodeQL and the four language analyses. |
 | Agent image previews | `feat/chat-image-previews`, [#498](https://github.com/eyupio/reet.sh/pull/498) | Merged as `0de8f7d` from head `a88c78e`, which was green across all twenty checks, including terminal-browser with the preview, Sessions phone, session workspace and launch option suites. |
 
-All three feature PRs are merged in dependency order (#490, #493, #498). Main at merge time was `0de8f7d`; it also carried
-#495 (collapsible/resizable session workspace panel), #496 (remote-agent, sync and MCP guides), #497 (public and
-self-canonical sitemap test), #500 and #501 from other work, plus the earlier #488/#489/#491/#492/#494. The toolbar/panel
-overlap between #490 and #495 is resolved identically on every branch: the persistent Theatre action, the wrapping
-interface/approval/`Terminal here` toolbar and the duplicate-free menu stay, and the docked panel keeps its separator,
-saved width/open state, sheet mode below 1100 px, and `holdSize` while it is dragged. The only merge conflict in the final
-round was the handoff append in `docs/handoffs/session-actions.md`, resolved by keeping the newest text.
+All three feature PRs are merged in dependency order (#490, #493, #498) and the handoff refresh that records them landed as
+[#503](https://github.com/eyupio/reet.sh/pull/503) (`4539386`) and [#504](https://github.com/eyupio/reet.sh/pull/504)
+(`80ae4cc`), both documentation only. Main has since advanced through #499 and #502 and other content work (#496, #501,
+#505); none of it touches the Gaffer code paths, and the addresses and page registration of the delivered documentation
+stay intact. No Gaffer pull request remains open. The toolbar/panel overlap between #490 and #495 is resolved as follows:
+the persistent Theatre action, the wrapping interface/approval/`Terminal here` toolbar and the duplicate-free menu stay,
+and the docked panel keeps its separator, saved width/open state, sheet mode below 1100 px, and `holdSize` while it is
+dragged. The only merge conflict in the final round was the handoff append in `docs/handoffs/session-actions.md`, resolved
+by keeping the newest text.
 
 **GitHub publication and CI-trigger problem (diagnosed and resolved):** a push to `feat/session-actions` or
 `feat/start-agent-options` updated the branch ref, but the pull request snapshot and its synthetic
@@ -40,13 +56,14 @@ stayed silent until it actually merged current main: its earlier head still excl
 succeeded on retry. Do not merge from a stale `refs/pull/<n>/head`, and never treat checks on an older commit as
 final-head evidence.
 
-Local evidence on the integrated tree matches CI: web unit tests, Svelte check with zero errors and warnings, the
-production build, `go vet ./...`, the preview, Sessions phone, session workspace and launch option browser suites, and
-`go test -race` for `internal/acpagent`, `internal/agenthealth`, `internal/terminalproto`, `internal/terminalbroker`,
-`internal/store` (158 s) and `internal/api` (330 s) all pass. The only local failure is `internal/terminalagent`'s
-model-listing tests (`TestModelsOneAtATime`, `TestModelsFloorReturnsTheLastResult`, `TestModelsReplyShapeAndOperation`,
-`TestModelsLateRunAnswersTimedOut`), which fail identically on unmodified main in this constrained shell and pass in the
-native service CI jobs, so they are environmental rather than a regression.
+Local evidence on the integrated tree matches CI. On main `80ae4cc` (which already carried #490, #493 and #498): web unit
+tests, Svelte check with zero errors and warnings and the production build pass, `go vet ./...` passes, and the built site
+passes `web/tests/chat-previews.e2e.mjs`, `web/tests/launch-options.e2e.mjs`, `web/tests/sessions-phone.e2e.mjs` and
+`web/tests/session-workspace.e2e.mjs`. `go test -race` passes for `internal/acpagent`, `internal/agenthealth`,
+`internal/terminalproto`, `internal/terminalbroker`, `internal/store` (158 s) and `internal/api` (330 s). The only local
+failure is `internal/terminalagent`'s model-listing tests (`TestModelsOneAtATime`, `TestModelsFloorReturnsTheLastResult`,
+`TestModelsReplyShapeAndOperation`, `TestModelsLateRunAnswersTimedOut`), which fail identically on unmodified main in this
+constrained shell and pass in the native service CI jobs, so they are environmental rather than a regression.
 
 ## Feature details and evidence
 

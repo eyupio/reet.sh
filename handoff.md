@@ -31,6 +31,8 @@ preview implementation is in [PR #498](https://github.com/eyupio/reet.sh/pull/49
 `0de8f7d`; its [feature handoff](docs/handoffs/chat-image-previews.md) covers the wire contract, private snapshot cache, UI,
 recovery, limits and checked screenshots. [PR #490](https://github.com/eyupio/reet.sh/pull/490) (session actions) merged as
 `99c7fd8` and [PR #493](https://github.com/eyupio/reet.sh/pull/493) (startup and backlog settings) merged as `918f452`.
+The handoff refresh that records all three landed as #503 (`4539386`) and #504 (`80ae4cc`). No Gaffer pull request remains
+open; follow the "Starting a fresh session" checklist in the continuation handoff before changing anything.
 
 ## GAFFER-START-1: launch and backlog model/effort selection (4 November 2026)
 

@@ -69,7 +69,7 @@ try {
    await expect(header.getByRole('link',{name:'Back to sessions'})).toHaveAttribute('href','/sessions')
    // One way back: the toolbar's arrow gives way to the header's.
    await expect(page.getByRole('link',{name:'Back to sessions'})).toHaveCount(1)
-   await expect(header.locator('.where-phone')).toHaveText('reet · studio')
+   await expect(header.locator('.where-phone')).toHaveText('Running · reet · studio')
    await expect(header.locator('.pill')).toContainText('Running')
    for (const target of await header.locator('a, button').all()) if (await target.isVisible()) {
     const b = await target.boundingBox()
@@ -134,7 +134,7 @@ try {
  }
 
  // A phone held sideways (844 × 390): the Sessions screen and the session screen fit without sideways scroll; the session
- // screen gives its header's rows to the terminal (the pane names the session) and keeps at least 12 rows, and with the
+ // screen keeps a compact controls header and a terminal that fills its remaining rows, and with the
  // keyboard up the top bar steps aside too.
  if (run('sideways 844 × 390')) {
   const width = 844, height = 390
@@ -145,22 +145,24 @@ try {
   expect(await page.evaluate(() => [document.documentElement.scrollWidth <= innerWidth, innerWidth]), 'Sessions sideways').toEqual([true, width])
   await page.goto(`${base}/sessions?agent=a1&session=s1`)
   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
-  await expect(page.locator('.session-screen .head')).toBeHidden()
+  await expect(page.locator('.session-screen .head')).toBeVisible()
   await expect(page.getByRole('navigation',{name:'Main navigation'})).toHaveCount(0)
   // Rows, never an absolute count (CI's fallback monospace font has taller rows): the terminal fills its screen, and it has
-  // more rows than the same layout with the slim header shown, measured in this browser once each fit has settled.
+  // a bounded row cost for its visible controls, measured in this browser once each fit has settled.
   const rows = await settledRows(page)
   // The terminal's own grid (the rows xterm draws) against the room for it: the screen's height over one drawn row's height,
   // each measured on its own, within a row.
   const grid = await page.evaluate(() => { const lines = document.querySelectorAll('.xterm-rows>div'); return {rows:lines.length, capacity:Math.floor(document.querySelector('.screen').clientHeight / lines[0].getBoundingClientRect().height + 0.01)} })
   expect(Math.abs(grid.rows - grid.capacity), `sideways: the terminal fills its screen (${grid.rows} rows for room for ${grid.capacity})`).toBeLessThanOrEqual(1)
-  await page.evaluate(() => { const style = document.createElement('style'); style.id = 'with-head'; style.textContent = '.session-screen .head{display:flex!important}'; document.head.append(style) })
-  await expect(page.locator('.session-screen .head')).toBeVisible()
-  const withHead = await settledRows(page)
-  await page.evaluate(() => document.getElementById('with-head').remove())
+  const headerHeight = (await page.locator('.session-screen .head').boundingBox()).height
+  await page.evaluate(() => { const style = document.createElement('style'); style.id = 'without-head'; style.textContent = '.session-screen .head{display:none!important}'; document.head.append(style) })
+  await expect(page.locator('.session-screen .head')).toBeHidden()
+  const withoutHead = await settledRows(page)
+  await page.evaluate(() => document.getElementById('without-head').remove())
   expect(await settledRows(page), 'sideways: the rows come back').toBe(rows)
-  console.log(`sideways rows: ${rows} (${withHead} with the slim header shown)`)
-  expect(rows, 'sideways: the slim header gives its rows to the terminal').toBeGreaterThan(withHead)
+  console.log(`sideways rows: ${rows} (${withoutHead} without the ${headerHeight}px controls header)`)
+  expect(headerHeight, 'sideways: compact controls header').toBeLessThanOrEqual(52)
+  expect(rows, 'sideways: the controls header fits within its row budget').toBeGreaterThanOrEqual(withoutHead - Math.ceil(headerHeight / (await page.locator('.xterm-rows>div').first().boundingBox()).height) - 1)
   expect(await page.evaluate(() => [document.documentElement.scrollWidth <= innerWidth, innerWidth]), 'session sideways').toEqual([true, width])
   const top = Math.round(height * .44)
   await page.locator('.xterm-helper-textarea').focus()

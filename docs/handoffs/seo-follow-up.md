@@ -41,13 +41,13 @@ Relevant code and content:
 ### 1. Standalone docs deployment
 
 The docs are now a separate MkDocs site, not a Go route. `DOCS_URL` and the MkDocs `site_url` default to
-`https://reet.sh/docs/`. The Pages deployment uses the repository variable `DOCS_SITE_URL` when the canonical origin
-differs; set it to the final public origin before relying on canonical URLs. In the repository settings, set Pages to
-build from GitHub Actions.
+`https://reet.sh/`. The Pages deployment uses the repository variable `DOCS_SITE_URL` when the canonical origin
+differs. In the repository settings, point the `reet.sh` custom domain at this Pages site once the application moves
+away from the domain; set `DOCS_SITE_URL` only if the final origin is not `https://reet.sh/`.
 
-The application must no longer serve `/docs`; route that address to the Pages deployment (or the docs domain) at the
-proxy. Keep `/docs/` out of the app's sitemap. If the docs move to their own domain, update `DOCS_URL` in
-`web/src/lib/links.ts`, the fallback links in `web/index.html`, and `DOCS_SITE_URL`.
+The application must no longer serve `/docs`; it returns 404, and the docs are a separate deployment. The app's
+sitemap does not list the docs. If the docs move again, update `DOCS_URL` in `web/src/lib/links.ts`, the fallback links
+in `web/index.html`, and `DOCS_SITE_URL`.
 
 ### 2. Existing public list links (H6, second part)
 
@@ -129,7 +129,7 @@ To inspect the live behaviour:
 ```sh
 curl -sI https://reet.sh/robots.txt
 curl -s https://reet.sh/sitemap.xml
-curl -s https://reet.sh/docs/ | head
+curl -s https://reet.sh/ | head
 curl -s https://reet.sh/llms.txt
 ```
 

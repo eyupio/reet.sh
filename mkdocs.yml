@@ -5,11 +5,11 @@
 # docs/ rather than a second copy, so the site cannot drift from the repository.
 #
 # The docs are not served by the Go binary. Point REET_PUBLIC_URL at the app and
-# route the docs site separately. DOCS_SITE_URL can override the canonical
-# origin when the Pages deployment lives somewhere other than /docs/.
+# route the docs site separately. The docs own https://reet.sh/; DOCS_SITE_URL
+# can override the canonical origin for another deployment.
 
 site_name: reet.sh documentation
-site_url: !ENV [DOCS_SITE_URL, "https://reet.sh/docs/"]
+site_url: !ENV [DOCS_SITE_URL, "https://reet.sh/"]
 site_description: >-
   Install reet.sh, connect machines, run AI agents, sync skills and setups, and operate a self-hosted fleet.
 site_author: EyUp.io

@@ -39,8 +39,8 @@ the no-VPN guide (#505, `e95cb81`); and landing-page links to the guides (#507, 
 
 The docs site is no longer embedded in the Go binary. `mkdocs.yml`, `docs/requirements.txt`, `hooks/docs.py`,
 `overrides/main.html` and `.github/workflows/docs.yml` build it from the same `docs/*.md` files and publish it to GitHub
-Pages. `DOCS_URL` points at `https://reet.sh/docs/`; set the repository variable `DOCS_SITE_URL` when the Pages origin
-differs. The app keeps only the public routes, sitemap and AI-crawler files.
+Pages. The docs own `https://reet.sh/`; `DOCS_URL` points there, and the repository variable `DOCS_SITE_URL` overrides
+the canonical origin for another deployment. The app keeps only the public routes, sitemap and AI-crawler files.
 
 Remaining, in order: a readable-link action with permanent redirects for existing public lists; external measurement
 (Search Console, Bing, and an explicit analytics decision); the marketing/app bundle split; and more intent content.

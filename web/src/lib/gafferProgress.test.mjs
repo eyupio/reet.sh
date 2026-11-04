@@ -165,7 +165,7 @@ test('summaries disclose truncated history, bound the handover, omit code blocks
   assert.equal(gafferProgress({ ...chat, items: chat.items.slice(1) }, '', true, true).visible, true)
 })
 
-const { gafferPose, gafferGesture, gafferAside, gafferClickRun, gafferClickReaction, gafferClickAside } = await import(asURL(compile('./gafferPersonality.ts')))
+const { gafferPose, gafferGesture, gafferAside, gafferClickRun, gafferPoke, gafferClickAside } = await import(asURL(compile('./gafferPersonality.ts')))
 
 test('returning to work means tea, returning to a stopped session means sleep, and problems or decisions always win', () => {
   for (const phase of ['planning', 'reading', 'searching', 'editing', 'running', 'responding']) assert.equal(gafferPose(phase, true), 'tea')
@@ -204,18 +204,14 @@ test('deliberate nudges build a short streak, accidental doubles are ignored, an
   assert.equal(gafferClickRun(second, 500).count, 1)
 })
 
-test('clicks offer a repertoire without immediate repeats and serious states keep their contextual reactions', () => {
-  let previous = ''
-  const seen = new Set()
-  for (let count = 1; count <= 14; count++) {
-    const reaction = gafferClickReaction('duty', count, previous)
-    assert.notEqual(reaction, previous)
-    seen.add(reaction); previous = reaction
-    assert.equal(gafferClickReaction('concerned', count, previous), 'shake')
-    assert.equal(gafferClickReaction('attention', count, previous), 'listen')
-    assert.equal(gafferClickReaction('asleep', count, previous), 'stretch')
-  }
-  for (const reaction of ['tip-cap', 'shrug', 'huff', 'biscuit', 'sip']) assert.ok(seen.has(reaction))
+test('a nudge is a physical acknowledgement that cycles and never names a new scene', () => {
+  const seen = []
+  for (let count = 1; count <= 7; count++) seen.push(gafferPoke(count))
+  assert.deepEqual(seen.slice(0, 3), ['flinch', 'bob', 'sway'])
+  assert.deepEqual(seen.slice(3, 6), seen.slice(0, 3))
+  for (let i = 1; i < seen.length; i++) assert.notEqual(seen[i], seen[i - 1], 'no immediate repeat')
+  assert.equal(gafferPoke(0), 'flinch')
+  assert.equal(gafferPoke(999), seen[(999 - 1) % 3])
 })
 
 test('repeated-poke quips name the real agent, avoid repeats and keep decisions and errors in context', () => {
@@ -237,8 +233,8 @@ test('repeated-poke quips name the real agent, avoid repeats and keep decisions 
 test('sprite performances have enough time for anticipation and settling, and the tea lifecycle uses its own duration', async () => {
   const { gafferGestureMs } = await import('./gafferMotion.ts')
   for (const reaction of ['tip-cap', 'scan', 'sip', 'biscuit', 'shrug', 'huff']) {
-    assert.ok(gafferGestureMs(reaction) >= 3_800)
-    assert.ok(gafferGestureMs(reaction) <= 6_000)
+    assert.ok(gafferGestureMs(reaction) >= 2_400)
+    assert.ok(gafferGestureMs(reaction) <= 3_800)
   }
   assert.ok(gafferGestureMs('sip') > gafferGestureMs('tip-cap'))
   assert.ok(gafferGestureMs('biscuit') > gafferGestureMs('nod'))
@@ -259,4 +255,10 @@ test('a chat reconnecting in place reads as reconnecting, never as ended; a fail
   assert.equal(gafferProgress(chat, '', true, true, 'OpenCode', true, false).phase, 'error')
   // Only a closed chat can be reconnecting in place; a live one ignores the flag.
   assert.equal(gafferProgress(chat, '', true, false, 'OpenCode', false, true).phase, 'idle')
+})
+
+test('Gaffer starts minimised unless the person has chosen the full card', async () => {
+  const { gafferCompact } = await import('./gafferMotion.ts')
+  const { get } = await import('svelte/store')
+  assert.equal(get(gafferCompact), true)
 })

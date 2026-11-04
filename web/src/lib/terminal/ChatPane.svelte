@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onDestroy, onMount, tick, untrack } from 'svelte'
  import { fade, fly } from 'svelte/transition'
- import { applyChatEvent, checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, rejectLabel, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
+ import { applyChatEvent, checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, rejectLabel, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, approvalOutcome, foldApprovals, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
  import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
@@ -220,6 +220,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  const skillsOff = $derived(reattaching ? 'Skills can be inserted once the chat is back.' : ended ? 'This reet session has ended.' : chat.connection !== 'open' ? 'Skills can be inserted once reet is connected.' : sending || uploading || changingModel ? 'Skills can be inserted once the message has been sent.' : working ? 'Skills can be inserted when the agent is idle.' : '')
  const pending = $derived(pendingPermissions(chat))
  const asked = $derived(pendingQuestions(chat))
+ const approvals = $derived(foldApprovals(chat.items))
  const statusWord = $derived(chat.connection === 'reconnecting' ? 'Reconnecting to reet…' : reattaching ? 'Reconnecting…' : ended ? 'This reet session has ended.' : !replayed ? `Catching up with ${toolName}…` : pending.length ? 'Waiting for your approval.' : asked.length ? 'Waiting for your answer.' : working ? `${toolName} is working…` : chat.status.state === 'error' ? `${toolName} stopped with an error.` : chat.status.state === 'cancelled' ? 'Stopped.' : 'Ready.')
  $effect(() => { onbusy?.(replayed ? working || pending.length > 0 || asked.length > 0 : undefined) })
  const statusDetail = $derived(pending.length || asked.length || chat.status.state === 'waiting' ? '' : chat.status.detail)
@@ -662,7 +663,9 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
      {@const target = toolTarget(item, session.dir)}
      {@const counts = item.additions || item.deletions || !item.diff ? { additions: item.additions, deletions: item.deletions } : diffCounts(item.diff)}
      {@const lines = lineCount(item.text)}
-     {@const hasBody = !!(item.command || item.diff || item.text)}
+     {@const approval = approvals.byTool.get(item.toolCallId)}
+     {@const outcome = approval ? approvalOutcome(approval) : undefined}
+     {@const hasBody = !!(item.command || item.diff || item.text || approval)}
      {@const open = isOpen(item.key)}
      <div class="tool" data-kind={item.toolKind || 'other'} class:open={open} class:failed={item.status === 'failed'}>
       <svelte:element this={hasBody ? 'button' : 'div'} type={hasBody ? 'button' : undefined} role={hasBody ? 'button' : undefined} class="tool-head"
@@ -672,6 +675,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
        <span class="kind">{toolLabel(item.toolKind)}</span>
        <span class="target">{#if item.toolKind === 'execute'}<span class="prompt" aria-hidden="true">$</span>{' '}{/if}{target}</span>
        <span class="meta">
+        {#if outcome}<span class="pill {outcome.tone}" title="Your answer to this approval">{outcome.word}</span>{/if}
         {#if counts.additions || counts.deletions}<span class="add">+{counts.additions}</span><span class="del">−{counts.deletions}</span>{/if}
         {#if lines > 1}<span class="lines">{lines} {item.toolKind === 'search' ? (lines === 1 ? 'match' : 'matches') : 'lines'}</span>{/if}
         {#if item.durationMs > 0}<span class="time">{formatDuration(item.durationMs)}</span>{/if}
@@ -681,6 +685,14 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
       </svelte:element>
       {#if hasBody && open}
        <div class="tool-body">
+        {#if approval}
+         <div class="block approval-note">
+          <span class="block-label">Approval</span>
+          <p class="decision"><strong class="outcome {outcome?.tone}">{outcome?.note}</strong>{#if approval.description}{' '}{toolName} asked: {approval.description}{/if}</p>
+          {#if approval.path && !item.locations.length}<p class="approval-path" title={approval.path}>{displayPath(approval.path, session.dir)}</p>{/if}
+          {#if approval.truncated}<p class="placeholder">The change was too large to review in full here.</p>{/if}
+         </div>
+        {/if}
         {#if item.toolKind === 'execute' && item.command && item.command !== item.title}
          <div class="block"><span class="block-label">Command</span><pre class="command"><span class="prompt" aria-hidden="true">$</span>{' '}{item.command}</pre></div>
         {/if}
@@ -701,7 +713,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
       {/if}
      </div>
     {/if}
-   {:else if item.kind === 'permission'}
+   {:else if item.kind === 'permission' && !approvals.folded.has(item.key)}
     {@const approvalCounts = item.diff ? diffCounts(item.diff) : { additions: 0, deletions: 0 }}
     {@const decided = !!item.decision}
     {@const open = decided ? isOpen(item.key) : true}
@@ -721,7 +733,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
       {#if item.diff}<div class="block"><span class="block-label">Diff · {approvalCounts.additions} added, {approvalCounts.deletions} removed</span><pre class="diff">{#each item.diff.split('\n') as line, i (i)}<span class={diffClass(line)}>{line || ' '}</span>{/each}</pre></div>{/if}
       {#if item.truncated}<p class="notice bad">This change is too large to review in full here. Deny it and use {toolName} in a terminal if you need to see all of it.</p>{/if}
       {#if item.decision}
-       <p class="decision">{item.decision === 'allowed' ? 'Allowed once.' : item.decision === 'denied' ? 'Denied.' : item.reason === 'timeout' ? 'Closed: the approval timed out.' : 'Closed without an answer.'}</p>
+       <p class="decision">{approvalOutcome(item).note}</p>
       {:else}
        <div class="approval-actions">
         <button type="button" class="btn" disabled={!!answering} onclick={() => void answer(item.permissionId, false)}>{rejectLabel(tool)}</button>
@@ -957,6 +969,12 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  .meta .add { color: var(--good); }
  .meta .del { color: var(--bad); }
  .state { font: 500 11px var(--sans); color: var(--muted); white-space: nowrap; }
+ .pill { display: inline-flex; align-items: center; height: 18px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg-sunk); font: 600 10.5px var(--sans); letter-spacing: .02em; color: var(--muted); white-space: nowrap; }
+ .pill.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 38%, var(--line)); background: color-mix(in srgb, var(--good) 9%, var(--card)); }
+ .pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 38%, var(--line)); background: color-mix(in srgb, var(--bad) 9%, var(--card)); }
+ .approval-note .decision strong { font-weight: 600; }
+ .approval-note .outcome.good { color: var(--good); }
+ .approval-note .outcome.bad { color: var(--bad); }
  .state.good { color: var(--good); }
  .state.warn { color: var(--warn); }
  .state.bad { color: var(--bad); }

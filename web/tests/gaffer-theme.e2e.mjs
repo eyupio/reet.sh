@@ -16,7 +16,7 @@ try {
       const clone = node.cloneNode(true)
       const source = [node, ...node.querySelectorAll('*')], target = [clone, ...clone.querySelectorAll('*')]
       // Inline the actual computed SVG presentation and embed its images, keeping the canvas origin-clean.
-      const properties = ['color', 'fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-linejoin', 'stroke-linecap', 'opacity', 'transform', 'transform-origin', 'transform-box', 'mix-blend-mode', 'isolation', 'overflow', 'flood-color', 'flood-opacity', 'background-color']
+      const properties = ['color', 'fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-linejoin', 'stroke-linecap', 'opacity', 'transform', 'transform-origin', 'transform-box', 'mix-blend-mode', 'isolation', 'overflow', 'flood-color', 'flood-opacity', 'background-color', 'filter']
       for (let i = 0; i < source.length; i++) {
         const style = getComputedStyle(source[i])
         for (const property of properties) target[i].style.setProperty(property, style.getPropertyValue(property))

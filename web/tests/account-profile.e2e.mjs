@@ -40,7 +40,7 @@ try {
   if (run('panel and save')) {
     const { context, page, errors, patches } = await open({})
     await page.goto(`${base}/account/profile`)
-    await expect(count(page)).toHaveText('9 preferences')
+    await expect(count(page)).toHaveText('10 preferences')
     for (const name of ['Identity', 'Appearance', 'Shelf and terminal', 'Publishing']) {
       await expect(page.getByRole('group', { name })).toBeVisible()
     }

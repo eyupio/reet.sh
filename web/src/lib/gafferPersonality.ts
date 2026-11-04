@@ -14,14 +14,12 @@ export function gafferClickRun(previous: GafferClicks, now: number): GafferClick
   return { count: gap >= 0 && gap <= GAFFER_CLICK_WINDOW ? Math.min(previous.count + 1, 999) : 1, at: now }
 }
 
-/** A small repertoire, not a slot machine: more nudges gradually earn more eyebrow. */
-export function gafferClickReaction(pose: GafferPose, count: number, previous: GafferReaction = ''): GafferReaction {
-  if (pose === 'concerned') return 'shake'
-  if (pose === 'attention') return 'listen'
-  if (pose === 'asleep') return 'stretch'
-  const choices: GafferReaction[] = pose === 'tea' ? ['sip', 'biscuit', 'shrug'] : ['tip-cap', 'shrug', 'huff', 'biscuit', 'sip', 'ponder', 'nod']
-  const index = (Math.max(1, Math.floor(count)) - 1) % choices.length
-  return choices[index] === previous ? choices[(index + 1) % choices.length] : choices[index]
+/** A nudge is answered with a small, physical acknowledgement of whatever he is already doing: he flinches, gives a double nod,
+ *  or glances aside. It never swaps the scene, so a half-drunk cup of tea stays a cup of tea. Later nudges earn a different one. */
+export type GafferPoke = 'flinch' | 'bob' | 'sway'
+const POKES: readonly GafferPoke[] = ['flinch', 'bob', 'sway']
+export function gafferPoke(count: number): GafferPoke {
+  return POKES[(Math.max(1, Math.floor(count)) - 1) % POKES.length]
 }
 
 /** Decoration follows confirmed status. A snag or a request for input always outranks a tea break. */

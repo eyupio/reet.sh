@@ -44,6 +44,25 @@ func TestProfileDefaultsRoundTrip(t *testing.T) {
 	if code != 200 || profile["worktreesByDefault"] != true || profile["defaultBaseBranch"] != "" {
 		t.Fatal("clear", code, raw)
 	}
+	// The Gaffer card starts as one line; a saved full-card choice survives other saves and can be turned back.
+	if profile["gafferCompact"] != true {
+		t.Fatal("compact default", profile)
+	}
+	code, out, raw = f.do(t, f.cookie, "PATCH", "/api/v2/profile", map[string]any{"gafferCompact": false})
+	profile, _ = out["profile"].(map[string]any)
+	if code != 200 || profile["gafferCompact"] != false {
+		t.Fatal("save full Gaffer card", code, raw)
+	}
+	code, out, raw = f.do(t, f.cookie, "PATCH", "/api/v2/profile", map[string]any{"theme": "dark"})
+	profile, _ = out["profile"].(map[string]any)
+	if code != 200 || profile["gafferCompact"] != false {
+		t.Fatal("full Gaffer card lost by an unrelated save", code, raw)
+	}
+	code, out, raw = f.do(t, f.cookie, "PATCH", "/api/v2/profile", map[string]any{"gafferCompact": true, "gafferAnimations": true})
+	profile, _ = out["profile"].(map[string]any)
+	if code != 200 || profile["gafferCompact"] != true || profile["gafferAnimations"] != true {
+		t.Fatal("resume one-line Gaffer card and animation", code, raw)
+	}
 	code, out, raw = f.do(t, f.cookie, "PATCH", "/api/v2/profile", map[string]any{"gafferAnimations": true})
 	profile, _ = out["profile"].(map[string]any)
 	if code != 200 || profile["gafferAnimations"] != true {

@@ -23,7 +23,9 @@ try {
     await expect(bust).toHaveAttribute('data-artwork', scene)
     expect(Number(await bust.locator('.scene:not(.leaving) .frames').getAttribute('y'))).toBeCloseTo(-row * 1024 / 3)
     const duration = await bust.locator('.scene:not(.leaving) .frames').evaluate(el => parseFloat(getComputedStyle(el).animationDuration) * 1000)
-    expect(duration).toBeGreaterThanOrEqual(3_800)
+    // A human pace: long enough to read as anticipation, action and settle, short enough not to drag.
+    expect(duration).toBeGreaterThanOrEqual(2_400)
+    expect(duration).toBeLessThanOrEqual(3_800)
     // Sample anticipation, action, held expression, and the still resting frame after playback.
     for (const [fraction, x] of [[0, 0], [.24, -384], [.5, -768], [.8, -1152], [1.01, -1152]]) {
       expect(await bust.locator('.scene:not(.leaving) .frames').evaluate((el, time) => {
@@ -33,7 +35,7 @@ try {
     }
   }
   // A click's nod/ponder must take over from the static reading sheet, with the right lifecycle duration.
-  for (const [button, reaction, milliseconds] of [['Reading nod', 'nod', 2_600], ['Reading ponder', 'ponder', 4_200]]) {
+  for (const [button, reaction, milliseconds] of [['Reading nod', 'nod', 1_500], ['Reading ponder', 'ponder', 2_600]]) {
     await page.getByRole('button', { name: button, exact: true }).click()
     await expect(bust).toHaveAttribute('data-artwork', 'bust')
     expect(await bust.locator('.scene:not(.leaving) .head').evaluate(el => getComputedStyle(el).animationName)).toContain(reaction)

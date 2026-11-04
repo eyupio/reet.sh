@@ -9,14 +9,14 @@ const project={id:'project-options',name:'Options project',host:A,machine:'Optio
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium',args:['--no-sandbox']})
 try {
  for(const width of [1360,390]) {
-  const sessions=[], requests=[], drafts=[]
+  const sessions=[], requests=[], drafts=[], machines=[{...machine}]
   const made=body=>({id:S,agentId:A,title:body.title,state:'running',createdAt:now,updatedAt:now,tool:'codex',model:body.model,effort:body.effort,structured:true,dir:'/tmp',exitCode:null})
-  const {page,context,errors}=await openWorkspace(browser,{width,height:900,touch:width<600,terminalStatus:active,terminalMachines:[machine],routes:{
+  const {page,context,errors}=await openWorkspace(browser,{width,height:900,touch:width<600,terminalStatus:active,terminalMachines:machines,routes:{
    '/api/v2/terminal/sessions':req=>{if(req.method()==='POST'){const body=req.postDataJSON();requests.push(body);const row=made(body);sessions.splice(0,sessions.length,row);return row}return {sessions}},
    '/api/v2/folder-projects':{projects:[project],savedWaiting:0},
    [`/api/v2/machines/${A}/models`]:{tool:'codex',state:'listed',models:[{id:'provider/one'},{id:'provider/two'}],more:false,source:'',version:'',fetchedAt:now,checkedAt:now,reason:'',sentence:''},
    '/api/v2/session-backlog':req=>{if(req.method()==='POST'){const body=req.postDataJSON(),row={...body,id:D,version:1,imageCount:0,images:[],createdAt:now,updatedAt:now};drafts.push(row);return row}return {drafts}},
-   [`/api/v2/session-backlog/${D}`]:()=>drafts[0],
+   [`/api/v2/session-backlog/${D}`]:req=>{if(req.method()==='PUT')Object.assign(drafts[0],req.postDataJSON());return drafts[0]},
    [`/api/v2/session-backlog/${D}/start`]:()=>{const row=made(drafts[0]);drafts[0].sessionId=row.id;sessions.splice(0,sessions.length,row);return row},
    [`/api/v2/terminal/sessions/${S}/chat/controls`]:{controls:{working:false,waiting:false,compacting:false,configuring:false,steering:false,model:'provider/two',options:[{id:'reasoning_effort',category:'thought_level',current:'ultra',values:['low','high','ultra']}]}},
    [`/api/v2/terminal/sessions/${S}/chat/queue`]:{queue:[]},
@@ -75,6 +75,19 @@ try {
    await expect(edit.getByRole('button',{name:'Effort: ultra',exact:true})).toBeVisible()
    await edit.getByRole('button',{name:'Effort: ultra',exact:true}).scrollIntoViewIfNeeded()
    if(process.env.REET_UI_SCREENSHOTS) await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/backlog-options-${width}.png`,fullPage:true})
+   await edit.getByRole('button',{name:'Cancel',exact:true}).click()
+   await expect(edit).toHaveCount(0)
+   // An offline capability read must preserve a saved native plan, including its extended effort.
+   machines[0]={...machine,ready:false,capabilities:undefined}
+   await page.reload()
+   await page.getByRole('button',{name:'Edit Saved native options',exact:true}).click()
+   const offline=page.getByRole('dialog',{name:'Edit session',exact:true})
+   await expect(offline.getByRole('button',{name:'Gaffer',exact:true})).toHaveAttribute('aria-pressed','true')
+   await expect(offline.getByRole('button',{name:'Effort: ultra',exact:true})).toBeVisible()
+   await offline.getByRole('textbox',{name:'Prompt',exact:true}).fill('Keep the native settings while offline')
+   await offline.getByRole('button',{name:'Save changes',exact:true}).click()
+   await expect(offline).toHaveCount(0)
+   expect(drafts[0]).toMatchObject({prompt:'Keep the native settings while offline',model:'provider/two',effort:'ultra',chat:true,tool:'codex'})
    expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false)
    expect(errors).toEqual([])
   } catch(e) {

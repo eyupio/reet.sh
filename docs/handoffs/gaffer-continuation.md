@@ -17,28 +17,28 @@ actions, the same model/effort choices in both start dialogs and backlog plans, 
 | Work | Branch / PR | Published head / status |
 | --- | --- | --- |
 | Runtime model/effort, steering, durable queue | `feat/live-chat-controls`, [#488](https://github.com/eyupio/reet.sh/pull/488) | Merged as `ac5938d`; do not reopen or push new scope to this closed PR. |
-| Active-session action UX | `feat/session-actions`, [#490](https://github.com/eyupio/reet.sh/pull/490) | Open; latest published branch head `5ea430384e944cc1c93cb362fa4bdd48278186b5`. |
-| Start dialogs and backlog model/effort | `feat/start-agent-options`, [#493](https://github.com/eyupio/reet.sh/pull/493) | Open; latest published branch head `9282e6a82fb9f93602d735456530c81b6ee4bb72`. Includes the earlier #490 head for combined verification. |
-| Agent image previews | `feat/chat-image-previews`, [#498](https://github.com/eyupio/reet.sh/pull/498) | Open. Implementation head `4777562ac40704045f87733e3d8c342deed168ed`; this handoff update follows it. Inspect GitHub for the current head. Includes #493 and latest #490 dependencies. |
+| Active-session action UX | `feat/session-actions`, [#490](https://github.com/eyupio/reet.sh/pull/490) | Open. Head `d94f1d2` merges main `b6b6ea4` and records the integration; its own final-head checks were running at this handoff. |
+| Start dialogs and backlog model/effort | `feat/start-agent-options`, [#493](https://github.com/eyupio/reet.sh/pull/493) | Open. Head `0a66ce7` merges the `d94f1d2` session action head and records the merged-head verification. |
+| Agent image previews | `feat/chat-image-previews`, [#498](https://github.com/eyupio/reet.sh/pull/498) | Open. Contains #490 and #493 and current main; this handoff update is its newest commit. Inspect GitHub for the current head. |
 
-Last fetched main was `29bbb30` (#495, collapsible/resizable session workspace panel), which includes #494
-(public documentation links). Fetch again before acting. The preview branch integrates both main and the latest #490 head.
-Main also includes #489 (published documentation), #491/#492 (Gaffer artwork/motion and documentation), and #488.
+Last fetched main was `b6b6ea4` (#497, public and self-canonical sitemap test), which follows #496 (remote-agent, sync and MCP
+guides) and #495 (collapsible/resizable session workspace panel). Fetch again before acting. Main also includes #494
+(public documentation links), #493-independent Gaffer artwork/motion and published documentation (#489, #491, #492), and
+#488. All three feature branches now carry that main; the toolbar/panel overlap is resolved identically in each.
 
-**CI/publication blocker:** GitHub accepted the latest branch updates, confirmed by remote refs, but at the last check had
-not created PR-triggered workflow runs for the latest #490/#493 heads. PR snapshots sometimes reported an older head or
-`mergeable: null`. Do not mistake old checks for final-head success. A local merge check for #493 and its then-current main was
-clean. Main subsequently gained #495, creating overlapping changes in `SessionScreen.svelte` and `TerminalWorkspace.svelte`.
-Those conflicts are resolved in the preview branch: preserve both the visible action toolbar and the collapsible/resizable
-context panel, including `contextResizing` in terminal size holds. The older PR branches still need that integration if
-merged individually. The handoff append conflict was resolved by keeping both sets of completed validation notes. Branch-update API calls also temporarily returned timeouts/internal errors; file updates and a later normal ref update
-succeeded. Inspect actual current refs and PR/check state before retrying. No automatic approval rejection or missing user
-permission caused this blocker. Refreshing PR #493's base, open state and draft/ready state did not restore validation at that time.
+**GitHub publication and CI-trigger problem (reproduced and partly recovered):** a normal push to `feat/session-actions` or
+`feat/start-agent-options` updated the branch ref but left the pull request snapshot and its synthetic
+`refs/pull/<n>/head` on an older commit, so no `pull_request` workflow runs were created and old checks could be mistaken
+for the new head. Closing and reopening PR #490 resynchronised `refs/pull/490/head` to the pushed head and triggered the
+image, binary release and terminal-browser workflows on it. Closing and reopening PR #493, and pushing a further
+handoff commit to it, did not make GitHub dispatch its `pull_request` workflows; only the lightweight pull-request summary
+run appeared. Do not merge from a stale `refs/pull/<n>/head`: check `gh api repos/<owner>/<repo>/git/refs/pull/<n>/head`
+against the branch ref first. One `git push` also returned `Internal Server Error` and succeeded on retry.
 
-PR #498 successfully queued new PR-triggered CI on implementation head `4777562` (native services, private connection,
-image/build/test, binary release and terminal-browser workflows). They were still running at this handoff; no inline review
-findings were open. Its final current head still needs green checks and completed review. The unresolved trigger/mergeability
-observations above concern the older #490/#493 branches; inspect their current state afresh rather than assuming it recovered.
+PR #498 ran its complete PR-triggered matrix on head `f6be70c`: image (`41814713292`), terminal browser (`41814713184`),
+native services (`41814713241`), private connection (`41814713386`) and binary release (`41814713285`) all succeeded, as did
+CodeQL and the language analysis jobs. No inline review findings were open on any of the three PRs. The preview branch then
+merged main `b6b6ea4` and the `0a66ce7` startup option head; that newer head needs its own green run before merge.
 All three PRs remained open and unmerged when this handoff was published.
 
 ## Feature details and evidence

@@ -33,10 +33,15 @@ for all related PRs, current heads, merge gates and portable commands. The PR at
 
 ## Remaining work and limitations
 
-Main #495 and the latest #490 phone regression are integrated. The toolbar/panel conflicts are resolved by retaining both
-features, with terminal size held during context-panel resizing. Integrated web check/build, the four preview browser cases, Sessions-phone, responsive action controls and the full
-workspace panel browser suite pass. PR #498 queued CI on implementation head `4777562`; final current-head CI and review
-were still pending at handoff. No inline findings were open at the latest check.
+Main #495, the latest #490 session action head and the latest #493 startup option head are integrated; the toolbar/panel
+conflicts are resolved by retaining both features, with terminal size held during context-panel resizing. On head `f6be70c`
+the complete PR matrix passed (image, terminal browser, native services, private connection, binary release, CodeQL and the
+language analyses) and no inline review findings were open. The branch then merged main `b6b6ea4` and the `0a66ce7`
+startup option head; that newest head needs its own green run before merge. On the integrated tree, web unit tests, Svelte
+check with zero errors and warnings, the production build, `go vet ./...`, focused race suites for preview
+extraction/protocol/cache/broker/API and the preview, Sessions phone, session workspace and launch option browser suites pass
+locally.
+
 Inspect final-head CI and review, fix any findings and merge only when green. The complete six backend package race suites
 and full browser workflow have not been rerun for the preview feature; the focused suites above are the completed evidence.
 No live paid-provider turn, physical phone, Safari or cross-platform release rollout was tested. Large images beyond the

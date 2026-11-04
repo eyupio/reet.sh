@@ -41,6 +41,7 @@
   const overflow = $derived(tabs.filter(tab => !bar.some(b => b.href === tab.href)))
   let viewportWidth = $state(window.innerWidth)
   let phoneLayout = $state(matchMedia(PHONE_SCREEN).matches)
+  const showSidebar = $derived(!compact && viewportWidth >= 1100 && !phoneLayout)
   const visibleOverflow = $derived(viewportWidth < 1100 || phoneLayout ? overflow : [])
   const moreCurrent = $derived([...visibleOverflow, ...more].some(tab => tab.current))
 
@@ -116,7 +117,7 @@
   $effect(() => { void chromeFocus.launch; void chromeFocus.session; measureKeyboard() })
 
   $effect(() => {
-    document.documentElement.toggleAttribute('data-workspace-shell', !compact && !phoneLayout)
+    document.documentElement.toggleAttribute('data-workspace-shell', showSidebar)
     return () => { document.documentElement.removeAttribute('data-workspace-shell') }
   })
 
@@ -134,11 +135,14 @@
 
 <svelte:window onkeydown={shortcut} bind:innerWidth={viewportWidth} />
 
-{#if !compact && !phoneLayout}<WorkspaceSidebar {tabs} {moreCurrent} {moreOpen} onmore={openMore} />{/if}
-<div class="shell-bar" class:compact class:workspace={!compact && !phoneLayout}>
-  <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
-  {#if !compact && !phoneLayout}<div class="workspace-label"><span>{location.host}</span><span aria-hidden="true">›</span><strong>{tabs.find(tab => tab.current)?.label ?? more.find(tab => tab.current)?.label ?? 'Workspace'}</strong></div>{/if}
-  <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
+{#if showSidebar}<WorkspaceSidebar {tabs} {moreCurrent} {moreOpen} onmore={openMore} />{/if}
+<div class="shell-bar" class:compact class:workspace={showSidebar}>
+  {#if showSidebar}
+    <div class="workspace-label"><span>{location.host}</span><span aria-hidden="true">›</span><strong>{tabs.find(tab => tab.current)?.label ?? more.find(tab => tab.current)?.label ?? 'Workspace'}</strong></div>
+  {:else}
+    <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
+    <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
+  {/if}
   <span class="grow"></span>
   <JumpSearch load={jump} open={searchOpen} bind:input onclose={closeSearch}
     onfocuschange={(focused) => { searchFocused = focused; measureKeyboard() }} />
@@ -162,8 +166,6 @@
   .workspace-label { display: none; }
   @media (min-width: 1100px) {
     .shell-bar.workspace { padding-left: 264px; gap: 20px; }
-    .workspace > .home { display: none; }
-    .workspace > :global(.top-tabs) { display: none; }
     .workspace-label { display: flex; align-items: center; gap: 13px; font-size: 12px; color: var(--muted); min-width: 0; }
     .workspace-label strong { color: var(--ink); font-weight: 500; white-space: nowrap; }
     .workspace-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }

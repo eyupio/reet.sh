@@ -31,7 +31,7 @@ try {
   await expect(page).toHaveTitle('Sign in · reet.sh')
   await expect(page.locator('.form-panel .instance')).toContainText(new URL(base).host)
   await expect(page.getByRole('link',{name:'Request an invite'})).toHaveAttribute('href',/^mailto:owner@example.test/)
-  await expect(page.locator('header').getByRole('link',{name:/Documentation/})).toHaveAttribute('href','https://reet.sh/docs/')
+  await expect(page.locator('header').getByRole('link',{name:/Documentation/})).toHaveAttribute('href','https://reet.sh/documentation/')
   await layout();await noPitch()
   if(width>=700)await expect(page.locator('#signin-email')).toBeFocused()
   else await expect(page.locator('#signin-email')).not.toBeFocused()

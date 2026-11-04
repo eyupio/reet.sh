@@ -519,7 +519,7 @@ const llmsTxt = `# reet.sh
 
 ## Start here
 
-- [Reet documentation](https://reet.sh/docs/): product documentation and install command
+- [Reet documentation](https://reet.sh/documentation/): product documentation and install command
 - [Documentation](https://reet.sh/): install, connect machines, run agents, sync skills and operate an instance
 - [Install the binary](https://reet.sh/binary-installation/): the supported install paths
 - [Public community](%[1]s/community): published lists and their skills
@@ -562,7 +562,7 @@ reet.sh is a self-hosted control room for the AI agents, skills and reusable set
 ## Links
 
 - Product: https://reet.sh/
-- Documentation: https://reet.sh/docs/
+- Documentation: https://reet.sh/documentation/
 - Install: https://reet.sh/binary-installation/
 - MCP: https://reet.sh/mcp/
 - Sync: https://reet.sh/controller-sync/

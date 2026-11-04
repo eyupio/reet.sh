@@ -47,7 +47,7 @@
     .instance > svg { width: 12px; height: 12px; color: var(--muted); flex: none; }
     .label { font: 9px var(--mono); letter-spacing: .08em; color: var(--muted); margin: 0 12px 12px; }
     nav { display: grid; gap: 4px; }
-    nav a, nav button { display: flex; align-items: center; gap: 12px; padding: 11px 12px; min-height: 43px; border-radius: 5px; color: var(--muted); font: 400 14px var(--sans); text-decoration: none; border: 0; background: none; cursor: pointer; text-align: left; }
+    nav a, nav button { display: flex; align-items: center; gap: 12px; padding: 11px 12px; min-height: 44px; border-radius: 5px; color: var(--muted); font: 400 14px var(--sans); text-decoration: none; border: 0; background: none; cursor: pointer; text-align: left; }
     nav a > svg, nav button > svg { width: 18px; height: 18px; flex: none; }
     nav a[aria-current='page'], nav button.current { color: var(--accent-text); background: var(--card); font-weight: 600; }
     nav a:hover, nav button:hover { background: var(--card); color: var(--ink); }

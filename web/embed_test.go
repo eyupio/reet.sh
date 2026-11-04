@@ -8,9 +8,50 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+func documentationHub(t *testing.T) string {
+	t.Helper()
+	config, err := os.ReadFile("../mkdocs.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := regexp.MustCompile(`(?m)^\s*-\s+Documentation:\s+([^\s#]+)\.md\s*$`).FindSubmatch(config)
+	if len(route) != 2 {
+		t.Fatal("documentation hub is missing from MkDocs navigation")
+	}
+	return "https://reet.sh/" + string(route[1]) + "/"
+}
+
+func TestHelpLinksMatchPublishedDocumentationRoute(t *testing.T) {
+	requireBuilt(t)
+	hub := documentationHub(t)
+	links, err := os.ReadFile("src/lib/links.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := regexp.MustCompile("(?m)^export const DOCS_URL = [\x60'\"]([^\x60'\"]+)[\x60'\"]").FindSubmatch(links)
+	if len(value) != 2 || string(value[1]) != hub {
+		t.Fatalf("app help must point to the configured MkDocs hub %s", hub)
+	}
+	h := Handler("https://reet.example")
+	if !strings.Contains(get(t, h, "/").Body.String(), `href="`+hub+`"`) {
+		t.Error("workspace fallback does not link the published documentation hub")
+	}
+	for _, path := range []string{"/llms.txt", "/llms-full.txt"} {
+		body := get(t, h, path).Body.String()
+		if !strings.Contains(body, hub) {
+			t.Errorf("%s does not link the published hub %s", path, hub)
+		}
+		if strings.Contains(body, "https://reet.sh/docs/") {
+			t.Errorf("%s advertises a nonexistent docs alias", path)
+		}
+	}
+}
 
 // requireBuilt skips only when the SPA has not been built, which is the case in
 // Go-only CI jobs. The release pipeline builds web/ before running these tests.
@@ -81,7 +122,7 @@ func TestCrawlerTextFilesArePlainText(t *testing.T) {
 		if !strings.Contains(body, "reet.sh") {
 			t.Fatalf("%s does not name the product", path)
 		}
-		if path != "/ai.txt" && (!strings.Contains(body, "https://reet.sh/docs/") || !strings.Contains(body, "https://reet.sh/binary-installation/")) {
+		if path != "/ai.txt" && (!strings.Contains(body, "https://reet.sh/documentation/") || !strings.Contains(body, "https://reet.sh/binary-installation/")) {
 			t.Fatalf("%s does not link the central documentation", path)
 		}
 	}

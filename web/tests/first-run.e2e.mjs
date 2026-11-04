@@ -153,7 +153,7 @@ try {
   await plain.goto(base)
   await expect(plain.getByRole('heading',{name:'Your workspace.',exact:true})).toBeVisible()
   await expect(plain.getByText(/JavaScript is needed/)).toBeVisible()
-  await expect(plain.getByRole('link',{name:'Documentation'})).toHaveAttribute('href','https://reet.sh/docs/')
+  await expect(plain.getByRole('link',{name:'Documentation'})).toHaveAttribute('href','https://reet.sh/documentation/')
   await crawler.close()
  }
  // A public screen that needs nothing from the auth answer must not wait behind it.

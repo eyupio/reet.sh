@@ -15,6 +15,21 @@ const {
 } = await import(asURL(modelSource))
 const terminal = await import(asURL(compile('./terminal/api.ts').replace("from '../projects'", `from '${asURL('export {}')}'`)))
 const api = await import(asURL(compile('./api.ts').replace("from './inflight'", `from '${asURL(compile('./inflight.ts'))}'`)))
+const launchOptions = await import(asURL(compile('./terminal/launchOptions.ts')
+ .replace("from '../models'", `from '${asURL(modelSource)}'`)
+ .replace("from './api'", `from '${asURL(compile('./terminal/api.ts'))}'`)))
+
+test('Gaffer launch effort follows the selected machine and agent, while terminal mappings stay fixed', () => {
+ const caps = { acp: true, acpLiveControls: true, acpStartOptions: true, acpAgents: [{ tool: 'codex', adapter: 'codex-acp', state: 'available', options: [
+  { id: 'reasoning_effort', category: 'thought_level', values: ['low','high','ultra'] },
+  { id: 'collaboration_mode', category: 'collaboration_mode', values: ['default','plan'] },
+ ] }] }
+ assert.deepEqual(launchOptions.launchEfforts('codex', caps, true), ['', 'low','high','ultra'])
+ assert.deepEqual(launchOptions.launchEfforts('claude', caps, true), [''])
+ assert.deepEqual(launchOptions.launchEfforts('codex', {...caps,acpStartOptions:false}, true), [''])
+ assert.deepEqual(launchOptions.launchEfforts('cline', caps, false), ['', 'low','medium','high'])
+ assert.match(launchOptions.effortHelp('codex', caps, true), /chosen model/)
+})
 
 test('providers, deduplication and recent models', () => {
   assert.equal(providerOf('anthropic/claude-sonnet-4-5'), 'anthropic')

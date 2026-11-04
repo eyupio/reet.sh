@@ -115,7 +115,7 @@
       readiness: readiness(machine),
       agent: machine && agentChoices(machine).find(c => c.agent.id === place.tool),
       uploads: !!machine?.capabilities?.uploads && !machine.capabilities.uploadsOff,
-      effort: !!machine?.capabilities?.agentsV2,
+      effort: !!(place.chat ? machine?.capabilities?.acpStartOptions : machine?.capabilities?.agentsV2),
       projectCurrent: projects.some(p => p.id === place.projectId && p.host === place.agentId && p.dir === place.dir),
     }
   }

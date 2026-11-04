@@ -2,6 +2,24 @@ package terminalproto
 
 import "testing"
 
+func TestStructuredStartupEffortUsesAgentOptionTokens(t *testing.T) {
+	for _, effort := range []string{"high", "xhigh", "max", "ultra"} {
+		c := Create{Title: "Review", Cols: 100, Rows: 30, Tool: "codex", Structured: true, Effort: effort}
+		if err := c.Validate(); err != nil {
+			t.Fatalf("structured effort %q: %v", effort, err)
+		}
+	}
+	c := Create{Title: "Review", Cols: 100, Rows: 30, Tool: "codex", Effort: "ultra"}
+	if c.Validate() == nil {
+		t.Fatal("unmapped terminal effort accepted")
+	}
+	c.Structured = true
+	c.Effort = "--unsafe effort"
+	if c.Validate() == nil {
+		t.Fatal("invalid selector token accepted")
+	}
+}
+
 func TestLiveControlsCapabilityRequiresItsNegotiatedFeature(t *testing.T) {
 	c := Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "dev", TerminalEnabled: true, TerminalControl: true, ACP: true, ACPLiveControls: true, Readiness: Ready}
 	if c.ValidateFor(ACPFeature) == nil {
@@ -43,5 +61,20 @@ func TestLiveControlWireBoundsAndPermissionSeparation(t *testing.T) {
 	}
 	if (ACPControlResult{Controls: state, Outcome: "unrecognised"}).valid() {
 		t.Fatal("unknown delivery result admitted")
+	}
+}
+
+func TestStartupOptionsRequireSeparateNegotiation(t *testing.T) {
+	c := Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "dev", TerminalEnabled: true, TerminalControl: true, ACP: true, ACPLiveControls: true, ACPStartOptions: true, Readiness: Ready}
+	live := ACPFeature + "," + ACPLiveControlsFeature
+	if c.ValidateFor(live) == nil {
+		t.Fatal("startup options advertised on a live-controls-only connection")
+	}
+	if err := c.ValidateFor(live + "," + ACPStartOptionsFeature); err != nil {
+		t.Fatal(err)
+	}
+	c.ACPLiveControls = false
+	if c.Validate() == nil {
+		t.Fatal("startup options accepted without live configuration support")
 	}
 }

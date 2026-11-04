@@ -2775,3 +2775,19 @@ and chat recovery browser suites also pass. The new suite runs in the terminal-b
 
 [Desktop light](images/ui/gaffer-live-desktop-light.png) · [Desktop dark](images/ui/gaffer-live-desktop-dark.png) ·
 [Phone light](images/ui/gaffer-live-phone-light.png) · [Phone dark](images/ui/gaffer-live-phone-dark.png)
+
+
+## Startup and backlog options (4 November 2026)
+
+`web/tests/launch-options.e2e.mjs` checks the workspace Start an agent modal, Home Start a session modal and backlog
+creation/reload/edit at 1360 px and 390 px. Model and native effort appear together and are carried in the create/save
+payloads; backlog reload preserves both. The phone modal scrolls its fields while keeping Start reachable. No horizontal
+overflow or browser errors were observed. Pure UI tests cover older connectors and absent thought-level options; backend
+race tests check independent capability negotiation, startup confirmation/refusal and saved backlog Start persistence.
+Legacy Codex and Start an agent browser suites also pass. No physical phone, Safari or live paid-provider turn was checked.
+
+| Flow | Desktop | Phone |
+| --- | --- | --- |
+| Workspace start | [View](images/ui/start-agent-options-desktop.png) | [View](images/ui/start-agent-options-phone.png) |
+| Home start | [View](images/ui/start-session-options-desktop.png) | [View](images/ui/start-session-options-phone.png) |
+| Saved backlog edit | [View](images/ui/backlog-options-desktop.png) | [View](images/ui/backlog-options-phone.png) |

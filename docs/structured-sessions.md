@@ -60,9 +60,18 @@ Only model and thought-level selectors are accepted. Static installation descrip
 
 ## Starting one
 
+Both **Start an agent** dialogs and the backlog composer include **Model** and **Effort**. Models use the machine catalogue,
+your favourites or a configured model ID. In Gaffer, effort suggestions come from the selected agent's advertised
+thought-level options on a connector that negotiated `acp-start-options-v1` (`acpStartOptions`). Older live-controls
+connectors must be upgraded before they can accept effort in a new chat. When no options are advertised, **Agent default** is
+shown with an explanation. A chosen effort is confirmed against the actual selected model before the chat becomes ready
+or receives the opening prompt; an unsupported choice refuses startup rather than silently falling back. The terminal
+interface keeps its existing effort mappings. Backlog save, edit, reload and Start retain both selected values.
+
+
 In **Start an agent**, choose OpenCode on a machine that advertises `acp`. The **Session** choice is **Gaffer** by
 default; choose **OpenCode TUI** for the terminal UI. The **Model** control chooses the model for the chat; leave it at
-**Agent default** to use the model configured in OpenCode. Thinking stays OpenCode's own. The opening prompt becomes the
+**Agent default** to use the model configured in OpenCode. Effort stays at Agent default unless this connector advertises a choice and you select one. The opening prompt becomes the
 first message. The dialog states that the folder's `.opencode` plugins run when it starts, and that a chat can be
 restored after reet restarts on the machine.
 

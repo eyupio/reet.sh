@@ -8,7 +8,7 @@ import { MAX_PROMPT_BYTES, cleanModel, codeSentence, refusalText, titleFor, tool
 // The launch bar's logic: what the sentence says, what it starts from, whether Start may be pressed, and the one create
 // request per session. Pure: no DOM, no fetch, no storage. The controller and the machine check everything again.
 
-export type Effort = '' | 'low' | 'medium' | 'high'
+export type Effort = string
 export type LaunchChoice = {
   agent: string
   /** '' is the agent's own default and sends nothing. */
@@ -285,13 +285,14 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
     const target = machines.find(x => x.agentId === (picked[0]?.host ?? choice.homeMachine ?? ''))
     if (readiness(target)) return readiness(target)!
     if (!target?.capabilities || !structuredAgent(target.capabilities, choice.agent)) return 'This machine does not offer Gaffer for that agent.'
+    if (choice.effort && !target.capabilities.acpStartOptions) return 'Update reet on this machine to choose Gaffer effort before starting.'
     if (choice.approvals === 'yolo' && !target.capabilities.yolo) return `${target.host} doesn't accept YOLO sessions.`
     return null
   }
   const model = validateModel(choice.model)
   if (model) return model
   if (choice.approvals === 'yolo' && !agent.yolo) return NO_OPTION
-  if (choice.effort && !agent.effort) return NO_OPTION
+  if (choice.effort && (!agent.effort || !EFFORTS.includes(choice.effort))) return NO_OPTION
   const targets: { agentId: string; repo: boolean; base: boolean }[] = picked.length > 0
     ? picked.map(p => ({ agentId: p.host, repo: p.isRepo, base: !!baseFor(choice, p, profile) }))
     : [{ agentId: choice.homeMachine ?? '', repo: false, base: false }]
@@ -346,7 +347,7 @@ export function toCreate(choice: LaunchChoice, project: LaunchProject | null, re
     const base = baseFor(choice, project, profile)
     if (base) launch.base = base
   }
-  if (!chat && choice.effort && takesEffort(choice.agent)) launch.effort = choice.effort
+  if (choice.effort && (chat || takesEffort(choice.agent))) launch.effort = choice.effort
   if (choice.approvals === 'yolo') launch.yolo = true
   return {
     agentId: project ? project.host : choice.homeMachine ?? '',

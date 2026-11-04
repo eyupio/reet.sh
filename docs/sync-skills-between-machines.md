@@ -1,8 +1,29 @@
+---
+title: Sync AI agent skills between machines · reet.sh
+description: Scan your machines, choose a source and destinations, then review and approve the exact skill-sync
+  plan before anything changes.
+topic: SKILLS & SYNC
+category: skills
+art: skills
+art_icon: branch
+art_label: IN GOOD ORDER
+card_title: Same skills. Every machine. A plan you can trust.
+hero_title: Same skills. Every machine.
+hero_accent: A plan you can trust.
+related:
+- controller-sync.md
+- machine-skill-import.md
+layout: article
+---
+
 # Sync skills between machines
 
 A skill that only exists on your laptop is not much use on the VPS. reet.sh keeps a central skill library and sends a reviewed selection to one machine or many.
 
-This guide covers the safe path: scan what is there, choose a source and destinations, preview the exact plan, approve it, and check the result.
+This guide covers the explicit preview-and-approve path in **Advanced sync**: scan what is there, choose a source and destinations, preview the exact plan, approve it, and check the result.
+
+!!! note "Sync now and Keep synced are different flows"
+    The simpler **Sync now** flow can automatically approve additive install and replacement plans after you choose the skills and machines. **Keep synced** maintains that selection on later polls. Local remote-apply consent is still required; removals and conflicts need review. Use **Advanced sync** and **Preview on machine** for the deliberate preview-and-approve workflow below. See [Skills and Sync](skills-machines-ux.md) for the current simplified controls.
 
 ## What sync does and does not do
 
@@ -45,7 +66,7 @@ A complete, recent scan is required before a target can be saved for sync. Stale
 
 ## 3. Choose a source and destinations
 
-Open **Sync**. Start from one of these sources:
+Open **Machines → Sync → Advanced sync**. Start from one of these sources:
 
 - **Reet.sh shelf & lists** — your personal shelf, or a list you can read.
 - **My reet.sh skills** — published skills by their public URL, and unpublished drafts served privately from this controller.

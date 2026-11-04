@@ -8,10 +8,10 @@
 # route the docs site separately. The docs own https://reet.sh/; DOCS_SITE_URL
 # can override the canonical origin for another deployment.
 
-site_name: reet.sh documentation
+site_name: reet.sh
 site_url: !ENV [DOCS_SITE_URL, "https://reet.sh/"]
 site_description: >-
-  Install reet.sh, connect machines, run AI agents, sync skills and setups, and operate a self-hosted fleet.
+  Your self-hosted control room for AI coding agents, sessions and skills across your machines. One Go binary. SQLite. No telemetry.
 site_author: EyUp.io
 copyright: reet.sh is AGPL-3.0 licensed.
 
@@ -26,7 +26,12 @@ theme:
   name: material
   custom_dir: overrides
   language: en
+  font: false
+  logo: assets/brand/horizontal-color-light.svg
+  favicon: assets/brand/icon-color-light.svg
   features:
+    - navigation.tabs
+    - navigation.indexes
     - navigation.sections
     - navigation.top
     - navigation.footer
@@ -78,6 +83,13 @@ markdown_extensions:
 plugins:
   - search
 
+extra_css:
+  - assets/stylesheets/reet.css
+  - assets/stylesheets/mkdocs.css
+
+extra_javascript:
+  - assets/javascripts/reet.js
+
 hooks:
   - hooks/docs.py
 
@@ -104,59 +116,78 @@ exclude_docs: |
 
 extra:
   generator: false
+  noindex: !ENV [DOCS_NOINDEX, false]
+  field_guides:
+    - run-claude-code-on-a-vps.md
+    - sync-skills-between-machines.md
+    - self-host-mcp-server.md
+    - remote-agents-without-a-vpn.md
+    - run-codex-in-a-browser.md
+    - parallel-coding-agents-git-worktrees.md
+    - self-hosted-ai-agent-control-room.md
+    - self-hosted-ai-agents-checklist.md
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/eyupio/reet.sh
       name: reet.sh on GitHub
 
 nav:
-  - Home: index.md
+- Home: index.md
+- Documentation:
+  - Documentation: documentation.md
+  - Quick start: quick-start.md
   - Get started:
-      - Install the reet binary: binary-installation.md
-      - Add a machine: add-machine-in-context.md
-      - Interactive CLI home: cli-home.md
-      - Local setup discovery: setup-discovery.md
+    - Install the reet binary: binary-installation.md
+    - Add a machine: add-machine-in-context.md
+    - Interactive CLI home: cli-home.md
+    - Local setup discovery: setup-discovery.md
   - Machines and agents:
-      - Reet as the central control unit: control-centre.md
-      - Agent software: agent-software.md
-      - Agent models: agent-models.md
-      - Start an agent session: start-agent-session.md
-      - Terminal workspace: terminal-workspace.md
-      - Terminal launch: terminal-launch.md
-      - Worktrees: terminal-worktrees.md
-      - Folder browse: folder-browse.md
+    - Reet as the central control unit: control-centre.md
+    - Agent software: agent-software.md
+    - Agent models: agent-models.md
+    - Start an agent session: start-agent-session.md
+    - Terminal workspace: terminal-workspace.md
+    - Terminal launch: terminal-launch.md
+    - Worktrees: terminal-worktrees.md
+    - Folder browse: folder-browse.md
   - Skills and sync:
-      - Skills and Sync: skills-machines-ux.md
-      - Enrolled machines: controller-sync.md
-      - Environments: environment-sync.md
-      - Connect an AI client with MCP: mcp.md
-      - Browser skill imports: browser-skill-import.md
-      - Machine skill import: machine-skill-import.md
-      - Machine content observations: machine-content-observations.md
-      - Sharing and audiences: sharing.md
+    - Skills and Sync: skills-machines-ux.md
+    - Enrolled machines: controller-sync.md
+    - Environments: environment-sync.md
+    - Connect an AI client with MCP: mcp.md
+    - Browser skill imports: browser-skill-import.md
+    - Machine skill import: machine-skill-import.md
+    - Machine content observations: machine-content-observations.md
+    - Sharing and audiences: sharing.md
   - Work:
-      - Projects: projects.md
-      - Session board: session-board.md
+    - Projects: projects.md
+    - Session board: session-board.md
   - Operations:
-      - Backups: backups.md
-      - Single sign-on: single-sign-on.md
-      - Email: email.md
-      - Notifications: notifications.md
-      - Support tickets: support.md
-      - Remote machines: remote-machine-operations.md
-      - Device checks: device-checks.md
-      - Branch pruning: branch-pruning.md
-      - Shell command recall: terminal-command-history.md
-      - Controller terminal commands: terminal-controller-commands.md
-  - Guides:
-      - Run Claude Code on a VPS: run-claude-code-on-a-vps.md
-      - Sync skills between machines: sync-skills-between-machines.md
-      - Connect an AI client with MCP: self-host-mcp-server.md
-      - Remote agents without a VPN: remote-agents-without-a-vpn.md
-  - Compare:
-      - skills.sh: compare-skills-sh.md
-      - Open WebUI: compare-open-webui.md
-      - LibreChat: compare-librechat.md
+    - Backups: backups.md
+    - Single sign-on: single-sign-on.md
+    - Email: email.md
+    - Notifications: notifications.md
+    - Support tickets: support.md
+    - Remote machines: remote-machine-operations.md
+    - Device checks: device-checks.md
+    - Branch pruning: branch-pruning.md
+    - Shell command recall: terminal-command-history.md
+    - Controller terminal commands: terminal-controller-commands.md
   - Reference:
-      - Command reference: cli-reference.md
-      - Roadmap: roadmap.md
+    - Command reference: cli-reference.md
+    - Roadmap: roadmap.md
+- Guides:
+  - Field guide: guides/index.md
+  - Run Claude Code on a VPS: run-claude-code-on-a-vps.md
+  - Sync skills between machines: sync-skills-between-machines.md
+  - Connect an AI client with MCP: self-host-mcp-server.md
+  - Remote agents without a VPN: remote-agents-without-a-vpn.md
+  - Run Codex in a browser: run-codex-in-a-browser.md
+  - Parallel agents with worktrees: parallel-coding-agents-git-worktrees.md
+  - Self-hosted agent control rooms: self-hosted-ai-agent-control-room.md
+  - Self-hosting checklist: self-hosted-ai-agents-checklist.md
+- Compare:
+  - Choose your tools: compare/index.md
+  - skills.sh: compare-skills-sh.md
+  - Open WebUI: compare-open-webui.md
+  - LibreChat: compare-librechat.md

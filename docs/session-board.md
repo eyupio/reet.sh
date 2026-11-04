@@ -1,14 +1,13 @@
 # Session board
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="images/session-board-dark.png">
-  <img src="images/session-board-light.png" alt="Home session board with Backlog, Active and Finished columns" width="1100">
-</picture>
+![Home session board with Backlog, Active and Finished columns](images/session-board-light.png){ .screen-light width="1100" }
 
-<details>
+![Home session board in the dark theme](images/session-board-dark.png){ .screen-dark width="1100" }
+
+<details markdown="1">
 <summary>Phone view</summary>
 
-<img src="images/session-board-phone.png" alt="Focused Active sessions view on a phone" width="390">
+![Focused Active sessions view on a phone](images/session-board-phone.png){ width="390" }
 
 </details>
 

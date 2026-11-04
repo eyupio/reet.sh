@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -76,7 +77,19 @@ func bootVariant(path string, signedIn bool) int {
 type Option func(*config)
 
 type config struct {
-	signedIn func(*http.Request) bool
+	signedIn   func(*http.Request) bool
+	publicPage func(string) (PublicPage, bool)
+	sitemapURL func() []string
+}
+
+// PublicPage is server-rendered content for a public SPA route. A crawler that does not run JavaScript gets the heading,
+// description and links instead of an empty app shell. HTML must already be escaped.
+type PublicPage struct {
+	Path        string
+	Title       string
+	Description string
+	HTML        string
+	Status      int
 }
 
 // WithSignedIn tells Handler how to recognise a request that already carries a
@@ -85,6 +98,16 @@ type config struct {
 // page before the SPA mounts.
 func WithSignedIn(fn func(*http.Request) bool) Option {
 	return func(c *config) { c.signedIn = fn }
+}
+
+// WithPublicPage supplies crawlable content and metadata for public routes such as /community and /l/<slug>.
+func WithPublicPage(fn func(string) (PublicPage, bool)) Option {
+	return func(c *config) { c.publicPage = fn }
+}
+
+// WithSitemapURLs supplies extra public paths for sitemap.xml. Each path must start with "/".
+func WithSitemapURLs(fn func() []string) Option {
+	return func(c *config) { c.sitemapURL = fn }
 }
 
 // Handler serves the SPA, falling back to index.html for client-side routes.
@@ -114,7 +137,7 @@ func Handler(baseURL string, opts ...Option) http.Handler {
 			writeRobots(w, origin(r, baseURL))
 			return
 		case "/sitemap.xml":
-			writeSitemap(w, origin(r, baseURL))
+			writeSitemap(w, origin(r, baseURL), sitemapPaths(cfg.sitemapURL))
 			return
 		case "/llms.txt":
 			writeText(w, r, llmsTxt, origin(r, baseURL))
@@ -128,7 +151,7 @@ func Handler(baseURL string, opts ...Option) http.Handler {
 		}
 		p := strings.TrimPrefix(r.URL.Path, "/")
 		if p == "" || p == "index.html" {
-			serveIndex(w, r, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r))
+			serveIndex(w, r, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r), cfg.publicPage)
 			return
 		}
 		if info, err := fs.Stat(sub, p); err == nil && !info.IsDir() {
@@ -140,10 +163,10 @@ func Handler(baseURL string, opts ...Option) http.Handler {
 			return
 		}
 		if !spaRoute(r.URL.Path) {
-			serveIndexStatus(w, r, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r), http.StatusNotFound)
+			serveIndexStatus(w, r, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r), http.StatusNotFound, cfg.publicPage)
 			return
 		}
-		serveIndex(w, r, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r))
+		serveIndex(w, r, index, r.URL.Path, origin(r, baseURL), cfg.signedIn != nil && cfg.signedIn(r), cfg.publicPage)
 	})
 }
 
@@ -209,20 +232,33 @@ func publicIndexRoute(path string) bool {
 // not already signed in; every other route is an app screen, and a signed-in
 // visitor is going straight to the app, so both would otherwise paint the
 // logged-out landing page before the SPA mounts.
-func serveIndex(w http.ResponseWriter, r *http.Request, index []byte, path, origin string, signedIn bool) {
-	serveIndexStatus(w, r, index, path, origin, signedIn, http.StatusOK)
+func serveIndex(w http.ResponseWriter, r *http.Request, index []byte, path, origin string, signedIn bool, public func(string) (PublicPage, bool)) {
+	serveIndexStatus(w, r, index, path, origin, signedIn, http.StatusOK, public)
 }
 
-func serveIndexStatus(w http.ResponseWriter, r *http.Request, index []byte, path, origin string, signedIn bool, status int) {
+func serveIndexStatus(w http.ResponseWriter, r *http.Request, index []byte, path, origin string, signedIn bool, status int, public func(string) (PublicPage, bool)) {
 	if index == nil {
 		http.Error(w, "reet.sh UI is not built; run `npm run build` in web/", http.StatusNotFound)
 		return
 	}
 	body := bytes.ReplaceAll(index, []byte(originToken), []byte(html.EscapeString(origin)))
-	if !signedIn && (path == "/" || path == "/welcome") {
+	page, hasPage := PublicPage{}, false
+	if public != nil {
+		page, hasPage = public(path)
+	}
+	if hasPage && page.Status != 0 {
+		status = page.Status
+	}
+	switch {
+	case hasPage:
+		body = replaceBetween(body, []byte(fallbackStart), []byte(fallbackEnd), []byte(page.HTML))
 		body = bytes.ReplaceAll(body, []byte(fallbackStart), nil)
 		body = bytes.ReplaceAll(body, []byte(fallbackEnd), nil)
-	} else {
+		body = applyPublicHead(body, page, path, origin)
+	case !signedIn && (path == "/" || path == "/welcome"):
+		body = bytes.ReplaceAll(body, []byte(fallbackStart), nil)
+		body = bytes.ReplaceAll(body, []byte(fallbackEnd), nil)
+	default:
 		body = stripFallback(body)
 	}
 	variant := bootVariant(path, signedIn)
@@ -237,6 +273,70 @@ func serveIndexStatus(w http.ResponseWriter, r *http.Request, index []byte, path
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	writeMaybeGzipStatus(w, r, body, status)
+}
+
+var (
+	titleRE         = regexp.MustCompile(`(?s)<title>.*?</title>`)
+	descriptionRE   = regexp.MustCompile(`(?s)<meta\s+name="description"[^>]*>`)
+	canonicalRE     = regexp.MustCompile(`(?s)<link\s+rel="canonical"[^>]*>`)
+	ogTitleRE       = regexp.MustCompile(`(?s)<meta\s+property="og:title"[^>]*>`)
+	ogDescriptionRE = regexp.MustCompile(`(?s)<meta\s+property="og:description"[^>]*>`)
+	ogURLRE         = regexp.MustCompile(`(?s)<meta\s+property="og:url"[^>]*>`)
+	twitterTitleRE  = regexp.MustCompile(`(?s)<meta\s+name="twitter:title"[^>]*>`)
+	twitterDescRE   = regexp.MustCompile(`(?s)<meta\s+name="twitter:description"[^>]*>`)
+)
+
+// applyPublicHead gives a server-rendered public page the same metadata a browser would see after the SPA mounts.
+func applyPublicHead(body []byte, page PublicPage, path, origin string) []byte {
+	if page.Title != "" {
+		title := html.EscapeString(page.Title)
+		body = replaceFirst(body, titleRE, "<title>"+title+"</title>")
+		body = replaceFirst(body, ogTitleRE, `<meta property="og:title" content="`+title+`" />`)
+		body = replaceFirst(body, twitterTitleRE, `<meta name="twitter:title" content="`+title+`" />`)
+	}
+	if page.Description != "" {
+		description := html.EscapeString(page.Description)
+		body = replaceFirst(body, descriptionRE, `<meta name="description" content="`+description+`" />`)
+		body = replaceFirst(body, ogDescriptionRE, `<meta property="og:description" content="`+description+`" />`)
+		body = replaceFirst(body, twitterDescRE, `<meta name="twitter:description" content="`+description+`" />`)
+	}
+	canonicalPath := page.Path
+	if canonicalPath == "" {
+		canonicalPath = path
+	}
+	canonical := html.EscapeString(strings.TrimRight(origin, "/") + canonicalPath)
+	body = replaceFirst(body, canonicalRE, `<link rel="canonical" href="`+canonical+`" />`)
+	body = replaceFirst(body, ogURLRE, `<meta property="og:url" content="`+canonical+`" />`)
+	return body
+}
+
+func replaceFirst(body []byte, re *regexp.Regexp, replacement string) []byte {
+	loc := re.FindIndex(body)
+	if loc == nil {
+		return body
+	}
+	out := make([]byte, 0, len(body)-(loc[1]-loc[0])+len(replacement))
+	out = append(out, body[:loc[0]]...)
+	out = append(out, replacement...)
+	out = append(out, body[loc[1]:]...)
+	return out
+}
+
+func replaceBetween(body []byte, start, end []byte, replacement []byte) []byte {
+	i := bytes.Index(body, start)
+	if i < 0 {
+		return body
+	}
+	j := bytes.Index(body[i:], end)
+	if j < 0 {
+		return body
+	}
+	j += i
+	out := make([]byte, 0, i+len(start)+len(replacement)+len(body)-(j))
+	out = append(out, body[:i+len(start)]...)
+	out = append(out, replacement...)
+	out = append(out, body[j:]...)
+	return out
 }
 
 // serveFile answers a built file: a content-hashed one is cacheable for a year, and a text one goes compressed to a
@@ -465,16 +565,33 @@ func writeText(w http.ResponseWriter, r *http.Request, body, origin string) {
 	writeMaybeGzip(w, r, []byte(text))
 }
 
-const sitemapXML = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>%s/</loc>
-  </url>
-</urlset>
-`
+func sitemapPaths(fn func() []string) []string {
+	if fn == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	paths := make([]string, 0, 8)
+	for _, p := range fn() {
+		p = strings.TrimSpace(p)
+		if p == "" || p == "/" || !strings.HasPrefix(p, "/") || seen[p] {
+			continue
+		}
+		seen[p] = true
+		paths = append(paths, p)
+	}
+	return paths
+}
 
-func writeSitemap(w http.ResponseWriter, origin string) {
+func writeSitemap(w http.ResponseWriter, origin string, extra []string) {
+	base := strings.TrimRight(html.EscapeString(origin), "/")
+	var b strings.Builder
+	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">")
+	b.WriteString("\n  <url>\n    <loc>" + base + "/</loc>\n  </url>")
+	for _, p := range extra {
+		b.WriteString("\n  <url>\n    <loc>" + base + html.EscapeString(p) + "</loc>\n  </url>")
+	}
+	b.WriteString("\n</urlset>\n")
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=300")
-	_, _ = w.Write([]byte(strings.Replace(sitemapXML, "%s", html.EscapeString(origin), 1)))
+	_, _ = w.Write([]byte(b.String()))
 }

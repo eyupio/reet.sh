@@ -81,6 +81,9 @@ func TestCrawlerTextFilesArePlainText(t *testing.T) {
 		if !strings.Contains(body, "reet.sh") {
 			t.Fatalf("%s does not name the product", path)
 		}
+		if path != "/ai.txt" && (!strings.Contains(body, "https://reet.sh/docs/") || !strings.Contains(body, "https://reet.sh/docs/binary-installation/")) {
+			t.Fatalf("%s does not link the served documentation", path)
+		}
 	}
 	missing := get(t, h, "/missing.txt")
 	if missing.Code != http.StatusNotFound {

@@ -220,10 +220,12 @@ func (c Capabilities) Validate() error {
 
 // ValidateFor validates capabilities against the features negotiated by the peer.
 func (c Capabilities) ValidateFor(features string) error {
-	if c.ACPPreviews && (!c.ACP || !SupportsACPPreviews(features)) {
+	validPreviews := c.ACP && SupportsACPPreviews(features)
+	if c.ACPPreviews && !validPreviews {
 		return ErrInvalid
 	}
-	if c.ACPStartOptions && (!SupportsACPStartOptions(features) || !c.ACPLiveControls) {
+	validStartOptions := SupportsACPStartOptions(features) && c.ACPLiveControls
+	if c.ACPStartOptions && !validStartOptions {
 		return ErrInvalid
 	}
 	if c.ACPLiveControls && !SupportsACPLiveControls(features) {

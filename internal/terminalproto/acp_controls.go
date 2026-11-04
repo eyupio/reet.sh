@@ -50,12 +50,19 @@ type ACPControls struct {
 }
 
 func (s ACPControls) Valid() bool {
-	if len(s.Options) > 2 || s.Model != "" && !ValidModel(s.Model) {
+	tooMany := len(s.Options) > 2
+	invalidModel := s.Model != "" && !ValidModel(s.Model)
+	if tooMany || invalidModel {
 		return false
 	}
 	ids, categories := map[string]bool{}, map[string]bool{}
 	for _, o := range s.Options {
-		if !validAgentOptionToken(o.ID) || ids[o.ID] || categories[o.Category] || (o.Category != "model" && o.Category != "thought_level") || len(o.Values) > 16 {
+		validID := validAgentOptionToken(o.ID) && !ids[o.ID]
+		validCategory := !categories[o.Category] &&
+			(o.Category == "model" || o.Category == "thought_level")
+		validValues := len(o.Values) <= 16
+		valid := validID && validCategory && validValues
+		if !valid {
 			return false
 		}
 		ids[o.ID], categories[o.Category] = true, true
@@ -64,7 +71,8 @@ func (s ACPControls) Valid() bool {
 		}
 		seen := map[string]bool{}
 		for _, v := range o.Values {
-			if v == "" || !ValidModel(v) || seen[v] {
+			valid := v != "" && ValidModel(v) && !seen[v]
+			if !valid {
 				return false
 			}
 			seen[v] = true

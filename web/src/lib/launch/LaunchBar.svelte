@@ -8,6 +8,7 @@
   import { CATALOGUE, agentChoices } from '../catalogue'
   import { defaultLabel, favouriteKey, modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
+  import { launchEfforts } from '../terminal/launchOptions'
   import { afterLaunch, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
   import { createTerminal, getFolderProject, getSelectionRun, launchProgress, launchUpload, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
@@ -536,7 +537,7 @@
       return [{ value: '', label: current ? `the current branch (${current})` : 'the current branch' }, ...listed.map(b => ({ value: b, label: b }))]
     }
     if (slot === 'worktree') return [{ value: 'yes', label: 'a fresh worktree' }, { value: 'no', label: 'the checkout' }]
-    if (slot === 'effort') return [{ value: '', label: 'default' }, { value: 'low', label: 'low' }, { value: 'medium', label: 'medium' }, { value: 'high', label: 'high' }]
+    if (slot === 'effort') return launchEfforts(choice.agent, target?.capabilities, choice.chat === true).map(value => ({ value, label: value || 'Agent default' }))
     return []
   }
   function valueOf(slot: string): string {

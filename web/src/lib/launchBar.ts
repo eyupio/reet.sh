@@ -2,6 +2,7 @@ import type { Profile, YoloSetting } from './api'
 import type { BranchesResult, FolderProject, LaunchRequest, TerminalMachine, TerminalSession } from './terminal/api'
 import { isChatTool, readiness, structuredAgent } from './terminal/api'
 import { CATALOGUE, agentChoices } from './catalogue'
+import { launchEfforts } from './terminal/launchOptions'
 import { resolveLaunchDefaults, type ModelFavourite } from './models'
 import { MAX_PROMPT_BYTES, cleanModel, codeSentence, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
 
@@ -52,6 +53,9 @@ const MAX_SLUG = 40
 
 const agentOf = (id: string) => CATALOGUE.find(agent => agent.id === id)
 const takesEffort = (id: string): boolean => agentOf(id)?.effort === true
+/** The effort values this launch can choose: the agent's own for a terminal, the machine's advertised values for Gaffer. */
+const effortsFor = (choice: LaunchChoice, host: string | undefined, machines: LaunchMachine[]): string[] =>
+  launchEfforts(choice.agent, machines.find(m => m.agentId === host)?.capabilities, choice.chat === true)
 const chosen = (choice: LaunchChoice, projects: LaunchProject[]): LaunchProject[] =>
   choice.projectIds.map(id => projects.find(p => p.id === id)).filter((p): p is LaunchProject => !!p)
 
@@ -209,7 +213,7 @@ export function summary(parts: SentencePart[]): string {
   const worktree = text('worktree')
   if (!chat && worktree === 'a fresh worktree') out.push(text('branch'), 'fresh worktree')
   else if (!chat && worktree) out.push(worktree)
-  if (!chat && parts.some(p => p.slot === 'effort')) out.push(`thinking ${text('effort')}`)
+  if (parts.some(p => p.slot === 'effort')) out.push(`thinking ${text('effort')}`)
   return out.join(' · ')
 }
 
@@ -263,7 +267,7 @@ export function sentence(choice: LaunchChoice, projects: LaunchProject[], machin
       if (picked.length === 1) parts.push({ slot: 'checkout', text: current ? `Works in the checkout on ${current}.` : 'Works in the checkout.' })
     }
   }
-  if (!chat && takesEffort(choice.agent)) parts.push(word('·'), word('thinking'), { slot: 'effort', text: choice.effort || 'default' })
+  if (effortsFor(choice, chatHost, machines).length > 1) parts.push(word('·'), word('thinking'), { slot: 'effort', text: choice.effort || 'default' })
   return parts
 }
 

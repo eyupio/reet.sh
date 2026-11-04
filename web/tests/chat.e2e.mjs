@@ -150,7 +150,7 @@ try {
   await expect(page.locator('.approval .command').filter({ hasText: 'go test ./...' })).toBeVisible()
   // On a touch screen every typeable field in the chat is at least 16px: a touch browser zooms the page in to a smaller field the
   // moment it takes focus (this is the touch tablet width, above the app.css phone rule), and the page is then left scaled and clipped.
-  for (const field of [page.locator('.composer-input'), page.locator('.model-controls input')]) {
+  for (const field of [page.locator('.composer-input'), page.locator('.model-picker')]) {
     expect(Number.parseFloat(await field.evaluate(node => getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(16)
   }
   // The card shows the agent's own words for the request, attributed to the agent, above the command it is asking about.
@@ -332,8 +332,9 @@ try {
   await expect(page.getByRole('group', { name: 'Broken' })).toHaveCount(0)
 
   // The live chat's model switch offers Make default, stars a chosen model that is not yet a favourite, and Clear default removes it.
-  const modelInput = page.locator('.model-controls input')
-  await modelInput.fill('anthropic/claude-sonnet-4-5')
+  const modelPicker = page.getByRole('button', { name: /^Model:/ })
+  await modelPicker.click()
+  await page.getByRole('listbox', { name: 'Model', exact: true }).getByRole('option', { name: 'anthropic/claude-sonnet-4-5', exact: true }).click()
   await page.getByRole('button', { name: 'Make anthropic/claude-sonnet-4-5 the default for OpenCode', exact: true }).click()
   await expect.poll(() => state.favourite).toEqual({ tool: 'opencode', model: 'anthropic/claude-sonnet-4-5' })
   await expect.poll(() => state.modelDefault).toEqual({ tool: 'opencode', model: 'anthropic/claude-sonnet-4-5' })
@@ -887,6 +888,18 @@ try {
   await expect(page.locator('.workspace-toolbar')).toBeHidden()
   await expect(page.getByRole('button', { name: 'Exit focus mode', exact: true })).toBeVisible()
   await expect(page.locator('.composer-bar').getByRole('button', { name: 'Skills', exact: true })).toBeVisible()
+  // The model control stays in the phone's super focus, and opens a full-width sheet rather than a native list.
+  const phoneModel = page.locator('.composer-bar').getByRole('button', { name: /^Model:/ })
+  await expect(phoneModel).toBeVisible()
+  await phoneModel.click()
+  await expect(page.getByRole('dialog', { name: 'Model', exact: true })).toBeVisible()
+  await expect(page.getByRole('listbox', { name: 'Model', exact: true }).getByRole('option', { name: 'anthropic/claude-sonnet-4-5', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  // A tablet keeps the same control with room for the toolbar.
+  await page.setViewportSize({ width: 820, height: 1180 })
+  await expect(page.locator('.composer-bar').getByRole('button', { name: /^Model:/ })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.setViewportSize({ width: 390, height: 844 })
   await page.getByRole('button', { name: 'Exit focus mode', exact: true }).click()
   await expect(focusScreen).not.toHaveClass(/focus/)
   await expect(page.locator('.site-header')).toBeVisible()

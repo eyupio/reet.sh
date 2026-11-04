@@ -53,7 +53,7 @@ history continuation both enforce the per-agent result; stored history must also
 belong to the same account, machine, tool and folder, from a closed reet session.
 No transcript, database migration or new execution control is introduced.
 
-The live chat's **Model**, **Change model** and **Make default** controls appear only when that agent's available descriptor offers model switching.
+The live chat's **Model** dropdown and **Make default** control appear only when that agent's available descriptor offers model switching. The dropdown lists the machine's models, any live selector values, favourites and suggestions, and choosing one applies it at once; **Other…** accepts a model the machine did not list.
 An explicit descriptor overrides machine-wide flags; an older OpenCode peer must report `acpModel`. Without that capability, the pane does not request
 model options or favourites, and provider-error guidance does not direct the person to a missing model control. A capability update applies to an open
 pane: removing support hides the control, clears its option list and retires pending lookups. A delayed reply cannot repopulate a later control.

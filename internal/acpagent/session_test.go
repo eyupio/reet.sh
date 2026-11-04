@@ -1117,7 +1117,9 @@ func TestCloseKillsOrphanedGroupMembers(t *testing.T) {
 	session.Close()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := syscall.Kill(pid, 0); err != nil {
+		// Containers may leave an exited child as a zombie until PID 1 reaps
+		// it. Verify retirement using the same live-group check as Close.
+		if !groupAlive(session.cmd.Process.Pid) {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)

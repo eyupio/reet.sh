@@ -28,7 +28,8 @@ focused batches below. Each PR records its checks and merge state. All handoff e
 Implementation and verification are tracked in [the startup-options handoff](docs/handoffs/start-agent-options.md).
 Both start dialogs and backlog creation/editing retain model and native effort choices. The new `acp-start-options-v1`
 contract prevents older live-control connectors receiving unsupported create fields. Runtime confirmation precedes readiness
-and the opening prompt. The local web, browser and focused race checks pass. This follow-up awaits PR review and final-head checks before merge.
+and the opening prompt. The local web, browser and focused race checks pass. [PR #493](https://github.com/eyupio/reet.sh/pull/493) contains the follow-up
+and integrates #490 for combined verification; merge the toolbar PR first, then this PR when review and final-head checks pass.
 
 ## GAFFER-LIVE-1: live settings and durable message delivery (4 November 2026)
 

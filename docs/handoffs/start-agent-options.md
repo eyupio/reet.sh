@@ -1,6 +1,6 @@
 # Startup and backlog model/effort handoff
 
-Updated 4 November 2026. Branch: `feat/start-agent-options`. Follow-up to merged live-controls PR #488.
+Updated 4 November 2026. PR: [#493](https://github.com/eyupio/reet.sh/pull/493). Branch: `feat/start-agent-options`. Follow-up to merged live-controls PR #488.
 
 ## Behaviour and compatibility
 
@@ -37,4 +37,9 @@ Rollback can hide `acpStartOptions` or revert this follow-up; retained backlog c
 
 Screenshots and device checks are recorded in [UI verification](../ui-verification.md#startup-and-backlog-options-4-november-2026).
 
-Next: publish the follow-up PR, address review and final-head CI, resolve any new conflicts and merge when green.
+PR #490 is integrated as a dependency so final-head checks exercise the complete session experience. Both UI verification
+appendices are retained. The complete chat/recovery and legacy Start an agent suites pass after switching test helpers to
+the visible header controls. All seven affected backend packages pass their complete race suites, including the full API package (472 seconds). No inline review findings were open at the latest check.
+
+Publication state and final-head checks are recorded on PR #493. Merge #490 first, then this follow-up when its checks and
+review are green. Resolve any new main changes without dropping either handoff or UI verification section.

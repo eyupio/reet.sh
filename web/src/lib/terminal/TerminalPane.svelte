@@ -28,7 +28,7 @@
   import {paletteFor,terminalPalettes,type CursorShape} from './themes'
   import type {TerminalCommand} from './api'
 
-  let { session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false, theatre=$bindable(false),sessionsVisible=false,onsessions,keyboard=false,holdSize=false,footnote='',uploadsSupported=false,uploadsOff=false }: { session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean; theatre?:boolean;sessionsVisible?:boolean;onsessions?:()=>void;keyboard?:boolean;holdSize?:boolean;footnote?:string;uploadsSupported?:boolean;uploadsOff?:boolean } = $props()
+  let { session, host, user = '', onrename, onend, onarchive, archiveDisabled=false, historySupported=false, actionDisabled = false, theatre=$bindable(false),sessionsVisible=false,onsessions,keyboard=false,holdSize=false,footnote='',uploadsSupported=false,uploadsOff=false,headerTheatre=false }: { session: TerminalSession; host: string; user?: string; onrename?: () => void; onend?: () => void; onarchive?:()=>void; archiveDisabled?:boolean;historySupported?:boolean; actionDisabled?: boolean; theatre?:boolean;sessionsVisible?:boolean;onsessions?:()=>void;keyboard?:boolean;holdSize?:boolean;footnote?:string;uploadsSupported?:boolean;uploadsOff?:boolean;headerTheatre?:boolean } = $props()
   let element = $state<HTMLDivElement>(),screenFrame=$state<HTMLDivElement>()
   let pane=$state<HTMLElement>(),searchInput=$state<HTMLInputElement>(),viewportHeight=$state(innerHeight),viewportTop=$state(0)
   let connectionState = $state<ConnectionState>('connecting'), message = $state('')
@@ -453,7 +453,7 @@
       <span class="tool-space"></span>
       <button onclick={()=>appearanceOpen=true} aria-label="Appearance" title="Theme, text size and cursor"><TerminalIcon name="appearance"/><span class="tool-label">Appearance</span></button>
       <button onclick={()=>historyOpen=true} aria-label="Recent history" title="Find saved shell commands or read terminal output"><TerminalIcon name="history"/><span class="tool-label">History</span></button>
-      <button onclick={()=>theatre=!theatre} aria-pressed={theatre} aria-label={theatre?'Exit theatre view':'Theatre view'} title={theatre?'Restore session panel':'Wide terminal · theatre view'}><TerminalIcon name="theatre"/></button>
+      {#if !headerTheatre}<button onclick={()=>theatre=!theatre} aria-pressed={theatre} aria-label={theatre?'Exit theatre view':'Theatre view'} title={theatre?'Restore session panel':'Wide terminal · theatre view'}><TerminalIcon name="theatre"/></button>{/if}
       <button onclick={()=>{maximised=!maximised;fitTerminal?.()}} aria-pressed={maximised} aria-label={maximised?'Restore size':'Maximise'} title={maximised?'Restore size':'Maximise terminal'}><TerminalIcon name="expand"/></button>
     </div>
   {/snippet}

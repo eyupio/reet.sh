@@ -70,6 +70,15 @@ func TestExtractStripsRootAndRejectsEscapes(t *testing.T) {
 	if err := extract(escaping, t.TempDir()); !errors.Is(err, ErrShape) {
 		t.Fatalf("escaping entry = %v", err)
 	}
+	// Links are never taken from the archive, so a hostile one is simply absent.
+	hostile := writeArchive(t, []entry{{name: "node-v1/bin/evil", link: "../../etc/passwd"}})
+	destination = t.TempDir()
+	if err := extract(hostile, destination); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(destination, "bin", "evil")); !os.IsNotExist(err) {
+		t.Fatalf("hostile symlink was created: %v", err)
+	}
 }
 
 func TestDownloadChecksTheRecordedChecksum(t *testing.T) {

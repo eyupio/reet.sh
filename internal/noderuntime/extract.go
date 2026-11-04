@@ -15,7 +15,8 @@ const maxExtractedBytes = 2 << 30
 
 // extract unpacks the reviewed Node.js archive under destination, dropping the
 // archive's single top-level directory. Every entry must stay inside
-// destination, and symbolic links may not point outside it.
+// destination. Symbolic links are not taken from the archive; the two npm bin
+// shims are created from constants afterwards.
 func extract(archive, destination string) error {
 	file, err := os.Open(archive)
 	if err != nil {
@@ -27,7 +28,8 @@ func extract(archive, destination string) error {
 		return ErrShape
 	}
 	defer compressed.Close()
-	if err := os.MkdirAll(destination, 0700); err != nil {
+	root := filepath.Clean(destination)
+	if err := os.MkdirAll(root, 0700); err != nil {
 		return err
 	}
 	entries := tar.NewReader(compressed)
@@ -44,9 +46,15 @@ func extract(archive, destination string) error {
 		if !ok {
 			continue
 		}
-		target, err := inside(destination, relative)
-		if err != nil {
-			return err
+		relative = filepath.FromSlash(relative)
+		// IsLocal rejects absolute paths and any ".." element, so a crafted
+		// entry cannot address a file outside the extraction root.
+		if !filepath.IsLocal(relative) {
+			return fmt.Errorf("%w: archive entry escapes its destination", ErrShape)
+		}
+		target := filepath.Join(root, relative)
+		if target != root && !strings.HasPrefix(target, root+string(os.PathSeparator)) {
+			return fmt.Errorf("%w: archive entry escapes its destination", ErrShape)
 		}
 		switch header.Typeflag {
 		case tar.TypeDir:
@@ -73,19 +81,30 @@ func extract(archive, destination string) error {
 			if err := out.Close(); err != nil {
 				return err
 			}
-		case tar.TypeSymlink:
-			if filepath.IsAbs(header.Linkname) {
-				return fmt.Errorf("%w: absolute symbolic link", ErrShape)
-			}
-			if _, err := inside(destination, filepath.Join(filepath.Dir(relative), header.Linkname)); err != nil {
-				return err
-			}
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return err
-			}
-			if err := os.Symlink(header.Linkname, target); err != nil {
-				return err
-			}
+		}
+	}
+	return nodeBinLinks(root)
+}
+
+// nodeBinLinks recreates the two npm bin shims that the reviewed archive
+// carries as symbolic links. Their destinations are constants, never archive
+// header data, and they are only written when the npm files are present.
+func nodeBinLinks(root string) error {
+	// The reviewed Node.js build has one top-level directory that extract drops.
+	links := map[string]string{
+		"npm": "../lib/node_modules/npm/bin/npm-cli.js",
+		"npx": "../lib/node_modules/npm/bin/npx-cli.js",
+	}
+	for name, target := range links {
+		link := filepath.Join(root, "bin", name)
+		if _, err := os.Lstat(link); err == nil {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(filepath.Dir(link), target)); err != nil {
+			continue
+		}
+		if err := os.Symlink(target, link); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -98,17 +117,4 @@ func stripRoot(name string) (string, bool) {
 		return "", false
 	}
 	return parts[1], true
-}
-
-func inside(root, relative string) (string, error) {
-	relative = filepath.FromSlash(relative)
-	if filepath.IsAbs(relative) {
-		return "", fmt.Errorf("%w: absolute archive entry", ErrShape)
-	}
-	target := filepath.Join(root, relative)
-	rel, err := filepath.Rel(root, target)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("%w: archive entry escapes its destination", ErrShape)
-	}
-	return target, nil
 }

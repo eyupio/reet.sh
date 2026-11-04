@@ -595,6 +595,19 @@ func TestDocsAreAPublicCrawlableSite(t *testing.T) {
 	if strings.Contains(pageBody, "data-boot") {
 		t.Error("/docs/mcp/ served the SPA shell")
 	}
+	guide := get(t, h, "/docs/run-claude-code-on-a-vps/")
+	if guide.Code != http.StatusOK {
+		t.Fatalf("/docs/run-claude-code-on-a-vps/: status = %d", guide.Code)
+	}
+	for _, want := range []string{
+		"<title>Run Claude Code on a VPS from your browser · reet.sh Docs</title>",
+		`rel="canonical" href="https://reet.sh/docs/run-claude-code-on-a-vps/"`,
+		"<h1>Run Claude Code on a VPS from your browser</h1>",
+	} {
+		if !strings.Contains(guide.Body.String(), want) {
+			t.Errorf("guide missing %s", want)
+		}
+	}
 	if redirect := get(t, h, "/docs/mcp"); redirect.Code != http.StatusMovedPermanently || redirect.Header().Get("Location") != "/docs/mcp/" {
 		t.Errorf("/docs/mcp: %d %q", redirect.Code, redirect.Header().Get("Location"))
 	}

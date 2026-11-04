@@ -128,6 +128,9 @@ func Handler(baseURL string, opts ...Option) http.Handler {
 	index, _ := fs.ReadFile(sub, "index.html")
 	gz := &gzipCache{}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveDocs(w, r, origin(r, baseURL)) {
+			return
+		}
 		if target, ok := legacyRedirect(r); ok {
 			http.Redirect(w, r, target, http.StatusMovedPermanently)
 			return
@@ -566,18 +569,23 @@ func writeText(w http.ResponseWriter, r *http.Request, body, origin string) {
 }
 
 func sitemapPaths(fn func() []string) []string {
-	if fn == nil {
-		return nil
-	}
 	seen := map[string]bool{}
-	paths := make([]string, 0, 8)
-	for _, p := range fn() {
+	paths := make([]string, 0, 32)
+	add := func(p string) {
 		p = strings.TrimSpace(p)
 		if p == "" || p == "/" || !strings.HasPrefix(p, "/") || seen[p] {
-			continue
+			return
 		}
 		seen[p] = true
 		paths = append(paths, p)
+	}
+	for _, p := range docsSitemapPaths() {
+		add(p)
+	}
+	if fn != nil {
+		for _, p := range fn() {
+			add(p)
+		}
 	}
 	return paths
 }

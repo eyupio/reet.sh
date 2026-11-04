@@ -2,9 +2,12 @@
 // person reads. It is pure so the streaming, approval and reconnect cases can be
 // tested without a browser or a live OpenCode process.
 
+export type ChatPreviewRef = { id?: string; name: string; mime?: string; size?: number; reason?: string }
+
 export type ChatEvent = {
+  preview?: ChatPreviewRef
   seq: number
-  kind: 'user' | 'agent' | 'tool' | 'notice' | 'status' | 'permission' | 'permission_resolved' | 'permission_cancelled' | 'question' | 'question_resolved' | 'question_cancelled'
+  kind: 'preview' | 'user' | 'agent' | 'tool' | 'notice' | 'status' | 'permission' | 'permission_resolved' | 'permission_cancelled' | 'question' | 'question_resolved' | 'question_cancelled'
   messageId?: string
   toolCallId?: string
   permissionId?: string
@@ -47,6 +50,7 @@ export type ChatQuestion = { message: string; fields: ChatQuestionField[] }
 export type QuestionDecision = 'answered' | 'declined' | 'cancelled'
 
 export type ChatItem =
+  | { kind: 'preview'; key: string; preview: ChatPreviewRef }
   | { kind: 'user' | 'agent' | 'notice'; key: string; text: string; bad?: boolean }
   | { kind: 'tool'; key: string; toolCallId: string; title: string; toolKind: string; status: string; text: string; command: string; path: string; diff: string; additions: number; deletions: number; durationMs: number; locations: string[] }
   | { kind: 'permission'; key: string; permissionId: string; toolCallId?: string; title: string; toolKind: string; command: string; path: string; diff: string; description: string; locations: string[]; truncated: boolean; decision?: 'allowed' | 'denied' | 'cancelled'; reason?: string }
@@ -111,6 +115,7 @@ function itemChars(item: ChatItem): number {
   if (item.kind === 'tool') return item.title.length + item.text.length + item.command.length + item.path.length + item.diff.length + item.locations.join('').length
   if (item.kind === 'permission') return item.title.length + item.command.length + item.path.length + item.diff.length + item.description.length + item.locations.join('').length
   if (item.kind === 'question') return questionChars(item.question)
+  if (item.kind === 'preview') return item.preview.name.length + (item.preview.id?.length ?? 0) + (item.preview.reason?.length ?? 0)
   return item.text.length
 }
 
@@ -139,6 +144,14 @@ export function applyChatEvent(state: ChatState, event: ChatEvent): ChatState {
 function reduceChatEvent(state: ChatState, event: ChatEvent): ChatState {
   const next = { ...state, lastSeq: event.seq }
   switch (event.kind) {
+    case 'preview': {
+      const preview = event.preview
+      if (!preview || typeof preview.name !== 'string' || preview.name.length > 200) return next
+      if (!preview.reason && (!preview.id || !/^[a-f0-9]{64}$/.test(preview.id) || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(preview.mime ?? '') || !Number.isInteger(preview.size) || preview.size! < 1 || preview.size! > 5 * 1024 * 1024)) return next
+      const key = `p${event.toolCallId || event.messageId || ''}:${preview.id || preview.name}`
+      if (state.items.some(item => item.key === key)) return next
+      return { ...next, items: [...state.items, { kind: 'preview', key, preview }] }
+    }
     case 'user':
       return { ...next, items: [...state.items, { kind: 'user', key: `u${event.seq}`, text: event.text ?? '' }] }
     case 'agent': {

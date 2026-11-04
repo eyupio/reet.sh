@@ -38,6 +38,7 @@ type launchAPI struct {
 	// prompts records every ACP prompt, including its image paths.
 	prompts  []terminalproto.ACPPrompt
 	controls func(*terminalproto.ACPControl) terminalproto.ACPControlResult
+	preview  func(*terminalproto.ACPPreview) terminalproto.ACPPreviewResult
 	// modes records every session_mode request; mode answers it (default: the
 	// session is running).
 	modes []terminalproto.SessionMode
@@ -83,6 +84,14 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 			}
 		case terminalproto.End:
 			reply.Body = terminalproto.SessionChanged{State: terminalproto.Ended}
+		case *terminalproto.ACPPreview:
+			f.mu.Lock()
+			respond := f.preview
+			f.mu.Unlock()
+			reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable}
+			if respond != nil {
+				reply.Body = respond(op)
+			}
 		case *terminalproto.ACPControl:
 			f.mu.Lock()
 			respond := f.controls

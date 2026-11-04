@@ -44,3 +44,7 @@ The integrated head passes the full 23-dialog phone suite across six viewports, 
 and web check/build. The legacy Start an agent suite also passes after the accessible-name fix. Full CI found two more continuation helpers
 in chat and chat-recovery that used the removed menu item; they now exercise the visible header action and check that
 the menu does not duplicate it. The complete chat/recovery browser suites pass.
+
+The full phone CI pass exposed an older Sessions-phone expectation for the previous hidden landscape header. It now checks
+the visible Running/project/machine line, compact controls and their measured terminal-row budget. A first CI attempt
+stalled in the unchanged launch suite; the full launch suite passes locally. Final-head CI remains the merge gate.

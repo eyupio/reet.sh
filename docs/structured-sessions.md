@@ -58,6 +58,27 @@ The runtime controls endpoint is `GET /api/v2/terminal/sessions/{id}/chat/contro
 Only model and thought-level selectors are accepted. Static installation descriptors do not authorise a runtime switch.
 
 
+## Images returned by an agent
+
+Gaffer displays PNG, JPEG, GIF and WebP images returned by the agent, including screenshots and image resources from tools.
+It also captures a file preview when a completed read or write names an image, or an agent message contains a local Markdown
+image reference. A file fallback captures the current file when that update arrives; it is not a claim about an earlier file
+version. The agent must explicitly return or reference the image: reet does not scan folders for new files.
+
+Select a thumbnail to open it at full size; Escape closes it and restores focus. Images load as they approach the viewport.
+Offline loads offer Retry. Unavailable or expired previews keep their filename; ask the agent to read or recreate the image.
+A chosen unsupported format or oversized image is labelled instead of silently disappearing.
+
+This requires `acp-previews-v1` on an upgraded connector. Only opaque IDs scoped to the account/session reach the image API;
+browsers cannot request arbitrary machine paths. Local file captures must be regular files owned by the connector user,
+inside that user's home or temporary folder. Links cannot escape those roots. Remote URLs and SVG are not fetched.
+The controller validates chunks and the completed content hash before serving bytes with the image type and no caching.
+
+Each image is at most 5 MB, 16,384 pixels on either edge and 32 million pixels total. The connector's private cache holds at
+most 64 MB and 1,024 files, evicting oldest snapshots first. Reads refuse images older than 24 hours; expired files and empty
+session directories are removed on the next capture. The cache survives connector restarts. Image bytes are fetched separately
+from bounded conversation history, whose existing retention limits remain in place.
+
 ## Starting one
 
 Both **Start an agent** dialogs and the backlog composer include **Model** and **Effort**. Models use the machine catalogue,

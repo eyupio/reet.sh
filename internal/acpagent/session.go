@@ -35,7 +35,8 @@ var (
 	ErrImages = errors.New("the agent does not accept images")
 )
 
-const maxLineBytes = 1 << 20
+// A bounded 5 MB preview needs room for base64 and the enclosing ACP update.
+const maxLineBytes = 8 << 20
 
 // An exited agent's final frames get a bounded chance to reach the sender.
 // A stuck callback must not keep the session alive indefinitely.
@@ -94,6 +95,8 @@ type Session struct {
 	configMu     sync.Mutex
 	steerMu      sync.Mutex
 	settings     []terminalproto.ACPSetting
+	previewText  map[string]string
+	previewTools map[string]previewTarget
 	steering     bool
 	compacting   bool
 	configuring  bool
@@ -601,7 +604,9 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 		if text != "" {
 			s.markProgress()
 			s.emit(Event{Kind: "agent", MessageID: u.MessageID, Text: text})
+			s.emitPreviews(u.MessageID, "", s.messagePreviews(u.MessageID, text))
 		}
+		s.emitPreviews(u.MessageID, "", contentPreviews(u.Content))
 	case "user_message_chunk":
 		text := contentText(u.Content)
 		if text != "" {
@@ -640,6 +645,15 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 		s.emit(Event{Kind: "tool", ToolCallID: u.ToolCallID, Title: u.Title, ToolKind: u.Kind, Status: u.Status, Text: text,
 			Command: details.command, Path: details.path, Diff: details.diff, Additions: details.additions, Deletions: details.deletions,
 			DurationMs: durationMs, Locations: locations})
+		pictures := contentPreviews(u.Content)
+		if len(pictures) == 0 {
+			pictures = contentPreviews(u.RawOutput)
+		}
+		target := s.previewTarget(u.ToolCallID, u.Kind, details.path, u.Status)
+		if len(pictures) == 0 && target != "" {
+			pictures = append(pictures, Preview{Path: target})
+		}
+		s.emitPreviews("", u.ToolCallID, pictures)
 	case "agent_thought_chunk":
 		text := contentText(u.Content)
 		if text != "" {

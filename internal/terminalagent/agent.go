@@ -108,7 +108,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 		// session while a mode swap moves it between the two.
 		chats := attachChats(supervisor, ctx, opts, generation, send, terminalproto.SupportsACPHistory(headers.Get(terminalproto.FeatureHeader)),
 			terminalproto.SupportsACPToolDetails(headers.Get(terminalproto.FeatureHeader)),
-			terminalproto.SupportsACPQuestion(headers.Get(terminalproto.FeatureHeader)))
+			terminalproto.SupportsACPQuestion(headers.Get(terminalproto.FeatureHeader)), terminalproto.SupportsACPPreviews(headers.Get(terminalproto.FeatureHeader)))
 		m, managerErr := terminalhost.NewManager(ctx, opts)
 		switcher := &agentSwitch{chats: chats, shells: swapShells(m)}
 		// swaps tracks the mode swaps in flight. A swap outlives a lost
@@ -263,6 +263,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				}
 			}
 			switch body := msg.Body.(type) {
+			case *terminalproto.ACPPreview:
+				if !terminalproto.SupportsACPPreviews(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
 			case *terminalproto.ACPControl:
 				if !terminalproto.SupportsACPLiveControls(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
@@ -716,6 +720,18 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					return respond(err)
 				}
 				reply.Body = terminalproto.Result{Code: terminalproto.OK}
+				return send(callCtx, reply)
+			case *terminalproto.ACPPreview:
+				if !allowed(opts.Consent) {
+					reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable}
+					return send(callCtx, reply)
+				}
+				answer, err := chats.sup.previews.read(msg.SessionID, *op)
+				if err != nil {
+					reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable}
+				} else {
+					reply.Body = answer
+				}
 				return send(callCtx, reply)
 			case *terminalproto.ACPControl:
 				if controlsRunning.Add(1) > maxAsideRunning {

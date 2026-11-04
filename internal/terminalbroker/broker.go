@@ -449,7 +449,7 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 	// A late worktree answer is likewise dropped: status is read again before
 	// any remove, and a remove's outcome is read again by asking for status.
 	switch m.Body.(type) {
-	case *terminalproto.ACPControlResult, *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.WorktreeState, *terminalproto.WorktreeResult:
+	case *terminalproto.ACPControlResult, *terminalproto.ACPPreviewResult, *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.WorktreeState, *terminalproto.WorktreeResult:
 		return nil
 	case *terminalproto.BrowseResult, *terminalproto.BranchesResult, *terminalproto.ModelsResult, *terminalproto.InspectResult:
 		// The machine answers a browse by 4 s, a listing by 8 s and a model

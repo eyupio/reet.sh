@@ -420,3 +420,22 @@ test('approval outcomes name what the person decided', () => {
   assert.equal(approvalOutcome({ decision: 'cancelled', reason: 'timeout' }).word, 'Timed out')
   assert.equal(approvalOutcome({ decision: 'cancelled', reason: 'ended' }).word, 'Closed')
 })
+
+test('agent previews preserve surrounding tool/text output and deduplicate repeated snapshots', () => {
+ let state = initialChat()
+ const preview = {id:'a'.repeat(64), name:'Screenshot.png', mime:'image/png', size:512}
+ state = applyChatEvent(state,event(1,{kind:'tool',toolCallId:'c1',toolKind:'read',status:'completed',text:'Read Screenshot.png'}))
+ state = applyChatEvent(state,event(2,{kind:'preview',toolCallId:'c1',preview}))
+ state = applyChatEvent(state,event(3,{kind:'preview',toolCallId:'c1',preview}))
+ state = applyChatEvent(state,event(4,{kind:'agent',messageId:'m1',text:'The layout looks correct.'}))
+ assert.deepEqual(state.items.map(i=>i.kind),['tool','preview','agent'])
+ assert.equal(state.items[0].text,'Read Screenshot.png')
+ assert.equal(state.items[1].preview.id,preview.id)
+ const invalid=applyChatEvent(state,event(5,{kind:'preview',preview:{...preview,id:'../../file'}}))
+ assert.equal(invalid.items.length,3)
+})
+
+test('unavailable previews stay labelled without accepting a source URL', () => {
+ const state=applyChatEvent(initialChat(),event(1,{kind:'preview',preview:{name:'missing.png',reason:'unavailable'}}))
+ assert.equal(state.items[0].preview.reason,'unavailable')
+})

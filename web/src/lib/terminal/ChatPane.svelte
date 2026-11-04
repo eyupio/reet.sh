@@ -8,6 +8,7 @@
  import { defaultLabel, type ModelFavourite } from '../models'
  import Toast from '../Toast.svelte'
  import ImageLightbox from './ImageLightbox.svelte'
+ import ChatPreview from './ChatPreview.svelte'
  import GafferProgress from './GafferProgress.svelte'
 import SkillPicker from './SkillPicker.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
@@ -692,6 +693,8 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
       {/each}
      </div>
     </div>
+   {:else if item.kind === 'preview'}
+    <ChatPreview session={session.id} preview={item.preview} onresize={() => { if (nearBottom) void scrollToEnd() }} />
    {:else if item.kind === 'notice'}
     <p class="notice" class:bad={item.bad}>{item.text}</p>
    {:else if item.kind === 'tool'}

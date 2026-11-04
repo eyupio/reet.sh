@@ -23,6 +23,13 @@ Review batches: [process recovery #480](https://github.com/eyupio/reet.sh/pull/4
 [transcript retention #484](https://github.com/eyupio/reet.sh/pull/484). Eight reproduced defects are addressed across the three
 focused batches below. Each PR records its checks and merge state. All handoff entries are retained when integrating the stack.
 
+## GAFFER-PREVIEWS-1: agent image previews and continuation (4 November 2026)
+
+Start a new environment with [the current continuation handoff](docs/handoffs/gaffer-continuation.md). It records every open
+Gaffer PR, published head, validation result and remaining merge gate using repository-relative paths. The image preview
+implementation is on `feat/chat-image-previews`; its [feature handoff](docs/handoffs/chat-image-previews.md) covers the wire
+contract, private snapshot cache, UI, recovery, limits and checked screenshots. Final review/CI and merges remain outstanding.
+
 ## GAFFER-START-1: launch and backlog model/effort selection (4 November 2026)
 
 Implementation and verification are tracked in [the startup-options handoff](docs/handoffs/start-agent-options.md).

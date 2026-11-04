@@ -92,6 +92,7 @@ func (o Options) maxTurn() time.Duration {
 // the client can be tested without a connector. The connector maps it to a
 // terminalproto.ACPEvent.
 type Event struct {
+	Preview      *Preview
 	Kind         string
 	MessageID    string
 	ToolCallID   string

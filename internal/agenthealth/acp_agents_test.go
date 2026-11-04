@@ -298,3 +298,21 @@ func TestStartupOptionsDoNotLeakToLiveControlsOnlyPeer(t *testing.T) {
 		t.Fatal("startup feature survived reconnect to an older controller")
 	}
 }
+
+func TestPreviewCapabilityRequiresIndependentNegotiation(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
+	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature
+	negotiateFeatures(&cfg, base)
+	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPPreviews {
+		t.Fatal("preview leaked to older peer")
+	}
+	negotiateFeatures(&cfg, base+","+terminalproto.ACPPreviewsFeature)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if !c.ACPPreviews || c.ValidateFor(terminalFeatures(cfg)) != nil {
+		t.Fatal("negotiated preview missing", c)
+	}
+	negotiateFeatures(&cfg, base)
+	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPPreviews {
+		t.Fatal("preview survived reconnect to older peer")
+	}
+}

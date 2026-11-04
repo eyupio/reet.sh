@@ -113,6 +113,7 @@ type chatSupervisor struct {
 	// registry remembers live chats across connector restarts. It is nil when
 	// this connector has no private layout (tests and uninstalled callers).
 	registry *chatRegistry
+	previews *chatPreviewStore
 	closed   bool
 	// stop is closed when Close starts; background waits end on it.
 	stop       chan struct{}
@@ -131,6 +132,7 @@ type chatLink struct {
 	// questions is acp-question-v1 on this connection. Question events are sent
 	// only when it is set: an older controller's strict decoder rejects them.
 	questions bool
+	previews  bool
 	live      bool
 }
 
@@ -148,7 +150,7 @@ func NewChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *C
 
 func newChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *chatSupervisor {
 	s := &chatSupervisor{
-		ctx: ctx, opts: opts,
+		ctx: ctx, opts: opts, previews: newChatPreviewStore(opts.Layout.Dir, opts.Home),
 		start: func(ctx context.Context, opts acpagent.Options) (chatProcess, error) {
 			return acpagent.Start(ctx, opts)
 		},
@@ -230,7 +232,7 @@ func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalh
 }
 
 func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, questions ...bool) *chatHost {
-	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(questions) > 0 && questions[0]}
+	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(questions) > 0 && questions[0], previews: len(questions) > 1 && questions[1]}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -286,6 +288,10 @@ func (s *chatSupervisor) flush(h *chatHost) {
 		}
 		cs.outbox = cs.outbox[1:]
 		cs.outboxBytes -= chatEventBytes(event)
+		if event.Kind == "preview" && !h.link.previews {
+			s.mu.Unlock()
+			continue
+		}
 		if isQuestionKind(event.Kind) && !h.link.questions {
 			// A send on the previous link can fail after attach filtered history
 			// and put its frame back. Check negotiation at replay delivery too.
@@ -903,7 +909,23 @@ func isQuestionKind(kind string) bool {
 }
 
 func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
-	wire, ok := wireEvent(event)
+	if event.Kind == "preview" {
+		s.mu.Lock()
+		skip := cs.quiet || s.link != nil && !s.link.previews
+		s.mu.Unlock()
+		if skip {
+			return
+		}
+	}
+	var wire terminalproto.ACPEvent
+	var ok bool
+	if event.Kind == "preview" && event.Preview != nil {
+		preview := s.previews.capture(cs.id, cs.dir, event.Preview)
+		wire = terminalproto.ACPEvent{Kind: "preview", MessageID: event.MessageID, ToolCallID: event.ToolCallID, Preview: &preview}
+		ok = terminalproto.ACPEventSize(wire)
+	} else {
+		wire, ok = wireEvent(event)
+	}
 	if !ok {
 		if event.Kind == "question" && event.QuestionID != "" {
 			s.cancelQuestion(cs, event.QuestionID)
@@ -956,6 +978,10 @@ func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 		return
 	}
 	link := s.link
+	if wire.Kind == "preview" && link != nil && !link.previews {
+		s.mu.Unlock()
+		return
+	}
 	if wire.Kind == "question" && (link == nil || !link.live || !link.questions) {
 		// Only an already delivered question survives a disconnect. A newly
 		// asked question still needs a live, negotiated recipient.

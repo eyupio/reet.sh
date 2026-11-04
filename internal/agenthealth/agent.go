@@ -61,6 +61,7 @@ type AgentConfig struct {
 	acpModel           bool
 	acpLiveControls    bool
 	acpStartOptions    bool
+	acpPreviews        bool
 	acpAgentMode       bool
 	acpAgentOptions    bool
 	acpImages          bool
@@ -749,6 +750,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpModel = terminalproto.SupportsACPModel(advertised)
 	cfg.acpLiveControls = terminalproto.SupportsACPLiveControls(advertised)
 	cfg.acpStartOptions = terminalproto.SupportsACPStartOptions(advertised)
+	cfg.acpPreviews = terminalproto.SupportsACPPreviews(advertised)
 	cfg.acpAgentMode = terminalproto.SupportsACPAgentMode(advertised)
 	cfg.acpAgentOptions = terminalproto.SupportsACPAgentOptions(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
@@ -819,6 +821,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpAgents {
 		features = append(features, terminalproto.ACPAgentsFeature)
+	}
+	if cfg.acpPreviews {
+		features = append(features, terminalproto.ACPPreviewsFeature)
 	}
 	if cfg.acpStartOptions {
 		features = append(features, terminalproto.ACPStartOptionsFeature)
@@ -1018,6 +1023,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ACPModel:        acp && cfg.acpModel,
 		ACPLiveControls: acp && cfg.acpLiveControls,
 		ACPStartOptions: acp && cfg.acpLiveControls && cfg.acpStartOptions,
+		ACPPreviews:     acp && cfg.acpPreviews,
 		// Only when a descriptor lists a mode, so the flag never appears without one.
 		ACPAgentMode: acp && cfg.acpAgentMode && anyModes(chatAgents),
 		// Only when a descriptor lists another option, so the flag never appears

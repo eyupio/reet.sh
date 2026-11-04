@@ -14,6 +14,7 @@ import (
 )
 
 func (s *server) registerTerminalChatRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/chat/previews/{previewId}", s.terminal(s.terminalChatPreview))
 	for _, method := range []string{"GET", "POST", "PATCH"} {
 		mux.HandleFunc(method+" /api/v2/terminal/sessions/{id}/chat/queue", s.terminal(s.terminalChatQueue))
 	}
@@ -31,25 +32,19 @@ func (s *server) registerTerminalChatRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/reattach", s.terminal(s.terminalChatReattach))
 }
 
-func (s *server) terminalChatSession(r *http.Request) (store.TerminalSession, bool) {
+func (s *server) terminalChatSession(w http.ResponseWriter, r *http.Request) (store.TerminalSession, bool) {
 	id := r.PathValue("id")
 	if !terminalproto.ValidID(id) {
-		writeErr(w(r), 400, "invalid terminal request")
+		writeErr(w, 400, "invalid terminal request")
 		return store.TerminalSession{}, false
 	}
 	session, err := s.st.TerminalSessionFor(s.uid(r), id)
 	if err != nil || !session.Structured {
-		writeErr(w(r), 404, "that reet session is not available")
+		writeErr(w, 404, "that reet session is not available")
 		return store.TerminalSession{}, false
 	}
 	return session, true
 }
-
-func w(r *http.Request) http.ResponseWriter {
-	return r.Context().Value(responseWriterKey{}).(http.ResponseWriter)
-}
-
-type responseWriterKey struct{}
 
 func (s *server) terminalChat(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -451,4 +446,25 @@ func (s *server) terminalReattachError(w http.ResponseWriter, err error) {
 	default:
 		s.terminalChatError(w, err)
 	}
+}
+
+func (s *server) terminalChatPreview(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.terminalChatSession(w, r); !ok {
+		return
+	}
+	data, mime, err := s.terminals.ChatPreview(r.Context(), s.uid(r), r.PathValue("id"), r.PathValue("previewId"))
+	if err != nil {
+		if errors.Is(err, terminalbroker.ErrOffline) {
+			writeErr(w, 503, "Reconnect the machine to load this image preview.")
+		} else {
+			writeErr(w, 404, "This image preview is unavailable or has expired.")
+		}
+		return
+	}
+	w.Header().Set("Content-Type", mime)
+	w.Header().Set("Content-Disposition", "inline")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	w.Header().Set("Content-Length", fmt.Sprint(len(data)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }

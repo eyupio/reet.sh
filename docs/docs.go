@@ -82,6 +82,10 @@ var manifest = []entry{
 	{"branch-pruning.md", "Operations", 80},
 	{"terminal-command-history.md", "Operations", 90},
 	{"terminal-controller-commands.md", "Operations", 100},
+	{"run-claude-code-on-a-vps.md", "Guides", 10},
+	{"sync-skills-between-machines.md", "Guides", 20},
+	{"self-host-mcp-server.md", "Guides", 30},
+	{"compare-skills-sh.md", "Compare", 10},
 	{"cli-reference.md", "Reference", 10},
 	{"roadmap.md", "Reference", 20},
 }
@@ -151,7 +155,7 @@ func load() {
 			bySlug[page.Slug] = page
 		}
 		// Manifest order groups by section, then by the order within it.
-		sections := []string{"Get started", "Machines and agents", "Skills and sync", "Work", "Operations", "Reference"}
+		sections := []string{"Get started", "Machines and agents", "Skills and sync", "Work", "Operations", "Guides", "Compare", "Reference"}
 		for _, section := range sections {
 			for _, page := range order {
 				if page.Section == section {

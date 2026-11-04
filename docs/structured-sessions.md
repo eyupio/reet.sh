@@ -97,19 +97,24 @@ A failed row opens on its error; the rest stay folded so a long turn reads as a 
 The connector sends those tool details only to a controller that negotiated **`acp-tool-details-v1`**; an older controller
 receives the plain tool event and the row falls back to its title and location. Thinking is a quiet, foldable aside that
 stops running when the turn waits, finishes or stops. An agent message keeps its headings, lists and quotes, and its fenced code is rendered in its own block; an approval
-remains the one card that asks for an answer.
+remains the one card that asks for an answer. Once answered, it folds into its tool's row as an **Allowed**, **Denied**,
+**Timed out** or **Closed** pill; expanding the row shows the agent's reason and your answer above the command and output.
+An answered approval with no matching tool row stays a card of its own.
 
 ## Gaffer’s work update
 
 Above the message box, Gaffer is a compact block portrait with a front-facing tweed flat cap, blue eyes and short stubble.
-Brief, smooth gestures follow the agent’s activity: a thoughtful tilt while planning, a glance and glasses for reading,
-a magnifying glass for searches, a pencil for edits and a stopwatch for commands. Gestures settle after a second or two,
+Brief, smooth gestures follow the agent’s activity: a thoughtful pause while planning, a glance and glasses for reading,
+a magnifying glass for searches, a pencil for edits and a stopwatch for commands. Gestures take one to three and a half seconds and then settle,
 with irregular 18–32 second rests during active work. Only an occasional blink loops. Contextual Yorkshire quips rotate
 every 30 seconds during active work without immediately repeating; status changes get a relevant quip immediately.
 They are presentation copy, not extra instructions sent to the agent or evidence of work completing.
 
-Click Gaffer (or focus him and press Enter or Space) for a cap-tip, wink or nod and a contextual quip. A two-second
-cooldown prevents repeated clicks from continually restarting him. After at least 15 seconds away from a session,
+Gaffer moves like a person: nods, leans, glances and startles, never tilting his whole body, which the sprite would
+turn into a rocking shoulder line. Click Gaffer (or focus him and press Enter or Space) for a contextual quip and a short
+flinch, double nod or glance in whatever he is already doing. A click never swaps the scene, so a half-finished cup of tea
+stays a cup of tea. Clicks closer together than about two thirds of a second are ignored, so they cannot continually
+restart him. After at least 15 seconds away from a session,
 returning catches him with a brew during active work or asleep after a finished turn or session, before he startles or
 stretches awake. This works when switching sessions as well as leaving the tab; short focus changes do not trigger it.
 An error, failed session, lost connection or pending decision always takes priority over a tea break or nap.
@@ -124,7 +129,13 @@ that began before the chat opened.
 Approvals, questions, errors, stopped turns and reconnects override working messages. Reconnecting labels the tool
 counts as last seen, and finishes as a compact handover without claiming checks passed. Working, waiting and finished
 states have distinct decorative expressions. **Pause Gaffer animation** keeps him still for this view while quotes and
-factual updates keep arriving. **Account → Profile → Appearance → Gaffer animation** saves the animation preference
+factual updates keep arriving. **Minimise** folds the card into one line: the portrait, the status, Gaffer's own quip (or
+the handover once a turn finishes) and the done, failed and unfinished tally. The chips, job sheet and byline return when you
+expand it. A waiting approval or question keeps that one line with an amber edge, and a snag with a red one. Cards start
+minimised; **Account → Profile → Appearance → Gaffer progress card** chooses **One line** or **Full card** as the starting
+view across browsers, and a card's own button overrides it for that card until it closes. In light mode the portrait is
+drawn as dark line-work around a light face, so it reads the same as in dark mode.
+**Account → Profile → Appearance → Gaffer animation** saves the animation preference
 with your account across browsers. Turning it off never hides Gaffer, quirky quotes, live updates, activity or the
 handover and job sheet. The device’s reduced-motion preference also disables all Gaffer motion without silencing quotes.
 The avatar is decorative, changing facts are announced politely, and timers and quips do not repeatedly interrupt

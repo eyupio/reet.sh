@@ -161,7 +161,8 @@ The models UI now exists wherever a model or a default is chosen:
   says so. A failed refresh keeps the last list and age.
 - **Activity** names model reads and favourite changes in plain words, and a
   profile edit that names a default reads as that default change. A session's
-  hover card shows its agent and model.
+  card on Home's In flight shows its agent and model, and the workspace panel's
+  session row tooltip names it too.
 
 Only OpenCode has a machine list; other agents show favourites, suggestions and
 Other…, and say so. A per-machine default stays deferred. The next stage is

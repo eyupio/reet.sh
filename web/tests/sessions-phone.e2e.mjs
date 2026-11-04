@@ -174,25 +174,26 @@ try {
   await context.close()
  }
 
- // The hover card shows the agent and model the session was started with, alongside where it runs. It is hover-only: a screen
- // that cannot hover (a touch phone) never opens it on focus, and a narrow window with a mouse still does.
- if (run('hover card model')) {
+ // The session panel no longer opens a card over the list: the row's native tooltip carries its project, branch and
+ // agent/model instead, so nothing covers the neighbouring rows on hover or keyboard focus.
+ if (run('session row details, no hover card')) {
   const touched = await openSession({width:390,height:844})
   await touched.page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
   const touchRow = touched.page.locator('aside#terminal-sessions').getByRole('button',{name:/^Refactor the store layer on studio/})
   await touchRow.focus()
   await touched.page.waitForTimeout(300)
-  await expect(touched.page.locator('.session-card')).toHaveCount(0)
+  await expect(touched.page.locator('aside#terminal-sessions .session-card')).toHaveCount(0)
   expect(touched.errors).toEqual([])
   await touched.context.close()
   const {context,page,errors} = await openSession({width:390,height:844,touch:false})
   await page.locator('.terminal-toolbar').getByRole('button',{name:'Show sessions',exact:true}).click()
   const row = page.locator('aside#terminal-sessions').getByRole('button',{name:/^Refactor the store layer on studio/})
   await row.focus()
-  const card = page.locator('.session-card')
-  await expect(card).toBeVisible()
-  await expect(card).toContainText('Claude Code · sonnet')
-  await expect(card).toContainText('reet · studio')
+  await expect(page.locator('aside#terminal-sessions .session-card')).toHaveCount(0)
+  const title = await row.getAttribute('title')
+  expect(title).toContain('reet · studio · running')
+  expect(title).toContain('Claude Code · sonnet')
+  expect(title).toContain('reet/reet-a1b2c3d4e5f60718')
   expect(errors).toEqual([])
   await context.close()
  }

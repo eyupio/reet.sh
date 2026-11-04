@@ -1,0 +1,17 @@
+{% from "partials/icons-reet.html" import icon %}
+<header class="article-header wrap">
+  {% include "partials/breadcrumbs.html" %}
+  <div class="eyebrow">{{ page.meta.topic }} <span class="muted">/ PRACTICAL GUIDE</span></div>
+  <h1 id="{{ page.meta.heading_id }}">{{ page.meta.hero_title }}{% if page.meta.hero_accent %}<br><em>{{ page.meta.hero_accent }}</em>{% endif %}</h1>
+  <p class="article-lede">{{ page.meta.description }}</p>
+  <div class="article-byline"><img src="{{ 'assets/brand/icon-color-light.svg' | url }}" alt="" width="22" height="28"><strong>{{ config.site_author }}</strong><span>{{ page.meta.read_time }} min read</span><span>{{ page.meta.topic }}</span></div>
+  <div class="article-banner art-{{ page.meta.art }}" aria-hidden="true"><span class="banner-computer">{{ icon(page.meta.art_icon | default('monitor')) }}<small>{{ page.meta.art_label }}</small></span><span class="banner-line"></span><span class="banner-controller"><img src="{{ 'assets/brand/icon-color-dark.svg' | url }}" alt="" width="35" height="45"><small>YOUR REET CONTROLLER</small></span><span class="banner-line"></span><span class="banner-computer">{{ icon('server') }}<small>YOUR MACHINES</small></span></div>
+</header>
+<div class="article-layout wrap">
+  <nav class="page-toc article-toc" aria-label="In this guide"><span class="eyebrow">IN THIS GUIDE</span>{% for item in page.toc %}<a href="{{ item.url }}">{{ item.title }}</a>{% endfor %}<a class="back-guides" href="{{ 'guides/' | url }}">← All field guides</a></nav>
+  <article class="reading-body md-typeset">{{ page.content }}
+    {% if related_pages %}<nav class="doc-next" aria-label="Related guides"><span class="eyebrow">KEEP GOING</span>{% for related in related_pages %}<a href="{{ related.url | url }}"><div><span>{{ related.meta.topic | default('DOCUMENTATION') }}</span><strong>{{ related.meta.card_title | default(related.title) }}</strong></div>{{ icon('arrow') }}</a>{% endfor %}</nav>{% endif %}
+    {% include "partials/page-tools.html" %}
+  </article>
+  <aside class="article-side-note"><span class="eyebrow">MADE FOR YOUR SETUP</span>{{ icon('server') }}<h3>Your server.<br>Your session.</h3><p>No Reet-hosted control plane. Run the controller on infrastructure you choose.</p><a class="text-link" href="{{ 'quick-start/' | url }}">Set up Reet {{ icon('arrow') }}</a></aside>
+</div>

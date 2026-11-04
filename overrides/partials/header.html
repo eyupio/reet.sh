@@ -1,0 +1,22 @@
+{% from "partials/icons-reet.html" import icon %}
+<header class="header md-header" data-md-component="header">
+  <div class="header-inner wrap">
+    <a class="brand" href="{{ nav.homepage.url | url }}" aria-label="reet.sh home" data-md-component="logo">{% include "partials/logo.html" %}</a>
+    <nav class="main-nav" aria-label="Main navigation">
+      <a href="{{ nav.homepage.url | url }}#product" {% if page and page.is_homepage %}aria-current="page"{% endif %}>Product</a>
+      <a href="{{ 'documentation/' | url }}" {% if page and not page.is_homepage and page.meta.section == 'docs' %}aria-current="page"{% endif %}>Docs</a>
+      <a href="{{ 'guides/' | url }}" {% if page and page.meta.section == 'guides' %}aria-current="page"{% endif %}>Guides</a>
+      <a href="{{ 'compare/' | url }}" {% if page and page.meta.section == 'compare' %}aria-current="page"{% endif %}>Compare</a>
+    </nav>
+    <div class="header-actions">
+      <button class="search-trigger" data-docs-search aria-label="Search documentation">{{ icon('search') }}<span>Search</span><kbd data-search-shortcut>Ctrl K</kbd></button>
+      <button class="theme-toggle icon-button" data-theme-toggle aria-label="Change colour theme">{{ icon('moon') }}{{ icon('sun') }}</button>
+      <a class="button button-small header-cta" href="{{ 'quick-start/' | url }}">Get started {{ icon('arrow') }}</a>
+      <label class="menu-toggle icon-button" for="__drawer" role="button" tabindex="0" data-docs-menu aria-label="Open navigation" aria-expanded="false" aria-controls="reet-navigation">{{ icon('menu') }}</label>
+    </div>
+  </div>
+  <div data-md-component="header-title" hidden><span data-md-component="header-topic">{{ page.title }}</span></div>
+  <div class="reet-native-palette" hidden>{% include "partials/palette.html" %}</div>
+  {% include "partials/javascripts/palette.html" %}
+  {% include "partials/search.html" %}
+</header>

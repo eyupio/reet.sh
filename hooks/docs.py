@@ -9,9 +9,13 @@ out because it is not a public destination.
 from __future__ import annotations
 
 import html
+import gzip
+import math
 import os
 import re
 from xml.sax.saxutils import escape
+
+from markdown.extensions.toc import slugify
 
 TITLE = re.compile(r"<title>(.*?)</title>", re.I | re.S)
 DESCRIPTION = re.compile(r'<meta\s+name="description"\s+content="([^"]*)"', re.I | re.S)
@@ -21,28 +25,82 @@ SPACES = re.compile(r"\s+")
 
 
 def on_page_markdown(markdown, page, config, files):
-    """Give each page its own description instead of repeating site_description.
-
-    Material reads page.meta.description for the head and sharing tags. The
-    docs already start with a short paragraph, so derive the description from it
-    and leave front matter alone when a page supplies one.
-    """
-    if page.meta.get("description"):
-        return markdown
-    match = PARAGRAPH.search(markdown)
-    if not match:
-        return markdown
-    text = SPACES.sub(" ", MARKDOWN.sub("", match.group(1))).strip()
-    if not text:
-        return markdown
-    if len(text) > 155:
-        text = text[:152]
-        cut = text.rfind(" ")
-        if cut > 80:
-            text = text[:cut]
-        text += "…"
-    page.meta["description"] = text
+    """Enrich real Markdown pages; articles and search share the same content."""
+    source = page.file.src_uri
+    guides = config["extra"].get("field_guides", [])
+    page.meta["section"] = (
+        "guides" if source in guides or source.startswith("guides/")
+        else "compare" if source.startswith(("compare/", "compare-"))
+        else "docs"
+    )
+    if not page.meta.get("description"):
+        match = PARAGRAPH.search(markdown)
+        if match:
+            text = SPACES.sub(" ", MARKDOWN.sub("", match.group(1))).strip()
+            if len(text) > 155:
+                text = text[:152].rsplit(" ", 1)[0] + "…"
+            page.meta["description"] = text or config["site_description"]
+    page.meta["read_time"] = max(1, math.ceil(len(re.findall(r"\b[\w’'-]+\b", markdown)) / 220))
+    if page.meta.get("layout") == "article":
+        heading = re.search(r"^# (.+)$", markdown, re.M)
+        title = heading.group(1).strip() if heading else page.title
+        page.meta["heading_id"] = slugify(title, "-")
+        page.meta.setdefault("hero_title", title)
+        if heading:
+            # The article template renders this heading once, keeping its anchor.
+            markdown = markdown[:heading.start()] + markdown[heading.end():]
     return markdown
+
+
+def on_page_context(context, page, config, nav, **kwargs):
+    by_source = {item.file.src_uri: item for item in nav.pages}
+
+    def pages_for(paths):
+        return [by_source[path] for path in paths if path in by_source]
+
+    context["guide_pages"] = pages_for(config["extra"].get("field_guides", []))
+    context["compare_pages"] = pages_for([
+        "compare-skills-sh.md", "compare-open-webui.md", "compare-librechat.md",
+    ])
+    context["related_pages"] = pages_for(page.meta.get("related", []))
+    base = config["site_url"]
+    section = page.meta.get("section", "docs")
+    hub, label = {
+        "guides": ("guides/", "Field guide"),
+        "compare": ("compare/", "Compare"),
+        "docs": ("documentation/", "Documentation"),
+    }[section]
+    crumbs = [{"@type": "ListItem", "position": 1, "name": "Home", "item": base}]
+    if not page.is_homepage:
+        if page.canonical_url != base + hub:
+            crumbs.append({"@type": "ListItem", "position": 2, "name": label, "item": base + hub})
+        crumbs.append({"@type": "ListItem", "position": len(crumbs) + 1, "name": page.title, "item": page.canonical_url})
+    graph = [{
+        "@type": "WebPage" if page.is_homepage or page.meta.get("layout") in ["hub", "guides", "compare"] else "TechArticle",
+        "@id": page.canonical_url,
+        "url": page.canonical_url,
+        "name": page.title,
+        "description": page.meta.get("description", config["site_description"]),
+        "inLanguage": "en",
+        "isPartOf": {"@id": base + "#website"},
+        "publisher": {"@type": "Organization", "name": "EyUp.io", "url": "https://eyup.io"},
+    }, {"@type": "BreadcrumbList", "itemListElement": crumbs}]
+    if graph[0]["@type"] == "TechArticle":
+        graph[0]["headline"] = " ".join(filter(None, [page.meta.get("hero_title", page.title), page.meta.get("hero_accent")]))
+        graph[0]["image"] = base + "assets/brand/social.png"
+        graph[0]["author"] = {"@type": "Organization", "name": config["site_author"], "url": "https://eyup.io"}
+    if page.is_homepage:
+        graph += [{
+            "@type": "WebSite", "@id": base + "#website", "url": base,
+            "name": "reet.sh", "description": config["site_description"],
+        }, {
+            "@type": "SoftwareApplication", "name": "reet.sh", "url": base,
+            "applicationCategory": "DeveloperApplication", "operatingSystem": "Linux, macOS",
+            "license": config["repo_url"] + "/blob/main/LICENSE",
+            "isAccessibleForFree": True, "sameAs": config["repo_url"],
+        }]
+    page.meta["schema"] = {"@context": "https://schema.org", "@graph": graph}
+    return context
 
 
 def on_post_build(config, **kwargs):
@@ -71,7 +129,7 @@ def on_post_build(config, **kwargs):
 
     pages.sort(key=lambda page: page["url"])
     write_sitemap(site_dir, pages)
-    write_robots(site_dir, base)
+    write_robots(site_dir, base, config["extra"].get("noindex", False))
     write_llms(site_dir, pages)
     _write(site_dir, ".nojekyll", "")
 
@@ -84,15 +142,19 @@ def write_sitemap(site_dir, pages):
     for page in pages:
         lines += ["  <url>", "    <loc>" + escape(page["url"]) + "</loc>", "  </url>"]
     lines.append("</urlset>")
-    _write(site_dir, "sitemap.xml", "\n".join(lines) + "\n")
+    body = "\n".join(lines) + "\n"
+    _write(site_dir, "sitemap.xml", body)
+    # MkDocs also emits a compressed sitemap. Keep the two representations equal.
+    with open(os.path.join(site_dir, "sitemap.xml.gz"), "wb") as fh:
+        fh.write(gzip.compress(body.encode("utf-8"), mtime=0))
 
 
-def write_robots(site_dir, base):
+def write_robots(site_dir, base, noindex=False):
     body = "\n".join(
         [
             "# reet.sh documentation",
             "User-agent: *",
-            "Allow: /",
+            "Disallow: /" if noindex else "Allow: /",
             "Sitemap: " + base + "sitemap.xml",
             "",
         ]

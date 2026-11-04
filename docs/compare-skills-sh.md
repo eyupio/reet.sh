@@ -1,3 +1,10 @@
+---
+title: 'skills.sh and Reet: skill directory or control room?'
+description: Discover skills in a public directory, then keep a private library and review their distribution to
+  your machines.
+card_title: skills.sh & Reet
+---
+
 # skills.sh and reet.sh: directory or control room?
 
 skills.sh describes itself as **The Agent Skills Directory**: a public place to discover and install skills for AI agents. reet.sh is not a directory. It is a self-hosted control room for the skills you already use, the machines they run on, and the setups around them.
@@ -57,6 +64,6 @@ reet.sh is also not a replacement for the skills CLI. It works with the same ski
 - [Install reet.sh](binary-installation.md)
 - [Sync skills between machines](sync-skills-between-machines.md)
 - [Connect your shelf to an AI client](mcp.md)
-- [Public community](https://reet.sh/community)
+- [Sharing and audiences](sharing.md)
 
 If you only need to find a skill today, use skills.sh. If you need to know why a skill is on a machine, who approved it, and how to put the same set on the next machine, that is the job reet.sh is built for.

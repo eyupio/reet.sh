@@ -189,8 +189,8 @@ func (s *Store) migrateBackups() error {
 		{"cards_expanded", "cards_expanded INTEGER NOT NULL DEFAULT 0"},
 		{"terminal_remove_on_close", "terminal_remove_on_close INTEGER NOT NULL DEFAULT 0"},
 		{"gaffer_animations", "gaffer_animations INTEGER NOT NULL DEFAULT 1"},
-		// Rows stored before this setting existed keep the full card.
-		{"gaffer_compact", "gaffer_compact INTEGER NOT NULL DEFAULT 0"},
+		// Gaffer's progress card starts as one line; rows stored before this setting existed read as yes.
+		{"gaffer_compact", "gaffer_compact INTEGER NOT NULL DEFAULT 1"},
 		{"hosted_prefix", "hosted_prefix TEXT NOT NULL DEFAULT 'reet-'"},
 		{"default_base_branch", "default_base_branch TEXT NOT NULL DEFAULT ''"},
 		// Rows stored before this setting existed read as yes.
@@ -484,7 +484,7 @@ func (s *Store) ProfileFor(userID int64) (Profile, error) {
 	if !errors.Is(err, sql.ErrNoRows) {
 		return p, err
 	}
-	p = Profile{GafferAnimations: true, Theme: "system", DateFormat: "locale", ShelfView: "list", HostedPrefix: DefaultHostedPrefix, WorktreesByDefault: true}
+	p = Profile{GafferAnimations: true, GafferCompact: true, Theme: "system", DateFormat: "locale", ShelfView: "list", HostedPrefix: DefaultHostedPrefix, WorktreesByDefault: true}
 	if _, err := s.db.Exec(`INSERT OR IGNORE INTO user_profiles(user_id,theme,timezone,date_format,hosted_prefix,updated_at) VALUES(?,?,?,?,?,?)`,
 		userID, p.Theme, p.Timezone, p.DateFormat, p.HostedPrefix, now()); err != nil {
 		return p, err

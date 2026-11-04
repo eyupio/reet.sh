@@ -294,7 +294,7 @@
       clearToken()
       token = ''
       if (authMode === 'accounts') currentUser = null
-      gafferAnimations.set(true); gafferCompact.set(false)
+      gafferAnimations.set(true); gafferCompact.set(true)
       needsAuth = true
       toast = null
       removePending = null
@@ -493,7 +493,7 @@
       const { profile } = await getProfile()
       if (actor !== currentUser?.id) return
       applyTheme(profile.theme)
-      gafferAnimations.set(profile.gafferAnimations ?? true); gafferCompact.set(profile.gafferCompact ?? false)
+      gafferAnimations.set(profile.gafferAnimations ?? true); gafferCompact.set(profile.gafferCompact ?? true)
       view = profile.shelfView
       defaultExpanded = profile.cardsExpanded
       timeZone = profile.timezone
@@ -553,7 +553,7 @@
       }
       currentUser = null
       clearThemeChoice()
-      gafferAnimations.set(true); gafferCompact.set(false)
+      gafferAnimations.set(true); gafferCompact.set(true)
       applyTheme('system')
       needsAuth = true
       token = ''

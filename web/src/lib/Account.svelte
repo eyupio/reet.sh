@@ -63,7 +63,7 @@
   let busy = $state('')
 
   // svelte-ignore state_referenced_locally
-  let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list' as 'list' | 'board', cardsExpanded: false, terminalRemoveOnClose: false, gafferAnimations: true, gafferCompact: false })
+  let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list' as 'list' | 'board', cardsExpanded: false, terminalRemoveOnClose: false, gafferAnimations: true, gafferCompact: true })
   let prefixEnabled = $state(true)
   let prefixValue = $state('reet-')
   let passwordForm = $state({ current: '', password: '', confirm: '' })
@@ -124,11 +124,11 @@
       const r = await getProfile()
       who = r.user
       profile = r.profile
-      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat || 'locale', shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false, gafferAnimations: r.profile.gafferAnimations ?? true, gafferCompact: r.profile.gafferCompact ?? false }
+      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat || 'locale', shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false, gafferAnimations: r.profile.gafferAnimations ?? true, gafferCompact: r.profile.gafferCompact ?? true }
       prefixEnabled = r.profile.hostedPrefix !== ''
       prefixValue = r.profile.hostedPrefix || 'reet-'
       applyTheme(r.profile.theme)
-      gafferAnimations.set(r.profile.gafferAnimations ?? true); gafferCompact.set(r.profile.gafferCompact ?? false)
+      gafferAnimations.set(r.profile.gafferAnimations ?? true); gafferCompact.set(r.profile.gafferCompact ?? true)
       error = ''
     } catch (e) {
       fail(e)
@@ -174,7 +174,7 @@
       prefixValue = r.profile.hostedPrefix || 'reet-'
       onuserchange?.(r.user)
       applyTheme(r.profile.theme)
-      gafferAnimations.set(r.profile.gafferAnimations ?? true); gafferCompact.set(r.profile.gafferCompact ?? false)
+      gafferAnimations.set(r.profile.gafferAnimations ?? true); gafferCompact.set(r.profile.gafferCompact ?? true)
       notice = 'Reet, defaults saved. Your preferences follow you to every browser you sign in from.'
       error = ''
     } catch (e) {
@@ -419,8 +419,8 @@
             </label>
             <label><span>Gaffer progress card</span>
               <select aria-label="Gaffer progress card" bind:value={profileForm.gafferCompact}>
-                <option value={false}>Full card — portrait, handover and job sheet</option>
                 <option value={true}>One line — status and Gaffer’s quip</option>
+                <option value={false}>Full card — portrait, handover and job sheet</option>
               </select>
               <small>Sets how each card starts. Every card has its own button to switch, and Gaffer keeps his Yorkshire narrative either way.</small>
             </label>

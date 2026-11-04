@@ -4,7 +4,7 @@
   import { gafferProgress, gafferQuote, observedTime, recentToolState, type GafferPhase } from '../gafferProgress'
   import { gafferSummary } from '../gafferSummary'
   import { GAFFER_SETTLE_MS, gafferAnimations, gafferCompact, gafferGestureMs } from '../gafferMotion'
-  import { GAFFER_AWAY_AFTER, gafferAside, gafferClickAside, gafferClickReaction, gafferClickRun, gafferGesture, gafferPose, type GafferPose, type GafferReaction } from '../gafferPersonality'
+  import { GAFFER_AWAY_AFTER, gafferAside, gafferClickAside, gafferClickRun, gafferGesture, gafferPoke, gafferPose, type GafferPoke, type GafferPose, type GafferReaction } from '../gafferPersonality'
   import GafferAvatar from './GafferAvatar.svelte'
 
   let { chat, sessionId = '', dir = '', agent = 'Agent', replayed = true, ended = false, sessionFailed = false, reattaching = false }: { chat: ChatState; sessionId?: string; dir?: string; agent?: string; replayed?: boolean; ended?: boolean; sessionFailed?: boolean; reattaching?: boolean } = $props()
@@ -36,8 +36,8 @@
   let lastGestureAt = -Infinity, nextGestureAt = 0, gestureEndsAt = 0
   let clicks = $state({ count: 0, at: -Infinity }), clickAside = $state('')
   const miniQuote = $derived(clickAside || (summary ? handoverText : quote))
-  let lastClickReaction: GafferReaction = ''
-  let queuedClick: { reaction: GafferReaction; phase: GafferPhase; pose: GafferPose } | null = null
+  // A nudge is answered by the pose he is already in; pokeKey restarts the acknowledgement even for the same kind twice.
+  let pokeKind = $state<GafferPoke | ''>(''), pokeKey = $state(0)
 
   function gesture(next: GafferReaction) {
     if (still) return
@@ -46,15 +46,10 @@
     const lifetime = gafferGestureMs(next) + GAFFER_SETTLE_MS
     gestureEndsAt = Date.now() + lifetime
     nextGestureAt = gestureEndsAt + 18_000 + Math.random() * 14_000
-    gestureTimer = setTimeout(() => {
-      const pending = queuedClick; queuedClick = null
-      reaction = ''; gestureEndsAt = 0
-      // At most one reply waits. Changed work, a snag or a decision invalidates the old nudge.
-      if (pending && !still && !welcomePose && pending.phase === view.phase && pending.pose === pose) gesture(pending.reaction)
-    }, lifetime)
+    gestureTimer = setTimeout(() => { reaction = ''; gestureEndsAt = 0 }, lifetime)
   }
   function stopGesture() {
-    clearTimeout(gestureTimer); queuedClick = null; gestureEndsAt = 0; reaction = ''
+    clearTimeout(gestureTimer); gestureEndsAt = 0; reaction = ''
   }
   function clearAside() {
     clearTimeout(asideTimer); clickAside = ''
@@ -83,12 +78,8 @@
     const resting = pose
     clickAside = gafferClickAside(resting, agent, click.count, clickAside || quote); quoteAt = Date.now()
     clearTimeout(asideTimer); asideTimer = setTimeout(() => { clickAside = '' }, 12_000)
-    // The quip responds immediately, even with motion off. Never restart a performance mid-gesture.
-    if (still || welcomePose) return
-    const next = gafferClickReaction(resting, click.count, lastClickReaction)
-    lastClickReaction = next
-    if (Date.now() < gestureEndsAt) queuedClick = { reaction: next, phase: view.phase, pose: resting }
-    else gesture(next)
+    // The quip responds immediately, even with motion off. The body answers too, in whatever scene it is already playing.
+    pokeKind = gafferPoke(click.count); pokeKey++
   }
 
   // Offer Read more only when the three-line clamp really hides text; re-measure when the pane resizes.
@@ -170,7 +161,7 @@
 
 {#if view.visible && minimised}
   <section class="gaffer-progress mini" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-mode="minimised" data-poke-count={clicks.count}>
-    <button type="button" class="mini-portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant="bust" active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} paused={still} /></button>
+    <button type="button" class="mini-portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant="bust" active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} {pokeKind} {pokeKey} paused={still} /></button>
     <div class="mini-status" role="status" aria-live="polite" aria-atomic="true">
       <span class="signal" class:live={view.active} aria-hidden="true">{#if needsYou}?{:else if view.phase === 'idle'}✓{:else if view.phase === 'ended' || view.phase === 'cancelled'}<i class="sq"></i>{:else if view.phase === 'error' || view.phase === 'reconnecting'}!{:else}<i></i><i></i><i></i>{/if}</span>
       <strong>{view.label}</strong>
@@ -185,7 +176,7 @@
 {:else if view.visible}
   <section class="gaffer-progress" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:compact={stopped} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-poke-count={clicks.count}>
     <div class="gaffer-main">
-      <button type="button" class="portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant="bust" active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} paused={still} /></button>
+      <button type="button" class="portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant="bust" active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} {pokeKind} {pokeKey} paused={still} /></button>
       <div class="brief">
         <div class="byline"><strong>Gaffer</strong><span class="role">The boss</span><span class="agent">{agent}</span></div>
         <div class="live-update" role="status" aria-live="polite" aria-atomic="true">

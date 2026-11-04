@@ -10,9 +10,11 @@
   import type { GafferPose, GafferReaction } from '../gafferPersonality'
 
   const id = $props.id()
-  let { active = false, paused = false, phase = 'working', pose = 'duty', reaction = '', reactionKey = 0, variant = 'portrait' }: {
+  let { active = false, paused = false, phase = 'working', pose = 'duty', reaction = '', reactionKey = 0, variant = 'portrait', pokeKind = '', pokeKey = 0 }: {
     active?: boolean; paused?: boolean; phase?: GafferPhase; pose?: GafferPose; reaction?: GafferReaction; reactionKey?: number
     variant?: 'portrait' | 'bust'
+    pokeKind?: 'flinch' | 'bob' | 'sway' | ''
+    pokeKey?: number
   } = $props()
   // Requests and snags outrank decorative tea breaks and greetings, including in standalone uses.
   const concern = $derived(pose === 'concerned' || ['error', 'cancelled', 'connecting', 'reconnecting'].includes(phase))
@@ -66,6 +68,27 @@
     }
   })
   onDestroy(() => clearTimeout(transitionTimer))
+
+  // A nudge is answered in whatever scene is already playing: a quick physical acknowledgement on a wrapper around every layer, so
+  // the artwork, pose and gesture underneath are never swapped or interrupted. Translations only: a person flinches, nods and glances;
+  // they do not tip sideways like a board. The Web Animations API restarts cleanly on a second nudge.
+  const POKES: Record<'flinch' | 'bob' | 'sway', { duration: number; easing: string; frames: Keyframe[] }> = {
+    flinch: { duration: 620, easing: 'ease-out', frames: [{ transform: 'translateY(0) scale(1)' }, { transform: 'translateY(-1.8px) scale(1.02)', offset: .22 }, { transform: 'translateY(.5px) scale(1)', offset: .55 }, { transform: 'translateY(0) scale(1)' }] },
+    bob: { duration: 820, easing: 'ease-in-out', frames: [{ transform: 'translateY(0)' }, { transform: 'translateY(1.6px)', offset: .22 }, { transform: 'translateY(0)', offset: .45 }, { transform: 'translateY(1.1px)', offset: .68 }, { transform: 'translateY(0)' }] },
+    sway: { duration: 860, easing: 'ease-in-out', frames: [{ transform: 'translateX(0)' }, { transform: 'translateX(-1.5px)', offset: .3 }, { transform: 'translateX(1.2px)', offset: .62 }, { transform: 'translateX(0)' }] },
+  }
+  let pokeEl = $state<SVGGElement>()
+  let lastPoke = untrack(() => pokeKey)
+  $effect(() => {
+    const key = pokeKey, kind = pokeKind, el = pokeEl, off = still
+    if (!key || key === lastPoke) return
+    untrack(() => {
+      lastPoke = key
+      if (off || !el || !kind) return
+      const poke = POKES[kind]
+      el.animate(poke.frames, { duration: poke.duration, easing: poke.easing })
+    })
+  })
 </script>
 
 <svg class="gaffer-avatar" class:active class:paused={still} data-phase={phase} data-pose={pose} data-reaction={reaction} data-artwork={scene} style:--gaffer-transition-duration={`${GAFFER_TRANSITION_MS}ms`} viewBox="0 0 64 64" fill="none" aria-hidden="true">
@@ -77,7 +100,23 @@
       <feFlood flood-color="currentColor" result="ink" />
       <feComposite in="ink" in2="drawing" operator="in" />
     </filter>
+    <!-- The artwork is a lit face on a dark screen. On a light card the same drawing in dark ink would read as a negative, so the
+         light theme inks the *features* instead: close the drawing over its grid lines to find the figure, then keep what the
+         figure is not (outline, grid, eyes, mouth). A light face with dark line-work, as dark mode reads. The sprite sheet is
+         drawn at its own pixel size and the flat portrait is stretched, hence one radius for each. -->
+    {#each [['s', 6], ['f', 1.6]] as [kind, radius] (kind)}
+      <filter id={`${id}-paper-${kind}`} color-interpolation-filters="sRGB" x="-5%" y="-5%" width="110%" height="110%">
+        <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  .2445 .8225 .083 0 -.1" result="soft" />
+        <feComponentTransfer in="soft" result="drawing"><feFuncA type="linear" slope="4" intercept="-1.1" /></feComponentTransfer>
+        <feMorphology in="drawing" operator="dilate" {radius} result="grown" />
+        <feMorphology in="grown" operator="erode" {radius} result="figure" />
+        <feComposite in="figure" in2="drawing" operator="out" result="linework" />
+        <feFlood flood-color="currentColor" result="ink" />
+        <feComposite in="ink" in2="linework" operator="in" />
+      </filter>
+    {/each}
   </defs>
+  <g class="poke" bind:this={pokeEl} data-poke={pokeKind || undefined}>
   {#each layers as layer (layer.key)}
   <g class="scene" class:entering={layer.entering} class:leaving={layer.leaving} class:alternate={layer.alternate} class:performing={layer.play} data-reaction={layer.reaction} data-pose={layer.pose} data-artwork={layer.scene} style:--gaffer-fade-from={layer.from} style:--gaffer-gesture-duration={`${layer.duration}ms`} use:registerScene={layer.key}>
   <g class="body">
@@ -85,11 +124,11 @@
       {#if layer.sprite}
         <svg x={layer.expressive ? -9 : -7.6} y="2" width="76.8" height="68.266667" viewBox="0 0 384 341.333333" overflow="hidden">
           <g clip-path={`url(#${id}-frame)`}>
-            <image class="frames" class:play={layer.play} href={layer.expressive ? expressions : gestures} filter={`url(#${id}-ink)`} width="1536" height="1024" y={-layer.row * 1024 / 3} />
+            <image class="frames" class:play={layer.play} href={layer.expressive ? expressions : gestures} style:--gaffer-ink-filter={`url(#${id}-ink)`} style:--gaffer-paper-filter={`url(#${id}-paper-s)`} width="1536" height="1024" y={-layer.row * 1024 / 3} />
           </g>
         </svg>
       {:else}
-        <image href={layer.scene === 'portrait' ? grid : phosphor} filter={`url(#${id}-ink)`} x={layer.scene === 'portrait' ? 2 : 6} y={layer.scene === 'portrait' ? 2 : 6} width={layer.scene === 'portrait' ? 60 : 52} height={layer.scene === 'portrait' ? 60 : 52} preserveAspectRatio="xMidYMid meet" />
+        <image href={layer.scene === 'portrait' ? grid : phosphor} style:--gaffer-ink-filter={`url(#${id}-ink)`} style:--gaffer-paper-filter={`url(#${id}-paper-f)`} x={layer.scene === 'portrait' ? 2 : 6} y={layer.scene === 'portrait' ? 2 : 6} width={layer.scene === 'portrait' ? 60 : 52} height={layer.scene === 'portrait' ? 60 : 52} preserveAspectRatio="xMidYMid meet" />
       {/if}
     </g>
     <!-- The surrounding work card carries the semantic status colour and text. -->
@@ -113,10 +152,12 @@
   </g>
   </g>
   {/each}
+  </g>
 </svg>
 
 <style>
   .gaffer-avatar { display: block; width: 100%; height: 100%; overflow: visible; isolation: isolate; }
+  .poke { transform-origin: 32px 52px; }
   .scene { mix-blend-mode: plus-lighter; }
   .scene.entering { animation: scene-in var(--gaffer-transition-duration) ease-out; }
   .scene.leaving { animation: scene-out var(--gaffer-transition-duration) ease-out forwards; }
@@ -133,9 +174,9 @@
   .frames { transform: translateX(-1152px); }
   .frames.play { animation: gesture-frames var(--gaffer-gesture-duration) steps(1, end); }
   .scene.performing .body { animation: bust-motion var(--gaffer-gesture-duration) cubic-bezier(.37, 0, .25, 1); }
-  .scene[data-pose='asleep'] .head { transform: translateY(2px) rotate(8deg); }
-  .head.attention { transform: rotate(-3deg); }
-  .head.concern { transform: rotate(3deg); }
+  /* The sprite is the whole bust, shoulders included, so nothing here rotates it: a person nods, leans and glances, they do not
+     tip over like a rigid board. Sleep is a slump. */
+  .scene[data-pose='asleep'] .head { transform: translateY(3px); }
   .scene[data-reaction='ponder'] .head:not(.sprite) { animation: ponder var(--gaffer-gesture-duration) ease-in-out; }
   .scene[data-reaction='scan'] .head:not(.sprite) { animation: scan var(--gaffer-gesture-duration) ease-in-out; }
   .scene[data-reaction='scribble'] .pencil { transform-origin: 51px 56px; animation: scribble var(--gaffer-gesture-duration) ease-in-out; }
@@ -150,15 +191,15 @@
   @keyframes scene-out { from { opacity: var(--gaffer-fade-from); } to { opacity: 0; } }
   @keyframes scene-out-alternate { from { opacity: var(--gaffer-fade-from); } to { opacity: 0; } }
   @keyframes gesture-frames { 0%, 14% { transform: translateX(0); } 20% { transform: translateX(-384px); } 44% { transform: translateX(-768px); } 72%, 100% { transform: translateX(-1152px); } }
-  @keyframes bust-motion { 0%, 100% { transform: none; } 12% { transform: translateY(.4px) rotate(-.8deg); } 38% { transform: translateY(-.4px) rotate(.8deg); } 68% { transform: translateY(.3px) rotate(-.4deg); } 88% { transform: none; } }
-  @keyframes ponder { 35%, 65% { transform: rotate(-6deg) translateY(-1px); } }
-  @keyframes scan { 25% { transform: translateX(-1px) rotate(-3deg); } 65% { transform: translateX(1px) rotate(3deg); } }
-  @keyframes nod { 35%, 65% { transform: translateY(1.5px) rotate(2deg); } }
-  @keyframes listen { 40%, 70% { transform: rotate(-7deg); } }
-  @keyframes shake { 25%, 65% { transform: rotate(-3deg); } 45% { transform: rotate(4deg); } }
+  @keyframes bust-motion { 0%, 100% { transform: none; } 12% { transform: translateY(.4px); } 38% { transform: translateY(-.4px); } 68% { transform: translateY(.3px); } 88% { transform: none; } }
+  @keyframes ponder { 35%, 65% { transform: translate(-.8px, -1px); } }
+  @keyframes scan { 25% { transform: translateX(-1px); } 65% { transform: translateX(1px); } }
+  @keyframes nod { 35%, 65% { transform: translateY(1.5px); } }
+  @keyframes listen { 40%, 70% { transform: translate(-1.2px, -.6px); } }
+  @keyframes shake { 20%, 60% { transform: translateX(-1.2px); } 40%, 80% { transform: translateX(1.2px); } }
   @keyframes scribble { 20%, 60% { transform: rotate(-8deg); } 40%, 80% { transform: rotate(5deg); } }
   @keyframes clock-check { 60% { transform: rotate(30deg); } }
-  @keyframes startle { 20% { transform: translateY(-3px) rotate(-4deg); } 45% { transform: translateY(1px) rotate(2deg); } 70% { transform: translateY(-1px); } }
-  @keyframes stretch { 0% { transform: translateY(2px) rotate(8deg); } 35% { transform: translateY(-2px) rotate(-6deg); } 65% { transform: translateY(-1px) rotate(3deg); } }
+  @keyframes startle { 20% { transform: translateY(-3px); } 45% { transform: translateY(1px); } 70% { transform: translateY(-1px); } }
+  @keyframes stretch { 0% { transform: translateY(3px); } 35% { transform: translateY(-2.5px); } 65% { transform: translateY(-1px); } }
   @media (prefers-reduced-motion: reduce) { .gaffer-avatar * { animation: none !important; } }
 </style>

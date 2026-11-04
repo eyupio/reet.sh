@@ -4,6 +4,20 @@ Two gates cannot be closed from CI or from a sandbox. This page says exactly wha
 (`elicitation.form`) or Claude chats (`REET_EXPERIMENTAL_CLAUDE_CHAT`) for anyone until the matching section below has been run and its results recorded
 in `docs/structured-chat-plan.md` and the PR that records them.
 
+## Recorded results
+
+Nothing below has been recorded, so typed questions (`elicitation.form`), Claude chats (`REET_EXPERIMENTAL_CLAUDE_CHAT`) and
+Codex chats (`REET_EXPERIMENTAL_CODEX_CHAT`) stay off.
+
+| Gate | Evidence to record | State |
+| --- | --- | --- |
+| 1. Typed questions on a phone and with a screen reader | device and OS, browser and reader versions, each item pass or fail | Not run |
+| 2. Claude: real login and no login | Runs A and B output, `authenticatedHint`, the logged-out error text, Run C | Not run |
+| 3. Codex sign-in | the signed-in Run B result or its "Authentication required" answer, `authStatusUpdates`, then Run A | Deferred by the owner on 2 November; not run |
+
+Record each result here with the date and the pull request that carries it, and in `docs/structured-chat-plan.md` beside the
+slice it unblocks. A pass recorded anywhere else does not remove a gate.
+
 ## 1. Typed questions on a phone and with a screen reader
 
 **What is already automated.** `web/tests/question-card.e2e.mjs` drives the real chat pane on a fixture page. It checks the accessibility tree

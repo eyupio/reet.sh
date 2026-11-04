@@ -45,6 +45,8 @@
         // page code arrives. This never decides access to private content.
         var bootQuery = new URLSearchParams(location.search)
         var bootPath = location.pathname
+        if (/^\/projects(?:\/[^/]+)?\/?$/.test(bootPath) || /^\/control\/?$/.test(bootPath)) bootPath = '/'
+        if (/^\/(sessions|terminals)\/?$/.test(bootPath)) bootPath = '/sessions'
         try {
           if (localStorage.getItem('reet.rail.collapsed') === '1') document.documentElement.dataset.bootRail = 'collapsed'
         } catch (e) { /* Use the default expanded rail when storage is blocked. */ }

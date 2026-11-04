@@ -87,11 +87,15 @@ func main() {
 		cmd, args = args[0], args[1:]
 	}
 	available := cliui.Interactive(os.Stdin, os.Stdout)
-	if tuiFlag && !available && !structuredArgs(args) {
+	unavailableTUI := tuiFlag && !available
+	if unavailableTUI && !structuredArgs(args) {
 		fmt.Fprintln(os.Stderr, "reet: the interactive home needs a terminal")
 		os.Exit(1)
 	}
-	if resumed != nil || (tuiFlag && available && !structuredArgs(args)) || (bare && os.Getenv("REET_NO_TUI") == "" && available) {
+	tui := tuiFlag && available && !structuredArgs(args)
+	home := bare && os.Getenv("REET_NO_TUI") == "" && available
+	automatic := tui || home
+	if resumed != nil || automatic {
 		if !available {
 			return
 		}
@@ -116,7 +120,10 @@ func main() {
 		}
 	}
 	scan.SetBuildCommit(commit)
-	if cliui.Terminal(os.Stdout) && !structuredArgs(args) && (cmd == "configure" || cmd == "install" || cmd == "init" || cmd == "upgrade" || cmd == "update" || cmd == "doctor") {
+	bannerCmd := cmd == "configure" || cmd == "install" || cmd == "init" ||
+		cmd == "upgrade" || cmd == "update" || cmd == "doctor"
+	banner := cliui.Terminal(os.Stdout) && !structuredArgs(args)
+	if banner && bannerCmd {
 		cliui.Banner(os.Stderr)
 	}
 	switch cmd {
@@ -263,7 +270,14 @@ func serve() error {
 	}
 	if publicURL != "" {
 		u, err := url.Parse(publicURL)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		if err != nil {
+			return fmt.Errorf("REET_PUBLIC_URL must be an HTTP(S) origin without credentials, path, query or fragment")
+		}
+		validScheme := u.Scheme == "http" || u.Scheme == "https"
+		plainPath := u.Path == "" || u.Path == "/"
+		noExtras := u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
+		valid := validScheme && plainPath && noExtras
+		if !valid {
 			return fmt.Errorf("REET_PUBLIC_URL must be an HTTP(S) origin without credentials, path, query or fragment")
 		}
 	}

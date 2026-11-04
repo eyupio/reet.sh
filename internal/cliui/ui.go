@@ -100,7 +100,8 @@ func Brand(colour bool) string {
 }
 
 func Banner(out io.Writer) {
-	if Terminal(out) && os.Getenv("TERM") != "dumb" && os.Getenv("CI") == "" {
+	interactive := Terminal(out) && os.Getenv("TERM") != "dumb"
+	if interactive && os.Getenv("CI") == "" {
 		fmt.Fprintf(out, "\n  %s\n  %s\n\n", Brand(Colour()), Tagline)
 	}
 }

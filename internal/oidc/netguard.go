@@ -33,7 +33,9 @@ func refuseAddress(network, address string, _ syscall.RawConn) error {
 	if ip == nil {
 		return nil
 	}
-	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+	blocked := ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() || ip.IsMulticast()
+	if blocked {
 		return errors.New("the identity provider's address is not one this server may connect to")
 	}
 	return nil

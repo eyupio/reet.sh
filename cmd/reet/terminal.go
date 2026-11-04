@@ -17,7 +17,8 @@ func runTerminal(args []string, out io.Writer) error {
 	return runTerminalInput(args, os.Stdin, out)
 }
 func runTerminalInput(args []string, in io.Reader, out io.Writer) error {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+	help := len(args) == 0 || args[0] == "--help" || args[0] == "-h"
+	if help {
 		fmt.Fprintln(out, "Usage: reet terminal start|stop|restart|status [--data-dir PATH]\nManage controller web terminal availability locally. Running host shells are preserved.\nUse the controller's data directory and OS user; for containers run this command inside the controller container.\n\nUsage: reet terminal browse on|off|status [--config PATH]\nOn an enrolled machine, allow or refuse folder browsing from reet (on by default).\n\nUsage: reet terminal clipboard on|off|status [--config PATH]\nOn an enrolled machine, allow or refuse forwarding an agent's clipboard writes (OSC 52) to the browser (on by default).\n\nUsage: reet terminal uploads on|off|status [--config PATH]\nOn an enrolled machine, allow or refuse storing images a controller uploads (on by default).\n\nUsage: reet terminal models on|off|status [--config PATH]\nOn an enrolled machine, allow or refuse reading the model list an agent reports (on by default).\n\nUsage: reet terminal yolo on|off|status [--config PATH]\nOn an enrolled machine, allow or refuse sessions where the agent skips its own approval prompts (on by default).")
 		return nil
 	}
@@ -142,7 +143,8 @@ func runTerminalInput(args []string, in io.Reader, out io.Writer) error {
 		}
 	} else if status.Available {
 		fmt.Fprintln(out, "Availability: enabled.")
-		if (action == "start" || action == "restart") && !*skipHostSetup && clientconfig.Interactive(in) {
+		hostSetup := (action == "start" || action == "restart") && !*skipHostSetup
+		if hostSetup && clientconfig.Interactive(in) {
 			return scan.SetupTerminalHost(scan.TerminalSetupOptions{Config: *agentConfig, Server: publicURL, Token: lookup("REET_TOKEN"), Version: version, Ask: func(label, current string) (string, error) { return clientconfig.Ask(in, out, label, current) }}, in, out)
 		}
 	} else {

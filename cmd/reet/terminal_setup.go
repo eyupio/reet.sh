@@ -35,7 +35,8 @@ func prepareTerminalSetup(status terminalcontrol.Status, origin, auth string, as
 	if effectiveAuth == "" {
 		effectiveAuth = "accounts"
 	}
-	if effectiveAuth != "accounts" && auth != "accounts" && !status.RestartRequired {
+	needsAuth := effectiveAuth != "accounts" && auth != "accounts"
+	if needsAuth && !status.RestartRequired {
 		if ask == nil {
 			return "", "", errors.New("accounts authentication is required; run reet terminal start interactively to save setup")
 		}

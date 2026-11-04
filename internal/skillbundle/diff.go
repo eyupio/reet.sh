@@ -55,14 +55,20 @@ func Compare(previous, current *Manifest) Diff {
 }
 
 func validManifest(m *Manifest) bool {
-	if m == nil || !m.Complete || len(m.Issues) > 0 || m.SchemaVersion != SchemaVersion || m.Algorithm != Algorithm || m.ModeSemantics != ModeSemantics || len(m.Files) == 0 || len(m.Files) > MaxFiles || !sort.SliceIsSorted(m.Files, func(i, j int) bool { return m.Files[i].Path < m.Files[j].Path }) {
+	valid := m != nil && m.Complete && len(m.Issues) == 0 && m.SchemaVersion == SchemaVersion &&
+		m.Algorithm == Algorithm && m.ModeSemantics == ModeSemantics &&
+		len(m.Files) >= 1 && len(m.Files) <= MaxFiles &&
+		sort.SliceIsSorted(m.Files, func(i, j int) bool { return m.Files[i].Path < m.Files[j].Path })
+	if !valid {
 		return false
 	}
 	var size int64
 	found := false
 	seen := map[string]bool{}
 	for _, file := range m.Files {
-		if !validPath(file.Path, MaxPathBytes) || file.Bytes < 0 || file.Bytes > MaxBytes || len(file.Digest) != 64 || strings.ToLower(file.Digest) != file.Digest {
+		valid := validPath(file.Path, MaxPathBytes) && file.Bytes >= 0 && file.Bytes <= MaxBytes &&
+			len(file.Digest) == 64 && strings.ToLower(file.Digest) == file.Digest
+		if !valid {
 			return false
 		}
 		if _, err := hex.DecodeString(file.Digest); err != nil {
@@ -82,7 +88,9 @@ func validManifest(m *Manifest) bool {
 					return false
 				}
 			}
-			if priorDirectory, exists := seen[name]; exists && (!isDirectory || !priorDirectory) {
+			priorDirectory, exists := seen[name]
+			valid := !exists || (isDirectory && priorDirectory)
+			if !valid {
 				return false
 			}
 			seen[name] = isDirectory

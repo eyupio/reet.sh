@@ -62,8 +62,9 @@ func (p *Provider) verify(ctx context.Context, raw string) (*verified, error) {
 			return nil, errors.New("the token signature does not verify")
 		}
 	case *ecdsa.PublicKey:
-		if h.Alg != "ES256" || len(sig) != 64 ||
-			!ecdsa.Verify(pub, sum[:], new(big.Int).SetBytes(sig[:32]), new(big.Int).SetBytes(sig[32:])) {
+		valid := h.Alg == "ES256" && len(sig) == 64 &&
+			ecdsa.Verify(pub, sum[:], new(big.Int).SetBytes(sig[:32]), new(big.Int).SetBytes(sig[32:]))
+		if !valid {
 			return nil, errors.New("the token signature does not verify")
 		}
 	default:

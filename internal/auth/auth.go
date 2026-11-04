@@ -40,7 +40,8 @@ func HashPassword(password string) (string, error) {
 // VerifyPassword reports whether password matches an encoded argon2id hash.
 func VerifyPassword(encoded, password string) bool {
 	parts := strings.Split(encoded, "$")
-	if len(parts) != 5 || parts[0] != "argon2id" || parts[1] != "v=19" {
+	valid := len(parts) == 5 && parts[0] == "argon2id" && parts[1] == "v=19"
+	if !valid {
 		return false
 	}
 	var memory uint32
@@ -64,7 +65,8 @@ func VerifyPassword(encoded, password string) bool {
 			threads = uint8(n)
 		}
 	}
-	if memory == 0 || iterations == 0 || threads == 0 {
+	validParams := memory != 0 && iterations != 0 && threads != 0
+	if !validParams {
 		return false
 	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[3])

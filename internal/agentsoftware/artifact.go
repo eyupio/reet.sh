@@ -78,7 +78,9 @@ func StageTarball(ctx context.Context, client *http.Client, dir string, artifact
 // archive and member are still verified against artifact. header, when set,
 // is sent with the request; the mirror needs the machine's enrollment.
 func StageTarballFrom(ctx context.Context, client *http.Client, dir string, artifact Artifact, url string, header http.Header) (Staged, error) {
-	if dir == "" || url == "" || artifact.Member == "" || artifact.SHA512 == "" || artifact.BinarySHA256 == "" || artifact.BinarySize <= 0 {
+	valid := dir != "" && url != "" && artifact.Member != "" && artifact.SHA512 != "" &&
+		artifact.BinarySHA256 != "" && artifact.BinarySize > 0
+	if !valid {
 		return Staged{}, ErrArtifactShape
 	}
 	if client == nil {
@@ -193,7 +195,9 @@ func stageBinary(dir string, reader io.Reader, artifact Artifact) (Staged, error
 // size, sha256 and sha512, and the one member's type, size and sha256. It
 // writes nothing.
 func CheckTarball(path string, artifact Artifact) error {
-	if artifact.ArchiveSHA256 == "" || artifact.ArchiveSize <= 0 || artifact.Member == "" || artifact.SHA512 == "" || artifact.BinarySHA256 == "" || artifact.BinarySize <= 0 {
+	valid := artifact.ArchiveSHA256 != "" && artifact.ArchiveSize > 0 && artifact.Member != "" &&
+		artifact.SHA512 != "" && artifact.BinarySHA256 != "" && artifact.BinarySize > 0
+	if !valid {
 		return ErrArtifactShape
 	}
 	f, err := os.Open(path)

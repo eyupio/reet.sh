@@ -33,7 +33,8 @@ func Select(files []skillbundle.ContentFile, exclude []string) (skillbundle.Mani
 	}
 	omitted := map[string]bool{}
 	for _, v := range exclude {
-		if v == "SKILL.md" || !names[v] || omitted[v] {
+		skip := v == "SKILL.md" || !names[v]
+		if skip || omitted[v] {
 			return empty, nil, ErrSelection
 		}
 		omitted[v] = true
@@ -67,7 +68,8 @@ func BlockedReason(f skillbundle.ContentFile) string {
 		}
 	}
 	ext := strings.ToLower(path.Ext(f.Path))
-	if ext == ".pem" || ext == ".key" || ext == ".p12" || ext == ".pfx" {
+	blocked := ext == ".pem" || ext == ".key" || ext == ".p12" || ext == ".pfx"
+	if blocked {
 		return "key_material"
 	}
 	if credential.Match(f.Data) {

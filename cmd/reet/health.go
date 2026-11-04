@@ -43,7 +43,8 @@ func runHealthcheck(args []string, out io.Writer) error {
 			return fmt.Errorf("choose --local or --url")
 		}
 	}
-	if !*local && *target == "" && os.Getenv("REET_ADDR") == "" {
+	noTarget := *target == "" && os.Getenv("REET_ADDR") == ""
+	if !*local && noTarget {
 		var input io.Reader = os.Stdin
 		if *nonInteractive {
 			input = strings.NewReader("")

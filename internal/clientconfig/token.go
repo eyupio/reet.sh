@@ -33,7 +33,8 @@ func tokenFromEnvFile(path string) (string, error) {
 // envFileValue reads one literal key from an env file without sourcing it.
 func envFileValue(path, wantKey string) (string, bool, error) {
 	entry, err := os.Lstat(path)
-	if err != nil || !entry.Mode().IsRegular() || entry.Size() > 1<<20 {
+	invalid := err != nil || !entry.Mode().IsRegular() || entry.Size() > 1<<20
+	if invalid {
 		return "", false, errors.New("env file must be a regular file of at most 1 MiB, not a symlink")
 	}
 	f, err := os.Open(path)
@@ -42,7 +43,9 @@ func envFileValue(path, wantKey string) (string, bool, error) {
 	}
 	defer f.Close()
 	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() || !os.SameFile(entry, info) || info.Size() > 1<<20 {
+	changed := err != nil || !info.Mode().IsRegular() || !os.SameFile(entry, info) ||
+		info.Size() > 1<<20
+	if changed {
 		return "", false, errors.New("env file must be a regular file of at most 1 MiB")
 	}
 	data, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
@@ -65,7 +68,8 @@ func envFileValue(path, wantKey string) (string, bool, error) {
 		}
 		seen = true
 		value = strings.TrimSpace(value)
-		if len(value) > 0 && (value[0] == '\'' || value[0] == '"') {
+		quoted := len(value) > 0 && (value[0] == '\'' || value[0] == '"')
+		if quoted {
 			q := value[0]
 			end := strings.IndexByte(value[1:], q)
 			if end < 0 {

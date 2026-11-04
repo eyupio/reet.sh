@@ -23,7 +23,8 @@ func readLocalEnv(explicit string) (map[string]string, error) {
 	if os.IsNotExist(err) && !required {
 		return map[string]string{}, nil
 	}
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+	invalid := err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20
+	if invalid {
 		return nil, errors.New("env file must be a regular file of at most 1 MiB, not a symlink")
 	}
 	f, err := os.Open(path)
@@ -55,7 +56,8 @@ func readLocalEnv(explicit string) (map[string]string, error) {
 			return nil, fmt.Errorf("duplicate %s in env file", key)
 		}
 		value = strings.TrimSpace(value)
-		if len(value) > 0 && (value[0] == '\'' || value[0] == '"') {
+		quoted := len(value) > 0 && (value[0] == '\'' || value[0] == '"')
+		if quoted {
 			q := value[0]
 			end := strings.IndexByte(value[1:], q)
 			if end < 0 {

@@ -41,14 +41,17 @@ func Discover(server, host, tokenFile string) Connection {
 	}
 	fileValue := func(key string) (value, path string) {
 		for _, p := range files {
-			if v, ok, err := envFileValue(p, key); err == nil && ok && v != "" {
+			v, ok, err := envFileValue(p, key)
+			valid := err == nil && ok && v != ""
+			if valid {
 				return v, p
 			}
 		}
 		return "", ""
 	}
 	setServer := func(v, from string) {
-		if c.Server == "" && v != "" && Validate("REET_URL", v) == nil {
+		valid := c.Server == "" && v != ""
+		if valid && Validate("REET_URL", v) == nil {
 			c.Server, c.ServerFrom = v, from
 		}
 	}
@@ -101,7 +104,9 @@ func EnvName() string {
 		return v
 	}
 	for _, p := range envFileCandidates() {
-		if v, ok, err := envFileValue(p, "REET_ENV"); err == nil && ok && v != "" {
+		v, ok, err := envFileValue(p, "REET_ENV")
+		valid := err == nil && ok && v != ""
+		if valid {
 			return v
 		}
 	}

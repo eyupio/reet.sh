@@ -21,7 +21,9 @@ func CanAdvance(current, incoming []byte) error {
 		d.UseNumber()
 		return d.Decode(v)
 	}
-	if decode(current, &old) != nil || decode(incoming, &next) != nil || len(old.Revisions) > len(next.Revisions) {
+	valid := decode(current, &old) == nil && decode(incoming, &next) == nil &&
+		len(old.Revisions) <= len(next.Revisions)
+	if !valid {
 		return ErrConflict
 	}
 	for i, r := range old.Revisions {

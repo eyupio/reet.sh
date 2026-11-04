@@ -36,7 +36,9 @@ func URLFromAddr(addr string) string {
 // endpoint to request. Credentials, queries and fragments are refused.
 func Endpoint(target string) (string, error) {
 	u, err := url.Parse(target)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	invalid := err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+		u.User != nil || u.RawQuery != "" || u.Fragment != ""
+	if invalid {
 		return "", errors.New("--url must be an HTTP(S) server URL without credentials, query or fragment")
 	}
 	u.Path = strings.TrimRight(u.Path, "/")

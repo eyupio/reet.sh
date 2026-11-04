@@ -275,7 +275,8 @@ func parseArchive(data []byte) (Manifest, []byte, error) {
 	at := len(archiveMagic)
 	n := int(binary.BigEndian.Uint32(data[at : at+4]))
 	at += 4
-	if n < 0 || n > MaxHeaderBytes || len(data) < at+n {
+	valid := n >= 0 && n <= MaxHeaderBytes && len(data) >= at+n
+	if !valid {
 		return m, nil, errors.New("this backup's header is damaged")
 	}
 	if err := json.Unmarshal(data[at:at+n], &m); err != nil {

@@ -86,11 +86,14 @@ func ValidName(name string) bool { return len(name) <= 64 && skillName.MatchStri
 // canonical returns the validated manifest in S1 canonical form.
 func (c Capture) canonical() (*skillbundle.Manifest, error) {
 	m := c.Manifest
-	if !m.Complete || len(m.Issues) != 0 || m.SchemaVersion != skillbundle.SchemaVersion || m.Algorithm != skillbundle.Algorithm || m.ModeSemantics != skillbundle.ModeSemantics {
+	valid := m.Complete && len(m.Issues) == 0 && m.SchemaVersion == skillbundle.SchemaVersion &&
+		m.Algorithm == skillbundle.Algorithm && m.ModeSemantics == skillbundle.ModeSemantics
+	if !valid {
 		return nil, ErrInvalid
 	}
 	canonical, err := skillbundle.FromMetadata(m.Files)
-	if err != nil || canonical.Digest != m.Digest || canonical.TotalBytes != m.TotalBytes {
+	sameBytes := err == nil && canonical.Digest == m.Digest && canonical.TotalBytes == m.TotalBytes
+	if !sameBytes {
 		return nil, ErrInvalid
 	}
 	return &canonical, nil
@@ -99,7 +102,9 @@ func (c Capture) canonical() (*skillbundle.Manifest, error) {
 // Validate rejects any combination that would let a partial or refused scan read
 // as a clean one. It does not attest that the host really holds these bytes.
 func (c Capture) Validate() error {
-	if c.SchemaVersion != Version || c.Adapter != Adapter || c.Issues == nil || len(c.Issues) > MaxIssues {
+	valid := c.SchemaVersion == Version && c.Adapter == Adapter && c.Issues != nil &&
+		len(c.Issues) <= MaxIssues
+	if !valid {
 		return ErrInvalid
 	}
 	switch c.RootOwnership {
@@ -122,18 +127,21 @@ func (c Capture) Validate() error {
 	}
 	switch c.Presence {
 	case "present":
-		if !c.Complete || c.Manifest == nil || len(c.Issues) != 0 {
+		valid := c.Complete && c.Manifest != nil && len(c.Issues) == 0
+		if !valid {
 			return ErrInvalid
 		}
 		if _, err := c.canonical(); err != nil {
 			return err
 		}
 	case "absent":
-		if !c.Complete || c.Manifest != nil || len(c.Issues) != 0 {
+		valid := c.Complete && c.Manifest == nil && len(c.Issues) == 0
+		if !valid {
 			return ErrInvalid
 		}
 	case "unknown":
-		if c.Complete || c.Manifest != nil || len(c.Issues) == 0 {
+		valid := !c.Complete && c.Manifest == nil && len(c.Issues) > 0
+		if !valid {
 			return ErrInvalid
 		}
 	default:

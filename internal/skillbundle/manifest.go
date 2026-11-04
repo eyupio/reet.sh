@@ -128,7 +128,9 @@ func scanInto(dir string, limits Limits, afterRead func(string), contents *[]Con
 	defer root.Close()
 	opened, err := root.Stat(".")
 	bound, bindErr := os.Lstat(dir)
-	if err != nil || bindErr != nil || !unchanged(before, opened) || !unchanged(before, bound) {
+	valid := err == nil && bindErr == nil && unchanged(before, opened) &&
+		unchanged(before, bound)
+	if !valid {
 		s.issue(".", "root_changed")
 		return s.result()
 	}
@@ -175,7 +177,10 @@ func checkedLimits(l Limits) (Limits, error) {
 	if l.PathBytes == 0 {
 		l.PathBytes = MaxPathBytes
 	}
-	if l.Files < 1 || l.Files > MaxFiles || l.FileBytes < 1 || l.FileBytes > MaxBytes || l.TotalBytes < 1 || l.TotalBytes > MaxBytes || l.Entries < 1 || l.Entries > MaxEntries || l.Depth < 1 || l.Depth > MaxDepth || l.PathBytes < 1 || l.PathBytes > MaxPathBytes {
+	valid := l.Files >= 1 && l.Files <= MaxFiles && l.FileBytes >= 1 && l.FileBytes <= MaxBytes &&
+		l.TotalBytes >= 1 && l.TotalBytes <= MaxBytes && l.Entries >= 1 && l.Entries <= MaxEntries &&
+		l.Depth >= 1 && l.Depth <= MaxDepth && l.PathBytes >= 1 && l.PathBytes <= MaxPathBytes
+	if !valid {
 		return l, ErrLimits
 	}
 	return l, nil
@@ -352,7 +357,8 @@ func readFileInto(root *os.Root, name, relative string, before os.FileInfo, limi
 	}
 	defer f.Close()
 	opened, err := f.Stat()
-	if err != nil || !opened.Mode().IsRegular() || !unchanged(before, opened) {
+	valid := err == nil && opened.Mode().IsRegular() && unchanged(before, opened)
+	if !valid {
 		return File{}, 0, "file_changed"
 	}
 	hash := sha256.New()
@@ -372,7 +378,9 @@ func readFileInto(root *os.Root, name, relative string, before os.FileInfo, limi
 	}
 	after, err := f.Stat()
 	bound, bindErr := root.Lstat(name)
-	if err != nil || bindErr != nil || size != before.Size() || !unchanged(before, after) || !unchanged(before, bound) {
+	sameFile := err == nil && bindErr == nil && size == before.Size() &&
+		unchanged(before, after) && unchanged(before, bound)
+	if !sameFile {
 		return File{}, size, "file_changed"
 	}
 	return File{Path: relative, Bytes: size, Digest: hex.EncodeToString(hash.Sum(nil)), Executable: before.Mode().Perm()&0o111 != 0}, size, ""
@@ -391,20 +399,30 @@ func display(prefix string) string {
 // Paths are bounded relative UTF-8 paths with portable-name restrictions. Case-fold collisions are rejected
 // across both files and directories; no path or Unicode normalization rewrites bytes.
 func validPath(name string, limit int) bool {
-	if name == "" || len(name) > limit || !utf8.ValidString(name) || path.Clean(name) != name || strings.HasPrefix(name, "/") || strings.ContainsAny(name, `\:<>"|?*`) {
+	valid := name != "" && len(name) <= limit && utf8.ValidString(name) &&
+		path.Clean(name) == name && !strings.HasPrefix(name, "/") &&
+		!strings.ContainsAny(name, `\:<>"|?*`)
+	if !valid {
 		return false
 	}
 	for _, c := range name {
-		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || unicode.Is(unicode.Zl, c) || unicode.Is(unicode.Zp, c) {
+		isControl := unicode.IsControl(c) || unicode.Is(unicode.Cf, c)
+		isSeparator := unicode.Is(unicode.Zl, c) || unicode.Is(unicode.Zp, c)
+		if isControl || isSeparator {
 			return false
 		}
 	}
 	for _, part := range strings.Split(name, "/") {
-		if part == "" || part == "." || part == ".." || len(part) > 255 || strings.TrimRight(part, ". ") != part {
+		valid := part != "" && part != "." && part != ".." && len(part) <= 255 &&
+			strings.TrimRight(part, ". ") == part
+		if !valid {
 			return false
 		}
 		stem := strings.ToUpper(strings.SplitN(part, ".", 2)[0])
-		if stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" || len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) && stem[3] >= '1' && stem[3] <= '9' {
+		reserved := stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL"
+		comLpt := len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) &&
+			stem[3] >= '1' && stem[3] <= '9'
+		if reserved || comLpt {
 			return false
 		}
 	}

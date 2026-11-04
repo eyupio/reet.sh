@@ -77,7 +77,9 @@ func ValidScope(agent, project string) bool {
 	return ValidText(project, 1024)
 }
 func (r Report) Validate() error {
-	if r.SchemaVersion != Version || !ValidID(r.ScanID) || r.ObservedAt <= 0 || r.ObservedAt > 253402300799999 || r.Scopes == nil || len(r.Scopes) > MaxScopes {
+	valid := r.SchemaVersion == Version && ValidID(r.ScanID) && r.ObservedAt > 0 &&
+		r.ObservedAt <= 253402300799999 && r.Scopes != nil && len(r.Scopes) <= MaxScopes
+	if !valid {
 		return ErrInvalid
 	}
 	scopes := map[string]bool{}
@@ -85,7 +87,8 @@ func (r Report) Validate() error {
 	var bytes int64
 	for _, s := range r.Scopes {
 		key := s.Agent + "\x00" + s.Project
-		if !ValidScope(s.Agent, s.Project) || scopes[key] || s.Skills == nil {
+		valid := ValidScope(s.Agent, s.Project) && !scopes[key] && s.Skills != nil
+		if !valid {
 			return ErrInvalid
 		}
 		scopes[key] = true
@@ -93,15 +96,25 @@ func (r Report) Validate() error {
 		for _, v := range s.Skills {
 			count++
 			bytes += v.Bytes
-			if bytes > MaxScanBytes || (s.Complete && !v.Complete) {
+			invalid := bytes > MaxScanBytes || (s.Complete && !v.Complete)
+			if invalid {
 				return ErrInvalid
 			}
-			if count > MaxSkills || v.Name == "" || !ValidText(v.Name, 255) || strings.ContainsAny(v.Name, "/\\") || v.Name == "." || v.Name == ".." || names[v.Name] || v.SchemaVersion != skillbundle.SchemaVersion || v.Algorithm != skillbundle.Algorithm || v.ModeSemantics != skillbundle.ModeSemantics || v.Files < 0 || v.Files > skillbundle.MaxFiles || v.Bytes < 0 || v.Bytes > skillbundle.MaxBytes || len(v.Issues) > 8 {
+			validCount := count <= MaxSkills
+			validName := v.Name != "" && ValidText(v.Name, 255) &&
+				!strings.ContainsAny(v.Name, "/\\") && v.Name != "." && v.Name != ".." && !names[v.Name]
+			validManifest := v.SchemaVersion == skillbundle.SchemaVersion &&
+				v.Algorithm == skillbundle.Algorithm && v.ModeSemantics == skillbundle.ModeSemantics
+			validSize := v.Files >= 0 && v.Files <= skillbundle.MaxFiles &&
+				v.Bytes >= 0 && v.Bytes <= skillbundle.MaxBytes
+			valid := validCount && validName && validManifest && validSize && len(v.Issues) <= 8
+			if !valid {
 				return ErrInvalid
 			}
 			names[v.Name] = true
 			if v.Complete {
-				if !hexDigest.MatchString(v.Digest) || v.Files == 0 || len(v.Issues) != 0 {
+				valid := hexDigest.MatchString(v.Digest) && v.Files != 0 && len(v.Issues) == 0
+				if !valid {
 					return ErrInvalid
 				}
 			} else if v.Digest != "" {

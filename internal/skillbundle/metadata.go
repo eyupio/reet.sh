@@ -15,7 +15,8 @@ func FromMetadata(files []File) (Manifest, error) {
 	var total int64
 	validDigest := regexp.MustCompile(`^[a-f0-9]{64}$`)
 	for i, f := range files {
-		if f.Bytes < 0 || f.Bytes > MaxBytes || !validDigest.MatchString(f.Digest) {
+		valid := f.Bytes >= 0 && f.Bytes <= MaxBytes && validDigest.MatchString(f.Digest)
+		if !valid {
 			return empty, errors.New("invalid manifest metadata")
 		}
 		total += f.Bytes

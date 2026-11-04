@@ -43,7 +43,8 @@ func (k *jwk) parse() error {
 			return errors.New("an RSA key is too short or malformed")
 		}
 		e, err := b64(k.E)
-		if err != nil || len(e) == 0 || len(e) > 4 {
+		valid := err == nil && len(e) >= 1 && len(e) <= 4
+		if !valid {
 			return errors.New("an RSA exponent is malformed")
 		}
 		exp := 0
@@ -104,7 +105,9 @@ func pick(keys map[string]jwk, kid, alg string) *jwk {
 		want = "EC"
 	}
 	if kid != "" {
-		if k, ok := keys[kid]; ok && k.Kty == want && (k.Alg == "" || k.Alg == alg) {
+		k, ok := keys[kid]
+		valid := ok && k.Kty == want && (k.Alg == "" || k.Alg == alg)
+		if valid {
 			return &k
 		}
 		return nil
@@ -113,7 +116,8 @@ func pick(keys map[string]jwk, kid, alg string) *jwk {
 	// signed it.
 	var found *jwk
 	for _, k := range keys {
-		if k.Kty == want && (k.Alg == "" || k.Alg == alg) {
+		valid := k.Kty == want && (k.Alg == "" || k.Alg == alg)
+		if valid {
 			if found != nil {
 				return nil
 			}

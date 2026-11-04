@@ -197,7 +197,8 @@ func (o *Orchestrator) drive(k batchKey, d *driving) {
 		o.mu.Unlock()
 		terminal := o.pass(k)
 		o.mu.Lock()
-		if terminal || !d.again || o.closed {
+		stop := terminal || !d.again
+		if stop || o.closed {
 			delete(o.runs, k)
 			o.mu.Unlock()
 			return
@@ -326,7 +327,8 @@ func (o *Orchestrator) reconciled(uid int64, batch store.SoftwareBatch, member s
 		if entry.Tool != batch.Tool {
 			continue
 		}
-		if entry.State == terminalproto.SoftwareInstalled && entry.Managed && entry.Version == target {
+		matches := entry.State == terminalproto.SoftwareInstalled && entry.Managed
+		if matches && entry.Version == target {
 			return true
 		}
 	}

@@ -64,7 +64,8 @@ func (m *Mailer) Send(ctx context.Context, key, tpl, to string, teamID int64, se
 func (m *Mailer) send(ctx context.Context, key, tpl, to string, teamID int64, secret bool, d Data) (store.Mail, bool, error) {
 	cfg := m.Current()
 	d.Base = cfg.BaseURL
-	if d.Instance == "" && cfg.From.Name != "" && cfg.From.Name != "reet.sh" {
+	customName := cfg.From.Name != "" && cfg.From.Name != "reet.sh"
+	if d.Instance == "" && customName {
 		d.Instance = cfg.From.Name
 	}
 	r, err := Compose(tpl, d)
@@ -82,7 +83,8 @@ func (m *Mailer) send(ctx context.Context, key, tpl, to string, teamID int64, se
 	if err != nil {
 		return store.Mail{}, false, err
 	}
-	if created && m.Queue != nil && cfg.Delivers() {
+	queued := created && m.Queue != nil
+	if queued && cfg.Delivers() {
 		m.Queue.Kick()
 	}
 	if created && !cfg.Delivers() {

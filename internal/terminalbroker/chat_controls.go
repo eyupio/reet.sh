@@ -48,7 +48,8 @@ func (b *Broker) ChatControl(ctx context.Context, uid int64, session string, in 
 		}
 		return terminalproto.ACPControlResult{}, ErrACPBusy
 	}
-	if (in.Action == "set" || in.Action == "get") && !answer.Controls.Configuring {
+	readOrSet := in.Action == "set" || in.Action == "get"
+	if readOrSet && !answer.Controls.Configuring {
 		effort := ""
 		for _, o := range answer.Controls.Options {
 			if o.Category == "thought_level" {

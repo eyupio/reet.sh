@@ -65,7 +65,9 @@ func skillScopeRoot(c agentConfig, agent, project string) (string, string, error
 	return "", "", errors.New("this agent scope is not supported for import")
 }
 func skillImportRoot(c agentConfig, agent, project, name string) (string, string, error) {
-	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\") || !contentobs.ValidText(name, 255) {
+	valid := name != "" && name != "." && name != ".." && !strings.ContainsAny(name, "/\\") &&
+		contentobs.ValidText(name, 255)
+	if !valid {
 		return "", "", errors.New("choose a supported agent and one skill folder name")
 	}
 	root, canonical, err := skillScopeRoot(c, agent, project)
@@ -76,7 +78,15 @@ func skillImportRoot(c agentConfig, agent, project, name string) (string, string
 }
 func validateSkillImportController(server string) error {
 	u, err := url.Parse(server)
-	if err != nil || u.User != nil || u.Host == "" || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || (u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"))) {
+	if err != nil {
+		return errors.New("skill import requires a controller HTTPS origin (or local loopback HTTP)")
+	}
+	loopback := u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"
+	validScheme := u.Scheme == "https" || (u.Scheme == "http" && loopback)
+	noQuery := u.User == nil && u.RawQuery == "" && u.Fragment == ""
+	plainPath := u.Path == "" || u.Path == "/"
+	valid := u.Host != "" && validScheme && noQuery && plainPath
+	if !valid {
 		return errors.New("skill import requires a controller HTTPS origin (or local loopback HTTP)")
 	}
 	return nil
@@ -166,13 +176,17 @@ func runAgentSkillImport(args []string, in io.Reader, out io.Writer, version str
 		}
 		return err
 	}
-	if fs.NArg() != 0 || (*yes && !*upload) || (*bundle != "" && *base == "") || (*bundle == "" && *base != "") {
+	badArgs := fs.NArg() != 0 || (*yes && !*upload)
+	badPair := (*bundle != "" && *base == "") || (*bundle == "" && *base != "")
+	if badArgs || badPair {
 		return errors.New("invalid import arguments; append needs --bundle and --expected-base, confirmation needs --upload")
 	}
 	if *requestID != "" && !regexp.MustCompile(`^[A-Za-z0-9_-]{16,80}$`).MatchString(*requestID) {
 		return errors.New("request ID must contain 16–80 ASCII letters, digits, underscores or hyphens")
 	}
-	if (*bundle != "" && !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(*bundle)) || (*base != "" && !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(*base)) {
+	invalidBundle := *bundle != "" && !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(*bundle)
+	invalidBase := *base != "" && !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(*base)
+	if invalidBundle || invalidBase {
 		return errors.New("bundle and expected-base must be private 32-character hexadecimal IDs")
 	}
 	c, err := loadAgentConfig(*config)
@@ -271,7 +285,9 @@ func runAgentSkillImport(args []string, in io.Reader, out io.Writer, version str
 	if err = skillImportRequest(context.Background(), c, "POST", body, &result, version); err != nil {
 		return err
 	}
-	if result.Revision.ManifestDigest != manifest.Digest || result.Bundle.Head != result.Revision.ID || result.Bundle.ID == "" || result.Revision.ID == "" {
+	valid := result.Revision.ManifestDigest == manifest.Digest &&
+		result.Bundle.Head == result.Revision.ID && result.Bundle.ID != "" && result.Revision.ID != ""
+	if !valid {
 		return errors.New("invalid import receipt; resolve the original request ID before another import")
 	}
 	fmt.Fprintf(out, "Imported privately. Bundle: %s\nRevision: %s\n", result.Bundle.ID, result.Revision.ID)

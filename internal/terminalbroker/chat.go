@@ -182,7 +182,8 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 			l.queue = nil
 			l.questions = nil
 			l.waitingAt = 0
-			if wasRunning || l.lastState == "working" || l.lastState == "waiting" {
+			active := l.lastState == "working" || l.lastState == "waiting"
+			if wasRunning || active {
 				l.lastState = "finished"
 				if l.completedAt == 0 {
 					l.completedAt = nowMs
@@ -238,7 +239,8 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 			if !replaced {
 				l.queue = append(l.queue, event)
 			}
-			if l.waitingAt == 0 || (!exists && hadPending) {
+			pending := !exists && hadPending
+			if l.waitingAt == 0 || pending {
 				l.waitingAt = nowMs
 			}
 			l.lastState = "waiting"
@@ -263,7 +265,8 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 			if !replaced {
 				l.questions = append(l.questions, event)
 			}
-			if l.waitingAt == 0 || (!exists && hadPending) {
+			pending := !exists && hadPending
+			if l.waitingAt == 0 || pending {
 				l.waitingAt = nowMs
 			}
 			l.lastState = "waiting"
@@ -327,7 +330,8 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 	}
 	if event.Kind == "status" && len(l.events) > 0 {
 		last := l.events[len(l.events)-1]
-		if last.Kind == "status" && last.State == event.State && last.Detail == event.Detail {
+		same := last.Kind == "status" && last.State == event.State && last.Detail == event.Detail
+		if same {
 			return
 		}
 	}
@@ -376,7 +380,8 @@ func (l *chatLog) oldestHistoryEvent() int {
 		}
 	}
 	for i, event := range l.events {
-		if i == latestStatus && (event.State != "waiting" || len(l.pending) > 0) {
+		settled := event.State != "waiting" || len(l.pending) > 0
+		if i == latestStatus && settled {
 			continue
 		}
 		if event.Kind == "permission" {
@@ -414,7 +419,8 @@ func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if (len(l.pending) > 0 || l.lastState == "waiting") && s.State == terminalproto.Running {
+	waiting := len(l.pending) > 0 || l.lastState == "waiting"
+	if waiting && s.State == terminalproto.Running {
 		s.Attention = "waiting"
 		if len(l.queue) > 0 {
 			first := l.queue[0]
@@ -647,7 +653,9 @@ func (b *Broker) restoreSwitchedChat(uid int64, s store.TerminalSession) {
 	l := b.chatLog(uid, s.ID)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.seq == 0 && l.lastState == "" && (s.ChatStatus == "finished" || s.ChatStatus == "failed") {
+	emptyRing := l.seq == 0 && l.lastState == ""
+	finished := s.ChatStatus == "finished" || s.ChatStatus == "failed"
+	if emptyRing && finished {
 		l.lastState = s.ChatStatus
 		l.completedAt = s.CompletedAt
 		l.updatedAt = s.CompletedAt
@@ -663,7 +671,8 @@ func (b *Broker) restoreAgentChats(uid int64, agent string) {
 		return
 	}
 	for _, s := range sessions {
-		if s.AgentID == agent && s.Structured && s.State.ReservesQuota() {
+		owns := s.AgentID == agent && s.Structured
+		if owns && s.State.ReservesQuota() {
 			b.restoreChat(uid, s)
 			b.startChatQueue(uid, s.ID)
 		}
@@ -676,7 +685,11 @@ func (b *Broker) publishChat(uid int64, session string, event terminalproto.ACPE
 	b.mu.Unlock()
 	if l != nil {
 		l.publish(event)
-		if b.st != nil && (event.Kind == "status" || event.Kind == "permission" || event.Kind == "permission_resolved" || event.Kind == "permission_cancelled" || event.Kind == "question" || event.Kind == "question_resolved" || event.Kind == "question_cancelled" || event.Kind == "user") {
+		attentionKind := event.Kind == "status" || event.Kind == "permission" ||
+			event.Kind == "permission_resolved" || event.Kind == "permission_cancelled" ||
+			event.Kind == "question" || event.Kind == "question_resolved" ||
+			event.Kind == "question_cancelled" || event.Kind == "user"
+		if b.st != nil && attentionKind {
 			l.mu.Lock()
 			actAt, waitAt := l.updatedAt, l.waitingAt
 			st, compAt := l.lastState, l.completedAt
@@ -684,7 +697,8 @@ func (b *Broker) publishChat(uid int64, session string, event terminalproto.ACPE
 			_ = b.st.SetTerminalChatAttentionFor(uid, session, actAt, waitAt, st, compAt)
 		}
 	}
-	if event.Kind == "permission_resolved" && event.Allow != nil && *event.Allow {
+	resolved := event.Kind == "permission_resolved" && event.Allow != nil
+	if resolved && *event.Allow {
 		if s, err := b.st.TerminalSessionFor(uid, session); err == nil && s.Yolo {
 			_ = b.st.AddEventFor(uid, "machine", "yolo-allow", "", map[string]string{
 				"machine": s.AgentID, "tool": s.Tool, "session": session, "permission": event.PermissionID,
@@ -835,7 +849,9 @@ func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string
 	// confirmed it may be in a mode that never asks, and the person has not yet chosen one.
 	if s.AgentMode == "" {
 		if caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID); err == nil && caps.Generation == p.Generation {
-			if chat, ok := caps.Capabilities.ChatAgent(s.Tool); ok && caps.Capabilities.ACPAgentMode && len(chat.Modes) > 0 {
+			chat, ok := caps.Capabilities.ChatAgent(s.Tool)
+			hasModes := ok && caps.Capabilities.ACPAgentMode && len(chat.Modes) > 0
+			if hasModes {
 				return ErrACPModeUnknown
 			}
 		}
@@ -946,7 +962,9 @@ func (b *Broker) AnswerQuestionChat(ctx context.Context, uid int64, session, que
 	if err != nil || caps.Generation != p.Generation {
 		return ErrOffline
 	}
-	if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !ok || !chat.Questions || !caps.Capabilities.ACPQuestions {
+	chat, ok := caps.Capabilities.ChatAgent(s.Tool)
+	valid := ok && chat.Questions && caps.Capabilities.ACPQuestions
+	if !valid {
 		return ErrACPQuestionUnsupported
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: body}, chatCallTimeout)
@@ -1043,14 +1061,20 @@ func (b *Broker) SetAgentMode(ctx context.Context, uid int64, session, mode stri
 		return ErrOffline
 	}
 	chat, ok := caps.Capabilities.ChatAgent(s.Tool)
-	if !ok || !caps.Capabilities.ACPAgentMode || !slices.Contains(chat.Modes, mode) {
+	valid := ok && caps.Capabilities.ACPAgentMode && slices.Contains(chat.Modes, mode)
+	if !valid {
 		return ErrACPAgentModeUnsupported
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &terminalproto.ACPAgentMode{Mode: mode}}, chatCallTimeout)
-	if result, ok := reply.Body.(*terminalproto.Result); err == nil && ok && result.Code != terminalproto.OK && result.Code != terminalproto.Conflict && result.Code != terminalproto.NotFound {
-		// The agent may or may not have switched, so the stored mode is no longer known.
-		_ = b.st.RecordTerminalAgentModeFor(uid, session, "")
-		return ErrACPAgentModeRejected
+	result, ok := reply.Body.(*terminalproto.Result)
+	if ok && err == nil {
+		rejected := result.Code != terminalproto.OK && result.Code != terminalproto.Conflict &&
+			result.Code != terminalproto.NotFound
+		if rejected {
+			// The agent may or may not have switched, so the stored mode is no longer known.
+			_ = b.st.RecordTerminalAgentModeFor(uid, session, "")
+			return ErrACPAgentModeRejected
+		}
 	}
 	// A request that was sent but never answered (the connection closed, the call was
 	// cancelled, or the acknowledgement timed out) may have been applied, so the stored
@@ -1086,10 +1110,15 @@ func (b *Broker) ModelChat(ctx context.Context, uid int64, session, model string
 		return ErrACPModelUnsupported
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &terminalproto.ACPModel{Model: model}}, chatCallTimeout)
-	if result, ok := reply.Body.(*terminalproto.Result); err == nil && ok && result.Code != terminalproto.OK && result.Code != terminalproto.Conflict && result.Code != terminalproto.NotFound {
-		// A sent switch may have applied without the adapter confirming it.
-		_ = b.st.RecordTerminalModelFor(uid, session, "")
-		return ErrACPModelRejected
+	result, ok := reply.Body.(*terminalproto.Result)
+	if ok && err == nil {
+		rejected := result.Code != terminalproto.OK && result.Code != terminalproto.Conflict &&
+			result.Code != terminalproto.NotFound
+		if rejected {
+			// A sent switch may have applied without the adapter confirming it.
+			_ = b.st.RecordTerminalModelFor(uid, session, "")
+			return ErrACPModelRejected
+		}
 	}
 	var lost errReplyLost
 	if errors.As(err, &lost) {

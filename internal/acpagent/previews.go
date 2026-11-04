@@ -42,7 +42,10 @@ func contentPreviews(raw json.RawMessage) []Preview {
 	var out []Preview
 	var visit func(json.RawMessage, int)
 	visit = func(raw json.RawMessage, depth int) {
-		if depth > 3 || len(out) >= 8 || len(raw) == 0 {
+		tooDeep := depth > 3
+		tooMany := len(out) >= 8
+		atLimit := tooDeep || tooMany
+		if atLimit || len(raw) == 0 {
 			return
 		}
 		if raw[0] == '[' {
@@ -80,7 +83,8 @@ func contentPreviews(raw json.RawMessage) []Preview {
 		if b.Type == "resource" && b.Resource != nil {
 			b.MIME, b.Data, b.URI = b.Resource.MIME, b.Resource.Blob, b.Resource.URI
 		}
-		if b.Type != "image" && b.Type != "resource" && b.Type != "resource_link" {
+		valid := b.Type == "image" || b.Type == "resource" || b.Type == "resource_link"
+		if !valid {
 			return
 		}
 		path := previewPath(b.URI)
@@ -100,7 +104,8 @@ func contentPreviews(raw json.RawMessage) []Preview {
 				p.Reason = "too_large"
 			} else if data, err := base64.StdEncoding.Strict().DecodeString(b.Data); err == nil {
 				mime, _, ok := terminalproto.SniffUploadMIME(data)
-				if !ok || b.MIME != "" && mime != b.MIME {
+				validMime := b.MIME == "" || mime == b.MIME
+				if !ok || !validMime {
 					p.Reason = "unsupported"
 				} else {
 					p.Data = data
@@ -173,9 +178,11 @@ func (s *Session) previewTarget(id, kind, path, status string) string {
 	if path != "" {
 		target.path = path
 	}
-	if status == "completed" || status == "failed" || status == "cancelled" {
+	final := status == "completed" || status == "failed" || status == "cancelled"
+	if final {
 		delete(s.previewTools, id)
-		if status == "completed" && (target.kind == "read" || target.kind == "edit") {
+		kindOK := target.kind == "read" || target.kind == "edit"
+		if status == "completed" && kindOK {
 			return previewPath(target.path)
 		}
 		return ""

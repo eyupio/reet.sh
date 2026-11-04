@@ -395,7 +395,8 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrSessionCapacity
 	}
-	if in.Yolo && (h.sup.opts.YoloConsent == nil || h.sup.opts.YoloConsent() != nil) {
+	consent := h.sup.opts.YoloConsent == nil || h.sup.opts.YoloConsent() != nil
+	if in.Yolo && consent {
 		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrYoloRefused
 	}
@@ -558,7 +559,9 @@ func (s *chatSupervisor) conversationInUseLocked(tool, acpID string) bool {
 		return false
 	}
 	for _, cs := range s.sessions {
-		if cs.tool == tool && cs.acpID == acpID && (cs.state.ReservesQuota() || cs.stray) {
+		matches := cs.tool == tool && cs.acpID == acpID
+		reserves := cs.state.ReservesQuota() || cs.stray
+		if matches && reserves {
 			return true
 		}
 	}
@@ -585,7 +588,8 @@ func (s *chatSupervisor) liveTool(tool string) int {
 	defer s.mu.Unlock()
 	n := 0
 	for _, cs := range s.sessions {
-		if cs.tool == tool && (cs.state.ReservesQuota() || cs.stray) {
+		reserves := cs.state.ReservesQuota() || cs.stray
+		if cs.tool == tool && reserves {
 			n++
 		}
 	}
@@ -598,9 +602,13 @@ func (h *chatHost) find(sessionID string) *chatSession {
 	return h.sup.sessions[sessionID]
 }
 
+func chatUnavailable(cs *chatSession) bool {
+	return cs.busy || cs.changing || cs.quiet || cs.state != terminalproto.Running
+}
+
 func (h *chatHost) startPrompt(cs *chatSession, text string, images []acpagent.Attachment) bool {
 	h.sup.mu.Lock()
-	if cs.busy || cs.changing || cs.quiet || cs.state != terminalproto.Running {
+	if chatUnavailable(cs) {
 		h.sup.mu.Unlock()
 		return false
 	}
@@ -682,7 +690,9 @@ func (s *chatSupervisor) readAttachments(paths []string) ([]acpagent.Attachment,
 			return nil, errAttachmentUnavailable
 		}
 		info, err := os.Stat(resolved)
-		if err != nil || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > terminalproto.MaxUploadBytes {
+		invalid := err != nil || !info.Mode().IsRegular() || info.Size() < 1 ||
+			info.Size() > terminalproto.MaxUploadBytes
+		if invalid {
 			return nil, errAttachmentUnavailable
 		}
 		data, err := os.ReadFile(resolved)
@@ -732,7 +742,8 @@ func (h *chatHost) mode(sessionID string, yolo bool) error {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict
 	}
-	if yolo && (h.sup.opts.YoloConsent == nil || h.sup.opts.YoloConsent() != nil) {
+	consent := h.sup.opts.YoloConsent == nil || h.sup.opts.YoloConsent() != nil
+	if yolo && consent {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrYoloRefused
 	}
@@ -846,7 +857,8 @@ func (s *chatSupervisor) ended(cs *chatSession, code int) {
 		link := s.link
 		acpID, exit, quiet := cs.acpID, cs.exit, cs.quiet
 		s.mu.Unlock()
-		if link == nil || !link.live || quiet {
+		live := link != nil && link.live
+		if !live || quiet {
 			return
 		}
 		_ = link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
@@ -939,7 +951,9 @@ func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 	s.mu.Lock()
 	yolo, process := cs.yolo, cs.process
 	s.mu.Unlock()
-	if yolo && event.Kind == "permission" && event.PermissionID != "" && process != nil {
+	permission := yolo && event.Kind == "permission"
+	hasPermission := permission && event.PermissionID != ""
+	if hasPermission && process != nil {
 		// YOLO answers this once, for the person. The process emits the real
 		// permission_resolved (which may be a rejection when no allow-once
 		// option exists), and that is what the controller audits.
@@ -949,7 +963,8 @@ func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 	// callback must not turn the controller's pending create into an exited
 	// session before the refusal is recorded. Once admitted, Done also observes
 	// an exit that raced startup and publishes its final lifecycle state.
-	if event.Kind == "status" && event.State == "ended" && process != nil {
+	ended := event.Kind == "status" && event.State == "ended"
+	if ended && process != nil {
 		s.ended(cs, 0)
 	}
 }
@@ -978,11 +993,13 @@ func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 		return
 	}
 	link := s.link
-	if wire.Kind == "preview" && link != nil && !link.previews {
+	preview := wire.Kind == "preview" && link != nil
+	if preview && !link.previews {
 		s.mu.Unlock()
 		return
 	}
-	if wire.Kind == "question" && (link == nil || !link.live || !link.questions) {
+	live := link != nil && link.live && link.questions
+	if wire.Kind == "question" && !live {
 		// Only an already delivered question survives a disconnect. A newly
 		// asked question still needs a live, negotiated recipient.
 		s.mu.Unlock()
@@ -991,7 +1008,8 @@ func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 	}
 	previousStatus := cs.lastStatus
 	recordChatSessionEvent(cs, wire)
-	if isQuestionKind(wire.Kind) && link != nil && !link.questions {
+	question := isQuestionKind(wire.Kind) && link != nil
+	if question && !link.questions {
 		// Retire local state even for an older peer, but never send fields its
 		// strict decoder cannot read. A settled status uses the old protocol.
 		if cs.lastStatus == nil || cs.lastStatus == previousStatus {
@@ -1004,7 +1022,8 @@ func (s *chatSupervisor) deliver(cs *chatSession, wire terminalproto.ACPEvent) {
 		bufferChatEvent(cs, wire)
 		// A resolution can settle the retained waiting status without a native
 		// status event. Keep that new state available during a stalled replay.
-		if wire.Kind != "status" && cs.lastStatus != nil && cs.lastStatus != previousStatus {
+		changed := cs.lastStatus != nil && cs.lastStatus != previousStatus
+		if wire.Kind != "status" && changed {
 			bufferChatEvent(cs, *cs.lastStatus)
 		}
 		s.mu.Unlock()
@@ -1103,7 +1122,8 @@ func settleChatWaitingStatus(cs *chatSession) {
 	cs.bellAt = 0
 	if cs.lastStatus != nil && cs.lastStatus.State == "waiting" {
 		next := "idle"
-		if cs.busy || (cs.process != nil && cs.process.Working()) {
+		working := cs.process != nil && cs.process.Working()
+		if cs.busy || working {
 			next = "working"
 		}
 		cs.lastStatus = &terminalproto.ACPEvent{Kind: "status", State: next}
@@ -1128,7 +1148,8 @@ func seedRecoveredChatEvents(cs *chatSession, questions bool) {
 	cs.outbox = nil
 	cs.outboxBytes = 0
 	for _, event := range saved {
-		if isQuestionKind(event.Kind) && (!questions || event.Kind == "question" && pendingQuestions[event.QuestionID]) {
+		skip := !questions || (event.Kind == "question" && pendingQuestions[event.QuestionID])
+		if isQuestionKind(event.Kind) && skip {
 			continue
 		}
 		if event.Kind == "permission" && pending[event.PermissionID] {
@@ -1371,7 +1392,7 @@ func (h *chatHost) setModel(ctx context.Context, sessionID, model string) error 
 		return terminalhost.ErrSessionMissing
 	}
 	h.sup.mu.Lock()
-	if cs.busy || cs.changing || cs.quiet || cs.state != terminalproto.Running {
+	if chatUnavailable(cs) {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict
 	}
@@ -1411,7 +1432,7 @@ func (h *chatHost) setAgentMode(ctx context.Context, sessionID, mode string) err
 		return terminalhost.ErrSessionMissing
 	}
 	h.sup.mu.Lock()
-	if cs.busy || cs.changing || cs.quiet || cs.state != terminalproto.Running {
+	if chatUnavailable(cs) {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict
 	}

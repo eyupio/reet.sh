@@ -61,7 +61,9 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 	// browse, clipboard, uploads, models and yolo take their own word: on,
 	// off or status.
 	sub := ""
-	if action == "browse" || action == "clipboard" || action == "uploads" || action == "models" || action == "yolo" {
+	hasSubcommand := action == "browse" || action == "clipboard" || action == "uploads" ||
+		action == "models" || action == "yolo"
+	if hasSubcommand {
 		usage := terminalBrowseUsage
 		switch action {
 		case "clipboard":
@@ -74,7 +76,8 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 			usage = terminalYoloUsage
 		}
 		for _, arg := range args[1:] {
-			if arg == "-h" || arg == "--help" || arg == "-help" {
+			help := arg == "-h" || arg == "--help" || arg == "-help"
+			if help {
 				switch action {
 				case "browse":
 					fmt.Fprintln(out, usage+"\nAllow or refuse folder browsing from reet on this enrolled machine (on by default).\nBrowsing also needs terminal access on (reet agent terminal enable).")
@@ -90,7 +93,8 @@ func runAgentTerminalInput(args []string, in io.Reader, out io.Writer, version s
 				return nil
 			}
 		}
-		if len(args) < 2 || args[1] != "on" && args[1] != "off" && args[1] != "status" {
+		valid := len(args) >= 2 && (args[1] == "on" || args[1] == "off" || args[1] == "status")
+		if !valid {
 			return errors.New("usage: " + usage)
 		}
 		sub, args = args[1], args[1:]

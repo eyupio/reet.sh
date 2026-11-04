@@ -33,7 +33,9 @@ func pendingUpdatePath(config string) string { return config + ".update" }
 func loadPendingUpdate(config string) (pendingUpdate, bool) {
 	var p pendingUpdate
 	b, err := os.ReadFile(pendingUpdatePath(config))
-	if err != nil || json.Unmarshal(b, &p) != nil || p.JobID == "" || p.Previous == "" || p.Target == "" {
+	valid := err == nil && json.Unmarshal(b, &p) == nil && p.JobID != "" &&
+		p.Previous != "" && p.Target != ""
+	if !valid {
 		return pendingUpdate{}, false
 	}
 	return p, true
@@ -121,9 +123,13 @@ func agentUpdateProtocolSupported(ctx context.Context, path string) bool {
 // controller, a gateway error or a rate limit may be temporary.
 func shouldRollback(err error, started int64, at time.Time) bool {
 	var refusal controllerError
-	if errors.As(err, &refusal) && refusal.Status >= 400 && refusal.Status < 500 &&
-		refusal.Status != http.StatusRequestTimeout && refusal.Status != http.StatusTooManyRequests {
-		return true
+	if errors.As(err, &refusal) {
+		refused := refusal.Status >= 400 && refusal.Status < 500
+		transient := refusal.Status == http.StatusRequestTimeout ||
+			refusal.Status == http.StatusTooManyRequests
+		if refused && !transient {
+			return true
+		}
 	}
 	return at.Sub(time.UnixMilli(started)) >= updateHealthWindow
 }

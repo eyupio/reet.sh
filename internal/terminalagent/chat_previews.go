@@ -127,7 +127,9 @@ func (s *chatPreviewStore) readAgentFile(dir, path string) ([]byte, error) {
 			continue
 		}
 		rel, err := filepath.Rel(base, path)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		escaped := rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) ||
+			filepath.IsAbs(rel)
+		if err != nil || escaped {
 			continue
 		}
 		root, err := os.OpenRoot(base)
@@ -141,7 +143,9 @@ func (s *chatPreviewStore) readAgentFile(dir, path string) ([]byte, error) {
 		}
 		defer f.Close()
 		stat, err := f.Stat()
-		if err != nil || !stat.Mode().IsRegular() || stat.Size() > terminalproto.MaxACPPreviewBytes {
+		invalid := err != nil || !stat.Mode().IsRegular() ||
+			stat.Size() > terminalproto.MaxACPPreviewBytes
+		if invalid {
 			return nil, os.ErrInvalid
 		}
 		if owner, ok := stat.Sys().(*syscall.Stat_t); !ok || int(owner.Uid) != os.Geteuid() {
@@ -153,7 +157,9 @@ func (s *chatPreviewStore) readAgentFile(dir, path string) ([]byte, error) {
 }
 
 func (s *chatPreviewStore) read(session string, in terminalproto.ACPPreview) (terminalproto.ACPPreviewResult, error) {
-	if s == nil || !terminalproto.ValidID(session) || !terminalproto.ValidACPPreviewID(in.ID) || in.Offset < 0 || in.Offset >= terminalproto.MaxACPPreviewBytes {
+	valid := s != nil && terminalproto.ValidID(session) && terminalproto.ValidACPPreviewID(in.ID) &&
+		in.Offset >= 0 && in.Offset < terminalproto.MaxACPPreviewBytes
+	if !valid {
 		return terminalproto.ACPPreviewResult{}, os.ErrNotExist
 	}
 	s.mu.Lock()
@@ -170,7 +176,10 @@ func (s *chatPreviewStore) read(session string, in terminalproto.ACPPreview) (te
 	}
 	defer f.Close()
 	st, err := f.Stat()
-	if err != nil || !st.Mode().IsRegular() || st.Size() < 1 || st.Size() > terminalproto.MaxACPPreviewBytes || time.Since(st.ModTime()) > previewCacheAge || in.Offset >= st.Size() {
+	invalid := err != nil || !st.Mode().IsRegular() || st.Size() < 1 ||
+		st.Size() > terminalproto.MaxACPPreviewBytes || time.Since(st.ModTime()) > previewCacheAge ||
+		in.Offset >= st.Size()
+	if invalid {
 		return terminalproto.ACPPreviewResult{}, os.ErrNotExist
 	}
 	header := make([]byte, 16)
@@ -196,7 +205,8 @@ func (s *chatPreviewStore) pruneLocked(reserve int64) {
 	var dirs []string
 	var total int64
 	_ = filepath.WalkDir(s.dir, func(path string, d os.DirEntry, err error) error {
-		if err == nil && d.IsDir() && path != s.dir {
+		valid := err == nil && d.IsDir() && path != s.dir
+		if valid {
 			dirs = append(dirs, path)
 		}
 		if err != nil || !d.Type().IsRegular() {

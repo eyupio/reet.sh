@@ -73,7 +73,9 @@ func ListRestoreJournals(dir string) (RestoreJournalList, error) {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasPrefix(name, "restore-") || !strings.HasSuffix(name, ".json") {
+		restoreFile := !entry.IsDir() && strings.HasPrefix(name, "restore-") &&
+			strings.HasSuffix(name, ".json")
+		if !restoreFile {
 			continue
 		}
 		path := filepath.Join(dir, name)

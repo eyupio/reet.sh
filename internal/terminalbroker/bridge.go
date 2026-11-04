@@ -208,7 +208,10 @@ func (b *Broker) Serve(ctx context.Context, uid int64, source, id string, c *web
 				Cols int    `json:"cols"`
 				Rows int    `json:"rows"`
 			}
-			if kind != websocket.MessageText || len(data) > 1024 || json.Unmarshal(data, &resize) != nil || resize.Type != "resize" || !terminalproto.ValidDimensions(resize.Cols, resize.Rows) {
+			validFrame := kind == websocket.MessageText && len(data) <= 1024
+			validResize := json.Unmarshal(data, &resize) == nil && resize.Type == "resize" &&
+				terminalproto.ValidDimensions(resize.Cols, resize.Rows)
+			if !validFrame || !validResize {
 				return terminalproto.ErrInvalid
 			}
 			m := message(h, terminalproto.Resize{Cols: resize.Cols, Rows: resize.Rows})
@@ -352,7 +355,9 @@ func (b *Broker) history(ctx context.Context, uid int64, session string, lines i
 		if err != nil {
 			return nil, io.ErrUnexpectedEOF
 		}
-		if kind != websocket.MessageBinary || terminalproto.ValidateBinary(frame) != nil || len(data)+len(frame) > 256<<10 {
+		valid := kind == websocket.MessageBinary && terminalproto.ValidateBinary(frame) == nil &&
+			len(data)+len(frame) <= 256<<10
+		if !valid {
 			return nil, terminalproto.ErrInvalid
 		}
 		data = append(data, frame...)

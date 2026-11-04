@@ -63,7 +63,9 @@ func ProbeVersion(ctx context.Context, binary string, spec Spec, dir, home strin
 		waitErr = <-done
 	}
 	raw := strings.TrimSpace(stdout.String() + " " + stderr.String())
-	if runCtx.Err() != nil || waitErr != nil || stdout.overflow || stderr.overflow {
+	failed := runCtx.Err() != nil || waitErr != nil
+	invalid := failed || stdout.overflow
+	if invalid || stderr.overflow {
 		return "", &VersionError{Agent: spec.displayName(), Required: spec.MinVersion, Reason: "the version probe failed"}
 	}
 	found, ok := extractSemver(raw)
@@ -127,7 +129,9 @@ func minimalEnvironment(spec Spec, home string, base []string) []string {
 	values := map[string]string{}
 	for _, entry := range base {
 		key, value, ok := strings.Cut(entry, "=")
-		if !ok || key == "" || !allowed[key] || spec.LoginHomeEnv != "" && strings.HasPrefix(key, "XDG_") {
+		valid := ok && key != "" && allowed[key]
+		blockedXDG := spec.LoginHomeEnv != "" && strings.HasPrefix(key, "XDG_")
+		if !valid || blockedXDG {
 			continue
 		}
 		if strings.ContainsAny(value, "\x00\n\r") {

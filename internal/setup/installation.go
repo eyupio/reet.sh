@@ -131,12 +131,15 @@ func inspectInstallation(a Agent) *InstallationObservation {
 		}
 		declared, statErr := root.Stat(bin)
 		root.Close()
-		if statErr != nil || !declared.Mode().IsRegular() || !os.SameFile(before, declared) {
+		invalid := statErr != nil || !declared.Mode().IsRegular() || !os.SameFile(before, declared)
+		if invalid {
 			v.Issue = "package_bin_mismatch"
 			return v
 		}
 		after, err := os.Stat(a.Executable.Path)
-		if err != nil || !os.SameFile(before, after) || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) {
+		changed := err != nil || !os.SameFile(before, after) || before.Size() != after.Size() ||
+			!before.ModTime().Equal(after.ModTime())
+		if changed {
 			v.State, v.Issue = "error", "executable_changed"
 			return v
 		}

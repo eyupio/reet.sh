@@ -166,7 +166,8 @@ func SetupTerminalHost(options TerminalSetupOptions, in io.Reader, out io.Writer
 	}
 	// Development releases share one version label across builds. Offer a
 	// service refresh even when that label matches so an upgraded binary is used.
-	if !service.Active || !native || options.Version == "dev" {
+	invalid := !service.Active || !native
+	if invalid || options.Version == "dev" {
 		yes, err := confirm("Install/repair or refresh native agent and terminal services now? Existing tmux jobs will be preserved.", "yes")
 		if err != nil {
 			return err
@@ -245,7 +246,9 @@ func installSetupTmux(in io.Reader, out io.Writer, ask func(string, string) (str
 		command, _ = exec.LookPath("brew")
 		if command == "" {
 			for _, candidate := range []string{"/opt/homebrew/bin/brew", "/usr/local/bin/brew"} {
-				if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0 {
+				info, err := os.Stat(candidate)
+				valid := err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0
+				if valid {
 					command = candidate
 					break
 				}

@@ -16,8 +16,10 @@ rules:
 
 ## Completed so far
 
-`internal/store` and `internal/api` landed in the first PR. This PR adds
-`internal/terminalproto` and `internal/terminalhost`.
+`internal/store` and `internal/api` landed in the first PR. `internal/terminalproto`
+and `internal/terminalhost` landed in the second. This PR adds
+`internal/setup`, `internal/terminalbroker`, `internal/scan`,
+`internal/terminalagent` and `internal/acpagent`.
 
 ### Index loops (`range`)
 
@@ -41,8 +43,13 @@ rules:
 
 - `internal/store`: 129 → 0 (first PR).
 - `internal/api`: 87 → 0 (first PR).
-- `internal/terminalproto`: 97 → 0 (this PR).
-- `internal/terminalhost`: 73 → 0 (this PR).
+- `internal/terminalproto`: 97 → 0.
+- `internal/terminalhost`: 73 → 0.
+- `internal/setup`: 66 → 0 (this PR).
+- `internal/terminalbroker`: 46 → 0 (this PR).
+- `internal/scan`: 43 → 0 (this PR).
+- `internal/terminalagent`: 41 → 0 (this PR).
+- `internal/acpagent`: 32 → 0 (this PR).
 
 Conditions were grouped into named booleans, with expensive or
 short-circuit-sensitive checks kept inline (for example a nil check before a
@@ -54,27 +61,27 @@ Current AST audit after this PR:
 
 | Rule | Remaining |
 | --- | --- |
-| `cond>=3` | 397 |
-| `params>4` | 181 |
+| `cond>=3` | 198 |
+| `params>4` | 186 |
 | `index-loop` | 8 (all intentional, commented) |
 
 Top packages by remaining complex conditions:
 
 | Package | `cond>=3` |
 | --- | --- |
-| `internal/setup` | 66 |
-| `internal/scan` | 43 |
-| `internal/terminalbroker` | 38 |
-| `internal/terminalagent` | 33 |
 | `internal/agenthealth` | 26 |
-| `internal/acpagent` | 20 |
 | `internal/backup` | 19 |
 | `internal/lifecycle` | 18 |
 | `cmd/reet` | 17 |
+| `internal/agentsoftware` | 13 |
+| `internal/skillbundle` | 12 |
+| `internal/terminalcontrol` | 11 |
+| `internal/clientconfig` | 10 |
+| `internal/skillplan` | 9 |
 
 `params>4` is untouched. It is a design change (options structs and call-site
 updates), not a mechanical rewrite. Functions with 5 and 6 parameters are the
-bulk (99 and 50 respectively).
+bulk (about 100 and 50 respectively).
 
 Also untouched from the same style guide:
 
@@ -89,9 +96,9 @@ Also untouched from the same style guide:
 
 - `gofmt` clean across the repository.
 - `go build ./...` passes.
-- `go test ./internal/terminalproto -count=1` passes.
-- `go test ./internal/terminalhost -count=1` passes.
-- `go test ./internal/api ./internal/terminalbroker -count=1` passes.
+- `go test ./internal/setup ./internal/terminalbroker ./internal/terminalagent ./internal/acpagent -count=1` passes.
+- `go test ./internal/scan -count=1` passes apart from the network-dependent
+  test listed below.
 - Full `go test ./...` has two failures that also reproduce on pristine
   `main`:
   - `internal/clientconfig` — `TestPromptsAreBoundedAndDoNotConsumeLaterConfirmation`
@@ -112,12 +119,13 @@ counts, walk non-test `.go` files and count:
 
 ## Suggested next step
 
-Continue with `internal/setup` (66 conditions) using the same approach, then
-`internal/scan` (43) and `internal/terminalbroker` (38). Do not start with
-`params>4` unless a package is being touched for another reason; options-struct
-refactors should be reviewed on their own.
+Continue with `internal/agenthealth` (26 conditions) using the same approach,
+then `internal/backup` (19), `internal/lifecycle` (18) and `cmd/reet` (17). Do
+not start with `params>4` unless a package is being touched for another reason;
+options-struct refactors should be reviewed on their own.
 
-Two regressions were caught locally during this PR and are fixed:
-`hasControl` briefly returned the wrong boolean, and an `if`/`else` in
-`unpushedCount` was mangled while extracting its condition. Both are covered by
-the existing `internal/terminalhost` tests.
+Regressions caught locally during these PRs and fixed: `hasControl` briefly
+returned the wrong boolean, an `if`/`else` in `unpushedCount` was mangled while
+extracting its condition, and two inverted predicates (`pending question` and
+model-option duplicate detection) were caught by their existing tests. All are
+covered by the package tests.

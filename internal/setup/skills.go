@@ -72,7 +72,8 @@ func selectSkillContent(report Report, preview *SnapshotPreview, selection *Snap
 				continue
 			}
 			if loc.State != "present" {
-				if loc.State == "symlink" || loc.State == "error" || loc.State == "unsupported" {
+				invalid := loc.State == "symlink" || loc.State == "error" || loc.State == "unsupported"
+				if invalid {
 					preview.Agents[i].Omitted = append(preview.Agents[i].Omitted, SnapshotOmission{Kind: "skills", Source: loc.Path, Reason: "skill_root_" + loc.State})
 				}
 				continue
@@ -136,7 +137,9 @@ func collectSetupSkills(root, agentID, scope, locationKind, locationSource strin
 		}
 		manifest := filepath.Join(source, "SKILL.md")
 		manifestInfo, err := os.Lstat(manifest)
-		if err != nil || manifestInfo.Mode()&os.ModeSymlink != 0 || !manifestInfo.Mode().IsRegular() {
+		invalid := err != nil || manifestInfo.Mode()&os.ModeSymlink != 0 ||
+			!manifestInfo.Mode().IsRegular()
+		if invalid {
 			omissions = append(omissions, SnapshotOmission{Kind: "skills", Source: source, Reason: "skill_manifest_missing"})
 			continue
 		}
@@ -181,7 +184,8 @@ func collectSkillFiles(dir string) ([]SetupSkillFile, string) {
 				return "skill_special_file"
 			}
 			rel, err := filepath.Rel(dir, path)
-			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			escaped := rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+			if err != nil || escaped {
 				return "skill_path_escape"
 			}
 			if len(files) >= maxSkillFiles {
@@ -220,7 +224,8 @@ func readSkillFile(path string, before os.FileInfo) ([]byte, string) {
 	}
 	defer f.Close()
 	opened, err := f.Stat()
-	if err != nil || !os.SameFile(before, opened) || !opened.Mode().IsRegular() {
+	invalid := err != nil || !os.SameFile(before, opened) || !opened.Mode().IsRegular()
+	if invalid {
 		return nil, "skill_file_changed"
 	}
 	data, err := io.ReadAll(io.LimitReader(f, maxSkillBytes+1))
@@ -231,7 +236,9 @@ func readSkillFile(path string, before os.FileInfo) ([]byte, string) {
 		return nil, "skill_too_large"
 	}
 	after, err := f.Stat()
-	if err != nil || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) || int64(len(data)) != after.Size() {
+	changed := err != nil || before.Size() != after.Size() ||
+		!before.ModTime().Equal(after.ModTime()) || int64(len(data)) != after.Size()
+	if changed {
 		return nil, "skill_file_changed"
 	}
 	return data, ""
@@ -278,7 +285,9 @@ type skillLockEntry struct {
 func readSkillLock(path string) map[string]skillLockEntry {
 	entries := map[string]skillLockEntry{}
 	info, err := os.Lstat(path)
-	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+	invalid := err != nil || info.Mode()&os.ModeSymlink != 0 ||
+		!info.Mode().IsRegular() || info.Size() > 1<<20
+	if invalid {
 		return entries
 	}
 	data, err := os.ReadFile(path)
@@ -325,7 +334,8 @@ func lockSkillName(key, skillPath string) string {
 		return key
 	}
 	base := pathpkg.Base(pathpkg.Dir(strings.ReplaceAll(skillPath, `\`, "/")))
-	if base == "." || base == "/" || base == "" {
+	invalid := base == "." || base == "/" || base == ""
+	if invalid {
 		return key
 	}
 	return base
@@ -348,11 +358,13 @@ func attachSkillOrigin(skill *SetupSkill, scope string, global, project map[stri
 
 func safeSkillPath(name, path string) string {
 	path = strings.ReplaceAll(strings.TrimSpace(path), `\`, "/")
-	if path == "" || strings.HasPrefix(path, "/") || len(path) > 1024 {
+	valid := path != "" && !strings.HasPrefix(path, "/") && len(path) <= 1024
+	if !valid {
 		return name + "/SKILL.md"
 	}
 	for _, segment := range strings.Split(path, "/") {
-		if segment == "" || segment == "." || segment == ".." {
+		valid := segment != "" && segment != "." && segment != ".."
+		if !valid {
 			return name + "/SKILL.md"
 		}
 	}

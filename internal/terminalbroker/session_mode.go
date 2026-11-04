@@ -129,7 +129,9 @@ func (b *Broker) SwitchSessionMode(ctx context.Context, uid int64, session, to s
 	if err != nil || caps.Generation != p.Generation {
 		return ErrOffline
 	}
-	if chat, ok := caps.Capabilities.ChatAgent(s.Tool); !caps.Capabilities.SessionModeFor(s.Tool) || !ok || !chat.History {
+	chat, ok := caps.Capabilities.ChatAgent(s.Tool)
+	supported := caps.Capabilities.SessionModeFor(s.Tool) && ok && chat.History
+	if !supported {
 		return ErrSessionModeUnsupported
 	}
 	if err := b.switchReady(s, to); err != nil {
@@ -254,7 +256,8 @@ func (b *Broker) switchReady(s store.TerminalSession, to string) error {
 		// A chat whose id was never recorded cannot be opened in the TUI.
 		return ErrSessionModeNoConversation
 	}
-	if to == terminalproto.SessionModeTerminal && s.Yolo && !b.yoloAllowed() {
+	terminalYolo := to == terminalproto.SessionModeTerminal && s.Yolo
+	if terminalYolo && !b.yoloAllowed() {
 		return ErrYoloNotAllowed
 	}
 	return nil
@@ -339,11 +342,17 @@ func (p *Peer) adoptLateChat(session string, changed *terminalproto.SessionChang
 		return
 	}
 	s, err := p.b.st.TerminalSessionFor(p.key.uid, session)
-	if err != nil || s.AgentID != p.key.agent || s.State != terminalproto.Running || s.Structured || s.ACPSessionID != changed.ACPSessionID {
+	if err != nil {
+		return
+	}
+	matches := s.AgentID == p.key.agent && s.State == terminalproto.Running
+	valid := matches && !s.Structured && s.ACPSessionID == changed.ACPSessionID
+	if !valid {
 		return
 	}
 	caps, err := p.b.st.RemoteCapabilitiesFor(p.key.uid, p.key.agent)
-	if err != nil || caps.Generation != p.Generation || !caps.Capabilities.SessionMode {
+	validCaps := err == nil && caps.Generation == p.Generation && caps.Capabilities.SessionMode
+	if !validCaps {
 		return
 	}
 	if p.b.st.SetTerminalStructuredFor(p.key.uid, session, true) != nil {

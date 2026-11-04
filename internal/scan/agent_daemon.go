@@ -64,7 +64,12 @@ func daemonDir(dir string) error {
 		return err
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int(stat.Uid) != os.Geteuid() || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0700 {
+	if !ok {
+		return errors.New("agent runtime directory must be private and owned by this user")
+	}
+	valid := int(stat.Uid) == os.Geteuid() && info.IsDir() &&
+		info.Mode()&os.ModeSymlink == 0 && info.Mode().Perm() == 0700
+	if !valid {
 		return errors.New("agent runtime directory must be private and owned by this user")
 	}
 	return nil
@@ -343,7 +348,8 @@ func installAgentServices(plan terminalhost.ServicePlan, out io.Writer) error {
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		var state agentLocalStatus
-		if localAgentCall(plan.ConfigPath, "GET", "/status", &state) == nil && state.Supervised && state.ServicePrefix == plan.Prefix {
+		ok := localAgentCall(plan.ConfigPath, "GET", "/status", &state) == nil && state.Supervised
+		if ok && state.ServicePrefix == plan.Prefix {
 			if !terminalhost.ReadStatus(ctx, plan).Active {
 				return errors.New("agent started but the terminal supervisor is not active; inspect service status")
 			}

@@ -223,12 +223,14 @@ func readSetupHeader(path string, before os.FileInfo) (sealed.Manifest, error) {
 	}
 	defer f.Close()
 	opened, err := f.Stat()
-	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+	invalid := err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened)
+	if invalid {
 		return sealed.Manifest{}, fmt.Errorf("setup snapshot changed during read")
 	}
 	buf := make([]byte, setupHeaderProbeBytes)
 	n, err := io.ReadFull(f, buf)
-	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+	truncated := err != nil && err != io.EOF
+	if truncated && err != io.ErrUnexpectedEOF {
 		return sealed.Manifest{}, err
 	}
 	return sealed.ManifestOf(buf[:n])
@@ -238,7 +240,9 @@ func resolveSetupSnapshotPath(path, dir string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("name a setup snapshot or its .reetsetup file")
 	}
-	if filepath.Base(path) == path && !strings.ContainsAny(path, `/\`) && !strings.HasSuffix(path, setupSnapshotExtension) {
+	valid := filepath.Base(path) == path && !strings.ContainsAny(path, `/\`) &&
+		!strings.HasSuffix(path, setupSnapshotExtension)
+	if valid {
 		if !validSetupSnapshotID(path) {
 			return "", fmt.Errorf("invalid setup snapshot identifier")
 		}

@@ -62,7 +62,9 @@ func installPrivateSkill(server, token string, skill store.SyncSkill, targetPath
 	if decoder.Decode(new(any)) != io.EOF {
 		return errors.New("invalid private skill response")
 	}
-	if revision.BundleID != parts[1] || revision.ID != parts[2] || revision.ManifestDigest != parts[3] {
+	same := revision.BundleID == parts[1] && revision.ID == parts[2] &&
+		revision.ManifestDigest == parts[3]
+	if !same {
 		return errors.New("private skill revision changed")
 	}
 	manifest, files, err := skillimport.Select(revision.Files, nil)

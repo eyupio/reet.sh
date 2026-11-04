@@ -121,7 +121,8 @@ func runProfileWizard(dir string, out io.Writer, remote ...ProfileRemote) error 
 				return err
 			}
 			index, err := strconv.Atoi(answer)
-			if err != nil || index < 1 || index > len(snapshots.Snapshots) {
+			valid := err == nil && index >= 1 && index <= len(snapshots.Snapshots)
+			if !valid {
 				return errors.New("choose a number from the list")
 			}
 			chosen = snapshots.Snapshots[index-1]
@@ -194,7 +195,9 @@ func pushProfile(remote ProfileRemote, server, token string, profile SetupProfil
 	if err == nil || !errors.Is(err, ErrProfileUnauthorized) {
 		return err
 	}
-	if saved, savedErr := clientconfig.SavedToken(); savedErr == nil && saved != "" && saved != token {
+	saved, savedErr := clientconfig.SavedToken()
+	retry := savedErr == nil && saved != "" && saved != token
+	if retry {
 		if retryErr := remote.Push(server, saved, profile); retryErr == nil {
 			return nil
 		}
@@ -251,7 +254,9 @@ func envFileValue(path, key string) string {
 			continue
 		}
 		value = strings.TrimSpace(value)
-		if len(value) >= 2 && (value[0] == '\'' && value[len(value)-1] == '\'' || value[0] == '"' && value[len(value)-1] == '"') {
+		singleQuoted := len(value) >= 2 && value[0] == '\'' && value[len(value)-1] == '\''
+		doubleQuoted := len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"'
+		if singleQuoted || doubleQuoted {
 			value = value[1 : len(value)-1]
 		}
 		return value

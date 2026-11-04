@@ -82,7 +82,8 @@ func summariseMCP(name string, value any, agent string) MCPSummary {
 		if agent == "gemini" && nonemptyString(object["httpUrl"]) {
 			m.URLConfigured, m.Transport = true, "http"
 		}
-		if agent == "codex" && m.URLConfigured && typeName == "" {
+		matches := agent == "codex" && m.URLConfigured && typeName == ""
+		if matches {
 			m.Transport = "http"
 		}
 	}

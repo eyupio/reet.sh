@@ -310,7 +310,9 @@ func selectSettingsContent(object map[string]any, policy ComponentExportPolicy, 
 			continue
 		}
 		stats.add(field.State, field.Path)
-		if field.State == "include" || field.State == "reference_only" || field.State == "encrypted_only" && includeCredentials {
+		include := field.State == "include" || field.State == "reference_only"
+		encrypted := field.State == "encrypted_only" && includeCredentials
+		if include || encrypted {
 			selected[field.Path] = value
 		}
 	}
@@ -363,7 +365,9 @@ func selectMCPContent(object map[string]any, policy ComponentExportPolicy, agent
 				continue
 			}
 			result.stats.add(state, field)
-			if state == "include" || state == "reference_only" || state == "encrypted_only" && includeCredentials {
+			include := state == "include" || state == "reference_only"
+			encrypted := state == "encrypted_only" && includeCredentials
+			if include || encrypted {
 				selected[field] = value
 			}
 		}

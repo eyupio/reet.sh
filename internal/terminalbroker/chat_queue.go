@@ -14,9 +14,11 @@ func (b *Broker) queueSupported(uid int64, session string) error {
 	if err != nil {
 		return err
 	}
-	if archived, err := b.st.TerminalArchivedFor(uid, session); err != nil {
+	archived, err := b.st.TerminalArchivedFor(uid, session)
+	if err != nil {
 		return err
-	} else if archived {
+	}
+	if archived {
 		return store.ErrRemoteNotFound
 	}
 	if !s.Structured {
@@ -156,7 +158,8 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 	log.mu.Lock()
 	failed := log.lastState == "failed"
 	log.mu.Unlock()
-	if failed && !c.Working && q.Intent == "wait" {
+	retry := failed && !c.Working
+	if retry && q.Intent == "wait" {
 		_, _ = b.st.TransitionTerminalQueueFor(uid, session, q, "failed", "wait", "The previous turn failed. Check the agent or its settings, then retry this message.", b.queueOwner)
 		return
 	}
@@ -205,7 +208,10 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 		finish("sent", "")
 		return
 	}
-	if errors.Is(err, ErrACPBusy) || errors.Is(err, ErrACPClosed) || errors.Is(err, ErrACPModeUnknown) || errors.Is(err, ErrACPImageUnavailable) || errors.Is(err, ErrACPImagesUnsupported) {
+	rejected := errors.Is(err, ErrACPBusy) || errors.Is(err, ErrACPClosed) ||
+		errors.Is(err, ErrACPModeUnknown) || errors.Is(err, ErrACPImageUnavailable) ||
+		errors.Is(err, ErrACPImagesUnsupported)
+	if rejected {
 		finish("failed", err.Error())
 		return
 	}

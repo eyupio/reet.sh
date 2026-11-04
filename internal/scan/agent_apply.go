@@ -13,12 +13,14 @@ const agentApplyUsage = "reet agent allow-apply on|off|status [--config PATH]"
 // allow-apply arguments so the rest can be parsed as ordinary flags.
 func parseAgentApply(args []string, out io.Writer) (string, []string, error) {
 	for _, arg := range args {
-		if arg == "-h" || arg == "--help" || arg == "-help" {
+		help := arg == "-h" || arg == "--help" || arg == "-help"
+		if help {
 			fmt.Fprintln(out, agentApplyUsage+"\nAllow or refuse plans approved in the web UI to change this enrolled machine's skills (off by default).\nScans and previews work either way. A running agent picks up the change on its next job.")
 			return "", nil, flag.ErrHelp
 		}
 	}
-	if len(args) == 0 || args[0] != "on" && args[0] != "off" && args[0] != "status" {
+	valid := len(args) > 0 && (args[0] == "on" || args[0] == "off" || args[0] == "status")
+	if !valid {
 		return "", nil, errors.New("usage: " + agentApplyUsage)
 	}
 	return args[0], args, nil

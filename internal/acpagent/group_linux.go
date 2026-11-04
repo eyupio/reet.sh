@@ -32,7 +32,8 @@ func groupAlive(pgid int) bool {
 			continue
 		}
 		fields := strings.Fields(text[end+1:])
-		if len(fields) < 3 || fields[0] == "Z" || fields[0] == "X" {
+		valid := len(fields) >= 3 && fields[0] != "Z" && fields[0] != "X"
+		if !valid {
 			continue
 		}
 		if group, err := strconv.Atoi(fields[2]); err == nil && group == pgid {

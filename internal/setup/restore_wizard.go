@@ -45,7 +45,8 @@ func runRestoreWizard(out io.Writer, dir, project, machine string, opts restoreW
 			return err
 		}
 		index, err := strconv.Atoi(answer)
-		if err != nil || index < 1 || index > len(profiles.Profiles) {
+		valid := err == nil && index >= 1 && index <= len(profiles.Profiles)
+		if !valid {
 			return errors.New("choose a number from the list")
 		}
 		chosen = profiles.Profiles[index-1]

@@ -250,7 +250,10 @@ func (a *agentSwitch) claim(ctx context.Context, sessionID string, in terminalpr
 		// freely; the mark must only precede the end.
 		sup.mu.Lock()
 		defer sup.mu.Unlock()
-		if _, busy := sup.swapping[sessionID]; busy || sup.holds[sessionID] > 0 || sup.closed {
+		_, busy := sup.swapping[sessionID]
+		held := sup.holds[sessionID] > 0
+		conflict := busy || held
+		if conflict || sup.closed {
 			return nil, terminalhost.ManagedSession{}, terminalhost.ErrOperationConflict
 		}
 		if cs := sup.sessions[sessionID]; cs != nil {
@@ -360,7 +363,9 @@ func (s *chatSupervisor) unhold(sessionID string) {
 // liveTool until a later Close confirms the group gone.
 func (s *chatSupervisor) retireSwapped(sessionID, title, tool, acpID string, stray chatProcess) {
 	s.mu.Lock()
-	if existing := s.sessions[sessionID]; s.closed || existing != nil && existing.state.ReservesQuota() {
+	existing := s.sessions[sessionID]
+	reserves := existing != nil && existing.state.ReservesQuota()
+	if s.closed || reserves {
 		s.mu.Unlock()
 		return
 	}

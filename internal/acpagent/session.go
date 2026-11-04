@@ -167,8 +167,11 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	s := &Session{opts: opts, binary: binary, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr,
 		calls: map[int64]chan rpcResult{}, pending: map[string]*pendingPermission{}, tools: map[string]string{},
 		toolStart: map[string]time.Time{}, done: make(chan struct{})}
-	go s.readLoop()
 	go func() {
+		// Drain stdout before Wait closes its pipe. EOF or a framing error also
+		// makes a live adapter unusable: retire it instead of leaving calls hung.
+		s.readLoop()
+		s.killGroup()
 		_ = cmd.Wait()
 		s.ended()
 	}()
@@ -1042,8 +1045,15 @@ func (s *Session) armForceStop() {
 // caller has already reported a terminal provider error, which must remain the
 // last state the person sees.
 func (s *Session) stopTurn() error {
+	s.turnMu.Lock()
+	if s.working {
+		s.cancelledSeq = s.turnSeq
+	}
+	s.turnMu.Unlock()
 	s.cancelCards()
-	return s.sendCancel()
+	err := s.sendCancel()
+	s.armForceStop()
+	return err
 }
 
 func (s *Session) cancelCards() {

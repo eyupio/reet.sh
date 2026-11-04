@@ -64,7 +64,10 @@ The session appears in the usual list with its title and state. Its screen opens
 TUI** button switches the same live session to OpenCode's own terminal UI, and back, on a machine that negotiated
 `session-mode-v1` ([below](#switching-between-gaffer-and-the-opencode-tui)); otherwise it is disabled with the reason.
 Closing the tab or **End session** ends the reet session and its process. Losing the
-control connection detaches it without killing the agent; the next connection adopts the running session and drains events
+control connection detaches it without killing the agent; the next connection adopts the running session. If the agent
+closes its protocol output or sends an oversized frame, reet ends that process
+so the chat can be recovered instead of waiting on an unusable connection. A provider failure found in the agent's local
+log also ends the process if it ignores cancellation, while keeping the provider error visible. The next connection drains events
 queued while it was away. Recovery puts the retained pending approvals and current status after that buffered output, so a full queue
 cannot immediately evict the recovered card during replay preparation. If output continues during a stalled replay, the queue discards old output
 before current pending approvals and the latest status. It retains the original approval token and command, keeps resolved approvals
@@ -379,6 +382,8 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
 
 - **OpenCode keeps the conversation.** The record holds only which `ses_…` belongs to which reet session, its folder,
   model, approval mode and folder trust. The conversation itself is read from OpenCode's own store.
+  A live model switch updates that record from the agent's confirmed model, even when it applies a different model than
+  requested. An unconfirmed switch clears the recorded model so a restart cannot force an old choice back onto the chat.
 - **Only chats that were live are reopened.** Ending a chat, archiving it, or switching it to the OpenCode TUI removes its
   record. A record left by a crash is retried on the next start.
 - **The replay is not shown twice.** The controller already holds the transcript (live, or restored from its own store),
@@ -396,7 +401,9 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
 ## Limits
 
 - **History is kept, bounded.** The controller keeps at most 1,000 events / 256 KiB per reet session in its SQLite database,
-  and the live ring uses the same bounds. A controller restart or a reboot restores that transcript with the session; archiving
+  and the live ring uses the same bounds. The live ring evicts ordinary output before waiting approvals, questions and the
+  latest status, so a browser reconnect can still show a pending card after a long stream. If pending state alone fills
+  the ring, the hard limits still apply. A controller restart or a reboot restores the stored transcript with the session; archiving
   a session drops it. A lost or crashed Gaffer session reconnects in place from OpenCode's own store, and a closed one can be
   reopened as a new session with Continue in Gaffer with history…
 - **The browser's log is bounded too.** Gaffer keeps at most 400 items / 256 KiB of the conversation, drops the

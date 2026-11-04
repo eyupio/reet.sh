@@ -99,6 +99,11 @@ beside it). Its parts:
   chat reconnects in place; a session a person ended offers **Continue in Gaffer with history…** in its menu, which opens
   a new Gaffer and loads OpenCode's stored conversation. It asks before an edit or command; there is no shell in this
   session. It has no terminal or session tabs on a phone; the usual slim header and End actions stay.
+- **Super focus on a phone**: a Gaffer chat opens with the site chrome, workspace toolbar and secondary session controls
+  out of the way, so the conversation and composer take the whole screen. The slim header keeps Back, the title, the
+  state and **Exit focus**; the chat status stays a live region but is not drawn, and the composer keeps its message field,
+  **Stop**/**Queue**, **Skills** and attach while effort and model wait behind **Exit focus**. The choice is remembered for
+  this browser; **Focus** in the header or the actions menu turns it back on.
 - **Context panel** (340 px): *Where it's working* (machine and whether it is reporting, project, branch, worktree: "own
   copy" or "the checkout"); *Changed files* for a session in its own worktree (the first 20 paths from the worktree status
   and the total, read when the panel opens on the session and again only from **Refresh**, R19); *Skills on this machine*
@@ -114,11 +119,13 @@ beside it). Its parts:
   reaches into the panel's widened padding, covers no control and reaches no further over the terminal than its 24 px
   track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
   extra keys are 40 × 40 px.
-- **Phones** keep the same session actions as desktop. The identity row shows the session and its state, with labelled
-  **Theatre**, **Details** and **More** controls. Interface and approval choices stay visible below it, with 44 px touch
-  targets; the toolbar wraps instead of moving them into the menu. **Terminal here** opens a terminal in the same folder.
-  With the keyboard up, the site's top bar steps aside and the session controls remain reachable. In landscape, identity
-  and actions share a compact row where there is room. Connection recovery buttons remain available in the pane.
+- **Phones** keep the same session actions as desktop. Outside a Gaffer chat's super focus, the identity row shows the
+  session and its state, with labelled **Focus**, **Theatre**, **Details** and **More** controls. Interface and approval
+  choices stay visible below it, with 44 px touch targets; the toolbar wraps instead of moving them into the menu.
+  **Terminal here** opens a terminal in the same folder. A Gaffer chat opens in super focus, where Back, the title, the
+  state and **Exit focus** are the header and **Exit focus** restores the full controls. With the keyboard up, the site's
+  top bar steps aside and the session controls remain reachable. In landscape, identity and actions share a compact row
+  where there is room. Connection recovery buttons remain available in the pane.
 
 
 The terminal route uses compact app navigation and the remaining usable viewport

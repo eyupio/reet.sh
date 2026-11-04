@@ -736,6 +736,14 @@ try {
   for (const theme of ['light','dark']) for (const [width,height,touch] of [[1360,900,false],[768,1024,true],[390,844,true],[320,740,true],[844,390,true]]) {
    const {context,page,errors} = await open({width,height,touch,theme,sessions:[...sessions(),...opencodeSessions()],machines:switchMachines(),chat:true})
    await page.goto(`${base}/sessions?agent=a1&session=s9`)
+   // A phone opens a Gaffer chat in super focus; the ordinary session controls wait behind Exit focus.
+   if (width <= 650 || (height <= 500 && touch)) {
+    await expect(screen(page)).toHaveClass(/focus/)
+    const exitFocus = screen(page).getByRole('button',{name:'Exit focus mode',exact:true})
+    await expect(exitFocus).toBeVisible()
+    await exitFocus.click()
+    await expect(screen(page)).not.toHaveClass(/focus/)
+   }
    const head = screen(page).locator('.head')
    await expect(head.getByRole('button',{name:'Theatre view',exact:true})).toBeVisible()
    await expect(page.getByRole('button',{name:'Theatre view',exact:true})).toHaveCount(1)
@@ -752,7 +760,9 @@ try {
    expect(await page.evaluate(() => window.__originalChat === window.__chatStream)).toBe(true)
    await head.getByRole('button',{name:'Session actions'}).click()
    const menu=page.getByRole('menu')
-   await expect(menu.getByRole('menuitem')).toHaveText(['Rename…','End session…'])
+   // A phone's actions menu also offers Focus mode once the chat has left super focus.
+   const menuItems = width <= 650 || (height <= 500 && touch) ? ['Rename…','Focus mode','End session…'] : ['Rename…','End session…']
+   await expect(menu.getByRole('menuitem')).toHaveText(menuItems)
    await expect(menu.getByRole('menuitem',{name:'Rename…'})).toBeFocused()
    await page.keyboard.press('Escape')
    await expect(head.getByRole('button',{name:'Session actions'})).toBeFocused()

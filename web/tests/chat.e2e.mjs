@@ -878,6 +878,22 @@ try {
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('textbox', { name: 'Message OpenCode' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  // A phone opens Gaffer in super focus: the site chrome, workspace toolbar and secondary session controls step aside,
+  // while the narrative and composer (skills and attachments included) keep the screen. Exit focus restores them.
+  const focusScreen = page.locator('.session-screen')
+  await expect(focusScreen).toHaveClass(/focus/)
+  await expect(page.locator('.site-header')).toBeHidden()
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeHidden()
+  await expect(page.locator('.workspace-toolbar')).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Exit focus mode', exact: true })).toBeVisible()
+  await expect(page.locator('.composer-bar').getByRole('button', { name: 'Skills', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Exit focus mode', exact: true }).click()
+  await expect(focusScreen).not.toHaveClass(/focus/)
+  await expect(page.locator('.site-header')).toBeVisible()
+  await expect(page.locator('.workspace-toolbar')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Focus mode', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Focus mode', exact: true }).click()
+  await expect(focusScreen).toHaveClass(/focus/)
   // The question card fits a phone: no sideways scroll and every control stays inside the viewport. (Its larger touch
   // targets come from the same coarse-pointer rule as the approval buttons; this mouse-driven run does not exercise it.)
   await page.evaluate(form => window.__chatStream.emit('chat', { seq: 30, kind: 'question', questionId: 'q9', question: { ...form, message: 'Phone question with a fairly long line of text that has to wrap inside the card?' } }), form)
@@ -908,6 +924,10 @@ try {
   // A closed chat keeps OpenCode's session id and reopens as a new row that loads its history.
   state.closed = true
   await page.goto(`${base}/sessions?agent=${A}&session=${S2}`)
+  // Focus keeps the ended chat and its Continue action on the screen; the ordinary session actions wait behind Exit focus.
+  await expect(page.locator('.session-screen')).toHaveClass(/focus/)
+  await expect(page.getByRole('button', { name: 'Session actions' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Exit focus mode', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Session actions' })).toBeVisible()
   // A chat that exited does not say who ended it (it may have stopped on its own or been ended by the person), only what can be done next.
   await expect(page.locator('.ended-note')).toContainText('This OpenCode chat has ended. What was already shown stays here.')

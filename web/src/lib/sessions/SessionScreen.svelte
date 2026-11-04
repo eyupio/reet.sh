@@ -15,10 +15,11 @@
   import ContextPanel from './ContextPanel.svelte'
   import type { ChatState } from '../chat'
   import SwitchModeDialog from './SwitchModeDialog.svelte'
+  import TerminalIcon from '../terminal/TerminalIcon.svelte'
   import { CONTEXT_DEFAULT, CONTEXT_MIN, clampContextWidth, contextKeyWidth, contextLayoutRecord, readContextLayout, widestContext } from './contextLayout'
 
-  // The session screen: the strip of open sessions, the session's header (title, agent · model · started, the state in words
-  // with its source, YOLO, Gaffer | the agent TUI and the actions menu), the live terminal the workspace hosts here (children),
+  // The session screen: identity and persistent layout actions above a wrapping toolbar for interface, approvals
+  // and terminal creation. The menu contains management actions only, the live terminal the workspace hosts here (children),
   // Approvals under it, and the context panel beside it (behind Details under 1100 px and in theatre view). A terminal
   // session shows no steps and no progress bar (R10): only its state word and where that word came from.
   let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false, chatBusy, insightChat,
@@ -346,13 +347,26 @@
   bind:this={screen} style={`--context-width:${shownContextWidth}px`}>
   <div class="body" class:context-docked={docked && contextOpen && !hasSide} class:context-sheet={!docked && contextOpen && !hasSide} bind:clientWidth={bodyWidth}>
     <header class="head">
+      <div class="identity-row">
       <a class="back" href="/sessions" aria-label="Back to sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></a>
       <div class="heading">
         <h2 class="title" title={session.title}>{session.title}</h2>
         <p class="sub">{headerMeta(session, session.createdAt, now)}</p>
-        <p class="where-phone">{[project, host].filter(Boolean).join(' · ')}</p>
+        <p class="where-phone">{[word.word, project, host].filter(Boolean).join(' · ')}</p>
       </div>
       <span class="pill {word.tone}" title={source}><span class="dot" aria-hidden="true"></span>{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
+      <div class="header-actions">
+        <button type="button" class="theatre-button" aria-pressed={theatre} aria-label={theatre ? 'Exit theatre view' : 'Theatre view'} title={theatre ? 'Restore the session panels' : 'Hide the panels and focus on this session'} onclick={theatreView}>
+          <TerminalIcon name="theatre" /><span class="wide-label">{theatre ? 'Exit theatre' : 'Theatre view'}</span><span class="compact-label">{theatre ? 'Exit' : 'Theatre'}</span>
+        </button>
+        <button type="button" class="details" bind:this={detailsButton} aria-label="Details" aria-expanded={hasSide ? false : contextOpen} aria-controls={`${id}-context`} title={docked ? (dockedOpen ? 'Collapse session workspace' : 'Show session workspace') : 'Session details'} onclick={() => void toggleDetails()} onkeydown={closeDetails}><TerminalIcon name="panel" /><span>Details</span></button>
+        <button type="button" class="more" bind:this={menuButton} aria-label="Session actions" aria-haspopup="menu" aria-expanded={menuAt !== null}
+          onclick={event => { if (menuAt) closeMenu(); else void openMenu(event) }} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event) }}>
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg><span>More</span>
+        </button>
+      </div>
+      </div>
+      <div class="session-tools" role="group" aria-label="Session controls" data-keeps-focus>
       {#if canSwitchApproval}
         <div class="approvals" role="group" aria-label="Approvals">
           <button type="button" aria-pressed={approvalMode === 'ask'} disabled={busy || modeBusy} onclick={askMode}>Ask me</button>
@@ -369,14 +383,11 @@
           aria-describedby={chatView && !canSwitch ? `${id}-switch-why` : undefined} title={chatView && !canSwitch ? whyNot : undefined}
           onclick={event => { if (chatView) openSwitch(event.currentTarget) }}>{terminalLabel}</button>
       </div>
-      <span class="vh" id={`${id}-switch-why`}>{whyNot}</span>
-      <button type="button" class="details" bind:this={detailsButton} aria-expanded={hasSide ? false : contextOpen} aria-controls={`${id}-context`}
-        title={docked ? (dockedOpen ? 'Collapse session workspace' : 'Show session workspace') : undefined}
-        onclick={() => void toggleDetails()} onkeydown={closeDetails}>Details</button>
-      <button type="button" class="more" bind:this={menuButton} aria-label="Session actions" aria-haspopup="menu" aria-expanded={menuAt !== null}
-        onclick={event => { if (menuAt) closeMenu(); else void openMenu(event) }} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event) }}>
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
-      </button>
+        <span class="vh" id={`${id}-switch-why`}>{whyNot}</span>
+        {#if live && onterminal}<button type="button" class="tool-action" disabled={busy || serverOff} onclick={openTerminal}><span aria-hidden="true">›_</span> Terminal here</button>{/if}
+        {#if live && onside}<button type="button" class="tool-action" disabled={busy || serverOff || showSide} onclick={openSideTerminal}><TerminalIcon name="panel" />{showSide ? 'Terminal open beside' : 'Terminal beside'}</button>{/if}
+        {#if oncontinue}<button type="button" class="tool-action" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue with history' : 'Continue session'}</button>{/if}
+      </div>
     </header>
     <!-- Always rendered (empty takes no room), so the first message in it is announced. -->
     <div class="live" role="status">{#if notice}<p class:bad={notice.bad}>{notice.text}</p>{/if}</div>
@@ -406,19 +417,7 @@
 {#if menuAt}
   <!-- data-keeps-focus: a reconnecting terminal never takes focus out of the open menu. -->
   <div class="menu" role="menu" aria-label={`Actions for ${session.title}`} tabindex="-1" data-keeps-focus bind:this={menu} style={`left:${menuAt.x}px;top:${menuAt.y}px`} onkeydown={menuKey}>
-    {#if oncontinue}<button role="menuitem" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue in Gaffer with history…' : 'Continue session…'}</button>{/if}
-    {#if onterminal}<button role="menuitem" disabled={busy} onclick={openTerminal}>Open a terminal here…</button>{/if}
-    {#if onside}<button role="menuitem" disabled={busy} onclick={openSideTerminal}>Open a terminal beside this session…</button>{/if}
-    {#if live && session.tool === 'opencode'}
-      <!-- aria-disabled with its reason, as the header's pair: it stays in the menu, and choosing it does nothing. -->
-      <button role="menuitem" aria-disabled={!canSwitch} aria-describedby={canSwitch ? undefined : `${id}-switch-why`} title={canSwitch ? undefined : whyNot}
-        onclick={() => { if (!canSwitch) return; closeMenu(false); openSwitch(menuButton ?? null) }}>Switch to {switchState.to === 'chat' ? tuiName(switchState.to) : `the ${tuiName(switchState.to)}`}…</button>
-    {/if}
-    {#if canSwitchApproval}
-      <button role="menuitem" disabled={busy || modeBusy} onclick={() => { closeMenu(false); if (approvalMode === 'yolo') askMode(); else yoloMode() }}>{approvalMode === 'yolo' ? 'Switch to Ask me' : 'Turn on YOLO…'}</button>
-    {/if}
     <button role="menuitem" disabled={busy || serverOff} onclick={() => act('rename')}>Rename…</button>
-    <button role="menuitem" onclick={theatreView}>{theatre ? 'Exit theatre view' : 'Theatre view'}</button>
     {#if session.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}
     {#if live}<button role="menuitem" class="danger" disabled={busy || serverOff} onclick={() => act('end')}>{session.state === 'end_requested' ? 'Retry end request…' : 'End session…'}</button>
     {:else}<button role="menuitem" disabled={busy} onclick={() => act('archive')}>Remove from history…</button>{/if}
@@ -460,8 +459,17 @@
   .side-terminal { grid-column: 2; grid-row: 1 / -1; width: 340px; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line-soft); background: var(--bg-sunk); }
   .side-terminal :global(.pane) { flex: 1; min-height: 0; }
   .side-terminal :global(.pane > header), .side-terminal :global(.pane > footer) { display: none; }
-  /* The mock-up's header: 62 px, 28 px in from the sides, the title in Fraunces 21 px over a 13 px line. */
-  .head { flex: none; display: flex; align-items: center; gap: 14px; min-height: 62px; padding: 0 28px; box-sizing: border-box; }
+  /* Identity stays separate from controls, so long session names never push frequent actions into a menu. */
+  .head { min-width: 0; padding: 0 20px 8px; box-sizing: border-box; }
+  .identity-row { display: flex; align-items: center; gap: 12px; min-height: 58px; min-width: 0; }
+  .header-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+  .session-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+  .tool-action, .theatre-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--ink-soft); font: 500 12px var(--sans); cursor: pointer; }
+  .tool-action:hover:not(:disabled), .theatre-button:hover { background: var(--tint); color: var(--ink); }
+  .tool-action:disabled { opacity: .5; cursor: default; }
+  .compact-label { display: none; }
+  .theatre-button[aria-pressed=true] { border-color: var(--accent-text); background: var(--line-soft); color: var(--ink); }
+  .tool-action:focus-visible, .theatre-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .heading { flex-grow: 1; min-width: 0; }
   /* Back to the Sessions screen: the phone's slim header has it (the workspace toolbar's arrow gives way there). */
   .back { display: none; flex: none; width: 44px; height: 44px; align-items: center; justify-content: center; color: var(--ink-soft); border-radius: 10px; }
@@ -491,46 +499,60 @@
   .view button[aria-disabled=true] { cursor: not-allowed; }
   .view[aria-busy=true] button { cursor: progress; }
   .view button:focus-visible, .details:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
-  .details { display: inline-flex; align-items: center; flex: none; min-height: 44px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: none; color: var(--ink); font: 500 14px var(--sans); cursor: pointer; }
+  .details { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-height: 44px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: none; color: var(--ink); font: 500 14px var(--sans); cursor: pointer; }
   .details[aria-expanded=true] { background: var(--line-soft); }
-  .more { flex: none; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; }
+  .more { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 40px; min-height: 40px; padding: 0; border: 0; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; }
   .more:hover { background: var(--tint); color: var(--ink); }
   .more svg { width: 20px; height: 20px; }
+  .more span { font: 500 12px var(--sans); }
   .live p { margin: 0 28px 8px; font-size: 13px; color: var(--muted); }
   .live p.bad { color: var(--bad); }
   .stage { min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line-soft); }
   .menu { position: fixed; z-index: 110; width: 240px; max-height: calc(100dvh - 16px); overflow: auto; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
   .menu [role=menuitem] { display: block; min-height: 36px; padding: 8px 9px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 400 14px var(--sans); text-align: left; cursor: pointer; }
-  .menu [role=menuitem]:hover:not(:disabled):not([aria-disabled=true]), .menu [role=menuitem]:focus-visible { background: var(--tint); outline: none; }
-  .menu [role=menuitem]:disabled, .menu [role=menuitem][aria-disabled=true] { opacity: .45; cursor: default; }
+  .menu [role=menuitem]:hover:not(:disabled), .menu [role=menuitem]:focus-visible { background: var(--tint); outline: none; }
+  .menu [role=menuitem]:disabled { opacity: .45; cursor: default; }
   .menu .danger { color: var(--bad); }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  @media (pointer: coarse) { .menu [role=menuitem] { min-height: 44px; } .more { width: 44px; height: 44px; } .view button, .approvals button { min-height: 44px; } }
-  /* Under 1100 px of room (a narrower window, or the sessions panel docked beside it) the panel waits behind Details and
-     opens over the terminal's edge, so the terminal keeps most of the width. The controls move under the title then too. */
+  @media (pointer: coarse) { .menu [role=menuitem] { min-height: 44px; } .more, .tool-action, .theatre-button { min-width: 44px; min-height: 44px; } .view button, .approvals button { min-height: 44px; } }
   @container session-screen (max-width: 1099px) {
-    .head { flex-wrap: wrap; row-gap: 6px; padding: 8px 16px; gap: 10px; }
-    .heading { flex: 1 1 200px; }
+    .head { padding: 0 12px 8px; }
+    .heading { flex: 1 1 0; }
   }
-  /* A touch screen wider than a tablet gets the same generous grip, reaching into the panel, never over the terminal. */
   @media (pointer: coarse) { .context-separator::before { content: ''; position: absolute; top: 50%; left: calc(50% - 4px); width: 44px; height: 88px; transform: translateY(-50%); } }
-  /* Phones: one slim header (title, project · machine, the state), as the mock-up's phone session draws it; the tabs,
-     Gaffer | agent TUI switch and the Approvals line give their rows to the terminal. H3 lays out the rest. */
+  /* Phones retain every control. Layout actions use 44 px icons; the toolbar wraps instead of hiding choices. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
-    .view, .sub { display: none; }
+    .sub, .identity-row > .pill { display: none; }
     .where-phone { display: block; font-size: 12px; }
     .back { display: flex; }
-    .head { flex-wrap: nowrap; min-height: 52px; padding: 0 4px 0 4px; gap: 6px; }
+    .head { padding: 0 6px 6px; }
+    .identity-row { min-height: 52px; gap: 4px; }
+    .header-actions { gap: 2px; }
+    .header-actions .theatre-button, .header-actions .details, .header-actions .more { width: 44px; min-width: 44px; min-height: 44px; padding: 0; }
+    .header-actions button { flex-direction: column; gap: 1px; }
+    .header-actions button span { display: block; font: 500 10px/12px var(--sans); }
+    .header-actions button .wide-label { display: none; }
+    .header-actions :global(svg) { width: 19px; height: 19px; }
+    .session-tools { gap: 6px; }
+    .view button { padding: 6px 10px; font-size: 12px; min-height: 44px; }
+    .approvals button { padding: 6px 10px; font-size: 12px; min-height: 44px; }
+    .tool-action { min-height: 44px; padding: 0 10px; }
     .heading { flex: 1 1 0; }
     .title { font: 600 15px/1.3 var(--sans); }
     .pill { height: 28px; padding: 0 10px; gap: 6px; font-size: 12px; }
     .pill .lk { display: none; }
     .badge { font-size: 11px; line-height: 18px; padding: 0 6px; }
-    .approvals { display: none; }
+
     .details { padding: 0 10px; }
   }
-  /* A phone held sideways keeps its few rows for the terminal: the pane's own header names the session. H3 lays it out. */
-  @media (max-height: 500px) and (pointer: coarse) and (orientation: landscape) { .head { display: none; } }
+  /* In landscape keep the controls reachable and trim secondary metadata. */
+  @media (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
+    .head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 0 4px 4px; }
+    .identity-row { flex: 1 1 190px; min-height: 44px; }
+    .heading { max-width: 100px; }
+    .where-phone { display: none; }
+    .session-tools { flex: 0 1 auto; }
+  }
   /* With the phone keyboard up the site's chrome steps aside (keyboardChrome) and the slim header stays, as the mock-up's phone
      session draws it; the status line gives its row to the terminal. */
   .keyboard .live { display: none; }

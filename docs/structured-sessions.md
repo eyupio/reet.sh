@@ -400,8 +400,9 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
   a session drops it. A lost or crashed Gaffer session reconnects in place from OpenCode's own store, and a closed one can be
   reopened as a new session with Continue in Gaffer with history…
 - **The browser's log is bounded too.** Gaffer keeps at most 400 items / 256 KiB of the conversation, drops the
-  oldest first and says when earlier messages are no longer shown; an approval still waiting for an answer is never
-  dropped. A continued chat replaying a long OpenCode history therefore stays responsive instead of building an
+  oldest history first and says when earlier messages are no longer shown. Waiting approvals and questions are retained
+  separately from evictable history: a card never pins the output after it, and tool commands, paths and diffs count towards
+  the text budget. If waiting cards alone exceed the budget they stay answerable. A continued chat replaying a long history stays responsive instead of building an
   unbounded page.
 - **Messages typed while it works are queued.** The composer stays usable during a turn: Enter queues the message
   (with any images) instead of sending it, and the queue, at most ten items, sends one message as each turn finishes.

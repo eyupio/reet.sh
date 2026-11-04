@@ -18,6 +18,17 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## GAFFER-BOUNDS-1: keep history bounded around waiting cards (4 November 2026)
+
+Branch `fix/gaffer-transcript-bounds`. The browser reducer skips individual pending approvals and questions when evicting
+old history, so one unanswered card no longer pins every later item. Tool commands, paths and diffs now count towards the
+256 KiB text budget. Pending cards remain answerable; if cards alone exceed the budget they are retained. This is a reducer
+change, with no new UI controls, wire fields or dependency. `docs/structured-sessions.md` describes the retention rule.
+
+`chatBounds.test.mjs` covers both failures and is included in `npm test`: a waiting approval and question followed by a
+long stream retain the cards and newest output within the limits; tool-only command/path/diff payloads also trim. Both
+tests failed against the unchanged reducer and pass with the fix. Validation and merge status are recorded in the PR.
+
 ## AUTH-CARD-1: the account card agrees with the landing page (3 November 2026)
 
 Branch `claude/fervent-wright-5omayg`. Copy only. The card on the sign-in, sign-up and first-run owner-setup pages

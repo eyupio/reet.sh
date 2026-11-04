@@ -238,7 +238,7 @@ test('a waiting question is never trimmed away', () => {
   let state = initialChat()
   state = applyChatEvent(state, event(1, { kind: 'question', questionId: 'q1', question: sampleQuestion() }))
   for (let i = 0; i < MAX_ITEMS + 20; i++) state = applyChatEvent(state, event(i + 2, { kind: 'notice', text: `n${i}` }))
-  // Like a waiting approval, the card holds the trim until it is decided, so it can always be answered.
+  // Keep the card answerable while history after it still trims.
   assert.equal(pendingQuestions(state).length, 1)
   assert.equal(state.items[0].kind, 'question')
   state = applyChatEvent(state, event(9999, { kind: 'question_resolved', questionId: 'q1', reason: 'accept' }))

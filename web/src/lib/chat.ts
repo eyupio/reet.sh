@@ -108,23 +108,24 @@ function settledWaiting(state: ChatState, items: ChatItem[]): ChatState['status'
 }
 
 function itemChars(item: ChatItem): number {
-  if (item.kind === 'tool') return item.title.length + item.text.length + item.locations.join('').length
+  if (item.kind === 'tool') return item.title.length + item.text.length + item.command.length + item.path.length + item.diff.length + item.locations.join('').length
   if (item.kind === 'permission') return item.title.length + item.command.length + item.path.length + item.diff.length + item.description.length + item.locations.join('').length
   if (item.kind === 'question') return questionChars(item.question)
   return item.text.length
 }
 
-/** Trim the oldest items until the log fits its limits, keeping a pending approval reachable. */
+/** Drop the oldest history until the log fits, skipping individual waiting cards. Cards alone may exceed the budget;
+ *  retaining one must never pin all the ordinary output that follows it. */
 export function trimChat(items: ChatItem[], truncated: boolean): { items: ChatItem[]; truncated: boolean } {
   let total = 0
   for (const item of items) total += itemChars(item)
-  let cut = 0
-  while (cut < items.length && (items.length - cut > MAX_ITEMS || total > MAX_TEXT)) {
-    const item = items[cut]
-    if ((item.kind === 'permission' || item.kind === 'question') && !item.decision) break
-    total -= itemChars(item); cut++; truncated = true
+  const dropped = new Set<number>()
+  for (let i = 0; i < items.length && (items.length - dropped.size > MAX_ITEMS || total > MAX_TEXT); i++) {
+    const item = items[i]
+    if ((item.kind === 'permission' || item.kind === 'question') && !item.decision) continue
+    total -= itemChars(item); dropped.add(i); truncated = true
   }
-  return cut ? { items: items.slice(cut), truncated } : { items, truncated }
+  return dropped.size ? { items: items.filter((_, i) => !dropped.has(i)), truncated } : { items, truncated }
 }
 
 export function applyChatEvent(state: ChatState, event: ChatEvent): ChatState {

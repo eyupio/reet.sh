@@ -109,9 +109,12 @@ func (s *server) terminalEnabled() bool {
 func (s *server) terminalOriginConfigured() bool { return validTerminalOrigin(s.publicOrigin()) }
 func validTerminalOrigin(origin string) bool {
 	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
 	noCredentials := u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
 	plainPath := u.Path == "" || u.Path == "/"
-	validOrigin := err == nil && noCredentials && plainPath
+	validOrigin := noCredentials && plainPath
 	if !validOrigin {
 		return false
 	}
@@ -143,10 +146,13 @@ func (s *server) terminalStatus() terminalControllerStatus {
 }
 func (s *server) terminalOrigin(r *http.Request) bool {
 	u, err := url.Parse(s.publicOrigin())
+	if err != nil {
+		return false
+	}
 	noCredentials := u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
 	validScheme := u.Scheme == "https" || u.Scheme == "http"
 	plainPath := u.Path == "" || u.Path == "/"
-	validOrigin := err == nil && noCredentials && validScheme && plainPath
+	validOrigin := noCredentials && validScheme && plainPath
 	if !validOrigin {
 		return false
 	}
@@ -542,7 +548,10 @@ func serveTerminalHistory(w http.ResponseWriter, r *http.Request, data []byte) {
 func (s *server) terminalSocket(w http.ResponseWriter, r *http.Request) {
 	// The wrapper already checked the exact scheme and origin; the library
 	// also checks the explicit canonical host when running behind a proxy.
-	origin, _ := url.Parse(s.publicOrigin())
+	origin, err := url.Parse(s.publicOrigin())
+	if err != nil {
+		return
+	}
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{origin.Host}})
 	if err != nil {
 		return

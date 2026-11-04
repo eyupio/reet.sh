@@ -89,8 +89,11 @@ func validMCPRedirect(raw string) bool {
 		return false
 	}
 	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
 	noCredentials := u.Host != "" && u.User == nil && u.Fragment == ""
-	if err != nil || !noCredentials {
+	if !noCredentials {
 		return false
 	}
 	if u.Scheme == "https" {

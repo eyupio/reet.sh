@@ -72,9 +72,12 @@ func safeNext(raw string) string {
 		}
 	}
 	u, err := url.Parse(raw)
+	if err != nil {
+		return "/"
+	}
 	plainPath := strings.HasPrefix(u.Path, "/") && !strings.HasPrefix(u.Path, "//")
 	noBackslash := !strings.Contains(u.Path, "\\")
-	validTarget := err == nil && u.Scheme == "" && u.Host == "" && u.User == nil && plainPath && noBackslash
+	validTarget := u.Scheme == "" && u.Host == "" && u.User == nil && plainPath && noBackslash
 	if !validTarget {
 		return "/"
 	}

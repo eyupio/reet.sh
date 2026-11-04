@@ -4,17 +4,10 @@
   import AppShell from './lib/shell/AppShell.svelte'
   import ProgressBar from './lib/shell/ProgressBar.svelte'
   import type { JumpItem, Tab } from './lib/shell/tabs'
-  import ActivityPage from './lib/ActivityPage.svelte'
   import { listFolderProjects, markSessionSeen, sessionHref, terminalMachines, terminalSessions, type FolderProject } from './lib/terminal/api'
-  import SessionsPage from './lib/sessions/SessionsPage.svelte'
-  import Machines from './lib/Machines.svelte'
-  import Home from './lib/home/Home.svelte'
   import { attentionCount, needsYou, sessionOwners, titleWithAttention, type NeedCard } from './lib/home'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import { SYNC_FILTERS, SYNC_UNAVAILABLE, matchesSyncFilter, settledJobsKey, skillSyncIntent, skillSyncSummary, type SyncFilter } from './lib/skillSync'
-  import Community from './lib/Community.svelte'
-  import SharedLists from './lib/SharedLists.svelte'
-  import Spaces from './lib/Spaces.svelte'
   import { audienceLabel } from './lib/api'
   import { onMount, tick } from 'svelte'
   import {
@@ -22,36 +15,22 @@
     patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, saveProfile, signOutAccount, tagSkills, takeThemeChoice, UnauthorizedError,
     type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
-  import Account from './lib/Account.svelte'
   import AccountMenu from './lib/AccountMenu.svelte'
-  import MCPConsent from './lib/MCPConsent.svelte'
   import WebMCP from './lib/WebMCP.svelte'
-  import Hosting from './lib/Hosting.svelte'
   import HostedShelf from './lib/HostedShelf.svelte'
-  import AccountSignIn from './lib/AccountSignIn.svelte'
-  import Admin from './lib/Admin.svelte'
   import BootSkeleton from './lib/BootSkeleton.svelte'
+  import RouteSkeleton from './lib/RouteSkeleton.svelte'
+  import PageLoadError from './lib/PageLoadError.svelte'
+  import { loadPage } from './lib/pageLoad'
   import BulkBar from './lib/BulkBar.svelte'
   import ConfirmDialog from './lib/ConfirmDialog.svelte'
   import CopyButton from './lib/CopyButton.svelte'
   import Footer from './lib/Footer.svelte'
   import { canAutoFocus } from './lib/focus'
-  import Join from './lib/Join.svelte'
-  import ListView from './lib/ListView.svelte'
   import Logo from './lib/Logo.svelte'
   import NewList from './lib/NewList.svelte'
   import NotFound from './lib/NotFound.svelte'
-  import PublicList from './lib/PublicList.svelte'
-  import ResetPassword from './lib/ResetPassword.svelte'
   import PageHeader from './lib/PageHeader.svelte'
-  import Setup from './lib/Setup.svelte'
-  import SetupProfiles from './lib/SetupProfiles.svelte'
-  import SignIn from './lib/SignIn.svelte'
-  import SignUp from './lib/SignUp.svelte'
-  import Notifications from './lib/Notifications.svelte'
-  import Support from './lib/Support.svelte'
-  import Ticket from './lib/Ticket.svelte'
-  import Welcome from './lib/Welcome.svelte'
   import ThemePicker from './lib/ThemePicker.svelte'
   import SkillCard from './lib/SkillCard.svelte'
   import SyncActivity from './lib/SyncActivity.svelte'
@@ -66,6 +45,34 @@
   import { installCommand } from './lib/install'
   import { stageOf, stages, stageTitle, type Stage } from './lib/shelf'
   import { isOldEnvironment } from './lib/time'
+
+  // Each route keeps its code outside the shell, including the public and sign-in screens.
+  const pages = {
+    ActivityPage: () => loadPage(() => import('./lib/ActivityPage.svelte')),
+    SessionsPage: () => loadPage(() => import('./lib/sessions/SessionsPage.svelte')),
+    Machines: () => loadPage(() => import('./lib/Machines.svelte')),
+    Home: () => loadPage(() => import('./lib/home/Home.svelte')),
+    Community: () => loadPage(() => import('./lib/Community.svelte')),
+    SharedLists: () => loadPage(() => import('./lib/SharedLists.svelte')),
+    Spaces: () => loadPage(() => import('./lib/Spaces.svelte')),
+    Account: () => loadPage(() => import('./lib/Account.svelte')),
+    MCPConsent: () => loadPage(() => import('./lib/MCPConsent.svelte')),
+    Hosting: () => loadPage(() => import('./lib/Hosting.svelte')),
+    AccountSignIn: () => loadPage(() => import('./lib/AccountSignIn.svelte')),
+    Admin: () => loadPage(() => import('./lib/Admin.svelte')),
+    Join: () => loadPage(() => import('./lib/Join.svelte')),
+    ListView: () => loadPage(() => import('./lib/ListView.svelte')),
+    PublicList: () => loadPage(() => import('./lib/PublicList.svelte')),
+    ResetPassword: () => loadPage(() => import('./lib/ResetPassword.svelte')),
+    Setup: () => loadPage(() => import('./lib/Setup.svelte')),
+    SetupProfiles: () => loadPage(() => import('./lib/SetupProfiles.svelte')),
+    SignIn: () => loadPage(() => import('./lib/SignIn.svelte')),
+    SignUp: () => loadPage(() => import('./lib/SignUp.svelte')),
+    Notifications: () => loadPage(() => import('./lib/Notifications.svelte')),
+    Support: () => loadPage(() => import('./lib/Support.svelte')),
+    Ticket: () => loadPage(() => import('./lib/Ticket.svelte')),
+    Welcome: () => loadPage(() => import('./lib/Welcome.svelte')),
+  }
 
   let skills = $state<Skill[]>([])
   let counts = $state<Counts>({ all: 0, liked: 0, bookmarked: 0, used: 0 })
@@ -1003,58 +1010,196 @@
 </header>
 <main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout} class:home-layout={homeLayout} class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}
-    <Community canSave={authenticated && !needsAuth && canWrite} />
+    {#await pages.Community()}
+      <RouteSkeleton variant="cards" />
+    {:then { default: Page }}
+      <Page canSave={authenticated && !needsAuth && canWrite} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isPublicList}
-    <PublicList slug={publicSlug} />
+    {#await pages.PublicList()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page slug={publicSlug} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isJoin}
-    <Join token={joinToken} onsuccess={afterJoin} />
+    {#await pages.Join()}
+      <RouteSkeleton variant="auth" />
+    {:then { default: Page }}
+      <Page token={joinToken} onsuccess={afterJoin} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isReset}
-    <ResetPassword />
+    {#await pages.ResetPassword()}
+      <RouteSkeleton variant="auth" />
+    {:then { default: Page }}
+      <Page />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if !authChecked}
     <BootSkeleton />
   {:else if authMode === 'accounts' && setupRequired && !isWelcome}
-    <Setup {bootstrapRequired} onsuccess={afterAuth} />
+    {#await pages.Setup()}
+      <RouteSkeleton variant="auth" />
+    {:then { default: Page }}
+      <Page {bootstrapRequired} onsuccess={afterAuth} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if authMode === 'accounts' && !currentUser}
     {#if isWelcome}
-      <Welcome {signupEnabled} {contactEmail} {setupRequired} />
+      {#await pages.Welcome()}
+      <RouteSkeleton variant="welcome" />
+    {:then { default: Page }}
+      <Page {signupEnabled} {contactEmail} {setupRequired} />
+    {:catch}
+      <PageLoadError />
+    {/await}
     {:else if isSignUp && signupEnabled}
-      <SignUp onsuccess={afterAuth} />
+      {#await pages.SignUp()}
+      <RouteSkeleton variant="auth" />
+    {:then { default: Page }}
+      <Page onsuccess={afterAuth} />
+    {:catch}
+      <PageLoadError />
+    {/await}
     {:else}
-      <AccountSignIn onsuccess={afterAuth} {signupEnabled} {contactEmail} {passwordReset} {sso} />
+      {#await pages.AccountSignIn()}
+      <RouteSkeleton variant="auth" />
+    {:then { default: Page }}
+      <Page onsuccess={afterAuth} {signupEnabled} {contactEmail} {passwordReset} {sso} />
+    {:catch}
+      <PageLoadError />
+    {/await}
     {/if}
   {:else if authMode === 'token' && needsAuth}
-    <SignIn onattempt={attemptSignIn} />
+    {#await pages.SignIn()}
+      <RouteSkeleton variant="auth" />
+    {:then { default: Page }}
+      <Page onattempt={attemptSignIn} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if !authMode}
     <PageHeader eyebrow="Connection problem" title="Your workspace is out of reach." />
     <p class="notice bad" role="alert">Could not check how this instance signs in. Reload the page to try again.</p>
   {:else if isHosting}
-    <Hosting {canWrite} reports={machineReports} snapshot={syncSnapshot} />
+    {#await pages.Hosting()}
+      <RouteSkeleton variant="form" />
+    {:then { default: Page }}
+      <Page {canWrite} reports={machineReports} snapshot={syncSnapshot} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isShared}
-    <SharedLists userId={currentUser?.id ?? 0} {canWrite} />
+    {#await pages.SharedLists()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page userId={currentUser?.id ?? 0} {canWrite} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isActivity && authMode !== 'accounts'}
-    <ActivityPage accounts={false} writer={sessionsAccess} onsignedout={fail} />
+    {#await pages.ActivityPage()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page accounts={false} writer={sessionsAccess} onsignedout={fail} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isHome}
-    <Home userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={(count, cards, seen, answered) => { attention = count; needsCards = cards; onMarkSeen = seen; onAnswered = answered }} />
+    {#await pages.Home()}
+      <RouteSkeleton variant={homeLayout && sessionsAccess ? 'home' : 'cards'} />
+    {:then { default: Page }}
+      <Page userId={currentUser?.id ?? 0} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={(count, cards, seen, answered) => { attention = count; needsCards = cards; onMarkSeen = seen; onAnswered = answered }} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isSessions && sessionsAccess}
-    <SessionsPage userId={currentUser?.id ?? 0} onsignedout={fail} onattention={(count, cards, seen, answered) => { attention = count; needsCards = cards; onMarkSeen = seen; onAnswered = answered }} />
+    {#await pages.SessionsPage()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page userId={currentUser?.id ?? 0} onsignedout={fail} onattention={(count, cards, seen, answered) => { attention = count; needsCards = cards; onMarkSeen = seen; onAnswered = answered }} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isMachines}
-    <Machines userId={currentUser?.id??0} onsignedout={fail} {canWrite} {timeZone} {dateFormat} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} ontitle={title => (workspaceTitle = title)} />
+    {#await pages.Machines()}
+      <RouteSkeleton variant={terminalLayout ? 'workspace' : 'rows'} />
+    {:then { default: Page }}
+      <Page userId={currentUser?.id??0} onsignedout={fail} {canWrite} {timeZone} {dateFormat} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} ontitle={title => (workspaceTitle = title)} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isProfiles}
-    <SetupProfiles {canWrite} onerror={fail} />
+    {#await pages.SetupProfiles()}
+      <RouteSkeleton variant="cards" />
+    {:then { default: Page }}
+      <Page {canWrite} onerror={fail} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isNotifications}
-    <Notifications onchange={loadNotificationCount} />
+    {#await pages.Notifications()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page onchange={loadNotificationCount} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isSupport}
-    <Support />
+    {#await pages.Support()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isTicket}
-    <Ticket id={supportTicketID} />
+    {#await pages.Ticket()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page id={supportTicketID} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isSpaces}
-    <Spaces {canWrite} />
+    {#await pages.Spaces()}
+      <RouteSkeleton variant="cards" />
+    {:then { default: Page }}
+      <Page {canWrite} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isMCPConsent && authMode === 'accounts'}
-    <MCPConsent />
+    {#await pages.MCPConsent()}
+      <RouteSkeleton variant="auth" />
+    {:then { default: Page }}
+      <Page />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if (isAccount || isActivity) && authMode === 'accounts'}
-    <Account user={currentUser!} onsignout={signOut} onerror={fail} onuserchange={(u) => (currentUser = u)} writer={canWrite} />
+    {#await pages.Account()}
+      <RouteSkeleton variant="form" />
+    {:then { default: Page }}
+      <Page user={currentUser!} onsignout={signOut} onerror={fail} onuserchange={(u) => (currentUser = u)} writer={canWrite} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isList}
-    <ListView id={listId} {canWrite} userRole={role} onerror={fail} />
+    {#await pages.ListView()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page id={listId} {canWrite} userRole={role} onerror={fail} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isAccount}
     <PageHeader eyebrow="Your account" title="Accounts are not enabled." />
     <p class="notice bad" role="alert">Accounts are not enabled on this instance.</p>
@@ -1062,7 +1207,13 @@
     <PageHeader eyebrow="Instance administration" title="Admin access is needed." />
     <p class="notice bad" role="alert">Admins only. Your account does not have access to this page.</p>
   {:else if isAdmin}
-    <Admin onerror={fail} {role} accounts={authMode === 'accounts'} {supportDesk} currentEmail={currentUser?.email ?? ''} />
+    {#await pages.Admin()}
+      <RouteSkeleton variant="cards" />
+    {:then { default: Page }}
+      <Page onerror={fail} {role} accounts={authMode === 'accounts'} {supportDesk} currentEmail={currentUser?.email ?? ''} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isSkills}
     <PageHeader eyebrow="Ey up. Your skill shelf." title="Skills." lede="Find, create and share skills. Sync the ones you want to your machines.">
       {#snippet actions()}{#if loading || counts.all > 0}<a class="btn" href="/sync">Sync skills</a>{/if}{#if canWrite && authMode !== 'accounts'}<a class="btn" href="/hosting">Create a skill</a>{/if}{/snippet}

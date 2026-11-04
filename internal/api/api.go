@@ -601,12 +601,18 @@ func (s *server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// backupImportUpload is the sealed copy an owner sends to be staged. It is
-// binary, so it cannot be JSON; a browser cannot send this Content-Type
-// cross-origin without a preflight, which keeps the check's purpose.
+// importHeader marks an import upload. A form can send multipart/form-data
+// from any website without asking first, but it cannot add a header of its
+// own, so requiring this one keeps the upload from being forged cross-site.
+const importHeader = "X-Reet-Import"
+
+// backupImportUpload is the multipart form an owner sends to stage a sealed
+// copy. It is not JSON, so it is exempt from the JSON check, on this path
+// and with the marker header.
 func backupImportUpload(r *http.Request) bool {
 	return r.Method == http.MethodPost && r.URL.Path == "/api/v2/admin/backups/import" &&
-		strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/octet-stream")
+		strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") &&
+		r.Header.Get(importHeader) != ""
 }
 
 func (s *server) requireOwner(next http.HandlerFunc) http.HandlerFunc {

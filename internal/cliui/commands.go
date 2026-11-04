@@ -24,6 +24,7 @@ func Commands() []Command {
 			{Name: "backup list", Title: "List backups", Summary: "Read local instance copies", Args: []string{"backup", "list"}},
 			{Name: "backup run", Title: "Take a backup", Summary: "Write a sealed instance copy", Args: []string{"backup", "run"}},
 			{Name: "backup restore", Title: "Restore a backup", Summary: "Press e to add the backup ID and options", Args: []string{"backup", "restore"}},
+			{Name: "backup import", Title: "Import a backup", Summary: "Press e to add the server, token file and copy", Args: []string{"backup", "import"}},
 			{Name: "backup open", Title: "Open a backup", Summary: "Press e to add a file and options", Args: []string{"backup", "open"}},
 		}},
 		{Name: "branches", Title: "Branches", Summary: "List merged local branches and prune them", Group: "Check & maintain", Args: []string{"branches"}, Children: []Command{

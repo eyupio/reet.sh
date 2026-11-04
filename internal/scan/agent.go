@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -585,7 +584,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 			}
 			if operationErr == nil {
 				args := []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--target", j.TargetID, "--config", config}
-				opts := syncOptions{cwd: dir, verifyEnrollment: true, preflight: requireNpx, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }, onProgress: func(stage, detail string) {
+				opts := syncOptions{cwd: dir, verifyEnrollment: true, preflight: requireDependencies, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }, onProgress: func(stage, detail string) {
 					reportCtx, reportCancel := context.WithTimeout(ctx, 5*time.Second)
 					defer reportCancel()
 					_ = agentRequestContext(reportCtx, c, "/api/v2/sync/jobs/stage", map[string]string{"id": j.ID, "stage": stage, "detail": detail}, nil, version)
@@ -596,11 +595,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 				}
 				runCtx, cancel := context.WithTimeout(ctx, 8*time.Minute)
 				operationErr = runSyncWithOptions(args, strings.NewReader(""), out, func(args []string, cwd string) error {
-					cmd := exec.CommandContext(runCtx, "npx", args...)
-					cmd.Dir = cwd
-					cmd.Stdout = out
-					cmd.Stderr = out
-					return cmd.Run()
+					return runNpxCommand(runCtx, args, cwd, nil, out)
 				}, version, opts)
 				cancel()
 				kindOK := j.Kind == "preview" || j.Kind == "auto"

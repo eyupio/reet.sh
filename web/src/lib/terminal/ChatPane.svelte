@@ -316,15 +316,6 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   await tick()
   if (log) log.scrollTop = log.scrollHeight
  }
- // Gaffer's row and the composer come and go below the log, so a shrinking log would hide its own last line.
- // While the reader is at the bottom, follow the new height instead of leaving the transcript clipped.
- $effect(() => {
-  const el = log
-  if (!el) return
-  const watcher = new ResizeObserver(() => { if (nearBottom) void scrollToEnd() })
-  watcher.observe(el)
-  return () => watcher.disconnect()
- })
  function noteImages(files: File[]) {
   let total = images.reduce((sum, item) => sum + item.file.size, 0)
   let refused = ''

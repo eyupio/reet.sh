@@ -31,7 +31,7 @@ func Commands() []Command {
 			{Name: "branches prune", Title: "Prune branches", Summary: "Press e to add --dry-run, --yes or a folder", Args: []string{"branches", "prune"}},
 		}},
 		{Name: "scan", Title: "Scan", Summary: "Report installed skills to your account", Group: "Skills & setups", Args: []string{"scan"}},
-		{Name: "sync", Title: "Sync", Summary: "Preview a saved target, then choose whether to apply it", Group: "Skills & setups", Args: []string{"sync"}},
+		{Name: "sync", Title: "Sync", Summary: "Preview a saved target; --apply asks first", Group: "Skills & setups", Args: []string{"sync"}},
 		{Name: "setup", Title: "Setups", Summary: "Discover, save and restore agent setups", Group: "Skills & setups", Args: []string{"setup"}, Children: []Command{
 			{Name: "setup scan", Title: "Discover setups", Summary: "Inspect known local setup locations", Args: []string{"setup", "scan"}},
 			{Name: "setup profile", Title: "Setup profiles", Summary: "Open the existing create/push wizard", Args: []string{"setup", "profile"}},

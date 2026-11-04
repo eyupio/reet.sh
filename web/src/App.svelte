@@ -1003,7 +1003,7 @@
       <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
     </div>
     {#if !isPublicList && !isCommunity && !isJoin}
-      <nav class="site-nav" aria-label="Instance help"><span class="instance-address">{location.host}</span><a href={DOCS_URL} target="_blank" rel="noopener noreferrer">Documentation ↗</a><ThemePicker /></nav>
+      <nav class="site-nav" aria-label="Instance help"><span class="instance-address">{location.host}</span><a href={DOCS_URL} target="_blank" rel="noopener noreferrer">Documentation <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 19 19 5M5 5h14v14"/></svg></a><ThemePicker /></nav>
     {:else if isPublicList || isCommunity || isJoin}
       <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a href={DOCS_URL}>Docs</a><ThemePicker /><a class="entry-link" href="/">Open your workspace →</a></nav>
     {/if}

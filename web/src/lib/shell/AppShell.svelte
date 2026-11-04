@@ -13,7 +13,7 @@
   import type { NeedCard } from '../home'
 
   // The signed-in top bar and, on a phone, the bottom tab bar (spec: Information architecture and navigation, R13).
-  // Desktop (1100 px and wider): logo, every tab, Jump, the bell, More, and the account menu.
+  // Desktop (1100 px and wider): a workspace sidebar, with Jump, the bell and the account menu in the bar.
   // Tablet (651-1099 px): logo, the bar's tabs and More, a search button, the bell, the account menu.
   // Phone (PHONE_SCREEN): a slim bar with logo, search button, bell and account; the bar's tabs and More along the bottom.
   // `compact` is the terminal workspace's slim header: no bottom bar (the terminal keeps its own height rule), and on a

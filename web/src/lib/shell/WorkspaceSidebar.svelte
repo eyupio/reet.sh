@@ -28,7 +28,7 @@
         {tab.label}
       </a>
     {/each}
-    <button type="button" class:current={moreCurrent} aria-haspopup="dialog" aria-expanded={moreOpen} aria-label={moreCurrent ? 'More, current page inside' : undefined} onclick={event => onmore(event.currentTarget)}><span class="more-icon" aria-hidden="true">···</span>More</button>
+    <button type="button" class:current={moreCurrent} aria-haspopup="dialog" aria-expanded={moreOpen} aria-label={moreCurrent ? 'More, current page inside' : undefined} onclick={event => onmore(event.currentTarget)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>More</button>
   </nav>
   <div class="help"><a href={DOCS_URL} target="_blank" rel="noopener noreferrer">Documentation <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 19 19 5M5 5h14v14"/></svg><span class="vh"> (opens in a new tab)</span></a><span>Yours to run. Yours to make.</span></div>
 </aside>
@@ -48,11 +48,10 @@
     .label { font: 9px var(--mono); letter-spacing: .08em; color: var(--muted); margin: 0 12px 12px; }
     nav { display: grid; gap: 4px; }
     nav a, nav button { display: flex; align-items: center; gap: 12px; padding: 11px 12px; min-height: 43px; border-radius: 5px; color: var(--muted); font: 400 14px var(--sans); text-decoration: none; border: 0; background: none; cursor: pointer; text-align: left; }
-    nav a > svg { width: 18px; height: 18px; flex: none; }
+    nav a > svg, nav button > svg { width: 18px; height: 18px; flex: none; }
     nav a[aria-current='page'], nav button.current { color: var(--accent-text); background: var(--card); font-weight: 600; }
     nav a:hover, nav button:hover { background: var(--card); color: var(--ink); }
     a:focus-visible, button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
-    .more-icon { font: 600 20px/1 var(--mono); width: 18px; text-align: center; }
     .help { margin-top: auto; padding: 35px 11px 0; display: grid; gap: 15px; }
     .help a { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted); text-decoration: none; min-height: 30px; }
     .help a:hover { color: var(--accent-text); }

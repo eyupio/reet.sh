@@ -595,7 +595,7 @@ func sitemapPaths(fn func() []string) []string {
 	paths := make([]string, 0, 32)
 	add := func(p string) {
 		p = strings.TrimSpace(p)
-		if p == "" || (p == "/" || (spaRoute(p) && !publicIndexRoute(p))) || !strings.HasPrefix(p, "/") || seen[p] {
+		if p == "" || p == "/" || (spaRoute(p) && !publicIndexRoute(p)) || !strings.HasPrefix(p, "/") || seen[p] {
 			return
 		}
 		seen[p] = true

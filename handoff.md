@@ -517,8 +517,8 @@ says "Authentication required", stop and ask the owner which way to go. No hardw
 
 **Owner checks, still unverified:** the owner deferred section 3 signed-in Run B ("skip this, assume it works for now"). This is permission to
 continue independent SC5 work, not evidence of a real login. Do not re-ask while it remains deferred. When resumed, signed-in Run B runs first,
-then Run A's follow-up; if Run B still reports "Authentication required", stop and ask which direction to take. Next are section 2 Claude logged
-out/in and the decision about machine-side sign-in wording, then section 1 physical touch and screen-reader checks. Neither experimental switch nor
+then Run A's follow-up; if Run B still reports "Authentication required", stop and ask which direction to take. Next are the signed-in runs
+(section 2 Run B for Claude and section 3 Run B for Codex), then section 1's physical touch and screen-reader checks. Neither experimental switch nor
 `elicitation.form` is retired before its required evidence is recorded. Record each result in the ledger at the top of
 [docs/device-checks.md](docs/device-checks.md#recorded-results) with its date and the PR that carries it. Reet never calls `authenticate`.
 
@@ -527,7 +527,8 @@ without a login and refuses the first prompt with `-32000 Authentication require
 that adapter with no model call; Codex `codex-acp@1.13.1` refuses `session/new` before any authenticate and reports
 `{kind: none, label: "Not logged in"}`. Because Claude answers at the prompt rather than at session/new, the prompt path now maps that refusal to
 `acpagent.ErrClaudeLogin` ("Sign in to Claude on that machine first.") the way session/new already did for Codex, so a signed-out machine says what
-to do instead of looking broken. Signed-in runs for both agents and every phone/reader item are still open.
+to do instead of looking broken; the chat shows it as that turn's error detail (merged as `c600e114`). Signed-in runs for both agents and every
+phone/reader item are still open.
 
 **Delivered SC5 slices:**
 - #392: live model controls and lookups follow each available agent descriptor. Merged; bot review was blocked by account quota and its terminal CI

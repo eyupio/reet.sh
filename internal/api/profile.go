@@ -45,6 +45,7 @@ func (s *server) profileGet(w http.ResponseWriter, r *http.Request) {
 func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		GafferAnimations      *bool   `json:"gafferAnimations"`
+		GafferCompact         *bool   `json:"gafferCompact"`
 		Name                  *string `json:"name"`
 		Theme                 *string `json:"theme"`
 		Timezone              *string `json:"timezone"`
@@ -191,6 +192,10 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.GafferAnimations != nil {
 		profile.GafferAnimations = *in.GafferAnimations
 		detail["gafferAnimations"] = *in.GafferAnimations
+	}
+	if in.GafferCompact != nil {
+		profile.GafferCompact = *in.GafferCompact
+		detail["gafferCompact"] = *in.GafferCompact
 	}
 	if in.TerminalRemoveOnClose != nil {
 		profile.TerminalRemoveOnClose = *in.TerminalRemoveOnClose

@@ -3,7 +3,7 @@
   import { toolLabel, toolState, toolTarget, type ChatState } from '../chat'
   import { gafferProgress, gafferQuote, observedTime, recentToolState, type GafferPhase } from '../gafferProgress'
   import { gafferSummary } from '../gafferSummary'
-  import { GAFFER_SETTLE_MS, gafferAnimations, gafferGestureMs } from '../gafferMotion'
+  import { GAFFER_SETTLE_MS, gafferAnimations, gafferCompact, gafferGestureMs } from '../gafferMotion'
   import { GAFFER_AWAY_AFTER, gafferAside, gafferClickAside, gafferClickReaction, gafferClickRun, gafferGesture, gafferPose, type GafferPose, type GafferReaction } from '../gafferPersonality'
   import GafferAvatar from './GafferAvatar.svelte'
 
@@ -18,6 +18,9 @@
   let seconds = $state(0), observedTurn = ''
   let observedAt = $state(0)
   let details = $state(false)
+  // The account preference says how a card starts; this card's own button overrides it for as long as the card is open.
+  let foldChoice = $state<boolean | null>(null)
+  const minimised = $derived(foldChoice ?? $gafferCompact)
   let sheet = $state(false), handoverMore = $state(false)
   let summaryKey = ''
   const NO_HANDOVER = 'No final handover was recorded. Check the conversation before calling the job done.'
@@ -32,6 +35,7 @@
   let gestureTimer: ReturnType<typeof setTimeout> | undefined, asideTimer: ReturnType<typeof setTimeout> | undefined
   let lastGestureAt = -Infinity, nextGestureAt = 0, gestureEndsAt = 0
   let clicks = $state({ count: 0, at: -Infinity }), clickAside = $state('')
+  const miniQuote = $derived(clickAside || (summary ? handoverText : quote))
   let lastClickReaction: GafferReaction = ''
   let queuedClick: { reaction: GafferReaction; phase: GafferPhase; pose: GafferPose } | null = null
 
@@ -164,7 +168,21 @@
   })
 </script>
 
-{#if view.visible}
+{#if view.visible && minimised}
+  <section class="gaffer-progress mini" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-mode="minimised" data-poke-count={clicks.count}>
+    <button type="button" class="mini-portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant="bust" active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} paused={still} /></button>
+    <div class="mini-status" role="status" aria-live="polite" aria-atomic="true">
+      <span class="signal" class:live={view.active} aria-hidden="true">{#if needsYou}?{:else if view.phase === 'idle'}✓{:else if view.phase === 'ended' || view.phase === 'cancelled'}<i class="sq"></i>{:else if view.phase === 'error' || view.phase === 'reconnecting'}!{:else}<i></i><i></i><i></i>{/if}</span>
+      <strong>{view.label}</strong>
+    </div>
+    <p class="mini-quote" title={miniQuote} aria-live={clickAside ? 'polite' : 'off'}><span aria-hidden="true">“</span>{miniQuote}<span aria-hidden="true">”</span></p>
+    {#if summary}<span class="mini-count" class:snag={summary.failed || summary.stopped} title="Recorded tool results">{summary.completed} done{#if summary.failed} · {summary.failed} failed{/if}{#if summary.stopped} · {summary.stopped} unfinished{/if}</span>{/if}
+    <button type="button" class="quiet fold" aria-label="Expand Gaffer’s card" aria-expanded="false" title="Show the full card" onclick={() => foldChoice = false}>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+    </button>
+    {#if view.active}<div class="activity-line" aria-hidden="true"><span></span></div>{/if}
+  </section>
+{:else if view.visible}
   <section class="gaffer-progress" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:compact={stopped} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-poke-count={clicks.count}>
     <div class="gaffer-main">
       <button type="button" class="portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant="bust" active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} paused={still} /></button>
@@ -186,9 +204,14 @@
         {/if}
         {#if summary && clickAside}<p class="quote click-aside" role="status" aria-live="polite"><span aria-hidden="true">“</span>{clickAside}<span aria-hidden="true">”</span></p>{/if}
       </div>
+      <div class="controls">
+      <button type="button" class="quiet fold" aria-label="Minimise Gaffer’s card to one line" aria-expanded="true" title="Minimise to one line; Gaffer keeps talking" onclick={() => foldChoice = true}>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 10 4-4 4 4" /></svg>
+      </button>
       <button type="button" class="quiet pause" aria-label={paused ? 'Resume Gaffer animation' : 'Pause Gaffer animation'} title={!$gafferAnimations ? 'Animation is off in Account → Profile' : reduced ? 'Your device requests reduced motion' : paused ? 'Resume animation' : 'Pause animation; quotes and updates continue'} aria-pressed={paused || !$gafferAnimations || reduced} disabled={!$gafferAnimations || reduced} onclick={() => paused = !paused}>
         <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">{#if paused}<path d="m7 4 9 6-9 6z" />{:else}<rect x="5" y="4" width="3" height="12" rx="1" /><rect x="12" y="4" width="3" height="12" rx="1" />{/if}</svg>
       </button>
+      </div>
     </div>
     {#if summary}
       <ul class="chips" aria-label="Recorded tool results">
@@ -271,7 +294,22 @@
   .quiet { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 5px; border: 0; border-radius: 5px; padding: 0 6px; background: none; color: var(--muted); cursor: pointer; font: 11px var(--sans); }
   .quiet:hover { color: var(--ink); background: var(--line-soft); }
   .quiet:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
-  .pause { width: 40px; height: 40px; align-self: flex-start; margin: -6px -4px 0 0; }
+  .controls { display: flex; align-self: flex-start; margin: -6px -4px 0 0; }
+  .pause, .fold { width: 40px; height: 40px; }
+  .fold svg { width: 14px; height: 14px; }
+  /* Minimised: one 40px line. The portrait, status, Gaffer's own words and the tally all stay; the chips, job sheet and byline fold away. */
+  .mini { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 5px 4px 5px 8px; }
+  .mini.needs-you { border-left: 3px solid var(--warn); padding-left: 6px; background: color-mix(in srgb, var(--warn) 5%, var(--card)); }
+  .mini.problem { border-left: 3px solid var(--bad); padding-left: 6px; }
+  .mini-portrait { width: 32px; height: 32px; flex: none; border: 0; padding: 0; background: none; border-radius: 7px; cursor: pointer; }
+  .mini-portrait:hover { background: var(--line-soft); }
+  .mini-portrait:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .mini-status { display: flex; align-items: center; gap: 7px; flex: none; max-width: 40%; font: 12px/1.5 var(--sans); }
+  .mini-status > strong { font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mini-quote { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-soft); font: 11px/1.5 var(--sans); }
+  .mini-quote > span { color: var(--tone); }
+  .mini-count { flex: none; padding: 1px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--good); font: 10.5px/1.7 var(--sans); font-variant-numeric: tabular-nums; white-space: nowrap; background: color-mix(in srgb, var(--bg-sunk) 50%, transparent); }
+  .mini-count.snag { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
   .pause svg { width: 13px; height: 13px; }
   .foot { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 12px; min-height: 35px; padding: 3px 12px 3px 15px; border-top: 1px solid color-mix(in srgb, var(--tone) 10%, var(--line-soft)); background: color-mix(in srgb, var(--bg-sunk) 35%, transparent); color: var(--muted); font: 10px/1.5 var(--sans); }
   .supervising { margin-right: auto; }
@@ -333,6 +371,9 @@
     .target { flex-basis: 100%; padding-left: 20px; }
     .target::before { content: ''; }
     .quote { font-size: 11px; }
+    .mini { gap: 8px; }
+    .mini-count { display: none; }
+    .mini-status { max-width: 46%; }
     .foot { padding-inline: 10px; gap: 2px 8px; }
     .supervising { display: none; }
     .activity { margin-left: auto; }

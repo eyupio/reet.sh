@@ -4,6 +4,9 @@ import type { GafferReaction } from './gafferPersonality'
 // Account preference only: pausing the portrait must never pause progress or banter.
 export const gafferAnimations = writable(true)
 
+// Account preference: how each Gaffer card starts. A card's own toggle overrides it for that card only.
+export const gafferCompact = writable(false)
+
 // Shared by CSS playback and the welcome lifecycle so the scene outlives its four frames.
 export const GAFFER_GESTURE_MS = 4_200
 export const GAFFER_SETTLE_MS = 300

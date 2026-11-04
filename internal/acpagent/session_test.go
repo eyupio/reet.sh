@@ -260,6 +260,11 @@ func TestFakeACP(t *testing.T) {
 			session = params.SessionID
 			promptID = message.ID
 			switch scenario {
+			case "stdout-eof":
+				_ = os.Stdout.Close()
+			case "stdout-overflow":
+				_, _ = out.WriteString(strings.Repeat("x", maxLineBytes+1) + "\n")
+				_ = out.Flush()
 			case "image":
 				ok := false
 				for _, block := range params.Prompt {

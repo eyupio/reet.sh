@@ -18,6 +18,20 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## GAFFER-RECOVERY-1: retire unusable agent processes (4 November 2026)
+
+Branch `fix/gaffer-process-recovery`. The ACP stdout reader now drains before `cmd.Wait`, and an EOF or oversized frame
+retires the process group before pending calls and cards are closed. A broken output stream can no longer leave a chat
+waiting on a live process until the turn timeout. Provider errors recovered from the local log also mark the turn as
+cancelled for incoming requests and arm the existing forced-stop grace, while keeping the provider error visible.
+
+Regression tests reproduce closed stdout, an oversized frame and a provider failure whose adapter ignores cancel.
+All three failed before the fix and pass under the race detector afterwards. Full validation and merge status are
+recorded in the PR. Follow-on review batches cover retained chat state and browser transcript limits.
+
+Recovery still requires the agent's saved conversation. A framing failure ends the process; it does not retry a prompt
+automatically. No wire format, dependency or agent availability changes.
+
 ## AUTH-CARD-1: the account card agrees with the landing page (3 November 2026)
 
 Branch `claude/fervent-wright-5omayg`. Copy only. The card on the sign-in, sign-up and first-run owner-setup pages

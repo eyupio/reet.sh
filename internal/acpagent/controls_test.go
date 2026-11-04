@@ -5,9 +5,30 @@ package acpagent
 import (
 	"context"
 	"encoding/json"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 	"testing"
 	"time"
 )
+
+func TestSettingReplyCannotOverwriteALaterConfigurationUpdate(t *testing.T) {
+	s, done := runningControlSession(t, "live-controls")
+	id := s.nextRequestID()
+	reply := make(chan rpcResult, 1)
+	s.mu.Lock()
+	s.calls[id] = rpcCall{reply: reply, apply: func(raw json.RawMessage) {
+		_ = s.applySettingReply(terminalproto.ACPSetting{ID: "effort", Category: "thought_level"}, "high", raw)
+	}}
+	s.mu.Unlock()
+	encodedID, _ := json.Marshal(id)
+	s.handle(rpcMessage{ID: encodedID, Result: json.RawMessage(`{"configOptions":[{"id":"effort","category":"thought_level","currentValue":"high","options":[{"value":"high"},{"value":"low"}]}]}`)})
+	s.handleUpdate(json.RawMessage(`{"update":{"sessionUpdate":"config_option_update","configOptions":[{"id":"effort","category":"thought_level","currentValue":"low","options":[{"value":"high"},{"value":"low"}]}]}}`))
+	<-reply // The caller is deliberately scheduled after the following update.
+	if current := s.Controls().Options[0].Current; current != "low" {
+		t.Fatalf("late caller restored stale effort %q", current)
+	}
+	s.Cancel()
+	<-done
+}
 
 func TestLiveSelectorsInvalidateUnsafeOrMalformedReplacements(t *testing.T) {
 	s, done := runningControlSession(t, "live-controls")

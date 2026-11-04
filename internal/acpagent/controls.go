@@ -144,7 +144,10 @@ func (s *Session) SetOption(ctx context.Context, id, value string) error {
 	if setting == nil || value == "" || !terminalproto.ValidModel(value) || setting.Category == "thought_level" && !slices.Contains(setting.Values, value) {
 		return ErrControl
 	}
-	raw, err := s.request(ctx, "session/set_config_option", map[string]string{"sessionId": acpID, "configId": id, "value": value})
+	ackErr := ErrControl
+	_, err := s.requestWithReply(ctx, "session/set_config_option", map[string]string{"sessionId": acpID, "configId": id, "value": value}, func(raw json.RawMessage) {
+		ackErr = s.applySettingReply(*setting, value, raw)
+	})
 	if err != nil {
 		var refusal *rpcError
 		if !errors.As(err, &refusal) || refusal.Code != -32601 && refusal.Code != -32602 {
@@ -152,6 +155,11 @@ func (s *Session) SetOption(ctx context.Context, id, value string) error {
 		}
 		return err
 	}
+	return ackErr
+}
+
+func (s *Session) applySettingReply(setting terminalproto.ACPSetting, value string, raw json.RawMessage) error {
+	id := setting.ID
 	options, ok := readSettings(raw)
 	if ok {
 		s.updateSettings(raw)

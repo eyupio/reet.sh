@@ -1,20 +1,20 @@
 # Live Gaffer controls handoff
 
-Updated 4 November 2026. Feature branch: `feat/live-chat-controls`.
+Updated 4 November 2026. PR: [#488](https://github.com/eyupio/reet.sh/pull/488). Feature branch: `feat/live-chat-controls`.
 
 ## Implementation
 
 - Negotiate `acp-live-controls-v1`. Older connectors keep their existing wire format, idle model change and browser queue.
 - Read model and `thought_level` selectors from the active session; exclude permission controls. Apply model and effort while
   a turn runs without holding the turn lock during RPC. Cancel remains responsive. Require actual read-back and clear unknown
-  settings on ambiguous acknowledgements. Persist confirmed model/effort together in the controller and connector restart registry.
+  settings on ambiguous acknowledgements. Apply reply snapshots in wire order so later notifications always win. Persist confirmed model/effort together in the controller and connector restart registry.
 - Use explicitly advertised native steering with the idle `promptRequired` opt-in. Distinguish injected, unconsumed, rejected
   and uncertain outcomes. Do not automatically resend an uncertain mutation or steering request.
 - Store at most ten active queue items per account/session. Stable client IDs survive lost enqueue replies; completed IDs retain
   payload-free receipts. Revision claims prevent duplicate delivery and stale-tab edits. Archiving clears queued payloads.
 - A controller worker sends without a browser. Ordinary delivery waits for the machine's actual turn, approvals and compaction.
   Send now injects when supported. Stop and send records cancellation intent and waits for actual idle; an early cancelled SSE
-  event cannot start the next turn. A controller restart during a claimed delivery marks it uncertain, requiring explicit review.
+  event cannot start the next turn. A failed agent turn pauses ordinary delivery until an explicit edit or retry. A controller restart during a claimed delivery marks it uncertain, requiring explicit review.
 - Poll runtime selectors and shared queue in Gaffer. Show effort only when advertised; allow live model switches, inline queue
   edits, removal and explicit recovery. Poll requests are retired when the pane closes or capability changes.
 
@@ -22,11 +22,10 @@ Updated 4 November 2026. Feature branch: `feat/live-chat-controls`.
 
 Focused race-enabled tests pass for runtime control transport, live setting acknowledgement, responsive cancellation, saved effort
 startup and restart options, selector invalidation, compaction/approval steering refusal, shared queue claims, idempotency,
-ownership, bounded capacity, stale edits, uncertain-delivery restart recovery, stop timing and all four steering outcomes.
-API tests cover negotiated controls, queue operations and stale revisions. Web type checking passes.
+ownership, bounded capacity across database handles, archive payload cleanup, stale edits, uncertain-delivery restart recovery, stop timing, failed-turn pause and all four steering outcomes.
+API tests cover negotiated controls, queue operations, stale revisions and the complete private feature advertisement. Web check/build and full Go vet pass. Browser tests pass for live controls, older OpenCode, Claude, Codex and recovery, including phone/desktop light/dark layouts. Screenshots: [desktop light](../images/ui/gaffer-live-desktop-light.png), [desktop dark](../images/ui/gaffer-live-desktop-dark.png), [phone light](../images/ui/gaffer-live-phone-light.png), [phone dark](../images/ui/gaffer-live-phone-dark.png).
 
-Remaining release checks: final web build/check, desktop/phone light/dark browser tests, full Go vet and race suite, PR review,
-current-main conflict resolution and final-head CI. Keep this section current before merging.
+Current main integrated cleanly. The first full race run exposed the expected-feature test that needed the new capability; that test is updated and passes. A timing failure in the unchanged software runner passes on its own. A complete final race run and final-head CI are running; The initial PR review identified and now covers two additional defects: live-control results must pass the production private WebSocket reply filter, and a steering echo arriving after idle must preserve turn completion. Their regression tests pass; review-thread resolution and final-head CI remain. Keep this section current before merging.
 
 ## Recovery and limits
 

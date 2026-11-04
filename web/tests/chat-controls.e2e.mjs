@@ -23,7 +23,7 @@ const { page, context, errors } = await openWorkspace(browser, {
     const body = req.postDataJSON(); changes.push(body)
     const item = queue.find(q => q.id === body.id)
     if (body.action === 'remove') queue = queue.filter(q => q !== item)
-    else { item.revision++; item.intent = body.action; if (body.action === 'edit') item.text = body.text; if (body.action === 'retry') item.state = 'queued' }
+    else { item.revision++; item.intent = body.action; if (body.action === 'edit') item.text = body.text; if (body.action === 'retry') { item.state = 'queued'; item.note = '' } }
    }
    return { queue }
   },
@@ -58,6 +58,8 @@ try {
  const region = page.getByRole('region', { name: 'Queued messages' })
  await expect(region).toContainText('Use the existing implementation')
  await page.reload()
+ await page.waitForFunction(() => window.__chatStream)
+ await page.evaluate(() => { window.__chatStream.emit('reset', { truncated: false }); window.__chatStream.emit('chat', { seq: 1, kind: 'status', state: 'working' }) })
  await expect(region).toContainText('Use the existing implementation')
  await region.getByRole('button', { name: 'Send now', exact: true }).click()
  await expect.poll(() => changes.some(c => c.action === 'send')).toBe(true)

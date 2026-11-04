@@ -28,7 +28,7 @@ func (s *Store) TerminalQueueFor(uid int64, session string) ([]TerminalQueuedMes
 	if _, err := s.TerminalSessionFor(uid, session); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT id,text,images,state,intent,note,revision FROM terminal_chat_queue WHERE user_id=? AND session_id=? AND state NOT IN ('sent','removed') ORDER BY (intent!='wait') DESC, seq`, uid, session)
+	rows, err := s.db.Query(`SELECT id,text,images,state,intent,note,revision FROM terminal_chat_queue WHERE user_id=? AND session_id=? AND state NOT IN ('sent','removed') ORDER BY (intent IN ('send','stop','stopping')) DESC, seq`, uid, session)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func (s *Store) ChangeTerminalQueueFor(uid int64, session, id string, revision i
 			if json.Unmarshal([]byte(images), &paths) != nil || !terminalproto.ValidACPPrompt(text, paths) {
 				return terminalproto.ErrInvalid
 			}
-			_, err = tx.Exec(`UPDATE terminal_chat_queue SET text=?,state='queued',intent='wait',note='',revision=revision+1 WHERE user_id=? AND session_id=? AND id=?`, text, uid, session, id)
+			_, err = tx.Exec(`UPDATE terminal_chat_queue SET text=?,state='queued',intent='retry',note='',revision=revision+1 WHERE user_id=? AND session_id=? AND id=?`, text, uid, session, id)
 			return err
 		case "remove":
 			state = "removed"
@@ -128,7 +128,7 @@ func (s *Store) ChangeTerminalQueueFor(uid int64, session, id string, revision i
 			if state == "uncertain" && !acknowledge {
 				return ErrChatQueueConflict
 			}
-			state, intent = "queued", "wait"
+			state, intent = "queued", "retry"
 		case "send", "stop":
 			if state != "queued" {
 				return ErrChatQueueConflict

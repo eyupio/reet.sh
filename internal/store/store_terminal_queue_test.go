@@ -114,3 +114,51 @@ func TestDurableQueueBoundsAndEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestQueueCapacityAcrossStoreHandlesAndArchiveCleanup(t *testing.T) {
+	s, uid, session := queueFixture(t)
+	other, err := Open(s.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	accepted := 0
+	for i := range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			db := s
+			if i%2 == 0 {
+				db = other
+			}
+			err := db.EnqueueTerminalFor(uid, session, fmt.Sprintf("cross-handle-%05d", i), "shared", nil)
+			if err == nil {
+				mu.Lock()
+				accepted++
+				mu.Unlock()
+			} else if !errors.Is(err, ErrChatQueueFull) {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if accepted != 10 {
+		t.Fatalf("capacity admitted %d messages", accepted)
+	}
+	if _, err := s.db.Exec(`UPDATE terminal_sessions SET state='ended' WHERE id=?`, session); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ArchiveTerminalFor(uid, session); err != nil {
+		t.Fatal(err)
+	}
+	q, err := s.TerminalQueueFor(uid, session)
+	if err != nil || len(q) != 0 {
+		t.Fatal("archive retained queue", q, err)
+	}
+	var payload int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM terminal_chat_queue WHERE session_id=? AND (text!='' OR images!='[]')`, session).Scan(&payload); err != nil || payload != 0 {
+		t.Fatal("archive retained content", payload, err)
+	}
+}

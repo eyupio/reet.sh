@@ -152,6 +152,14 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 		}
 		return
 	}
+	log := b.chatLog(uid, session)
+	log.mu.Lock()
+	failed := log.lastState == "failed"
+	log.mu.Unlock()
+	if failed && !c.Working && q.Intent == "wait" {
+		_, _ = b.st.TransitionTerminalQueueFor(uid, session, q, "failed", "wait", "The previous turn failed. Check the agent or its settings, then retry this message.", b.queueOwner)
+		return
+	}
 	if c.Waiting || c.Compacting {
 		return
 	}
@@ -180,7 +188,7 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 		}
 		switch answer.Outcome {
 		case "injected":
-			b.chatLog(uid, session).publish(terminalproto.ACPEvent{Kind: "user", Text: queueEcho(q)})
+			b.chatLog(uid, session).publishSteered(queueEcho(q))
 			finish("sent", "")
 			return
 		case "promptRequired": // Explicitly not consumed; safe to submit once as a new turn.

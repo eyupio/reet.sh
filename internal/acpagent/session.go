@@ -69,6 +69,11 @@ type rpcResult struct {
 	err    *rpcError
 }
 
+type rpcCall struct {
+	reply chan rpcResult
+	apply func(json.RawMessage)
+}
+
 type pendingPermission struct {
 	rpcID    json.RawMessage
 	allowID  string
@@ -95,7 +100,7 @@ type Session struct {
 	mu           sync.Mutex
 	writeMu      sync.Mutex
 	nextID       int64
-	calls        map[int64]chan rpcResult
+	calls        map[int64]rpcCall
 	pending      map[string]*pendingPermission
 	questions    map[string]*pendingQuestion
 	closed       bool
@@ -184,7 +189,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	}
 	_ = stdoutWriter.Close()
 	s := &Session{opts: opts, binary: binary, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr,
-		calls: map[int64]chan rpcResult{}, pending: map[string]*pendingPermission{}, tools: map[string]string{},
+		calls: map[int64]rpcCall{}, pending: map[string]*pendingPermission{}, tools: map[string]string{},
 		toolStart: map[string]time.Time{}, done: make(chan struct{})}
 	readDone := make(chan struct{})
 	go func() {
@@ -436,6 +441,12 @@ func (s *Session) write(message any) error {
 }
 
 func (s *Session) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	return s.requestWithReply(ctx, method, params, nil)
+}
+
+// apply runs in protocol read order before a later notification can supersede
+// this reply. It must be bounded and must never wait for another RPC.
+func (s *Session) requestWithReply(ctx context.Context, method string, params any, apply func(json.RawMessage)) (json.RawMessage, error) {
 	id := s.nextRequestID()
 	ch := make(chan rpcResult, 1)
 	s.mu.Lock()
@@ -443,7 +454,7 @@ func (s *Session) request(ctx context.Context, method string, params any) (json.
 		s.mu.Unlock()
 		return nil, ErrClosed
 	}
-	s.calls[id] = ch
+	s.calls[id] = rpcCall{reply: ch, apply: apply}
 	s.mu.Unlock()
 	if err := s.write(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
 		s.mu.Lock()
@@ -531,11 +542,14 @@ func (s *Session) handle(message rpcMessage) {
 		return
 	}
 	s.mu.Lock()
-	ch := s.calls[id]
+	call := s.calls[id]
 	delete(s.calls, id)
 	s.mu.Unlock()
-	if ch != nil {
-		ch <- rpcResult{result: message.Result, err: message.Error}
+	if call.reply != nil {
+		if message.Error == nil && call.apply != nil {
+			call.apply(message.Result)
+		}
+		call.reply <- rpcResult{result: message.Result, err: message.Error}
 	}
 }
 
@@ -1524,10 +1538,10 @@ func (s *Session) ended() {
 	s.doneOnce.Do(func() {
 		s.mu.Lock()
 		s.closed = true
-		for _, ch := range s.calls {
-			ch <- rpcResult{err: &rpcError{Message: "the agent exited"}}
+		for _, call := range s.calls {
+			call.reply <- rpcResult{err: &rpcError{Message: "the agent exited"}}
 		}
-		s.calls = map[int64]chan rpcResult{}
+		s.calls = map[int64]rpcCall{}
 		pending := make([]string, 0, len(s.pending))
 		for id, p := range s.pending {
 			if p.timer != nil {

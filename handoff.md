@@ -27,7 +27,7 @@ focused batches below. Each PR records its checks and merge state. All handoff e
 
 Implementation and verification are tracked in [the live-controls handoff](docs/handoffs/live-chat-controls.md).
 This covers negotiated runtime model/effort selectors, capability-aware steering, durable shared queues and recovery
-from uncertain delivery. Review and CI are pending on the feature branch; merge only after its final-head checks pass.
+from uncertain delivery. [PR #488](https://github.com/eyupio/reet.sh/pull/488) is in review; merge only after its final-head checks pass.
 
 ## GAFFER-BOUNDS-1: keep history bounded around waiting cards (4 November 2026)
 

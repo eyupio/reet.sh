@@ -6,6 +6,50 @@ import (
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
+func TestSteeringEchoDoesNotReopenCompletedTurn(t *testing.T) {
+	l := newChatLog()
+	l.publish(terminalproto.ACPEvent{Kind: "status", State: "working"})
+	l.publish(terminalproto.ACPEvent{Kind: "status", State: "idle"})
+	completed := l.completedAt
+	l.publishSteered("injected just before completion")
+	if l.running || l.lastState != "finished" || l.completedAt != completed {
+		t.Fatal("steering echo reopened completed turn")
+	}
+	if last := l.events[len(l.events)-1]; last.Kind != "user" || last.Text != "injected just before completion" {
+		t.Fatal("steering echo missing", last)
+	}
+}
+
+func TestQueuePausesAfterAgentFailureUntilExplicitRetry(t *testing.T) {
+	prompts := 0
+	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		switch m.Body.(type) {
+		case *terminalproto.ACPControl:
+			return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Options: []terminalproto.ACPSetting{}}}, true
+		case *terminalproto.ACPPrompt:
+			prompts++
+		}
+		return nil, true
+	})
+	s := chatSession(t, b, uid, agent)
+	b.publishChat(uid, s.ID, terminalproto.ACPEvent{Kind: "status", State: "error", Detail: "provider quota"})
+	if err := b.st.EnqueueTerminalFor(uid, s.ID, ID(), "next", nil); err != nil {
+		t.Fatal(err)
+	}
+	b.stepChatQueue(uid, s.ID)
+	q, _ := b.st.TerminalQueueFor(uid, s.ID)
+	if prompts != 0 || len(q) != 1 || q[0].State != "failed" {
+		t.Fatal("failed provider drained the queue", prompts, q)
+	}
+	if err := b.st.ChangeTerminalQueueFor(uid, s.ID, q[0].ID, q[0].Revision, "retry", "", false); err != nil {
+		t.Fatal(err)
+	}
+	b.stepChatQueue(uid, s.ID)
+	if prompts != 1 {
+		t.Fatal("explicit retry stayed paused")
+	}
+}
+
 func TestQueueWaitsForActualTurnAfterStop(t *testing.T) {
 	working := true
 	prompts, cancels := 0, 0

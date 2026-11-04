@@ -36,7 +36,7 @@ func isPeerReply(body terminalproto.Body) bool {
 	case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.SessionChanged,
 		*terminalproto.WorktreeState, *terminalproto.WorktreeResult,
 		*terminalproto.BrowseResult, *terminalproto.BranchesResult, *terminalproto.ModelsResult,
-		*terminalproto.ACPEvent, *terminalproto.InspectResult:
+		*terminalproto.ACPEvent, *terminalproto.ACPControlResult, *terminalproto.InspectResult:
 		return true
 	}
 	return false

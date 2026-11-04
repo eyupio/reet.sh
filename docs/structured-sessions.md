@@ -427,7 +427,7 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
   turn. Only an explicit `promptRequired` response permits submitting it as a new turn. **Stop and send** cancels first, then
   waits for the actual turn to end. If cancellation ends the session, the message stays available for recovery.
   A lost acknowledgement or controller restart during delivery leaves the message **uncertain** and pauses ordinary queue
-  processing. It is never resent automatically. Check the conversation and acknowledge the possible duplicate before retrying.
+  processing. It is never resent automatically. A failed agent turn also pauses ordinary delivery until an explicit edit or retry. Check the conversation and acknowledge the possible duplicate before retrying.
   The queue API is `GET`/`POST`/`PATCH /api/v2/terminal/sessions/{id}/chat/queue`. Enqueues carry a stable client ID; completed
   IDs retain only a receipt until session deletion. Archiving erases queued content. Uploaded images still follow the machine's
   24-hour expiry; an expired image needs to be attached again. Older connectors retain their browser-only queue, which is lost

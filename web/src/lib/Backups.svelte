@@ -49,6 +49,7 @@
   let importDropSessions = $state(false)
   let importDropTokens = $state(false)
   let importOwnerEmail = $state('')
+  let importReplace = $state(false)
   let importAskPassword = $state(false)
   let copySearch = $state('')
   let copyScope = $state<BackupCopyScope>('all')
@@ -63,6 +64,7 @@
       ? 'Personal API tokens and MCP connections are kept, so the old controller\'s tokens open this one.'
       : `${r.tokensRevoked} personal API token(s) and ${r.mcpConnectionsRevoked} MCP connection(s) are revoked.`)
     if (r.identityDropped) l.push('The private-connection identity is dropped; this controller makes its own.')
+    if (r.safetyCopy) l.push(`The database that is live now was copied to ${r.safetyCopy} first.`)
     return l
   }
 
@@ -72,7 +74,7 @@
     error = ''
     saved = ''
     try {
-      pendingImport = await stageImport(importFile, { password: importPassword, dropSessions: importDropSessions, dropTokens: importDropTokens, ownerEmail: importOwnerEmail })
+      pendingImport = await stageImport(importFile, { password: importPassword, dropSessions: importDropSessions, dropTokens: importDropTokens, ownerEmail: importOwnerEmail, replace: importReplace })
       importFile = null
       importPassword = ''
       importAskPassword = false
@@ -878,6 +880,10 @@
             <label class="keep">
               <input type="checkbox" bind:checked={importDropTokens} />
               Revoke every personal API token and MCP connection in the copy
+            </label>
+            <label class="keep">
+              <input type="checkbox" bind:checked={importReplace} />
+              Replace what this controller already holds (a copy of the current database is kept first)
             </label>
             <label>
               <span>Make sure this owner can sign in (optional)</span>

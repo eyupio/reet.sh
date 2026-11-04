@@ -426,6 +426,15 @@ through the same private-revision path, with no publish step.
 1. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
    Do not claim these from the Chromium fixtures.
 
+## Import into a running controller (4 November 2026)
+
+Branch `backup-import-running`, on top of `backup-restore-checks`. `POST /api/v2/admin/backups/import` is now `multipart/form-data`
+(options first, then `file`; header `X-Reet-Import: 1`), owner only, with the password in the body. The upload is streamed to a temp file and
+bounded. `Service.StageImport` refuses a controller that holds data (`ErrNotEmpty`, `409`) unless `replace`, runs `prepare`, copies
+the live database to `reet.db.before-import-<ts>` with `VacuumInto`, then stages it; `ApplyPendingImport` still swaps it in at the next
+start. `reet backup import --server URL --token-file F FILE` is the matching command. Empty means the first owner and nothing else
+(`holds` in `restore.go`). The old octet-stream plus `X-Copy-Password` form is gone.
+
 ## Careful whole-controller restore (4 November 2026)
 
 Branch `backup-restore-checks`. `reet backup restore` checks everything before the swap, in order: integrity, schema version (the

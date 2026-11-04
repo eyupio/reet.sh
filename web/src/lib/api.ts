@@ -184,7 +184,8 @@ export function clearToken() {
 export async function getMachineHealth(signal?:AbortSignal):Promise<import('./terminal/api').HealthResponse> { return (await req('/api/v2/machines/health',{signal,cache:'no-store'})).json() }
 async function req(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers)
-  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  // A form sets its own Content-Type, boundary included.
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const token = getToken()
   if (token) headers.set('X-Reet-Token', token)
   // The shell's progress bar watches this: every request counts from the moment it leaves until the headers are back,
@@ -909,21 +910,25 @@ export type RestoreReport = {
   users: number; usersByRole: Record<string, number>; shelves: number; skills: number; lists: number; tags: number; environments: number
   machines: number; destinations: number
   sessionsKept: number; sessionsEnded: number; tokensRevoked: number; mcpConnectionsRevoked: number; tokensKept: boolean; identityDropped: boolean
+  safetyCopy?: string
   unreadable: string[]
 }
 export async function getPendingImport(): Promise<RestoreReport | null> {
   return ((await (await req('/api/v2/admin/backups/import')).json()) as { pending: RestoreReport | null }).pending
 }
-/** Stages a sealed instance copy; it replaces the database at the controller's next start, not now. */
-export async function stageImport(file: File, opts: { password?: string; dropSessions?: boolean; dropTokens?: boolean; ownerEmail?: string }): Promise<RestoreReport> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' }
-  // A header cannot carry every password: non-Latin characters throw and surrounding spaces are trimmed. Send the UTF-8 bytes.
-  if (opts.password) headers['X-Copy-Password-B64'] = btoa(String.fromCharCode(...new TextEncoder().encode(opts.password)))
-  const query = new URLSearchParams()
-  if (opts.dropSessions) query.set('dropSessions', '1')
-  if (opts.dropTokens) query.set('dropTokens', '1')
-  if (opts.ownerEmail?.trim()) query.set('ownerEmail', opts.ownerEmail.trim())
-  const res = await req(`/api/v2/admin/backups/import${query.size ? `?${query}` : ''}`, { method: 'POST', headers, body: file })
+/**
+ * Stages a sealed instance copy; it replaces the database at the controller's next start, not now.
+ * The password and the options travel in the form body, before the file, never in the address or a header.
+ */
+export async function stageImport(file: File, opts: { password?: string; dropSessions?: boolean; dropTokens?: boolean; ownerEmail?: string; replace?: boolean }): Promise<RestoreReport> {
+  const form = new FormData()
+  if (opts.password) form.append('password', opts.password)
+  if (opts.ownerEmail?.trim()) form.append('ownerEmail', opts.ownerEmail.trim())
+  form.append('dropSessions', opts.dropSessions ? '1' : '0')
+  form.append('dropTokens', opts.dropTokens ? '1' : '0')
+  form.append('replace', opts.replace ? '1' : '0')
+  form.append('file', file)
+  const res = await req('/api/v2/admin/backups/import', { method: 'POST', headers: { 'X-Reet-Import': '1' }, body: form })
   return ((await res.json()) as { report: RestoreReport }).report
 }
 export async function cancelPendingImport(): Promise<void> {

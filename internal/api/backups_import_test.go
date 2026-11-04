@@ -3,8 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,24 +13,34 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/backup"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
-func TestAnImportIsStagedNotAppliedAndCanBeCancelled(t *testing.T) {
+const importKey = "0123456789abcdef0123456789abcdef"
+
+// source is a controller that has taken a copy of itself, optionally sealed
+// under a password.
+func source(t *testing.T, password string) []byte {
+	t.Helper()
 	dir := t.TempDir()
 	st, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	t.Cleanup(func() { st.Close() })
 	if _, err := st.EnsureLocalOwner(); err != nil {
 		t.Fatal(err)
 	}
-	const key = "0123456789abcdef0123456789abcdef"
-	sealer, _ := backup.NewSealer(key, "test")
-	svc := backup.New(st, backup.Config{Dir: filepath.Join(dir, "backups"), Sealer: sealer, Usable: true, KeySource: "test", Key: key})
+	sealer, _ := backup.NewSealer(importKey, "test")
+	svc := backup.New(st, backup.Config{Dir: filepath.Join(dir, "backups"), Sealer: sealer, Usable: true, KeySource: "test", Key: importKey})
+	if password != "" {
+		if _, err := svc.SaveSettings(0, backup.SettingsInput{Password: &password, Compression: backup.CompressionGzip, Destination: "local"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	item, err := svc.RunInstance(context.Background(), "test")
 	if err != nil {
 		t.Fatal(err)
@@ -38,171 +49,301 @@ func TestAnImportIsStagedNotAppliedAndCanBeCancelled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewServer(New(st, meta.Fetcher{}, "", WithAuthMode(AuthNone), WithBackups(svc)))
-	defer ts.Close()
+	return raw
+}
 
-	do := func(method string, body []byte) (int, map[string]any) {
-		req, _ := http.NewRequest(method, ts.URL+"/api/v2/admin/backups/import", bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/octet-stream")
-		resp, err := http.DefaultClient.Do(req)
+// target is a controller an import lands on, served over HTTP in accounts
+// mode with an owner token and a member token.
+type target struct {
+	st  *store.Store
+	dir string
+	url string
+}
+
+func newTarget(t *testing.T, populated bool) target {
+	t.Helper()
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	owner, err := st.EnsureLocalOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateAPIToken(owner.ID, "owner", auth.HashToken("owner-token")); err != nil {
+		t.Fatal(err)
+	}
+	if populated {
+		// A second account is data; a new controller has only its first owner.
+		member, err := st.CreateUser("member@example.com", "Member", "member", "x")
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
-		var v map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&v)
-		return resp.StatusCode, v
+		if _, err := st.CreateAPIToken(member.ID, "member", auth.HashToken("member-token")); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if code, v := do("GET", nil); code != 200 || v["pending"] != nil {
-		t.Fatalf("nothing should be pending: %d %v", code, v)
-	}
-	code, v := do("POST", raw)
-	if code != 200 || v["staged"] != true || v["restartRequired"] != true {
-		t.Fatalf("stage: %d %v", code, v)
-	}
-	// A running controller keeps serving the database it has; the copy waits
-	// for the next start.
-	if _, err := os.Stat(filepath.Join(dir, "pending-import", "reet.db")); err != nil {
-		t.Fatalf("not staged on disk: %v", err)
-	}
-	if code, v := do("GET", nil); code != 200 || v["pending"] == nil {
-		t.Fatalf("pending: %d %v", code, v)
-	}
-	if code, _ := do("POST", []byte("not a sealed copy")); code != 400 {
-		t.Fatalf("garbage should be refused, got %d", code)
-	}
-	if code, _ := do("DELETE", nil); code != 200 {
-		t.Fatalf("cancel: %d", code)
-	}
-	if p, _ := backup.PendingImport(dir); p != nil {
-		t.Fatal("still pending after cancel")
-	}
+	sealer, _ := backup.NewSealer(importKey, "test")
+	svc := backup.New(st, backup.Config{Dir: filepath.Join(dir, "backups"), Sealer: sealer, Usable: true, KeySource: "test", Key: importKey})
+	ts := httptest.NewServer(New(st, meta.Fetcher{}, "", WithAuthMode(AuthAccounts), WithBackups(svc)))
+	t.Cleanup(ts.Close)
+	return target{st: st, dir: dir, url: ts.URL}
 }
 
-// A copy password may hold characters and spaces a plain header cannot carry,
-// so the page sends it base64-encoded.
-func TestAnImportOpensACopyWhosePasswordNeedsEncodingInAHeader(t *testing.T) {
-	dir := t.TempDir()
-	st, err := store.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	if _, err := st.EnsureLocalOwner(); err != nil {
-		t.Fatal(err)
-	}
-	const key = "0123456789abcdef0123456789abcdef"
-	sealer, _ := backup.NewSealer(key, "test")
-	svc := backup.New(st, backup.Config{Dir: filepath.Join(dir, "backups"), Sealer: sealer, Usable: true, KeySource: "test", Key: key})
-	password := "  pässwörd ✓ with edges  "
-	if _, err := svc.SaveSettings(0, backup.SettingsInput{Password: &password, Compression: backup.CompressionGzip, Destination: "local"}); err != nil {
-		t.Fatal(err)
-	}
-	item, err := svc.RunInstance(context.Background(), "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := svc.Archive(context.Background(), 0, item.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Another controller with no stored password, so only the typed one opens it.
-	other := t.TempDir()
-	ost, err := store.Open(other)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ost.Close()
-	if _, err := ost.EnsureLocalOwner(); err != nil {
-		t.Fatal(err)
-	}
-	osvc := backup.New(ost, backup.Config{Dir: filepath.Join(other, "backups"), Sealer: sealer, Usable: true, KeySource: "test", Key: key})
-	ts := httptest.NewServer(New(ost, meta.Fetcher{}, "", WithAuthMode(AuthNone), WithBackups(osvc)))
-	defer ts.Close()
-	post := func(header string) int {
-		req, _ := http.NewRequest("POST", ts.URL+"/api/v2/admin/backups/import", bytes.NewReader(raw))
-		req.Header.Set("Content-Type", "application/octet-stream")
-		if header != "" {
-			req.Header.Set("X-Copy-Password-B64", header)
+func form(t *testing.T, fields [][2]string, file []byte) (*bytes.Buffer, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for _, f := range fields {
+		if err := mw.WriteField(f[0], f[1]); err != nil {
+			t.Fatal(err)
 		}
-		resp, err := http.DefaultClient.Do(req)
+	}
+	if file != nil {
+		w, err := mw.CreateFormFile("file", "copy.reetbackup")
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
-		return resp.StatusCode
+		if _, err := w.Write(file); err != nil {
+			t.Fatal(err)
+		}
 	}
-	// The stored password on the same key would open it, so remove that
-	// route: the copy is only readable with the typed password here.
-	if _, err := osvc.SaveSettings(0, backup.SettingsInput{Compression: backup.CompressionGzip, Destination: "local"}); err != nil {
+	if err := mw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if code := post(""); code != 400 {
-		t.Fatalf("without the password the copy must be refused, got %d", code)
-	}
-	if code := post("!!not base64!!"); code != 400 {
-		t.Fatalf("a malformed encoding must be refused, got %d", code)
-	}
-	if code := post(base64.StdEncoding.EncodeToString([]byte(password))); code != 200 {
-		t.Fatalf("the exact password, spaces and accents included, must open the copy, got %d", code)
-	}
+	return &buf, mw.FormDataContentType()
 }
 
-// The Backups page asks for a password when the error says "password", and a
-// 401 would read as signed out, so a missing password is a 400 that says so.
-func TestAnImportMissingItsPasswordIsA400ThatNamesThePassword(t *testing.T) {
-	dir := t.TempDir()
-	st, err := store.Open(dir)
-	if err != nil {
-		t.Fatal(err)
+type reply struct {
+	code int
+	text string
+	v    map[string]any
+}
+
+func (tg target) post(t *testing.T, token string, fields [][2]string, file []byte) reply {
+	t.Helper()
+	body, ctype := form(t, fields, file)
+	req, _ := http.NewRequest("POST", tg.url+"/api/v2/admin/backups/import", body)
+	req.Header.Set("Content-Type", ctype)
+	req.Header.Set("X-Reet-Import", "1")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	defer st.Close()
-	if _, err := st.EnsureLocalOwner(); err != nil {
-		t.Fatal(err)
-	}
-	const key = "0123456789abcdef0123456789abcdef"
-	sealer, _ := backup.NewSealer(key, "test")
-	svc := backup.New(st, backup.Config{Dir: filepath.Join(dir, "backups"), Sealer: sealer, Usable: true, KeySource: "test", Key: key})
-	password := "a copy password of enough length"
-	if _, err := svc.SaveSettings(0, backup.SettingsInput{Password: &password, Compression: backup.CompressionGzip, Destination: "local"}); err != nil {
-		t.Fatal(err)
-	}
-	item, err := svc.RunInstance(context.Background(), "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := svc.Archive(context.Background(), 0, item.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A controller that does not store the password, as a new machine would be.
-	other := t.TempDir()
-	ost, err := store.Open(other)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ost.Close()
-	if _, err := ost.EnsureLocalOwner(); err != nil {
-		t.Fatal(err)
-	}
-	osvc := backup.New(ost, backup.Config{Dir: filepath.Join(other, "backups"), Sealer: sealer, Usable: true, KeySource: "test", Key: key})
-	ts := httptest.NewServer(New(ost, meta.Fetcher{}, "", WithAuthMode(AuthNone), WithBackups(osvc)))
-	defer ts.Close()
-	req, _ := http.NewRequest("POST", ts.URL+"/api/v2/admin/backups/import", bytes.NewReader(raw))
-	req.Header.Set("Content-Type", "application/octet-stream")
+	return doImport(t, req)
+}
+
+func (tg target) call(t *testing.T, method, token string) reply {
+	t.Helper()
+	req, _ := http.NewRequest(method, tg.url+"/api/v2/admin/backups/import", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	return doImport(t, req)
+}
+
+func doImport(t *testing.T, req *http.Request) reply {
+	t.Helper()
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	var body struct {
-		Error string `json:"error"`
+	b, _ := io.ReadAll(resp.Body)
+	var v map[string]any
+	_ = json.Unmarshal(b, &v)
+	return reply{code: resp.StatusCode, text: string(b), v: v}
+}
+
+func (tg target) untouched(t *testing.T) {
+	t.Helper()
+	if p, _ := backup.PendingImport(tg.dir); p != nil {
+		t.Fatal("something was staged")
 	}
-	_ = json.NewDecoder(resp.Body).Decode(&body)
-	if resp.StatusCode != 400 {
-		t.Fatalf("a missing password must be a 400, not a 401 that reads as signed out; got %d", resp.StatusCode)
+	for _, pattern := range []string{"reet.db.before-import-*", ".reet-upload-*", ".reet-import-*"} {
+		if m, _ := filepath.Glob(filepath.Join(tg.dir, pattern)); len(m) != 0 {
+			t.Fatalf("a refused import left %v behind", m)
+		}
 	}
-	if !strings.Contains(strings.ToLower(body.Error), "password") {
-		t.Fatalf("the page asks for a password only when the error names it; got %q", body.Error)
+}
+
+func TestAnImportIsStagedNotAppliedAndCanBeCancelled(t *testing.T) {
+	raw := source(t, "")
+	tg := newTarget(t, false)
+	if r := tg.call(t, "GET", "owner-token"); r.code != 200 || r.v["pending"] != nil {
+		t.Fatalf("nothing should be pending: %d %s", r.code, r.text)
 	}
+	r := tg.post(t, "owner-token", nil, raw)
+	if r.code != 200 || r.v["staged"] != true || r.v["restartRequired"] != true {
+		t.Fatalf("stage: %d %s", r.code, r.text)
+	}
+	// A running controller keeps serving the database it has; the copy waits
+	// for the next start.
+	if _, err := os.Stat(filepath.Join(tg.dir, "pending-import", "reet.db")); err != nil {
+		t.Fatalf("not staged on disk: %v", err)
+	}
+	if r := tg.call(t, "GET", "owner-token"); r.code != 200 || r.v["pending"] == nil {
+		t.Fatalf("pending: %d %s", r.code, r.text)
+	}
+	if r := tg.post(t, "owner-token", nil, []byte("not a sealed copy")); r.code != 400 {
+		t.Fatalf("garbage should be refused, got %d", r.code)
+	}
+	if r := tg.call(t, "DELETE", "owner-token"); r.code != 200 {
+		t.Fatalf("cancel: %d", r.code)
+	}
+	if p, _ := backup.PendingImport(tg.dir); p != nil {
+		t.Fatal("still pending after cancel")
+	}
+}
+
+// The password travels in the body, so it can be any text at all, spaces and
+// accents included, and no header or address ever holds it.
+func TestAnImportOpensACopyWhosePasswordIsAnyText(t *testing.T) {
+	password := "  pässwörd ✓ with edges  "
+	raw := source(t, password)
+	tg := newTarget(t, false)
+	if r := tg.post(t, "owner-token", nil, raw); r.code != 400 || !strings.Contains(r.text, "password") {
+		t.Fatalf("without the password the copy must be refused with a message that names it, got %d %s", r.code, r.text)
+	}
+	if r := tg.post(t, "owner-token", [][2]string{{"password", "the wrong one entirely"}}, raw); r.code != 400 {
+		t.Fatalf("a wrong password must be refused, got %d", r.code)
+	}
+	tg.untouched(t)
+	if r := tg.post(t, "owner-token", [][2]string{{"password", password}}, raw); r.code != 200 {
+		t.Fatalf("the exact password must open the copy, got %d %s", r.code, r.text)
+	}
+}
+
+func TestAnImportNeverEchoesOrLogsThePassword(t *testing.T) {
+	const password = "a password nobody should ever read back"
+	raw := source(t, password)
+	tg := newTarget(t, false)
+	r := tg.post(t, "owner-token", [][2]string{{"password", password}, {"ownerEmail", "local@reet.invalid"}}, raw)
+	if r.code != 200 {
+		t.Fatalf("stage: %d %s", r.code, r.text)
+	}
+	if strings.Contains(r.text, password) {
+		t.Fatal("the response repeats the password")
+	}
+	evs, err := tg.st.ListEvents(100, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logged bool
+	for _, e := range evs {
+		if strings.Contains(e.Detail, password) || strings.Contains(e.Action, password) {
+			t.Fatalf("the activity log holds the password: %+v", e)
+		}
+		if e.Action == "backup-import-staged" {
+			logged = true
+			for _, want := range []string{`"id"`, `"replace":false`, `"safetyCopy"`, `"ownerChecked":true`} {
+				if !strings.Contains(e.Detail, want) {
+					t.Fatalf("event %s lacks %s", e.Detail, want)
+				}
+			}
+		}
+	}
+	if !logged {
+		t.Fatal("the import left no line in the activity log")
+	}
+}
+
+func TestAnImportIntoAControllerThatHoldsDataIsRefusedUnlessToldToReplace(t *testing.T) {
+	raw := source(t, "")
+	tg := newTarget(t, true)
+	if _, err := tg.st.CreateTag("existing"); err != nil {
+		t.Fatal(err)
+	}
+	r := tg.post(t, "owner-token", nil, raw)
+	if r.code != http.StatusConflict || !strings.Contains(r.text, "1 tags") {
+		t.Fatalf("a controller with data must be refused, naming it: %d %s", r.code, r.text)
+	}
+	tg.untouched(t)
+	r = tg.post(t, "owner-token", [][2]string{{"replace", "1"}}, raw)
+	if r.code != 200 {
+		t.Fatalf("replace must be accepted when asked for: %d %s", r.code, r.text)
+	}
+}
+
+func TestTheLiveDatabaseIsCopiedAsideBeforeAnImportIsStaged(t *testing.T) {
+	raw := source(t, "")
+	tg := newTarget(t, true)
+	if _, err := tg.st.CreateTag("kept-in-the-safety-copy"); err != nil {
+		t.Fatal(err)
+	}
+	r := tg.post(t, "owner-token", [][2]string{{"replace", "1"}}, raw)
+	if r.code != 200 {
+		t.Fatalf("stage: %d %s", r.code, r.text)
+	}
+	report, _ := r.v["report"].(map[string]any)
+	safety, _ := report["safetyCopy"].(string)
+	if safety == "" || filepath.Dir(safety) != tg.dir {
+		t.Fatalf("the response does not say where the safety copy is: %v", report)
+	}
+	copied, err := store.InspectDatabaseFile(context.Background(), safety)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied.Tags != 1 || copied.Users != 2 {
+		t.Fatalf("the safety copy is not the database that was live: %+v", copied)
+	}
+	if info, err := os.Stat(safety); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("the safety copy must be private: %v %v", info, err)
+	}
+}
+
+func TestADamagedCopyChangesNothing(t *testing.T) {
+	raw := source(t, "")
+	tg := newTarget(t, false)
+	damaged := append([]byte(nil), raw...)
+	damaged[len(damaged)-5] ^= 0xff
+	if r := tg.post(t, "owner-token", nil, damaged); r.code != 400 {
+		t.Fatalf("a damaged copy must be refused, got %d %s", r.code, r.text)
+	}
+	tg.untouched(t)
+}
+
+func TestOnlyAnOwnerMayImport(t *testing.T) {
+	raw := source(t, "")
+	tg := newTarget(t, true)
+	for name, token := range map[string]string{"a member": "member-token", "nobody": ""} {
+		if r := tg.post(t, token, nil, raw); r.code != 401 && r.code != 403 {
+			t.Fatalf("%s must not import: %d %s", name, r.code, r.text)
+		}
+	}
+	tg.untouched(t)
+}
+
+// A form can be posted from any website, but it cannot add a header, so an
+// upload without the marker is treated as the forgery it may be.
+func TestAnImportFormWithoutTheMarkerHeaderIsRefused(t *testing.T) {
+	raw := source(t, "")
+	tg := newTarget(t, false)
+	body, ctype := form(t, nil, raw)
+	req, _ := http.NewRequest("POST", tg.url+"/api/v2/admin/backups/import", body)
+	req.Header.Set("Content-Type", ctype)
+	req.Header.Set("Authorization", "Bearer owner-token")
+	if r := doImport(t, req); r.code != http.StatusUnsupportedMediaType {
+		t.Fatalf("got %d %s", r.code, r.text)
+	}
+	tg.untouched(t)
+}
+
+func TestAnUploadLargerThanTheLimitIsRefusedAndLeavesNothingOnDisk(t *testing.T) {
+	old := importBodyLimit
+	importBodyLimit = 4096
+	defer func() { importBodyLimit = old }()
+	tg := newTarget(t, false)
+	r := tg.post(t, "owner-token", nil, bytes.Repeat([]byte("x"), 64<<10))
+	if r.code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("got %d %s", r.code, r.text)
+	}
+	tg.untouched(t)
+}
+
+func TestACopyAfterTheOptionsIsRequired(t *testing.T) {
+	tg := newTarget(t, false)
+	if r := tg.post(t, "owner-token", [][2]string{{"replace", "1"}}, nil); r.code != 400 || !strings.Contains(r.text, "no copy") {
+		t.Fatalf("got %d %s", r.code, r.text)
+	}
+	tg.untouched(t)
 }

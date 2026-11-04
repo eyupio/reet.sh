@@ -4,10 +4,12 @@
  import ControlRoom from './ControlRoom.svelte'
  import StartFresh from './StartFresh.svelte'
  let {signupEnabled=false,contactEmail='',setupRequired=false}:{signupEnabled?:boolean;contactEmail?:string;setupRequired?:boolean}=$props()
- const install='curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh\nreet install'
+ const installChip='curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh'
+ const install=`${installChip}\nreet install`
  const docs=DOCS_URL
- // The line under the buttons is the product's own enrolment for an empty machine; the server comes from REET_URL.
- const chip='reet agent enroll --env fresh-vps'
+ // A visitor from search can try the product before signing in to an account they may not have. The full two-line
+ // install stays in the self-host section. The line under the buttons is the first command, ready to copy.
+ const chip=installChip
  const inviteHref=$derived(contactEmail?`mailto:${contactEmail}?subject=${encodeURIComponent('reet.sh account request')}&body=${encodeURIComponent('Hi, I would like an account on your reet.sh instance.')}`:'')
 </script>
 <section class="welcome" aria-labelledby="welcome-title">
@@ -18,11 +20,11 @@
    {:else if signupEnabled}
     <a class="btn primary" href="/signup">Create an account</a><a class="btn" href="/signin">Sign in</a><a class="btn quiet" href="#self-host">Host it yourself</a>
    {:else}
-    <a class="btn primary" href="/signin">Sign in →</a>{#if inviteHref}<a class="btn" href={inviteHref}>Request an invite</a>{/if}<a class="btn" href="#self-host">Install reet.sh</a>
+    <a class="btn primary" href="#self-host">Install reet.sh →</a><a class="btn" href="/community">Explore the community</a>{#if inviteHref}<a class="btn" href={inviteHref}>Request an invite</a>{/if}<a class="btn quiet" href="/signin">Sign in</a>
    {/if}
   </div>
-  <div class="enrol-chip"><code><span class="prompt">$</span> {chip}</code><CopyButton text={chip} compact label="Copy" ariaLabel="Copy the enrol command"/></div>
-  {#if setupRequired}<p class="invite">Create the owner account, then connect your first machine.</p>{:else if !signupEnabled && !inviteHref}<p class="invite">Need access? Ask this instance’s owner for an account.</p>{/if}
+  <div class="enrol-chip"><code><span class="prompt">$</span> {chip}</code><CopyButton text={chip} compact label="Copy" ariaLabel="Copy the install command"/></div>
+  {#if setupRequired}<p class="invite">Create the owner account, then connect your first machine.</p>{:else if !signupEnabled}<p class="invite">Already have an account? Sign in. Otherwise install reet.sh to run your own.</p>{/if}
   <div class="trust" aria-label="Why reet.sh"><span>Self-hosted</span><i></i><span>Free · AGPL-3.0</span><i></i><span>No telemetry</span></div>
  </div>
  <ControlRoom />
@@ -60,5 +62,5 @@
  @media(max-width:1000px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
  @media(max-width:850px){.welcome{grid-template-columns:1fr;gap:30px;padding:20px 0 28px}.lede{max-width:65ch}.how{gap:20px}.ownership{gap:24px}.self-host{grid-template-columns:1fr;padding:24px}}
  @media(max-width:550px){h1{font-size:2.65rem}.lede{font-size:.9rem}.tiles{grid-template-columns:1fr;gap:12px;padding-bottom:30px}.tiles article{padding:18px}.enrol-chip{max-width:100%;padding-left:10px}.enrol-chip code{font-size:.7rem}.how,.ownership{grid-template-columns:1fr;gap:22px}.how article{display:grid;grid-template-columns:25px 1fr;column-gap:10px}.how article>span{grid-row:span 2;margin-top:5px}.how h2{margin:0 0 8px}.how p{grid-column:2}.ownership{padding:34px 0}.ownership .eyebrow{margin-bottom:12px}.self-host{gap:20px;padding:20px}.trust{gap:8px}}
- @media(max-width:380px){.enrol-chip code{white-space:normal}}
+ @media(max-width:700px){.enrol-chip code{white-space:normal}}
 </style>

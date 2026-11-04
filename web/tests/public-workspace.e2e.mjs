@@ -43,9 +43,9 @@ try {
    await expect(page.locator('.workspace-preview .hubsvg:visible .node')).toHaveCount(4)
    await expect(page.locator('.workspace-preview .hubsvg:visible')).toHaveCount(1)
    await expect(page.locator('.workspace-preview').getByRole('button',{name:'Replay'})).toBeVisible()
-   // One line to copy sits under the buttons.
+   // One line to copy sits under the buttons: the install command a visitor from search can run first.
    const chip=page.locator('.enrol-chip')
-   await expect(chip).toContainText('$ reet agent enroll --env fresh-vps')
+   await expect(chip).toContainText('$ curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh')
    await expect(chip.getByRole('button',{name:/Copy/})).toBeVisible()
    // Four tiles say what it is for, each with a one-sentence promise and a small example.
    const tiles=page.getByRole('region',{name:'What reet.sh does'})
@@ -88,14 +88,15 @@ try {
    await expect(page.getByText('On the workbench',{exact:true})).toBeVisible()
    await expect(page.locator('.next-up')).toContainText('OpenCode today, more agents to come')
    await expect(page.locator('.next-up')).not.toContainText('Agent installation, updates and removal')
-   // Invite-only: members of a private instance come back to sign in, so that leads. Install and invite are real buttons, not quiet text.
+   // Invite-only: a visitor from search can install the product or browse the public community before signing in.
    const cta=page.locator('.cta-row')
+   await expect(cta.getByRole('link',{name:'Install reet.sh'})).toHaveAttribute('href','#self-host')
+   await expect(cta.getByRole('link',{name:'Install reet.sh'})).toHaveClass(/primary/)
+   await expect(cta.getByRole('link',{name:'Explore the community'})).toHaveAttribute('href','/community')
    await expect(cta.getByRole('link',{name:'Sign in'})).toHaveAttribute('href','/signin')
-   await expect(cta.getByRole('link',{name:'Sign in'})).toHaveClass(/primary/)
+   await expect(cta.getByRole('link',{name:'Sign in'})).not.toHaveClass(/primary/)
    await expect(cta.getByRole('link',{name:'Request an invite'})).toHaveAttribute('href',/^mailto:owner@example.test/)
    await expect(cta.getByRole('link',{name:'Request an invite'})).not.toHaveClass(/quiet/)
-   await expect(cta.getByRole('link',{name:'Install reet.sh'})).toHaveAttribute('href','#self-host')
-   await expect(cta.getByRole('link',{name:'Install reet.sh'})).not.toHaveClass(/quiet/)
    await expect(cta.getByRole('link',{name:'Create an account'})).toHaveCount(0)
    // The trust line says the product is free and open source, at a readable size.
    await expect(page.getByLabel('Why reet.sh')).toContainText('AGPL-3.0')

@@ -45,7 +45,13 @@ async function open(width=1600,theme='dark', supported=true, hold=null) {
  })
  await opened.page.goto(`${base}/sessions?agent=a1&session=${session.id}`,{timeout:120000})
  const panel=opened.page.getByRole('complementary',{name:'Session context'})
- if(width<1100)await opened.page.getByRole('button',{name:'Details',exact:true}).click()
+ if(width<1100){
+  // A phone opens a Gaffer chat in super focus; Details waits behind Exit focus.
+  await opened.page.locator('.session-screen header.head').waitFor({state:'visible',timeout:60000})
+  const exitFocus=opened.page.getByRole('button',{name:'Exit focus mode',exact:true})
+  if(await exitFocus.count())await exitFocus.click()
+  await opened.page.getByRole('button',{name:'Details',exact:true}).click()
+ }
  try { await expect(panel).toBeVisible({timeout:60000}) } catch(e) { console.error('Runtime errors:',opened.errors,'Unexpected routes:',opened.state.unexpected); throw e }
  return {...opened,calls,box,panel}
 }

@@ -391,6 +391,9 @@ func TestNetworkFailureRecognisesOfflineErrors(t *testing.T) {
 			t.Fatalf("%q was not treated as a network failure", message)
 		}
 	}
+	if !networkFailure(&commandOutputError{err: errors.New("exit status 1"), output: "npm ERR! code ENOTFOUND"}) {
+		t.Fatal("captured command output was not classified")
+	}
 	if networkFailure(errors.New("source conflict for alpha")) {
 		t.Fatal("ordinary refusal looked like a network failure")
 	}

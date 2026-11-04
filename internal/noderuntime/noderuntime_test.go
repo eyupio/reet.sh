@@ -157,3 +157,28 @@ func TestMajorReadsTheNodeOnPath(t *testing.T) {
 		t.Fatal("missing node reported a version")
 	}
 }
+
+func TestLookupPrefersAManagedRuntimeOverAnOldSystemNode(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(Dir(home), "bin")
+	if err := os.MkdirAll(bin, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"npx", "node"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	system := t.TempDir()
+	if err := os.WriteFile(filepath.Join(system, "node"), []byte("#!/bin/sh\nprintf 'v12.22.0\\n'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(system, "npx"), []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", system)
+	path, managed := Lookup(home)
+	if !managed || path != filepath.Join(bin, "npx") {
+		t.Fatalf("lookup = %q, %t", path, managed)
+	}
+}

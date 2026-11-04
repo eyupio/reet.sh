@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -589,11 +588,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 				}
 				runCtx, cancel := context.WithTimeout(ctx, 8*time.Minute)
 				operationErr = runSyncWithOptions(args, strings.NewReader(""), out, func(args []string, cwd string) error {
-					cmd := exec.CommandContext(runCtx, "npx", args...)
-					cmd.Dir = cwd
-					cmd.Stdout = out
-					cmd.Stderr = out
-					return cmd.Run()
+					return runNpxCommand(runCtx, args, cwd, nil, out)
 				}, version, opts)
 				cancel()
 				kindOK := j.Kind == "preview" || j.Kind == "auto"

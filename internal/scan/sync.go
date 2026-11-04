@@ -104,13 +104,11 @@ func resolveNpx(actions []SyncAction, ctx context.Context, in io.Reader, out io.
 	if path, managed := noderuntime.Lookup(home); path != "" {
 		if managed {
 			noderuntime.Use(path)
-			return nil
 		}
-		if major, ok := noderuntime.Major(); !ok || major >= noderuntime.MinimumMajor {
-			return nil
-		} else if out != nil {
-			fmt.Fprintf(out, "The Node.js on PATH (v%d) is older than %d.\n", major, noderuntime.MinimumMajor)
-		}
+		return nil
+	}
+	if major, ok := noderuntime.Major(); ok && major < noderuntime.MinimumMajor && out != nil {
+		fmt.Fprintf(out, "The Node.js on PATH (v%d) is older than %d.\n", major, noderuntime.MinimumMajor)
 	}
 	if ctx == nil || !clientconfig.Interactive(in) {
 		return errMissingNpx
@@ -124,13 +122,11 @@ func resolveNpx(actions []SyncAction, ctx context.Context, in io.Reader, out io.
 			if path, managed := noderuntime.Lookup(home); path != "" {
 				if managed {
 					noderuntime.Use(path)
-					return nil
 				}
-				if major, ok := noderuntime.Major(); !ok || major >= noderuntime.MinimumMajor {
-					return nil
-				} else if out != nil {
-					fmt.Fprintf(out, "The packaged Node.js is still older than %d; using a current runtime instead.\n", noderuntime.MinimumMajor)
-				}
+				return nil
+			}
+			if major, ok := noderuntime.Major(); ok && major < noderuntime.MinimumMajor && out != nil {
+				fmt.Fprintf(out, "The packaged Node.js is still older than %d; using a current runtime instead.\n", noderuntime.MinimumMajor)
 			} else if out != nil {
 				fmt.Fprintln(out, "The package manager finished, but npx is not on PATH yet; using a self-contained runtime instead.")
 			}
@@ -210,10 +206,51 @@ func offerInstall(ctx context.Context, in io.Reader, out io.Writer, why string, 
 	return true, nil
 }
 
+// commandOutputError keeps the tail of an external command's output so a
+// failure can be classified after stdout and stderr have already been shown.
+type commandOutputError struct {
+	err    error
+	output string
+}
+
+func (e *commandOutputError) Error() string { return e.err.Error() }
+func (e *commandOutputError) Unwrap() error { return e.err }
+
+type tailBuffer struct {
+	data []byte
+	max  int
+}
+
+func (b *tailBuffer) Write(p []byte) (int, error) {
+	b.data = append(b.data, p...)
+	if len(b.data) > b.max {
+		b.data = b.data[len(b.data)-b.max:]
+	}
+	return len(p), nil
+}
+
+func runNpxCommand(ctx context.Context, args []string, cwd string, in io.Reader, out io.Writer) error {
+	tail := &tailBuffer{max: 8 << 10}
+	cmd := exec.CommandContext(ctx, "npx", args...)
+	cmd.Dir = cwd
+	cmd.Stdout = io.MultiWriter(out, tail)
+	cmd.Stderr = io.MultiWriter(out, tail)
+	cmd.Stdin = in
+	if err := cmd.Run(); err != nil {
+		return &commandOutputError{err: err, output: string(tail.data)}
+	}
+	return nil
+}
+
 // networkFailure spots the common offline, proxy and registry errors from the
 // skills CLI so the retry advice can mention connectivity.
 func networkFailure(err error) bool {
-	text := strings.ToLower(err.Error())
+	text := err.Error()
+	var withOutput *commandOutputError
+	if errors.As(err, &withOutput) {
+		text += " " + withOutput.output
+	}
+	text = strings.ToLower(text)
 	for _, marker := range []string{"eai_again", "enotfound", "etimedout", "econnrefused", "econnreset", "network", "proxy", "registry", "certificate"} {
 		if strings.Contains(text, marker) {
 			return true
@@ -468,12 +505,7 @@ func RunSyncVersion(args []string, in io.Reader, out io.Writer, version string) 
 		// racing a clock that started before they did.
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, "npx", args...)
-		cmd.Dir = cwd
-		cmd.Stdout = out
-		cmd.Stderr = out
-		cmd.Stdin = in
-		return cmd.Run()
+		return runNpxCommand(ctx, args, cwd, in, out)
 	}, version, syncOptions{verifyEnrollment: true, preflight: func(actions []SyncAction) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 		defer cancel()

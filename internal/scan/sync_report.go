@@ -3,7 +3,6 @@ package scan
 import (
 	"context"
 	"io"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -100,12 +99,7 @@ func RunSyncReport(opts SyncReportOptions) (SyncReport, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 	err := runSyncWithOptions(args, in, out, func(args []string, cwd string) error {
-		cmd := exec.CommandContext(ctx, "npx", args...)
-		cmd.Dir = cwd
-		cmd.Stdout = out
-		cmd.Stderr = out
-		cmd.Stdin = in
-		return cmd.Run()
+		return runNpxCommand(ctx, args, cwd, in, out)
 	}, opts.Version, options)
 	return report, err
 }

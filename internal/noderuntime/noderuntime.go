@@ -107,7 +107,9 @@ func Managed(home string) (string, bool) {
 func Lookup(home string) (string, bool) {
 	if path, err := exec.LookPath("npx"); err == nil {
 		if _, nodeErr := exec.LookPath("node"); nodeErr == nil {
-			return path, false
+			if major, ok := Major(); !ok || major >= MinimumMajor {
+				return path, false
+			}
 		}
 	}
 	return Managed(home)

@@ -39,16 +39,22 @@ type RestoreSummary struct {
 	UsersByRole   map[string]int
 	// Shelves is the accounts that hold at least one skill on their shelf;
 	// Skills is every skill the controller knows.
-	Shelves        int
-	Skills         int
-	Lists          int
-	Tags           int
-	Environments   int
-	Machines       int
-	Destinations   int
-	Sessions       int
-	APITokens      int
-	MCPConnections int
+	Shelves      int
+	Skills       int
+	Lists        int
+	Tags         int
+	Environments int
+	// MadeTags and MadeEnvironments leave out what a controller creates for
+	// itself: the topic tags the daily sync adds, and the report the server
+	// makes of its own machine. A new controller holds those before anyone
+	// has used it, so they are not data an import would replace.
+	MadeTags         int
+	MadeEnvironments int
+	Machines         int
+	Destinations     int
+	Sessions         int
+	APITokens        int
+	MCPConnections   int
 	// Owners are the addresses of the owner accounts that can sign in.
 	Owners []string
 }
@@ -153,6 +159,12 @@ func fillSummary(ctx context.Context, db queryer, sum *RestoreSummary) {
 	sum.Sessions = count("sessions", "")
 	sum.APITokens = count("api_tokens", "revoked_at=0")
 	sum.MCPConnections = count("mcp_connections", "revoked_at=0")
+	sum.MadeEnvironments = count("environments", "agent<>'reet-server'")
+	if tableExists(ctx, db, "topic_skills") {
+		sum.MadeTags = count("tags", "id NOT IN (SELECT tag_id FROM topic_skills)")
+	} else {
+		sum.MadeTags = sum.Tags
+	}
 	if tableExists(ctx, db, "shelf") {
 		_ = db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT user_id) FROM shelf`).Scan(&sum.Shelves)
 	}

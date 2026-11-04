@@ -323,7 +323,9 @@ var ErrNotEmpty = errors.New("this controller already holds data")
 
 // holds says what a controller holds that an import would replace. A new
 // controller has its first owner and nothing else: no other account and no
-// skills, shelves, lists, tags, environments or connected machines. Backup
+// skills, shelves, lists, tags, environments or connected machines. The topic
+// tags the daily sync adds and the server's own machine report are not
+// counted: a controller makes them for itself before anyone uses it. Backup
 // destinations and settings are configuration, set up before an import on
 // purpose, so they do not count.
 func holds(h store.RestoreSummary) []string {
@@ -339,8 +341,8 @@ func holds(h store.RestoreSummary) []string {
 	add(h.Shelves, "shelves")
 	add(h.Skills, "skills")
 	add(h.Lists, "lists")
-	add(h.Tags, "tags")
-	add(h.Environments, "environments")
+	add(h.MadeTags, "tags")
+	add(h.MadeEnvironments, "environments")
 	add(h.Machines, "connected machines")
 	return what
 }

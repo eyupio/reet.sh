@@ -433,7 +433,7 @@ Branch `backup-import-running`, on top of `backup-restore-checks`. `POST /api/v2
 bounded. `Service.StageImport` refuses a controller that holds data (`ErrNotEmpty`, `409`) unless `replace`, runs `prepare`, copies
 the live database to `reet.db.before-import-<ts>` with `VacuumInto`, then stages it; `ApplyPendingImport` still swaps it in at the next
 start. `reet backup import --server URL --token-file F FILE` is the matching command. Empty means the first owner and nothing else
-(`holds` in `restore.go`). The old octet-stream plus `X-Copy-Password` form is gone.
+(`holds` in `restore.go`; the topic tags and the server's own `reet-server` environment a new controller makes for itself are not counted). The old octet-stream plus `X-Copy-Password` form is gone.
 
 ## Careful whole-controller restore (4 November 2026)
 

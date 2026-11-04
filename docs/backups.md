@@ -347,7 +347,10 @@ path shows what is staged and `DELETE` discards it.
 holds, unless you send `replace` (`--replace`). A new controller has its first
 owner and nothing else: no other account and no skills, shelves, lists, tags,
 environments or connected machines. Backup destinations and settings do not
-count, because they are set up before an import on purpose.
+count, because they are set up before an import on purpose. Nor does what a
+controller makes for itself on first start: the topic tags the daily sync adds
+and the report the server makes of its own machine. A tag you created, or a
+machine you connected, does count.
 
 **A safety copy comes first.** After every check has passed and before anything
 is staged, the live database is copied to `reet.db.before-import-<timestamp>`

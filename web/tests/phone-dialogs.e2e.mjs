@@ -321,7 +321,12 @@ async function check(viewport) {
 
 try {
  const started = Date.now()
- const failures = [...new Set((await Promise.all(VIEWPORTS.map(check))).flat())]
+ // Each phone starts and paints a real terminal before checking its drawers. Six phones at once contend for the
+ // self-hosted runner's browser/CPU budget and can exhaust the unchanged connection deadline before a drawer opens.
+ // Keep every viewport and keyboard contract, but give each phone the browser to itself.
+ const results = []
+ for (const viewport of VIEWPORTS) results.push(...await check(viewport))
+ const failures = [...new Set(results)]
  if (failures.length) throw new Error(`${failures.length} phone dialog problems:\n${failures.join('\n')}`)
  console.log(`Phone dialogs: ${only ? 'selected' : DIALOGS.length} dialogs at ${VIEWPORTS.map(v => v.join('x')).join(', ')} hold the page still, fit the screen and keep the focused field and main action in view (${((Date.now() - started) / 1000).toFixed(1)}s).`)
 } finally { await browser.close() }

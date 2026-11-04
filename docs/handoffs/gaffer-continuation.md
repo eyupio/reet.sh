@@ -192,3 +192,18 @@ Branch: `feat/gaffer-animation-variety`, 4 November 2026. The standalone workspa
 - `gaffer-variety.e2e.mjs` is included in the existing browser workflow. It drives the real component with a controlled clock and stream. The theme suite checks the four action frames of every new performance in both themes, in addition to prior blending, status-priority, pause and cleanup contracts.
 
 Local validation: unit suite and production build; the existing Gaffer artwork, theme, return, interaction, progress and minimised browser checks; the new foreground-rotation regression. Final-head GitHub checks and review remain the merge gate. The new preview and both theme sheets are linked from `docs/ui-verification.md`.
+
+## Phone dialog runner follow-up
+
+Branch: `fix/phone-dialog-runner-contention`, based on `98615e5` after #543 merged with all PR checks green.
+The self-hosted main run then reported ten five-second waits for a live terminal in the phone-dialog fixture,
+before the drawer checks could start. Six phone contexts were sharing one browser concurrently.
+
+Run those viewports sequentially. All 23 dialog cases, six screen sizes, both keyboard simulations, geometry,
+scroll locking, hit testing, API/error guards and existing connection/dialog deadlines stay in place.
+Application code, workflow gates and dependencies are unchanged. Reproduce with the existing
+`REET_UI_URL=... node web/tests/phone-dialogs.e2e.mjs` command; validate this follow-up through a new PR.
+
+Local evidence against the same production build: the original concurrent fixture passed in 96.8 seconds;
+the sequential fixture passed all 23 dialogs at all six sizes in 262.5 seconds. The self-hosted failure above
+is the evidence for the change; local success alone does not establish the runner result.

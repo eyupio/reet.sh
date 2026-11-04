@@ -937,7 +937,9 @@ is hit-testable, and sideways the scrolling part has at least 140 px (and 40% of
 the footer's buttons share a row when their own widths fit. With the keyboard simulated twice (the
 page resized to 55% of its height, and only `visualViewport.height` shrunk to 55%) for each dialog
 with a text field: the same, plus the focused field wholly in view and not under a pinned footer or
-header. About 50–55 s; its own `phone-dialogs` job in `terminal-browser.yml`.
+header. Its own `phone-dialogs` job in `terminal-browser.yml`. Viewports run one at a time so
+their terminal renderers do not compete for the browser and CPU on the self-hosted runner;
+the connection and dialog deadlines, viewport coverage and assertions are unchanged.
 `REET_E2E_ONLY=<regexp>`, `REET_E2E_VIEWPORTS=320x568,844x390`, `REET_DIALOG_SHOTS=<dir>` and
 `REET_DIALOG_LOG=1` narrow or explain a run.
 

@@ -110,7 +110,7 @@ try {
    // Public pages carry the help and trust links, and the roadmap link opens a short roadmap, not an internal log.
    const footer=page.getByRole('contentinfo')
    await expect(footer.getByRole('link',{name:'GitHub'})).toHaveAttribute('href','https://github.com/eyupio/reet.sh')
-   await expect(footer.getByRole('link',{name:'Docs'})).toHaveAttribute('href','https://github.com/eyupio/reet.sh#quick-start')
+   await expect(footer.getByRole('link',{name:'Docs'})).toHaveAttribute('href','/docs/')
    await expect(footer.getByRole('link',{name:'AGPL-3.0'})).toHaveAttribute('href','https://github.com/eyupio/reet.sh/blob/main/LICENSE')
    await expect(page.getByRole('link',{name:/See what.s next/})).toHaveAttribute('href','https://github.com/eyupio/reet.sh/blob/main/docs/roadmap.md')
    await layout(); await noOldPitch()

@@ -23,7 +23,7 @@ func TestPagesAreRenderedAndDiscoverable(t *testing.T) {
 			t.Errorf("%s description is %d characters", page.Slug, len(page.Description))
 		}
 	}
-	for _, slug := range []string{"binary-installation", "mcp", "controller-sync", "backups", "cli-reference"} {
+	for _, slug := range []string{"binary-installation", "mcp", "controller-sync", "backups", "cli-reference", "run-claude-code-on-a-vps", "sync-skills-between-machines", "self-host-mcp-server", "compare-skills-sh"} {
 		if _, ok := Get(slug); !ok {
 			t.Errorf("missing page %q", slug)
 		}

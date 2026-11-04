@@ -76,7 +76,9 @@ func FromEnv(getenv func(string) string) (*Provider, error) {
 	if getenv == nil {
 		getenv = os.Getenv
 	}
-	if off := strings.ToLower(strings.TrimSpace(getenv("REET_OIDC"))); off == "off" || off == "false" || off == "0" {
+	off := strings.ToLower(strings.TrimSpace(getenv("REET_OIDC")))
+	disabled := off == "off" || off == "false" || off == "0"
+	if disabled {
 		return nil, nil
 	}
 	var errs []string
@@ -133,7 +135,8 @@ func FromEnv(getenv func(string) string) (*Provider, error) {
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("single sign-on: %s", strings.Join(errs, "; "))
 	}
-	if cfg.Issuer == "" && cfg.ClientID == "" && cfg.ClientSecret == "" {
+	unset := cfg.Issuer == "" && cfg.ClientID == "" && cfg.ClientSecret == ""
+	if unset {
 		return nil, nil
 	}
 	if cfg.RedirectURL == "" {

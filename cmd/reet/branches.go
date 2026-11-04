@@ -52,7 +52,8 @@ func runBranches(args []string, out io.Writer) int {
 }
 
 func runBranchesInput(args []string, in io.Reader, out io.Writer) int {
-	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+	help := len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help"
+	if help {
 		fmt.Fprint(out, branchesUsageText)
 		return branchesOK
 	}
@@ -153,7 +154,8 @@ func branchesPrune(args []string, in io.Reader, out io.Writer) int {
 		return branchesRefused
 	}
 	safe := branchesSafe(plan)
-	if *asJSON && (*dryRun || !*yes) {
+	nonApply := *dryRun || !*yes
+	if *asJSON && nonApply {
 		if err := json.NewEncoder(out).Encode(plan); err != nil {
 			fmt.Fprintln(os.Stderr, "reet branches prune:", err)
 			return branchesRefused

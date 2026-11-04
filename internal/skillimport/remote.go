@@ -47,7 +47,8 @@ func (p Preview) Manifest(excluded []string) (skillbundle.Manifest, error) {
 	}
 	omit := map[string]bool{}
 	for _, name := range excluded {
-		if name == "SKILL.md" || !names[name] || omit[name] {
+		skip := name == "SKILL.md" || !names[name]
+		if skip || omit[name] {
 			return empty, ErrSelection
 		}
 		omit[name] = true

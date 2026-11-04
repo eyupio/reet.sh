@@ -82,15 +82,19 @@ func parseInstallCommand(args []string, host string) (Ref, error) {
 	// Sources and skill names cannot contain spaces, so quoted arguments can be
 	// handled without interpreting shell substitutions or escape sequences.
 	for i, arg := range args {
-		if len(arg) >= 2 && (arg[0] == '\'' || arg[0] == '"') && arg[len(arg)-1] == arg[0] {
+		quoted := len(arg) >= 2 && (arg[0] == '\'' || arg[0] == '"')
+		if quoted && arg[len(arg)-1] == arg[0] {
 			args[i] = arg[1 : len(arg)-1]
 		}
 	}
 	args = args[1:]
-	if len(args) > 0 && (args[0] == "-y" || args[0] == "--yes") {
+	yes := len(args) > 0 && (args[0] == "-y" || args[0] == "--yes")
+	if yes {
 		args = args[1:]
 	}
-	if len(args) < 3 || (args[0] != "skills" && args[0] != "skills@latest") || args[1] != "add" {
+	valid := len(args) >= 3 && (args[0] == "skills" || args[0] == "skills@latest") &&
+		args[1] == "add"
+	if !valid {
 		return Ref{}, invalid
 	}
 	source := args[2]
@@ -121,14 +125,17 @@ func parseInstallCommand(args []string, host string) (Ref, error) {
 	}
 	if strings.Contains(source, "://") {
 		u, err := url.Parse(source)
-		if err != nil || u.Scheme != "https" || !strings.EqualFold(u.Host, "github.com") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		invalidURL := err != nil || u.Scheme != "https" || !strings.EqualFold(u.Host, "github.com") ||
+			u.User != nil || u.RawQuery != "" || u.Fragment != ""
+		if invalidURL {
 			return Ref{}, invalid
 		}
 		source = strings.TrimPrefix(u.Path, "/")
 	}
 	source = strings.TrimSuffix(strings.TrimSuffix(source, "/"), ".git")
 	parts := strings.Split(source, "/")
-	if len(parts) != 2 || !commandPart.MatchString(parts[0]) || !commandPart.MatchString(parts[1]) {
+	validParts := len(parts) == 2 && commandPart.MatchString(parts[0]) && commandPart.MatchString(parts[1])
+	if !validParts {
 		return Ref{}, invalid
 	}
 	id := source + "/" + slug
@@ -141,11 +148,15 @@ func wellKnown(domain, slug string) Ref {
 }
 
 func hostedURL(u *url.URL, host string) (Ref, bool) {
-	if host == "" || !strings.EqualFold(u.Host, host) || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	valid := host != "" && strings.EqualFold(u.Host, host) &&
+		(u.Scheme == "https" || u.Scheme == "http") && u.User == nil &&
+		u.RawQuery == "" && u.Fragment == ""
+	if !valid {
 		return Ref{}, false
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) != 2 || !commandPart.MatchString(parts[0]) || !commandPart.MatchString(parts[1]) {
+	validParts := len(parts) == 2 && commandPart.MatchString(parts[0]) && commandPart.MatchString(parts[1])
+	if !validParts {
 		return Ref{}, false
 	}
 	source := strings.ToLower(u.Host) + "/" + parts[0]

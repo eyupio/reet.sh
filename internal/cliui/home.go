@@ -265,7 +265,8 @@ func (m homeModel) View() tea.View {
 					footer = []string{"", "↑/↓ select · Enter open", "Esc clear · Ctrl+C quit"}
 				}
 			}
-			if m.width < 64 && m.height >= 12 && len(items) > 0 {
+			compact := m.width < 64 && m.height >= 12
+			if compact && len(items) > 0 {
 				footer = append([]string{styled(items[m.cursor].Summary, "muted", m.colour)}, footer...)
 			}
 			available := max(m.height-len(rows)-len(footer), 1)

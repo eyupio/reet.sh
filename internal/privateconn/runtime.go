@@ -110,7 +110,9 @@ func (r *Runtime) ensureLocked(ctx context.Context) (string, error) {
 }
 
 func (r *Runtime) startLocked(ctx context.Context) (string, error) {
-	if r.cfg.Sealer == nil || r.cfg.Handler == nil || r.cfg.LoadIdentity == nil || r.cfg.SaveIdentity == nil {
+	valid := r.cfg.Sealer != nil && r.cfg.Handler != nil &&
+		r.cfg.LoadIdentity != nil && r.cfg.SaveIdentity != nil
+	if !valid {
 		return "", ErrIdentity
 	}
 	if r.identity == nil {
@@ -237,7 +239,8 @@ func (r *Runtime) restoreOrCreateLocked(ctx context.Context) (*Identity, error) 
 		// Another controller process may have stored its identity first. Use
 		// only that persisted identity; never serve under an unpersisted one.
 		version, stored, ok, loadErr := r.cfg.LoadIdentity()
-		if loadErr != nil || !ok || version != 1 || stored == "" {
+		valid := loadErr == nil && ok && version == 1 && stored != ""
+		if !valid {
 			return nil, ErrIdentity
 		}
 		identity, err = OpenIdentity(r.cfg.Sealer, stored)

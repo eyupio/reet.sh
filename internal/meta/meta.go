@@ -54,7 +54,8 @@ func (f Fetcher) Fetch(ctx context.Context, r ref.Ref) Meta {
 	if f.Token != "" && f.APIBase != "" {
 		m = f.fromAPI(ctx, r)
 	}
-	if (m.Name == "" || m.Description == "" || m.Installs == 0) && f.PageBase != "" {
+	missing := m.Name == "" || m.Description == "" || m.Installs == 0
+	if missing && f.PageBase != "" {
 		p := f.fromPage(ctx, r)
 		if m.Name == "" {
 			m.Name = p.Name

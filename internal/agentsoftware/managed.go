@@ -57,7 +57,8 @@ func versionDir(root, version string) (string, error) {
 }
 
 func validVersion(version string) bool {
-	if version == "" || len(version) > 64 || version == "." || version == ".." {
+	valid := version != "" && len(version) <= 64 && version != "." && version != ".."
+	if !valid {
 		return false
 	}
 	for _, r := range version {
@@ -91,7 +92,8 @@ func Current(home, tool string) (string, Receipt, bool, error) {
 	}
 	path := filepath.Join(dir, "opencode")
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() != receipt.BinarySize {
+	invalid := err != nil || !info.Mode().IsRegular() || info.Size() != receipt.BinarySize
+	if invalid {
 		return "", receipt, false, ErrManagedBroken
 	}
 	return path, receipt, true, nil
@@ -116,7 +118,9 @@ func InstallStaged(home, tool, version string, staged Staged) (Receipt, error) {
 	if err != nil {
 		return Receipt{}, err
 	}
-	if !validVersion(version) || staged.Path == "" || staged.Size <= 0 || staged.BinarySHA256 == "" || staged.SHA512 == "" {
+	valid := validVersion(version) && staged.Path != "" && staged.Size > 0 &&
+		staged.BinarySHA256 != "" && staged.SHA512 != ""
+	if !valid {
 		return Receipt{}, fmt.Errorf("%w: invalid staged binary", ErrArtifactShape)
 	}
 	dir, err := versionDir(root, version)
@@ -175,7 +179,8 @@ func RollbackManaged(home, tool string) (Receipt, error) {
 		return Receipt{}, ErrNoRollback
 	}
 	previous, found, err := readReceipt(filepath.Join(dir, "receipt.json"))
-	if err != nil || !found || previous.Version != current.Previous {
+	valid := err == nil && found && previous.Version == current.Previous
+	if !valid {
 		return Receipt{}, ErrNoRollback
 	}
 	if err := verifyFile(filepath.Join(dir, "opencode"), previous); err != nil {
@@ -217,7 +222,9 @@ func readReceipt(path string) (Receipt, bool, error) {
 	if err := json.Unmarshal(data, &receipt); err != nil {
 		return Receipt{}, false, err
 	}
-	if receipt.Tool == "" || !validVersion(receipt.Version) || receipt.BinarySize <= 0 || receipt.BinarySHA256 == "" {
+	valid := receipt.Tool != "" && validVersion(receipt.Version) &&
+		receipt.BinarySize > 0 && receipt.BinarySHA256 != ""
+	if !valid {
 		return Receipt{}, false, fmt.Errorf("%w: invalid receipt", ErrManagedBroken)
 	}
 	return receipt, true, nil
@@ -312,12 +319,15 @@ func verifyFile(path string, receipt Receipt) error {
 	}
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() != receipt.BinarySize {
+	invalid := err != nil || !info.Mode().IsRegular() || info.Size() != receipt.BinarySize
+	if invalid {
 		return ErrManagedBroken
 	}
 	hash := sha256.New()
 	written, err := io.Copy(hash, io.LimitReader(file, receipt.BinarySize+1))
-	if err != nil || written != receipt.BinarySize || hex.EncodeToString(hash.Sum(nil)) != receipt.BinarySHA256 {
+	valid := err == nil && written == receipt.BinarySize &&
+		hex.EncodeToString(hash.Sum(nil)) == receipt.BinarySHA256
+	if !valid {
 		return ErrManagedBroken
 	}
 	return nil
@@ -361,7 +371,8 @@ func RecoverManaged(home, tool string) error {
 	}
 	if current.Previous != "" {
 		previous, found, err := readReceipt(filepath.Join(filepath.Join(root, "versions"), current.Previous, "receipt.json"))
-		if err != nil || !found || verifyReceiptVersion(root, previous) != nil {
+		valid := err == nil && found && verifyReceiptVersion(root, previous) == nil
+		if !valid {
 			current.Previous = ""
 			if err := writeReceipt(filepath.Join(root, "receipt.json"), current); err != nil {
 				return err
@@ -408,7 +419,8 @@ func restorePrevious(root string, current Receipt) (Receipt, error) {
 		return Receipt{}, err
 	}
 	previous, found, err := readReceipt(filepath.Join(dir, "receipt.json"))
-	if err != nil || !found || previous.Version != current.Previous {
+	valid := err == nil && found && previous.Version == current.Previous
+	if !valid {
 		return Receipt{}, ErrNoRollback
 	}
 	if err := verifyFile(filepath.Join(dir, "opencode"), previous); err != nil {

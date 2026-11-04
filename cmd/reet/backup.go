@@ -16,7 +16,8 @@ import (
 )
 
 func runBackup(args []string, out io.Writer) error {
-	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
+	help := len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help")
+	if help {
 		fmt.Fprintln(out, "Usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] ID\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
 		return nil
 	}
@@ -264,7 +265,8 @@ func backupUnescrow(args []string, out io.Writer) error {
 	var others []string
 	for i := range e.Destinations {
 		r := &e.Destinations[i]
-		if (*name == "" && chosen == nil) || r.Name == *name {
+		auto := *name == "" && chosen == nil
+		if auto || r.Name == *name {
 			chosen = r
 		} else {
 			others = append(others, r.Name)

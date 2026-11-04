@@ -43,7 +43,15 @@ type Options struct {
 
 func ValidateOrigin(origin string) error {
 	u, err := url.Parse(origin)
-	if err != nil || len(origin) > 512 || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" || !(u.Scheme == "https" || u.Scheme == "http" && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()).IsLoopback())) {
+	if err != nil {
+		return errors.New("public URL must be an HTTPS origin (loopback HTTP is allowed)")
+	}
+	loopback := u.Hostname() == "localhost" || net.ParseIP(u.Hostname()).IsLoopback()
+	validScheme := u.Scheme == "https" || (u.Scheme == "http" && loopback)
+	plainPath := u.Path == "" || u.Path == "/"
+	noExtras := u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
+	valid := len(origin) <= 512 && validScheme && plainPath && noExtras
+	if !valid {
 		return errors.New("public URL must be an HTTPS origin (loopback HTTP is allowed)")
 	}
 	return nil
@@ -108,7 +116,8 @@ func readState(dir string, fallback bool) (State, error) {
 		PublicURL string `json:"publicURL,omitempty"`
 		AuthMode  string `json:"authMode,omitempty"`
 	}
-	if d.Decode(&state) != nil || state.Enabled == nil || d.Decode(new(any)) != io.EOF {
+	valid := d.Decode(&state) == nil && state.Enabled != nil && d.Decode(new(any)) == io.EOF
+	if !valid {
 		return State{}, errors.New("invalid terminal availability state; inspect state.json")
 	}
 	if state.PublicURL != "" {
@@ -218,11 +227,16 @@ func (c *Control) Serve(apply func(bool), available func() bool, options ...Opti
 			http.Error(w, "controller is stopping", 503)
 			return
 		}
-		if r.URL.Path != "/status" && r.URL.Path != "/start" && r.URL.Path != "/stop" && r.URL.Path != "/restart" {
+		validPath := r.URL.Path == "/status" || r.URL.Path == "/start" ||
+			r.URL.Path == "/stop" || r.URL.Path == "/restart"
+		if !validPath {
 			http.NotFound(w, r)
 			return
 		}
-		if r.URL.RawQuery != "" || r.ContentLength > 1024 || r.ContentLength < 0 || r.URL.Path == "/status" && r.ContentLength != 0 {
+		badLength := r.ContentLength > 1024 || r.ContentLength < 0
+		statusBody := r.URL.Path == "/status" && r.ContentLength != 0
+		invalid := r.URL.RawQuery != "" || badLength
+		if invalid || statusBody {
 			http.Error(w, "unexpected request data", 400)
 			return
 		}
@@ -245,7 +259,11 @@ func (c *Control) Serve(apply func(bool), available func() bool, options ...Opti
 				}
 				d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 				d.DisallowUnknownFields()
-				if d.Decode(&config) != nil || d.Decode(new(any)) != io.EOF || r.URL.Path == "/stop" || config.PublicURL != "" && ValidateOrigin(config.PublicURL) != nil || config.AuthMode != "" && config.AuthMode != "accounts" {
+				decoded := d.Decode(&config) == nil && d.Decode(new(any)) == io.EOF
+				validURL := config.PublicURL == "" || ValidateOrigin(config.PublicURL) == nil
+				validAuth := config.AuthMode == "" || config.AuthMode == "accounts"
+				valid := decoded && r.URL.Path != "/stop" && validURL && validAuth
+				if !valid {
 					http.Error(w, "invalid terminal configuration", 400)
 					return
 				}
@@ -269,7 +287,8 @@ func (c *Control) Serve(apply func(bool), available func() bool, options ...Opti
 			if r.URL.Path == "/restart" {
 				apply(false)
 			}
-			if state.Enabled != c.state.Enabled || r.URL.Path == "/restart" || state.PublicURL != c.state.PublicURL {
+			changed := state.Enabled != c.state.Enabled || r.URL.Path == "/restart"
+			if changed || state.PublicURL != c.state.PublicURL {
 				apply(state.Enabled)
 			}
 			c.state = state
@@ -313,14 +332,16 @@ func (c *Control) Close() error {
 
 func Command(ctx context.Context, dataDir, action string, fallback bool, origin ...string) (Status, error) {
 	authMode := ""
-	if (action == "start" || action == "restart") && len(origin) > 1 {
+	start := action == "start" || action == "restart"
+	if start && len(origin) > 1 {
 		authMode = origin[1]
 		if authMode != "" && authMode != "accounts" {
 			return Status{}, errors.New("terminal setup requires accounts authentication")
 		}
 	}
 	publicURL := ""
-	if (action == "start" || action == "restart") && len(origin) > 0 {
+	startWithOrigin := action == "start" || action == "restart"
+	if startWithOrigin && len(origin) > 0 {
 		publicURL = origin[0]
 		if publicURL != "" {
 			if err := ValidateOrigin(publicURL); err != nil {
@@ -328,7 +349,8 @@ func Command(ctx context.Context, dataDir, action string, fallback bool, origin 
 			}
 		}
 	}
-	if action != "start" && action != "stop" && action != "restart" && action != "status" {
+	validAction := action == "start" || action == "stop" || action == "restart" || action == "status"
+	if !validAction {
 		return Status{}, errors.New("use reet terminal start|stop|restart|status")
 	}
 	dir, err := directory(dataDir)

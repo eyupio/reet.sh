@@ -128,7 +128,9 @@ func observe(roots Roots, name string, afterCapture func()) Capture {
 	}
 	// The scope root must still be the directory that was checked, or the answer
 	// describes something else.
-	if after, e := os.Lstat(roots.Target); e != nil || after.Mode()&os.ModeSymlink != 0 || !os.SameFile(before, after) {
+	after, e := os.Lstat(roots.Target)
+	invalid := e != nil || after.Mode()&os.ModeSymlink != 0 || !os.SameFile(before, after)
+	if invalid {
 		return unknown(c, ".", "scope_root_changed")
 	}
 	return c

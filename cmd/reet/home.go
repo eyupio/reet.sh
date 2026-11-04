@@ -42,8 +42,10 @@ func takeHomeContinuation(args []string) (*homeResult, error) {
 		return nil, nil
 	}
 	var r homeResult
-	if returnHome != "1" || len(raw) > 64<<10 || json.Unmarshal([]byte(raw), &r) != nil ||
-		r.Code != 0 || !slices.Equal(args, r.Args) || len(args) == 0 || (args[0] != "upgrade" && args[0] != "update") {
+	valid := returnHome == "1" && len(raw) <= 64<<10 && json.Unmarshal([]byte(raw), &r) == nil &&
+		r.Code == 0 && slices.Equal(args, r.Args) && len(args) > 0 &&
+		(args[0] == "upgrade" || args[0] == "update")
+	if !valid {
 		return nil, fmt.Errorf("invalid upgrade continuation; restart reet (the upgrade will not be repeated)")
 	}
 	return &r, nil
@@ -137,7 +139,10 @@ func runHomeSelection(path string, args []string, run func([]string) int, reexec
 	before, _ := os.Stat(path)
 	code := run(args)
 	after, err := os.Stat(path)
-	if code == 0 && len(args) > 0 && (args[0] == "upgrade" || args[0] == "update") && err == nil && before != nil && !os.SameFile(before, after) {
+	upgrade := len(args) > 0 && (args[0] == "upgrade" || args[0] == "update")
+	changed := err == nil && before != nil && !os.SameFile(before, after)
+	runUpgrade := code == 0 && upgrade
+	if runUpgrade && changed {
 		if err := resumeUpgrade(path, args, reexec); err != nil {
 			return code, fmt.Errorf("upgrade finished, but could not restart home: %w", err)
 		}

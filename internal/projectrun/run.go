@@ -137,7 +137,9 @@ func WorktreeToken(run string, position int) string {
 // folder's last part, at most terminalproto.MaxTitleRunes characters.
 func Title(project, dir string) string {
 	title := project
-	if base := path.Base(dir); base != "/" && base != "." && base != "" {
+	base := path.Base(dir)
+	validBase := base != "/" && base != "." && base != ""
+	if validBase {
 		title = project + " · " + base
 	}
 	if r := []rune(title); len(r) > terminalproto.MaxTitleRunes {
@@ -587,7 +589,9 @@ func (o *Orchestrator) startMember(uid int64, run store.Run, position int, code 
 	if err != nil && o.ctx.Err() != nil {
 		return // shutting down: stays pending and is resumed with the same request id
 	}
-	if err == nil && session.State != terminalproto.Creating && session.State != terminalproto.Lost {
+	valid := err == nil && session.State != terminalproto.Creating &&
+		session.State != terminalproto.Lost
+	if valid {
 		if err := o.cfg.Store.SetRunMemberState(uid, run.ID, position, store.RunMemberStarted, "", session.ID,
 			session.WorktreePath, session.WorktreeRepo, session.WorktreeBranch, m.Attempt); err != nil {
 			o.cfg.Logf("project run %s member %d: record started: %v", run.ID, position, err)

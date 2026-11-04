@@ -70,7 +70,8 @@ func OutboxWarning(c Config, portal string) string {
 	}
 	host := u.Hostname()
 	ip := net.ParseIP(host)
-	if host == "localhost" || (ip != nil && ip.IsLoopback()) {
+	local := host == "localhost" || (ip != nil && ip.IsLoopback())
+	if local {
 		return ""
 	}
 	return EnvOutboxDir + " is set on an instance served at " + portal + ": every sign-in link it sends is written to " + c.OutboxDir +

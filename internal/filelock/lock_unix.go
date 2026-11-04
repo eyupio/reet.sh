@@ -29,7 +29,9 @@ func Acquire(path string) (*os.File, error) {
 	}
 	var stat unix.Stat_t
 	statErr := unix.Fstat(fd, &stat)
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || statErr != nil || stat.Uid != uint32(os.Geteuid()) {
+	invalid := !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 ||
+		statErr != nil || stat.Uid != uint32(os.Geteuid())
+	if invalid {
 		f.Close()
 		return nil, ErrUnsafe
 	}

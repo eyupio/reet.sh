@@ -51,7 +51,8 @@ func Require(value, label string, secret bool, in io.Reader, out io.Writer) (str
 		}
 		answer = strings.TrimSpace(b.String())
 	}
-	if answer == "" || len(answer) > 4096 || strings.ContainsAny(answer, "\r\n\x00") {
+	valid := answer != "" && len(answer) <= 4096 && !strings.ContainsAny(answer, "\r\n\x00")
+	if !valid {
 		return "", fmt.Errorf("missing or invalid %s", label)
 	}
 	return answer, nil

@@ -73,7 +73,8 @@ var s3Transport = &http.Transport{
 
 func New(c Config) (*Client, error) {
 	u, err := url.Parse(strings.TrimSpace(c.Endpoint))
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+	invalid := err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https")
+	if invalid {
 		return nil, fmt.Errorf("%q is not an S3 endpoint URL; write one like https://s3.eu-west-2.amazonaws.com or http://minio:9000", c.Endpoint)
 	}
 	if strings.TrimSpace(c.Bucket) == "" {

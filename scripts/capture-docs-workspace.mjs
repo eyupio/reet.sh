@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { startHarness } from "../web/tests/helpers/harness.mjs";
@@ -384,8 +384,7 @@ for (const theme of ["light", "dark"])
     await readFile(join(temporary, `gaffer-showcase-${theme}.png`)),
   );
 // Keep references together with their newly captured assets, including README
-// images. Retire only the generated files recorded by the previous manifest.
-const retired = new Set();
+// images. Previous image URLs stay available to cached pages and external links.
 for (const relative of [
   "README.md",
   "docs/index.md",
@@ -397,7 +396,6 @@ for (const relative of [
     const old = previous?.screenshots?.[name]?.file;
     if (old && old !== screenshot.file) {
       text = text.replaceAll(old, screenshot.file);
-      retired.add(old);
     }
   }
   if (relative === "docs/index.md")
@@ -417,9 +415,6 @@ await writeFile(
   join(output, "manifest.json"),
   JSON.stringify(manifest, null, 2) + "\n",
 );
-for (const file of retired)
-  if (basename(file) === file && /^[a-z-]+-[a-f0-9]{12}\.png$/.test(file))
-    await rm(join(output, file), { force: true });
 await rm(temporary, { recursive: true, force: true });
 console.log(
   `Captured ${Object.keys(manifest.screenshots).length} versioned application screenshots.`,

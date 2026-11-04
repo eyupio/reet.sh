@@ -23,10 +23,10 @@ One Go binary. One SQLite file. No telemetry.
 <br>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/control-dark.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/workspace/home-desktop-dark-f6a68f6000dd.png">
   <img src="docs/images/workspace/home-desktop-light-992a1261390c.png" alt="The Reet workspace, with ideas and Backlog, Active and Finished work" width="860">
 </picture>
-<p><em>Example machine inventory.</em></p>
+<p><em>Example workspace with ideas and sessions.</em></p>
 
 </div>
 

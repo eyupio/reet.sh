@@ -1,6 +1,6 @@
 {
   "application": "standalone Reet workspace",
-  "sourceCommit": "5af82e64dbaca23f04ee8ee20399566786cc979c",
+  "sourceCommit": "8013f6e9ca0102e9c8dcb8de2b72bcb6882e9608",
   "data": "Synthetic example data; no account, machine or provider connection.",
   "screenshots": {
     "home-desktop-light": {
@@ -76,16 +76,16 @@
       "sha256": "dd161dbcc9af6f604424c0d14d7bffa8f7a3043fe69bbe03a51f0d4759d3f50d"
     },
     "gaffer-desktop-light": {
-      "file": "gaffer-desktop-light-4a58471fa2f8.png",
+      "file": "gaffer-desktop-light-74f60152dd7e.png",
       "width": 1440,
       "height": 841,
-      "sha256": "4a58471fa2f8cac2b104db0e28d5290702dd12f0bbb2a0b6488da034eb717fa5"
+      "sha256": "74f60152dd7eef39d4ce67b7a6dde92d4db92cadaae4ebad613e1aa2f490bc0b"
     },
     "gaffer-desktop-dark": {
-      "file": "gaffer-desktop-dark-334d43cc33e1.png",
+      "file": "gaffer-desktop-dark-f41359b283a1.png",
       "width": 1440,
       "height": 841,
-      "sha256": "334d43cc33e18fd9c59202b704222f215d11c7e152d535a3d0c030c8461358b1"
+      "sha256": "f41359b283a170183495df282c42ad445385d3791be663a043e5018abf51643b"
     }
   }
 }

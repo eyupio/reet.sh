@@ -608,6 +608,10 @@ func TestDocsAreAPublicCrawlableSite(t *testing.T) {
 			t.Errorf("guide missing %s", want)
 		}
 	}
+	compare := get(t, h, "/docs/compare-open-webui/")
+	if compare.Code != http.StatusOK || !strings.Contains(compare.Body.String(), `rel="canonical" href="https://reet.sh/docs/compare-open-webui/"`) || !strings.Contains(compare.Body.String(), "Open WebUI and reet.sh") {
+		t.Errorf("comparison page is not crawlable: %d", compare.Code)
+	}
 	if redirect := get(t, h, "/docs/mcp"); redirect.Code != http.StatusMovedPermanently || redirect.Header().Get("Location") != "/docs/mcp/" {
 		t.Errorf("/docs/mcp: %d %q", redirect.Code, redirect.Header().Get("Location"))
 	}

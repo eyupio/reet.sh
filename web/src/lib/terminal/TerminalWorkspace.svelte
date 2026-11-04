@@ -521,7 +521,7 @@
     // The shell hides and shows the site's chrome (keyboardChrome) after this measure has set the session focus: measure again
     // whenever it does, so the height is never one taken while the top bar was aside.
     const chrome=new MutationObserver(measure)
-    chrome.observe(document.documentElement,{attributes:true,attributeFilter:['data-chrome-aside','data-bottom-tabs']})
+    chrome.observe(document.documentElement,{attributes:true,attributeFilter:['data-chrome-aside','data-bottom-tabs','data-session-focus']})
     // A docked panel that would become a drawer (a narrower window, a phone) closes rather than cover the terminal.
     const viewportChanged=()=>{const wasDocked=panelView==='docked';viewportWidth=innerWidth;screenSide=readScreen();if(wasDocked&&!panelDocks(viewportWidth,pinned,phone))mode='closed'}
     window.addEventListener('resize',viewportChanged)
@@ -701,6 +701,12 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   .panel-separator{position:relative;z-index:3;margin:0 -8px;display:flex;align-items:center;justify-content:center;cursor:col-resize;touch-action:none;outline:0}.panel-separator::after{content:'';width:4px;height:40px;border-radius:2px;background:var(--line)}.panel-separator:hover::after,.workspace.resizing .panel-separator::after{background:var(--accent);height:64px}.panel-separator:focus-visible::after{background:var(--accent);height:64px;outline:2px solid var(--accent);outline-offset:3px}
   .workspace.resizing{cursor:col-resize;user-select:none}
   @media(max-width:650px){.workspace{border-radius:8px}.workspace-toolbar{gap:6px;padding:5px 6px}.workspace-title h1{display:none}.workspace-actions>button[aria-controls="terminal-sessions"]{max-width:52px;white-space:normal;line-height:1.1}.quick-machine{padding:4px 7px;min-width:28px}.workspace-toolbar .find-machine{display:none}.workspace-title>a{padding:3px}.workspace-actions{gap:4px}.workspace-actions .btn{padding:5px 7px;min-height:32px;font-size:.67rem}.workspace-actions .count,.workspace-actions .wide-label{display:none}.workspace-actions .mobile-label{display:inline}.empty{padding:20px 14px}.empty h2{font-size:1.35rem}.create-form{grid-template-columns:minmax(0,1fr)}.create-form p{grid-column:1}.workspace-notice{font-size:.65rem;padding:5px 8px}}
+  /* Gaffer's super focus on a phone, held upright or sideways: even the workspace frame and toolbar give their room to
+     the conversation. */
+  @media (max-width:650px), (max-height:500px) and (pointer:coarse) and (orientation:landscape){
+    .workspace:has(:global(.session-screen.focus)){border:0;border-radius:0;background:var(--bg)}
+    .workspace:has(:global(.session-screen.focus))>.workspace-toolbar{display:none}
+  }
   @media(pointer:coarse){.workspace-actions .btn{min-height:40px;min-width:40px}.quick-machine{min-width:40px}.workspace-toolbar .find-machine{min-height:40px}.workspace-title>a{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px;box-sizing:border-box}}
   /* A touch tablet (wider than a phone, not a phone held sideways): the toolbar's targets are 44 px, as everything around the session screen; the panel's separator has a 44 × 88 px grip. */
   @media(pointer:coarse) and (min-width:651px) and (max-width:1099px) and (min-height:501px){.panel-separator:not(.mini)::before{content:'';position:absolute;top:50%;right:calc(50% - 4px);width:44px;height:88px;transform:translateY(-50%)}}

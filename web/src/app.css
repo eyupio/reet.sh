@@ -115,6 +115,12 @@ textarea { width: 100%; resize: vertical; }
   html[data-bottom-tabs] body { padding-bottom: var(--bottom-chrome); }
   /* The launch prompt has the keyboard up: the top bar steps aside as well (shell/AppShell.svelte). */
   html[data-chrome-aside] .site-header { display: none; }
+  /* A Gaffer session in super focus (sessions/SessionScreen.svelte): the product's own chrome gives the phone to the
+     conversation, leaving the screen's slim header as the way back and out. */
+  html[data-session-focus] .site-header { display: none; }
+  html[data-session-focus] nav.bottom-tabs[aria-label] { display: none; }
+  html[data-session-focus] body { padding-bottom: 0; }
+  html[data-session-focus] main.terminal-layout { padding: 0; }
 }
 
 /* Searchable dropdown list (see lib/combobox.ts): the one list every select and suggestion field opens. */

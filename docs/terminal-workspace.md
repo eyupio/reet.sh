@@ -99,6 +99,11 @@ beside it). Its parts:
   chat reconnects in place; a session a person ended offers **Continue in Gaffer with history…** in its menu, which opens
   a new Gaffer and loads OpenCode's stored conversation. It asks before an edit or command; there is no shell in this
   session. It has no terminal or session tabs on a phone; the usual slim header and End actions stay.
+- **Super focus on a phone**: a Gaffer chat opens with the site chrome, workspace toolbar and secondary session controls
+  out of the way, so the conversation and composer take the whole screen. The slim header keeps Back, the title, the
+  state and **Exit focus**; the chat status stays a live region but is not drawn, and the composer keeps its message field,
+  **Stop**/**Queue**, **Skills** and attach while effort and model wait behind **Exit focus**. The choice is remembered for
+  this browser; **Focus** in the header or the actions menu turns it back on.
 - **Context panel** (340 px): *Where it's working* (machine and whether it is reporting, project, branch, worktree: "own
   copy" or "the checkout"); *Changed files* for a session in its own worktree (the first 20 paths from the worktree status
   and the total, read when the panel opens on the session and again only from **Refresh**, R19); *Skills on this machine*

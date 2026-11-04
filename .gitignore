@@ -10,3 +10,7 @@ web/dist/*
 
 # MkDocs build output
 site/
+
+# MkDocs hook bytecode
+__pycache__/
+*.pyc

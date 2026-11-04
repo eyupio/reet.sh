@@ -13,7 +13,7 @@ with `FolderBrowser.svelte` (how a machine lists its folders is in [Folder brows
 the Worktrees list `ProjectWorktrees.svelte`. The controller code is `internal/api/folder_projects.go`,
 `internal/store/store_folder_projects.go` and, for the move from saved Projects,
 `internal/store/store_projects_migrate.go`. The design is in
-[the agents home spec](superpowers/specs/2026-10-26-agents-home-design.md) ("Project registry",
+[the agents home spec](https://github.com/eyupio/reet.sh/blob/main/docs/superpowers/specs/2026-10-26-agents-home-design.md) ("Project registry",
 "Migration"); the multi-repository Projects it replaces are in
 the Projects spec (removed in the docs tidy-up; see git history before bd9e56c).
 
@@ -477,7 +477,7 @@ projects" and "Browsed folders from ~ (3 pages)". The old runs' `project-run`, `
 - **Busy machines.** While a worktree create runs, that machine's other session operations wait, and
   open terminals on it may detach for a moment.
 - **Not checked.** No physical phone or tablet, screen reader, Safari or Firefox; nothing on macOS
-  outside CI; Windows isn't supported. See [UI verification](ui-verification.md).
+  outside CI; Windows isn't supported. See [UI verification](https://github.com/eyupio/reet.sh/blob/main/docs/ui-verification.md).
 - **Out of scope.** A git remote as a second repository identity, one session spanning several
   repositories, agent status, resuming a conversation, merging, pushing, pull requests, deleting
   branches and MCP exposure of Projects.

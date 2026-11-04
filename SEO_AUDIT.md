@@ -24,7 +24,10 @@ The initial audit found the gaps below. The following work has since landed on `
 | #505 | Open WebUI and LibreChat comparisons, no-VPN guide | `e95cb81` |
 | #507 | Landing page links to the new guides | `701e1cd` |
 
-**Implemented:** C1–C4, H1, H2, H4 (first batch), H5, H8, H9 (first batch), N3, N4. The remaining work is tracked in
+The Go-served docs described in #489 were later replaced by a standalone MkDocs build in the same repository
+(`mkdocs.yml`, `docs/requirements.txt`, `hooks/docs.py`, `overrides/main.html` and `.github/workflows/docs.yml`).
+The application no longer serves `/docs`; the docs are deployed to GitHub Pages and `DOCS_URL` points at the public
+docs origin. The remaining work is tracked in
 [the SEO continuation handoff](docs/handoffs/seo-follow-up.md): existing opaque list links, external measurement
 (Search Console, Bing, analytics), the marketing/app bundle split, remaining app metadata, and more content.
 

@@ -32,7 +32,7 @@ func TestSitemapURLsArePublicAndSelfCanonical(t *testing.T) {
 	if err := xml.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
 		t.Fatalf("invalid sitemap XML: %v", err)
 	}
-	if len(doc.URLs) < 4 {
+	if len(doc.URLs) < 3 {
 		t.Fatalf("sitemap has only %d urls", len(doc.URLs))
 	}
 	for _, entry := range doc.URLs {

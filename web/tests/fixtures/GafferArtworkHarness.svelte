@@ -31,10 +31,11 @@
   </div>
 </main>
 <style>
-  :global(body) { background: #eee; margin: 20px; font-family: sans-serif; }
+  :global(body) { background: var(--bg); color: var(--ink); margin: 20px; font-family: sans-serif; }
   main { display: flex; gap: 20px; flex-wrap: wrap; max-width: 900px; }
   section { width: 240px; height: 240px; }
   nav { flex-basis: 100%; } button { padding: 10px; margin: 3px; }
-  .repertoire { flex-basis: 100%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 18px; background: #070a0e; color: #dce6ee; }
-  article { border: 1px solid #28323e; padding: 10px; } article>div { width: 100%; aspect-ratio: 1; } h2 { text-align: center; font: 12px monospace; }
+  .repertoire { flex-basis: 100%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 18px; background: var(--card); color: var(--ink); }
+  article { border: 1px solid var(--line); padding: 10px; } article>div { width: 100%; aspect-ratio: 1; } h2 { text-align: center; font: 12px monospace; }
+  @media (max-width: 640px) { .repertoire { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>

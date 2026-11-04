@@ -1,6 +1,7 @@
-/* The approved monochrome artwork has its own CRT screen, readable in either app theme. */
+/* The drawing is transparent ink: use the app palette, including system-selected themes. */
 .gaffer-avatar {
-  --gaffer-screen: #070a0e;
-  --gaffer-paper: #dce6ee;
-  --gaffer-ink: #101923;
+  --gaffer-screen: var(--card);
+  --gaffer-paper: var(--ink);
+  --gaffer-ink: var(--card);
+  color: var(--ink);
 }

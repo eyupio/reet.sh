@@ -7,6 +7,7 @@ export const gafferAnimations = writable(true)
 // Shared by CSS playback and the welcome lifecycle so the scene outlives its four frames.
 export const GAFFER_GESTURE_MS = 4_200
 export const GAFFER_SETTLE_MS = 300
+export const GAFFER_TRANSITION_MS = 220
 
 /** A little anticipation, the gesture, then a pause to settle. Also controls the production lifecycle. */
 export function gafferGestureMs(reaction: GafferReaction): number {

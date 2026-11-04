@@ -16,7 +16,7 @@ try {
   await expect(panel.locator('.byline')).not.toContainText('worker')
   await expect(panel).toContainText('2 done')
   await expect(panel).toContainText('web/src/lib/terminal/GafferProgress.svelte')
-  expect(await panel.locator('.head image').evaluate(async el => {
+  expect(await panel.locator('.scene:not(.leaving) .head image').evaluate(async el => {
     const portrait = new Image(); portrait.src = el.href.baseVal; await portrait.decode()
     return portrait.naturalWidth
   })).toBeGreaterThan(0)

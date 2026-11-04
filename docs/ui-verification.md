@@ -1,4 +1,36 @@
-# UI verification — 3 November 2026
+# UI verification — 4 November 2026
+
+## Gaffer: transparent artwork and smoother state changes
+
+The approved Grid/Phosphor drawings now render as transparent ink in the app's actual palette:
+pale in dark mode and dark in light mode, including the system theme and live theme changes. An SVG
+filter extracts the luminous drawing and discards its baked black screen; the original WebP assets
+remain unchanged. There is no added dependency or runtime image request to a provider.
+
+State changes keep the same avatar wrapper and blend over 220 ms. Interrupted blends preserve the
+current opacity, retain at most four layers and remove outgoing layers when the transition finishes.
+The work card keeps the Phosphor bust and the same button size when work finishes, and the gesture
+framing now matches its resting head size. Errors and requests for input remain immediate. Pause,
+the account preference, reduced motion and hidden tabs remove blends and stop decorative motion.
+The six performances, click replies, bounded queue and retained handovers remain available.
+
+Checked with `npm run check`, `npm run build`, and all five Gaffer browser suites: artwork, theme,
+return, interaction and progress. The new theme suite samples the rendered SVG pixels for transparency
+and matching ink across all six performances in both themes, checks live/system theme changes,
+interrupted fades, stable wrappers, layer bounds and cleanup, immediate errors, motion controls, and
+consistent work-card dimensions at desktop and phone widths. The progress suite retains its
+320/390/768 px theme matrix. Against unchanged main in an isolated worktree, the new transparency
+test fails with opaque background alpha 255 where transparent alpha 0 is required. Chromium was
+exercised; physical devices, Firefox and Safari were not.
+
+From `web/`, `node tests/gaffer-capture.mjs` reproduces these screenshots and, with FFmpeg installed,
+recordings of the actual components:
+
+- [Live state transitions, dark and light side by side](images/ui/gaffer-theme-transitions.gif)
+- [Six performances](images/ui/gaffer-theme-animation.gif)
+- [Artwork and state review](images/ui/gaffer-theme-review.png)
+- [Desktop dark](images/ui/gaffer-theme-desktop-dark.png) / [desktop light](images/ui/gaffer-theme-desktop-light.png)
+- [Phone dark](images/ui/gaffer-theme-phone-dark.png) / [phone light](images/ui/gaffer-theme-phone-light.png)
 
 ## Gaffer: more Yorkshire, more eyebrow
 
@@ -26,8 +58,7 @@ reply queue, uninterrupted gestures, quiet-spell reset, status priority, no agen
 handover, and 390 px in both themes with reduced motion. The existing progress suite retains its
 320/390/768 px theme matrix. Source-frame checks cover all six strips and their resting poses.
 
-`node tests/gaffer-capture.mjs` reproduces the latest screenshots and, with FFmpeg installed, the
-six-second recording of the actual components:
+Original captures of the variety implementation, before the transparent theme treatment above:
 
 - [Six longer performances](images/ui/gaffer-variety-animation.gif)
 - [Nine-state review](images/ui/gaffer-variety-review.png)

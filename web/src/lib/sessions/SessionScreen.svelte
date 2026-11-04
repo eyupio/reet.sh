@@ -310,7 +310,7 @@
           onclick={event => { if (chatView) openSwitch(event.currentTarget) }}>{terminalLabel}</button>
       </div>
         <span class="vh" id={`${id}-switch-why`}>{whyNot}</span>
-        {#if live && onterminal}<button type="button" class="tool-action" disabled={busy || serverOff} onclick={openTerminal}><span aria-hidden="true">›_</span> New terminal</button>{/if}
+        {#if live && onterminal}<button type="button" class="tool-action" disabled={busy || serverOff} onclick={openTerminal}><span aria-hidden="true">›_</span> Terminal here</button>{/if}
         {#if live && onside}<button type="button" class="tool-action" disabled={busy || serverOff || showSide} onclick={openSideTerminal}><TerminalIcon name="panel" />{showSide ? 'Terminal open beside' : 'Terminal beside'}</button>{/if}
         {#if oncontinue}<button type="button" class="tool-action" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue with history' : 'Continue session'}</button>{/if}
       </div>

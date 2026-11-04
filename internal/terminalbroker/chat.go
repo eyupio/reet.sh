@@ -97,6 +97,7 @@ type ChatEvent struct {
 }
 
 type chatLog struct {
+	controlMu sync.Mutex
 	mu        sync.Mutex
 	st        *store.Store
 	uid       int64
@@ -129,7 +130,15 @@ func newChatLog() *chatLog {
 	return &chatLog{subs: map[int]chan ChatEvent{}, pending: map[string]struct{}{}}
 }
 
-func (l *chatLog) publish(event terminalproto.ACPEvent) {
+func (l *chatLog) publish(event terminalproto.ACPEvent) { l.publishEvent(event, true) }
+
+// An injected message belongs to the existing turn. Its acknowledgement can
+// arrive after idle; displaying the echo must not reopen that completed turn.
+func (l *chatLog) publishSteered(text string) {
+	l.publishEvent(terminalproto.ACPEvent{Kind: "user", Text: text}, false)
+}
+
+func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 	data, err := json.Marshal(event)
 	if err != nil || len(data) > maxChatBytes {
 		return
@@ -141,6 +150,9 @@ func (l *chatLog) publish(event terminalproto.ACPEvent) {
 	l.updatedAt = nowMs
 	switch event.Kind {
 	case "user":
+		if !startsTurn {
+			break
+		}
 		l.updatedAt = nowMs
 		l.completedAt = 0
 		l.running = true
@@ -653,6 +665,7 @@ func (b *Broker) restoreAgentChats(uid int64, agent string) {
 	for _, s := range sessions {
 		if s.AgentID == agent && s.Structured && s.State.ReservesQuota() {
 			b.restoreChat(uid, s)
+			b.startChatQueue(uid, s.ID)
 		}
 	}
 }

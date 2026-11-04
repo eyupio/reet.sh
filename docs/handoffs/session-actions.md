@@ -32,8 +32,13 @@ chat/terminal mounted. No new dependency or persistent preference is introduced.
 
 ## Integration and review
 
-Main at `a0d6cd35304392e27248d89b1e7763acb768ffa8` integrated without conflicts. The six desktop/tablet/phone
-light/dark screenshots are included under `docs/images/ui/session-actions-*.png` and linked from UI verification.
-All local web, responsive, keyboard, terminal workspace and embedding checks above pass. No inline review findings
-were open at the latest check. The PR's current head and final checks remain authoritative; merge only when green.
-The related live-controls feature remains in PR #488; preserve both feature sets when integrating it.
+Current main includes the merged live-controls PR #488, updated Gaffer artwork/motion and published documentation. The
+UI verification append conflict is resolved by retaining both feature sections, and both sets of TerminalWorkspace props
+are preserved. The prior CI failures came from a phone-dialog helper using a removed menu item and a duplicated New
+terminal accessible name while the separate create form was open. The helper now uses the visible interface control;
+the contextual direct action is labelled Terminal here so its purpose is distinct from the create-form submit button.
+
+Desktop/tablet/phone light/dark screenshots are included under `docs/images/ui/session-actions-*.png`. Review and final-head
+CI remain authoritative; merge only when green. No inline findings were open at the latest check.
+The integrated head passes the full 23-dialog phone suite across six viewports, refreshed responsive controls checks
+and web check/build. The legacy Start an agent suite is running after the accessible-name fix.

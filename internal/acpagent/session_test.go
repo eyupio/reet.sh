@@ -93,6 +93,14 @@ func TestFakeACP(t *testing.T) {
 		reply(id, map[string]any{"sessionId": native, "configOptions": options})
 		return true
 	}
+	liveModel, liveEffort := "stub/model", "low"
+	liveSettings := func() []map[string]any {
+		return []map[string]any{
+			{"id": "model", "category": "model", "currentValue": liveModel, "options": []map[string]string{{"value": "stub/model"}, {"value": "provider/other"}}},
+			{"id": "effort", "category": "thought_level", "currentValue": liveEffort, "options": []map[string]string{{"value": "low"}, {"value": "high"}}},
+			{"id": "mode", "category": "mode", "currentValue": "build"},
+		}
+	}
 	var promptID json.RawMessage
 	var session string
 	modeCalls := 0
@@ -122,7 +130,7 @@ func TestFakeACP(t *testing.T) {
 				capabilities = map[string]any{"promptCapabilities": map[string]bool{"image": false}}
 			}
 			reply(message.ID, map[string]any{"protocolVersion": protocol, "agentInfo": map[string]string{"name": name, "version": version},
-				"agentCapabilities": capabilities})
+				"agentCapabilities": capabilities, "_meta": map[string]any{"steering": map[string]bool{"supported": strings.HasPrefix(scenario, "live-controls")}}})
 			if codexLoginScenario {
 				status := map[string]any{"kind": "account", "label": "ChatGPT Pro", "account": map[string]any{"email": "private@example.test"}}
 				if scenario == "codex-auth-required" {
@@ -137,6 +145,21 @@ func TestFakeACP(t *testing.T) {
 				SessionID string `json:"sessionId"`
 			}
 			_ = json.Unmarshal(message.Params, &params)
+			if strings.HasPrefix(scenario, "live-controls") {
+				if scenario == "live-controls-hang" {
+					continue
+				}
+				if params.ConfigID == "model" {
+					liveModel = params.Value
+					liveEffort = "low"
+				} else if params.ConfigID == "effort" {
+					liveEffort = params.Value
+				} else {
+					os.Exit(2)
+				}
+				reply(message.ID, map[string]any{"configOptions": liveSettings()})
+				continue
+			}
 			if params.ConfigID == "mode" {
 				// A profile's StartMode switch: confirmed in the reply, silently ignored, or refused.
 				switch scenario {
@@ -221,6 +244,11 @@ func TestFakeACP(t *testing.T) {
 					text = "some other startup problem"
 				}
 				send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": code, "message": text}})
+				continue
+			}
+			if strings.HasPrefix(scenario, "live-controls") {
+				session = "ses_fake_1"
+				reply(message.ID, map[string]any{"sessionId": session, "configOptions": liveSettings()})
 				continue
 			}
 			mode := "build"
@@ -443,6 +471,25 @@ func TestFakeACP(t *testing.T) {
 			case "fs":
 				send(map[string]any{"jsonrpc": "2.0", "id": 9, "method": "fs/write_text_file", "params": map[string]string{"sessionId": session, "path": "/tmp/mirror.txt", "content": "mirror"}})
 			}
+		case "_session/steering":
+			var params struct {
+				Meta struct {
+					Steering struct {
+						Idle string `json:"idleBehavior"`
+					} `json:"steering"`
+				} `json:"_meta"`
+			}
+			if json.Unmarshal(message.Params, &params) != nil || params.Meta.Steering.Idle != "promptRequired" {
+				os.Exit(2)
+			}
+			outcome := "injected"
+			if scenario == "live-controls-idle-race" {
+				outcome = "promptRequired"
+			}
+			if scenario == "live-controls-unknown" {
+				outcome = "something-new"
+			}
+			reply(message.ID, map[string]string{"outcome": outcome})
 		case "session/cancel":
 			if scenario == "ignore-cancel" {
 				break

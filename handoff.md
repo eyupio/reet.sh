@@ -23,6 +23,12 @@ Review batches: [process recovery #480](https://github.com/eyupio/reet.sh/pull/4
 [transcript retention #484](https://github.com/eyupio/reet.sh/pull/484). Eight reproduced defects are addressed across the three
 focused batches below. Each PR records its checks and merge state. All handoff entries are retained when integrating the stack.
 
+## GAFFER-LIVE-1: live settings and durable message delivery (4 November 2026)
+
+Implementation and verification are tracked in [the live-controls handoff](docs/handoffs/live-chat-controls.md).
+This covers negotiated runtime model/effort selectors, capability-aware steering, durable shared queues and recovery
+from uncertain delivery. [PR #488](https://github.com/eyupio/reet.sh/pull/488) is in review; merge only after its final-head checks pass.
+
 ## GAFFER-BOUNDS-1: keep history bounded around waiting cards (4 November 2026)
 
 Final asynchronous review follow-up: the process waiter could mark the chat closed before buffered final ACP frames reached

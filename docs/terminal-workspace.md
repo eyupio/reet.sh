@@ -80,7 +80,7 @@ beside it). Its parts:
   its tooltip and read out; while this browser's connection to a live session is down it says that instead, such as
   "Reconnecting" or "Disconnected", from the connection), a **YOLO** badge when on (or **Ask me | YOLO** for a live structured chat that can switch), **Gaffer | the agent TUI** — the agent TUI chosen for a shell or terminal
   session, Gaffer chosen for a structured OpenCode session (and the agent TUI disabled there), and
-  Gaffer disabled with its reason for a shell. **Theatre view** is a direct header button that hides the panels without changing the session. Interface, approvals, **New terminal** and (on larger screens) **Terminal beside** stay in a wrapping toolbar. The actions menu (More / ⋮, or Shift+F10 on it) contains Rename, Copy branch,
+  Gaffer disabled with its reason for a shell. **Theatre view** is a direct header button that hides the panels without changing the session. Interface, approvals, **Terminal here** and (on larger screens) **Terminal beside** stay in a wrapping toolbar. The actions menu (More / ⋮, or Shift+F10 on it) contains Rename, Copy branch,
   End session or Remove from history, Check and remove worktree. Tab from the open menu goes on to the control after ⋮
   (Shift+Tab back to ⋮), and a reconnecting terminal never takes focus out of it. A terminal session shows no steps and no
   progress bar (R10). A tab's close button says the session keeps running, or for a finished one that it stays in its
@@ -116,7 +116,7 @@ beside it). Its parts:
   extra keys are 40 × 40 px.
 - **Phones** keep the same session actions as desktop. The identity row shows the session and its state, with labelled
   **Theatre**, **Details** and **More** controls. Interface and approval choices stay visible below it, with 44 px touch
-  targets; the toolbar wraps instead of moving them into the menu. **New terminal** opens a terminal in the same folder.
+  targets; the toolbar wraps instead of moving them into the menu. **Terminal here** opens a terminal in the same folder.
   With the keyboard up, the site's top bar steps aside and the session controls remain reachable. In landscape, identity
   and actions share a compact row where there is room. Connection recovery buttons remain available in the pane.
 

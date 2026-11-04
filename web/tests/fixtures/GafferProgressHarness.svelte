@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { gafferAnimations } from '../../src/lib/gafferMotion'
+  import { gafferAnimations, gafferCompact } from '../../src/lib/gafferMotion'
   import { onMount } from 'svelte'
   import ChatPane from '../../src/lib/terminal/ChatPane.svelte'
   import GafferAvatar from '../../src/lib/terminal/GafferAvatar.svelte'
@@ -37,6 +37,8 @@
     }
   }
   function theme() { document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light' }
+  // ?compact=1 stands in for the account preference, so a card can be loaded as if the person had chosen the one-line default.
+  onMount(() => { gafferCompact.set(new URLSearchParams(location.search).get('compact') === '1') })
   onMount(() => { setTimeout(() => scene(new URLSearchParams(location.search).get('scene') || 'Editing'), 80) })
   onMount(() => {
     const listener = (event: Event) => {

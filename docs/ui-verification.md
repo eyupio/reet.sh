@@ -2764,3 +2764,14 @@ landscape phone test accounts for the newly visible controls row and keeps at le
 [Desktop light](images/ui/session-actions-desktop-light.png) · [Desktop dark](images/ui/session-actions-desktop-dark.png) ·
 [Tablet light](images/ui/session-actions-tablet-light.png) · [Tablet dark](images/ui/session-actions-tablet-dark.png) ·
 [Phone light](images/ui/session-actions-phone-light.png) · [Phone dark](images/ui/session-actions-phone-dark.png)
+
+
+## Live Gaffer controls (4 November 2026)
+
+`web/tests/chat-controls.e2e.mjs` exercises active-turn model and effort changes, server queue retention after a reload,
+Send now / Stop and send and explicit acknowledgement before retrying uncertain delivery. Checked at desktop (1360 px)
+and phone (390 px) widths in light and dark, with no page overflow or browser errors. Existing OpenCode, Claude, Codex
+and chat recovery browser suites also pass. The new suite runs in the terminal-browser workflow.
+
+[Desktop light](images/ui/gaffer-live-desktop-light.png) · [Desktop dark](images/ui/gaffer-live-desktop-dark.png) ·
+[Phone light](images/ui/gaffer-live-phone-light.png) · [Phone dark](images/ui/gaffer-live-phone-dark.png)

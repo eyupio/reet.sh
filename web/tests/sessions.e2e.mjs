@@ -741,7 +741,7 @@ try {
    await expect(page.getByRole('button',{name:'Theatre view',exact:true})).toHaveCount(1)
    await expect(head.getByRole('group',{name:'View'})).toBeVisible()
    await expect(head.getByRole('group',{name:'Approvals'})).toBeVisible()
-   await expect(head.getByRole('button',{name:'New terminal',exact:true})).toBeVisible()
+   await expect(head.getByRole('button',{name:'Terminal here',exact:true})).toBeVisible()
    await page.waitForFunction(() => window.__chatStream)
    const original = await page.evaluate(() => {window.__originalChat=window.__chatStream;return !!window.__originalChat})
    expect(original).toBe(true)

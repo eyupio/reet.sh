@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { applyChatEvent, endedReason, enqueuePrompt, initialChat, reattachCopy, isWorking, pendingPermissions, resetChat } from './chat.ts'
+import { applyChatEvent, approvalOutcome, foldApprovals, endedReason, enqueuePrompt, initialChat, reattachCopy, isWorking, pendingPermissions, resetChat } from './chat.ts'
 
 const event = (seq, fields) => ({ seq, ...fields })
 
@@ -396,4 +396,27 @@ test('reattach copy and the ended sentence', () => {
   const text = endedReason('lost', 'Gaffer', false, true)
   assert.match(text, /Reconnect to carry on where you left off\./)
   assert.doesNotMatch(text, /Continue with history/)
+})
+
+test('a decided approval folds into its tool row; a waiting or unmatched one stays a card', () => {
+  let state = initialChat()
+  state = applyChatEvent(state, event(1, { kind: 'tool', toolCallId: 'c1', title: 'go test', toolKind: 'execute', status: 'pending' }))
+  state = applyChatEvent(state, event(2, { kind: 'permission', permissionId: 'p1', toolCallId: 'c1', title: 'go test', command: 'go test ./...' }))
+  assert.equal(foldApprovals(state.items).folded.size, 0, 'a waiting approval is never hidden')
+  state = applyChatEvent(state, event(3, { kind: 'permission_resolved', permissionId: 'p1', allow: true }))
+  const folded = foldApprovals(state.items)
+  assert.deepEqual([...folded.folded], ['pp1'])
+  assert.equal(folded.byTool.get('c1').permissionId, 'p1')
+  state = applyChatEvent(state, event(4, { kind: 'permission', permissionId: 'p2', toolCallId: 'missing', title: 'rm' }))
+  state = applyChatEvent(state, event(5, { kind: 'permission_resolved', permissionId: 'p2', allow: false }))
+  state = applyChatEvent(state, event(6, { kind: 'permission', permissionId: 'p3', title: 'no call id' }))
+  state = applyChatEvent(state, event(7, { kind: 'permission_resolved', permissionId: 'p3', allow: false }))
+  assert.deepEqual([...foldApprovals(state.items).folded], ['pp1'], 'no tool row to join means the card stays')
+})
+
+test('approval outcomes name what the person decided', () => {
+  assert.deepEqual(approvalOutcome({ decision: 'allowed' }), { word: 'Allowed', tone: 'good', note: 'Allowed once.' })
+  assert.equal(approvalOutcome({ decision: 'denied' }).word, 'Denied')
+  assert.equal(approvalOutcome({ decision: 'cancelled', reason: 'timeout' }).word, 'Timed out')
+  assert.equal(approvalOutcome({ decision: 'cancelled', reason: 'ended' }).word, 'Closed')
 })

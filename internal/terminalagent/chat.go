@@ -46,12 +46,14 @@ type chatSession struct {
 	tool      string
 	dir       string
 	model     string
+	effort    string
 	acpID     string
 	state     terminalproto.SessionState
 	exit      *int
 	process   chatProcess
 	cancel    context.CancelFunc
 	busy      bool
+	changing  bool
 	yolo      bool
 	// trust is the folder trust the chat was opened with; a swap that has to
 	// restore this chat reopens it the same way.
@@ -431,7 +433,7 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 		started.Store(true)
 	}
 	process, err := h.sup.start(startCtx, acpagent.Options{
-		Agent: spec, Binary: binary, Dir: dir, Home: h.sup.opts.Home, Model: in.Model, Trust: in.Trust, Resume: in.ResumeACP,
+		Agent: spec, Binary: binary, Dir: dir, Home: h.sup.opts.Home, Model: in.Model, Effort: in.Effort, Trust: in.Trust, Resume: in.ResumeACP,
 		BaseEnv: os.Environ(),
 		// Start calls OnReady after the replay and before its own closes of
 		// interrupted tool calls and its first idle status, which the
@@ -463,6 +465,16 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 	succeeded = true
 	h.sup.wg.Add(1)
 	h.sup.mu.Unlock()
+	if controls, ok := process.(liveChatControls); ok {
+		state := controls.Controls()
+		h.sup.mu.Lock()
+		for _, o := range state.Options {
+			if o.Category == "thought_level" {
+				cs.effort = o.Current
+			}
+		}
+		h.sup.mu.Unlock()
+	}
 	h.sup.remember(cs)
 	// The create reply belongs to the connection that asked, which may already
 	// have been replaced while startup ran. Publish the running state to
@@ -582,7 +594,7 @@ func (h *chatHost) find(sessionID string) *chatSession {
 
 func (h *chatHost) startPrompt(cs *chatSession, text string, images []acpagent.Attachment) bool {
 	h.sup.mu.Lock()
-	if cs.busy || cs.quiet || cs.state != terminalproto.Running {
+	if cs.busy || cs.changing || cs.quiet || cs.state != terminalproto.Running {
 		h.sup.mu.Unlock()
 		return false
 	}
@@ -850,7 +862,7 @@ func (h *chatHost) idle(sessionID string) bool {
 
 // idleLocked is idle for a session the caller holds the supervisor lock for.
 func idleLocked(cs *chatSession) bool {
-	return cs.state == terminalproto.Running && cs.process != nil && !cs.busy && !cs.quiet &&
+	return cs.state == terminalproto.Running && cs.process != nil && !cs.busy && !cs.changing && !cs.quiet &&
 		len(cs.pending) == 0 && len(cs.questions) == 0 && !cs.process.Working()
 }
 
@@ -1330,7 +1342,7 @@ func (h *chatHost) setModel(ctx context.Context, sessionID, model string) error 
 		return terminalhost.ErrSessionMissing
 	}
 	h.sup.mu.Lock()
-	if cs.busy || cs.quiet || cs.state != terminalproto.Running {
+	if cs.busy || cs.changing || cs.quiet || cs.state != terminalproto.Running {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict
 	}
@@ -1370,7 +1382,7 @@ func (h *chatHost) setAgentMode(ctx context.Context, sessionID, mode string) err
 		return terminalhost.ErrSessionMissing
 	}
 	h.sup.mu.Lock()
-	if cs.busy || cs.quiet || cs.state != terminalproto.Running {
+	if cs.busy || cs.changing || cs.quiet || cs.state != terminalproto.Running {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict
 	}

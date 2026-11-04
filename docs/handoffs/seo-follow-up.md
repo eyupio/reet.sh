@@ -14,7 +14,7 @@ The full audit and its status update are in [SEO_AUDIT.md](../../SEO_AUDIT.md). 
 | #481 | Anonymous landing page leads with install and community | `aed7d36` |
 | #483 | Server-rendered `/community` and `/l/<slug>` with self-canonicals, OG and sitemap entries | `187a5c7` |
 | #487 | Hosted skill pages: canonical, OG, `SoftwareSourceCode`/`BreadcrumbList`, sitemap entries | `7f713c2` |
-| #489 | Public documentation at `/docs/` rendered from `docs/*.md` with Goldmark | `3d8d1bb` |
+| #489 | Public documentation first published at `/docs/` (later replaced by the standalone MkDocs site) | `3d8d1bb` |
 | #494 | `llms.txt`, `llms-full.txt`, `ai.txt` and public nav link to `/docs/` | `5b4050a` |
 | #496 | Guides: Claude Code on a VPS, skill sync, self-hosted MCP, skills.sh comparison | `f507b6f` |
 | #497 | Crawl contract test: every sitemap URL is 200, indexable and self-canonical | `b6b6ea4` |
@@ -25,8 +25,11 @@ The full audit and its status update are in [SEO_AUDIT.md](../../SEO_AUDIT.md). 
 Relevant code and content:
 
 - `web/embed.go` — SPA routing, 404s, noindex, robots, sitemap, `llms.txt`/`ai.txt`.
-- `web/docs.go` — `/docs/` pages, metadata, previous/next, docs images and 404.
-- `docs/docs.go` — curated docs manifest, Goldmark rendering, link rewriting, sections.
+- `mkdocs.yml` — standalone MkDocs site configuration, navigation and exclusions.
+- `docs/requirements.txt` — pinned MkDocs Material build dependencies.
+- `hooks/docs.py` — post-build `sitemap.xml`, `robots.txt` and `llms.txt`.
+- `overrides/main.html` — canonical, Open Graph and Twitter metadata.
+- `.github/workflows/docs.yml` — build on pull requests and deploy to GitHub Pages from `main`.
 - `cmd/reet/publicpages.go` — server-rendered community and public lists; sitemap URLs from the store.
 - `internal/api/hosted.go` — hosted skill page metadata and JSON-LD.
 - `internal/store/store_hosted.go` — `PublishedHostedSkills` for the sitemap.
@@ -35,7 +38,18 @@ Relevant code and content:
 
 ## What remains
 
-### 1. Existing public list links (H6, second part)
+### 1. Standalone docs deployment
+
+The docs are now a separate MkDocs site, not a Go route. `DOCS_URL` and the MkDocs `site_url` default to
+`https://reet.sh/`. The Pages deployment uses the repository variable `DOCS_SITE_URL` when the canonical origin
+differs. In the repository settings, point the `reet.sh` custom domain at this Pages site once the application moves
+away from the domain; set `DOCS_SITE_URL` only if the final origin is not `https://reet.sh/`.
+
+The application must no longer serve `/docs`; it returns 404, and the docs are a separate deployment. The app's
+sitemap does not list the docs. If the docs move again, update `DOCS_URL` in `web/src/lib/links.ts`, the fallback links
+in `web/index.html`, and `DOCS_SITE_URL`.
+
+### 2. Existing public list links (H6, second part)
 
 New lists get readable slugs, but existing lists keep their opaque 16-hex slugs. The next step is an explicit
 "use a readable link" action that:
@@ -49,7 +63,7 @@ Read `internal/store/store_lists.go`, `internal/api/lists.go`, `internal/api/gro
 `cmd/reet/publicpages.go` and `web/src/lib/ListView.svelte`/`NewList.svelte` before changing anything. Add a store
 migration for the alias table and tests for aliases, redirects and collision handling.
 
-### 2. Measurement (H7)
+### 3. Measurement (H7)
 
 There is no Search Console or Bing verification, no analytics and no submitted sitemap. These need an owner or admin
 and are not code-only changes:
@@ -62,18 +76,18 @@ and are not code-only changes:
 
 The crawl contract test (#497) is the code-side guard. Do not add a third-party tracker without an explicit decision.
 
-### 3. Marketing/app bundle split (N1)
+### 4. Marketing/app bundle split (N1)
 
 The landing page is rendered by the SPA after the full application bundle loads. Split the marketing page from the
 application so `/` and `/welcome` can be static-first, or code-split the app routes so the landing bundle is small.
 Measure before and after; do not claim a field-data improvement without CrUX or Search Console data.
 
-### 4. Remaining app metadata (H3)
+### 5. Remaining app metadata (H3)
 
 Public pages now have per-page metadata. App and account screens are intentionally `noindex`; only add richer metadata
 there if the product decides to expose more public help content. The private routes must stay out of the sitemap.
 
-### 5. More content (H4)
+### 6. More content (H4)
 
 The first content batch is live. Possible next pages, each tied to a real capability:
 
@@ -95,10 +109,19 @@ go vet ./...
 go test -race ./...
 ```
 
+For the docs site:
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r docs/requirements.txt
+mkdocs build --strict
+```
+
 For the narrow SEO surface:
 
 ```sh
-go test ./docs ./web ./internal/store ./internal/api
+go test ./web ./internal/store ./internal/api
 ```
 
 To inspect the live behaviour:
@@ -106,7 +129,7 @@ To inspect the live behaviour:
 ```sh
 curl -sI https://reet.sh/robots.txt
 curl -s https://reet.sh/sitemap.xml
-curl -s https://reet.sh/docs/ | head
+curl -s https://reet.sh/ | head
 curl -s https://reet.sh/llms.txt
 ```
 
@@ -137,7 +160,7 @@ Working rules:
 - Branch from origin/main. One focused change per pull request. Do not include unrelated local changes.
 - Read CONTRIBUTING.md and follow the repository's style, tests and PR template.
 - For Go changes run go vet ./... and go test -race ./...; for web changes run npm run check and the relevant
-  browser tests. For docs-only changes run go test ./docs ./web.
+  browser tests. For docs-only changes run mkdocs build --strict and go test ./web.
 - Every public page must have a unique title and description, a self-referential canonical, and sensible
   indexability. Private, account and auth routes must stay noindex and out of sitemap.xml.
 - Keep "no telemetry" as the default. Do not add analytics or a third-party service without an explicit product

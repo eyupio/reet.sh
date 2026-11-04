@@ -132,3 +132,68 @@ func TestPreviewCachePrunesExpiredAndOldestSnapshots(t *testing.T) {
 		t.Fatal("cache quota exceeded", total)
 	}
 }
+
+func TestPreviewCachePrunesExpiredSnapshots(t *testing.T) {
+	store := newChatPreviewStore(t.TempDir(), t.TempDir())
+	dir := filepath.Join(store.dir, "session-expired0123456")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	fresh, stale := filepath.Join(dir, "fresh"), filepath.Join(dir, "stale")
+	for _, path := range []string{fresh, stale} {
+		if err := os.WriteFile(path, []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-previewCacheAge - time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.pruneLocked(0)
+	store.mu.Unlock()
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatal("a snapshot past the age bound was kept")
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatalf("a fresh snapshot was pruned: %v", err)
+	}
+}
+
+func TestPreviewCachePrunesPastTheFileBound(t *testing.T) {
+	store := newChatPreviewStore(t.TempDir(), t.TempDir())
+	original := previewCacheFiles
+	previewCacheFiles = 3
+	t.Cleanup(func() { previewCacheFiles = original })
+	dir := filepath.Join(store.dir, "session-files012345678")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	paths := make([]string, 0, 4)
+	for i, name := range []string{"a", "b", "c", "d"} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		// Oldest first, so the eviction order is unambiguous.
+		at := time.Now().Add(-time.Duration(4-i) * time.Minute)
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, path)
+	}
+	store.mu.Lock()
+	store.pruneLocked(0)
+	store.mu.Unlock()
+	// Three files plus the free slot the next capture needs: the two oldest go.
+	for _, gone := range paths[:2] {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Fatalf("a snapshot past the file bound was kept: %s", filepath.Base(gone))
+		}
+	}
+	for _, kept := range paths[2:] {
+		if _, err := os.Stat(kept); err != nil {
+			t.Fatalf("a newer snapshot was pruned: %s", filepath.Base(kept))
+		}
+	}
+}

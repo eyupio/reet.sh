@@ -827,11 +827,11 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 			}
 			*server = prompted
 		}
-		resolved, err := clientconfig.ResolveToken(*token, *envFile, os.Stdin, os.Stderr)
+		cred, err := clientconfig.NewCredential(*token, *envFile, *server, os.Stdin, os.Stderr)
 		if err != nil {
 			return err
 		}
-		if err := pushProfile(remote[0], *server, resolved, profile, out); err != nil {
+		if err := pushProfile(remote[0], *server, cred, profile); err != nil {
 			return err
 		}
 		_, err = fmt.Fprintf(out, "Pushed profile %s.\n", profile.Name)
@@ -862,12 +862,15 @@ func runProfile(args []string, out io.Writer, remote ...ProfileRemote) error {
 			}
 			*server = prompted
 		}
-		resolved, err := clientconfig.ResolveToken(*token, *envFile, os.Stdin, os.Stderr)
+		cred, err := clientconfig.NewCredential(*token, *envFile, *server, os.Stdin, os.Stderr)
 		if err != nil {
 			return err
 		}
-		profile, err := remote[0].Pull(*server, resolved, f.Arg(0))
-		if err != nil {
+		var profile SetupProfile
+		if err := clientconfig.Authorize(cred, func(token string) (pullErr error) {
+			profile, pullErr = remote[0].Pull(*server, token, f.Arg(0))
+			return pullErr
+		}); err != nil {
 			return err
 		}
 		if err := WriteSetupProfile(profile, *dir); err != nil {

@@ -171,7 +171,8 @@ func Validate(c *Config) error {
 		// A bare address only. "Name <addr>" parses too, but it would go
 		// into MAIL FROM whole and malform it; the name has its own field.
 		a, err := mail.ParseAddress(from)
-		if err != nil || a.Name != "" || a.Address != from {
+		valid := err == nil && a.Name == "" && a.Address == from
+		if !valid {
 			return fmt.Errorf("email: the from address %q should be a bare address such as hello@example.com, with the name in its own field", from)
 		}
 	}
@@ -183,7 +184,8 @@ func Validate(c *Config) error {
 			return fmt.Errorf("email: the reply-to address %q is not an address", c.ReplyTo)
 		}
 	}
-	if c.DKIMSelector != "" && (len(c.DKIMSelector) > 63 || strings.ContainsAny(c.DKIMSelector, " \t\r\n._")) {
+	invalidSelector := len(c.DKIMSelector) > 63 || strings.ContainsAny(c.DKIMSelector, " \t\r\n._")
+	if c.DKIMSelector != "" && invalidSelector {
 		return fmt.Errorf("email: the DKIM selector %q should be one label, such as default or mail", c.DKIMSelector)
 	}
 	if c.From.Address == "" {
@@ -196,7 +198,8 @@ func Validate(c *Config) error {
 		if c.SMTP() {
 			return fmt.Errorf("email: every link in a message is absolute; enter the instance's public address")
 		}
-	} else if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	} else if invalid := err != nil || (u.Scheme != "https" && u.Scheme != "http") ||
+		u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != ""; invalid {
 		return fmt.Errorf("email: every link in a message is absolute, and %q is not an address to start one with", c.BaseURL)
 	}
 	return nil

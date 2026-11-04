@@ -64,14 +64,18 @@ type Plan struct {
 // number of live sessions of this tool on the machine; the controller refuses
 // to apply while any run, and the plan says so.
 func For(entry terminalproto.SoftwareEntry, action Action, host string, running int) (Plan, error) {
-	if !action.Valid() || entry.Tool != OpenCodeTool || entry.Platform != SupportedPlatform || entry.Arch != SupportedArch {
+	valid := action.Valid() && entry.Tool == OpenCodeTool &&
+		entry.Platform == SupportedPlatform && entry.Arch == SupportedArch
+	if !valid {
 		return Plan{}, ErrUnsupported
 	}
 	if entry.State != terminalproto.SoftwareInstalled && entry.State != terminalproto.SoftwareMissing {
 		return Plan{}, ErrUnsupported
 	}
 	if entry.State == terminalproto.SoftwareInstalled && entry.Managed {
-		if entry.Manager != "reet" || entry.Source != "verified_tarball" || entry.Package == "" {
+		valid := entry.Manager == "reet" && entry.Source == "verified_tarball" &&
+			entry.Package != ""
+		if !valid {
 			return Plan{}, ErrUnsupported
 		}
 	}

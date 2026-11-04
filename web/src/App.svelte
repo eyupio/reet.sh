@@ -9,6 +9,7 @@
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import { SYNC_FILTERS, SYNC_UNAVAILABLE, matchesSyncFilter, settledJobsKey, skillSyncIntent, skillSyncSummary, type SyncFilter } from './lib/skillSync'
   import { audienceLabel } from './lib/api'
+  import { DOCS_URL } from './lib/links'
   import { onMount, tick } from 'svelte'
   import {
     addSkill, addSkillTags, applyTheme, clearThemeChoice, clearToken, getAuthStatus, getNotificationCount, getProfile, getSyncState, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
@@ -155,6 +156,8 @@
   if (/^\/terminals\/?$/.test(location.pathname)) window.history.replaceState(window.history.state, '', `/sessions${location.search}${location.hash}`)
   // `/` is Home: the full Home for a writer in accounts mode, the fleet strip alone for everyone else signed in (R16).
   const isHome = location.pathname === '/'
+  const bootApp = document.documentElement.dataset.boot === 'app'
+  const bootLayout = document.documentElement.dataset.bootLayout ?? 'content'
   const isActivity = location.pathname === '/activity'
   const isSkills = location.pathname === '/skills'
   const machineView = new URLSearchParams(location.search).get('view')
@@ -1002,13 +1005,13 @@
     {#if !authenticated && authMode==='accounts' && !isPublicList && !isCommunity && !isJoin}
       <nav class="site-nav" aria-label="Public navigation">{#if !isWelcome}<a href="/welcome">Workspace</a>{/if}<a href={isWelcome ? '#self-host' : '/welcome#self-host'}>Self-host</a><ThemePicker />{#if !setupRequired}<a class="entry-link" href="/signin">Sign in →</a>{/if}</nav>
     {:else if isPublicList || isCommunity || isJoin}
-      <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a href="/docs/">Docs</a><ThemePicker /><a class="entry-link" href="/">Open your workspace →</a></nav>
+      <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a href={DOCS_URL}>Docs</a><ThemePicker /><a class="entry-link" href="/">Open your workspace →</a></nav>
     {/if}
     {#if (!authenticated || needsAuth) && authMode !== 'accounts' && !isPublicList && !isCommunity && !isJoin && !isWelcome}<span class="tag">Your AI workspace</span>{/if}
   </div>
   {/if}
 </header>
-<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout} class:home-layout={homeLayout} class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
+<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout || (!authChecked && bootApp && bootLayout === 'workspace')} class:home-layout={homeLayout || (!authChecked && bootApp && bootLayout === 'home')} class:auth-page={(authChecked || !bootApp) && !isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}
     {#await pages.Community()}
       <RouteSkeleton variant="cards" />
@@ -1042,7 +1045,7 @@
       <PageLoadError />
     {/await}
   {:else if !authChecked}
-    <BootSkeleton />
+    <BootSkeleton layout={bootApp ? bootLayout : 'content'} />
   {:else if authMode === 'accounts' && setupRequired && !isWelcome}
     {#await pages.Setup()}
       <RouteSkeleton variant="auth" />

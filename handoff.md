@@ -31,10 +31,16 @@ file before changing the public routes, metadata, sitemap or docs.
 
 Merged on `main`: real 404s and private-route noindex (#479, `e54cd9c`); install-first landing CTAs (#481, `aed7d36`);
 server-rendered community and public lists (#483, `187a5c7`); hosted skill page metadata and sitemap entries (#487,
-`7f713c2`); documentation at `/docs/` (#489, `3d8d1bb`); AI-crawler files and public nav pointing at the docs (#494,
+`7f713c2`); documentation first published at `/docs/` (#489, `3d8d1bb`) and now a standalone MkDocs site built by
+`.github/workflows/docs.yml`; AI-crawler files and public nav pointing at the docs (#494,
 `5b4050a`); the first guides and skills.sh comparison (#496, `f507b6f`); the sitemap crawl contract test (#497,
 `b6b6ea4`); readable public list addresses for new lists (#502, `35c2182`); Open WebUI and LibreChat comparisons plus
 the no-VPN guide (#505, `e95cb81`); and landing-page links to the guides (#507, `701e1cd`).
+
+The docs site is no longer embedded in the Go binary. `mkdocs.yml`, `docs/requirements.txt`, `hooks/docs.py`,
+`overrides/main.html` and `.github/workflows/docs.yml` build it from the same `docs/*.md` files and publish it to GitHub
+Pages. The docs own `https://reet.sh/`; `DOCS_URL` points there, and the repository variable `DOCS_SITE_URL` overrides
+the canonical origin for another deployment. The app keeps only the public routes, sitemap and AI-crawler files.
 
 Remaining, in order: a readable-link action with permanent redirects for existing public lists; external measurement
 (Search Console, Bing, and an explicit analytics decision); the marketing/app bundle split; and more intent content.
@@ -513,7 +519,8 @@ says "Authentication required", stop and ask the owner which way to go. No hardw
 continue independent SC5 work, not evidence of a real login. Do not re-ask while it remains deferred. When resumed, signed-in Run B runs first,
 then Run A's follow-up; if Run B still reports "Authentication required", stop and ask which direction to take. Next are section 2 Claude logged
 out/in and the decision about machine-side sign-in wording, then section 1 physical touch and screen-reader checks. Neither experimental switch nor
-`elicitation.form` is retired before its required evidence is recorded. Reet never calls `authenticate`.
+`elicitation.form` is retired before its required evidence is recorded. Record each result in the ledger at the top of
+[docs/device-checks.md](docs/device-checks.md#recorded-results) with its date and the PR that carries it. Reet never calls `authenticate`.
 
 **Delivered SC5 slices:**
 - #392: live model controls and lookups follow each available agent descriptor. Merged; bot review was blocked by account quota and its terminal CI

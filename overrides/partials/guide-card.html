@@ -1,0 +1,4 @@
+<a class="article-card" href="{{ guide.url | url }}">
+  <div class="article-art art-{{ guide.meta.art | default('remote') }}" aria-hidden="true">{{ icon(guide.meta.art_icon | default('monitor')) }}<span>{{ guide.meta.art_label | default('ON YOUR TERMS') }}</span></div>
+  <div class="article-card-body"><span class="eyebrow">{{ guide.meta.topic | default('FIELD GUIDE') }}</span><h3>{{ guide.meta.card_title | default(guide.title) }}</h3><p>{{ guide.meta.description }}</p><div class="article-card-foot"><span>{{ guide.meta.read_time }} min read</span>{{ icon('arrow') }}</div></div>
+</a>

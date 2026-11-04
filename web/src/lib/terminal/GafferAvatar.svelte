@@ -104,15 +104,18 @@
          light theme inks the *features* instead: close the drawing over its grid lines to find the figure, then keep what the
          figure is not (outline, grid, eyes, mouth). A light face with dark line-work, as dark mode reads. The sprite sheet is
          drawn at its own pixel size and the flat portrait is stretched, hence one radius for each. -->
-    {#each [['s', 6], ['f', 1.6]] as [kind, radius] (kind)}
+    {#each [['s', 6, 2], ['f', 1.6, .5]] as [kind, radius, weight] (kind)}
       <filter id={`${id}-paper-${kind}`} color-interpolation-filters="sRGB" x="-5%" y="-5%" width="110%" height="110%">
         <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  .2445 .8225 .083 0 -.1" result="soft" />
         <feComponentTransfer in="soft" result="drawing"><feFuncA type="linear" slope="4" intercept="-1.1" /></feComponentTransfer>
         <feMorphology in="drawing" operator="dilate" {radius} result="grown" />
         <feMorphology in="grown" operator="erode" {radius} result="figure" />
         <feComposite in="figure" in2="drawing" operator="out" result="linework" />
+        <!-- Dark line-work on a pale card is thin; weight it so it still reads when the portrait is shrunk (the minimised card). -->
+        <feMorphology in="linework" operator="dilate" radius={weight} result="wide" />
+        <feComponentTransfer in="wide" result="bold"><feFuncA type="linear" slope="1.8" intercept="0" /></feComponentTransfer>
         <feFlood flood-color="currentColor" result="ink" />
-        <feComposite in="ink" in2="linework" operator="in" />
+        <feComposite in="ink" in2="bold" operator="in" />
       </filter>
     {/each}
   </defs>

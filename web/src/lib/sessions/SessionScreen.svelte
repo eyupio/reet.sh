@@ -5,6 +5,7 @@
   import { copyText } from '../clipboard'
   import WorktreeDialog from '../WorktreeDialog.svelte'
   import { fleetCards, stateWord, type FleetCard } from '../home'
+  import { sessionStatus } from '../sessionStatus'
   import type { RunMember } from '../projects'
   import { headerMeta, offlineSentence, switchModeState, switchWhy, tabFromMenu, worktreeTargetOf } from '../sessions'
   import { toolName } from '../agentLaunch'
@@ -106,6 +107,7 @@
   const DOWN: Record<string, string> = { reconnecting: 'Reconnecting', detached: 'Disconnected', taken_over: 'Open elsewhere', lost: 'Shell unavailable', access_denied: 'Access denied' }
   const sessionWord = $derived(stateWord(session))
   const word = $derived(!terminalClosed(session.state) && DOWN[connection] ? { word: DOWN[connection], tone: 'warn' as const, source: "from this browser's connection" } : sessionWord)
+  const statusKind = $derived(!terminalClosed(session.state) && DOWN[connection] ? (connection === 'reconnecting' ? 'starting' : 'failed') : sessionStatus(session))
   const source = $derived(word.source.charAt(0).toUpperCase() + word.source.slice(1))
   const target = $derived(worktreeTargetOf(session))
   const serverOff = $derived(machines.find(m => m.agentId === session.agentId)?.serverEnabled === false)
@@ -354,7 +356,7 @@
         <p class="sub">{headerMeta(session, session.createdAt, now)}</p>
         <p class="where-phone">{[word.word, project, host].filter(Boolean).join(' · ')}</p>
       </div>
-      <span class="pill {word.tone}" title={source}><span class="dot" aria-hidden="true"></span>{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
+      <span class="pill" data-status={statusKind} title={source}><span class="dot" aria-hidden="true"></span>{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
       <div class="header-actions">
         <button type="button" class="theatre-button" aria-pressed={theatre} aria-label={theatre ? 'Exit theatre view' : 'Theatre view'} title={theatre ? 'Restore the session panels' : 'Hide the panels and focus on this session'} onclick={theatreView}>
           <TerminalIcon name="theatre" /><span class="wide-label">{theatre ? 'Exit theatre' : 'Theatre view'}</span><span class="compact-label">{theatre ? 'Exit' : 'Theatre'}</span>
@@ -478,11 +480,8 @@
   .title { margin: 0; font: 600 21px/1.3 var(--serif); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .sub, .where-phone { margin: 0; font-size: 13px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .where-phone { display: none; }
-  .pill { --tone: var(--muted); flex: none; display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 99px; box-sizing: border-box;
-    background: color-mix(in srgb, var(--tone) 14%, transparent); border: 1px solid color-mix(in srgb, var(--tone) 45%, transparent); color: var(--tone); font-size: 13px; font-weight: 500; white-space: nowrap; }
-  .pill.good { --tone: var(--good); }
-  .pill.warn { --tone: var(--warn); }
-  .pill.bad { --tone: var(--bad); }
+  .pill { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 99px; box-sizing: border-box;
+    background: var(--status-wash); border: 1px solid var(--status-edge); color: var(--status); font-size: 13px; font-weight: 600; white-space: nowrap; }
   .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
   .badge { flex: none; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 99px; font-size: 12px; line-height: 22px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }

@@ -6,7 +6,7 @@ Applies the mechanical, low-risk parts of the `samber/cc-skills-golang@golang-co
 guidelines across the Go codebase. It is a style-only change set: no intended
 behaviour change, no public API change, no schema change.
 
-The work was driven by an AST audit over all 347 non-test Go files using three
+The work was driven by an AST audit over every non-test Go file using three
 rules:
 
 1. `if` conditions with 3 or more operands (`&&` / `||` leaves).
@@ -17,9 +17,11 @@ rules:
 ## Completed so far
 
 `internal/store` and `internal/api` landed in the first PR. `internal/terminalproto`
-and `internal/terminalhost` landed in the second. This PR adds
-`internal/setup`, `internal/terminalbroker`, `internal/scan`,
-`internal/terminalagent` and `internal/acpagent`.
+and `internal/terminalhost` landed in the second. `internal/setup`,
+`internal/terminalbroker`, `internal/scan`, `internal/terminalagent` and
+`internal/acpagent` landed in the third. `internal/agenthealth`, `internal/backup`
+and `internal/lifecycle` landed in the fourth. This PR clears the remaining
+complex-condition findings across the rest of the codebase.
 
 ### Index loops (`range`)
 
@@ -50,9 +52,30 @@ and `internal/terminalhost` landed in the second. This PR adds
 - `internal/scan`: 43 → 0 (previous PR).
 - `internal/terminalagent`: 41 → 0 (previous PR).
 - `internal/acpagent`: 32 → 0 (previous PR).
-- `internal/agenthealth`: 26 → 0 (this PR).
-- `internal/backup`: 19 → 0 (this PR).
-- `internal/lifecycle`: 18 → 0 (this PR).
+- `internal/agenthealth`: 26 → 0 (previous PR).
+- `internal/backup`: 19 → 0 (previous PR).
+- `internal/lifecycle`: 18 → 0 (previous PR).
+- `cmd/reet`: 17 → 0 (this PR).
+- `internal/agentsoftware`: 13 → 0 (this PR).
+- `internal/skillbundle`: 12 → 0 (this PR).
+- `internal/terminalcontrol`: 11 → 0 (this PR).
+- `internal/clientconfig`: 10 → 0 (this PR).
+- `internal/skillplan`: 9 → 0 (this PR).
+- `internal/skillpreview`: 7 → 0 (this PR).
+- `internal/ref`: 7 → 0 (this PR).
+- `internal/oidc`: 7 → 0 (this PR).
+- `internal/mail`: 7 → 0 (this PR).
+- `internal/contentobs`: 5 → 0 (this PR).
+- `internal/privateconn`: 4 → 0 (this PR).
+- `internal/notify`: 4 → 0 (this PR).
+- `internal/meta`: 2 → 0 (this PR).
+- `internal/skillimport`: 3 → 0 (this PR).
+- `internal/softwarerun`: 2 → 0 (this PR).
+- `internal/projectrun`: 2 → 0 (this PR).
+- `internal/auth`: 2 → 0 (this PR).
+- `internal/softwaremirror`, `internal/sealed`, `internal/profilehistory`,
+  `internal/objectstore`, `internal/health`, `internal/filelock`,
+  `internal/agentupdate` and `internal/cliui`: 1 each → 0 (this PR).
 
 Conditions were grouped into named booleans, with expensive or
 short-circuit-sensitive checks kept inline (for example a nil check before a
@@ -64,26 +87,17 @@ Current AST audit after this PR:
 
 | Rule | Remaining |
 | --- | --- |
-| `cond>=3` | 136 |
+| `cond>=3` | 0 |
 | `params>4` | 187 |
 | `index-loop` | 8 (all intentional, commented) |
 
-Top packages by remaining complex conditions:
+Every `cond>=3` finding in the tracked codebase is now addressed. (An unrelated
+untracked package and another actor's in-progress `internal/scan` work may still
+show findings, but neither is part of this branch.)
 
-| Package | `cond>=3` |
-| --- | --- |
-| `cmd/reet` | 17 |
-| `internal/agentsoftware` | 13 |
-| `internal/skillbundle` | 12 |
-| `internal/terminalcontrol` | 11 |
-| `internal/clientconfig` | 10 |
-| `internal/skillplan` | 9 |
-| `internal/mail` | 7 |
-| `internal/skillpreview` | 7 |
-
-`params>4` is untouched. It is a design change (options structs and call-site
-updates), not a mechanical rewrite. Functions with 5 and 6 parameters are the
-bulk (about 100 and 50 respectively).
+`params>4` is the remaining mechanical gap. It is a design change (options
+structs and call-site updates), not a pure rewrite. Functions with 5 and 6
+parameters are the bulk (about 100 and 50 respectively).
 
 Also untouched from the same style guide:
 
@@ -98,9 +112,10 @@ Also untouched from the same style guide:
 
 - `gofmt` clean across the repository.
 - `go build ./...` passes.
-- `go test ./internal/agenthealth ./internal/backup ./internal/lifecycle -count=1` passes.
-- `go test ./internal/scan -count=1` passes apart from the network-dependent
-  test listed below.
+- Tests for every package changed in this PR pass, run in a clean worktree:
+  `cmd/reet`, `docs`, and the `internal/` packages listed above.
+- `internal/clientconfig` still has the environment-only prompt test failure
+  listed below.
 - Full `go test ./...` has two failures that also reproduce on pristine
   `main`:
   - `internal/clientconfig` — `TestPromptsAreBoundedAndDoNotConsumeLaterConfirmation`
@@ -121,11 +136,11 @@ counts, walk non-test `.go` files and count:
 
 ## Suggested next step
 
-Continue with `cmd/reet` (17 conditions) using the same approach, then
-`internal/agentsoftware` (13), `internal/skillbundle` (12) and
-`internal/terminalcontrol` (11). Do not start with `params>4` unless a package
-is being touched for another reason; options-struct refactors should be
-reviewed on their own.
+Complex conditions are complete. The remaining style work is `params>4`:
+introduce options structs and update call sites, package by package. Do that as
+focused PRs rather than one sweep, because it changes public call shapes.
+After that the remaining items are long lines, nil slice/map initialisation,
+keyed composite literals, and `strconv`/`%q` in errors.
 
 Regressions caught locally during these PRs and fixed: `hasControl` briefly
 returned the wrong boolean, an `if`/`else` in `unpushedCount` was mangled while

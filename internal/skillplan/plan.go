@@ -130,12 +130,19 @@ func Build(input Snapshot, now int64) (Plan, error) {
 	if err = json.Unmarshal(raw, &s); err != nil {
 		return empty, err
 	}
-	if now <= 0 || s.InventoryRevision <= 0 || !validTarget(s.Target) || s.Desired.OwnerID != s.Target.OwnerID ||
-		!revisionPattern.MatchString(s.Desired.BundleID) || !revisionPattern.MatchString(s.Desired.RevisionID) ||
-		s.Desired.Name != s.Target.SkillName || (s.Mode != "additive" && s.Mode != "managed") {
+	validTimes := now > 0 && s.InventoryRevision > 0
+	targetValid := validTarget(s.Target) && s.Desired.OwnerID == s.Target.OwnerID
+	validIDs := revisionPattern.MatchString(s.Desired.BundleID) &&
+		revisionPattern.MatchString(s.Desired.RevisionID)
+	validIdentity := s.Desired.Name == s.Target.SkillName &&
+		(s.Mode == "additive" || s.Mode == "managed")
+	valid := validTimes && targetValid && validIDs && validIdentity
+	if !valid {
 		return empty, errors.New("invalid planner identity or mode")
 	}
-	if s.RootOwnership != "exclusive" && s.RootOwnership != "shared" && s.RootOwnership != "unknown" {
+	validOwnership := s.RootOwnership == "exclusive" || s.RootOwnership == "shared" ||
+		s.RootOwnership == "unknown"
+	if !validOwnership {
 		return empty, errors.New("invalid root ownership")
 	}
 	s.Desired.Manifest, err = canonical(s.Desired.Manifest)
@@ -185,10 +192,12 @@ func Build(input Snapshot, now int64) (Plan, error) {
 	if o.InventoryRevision != s.InventoryRevision {
 		return block("inventory_changed")
 	}
-	if !o.Complete || (o.Presence != "present" && o.Presence != "absent") {
+	validPresence := o.Presence == "present" || o.Presence == "absent"
+	if !o.Complete || !validPresence {
 		return block("observation_unknown")
 	}
-	if o.ReceivedAt <= 0 || o.ReceivedAt > now || now-o.ReceivedAt > MaxAgeMillis {
+	freshObservation := o.ReceivedAt > 0 && o.ReceivedAt <= now && now-o.ReceivedAt <= MaxAgeMillis
+	if !freshObservation {
 		return block("observation_stale")
 	}
 	if b := s.Baseline; b != nil {
@@ -328,16 +337,22 @@ func bounded(s Snapshot) bool {
 		manifests = append(manifests, s.Baseline.Manifest)
 	}
 	for _, m := range manifests {
-		if len(m.Files) > skillbundle.MaxFiles || len(m.Issues) > skillbundle.MaxEntries || len(m.Digest) > 64 || len(m.Algorithm) > 64 || len(m.ModeSemantics) > 64 {
+		valid := len(m.Files) <= skillbundle.MaxFiles && len(m.Issues) <= skillbundle.MaxEntries &&
+			len(m.Digest) <= 64 && len(m.Algorithm) <= 64 && len(m.ModeSemantics) <= 64
+		if !valid {
 			return false
 		}
 		for _, f := range m.Files {
-			if len(f.Path) > skillbundle.MaxPathBytes || len(f.Digest) > 64 || !utf8.ValidString(f.Path) || !utf8.ValidString(f.Digest) {
+			valid := len(f.Path) <= skillbundle.MaxPathBytes && len(f.Digest) <= 64 &&
+				utf8.ValidString(f.Path) && utf8.ValidString(f.Digest)
+			if !valid {
 				return false
 			}
 		}
 		for _, issue := range m.Issues {
-			if len(issue.Path) > skillbundle.MaxPathBytes || len(issue.Code) > 128 || !utf8.ValidString(issue.Path) || !utf8.ValidString(issue.Code) {
+			valid := len(issue.Path) <= skillbundle.MaxPathBytes && len(issue.Code) <= 128 &&
+				utf8.ValidString(issue.Path) && utf8.ValidString(issue.Code)
+			if !valid {
 				return false
 			}
 		}
@@ -366,11 +381,14 @@ func opaque(s string) bool {
 	return len(s) > 0 && len(s) <= 1024 && utf8.ValidString(s) && !strings.ContainsFunc(s, unicode.IsControl)
 }
 func canonical(m skillbundle.Manifest) (skillbundle.Manifest, error) {
-	if !m.Complete || len(m.Issues) != 0 || m.SchemaVersion != skillbundle.SchemaVersion || m.Algorithm != skillbundle.Algorithm || m.ModeSemantics != skillbundle.ModeSemantics {
+	valid := m.Complete && len(m.Issues) == 0 && m.SchemaVersion == skillbundle.SchemaVersion &&
+		m.Algorithm == skillbundle.Algorithm && m.ModeSemantics == skillbundle.ModeSemantics
+	if !valid {
 		return skillbundle.Manifest{}, errors.New("unsupported or incomplete manifest")
 	}
 	c, err := skillbundle.FromMetadata(m.Files)
-	if err != nil || c.Digest != m.Digest || c.TotalBytes != m.TotalBytes {
+	sameIdentity := err == nil && c.Digest == m.Digest && c.TotalBytes == m.TotalBytes
+	if !sameIdentity {
 		return skillbundle.Manifest{}, errors.New("manifest identity mismatch")
 	}
 	return c, nil

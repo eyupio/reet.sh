@@ -30,6 +30,21 @@ and Gemini entries describe missing or unverified support; installing an adapter
 alone does not enable its chat. No CLI is executed to build these descriptors,
 and availability does not establish a successful model turn or authentication.
 
+### Experimental: Claude Code and Codex chats
+
+Claude Code and Codex chats are built end to end but dark. A machine reports either one only when the agent process itself
+runs with `REET_EXPERIMENTAL_CLAUDE_CHAT=1` or `REET_EXPERIMENTAL_CODEX_CHAT=1` in its environment, and restarting that agent
+is what applies it. An installed adapter, a machine-wide `acp` flag or a terminal session does not switch them on, and one
+machine's choice never changes another's.
+
+When a machine opts in, its descriptor reports that agent as available and the browser offers its chat beside OpenCode. A
+Codex chat starts in `read-only` and carries the approvals control; `agent` is chosen per chat and `agent-full-access` is
+never offered. Claude reports approvals and the model switch only. Neither is proof of a signed-in turn: the descriptor is
+an observation.
+
+The switches are not a support statement. The device and login checks that would retire them, and the ledger that records
+them, are in [Device checks](device-checks.md).
+
 An explicit list is authoritative: a missing tool or an empty list does not fall
 back to machine-wide flags. Older peers omit the list and retain the OpenCode-only
 behaviour. New descriptors are never sent to an older controller. Launches and

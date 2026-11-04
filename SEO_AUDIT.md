@@ -24,14 +24,40 @@ The initial audit found the gaps below. The following work has since landed on `
 | #505 | Open WebUI and LibreChat comparisons, no-VPN guide | `e95cb81` |
 | #507 | Landing page links to the new guides | `701e1cd` |
 
-**Implemented:** C1–C4, H1, H2, H4 (first batch), H5, H8, H9 (first batch), N3, N4. The remaining work is tracked in
+The Go-served docs described in #489 were later replaced by a standalone MkDocs build in the same repository
+(`mkdocs.yml`, `docs/requirements.txt`, `hooks/docs.py`, `overrides/main.html` and `.github/workflows/docs.yml`).
+The application no longer serves `/docs`; the docs are deployed to GitHub Pages and `DOCS_URL` points at the public
+docs origin. The remaining work is tracked in
 [the SEO continuation handoff](docs/handoffs/seo-follow-up.md): existing opaque list links, external measurement
 (Search Console, Bing, analytics), the marketing/app bundle split, remaining app metadata, and more content.
 
 ---
 
 
-## Executive summary
+## Documentation site review — 4 November 2026
+
+The MkDocs showcase and field guide from [PR #530](https://github.com/eyupio/reet.sh/pull/530) now own the public root. This follow-up checks the generated site and its shared templates; it does not repeat the original application's live HTTP audit below.
+
+| Check | Result |
+| --- | --- |
+| Public pages | 49 after excluding the roadmap; every page has one H1 and one canonical. |
+| Titles and descriptions | Unique and nonempty across all pages; no titles over 75 characters or descriptions over 165 characters in this review. |
+| Indexability | Public pages emit `index,follow,max-image-preview:large`; private previews and the error page emit one `noindex,nofollow` tag. |
+| Open Graph | Per-page title, description and canonical URL; site name/type/locale and an absolute social image URL, HTTPS secure URL, PNG MIME type, dimensions and descriptive alt text. |
+| Twitter cards | `summary_large_image` with matching title, description, image and image alt text. |
+| Social image | Branded 1200 × 630 PNG at `/assets/brand/social.png`; the checker reads the PNG header and compares its dimensions to the declared tags. The card is rendered from `brand/docs-social.html`. |
+| Structured data | Valid JSON-LD graphs for WebPage/TechArticle, breadcrumbs and the homepage's website/application data. |
+| Discovery | Public-page sitemap, matching compressed sitemap, robots sitemap declaration, `llms.txt` and full-text search coverage. |
+| Roadmap | Excluded from the public build, navigation, sitemap, search and `llms.txt`; retained as a repository planning document. |
+| Verification | Strict builds and metadata/link checks at the root and a nested deployment path; Chromium checks for search, themes, navigation and responsive layouts. |
+
+`scripts/check-docs.py` now rejects missing, empty or duplicate sharing tags; inconsistent titles/descriptions/canonicals; incorrect social-image files or dimensions; accidental publication of internal pages; and broken local links/assets. The docs workflow runs this and the browser smoke tests before publishing.
+
+Search Console/Bing coverage, rankings and third-party social-crawler cache state were not measured in this review. The remaining app-side and external measurement work stays in the continuation handoff above.
+
+The sections below preserve the original pre-remediation audit. Use the status update and documentation review above for the current documentation site's state.
+
+## Original audit: executive summary
 
 reet.sh has a better technical foundation than most early-stage developer products: a real crawlable landing fallback, a valid `robots.txt`, a valid `sitemap.xml`, Open Graph tags, basic JSON-LD, self-hosted fonts, gzip, immutable asset caching, and an original, specific product voice.
 

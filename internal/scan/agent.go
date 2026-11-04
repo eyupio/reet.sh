@@ -257,16 +257,19 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			}
 			projects[i] = p
 		}
-		tokenValue, err := clientconfig.ResolveToken(*token, *tokenFile, in, os.Stderr)
+		cred, err := clientconfig.NewCredential(*token, *tokenFile, strings.TrimRight(*server, "/"), in, os.Stderr)
 		if err != nil {
 			return err
 		}
-		c := agentConfig{Server: strings.TrimRight(*server, "/"), Token: tokenValue, Host: *host, Hostname: hostname, Home: home, Projects: projects, AllowApply: *allow}
+		c := agentConfig{Server: strings.TrimRight(*server, "/"), Token: cred.Token, Host: *host, Hostname: hostname, Home: home, Projects: projects, AllowApply: *allow}
 		var result struct {
 			Agent  store.SyncAgent
 			Secret string
 		}
-		if err = agentRequest(c, "/api/v2/sync/agents", map[string]string{"host": *host, "version": version, "commit": buildCommit}, &result, version); err != nil {
+		if err = clientconfig.Authorize(cred, func(token string) error {
+			c.Token = token
+			return agentRequest(c, "/api/v2/sync/agents", map[string]string{"host": *host, "version": version, "commit": buildCommit}, &result, version)
+		}); err != nil {
 			return err
 		}
 		c.ID = result.Agent.ID
@@ -437,6 +440,10 @@ type controllerError struct {
 func (e controllerError) Error() string {
 	return fmt.Sprintf("controller %d %s: %s", e.Status, http.StatusText(e.Status), e.Message)
 }
+
+// Unwrap exposes a 401 or 403 as the shared clientconfig.AuthError, so the
+// token-replacement flow recognises a rejected token from any agent request.
+func (e controllerError) Unwrap() error { return clientconfig.NewAuthError(e.Status, e.Message) }
 
 // permanentAgentError reports a controller refusal that will not change by
 // resending the same request.

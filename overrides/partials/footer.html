@@ -1,0 +1,10 @@
+{% from "partials/icons-reet.html" import icon %}
+<footer class="footer">
+  <div class="wrap footer-top">
+    <div class="footer-brand"><a class="brand" href="{{ nav.homepage.url | url }}">{% include "partials/logo.html" %}</a><p>A proper home for your AI work.<br>Made in Yorkshire. Built to run anywhere.</p></div>
+    <div><h3>Start here</h3><a href="{{ 'quick-start/' | url }}">Quick start</a><a href="{{ 'binary-installation/' | url }}">Installation</a><a href="{{ nav.homepage.url | url }}#product">Product tour</a><a href="{{ 'add-machine-in-context/' | url }}">Connect a machine</a></div>
+    <div><h3>Go further</h3><a href="{{ 'documentation/' | url }}">Documentation</a><a href="{{ 'guides/' | url }}">Guides & articles</a><a href="{{ 'compare/' | url }}">Comparisons</a><a href="{{ 'cli-reference/' | url }}">CLI reference</a></div>
+    <div><h3>Open by nature</h3><a href="{{ config.repo_url }}">GitHub {{ icon('diagonal') }}</a><a href="{{ config.repo_url }}/releases">Releases {{ icon('diagonal') }}</a><a href="{{ config.repo_url }}/issues">Get help {{ icon('diagonal') }}</a><a href="{{ 'backups/' | url }}">Back up your instance</a></div>
+  </div>
+  <div class="wrap footer-bottom"><span>reet.sh · <a href="{{ config.repo_url }}/blob/main/LICENSE">AGPL-3.0</a></span><span><i class="status-dot"></i> Self-hosted. Open source. Yours.</span><a href="https://eyup.io">An EyUp.io project {{ icon('diagonal') }}</a></div>
+</footer>

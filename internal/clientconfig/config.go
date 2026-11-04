@@ -43,7 +43,9 @@ func Validate(key, value string) error {
 		}
 	case "REET_URL":
 		u, err := url.Parse(value)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		invalid := err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+			u.User != nil || u.RawQuery != "" || u.Fragment != ""
+		if invalid {
 			return errors.New("REET_URL must be an HTTP(S) server URL without credentials, query or fragment")
 		}
 	default:
@@ -75,7 +77,8 @@ func read(path string) (map[string]string, error) {
 	}
 	defer f.Close()
 	opened, err := f.Stat()
-	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(info, opened) {
+	invalid := err != nil || !opened.Mode().IsRegular() || !os.SameFile(info, opened)
+	if invalid {
 		return nil, errors.New("client.env changed during read")
 	}
 	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
@@ -90,7 +93,8 @@ func read(path string) (map[string]string, error) {
 			continue
 		}
 		key, raw, ok := strings.Cut(line, "=")
-		if !ok || len(raw) < 2 || raw[0] != '\'' || raw[len(raw)-1] != '\'' {
+		valid := ok && len(raw) >= 2 && raw[0] == '\'' && raw[len(raw)-1] == '\''
+		if !valid {
 			return nil, errors.New("invalid client.env; use reet configure to manage defaults")
 		}
 		value := strings.ReplaceAll(raw[1:len(raw)-1], "'\\''", "'")

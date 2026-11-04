@@ -1,0 +1,40 @@
+{% import "partials/nav-item.html" as item with context %}
+{% from "partials/icons-reet.html" import icon %}
+{% macro mobile_items(items) %}
+<ul class="reet-mobile-list">
+  {% for entry in items %}
+    <li>
+    {% if entry.children %}
+      <details class="reet-mobile-group" {% if entry.active %}open{% endif %}>
+        <summary>{{ entry.title }} {{ icon('arrow') }}</summary>
+        {{ mobile_items(entry.children) }}
+      </details>
+    {% else %}
+      <a href="{{ entry.url | url }}" {% if entry == page %}aria-current="page"{% endif %}>{{ 'Overview' if entry.title == 'Documentation' else 'All guides' if entry.title == 'Field guide' else entry.title }}</a>
+    {% endif %}
+    </li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+{% set class = "md-nav md-nav--primary" %}
+{% if "navigation.tabs" in features %}{% set class = class ~ " md-nav--lifted" %}{% endif %}
+<nav class="{{ class }}" aria-label="{{ lang.t('nav') }}" data-md-level="0">
+  <div class="reet-mobile-menu">
+    <div class="reet-drawer-head">
+      <a class="brand" href="{{ nav.homepage.url | url }}" aria-label="reet.sh home">{% include "partials/logo.html" %}</a>
+      <label class="icon-button" for="__drawer" role="button" tabindex="0" data-docs-close aria-label="Close navigation">{{ icon('close') }}</label>
+    </div>
+    <div class="reet-mobile-links"><div class="reet-drawer-label">EXPLORE REET</div>{{ mobile_items(nav.items) }}</div>
+    <div class="reet-drawer-footer">
+      <a class="button button-small" href="{{ 'quick-start/' | url }}">Get started {{ icon('arrow') }}</a>
+      {% include "partials/source.html" %}
+      <p>Self-hosted. Open source. Yours.</p>
+    </div>
+  </div>
+  <ul class="md-nav__list reet-desktop-tree" data-md-scrollfix>
+    {% for nav_item in nav.items %}
+      {% set path = "__nav_" ~ loop.index %}
+      {{ item.render(nav_item, path, 1) }}
+    {% endfor %}
+  </ul>
+</nav>

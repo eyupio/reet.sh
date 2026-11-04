@@ -6,10 +6,12 @@
   color: var(--ink);
 }
 
-/* Dark ink on a light card, light ink on a dark one; the light theme uses the line-work filter (see GafferAvatar). The theme
-   switches follow app.css: an explicit data-theme wins, otherwise the device decides. */
 .gaffer-avatar image { filter: var(--gaffer-ink-filter); }
+
+/* The artwork is a lit face on a dark screen, so on a light card it sits on a small warm-brown tile (not black) and keeps the
+   dark theme's cream ink. Thin dark line-work on pale paper was too faint at the minimised size. The theme switches follow
+   app.css: an explicit data-theme wins, otherwise the device decides. */
 @media (prefers-color-scheme: light) {
-  :root:not([data-theme='dark']) .gaffer-avatar image { filter: var(--gaffer-paper-filter); }
+  :root:not([data-theme='dark']) .gaffer-avatar { color: #fffdf9; background: #6b5848; border-radius: 22%; }
 }
-:root[data-theme='light'] .gaffer-avatar image { filter: var(--gaffer-paper-filter); }
+:root[data-theme='light'] .gaffer-avatar { color: #fffdf9; background: #6b5848; border-radius: 22%; }

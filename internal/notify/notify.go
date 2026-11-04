@@ -85,7 +85,8 @@ func Catalogue() []Type { return append([]Type(nil), catalogue...) }
 func For(role string) []Type {
 	out := make([]Type, 0, len(catalogue))
 	for _, t := range catalogue {
-		if t.Audience == User || ((role == "owner" || role == "admin") && t.Audience == Staff) {
+		staff := (role == "owner" || role == "admin") && t.Audience == Staff
+		if t.Audience == User || staff {
 			out = append(out, t)
 		}
 	}
@@ -206,7 +207,8 @@ func (s *Service) recipients(t Type, ev Event) ([]Recipient, error) {
 			return nil, err
 		}
 		for _, u := range users {
-			if u.DisabledAt != 0 || (u.Role != "owner" && u.Role != "admin") {
+			valid := u.DisabledAt == 0 && (u.Role == "owner" || u.Role == "admin")
+			if !valid {
 				continue
 			}
 			out = append(out, Recipient{UserID: u.ID, Email: u.Email, Name: u.Name, Role: u.Role, Admin: true})
@@ -217,7 +219,8 @@ func (s *Service) recipients(t Type, ev Event) ([]Recipient, error) {
 	seen := map[int64]bool{}
 	unique := out[:0]
 	for _, r := range out {
-		if r.UserID == 0 || r.UserID == ev.Except || seen[r.UserID] {
+		duplicate := r.UserID == 0 || r.UserID == ev.Except
+		if duplicate || seen[r.UserID] {
 			continue
 		}
 		seen[r.UserID] = true
@@ -287,7 +290,9 @@ func (s *Service) deliver(ctx context.Context, t Type, ev Event, r Recipient, pr
 	if err != nil {
 		return fmt.Errorf("recording %s for %d: %w", t.Key, r.UserID, err)
 	}
-	if !created || pref.Mode != store.NotifyImmediate || s.Mail == nil || !s.Mail.Delivers() {
+	deliver := created && pref.Mode == store.NotifyImmediate
+	valid := deliver && s.Mail != nil && s.Mail.Delivers()
+	if !valid {
 		return nil
 	}
 	d := ev.Data

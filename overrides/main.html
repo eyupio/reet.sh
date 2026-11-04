@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% from "partials/icons-reet.html" import icon %}
+{% set layout = page.meta.layout if page else "notfound" %}
+{% set seo_title = page.meta.title if page and page.meta.title else page.title ~ ' · reet.sh' if page else 'Page not found · reet.sh' %}
+{% set social_image = config.site_url ~ 'assets/brand/social.png' %}
+{% set social_alt = 'reet.sh — Your agents. Your machines. All reet. A self-hosted AI agent control room.' %}
+
+{% block htmltitle %}<title>{{ seo_title }}</title>{% endblock %}
+{% block extrahead %}
+  {{ super() }}
+  <link rel="preload" as="font" type="font/woff2" href="{{ 'assets/fonts/fraunces-latin-600-normal.woff2' | url }}" crossorigin>
+  <link rel="preload" as="font" type="font/woff2" href="{{ 'assets/fonts/ibm-plex-sans-latin-400-normal.woff2' | url }}" crossorigin>
+  {% if config.extra.noindex or not page %}
+  <meta name="robots" content="noindex,nofollow">
+  {% else %}
+  <meta name="robots" content="index,follow,max-image-preview:large">
+  {% endif %}
+  {% if page %}
+  <meta property="og:type" content="{{ 'article' if layout == 'article' else 'website' }}">
+  <meta property="og:site_name" content="reet.sh">
+  <meta property="og:title" content="{{ seo_title }}">
+  <meta property="og:description" content="{{ page.meta.description | default(config.site_description, true) }}">
+  <meta property="og:url" content="{{ page.canonical_url }}">
+  <meta property="og:image" content="{{ social_image }}">
+  {% if config.site_url.startswith('https://') %}<meta property="og:image:secure_url" content="{{ social_image }}">{% endif %}
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:locale" content="en_GB">
+  <meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="{{ social_alt }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ seo_title }}">
+  <meta name="twitter:description" content="{{ page.meta.description | default(config.site_description, true) }}">
+  <meta name="twitter:image" content="{{ social_image }}">
+  <meta name="twitter:image:alt" content="{{ social_alt }}">
+  {% if page.meta.schema %}<script type="application/ld+json">{{ page.meta.schema | tojson }}</script>{% endif %}
+  {% endif %}
+{% endblock %}
+
+{# The header supplies the top navigation; Material still owns the docs drawer. #}
+{% block tabs %}{% endblock %}
+{% block site_nav %}
+  <div id="reet-navigation" class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+    <div class="md-sidebar__scrollwrap"><div class="md-sidebar__inner">{% include "partials/nav.html" %}</div></div>
+  </div>
+  {% if layout not in ['home', 'hub', 'guides', 'compare', 'article'] %}
+  <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc"><div class="md-sidebar__scrollwrap"><div class="md-sidebar__inner">{% include "partials/toc.html" %}</div></div></div>
+  {% endif %}
+{% endblock %}
+
+{% block container %}
+  {% if layout == 'home' %}
+    <div class="site-home" data-md-component="content" id="main">{{ page.content }}</div>
+  {% elif layout == 'hub' %}
+    <div class="site-hub" data-md-component="content" id="main">{% include "partials/docs-hub.html" %}</div>
+  {% elif layout == 'guides' %}
+    <div class="site-guides" data-md-component="content" id="main">{% include "partials/guides-hub.html" %}</div>
+  {% elif layout == 'compare' %}
+    <div class="site-compare" data-md-component="content" id="main">{% include "partials/compare-hub.html" %}</div>
+  {% elif layout == 'article' %}
+    <div class="site-article" data-md-component="content" id="main">{% include "partials/field-article.html" %}</div>
+  {% else %}
+    <div class="md-content reet-doc" data-md-component="content" id="main">
+      <article class="md-content__inner md-typeset">
+        {% include "partials/breadcrumbs.html" %}
+        <div class="eyebrow">{{ page.meta.label | default('DOCUMENTATION') }}</div>
+        {% include "partials/content.html" %}
+        {% include "partials/page-next.html" %}
+        {% include "partials/page-tools.html" %}
+      </article>
+    </div>
+  {% endif %}
+{% endblock %}

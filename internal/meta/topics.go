@@ -59,7 +59,8 @@ func topicSlugs(b []byte) []string {
 			href := attr(tok, "href")
 			slug, ok := strings.CutPrefix(href, "/topic/")
 			slug = strings.Trim(slug, "/")
-			if !ok || slug == "" || strings.Contains(slug, "/") || seen[slug] {
+			valid := ok && slug != "" && !strings.Contains(slug, "/") && !seen[slug]
+			if !valid {
 				continue
 			}
 			seen[slug] = true

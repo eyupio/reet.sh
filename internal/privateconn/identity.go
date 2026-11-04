@@ -42,7 +42,8 @@ func NewIdentity(ctx context.Context, relayMapURL string) (*Identity, error) {
 	}
 	if relayMapURL != "" {
 		u, err := url.Parse(relayMapURL)
-		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
+		invalid := err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != ""
+		if invalid {
 			return nil, ErrIdentity
 		}
 	}
@@ -106,7 +107,8 @@ func (i *Identity) Seal(sealer *sealed.Sealer) (string, error) {
 
 // OpenIdentity restores an identity without replacing an unreadable one.
 func OpenIdentity(sealer *sealed.Sealer, ciphertext string) (*Identity, error) {
-	if sealer == nil || ciphertext == "" || len(ciphertext) > maxIdentity {
+	valid := sealer != nil && ciphertext != "" && len(ciphertext) <= maxIdentity
+	if !valid {
 		return nil, ErrIdentity
 	}
 	raw, err := sealer.OpenSecret(ciphertext)

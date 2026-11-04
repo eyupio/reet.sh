@@ -4,13 +4,16 @@
 
   let { variant = 'rows' }: { variant?: 'rows' | 'cards' | 'auth' | 'form' | 'welcome' | 'home' | 'workspace' } = $props()
   let slow = $state(false)
+  const railCollapsed = (() => {
+    try { return localStorage.getItem('reet.rail.collapsed') === '1' } catch { return false }
+  })()
   onMount(() => {
     const timer = setTimeout(() => (slow = true), 10000)
     return () => clearTimeout(timer)
   })
 </script>
 
-<div class="route-skeleton {variant}" data-loading-page={variant} role="status" aria-busy="true" aria-label="Loading page">
+<div class="route-skeleton {variant}" class:rail-collapsed={railCollapsed} data-loading-page={variant} role="status" aria-busy="true" aria-label="Loading page">
   <span class="vh">Loading page…</span>
   <div class="structure" aria-hidden="true">
     {#if variant === 'auth'}
@@ -59,6 +62,9 @@
   .hero-title.short { width: 68%; }
   .home, .workspace { height: 100%; min-height: calc(100dvh - 100px); }
   .home .structure, .workspace .structure { grid-template-columns: 220px minmax(0, 1fr); min-height: inherit; gap: 0; }
+  .home .structure { grid-template-columns: 301px minmax(0, 1fr); }
+  .home.rail-collapsed .structure { grid-template-columns: 56px minmax(0, 1fr); }
+  .home .workspace-content { padding: 20px 24px; }
   .workspace-rail { display: grid; align-content: start; gap: 24px; padding: 24px 18px; border-right: 1px solid var(--line); }
   .workspace-content { padding: 24px; display: flex; flex-direction: column; gap: 24px; min-width: 0; }
   .terminal { background: var(--bg-sunk, var(--bg)); border: 1px solid var(--line); border-radius: 10px; padding: 24px; min-height: 250px; flex: 1; }
@@ -71,6 +77,8 @@
     i, .button { background: linear-gradient(90deg, var(--line), var(--line-soft), var(--line)); background-size: 200% 100%; animation: route-shimmer 1.8s ease-in-out infinite; }
   }
   @keyframes route-shimmer { to { background-position: -200% 0; } }
+  @media (max-width: 1239px) { .home .structure { grid-template-columns: 56px minmax(0, 1fr); } .home .workspace-rail { overflow: hidden; } }
+  @media (max-width: 1099px) { .home .structure, .home.rail-collapsed .structure { grid-template-columns: minmax(0, 1fr); } .home .workspace-rail { display: none; } }
   @media (max-width: 850px) { .hero { grid-template-columns: 1fr; gap: 30px; } .columns { grid-template-columns: 1fr; } .column:not(:first-child) { display: none; } }
-  @media (max-width: 650px) { .home .structure, .workspace .structure { grid-template-columns: minmax(0, 1fr); } .workspace-rail { display: none; } .workspace-content { padding: 16px; } .title { height: 32px; } .auth-card, .form-card { padding: 22px; } }
+  @media (max-width: 650px) { .home .structure, .workspace .structure { grid-template-columns: minmax(0, 1fr); } .workspace-rail { display: none; } .workspace-content { padding: 16px; } .home .workspace-content { padding: 14px 16px; } .title { height: 32px; } .auth-card, .form-card { padding: 22px; } }
 </style>

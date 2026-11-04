@@ -268,7 +268,8 @@ func (c *conversation) auth(cfg Config) error {
 // which is what the queue does.
 func classify(err error) error {
 	var te *textproto.Error
-	if errors.As(err, &te) && te.Code >= 500 && te.Code < 600 {
+	permanent := errors.As(err, &te) && te.Code >= 500 && te.Code < 600
+	if permanent {
 		return &PermanentError{Err: err}
 	}
 	return err

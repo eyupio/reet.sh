@@ -267,7 +267,8 @@ func parseVersion(raw string) (version, bool) {
 	}
 	values := [3]int{}
 	for i, part := range parts {
-		if part == "" || (len(part) > 1 && part[0] == '0') {
+		invalid := part == "" || (len(part) > 1 && part[0] == '0')
+		if invalid {
 			return version{}, false
 		}
 		n, err := strconv.Atoi(part)

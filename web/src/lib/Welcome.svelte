@@ -43,9 +43,9 @@
 <section class="guides" aria-labelledby="guides-title">
  <header><p class="eyebrow">Guides</p><h2 id="guides-title">Start with a job to do.</h2></header>
  <div class="guide-links">
-  <a href="/docs/run-claude-code-on-a-vps/"><strong>Run Claude Code on a VPS</strong><span>Open a browser terminal and start the agent already on the machine.</span></a>
-  <a href="/docs/sync-skills-between-machines/"><strong>Sync skills between machines</strong><span>Scan, preview the exact plan, approve it, and check the result.</span></a>
-  <a href="/docs/self-host-mcp-server/"><strong>Connect an AI client with MCP</strong><span>Give Claude or another client OAuth access to your private shelf.</span></a>
+  <a href={`${docs}run-claude-code-on-a-vps/`}><strong>Run Claude Code on a VPS</strong><span>Open a browser terminal and start the agent already on the machine.</span></a>
+  <a href={`${docs}sync-skills-between-machines/`}><strong>Sync skills between machines</strong><span>Scan, preview the exact plan, approve it, and check the result.</span></a>
+  <a href={`${docs}self-host-mcp-server/`}><strong>Connect an AI client with MCP</strong><span>Give Claude or another client OAuth access to your private shelf.</span></a>
  </div>
 </section>
 <StartFresh />

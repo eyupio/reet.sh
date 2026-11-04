@@ -28,6 +28,11 @@ import (
 const previewCacheBytes = 64 << 20
 const previewCacheAge = 24 * time.Hour
 
+// previewCacheFiles bounds the cache by count as well as by bytes. Pruning
+// leaves one free slot for the snapshot being written, so a full cache holds at
+// most this many files. Tests lower it instead of creating a thousand files.
+var previewCacheFiles = 1024
+
 type chatPreviewStore struct {
 	mu        sync.Mutex
 	dir, home string
@@ -226,7 +231,7 @@ func (s *chatPreviewStore) pruneLocked(reserve int64) {
 	})
 	sort.Slice(files, func(i, j int) bool { return files[i].at.Before(files[j].at) })
 	for i, f := range files {
-		if total+reserve <= previewCacheBytes && len(files)-i < 1024 {
+		if total+reserve <= previewCacheBytes && len(files)-i < previewCacheFiles {
 			break
 		}
 		if os.Remove(f.path) == nil {

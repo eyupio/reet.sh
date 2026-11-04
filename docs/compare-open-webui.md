@@ -1,3 +1,9 @@
+---
+title: 'Open WebUI and Reet: chat platform or agent control room?'
+description: Use a chat interface for model conversations and a control room for coding sessions, machines and skills.
+card_title: Open WebUI & Reet
+---
+
 # Open WebUI and reet.sh: chat platform or agent control room?
 
 Open WebUI describes itself as a **self-hosted AI platform**: run AI on your own terms, connect models, and extend it with code. reet.sh is a different layer. It is the control room for the agents, skills and setups across your machines.

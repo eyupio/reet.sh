@@ -65,7 +65,8 @@ func (m *Mirror) Path() string { return filepath.Join(m.dir, m.artifact.ArchiveS
 // Status reports whether the archive is cached, without downloading it.
 func (m *Mirror) Status() Cached {
 	info, err := os.Stat(m.Path())
-	if err != nil || !info.Mode().IsRegular() || info.Size() != m.artifact.ArchiveSize {
+	invalid := err != nil || !info.Mode().IsRegular() || info.Size() != m.artifact.ArchiveSize
+	if invalid {
 		return Cached{Digest: m.artifact.ArchiveSHA256}
 	}
 	return Cached{Present: true, Size: info.Size(), Digest: m.artifact.ArchiveSHA256}

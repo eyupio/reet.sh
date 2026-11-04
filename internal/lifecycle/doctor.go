@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -244,28 +245,63 @@ func (a *App) DoctorReport(opts DoctorOptions) (Report, error) {
 		if invalidURL {
 			add("controller", "fail", "Invalid controller URL.", "Use an http(s) site URL; keep tokens in REET_TOKEN, not the URL.")
 		} else {
+			// The token's source is kept so a rejection can say which file or
+			// variable to fix, and so a person at a terminal can replace it.
+			cred := &clientconfig.Credential{Token: token, Source: clientconfig.SourceEnv, Server: controller, In: input, Out: os.Stderr}
+			if token == "" {
+				cred.Source = clientconfig.SourceNone
+			}
 			if !opts.JSON || opts.TokenFile != "" {
-				value, err := clientconfig.ResolveToken(token, opts.TokenFile, input, os.Stderr)
+				resolved, err := clientconfig.NewCredential(token, opts.TokenFile, controller, input, os.Stderr)
 				if err != nil {
 					return r, err
 				}
-				token = value
-			}
-			req, _ := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(controller, "/")+"/api/v2/auth/me", nil)
-			if token != "" {
-				req.Header.Set("Authorization", "Bearer "+token)
+				if token != "" {
+					resolved.Source = cred.Source // doctor read it from the environment
+				}
+				cred = resolved
 			}
 			client := *a.client
 			client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
-			var resp *http.Response
-			e = a.task(ctx, "Checking controller", opts.JSON, func(ctx context.Context, observe func(string)) error {
-				observe("Requesting controller account status")
-				var err error
-				resp, err = client.Do(req.WithContext(ctx))
-				return err
-			})
-			if resp != nil {
-				resp.Body.Close()
+			probe := func(ctx context.Context, token string) (int, string, error) {
+				req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(controller, "/")+"/api/v2/auth/me", nil)
+				if err != nil {
+					return 0, "", err
+				}
+				if token != "" {
+					req.Header.Set("Authorization", "Bearer "+token)
+				}
+				resp, err := client.Do(req)
+				if err != nil {
+					return 0, "", err
+				}
+				defer resp.Body.Close()
+				var body struct {
+					Error string `json:"error"`
+				}
+				_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&body)
+				return resp.StatusCode, body.Error, nil
+			}
+			var status int
+			var message string
+			for {
+				e = a.task(ctx, "Checking controller", opts.JSON, func(ctx context.Context, observe func(string)) error {
+					observe("Requesting controller account status")
+					var err error
+					status, message, err = probe(ctx, cred.Token)
+					return err
+				})
+				if e != nil {
+					break
+				}
+				// Ask for a replacement outside the progress display, then check again.
+				retry, retryErr := cred.Retry(clientconfig.NewAuthError(status, message))
+				if retryErr != nil {
+					return r, retryErr
+				}
+				if !retry {
+					break
+				}
 			}
 			if errors.Is(e, context.Canceled) {
 				return r, e
@@ -273,13 +309,21 @@ func (a *App) DoctorReport(opts DoctorOptions) (Report, error) {
 			if e != nil {
 				add("controller", "fail", "Cannot reach the controller.", "Check REET_URL, DNS, TLS and network access.")
 			} else {
-				switch resp.StatusCode {
+				switch status {
 				case 200:
 					add("controller", "pass", "Controller accepted the account credentials.", "")
 				case 401, 403:
-					add("controller", "fail", "Controller rejected the account credentials.", "Create a personal token on Account and export REET_TOKEN; check it has the needed role.")
+					text := "Controller rejected the account credentials."
+					if message != "" {
+						text = fmt.Sprintf("Controller rejected the account credentials (%s).", message)
+					}
+					advice := "Create a personal token on Account and export REET_TOKEN; check it has the needed role."
+					if cred.Source != clientconfig.SourceNone {
+						advice = fmt.Sprintf("The token came from %s. %s", cred.Source, advice)
+					}
+					add("controller", "fail", text, advice)
 				default:
-					add("controller", "fail", fmt.Sprintf("Controller returned HTTP %d.", resp.StatusCode), "Check the site URL and reverse proxy configuration.")
+					add("controller", "fail", fmt.Sprintf("Controller returned HTTP %d.", status), "Check the site URL and reverse proxy configuration.")
 				}
 			}
 		}

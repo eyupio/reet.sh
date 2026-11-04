@@ -7,3 +7,14 @@ web/dist/*
 /reet
 
 .playwright-cli/
+
+# MkDocs build output
+site/
+
+# MkDocs hook bytecode
+__pycache__/
+*.pyc
+
+# Local documentation development
+/work/
+/.venv-docs/

@@ -1,0 +1,2 @@
+{% extends "main.html" %}
+{% block container %}<div class="site-notfound wrap" id="main"><span class="eyebrow">404 / A WRONG TURN</span><h1>Not quite<br><em>the right place.</em></h1><p>That page is not here. Find what you need in the documentation, or search the site.</p><div class="hero-actions"><a class="button" href="{{ 'documentation/' | url }}">Into the docs {{ icon('arrow') }}</a><button class="text-link plain-button" data-docs-search>Search the site {{ icon('search') }}</button></div></div>{% endblock %}

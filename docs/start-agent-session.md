@@ -32,7 +32,7 @@ across a switch, and returning to Gaffer asks you to trust a folder with OpenCod
 sends a file through the launch-upload path and puts its path in the message. A Gaffer chat that was lost or crashed
 reconnects in place (same session, same transcript) on a machine with `chat-reattach-v1`; a chat you ended, or one on an
 older machine, offers **Continue in Gaffer with history…**, which loads OpenCode's stored conversation into a new session row. The conditions, deadlines and limits are in
-[OpenCode in Gaffer](structured-sessions.md).
+[OpenCode in Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md).
 
 For a plain shell, **New session**, the workspace’s **✦ Start a new Terminal session**, and the
 sidebar machine menu’s **Terminal** open the terminal settings dialog. Choose its machine, enter an
@@ -285,4 +285,4 @@ chosen, Select and the status sheet with Retry, lost replies and refusals, the k
 a keyboard, the phone and tablet sheets, and that nothing reaches browser storage.
 
 The dialog's matrix results and their limits are in
-[UI verification](ui-verification.md#start-an-agent-session-layout-focus-and-motion-matrix--25-october-2026).
+[UI verification](https://github.com/eyupio/reet.sh/blob/main/docs/ui-verification.md#start-an-agent-session-layout-focus-and-motion-matrix--25-october-2026).

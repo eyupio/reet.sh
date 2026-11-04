@@ -184,7 +184,7 @@ machine itself. No physical device, screen reader, Safari or Firefox check was m
 Chromium fixture (`web/tests/add-machine.e2e.mjs`, run with the other fixtures in the
 terminal-browser workflow). That fixture also holds a layout matrix for the dialog and the landing
 note; what it checks, and what an accessibility scan found, is in
-[the UI verification record](ui-verification.md#add-a-machine-in-context-layout-focus-and-motion-matrix--25-october-2026).
+[the UI verification record](https://github.com/eyupio/reet.sh/blob/main/docs/ui-verification.md#add-a-machine-in-context-layout-focus-and-motion-matrix--25-october-2026).
 
 ## Continuation
 

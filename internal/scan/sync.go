@@ -405,11 +405,16 @@ func listTargets(server, token string) ([]store.SyncTarget, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			return nil, fmt.Errorf("the controller rejected your token (%s); update it with reet configure, then sync again", resp.Status)
+		var failure struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&failure)
+		if authErr := clientconfig.NewAuthError(resp.StatusCode, failure.Error); authErr != nil {
+			return nil, authErr
 		}
 		return nil, fmt.Errorf("controller replied %s", resp.Status)
 	}
+
 	var state struct {
 		Targets  []store.SyncTarget `json:"targets"`
 		CanWrite bool               `json:"canWrite"`
@@ -538,15 +543,17 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	if fs.NArg() != 0 {
 		return errors.New("unexpected positional arguments; use --help")
 	}
+	tokenSource := clientconfig.SourceFlag
 	if *token == "" {
 		*token = os.Getenv("REET_TOKEN")
+		tokenSource = clientconfig.SourceEnv
 	}
 	if *token == "" && *tokenFile != "" {
-		value, err := clientconfig.ResolveToken("", *tokenFile, strings.NewReader(""), os.Stderr)
+		value, source, err := clientconfig.ResolveTokenSource("", *tokenFile, strings.NewReader(""), os.Stderr)
 		if err != nil {
 			return err
 		}
-		*token = value
+		*token, tokenSource = value, source
 	}
 	if c, e := loadAgentConfig(*config); e == nil {
 		if *server == "" {
@@ -554,6 +561,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 		if *token == "" && strings.TrimRight(*server, "/") == c.Server {
 			*token = c.Token
+			tokenSource = clientconfig.Source("this machine's enrollment in " + *config)
 		}
 		if *host == "" {
 			*host = c.Host
@@ -566,17 +574,25 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 		*server = value
 	}
-	tokenValue, inputErr := clientconfig.ResolveToken(*token, *tokenFile, in, os.Stderr)
+	cred, inputErr := clientconfig.NewCredential(*token, *tokenFile, *server, in, os.Stderr)
 	if inputErr != nil {
 		return inputErr
 	}
-	*token = tokenValue
+	if *token != "" {
+		cred.Source = tokenSource // NewCredential only sees the value, not where it was read
+	}
+	*token = cred.Token
 	if *targetID == "" && clientconfig.Interactive(in) {
 		// Offer the account's saved targets instead of asking for an ID by heart.
-		choices, choiceErr := ListTargetChoices(*server, *token, *host)
+		var choices []TargetChoice
+		listErr := clientconfig.Authorize(cred, func(token string) (err error) {
+			choices, err = ListTargetChoices(*server, token, *host)
+			return err
+		})
+		*token = cred.Token
 		switch {
-		case choiceErr != nil:
-			return choiceErr
+		case listErr != nil:
+			return listErr
 		case len(choices) == 0:
 			fmt.Fprintf(os.Stderr, "No saved sync targets yet. Create one at %s/machines?view=compare (Machines -> Sync), then run reet sync again.\n", strings.TrimRight(*server, "/"))
 		default:
@@ -611,6 +627,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			}
 		}
 	}
+
 	targetValue, inputErr := clientconfig.Require(*targetID, "--target (target ID from Account)", false, in, os.Stderr)
 	if inputErr != nil {
 		return inputErr
@@ -619,7 +636,12 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	if *host == "" {
 		*host, _ = os.Hostname()
 	}
-	target, err := fetchTarget(*server, *token, *targetID)
+	var target store.SyncTarget
+	err := clientconfig.Authorize(cred, func(token string) (err error) {
+		target, err = fetchTarget(*server, token, *targetID)
+		return err
+	})
+	*token = cred.Token
 	if err != nil {
 		return err
 	}

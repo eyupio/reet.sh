@@ -20,6 +20,11 @@ export function gafferGestureMs(reaction: GafferReaction): number {
     case 'sip': return 3_400
     case 'biscuit': return 3_600
     case 'huff': return 2_800
+    case 'scratch-head': case 'scratch-ear': return 3_200
+    case 'scratch-chin': return 3_600
+    case 'look-around': return 3_800
+    case 'nose-twitch': return 2_600
+    case 'rest-head': return 5_200
     case 'nod': case 'shake': return 1_500
     case 'listen': case 'scribble': case 'watch': return 1_800
     case 'startle': return 1_300

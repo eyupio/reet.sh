@@ -522,6 +522,13 @@ out/in and the decision about machine-side sign-in wording, then section 1 physi
 `elicitation.form` is retired before its required evidence is recorded. Record each result in the ledger at the top of
 [docs/device-checks.md](docs/device-checks.md#recorded-results) with its date and the PR that carries it. Reet never calls `authenticate`.
 
+**Recorded 4 November 2026 (logged-out runs, pinned adapters):** Claude `claude-agent-acp@0.99.1` advertises no login methods, creates a session
+without a login and refuses the first prompt with `-32000 Authentication required` (`authenticatedHint: false`); `TestRealClaudeStart` passes against
+that adapter with no model call; Codex `codex-acp@1.13.1` refuses `session/new` before any authenticate and reports
+`{kind: none, label: "Not logged in"}`. Because Claude answers at the prompt rather than at session/new, the prompt path now maps that refusal to
+`acpagent.ErrClaudeLogin` ("Sign in to Claude on that machine first.") the way session/new already did for Codex, so a signed-out machine says what
+to do instead of looking broken. Signed-in runs for both agents and every phone/reader item are still open.
+
 **Delivered SC5 slices:**
 - #392: live model controls and lookups follow each available agent descriptor. Merged; bot review was blocked by account quota and its terminal CI
   failure was reproduced on main and left outside scope.

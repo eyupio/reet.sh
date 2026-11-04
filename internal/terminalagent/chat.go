@@ -1358,6 +1358,8 @@ func chatResult(err error) terminalproto.Result {
 		return terminalproto.Result{Code: code, Detail: detail}
 	case errors.Is(err, acpagent.ErrCodexLogin):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: acpagent.ErrCodexLogin.Error()}
+	case errors.Is(err, acpagent.ErrClaudeLogin):
+		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: acpagent.ErrClaudeLogin.Error()}
 	case errors.Is(err, acpagent.ErrUnsupported):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "That agent does not support chats on this machine."}
 	case errors.Is(err, acpagent.ErrPluginsUnreadable):

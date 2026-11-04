@@ -40,7 +40,8 @@ machine's choice never changes another's.
 When a machine opts in, its descriptor reports that agent as available and the browser offers its chat beside OpenCode. A
 Codex chat starts in `read-only` and carries the approvals control; `agent` is chosen per chat and `agent-full-access` is
 never offered. Claude reports approvals and the model switch only. Neither is proof of a signed-in turn: the descriptor is
-an observation.
+an observation. Without a login on that machine, the first prompt comes back naming the sign-in step — "Sign in to Claude on
+that machine first." or "Sign in to Codex on that machine first." — and the turn ends without an edit or command.
 
 The switches are not a support statement. The device and login checks that would retire them, and the ledger that records
 them, are in [Device checks](device-checks.md).

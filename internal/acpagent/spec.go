@@ -31,6 +31,9 @@ var (
 	ErrUnsupported = errors.New("that agent does not support chats")
 	// ErrCodexLogin means session creation needs a login made outside reet.
 	ErrCodexLogin = errors.New("Sign in to Codex on that machine first.")
+	// ErrClaudeLogin means the first prompt needs a login made outside reet:
+	// Claude creates a session without one and answers at the prompt instead.
+	ErrClaudeLogin = errors.New("Sign in to Claude on that machine first.")
 	// ErrMode means the requested mode is not one this profile lets a person
 	// choose, or the agent did not confirm the switch.
 	ErrMode = errors.New("the agent did not switch to that mode")

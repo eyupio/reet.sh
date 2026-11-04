@@ -223,3 +223,83 @@ func TestAuthorizeDoesNotPromptForForbiddenOrOtherErrors(t *testing.T) {
 		}
 	}
 }
+
+// Whether a replacement can be saved depends on the token that was first
+// rejected, not on whichever replacement is in use after a typing mistake.
+func TestAuthorizeKeepsRunOnlyDecisionAcrossRetries(t *testing.T) {
+	// A typo followed by a good token must not be saved when REET_TOKEN outranks the saved one.
+	f := newAuthFixture(t, true, "typo", "fresh")
+	c := &Credential{Token: "stale", Source: SourceEnv, Server: "https://x", Out: &f.out}
+	err := Authorize(c, func(tok string) error {
+		if tok == "fresh" {
+			return nil
+		}
+		return NewAuthError(401, "")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved, _ := SavedToken(); saved != "" {
+		t.Fatalf("a run-only token was saved after a second entry: %q", saved)
+	}
+
+	// A rejected different saved token must not turn the original env token into a saveable one.
+	f2 := newAuthFixture(t, true, "fresh")
+	if _, err := SaveToken("saved-stale"); err != nil {
+		t.Fatal(err)
+	}
+	c2 := &Credential{Token: "env-stale", Source: SourceEnv, Server: "https://x", Out: &f2.out}
+	err = Authorize(c2, func(tok string) error {
+		if tok == "fresh" {
+			return nil
+		}
+		return NewAuthError(401, "")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved, _ := SavedToken(); saved != "saved-stale" {
+		t.Fatalf("an unrelated saved token was overwritten: %q", saved)
+	}
+}
+
+func TestAuthorizeSavesRepeatedEntriesWhenSavedTokenIsTheOne(t *testing.T) {
+	// When the saved token is what was rejected, every replacement may be saved.
+	f := newAuthFixture(t, true, "typo", "fresh")
+	if _, err := SaveToken("stale"); err != nil {
+		t.Fatal(err)
+	}
+	c := &Credential{Token: "stale", Source: SourceSaved, Server: "https://x", Out: &f.out}
+	err := Authorize(c, func(tok string) error {
+		if tok == "fresh" {
+			return nil
+		}
+		return NewAuthError(401, "")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved, _ := SavedToken(); saved != "fresh" {
+		t.Fatalf("saved = %q, want fresh", saved)
+	}
+}
+
+func TestAuthorizeSavesReplacementForTokenEnteredAtFirstPrompt(t *testing.T) {
+	f := newAuthFixture(t, true, "fresh")
+	if _, err := SaveToken("typed-earlier"); err != nil {
+		t.Fatal(err)
+	}
+	c := &Credential{Token: "typed-earlier", Source: SourcePrompt, Server: "https://x", Out: &f.out}
+	err := Authorize(c, func(tok string) error {
+		if tok == "fresh" {
+			return nil
+		}
+		return NewAuthError(401, "")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved, _ := SavedToken(); saved != "fresh" {
+		t.Fatalf("saved = %q, want fresh", saved)
+	}
+}

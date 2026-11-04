@@ -109,6 +109,10 @@ type Credential struct {
 
 	prompts    int
 	triedSaved bool
+	// origin is where the first token came from. Whether a replacement can be
+	// saved depends on it, not on a later replacement that changes Source.
+	origin    Source
+	originSet bool
 }
 
 // NewCredential resolves a token as ResolveToken does and remembers its source.
@@ -146,6 +150,9 @@ func Authorize(c *Credential, op func(token string) error) error {
 func (c *Credential) Retry(err error) (bool, error) {
 	if !IsRejected(err) {
 		return false, nil
+	}
+	if !c.originSet {
+		c.origin, c.originSet = c.Source, true
 	}
 	out := c.Out
 	if out == nil {
@@ -190,7 +197,7 @@ func (c *Credential) Retry(err error) (bool, error) {
 
 	// REET_TOKEN, --token and an env file outrank the saved token, so saving
 	// would not stop the next run from using the stale one. Say what to change.
-	switch c.Source {
+	switch c.origin {
 	case SourceSaved, SourcePrompt, SourceNone:
 		path, saveErr := SaveToken(token)
 		if saveErr != nil {
@@ -198,7 +205,7 @@ func (c *Credential) Retry(err error) (bool, error) {
 		}
 		fmt.Fprintf(out, "Saved the token in %s. Remove it with reet configure --forget-token.\n", path)
 	default:
-		fmt.Fprintf(out, "Using it for this run only: %s takes precedence over a saved token. Replace the token there, or remove it, to stop seeing this.\n", c.Source)
+		fmt.Fprintf(out, "Using it for this run only: %s takes precedence over a saved token. Replace the token there, or remove it, to stop seeing this.\n", c.origin)
 	}
 	c.Token, c.Source = token, SourcePrompt
 	return true, nil

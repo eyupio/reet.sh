@@ -1177,3 +1177,14 @@ body .md-typeset summary:before {
     letter-spacing: -2px;
   }
 }
+/* Keep informational callouts in the site palette; warnings retain their semantics. */
+body .md-typeset .admonition:is(.abstract, .tip, .note) {
+  border-color: var(--line);
+  border-left-color: var(--accent);
+}
+body .md-typeset .admonition .admonition-title {
+  background: var(--tint);
+}
+body .md-typeset .admonition .admonition-title:before {
+  background-color: var(--accent);
+}

@@ -1,6 +1,6 @@
 # Agent image previews handoff
 
-Updated 4 November 2026. Branch: `feat/chat-image-previews`. Read [the complete continuation handoff](gaffer-continuation.md)
+Updated 4 November 2026. PR: [#498](https://github.com/eyupio/reet.sh/pull/498). Branch: `feat/chat-image-previews`. Read [the complete continuation handoff](gaffer-continuation.md)
 for all related PRs, current heads, merge gates and portable commands. The PR attached to this branch records live review/CI state.
 
 ## Implemented behaviour
@@ -34,7 +34,9 @@ for all related PRs, current heads, merge gates and portable commands. The PR at
 ## Remaining work and limitations
 
 Main #495 and the latest #490 phone regression are integrated. The toolbar/panel conflicts are resolved by retaining both
-features, with terminal size held during context-panel resizing. Integrated web check/build, the four preview browser cases and the full workspace panel browser suite pass.
+features, with terminal size held during context-panel resizing. Integrated web check/build, the four preview browser cases, Sessions-phone, responsive action controls and the full
+workspace panel browser suite pass. PR #498 queued CI on implementation head `4777562`; final current-head CI and review
+were still pending at handoff. No inline findings were open at the latest check.
 Inspect final-head CI and review, fix any findings and merge only when green. The complete six backend package race suites
 and full browser workflow have not been rerun for the preview feature; the focused suites above are the completed evidence.
 No live paid-provider turn, physical phone, Safari or cross-platform release rollout was tested. Large images beyond the

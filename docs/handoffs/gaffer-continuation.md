@@ -19,7 +19,7 @@ actions, the same model/effort choices in both start dialogs and backlog plans, 
 | Runtime model/effort, steering, durable queue | `feat/live-chat-controls`, [#488](https://github.com/eyupio/reet.sh/pull/488) | Merged as `ac5938d`; do not reopen or push new scope to this closed PR. |
 | Active-session action UX | `feat/session-actions`, [#490](https://github.com/eyupio/reet.sh/pull/490) | Open; latest published branch head `5ea430384e944cc1c93cb362fa4bdd48278186b5`. |
 | Start dialogs and backlog model/effort | `feat/start-agent-options`, [#493](https://github.com/eyupio/reet.sh/pull/493) | Open; latest published branch head `9282e6a82fb9f93602d735456530c81b6ee4bb72`. Includes the earlier #490 head for combined verification. |
-| Agent image previews | `feat/chat-image-previews` | This handoff and implementation travel in the PR attached to this branch; obtain its number/current head from GitHub. Includes #493 and the latest #490 changes as dependencies. |
+| Agent image previews | `feat/chat-image-previews`, [#498](https://github.com/eyupio/reet.sh/pull/498) | Open. Implementation head `4777562ac40704045f87733e3d8c342deed168ed`; this handoff update follows it. Inspect GitHub for the current head. Includes #493 and latest #490 dependencies. |
 
 Last fetched main was `29bbb30` (#495, collapsible/resizable session workspace panel), which includes #494
 (public documentation links). Fetch again before acting. The preview branch integrates both main and the latest #490 head.
@@ -34,6 +34,12 @@ context panel, including `contextResizing` in terminal size holds. The older PR 
 merged individually. The handoff append conflict was resolved by keeping both sets of completed validation notes. Branch-update API calls also temporarily returned timeouts/internal errors; file updates and a later normal ref update
 succeeded. Inspect actual current refs and PR/check state before retrying. No automatic approval rejection or missing user
 permission caused this blocker. Refreshing PR #493's base, open state and draft/ready state did not restore validation at that time.
+
+PR #498 successfully queued new PR-triggered CI on implementation head `4777562` (native services, private connection,
+image/build/test, binary release and terminal-browser workflows). They were still running at this handoff; no inline review
+findings were open. Its final current head still needs green checks and completed review. The unresolved trigger/mergeability
+observations above concern the older #490/#493 branches; inspect their current state afresh rather than assuming it recovered.
+All three PRs remained open and unmerged when this handoff was published.
 
 ## Feature details and evidence
 
@@ -86,15 +92,15 @@ Read `docs/handoffs/chat-image-previews.md` for completed behaviour and limits. 
 
 Web unit/check/build and Go vet pass. Focused race tests pass for the new extraction/protocol/cache/broker/API paths;
 desktop/phone light/dark browser checks pass. See `docs/ui-verification.md` and tracked `docs/images/ui/agent-preview-*.png`.
-After integrating #495 and the final #490 phone tests, web check/build, the preview matrix and the full session-workspace
-resize/collapse browser suite pass. Complete preview package race suites and final full browser CI remain gates, as do
+After integrating #495 and the final #490 phone tests, web check/build, the preview matrix, Sessions-phone, responsive
+action controls and the full session-workspace resize/collapse browser suite pass. Complete preview package race suites and final full browser CI remain gates, as do
 real-provider/device/platform limitations.
 
 ## Portable restart procedure
 
 1. Clone/fetch the repository, read `AGENTS.md` if present, `handoff.md`, this file and each feature handoff.
 2. Inspect the current PRs and remote branch heads, reviews, check runs and main. Reconcile changes made since this snapshot.
-3. Check out the preview PR branch for the full combined implementation. It should include #490/#493; preserve all handoffs,
+3. Check out PR #498 (`gh pr checkout 498`, or fetch/check out `feat/chat-image-previews`) for the full combined implementation. It should include #490/#493; preserve all handoffs,
    screenshot assets and UI-verification appendices during merges. Use separate branches/worktrees if fixing an older PR.
 4. Restore final-head CI for #490/#493; inspect whether the GitHub mergeability/trigger problem has recovered. Never force
    through pending, missing or failed checks. If a job fails, read its logs and fix the cause; retry only demonstrated transient failures.

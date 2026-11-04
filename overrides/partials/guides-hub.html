@@ -1,0 +1,12 @@
+{% from "partials/icons-reet.html" import icon %}
+<section class="guides-hero wrap"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ nav.homepage.url | url }}">Home</a><span aria-hidden="true">/</span><span>Guides & articles</span></nav><div class="eyebrow">THE REET FIELD GUIDE</div><div class="guides-heading">{{ page.content }}</div></section>
+<section class="wrap guides-content">
+  <div class="filter-bar" role="group" aria-label="Filter guides" hidden>
+    <button class="filter active" data-filter="all" aria-pressed="true">All guides <span>{{ '%02d' | format(guide_pages | length) }}</span></button>
+    <button class="filter" data-filter="remote" aria-pressed="false">Remote work</button><button class="filter" data-filter="skills" aria-pressed="false">Skills & sync</button><button class="filter" data-filter="selfhost" aria-pressed="false">Self-hosting</button><button class="filter" data-filter="integrations" aria-pressed="false">Integrations</button>
+  </div>
+  <p class="sr-only" id="filter-count" aria-live="polite">{{ guide_pages | length }} guides</p>
+  <div class="guide-grid">{% for guide in guide_pages %}<div data-category="{{ guide.meta.category }}">{% include "partials/guide-card.html" %}</div>{% endfor %}</div>
+</section>
+<section class="compare-section wrap" id="compare">{% include "partials/comparison-list.html" %}</section>
+<section class="guide-cta wrap"><div>{{ icon('book') }}<h2>Looking for the nuts and bolts?</h2><p>Installation, reference and the details of day-to-day use.</p></div><a class="button" href="{{ 'documentation/' | url }}">Into the documentation {{ icon('arrow') }}</a></section>

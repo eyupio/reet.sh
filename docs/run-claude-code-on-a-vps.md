@@ -1,3 +1,21 @@
+---
+title: Run Claude Code on a VPS from your browser · reet.sh
+description: Run Claude Code on your own VPS and reach its terminal from your browser. Enrol the machine, choose
+  a folder and return to the running session.
+topic: REMOTE WORK
+category: remote
+art: remote
+art_icon: monitor
+art_label: FROM ANYWHERE
+card_title: Claude Code on a VPS. Your browser, anywhere.
+hero_title: Claude Code on a VPS.
+hero_accent: Your browser, anywhere.
+related:
+- remote-agents-without-a-vpn.md
+- parallel-coding-agents-git-worktrees.md
+layout: article
+---
+
 # Run Claude Code on a VPS from your browser
 
 Claude Code is happiest in a terminal. If the machine you want it on is a VPS, a lab box or a desktop you are not sitting at, reet.sh gives you that terminal in a browser and keeps the session with the rest of your fleet.

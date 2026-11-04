@@ -1,3 +1,21 @@
+---
+title: Connect your private skill library with MCP · reet.sh
+description: Connect an AI client to your self-hosted Reet skill library with MCP, OAuth and permissions you can
+  review and revoke.
+topic: INTEGRATIONS
+category: integrations
+art: mcp
+art_icon: code
+art_label: STAY CONNECTED
+card_title: Your skill library, one MCP connection away.
+hero_title: Your private skill library.
+hero_accent: One MCP connection away.
+related:
+- mcp.md
+- sync-skills-between-machines.md
+layout: article
+---
+
 # Connect an AI client to your shelf with MCP
 
 reet.sh includes a hosted MCP server in its Go binary. A client such as Claude can read your skill shelf, search it, manage notes and tags, and work with the lists you can already access, without a separate MCP service or a Node process.

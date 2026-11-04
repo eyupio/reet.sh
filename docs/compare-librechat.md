@@ -1,3 +1,9 @@
+---
+title: 'LibreChat and Reet: conversations or machine-based agent work?'
+description: Choose a model conversation platform or a workspace for agents running on your own machines.
+card_title: LibreChat & Reet
+---
+
 # LibreChat and reet.sh: conversations or machine control?
 
 LibreChat describes itself as an **open-source AI platform** that brings AI conversations into one unified, customisable interface. reet.sh is not a chat interface. It is a self-hosted control room for the agents, skills and setups across your machines.

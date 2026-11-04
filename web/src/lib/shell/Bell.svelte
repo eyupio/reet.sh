@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { NeedCard } from '../home'
+  import { needStatus } from '../sessionStatus'
   import Approval from './Approval.svelte'
 
   // The top bar's Needs you bell (spec: Information architecture and navigation).
@@ -58,8 +59,8 @@
     {:else}
       <ul class="list">
         {#each cards as card (card.sessionId)}
-          <li class="item">
-            <span class="kind {card.tone}">{card.label} · {card.age}</span>
+          <li class="item" data-status={needStatus(card.kind)}>
+            <span class="kind">{card.label} · {card.age}</span>
             <span class="title">{card.title}</span>
             {#if card.where}<span class="where">{card.where}</span>{/if}
             {#if card.question && !card.approval}
@@ -105,10 +106,7 @@
   .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
   .item { display: flex; flex-direction: column; gap: 4px; padding-bottom: 10px; border-bottom: 1px solid var(--line-soft); }
   .item:last-child { padding-bottom: 0; border-bottom: 0; }
-  .kind { font-size: 11px; font-weight: 600; color: var(--muted); }
-  .kind.warn { color: var(--warn); }
-  .kind.bad { color: var(--bad); }
-  .kind.good { color: var(--good); }
+  .kind { align-self: flex-start; font-size: 11px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 99px; padding: 2px 8px; }
   .ask { font-size: 12px; color: var(--ink); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .ask .more { color: var(--muted); }
   .title { font-size: 13px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }

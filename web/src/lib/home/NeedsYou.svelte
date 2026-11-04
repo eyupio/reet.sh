@@ -1,5 +1,6 @@
 <script lang="ts">
   import { attentionCount, type NeedCard } from '../home'
+  import { needStatus } from '../sessionStatus'
   import { worktreeStatus } from '../terminal/api'
   import Approval from '../shell/Approval.svelte'
 
@@ -52,8 +53,8 @@
   {:else}
     <ul class="list">
       {#each cards as card (card.sessionId)}
-        <li class="card {card.tone}">
-          <span class="kind {card.tone}">{card.label} · {card.age}</span>
+        <li class="card" data-status={needStatus(card.kind)}>
+          <span class="kind">{card.label} · {card.age}</span>
           <span class="title">{card.title}</span>
           {#if metaLine(card)}<span class="meta">{metaLine(card)}</span>{/if}
           {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} />{/if}
@@ -88,12 +89,8 @@
     border: 1px solid var(--line); border-radius: 13px; background: var(--card);
     display: flex; flex-direction: column; gap: 6px;
   }
-  .card.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
-  .card.bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
-  .kind { font-size: 12px; font-weight: 600; color: var(--muted); }
-  .kind.warn { color: var(--warn); }
-  .kind.bad { color: var(--bad); }
-  .kind.good { color: var(--good); }
+  .card[data-status='waiting'], .card[data-status='failed'], .card[data-status='finished'] { border-color: var(--status-edge); background: color-mix(in srgb, var(--status) 5%, var(--card)); }
+  .kind { align-self: flex-start; font-size: 11px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 99px; padding: 2px 8px; }
   .title { font-size: 14px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
   .meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
   .ask { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; max-height: 6.5em; overflow: hidden; }

@@ -156,6 +156,8 @@
   if (/^\/terminals\/?$/.test(location.pathname)) window.history.replaceState(window.history.state, '', `/sessions${location.search}${location.hash}`)
   // `/` is Home: the full Home for a writer in accounts mode, the fleet strip alone for everyone else signed in (R16).
   const isHome = location.pathname === '/'
+  const bootApp = document.documentElement.dataset.boot === 'app'
+  const bootLayout = document.documentElement.dataset.bootLayout ?? 'content'
   const isActivity = location.pathname === '/activity'
   const isSkills = location.pathname === '/skills'
   const machineView = new URLSearchParams(location.search).get('view')
@@ -1009,7 +1011,7 @@
   </div>
   {/if}
 </header>
-<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout} class:home-layout={homeLayout} class:auth-page={!isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
+<main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout || (!authChecked && bootApp && bootLayout === 'workspace')} class:home-layout={homeLayout || (!authChecked && bootApp && bootLayout === 'home')} class:auth-page={(authChecked || !bootApp) && !isPublicList && !isCommunity && !(isWelcome && !currentUser) && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}
     {#await pages.Community()}
       <RouteSkeleton variant="cards" />
@@ -1043,7 +1045,7 @@
       <PageLoadError />
     {/await}
   {:else if !authChecked}
-    <BootSkeleton />
+    <BootSkeleton layout={bootApp ? bootLayout : 'content'} />
   {:else if authMode === 'accounts' && setupRequired && !isWelcome}
     {#await pages.Setup()}
       <RouteSkeleton variant="auth" />

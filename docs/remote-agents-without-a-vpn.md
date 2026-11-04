@@ -1,3 +1,21 @@
+---
+title: Run remote AI coding agents without a VPN · reet.sh
+description: Connect remote coding machines to Reet through outbound HTTPS. Understand enrolment, local consent
+  and where a VPN still helps.
+topic: REMOTE WORK
+category: remote
+art: selfhost
+art_icon: server
+art_label: WITHIN REACH
+card_title: Remote coding agents, without setting up a VPN.
+hero_title: Your remote machines.
+hero_accent: Within reach.
+related:
+- add-machine-in-context.md
+- run-claude-code-on-a-vps.md
+layout: article
+---
+
 # Run agents on remote machines without a VPN
 
 A common first question about reet.sh is whether it needs a VPN or an inbound port on every machine. It does not. The agent on each machine dials out to the controller, and the controller uses that connection to send work.

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/profilehistory"
 )
 
@@ -23,6 +24,18 @@ func profileEndpoint(server, name string) (string, error) {
 		return "", errors.New("profile sync needs a reet server URL; set REET_URL or pass --server")
 	}
 	return server + "/api/v2/setup/profiles/" + url.PathEscape(name), nil
+}
+
+// serverMessage is the controller's own reason: its JSON "error" field, or the
+// plain text body when it is not JSON.
+func serverMessage(data []byte) string {
+	var body struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(data, &body) == nil && body.Error != "" {
+		return body.Error
+	}
+	return strings.TrimSpace(string(data))
 }
 
 func profileRequest(method, endpoint, token string, body []byte) ([]byte, error) {
@@ -50,8 +63,11 @@ func profileRequest(method, endpoint, token string, body []byte) ([]byte, error)
 		if resp.StatusCode == http.StatusConflict {
 			return nil, profilehistory.ErrConflict
 		}
-		if resp.StatusCode == http.StatusUnauthorized {
-			return nil, fmt.Errorf("%w: server replied 401 Unauthorized; use a personal API token from Account on the target server via REET_TOKEN or --token", ErrProfileUnauthorized)
+		if authErr := clientconfig.NewAuthError(resp.StatusCode, serverMessage(data)); authErr != nil {
+			if resp.StatusCode == http.StatusUnauthorized {
+				return nil, fmt.Errorf("%w: %w", ErrProfileUnauthorized, authErr)
+			}
+			return nil, authErr
 		}
 		if message == "" {
 			return nil, fmt.Errorf("server replied %s", resp.Status)

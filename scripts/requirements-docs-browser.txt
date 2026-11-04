@@ -1,0 +1,2 @@
+# Development/CI smoke tests only; not required to build or serve the docs.
+playwright==1.62.0

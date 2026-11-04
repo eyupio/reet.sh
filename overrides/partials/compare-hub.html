@@ -1,0 +1,4 @@
+{% from "partials/icons-reet.html" import icon %}
+<section class="guides-hero wrap"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ nav.homepage.url | url }}">Home</a><span aria-hidden="true">/</span><span>Compare</span></nav><div class="eyebrow">A TOOL FOR THE JOB</div><div class="guides-heading">{{ page.content }}</div></section>
+<section class="compare-section wrap compare-directory">{% include "partials/comparison-list.html" %}</section>
+<section class="guide-cta wrap"><div>{{ icon('book') }}<h2>See how Reet fits your setup.</h2><p>Start with one machine and a task you can review.</p></div><a class="button" href="{{ 'quick-start/' | url }}">Try the quick start {{ icon('arrow') }}</a></section>

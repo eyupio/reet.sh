@@ -68,3 +68,26 @@ The logo and colours live in [`brand/`](brand/README.md). Please follow its usag
 ## Questions
 
 Open a discussion or an issue. There are no silly questions, only undocumented behaviour.
+
+## Documentation website
+
+The showcase, documentation and field guide are one MkDocs site. Install the pinned documentation dependencies in a virtual environment, then build and check it:
+
+```sh
+python -m venv .venv-docs
+.venv-docs/bin/pip install -r docs/requirements.txt
+.venv-docs/bin/mkdocs build --strict
+.venv-docs/bin/python scripts/check-docs.py
+```
+
+For the browser smoke tests, install `scripts/requirements-docs-browser.txt` in that environment, run `python -m playwright install chromium`, and then `python scripts/check-docs-browser.py`. These checks use only the generated static site; they do not start the application or a coding agent. CI runs both checks before publishing.
+
+Use `mkdocs serve` from that environment for a local preview. `DOCS_SITE_URL` sets the canonical origin, including a subpath when needed; `DOCS_NOINDEX=true` marks a private preview as non-indexable.
+
+- Edit the homepage in `docs/index.md`. Its rendered content is also indexed by the documentation search.
+- Add guide Markdown to the Guides navigation and `extra.field_guides` in `mkdocs.yml`. Use an existing guide’s front matter for its category, card, hero and related pages. Reading time is calculated from the source.
+- `overrides/` contains the shared header, footer, article and hub templates. The custom styles and script live in `docs/assets/`; fonts and their licence are served locally.
+- Keep old page paths stable when reorganising navigation. The rendered-site check verifies raw HTML/template links as well as Markdown links, heading anchors, social assets, structured data, search coverage and crawler files.
+- The share image is `docs/assets/brand/social.png`; its source is `brand/docs-social.html`. Render it at 1200 × 630 with the local brand assets and fonts when updating it.
+
+The existing docs workflow publishes GitHub Pages after a successful main-branch build. Design notes, research and handoff directories remain excluded from publication.

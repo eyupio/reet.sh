@@ -41,6 +41,17 @@
             : (path === '/signin' || path === '/signup' || path === '/setup' || path === '/reset' || path.indexOf('/join') === 0) ? 'auth'
             : 'app'
         }
+        // Layout only: reserve the route's final width before authentication or
+        // page code arrives. This never decides access to private content.
+        var bootQuery = new URLSearchParams(location.search)
+        var bootPath = location.pathname
+        try {
+          if (localStorage.getItem('reet.rail.collapsed') === '1') document.documentElement.dataset.bootRail = 'collapsed'
+        } catch (e) { /* Use the default expanded rail when storage is blocked. */ }
+        document.documentElement.dataset.bootLayout = bootPath === '/' ? 'home'
+          : ((bootPath === '/sessions' || bootPath === '/terminals') && bootQuery.get('view') !== 'list')
+            || (['/machines', '/account/machines', '/account/sync'].indexOf(bootPath) !== -1 && bootQuery.get('view') === 'terminal') ? 'workspace'
+          : 'content'
         // A bundle that never arrives must not leave a silent skeleton. The recovery line lives outside the decorative
         // shell and starts empty, so putting words into its live region both shows it and announces it.
         window.setTimeout(function () {
@@ -182,6 +193,7 @@
       html[data-ready] #boot { opacity: 0; pointer-events: none; transition: opacity 180ms cubic-bezier(.23, 1, .32, 1); }
       @media (prefers-reduced-motion: reduce) { html[data-ready] #boot { transition: none; } }
 
+      #boot, #boot * { box-sizing: border-box; }
       .boot-bar { border-bottom: 1px solid var(--boot-line); }
       .boot-bar-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: 1120px; margin: 0 auto; padding: 24px 40px; }
       .boot-brand { display: block; width: 160px; max-width: 100%; animation: boot-in 320ms cubic-bezier(.23, 1, .32, 1) both; }
@@ -246,6 +258,28 @@
       }
       @keyframes boot-shimmer { to { background-position: -200% 0; } }
       @media (prefers-reduced-motion: reduce) { .boot-brand { animation: none; } }
+
+      /* Signed-in chrome is full width, including while only HTML is available. */
+      html[data-boot='app'] .boot-bar-inner { max-width: none; height: 61px; padding: 0 24px; }
+      html[data-boot='app'] .boot-brand { width: 112px; animation: none; }
+      html[data-boot='app'][data-boot-layout='home'] .boot-main { max-width: none; padding: 20px 24px; margin-left: 301px; }
+      html[data-boot='app'][data-boot-layout='home'][data-boot-rail='collapsed'] .boot-main { margin-left: 56px; }
+      html[data-boot='app'][data-boot-layout='workspace'] .boot-main { max-width: none; padding: 8px 12px; }
+      @media (max-width: 1239px) {
+        html[data-boot='app'][data-boot-layout='home'] .boot-main { margin-left: 56px; }
+      }
+      @media (max-width: 1099px) {
+        html[data-boot='app'] .boot-bar-inner { height: 65px; }
+        html[data-boot='app'][data-boot-layout='home'] .boot-main,
+        html[data-boot='app'][data-boot-layout='home'][data-boot-rail='collapsed'] .boot-main { margin-left: 0; }
+      }
+      @media (max-width: 700px) {
+        html[data-boot='app'][data-boot-layout='workspace'] .boot-main { padding: 4px 6px; }
+      }
+      @media (max-width: 650px) {
+        html[data-boot='app'] .boot-bar-inner { height: 57px; padding-inline: 16px; }
+        html[data-boot='app'][data-boot-layout='home'] .boot-main { padding: 14px 16px; }
+      }
 
       /* The bar keeps the real header's padding at each breakpoint, so the logo does not shift when the shell hands over. */
       @media (max-width: 1000px) { .boot-bar-inner { padding: 16px 24px; } }

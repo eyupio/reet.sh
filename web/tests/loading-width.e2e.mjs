@@ -1,0 +1,79 @@
+// Compare the HTML shell, auth wait, lazy route and loaded page widths.
+import { chromium, expect } from '@playwright/test'
+import { openWorkspace } from './helpers/workspace.mjs'
+const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
+const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
+const release = []
+try {
+  for (const width of [375, 1200, 1440, 1920]) for (const path of ['/', '/machines', '/sessions']) for (const collapsed of path === '/' ? [false, true] : [false]) {
+    let bundleReady, authReady, pageReady
+    const bundleGate = new Promise(resolve => (bundleReady = resolve))
+    const authGate = new Promise(resolve => (authReady = resolve))
+    const pageGate = new Promise(resolve => (pageReady = resolve))
+    release.push(bundleReady, authReady, pageReady)
+    const { context, page, errors } = await openWorkspace(browser, { width, gates: { '/api/v2/auth/status': authGate } })
+    await context.addInitScript(collapsed => {
+      localStorage.setItem('reet-token', 'boot-fixture')
+      localStorage.setItem('reet.rail.collapsed', collapsed ? '1' : '0')
+    }, collapsed)
+    await page.route('**/assets/index-*.js', async route => { await bundleGate; await route.continue() })
+    await page.route(`**/assets/${path === '/' ? 'Home' : 'Machines'}-*.js`, async route => { await pageGate; await route.continue() })
+    await page.goto(base + path, { waitUntil: 'commit' })
+    const shell = page.locator('#boot .boot-main[data-boot="app"]')
+    await expect(shell).toBeVisible()
+    const staticBox = await shell.boundingBox()
+    const staticContent = await shell.locator('.boot-page-head').boundingBox()
+    const header = await page.locator('#boot .boot-bar-inner').boundingBox()
+    expect(header.x).toBe(0)
+    expect(header.width).toBe(width)
+    const rail = path === '/' ? width >= 1240 && !collapsed ? 301 : width >= 1100 ? 56 : 0 : 0
+    if (path === '/') {
+      expect(staticBox.x).toBe(rail)
+      expect(staticBox.width).toBe(width - rail)
+    }
+    bundleReady()
+    await expect(page.locator('#main-content')).toBeAttached()
+    const authBox = await page.locator('#main-content').boundingBox()
+    const authContent = path === '/machines' ? await page.locator('.boot-page > .head').boundingBox() : null
+    const homeAuthContent = path === '/' ? await page.locator('.workspace-content > .head').boundingBox() : null
+    authReady()
+    await expect(page.locator('#boot')).toHaveCount(0)
+    await expect(page.locator('[data-loading-page]')).toBeVisible()
+    const chunkBox = await page.locator('#main-content').boundingBox()
+    const homeChunkContent = path === '/' ? await page.locator('.workspace-content > .head').boundingBox() : null
+    pageReady()
+    await expect(page.locator('[data-loading-page]')).toHaveCount(0)
+    if (path === '/') await expect(page.locator('.home.writer > .column')).toBeVisible()
+    if (path === '/machines') await expect(page.locator('h1').first()).toContainText('Your machines')
+    const loadedBox = await page.locator('#main-content').boundingBox()
+    for (const box of [authBox, chunkBox]) {
+      expect(box.x, `${path} ${width}: main left changed`).toBe(loadedBox.x)
+      expect(box.width, `${path} ${width}: main width changed`).toBe(loadedBox.width)
+    }
+    if (path === '/') {
+      const column = await page.locator('.home.writer > .column').boundingBox()
+      expect(column.x).toBe(staticBox.x)
+      expect(column.width).toBe(staticBox.width)
+      const padding = await page.locator('.home.writer > .column').evaluate(el => parseFloat(getComputedStyle(el).paddingLeft))
+      for (const box of [staticContent, homeAuthContent, homeChunkContent]) {
+        expect(box.x, `Home ${width}: content gutter changed`).toBe(column.x + padding)
+        expect(box.width, `Home ${width}: content width changed`).toBe(column.width - padding * 2)
+      }
+    } else if (path === '/machines') {
+      const heading = await page.locator('.page-heading').first().boundingBox()
+      expect(authContent.x).toBe(heading.x)
+      expect(authContent.width).toBe(heading.width)
+      expect(staticBox.width).toBe(loadedBox.width)
+      expect(staticBox.x).toBe(loadedBox.x)
+    }
+    expect(errors).toEqual([])
+    await context.close()
+  }
+  console.log('Loading widths: HTML boot, auth wait, lazy route and loaded content agree across phone, tablet and wide desktops.')
+} catch (error) {
+  console.error(error)
+  throw error
+} finally {
+  for (const ready of release) ready()
+  await browser.close()
+}

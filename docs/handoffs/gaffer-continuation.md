@@ -39,7 +39,8 @@ All three feature PRs are merged in dependency order (#490, #493, #498) and the 
 [#503](https://github.com/eyupio/reet.sh/pull/503) (`4539386`) and [#504](https://github.com/eyupio/reet.sh/pull/504)
 (`80ae4cc`), both documentation only. Main has since advanced through #499 and #502 and other content work (#496, #501);
 none of it touches the Gaffer code paths, and the addresses and page registration of the delivered documentation stay
-intact. No Gaffer pull request remains open; #505 is a separate documentation comparison PR owned by another work stream.
+intact. No Gaffer pull request remains open. Other work streams keep opening and merging their own pull requests, so read
+`gh pr list --state open` rather than relying on any snapshot here.
 The toolbar/panel overlap between #490 and #495 is resolved as follows:
 the persistent Theatre action, the wrapping interface/approval/`Terminal here` toolbar and the duplicate-free menu stay,
 and the docked panel keeps its separator, saved width/open state, sheet mode below 1100 px, and `holdSize` while it is

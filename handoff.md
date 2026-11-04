@@ -18,6 +18,32 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+Review batches: [process recovery #480](https://github.com/eyupio/reet.sh/pull/480),
+[retained state #485](https://github.com/eyupio/reet.sh/pull/485), and
+[transcript retention #484](https://github.com/eyupio/reet.sh/pull/484). Eight reproduced defects are addressed across the three
+focused batches below. Each PR records its checks and merge state. All handoff entries are retained when integrating the stack.
+
+## GAFFER-BOUNDS-1: keep history bounded around waiting cards (4 November 2026)
+
+Final asynchronous review follow-up: the process waiter could mark the chat closed before buffered final ACP frames reached
+a slow event sender. The connector now owns its stdout pipe, observes exit independently, retires descendants and gives the
+reader up to two seconds to drain before ending the session. A permanently blocked sender still cannot hide an exited agent.
+Tests reproduce loss of a flushed final chunk before the fix and cover bounded shutdown with a blocked callback. The fake
+child disables the race runtime's exit sleep for this case so that sleep cannot hide the shutdown race. This resolves the
+post-merge review on #485 as part of #484; independent exit detection and the inherited-stderr bound are preserved.
+
+Branch `fix/gaffer-transcript-bounds`. The browser reducer skips individual pending approvals and questions when evicting
+old history, so one unanswered card no longer pins every later item. Tool commands, paths and diffs now count towards the
+256 KiB text budget. Pending cards remain answerable; if cards alone exceed the budget they are retained. This is a reducer
+change, with no new UI controls, wire fields or dependency. `docs/structured-sessions.md` describes the retention rule.
+
+`chatBounds.test.mjs` covers both failures and is included in `npm test`: a waiting approval and question followed by a
+long stream retain the cards and newest output within the limits; tool-only command/path/diff payloads also trim. Both
+tests failed against the unchanged reducer and pass with the fix. Validation and merge status are recorded in the PR.
+
+CI follow-up: the parallel terminal-upload fixture used arrival-order filenames for identical files, then asserted selection
+order, so reversed request arrival caused a false failure. Distinct file bytes now determine fixture paths; the second
+response deliberately completes first and the test still requires insertion in selection order. No upload runtime change.
 ## GAFFER-STATE-1: retain live choices and actionable replay (4 November 2026)
 
 Branch `fix/gaffer-recovery-state`. `chatHost.setModel` now copies the process's actual model read-back into the live

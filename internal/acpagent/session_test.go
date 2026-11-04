@@ -29,7 +29,13 @@ func fakeACP(t *testing.T, scenario, version string) string {
 		t.Fatal(err)
 	}
 	script := filepath.Join(t.TempDir(), "opencode")
-	body := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo %s; exit 0; fi\nGO_WANT_ACP_HELPER=1 ACP_SCENARIO=%s ACP_VERSION=%s ACP_ORPHAN_FILE=%q exec %q -test.run=TestFakeACP\n", version, scenario, version, script+".pid", bin)
+	raceEnv := ""
+	if scenario == "exit-final-frames" {
+		// The race runtime's exit sleep would otherwise let stdout drain before
+		// the process exits, hiding the final-frame shutdown race being tested.
+		raceEnv = "GORACE=atexit_sleep_ms=0 "
+	}
+	body := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo %s; exit 0; fi\n%sGO_WANT_ACP_HELPER=1 ACP_SCENARIO=%s ACP_VERSION=%s ACP_ORPHAN_FILE=%q exec %q -test.run=TestFakeACP\n", version, raceEnv, scenario, version, script+".pid", bin)
 	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -260,6 +266,11 @@ func TestFakeACP(t *testing.T) {
 			session = params.SessionID
 			promptID = message.ID
 			switch scenario {
+			case "exit-final-frames":
+				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_final", "content": map[string]string{"type": "text", "text": "first final chunk"}})
+				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_final", "content": map[string]string{"type": "text", "text": "second final chunk"}})
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
+				os.Exit(0)
 			case "leader-exit-open-stdout", "leader-exit-open-stderr":
 				child := exec.Command("/bin/sh", "-c", "sleep 60")
 				child.Stdout = os.Stdout

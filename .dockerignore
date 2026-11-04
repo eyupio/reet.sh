@@ -3,7 +3,6 @@
 .superpowers
 .env
 data
-docs
 web/node_modules
 web/dist
 mcp/node_modules

@@ -11,10 +11,14 @@ const catalogue = asURL(compile('./catalogue.ts'))
 const agentLaunch = asURL(compile('./agentLaunch.ts').replace("from './catalogue'", `from '${catalogue}'`))
 const terminalApi = asURL(compile('./terminal/api.ts'))
 const models = asURL(compile('./models.ts').replace("from './catalogue'", `from '${catalogue}'`))
+const launchOptions = asURL(compile('./terminal/launchOptions.ts')
+  .replace("from '../models'", `from '${models}'`)
+  .replaceAll("from './api'", `from '${terminalApi}'`))
 const source = compile('./launchBar.ts')
   .replace("from './catalogue'", `from '${catalogue}'`)
   .replace("from './agentLaunch'", `from '${agentLaunch}'`)
   .replaceAll("from './terminal/api'", `from '${terminalApi}'`)
+  .replace("from './terminal/launchOptions'", `from '${launchOptions}'`)
   .replace("from './models'", `from '${models}'`)
 const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText, yoloGates, yoloCanStart } = await import(asURL(source))
 const { refusalText } = await import(agentLaunch)
@@ -519,4 +523,16 @@ test('explicit per-agent chat descriptors govern defaults and crafted launch cho
  assert.match(startable({ ...selected, agent: 'codex' }, [chatProject], [target]), /does not offer/)
  target.capabilities.acpAgents[0].state = 'incompatible'
  assert.match(startable(selected, [chatProject], [target]), /does not offer/)
+})
+
+test('Gaffer offers the effort its machine advertises', () => {
+  const agent = { tool: 'codex', adapter: 'codex-acp', state: 'available', model: true, options: [{ id: 'reasoning_effort', category: 'thought_level', values: ['low', 'high', 'ultra'] }] }
+  const acp = machine('m-studio', 'studio', { tools: ['codex'], acp: true, acpStartOptions: true, acpAgents: [agent] })
+  const picked = { ...reet, defaultTool: 'codex' }
+  const start = { ...initialChoice([picked], profile, { machines: [acp] }), effort: 'ultra' }
+  assert.equal(start.chat, true)
+  const parts = sentence(start, [picked], [acp])
+  assert.ok(slots(parts).includes('effort'))
+  assert.equal(words(parts), 'Run Codex in Gaffer with default on reet at studio · thinking ultra')
+  assert.equal(summary(parts), 'Codex on reet at studio · thinking ultra')
 })

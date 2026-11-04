@@ -140,7 +140,9 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 			if b != nil && !errors.Is(b, sql.ErrNoRows) {
 				return b
 			}
-			if a == nil && b == nil && (oldDesired != newDesired || canonicalID(oldSource) != canonicalID(newSource)) {
+			bothFound := a == nil && b == nil
+			changed := oldDesired != newDesired || canonicalID(oldSource) != canonicalID(newSource)
+			if bothFound && changed {
 				return ErrMachineConflict
 			}
 			var scanned int64
@@ -185,7 +187,9 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 			var oldMode, newMode, oldBase, newBase string
 			oldErr := tx.QueryRow(`SELECT mode,baseline FROM sync_options WHERE target_id=?`, e.id).Scan(&oldMode, &oldBase)
 			newErr := tx.QueryRow(`SELECT mode,baseline FROM sync_options WHERE target_id=?`, id).Scan(&newMode, &newBase)
-			if oldErr == nil && newErr == nil && (oldMode != newMode || oldMode == "bidirectional" && oldBase != newBase) {
+			bothRead := oldErr == nil && newErr == nil
+			modeChanged := oldMode != newMode || (oldMode == "bidirectional" && oldBase != newBase)
+			if bothRead && modeChanged {
 				return ErrMachineConflict
 			}
 			if _, err := tx.Exec(`INSERT OR IGNORE INTO sync_options(target_id,mode,baseline,applied_revision) SELECT ?,mode,baseline,applied_revision FROM sync_options WHERE target_id=?`, id, e.id); err != nil {

@@ -53,12 +53,14 @@ func (s *server) ssoStatus() map[string]any {
 // safeNext is where a sign-in resumes: a path on this site, and nothing a
 // browser could read as another address. Anything else becomes the home page.
 func safeNext(raw string) string {
-	if raw == "" || len(raw) > 2048 || raw[0] != '/' {
+	emptyOrLong := raw == "" || len(raw) > 2048
+	if emptyOrLong || raw[0] != '/' {
 		return "/"
 	}
 	// A browser reads "//host" and "/\host" as another site, so the second
 	// character is checked by itself, and a backslash anywhere is refused.
-	if len(raw) > 1 && (raw[1] == '/' || raw[1] == '\\') {
+	escaped := len(raw) > 1 && (raw[1] == '/' || raw[1] == '\\')
+	if escaped {
 		return "/"
 	}
 	if strings.ContainsAny(raw, "\\") {
@@ -70,7 +72,10 @@ func safeNext(raw string) string {
 		}
 	}
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || !strings.HasPrefix(u.Path, "/") || strings.HasPrefix(u.Path, "//") || strings.Contains(u.Path, "\\") {
+	plainPath := strings.HasPrefix(u.Path, "/") && !strings.HasPrefix(u.Path, "//")
+	noBackslash := !strings.Contains(u.Path, "\\")
+	validTarget := err == nil && u.Scheme == "" && u.Host == "" && u.User == nil && plainPath && noBackslash
+	if !validTarget {
 		return "/"
 	}
 	return landing(raw)
@@ -417,7 +422,8 @@ func (s *server) ssoSignIn(w http.ResponseWriter, r *http.Request, row store.SSO
 		s.ssoFail(w, r, "/", "disabled")
 		return
 	}
-	if !created && user.Role != "owner" && c.HasGroups {
+	nonOwner := !created && user.Role != "owner"
+	if nonOwner && c.HasGroups {
 		// Where groups are mapped the provider decides the role at each
 		// sign-in. A token with no groups claim at all changes nothing.
 		if role, mapped := s.sso.RoleFor(c.Groups); mapped && role != user.Role {

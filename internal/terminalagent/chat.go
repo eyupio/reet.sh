@@ -520,7 +520,7 @@ func (h *chatHost) snapshots() []terminalproto.SessionSnapshot {
 	// The controller only needs live sessions to avoid marking them lost; keep
 	// ended receipts too, but never let history push a live one out.
 	if len(out) > 32 {
-		for i := 0; i < len(out); i++ {
+		for i := range out {
 			for j := i + 1; j < len(out); j++ {
 				if out[j].State.ReservesQuota() && !out[i].State.ReservesQuota() {
 					out[i], out[j] = out[j], out[i]

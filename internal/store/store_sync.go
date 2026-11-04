@@ -178,7 +178,11 @@ func (s *Store) SaveSyncTargetFor(userID int64, sourceID, targetID string) error
 			return err
 		}
 		cutoff := time.Now().Add(-14 * 24 * time.Hour).UnixMilli()
-		if !source.complete || !target.complete || source.scanned < cutoff || target.scanned < cutoff || !Syncable(target.agent) || (target.project != "" && !strings.HasPrefix(target.project, "/")) {
+		sourceFresh := source.complete && source.scanned >= cutoff
+		targetFresh := target.complete && target.scanned >= cutoff
+		validTarget := Syncable(target.agent) && (target.project == "" || strings.HasPrefix(target.project, "/"))
+		fresh := sourceFresh && targetFresh
+		if !fresh || !validTarget {
 			return ErrSync
 		}
 		desired, err := environmentSkills(tx, userID, sourceID)
@@ -187,7 +191,8 @@ func (s *Store) SaveSyncTargetFor(userID int64, sourceID, targetID string) error
 		}
 		seen := map[string]bool{}
 		for _, skill := range desired {
-			if skill.SourceType == "local" || skill.Source == "" || seen[skill.Slug] {
+			missingSource := skill.SourceType == "local" || skill.Source == ""
+			if missingSource || seen[skill.Slug] {
 				return errors.New("link local skills to a source and resolve duplicate skill names before syncing")
 			}
 			seen[skill.Slug] = true

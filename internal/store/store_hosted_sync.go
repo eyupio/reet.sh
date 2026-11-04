@@ -116,7 +116,8 @@ func (s *Store) applyDraftSources(uid int64, candidates []SyncSkill) ([]SyncSkil
 	}
 	for i, sk := range candidates {
 		draft, ok := drafts[sk.Slug]
-		if !ok || sk.SourceType != "hosted" || !strings.HasSuffix(sk.ID, "/"+username+"/"+sk.Slug) {
+		hostedDraft := ok && sk.SourceType == "hosted" && strings.HasSuffix(sk.ID, "/"+username+"/"+sk.Slug)
+		if !hostedDraft {
 			continue
 		}
 		candidates[i] = s.privateDraftCandidate(uid, sk.ID, draft)

@@ -169,7 +169,8 @@ func (s *Store) CreateSoftwareBatchFor(uid int64, requestID, tool string, member
 		agents := map[string]bool{}
 		included := 0
 		for _, m := range members {
-			if m.Position < 0 || positions[m.Position] || agents[m.AgentID] {
+			duplicate := m.Position < 0 || positions[m.Position] || agents[m.AgentID]
+			if duplicate {
 				return fmt.Errorf("%w: duplicate position or machine", ErrSoftwareBatchNoMembers)
 			}
 			positions[m.Position] = true
@@ -180,20 +181,24 @@ func (s *Store) CreateSoftwareBatchFor(uid int64, requestID, tool string, member
 				if !shortPlain(reason, 240) {
 					return fmt.Errorf("%w: an exclusion reason is too long", ErrSoftwareBatchNoMembers)
 				}
-			} else if host, ok, err := enrolledHost(tx, uid, m.AgentID); err != nil {
-				return err
-			} else if !ok {
-				state, code, reason = SoftwareMemberExcluded, "unknown_machine", "That machine isn't enrolled."
 			} else {
-				m.Host = host
-				busy, err := agentInActiveBatch(tx, uid, m.AgentID)
+				host, ok, err := enrolledHost(tx, uid, m.AgentID)
 				if err != nil {
 					return err
 				}
-				if busy {
-					state, code, reason = SoftwareMemberExcluded, "in_another_batch", "That machine is already in another batch."
+				if !ok {
+					state, code, reason = SoftwareMemberExcluded, "unknown_machine", "That machine isn't enrolled."
 				} else {
-					included++
+					m.Host = host
+					busy, err := agentInActiveBatch(tx, uid, m.AgentID)
+					if err != nil {
+						return err
+					}
+					if busy {
+						state, code, reason = SoftwareMemberExcluded, "in_another_batch", "That machine is already in another batch."
+					} else {
+						included++
+					}
 				}
 			}
 			if _, err := tx.Exec(`INSERT INTO software_batch_members(batch_id,user_id,position,agent_id,host,action,target,expected_state,expected_version,expected_previous,expected_managed,state,code,reason,version,updated_at)
@@ -343,9 +348,11 @@ func (s *Store) SoftwareBatchMemberStart(uid int64, batchID string, position int
 		if err != nil {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
-		} else if n != 1 {
+		}
+		if n != 1 {
 			return ErrSoftwareBatchMemberNotPending
 		}
 		if _, err := tx.Exec(`UPDATE software_batches SET state='running',updated_at=? WHERE id=? AND user_id=?`, now(), batchID, uid); err != nil {
@@ -388,9 +395,11 @@ func (s *Store) SetSoftwareBatchMemberState(uid int64, batchID string, position 
 		if err != nil {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
-		} else if n != 1 {
+		}
+		if n != 1 {
 			return ErrSoftwareBatchMemberNotRunning
 		}
 		return settleSoftwareBatchTx(tx, uid, batchID)
@@ -414,9 +423,11 @@ func (s *Store) RetrySoftwareBatchMember(uid int64, batchID string, position int
 		if err != nil {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
-		} else if n != 1 {
+		}
+		if n != 1 {
 			return ErrSoftwareBatchMemberNotFailed
 		}
 		if _, err := tx.Exec(`UPDATE software_batches SET state='running',updated_at=? WHERE id=? AND user_id=?`, now(), batchID, uid); err != nil {
@@ -443,9 +454,11 @@ func (s *Store) SkipSoftwareBatchMember(uid int64, batchID string, position int)
 		if err != nil {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
-		} else if n != 1 {
+		}
+		if n != 1 {
 			return ErrSoftwareBatchMemberNotFailed
 		}
 		if _, err := tx.Exec(`UPDATE software_batches SET state='running',updated_at=? WHERE id=? AND user_id=?`, now(), batchID, uid); err != nil {

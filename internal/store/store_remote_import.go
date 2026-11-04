@@ -150,10 +150,15 @@ func (s *Store) RemoteImportsFor(uid int64) ([]RemoteImport, []ImportCapability,
 	return requests, caps, rows.Err()
 }
 func (s *Store) CreateRemoteImportFor(uid int64, in RemoteImportCreate) (out RemoteImport, err error) {
-	if !privateSkillRequestID.MatchString(in.RequestKey) || in.Name == "" || !contentobs.ValidText(in.Name, 255) || strings.ContainsAny(in.Name, "/\\") || in.Name == "." || in.Name == ".." {
+	validName := in.Name != "" && contentobs.ValidText(in.Name, 255) && !strings.ContainsAny(in.Name, "/\\")
+	plainName := in.Name != "." && in.Name != ".."
+	validRequest := privateSkillRequestID.MatchString(in.RequestKey) && validName && plainName
+	if !validRequest {
 		return out, ErrPrivateSkillInvalid
 	}
-	if (in.BundleID == "") != (in.ExpectedBase == "") || in.BundleID != "" && (!privateSkillID.MatchString(in.BundleID) || !privateSkillID.MatchString(in.ExpectedBase)) {
+	pairedIDs := (in.BundleID == "") == (in.ExpectedBase == "")
+	validIDs := in.BundleID == "" || (privateSkillID.MatchString(in.BundleID) && privateSkillID.MatchString(in.ExpectedBase))
+	if !pairedIDs || !validIDs {
 		return out, ErrPrivateSkillInvalid
 	}
 	err = s.withTx(func(tx *sql.Tx) error {
@@ -167,7 +172,11 @@ func (s *Store) CreateRemoteImportFor(uid int64, in RemoteImportCreate) (out Rem
 			if err != nil {
 				return err
 			}
-			if out.FollowShelf != in.FollowShelf || out.SyncSkillID != in.SyncSkillID || out.DestinationID != in.DestinationID || out.AgentID != in.AgentID || out.EnvironmentID != in.EnvironmentID || out.Name != in.Name || out.BundleID != in.BundleID || out.ExpectedBase != in.ExpectedBase {
+			sameSource := out.FollowShelf == in.FollowShelf && out.SyncSkillID == in.SyncSkillID && out.DestinationID == in.DestinationID
+			sameTarget := out.AgentID == in.AgentID && out.EnvironmentID == in.EnvironmentID && out.Name == in.Name
+			sameBase := out.BundleID == in.BundleID && out.ExpectedBase == in.ExpectedBase
+			sameRequest := sameSource && sameTarget && sameBase
+			if !sameRequest {
 				return ErrRemoteImport
 			}
 			return nil
@@ -268,7 +277,8 @@ func (s *Store) ClaimRemoteImportFor(uid int64, agent, instance string) (work *R
 			return err
 		}
 		for _, r := range pending {
-			if r.State == "queued" && r.SyncSkillID != "" && r.ExpiresAt >= now() {
+			active := r.State == "queued" && r.SyncSkillID != "" && r.ExpiresAt >= now()
+			if active {
 				r.Instance = instance
 				if running == 0 {
 					r.ExpiresAt = now() + 10*60*1000
@@ -304,7 +314,8 @@ func (s *Store) ClaimRemoteImportFor(uid int64, agent, instance string) (work *R
 	return
 }
 func checkRemoteImport(tx *sql.Tx, uid int64, r RemoteImport, agent, instance string) error {
-	if r.AgentID != agent || r.Instance != instance || r.ExpiresAt < now() {
+	sameTarget := r.AgentID == agent && r.Instance == instance
+	if !sameTarget || r.ExpiresAt < now() {
 		return ErrRemoteImport
 	}
 	if err := contentAgent(tx, uid, agent); err != nil {
@@ -312,7 +323,9 @@ func checkRemoteImport(tx *sql.Tx, uid int64, r RemoteImport, agent, instance st
 	}
 	var current string
 	var seen int64
-	if err := tx.QueryRow(`SELECT instance,observed_at FROM machine_import_capabilities WHERE agent_id=? AND user_id=?`, agent, uid).Scan(&current, &seen); err != nil || current != instance || seen < now()-90000 {
+	err := tx.QueryRow(`SELECT instance,observed_at FROM machine_import_capabilities WHERE agent_id=? AND user_id=?`, agent, uid).Scan(&current, &seen)
+	fresh := current == instance && seen >= now()-90000
+	if err != nil || !fresh {
 		return ErrRemoteImport
 	}
 	var count int
@@ -376,7 +389,10 @@ func (s *Store) ApproveRemoteImportFor(uid int64, id, hash string, exclude []str
 		if err = checkRemoteImport(tx, uid, r, r.AgentID, r.Instance); err != nil {
 			return err
 		}
-		if r.Preview == nil || r.PreviewHash != hash || !r.Preview.Allowed(exclude) {
+		if r.Preview == nil {
+			return ErrRemoteImport
+		}
+		if r.PreviewHash != hash || !r.Preview.Allowed(exclude) {
 			return ErrRemoteImport
 		}
 		m, err := r.Preview.Manifest(exclude)
@@ -384,7 +400,8 @@ func (s *Store) ApproveRemoteImportFor(uid int64, id, hash string, exclude []str
 			return err
 		}
 		if r.State != "reviewing" {
-			if (r.State == "approved" || r.State == "uploading" || r.State == "completed") && r.Digest == m.Digest {
+			settled := r.State == "approved" || r.State == "uploading" || r.State == "completed"
+			if settled && r.Digest == m.Digest {
 				out = r
 				return nil
 			}
@@ -445,7 +462,10 @@ func (s *Store) CommitRemoteImportFor(uid int64, agent, id, instance, sourceDige
 	if err != nil {
 		return PrivateSkillResult{}, err
 	}
-	if r.AgentID != agent || r.Preview == nil || r.Preview.SourceDigest != sourceDigest {
+	if r.AgentID != agent || r.Preview == nil {
+		return PrivateSkillResult{}, ErrRemoteImport
+	}
+	if r.Preview.SourceDigest != sourceDigest {
 		return PrivateSkillResult{}, ErrRemoteImport
 	}
 	in := MachineSkillImport{SchemaVersion: 1, RequestID: "remote_" + r.ID, BundleID: r.BundleID, ExpectedBase: &r.ExpectedBase, Agent: r.Agent, Project: r.Project, Name: r.Name, Digest: r.Digest, Files: files}
@@ -454,7 +474,9 @@ func (s *Store) CommitRemoteImportFor(uid int64, agent, id, instance, sourceDige
 		if err != nil {
 			return err
 		}
-		if current.AgentID != agent || current.Instance != instance || current.Digest != r.Digest || current.PreviewHash != r.PreviewHash {
+		sameAgent := current.AgentID == agent && current.Instance == instance
+		sameContent := current.Digest == r.Digest && current.PreviewHash == r.PreviewHash
+		if !sameAgent || !sameContent {
 			return ErrRemoteImport
 		}
 		if current.State == "completed" {
@@ -480,7 +502,8 @@ func (s *Store) CommitRemoteImportFor(uid int64, agent, id, instance, sourceDige
 
 func (s *Store) RemoteImportFor(uid int64, id string) (RemoteImport, error) {
 	r, err := readImport(s.db, uid, id)
-	if err == nil && activeImport(r.State) && r.ExpiresAt < now() {
+	stale := err == nil && activeImport(r.State)
+	if stale && r.ExpiresAt < now() {
 		r.State = "expired"
 	}
 	return r, err

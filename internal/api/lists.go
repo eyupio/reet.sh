@@ -131,7 +131,8 @@ func (s *server) updateList(w http.ResponseWriter, r *http.Request) {
 	if in.Visibility != nil {
 		visibility = *in.Visibility
 	}
-	if visibility == "link" && access.List.Visibility != "link" && !s.linkListsEnabled() {
+	makingLink := visibility == "link" && access.List.Visibility != "link"
+	if makingLink && !s.linkListsEnabled() {
 		writeErr(w, http.StatusForbidden, "link sharing is turned off by the owner")
 		return
 	}
@@ -160,7 +161,9 @@ func (s *server) updateList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.eventRequest(r, "list-update", "", map[string]any{"list": name, "id": access.List.ID})
-	if visibility == "team" && audience.GroupID != 0 && (oldVisibility != "team" || beforeAudience.GroupID != audience.GroupID) {
+	shared := visibility == "team" && audience.GroupID != 0
+	audienceChanged := oldVisibility != "team" || beforeAudience.GroupID != audience.GroupID
+	if shared && audienceChanged {
 		if updated, err := s.st.SharedListByID(access.List.ID); err == nil {
 			s.notifyListShared(r, audience.GroupID, updated.ID, updated.Name, updated.UpdatedAt)
 		}

@@ -18,7 +18,9 @@ type SetupProfileRecord struct {
 }
 
 func (s *Store) SaveSetupProfile(record SetupProfileRecord) error {
-	if record.UserID == 0 || record.Name == "" || record.Revision < 1 || record.SnapshotID == "" || record.Payload == "" {
+	validRecord := record.UserID != 0 && record.Name != "" && record.Revision >= 1
+	completeRecord := record.SnapshotID != "" && record.Payload != ""
+	if !validRecord || !completeRecord {
 		return errors.New("invalid setup profile")
 	}
 	current, exists, err := s.SetupProfileFor(record.UserID, record.Name)

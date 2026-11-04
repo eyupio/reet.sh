@@ -249,9 +249,11 @@ func (s *chatSupervisor) chatBinary(tool string) (acpagent.Spec, string, error) 
 		return acpagent.Spec{}, "", acpagent.ErrUnsupported
 	}
 	binary, err := s.lookPath(spec.Command)
-	if managed, found, managedErr := agentsoftware.ManagedBinary(s.opts.Home, tool); managedErr != nil {
+	managed, found, managedErr := agentsoftware.ManagedBinary(s.opts.Home, tool)
+	if managedErr != nil {
 		return acpagent.Spec{}, "", &acpagent.VersionError{Agent: spec.DisplayName, Required: spec.MinVersion, Reason: "reet's managed installation is broken"}
-	} else if found {
+	}
+	if found {
 		binary, err = managed, nil
 	}
 	if err != nil {

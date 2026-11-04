@@ -154,7 +154,8 @@ func (s *Store) SSOIdentityCount(issuer string) (int, error) {
 // step. The account has no password, and is never the owner: ownership comes
 // only from setup and from transfer.
 func (s *Store) CreateSSOUser(issuer, subject, email, name, role string) (User, error) {
-	if role != "admin" && role != "member" && role != "viewer" {
+	validRole := role == "admin" || role == "member" || role == "viewer"
+	if !validRole {
 		return User{}, errors.New("invalid role for a single sign-on account")
 	}
 	email = normalizeEmail(email)
@@ -253,7 +254,8 @@ func (s *Store) SessionSSO(id string, userID, at int64) (issuer, sid, subject st
 // their ids. A session id and a subject together name one session of one
 // person; either alone names every session it matches; neither names none.
 func (s *Store) DeleteSSOSessions(issuer, subject, sid string) ([]string, error) {
-	if issuer == "" || (subject == "" && sid == "") {
+	noSubject := subject == "" && sid == ""
+	if issuer == "" || noSubject {
 		return nil, nil
 	}
 	q := `SELECT id FROM sessions WHERE sso_issuer=?`

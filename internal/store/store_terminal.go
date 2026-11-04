@@ -170,7 +170,9 @@ func (s *Store) SavePrivateIdentityIfAbsent(r PrivateIdentityRecord) error {
 		return terminalproto.ErrInvalid
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(r.Ciphertext)
-	if r.FormatVersion != 1 || len(r.Ciphertext) > 64<<10 || err != nil || len(raw) < 44 {
+	validRecord := r.FormatVersion == 1 && len(r.Ciphertext) <= 64<<10
+	validRaw := err == nil && len(raw) >= 44
+	if !validRecord || !validRaw {
 		return terminalproto.ErrInvalid
 	}
 	return s.withTx(func(tx *sql.Tx) error {
@@ -239,7 +241,8 @@ const capabilityCols = `agent_id,generation,instance_id,capabilities,observed_at
 // authentication. It is not itself authentication or proof of a live socket.
 func (s *Store) BeginRemoteConnectionFor(uid int64, agentID, instanceID string, caps terminalproto.Capabilities) (RemoteAgentCapabilities, error) {
 	var c RemoteAgentCapabilities
-	if !terminalproto.ValidID(agentID) || !terminalproto.ValidID(instanceID) || caps.Validate() != nil {
+	validIDs := terminalproto.ValidID(agentID) && terminalproto.ValidID(instanceID)
+	if !validIDs || caps.Validate() != nil {
 		return c, terminalproto.ErrInvalid
 	}
 	err := s.withTx(func(tx *sql.Tx) error {
@@ -475,7 +478,8 @@ func (s *Store) ArchiveTerminalFor(uid int64, sessionID string) error {
 func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, generation int64, in terminalproto.Create) (TerminalSession, bool, error) {
 	var t TerminalSession
 	created := false
-	if !terminalproto.ValidID(agentID) || !terminalproto.ValidID(requestID) || in.Validate() != nil {
+	validIDs := terminalproto.ValidID(agentID) && terminalproto.ValidID(requestID)
+	if !validIDs || in.Validate() != nil {
 		return t, false, terminalproto.ErrInvalid
 	}
 	parameters, _ := json.Marshal(in)
@@ -495,7 +499,9 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 			}
 			// The project is not in the stored parameters; a retry must
 			// name the same one (or none) all the same.
-			if (t.ProjectID == nil && in.ProjectID != "") || (t.ProjectID != nil && *t.ProjectID != in.ProjectID) {
+			projectMatches := (t.ProjectID == nil && in.ProjectID == "") ||
+				(t.ProjectID != nil && *t.ProjectID == in.ProjectID)
+			if !projectMatches {
 				return ErrTerminalConflict
 			}
 			return nil
@@ -583,7 +589,9 @@ func (s *Store) RequestTerminalEndFor(uid int64, agentID, sessionID, requestID s
 		parameters = `{"removeHistory":true}`
 	}
 	var t TerminalSession
-	if !terminalproto.ValidID(requestID) || !terminalproto.ValidID(sessionID) || !terminalproto.ValidID(agentID) {
+	validIDs := terminalproto.ValidID(requestID) &&
+		terminalproto.ValidID(sessionID) && terminalproto.ValidID(agentID)
+	if !validIDs {
 		return t, terminalproto.ErrInvalid
 	}
 	err := s.withTx(func(tx *sql.Tx) error {
@@ -700,7 +708,10 @@ func archiveTerminalOnClose(tx *sql.Tx, uid int64, agentID, sessionID string) er
 // ObserveTerminalStateFor applies authenticated, generation-fenced reconciliation.
 // A late create acknowledgment cannot cancel an already durable end request.
 func (s *Store) ObserveTerminalStateFor(uid int64, agentID, sessionID string, generation int64, next terminalproto.SessionState, exitCode *int) error {
-	if !next.Valid() || exitCode != nil && (next != terminalproto.Exited || *exitCode < 0 || *exitCode > 255) {
+	validState := next.Valid()
+	validExit := exitCode == nil ||
+		(next == terminalproto.Exited && *exitCode >= 0 && *exitCode <= 255)
+	if !validState || !validExit {
 		return terminalproto.ErrInvalid
 	}
 	return s.withTx(func(tx *sql.Tx) error {
@@ -718,13 +729,16 @@ func (s *Store) ObserveTerminalStateFor(uid int64, agentID, sessionID string, ge
 		if t.State == terminalproto.EndRequested && observedRunning {
 			next = terminalproto.EndRequested
 		}
-		if t.Structured && next == terminalproto.Exited && (t.State == terminalproto.EndRequested || t.State == terminalproto.Ended) {
+		closedChat := t.Structured && next == terminalproto.Exited
+		endRequested := t.State == terminalproto.EndRequested || t.State == terminalproto.Ended
+		if closedChat && endRequested {
 			// A chat's machine answers a person's End with exited (code 0);
 			// that close was asked for, so it is recorded as ended and never
 			// reconnected in place. A repeat of that receipt stays ended.
 			next, exitCode = terminalproto.Ended, nil
 		}
-		if (t.State == terminalproto.Lost || t.State == terminalproto.Exited) && next == terminalproto.Running {
+		closed := t.State == terminalproto.Lost || t.State == terminalproto.Exited
+		if closed && next == terminalproto.Running {
 			// A structured chat can be reopened (from lost or exited) from the
 			// agent's own store after the machine's reet process restarted; the machine then
 			// reports it running under the same reet session id. A plain
@@ -738,8 +752,10 @@ func (s *Store) ObserveTerminalStateFor(uid int64, agentID, sessionID string, ge
 		// A structured reopen to running clears the recorded exit code; every
 		// other observation must repeat the recorded code exactly.
 		reopened := (t.State == terminalproto.Lost || t.State == terminalproto.Exited) && next == terminalproto.Running
-		if !reopened && t.ExitCode != nil && (exitCode == nil || *t.ExitCode != *exitCode) {
-			return ErrTerminalConflict
+		if !reopened && t.ExitCode != nil {
+			if exitCode == nil || *t.ExitCode != *exitCode {
+				return ErrTerminalConflict
+			}
 		}
 		if _, err := tx.Exec(`UPDATE terminal_sessions SET state=?,exit_code=?,updated_at=? WHERE id=?`, next, exitCode, now(), sessionID); err != nil {
 			return err
@@ -778,7 +794,8 @@ func validRefusal(r terminalproto.Result) bool {
 	if !r.Code.Valid() || r.Code == terminalproto.OK {
 		return false
 	}
-	if r.Reason != "" && (r.Code != terminalproto.WorktreeRefused || !r.Reason.Valid()) {
+	invalidReason := r.Code != terminalproto.WorktreeRefused || !r.Reason.Valid()
+	if r.Reason != "" && invalidReason {
 		return false
 	}
 	if r.Detail == "" {
@@ -796,7 +813,9 @@ func plainLine(s string) bool {
 		return false
 	}
 	for _, c := range s {
-		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || c == '\u2028' || c == '\u2029' {
+		isControl := unicode.IsControl(c) || unicode.Is(unicode.Cf, c)
+		isSeparator := c == '\u2028' || c == '\u2029'
+		if isControl || isSeparator {
 			return false
 		}
 	}
@@ -825,7 +844,9 @@ func (s *Store) FailTerminalCreateWithResultFor(uid int64, agentID, requestID st
 		if err != nil {
 			return err
 		}
-		if state == "failed" && storedCode == string(code) && storedReason == string(result.Reason) && storedDetail == result.Detail {
+		sameFailure := state == "failed" && storedCode == string(code)
+		sameDetail := storedReason == string(result.Reason) && storedDetail == result.Detail
+		if sameFailure && sameDetail {
 			return nil
 		}
 		if state != "pending" {
@@ -865,7 +886,11 @@ func (s *Store) CanResumeACPSessionFor(uid int64, agentID, acpSessionID, dir str
 // CanResumeACPToolSessionFor binds a native history handle to the tool as well
 // as the account, machine, folder and closed structured session that owns it.
 func (s *Store) CanResumeACPToolSessionFor(uid int64, agentID, tool, acpSessionID, dir string) (bool, error) {
-	if !terminalproto.ValidID(agentID) || !terminalproto.ValidACPSessionIDFor(tool, acpSessionID) || dir != "" && !terminalproto.ValidDir(dir) {
+	validAgent := terminalproto.ValidID(agentID)
+	validACP := terminalproto.ValidACPSessionIDFor(tool, acpSessionID)
+	validDir := dir == "" || terminalproto.ValidDir(dir)
+	validTarget := validAgent && validACP
+	if !validTarget || !validDir {
 		return false, terminalproto.ErrInvalid
 	}
 	// A row whose create operation failed is a continuation that never
@@ -914,9 +939,11 @@ func (s *Store) SetTerminalYoloFor(uid int64, sessionID string, yolo bool) error
 	if err != nil {
 		return err
 	}
-	if n, err := r.RowsAffected(); err != nil {
+	n, err := r.RowsAffected()
+	if err != nil {
 		return err
-	} else if n != 1 {
+	}
+	if n != 1 {
 		return ErrRemoteNotFound
 	}
 	return nil
@@ -935,9 +962,11 @@ func (s *Store) SetTerminalStructuredFor(uid int64, sessionID string, structured
 	if err != nil {
 		return err
 	}
-	if n, err := r.RowsAffected(); err != nil {
+	n, err := r.RowsAffected()
+	if err != nil {
 		return err
-	} else if n == 1 {
+	}
+	if n == 1 {
 		return nil
 	}
 	t, err := s.TerminalSessionFor(uid, sessionID)
@@ -975,7 +1004,8 @@ const healthRetention = 24 * time.Hour
 // asked for a worktree can have one; the branch follows from that create.
 // A second report must match the first.
 func (s *Store) RecordTerminalWorktreeFor(uid int64, agentID, sessionID, path, repo string) error {
-	if !filepath.IsAbs(path) || len(path) > 4096 || !plainLine(path) || !terminalproto.ValidSlug(repo) {
+	validPath := filepath.IsAbs(path) && len(path) <= 4096 && plainLine(path)
+	if !validPath || !terminalproto.ValidSlug(repo) {
 		return terminalproto.ErrInvalid
 	}
 	return s.withTx(func(tx *sql.Tx) error {

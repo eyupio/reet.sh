@@ -57,7 +57,7 @@ func validModel(model string) bool {
 	if model == "" || len(model) > MaxModelBytes {
 		return false
 	}
-	for i := 0; i < len(model); i++ {
+	for i := range model {
 		b := model[i]
 		alnum := b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
 		if !alnum && (i == 0 || !strings.ContainsRune("._:/@+-", rune(b))) {

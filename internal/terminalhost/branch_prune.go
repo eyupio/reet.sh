@@ -297,7 +297,7 @@ func isOID(s string) bool {
 	if len(s) != 40 && len(s) != 64 {
 		return false
 	}
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		b := s[i]
 		if !(b >= '0' && b <= '9' || b >= 'a' && b <= 'f') {
 			return false

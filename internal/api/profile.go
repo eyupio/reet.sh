@@ -68,7 +68,8 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Validate all new defaults before applying any profile changes.
-	if in.ShelfView != nil && *in.ShelfView != "list" && *in.ShelfView != "board" {
+	invalidView := in.ShelfView != nil && *in.ShelfView != "list" && *in.ShelfView != "board"
+	if invalidView {
 		writeErr(w, http.StatusBadRequest, "shelfView must be list or board")
 		return
 	}
@@ -109,7 +110,8 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.DefaultEffort != nil {
 		defaultEffort = *in.DefaultEffort
 	}
-	if in.DefaultTool != nil || in.DefaultModel != nil || in.DefaultEffort != nil {
+	changed := in.DefaultTool != nil || in.DefaultModel != nil || in.DefaultEffort != nil
+	if changed {
 		if defaultTool != "" && !terminalproto.ValidToolV2(defaultTool) {
 			writeErr(w, 400, "defaultTool must be blank or one of the agents reet can start")
 			return
@@ -126,7 +128,8 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, "defaultEffort must be blank, low, medium or high")
 			return
 		}
-		if defaultEffort != "" && (defaultTool == "" || !terminalproto.ToolTakesEffort(defaultTool)) {
+		needsTool := defaultTool == "" || !terminalproto.ToolTakesEffort(defaultTool)
+		if defaultEffort != "" && needsTool {
 			writeErr(w, 400, "defaultEffort needs a defaultTool that takes an effort level")
 			return
 		}
@@ -351,10 +354,12 @@ func (s *server) profileEndSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "that is the session you are using; sign out instead")
 		return
 	}
-	if err := s.st.DeleteSessionFor(user.ID, id); errors.Is(err, store.ErrNotFound) {
+	err := s.st.DeleteSessionFor(user.ID, id)
+	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "that session has already ended")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -381,7 +386,9 @@ func (s *server) profileEndOtherSessions(w http.ResponseWriter, r *http.Request)
 func (s *server) profileActivity(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+		n, err := strconv.Atoi(v)
+		valid := err == nil && n > 0 && n <= 200
+		if valid {
 			limit = n
 		}
 	}

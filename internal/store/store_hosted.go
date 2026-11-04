@@ -138,7 +138,11 @@ func ValidateHostedSkill(sk *HostedSkill) error {
 	}
 	size := len(md)
 	for name, content := range sk.Files {
-		if !utf8.ValidString(name) || len(name) > 240 || path.IsAbs(name) || path.Clean(name) != name || strings.ContainsAny(name, "\\\x00\r\n?#%") || strings.Contains(name, "..") || strings.EqualFold(name, "SKILL.md") || name == "." || strings.HasPrefix(name, ".well-known/") {
+		cleanRelative := !path.IsAbs(name) && path.Clean(name) == name
+		noSeparators := !strings.ContainsAny(name, "\\\x00\r\n?#%") && !strings.Contains(name, "..")
+		notReserved := !strings.EqualFold(name, "SKILL.md") && name != "." && !strings.HasPrefix(name, ".well-known/")
+		validName := utf8.ValidString(name) && len(name) <= 240 && cleanRelative && noSeparators && notReserved
+		if !validName {
 			return fmt.Errorf("invalid supporting file path %q", name)
 		}
 		for _, part := range strings.Split(name, "/") {
@@ -332,7 +336,8 @@ func (s *Store) RenameHostedSkill(userID int64, slug, newSlug string, oldRef, ne
 }
 
 func moveHostedReferencesTx(tx *sql.Tx, oldRef, newRef ref.Ref) error {
-	if oldRef.SourceType != "hosted" || newRef.SourceType != "hosted" || oldRef.ID == newRef.ID {
+	notHosted := oldRef.SourceType != "hosted" || newRef.SourceType != "hosted"
+	if notHosted || oldRef.ID == newRef.ID {
 		return nil
 	}
 	var one int

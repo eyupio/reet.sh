@@ -75,12 +75,15 @@ func (s *server) terminalAccess(next http.HandlerFunc, allowDisabled bool) http.
 			return
 		}
 		// Always reject URL credentials, including an empty query on the stream.
-		if r.URL.Query().Has("t") || r.URL.Query().Has("ticket") || r.URL.Path == "/api/v2/terminal/socket" && (r.URL.RawQuery != "" || r.URL.ForceQuery) {
+		credentialsInQuery := r.URL.Query().Has("t") || r.URL.Query().Has("ticket")
+		socketQuery := r.URL.Path == "/api/v2/terminal/socket" && (r.URL.RawQuery != "" || r.URL.ForceQuery)
+		if credentialsInQuery || socketQuery {
 			writeErr(w, 400, "terminal credentials must not appear in URLs")
 			return
 		}
 		metadata := r.Method == http.MethodGet && (r.URL.Path == "/api/v2/terminal/status" || r.URL.Path == "/api/v2/terminal/machines" || r.URL.Path == "/api/v2/terminal/sessions")
-		if !metadata && !allowDisabled && !s.terminalEnabled() {
+		restricted := !metadata && !allowDisabled
+		if restricted && !s.terminalEnabled() {
 			writeErr(w, 403, "remote terminals are disabled by the server; monitoring and local shells remain available")
 			return
 		}
@@ -106,7 +109,10 @@ func (s *server) terminalEnabled() bool {
 func (s *server) terminalOriginConfigured() bool { return validTerminalOrigin(s.publicOrigin()) }
 func validTerminalOrigin(origin string) bool {
 	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" {
+	noCredentials := u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
+	plainPath := u.Path == "" || u.Path == "/"
+	validOrigin := err == nil && noCredentials && plainPath
+	if !validOrigin {
 		return false
 	}
 	return u.Scheme == "https" || u.Scheme == "http" && (u.Hostname() == "localhost" || net.ParseIP(u.Hostname()).IsLoopback())
@@ -137,7 +143,11 @@ func (s *server) terminalStatus() terminalControllerStatus {
 }
 func (s *server) terminalOrigin(r *http.Request) bool {
 	u, err := url.Parse(s.publicOrigin())
-	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Scheme != "https" && u.Scheme != "http" || u.Path != "" && u.Path != "/" {
+	noCredentials := u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
+	validScheme := u.Scheme == "https" || u.Scheme == "http"
+	plainPath := u.Path == "" || u.Path == "/"
+	validOrigin := err == nil && noCredentials && validScheme && plainPath
+	if !validOrigin {
 		return false
 	}
 	return r.Header.Get("Origin") == u.Scheme+"://"+u.Host
@@ -505,7 +515,9 @@ func (s *server) terminalHistory(w http.ResponseWriter, r *http.Request) {
 		terminalError(w, err)
 		return
 	}
-	if u, ok := s.sessionUser(r); !ok || u.ID != s.uid(r) || u.Role == "viewer" {
+	u, ok := s.sessionUser(r)
+	sameUser := ok && u.ID == s.uid(r)
+	if !sameUser || u.Role == "viewer" {
 		terminalError(w, terminalbroker.ErrDenied)
 		return
 	}
@@ -543,7 +555,11 @@ func (s *server) terminalSocket(w http.ResponseWriter, r *http.Request) {
 	var hello struct {
 		Ticket string `json:"ticket"`
 	}
-	if err != nil || kind != websocket.MessageText || len(data) > 1024 || json.Unmarshal(data, &hello) != nil || !terminalproto.ValidID(hello.Ticket) {
+	validKind := err == nil && kind == websocket.MessageText
+	validSize := len(data) <= 1024
+	validHello := json.Unmarshal(data, &hello) == nil && terminalproto.ValidID(hello.Ticket)
+	validHelloMessage := validKind && validSize && validHello
+	if !validHelloMessage {
 		_ = c.Close(websocket.StatusPolicyViolation, "fresh attachment authorization required")
 		return
 	}

@@ -21,7 +21,8 @@ func (s *server) terminalInspect(w http.ResponseWriter, r *http.Request) {
 	}
 	// Reject unknown and repeated fields instead of silently accepting a directory override.
 	for key, values := range q {
-		if (key != "view" && key != "path") || len(values) != 1 {
+		validKey := key == "view" || key == "path"
+		if !validKey || len(values) != 1 {
 			writeErr(w, 400, "invalid session view")
 			return
 		}

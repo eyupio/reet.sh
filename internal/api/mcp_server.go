@@ -147,7 +147,8 @@ func mcpPage(items []any, args, meta map[string]any) (map[string]any, error) {
 	if n, ok := args["offset"].(float64); ok {
 		offset = int(n)
 	}
-	if limit < 1 || limit > 100 || offset < 0 {
+	validLimit := limit >= 1 && limit <= 100
+	if !validLimit || offset < 0 {
 		return nil, errors.New("use limit 1–100 and a nonnegative offset")
 	}
 	start := min(offset, len(items))
@@ -181,7 +182,9 @@ func mcpPage(items []any, args, meta map[string]any) (map[string]any, error) {
 
 // mcpDo sends one internal API request as the MCP caller.
 func (s *server) mcpDo(ctx context.Context, api http.Handler, access mcpAccess, origin, method, path string, query url.Values, body map[string]any) (*mcpBuffer, error) {
-	if !mcpAPIPath(method, path) || (method != "GET" && !access.canWrite()) {
+	allowedPath := mcpAPIPath(method, path)
+	needsWrite := method != "GET" && !access.canWrite()
+	if !allowedPath || needsWrite {
 		return nil, errors.New("this MCP connection is read-only")
 	}
 	raw, _ := json.Marshal(body)
@@ -313,7 +316,8 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 	query := url.Values{}
 	body := map[string]any{}
 	for key, value := range args {
-		if key != "response_format" && key != "limit" && key != "offset" {
+		knownKey := key == "response_format" || key == "limit" || key == "offset"
+		if !knownKey {
 			body[key] = value
 		}
 	}

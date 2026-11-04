@@ -102,7 +102,8 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		}
 		found := false
 		for _, env := range envs {
-			if env.ID == source && env.Complete && env.ScannedAt > time.Now().Add(-14*24*time.Hour).UnixMilli() {
+			matching := env.ID == source && env.Complete
+			if matching && env.ScannedAt > time.Now().Add(-14*24*time.Hour).UnixMilli() {
 				candidates = env.Skills
 				name = env.Name
 				found = true
@@ -222,8 +223,11 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 			}
 			return errors.New("link unknown sources before saving; local copies cannot be installed")
 		}
-		if len(linked) > 1 && (linked[0].Source != linked[1].Source || linked[0].SourceType != linked[1].SourceType) {
-			return errors.New("resolve duplicate names before saving; more than one source is selected")
+		if len(linked) > 1 {
+			conflicting := linked[0].Source != linked[1].Source || linked[0].SourceType != linked[1].SourceType
+			if conflicting {
+				return errors.New("resolve duplicate names before saving; more than one source is selected")
+			}
 		}
 		desired = append(desired, linked[0])
 	}
@@ -239,7 +243,9 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		if err := tx.QueryRow(`SELECT sc.complete,sc.scanned_at,e.agent,e.project FROM environments e JOIN environment_scans sc ON sc.env_id=e.id WHERE e.id=? AND e.user_id=?`, in.TargetID, uid).Scan(&complete, &scanned, &agent, &project); err != nil {
 			return ErrSync
 		}
-		if !complete || scanned < time.Now().Add(-14*24*time.Hour).UnixMilli() || !Syncable(agent) || (project != "" && !strings.HasPrefix(project, "/")) {
+		fresh := complete && scanned >= time.Now().Add(-14*24*time.Hour).UnixMilli()
+		validTarget := Syncable(agent) && (project == "" || strings.HasPrefix(project, "/"))
+		if !fresh || !validTarget {
 			return ErrSync
 		}
 		var revision string
@@ -466,7 +472,11 @@ func (s *Store) AuthenticateSyncAgentBuild(uid int64, id, secret, version, commi
 func (s *Store) AuthenticateRemoteAgent(id, secret, version string) (int64, SyncAgent, error) {
 	var a SyncAgent
 	var uid int64
-	if id == "" || secret == "" || len(id) > 128 || len(secret) > 256 || len(version) > 64 || strings.ContainsAny(version, "\x00\r\n") {
+	validID := id != "" && len(id) <= 128
+	validSecret := secret != "" && len(secret) <= 256
+	validVersion := len(version) <= 64 && !strings.ContainsAny(version, "\x00\r\n")
+	validCredentials := validID && validSecret
+	if !validCredentials || !validVersion {
 		return 0, a, errors.New("machine enrollment is missing or revoked")
 	}
 	err := s.db.QueryRow(`SELECT a.user_id,a.id,a.host,a.version,a.source_commit,a.last_seen,a.paused,a.auto_update,a.keep_synced FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND a.secret_hash=? AND u.disabled_at=0`, id, secretHash(secret)).Scan(&uid, &a.ID, &a.Host, &a.Version, &a.Commit, &a.LastSeen, &a.Paused, &a.AutoUpdate, &a.KeepSynced)
@@ -537,7 +547,8 @@ func (s *Store) SyncJobsFor(uid int64) ([]SyncJob, error) {
 	return out, rows.Err()
 }
 func (s *Store) QueueSyncJob(uid int64, agentID, targetID, kind string) (SyncJob, error) {
-	if kind != "scan" && kind != "preview" && kind != "auto" {
+	validKind := kind == "scan" || kind == "preview" || kind == "auto"
+	if !validKind {
 		return SyncJob{}, errors.New("queue a scan, preview or automatic sync")
 	}
 	var host string
@@ -592,7 +603,9 @@ func (s *Store) ControlSyncJob(uid int64, id, action, hash string) error {
 			_, err = revertInstallTx(tx, id)
 			return err
 		}
-		if action != "approve" || j.Status != "awaiting-approval" || hash == "" || hash != j.Hash {
+		canApprove := action == "approve" && j.Status == "awaiting-approval"
+		hashMatches := hash != "" && hash == j.Hash
+		if !canApprove || !hashMatches {
 			return errors.New("plan changed or cannot be approved")
 		}
 		var revision string
@@ -628,7 +641,8 @@ func (s *Store) ClaimSyncJob(uid int64, a SyncAgent) (*SyncJob, error) {
 		if j.TargetID != "" {
 			var revision, host string
 			err = tx.QueryRow(`SELECT t.revision,e.host FROM sync_targets t JOIN environments e ON e.id=t.target_id WHERE t.user_id=? AND t.target_id=?`, uid, j.TargetID).Scan(&revision, &host)
-			if err != nil || revision != j.Revision || !strings.EqualFold(host, a.Host) {
+			matches := err == nil && revision == j.Revision && strings.EqualFold(host, a.Host)
+			if !matches {
 				return endSyncJobsTx(tx, "failed", "Target changed; preview again.", `j.id=?`, j.ID)
 			}
 		}
@@ -691,18 +705,29 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 			// An update the controller gave up on can still report the truth:
 			// the machine did restart, or it rolled itself back. Taking that
 			// late account is better than showing a failure that is not one.
-			if j.Status == "failed" && j.Kind == "update" && strings.HasPrefix(j.Message, "The machine did not report back") && (status == "succeeded" || status == "rolled_back") {
+			lateSuccess := j.Status == "failed" && j.Kind == "update" &&
+				strings.HasPrefix(j.Message, "The machine did not report back")
+			succeededAnyway := status == "succeeded" || status == "rolled_back"
+			if lateSuccess && succeededAnyway {
 				j.Status = "running"
-			} else if j.Status == "failed" && (strings.HasPrefix(j.Message, "Agent disconnected or timed out") || strings.HasPrefix(j.Message, "The machine did not report back")) {
-				// Preserve the unknown/partial outcome; a fresh scan and preview are required.
-				_, err = tx.Exec(`INSERT OR IGNORE INTO sync_receipts(job_id,status,hash) VALUES(?,?,?)`, id, status, hash)
-				return err
 			} else {
+				disconnected := strings.HasPrefix(j.Message, "Agent disconnected or timed out") ||
+					strings.HasPrefix(j.Message, "The machine did not report back")
+				if j.Status == "failed" && disconnected {
+					// Preserve the unknown/partial outcome; a fresh scan and preview are required.
+					_, err = tx.Exec(`INSERT OR IGNORE INTO sync_receipts(job_id,status,hash) VALUES(?,?,?)`, id, status, hash)
+					return err
+				}
 				return refuseSyncJobResult("job is no longer running")
 			}
 		}
 		replan := status == "replan" && (j.Kind == "preview" || j.Kind == "auto" || j.Kind == "apply")
-		if status != "failed" && status != "succeeded" && !replan && !(j.Kind == "update" && status == "rolled_back") && !((j.Kind == "preview" || j.Kind == "auto") && status == "awaiting-approval" && len(hash) == 64) {
+		knownStatus := status == "failed" || status == "succeeded"
+		rolledBack := j.Kind == "update" && status == "rolled_back"
+		awaiting := (j.Kind == "preview" || j.Kind == "auto") && status == "awaiting-approval" && len(hash) == 64
+		known := knownStatus || replan
+		settled := rolledBack || awaiting
+		if !known && !settled {
 			return refuseSyncJobResult("invalid job result")
 		}
 		if status == "succeeded" && j.Kind == "apply" {
@@ -751,14 +776,17 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 		}
 		stage := j.Stage
 		stages := j.Stages
-		if len(stages) > 0 && finalStatus != "awaiting-approval" && finalStatus != "queued" {
+		stagesSettled := finalStatus != "awaiting-approval" && finalStatus != "queued"
+		if len(stages) > 0 && stagesSettled {
 			stage, stages = finishStages(stages, finalStatus, message)
 		}
 		if _, err = tx.Exec(`UPDATE sync_jobs SET kind=?,status=?,plan=?,hash=?,message=?,stage=?,stages=?,updated_at=? WHERE id=?`, finalKind, finalStatus, string(plan), hash, message, stage, encodeStages(stages), now(), id); err != nil {
 			return err
 		}
 		// Any end other than a successful apply leaves an install unapplied.
-		if finalStatus != "queued" && finalStatus != "awaiting-approval" && (finalStatus != "succeeded" || finalKind != "apply") {
+		notQueued := finalStatus != "queued" && finalStatus != "awaiting-approval"
+		notApplied := finalStatus != "succeeded" || finalKind != "apply"
+		if notQueued && notApplied {
 			if _, err = revertInstallTx(tx, id); err != nil {
 				return err
 			}
@@ -820,7 +848,8 @@ func (s *Store) AdoptSyncSkillsFor(uid int64, role, targetID string, ids []strin
 	}
 	available := map[string]SyncSkill{}
 	for _, env := range envs {
-		if env.ID == targetID && env.Complete && env.ScannedAt > time.Now().Add(-14*24*time.Hour).UnixMilli() {
+		matching := env.ID == targetID && env.Complete
+		if matching && env.ScannedAt > time.Now().Add(-14*24*time.Hour).UnixMilli() {
 			for _, sk := range env.Skills {
 				available[sk.ID] = sk
 			}

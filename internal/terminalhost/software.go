@@ -23,10 +23,12 @@ func InspectSoftware(home, tool string, lookPath func(string) (string, error)) t
 		entry.State, entry.Reason = terminalproto.SoftwareUnsupported, terminalproto.SoftwareUnsupportedTool
 		return entry
 	}
-	if path, receipt, found, err := agentsoftware.Current(home, tool); err != nil {
+	path, receipt, found, err := agentsoftware.Current(home, tool)
+	if err != nil {
 		entry.State, entry.Reason = terminalproto.SoftwareUnknown, terminalproto.SoftwareManagedBroken
 		return entry
-	} else if found {
+	}
+	if found {
 		entry.State, entry.Version = terminalproto.SoftwareInstalled, receipt.Version
 		entry.Manager, entry.Package, entry.Source = "reet", "opencode-ai", "verified_tarball"
 		entry.Path, entry.Evidence, entry.Managed = path, "verified_sha256", true
@@ -40,7 +42,7 @@ func InspectSoftware(home, tool string, lookPath func(string) (string, error)) t
 		entry.State, entry.Reason = terminalproto.SoftwareUnsupported, terminalproto.SoftwareUnsupportedTool
 		return entry
 	}
-	path, found := resolveBinary(p, lookPath)
+	path, found = resolveBinary(p, lookPath)
 	if !found {
 		entry.State, entry.Reason = terminalproto.SoftwareMissing, terminalproto.SoftwareNotInstalled
 		entry.Package, entry.Source = "opencode-ai", "npm"

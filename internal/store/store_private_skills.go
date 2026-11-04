@@ -99,13 +99,19 @@ func privateSkillOwner(tx *sql.Tx, uid int64) error {
 	return nil
 }
 func validatePrivateSkill(in PrivateSkillWrite) (skillbundle.Manifest, error) {
-	if !privateSkillRequestID.MatchString(in.RequestID) || in.ExpectedBase == nil || (*in.ExpectedBase != "" && !privateSkillID.MatchString(*in.ExpectedBase)) || !ValidHostedName(in.Name) {
+	validBase := in.ExpectedBase != nil &&
+		(*in.ExpectedBase == "" || privateSkillID.MatchString(*in.ExpectedBase))
+	validRequest := privateSkillRequestID.MatchString(in.RequestID) && validBase && ValidHostedName(in.Name)
+	if !validRequest {
 		return skillbundle.Manifest{}, ErrPrivateSkillInvalid
 	}
-	if in.Origin.Kind != "user" && in.Origin.Kind != "import" && in.Origin.Kind != "fork" {
+	validKind := in.Origin.Kind == "user" || in.Origin.Kind == "import" || in.Origin.Kind == "fork"
+	if !validKind {
 		return skillbundle.Manifest{}, ErrPrivateSkillInvalid
 	}
-	if len(in.Origin.Reference) > 2048 || !utf8.ValidString(in.Origin.Reference) || (in.Origin.DerivedFrom != "" && !privateSkillID.MatchString(in.Origin.DerivedFrom)) {
+	validReference := len(in.Origin.Reference) <= 2048 && utf8.ValidString(in.Origin.Reference)
+	validDerived := in.Origin.DerivedFrom == "" || privateSkillID.MatchString(in.Origin.DerivedFrom)
+	if !validReference || !validDerived {
 		return skillbundle.Manifest{}, ErrPrivateSkillInvalid
 	}
 	for _, r := range in.Origin.Reference {
@@ -358,7 +364,8 @@ func privateSkillRevision(q privateSkillQuery, uid int64, bundle, id string, con
 	recomputed, err := skillbundle.FromContents(r.Files)
 	expected, _ := json.Marshal(m)
 	actual, _ := json.Marshal(recomputed)
-	if err != nil || recomputed.Digest != r.ManifestDigest || !bytes.Equal(expected, actual) {
+	same := err == nil && recomputed.Digest == r.ManifestDigest && bytes.Equal(expected, actual)
+	if !same {
 		return r, errors.New("private skill stored contents failed integrity validation")
 	}
 	return r, nil

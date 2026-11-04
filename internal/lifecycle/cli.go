@@ -141,9 +141,11 @@ func (a *App) install(args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err = os.Lstat(filepath.Join(state, "deployment.json")); err == nil {
+	_, err = os.Lstat(filepath.Join(state, "deployment.json"))
+	if err == nil {
 		return fmt.Errorf("deployment already exists; use reet upgrade --state-dir %s", strconv.Quote(state))
-	} else if !os.IsNotExist(err) {
+	}
+	if !os.IsNotExist(err) {
 		return err
 	}
 	host, port, err := net.SplitHostPort(*addr)
@@ -166,9 +168,11 @@ func (a *App) install(args []string) error {
 		return err
 	}
 	target := filepath.Join(dir, "reet")
-	if info, e := os.Lstat(target); e == nil && (info.Mode()&os.ModeSymlink != 0 || !sameBinary(source, target)) {
+	info, e := os.Lstat(target)
+	if e == nil && (info.Mode()&os.ModeSymlink != 0 || !sameBinary(source, target)) {
 		return fmt.Errorf("%s already contains another binary or symlink; upgrade it or choose --dir", target)
-	} else if e != nil && !os.IsNotExist(e) {
+	}
+	if e != nil && !os.IsNotExist(e) {
 		return e
 	}
 	var unit string
@@ -177,9 +181,11 @@ func (a *App) install(args []string) error {
 		if err != nil {
 			return err
 		}
-		if _, e := os.Lstat(unit); e == nil {
+		_, e := os.Lstat(unit)
+		if e == nil {
 			return fmt.Errorf("existing service at %s; refusing to replace it", unit)
-		} else if !os.IsNotExist(e) {
+		}
+		if !os.IsNotExist(e) {
 			return e
 		}
 	}

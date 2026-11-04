@@ -97,7 +97,8 @@ func (s *Store) migrateNotify() error {
 // is already there, in which case the existing row is returned and created is
 // false. The key is what makes an event reported twice tell nobody twice.
 func (s *Store) RecordNotification(n Notification) (Notification, bool, error) {
-	if n.UserID == 0 || n.Kind == "" || n.Key == "" || strings.TrimSpace(n.Title) == "" {
+	validTarget := n.UserID != 0 && n.Kind != "" && n.Key != ""
+	if !validTarget || strings.TrimSpace(n.Title) == "" {
 		return Notification{}, false, fmt.Errorf("a notification needs a person, a kind, a key and a title")
 	}
 	now := now()
@@ -244,7 +245,8 @@ func (s *Store) NotificationPrefs(userID int64) (map[string]NotifyPref, error) {
 
 // SetNotificationPref records one person's choice for one kind.
 func (s *Store) SetNotificationPref(userID int64, kind string, p NotifyPref) error {
-	if userID == 0 || kind == "" || !validNotifyMode(p.Mode) {
+	validTarget := userID != 0 && kind != ""
+	if !validTarget || !validNotifyMode(p.Mode) {
 		return errors.New("a notification preference needs a person, a kind and a mode of immediate or none")
 	}
 	enabled := 0

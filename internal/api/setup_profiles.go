@@ -187,10 +187,12 @@ func overridesEmpty(overrides *setup.SetupProfileOverrides) bool {
 
 func (s *server) deleteSetupProfile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if _, ok, err := s.st.SetupProfileFor(s.uid(r), name); err != nil {
+	_, ok, err := s.st.SetupProfileFor(s.uid(r), name)
+	if err != nil {
 		writeSetupProfileError(w, err)
 		return
-	} else if !ok {
+	}
+	if !ok {
 		writeErr(w, http.StatusNotFound, "setup profile not found")
 		return
 	}

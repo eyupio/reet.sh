@@ -85,7 +85,10 @@ var manifest = []entry{
 	{"run-claude-code-on-a-vps.md", "Guides", 10},
 	{"sync-skills-between-machines.md", "Guides", 20},
 	{"self-host-mcp-server.md", "Guides", 30},
+	{"remote-agents-without-a-vpn.md", "Guides", 40},
 	{"compare-skills-sh.md", "Compare", 10},
+	{"compare-open-webui.md", "Compare", 20},
+	{"compare-librechat.md", "Compare", 30},
 	{"cli-reference.md", "Reference", 10},
 	{"roadmap.md", "Reference", 20},
 }

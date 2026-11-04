@@ -1188,3 +1188,211 @@ body .md-typeset .admonition .admonition-title {
 body .md-typeset .admonition .admonition-title:before {
   background-color: var(--accent);
 }
+/* The drawer has its own compact header, independent of Material's logo/title block. */
+.reet-drawer-head,
+.reet-drawer-label,
+.reet-drawer-footer {
+  display: none;
+}
+@media (max-width: 76.234375em) {
+  #reet-navigation .md-nav--primary {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100dvh - 30px);
+  }
+  #reet-navigation .reet-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 20px;
+    border-bottom: 1px solid var(--line);
+    background: var(--paper);
+  }
+  #reet-navigation .reet-drawer-head .brand img {
+    width: 125px;
+    height: auto;
+    max-height: 40px;
+  }
+  #reet-navigation .reet-drawer-head .brand-light {
+    display: block;
+  }
+  #reet-navigation .reet-drawer-head .brand-dark {
+    display: none;
+  }
+  [data-md-color-scheme="slate"]
+    #reet-navigation
+    .reet-drawer-head
+    .brand-light {
+    display: none;
+  }
+  [data-md-color-scheme="slate"]
+    #reet-navigation
+    .reet-drawer-head
+    .brand-dark {
+    display: block;
+  }
+  #reet-navigation .reet-drawer-head .icon-button {
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+  }
+  #reet-navigation .reet-drawer-label {
+    display: block;
+    font: 9px var(--mono);
+    letter-spacing: 1.4px;
+    color: var(--muted);
+    padding: 24px 22px 12px;
+  }
+  #reet-navigation .md-nav--primary > .md-nav__list {
+    padding: 0 12px 20px;
+  }
+  #reet-navigation .md-nav--primary > .md-nav__list > .md-nav__item {
+    border: 0;
+    margin: 3px 0;
+  }
+  #reet-navigation
+    .md-nav--primary
+    > .md-nav__list
+    > .md-nav__item
+    > .md-nav__link {
+    min-height: 46px;
+    align-items: center;
+    padding: 12px;
+    font-size: 14px;
+  }
+  #reet-navigation .md-nav__title {
+    height: auto;
+    min-height: 60px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    line-height: 1.4;
+    background: var(--soft);
+    box-shadow: none;
+    color: var(--ink);
+    font-size: 14px;
+    padding: 18px 20px;
+  }
+  #reet-navigation .reet-drawer-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin-top: auto;
+    padding: 24px 22px 10px;
+    border-top: 1px solid var(--line);
+  }
+  #reet-navigation .reet-drawer-footer .button {
+    width: 100%;
+    justify-content: space-between;
+    padding: 12px 16px;
+  }
+  #reet-navigation .reet-source {
+    padding: 0;
+    font-size: 12px;
+    min-height: 32px;
+  }
+  #reet-navigation .reet-drawer-footer p {
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--muted);
+    margin: 0;
+  }
+}
+/* Mobile uses native accordions, so opening a section never covers the logo or close control. */
+.reet-mobile-menu {
+  display: none;
+}
+@media (max-width: 76.234375em) {
+  #reet-navigation .reet-desktop-tree {
+    display: none;
+  }
+  #reet-navigation .md-sidebar__inner {
+    padding: 0;
+  }
+  #reet-navigation .md-sidebar__scrollwrap {
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+  }
+  #reet-navigation .md-nav--primary {
+    min-height: 0;
+    height: 100dvh;
+  }
+  #reet-navigation .reet-mobile-menu {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    min-height: 0;
+  }
+  #reet-navigation .reet-drawer-head {
+    flex: none;
+  }
+  #reet-navigation .reet-mobile-links {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding-bottom: 20px;
+  }
+  #reet-navigation .reet-mobile-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 12px;
+  }
+  #reet-navigation .reet-mobile-list li {
+    padding: 0;
+    margin: 3px 0;
+  }
+  #reet-navigation .reet-mobile-list a,
+  #reet-navigation .reet-mobile-group > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 46px;
+    padding: 12px;
+    border-radius: 4px;
+    font: 400 14px/1.5 var(--sans);
+    color: var(--ink);
+    cursor: pointer;
+    text-decoration: none;
+    list-style: none;
+  }
+  #reet-navigation .reet-mobile-group > summary::-webkit-details-marker {
+    display: none;
+  }
+  #reet-navigation .reet-mobile-group > summary .icon {
+    width: 16px;
+    height: 16px;
+    color: var(--muted);
+  }
+  #reet-navigation .reet-mobile-group[open] > summary .icon {
+    transform: rotate(90deg);
+  }
+  #reet-navigation .reet-mobile-list a:hover,
+  #reet-navigation .reet-mobile-group > summary:hover {
+    background: var(--soft);
+    color: var(--accent);
+  }
+  #reet-navigation .reet-mobile-list a[aria-current="page"] {
+    background: var(--tint);
+    color: var(--accent);
+    font-weight: 500;
+  }
+  #reet-navigation .reet-mobile-list .reet-mobile-list {
+    border-left: 1px solid var(--line);
+    margin: 0 0 10px 12px;
+    padding: 0 0 0 8px;
+  }
+  #reet-navigation .reet-mobile-list .reet-mobile-list a,
+  #reet-navigation .reet-mobile-list .reet-mobile-list summary {
+    font-size: 12px;
+    min-height: 42px;
+    padding: 10px;
+  }
+  #reet-navigation .reet-drawer-footer {
+    flex: none;
+    margin-top: 0;
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+}

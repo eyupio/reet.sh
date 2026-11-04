@@ -102,6 +102,7 @@ exclude_docs: |
   superpowers/
   handoff-golang-code-style.md
   loading.md
+  roadmap.md
   private-skill-revisions.md
   skill-bundle-manifests.md
   skill-content-*.md
@@ -175,7 +176,6 @@ nav:
     - Controller terminal commands: terminal-controller-commands.md
   - Reference:
     - Command reference: cli-reference.md
-    - Roadmap: roadmap.md
 - Guides:
   - Field guide: guides/index.md
   - Run Claude Code on a VPS: run-claude-code-on-a-vps.md

@@ -36,6 +36,19 @@
       menu.click();
     }
   });
+  document.querySelectorAll("[data-docs-close]").forEach((close) => {
+    close.addEventListener("click", (event) => {
+      event.preventDefault();
+      setToggle(drawer, false);
+      menu?.focus();
+    });
+    close.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        close.click();
+      }
+    });
+  });
   drawer?.addEventListener("change", () =>
     menu?.setAttribute("aria-expanded", String(drawer.checked)),
   );

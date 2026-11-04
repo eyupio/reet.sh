@@ -9,6 +9,7 @@ import argparse
 import gzip
 import json
 import re
+import struct
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urldefrag, urljoin, urlparse
@@ -24,6 +25,8 @@ class Document(HTMLParser):
         self.descriptions = []
         self.og_images = []
         self.schemas = []
+        self.meta = {}
+        self.title_count = 0
         self.title = ""
         self.h1_count = 0
         self._in_title = False
@@ -32,11 +35,16 @@ class Document(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
+        if tag == "meta":
+            key = attrs.get("property") or attrs.get("name")
+            if key:
+                self.meta.setdefault(key, []).append(attrs.get("content", ""))
         if attrs.get("id"):
             self.ids.add(attrs["id"])
         if tag == "h1":
             self.h1_count += 1
         if tag == "title":
+            self.title_count += 1
             self._in_title = True
         if tag == "link" and attrs.get("rel") == "canonical":
             self.canonicals.append(attrs.get("href", ""))
@@ -79,6 +87,8 @@ def check(site_dir):
     origin = urlparse(base)
     public_urls = set()
     titles = set()
+    descriptions = set()
+    preview = "noindex" in " ".join(home.meta.get("robots", []))
 
     def error(path, message):
         errors.append(f"{path.relative_to(site_dir)}: {message}")
@@ -102,11 +112,40 @@ def check(site_dir):
             public_urls.add(page_url)
             if document.canonicals != [page_url]:
                 error(path, f"expected one canonical for {page_url}, got {document.canonicals}")
-            if not document.title.strip() or document.title in titles:
+            if document.title_count != 1 or not document.title.strip() or document.title in titles:
                 error(path, "empty or duplicate title")
             titles.add(document.title)
             if len(document.descriptions) != 1 or not document.descriptions[0].strip():
                 error(path, "expected one nonempty description")
+            elif document.descriptions[0] in descriptions:
+                error(path, "duplicate description")
+            descriptions.update(document.descriptions)
+            required_meta = [
+                "robots", "og:type", "og:site_name", "og:title", "og:description", "og:url",
+                "og:image", "og:image:width", "og:image:height", "og:image:type", "og:image:alt",
+                "twitter:card", "twitter:title", "twitter:description", "twitter:image", "twitter:image:alt",
+            ]
+            if origin.scheme == "https":
+                required_meta.append("og:image:secure_url")
+            for key in required_meta:
+                values = document.meta.get(key, [])
+                if len(values) != 1 or not values[0].strip():
+                    error(path, f"expected exactly one nonempty {key} tag")
+            expected_values = {
+                "og:url": page_url, "og:title": document.title, "twitter:title": document.title,
+                "og:description": document.descriptions[0] if document.descriptions else "",
+                "twitter:description": document.descriptions[0] if document.descriptions else "",
+                "twitter:card": "summary_large_image", "og:image:type": "image/png",
+                "robots": "noindex,nofollow" if preview else "index,follow,max-image-preview:large",
+            }
+            image = document.og_images[0] if len(document.og_images) == 1 else ""
+            expected_values["twitter:image"] = image
+            expected_values["twitter:image:alt"] = document.meta.get("og:image:alt", [""])[0]
+            if origin.scheme == "https":
+                expected_values["og:image:secure_url"] = image
+            for key, expected in expected_values.items():
+                if document.meta.get(key) != [expected]:
+                    error(path, f"{key} disagrees with this page's title, description, canonical or sharing image")
             if document.h1_count != 1:
                 error(path, f"expected one h1, got {document.h1_count}")
             if len(document.og_images) != 1:
@@ -115,6 +154,15 @@ def check(site_dir):
                 target = destination(image)
                 if not target or not target.is_file():
                     error(path, f"missing social image: {image}")
+                else:
+                    data = target.read_bytes()
+                    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+                        error(path, "social image is not a PNG")
+                    else:
+                        width, height = struct.unpack(">II", data[16:24])
+                        declared = (document.meta.get("og:image:width"), document.meta.get("og:image:height"))
+                        if declared != ([str(width)], [str(height)]) or width < 1200 or height < 630:
+                            error(path, "social image dimensions differ from the tags or are too small for a large card")
             if len(document.schemas) != 1:
                 error(path, "expected one structured-data graph")
             else:
@@ -123,6 +171,8 @@ def check(site_dir):
                 entries = crumbs.get("itemListElement", [])
                 if not entries or entries[-1].get("item") != page_url:
                     error(path, "breadcrumb does not end at this page")
+        elif document.meta.get("robots") != ["noindex,nofollow"]:
+            error(path, "404 page must have exactly one noindex robots tag")
         for link in document.links:
             url, fragment = urldefrag(urljoin(page_url, link))
             target = destination(url)
@@ -156,7 +206,7 @@ def check(site_dir):
     for url in public_urls:
         if url[len(base):] not in search_locations:
             errors.append(f"not in full-text search: {url}")
-    if any(any(part in url for part in ("/design/", "/research/", "/handoffs/", "/superpowers/")) for url in public_urls):
+    if any(any(part in url for part in ("/design/", "/research/", "/handoffs/", "/superpowers/", "/roadmap/")) for url in public_urls):
         errors.append("private design or implementation notes have entered the public site")
     if errors:
         raise SystemExit("\n".join(errors))

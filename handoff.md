@@ -519,7 +519,8 @@ says "Authentication required", stop and ask the owner which way to go. No hardw
 continue independent SC5 work, not evidence of a real login. Do not re-ask while it remains deferred. When resumed, signed-in Run B runs first,
 then Run A's follow-up; if Run B still reports "Authentication required", stop and ask which direction to take. Next are section 2 Claude logged
 out/in and the decision about machine-side sign-in wording, then section 1 physical touch and screen-reader checks. Neither experimental switch nor
-`elicitation.form` is retired before its required evidence is recorded. Reet never calls `authenticate`.
+`elicitation.form` is retired before its required evidence is recorded. Record each result in the ledger at the top of
+[docs/device-checks.md](docs/device-checks.md#recorded-results) with its date and the PR that carries it. Reet never calls `authenticate`.
 
 **Delivered SC5 slices:**
 - #392: live model controls and lookups follow each available agent descriptor. Merged; bot review was blocked by account quota and its terminal CI

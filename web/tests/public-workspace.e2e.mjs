@@ -70,6 +70,11 @@ try {
    expect(await fresh.locator('.compare .after').evaluate(el=>getComputedStyle(el).clipPath)).toContain('inset')
    await slider.fill('50')
    await expect(page.getByText(/orchestrat/i)).toHaveCount(0)
+   // Guides turn the public docs into a next step from the landing page.
+   const guides=page.getByRole('region',{name:'Start with a job to do.'})
+   await expect(guides.getByRole('link',{name:/Run Claude Code on a VPS/})).toHaveAttribute('href','/docs/run-claude-code-on-a-vps/')
+   await expect(guides.getByRole('link',{name:/Sync skills between machines/})).toHaveAttribute('href','/docs/sync-skills-between-machines/')
+   await expect(guides.getByRole('link',{name:/Connect an AI client with MCP/})).toHaveAttribute('href','/docs/self-host-mcp-server/')
    // The colour choice is in the header, as a three-way control that applies at once and is remembered in this browser.
    const picker=page.locator('header .theme-picker')
    await expect(picker.getByRole('button')).toHaveCount(3)
@@ -102,7 +107,7 @@ try {
    await expect(page.getByLabel('Why reet.sh')).toContainText('AGPL-3.0')
    expect(await page.locator('.trust span').first().evaluate(el=>parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12)
    // Nothing in the illustration, the tiles' examples or the slider is below 11px.
-   for(const selector of ['.workspace-preview','.tiles','.compare']){
+   for(const selector of ['.workspace-preview','.tiles','.guides','.compare']){
    const tiny=await page.locator(selector).first().evaluate(root=>{const found=[];const walk=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);for(let node;node=walk.nextNode();){if(!node.textContent.trim())continue;const size=parseFloat(getComputedStyle(node.parentElement).fontSize);if(size<11)found.push(`${size}px "${node.textContent.trim().slice(0,30)}"`)}return found})
    expect(tiny,`${selector} text under 11px`).toEqual([])
    }

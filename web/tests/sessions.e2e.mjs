@@ -787,6 +787,10 @@ try {
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toBeVisible()
   const pill = screen(page).locator('.pill')
   await expect(pill).toHaveText(/^Quiet\W*from the chat$/)
+  // The session panel says the same: a quiet turn is not still running, though its session is open.
+  const quietRow = page.locator('aside#terminal-sessions').getByRole('button',{name:/^Chat about the store on studio/})
+  await expect(quietRow).toHaveAccessibleName(/, Quiet$/)
+  await expect(quietRow.locator('.session-dot')).toHaveClass(/finished/)
   await expect(tuiButton).toHaveAttribute('aria-disabled','false')
   await tuiButton.click()
   const dialog = page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'})

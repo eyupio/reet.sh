@@ -34,10 +34,17 @@ test('a finished or failed turn is named over the still-running state', () => {
   assert.equal(p.statusLine({ state: 'running', attention: 'working' }), 'running')
 })
 
+test('a quiet turn is not still running, in the chat or at an idle terminal', () => {
+  assert.equal(p.statusLine({ state: 'running', attention: 'quiet', attentionSource: 'chat' }), 'Quiet')
+  assert.equal(p.statusLine({ state: 'running', attention: 'quiet', attentionSource: 'terminal' }), 'Quiet')
+})
+
 test('the row mark follows attention before the lifecycle state', () => {
   assert.equal(p.sessionMark({ state: 'running', attention: 'finished' }), 'finished')
   assert.equal(p.sessionMark({ state: 'running', attention: 'failed' }), 'failed')
   assert.equal(p.sessionMark({ state: 'lost', attention: 'failed' }), 'lost')
+  assert.equal(p.sessionMark({ state: 'running', attention: 'quiet', attentionSource: 'chat' }), 'finished')
+  assert.equal(p.sessionMark({ state: 'running', attention: 'quiet', attentionSource: 'terminal' }), 'running')
   assert.equal(p.sessionMark({ state: 'running' }), 'running')
   assert.equal(p.sessionMark({ state: 'creating' }), 'starting')
   assert.equal(p.sessionMark({ state: 'end_requested' }), 'ending')

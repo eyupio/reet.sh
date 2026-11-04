@@ -17,11 +17,11 @@ import (
 
 func runBackup(args []string, out io.Writer) error {
 	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
-		fmt.Fprintln(out, "Usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--keep-tokens] ID\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
+		fmt.Fprintln(out, "Usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] ID\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
 		return nil
 	}
 	if len(args) == 0 {
-		return errors.New("usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--keep-tokens] ID")
+		return errors.New("usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] ID")
 	}
 	switch args[0] {
 	case "keygen":
@@ -298,8 +298,11 @@ func backupUnescrow(args []string, out io.Writer) error {
 func backupRestore(args []string, out io.Writer) error {
 	f := flag.NewFlagSet("reet backup restore", flag.ContinueOnError)
 	f.SetOutput(out)
-	yes := f.Bool("yes", false, "confirm replacing the live database")
-	keep := f.Bool("keep-tokens", false, "leave personal API tokens and MCP connections working (browser sign-ins always end)")
+	yes := f.Bool("yes", false, "confirm replacing the live database; without it the copy is checked and reported, and nothing changes")
+	f.Bool("keep-tokens", false, "no longer needed: personal API tokens and MCP connections now come across unless --drop-tokens")
+	dropSessions := f.Bool("drop-sessions", false, "end every browser sign-in and password-reset link in the copy")
+	dropTokens := f.Bool("drop-tokens", false, "revoke every personal API token and MCP connection in the copy")
+	owner := f.String("owner-email", "", "refuse unless this address is an owner account in the copy, so you can sign in afterwards")
 	file, literal := passwordFlags(f)
 	if err := f.Parse(args); err != nil {
 		return err
@@ -311,9 +314,6 @@ func backupRestore(args []string, out io.Writer) error {
 	if inputErr != nil {
 		return inputErr
 	}
-	if !*yes {
-		return errors.New("this replaces the live database; stop reet first, then run again with --yes")
-	}
 	data := env("REET_DATA_DIR", "./data")
 	st, svc, err := openBackup()
 	if err != nil {
@@ -324,19 +324,36 @@ func backupRestore(args []string, out io.Writer) error {
 		st.Close()
 		return err
 	}
-	result, err := backup.RestoreInstance(context.Background(), svc, data, id, password, backup.RestoreOptions{KeepTokens: *keep}, st.Close)
+	opts := backup.RestoreOptions{
+		DropSessions: *dropSessions,
+		DropTokens:   *dropTokens,
+		OwnerEmail:   *owner,
+		CheckOnly:    !*yes,
+		Source:       "cli",
+		Before: func(r backup.RestoreReport) {
+			for _, l := range r.Inventory() {
+				fmt.Fprintln(out, l)
+			}
+		},
+	}
+	result, err := backup.RestoreInstance(context.Background(), svc, data, id, password, opts, st.Close)
 	if errors.Is(err, backup.ErrPasswordRequired) && password == "" {
 		password, err = clientconfig.Require("", "copy password (--password-file)", true, os.Stdin, os.Stderr)
 		if err == nil {
-			result, err = backup.RestoreInstance(context.Background(), svc, data, id, password, backup.RestoreOptions{KeepTokens: *keep}, st.Close)
+			result, err = backup.RestoreInstance(context.Background(), svc, data, id, password, opts, st.Close)
 		}
 	}
 	if err != nil {
 		return err
 	}
+	if !*yes {
+		for _, l := range result.Report.Outcome() {
+			fmt.Fprintln(out, l)
+		}
+		return errors.New("nothing was changed; this replaces the live database, so stop reet, then run again with --yes")
+	}
 	fmt.Fprint(out, result.Message)
 	return nil
-
 }
 
 func humanBytes(n int64) string {

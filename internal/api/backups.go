@@ -666,18 +666,24 @@ func (s *server) adminImportStage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusRequestEntityTooLarge, "that copy is larger than this build opens")
 		return
 	}
-	keep := r.URL.Query().Get("keepTokens") == "1"
+	q := r.URL.Query()
+	opts := backup.RestoreOptions{
+		DropSessions: q.Get("dropSessions") == "1",
+		DropTokens:   q.Get("dropTokens") == "1",
+		OwnerEmail:   q.Get("ownerEmail"),
+		Source:       "api",
+	}
 	password, err := importPassword(r)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	rep, err := svc.StageImport(r.Context(), s.st.Dir(), raw, password, backup.RestoreOptions{KeepTokens: keep})
+	rep, err := svc.StageImport(r.Context(), s.st.Dir(), raw, password, opts)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	s.event(s.uid(r), "backup", "backup-import-staged", "", map[string]any{"id": rep.ID, "keepTokens": keep})
+	s.event(s.uid(r), "backup", "backup-import-staged", "", map[string]any{"id": rep.ID, "dropSessions": opts.DropSessions, "dropTokens": opts.DropTokens, "ownerChecked": opts.OwnerEmail != ""})
 	writeJSON(w, 200, map[string]any{"staged": true, "restartRequired": true, "report": rep})
 }
 

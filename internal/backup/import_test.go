@@ -38,6 +38,13 @@ func movable(t *testing.T) (raw []byte, user store.User) {
 	if err := st.SavePrivateIdentityIfAbsent(store.PrivateIdentityRecord{FormatVersion: 1, Ciphertext: base64.RawURLEncoding.EncodeToString(make([]byte, 64))}); err != nil {
 		t.Fatal(err)
 	}
+	secret, err := svc.cfg.Sealer.SealSecret("the destination's secret key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateBackupRemote(store.BackupRemote{Name: "offsite", SecretSealed: secret, PathStyle: -1}); err != nil {
+		t.Fatal(err)
+	}
 	pw := copyPassword
 	if _, err := svc.SaveSettings(0, SettingsInput{Password: &pw, Compression: CompressionGzip, Destination: "local"}); err != nil {
 		t.Fatal(err)
@@ -84,10 +91,10 @@ func applied(t *testing.T, dir string) *store.Store {
 	return st
 }
 
-func TestAnImportEndsSignInsAndRevokesTokensAndSaysWhatCame(t *testing.T) {
+func TestAnImportThatDropsSignInsAndTokensEndsThemAndSaysWhatCame(t *testing.T) {
 	raw, user := movable(t)
 	svc, dir := destination(t)
-	rep, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{})
+	rep, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{DropSessions: true, DropTokens: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,9 +104,10 @@ func TestAnImportEndsSignInsAndRevokesTokensAndSaysWhatCame(t *testing.T) {
 	if rep.Users < 1 {
 		t.Fatalf("the report does not say accounts came across: %+v", rep)
 	}
-	// The copy password was sealed under the source's key; this controller
-	// cannot open it and must say so now rather than when a backup fails.
-	if len(rep.Unreadable) != 1 || !strings.Contains(rep.Unreadable[0], "copy password") {
+	// The copy password and the destination's key were sealed under the
+	// source's key; this controller cannot open them and must say so now
+	// rather than when a backup fails.
+	if len(rep.Unreadable) != 2 || !strings.Contains(rep.Unreadable[0], `"offsite"`) || !strings.Contains(rep.Unreadable[1], "copy password") {
 		t.Fatalf("unreadable: %v", rep.Unreadable)
 	}
 	if p, _ := PendingImport(dir); p == nil || p.ID != rep.ID {
@@ -131,19 +139,39 @@ func TestAnImportEndsSignInsAndRevokesTokensAndSaysWhatCame(t *testing.T) {
 	}
 }
 
-func TestKeepTokensLeavesTokensWorkingButStillEndsSignIns(t *testing.T) {
+func TestAnImportByDefaultLeavesSignInsAndTokensWorking(t *testing.T) {
 	raw, _ := movable(t)
 	svc, dir := destination(t)
-	if _, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{KeepTokens: true}); err != nil {
+	rep, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if rep.SessionsEnded != 0 || rep.SessionsKept != 1 || !rep.TokensKept {
+		t.Fatalf("report: %+v", rep)
 	}
 	st := applied(t, dir)
 	now := time.Now().UnixMilli()
-	if _, ok, _ := st.SessionUser("sess-1", now); ok {
-		t.Fatal("a browser sign-in survived")
+	if _, ok, _ := st.SessionUser("sess-1", now); !ok {
+		t.Fatal("a default restore ended a sign-in")
 	}
 	if _, ok, _ := st.APITokenUser("token-hash", now); !ok {
-		t.Fatal("--keep-tokens did not keep the token")
+		t.Fatal("a default restore revoked a token")
+	}
+}
+
+func TestAnUnreadableDestinationIsClearedSwitchedOffAndListed(t *testing.T) {
+	raw, _ := movable(t)
+	svc, dir := destination(t)
+	if _, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	st := applied(t, dir)
+	remotes, err := st.BackupRemotes(0)
+	if err != nil || len(remotes) != 1 {
+		t.Fatalf("remotes: %v %v", remotes, err)
+	}
+	if remotes[0].SecretSealed != "" || !remotes[0].Disabled || remotes[0].LastError == "" {
+		t.Fatalf("destination kept a secret it cannot open, or is still on: %+v", remotes[0])
 	}
 }
 

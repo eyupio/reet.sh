@@ -224,39 +224,64 @@ reet backup restore --yes --password-file ./password <id>   # a password copy
 A copy protected with a password uses the password it was given; with none
 it uses the one stored for that owner when the database is still there.
 
-The command opens the copy, checks it, adapts it, moves the live `reet.db`
-aside to `reet.db.before-restore-<timestamp>`, removes stale `-wal`/`-shm`
-files, and writes the restored database in place. Start reet again afterwards.
-Nothing is deleted, so the database you replaced can be put back by hand.
+Without `--yes` the command opens the copy, runs every check below, prints what
+the copy holds and what would be done to it, and changes nothing. With `--yes`
+it prints the same inventory, then moves the live `reet.db` aside to
+`reet.db.before-restore-<timestamp>`, removes stale `-wal`/`-shm` files and
+writes the restored database in place. Start reet again afterwards. Nothing is
+deleted, so the database you replaced can be put back by hand. The copy is
+opened into a temporary file beside the database, read and adapted there, and
+the file is removed afterwards; the password is read from a file or standard
+input, never from the command line.
+
+### What a restore checks, in order
+
+Every check runs before anything live changes, so a refusal leaves `reet.db`
+exactly as it was.
+
+1. **The copy must not be newer than this reet.** The database records a schema
+   version (`PRAGMA user_version`) that each build stamps when it opens it. A
+   copy stamped higher than the restoring build understands is refused with a
+   message naming both data formats and the copy's release, and a request to
+   upgrade first. The check reads the version from the opened copy, not from
+   the manifest's release string: development builds have no ordered release,
+   and the database is what the binary actually has to read. A copy from
+   before versions were recorded reads as 0 and is accepted.
+2. **The copy must pass SQLite's integrity check.**
+3. **`--owner-email ADDR` must be an owner in the copy.** The address must
+   belong to an owner account that is not disabled, or the restore is refused
+   and names the owners the copy does have. It exists so nobody swaps in a
+   database they cannot sign in to.
+4. **The inventory is printed**: accounts by role, shelves, skills, lists, tags,
+   environments, connected machines and backup destinations.
 
 ### What a restore changes in the copy
 
-A copy is adapted before it replaces anything, so it is safe on the controller
-it lands on, and the command says what it did:
+The copy is then adapted, and only the temporary file is changed:
 
-- **Sign-ins end.** Every browser session and password-reset link in the copy
-  is removed.
-- **Personal tokens and MCP connections are revoked.** Otherwise a credential
-  from the old machine would open the new one. `--keep-tokens` leaves them
-  working, for a move where the old controller is being retired. Browser
-  sign-ins end either way.
-- **The private-connection identity is dropped.** The restored controller makes
-  its own on first use; two controllers never present one identity.
-- **Stored secrets are checked against this controller's key.** Anything sealed
-  under a different `REET_BACKUP_KEY` (a destination's access key, a stored copy
-  password, the mail password) cannot be opened; it is named in the report and
-  left in place, so starting with the old key still opens it. Otherwise enter it
-  again on its page. A copy protected with a password is the kind that opens on
-  any machine, and these are the secrets it does not carry.
-- **A copy from a newer reet is refused.** The database records a schema version
-  (`PRAGMA user_version`) that each build stamps when it opens it. A copy
-  stamped higher than the restoring build understands is refused with a message
-  to upgrade first, and nothing is touched. The check reads the version from the
-  opened copy, not from the manifest's release string: development builds have no
-  ordered release, and the database is what the binary actually has to read. A
-  copy from before versions were recorded reads as 0 and is accepted.
-- **The report says what came across:** accounts, skills on shelves, lists,
-  tags and environments.
+- **Sign-ins and personal tokens come across.** By default every browser
+  session, password-reset link, personal API token and MCP connection in the
+  copy keeps working on the controller it lands on. `--drop-sessions` ends every
+  session and reset link. `--drop-tokens` revokes every personal API token and
+  MCP connection. Use them when the old controller stays in service, or when
+  you do not trust who held a credential. `--keep-tokens` is accepted and does
+  nothing: keeping is now the default.
+- **The private-connection identity is always dropped.** The restored
+  controller makes its own on first use; two controllers never present one
+  identity.
+- **Stored secrets that cannot be opened are cleared.** A destination's access
+  key, a stored copy password or the mail password sealed under a different
+  `REET_BACKUP_KEY` cannot be opened here. Rather than keep a value nothing can
+  read, the restore clears it, switches a destination off and records why, and
+  lists each with what to do: enter the access key again and switch the
+  destination on, set the copy password again, or enter the mail password
+  again. The cleared values are still in the database that was moved aside,
+  which opens with the old key. A copy protected with a password opens on any
+  machine, and these are the secrets it does not carry.
+- **The choices are written to the activity log** of the restored database
+  (`backup-restored`): the copy's id and release, whether sessions and tokens
+  were dropped, whether an owner was checked and how many secrets were cleared.
+  No secret is in it.
 
 Machine connectors keep the credentials they were enrolled with, so they work
 against the restored controller once it answers at the address they use.
@@ -266,7 +291,8 @@ against the restored controller once it answers at the address they use.
 The server cannot swap the database it is serving, so an import is staged and
 applied at the next start. The owner does this under **Admin → Backups → Import
 a copy from another controller**: choose the copy, enter its password if it has
-one, and say whether personal tokens are kept. The page shows the report and a
+one, and choose whether to end sign-ins, revoke tokens or require an owner
+account. The page shows the report and a
 **Discard** button while it waits. The same thing over the API:
 
 ```sh
@@ -274,16 +300,17 @@ curl -X POST --data-binary @copy.reetbackup \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/octet-stream' \
   -H 'X-Copy-Password: the copy password' \
-  "$REET_URL/api/v2/admin/backups/import?keepTokens=1"
+  "$REET_URL/api/v2/admin/backups/import?dropTokens=1&dropSessions=1&ownerEmail=you@example.com"
 ```
 
-`X-Copy-Password` is only for a copy protected with a password, and
-`keepTokens=1` is optional (see above). A password with non-Latin characters or
+`X-Copy-Password` is only for a copy protected with a password. `dropSessions=1`,
+`dropTokens=1` and `ownerEmail=` are optional and mean what the restore flags
+mean (see above). A password with non-Latin characters or
 spaces at either end cannot travel in a plain header: send its UTF-8 bytes
 base64-encoded as `X-Copy-Password-B64` instead (the page does).
 
-The copy is opened, checked and adapted immediately, and the response is the
-same report a restore prints, so problems show before anything is replaced. The
+The copy is opened, checked and adapted immediately with the same code a
+restore uses, and the response is the same report a restore prints, so problems show before anything is replaced. The
 live database is not touched. `GET` on the same path shows what is staged and
 `DELETE` discards it. On the next start the staged database replaces the live
 one, which is kept as `reet.db.before-restore-<timestamp>`; the report is
@@ -302,7 +329,7 @@ staged folder is moved aside and the controller starts on the database it had.
    destination is fetched by `reet backup restore`.
 5. `reet backup restore --yes <id>` and start reet. If the key is not the one the
    copy was sealed under, use a copy with a password; the report names the
-   stored secrets to enter again.
+   stored secrets it cleared, to enter again.
 
 ## Restoring a person's shelf
 

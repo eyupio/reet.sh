@@ -2747,3 +2747,20 @@ Validation:
 **Not checked.** No physical phone or tablet and no screen reader. No install was
 run against a live machine; the browser mock and the store/API fixtures cover the
 request, source and job state.
+
+
+## Active session actions (4 November 2026)
+
+Session identity and frequent controls occupy separate rows. Theatre view stays in the header; phone icons have visible
+captions. Interface and approvals remain directly available, with new-terminal actions alongside them. More contains
+management only, with no duplicates of the visible controls. Standalone terminal panes keep their Theatre control.
+
+Checked with `web/tests/sessions.e2e.mjs` on desktop, tablet, 390 px and 320 px phones, plus phone landscape, in light and
+dark. The regression checks touch sizes, viewport bounds, menu contents, disabled reasons, keyboard focus and unchanged
+chat stream identity when toggling Theatre. Terminal workspace checks include renderer fit and keyboard bounds. The
+landscape phone test accounts for the newly visible controls row and keeps at least four visible terminal rows in its
+172 px keyboard viewport; Maximise remains available for more space. Handoff: [session actions](handoffs/session-actions.md).
+
+[Desktop light](images/ui/session-actions-desktop-light.png) · [Desktop dark](images/ui/session-actions-desktop-dark.png) ·
+[Tablet light](images/ui/session-actions-tablet-light.png) · [Tablet dark](images/ui/session-actions-tablet-dark.png) ·
+[Phone light](images/ui/session-actions-phone-light.png) · [Phone dark](images/ui/session-actions-phone-dark.png)

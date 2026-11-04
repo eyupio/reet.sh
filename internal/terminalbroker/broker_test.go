@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/store/storetest"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -259,4 +260,354 @@ func TestACallReadsAReplyThatRacedTheConnectionClose(t *testing.T) {
 			t.Fatalf("want a complete reconcile, got %+v", reply.Body)
 		}
 	}
+}
+
+// A row the store will not move must not stop the other sessions from being
+// reconciled, nor their pending ends from reaching the machine.
+func TestSynchronizeSendsPendingEndsPastAConflictingRow(t *testing.T) {
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	uid, _ := st.DefaultOwner()
+	a, _, err := st.EnrollSyncAgent(uid, "fixture", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", HealthEnabled: true, TerminalEnabled: true, TerminalControl: true, Readiness: terminalproto.Ready}
+	record, err := st.BeginRemoteConnectionFor(uid, a.ID, ID(), caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := New(st)
+	t.Cleanup(b.Close)
+	var mu sync.Mutex
+	sessions := map[string]terminalproto.SessionSnapshot{}
+	ended := map[string]bool{}
+	var p *Peer
+	p, err = b.Connect(uid, a.ID, record.Generation, true, func(ctx context.Context, m terminalproto.Message) error {
+		mu.Lock()
+		defer mu.Unlock()
+		reply := m
+		switch op := m.Body.(type) {
+		case terminalproto.Reconcile:
+			list := make([]terminalproto.SessionSnapshot, 0, len(sessions))
+			for _, s := range sessions {
+				list = append(list, s)
+			}
+			reply.Body = terminalproto.Reconcile{Complete: true, Sessions: list}
+		case terminalproto.Create:
+			s := terminalproto.SessionSnapshot{ID: m.SessionID, Title: op.Title, State: terminalproto.Running}
+			sessions[s.ID] = s
+			reply.Body = terminalproto.SessionChanged{State: s.State}
+		case terminalproto.End:
+			delete(sessions, m.SessionID)
+			ended[m.SessionID] = true
+			reply.Body = terminalproto.SessionChanged{State: terminalproto.Ended}
+		default:
+			reply.Body = terminalproto.Result{Code: terminalproto.OK}
+		}
+		data, err := terminalproto.Encode(reply)
+		if err != nil {
+			return err
+		}
+		decoded, err := terminalproto.Decode(data)
+		if err != nil {
+			return err
+		}
+		return p.Receive(decoded)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = p.Synchronize(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	create := func(title string) store.TerminalSession {
+		s, err := b.Create(t.Context(), uid, a.ID, ID(), terminalproto.Create{Title: title, Cols: 80, Rows: 24})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	stuck := create("Conflicting")
+	pending := create("Pending end")
+	request := ID()
+	if _, err = st.RequestTerminalEndFor(uid, a.ID, pending.ID, request); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	snap := sessions[stuck.ID]
+	snap.State = terminalproto.Creating
+	sessions[stuck.ID] = snap
+	mu.Unlock()
+	if err = p.Synchronize(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	sent := ended[pending.ID]
+	mu.Unlock()
+	if !sent {
+		t.Fatal("a conflicting row stopped the pending end from being sent")
+	}
+	current, err := st.TerminalSessionFor(uid, pending.ID)
+	if err != nil || current.State != terminalproto.Ended {
+		t.Fatalf("pending end did not settle: %+v %v", current, err)
+	}
+	if !b.Ready(uid, a.ID) {
+		t.Fatal("a conflicting row left the machine unready")
+	}
+}
+
+// An end the machine never answered on a connection that stays up is retried
+// with the same request rather than left pending forever.
+func TestEndRetriesAfterALostAnswer(t *testing.T) {
+	oldDelay, oldMax := endRetryDelay, endRetryMax
+	endRetryDelay, endRetryMax = 10*time.Millisecond, 20*time.Millisecond
+	t.Cleanup(func() { endRetryDelay, endRetryMax = oldDelay, oldMax })
+
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	uid, _ := st.DefaultOwner()
+	a, _, err := st.EnrollSyncAgent(uid, "fixture", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", HealthEnabled: true, TerminalEnabled: true, TerminalControl: true, Readiness: terminalproto.Ready}
+	record, err := st.BeginRemoteConnectionFor(uid, a.ID, ID(), caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := New(st)
+	t.Cleanup(b.Close)
+	var mu sync.Mutex
+	sessions := map[string]terminalproto.SessionSnapshot{}
+	loseFirstEnd := true
+	var requests []string
+	var p *Peer
+	p, err = b.Connect(uid, a.ID, record.Generation, true, func(ctx context.Context, m terminalproto.Message) error {
+		mu.Lock()
+		defer mu.Unlock()
+		reply := m
+		switch op := m.Body.(type) {
+		case terminalproto.Reconcile:
+			list := make([]terminalproto.SessionSnapshot, 0, len(sessions))
+			for _, s := range sessions {
+				list = append(list, s)
+			}
+			reply.Body = terminalproto.Reconcile{Complete: true, Sessions: list}
+		case terminalproto.Create:
+			s := terminalproto.SessionSnapshot{ID: m.SessionID, Title: op.Title, State: terminalproto.Running}
+			sessions[s.ID] = s
+			reply.Body = terminalproto.SessionChanged{State: s.State}
+		case terminalproto.End:
+			requests = append(requests, m.RequestID)
+			if loseFirstEnd {
+				loseFirstEnd = false
+				reply.Body = terminalproto.Result{Code: terminalproto.OK}
+				break
+			}
+			delete(sessions, m.SessionID)
+			reply.Body = terminalproto.SessionChanged{State: terminalproto.Ended}
+		default:
+			reply.Body = terminalproto.Result{Code: terminalproto.OK}
+		}
+		data, err := terminalproto.Encode(reply)
+		if err != nil {
+			return err
+		}
+		decoded, err := terminalproto.Decode(data)
+		if err != nil {
+			return err
+		}
+		return p.Receive(decoded)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = p.Synchronize(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := b.Create(t.Context(), uid, a.ID, ID(), terminalproto.Create{Title: "Work", Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := ID()
+	if _, err = b.End(t.Context(), uid, s.ID, request); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		current, err := st.TerminalSessionFor(uid, s.ID)
+		if err == nil && current.State == terminalproto.Ended {
+			mu.Lock()
+			sent := requests
+			mu.Unlock()
+			if len(sent) < 2 || sent[0] != request || sent[1] != request {
+				t.Fatalf("retry did not reuse the original request: %v", sent)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("a lost end answer was never retried")
+}
+
+// When the machine is reachable and answers that it has no such session, the
+// row settles as lost instead of waiting forever for a reconnect.
+func TestEndSettlesWhenTheMachineNoLongerHasTheSession(t *testing.T) {
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	uid, _ := st.DefaultOwner()
+	a, _, err := st.EnrollSyncAgent(uid, "fixture", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", HealthEnabled: true, TerminalEnabled: true, TerminalControl: true, Readiness: terminalproto.Ready}
+	record, err := st.BeginRemoteConnectionFor(uid, a.ID, ID(), caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := New(st)
+	t.Cleanup(b.Close)
+	var mu sync.Mutex
+	sessions := map[string]terminalproto.SessionSnapshot{}
+	var p *Peer
+	p, err = b.Connect(uid, a.ID, record.Generation, true, func(ctx context.Context, m terminalproto.Message) error {
+		mu.Lock()
+		defer mu.Unlock()
+		reply := m
+		switch op := m.Body.(type) {
+		case terminalproto.Reconcile:
+			list := make([]terminalproto.SessionSnapshot, 0, len(sessions))
+			for _, s := range sessions {
+				list = append(list, s)
+			}
+			reply.Body = terminalproto.Reconcile{Complete: true, Sessions: list}
+		case terminalproto.Create:
+			s := terminalproto.SessionSnapshot{ID: m.SessionID, Title: op.Title, State: terminalproto.Running}
+			sessions[s.ID] = s
+			reply.Body = terminalproto.SessionChanged{State: s.State}
+		case terminalproto.End:
+			delete(sessions, m.SessionID)
+			reply.Body = terminalproto.Result{Code: terminalproto.NotFound}
+		default:
+			reply.Body = terminalproto.Result{Code: terminalproto.OK}
+		}
+		data, err := terminalproto.Encode(reply)
+		if err != nil {
+			return err
+		}
+		decoded, err := terminalproto.Decode(data)
+		if err != nil {
+			return err
+		}
+		return p.Receive(decoded)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = p.Synchronize(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := b.Create(t.Context(), uid, a.ID, ID(), terminalproto.Create{Title: "Gone", Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err = b.End(t.Context(), uid, s.ID, ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.State != terminalproto.Lost {
+		t.Fatalf("a missing session stayed %q", s.State)
+	}
+}
+
+// A pending end that was never sent (for example one made while the machine
+// was reconnecting) is picked up by the sweep on a live connection.
+func TestEndSweepSendsAPendingEndOnALiveConnection(t *testing.T) {
+	oldSweep, oldDelay, oldMax := endSweepInterval, endRetryDelay, endRetryMax
+	endSweepInterval, endRetryDelay, endRetryMax = 10*time.Millisecond, 10*time.Millisecond, 20*time.Millisecond
+	t.Cleanup(func() { endSweepInterval, endRetryDelay, endRetryMax = oldSweep, oldDelay, oldMax })
+
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	uid, _ := st.DefaultOwner()
+	a, _, err := st.EnrollSyncAgent(uid, "fixture", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", HealthEnabled: true, TerminalEnabled: true, TerminalControl: true, Readiness: terminalproto.Ready}
+	record, err := st.BeginRemoteConnectionFor(uid, a.ID, ID(), caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := New(st)
+	t.Cleanup(b.Close)
+	var mu sync.Mutex
+	sessions := map[string]terminalproto.SessionSnapshot{}
+	var p *Peer
+	p, err = b.Connect(uid, a.ID, record.Generation, true, func(ctx context.Context, m terminalproto.Message) error {
+		mu.Lock()
+		defer mu.Unlock()
+		reply := m
+		switch op := m.Body.(type) {
+		case terminalproto.Reconcile:
+			list := make([]terminalproto.SessionSnapshot, 0, len(sessions))
+			for _, s := range sessions {
+				list = append(list, s)
+			}
+			reply.Body = terminalproto.Reconcile{Complete: true, Sessions: list}
+		case terminalproto.Create:
+			s := terminalproto.SessionSnapshot{ID: m.SessionID, Title: op.Title, State: terminalproto.Running}
+			sessions[s.ID] = s
+			reply.Body = terminalproto.SessionChanged{State: s.State}
+		case terminalproto.End:
+			delete(sessions, m.SessionID)
+			reply.Body = terminalproto.SessionChanged{State: terminalproto.Ended}
+		default:
+			reply.Body = terminalproto.Result{Code: terminalproto.OK}
+		}
+		data, err := terminalproto.Encode(reply)
+		if err != nil {
+			return err
+		}
+		decoded, err := terminalproto.Decode(data)
+		if err != nil {
+			return err
+		}
+		return p.Receive(decoded)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = p.Synchronize(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := b.Create(t.Context(), uid, a.ID, ID(), terminalproto.Create{Title: "Waiting", Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.RequestTerminalEndFor(uid, a.ID, s.ID, ID()); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		current, err := st.TerminalSessionFor(uid, s.ID)
+		if err == nil && current.State == terminalproto.Ended {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the sweep never sent the pending end")
 }

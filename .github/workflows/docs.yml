@@ -49,7 +49,7 @@ jobs:
       # instead of shipping a site with dead ends.
       - name: Build
         env:
-          DOCS_SITE_URL: ${{ vars.DOCS_SITE_URL || 'https://reet.sh/docs/' }}
+          DOCS_SITE_URL: ${{ vars.DOCS_SITE_URL || 'https://reet.sh/' }}
         run: mkdocs build --strict
 
       - name: Check the sitemap, robots and home page exist

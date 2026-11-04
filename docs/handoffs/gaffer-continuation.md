@@ -12,34 +12,41 @@ project in PR titles, descriptions, commits or merge messages. Do not spawn agen
 The requested features are active-session model/effort switching and queued-message steering, visible/responsive session
 actions, the same model/effort choices in both start dialogs and backlog plans, and inline previews of agent-produced/read images.
 
-## Published work and current state
+## Delivered work
 
-| Work | Branch / PR | Published head / status |
+| Work | Branch / PR | Final state |
 | --- | --- | --- |
 | Runtime model/effort, steering, durable queue | `feat/live-chat-controls`, [#488](https://github.com/eyupio/reet.sh/pull/488) | Merged as `ac5938d`; do not reopen or push new scope to this closed PR. |
-| Active-session action UX | `feat/session-actions`, [#490](https://github.com/eyupio/reet.sh/pull/490) | Open. Head `d94f1d2` merges main `b6b6ea4` and records the integration; its own final-head checks were running at this handoff. |
-| Start dialogs and backlog model/effort | `feat/start-agent-options`, [#493](https://github.com/eyupio/reet.sh/pull/493) | Open. Head `0a66ce7` merges the `d94f1d2` session action head and records the merged-head verification. |
-| Agent image previews | `feat/chat-image-previews`, [#498](https://github.com/eyupio/reet.sh/pull/498) | Open. Contains #490 and #493 and current main; this handoff update is its newest commit. Inspect GitHub for the current head. |
+| Active-session action UX | `feat/session-actions`, [#490](https://github.com/eyupio/reet.sh/pull/490) | Merged as `99c7fd8`. Final head `d94f1d2` was green: source, test, web, phone-zoom, phone-dialogs, terminal-browser, build (linux, amd64), CodeQL and the language analyses. |
+| Start dialogs and backlog model/effort | `feat/start-agent-options`, [#493](https://github.com/eyupio/reet.sh/pull/493) | Merged as `918f452`. Final head `906cb2d` was green across all twenty checks: source, test, web, phone-zoom, phone-dialogs, terminal-browser, native service on ubuntu and macos, local relay on ubuntu and macos, tmux minimum, private connection, image, binary release, build (linux, amd64), CodeQL and the four language analyses. |
+| Agent image previews | `feat/chat-image-previews`, [#498](https://github.com/eyupio/reet.sh/pull/498) | Merged as `0de8f7d` from head `a88c78e`, which was green across all twenty checks, including terminal-browser with the preview, Sessions phone, session workspace and launch option suites. |
 
-Last fetched main was `b6b6ea4` (#497, public and self-canonical sitemap test), which follows #496 (remote-agent, sync and MCP
-guides) and #495 (collapsible/resizable session workspace panel). Fetch again before acting. Main also includes #494
-(public documentation links), #493-independent Gaffer artwork/motion and published documentation (#489, #491, #492), and
-#488. All three feature branches now carry that main; the toolbar/panel overlap is resolved identically in each.
+All three feature PRs are merged in dependency order (#490, #493, #498). Main at merge time was `0de8f7d`; it also carried
+#495 (collapsible/resizable session workspace panel), #496 (remote-agent, sync and MCP guides), #497 (public and
+self-canonical sitemap test), #500 and #501 from other work, plus the earlier #488/#489/#491/#492/#494. The toolbar/panel
+overlap between #490 and #495 is resolved identically on every branch: the persistent Theatre action, the wrapping
+interface/approval/`Terminal here` toolbar and the duplicate-free menu stay, and the docked panel keeps its separator,
+saved width/open state, sheet mode below 1100 px, and `holdSize` while it is dragged. The only merge conflict in the final
+round was the handoff append in `docs/handoffs/session-actions.md`, resolved by keeping the newest text.
 
-**GitHub publication and CI-trigger problem (reproduced and partly recovered):** a normal push to `feat/session-actions` or
-`feat/start-agent-options` updated the branch ref but left the pull request snapshot and its synthetic
-`refs/pull/<n>/head` on an older commit, so no `pull_request` workflow runs were created and old checks could be mistaken
-for the new head. Closing and reopening PR #490 resynchronised `refs/pull/490/head` to the pushed head and triggered the
-image, binary release and terminal-browser workflows on it. Closing and reopening PR #493, and pushing a further
-handoff commit to it, did not make GitHub dispatch its `pull_request` workflows; only the lightweight pull-request summary
-run appeared. Do not merge from a stale `refs/pull/<n>/head`: check `gh api repos/<owner>/<repo>/git/refs/pull/<n>/head`
-against the branch ref first. One `git push` also returned `Internal Server Error` and succeeded on retry.
+**GitHub publication and CI-trigger problem (diagnosed and resolved):** a push to `feat/session-actions` or
+`feat/start-agent-options` updated the branch ref, but the pull request snapshot and its synthetic
+`refs/pull/<n>/head` could lag, and a pull request whose head is not mergeable receives no `pull_request` workflow
+dispatch at all. Check `gh api repos/eyupio/reet.sh/git/refs/pull/<n>/head` against the branch ref before trusting a PR
+snapshot, and confirm `mergeable` is `MERGEABLE`. Closing and reopening resynchronised #490 and started its matrix. #493
+stayed silent until it actually merged current main: its earlier head still excluded main #495, so the PR was
+`CONFLICTING` and its workflows never ran; after integrating the session action head (which carries main) it became
+`MERGEABLE` and all five workflows dispatched within a minute. One `git push` also returned `Internal Server Error` and
+succeeded on retry. Do not merge from a stale `refs/pull/<n>/head`, and never treat checks on an older commit as
+final-head evidence.
 
-PR #498 ran its complete PR-triggered matrix on head `f6be70c`: image (`41814713292`), terminal browser (`41814713184`),
-native services (`41814713241`), private connection (`41814713386`) and binary release (`41814713285`) all succeeded, as did
-CodeQL and the language analysis jobs. No inline review findings were open on any of the three PRs. The preview branch then
-merged main `b6b6ea4` and the `0a66ce7` startup option head; that newer head needs its own green run before merge.
-All three PRs remained open and unmerged when this handoff was published.
+Local evidence on the integrated tree matches CI: web unit tests, Svelte check with zero errors and warnings, the
+production build, `go vet ./...`, the preview, Sessions phone, session workspace and launch option browser suites, and
+`go test -race` for `internal/acpagent`, `internal/agenthealth`, `internal/terminalproto`, `internal/terminalbroker`,
+`internal/store` (158 s) and `internal/api` (330 s) all pass. The only local failure is `internal/terminalagent`'s
+model-listing tests (`TestModelsOneAtATime`, `TestModelsFloorReturnsTheLastResult`, `TestModelsReplyShapeAndOperation`,
+`TestModelsLateRunAnswersTimedOut`), which fail identically on unmodified main in this constrained shell and pass in the
+native service CI jobs, so they are environmental rather than a regression.
 
 ## Feature details and evidence
 
@@ -93,24 +100,25 @@ Read `docs/handoffs/chat-image-previews.md` for completed behaviour and limits. 
 Web unit/check/build and Go vet pass. Focused race tests pass for the new extraction/protocol/cache/broker/API paths;
 desktop/phone light/dark browser checks pass. See `docs/ui-verification.md` and tracked `docs/images/ui/agent-preview-*.png`.
 After integrating #495 and the final #490 phone tests, web check/build, the preview matrix, Sessions-phone, responsive
-action controls and the full session-workspace resize/collapse browser suite pass. Complete preview package race suites and final full browser CI remain gates, as do
-real-provider/device/platform limitations.
+action controls and the full session-workspace resize/collapse browser suite pass, and the merged head `a88c78e` passed
+every CI check including terminal-browser. Real-provider, device and cross-platform limits remain as described in the
+feature handoff.
 
-## Portable restart procedure
+## Continuing after these merges
 
-1. Clone/fetch the repository, read `AGENTS.md` if present, `handoff.md`, this file and each feature handoff.
-2. Inspect the current PRs and remote branch heads, reviews, check runs and main. Reconcile changes made since this snapshot.
-3. Check out PR #498 (`gh pr checkout 498`, or fetch/check out `feat/chat-image-previews`) for the full combined implementation. It should include #490/#493; preserve all handoffs,
-   screenshot assets and UI-verification appendices during merges. Use separate branches/worktrees if fixing an older PR.
-4. Restore final-head CI for #490/#493; inspect whether the GitHub mergeability/trigger problem has recovered. Never force
-   through pending, missing or failed checks. If a job fails, read its logs and fix the cause; retry only demonstrated transient failures.
-5. Finish any preview verification/review findings. Resolve comments and merge conflicts, then merge #490, #493 and previews
-   in dependency order when green. The preview branch contains both published older heads; if GitHub still cannot validate
-   the older PRs, the combined preview PR can be the reviewed integration path once all its own final-head checks pass and
-   all review findings are addressed. Verify and record the older PRs’ final state after that merge; do not silently discard them.
-   Re-fetch after each merge and verify actual merge state.
-6. Update these handoffs in the relevant PR whenever the implementation, evidence or remaining work changes. Keep all new
-   public messaging free of the external comparison project's name. Do not copy old machine-specific paths or process IDs.
+1. Start from main (`0de8f7d` or later) and read `AGENTS.md` if present, `handoff.md`, this file and each feature handoff.
+2. Confirm current CI on main. The three feature PRs are merged; do not reopen them or push new work to their branches.
+3. If a follow-up touches the session screen, keep both the visible action toolbar and the resizable/collapsible workspace
+   panel, and keep the terminal's size held while the panel is dragged. The regression coverage is
+   `web/tests/sessions.e2e.mjs`, `web/tests/session-workspace.e2e.mjs`, `web/tests/sessions-phone.e2e.mjs`,
+   `web/tests/terminal-workspace.e2e.mjs` and `web/tests/terminal-phone.e2e.mjs`.
+4. If a follow-up touches startup or backlog settings, keep `acp-start-options-v1` negotiated separately from
+   `acp-live-controls-v1` and keep `web/tests/launch-options.e2e.mjs` in terminal-browser CI.
+5. If a follow-up touches previews, keep `acp-previews-v1` separate from user uploads, keep the private snapshot bounds and
+   hash checks, and keep `web/tests/chat-previews.e2e.mjs` in terminal-browser CI.
+6. When opening a new PR, confirm `refs/pull/<n>/head` matches the pushed branch head and that the PR is `MERGEABLE`
+   before waiting on checks; reopen the PR or integrate main if workflows do not dispatch. Update the relevant handoff in
+   the same PR and never use the external comparison project's name in public messaging.
 
 ## Reproduction commands
 

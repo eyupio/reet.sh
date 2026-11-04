@@ -4,7 +4,7 @@
   import { gafferProgress, gafferQuote, observedTime, recentToolState, type GafferPhase } from '../gafferProgress'
   import { gafferSummary } from '../gafferSummary'
   import { GAFFER_SETTLE_MS, gafferAnimations, gafferCompact, gafferGestureMs } from '../gafferMotion'
-  import { GAFFER_AWAY_AFTER, gafferAside, gafferClickAside, gafferClickRun, gafferGesture, gafferPoke, gafferPose, type GafferPoke, type GafferPose, type GafferReaction } from '../gafferPersonality'
+  import { GAFFER_AWAY_AFTER, gafferAside, gafferClickAside, gafferClickRun, gafferGesture, gafferMayPerform, gafferPerformance, gafferPerformanceGap, gafferPoke, gafferPose, type GafferPoke, type GafferPose, type GafferReaction } from '../gafferPersonality'
   import GafferAvatar from './GafferAvatar.svelte'
 
   let { chat, sessionId = '', dir = '', agent = 'Agent', replayed = true, ended = false, sessionFailed = false, reattaching = false }: { chat: ChatState; sessionId?: string; dir?: string; agent?: string; replayed?: boolean; ended?: boolean; sessionFailed?: boolean; reattaching?: boolean } = $props()
@@ -34,22 +34,24 @@
   let welcomeTimer: ReturnType<typeof setTimeout> | undefined
   let gestureTimer: ReturnType<typeof setTimeout> | undefined, asideTimer: ReturnType<typeof setTimeout> | undefined
   let lastGestureAt = -Infinity, nextGestureAt = 0, gestureEndsAt = 0
+  let ambient = false
+  const recentPerformances: GafferReaction[] = []
   let clicks = $state({ count: 0, at: -Infinity }), clickAside = $state('')
   const miniQuote = $derived(clickAside || (summary ? handoverText : quote))
   // A nudge is answered by the pose he is already in; pokeKey restarts the acknowledgement even for the same kind twice.
   let pokeKind = $state<GafferPoke | ''>(''), pokeKey = $state(0)
 
-  function gesture(next: GafferReaction) {
+  function gesture(next: GafferReaction, background = false) {
     if (still) return
     clearTimeout(gestureTimer)
-    reaction = next; reactionKey++; lastGestureAt = Date.now()
+    reaction = next; reactionKey++; lastGestureAt = Date.now(); ambient = background
     const lifetime = gafferGestureMs(next) + GAFFER_SETTLE_MS
     gestureEndsAt = Date.now() + lifetime
-    nextGestureAt = gestureEndsAt + 18_000 + Math.random() * 14_000
-    gestureTimer = setTimeout(() => { reaction = ''; gestureEndsAt = 0 }, lifetime)
+    if (background) nextGestureAt = gestureEndsAt + gafferPerformanceGap(view.phase)
+    gestureTimer = setTimeout(() => { reaction = ''; gestureEndsAt = 0; ambient = false }, lifetime)
   }
   function stopGesture() {
-    clearTimeout(gestureTimer); gestureEndsAt = 0; reaction = ''
+    clearTimeout(gestureTimer); gestureEndsAt = 0; reaction = ''; ambient = false
   }
   function clearAside() {
     clearTimeout(asideTimer); clickAside = ''
@@ -102,10 +104,15 @@
       // Stream replay can briefly remove the prompt. Only a confirmed new prompt restarts the timer.
       if (confirmed && turn !== 'unavailable' && turn !== observedTurn) { observedTurn = turn; observedAt = 0; seconds = 0; details = false }
       if (phase !== lastPhase) {
-        cancelWelcome(); stopGesture(); clearAside()
+        cancelWelcome(); clearAside()
+        // The label changes immediately; an ordinary tool update can let a sip finish.
+        // Decisions and snags still cancel decoration before their status gesture.
+        const waking = reaction === 'rest-head' && phase !== 'idle' && phase !== 'ended'
+        const continuePerformance = ambient && gafferMayPerform(phase) && !waking
+        if (waking) nextGestureAt = Date.now() + gafferPerformanceGap(phase)
+        if (!continuePerformance) stopGesture()
         quote = gafferQuote(phase, agent, quote); lastPhase = phase; quoteAt = Date.now()
-        if (visible && (needsYou || phase === 'error' || Date.now() - lastGestureAt >= 5_000)) gesture(gafferGesture(phase))
-        else reaction = ''
+        if (!continuePerformance && visible && (needsYou || phase === 'error' || Date.now() - lastGestureAt >= 5_000)) gesture(gafferGesture(phase))
       }
       if (visible && view.active && !observedAt) observedAt = Date.now()
       // Never infer completion or a tea break while history is still replaying.
@@ -134,7 +141,7 @@
       if (document.hidden) return
       hidden = false
       if (awayAt && Date.now() - awayAt >= GAFFER_AWAY_AFTER) pendingReturn = true
-      awayAt = 0; nextGestureAt = Date.now() + 18_000
+      awayAt = 0; nextGestureAt = Date.now() + gafferPerformanceGap(view.phase)
       try { if (storageKey) sessionStorage.removeItem(storageKey) } catch { /* optional decoration */ }
     }
     const visibility = () => { if (document.hidden) leave(); else arrive() }
@@ -143,13 +150,17 @@
     document.addEventListener('visibilitychange', visibility)
     window.addEventListener('blur', leave); window.addEventListener('focus', arrive)
     window.addEventListener('pagehide', leave)
-    nextGestureAt = Date.now() + 18_000 + Math.random() * 14_000
+    nextGestureAt = Date.now() + gafferPerformanceGap(view.phase)
     const timer = setInterval(() => {
       if (view.visible && !stopped && observedAt) seconds = Math.floor((Date.now() - observedAt) / 1000)
       if (hidden || !view.visible) return
       // Banter and live facts continue when animation is disabled, including reduced motion.
       if (view.active && Date.now() - quoteAt >= 30_000) { quote = gafferQuote(view.phase, agent, quote); quoteAt = Date.now() }
-      if (!still && view.active && !welcomePose && Date.now() >= nextGestureAt) gesture(gafferGesture(view.phase))
+      if (!still && !reaction && !welcomePose && gafferMayPerform(view.phase) && Date.now() >= nextGestureAt) {
+        const next = gafferPerformance(view.phase, recentPerformances)
+        recentPerformances.unshift(next); recentPerformances.length = Math.min(recentPerformances.length, 10)
+        gesture(next, true)
+      }
     }, 1000)
     return () => {
       leave(); clearInterval(timer); cancelWelcome(); stopGesture(); clearAside()

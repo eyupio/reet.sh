@@ -2804,3 +2804,22 @@ content hashes, negotiation and production reply filtering. No live provider, ph
 
 [Desktop light](images/ui/agent-preview-desktop-light.png) · [Desktop dark](images/ui/agent-preview-desktop-dark.png) ·
 [Phone light](images/ui/agent-preview-phone-light.png) · [Phone dark](images/ui/agent-preview-phone-dark.png)
+
+
+## Gaffer foreground repertoire, 4 November 2026
+
+The periodic performance used to replay the current work-phase gesture. Tea was mostly visible after returning from an absent tab. Ambient performances now keep recent history across routine tool updates, avoid the last three choices and include a brew by the second performance, then at least once in six. Quiet intervals are 12–20 seconds during work and 22–30 seconds when stopped.
+
+Two additional compressed sprite sheets add a head scratch, chin rub, ear scratch, glances, nose twitch and a resting head. The reviewed scratch artwork removes duplicate lowered-arm fragments and keeps the marked sleeves white. A resting head is chosen only for idle/ended turns and wakes immediately for new work. None of these gestures changes session state, tool facts or the handover.
+
+Routine phase updates preserve an in-flight performance and its animation element. Questions, approvals, connection trouble, errors and cancellation take precedence immediately. Per-card pause, account animation preference, reduced motion and hidden-tab suspension remain effective. Paused and reduced-motion portraits use their neutral final frame.
+
+The clock-driven browser regression covers foreground tea, a tool update during a performance, completion during a brew, idle rest, immediate wake, approval interruption and reduced motion. Artwork checks cover all four frames of the six new performances in both themes, including transparent surrounds and the app's actual ink colours. The existing return, interaction, progress and minimised-card browser suites also pass.
+
+Reproduce these captures with `node web/tests/gaffer-variety-capture.mjs` after installing the web dependencies and FFmpeg.
+
+[Motion preview from the real components](images/ui/gaffer-ambient-performances.gif)
+
+![The actual repertoire in the dark theme](images/ui/gaffer-ambient-review-dark.png){ loading="lazy" }
+
+![The actual repertoire in the light theme](images/ui/gaffer-ambient-review-light.png){ loading="lazy" }

@@ -11,19 +11,25 @@
     { label: 'Biscuit inspection', reaction: 'biscuit', phase: 'working', pose: 'duty' },
     { label: 'Now then', reaction: 'shrug', phase: 'working', pose: 'duty' },
     { label: 'Steady on', reaction: 'huff', phase: 'working', pose: 'duty' },
+    { label: 'Head scratch', reaction: 'scratch-head', phase: 'working', pose: 'duty' },
+    { label: 'Chin rub', reaction: 'scratch-chin', phase: 'working', pose: 'duty' },
+    { label: 'Ear scratch', reaction: 'scratch-ear', phase: 'working', pose: 'duty' },
+    { label: 'Look around', reaction: 'look-around', phase: 'working', pose: 'duty' },
+    { label: 'Nose twitch', reaction: 'nose-twitch', phase: 'working', pose: 'duty' },
+    { label: 'Rest head', reaction: 'rest-head', phase: 'idle', pose: 'duty' },
   ]
   function select(next: string) {
-    phase = next.startsWith('Reading') ? 'reading' : next === 'Error' ? 'error' : next === 'Approval' ? 'approval' : 'working'
+    phase = next === 'Rest head' ? 'idle' : next.startsWith('Reading') ? 'reading' : next === 'Error' ? 'error' : next === 'Approval' ? 'approval' : 'working'
     // Intentionally conflicting decorations exercise status precedence in the avatar itself.
     pose = next === 'Tea' || next === 'Error' || next === 'Approval' ? 'tea' : 'duty'
-    reaction = next === 'Greeting' || next === 'Error' || next === 'Approval' ? 'tip-cap' : next === 'Reading' ? 'scan' : next === 'Reading nod' ? 'nod' : next === 'Reading ponder' ? 'ponder' : next === 'Tea' ? 'sip' : next === 'Biscuit' ? 'biscuit' : next === 'Shrug' ? 'shrug' : next === 'Steady on' ? 'huff' : ''
+    reaction = repertoire.find(item => item.label === next)?.reaction ?? (next === 'Greeting' || next === 'Error' || next === 'Approval' ? 'tip-cap' : next === 'Reading' ? 'scan' : next === 'Reading nod' ? 'nod' : next === 'Reading ponder' ? 'ponder' : next === 'Tea' ? 'sip' : next === 'Biscuit' ? 'biscuit' : next === 'Shrug' ? 'shrug' : next === 'Steady on' ? 'huff' : '')
     key++
   }
 </script>
 <main>
   <section aria-label="Grid portrait"><GafferAvatar {phase} {pose} {reaction} {paused} reactionKey={key} /></section>
   <section aria-label="Phosphor bust"><GafferAvatar variant="bust" {phase} {pose} {reaction} {paused} reactionKey={key} /></section>
-  <nav aria-label="Artwork states">{#each ['Rest', 'Greeting', 'Reading', 'Reading nod', 'Reading ponder', 'Tea', 'Biscuit', 'Shrug', 'Steady on', 'Error', 'Approval'] as state}<button onclick={() => select(state)}>{state}</button>{/each}</nav>
+  <nav aria-label="Artwork states">{#each ['Rest', 'Greeting', 'Reading', 'Reading nod', 'Reading ponder', 'Tea', 'Biscuit', 'Shrug', 'Steady on', 'Head scratch', 'Chin rub', 'Ear scratch', 'Look around', 'Nose twitch', 'Rest head', 'Error', 'Approval'] as state}<button onclick={() => select(state)}>{state}</button>{/each}</nav>
   <button onclick={() => paused = !paused}>{paused ? 'Resume' : 'Pause'}</button>
   <button onclick={() => gafferAnimations.update(value => !value)}>{$gafferAnimations ? 'Disable animation' : 'Enable animation'}</button>
   <div class="repertoire" aria-label="Gaffer’s motion repertoire">

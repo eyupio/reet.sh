@@ -5,6 +5,8 @@
   import phosphor from './gaffer-phosphor.webp'
   import gestures from './gaffer-gestures.webp'
   import expressions from './gaffer-expressions.webp'
+  import comfortSheet from './gaffer-comfort.webp'
+  import quietSheet from './gaffer-quiet.webp'
   import { GAFFER_TRANSITION_MS, gafferAnimations, gafferGestureMs } from '../gafferMotion'
   import type { GafferPhase } from '../gafferProgress'
   import type { GafferPose, GafferReaction } from '../gafferPersonality'
@@ -19,13 +21,17 @@
   // Requests and snags outrank decorative tea breaks and greetings, including in standalone uses.
   const concern = $derived(pose === 'concerned' || ['error', 'cancelled', 'connecting', 'reconnecting'].includes(phase))
   const attention = $derived(!concern && (pose === 'attention' || phase === 'approval' || phase === 'question'))
-  const scene = $derived(concern || attention || pose === 'asleep' ? variant : pose === 'tea' || reaction === 'sip' ? 'tea' : reaction === 'tip-cap' ? 'greeting' : reaction === 'biscuit' || reaction === 'shrug' || reaction === 'huff' ? reaction : phase === 'reading' && (!reaction || reaction === 'scan') ? 'reading' : variant)
+  const newPerformance = $derived(['scratch-head', 'scratch-chin', 'scratch-ear', 'look-around', 'nose-twitch', 'rest-head'].includes(reaction))
+  const scene = $derived(concern || attention || pose === 'asleep' ? variant : newPerformance ? reaction : pose === 'tea' || reaction === 'sip' ? 'tea' : reaction === 'tip-cap' ? 'greeting' : reaction === 'biscuit' || reaction === 'shrug' || reaction === 'huff' ? reaction : phase === 'reading' && (!reaction || reaction === 'scan') ? 'reading' : variant)
+  const comfort = $derived(['scratch-head', 'scratch-chin', 'scratch-ear'].includes(scene))
+  const quiet = $derived(['look-around', 'nose-twitch', 'rest-head'].includes(scene))
   const expressive = $derived(scene === 'biscuit' || scene === 'shrug' || scene === 'huff')
-  const sprite = $derived(expressive || scene === 'greeting' || scene === 'reading' || scene === 'tea')
-  const row = $derived(scene === 'reading' || scene === 'shrug' ? 1 : scene === 'tea' || scene === 'huff' ? 2 : 0)
-  const play = $derived(sprite && (expressive || scene === 'greeting' || scene === 'tea' || reaction === 'scan'))
+  const sprite = $derived(comfort || quiet || expressive || scene === 'greeting' || scene === 'reading' || scene === 'tea')
+  const row = $derived(comfort ? ['scratch-head', 'scratch-chin', 'scratch-ear'].indexOf(scene) : quiet ? ['look-around', 'nose-twitch', 'rest-head'].indexOf(scene) : scene === 'reading' || scene === 'shrug' ? 1 : scene === 'tea' || scene === 'huff' ? 2 : 0)
+  const sheet = $derived(comfort ? comfortSheet : quiet ? quietSheet : expressive ? expressions : gestures)
+  const play = $derived(sprite && (comfort || quiet || expressive || scene === 'greeting' || scene === 'tea' || reaction === 'scan'))
   const motion = $derived(scene === 'greeting' ? 'tip-cap' : scene === 'tea' ? 'sip' : scene === 'reading' ? 'scan' : expressive ? scene as GafferReaction : reaction)
-  const appearance = $derived({ key: `${phase}:${pose}:${reaction}:${reactionKey}:${variant}`, phase, pose, reaction, scene, expressive, sprite, row, play, concern, attention, duration: gafferGestureMs(motion) })
+  const appearance = $derived({ key: `${sprite ? scene : phase}:${pose}:${reaction}:${reactionKey}:${variant}`, phase, pose, reaction, scene, expressive, sprite, row, sheet, play, concern, attention, duration: gafferGestureMs(motion) })
   type Layer = typeof appearance & { entering: boolean; leaving: boolean; from: number; alternate: boolean }
   let layers = $state<Layer[]>([]), mounted = $state(false), reduced = $state(false), hidden = $state(false)
   const still = $derived(paused || !$gafferAnimations || reduced || hidden)
@@ -39,6 +45,10 @@
   $effect(() => {
     const next = appearance, instant = still || !mounted || concern || attention
     untrack(() => {
+      if (!instant && layers.at(-1)?.key === next.key) {
+        layers = layers.map(layer => layer.key === next.key ? { ...layer, ...next } : layer)
+        return
+      }
       clearTimeout(transitionTimer)
       if (instant || !layers.length || layers.at(-1)?.key === next.key) {
         layers = [{ ...next, entering: false, leaving: false, from: 1, alternate: false }]
@@ -52,7 +62,10 @@
       const keep = new Set([...previous].sort((a, b) => b.from - a.from).slice(0, 3).map(layer => layer.key))
       const returning = sceneNodes.get(next.key)
       layers = [...previous.filter(layer => keep.has(layer.key)), { ...next, entering: true, leaving: false, from: returning ? Number(getComputedStyle(returning).opacity) : 0, alternate: false }]
-      transitionTimer = setTimeout(() => { layers = [{ ...next, entering: false, leaving: false, from: 1, alternate: false }] }, GAFFER_TRANSITION_MS)
+      transitionTimer = setTimeout(() => {
+        const latest = layers.at(-1)
+        if (latest?.key === next.key) layers = [{ ...latest, entering: false, leaving: false, from: 1, alternate: false }]
+      }, GAFFER_TRANSITION_MS)
     })
   })
   onMount(() => {
@@ -68,6 +81,15 @@
     }
   })
   onDestroy(() => clearTimeout(transitionTimer))
+
+  let warmed = false
+  $effect(() => {
+    if (mounted && (active || phase === 'idle' || phase === 'ended') && !still && !warmed) {
+      warmed = true
+      // Warm active cards only, so their first new performance has no blank frame.
+      for (const source of [comfortSheet, quietSheet]) { const image = new Image(); image.fetchPriority = 'low'; image.src = source; void image.decode().catch(() => {}) }
+    }
+  })
 
   // A nudge is answered in whatever scene is already playing: a quick physical acknowledgement on a wrapper around every layer, so
   // the artwork, pose and gesture underneath are never swapped or interrupted. Translations only: a person flinches, nods and glances;
@@ -127,7 +149,7 @@
       {#if layer.sprite}
         <svg x={layer.expressive ? -9 : -7.6} y="2" width="76.8" height="68.266667" viewBox="0 0 384 341.333333" overflow="hidden">
           <g clip-path={`url(#${id}-frame)`}>
-            <image class="frames" class:play={layer.play} href={layer.expressive ? expressions : gestures} style:--gaffer-ink-filter={`url(#${id}-ink)`} style:--gaffer-paper-filter={`url(#${id}-paper-s)`} width="1536" height="1024" y={-layer.row * 1024 / 3} />
+            <image class="frames" class:play={layer.play} href={layer.sheet} style:--gaffer-ink-filter={`url(#${id}-ink)`} style:--gaffer-paper-filter={`url(#${id}-paper-s)`} width="1536" height="1024" y={-layer.row * 1024 / 3} />
           </g>
         </svg>
       {:else}
@@ -176,6 +198,7 @@
   /* Anticipation, action, a held expression, then settling; the last frame is a still resting pose. */
   .frames { transform: translateX(-1152px); }
   .frames.play { animation: gesture-frames var(--gaffer-gesture-duration) steps(1, end); }
+  .scene[data-reaction='rest-head'] .frames.play { animation-name: rest-frames; }
   .scene.performing .body { animation: bust-motion var(--gaffer-gesture-duration) cubic-bezier(.37, 0, .25, 1); }
   /* The sprite is the whole bust, shoulders included, so nothing here rotates it: a person nods, leans and glances, they do not
      tip over like a rigid board. Sleep is a slump. */
@@ -194,6 +217,7 @@
   @keyframes scene-out { from { opacity: var(--gaffer-fade-from); } to { opacity: 0; } }
   @keyframes scene-out-alternate { from { opacity: var(--gaffer-fade-from); } to { opacity: 0; } }
   @keyframes gesture-frames { 0%, 14% { transform: translateX(0); } 20% { transform: translateX(-384px); } 44% { transform: translateX(-768px); } 72%, 100% { transform: translateX(-1152px); } }
+  @keyframes rest-frames { 0%, 12% { transform: translateX(0); } 18% { transform: translateX(-384px); } 34%, 88% { transform: translateX(-768px); } 94%, 100% { transform: translateX(-1152px); } }
   @keyframes bust-motion { 0%, 100% { transform: none; } 12% { transform: translateY(.4px); } 38% { transform: translateY(-.4px); } 68% { transform: translateY(.3px); } 88% { transform: none; } }
   @keyframes ponder { 35%, 65% { transform: translate(-.8px, -1px); } }
   @keyframes scan { 25% { transform: translateX(-1px); } 65% { transform: translateX(1px); } }

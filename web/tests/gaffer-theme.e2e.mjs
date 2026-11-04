@@ -10,8 +10,8 @@ try {
   await page.goto(`${harness.url}/tests/fixtures/gaffer-artwork.html?theme=light`)
   const avatar = page.getByRole('region', { name: 'Phosphor bust' }).locator('.gaffer-avatar')
   const stableAvatar = await avatar.elementHandle()
-  async function inkPixels() {
-    return avatar.evaluate(async node => {
+  async function inkPixels(target = avatar) {
+    return target.evaluate(async node => {
       const bounds = node.getBoundingClientRect(), width = Math.round(bounds.width), height = Math.round(bounds.height)
       const clone = node.cloneNode(true)
       const source = [node, ...node.querySelectorAll('*')], target = [clone, ...clone.querySelectorAll('*')]
@@ -45,9 +45,10 @@ try {
     })
   }
   const palettes = []
+  const states = ['Rest', 'Greeting', 'Reading', 'Tea', 'Biscuit', 'Shrug', 'Steady on', 'Head scratch', 'Chin rub', 'Ear scratch', 'Look around', 'Nose twitch', 'Rest head']
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => { document.documentElement.dataset.theme = theme }, theme)
-    for (const state of ['Rest', 'Greeting', 'Reading', 'Tea', 'Biscuit', 'Shrug', 'Steady on']) {
+    for (const state of states) {
       await page.getByRole('button', { name: state, exact: true }).click()
       const pixels = await inkPixels()
       expect(pixels.topAlpha, `${theme}/${state}: no screen behind the drawing`).toBe(0)
@@ -56,7 +57,7 @@ try {
       palettes.push(pixels.ink)
     }
   }
-  expect(palettes[0]).not.toEqual(palettes[7])
+  expect(palettes[0]).not.toEqual(palettes[states.length])
   expect(await stableAvatar.evaluate(node => node.isConnected)).toBe(true)
   await page.evaluate(() => delete document.documentElement.dataset.theme)
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
@@ -73,6 +74,23 @@ try {
   const wrapper = await movingAvatar.elementHandle()
   const now = new Date()
   await moving.clock.install({ time: now }); await moving.clock.pauseAt(new Date(now.getTime() + 1000))
+  // Check the action frames as well as the neutral frame: raised sleeves and
+  // lowered heads must keep their ink, transparent surround and full silhouette.
+  for (const theme of ['light', 'dark']) {
+    await moving.evaluate(theme => { document.documentElement.dataset.theme = theme }, theme)
+    for (const state of ['Head scratch', 'Chin rub', 'Ear scratch', 'Look around', 'Nose twitch', 'Rest head']) {
+      await moving.getByRole('button', { name: state, exact: true }).click()
+      await moving.clock.fastForward(250)
+      const frames = movingAvatar.locator('.frames')
+      for (const fraction of [0, .25, .5, .99]) {
+        await frames.evaluate((node, fraction) => { const animation = node.getAnimations()[0]; animation.pause(); animation.currentTime = Number(animation.effect.getTiming().duration) * fraction }, fraction)
+        const pixels = await inkPixels(movingAvatar)
+        expect(pixels.topAlpha, `${theme}/${state}/${fraction}: no baked-in screen`).toBe(0)
+        expect(pixels.drawn, `${theme}/${state}/${fraction}: visible artwork`).toBeGreaterThan(500)
+        expect(pixels.fraction, `${theme}/${state}/${fraction}: app ink`).toBeGreaterThan(.98)
+      }
+    }
+  }
   await moving.getByRole('button', { name: 'Greeting', exact: true }).click()
   await expect(movingAvatar.locator('.scene.leaving')).toHaveCount(1)
   await expect(movingAvatar.locator('.scene:not(.leaving)')).toHaveCount(1)

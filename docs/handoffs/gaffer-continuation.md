@@ -180,3 +180,15 @@ REET_UI_URL=http://127.0.0.1:4173 node web/tests/start-agent.e2e.mjs
 
 `REET_UI_SCREENSHOTS` optionally selects any output directory you create. Browser fixtures mock APIs; pair their results
 with the backend tests above. Full production lifecycle commands are in `.github/workflows/terminal-browser.yml`.
+
+
+## Foreground animation variety follow-up
+
+Branch: `feat/gaffer-animation-variety`, 4 November 2026. The standalone workspace and screenshot refresh are merged through #541. This follow-up changes decorative Gaffer motion, not agent controls, previews, permissions or session lifecycle.
+
+- `gafferPersonality.ts` chooses ambient performances using recent history, guarantees a visible brew by the second performance and excludes decorative poses from requests and snags. `gafferMotion.ts` owns the durations.
+- `GafferProgress.svelte` keeps the ambient deadline independent of ordinary phase gestures and lets a performance finish through routine tool updates. New work wakes a resting head; decisions and problems interrupt immediately. The actual work labels, timer, quotes and handover remain independent.
+- `GafferAvatar.svelte` keeps the same animation element through non-urgent phase updates. The two new WebP sheets add scratches, glances, a nose twitch and resting head, with the user's arm/sleeve corrections. Only visible motion-enabled work/completed cards warm these assets; paused entry artwork does not.
+- `gaffer-variety.e2e.mjs` is included in the existing browser workflow. It drives the real component with a controlled clock and stream. The theme suite checks the four action frames of every new performance in both themes, in addition to prior blending, status-priority, pause and cleanup contracts.
+
+Local validation: unit suite and production build; the existing Gaffer artwork, theme, return, interaction, progress and minimised browser checks; the new foreground-rotation regression. Final-head GitHub checks and review remain the merge gate. The new preview and both theme sheets are linked from `docs/ui-verification.md`.

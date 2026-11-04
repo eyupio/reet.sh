@@ -97,17 +97,17 @@ func RunReport(opts ReportOptions) (Report, error) {
 		}
 		server = value
 	}
-	token := opts.Token
+	var cred *clientconfig.Credential
 	if !opts.DryRun {
 		tokenInput := input
 		if opts.ServerHost {
 			tokenInput = strings.NewReader("")
 		}
-		value, err := clientconfig.ResolveToken(token, opts.TokenFile, tokenInput, output)
+		resolved, err := clientconfig.NewCredential(opts.Token, opts.TokenFile, server, tokenInput, output)
 		if err != nil {
 			return r, err
 		}
-		token = value
+		cred = resolved
 	}
 	home, _ := os.UserHomeDir()
 	cwd := opts.Dir
@@ -131,25 +131,33 @@ func RunReport(opts ReportOptions) (Report, error) {
 			return r, errors.New("--reconcile requires --env NAME (or REET_ENV) so the preferred machine name is explicit")
 		}
 		body, _ := json.Marshal(map[string]string{"from": hostname, "to": host})
-		req, err := http.NewRequest(http.MethodPost, strings.TrimRight(server, "/")+"/api/v2/machines/merge", bytes.NewReader(body))
-		if err != nil {
-			return r, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Reet-Token", token)
-		resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-		if err != nil {
-			return r, err
-		}
-		if resp.StatusCode != http.StatusOK {
-			var result struct {
-				Error string `json:"error"`
+		err = clientconfig.Authorize(cred, func(token string) error {
+			req, err := http.NewRequest(http.MethodPost, strings.TrimRight(server, "/")+"/api/v2/machines/merge", bytes.NewReader(body))
+			if err != nil {
+				return err
 			}
-			_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result)
-			resp.Body.Close()
-			return r, fmt.Errorf("machine reconciliation failed (%s): %s", resp.Status, result.Error)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Reet-Token", token)
+			resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				var result struct {
+					Error string `json:"error"`
+				}
+				_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result)
+				if authErr := clientconfig.NewAuthError(resp.StatusCode, result.Error); authErr != nil {
+					return authErr
+				}
+				return fmt.Errorf("machine reconciliation failed (%s): %s", resp.Status, result.Error)
+			}
+			return nil
+		})
+		if err != nil {
+			return r, err
 		}
-		resp.Body.Close()
 		r.ReconciledFrom = hostname
 		if opts.OnReconciled != nil {
 			opts.OnReconciled(hostname, host)
@@ -169,26 +177,6 @@ func RunReport(opts ReportOptions) (Report, error) {
 		items[i] = item{f.Name, f.Source, f.Host, f.Agent, f.Project, f.Path}
 	}
 	body, _ := json.Marshal(map[string]any{"items": items, "environments": found.Envs, "prune": opts.Prune, "machine": map[string]any{"host": host, "os": runtime.GOOS, "arch": runtime.GOARCH, "version": opts.Version, "server": opts.ServerHost}})
-	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(server, "/")+"/api/import", bytes.NewReader(body))
-	if err != nil {
-		return r, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Reet-Source", "scan")
-	if token != "" {
-		req.Header.Set("X-Reet-Token", token)
-	}
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-	if err != nil {
-		return r, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusUnauthorized {
-			return r, errors.New("server replied 401 Unauthorized; use a personal API token from Account on the target server via REET_TOKEN, --env-file .env, or the interactive token prompt; delete a stale saved token with reet configure --forget-token")
-		}
-		return r, fmt.Errorf("server replied %s", resp.Status)
-	}
 	var res struct {
 		Imported int      `json:"imported"`
 		Created  int      `json:"created"`
@@ -197,8 +185,38 @@ func RunReport(opts ReportOptions) (Report, error) {
 		Errors   []string `json:"errors"`
 		User     string   `json:"user"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&res) != nil {
-		return r, errors.New("unreadable reply from server")
+	err := clientconfig.Authorize(cred, func(token string) error {
+		req, err := http.NewRequest(http.MethodPost, strings.TrimRight(server, "/")+"/api/import", bytes.NewReader(body))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Reet-Source", "scan")
+		if token != "" {
+			req.Header.Set("X-Reet-Token", token)
+		}
+		resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			var failure struct {
+				Error string `json:"error"`
+			}
+			_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&failure)
+			if authErr := clientconfig.NewAuthError(resp.StatusCode, failure.Error); authErr != nil {
+				return authErr
+			}
+			return fmt.Errorf("server replied %s", resp.Status)
+		}
+		if json.NewDecoder(resp.Body).Decode(&res) != nil {
+			return errors.New("unreadable reply from server")
+		}
+		return nil
+	})
+	if err != nil {
+		return r, err
 	}
 	r.Sent = true
 	r.Imported, r.Created, r.Ignored, r.Pruned, r.User, r.Errors = res.Imported, res.Created, res.Ignored, res.Pruned, res.User, res.Errors

@@ -42,8 +42,9 @@ race suites for preview extraction/protocol/cache/broker/API and the preview, Se
 option browser suites pass locally.
 
 The complete six backend package race suites pass for `internal/acpagent`, `internal/agenthealth`, `internal/terminalproto`,
-`internal/terminalbroker`, `internal/store` (158 s) and `internal/api` (330 s); `internal/terminalagent`'s model-listing
-tests fail identically on unmodified main in a constrained local shell and pass in the native service CI jobs.
+`internal/terminalbroker`, `internal/store` (158 s) and `internal/api` (330 s); `internal/terminalagent` passes too, and its four
+model-listing cases skip with a clear message when tmux is absent instead of failing on a request that never reaches a
+listing. They run in the native service CI jobs, which install tmux.
 No live paid-provider turn, physical phone, Safari or cross-platform release rollout was tested. Large images beyond the
 bounded ACP input/preview limits cannot be rendered. Expired/evicted snapshots require a fresh agent read or generation.
 

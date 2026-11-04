@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sync/atomic"
@@ -80,6 +81,17 @@ func waitModelsIdle(t *testing.T) {
 	}
 }
 
+// requireTmux skips a test whose request needs the host manager. The manager
+// cannot start without tmux, so without it the Models request answers "exited"
+// before any listing runs and the test would fail with a misleading message.
+// Continuous integration installs tmux, so these cases still run there.
+func requireTmux(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux is not installed, so the host manager cannot run a listing")
+	}
+}
+
 func TestModelsNeedsNegotiation(t *testing.T) {
 	replaceListModels(t, func(*terminalhost.Manager, context.Context, string) terminalproto.ModelsResult {
 		t.Fatal("ran without models-v1")
@@ -135,6 +147,7 @@ func TestModelsUnsupportedToolNeverRuns(t *testing.T) {
 }
 
 func TestModelsOneAtATime(t *testing.T) {
+	requireTmux(t)
 	waitModelsIdle(t)
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -167,6 +180,7 @@ func TestModelsOneAtATime(t *testing.T) {
 }
 
 func TestModelsFloorReturnsTheLastResult(t *testing.T) {
+	requireTmux(t)
 	original := modelListFloor
 	modelListFloor = 100 * time.Millisecond
 	t.Cleanup(func() { modelListFloor = original })
@@ -198,6 +212,7 @@ func TestModelsFloorReturnsTheLastResult(t *testing.T) {
 }
 
 func TestModelsReplyShapeAndOperation(t *testing.T) {
+	requireTmux(t)
 	var gotTool atomic.Value
 	replaceListModels(t, func(_ *terminalhost.Manager, _ context.Context, tool string) terminalproto.ModelsResult {
 		gotTool.Store(tool)
@@ -222,6 +237,7 @@ func TestModelsReplyShapeAndOperation(t *testing.T) {
 }
 
 func TestModelsLateRunAnswersTimedOut(t *testing.T) {
+	requireTmux(t)
 	waitModelsIdle(t)
 	original := modelsAnswerAfter
 	modelsAnswerAfter = 100 * time.Millisecond

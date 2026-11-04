@@ -104,11 +104,13 @@
       // Stream replay can briefly remove the prompt. Only a confirmed new prompt restarts the timer.
       if (confirmed && turn !== 'unavailable' && turn !== observedTurn) { observedTurn = turn; observedAt = 0; seconds = 0; details = false }
       if (phase !== lastPhase) {
-        cancelWelcome(); clearAside()
+        const keepWelcomeBrew = welcomePose === 'tea' && gafferMayPerform(phase)
+        if (!keepWelcomeBrew) cancelWelcome()
+        clearAside()
         // The label changes immediately; an ordinary tool update can let a sip finish.
         // Decisions and snags still cancel decoration before their status gesture.
         const waking = reaction === 'rest-head' && phase !== 'idle' && phase !== 'ended'
-        const continuePerformance = ambient && gafferMayPerform(phase) && !waking
+        const continuePerformance = keepWelcomeBrew || (ambient && gafferMayPerform(phase) && !waking)
         if (waking) nextGestureAt = Date.now() + gafferPerformanceGap(phase)
         if (!continuePerformance) stopGesture()
         quote = gafferQuote(phase, agent, quote); lastPhase = phase; quoteAt = Date.now()

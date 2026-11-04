@@ -41,4 +41,6 @@ the contextual direct action is labelled Terminal here so its purpose is distinc
 Desktop/tablet/phone light/dark screenshots are included under `docs/images/ui/session-actions-*.png`. Review and final-head
 CI remain authoritative; merge only when green. No inline findings were open at the latest check.
 The integrated head passes the full 23-dialog phone suite across six viewports, refreshed responsive controls checks
-and web check/build. The legacy Start an agent suite is running after the accessible-name fix.
+and web check/build. The legacy Start an agent suite also passes after the accessible-name fix. Full CI found two more continuation helpers
+in chat and chat-recovery that used the removed menu item; they now exercise the visible header action and check that
+the menu does not duplicate it. The complete chat/recovery browser suites are being rerun.

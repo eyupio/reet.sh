@@ -137,12 +137,13 @@ try {
   const rowLabel = page.locator('.session-row', { hasText: original.title }).locator('small')
   const gate = () => { let release; const held = new Promise(resolve => { release = resolve }); return { held, release } }
   const reset = (state = 'lost') => { row = { ...original, state }; next = null; failure = null; holdCreate = null; reattachMode = 'ok'; reattachHold = null; reattachCalls.length = 0; reattachBodies.length = 0; requests.length = 0 }
-  // The header menu offers Continue in Gaffer with history only where the chat cannot reconnect in place.
-  const continueItem = page.getByRole('menuitem', { name: /Continue in Gaffer with history/ })
-  const headerMenu = async present => {
+  // The header offers Continue with history directly only where the chat cannot reconnect in place.
+  const continueItem = page.locator('.session-screen .head').getByRole('button', { name: 'Continue with history', exact: true })
+  const headerContinue = async present => {
+    await expect(continueItem).toHaveCount(present ? 1 : 0)
     await page.locator('.session-screen').getByRole('button', { name: 'Session actions' }).click()
     await expect(page.getByRole('menuitem').first()).toBeVisible()
-    await expect(continueItem).toHaveCount(present ? 1 : 0)
+    await expect(page.getByRole('menuitem', { name: /Continue/ })).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(page.getByRole('menuitem')).toHaveCount(0)
   }
@@ -197,7 +198,7 @@ try {
     await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
     await expect(reconnecting).toBeVisible()
     await expect(rowLabel).toContainText('Reconnecting')
-    await headerMenu(false)
+    await headerContinue(false)
     held.release(); await expect(prompt).toBeEnabled() }
 
   // 3. Failure then retry: no automatic second call; Try again sends exactly one more.
@@ -210,7 +211,7 @@ try {
   await page.waitForTimeout(500)
   expect(reattachCalls).toHaveLength(1)
   expect(requests).toHaveLength(0)
-  await headerMenu(false)
+  await headerContinue(false)
   await tryAgain.click()
   await expect(prompt).toBeEnabled()
   await expect(note).toHaveCount(0)
@@ -261,7 +262,7 @@ try {
   await expect(note.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0)
   await expect(page.getByRole('alert')).toHaveCount(0)
   await expect(note).not.toContainText('Could not reconnect')
-  await headerMenu(true)
+  await headerContinue(true)
   await page.waitForTimeout(300)
   expect(reattachCalls).toHaveLength(1)
   expect(requests).toHaveLength(0)
@@ -292,7 +293,7 @@ try {
     await expect(note.getByRole('button', { name: 'Continue with history', exact: true })).toHaveCount(0)
     // The heading is said once, not again in the reason.
     await expect(note).toContainText('Could not reconnect.')
-    await headerMenu(false)
+    await headerContinue(false)
     expect(reattachCalls).toHaveLength(1)
   }
 
@@ -317,7 +318,7 @@ try {
   await expect(trustReconnect).toBeEnabled()
   const trusted = note.getByRole('button', { name: 'Continue with history', exact: true })
   await expect(trusted).toBeEnabled()
-  await headerMenu(true)
+  await headerContinue(true)
   expect(reattachCalls).toHaveLength(1)
   expect(reattachBodies).toEqual(['{}'])
   { const created = gate(); holdCreate = created.held
@@ -393,7 +394,7 @@ try {
   reset()
   await open()
   await expect(note.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0)
-  await headerMenu(true)
+  await headerContinue(true)
   const created = gate(); holdCreate = created.held
   await recover.click()
   await expect(banner).toContainText('Starting a new session…')

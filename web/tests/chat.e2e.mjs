@@ -912,8 +912,7 @@ try {
   // A chat that exited does not say who ended it (it may have stopped on its own or been ended by the person), only what can be done next.
   await expect(page.locator('.ended-note')).toContainText('This OpenCode chat has ended. What was already shown stays here.')
   await expect(page.locator('.ended-note').getByRole('button', { name: 'Continue with history', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Session actions' }).click()
-  await page.getByRole('menuitem', { name: /Continue in Gaffer with history/ }).click()
+  await page.locator('.session-screen .head').getByRole('button', { name: 'Continue with history', exact: true }).click()
   await expect.poll(() => state.resume).toMatchObject({ structured: true, trust: true, resumeAcp: closedSession.acpSessionId, dir: SITE })
   await page.waitForURL(new RegExp(`session=${S3}`))
   // A closed chat cannot switch: the menu offers no switch and the OpenCode TUI says why (on a wider screen, where the

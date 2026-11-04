@@ -112,7 +112,9 @@ func (r UploadResult) Validate() error {
 		return ErrInvalid
 	}
 	if r.Code == UploadOK {
-		if !strings.HasPrefix(r.Path, "/") || len(r.Path) > MaxUploadPathBytes || !plainText(r.Path, MaxUploadPathBytes) {
+		validPath := strings.HasPrefix(r.Path, "/") && len(r.Path) <= MaxUploadPathBytes &&
+			plainText(r.Path, MaxUploadPathBytes)
+		if !validPath {
 			return ErrInvalid
 		}
 	} else if r.Path != "" {
@@ -124,8 +126,9 @@ func (r UploadResult) Validate() error {
 // DecodeUploadResult decodes and validates the upload's final text frame.
 func DecodeUploadResult(data []byte) (UploadResult, error) {
 	var r UploadResult
-	if len(data) == 0 || len(data) > MaxControlBytes || !utf8.Valid(data) || !uniqueKeys(data) ||
-		strictJSON(data, &r) != nil || r.Validate() != nil {
+	validData := len(data) > 0 && len(data) <= MaxControlBytes && utf8.Valid(data)
+	validJSON := uniqueKeys(data) && strictJSON(data, &r) == nil && r.Validate() == nil
+	if !validData || !validJSON {
 		return UploadResult{}, ErrInvalid
 	}
 	return r, nil

@@ -46,7 +46,9 @@ func ValidPrompt(prompt string) bool { return validPrompt(prompt) }
 
 func validTools(tools []string, v2 bool) bool {
 	for i, tool := range tools {
-		if !(ValidTool(tool) || v2 && ValidToolV2(tool)) || i > 0 && tools[i-1] >= tool {
+		validTool := ValidTool(tool) || (v2 && ValidToolV2(tool))
+		ordered := i == 0 || tools[i-1] < tool
+		if !validTool || !ordered {
 			return false
 		}
 	}
@@ -60,7 +62,8 @@ func validModel(model string) bool {
 	for i := range model {
 		b := model[i]
 		alnum := b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
-		if !alnum && (i == 0 || !strings.ContainsRune("._:/@+-", rune(b))) {
+		allowedPunct := i > 0 && strings.ContainsRune("._:/@+-", rune(b))
+		if !alnum && !allowedPunct {
 			return false
 		}
 	}
@@ -68,7 +71,8 @@ func validModel(model string) bool {
 }
 
 func validDir(dir string) bool {
-	if !strings.HasPrefix(dir, "/") || len(dir) > MaxDirBytes || !utf8.ValidString(dir) {
+	valid := strings.HasPrefix(dir, "/") && len(dir) <= MaxDirBytes && utf8.ValidString(dir)
+	if !valid {
 		return false
 	}
 	for _, r := range dir {
@@ -80,7 +84,8 @@ func validDir(dir string) bool {
 }
 
 func validPrompt(prompt string) bool {
-	if prompt == "" || len(prompt) > MaxPromptBytes || !utf8.ValidString(prompt) || prompt[0] == '-' {
+	validLength := prompt != "" && len(prompt) <= MaxPromptBytes && utf8.ValidString(prompt)
+	if !validLength || prompt[0] == '-' {
 		return false
 	}
 	for _, r := range prompt {

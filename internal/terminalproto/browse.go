@@ -100,10 +100,14 @@ func (b Browse) valid() bool {
 // for inside, More only after at least one entry (its name is the next After),
 // and Omitted at most Scanned.
 func (r BrowseResult) coherent() bool {
-	if path.Clean(r.Path) != r.Path || path.Clean(r.Home) != r.Home || !pathWithin(r.Home, r.Path) {
+	cleanPaths := path.Clean(r.Path) == r.Path && path.Clean(r.Home) == r.Home
+	nested := pathWithin(r.Home, r.Path)
+	if !cleanPaths || !nested {
 		return false
 	}
-	if r.Path == r.Home && r.Parent != "" || r.Path != r.Home && r.Parent != path.Dir(r.Path) {
+	samePath := r.Path == r.Home
+	validParent := samePath && r.Parent == "" || !samePath && r.Parent == path.Dir(r.Path)
+	if !validParent {
 		return false
 	}
 	switch r.Repo {
@@ -112,7 +116,11 @@ func (r BrowseResult) coherent() bool {
 			return false
 		}
 	case BrowseRepoInside:
-		if r.RepoTop == r.Path || path.Clean(r.RepoTop) != r.RepoTop || !pathWithin(r.Home, r.RepoTop) || !pathWithin(r.RepoTop, r.Path) {
+		distinctPath := r.RepoTop != r.Path
+		cleanPath := path.Clean(r.RepoTop) == r.RepoTop
+		nested := pathWithin(r.Home, r.RepoTop) && pathWithin(r.RepoTop, r.Path)
+		valid := distinctPath && cleanPath && nested
+		if !valid {
 			return false
 		}
 	}
@@ -175,18 +183,26 @@ func (r BrowseResult) valid() bool {
 		return r.Reason.valid() && r.Path == "" && r.Home == "" && r.Parent == "" && r.Repo == "" && r.RepoTop == "" &&
 			len(r.Entries) == 0 && !r.More && !r.Partial && r.Scanned == 0 && r.Omitted == 0
 	}
-	if !validDir(r.Path) || !validDir(r.Home) || r.Parent != "" && !validDir(r.Parent) || !r.Repo.valid() || len(r.Entries) > MaxBrowseEntries ||
-		!validWorktreeCount(r.Scanned) || !validWorktreeCount(r.Omitted) {
+	validDirs := validDir(r.Path) && validDir(r.Home)
+	validParent := r.Parent == "" || validDir(r.Parent)
+	validRepo := r.Repo.valid()
+	validCounts := len(r.Entries) <= MaxBrowseEntries &&
+		validWorktreeCount(r.Scanned) && validWorktreeCount(r.Omitted)
+	valid := validDirs && validParent && validRepo && validCounts
+	if !valid {
 		return false
 	}
-	if (r.Repo == BrowseRepoNone) != (r.RepoTop == "") || r.RepoTop != "" && !validDir(r.RepoTop) {
+	paired := (r.Repo == BrowseRepoNone) == (r.RepoTop == "")
+	validTop := r.RepoTop == "" || validDir(r.RepoTop)
+	if !paired || !validTop {
 		return false
 	}
 	if !r.coherent() {
 		return false
 	}
 	for i, e := range r.Entries {
-		if !e.valid() || i > 0 && !BrowseNameLess(r.Entries[i-1].Name, e.Name) {
+		ordered := i == 0 || BrowseNameLess(r.Entries[i-1].Name, e.Name)
+		if !e.valid() || !ordered {
 			return false
 		}
 	}

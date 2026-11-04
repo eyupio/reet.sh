@@ -14,7 +14,11 @@ type StreamHello struct {
 }
 
 func (h StreamHello) Validate() error {
-	if h.Version != Version || !ValidID(h.RequestID) || !ValidID(h.SessionID) || !ValidID(h.AttachmentID) || !ValidCounter(h.Generation) || !ValidCounter(h.AttachmentGeneration) || !ValidID(h.Token) || h.Operation != "attach" && h.Operation != "history" && h.Operation != UploadOperation {
+	validIDs := ValidID(h.RequestID) && ValidID(h.SessionID) && ValidID(h.AttachmentID) && ValidID(h.Token)
+	validCounters := ValidCounter(h.Generation) && ValidCounter(h.AttachmentGeneration)
+	validOperation := h.Operation == "attach" || h.Operation == "history" || h.Operation == UploadOperation
+	valid := h.Version == Version && validIDs && validCounters && validOperation
+	if !valid {
 		return ErrInvalid
 	}
 	return nil
@@ -22,7 +26,9 @@ func (h StreamHello) Validate() error {
 
 func DecodeStreamHello(b []byte) (StreamHello, error) {
 	var h StreamHello
-	if len(b) > MaxControlBytes || !uniqueKeys(b) || strictJSON(b, &h) != nil || h.Validate() != nil {
+	validData := len(b) <= MaxControlBytes && uniqueKeys(b)
+	validBody := strictJSON(b, &h) == nil && h.Validate() == nil
+	if !validData || !validBody {
 		return h, ErrInvalid
 	}
 	return h, nil

@@ -38,7 +38,9 @@ func ValidInspectPath(p string) bool {
 	return p == "" || (plainText(p, 1024) && !strings.Contains(p, "\\") && !strings.Contains("/"+p+"/", "/.git/") && !strings.HasPrefix(p, "/") && p != ".." && !strings.HasPrefix(p, "../") && path.Clean(p) == p && p != ".git" && !strings.HasPrefix(p, ".git/"))
 }
 func (r Inspect) valid() bool {
-	if !validDir(r.Dir) || r.Dir == "" || !ValidInspectPath(r.Path) {
+	validDirName := r.Dir != "" && validDir(r.Dir)
+	validPath := ValidInspectPath(r.Path)
+	if !validDirName || !validPath {
 		return false
 	}
 	switch r.View {
@@ -104,20 +106,33 @@ func (r InspectResult) valid() bool {
 	default:
 		return false
 	}
-	if !validAttentionTime(r.CheckedAt) || !utf8.ValidString(r.Text) || len(r.Files) > 100 || r.Changed < 0 || r.Conflicts < 0 || r.Ahead < 0 || r.Behind < 0 || !plainText(r.Branch, 1024) {
+	validTime := validAttentionTime(r.CheckedAt) && utf8.ValidString(r.Text)
+	validCounts := len(r.Files) <= 100 && r.Changed >= 0 && r.Conflicts >= 0 && r.Ahead >= 0 && r.Behind >= 0
+	validBranch := plainText(r.Branch, 1024)
+	valid := validTime && validCounts && validBranch
+	if !valid {
 		return false
 	}
 	for _, f := range r.Files {
-		if !ValidInspectPath(f.Path) || f.Path == "" || !plainText(f.Status, 2) || f.Added < 0 || f.Removed < 0 {
+		validPath := ValidInspectPath(f.Path) && f.Path != ""
+		validText := plainText(f.Status, 2)
+		validCounts := f.Added >= 0 && f.Removed >= 0
+		valid := validPath && validText && validCounts
+		if !valid {
 			return false
 		}
 	}
 	if p := r.Pull; p != nil {
-		if p.Number <= 0 || p.Added < 0 || p.Removed < 0 || !plainText(p.Title, 400) || !plainText(p.URL, 2048) || !plainText(p.State, 40) || !plainText(p.Review, 80) || !plainText(p.Mergeable, 40) || len(p.Checks) > 40 {
+		validNumbers := p.Number > 0 && p.Added >= 0 && p.Removed >= 0
+		validText := plainText(p.Title, 400) && plainText(p.URL, 2048) && plainText(p.State, 40) &&
+			plainText(p.Review, 80) && plainText(p.Mergeable, 40)
+		valid := validNumbers && validText && len(p.Checks) <= 40
+		if !valid {
 			return false
 		}
 		for _, c := range p.Checks {
-			if !plainText(c.Name, 256) || !plainText(c.State, 80) || !plainText(c.URL, 2048) {
+			validText := plainText(c.Name, 256) && plainText(c.State, 80) && plainText(c.URL, 2048)
+			if !validText {
 				return false
 			}
 		}

@@ -92,8 +92,9 @@ func chatAdapter(tool string) string {
 }
 
 func (a ACPAgent) Valid() bool {
-	if !ValidToolV2(a.Tool) || !plainText(a.Adapter, 64) || a.Adapter == "" ||
-		!plainText(a.Version, 64) || !plainText(a.MinimumVersion, 64) {
+	validTool := ValidToolV2(a.Tool) && plainText(a.Adapter, 64) && a.Adapter != ""
+	validText := plainText(a.Version, 64) && plainText(a.MinimumVersion, 64)
+	if !validTool || !validText {
 		return false
 	}
 	switch a.State {
@@ -126,7 +127,11 @@ func validAgentOptions(options []ACPAgentOption) bool {
 	}
 	ids := map[string]bool{}
 	for _, option := range options {
-		if !validAgentOptionToken(option.ID) || ids[option.ID] || !validAgentOptionCategory(option.Category) || len(option.Values) == 0 || len(option.Values) > MaxACPAgentOptionValues {
+		validID := validAgentOptionToken(option.ID) && !ids[option.ID]
+		validCategory := validAgentOptionCategory(option.Category)
+		validValues := len(option.Values) >= 1 && len(option.Values) <= MaxACPAgentOptionValues
+		valid := validID && validCategory && validValues
+		if !valid {
 			return false
 		}
 		ids[option.ID] = true
@@ -167,7 +172,8 @@ func (c Capabilities) validACPAgents() bool {
 	if c.ACPAgents == nil {
 		return true
 	}
-	if !c.TerminalControl || !c.TerminalEnabled || len(*c.ACPAgents) > MaxACPAgents {
+	enabled := c.TerminalControl && c.TerminalEnabled
+	if !enabled || len(*c.ACPAgents) > MaxACPAgents {
 		return false
 	}
 	seen := map[string]bool{}
@@ -183,7 +189,17 @@ func (c Capabilities) validACPAgents() bool {
 					installed = true
 				}
 			}
-			if !c.ACP || !installed || a.History && !c.ACPHistory || a.Images && !c.ACPImages || a.Model && !c.ACPModel || a.Approval && !c.ACPApproval || a.Questions && !c.ACPQuestions || len(a.Modes) > 0 && !c.ACPAgentMode || len(a.Options) > 0 && !c.ACPAgentOptions {
+			validBase := c.ACP && installed
+			validHistory := !a.History || c.ACPHistory
+			validImages := !a.Images || c.ACPImages
+			validModel := !a.Model || c.ACPModel
+			validApproval := !a.Approval || c.ACPApproval
+			validQuestions := !a.Questions || c.ACPQuestions
+			validModes := len(a.Modes) == 0 || c.ACPAgentMode
+			validOptions := len(a.Options) == 0 || c.ACPAgentOptions
+			valid := validBase && validHistory && validImages && validModel &&
+				validApproval && validQuestions && validModes && validOptions
+			if !valid {
 				return false
 			}
 		}
@@ -200,7 +216,8 @@ func (c Capabilities) ChatAgent(tool string) (ACPAgent, bool) {
 	}
 	if c.ACPAgents != nil {
 		for _, a := range *c.ACPAgents {
-			if a.Tool == tool && a.State == "available" && a.Valid() {
+			matches := a.Tool == tool && a.State == "available"
+			if matches && a.Valid() {
 				return a, true
 			}
 		}

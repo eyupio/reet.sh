@@ -49,31 +49,45 @@ type CommandHistorySnapshot struct {
 }
 
 func ValidCommandText(text string) bool {
-	if !utf8.ValidString(text) || len(text) > MaxCommandBytes || strings.TrimSpace(text) == "" {
+	valid := utf8.ValidString(text) && len(text) <= MaxCommandBytes && strings.TrimSpace(text) != ""
+	if !valid {
 		return false
 	}
 	for _, r := range text {
-		if unicode.IsControl(r) && r != '\n' && r != '\r' && r != '\t' {
+		allowedWhitespace := r == '\n' || r == '\r' || r == '\t'
+		if unicode.IsControl(r) && !allowedWhitespace {
 			return false
 		}
 	}
 	return true
 }
 func (h CommandHistorySnapshot) Validate() error {
-	if h.Entries == nil || h.Sources == nil || len(h.Entries) > MaxCommandHistoryEntries || len(h.Sources) > 2 || h.Skipped < 0 || h.Skipped > 1<<20 {
+	validSlices := h.Entries != nil && h.Sources != nil
+	validCounts := len(h.Entries) <= MaxCommandHistoryEntries && len(h.Sources) <= 2
+	validSkipped := h.Skipped >= 0 && h.Skipped <= 1<<20
+	valid := validSlices && validCounts && validSkipped
+	if !valid {
 		return ErrInvalid
 	}
 	sources := map[string]bool{}
 	seen := map[string]bool{}
 	for _, source := range h.Sources {
-		if source.Source != "bash" && source.Source != "zsh" || seen[source.Source] || !plainText(source.Reason, 200) {
+		validSource := source.Source == "bash" || source.Source == "zsh"
+		uniqueSource := !seen[source.Source]
+		validReason := plainText(source.Reason, 200)
+		valid := validSource && uniqueSource && validReason
+		if !valid {
 			return ErrInvalid
 		}
 		seen[source.Source] = true
 		sources[source.Source] = source.Available
 	}
 	for _, entry := range h.Entries {
-		if !sources[entry.Source] || !ValidCommandText(entry.Command) || entry.Timestamp < 0 || entry.Timestamp > 253402300799999 {
+		knownSource := sources[entry.Source]
+		validCommand := ValidCommandText(entry.Command)
+		validTime := entry.Timestamp >= 0 && entry.Timestamp <= 253402300799999
+		valid := knownSource && validCommand && validTime
+		if !valid {
 			return ErrInvalid
 		}
 	}
@@ -91,7 +105,9 @@ func EncodeCommandHistory(h CommandHistorySnapshot) ([]byte, error) {
 }
 func DecodeCommandHistory(data []byte) (CommandHistorySnapshot, error) {
 	var h CommandHistorySnapshot
-	if len(data) == 0 || len(data) > MaxCommandHistoryBytes || !utf8.Valid(data) || !uniqueKeys(data) || strictJSON(data, &h) != nil || h.Validate() != nil {
+	validData := len(data) > 0 && len(data) <= MaxCommandHistoryBytes && utf8.Valid(data)
+	validJSON := uniqueKeys(data) && strictJSON(data, &h) == nil && h.Validate() == nil
+	if !validData || !validJSON {
 		return h, ErrInvalid
 	}
 	return h, nil

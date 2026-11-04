@@ -50,7 +50,9 @@ func plainText(s string, max int) bool {
 		return false
 	}
 	for _, c := range s {
-		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || c == '\u2028' || c == '\u2029' {
+		isControl := unicode.IsControl(c) || unicode.Is(unicode.Cf, c)
+		isSeparator := c == '\u2028' || c == '\u2029'
+		if isControl || isSeparator {
 			return false
 		}
 	}
@@ -218,43 +220,70 @@ func (c Capabilities) Validate() error {
 
 // ValidateFor validates capabilities against the features negotiated by the peer.
 func (c Capabilities) ValidateFor(features string) error {
-	if c.ACPPreviews && (!c.ACP || !SupportsACPPreviews(features)) {
+	validPreviews := c.ACP && SupportsACPPreviews(features)
+	if c.ACPPreviews && !validPreviews {
 		return ErrInvalid
 	}
-	if c.ACPStartOptions && (!SupportsACPStartOptions(features) || !c.ACPLiveControls) {
+	validStartOptions := SupportsACPStartOptions(features) && c.ACPLiveControls
+	if c.ACPStartOptions && !validStartOptions {
 		return ErrInvalid
 	}
 	if c.ACPLiveControls && !SupportsACPLiveControls(features) {
 		return ErrInvalid
 	}
-	if c.ACPAgents != nil && !SupportsACPAgents(features) || !c.validACPAgents() {
+	unsupported := c.ACPAgents != nil && !SupportsACPAgents(features)
+	if unsupported || !c.validACPAgents() {
 		return ErrInvalid
 	}
-	if (c.AgentsV2 || c.OSVersion != "") && !SupportsAgents(features) || !plainText(c.OSVersion, 128) {
+	needsAgents := c.AgentsV2 || c.OSVersion != ""
+	validOS := plainText(c.OSVersion, 128)
+	agentSupport := !needsAgents || SupportsAgents(features)
+	if !agentSupport || !validOS {
 		return ErrInvalid
 	}
-	if c.Launch && !c.TerminalControl || len(c.Tools) > 0 && !c.Launch || !validTools(c.Tools, SupportsAgents(features)) {
+	validLaunch := !c.Launch || c.TerminalControl
+	toolsNeedLaunch := len(c.Tools) == 0 || c.Launch
+	validToolList := validTools(c.Tools, SupportsAgents(features))
+	toolsValid := validLaunch && toolsNeedLaunch && validToolList
+	if !toolsValid {
 		return ErrInvalid
 	}
-	if c.Yolo && (!c.Launch || !c.AgentsV2 || !SupportsAgents(features)) {
+	yoloValid := !c.Yolo || (c.Launch && c.AgentsV2 && SupportsAgents(features))
+	if !yoloValid {
 		return ErrInvalid
 	}
 	if c.Resume && !c.Launch {
 		return ErrInvalid
 	}
-	if c.CommandHistory && !c.TerminalControl || c.Worktree && !c.Launch {
+	terminalRule := c.CommandHistory && !c.TerminalControl
+	worktreeRule := c.Worktree && !c.Launch
+	if terminalRule || worktreeRule {
 		return ErrInvalid
 	}
-	if c.Browse && !c.TerminalControl || c.Branches && !c.Worktree || c.BrowseOff && (c.Browse || !c.TerminalControl) || c.Clipboard && !c.TerminalControl {
+	needsTerminal := c.Browse || c.BrowseOff || c.Clipboard
+	browseConflict := c.BrowseOff && c.Browse
+	browseTerminalRule := needsTerminal && !c.TerminalControl
+	branchWorktreeRule := c.Branches && !c.Worktree
+	browseValid := !browseTerminalRule && !branchWorktreeRule && !browseConflict
+	if !browseValid {
 		return ErrInvalid
 	}
-	if c.Uploads && !c.TerminalControl || c.UploadsOff && (c.Uploads || !c.TerminalControl) {
+	uploadRule := c.Uploads && !c.TerminalControl
+	uploadOffRule := c.UploadsOff && (c.Uploads || !c.TerminalControl)
+	if uploadRule || uploadOffRule {
 		return ErrInvalid
 	}
-	if c.Models && !c.TerminalControl || c.ModelsOff && (c.Models || !c.TerminalControl) {
+	modelRule := c.Models && !c.TerminalControl
+	modelOffRule := c.ModelsOff && (c.Models || !c.TerminalControl)
+	if modelRule || modelOffRule {
 		return ErrInvalid
 	}
-	if c.ACP && !c.TerminalControl || c.ACPHistory && !c.ACP || c.ACPImages && !c.ACP || c.ACPApproval && !c.ACP || c.ACPQuestions && !c.ACP || c.ACPModel && !c.ACP || c.ACPLiveControls && !c.ACP || c.ACPAgentMode && !c.ACP || c.ACPAgentOptions && !c.ACP || c.Inspect && !c.TerminalControl || c.ShellDir && !c.TerminalControl || c.Attention && !c.TerminalControl {
+	acpExtras := c.ACPHistory || c.ACPImages || c.ACPApproval || c.ACPQuestions ||
+		c.ACPModel || c.ACPLiveControls || c.ACPAgentMode || c.ACPAgentOptions
+	needsTerminalForACP := c.ACP || c.Inspect || c.ShellDir || c.Attention
+	acpRule := acpExtras && !c.ACP
+	acpTerminalRule := needsTerminalForACP && !c.TerminalControl
+	if acpRule || acpTerminalRule {
 		return ErrInvalid
 	}
 	// A switch launches the tool in a terminal (launch-v1, which needs
@@ -266,16 +295,20 @@ func (c Capabilities) ValidateFor(features string) error {
 	if c.ChatReattach && !(c.ACP && c.ACPHistory) {
 		return ErrInvalid
 	}
-	if len(c.Software) > 0 && (!c.TerminalControl || !ValidSoftware(c.Software)) {
+	validSoftware := c.TerminalControl && ValidSoftware(c.Software)
+	if len(c.Software) > 0 && !validSoftware {
 		return ErrInvalid
 	}
 	if c.SoftwareApply && !c.TerminalControl {
 		return ErrInvalid
 	}
-	if c.ProtocolVersion < 1 || c.ProtocolVersion > 65535 || !plainText(c.OSUser, 128) || strings.TrimSpace(c.OSUser) == "" {
+	validVersion := c.ProtocolVersion >= 1 && c.ProtocolVersion <= 65535
+	validUser := plainText(c.OSUser, 128) && strings.TrimSpace(c.OSUser) != ""
+	if !validVersion || !validUser {
 		return ErrInvalid
 	}
-	if c.OS != "linux" && c.OS != "darwin" && c.OS != "windows" && c.OS != "unknown" {
+	knownOS := c.OS == "linux" || c.OS == "darwin" || c.OS == "windows" || c.OS == "unknown"
+	if !knownOS {
 		return ErrInvalid
 	}
 	switch c.Readiness {
@@ -283,10 +316,15 @@ func (c Capabilities) ValidateFor(features string) error {
 	default:
 		return ErrInvalid
 	}
-	if !c.TerminalEnabled && c.Readiness != DisabledLocally && c.Readiness != Unsupported {
+	notExplained := c.Readiness != DisabledLocally && c.Readiness != Unsupported
+	if !c.TerminalEnabled && notExplained {
 		return ErrInvalid
 	}
-	if c.Readiness == Ready && (c.ProtocolVersion != Version || c.OS != "linux" && c.OS != "darwin") {
+	ready := c.Readiness == Ready
+	readyVersion := c.ProtocolVersion == Version
+	readyOS := c.OS == "linux" || c.OS == "darwin"
+	readyValid := readyVersion && readyOS
+	if ready && !readyValid {
 		return ErrInvalid
 	}
 	return nil
@@ -345,7 +383,8 @@ func validExit(state SessionState, code *int) bool {
 }
 
 func validSnapshotAttention(s SessionSnapshot) bool {
-	if !validAttentionTime(s.ActivityAt) || !validAttentionTime(s.BellAt) || !validExit(s.State, s.ExitStatus) {
+	validTimes := validAttentionTime(s.ActivityAt) && validAttentionTime(s.BellAt)
+	if !validTimes || !validExit(s.State, s.ExitStatus) {
 		return false
 	}
 	return s.ExitCode == nil || s.ExitStatus == nil || *s.ExitCode == *s.ExitStatus
@@ -358,12 +397,17 @@ type Reconcile struct {
 
 func (Reconcile) kind() string { return "reconcile" }
 func (r Reconcile) valid() bool {
-	if len(r.Sessions) > 32 || !r.Complete && len(r.Sessions) != 0 {
+	partial := !r.Complete && len(r.Sessions) != 0
+	if len(r.Sessions) > 32 || partial {
 		return false
 	}
 	seen := map[string]bool{}
 	for _, s := range r.Sessions {
-		if !ValidID(s.ID) || !ValidTitle(s.Title) || !s.State.Valid() || !validExit(s.State, s.ExitCode) || !validSnapshotAttention(s) || s.ACPSessionID != "" && !ValidACPSessionID(s.ACPSessionID) || seen[s.ID] {
+		validSession := ValidID(s.ID) && ValidTitle(s.Title) && s.State.Valid() &&
+			validExit(s.State, s.ExitCode) && validSnapshotAttention(s)
+		validACP := s.ACPSessionID == "" || ValidACPSessionID(s.ACPSessionID)
+		valid := validSession && validACP && !seen[s.ID]
+		if !valid {
 			return false
 		}
 		seen[s.ID] = true
@@ -416,19 +460,27 @@ type Create struct {
 func (Create) kind() string  { return "create" }
 func (c Create) valid() bool { return c.Validate() == nil }
 func (c Create) Validate() error {
-	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) || !c.validLaunch() || !c.validWorktree() || c.Base != "" && (c.Worktree == "" || !validRefName(c.Base)) {
+	validIdentity := ValidTitle(c.Title) && ValidDimensions(c.Cols, c.Rows) &&
+		c.validLaunch() && c.validWorktree()
+	validBase := c.Base == "" || (c.Worktree != "" && validRefName(c.Base))
+	if !validIdentity || !validBase {
 		return ErrInvalid
 	}
-	if c.Structured && (!ReviewedChatTool(c.Tool) || c.Worktree != "" || c.Project != "" || c.Base != "" || c.Resume) {
+	structuredExtras := c.Worktree != "" || c.Project != "" || c.Base != "" || c.Resume
+	validChat := ReviewedChatTool(c.Tool) && !structuredExtras
+	if c.Structured && !validChat {
 		return ErrInvalid
 	}
 	if c.Trust && !c.Structured {
 		return ErrInvalid
 	}
-	if c.LaunchSession != "" && (!ValidACPSessionIDFor(c.Tool, c.LaunchSession) || c.Resume || c.Structured) {
+	validSession := ValidACPSessionIDFor(c.Tool, c.LaunchSession)
+	validLaunchSession := validSession && !c.Resume && !c.Structured
+	if c.LaunchSession != "" && !validLaunchSession {
 		return ErrInvalid
 	}
-	if c.ResumeACP != "" && (!c.Structured || !ValidACPSessionIDFor(c.Tool, c.ResumeACP)) {
+	validResume := c.Structured && ValidACPSessionIDFor(c.Tool, c.ResumeACP)
+	if c.ResumeACP != "" && !validResume {
 		return ErrInvalid
 	}
 	return nil
@@ -555,7 +607,8 @@ func (r Result) valid() bool {
 	if !r.Code.Valid() {
 		return false
 	}
-	if r.Reason != "" && (r.Code != WorktreeRefused || !r.Reason.Valid()) {
+	invalidReason := r.Code != WorktreeRefused || !r.Reason.Valid()
+	if r.Reason != "" && invalidReason {
 		return false
 	}
 	if r.Detail != "" {
@@ -594,33 +647,45 @@ type SessionChanged struct {
 
 func (SessionChanged) kind() string { return "session_changed" }
 func (s SessionChanged) valid() bool {
-	if (s.WorktreePath == "") != (s.WorktreeRepo == "") || s.WorktreePath != "" && (!validDir(s.WorktreePath) || !validRepoName(s.WorktreeRepo)) {
+	paired := (s.WorktreePath == "") == (s.WorktreeRepo == "")
+	validPair := s.WorktreePath == "" || (validDir(s.WorktreePath) && validRepoName(s.WorktreeRepo))
+	if !paired || !validPair {
 		return false
 	}
-	if !validAttentionTime(s.ActivityAt) || !validAttentionTime(s.BellAt) || !validExit(s.State, s.ExitStatus) {
+	validTimes := validAttentionTime(s.ActivityAt) && validAttentionTime(s.BellAt)
+	if !validTimes || !validExit(s.State, s.ExitStatus) {
 		return false
 	}
-	if s.ExitCode != nil && s.ExitStatus != nil && *s.ExitCode != *s.ExitStatus {
+	bothSet := s.ExitCode != nil && s.ExitStatus != nil
+	if bothSet && *s.ExitCode != *s.ExitStatus {
 		return false
 	}
 	return s.State.Valid() && validExit(s.State, s.ExitCode) && (s.ACPSessionID == "" || ValidACPSessionID(s.ACPSessionID))
 }
 
 func (m Message) Validate() error {
-	if m.Body == nil || reflect.ValueOf(m.Body).Kind() == reflect.Pointer && reflect.ValueOf(m.Body).IsNil() {
+	if m.Body == nil {
 		return ErrInvalid
 	}
-	if m.Version != Version || !ValidID(m.RequestID) || !ValidCounter(m.Generation) || !m.Body.valid() {
+	pointerNil := reflect.ValueOf(m.Body).Kind() == reflect.Pointer && reflect.ValueOf(m.Body).IsNil()
+	if pointerNil {
+		return ErrInvalid
+	}
+	validEnvelope := m.Version == Version && ValidID(m.RequestID) && ValidCounter(m.Generation)
+	if !validEnvelope || !m.Body.valid() {
 		return ErrInvalid
 	}
 	kind := m.Body.kind()
 	session := kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed" || kind == "upload" || kind == "acp_prompt" || kind == "acp_cancel" || kind == "acp_permission" || kind == "acp_question_answer" || kind == "acp_mode" || kind == "acp_agent_mode" || kind == "session_mode" || kind == "chat_reattach" || kind == "acp_model" || kind == "acp_event" || kind == "acp_control" || kind == "acp_control_result" || kind == "acp_preview" || kind == "acp_preview_result"
 	attachment := kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "history" || kind == "command_history" || kind == "upload" || kind == "result" && m.AttachmentID != ""
-	if session && !ValidID(m.SessionID) || !session && m.SessionID != "" && (kind != "result" || !ValidID(m.SessionID)) {
+	requiresSession := session && !ValidID(m.SessionID)
+	straySession := !session && m.SessionID != "" && (kind != "result" || !ValidID(m.SessionID))
+	if requiresSession || straySession {
 		return ErrInvalid
 	}
 	if attachment {
-		if !ValidID(m.SessionID) || !ValidID(m.AttachmentID) || !ValidCounter(m.AttachmentGeneration) {
+		valid := ValidID(m.SessionID) && ValidID(m.AttachmentID) && ValidCounter(m.AttachmentGeneration)
+		if !valid {
 			return ErrInvalid
 		}
 	} else if m.AttachmentID != "" || m.AttachmentGeneration != 0 {
@@ -644,11 +709,14 @@ func Encode(m Message) ([]byte, error) {
 	return b, nil
 }
 func Decode(data []byte) (Message, error) {
-	if len(data) == 0 || len(data) > MaxControlBytes || !utf8.Valid(data) || !uniqueKeys(data) {
+	validData := len(data) > 0 && len(data) <= MaxControlBytes && utf8.Valid(data)
+	if !validData || !uniqueKeys(data) {
 		return Message{}, ErrInvalid
 	}
 	var e envelope
-	if strictJSON(data, &e) != nil || len(e.Body) == 0 || bytes.Equal(bytes.TrimSpace(e.Body), []byte("null")) {
+	validJSON := strictJSON(data, &e) == nil
+	nonEmpty := len(e.Body) > 0 && !bytes.Equal(bytes.TrimSpace(e.Body), []byte("null"))
+	if !validJSON || !nonEmpty {
 		return Message{}, ErrInvalid
 	}
 	var b Body

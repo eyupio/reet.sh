@@ -80,7 +80,11 @@ func (c Create) validWorktree() bool {
 // ValidSlug accepts 1 to MaxSlugBytes of a-z and 0-9 in hyphen-separated
 // words: no dot, separator, leading, trailing or doubled hyphen.
 func ValidSlug(s string) bool {
-	if s == "" || len(s) > MaxSlugBytes || s[0] == '-' || s[len(s)-1] == '-' || strings.Contains(s, "--") {
+	if s == "" || len(s) > MaxSlugBytes {
+		return false
+	}
+	validEdges := s[0] != '-' && s[len(s)-1] != '-' && !strings.Contains(s, "--")
+	if !validEdges {
 		return false
 	}
 	for i := range s {
@@ -169,7 +173,10 @@ func ValidRunToken(s string) bool {
 // '.', '_' and '-', never "." or ".." and never a leading '-' (so git cannot
 // read it as an option).
 func validRepoName(s string) bool {
-	if s == "" || len(s) > 100 || s == "." || s == ".." || s[0] == '-' {
+	validLength := s != "" && len(s) <= 100
+	notReserved := s != "." && s != ".."
+	valid := validLength && notReserved && s[0] != '-'
+	if !valid {
 		return false
 	}
 	for i := range s {
@@ -231,11 +238,16 @@ type WorktreeState struct {
 
 func (WorktreeState) kind() string { return "worktree_state" }
 func (w WorktreeState) valid() bool {
-	if !validDir(w.Path) || !plainText(w.Branch, 255) || w.Branch == "" || !validWorktreeCount(w.Changed) || !validWorktreeCount(w.Unpushed) || !validWorktreeCount(w.Unreferenced) || !validWorktreeCount(w.Hidden) || len(w.Paths) > MaxWorktreePaths {
+	validText := validDir(w.Path) && plainText(w.Branch, 255) && w.Branch != ""
+	validCounts := validWorktreeCount(w.Changed) && validWorktreeCount(w.Unpushed) &&
+		validWorktreeCount(w.Unreferenced) && validWorktreeCount(w.Hidden)
+	valid := validText && validCounts && len(w.Paths) <= MaxWorktreePaths
+	if !valid {
 		return false
 	}
 	for _, p := range w.Paths {
-		if p == "" || len(p) > MaxWorktreePathBytes || !plainText(p, MaxWorktreePathBytes) {
+		valid := p != "" && len(p) <= MaxWorktreePathBytes && plainText(p, MaxWorktreePathBytes)
+		if !valid {
 			return false
 		}
 	}
@@ -257,7 +269,9 @@ type WorktreeResult struct {
 
 func (WorktreeResult) kind() string { return "worktree_result" }
 func (w WorktreeResult) valid() bool {
-	if (w.Path == "") != (w.Branch == "") || w.Path != "" && (w.Code != OK || !validDir(w.Path) || !plainText(w.Branch, 255)) {
+	paired := (w.Path == "") == (w.Branch == "")
+	validPair := w.Path == "" || (w.Code == OK && validDir(w.Path) && plainText(w.Branch, 255))
+	if !paired || !validPair {
 		return false
 	}
 	return Result{Code: w.Code, Reason: w.Reason, Detail: w.Detail}.valid()

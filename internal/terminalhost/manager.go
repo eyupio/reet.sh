@@ -156,7 +156,9 @@ func (m *Manager) Changed() <-chan struct{} { m.mu.Lock(); defer m.mu.Unlock(); 
 // Create persists intent before issuing tmux new-session, then persists its
 // receipt before returning. A retry is lookup/reconciliation, never recreation.
 func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in terminalproto.Create) (ManagedSession, error) {
-	if !terminalproto.ValidID(requestID) || !terminalproto.ValidID(sessionID) || in.Validate() != nil {
+	valid := terminalproto.ValidID(requestID) && terminalproto.ValidID(sessionID) &&
+		in.Validate() == nil
+	if !valid {
 		return ManagedSession{}, terminalproto.ErrInvalid
 	}
 	m.mu.Lock()
@@ -164,7 +166,8 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	if err := m.allowed(); err != nil {
 		return ManagedSession{}, err
 	}
-	if in.Yolo && (m.yoloConsent == nil || m.yoloConsent() != nil) {
+	consent := m.yoloConsent == nil || m.yoloConsent() != nil
+	if in.Yolo && consent {
 		return ManagedSession{}, ErrYoloRefused
 	}
 	lock, err := m.registryLock(ctx)
@@ -178,7 +181,8 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	}
 	key := receiptKey("create", requestID)
 	if op, ok := r.Operations[key]; ok {
-		if op.SessionID != sessionID || op.Create == nil || *op.Create != in {
+		sameRequest := op.SessionID == sessionID && op.Create != nil && *op.Create == in
+		if !sameRequest {
 			return ManagedSession{}, ErrOperationConflict
 		}
 		if err := m.reconcileLocked(ctx, &r); err != nil {
@@ -598,7 +602,8 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 			changed = true
 			if stateChanged {
 				for key, op := range r.Operations {
-					if op.SessionID == id && (op.Kind == "create" || !s.State.ReservesQuota()) {
+					keep := op.Kind == "create" || !s.State.ReservesQuota()
+					if op.SessionID == id && keep {
 						op.Complete = true
 						r.Operations[key] = op
 					}
@@ -680,7 +685,8 @@ func (m *Manager) Run(ctx context.Context) error {
 		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		err := m.Reconcile(probeCtx)
 		cancel()
-		if err != nil && !errors.Is(err, ErrNotRunning) && ctx.Err() == nil {
+		unexpected := err != nil && !errors.Is(err, ErrNotRunning)
+		if unexpected && ctx.Err() == nil {
 			_ = m.Close()
 			return err
 		}

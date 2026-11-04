@@ -64,7 +64,9 @@ func NewLayout(configPath string) (Layout, error) {
 		Dir: dir, Socket: filepath.Join(dir, "tmux.sock"),
 		Config: filepath.Join(dir, "tmux.conf"), Logs: filepath.Join(dir, "logs"),
 	}
-	if len(layout.Socket) > maxSocketPath || !filepath.IsAbs(layout.Socket) || filepath.Dir(layout.Socket) != dir {
+	valid := len(layout.Socket) <= maxSocketPath && filepath.IsAbs(layout.Socket) &&
+		filepath.Dir(layout.Socket) == dir
+	if !valid {
 		return Layout{}, fmt.Errorf("%w: socket path is too long (%d bytes, limit %d); move the agent configuration to a shorter directory", ErrUnsafePath, len(layout.Socket), maxSocketPath)
 	}
 	return layout, nil
@@ -186,7 +188,9 @@ func CheckEnrollmentConfig(path string) error {
 	if err != nil {
 		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+	valid := info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular() &&
+		info.Mode().Perm()&0077 == 0
+	if !valid {
 		return fmt.Errorf("%w: enrollment configuration must be a private regular file", ErrUnsafePath)
 	}
 	return ownedByCurrentUser(info)
@@ -207,7 +211,8 @@ func Check(layout Layout) error {
 		if err != nil {
 			return err
 		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+		valid := info.Mode()&os.ModeSymlink == 0 && info.IsDir() && info.Mode().Perm()&0077 == 0
+		if !valid {
 			return fmt.Errorf("%w: %s must be a private directory", ErrUnsafePath, dir)
 		}
 		if err := ownedByCurrentUser(info); err != nil {
@@ -218,7 +223,9 @@ func Check(layout Layout) error {
 	if err != nil {
 		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+	valid := info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular() &&
+		info.Mode().Perm()&0077 == 0
+	if !valid {
 		return fmt.Errorf("%w: %s must be a private regular file", ErrUnsafePath, layout.Config)
 	}
 	return ownedByCurrentUser(info)

@@ -308,7 +308,8 @@ func (m *Manager) checkUploadQuotaLocked(root, sessionID string, size int64) err
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() || !terminalproto.ValidID(name) {
+		valid := entry.Type()&os.ModeSymlink == 0 && entry.IsDir() && terminalproto.ValidID(name)
+		if !valid {
 			continue
 		}
 		_, bytes, err := uploadFolderUsage(filepath.Join(root, name))

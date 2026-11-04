@@ -49,7 +49,11 @@ type AttachOptions struct {
 }
 
 func (m *Manager) Attach(ctx context.Context, sessionID string, opts AttachOptions) (*Attachment, error) {
-	if !terminalproto.ValidID(opts.ID) || !terminalproto.ValidCounter(opts.Generation) || !terminalproto.ValidDimensions(opts.Cols, opts.Rows) || opts.Lease <= 0 || opts.Lease > 60*time.Second {
+	validIDs := terminalproto.ValidID(opts.ID) && terminalproto.ValidCounter(opts.Generation)
+	validDims := terminalproto.ValidDimensions(opts.Cols, opts.Rows)
+	validLease := opts.Lease > 0 && opts.Lease <= 60*time.Second
+	valid := validIDs && validDims && validLease
+	if !valid {
 		return nil, terminalproto.ErrInvalid
 	}
 	m.mu.Lock()
@@ -227,7 +231,8 @@ func (m *Manager) RenewAttachment(sessionID, attachmentID string, generation int
 		return err
 	}
 	a := m.attachments[sessionID]
-	if a == nil || a.ID != attachmentID || a.Generation != generation {
+	valid := a != nil && a.ID == attachmentID && a.Generation == generation
+	if !valid {
 		return ErrAttachmentStale
 	}
 	a.leaseMu.Lock()

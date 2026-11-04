@@ -155,7 +155,9 @@ func ResolveDir(home, dir string) (string, error) {
 		return "", launchUnavailable("folder is unavailable")
 	}
 	rel, err := filepath.Rel(realHome, resolved)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+	escaped := rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) ||
+		filepath.IsAbs(rel)
+	if err != nil || escaped {
 		return "", launchUnavailable("folder is outside home")
 	}
 	info, err := os.Stat(resolved)

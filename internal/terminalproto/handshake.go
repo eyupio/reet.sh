@@ -17,7 +17,9 @@ type Handshake struct {
 }
 
 func (h Handshake) Validate() error {
-	if h.ProtocolVersion != Version || !ValidID(h.RequestID) || !ValidID(h.AgentInstanceID) || h.Capabilities.Validate() != nil {
+	validIDs := ValidID(h.RequestID) && ValidID(h.AgentInstanceID)
+	valid := h.ProtocolVersion == Version && validIDs && h.Capabilities.Validate() == nil
+	if !valid {
 		return ErrInvalid
 	}
 	return nil
@@ -32,7 +34,8 @@ type HandshakeReply struct {
 }
 
 func (h HandshakeReply) Validate() error {
-	if h.ProtocolVersion != Version || !ValidID(h.RequestID) || !ValidCounter(h.Generation) {
+	valid := h.ProtocolVersion == Version && ValidID(h.RequestID) && ValidCounter(h.Generation)
+	if !valid {
 		return ErrInvalid
 	}
 	return nil
@@ -87,7 +90,8 @@ func encodeStrict(v any) ([]byte, error) {
 }
 
 func decodeStrict(data []byte, v any) error {
-	if len(data) == 0 || len(data) > MaxControlBytes || !utf8.Valid(data) || !uniqueKeys(data) {
+	validData := len(data) > 0 && len(data) <= MaxControlBytes && utf8.Valid(data)
+	if !validData || !uniqueKeys(data) {
 		return ErrInvalid
 	}
 	if strictJSON(data, v) != nil {

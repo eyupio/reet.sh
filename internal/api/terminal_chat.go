@@ -82,7 +82,8 @@ func (s *server) terminalChat(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-heartbeat.C:
 			u, ok := s.sessionUser(r)
-			if !ok || u.Role == "viewer" || !s.terminalEnabled() {
+			access := ok && u.Role != "viewer"
+			if !access || !s.terminalEnabled() {
 				return
 			}
 			_, _ = fmt.Fprint(w, ": keep-alive\n\n")

@@ -98,7 +98,8 @@ func (s *server) sessionBacklogSave(w http.ResponseWriter, r *http.Request) {
 	}
 	d := store.SessionDraft{ID: r.PathValue("id"), Title: strings.TrimSpace(in.Title), Prompt: in.Prompt, AgentID: in.AgentID, ProjectID: in.ProjectID, Dir: in.Dir, Tool: in.Tool, Model: strings.TrimSpace(in.Model), Effort: in.Effort, Idea: in.Idea, Yolo: in.Yolo, Worktree: in.Worktree, Base: strings.TrimSpace(in.Base), Chat: in.Chat, Trust: in.Trust, Images: in.Images, Version: in.Version}
 	bad := func(message string) { writeJSON(w, 422, map[string]string{"error": message}) }
-	if d.Idea && d.Title == "" && d.Prompt == "" {
+	emptyIdea := d.Title == "" && d.Prompt == ""
+	if d.Idea && emptyIdea {
 		bad("Give the idea a title or a note.")
 		return
 	}
@@ -106,7 +107,9 @@ func (s *server) sessionBacklogSave(w http.ResponseWriter, r *http.Request) {
 		bad("Use a session title of 1 to 80 plain characters.")
 		return
 	}
-	if !terminalproto.ValidToolV2(d.Tool) || !terminalproto.ValidEffort(d.Effort) || (d.Model != "" && !terminalproto.ValidModel(d.Model)) {
+	validTool := terminalproto.ValidToolV2(d.Tool) && terminalproto.ValidEffort(d.Effort)
+	validModel := d.Model == "" || terminalproto.ValidModel(d.Model)
+	if !validTool || !validModel {
 		bad("Choose a supported agent, model and effort.")
 		return
 	}
@@ -135,16 +138,21 @@ func (s *server) sessionBacklogSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if d.ProjectID != "" {
 		p, err := s.st.FolderProjectFor(s.uid(r), d.ProjectID)
-		if err != nil || p.Host != d.AgentID || p.Dir != d.Dir {
+		matches := err == nil && p.Host == d.AgentID && p.Dir == d.Dir
+		if !matches {
 			bad("Choose the project's own machine and folder.")
 			return
 		}
 	}
-	if d.Base != "" && !d.Worktree || d.Base != "" && !terminalproto.ValidRefName(d.Base) {
+	baseWithoutWorktree := d.Base != "" && !d.Worktree
+	invalidBase := d.Base != "" && !terminalproto.ValidRefName(d.Base)
+	if baseWithoutWorktree || invalidBase {
 		bad("Choose a base branch only with a worktree, and use a valid branch name.")
 		return
 	}
-	if d.Chat && d.Tool != "opencode" || d.Trust && !d.Chat {
+	chatTool := d.Chat && d.Tool != "opencode"
+	trustWithoutChat := d.Trust && !d.Chat
+	if chatTool || trustWithoutChat {
 		bad("Chat is only for OpenCode, and the plugin trust applies only to a chat.")
 		return
 	}
@@ -156,13 +164,18 @@ func (s *server) sessionBacklogSave(w http.ResponseWriter, r *http.Request) {
 	for _, im := range d.Images {
 		header, encoded, ok := strings.Cut(im.Data, ",")
 		mime := strings.TrimSuffix(strings.TrimPrefix(header, "data:"), ";base64")
-		if !ok || header != "data:"+mime+";base64" || (mime != "image/png" && mime != "image/jpeg" && mime != "image/gif" && mime != "image/webp") {
+		validMime := mime == "image/png" || mime == "image/jpeg" || mime == "image/gif" || mime == "image/webp"
+		validHeader := ok && header == "data:"+mime+";base64"
+		if !validHeader || !validMime {
 			bad("Attach PNG, JPEG, GIF or WebP images.")
 			return
 		}
 		data, err := base64.StdEncoding.DecodeString(encoded)
 		total += len(data)
-		if err != nil || len(data) == 0 || len(data) > 5<<20 || total > 10<<20 || http.DetectContentType(data) != mime || len(im.Name) > 255 {
+		validSize := len(data) > 0 && len(data) <= 5<<20 && total <= 10<<20
+		validMeta := http.DetectContentType(data) == mime && len(im.Name) <= 255
+		validImage := validSize && validMeta
+		if err != nil || !validImage {
 			bad("Images must match their type, be at most 5 MB each and 10 MB together.")
 			return
 		}
@@ -227,7 +240,9 @@ func (s *server) sessionBacklogStart(w http.ResponseWriter, r *http.Request) {
 	// The worktree slug is resolved once and frozen with the prompt; a retry
 	// must not re-read a project that was renamed or changed since.
 	wtProject := ""
-	if curErr == nil && cur.Worktree && !cur.Chat && cur.ProjectID != "" {
+	worktreeProject := curErr == nil && cur.Worktree
+	hasChatProject := !cur.Chat && cur.ProjectID != ""
+	if worktreeProject && hasChatProject {
 		if p, err := s.st.FolderProjectFor(s.uid(r), cur.ProjectID); err == nil && p.IsRepo {
 			wtProject = terminalproto.Slug(p.Name, "project")
 		}

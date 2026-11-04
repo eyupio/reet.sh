@@ -272,7 +272,8 @@ func (s *Store) AddTicketMessage(ticketID, authorID int64, authorKind, author, b
 	if err != nil {
 		return Ticket{}, TicketMessage{}, err
 	}
-	if authorKind != "user" && authorKind != "team" && authorKind != "admin" {
+	validAuthor := authorKind == "user" || authorKind == "team" || authorKind == "admin"
+	if !validAuthor {
 		return Ticket{}, TicketMessage{}, errors.New("a message is from the requester, a team manager or an administrator")
 	}
 	if internal && authorKind != "admin" {
@@ -346,7 +347,10 @@ func (s *Store) AssignTicket(ticketID, assigneeID int64) error {
 		var role string
 		var disabled int64
 		err := s.db.QueryRow(`SELECT role,disabled_at FROM users WHERE id=?`, assigneeID).Scan(&role, &disabled)
-		if errors.Is(err, sql.ErrNoRows) || (err == nil && (disabled != 0 || (role != "owner" && role != "admin"))) {
+		missing := errors.Is(err, sql.ErrNoRows)
+		validRole := role == "owner" || role == "admin"
+		inactive := err == nil && (disabled != 0 || !validRole)
+		if missing || inactive {
 			return errors.New("assign a ticket to an active instance administrator")
 		}
 		if err != nil {

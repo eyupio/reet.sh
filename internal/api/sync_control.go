@@ -83,7 +83,8 @@ func (s *server) reconcileDesired(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		for _, env := range envs {
-			if env.ID == in.TargetID && env.Complete && env.ScannedAt > time.Now().Add(-14*24*time.Hour).UnixMilli() {
+			matching := env.ID == in.TargetID && env.Complete
+			if matching && env.ScannedAt > time.Now().Add(-14*24*time.Hour).UnixMilli() {
 				skills, conflicts := store.ReconcileSkills(target.Baseline, target.Desired, env.Skills)
 				writeJSON(w, 200, map[string]any{"skills": skills, "conflicts": conflicts, "revision": target.Revision})
 				return
@@ -213,7 +214,8 @@ func (s *server) syncIdentity(w http.ResponseWriter, r *http.Request) {
 const autoUpdateCooldown = time.Hour
 
 func (s *server) maybeAutoUpdateAgent(r *http.Request, a store.SyncAgent) {
-	if s.releases == nil || !a.AutoUpdate || a.Paused {
+	unavailable := !a.AutoUpdate || a.Paused
+	if s.releases == nil || unavailable {
 		return
 	}
 	target, update := agentupdate.UpdateTarget(a.Version, a.Commit, s.releases.Info(r.Context()))

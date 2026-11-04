@@ -173,7 +173,9 @@ func (s *server) browsePage(uid int64, agent, nonce, start string) {
 func (s *server) sameOriginRead(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		site := r.Header.Get("Sec-Fetch-Site")
-		if site != "" && site != "same-origin" || r.Header.Get("Origin") != "" && !s.terminalOrigin(r) {
+		foreignSite := site != "" && site != "same-origin"
+		foreignOrigin := r.Header.Get("Origin") != "" && !s.terminalOrigin(r)
+		if foreignSite || foreignOrigin {
 			writeErrCode(w, http.StatusForbidden, "origin_refused", "", "That request didn't come from this reet's own address.", "")
 			return
 		}
@@ -216,7 +218,8 @@ func (s *server) machineBrowse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agent, nonce := r.PathValue("agentId"), q.Get("session")
-	if !terminalproto.ValidID(nonce) || !terminalproto.ValidID(agent) || terminalbroker.CheckBrowse(req) != nil {
+	validIDs := terminalproto.ValidID(nonce) && terminalproto.ValidID(agent)
+	if !validIDs || terminalbroker.CheckBrowse(req) != nil {
 		terminalError(w, terminalproto.ErrInvalid)
 		return
 	}

@@ -375,7 +375,8 @@ func ifMatch(r *http.Request) (int64, bool) {
 	if raw == "" {
 		return 0, true
 	}
-	if len(raw) >= 2 && raw[0] == '"' && raw[len(raw)-1] == '"' {
+	quoted := len(raw) >= 2 && raw[0] == '"' && raw[len(raw)-1] == '"'
+	if quoted {
 		raw = raw[1 : len(raw)-1]
 	}
 	v, err := strconv.ParseInt(raw, 10, 64)

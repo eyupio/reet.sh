@@ -63,7 +63,8 @@ func (s *server) newSoftwareRuns() *softwarerun.Orchestrator {
 // is the generation the plan was made from; zero accepts the latest.
 func (s *server) recordSoftwareEntry(uid int64, agentID string, expectGeneration int64, entry terminalproto.SoftwareEntry) {
 	latest, err := s.st.RemoteCapabilitiesFor(uid, agentID)
-	if err != nil || expectGeneration != 0 && latest.Generation != expectGeneration {
+	stale := expectGeneration != 0 && latest.Generation != expectGeneration
+	if err != nil || stale {
 		return
 	}
 	merged := latest.Capabilities
@@ -472,7 +473,8 @@ func (s *server) machineSoftwarePlan(w http.ResponseWriter, r *http.Request) {
 	running := 0
 	if sessions, err := s.st.TerminalSessionsFor(uid); err == nil {
 		for _, session := range sessions {
-			if session.AgentID == agentID && session.Tool == tool && session.State.ReservesQuota() {
+			belongs := session.AgentID == agentID && session.Tool == tool
+			if belongs && session.State.ReservesQuota() {
 				running++
 			}
 		}
@@ -515,7 +517,9 @@ func (s *server) machineSoftwareApply(w http.ResponseWriter, r *http.Request) {
 		tool = agentsoftware.OpenCodeTool
 	}
 	action := agentsoftware.Action(strings.TrimSpace(in.Action))
-	if action != agentsoftware.Install && action != agentsoftware.Update && action != agentsoftware.Rollback && action != agentsoftware.Remove {
+	validAction := action == agentsoftware.Install || action == agentsoftware.Update ||
+		action == agentsoftware.Rollback || action == agentsoftware.Remove
+	if !validAction {
 		writeErrCode(w, http.StatusBadRequest, "software_action_invalid", "", "Choose install, update, rollback or remove.", "")
 		return
 	}
@@ -570,7 +574,8 @@ func (s *server) machineSoftwareApply(w http.ResponseWriter, r *http.Request) {
 	running := 0
 	if sessions, err := s.st.TerminalSessionsFor(uid); err == nil {
 		for _, session := range sessions {
-			if session.AgentID == agentID && session.Tool == tool && session.State.ReservesQuota() {
+			belongs := session.AgentID == agentID && session.Tool == tool
+			if belongs && session.State.ReservesQuota() {
 				running++
 			}
 		}
@@ -734,7 +739,8 @@ type fleetSoftwareEvidence struct {
 }
 
 func evidenceOf(entry terminalproto.SoftwareEntry) *fleetSoftwareEvidence {
-	if entry.Reason == "" && entry.Manager == "" && entry.Path == "" {
+	unknown := entry.Reason == "" && entry.Manager == "" && entry.Path == ""
+	if unknown {
 		return nil
 	}
 	return &fleetSoftwareEvidence{Reason: string(entry.Reason), Manager: entry.Manager, Path: entry.Path}

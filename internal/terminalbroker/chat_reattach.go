@@ -118,9 +118,11 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string, tr
 	}
 	// An archived chat's transcript is gone: say so before the ended checks,
 	// whose answer offers a Continue with history there is nothing for.
-	if archived, err := b.st.TerminalArchivedFor(uid, session); err != nil {
+	archived, err := b.st.TerminalArchivedFor(uid, session)
+	if err != nil {
 		return err
-	} else if archived {
+	}
+	if archived {
 		return ErrReattachArchived
 	}
 	switch s.State {
@@ -134,9 +136,11 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string, tr
 	// A person asked to end it. Rows ended before ended chats were recorded
 	// as ended are stored exited, or lost when the machine went away before
 	// it answered; the end operation refuses them all the same.
-	if ended, err := b.st.TerminalEndRequestedFor(uid, s.AgentID, session); err != nil {
+	ended, err := b.st.TerminalEndRequestedFor(uid, s.AgentID, session)
+	if err != nil {
 		return err
-	} else if ended {
+	}
+	if ended {
 		return ErrACPClosed
 	}
 	if !terminalproto.ValidACPSessionIDFor(s.Tool, s.ACPSessionID) {

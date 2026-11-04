@@ -93,9 +93,11 @@ func installPrivateSkill(server, token string, skill store.SyncSkill, targetPath
 	// The caller has already backed up a reviewed replacement. Refuse a new
 	// entry that appeared while downloading; never merge into an existing tree.
 	destination := filepath.Join(targetPath, skill.Slug)
-	if _, err = os.Lstat(destination); err == nil {
+	_, err = os.Lstat(destination)
+	if err == nil {
 		return errors.New("local skill appeared during transfer; preview again")
-	} else if !os.IsNotExist(err) {
+	}
+	if !os.IsNotExist(err) {
 		return err
 	}
 	return os.Rename(staging, destination)

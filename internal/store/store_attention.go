@@ -75,7 +75,7 @@ func AttentionState(s Session, now time.Time) (state, source string) {
 	}
 	switch s.State {
 	case terminalproto.Creating:
-		if !s.AttentionObserved && s.ActivityAt == 0 && s.BellAt == 0 && !s.Structured {
+		if s.hasNoAttention() {
 			return "", ""
 		}
 		return "starting", src
@@ -91,7 +91,8 @@ func AttentionState(s Session, now time.Time) (state, source string) {
 			}
 			return "quiet", src
 		}
-		if s.AttentionObserved || s.BellAt > 0 || s.Structured {
+		hasQuietSignal := s.AttentionObserved || s.BellAt > 0 || s.Structured
+		if hasQuietSignal {
 			return "quiet", src
 		}
 		return "", ""
@@ -102,12 +103,13 @@ func AttentionState(s Session, now time.Time) (state, source string) {
 			}
 			return "failed", src
 		}
-		if s.AttentionObserved || s.ActivityAt > 0 || s.BellAt > 0 {
+		hasActivity := s.AttentionObserved || s.ActivityAt > 0 || s.BellAt > 0
+		if hasActivity {
 			return "finished", src
 		}
 		return "", ""
 	case terminalproto.Lost:
-		if s.AttentionObserved || s.ActivityAt > 0 || s.BellAt > 0 || s.Structured {
+		if !s.hasNoAttention() {
 			return "failed", src
 		}
 		return "", ""
@@ -116,11 +118,17 @@ func AttentionState(s Session, now time.Time) (state, source string) {
 	}
 }
 
+func (s Session) hasNoAttention() bool {
+	unobserved := !s.AttentionObserved && s.ActivityAt == 0
+	quiet := s.BellAt == 0 && !s.Structured
+	return unobserved && quiet
+}
+
 func changedSinceSeen(s Session) bool {
 	if s.NoAttention {
 		return false
 	}
-	if !s.AttentionObserved && s.ActivityAt == 0 && s.BellAt == 0 && !s.Structured {
+	if s.hasNoAttention() {
 		return false
 	}
 	seen := attentionMillis(s.SeenAt)
@@ -137,7 +145,8 @@ func changedSinceSeen(s Session) bool {
 // ObserveTerminalAttentionFor records pane activity and bell timestamps from an
 // attention-v1 peer for the active generation.
 func (s *Store) ObserveTerminalAttentionFor(uid int64, agentID, sessionID string, generation, activityAt, bellAt int64) error {
-	if !terminalproto.ValidID(sessionID) || activityAt < 0 || bellAt < 0 {
+	negativeTime := activityAt < 0 || bellAt < 0
+	if !terminalproto.ValidID(sessionID) || negativeTime {
 		return terminalproto.ErrInvalid
 	}
 	actMs := attentionMillis(activityAt)
@@ -162,7 +171,8 @@ func (s *Store) ObserveTerminalAttentionFor(uid int64, agentID, sessionID string
 // SetTerminalChatAttentionFor records the current activity, waiting, completion and status
 // of a structured chat session without advancing updated_at.
 func (s *Store) SetTerminalChatAttentionFor(uid int64, sessionID string, activityAt, bellAt int64, chatStatus string, completedAt int64) error {
-	if !terminalproto.ValidID(sessionID) || activityAt < 0 || bellAt < 0 || completedAt < 0 {
+	negativeTime := activityAt < 0 || bellAt < 0 || completedAt < 0
+	if !terminalproto.ValidID(sessionID) || negativeTime {
 		return terminalproto.ErrInvalid
 	}
 	actMs := attentionMillis(activityAt)
@@ -222,7 +232,7 @@ func (s *Store) populateAttention(uid int64, item *TerminalSession, nowTime time
 	if seen, err := s.SessionSeenFor(uid, item.ID); err == nil {
 		item.SeenAt = seen
 	}
-	if !item.AttentionObserved && item.ActivityAt == 0 && item.BellAt == 0 && !item.Structured {
+	if item.hasNoAttention() {
 		item.NoAttention = true
 		return
 	}

@@ -291,7 +291,7 @@ func extractSemver(raw string) (semver, bool) {
 }
 
 func (v semver) compare(other semver) int {
-	for i := 0; i < 3; i++ {
+	for i := range v.parts {
 		if v.parts[i] < other.parts[i] {
 			return -1
 		}

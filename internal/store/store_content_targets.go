@@ -119,7 +119,13 @@ func (s *Store) SkillContentTargetFor(uid int64, id string) (out SkillContentTar
 	return
 }
 func (s *Store) SaveSkillContentTargetFor(uid int64, in SkillContentTargetWrite) (out SkillContentTarget, err error) {
-	if in.ExpectedVersion == nil || (*in.ExpectedVersion != "" && !contentobs.ValidID(*in.ExpectedVersion)) || !contentobs.ValidID(in.AgentID) || in.EnvironmentID == "" || !contentobs.ValidText(in.EnvironmentID, 2048) || !PrivateSkillIDValid(in.BundleID) || !PrivateSkillIDValid(in.RevisionID) || (in.Mode != "additive" && in.Mode != "managed") {
+	expectedOK := in.ExpectedVersion != nil &&
+		(*in.ExpectedVersion == "" || contentobs.ValidID(*in.ExpectedVersion))
+	environmentOK := in.EnvironmentID != "" && contentobs.ValidText(in.EnvironmentID, 2048)
+	bundleOK := PrivateSkillIDValid(in.BundleID) && PrivateSkillIDValid(in.RevisionID)
+	modeOK := in.Mode == "additive" || in.Mode == "managed"
+	targetOK := contentobs.ValidID(in.AgentID) && environmentOK && bundleOK && modeOK
+	if !expectedOK || !targetOK {
 		return out, ErrSkillContentTargetInvalid
 	}
 	err = s.withTx(func(tx *sql.Tx) error {
@@ -151,11 +157,14 @@ func (s *Store) SaveSkillContentTargetFor(uid int64, in SkillContentTargetWrite)
 		// Repeating a lost-response write can read back the identical current intent,
 		// without rewinding a newer selection. Creation has no historical receipt;
 		// clients reconcile uncertain replies with GET rather than blindly replaying.
-		if exists && current.AgentID == in.AgentID && current.BundleID == in.BundleID && current.RevisionID == in.RevisionID && current.Mode == in.Mode {
+		sameSelection := current.AgentID == in.AgentID && current.BundleID == in.BundleID &&
+			current.RevisionID == in.RevisionID && current.Mode == in.Mode
+		if exists && sameSelection {
 			out = current
 			return nil
 		}
-		if (exists && current.Version != *in.ExpectedVersion) || (!exists && *in.ExpectedVersion != "") {
+		versionMatches := (!exists && *in.ExpectedVersion == "") || (exists && current.Version == *in.ExpectedVersion)
+		if !versionMatches {
 			return ErrSkillContentTargetConflict
 		}
 		id := current.ID
@@ -190,7 +199,11 @@ func reportedPinScope(tx *sql.Tx, uid int64, environmentID, agentID string) (age
 	if err != nil {
 		return "", "", 0, err
 	}
-	if !complete || scanned < time.Now().Add(-14*24*time.Hour).UnixMilli() || !Syncable(agent) || !contentobs.ValidScope(agent, project) || (project != "" && (project[0] != '/' || (agent != "claude" && agent != "agents"))) {
+	fresh := complete && scanned >= time.Now().Add(-14*24*time.Hour).UnixMilli()
+	supported := Syncable(agent) && contentobs.ValidScope(agent, project)
+	plainProject := project == "" || (project[0] == '/' && (agent == "claude" || agent == "agents"))
+	validScope := fresh && supported && plainProject
+	if !validScope {
 		return "", "", 0, ErrSkillContentTargetScope
 	}
 	return agent, project, inventory, nil
@@ -257,7 +270,9 @@ func moveSkillContentTargets(tx *sql.Tx, uid int64, from, to string) error {
 			return e
 		}
 		if e == nil {
-			if other.AgentID != pin.AgentID || other.BundleID != pin.BundleID || other.RevisionID != pin.RevisionID || other.Mode != pin.Mode {
+			samePin := other.AgentID == pin.AgentID && other.BundleID == pin.BundleID &&
+				other.RevisionID == pin.RevisionID && other.Mode == pin.Mode
+			if !samePin {
 				return ErrSkillContentTargetMerge
 			}
 			if _, err = tx.Exec(`UPDATE skill_content_targets SET version=?,updated_at=? WHERE user_id=? AND id=?`, syncID(), now(), uid, other.ID); err != nil {

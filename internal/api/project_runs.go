@@ -120,7 +120,8 @@ func (s *server) projectRunStart(w http.ResponseWriter, r *http.Request) {
 	}
 	chosen := map[int]bool{}
 	for _, pos := range *in.Positions {
-		if (!known[pos] && !stale) || chosen[pos] {
+		available := !known[pos] && !stale
+		if chosen[pos] || available {
 			unknownPosition(w)
 			return
 		}
@@ -270,7 +271,8 @@ func (s *server) projectRunRetry(w http.ResponseWriter, r *http.Request) {
 	uid := s.uid(r)
 	runID, raw := r.PathValue("runId"), r.PathValue("position")
 	position, err := strconv.Atoi(raw)
-	if err != nil || position < 0 || strconv.Itoa(position) != raw {
+	validPosition := position >= 0 && strconv.Itoa(position) == raw
+	if err != nil || !validPosition {
 		unknownPosition(w)
 		return
 	}

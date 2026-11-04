@@ -359,7 +359,9 @@ func plainText(s string) bool {
 		return false
 	}
 	for _, r := range s {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+		isControl := unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
+		isSeparator := unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r)
+		if isControl || isSeparator {
 			return false
 		}
 	}
@@ -385,7 +387,9 @@ func CleanProjectDir(dir string) (string, error) {
 // stored: trimmed name, cleaned folders, positions 0..n-1 in the given order.
 func normalizeProject(p Project) (Project, error) {
 	p.Name = strings.TrimSpace(p.Name)
-	if n := utf8.RuneCountInString(p.Name); n < 1 || n > MaxProjectNameRunes || !plainText(p.Name) {
+	n := utf8.RuneCountInString(p.Name)
+	validLength := n >= 1 && n <= MaxProjectNameRunes
+	if !validLength || !plainText(p.Name) {
 		return p, ErrProjectName
 	}
 	if !terminalproto.ValidTool(p.DefaultTool) {
@@ -404,7 +408,8 @@ func normalizeProject(p Project) (Project, error) {
 	seen := map[[2]string]bool{}
 	for i, m := range p.Members {
 		m.Host = strings.TrimSpace(m.Host)
-		if m.Host == "" || len(m.Host) > maxHostBytes || !plainText(m.Host) {
+		validHost := m.Host != "" && len(m.Host) <= maxHostBytes
+		if !validHost || !plainText(m.Host) {
 			return p, invalid("repository %d: machine is required, at most %d bytes, plain text", i+1, maxHostBytes)
 		}
 		dir, err := CleanProjectDir(m.Dir)
@@ -547,9 +552,11 @@ func (s *Store) UpdateProjectFor(uid int64, p Project) (Project, error) {
 			}
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
-		} else if n != 1 {
+		}
+		if n != 1 {
 			return ErrProjectStale
 		}
 		return nil
@@ -583,9 +590,11 @@ func (s *Store) DeleteProjectAtFor(uid int64, id string, expect int64) error {
 		if err != nil {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
-		} else if n == 0 {
+		}
+		if n == 0 {
 			return ErrProjectStale
 		}
 		return nil
@@ -865,7 +874,8 @@ func (l RunLaunch) validate() error {
 	if !terminalproto.ValidToolV2(l.Tool) {
 		return invalid("agent must be one that reet starts")
 	}
-	if l.Model != "" && (!terminalproto.ValidModel(l.Model) || !terminalproto.ToolTakesModel(l.Tool)) {
+	validModel := terminalproto.ValidModel(l.Model) && terminalproto.ToolTakesModel(l.Tool)
+	if l.Model != "" && !validModel {
 		return invalid("model has characters or a length the connector would refuse, or the agent takes none")
 	}
 	switch l.Effort {
@@ -889,11 +899,16 @@ func (l RunLaunch) validate() error {
 // sameSelection reports whether an existing selection run was made from
 // exactly these projects, in this order, with this launch.
 func sameSelection(r Run, projectIDs []string, l RunLaunch) bool {
-	if r.Origin != RunOriginSelection || len(r.Members) != len(projectIDs) || r.Prompt != l.Prompt || r.UseWorktrees != l.Worktree || r.Effort != l.Effort || r.Yolo != l.Yolo {
+	sameOrigin := r.Origin == RunOriginSelection
+	sameLaunch := r.Prompt == l.Prompt && r.UseWorktrees == l.Worktree && r.Effort == l.Effort && r.Yolo == l.Yolo
+	sameShape := sameOrigin && sameLaunch
+	if !sameShape || len(r.Members) != len(projectIDs) {
 		return false
 	}
 	for i, m := range r.Members {
-		if m.Position != i || m.ProjectID != projectIDs[i] || m.Tool != l.Tool || m.Model != l.Model {
+		positionMatches := m.Position == i && m.ProjectID == projectIDs[i]
+		launchMatches := m.Tool == l.Tool && m.Model == l.Model
+		if !positionMatches || !launchMatches {
 			return false
 		}
 	}
@@ -1211,7 +1226,7 @@ func validCode(code string) bool {
 	if code == "" || len(code) > maxCodeBytes {
 		return false
 	}
-	for i := 0; i < len(code); i++ {
+	for i := range code {
 		b := code[i]
 		if !(b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '_') {
 			return false
@@ -1246,8 +1261,10 @@ func (s *Store) SetRunMemberState(uid int64, runID string, position int, state, 
 			if attempt != cur.Attempt {
 				return ErrRunMemberStale
 			}
-			if sessionID == "" || !shortPlain(sessionID, maxSessionIDBytes) || code != "" ||
-				!shortPlain(worktreePath, maxWorktreeBytes) || !shortPlain(worktreeRepo, maxBranchBytes) || !shortPlain(worktreeBranch, maxBranchBytes) {
+			validSession := sessionID != "" && shortPlain(sessionID, maxSessionIDBytes)
+			validWorktree := shortPlain(worktreePath, maxWorktreeBytes) && shortPlain(worktreeRepo, maxBranchBytes) && shortPlain(worktreeBranch, maxBranchBytes)
+			sessionMatches := validSession && code == ""
+			if !sessionMatches || !validWorktree {
 				return invalid("a started member needs a session id and plain-text worktree facts within their limits, and no code")
 			}
 			res, err = tx.Exec(`UPDATE project_run_members SET state='started',code='',session_id=?,worktree_path=?,worktree_repo=?,worktree_branch=? WHERE run_id=? AND user_id=? AND position=? AND state='pending' AND attempt=?`,
@@ -1256,17 +1273,20 @@ func (s *Store) SetRunMemberState(uid int64, runID string, position int, state, 
 			if attempt != cur.Attempt {
 				return ErrRunMemberStale
 			}
-			if !validCode(code) || sessionID != "" || worktreePath != "" || worktreeRepo != "" || worktreeBranch != "" {
+			noFacts := sessionID == "" && worktreePath == "" && worktreeRepo == "" && worktreeBranch == ""
+			if !validCode(code) || !noFacts {
 				return invalid("a failed member needs a code of lower-case letters, digits and underscores, and nothing else")
 			}
 			res, err = tx.Exec(`UPDATE project_run_members SET state='failed',code=? WHERE run_id=? AND user_id=? AND position=? AND state='pending' AND attempt=?`,
 				code, runID, uid, position, attempt)
 		case cur.State == RunMemberFailed && state == RunMemberPending:
 			// A create that may have been sent keeps its request id.
-			if attempt != cur.Attempt && (attempt != cur.Attempt+1 || cur.Sent) {
+			allowedAttempt := attempt == cur.Attempt || (attempt == cur.Attempt+1 && !cur.Sent)
+			if !allowedAttempt {
 				return ErrRunMemberStale
 			}
-			if code != "" || sessionID != "" || worktreePath != "" || worktreeRepo != "" || worktreeBranch != "" {
+			noFacts := code == "" && sessionID == "" && worktreePath == "" && worktreeRepo == "" && worktreeBranch == ""
+			if !noFacts {
 				return invalid("a retry carries no code or session facts")
 			}
 			res, err = tx.Exec(`UPDATE project_run_members SET state='pending',code='',session_id='',worktree_path='',worktree_repo='',worktree_branch='',attempt=?,sent=CASE WHEN ?=attempt THEN sent ELSE 0 END WHERE run_id=? AND user_id=? AND position=? AND state='failed' AND attempt=?`,
@@ -1277,9 +1297,11 @@ func (s *Store) SetRunMemberState(uid int64, runID string, position int, state, 
 		if err != nil {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
-		} else if n != 1 {
+		}
+		if n != 1 {
 			return refuse
 		}
 		return nil
@@ -1312,9 +1334,11 @@ func (s *Store) setRunMemberSent(uid int64, runID string, position, attempt int,
 	if err != nil {
 		return err
 	}
-	if n, err := res.RowsAffected(); err != nil {
+	n, err := res.RowsAffected()
+	if err != nil {
 		return err
-	} else if n != 1 {
+	}
+	if n != 1 {
 		return ErrRunMemberStale
 	}
 	return nil
@@ -1347,9 +1371,11 @@ func (s *Store) RetryRunMember(uid int64, runID string, position int) (RunMember
 		if err != nil {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
-		} else if n != 1 {
+		}
+		if n != 1 {
 			return ErrRunMemberNotFailed
 		}
 		m = cur
@@ -1404,9 +1430,11 @@ func (s *Store) SettleRunMemberBase(uid int64, runID string, position int, keep 
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		var one int
-		if err := s.db.QueryRow(`SELECT 1 FROM project_run_members WHERE run_id=? AND user_id=? AND position=?`, runID, uid, position).Scan(&one); errors.Is(err, sql.ErrNoRows) {
+		err := s.db.QueryRow(`SELECT 1 FROM project_run_members WHERE run_id=? AND user_id=? AND position=?`, runID, uid, position).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
 			return ErrRunNotFound
-		} else if err != nil {
+		}
+		if err != nil {
 			return err
 		}
 	}

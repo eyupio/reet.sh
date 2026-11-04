@@ -43,7 +43,9 @@ func (s *server) notificationList(w http.ResponseWriter, r *http.Request) {
 	}
 	limit := 50
 	if raw := r.URL.Query().Get("limit"); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 200 {
+		n, err := strconv.Atoi(raw)
+		valid := err == nil && n > 0 && n <= 200
+		if valid {
 			limit = n
 		}
 	}

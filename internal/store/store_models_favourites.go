@@ -157,9 +157,11 @@ func (s *Store) RemoveModelFavouriteFor(uid int64, tool, model string) (out Mode
 		if err != nil {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil {
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
-		} else if n > 0 {
+		}
+		if n > 0 {
 			removed = true
 			if err := bumpModelFavouritesTx(tx, uid); err != nil {
 				return err
@@ -252,7 +254,9 @@ func (s *Store) ReorderModelFavouritesFor(uid, version int64, items []ModelFavou
 // clears the default when model is empty. A non-empty model must already be
 // starred for that tool. An unchanged default does not move the version.
 func (s *Store) SetModelFavouriteDefaultFor(uid int64, tool, model string) (out ModelFavourites, changed bool, err error) {
-	if !terminalproto.ValidToolV2(tool) || model != "" && !terminalproto.ValidModel(model) {
+	validTool := terminalproto.ValidToolV2(tool)
+	validModel := model == "" || terminalproto.ValidModel(model)
+	if !validTool || !validModel {
 		return ModelFavourites{}, false, terminalproto.ErrInvalid
 	}
 	err = s.withTx(func(tx *sql.Tx) error {

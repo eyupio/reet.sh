@@ -562,7 +562,8 @@ func (s *Store) SaveTeamNotify(n TeamNotify, by int64) error {
 			continue
 		}
 		a, err := mail.ParseAddress(raw)
-		if err != nil || a.Name != "" || a.Address != raw || !strings.Contains(raw, "@") {
+		validAddress := err == nil && a.Name == "" && a.Address == raw
+		if !validAddress || !strings.Contains(raw, "@") {
 			return fmt.Errorf("%q is not an email address", raw)
 		}
 		if seenEmail[raw] {

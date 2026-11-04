@@ -158,9 +158,11 @@ func backupOpen(args []string, out io.Writer) error {
 		return err
 	}
 	key := ""
-	if m, err := backup.ManifestOf(raw); err != nil {
+	m, err := backup.ManifestOf(raw)
+	if err != nil {
 		return err
-	} else if m.Protection == backup.ProtectionPassword && password == "" {
+	}
+	if m.Protection == backup.ProtectionPassword && password == "" {
 		password, err = clientconfig.Require("", "copy password (--password-file)", true, os.Stdin, os.Stderr)
 		if err != nil {
 			return err

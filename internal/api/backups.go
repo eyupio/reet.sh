@@ -443,7 +443,8 @@ func (s *server) updateBackupRemote(w http.ResponseWriter, r *http.Request, svc 
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "destination not found")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
@@ -453,10 +454,12 @@ func (s *server) updateBackupRemote(w http.ResponseWriter, r *http.Request, svc 
 
 func (s *server) deleteBackupRemote(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {
 	name := r.PathValue("name")
-	if err := svc.DeleteRemote(ownerID, name); errors.Is(err, store.ErrNotFound) {
+	err := svc.DeleteRemote(ownerID, name)
+	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "destination not found")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
@@ -505,7 +508,8 @@ func (s *server) backupRemoteCopies(w http.ResponseWriter, r *http.Request, svc 
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "destination not found")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
@@ -514,10 +518,12 @@ func (s *server) backupRemoteCopies(w http.ResponseWriter, r *http.Request, svc 
 
 func (s *server) deleteRemoteCopy(w http.ResponseWriter, r *http.Request, svc *backup.Service, ownerID int64) {
 	name, id := r.PathValue("name"), r.PathValue("id")
-	if err := svc.DeleteRemoteCopy(r.Context(), ownerID, name, id); errors.Is(err, store.ErrNotFound) {
+	err := svc.DeleteRemoteCopy(r.Context(), ownerID, name, id)
+	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "destination not found")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}

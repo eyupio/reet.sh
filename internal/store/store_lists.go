@@ -135,7 +135,7 @@ func (s *Store) CreateList(userID int64, name, description, visibility string) (
 		return SharedList{}, err
 	}
 	t := now()
-	for attempt := 0; attempt < 3; attempt++ {
+	for range 3 {
 		slug := newListSlug()
 		res, err := s.db.Exec(`INSERT INTO lists(owner_id,name,description,visibility,slug,created_at,updated_at)
 			VALUES(?,?,?,?,?,?,?)`, userID, name, description, vis, slug, t, t)
@@ -226,7 +226,8 @@ func (s *Store) ListAccessFor(userID int64, userRole string, id int64) (ListAcce
 	if err = s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM list_exclusions WHERE list_id=? AND user_id=?)`, id, userID).Scan(&excluded); err != nil {
 		return ListAccess{}, err
 	}
-	if !administrative && (excluded || l.Visibility == "personal") {
+	hiddenFromUser := excluded || l.Visibility == "personal"
+	if !administrative && hiddenFromUser {
 		return ListAccess{}, ErrNotFound
 	}
 	inherited := false

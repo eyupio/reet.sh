@@ -314,6 +314,7 @@ func openCodeLogQuoted(line, key string) string {
 		return ""
 	}
 	rest := line[at+len(marker):]
+	// Index loop: the body steps past an escaped byte, which range cannot express.
 	for i := 0; i < len(rest); i++ {
 		if rest[i] == '\\' {
 			i++

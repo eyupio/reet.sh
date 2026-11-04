@@ -39,7 +39,9 @@ func (s *server) oauthPublic(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		origin, _ := url.Parse(s.oauthBase(r))
-		if origin == nil || (origin.Scheme != "https" && !(origin.Scheme == "http" && mcpLoopback(origin.Hostname()))) {
+		validOrigin := origin != nil &&
+			(origin.Scheme == "https" || (origin.Scheme == "http" && mcpLoopback(origin.Hostname())))
+		if !validOrigin {
 			oauthError(w, 503, "temporarily_unavailable", "OAuth requires a reachable HTTPS origin or localhost; configure REET_PUBLIC_URL behind your proxy")
 			return
 		}
@@ -87,7 +89,11 @@ func validMCPRedirect(raw string) bool {
 		return false
 	}
 	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" || u.User != nil || u.Fragment != "" {
+	if err != nil {
+		return false
+	}
+	noCredentials := u.Host != "" && u.User == nil && u.Fragment == ""
+	if !noCredentials {
 		return false
 	}
 	if u.Scheme == "https" {
@@ -149,7 +155,9 @@ func (s *server) oauthRegister(w http.ResponseWriter, r *http.Request) {
 	if in.Name == "" {
 		in.Name = "MCP client"
 	}
-	if len(in.Name) > 100 || len(in.Redirects) == 0 || len(in.Redirects) > 10 {
+	validName := len(in.Name) <= 100
+	validRedirects := len(in.Redirects) >= 1 && len(in.Redirects) <= 10
+	if !validName || !validRedirects {
 		oauthError(w, 400, "invalid_client_metadata", "provide a client name and 1–10 redirect URIs")
 		return
 	}
@@ -179,7 +187,9 @@ type mcpAuthorization struct {
 
 func (s *server) parseMCPAuthorization(r *http.Request, q url.Values) (mcpAuthorization, error) {
 	a := mcpAuthorization{Redirect: q.Get("redirect_uri"), State: q.Get("state"), Challenge: q.Get("code_challenge"), Resource: q.Get("resource"), Scope: "read"}
-	if q.Get("response_type") != "code" || q.Get("code_challenge_method") != "S256" || !pkceChallenge.MatchString(a.Challenge) || len(a.State) > 2048 {
+	validResponse := q.Get("response_type") == "code" && q.Get("code_challenge_method") == "S256"
+	validChallenge := pkceChallenge.MatchString(a.Challenge) && len(a.State) <= 2048
+	if !validResponse || !validChallenge {
 		return a, fmt.Errorf("this connection requires an authorization code with PKCE S256")
 	}
 	client, err := s.st.MCPClient(q.Get("client_id"))
@@ -275,7 +285,8 @@ func (s *server) oauthConsent(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, "choose read or write access")
 			return
 		}
-		if in.Scope == "write" && (a.Scope != "write" || s.role(r) == "viewer") {
+		notAllowed := a.Scope != "write" || s.role(r) == "viewer"
+		if in.Scope == "write" && notAllowed {
 			writeErr(w, 403, "write access is not available for this request")
 			return
 		}

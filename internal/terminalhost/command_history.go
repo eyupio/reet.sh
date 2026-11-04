@@ -190,6 +190,7 @@ func parseShellHistory(data []byte, source string) ([]terminalproto.CommandHisto
 		flush()
 		return entries, skipped
 	}
+	// Index loop: the body joins continuation lines, which range cannot express.
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 		var timestamp int64

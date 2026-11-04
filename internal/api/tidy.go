@@ -122,7 +122,8 @@ func (s *server) mergeEnvironments(w http.ResponseWriter, r *http.Request) {
 	if to == "" {
 		to = strings.TrimSpace(in.To)
 	}
-	if from == "" || to == "" || from == to {
+	missing := from == "" || to == ""
+	if missing || from == to {
 		writeErrCode(w, 400, errInvalidArgument, "from_id", "choose two different environment IDs", "Use IDs from reet_list_environments.")
 		return
 	}

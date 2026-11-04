@@ -212,7 +212,8 @@ func (s *server) autoPruneAfterWorktree(uid int64, agent, run string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		plan, err := s.terminals.BranchPrunePlan(ctx, uid, agent, terminalproto.BranchPrunePlan{Dir: dir})
-		if err != nil || plan.Reason != "" || plan.Base == "" {
+		invalidPlan := plan.Reason != "" || plan.Base == ""
+		if err != nil || invalidPlan {
 			return
 		}
 		targets := make([]terminalproto.BranchPruneTarget, 0, len(plan.Branches))

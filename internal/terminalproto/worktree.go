@@ -83,7 +83,7 @@ func ValidSlug(s string) bool {
 	if s == "" || len(s) > MaxSlugBytes || s[0] == '-' || s[len(s)-1] == '-' || strings.Contains(s, "--") {
 		return false
 	}
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		b := s[i]
 		if !(b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '-') {
 			return false
@@ -156,7 +156,7 @@ func ValidRunToken(s string) bool {
 	if len(s) < 16 || len(s) > 48 {
 		return false
 	}
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		b := s[i]
 		if !(b >= '0' && b <= '9' || b >= 'a' && b <= 'f') {
 			return false
@@ -172,7 +172,7 @@ func validRepoName(s string) bool {
 	if s == "" || len(s) > 100 || s == "." || s == ".." || s[0] == '-' {
 		return false
 	}
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		b := s[i]
 		if !(b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '.' || b == '_' || b == '-') {
 			return false

@@ -195,7 +195,8 @@ func (s *Store) finishSyncRun(tx *sql.Tx, uid int64, jobID string, outcome runOu
 	if err := tx.QueryRow(`SELECT targets,cursor,status FROM sync_runs WHERE id=? AND user_id=?`, runID, uid).Scan(&targetsJSON, &cursor, &status); err != nil {
 		return err
 	}
-	if status == "cancelled" || status == "completed" || status == "failed" {
+	finished := status == "cancelled" || status == "completed" || status == "failed"
+	if finished {
 		return nil
 	}
 	if outcome == runFailed {
@@ -328,7 +329,9 @@ func (s *Store) QueueAgentUpdate(uid int64, agentID, version string) (SyncJob, e
 	if version == "" {
 		version = "latest"
 	}
-	if version != "latest" && version != "dev" && !strings.HasPrefix(version, "v") && !strings.HasPrefix(version, "V") {
+	validTag := strings.HasPrefix(version, "v") || strings.HasPrefix(version, "V")
+	validVersion := version == "latest" || version == "dev" || validTag
+	if !validVersion {
 		return SyncJob{}, errors.New("choose latest, dev or a release tag")
 	}
 	j := SyncJob{ID: syncID(), AgentID: agentID, Kind: "update", Status: "queued", Revision: version, Plan: json.RawMessage(`{}`), Stage: UpdateStageQueued, Stages: NewUpdateStages(), CreatedAt: now(), UpdatedAt: now()}

@@ -239,7 +239,7 @@ func createUploadFile(path string) (*os.File, error) {
 }
 
 func createUploadTemp(dir string) (string, *os.File, error) {
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		suffix, err := randomUploadHex()
 		if err != nil {
 			return "", nil, err
@@ -258,15 +258,17 @@ func createUploadTemp(dir string) (string, *os.File, error) {
 }
 
 func publishUpload(dir, tempPath, ext string) (string, error) {
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		suffix, err := randomUploadHex()
 		if err != nil {
 			return "", err
 		}
 		finalPath := filepath.Join(dir, "img-"+suffix+"."+ext)
-		if _, err := os.Lstat(finalPath); err == nil {
+		_, err = os.Lstat(finalPath)
+		if err == nil {
 			continue
-		} else if !os.IsNotExist(err) {
+		}
+		if !os.IsNotExist(err) {
 			return "", err
 		}
 		if err := os.Rename(tempPath, finalPath); err != nil {

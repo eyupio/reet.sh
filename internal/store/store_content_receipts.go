@@ -134,7 +134,10 @@ func decodeStrict(raw string, v any) error {
 func (r storedReceipt) decode() (SkillContentReceipt, skillbundle.Manifest, error) {
 	out := r.SkillContentReceipt
 	var managed skillbundle.Manifest
-	if out.Provenance != skillContentReceiptAdopted || decodeStrict(r.managed, &managed) != nil || json.Unmarshal([]byte(r.evidence), &out.Evidence) != nil {
+	if out.Provenance != skillContentReceiptAdopted {
+		return SkillContentReceipt{}, skillbundle.Manifest{}, errReceiptIntegrity
+	}
+	if decodeStrict(r.managed, &managed) != nil || json.Unmarshal([]byte(r.evidence), &out.Evidence) != nil {
 		return SkillContentReceipt{}, skillbundle.Manifest{}, errReceiptIntegrity
 	}
 	out.ManagedDigest, out.FileCount = managed.Digest, len(managed.Files)
@@ -484,7 +487,8 @@ func (s *Store) SkillContentAdoptionBreakdownFor(uid int64, previewID, revisionI
 		if e != nil {
 			return e
 		}
-		if p.State != "captured" || !adoptable(p) || bundle != p.BundleID {
+		captured := p.State == "captured" && adoptable(p)
+		if !captured || bundle != p.BundleID {
 			return ErrSkillContentReceipt
 		}
 		revision, e := privateSkillRevision(tx, uid, bundle, revisionID, false)
@@ -545,7 +549,13 @@ func (s *Store) AdoptSkillContentPreviewFor(uid int64, in SkillContentAdopt) (Sk
 // an identical retry of a request key returns the original with created false, so a
 // caller can log the decision once.
 func (s *Store) AdoptSkillContentPreviewOnceFor(uid int64, in SkillContentAdopt) (out SkillContentReceipt, created bool, err error) {
-	if !privateSkillRequestID.MatchString(in.RequestKey) || !contentobs.ValidID(in.PreviewID) || !skillContentReviewHash.MatchString(in.ReviewHash) || !privateSkillID.MatchString(in.AdoptAsRevisionID) {
+	validKey := privateSkillRequestID.MatchString(in.RequestKey)
+	validPreview := contentobs.ValidID(in.PreviewID)
+	validHash := skillContentReviewHash.MatchString(in.ReviewHash)
+	validRevision := privateSkillID.MatchString(in.AdoptAsRevisionID)
+	validKeyAndPreview := validKey && validPreview
+	validHashAndRevision := validHash && validRevision
+	if !validKeyAndPreview || !validHashAndRevision {
 		return out, false, ErrSkillContentReceiptInvalid
 	}
 	err = s.withTx(func(tx *sql.Tx) error {
@@ -558,7 +568,10 @@ func (s *Store) AdoptSkillContentPreviewOnceFor(uid int64, in SkillContentAdopt)
 		switch {
 		case e == nil:
 			prior, _, de := original.decode()
-			if de != nil || prior.Evidence.PreviewID != in.PreviewID || prior.Evidence.ReviewHash != in.ReviewHash || prior.RevisionID != in.AdoptAsRevisionID {
+			sameEvidence := prior.Evidence.PreviewID == in.PreviewID && prior.Evidence.ReviewHash == in.ReviewHash
+			sameRevision := prior.RevisionID == in.AdoptAsRevisionID
+			sameRequest := sameEvidence && sameRevision
+			if de != nil || !sameRequest {
 				return ErrSkillContentReceipt
 			}
 			out, e = original.verified(tx, uid)

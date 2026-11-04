@@ -29,12 +29,14 @@ func addMemoryRestoreActions(plan *RestorePlan, snapshot SetupSnapshot, destinat
 
 func memoryRestoreState(dest string) (string, string) {
 	for _, suffix := range []string{"-wal", "-shm"} {
-		if info, err := os.Lstat(dest + suffix); err == nil {
+		info, err := os.Lstat(dest + suffix)
+		if err == nil {
 			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 				return "blocked", "destination_sqlite_sidecar_unsafe"
 			}
 			return "blocked", "destination_sqlite_sidecars_present"
-		} else if !os.IsNotExist(err) {
+		}
+		if !os.IsNotExist(err) {
 			return "blocked", "destination_metadata_unavailable"
 		}
 	}

@@ -290,9 +290,11 @@ func GenerateKey() (string, error) { return randomHex(32) }
 
 // ensureKeyFile reads the key file, or makes one with 32 random bytes.
 func ensureKeyFile(path string) (key, actual string, created bool, err error) {
-	if b, err := os.ReadFile(path); err == nil {
+	b, err := os.ReadFile(path)
+	if err == nil {
 		return strings.TrimSpace(string(b)), path, false, nil
-	} else if !os.IsNotExist(err) {
+	}
+	if !os.IsNotExist(err) {
 		return "", path, false, err
 	}
 	k, err := randomHex(32)

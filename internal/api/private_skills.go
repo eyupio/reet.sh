@@ -17,7 +17,8 @@ func (s *server) privateSkillAccess(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if s.authMode != AuthAccounts || s.uid(r) <= 0 || s.role(r) == "viewer" {
+		validAccount := s.authMode == AuthAccounts && s.uid(r) > 0
+		if !validAccount || s.role(r) == "viewer" {
 			writeErr(w, 403, "Private skill content requires an active account with a write role.")
 			return
 		}
@@ -25,7 +26,9 @@ func (s *server) privateSkillAccess(next http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, 400, "Private skill requests do not accept query parameters.")
 			return
 		}
-		if r.Method != http.MethodGet && requestToken(r) == "" && (r.Header.Get("Origin") == "" || !privateSkillSameOrigin(r)) {
+		sameOrigin := r.Header.Get("Origin") != "" && privateSkillSameOrigin(r)
+		noToken := r.Method != http.MethodGet && requestToken(r) == ""
+		if noToken && !sameOrigin {
 			writeErr(w, 403, "Private skill writes require a same-origin browser request or personal API token.")
 			return
 		}

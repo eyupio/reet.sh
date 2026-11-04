@@ -698,9 +698,11 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 func linkSharedInstall(home, targetPath, slug string) error {
 	canonical := filepath.Join(home, ".agents", "skills", slug)
 	link := filepath.Join(targetPath, slug)
-	if _, err := os.Lstat(link); err == nil {
+	_, err := os.Lstat(link)
+	if err == nil {
 		return nil
-	} else if !os.IsNotExist(err) {
+	}
+	if !os.IsNotExist(err) {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(canonical, "SKILL.md")); err != nil {

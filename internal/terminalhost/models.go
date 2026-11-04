@@ -37,10 +37,12 @@ func ListModels(ctx context.Context, tool string, lookPath func(string) (string,
 	}
 	binary, ok := resolveBinary(p, lookPath)
 	if home != "" {
-		if managed, found, err := agentsoftware.ManagedBinary(home, tool); err != nil {
+		managed, found, err := agentsoftware.ManagedBinary(home, tool)
+		if err != nil {
 			result.Reason = terminalproto.ModelsUnreadable
 			return result
-		} else if found {
+		}
+		if found {
 			binary, ok = managed, true
 		}
 	}

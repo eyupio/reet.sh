@@ -31,9 +31,13 @@ func (s *server) registerHostedRoutes(mux *http.ServeMux) {
 func WithHostedPages(api, fallback http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-		if len(parts) >= 2 && store.ValidHostedName(parts[0]) && !store.ReservedUsername(parts[0]) && store.ValidHostedName(parts[1]) {
-			api.ServeHTTP(w, r)
-			return
+		if len(parts) >= 2 {
+			validUser := store.ValidHostedName(parts[0]) && !store.ReservedUsername(parts[0])
+			validName := store.ValidHostedName(parts[1])
+			if validUser && validName {
+				api.ServeHTTP(w, r)
+				return
+			}
 		}
 		fallback.ServeHTTP(w, r)
 	})
@@ -107,7 +111,8 @@ func (s *server) hostedSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	if !existed && profile.HostedPrefix != "" && !strings.HasPrefix(sk.Slug, profile.HostedPrefix) {
+	newSkill := !existed && profile.HostedPrefix != ""
+	if newSkill && !strings.HasPrefix(sk.Slug, profile.HostedPrefix) {
 		writeErr(w, 400, "skill names must start with "+profile.HostedPrefix+" — change the prefix in Account → Profile")
 		return
 	}

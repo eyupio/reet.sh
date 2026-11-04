@@ -182,7 +182,7 @@ func (c *Client) List(ctx context.Context, prefix string) ([]Object, error) {
 // not pass is attempted once.
 func (c *Client) PutRetry(ctx context.Context, key string, body []byte) error {
 	var err error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := range 3 {
 		err = c.Put(ctx, key, body)
 		if err == nil || !retryableS3(err) {
 			return err
@@ -200,7 +200,7 @@ func (c *Client) PutRetry(ctx context.Context, key string, body []byte) error {
 // PutObjectRetry sends one whole object, retrying the failures that may pass.
 func (c *Client) PutObjectRetry(ctx context.Context, key string, body []byte) error {
 	var err error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := range 3 {
 		err = c.PutObject(ctx, key, body)
 		if err == nil || !retryableS3(err) {
 			return err

@@ -52,9 +52,11 @@ func migrateMultiUser(db *sql.DB) error {
 	if err := add("events", "user_id INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
-	if ok, err := hasColumn(db, "skill_tags", "user_id"); err != nil {
+	ok, err := hasColumn(db, "skill_tags", "user_id")
+	if err != nil {
 		return err
-	} else if !ok {
+	}
+	if !ok {
 		tx, err := db.Begin()
 		if err != nil {
 			return err
@@ -79,9 +81,11 @@ func migrateMultiUser(db *sql.DB) error {
 			return err
 		}
 	}
-	if ok, err := hasColumn(db, "ignored", "user_id"); err != nil {
+	ok, err = hasColumn(db, "ignored", "user_id")
+	if err != nil {
 		return err
-	} else if !ok {
+	}
+	if !ok {
 		tx, err := db.Begin()
 		if err != nil {
 			return err
@@ -123,15 +127,17 @@ func (s *Store) OwnerUser() (User, bool, error) {
 
 // DefaultOwner returns the owner account, creating a local one when the instance has no accounts.
 func (s *Store) DefaultOwner() (int64, error) {
-	if u, ok, err := s.OwnerUser(); err != nil {
+	u, ok, err := s.OwnerUser()
+	if err != nil {
 		return 0, err
-	} else if ok {
+	}
+	if ok {
 		if err := s.MigrateToOwner(u.ID); err != nil {
 			return 0, err
 		}
 		return u.ID, nil
 	}
-	u, err := s.CreateUser("local@reet.invalid", "Local owner", "owner", "")
+	u, err = s.CreateUser("local@reet.invalid", "Local owner", "owner", "")
 	if errors.Is(err, ErrUserExists) {
 		u, _, err = s.UserByEmail("local@reet.invalid")
 	}

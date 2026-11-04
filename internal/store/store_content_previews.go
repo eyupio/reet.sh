@@ -362,7 +362,9 @@ func (s *Store) SkillContentPreviewsFor(uid int64) ([]SkillContentPreview, []Ski
 // that last negotiated. The revision, bundle, name, mode and scope come from
 // storage, never from the caller. A repeated request key returns the original.
 func (s *Store) CreateSkillContentPreviewFor(uid int64, in SkillContentPreviewCreate) (out SkillContentPreview, err error) {
-	if !privateSkillRequestID.MatchString(in.RequestKey) || !contentobs.ValidID(in.TargetID) || !contentobs.ValidID(in.ExpectedTargetVersion) {
+	validKey := privateSkillRequestID.MatchString(in.RequestKey)
+	validTarget := contentobs.ValidID(in.TargetID) && contentobs.ValidID(in.ExpectedTargetVersion)
+	if !validKey || !validTarget {
 		return out, ErrSkillContentPreviewInvalid
 	}
 	err = s.withTx(func(tx *sql.Tx) error {
@@ -584,7 +586,10 @@ func (s *Store) RecordSkillContentCaptureFor(uid int64, agent, id, instance stri
 			}
 			return ErrSkillContentPreview
 		}
-		if p.State != "capturing" || p.ExpiresAt < now() || p.InventoryRevision <= 0 {
+		capturing := p.State == "capturing"
+		expired := p.ExpiresAt < now()
+		active := capturing && !expired
+		if !active || p.InventoryRevision <= 0 {
 			return ErrSkillContentPreview
 		}
 		received := now()
@@ -619,7 +624,9 @@ func buildPreviewPlan(tx *sql.Tx, uid int64, p SkillContentPreview, c skillprevi
 	if err != nil {
 		return skillplan.Plan{}, "", err
 	}
-	if revision.Manifest == nil || revision.ManifestDigest != p.ManifestDigest || revision.Manifest.Digest != p.ManifestDigest {
+	sameManifest := revision.Manifest != nil && revision.ManifestDigest == p.ManifestDigest &&
+		revision.Manifest.Digest == p.ManifestDigest
+	if !sameManifest {
 		return skillplan.Plan{}, "", errors.New("pinned revision identity changed")
 	}
 	baseline, receiptVersion, err := skillContentReceiptBaseline(tx, uid, p.EnvironmentID, p.Name)

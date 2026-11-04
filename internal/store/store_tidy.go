@@ -97,20 +97,25 @@ func (s *Store) MergeJobCountsFor(userID int64, envID string) (running, pending,
 // MergeEnvironmentsFor moves one report's skills into another and removes the
 // source report. The destination keeps its own scan metadata.
 func (s *Store) MergeEnvironmentsFor(userID int64, fromID, toID string) (int, error) {
-	if fromID == "" || toID == "" || fromID == toID {
+	missing := fromID == "" || toID == ""
+	if missing || fromID == toID {
 		return 0, errors.New("choose two different environment IDs")
 	}
 	moved := 0
 	err := s.withTx(func(tx *sql.Tx) error {
 		var fromName, toName string
-		if err := tx.QueryRow(`SELECT name FROM environments WHERE user_id=? AND id=?`, userID, fromID).Scan(&fromName); errors.Is(err, sql.ErrNoRows) {
+		err := tx.QueryRow(`SELECT name FROM environments WHERE user_id=? AND id=?`, userID, fromID).Scan(&fromName)
+		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("source environment not found")
-		} else if err != nil {
+		}
+		if err != nil {
 			return err
 		}
-		if err := tx.QueryRow(`SELECT name FROM environments WHERE user_id=? AND id=?`, userID, toID).Scan(&toName); errors.Is(err, sql.ErrNoRows) {
+		err = tx.QueryRow(`SELECT name FROM environments WHERE user_id=? AND id=?`, userID, toID).Scan(&toName)
+		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("destination environment not found")
-		} else if err != nil {
+		}
+		if err != nil {
 			return err
 		}
 		var contentPins int
@@ -204,9 +209,11 @@ func (s *Store) MatchShelfSkillFor(userID int64, value string) (Skill, []Skill, 
 	if value == "" {
 		return Skill{}, nil, ErrNotFound
 	}
-	if sk, ok, err := s.GetFor(userID, value); err != nil {
+	sk, ok, err := s.GetFor(userID, value)
+	if err != nil {
 		return Skill{}, nil, err
-	} else if ok {
+	}
+	if ok {
 		return sk, nil, nil
 	}
 	skills, _, err := s.ListFor(userID, Filter{})
@@ -217,9 +224,11 @@ func (s *Store) MatchShelfSkillFor(userID int64, value string) (Skill, []Skill, 
 	wantSlug := normalName(slugOf(value))
 	matches := []Skill{}
 	for _, sk := range skills {
-		if (want != "" && normalName(sk.Name) == want) ||
-			(wantSlug != "" && normalName(slugOf(sk.ID)) == wantSlug) ||
-			strings.EqualFold(sk.ID, value) {
+		nameMatches := want != "" && normalName(sk.Name) == want
+		slugMatches := wantSlug != "" && normalName(slugOf(sk.ID)) == wantSlug
+		idMatches := strings.EqualFold(sk.ID, value)
+		matched := nameMatches || slugMatches || idMatches
+		if matched {
 			matches = append(matches, sk)
 		}
 	}
@@ -259,9 +268,11 @@ func (s *Store) RenameTagFor(userID int64, id int64, name string) (int, error) {
 	affected := 0
 	err := s.withTx(func(tx *sql.Tx) error {
 		var oldName string
-		if err := tx.QueryRow(`SELECT name FROM tags WHERE id=?`, id).Scan(&oldName); errors.Is(err, sql.ErrNoRows) {
+		err := tx.QueryRow(`SELECT name FROM tags WHERE id=?`, id).Scan(&oldName)
+		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
-		} else if err != nil {
+		}
+		if err != nil {
 			return err
 		}
 		if strings.EqualFold(oldName, name) {
@@ -313,9 +324,11 @@ func (s *Store) TagUsageFor(userID int64, id int64) (int, error) {
 		return 0, err
 	}
 	var exists int
-	if err := s.db.QueryRow(`SELECT 1 FROM tags WHERE id=?`, id).Scan(&exists); errors.Is(err, sql.ErrNoRows) {
+	err = s.db.QueryRow(`SELECT 1 FROM tags WHERE id=?`, id).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrNotFound
-	} else if err != nil {
+	}
+	if err != nil {
 		return 0, err
 	}
 	return count, nil
@@ -327,9 +340,11 @@ func (s *Store) DeleteTagFor(userID int64, id int64) (int, error) {
 	affected := 0
 	err := s.withTx(func(tx *sql.Tx) error {
 		var exists int
-		if err := tx.QueryRow(`SELECT 1 FROM tags WHERE id=?`, id).Scan(&exists); errors.Is(err, sql.ErrNoRows) {
+		err := tx.QueryRow(`SELECT 1 FROM tags WHERE id=?`, id).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
-		} else if err != nil {
+		}
+		if err != nil {
 			return err
 		}
 		res, err := tx.Exec(`DELETE FROM skill_tags WHERE user_id=? AND tag_id=?`, userID, id)
@@ -401,10 +416,12 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 	}
 	for _, id := range ids {
 		var one int
-		if err := tx.QueryRow(`SELECT 1 FROM shelf WHERE user_id=? AND skill_id=?`, userID, id).Scan(&one); errors.Is(err, sql.ErrNoRows) {
+		err := tx.QueryRow(`SELECT 1 FROM shelf WHERE user_id=? AND skill_id=?`, userID, id).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
 			results = append(results, BulkItemResult{ID: id, Code: "skill_not_found", Message: "skill is not on this account's shelf"})
 			continue
-		} else if err != nil {
+		}
+		if err != nil {
 			return 0, nil, err
 		}
 		if change.AddToListID > 0 {
@@ -420,7 +437,8 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 				continue
 			}
 		}
-		if change.Liked != nil || change.Bookmarked != nil || change.Used != nil {
+		changed := change.Liked != nil || change.Bookmarked != nil || change.Used != nil
+		if changed {
 			if _, err := tx.Exec(`UPDATE shelf SET liked=COALESCE(?,liked), bookmarked=COALESCE(?,bookmarked), used=COALESCE(?,used), updated_at=?
 				WHERE user_id=? AND skill_id=?`, nullBool(change.Liked), nullBool(change.Bookmarked), nullBool(change.Used), now(), userID, id); err != nil {
 				return 0, nil, err
@@ -495,19 +513,23 @@ func slugOf(id string) string {
 	return id
 }
 
+func canonicalIDBefore(id, best string) bool {
+	return best == "" || len(id) < len(best) || (len(id) == len(best) && id < best)
+}
+
 func canonicalSkill(skills []Skill) string {
 	best := ""
 	for _, sk := range skills {
 		if sk.SourceType == "local" || sk.Source == "local" {
 			continue
 		}
-		if best == "" || len(sk.ID) < len(best) || (len(sk.ID) == len(best) && sk.ID < best) {
+		if canonicalIDBefore(sk.ID, best) {
 			best = sk.ID
 		}
 	}
 	if best == "" {
 		for _, sk := range skills {
-			if best == "" || len(sk.ID) < len(best) || (len(sk.ID) == len(best) && sk.ID < best) {
+			if canonicalIDBefore(sk.ID, best) {
 				best = sk.ID
 			}
 		}

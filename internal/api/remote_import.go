@@ -95,7 +95,9 @@ func remoteImportError(w http.ResponseWriter, err error) {
 		writeErr(w, 409, "Transfer history is full. Finish or cancel pending work, then dismiss finished request history before creating another.")
 		return
 	}
-	if err == store.ErrRemoteImport || err == store.ErrContentObservationStale || err == store.ErrRemoteNotFound {
+	known := err == store.ErrRemoteImport || err == store.ErrContentObservationStale ||
+		err == store.ErrRemoteNotFound
+	if known {
 		writeErr(w, 409, "Import is unavailable, blocked, changed or expired. Refresh the machine and request a new preview.")
 		return
 	}

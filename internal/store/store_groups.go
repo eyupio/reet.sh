@@ -75,7 +75,11 @@ func (s *Store) CreateGroup(userID int64, userRole, name, kind string, parentID 
 	}
 	if parentID != 0 {
 		parent, err := s.GroupFor(userID, userRole, parentID)
-		if err != nil || parent.Kind != "organisation" || (parent.Role != "owner" && parent.Role != "manager") || kind != "team" {
+		parentOrg := parent.Kind == "organisation"
+		canManage := parent.Role == "owner" || parent.Role == "manager"
+		wantsTeam := kind == "team"
+		validParent := parentOrg && canManage && wantsTeam
+		if err != nil || !validParent {
 			return Group{}, errors.New("only an organisation manager can create a team inside it")
 		}
 	}
@@ -177,7 +181,10 @@ func (s *Store) validateAudience(userID int64, userRole, visibility string, a Au
 	} else if a.GroupID != 0 {
 		return nil, nil, errors.New("group access requires the team/organisation audience")
 	}
-	if (visibility == "public" || visibility == "link" || visibility == "members" || visibility == "personal") && len(a.Excluded) > 0 {
+	namedAudience := visibility == "public" || visibility == "link"
+	groupAudience := visibility == "members" || visibility == "personal"
+	audienceOpen := namedAudience || groupAudience
+	if audienceOpen && len(a.Excluded) > 0 {
 		return nil, nil, errors.New("exclusions require a private audience; public readers cannot be excluded")
 	}
 	if visibility == "personal" && len(a.People) > 0 {
@@ -298,7 +305,8 @@ func writeAudience(tx *sql.Tx, id, ownerID int64, visibility string, a Audience,
 func (s *Store) SaveAudienceList(userID int64, userRole string, id int64, name, description, visibility string, a Audience) (SharedList, error) {
 	name = strings.TrimSpace(name)
 	description = strings.TrimSpace(description)
-	if name == "" || len(name) > 80 || len(description) > 240 {
+	validName := name != "" && len(name) <= 80
+	if !validName || len(description) > 240 {
 		return SharedList{}, errors.New("use a name up to 80 characters and description up to 240")
 	}
 	visibility, err := normalVisibility(visibility)
@@ -418,7 +426,8 @@ func (s *Store) UpdateGroup(userID int64, userRole string, id int64, name string
 	if err != nil {
 		return err
 	}
-	if g.Role != "owner" && (remove || g.Role != "manager") {
+	canChange := g.Role == "owner" || (g.Role == "manager" && !remove)
+	if !canChange {
 		return errors.New("only the group owner can delete it; managers may rename it")
 	}
 	if remove {

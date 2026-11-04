@@ -83,7 +83,8 @@ func (s *server) privateHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if !privateconn.IsPrivateTransport(r.Context()) || r.URL.RawQuery != "" || r.URL.ForceQuery || r.URL.RawPath != "" {
+		noQuery := r.URL.RawQuery == "" && !r.URL.ForceQuery && r.URL.RawPath == ""
+		if !privateconn.IsPrivateTransport(r.Context()) || !noQuery {
 			http.NotFound(w, r)
 			return
 		}

@@ -240,7 +240,7 @@ func validUUIDSessionID(s string) bool {
 	if len(s) != 36 {
 		return false
 	}
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		switch i {
 		case 8, 13, 18, 23:
 			if s[i] != '-' {

@@ -107,7 +107,9 @@ func (s *Store) MCPConnections(userID int64) ([]MCPConnection, error) {
 
 func (s *Store) UpdateMCPConnection(userID, id int64, name, scope string, enabled bool, expiresAt int64) error {
 	// Pausing an expired credential is still allowed; callers only extend expiry explicitly.
-	if strings.TrimSpace(name) == "" || len(name) > 100 || (scope != "read" && scope != "write") {
+	validName := strings.TrimSpace(name) != "" && len(name) <= 100
+	validScope := scope == "read" || scope == "write"
+	if !validName || !validScope {
 		return errors.New("invalid connection name or scope")
 	}
 	res, err := s.db.Exec(`UPDATE mcp_connections SET name=?,scope=?,enabled=?,expires_at=? WHERE id=? AND user_id=? AND revoked_at=0`, strings.TrimSpace(name), scope, enabled, expiresAt, id, userID)

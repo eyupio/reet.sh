@@ -62,10 +62,11 @@ Local evidence on the integrated tree matches CI. On main `80ae4cc` (which alrea
 tests, Svelte check with zero errors and warnings and the production build pass, `go vet ./...` passes, and the built site
 passes `web/tests/chat-previews.e2e.mjs`, `web/tests/launch-options.e2e.mjs`, `web/tests/sessions-phone.e2e.mjs` and
 `web/tests/session-workspace.e2e.mjs`. `go test -race` passes for `internal/acpagent`, `internal/agenthealth`,
-`internal/terminalproto`, `internal/terminalbroker`, `internal/store` (158 s) and `internal/api` (330 s). The only local
-failure is `internal/terminalagent`'s model-listing tests (`TestModelsOneAtATime`, `TestModelsFloorReturnsTheLastResult`,
-`TestModelsReplyShapeAndOperation`, `TestModelsLateRunAnswersTimedOut`), which fail identically on unmodified main in this
-constrained shell and pass in the native service CI jobs, so they are environmental rather than a regression.
+`internal/terminalproto`, `internal/terminalbroker`, `internal/store` (158 s) and `internal/api` (330 s). `internal/terminalagent`
+passes as well: its four model-listing cases (`TestModelsOneAtATime`, `TestModelsFloorReturnsTheLastResult`,
+`TestModelsReplyShapeAndOperation`, `TestModelsLateRunAnswersTimedOut`) need the host manager, so they skip with a clear
+message when tmux is not installed instead of failing on a listing that never starts. They run in the native service CI
+jobs, which install tmux.
 
 ## Feature details and evidence
 
@@ -143,8 +144,9 @@ feature handoff.
 
 ## Reproduction commands
 
-Use the Go version in `go.mod`, Node 22, tmux and a Playwright-supported Chromium. Set
-`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to the actual installed browser when needed. Run from the repository root:
+Use the Go version in `go.mod`, Node 22, tmux and a Playwright-supported Chromium. tmux is required by
+`internal/terminalagent`'s host-manager cases, which skip without it. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to the
+actual installed browser when needed. Run from the repository root:
 
 ```sh
 npm --prefix web ci

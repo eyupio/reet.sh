@@ -21,7 +21,7 @@ try {
   await nudge.click()
   await expect(panel).toHaveAttribute('data-poke-count', '1')
   await expect(avatar).toHaveAttribute('data-reaction', 'tip-cap')
-  const performance = await avatar.elementHandle()
+  const performance = await avatar.locator('.scene:not(.leaving)').elementHandle()
   const first = await panel.locator('.quote').textContent()
   await nudge.click()
   await expect(panel).toHaveAttribute('data-poke-count', '1')

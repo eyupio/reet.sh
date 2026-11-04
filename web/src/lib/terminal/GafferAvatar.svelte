@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { onDestroy, onMount, untrack } from 'svelte'
   import './gafferAvatar.css'
   import grid from './gaffer-grid.webp'
   import phosphor from './gaffer-phosphor.webp'
   import gestures from './gaffer-gestures.webp'
   import expressions from './gaffer-expressions.webp'
-  import { gafferAnimations, gafferGestureMs } from '../gafferMotion'
+  import { GAFFER_TRANSITION_MS, gafferAnimations, gafferGestureMs } from '../gafferMotion'
   import type { GafferPhase } from '../gafferProgress'
   import type { GafferPose, GafferReaction } from '../gafferPersonality'
 
@@ -22,49 +23,105 @@
   const row = $derived(scene === 'reading' || scene === 'shrug' ? 1 : scene === 'tea' || scene === 'huff' ? 2 : 0)
   const play = $derived(sprite && (expressive || scene === 'greeting' || scene === 'tea' || reaction === 'scan'))
   const motion = $derived(scene === 'greeting' ? 'tip-cap' : scene === 'tea' ? 'sip' : scene === 'reading' ? 'scan' : expressive ? scene as GafferReaction : reaction)
+  const appearance = $derived({ key: `${phase}:${pose}:${reaction}:${reactionKey}:${variant}`, phase, pose, reaction, scene, expressive, sprite, row, play, concern, attention, duration: gafferGestureMs(motion) })
+  type Layer = typeof appearance & { entering: boolean; leaving: boolean; from: number; alternate: boolean }
+  let layers = $state<Layer[]>([]), mounted = $state(false), reduced = $state(false), hidden = $state(false)
+  const still = $derived(paused || !$gafferAnimations || reduced || hidden)
+  const sceneNodes = new Map<string, SVGGElement>()
+  let transitionTimer: ReturnType<typeof setTimeout> | undefined
+
+  function registerScene(node: SVGGElement, key: string) {
+    sceneNodes.set(key, node)
+    return { destroy() { if (sceneNodes.get(key) === node) sceneNodes.delete(key) } }
+  }
+  $effect(() => {
+    const next = appearance, instant = still || !mounted || concern || attention
+    untrack(() => {
+      clearTimeout(transitionTimer)
+      if (instant || !layers.length || layers.at(-1)?.key === next.key) {
+        layers = [{ ...next, entering: false, leaving: false, from: 1, alternate: false }]
+        return
+      }
+      // Preserve the actual opacity when a second state arrives during a blend; never flash back to full ink.
+      const previous = layers.filter(layer => layer.key !== next.key).map(layer => {
+        const node = sceneNodes.get(layer.key)
+        return { ...layer, entering: false, leaving: true, from: node ? Number(getComputedStyle(node).opacity) : layer.entering ? 0 : 1, alternate: !layer.alternate }
+      }).filter(layer => layer.from > .025)
+      const keep = new Set([...previous].sort((a, b) => b.from - a.from).slice(0, 3).map(layer => layer.key))
+      const returning = sceneNodes.get(next.key)
+      layers = [...previous.filter(layer => keep.has(layer.key)), { ...next, entering: true, leaving: false, from: returning ? Number(getComputedStyle(returning).opacity) : 0, alternate: false }]
+      transitionTimer = setTimeout(() => { layers = [{ ...next, entering: false, leaving: false, from: 1, alternate: false }] }, GAFFER_TRANSITION_MS)
+    })
+  })
+  onMount(() => {
+    const media = matchMedia('(prefers-reduced-motion: reduce)')
+    const updateMotion = () => { reduced = media.matches }
+    const updateVisibility = () => { hidden = document.hidden }
+    updateMotion(); updateVisibility(); mounted = true
+    media.addEventListener('change', updateMotion)
+    document.addEventListener('visibilitychange', updateVisibility)
+    return () => {
+      media.removeEventListener('change', updateMotion)
+      document.removeEventListener('visibilitychange', updateVisibility)
+    }
+  })
+  onDestroy(() => clearTimeout(transitionTimer))
 </script>
 
-{#key `${phase}:${pose}:${reaction}:${reactionKey}:${variant}`}
-<svg class="gaffer-avatar" class:active class:performing={play} class:paused={paused || !$gafferAnimations} data-phase={phase} data-pose={pose} data-reaction={reaction} data-artwork={scene} style:--gaffer-gesture-duration={`${gafferGestureMs(motion)}ms`} viewBox="0 0 64 64" fill="none" aria-hidden="true">
-  <defs><clipPath id={`${id}-frame`}><rect width="384" height="341.333333" /></clipPath></defs>
-  <rect class="screen" width="64" height="64" rx="6" />
+<svg class="gaffer-avatar" class:active class:paused={still} data-phase={phase} data-pose={pose} data-reaction={reaction} data-artwork={scene} style:--gaffer-transition-duration={`${GAFFER_TRANSITION_MS}ms`} viewBox="0 0 64 64" fill="none" aria-hidden="true">
+  <defs>
+    <clipPath id={`${id}-frame`}><rect width="384" height="341.333333" /></clipPath>
+    <filter id={`${id}-ink`} color-interpolation-filters="sRGB">
+      <!-- Extract the luminous drawing as alpha, dropping the baked-in screen and its dark scanline noise. -->
+      <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  .2445 .8225 .083 0 -.1" result="drawing" />
+      <feFlood flood-color="currentColor" result="ink" />
+      <feComposite in="ink" in2="drawing" operator="in" />
+    </filter>
+  </defs>
+  {#each layers as layer (layer.key)}
+  <g class="scene" class:entering={layer.entering} class:leaving={layer.leaving} class:alternate={layer.alternate} class:performing={layer.play} data-reaction={layer.reaction} data-pose={layer.pose} data-artwork={layer.scene} style:--gaffer-fade-from={layer.from} style:--gaffer-gesture-duration={`${layer.duration}ms`} use:registerScene={layer.key}>
   <g class="body">
-    <g class="head" class:sprite class:concern class:attention>
-      {#if sprite}
-        <svg x="0" y="3.555556" width="64" height="56.888889" viewBox="0 0 384 341.333333" overflow="hidden">
+    <g class="head" class:sprite={layer.sprite} class:concern={layer.concern} class:attention={layer.attention}>
+      {#if layer.sprite}
+        <svg x={layer.expressive ? -9 : -7.6} y="2" width="76.8" height="68.266667" viewBox="0 0 384 341.333333" overflow="hidden">
           <g clip-path={`url(#${id}-frame)`}>
-            <image class="frames" class:play href={expressive ? expressions : gestures} width="1536" height="1024" y={-row * 1024 / 3} />
+            <image class="frames" class:play={layer.play} href={layer.expressive ? expressions : gestures} filter={`url(#${id}-ink)`} width="1536" height="1024" y={-layer.row * 1024 / 3} />
           </g>
         </svg>
       {:else}
-        <image href={scene === 'portrait' ? grid : phosphor} x="2" y="2" width="60" height="60" preserveAspectRatio="xMidYMid meet" />
+        <image href={layer.scene === 'portrait' ? grid : phosphor} filter={`url(#${id}-ink)`} x={layer.scene === 'portrait' ? 2 : 6} y={layer.scene === 'portrait' ? 2 : 6} width={layer.scene === 'portrait' ? 60 : 52} height={layer.scene === 'portrait' ? 60 : 52} preserveAspectRatio="xMidYMid meet" />
       {/if}
     </g>
     <!-- The surrounding work card carries the semantic status colour and text. -->
-    {#if concern}
+    {#if layer.concern}
       <g class="badge snag"><path d="m53 39 10 20H43z" /><path d="M53 45v6m0 3v1" class="ink" /></g>
-    {:else if attention}
+    {:else if layer.attention}
       <g class="badge question"><path d="M45 41h17v15H52l-5 4v-4h-2z" /><path class="ink" d="M50 46v-1h7v5h-3v2m0 1v2" /></g>
-    {:else if pose === 'asleep'}
+    {:else if layer.pose === 'asleep'}
       <path class="zzz" d="M50 10h6l-6 6h6M56 3h6l-6 5h6" />
-    {:else if !sprite && (phase === 'searching' || phase === 'fetching')}
+    {:else if !layer.sprite && (layer.phase === 'searching' || layer.phase === 'fetching')}
       <g class="badge magnifier"><circle cx="52" cy="47" r="7" /><path d="m57 53 5 8" /></g>
-    {:else if !sprite && phase === 'editing'}
+    {:else if !layer.sprite && layer.phase === 'editing'}
       <g class="badge pencil"><path d="m49 58 9-19 4 2-9 19-5 3z" /><path class="ink" d="m48 63 2-5 3 2" /></g>
-    {:else if !sprite && phase === 'running'}
+    {:else if !layer.sprite && layer.phase === 'running'}
       <g class="badge watch"><path d="M52 40v-3m-3 0h6" /><circle cx="52" cy="51" r="10" /><path class="watch-hand ink" d="M52 44v7l4 3" /></g>
-    {:else if !sprite && phase === 'responding'}
+    {:else if !layer.sprite && layer.phase === 'responding'}
       <g class="badge notes"><path d="M44 42h16v20H44z" /><path class="ink" d="M47 47h10m-10 4h10m-10 4h7" /></g>
-    {:else if !sprite && phase === 'planning'}
+    {:else if !layer.sprite && layer.phase === 'planning'}
       <path class="thought" d="M49 12h4v4h-4zM56 5h5v5h-5zM49 20h2v2h-2z" />
     {/if}
   </g>
+  </g>
+  {/each}
 </svg>
-{/key}
 
 <style>
-  .gaffer-avatar { display: block; width: 100%; height: 100%; overflow: hidden; border-radius: 6px; }
-  .screen { fill: var(--gaffer-screen); }
+  .gaffer-avatar { display: block; width: 100%; height: 100%; overflow: visible; isolation: isolate; }
+  .scene { mix-blend-mode: plus-lighter; }
+  .scene.entering { animation: scene-in var(--gaffer-transition-duration) ease-out; }
+  .scene.leaving { animation: scene-out var(--gaffer-transition-duration) ease-out forwards; }
+  /* Restart only the fade when interrupted, keeping the existing pose and body animation. */
+  .scene.leaving.alternate { animation-name: scene-out-alternate; }
   .body { transform-origin: 32px 52px; }
   .head { transform-origin: 32px 44px; }
   .badge { fill: var(--gaffer-paper); stroke: var(--gaffer-paper); stroke-width: 1.5; stroke-linejoin: round; }
@@ -75,20 +132,23 @@
   /* Anticipation, action, a held expression, then settling; the last frame is a still resting pose. */
   .frames { transform: translateX(-1152px); }
   .frames.play { animation: gesture-frames var(--gaffer-gesture-duration) steps(1, end); }
-  .performing .body { animation: bust-motion var(--gaffer-gesture-duration) cubic-bezier(.37, 0, .25, 1); }
-  [data-pose='asleep'] .head { transform: translateY(2px) rotate(8deg); }
+  .scene.performing .body { animation: bust-motion var(--gaffer-gesture-duration) cubic-bezier(.37, 0, .25, 1); }
+  .scene[data-pose='asleep'] .head { transform: translateY(2px) rotate(8deg); }
   .head.attention { transform: rotate(-3deg); }
   .head.concern { transform: rotate(3deg); }
-  [data-reaction='ponder'] .head:not(.sprite) { animation: ponder var(--gaffer-gesture-duration) ease-in-out; }
-  [data-reaction='scan'] .head:not(.sprite) { animation: scan var(--gaffer-gesture-duration) ease-in-out; }
-  [data-reaction='scribble'] .pencil { transform-origin: 51px 56px; animation: scribble var(--gaffer-gesture-duration) ease-in-out; }
-  [data-reaction='watch'] .watch-hand { transform-origin: 52px 51px; animation: clock-check var(--gaffer-gesture-duration) ease-in-out; }
-  [data-reaction='nod'] .head:not(.sprite), [data-reaction='watch'] .head { animation: nod var(--gaffer-gesture-duration) ease-in-out; }
-  [data-reaction='listen'] .head { animation: listen var(--gaffer-gesture-duration) ease-in-out; }
-  [data-reaction='shake'] .head { animation: shake var(--gaffer-gesture-duration) ease-in-out; }
-  [data-reaction='startle'] .body { animation: startle var(--gaffer-gesture-duration) ease-out; }
-  [data-reaction='stretch'] .head { animation: stretch var(--gaffer-gesture-duration) ease-in-out; }
+  .scene[data-reaction='ponder'] .head:not(.sprite) { animation: ponder var(--gaffer-gesture-duration) ease-in-out; }
+  .scene[data-reaction='scan'] .head:not(.sprite) { animation: scan var(--gaffer-gesture-duration) ease-in-out; }
+  .scene[data-reaction='scribble'] .pencil { transform-origin: 51px 56px; animation: scribble var(--gaffer-gesture-duration) ease-in-out; }
+  .scene[data-reaction='watch'] .watch-hand { transform-origin: 52px 51px; animation: clock-check var(--gaffer-gesture-duration) ease-in-out; }
+  .scene[data-reaction='nod'] .head:not(.sprite), .scene[data-reaction='watch'] .head { animation: nod var(--gaffer-gesture-duration) ease-in-out; }
+  .scene[data-reaction='listen'] .head { animation: listen var(--gaffer-gesture-duration) ease-in-out; }
+  .scene[data-reaction='shake'] .head { animation: shake var(--gaffer-gesture-duration) ease-in-out; }
+  .scene[data-reaction='startle'] .body { animation: startle var(--gaffer-gesture-duration) ease-out; }
+  .scene[data-reaction='stretch'] .head { animation: stretch var(--gaffer-gesture-duration) ease-in-out; }
   .paused * { animation: none !important; }
+  @keyframes scene-in { from { opacity: var(--gaffer-fade-from); } to { opacity: 1; } }
+  @keyframes scene-out { from { opacity: var(--gaffer-fade-from); } to { opacity: 0; } }
+  @keyframes scene-out-alternate { from { opacity: var(--gaffer-fade-from); } to { opacity: 0; } }
   @keyframes gesture-frames { 0%, 14% { transform: translateX(0); } 20% { transform: translateX(-384px); } 44% { transform: translateX(-768px); } 72%, 100% { transform: translateX(-1152px); } }
   @keyframes bust-motion { 0%, 100% { transform: none; } 12% { transform: translateY(.4px) rotate(-.8deg); } 38% { transform: translateY(-.4px) rotate(.8deg); } 68% { transform: translateY(.3px) rotate(-.4deg); } 88% { transform: none; } }
   @keyframes ponder { 35%, 65% { transform: rotate(-6deg) translateY(-1px); } }

@@ -167,7 +167,7 @@
 {#if view.visible}
   <section class="gaffer-progress" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:compact={stopped} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-poke-count={clicks.count}>
     <div class="gaffer-main">
-      <button type="button" class="portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant={stopped ? 'portrait' : 'bust'} active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} paused={still} /></button>
+      <button type="button" class="portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant="bust" active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} paused={still} /></button>
       <div class="brief">
         <div class="byline"><strong>Gaffer</strong><span class="role">The boss</span><span class="agent">{agent}</span></div>
         <div class="live-update" role="status" aria-live="polite" aria-atomic="true">
@@ -291,7 +291,6 @@
   .activity-line { position: absolute; inset: auto 0 0; height: 2px; overflow: hidden; background: color-mix(in srgb, var(--tone) 10%, transparent); }
   .activity-line > span { display: block; height: 100%; width: 100%; opacity: .35; background: linear-gradient(90deg, transparent, var(--tone), transparent); }
   .compact .gaffer-main { padding-block: 9px; }
-  .compact .portrait { width: 48px; height: 48px; }
   .compact .role { display: none; }
   .compact .live-update { margin-top: 4px; }
   .compact .quote { font-size: 11px; min-height: 0; }

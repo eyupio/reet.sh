@@ -55,8 +55,10 @@ hidden header. The only conflict was `docs/handoffs/session-actions.md`; the ses
 new integration section are kept in full. The startup option code is unchanged by the merge: both start dialogs, the backlog
 composer and the negotiated `acp-start-options-v1` contract are exactly as verified above.
 
-Final-head CI on this branch is the merge gate, and the head recorded in the pull request is authoritative. Merge #490
-first, then this branch, then the combined image preview branch.
+Final-head CI was the merge gate and the head recorded in the pull request was authoritative. [PR #493](https://github.com/eyupio/reet.sh/pull/493)
+merged as `918f452`; final head `906cb2d` was green across all twenty checks, including native service on ubuntu and macos,
+local relay on ubuntu and macos, tmux minimum, private connection, image, binary release, terminal-browser, phone-dialogs,
+web, test, source, build, CodeQL and the language analyses, with no review findings open.
 
 On the merged head, web unit tests, Svelte check with zero errors and warnings and the production build pass, as do the
 Start-agent/start-session/backlog selection regression, the Sessions phone suite and the Sessions suite. No startup option

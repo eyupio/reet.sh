@@ -25,10 +25,12 @@ focused batches below. Each PR records its checks and merge state. All handoff e
 
 ## GAFFER-PREVIEWS-1: agent image previews and continuation (4 November 2026)
 
-Start a new environment with [the current continuation handoff](docs/handoffs/gaffer-continuation.md). It records every open
-Gaffer PR, published head, validation result and remaining merge gate using repository-relative paths. The image preview
-implementation is in [PR #498](https://github.com/eyupio/reet.sh/pull/498) on `feat/chat-image-previews`; its [feature handoff](docs/handoffs/chat-image-previews.md) covers the wire
-contract, private snapshot cache, UI, recovery, limits and checked screenshots. Final review/CI and merges remain outstanding.
+Start a new environment with [the current continuation handoff](docs/handoffs/gaffer-continuation.md). It records the
+delivered Gaffer PRs, their final heads, validation results and merge shas using repository-relative paths. The image
+preview implementation is in [PR #498](https://github.com/eyupio/reet.sh/pull/498) on `feat/chat-image-previews`, merged as
+`0de8f7d`; its [feature handoff](docs/handoffs/chat-image-previews.md) covers the wire contract, private snapshot cache, UI,
+recovery, limits and checked screenshots. [PR #490](https://github.com/eyupio/reet.sh/pull/490) (session actions) merged as
+`99c7fd8` and [PR #493](https://github.com/eyupio/reet.sh/pull/493) (startup and backlog settings) merged as `918f452`.
 
 ## GAFFER-START-1: launch and backlog model/effort selection (4 November 2026)
 

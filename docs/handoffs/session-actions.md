@@ -47,7 +47,7 @@ the menu does not duplicate it. The complete chat/recovery browser suites are be
 
 The full phone CI pass exposed an older Sessions-phone expectation for the previous hidden landscape header. It now checks
 the visible Running/project/machine line, compact controls and their measured terminal-row budget. A first CI attempt
-stalled in the unchanged launch suite; the full launch suite passes locally. Final-head CI remains the merge gate.
+stalled in the unchanged launch suite; the full launch suite passes locally. Final-head CI on the merged tree was the merge gate.
 
 ## Main integration on the current head
 
@@ -59,5 +59,6 @@ separator, its saved width and open state and its sheet mode below 1100 px, and 
 is being dragged. The combined preview branch resolved the same overlap the same way, so the three branches agree.
 
 Web unit tests, Svelte check with zero errors and warnings, and the production build pass on the merged tree, as do the
-Sessions phone, session workspace panel and terminal workspace browser suites. Final-head CI on this branch is the merge
-gate; the branch head recorded in the pull request is authoritative.
+Sessions phone, session workspace panel and terminal workspace browser suites. Final head `d94f1d2` was green: source,
+test, web, phone-zoom, phone-dialogs, terminal-browser, build (linux, amd64), CodeQL and the language analyses all passed
+with no review findings open. [PR #490](https://github.com/eyupio/reet.sh/pull/490) merged as `99c7fd8`.

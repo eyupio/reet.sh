@@ -31,19 +31,19 @@ for all related PRs, current heads, merge gates and portable commands. The PR at
   limits, no overflow and object URL cleanup. It is included in terminal-browser CI.
 - Screenshots are tracked in `docs/images/ui/agent-preview-*.png`, linked from `docs/ui-verification.md`.
 
-## Remaining work and limitations
+## Final state and limitations
 
-Main #495, the latest #490 session action head and the latest #493 startup option head are integrated; the toolbar/panel
-conflicts are resolved by retaining both features, with terminal size held during context-panel resizing. On head `f6be70c`
-the complete PR matrix passed (image, terminal browser, native services, private connection, binary release, CodeQL and the
-language analyses) and no inline review findings were open. The branch then merged main `b6b6ea4` and the `0a66ce7`
-startup option head; that newest head needs its own green run before merge. On the integrated tree, web unit tests, Svelte
-check with zero errors and warnings, the production build, `go vet ./...`, focused race suites for preview
-extraction/protocol/cache/broker/API and the preview, Sessions phone, session workspace and launch option browser suites pass
-locally.
+Main #495, the #490 session action head and the #493 startup option head are integrated; the toolbar/panel conflicts are
+resolved by retaining both features, with terminal size held during context-panel resizing. [PR #498](https://github.com/eyupio/reet.sh/pull/498)
+merged as `0de8f7d` from head `a88c78e`; that head was green across all twenty checks, including terminal-browser with the
+preview, Sessions phone, session workspace and launch option suites, and no inline review findings were open. On the
+integrated tree, web unit tests, Svelte check with zero errors and warnings, the production build, `go vet ./...`, focused
+race suites for preview extraction/protocol/cache/broker/API and the preview, Sessions phone, session workspace and launch
+option browser suites pass locally.
 
-Inspect final-head CI and review, fix any findings and merge only when green. The complete six backend package race suites
-and full browser workflow have not been rerun for the preview feature; the focused suites above are the completed evidence.
+The complete six backend package race suites pass for `internal/acpagent`, `internal/agenthealth`, `internal/terminalproto`,
+`internal/terminalbroker`, `internal/store` (158 s) and `internal/api` (330 s); `internal/terminalagent`'s model-listing
+tests fail identically on unmodified main in a constrained local shell and pass in the native service CI jobs.
 No live paid-provider turn, physical phone, Safari or cross-platform release rollout was tested. Large images beyond the
 bounded ACP input/preview limits cannot be rendered. Expired/evicted snapshots require a fresh agent read or generation.
 

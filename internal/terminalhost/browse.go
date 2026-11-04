@@ -265,7 +265,8 @@ func (b *browser) browse(home string, req terminalproto.Browse) (terminalproto.B
 			continue
 		}
 		hidden := strings.HasPrefix(name, ".")
-		if hidden && !req.Hidden || !strings.Contains(strings.ToLower(name), filter) {
+		excluded := hidden && !req.Hidden
+		if excluded || !strings.Contains(strings.ToLower(name), filter) {
 			continue
 		}
 		typ := entry.Type()
@@ -473,11 +474,16 @@ func (b *browser) repoOf(home, dir string) (terminalproto.BrowseRepo, string) {
 // protocol's entry rule (valid UTF-8, no control or format characters, at
 // most 255 bytes).
 func browseName(name string) bool {
-	if name == "" || name == "." || name == ".." || len(name) > terminalproto.MaxBrowseNameBytes || !utf8.ValidString(name) || strings.ContainsRune(name, '/') {
+	validName := name != "" && name != "." && name != ".." &&
+		len(name) <= terminalproto.MaxBrowseNameBytes
+	validText := utf8.ValidString(name) && !strings.ContainsRune(name, '/')
+	if !validName || !validText {
 		return false
 	}
 	for _, c := range name {
-		if unicode.IsControl(c) || unicode.Is(unicode.Cf, c) || c == '\u2028' || c == '\u2029' {
+		isControl := unicode.IsControl(c) || unicode.Is(unicode.Cf, c)
+		isSeparator := c == '\u2028' || c == '\u2029'
+		if isControl || isSeparator {
 			return false
 		}
 	}

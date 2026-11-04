@@ -31,7 +31,8 @@ var (
 func ListModels(ctx context.Context, tool string, lookPath func(string) (string, error), home string) terminalproto.ModelsResult {
 	result := terminalproto.ModelsResult{Tool: tool}
 	p, ok := launchPresets[tool]
-	if !ok || p.modelList == nil || len(p.modelList.Argv) == 0 {
+	valid := ok && p.modelList != nil && len(p.modelList.Argv) > 0
+	if !valid {
 		result.Reason = terminalproto.ModelsUnsupported
 		return result
 	}
@@ -97,7 +98,8 @@ func ListModels(ctx context.Context, tool string, lookPath func(string) (string,
 		result.Reason = terminalproto.ModelsTimedOut
 		return result
 	}
-	if waitErr != nil && (cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 0) {
+	failed := cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 0
+	if waitErr != nil && failed {
 		result.Reason = terminalproto.ModelsExited
 		return result
 	}
@@ -125,7 +127,8 @@ func modelListEnvironment(home string, extra []string) []string {
 	values := map[string]string{}
 	for _, entry := range safeEnvironment() {
 		key, value, ok := strings.Cut(entry, "=")
-		if !ok || key == "TERM" || key == "SHELL" {
+		blocked := key == "TERM" || key == "SHELL"
+		if !ok || blocked {
 			continue
 		}
 		values[key] = value
@@ -133,7 +136,8 @@ func modelListEnvironment(home string, extra []string) []string {
 	values["HOME"] = home
 	for _, entry := range extra {
 		key, value, ok := strings.Cut(entry, "=")
-		if !ok || key == "" || strings.ContainsAny(key, " \t\r\n\x00") || !cleanEnvValue(value) {
+		validKey := ok && key != "" && !strings.ContainsAny(key, " \t\r\n\x00")
+		if !validKey || !cleanEnvValue(value) {
 			continue
 		}
 		values[key] = value
@@ -147,7 +151,8 @@ func modelListEnvironment(home string, extra []string) []string {
 func parseModels(tool string, out []byte) terminalproto.ModelsResult {
 	result := terminalproto.ModelsResult{Tool: tool}
 	for _, b := range out {
-		if b < 0x20 && b != '\n' && b != '\t' {
+		notAllowed := b != '\n' && b != '\t'
+		if b < 0x20 && notAllowed {
 			result.Reason = terminalproto.ModelsUnreadable
 			return result
 		}
@@ -155,7 +160,8 @@ func parseModels(tool string, out []byte) terminalproto.ModelsResult {
 	seen := map[string]bool{}
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || !terminalproto.ValidModel(line) || seen[line] {
+		valid := line != "" && terminalproto.ValidModel(line) && !seen[line]
+		if !valid {
 			continue
 		}
 		if len(result.Models) == terminalproto.MaxModels {

@@ -119,7 +119,11 @@ func (r BranchPrunePlanResult) valid() bool {
 	if r.Reason != "" {
 		return r.Reason.valid() && r.Current == "" && r.Default == "" && r.Base == "" && len(r.Branches) == 0 && !r.More
 	}
-	if r.Current != "" && !validRefName(r.Current) || r.Default != "" && !validRefName(r.Default) || r.Base != "" && !validRefName(r.Base) || len(r.Branches) > MaxBranchPruneList {
+	validCurrent := r.Current == "" || validRefName(r.Current)
+	validDefault := r.Default == "" || validRefName(r.Default)
+	validBase := r.Base == "" || validRefName(r.Base)
+	validRefs := validCurrent && validDefault && validBase
+	if !validRefs || len(r.Branches) > MaxBranchPruneList {
 		return false
 	}
 	seen := make(map[string]bool, len(r.Branches))
@@ -152,7 +156,9 @@ type BranchPrune struct {
 
 func (BranchPrune) kind() string { return "branch_prune" }
 func (p BranchPrune) valid() bool {
-	if !validDir(p.Dir) || !validRefName(p.Base) || len(p.Branches) == 0 || len(p.Branches) > MaxBranchPruneList {
+	validPath := validDir(p.Dir) && validRefName(p.Base)
+	validCount := len(p.Branches) >= 1 && len(p.Branches) <= MaxBranchPruneList
+	if !validPath || !validCount {
 		return false
 	}
 	seen := make(map[string]bool, len(p.Branches))

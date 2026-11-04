@@ -133,13 +133,17 @@ func (m *Manager) panes(ctx context.Context, sessionID string) ([]paneState, err
 	panes := []paneState{}
 	for _, line := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
 		fields := strings.Split(line, fieldSep)
-		if len(fields) != 3 || !paneID.MatchString(fields[0]) || fields[1] != "0" && fields[1] != "1" {
+		if len(fields) != 3 || !paneID.MatchString(fields[0]) {
+			return nil, ErrNotRunning
+		}
+		if fields[1] != "0" && fields[1] != "1" {
 			return nil, ErrNotRunning
 		}
 		p := paneState{id: fields[0], dead: fields[1] == "1"}
 		if fields[2] != "" {
 			code, err := strconv.Atoi(fields[2])
-			if err != nil || code < 0 || code > 255 {
+			valid := err == nil && code >= 0 && code <= 255
+			if !valid {
 				return nil, ErrNotRunning
 			}
 			p.exit = &code
@@ -177,13 +181,19 @@ func (m *Manager) allPanes(ctx context.Context) (map[string][]paneWindow, error)
 			continue
 		}
 		fields := strings.SplitN(line, fieldSep, 7)
-		if len(fields) != 7 || !paneID.MatchString(fields[0]) || fields[1] != "0" && fields[1] != "1" || fields[5] != "0" && fields[5] != "1" {
+		if len(fields) != 7 || !paneID.MatchString(fields[0]) {
+			return nil, ErrNotRunning
+		}
+		validFlags := (fields[1] == "0" || fields[1] == "1") &&
+			(fields[5] == "0" || fields[5] == "1")
+		if !validFlags {
 			return nil, ErrNotRunning
 		}
 		row := paneWindow{paneState: paneState{id: fields[0], dead: fields[1] == "1"}, bell: fields[5] == "1"}
 		if fields[2] != "" {
 			code, err := strconv.Atoi(fields[2])
-			if err != nil || code < 0 || code > 255 {
+			valid := err == nil && code >= 0 && code <= 255
+			if !valid {
 				return nil, ErrNotRunning
 			}
 			row.exit = &code
@@ -254,7 +264,8 @@ func (m *Manager) History(ctx context.Context, sessionID string, lines int) ([]b
 		return nil, err
 	}
 	s, ok := r.Sessions[sessionID]
-	if !ok || s.State != terminalproto.Running || !paneID.MatchString(s.PaneID) {
+	valid := ok && s.State == terminalproto.Running && paneID.MatchString(s.PaneID)
+	if !valid {
 		return nil, ErrSessionMissing
 	}
 	data, err := m.command(ctx, terminalproto.MaxQueuedOutputBytes, "capture-pane", "-p", "-t", s.PaneID, "-S", "-"+integer(lines))

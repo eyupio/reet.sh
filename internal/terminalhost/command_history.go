@@ -109,7 +109,9 @@ func readHistoryTail(path string) ([]byte, int64, bool, string) {
 	file := os.NewFile(uintptr(fd), "shell-history")
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0022 != 0 || ownedByCurrentUser(info) != nil {
+	invalid := err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0022 != 0 ||
+		ownedByCurrentUser(info) != nil
+	if invalid {
 		return nil, 0, false, "History file is not a regular file writable only by its OS user."
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
@@ -136,7 +138,8 @@ func readHistoryTail(path string) ([]byte, int64, bool, string) {
 
 func historyTime(value string) int64 {
 	n, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || n <= 0 || n > 253402300799 {
+	valid := err == nil && n > 0 && n <= 253402300799
+	if !valid {
 		return 0
 	}
 	return n * 1000

@@ -94,7 +94,13 @@ func (m *Manager) loadRegistry() (hostRegistry, error) {
 	if os.IsNotExist(err) {
 		return empty, nil
 	}
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || ownedByCurrentUser(info) != nil || info.Size() > maxRegistryBytes {
+	if err != nil {
+		return empty, ErrRegistry
+	}
+	validPerm := info.Mode().IsRegular() && info.Mode().Perm()&0077 == 0
+	validOwner := ownedByCurrentUser(info) == nil
+	valid := validPerm && validOwner && info.Size() <= maxRegistryBytes
+	if !valid {
 		return empty, ErrRegistry
 	}
 	f, err := os.Open(m.registryPath())
@@ -113,36 +119,58 @@ func (m *Manager) loadRegistry() (hostRegistry, error) {
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.DisallowUnknownFields()
 	var r hostRegistry
-	if d.Decode(&r) != nil || d.Decode(new(any)) != io.EOF || m.validateRegistry(r) != nil {
+	decoded := d.Decode(&r) == nil && d.Decode(new(any)) == io.EOF
+	if !decoded || m.validateRegistry(r) != nil {
 		return empty, ErrRegistry
 	}
 	return r, nil
 }
 
 func (m *Manager) validateRegistry(r hostRegistry) error {
-	if r.Version != 1 || r.EnrollmentID != m.enrollment || r.Sessions == nil || r.Operations == nil || len(r.Sessions) > 4096 || len(r.Operations) > 16384 {
+	validVersion := r.Version == 1 && r.EnrollmentID == m.enrollment
+	validMaps := r.Sessions != nil && r.Operations != nil
+	validCounts := len(r.Sessions) <= 4096 && len(r.Operations) <= 16384
+	valid := validVersion && validMaps && validCounts
+	if !valid {
 		return ErrRegistry
 	}
 	for id, s := range r.Sessions {
-		if id != s.ID || !terminalproto.ValidID(id) || !terminalproto.ValidID(s.CreateRequestID) || !terminalproto.ValidTitle(s.Title) || !s.State.Valid() || s.CreatedAt <= 0 || s.UpdatedAt < s.CreatedAt || s.ActivityAt < 0 || s.BellAt < 0 || s.ExitCode != nil && (s.State != terminalproto.Exited || *s.ExitCode < 0 || *s.ExitCode > 255) || s.PaneID != "" && !paneID.MatchString(s.PaneID) {
+		validID := id == s.ID && terminalproto.ValidID(id)
+		validSession := terminalproto.ValidID(s.CreateRequestID) && terminalproto.ValidTitle(s.Title) && s.State.Valid()
+		validTimes := s.CreatedAt > 0 && s.UpdatedAt >= s.CreatedAt && s.ActivityAt >= 0 && s.BellAt >= 0
+		validExit := s.ExitCode == nil ||
+			(s.State == terminalproto.Exited && *s.ExitCode >= 0 && *s.ExitCode <= 255)
+		validPane := s.PaneID == "" || paneID.MatchString(s.PaneID)
+		valid := validID && validSession && validTimes && validExit && validPane
+		if !valid {
 			return ErrRegistry
 		}
 		if op, ok := r.Operations[receiptKey("create", s.CreateRequestID)]; !ok || op.SessionID != id {
 			return ErrRegistry
 		}
-		if (s.WorktreePath == "") != (s.WorktreeRepo == "") || s.WorktreePath != "" && (!filepath.IsAbs(s.WorktreePath) || hasControl(s.WorktreePath) || !terminalproto.ValidSlug(s.WorktreeRepo)) {
+		paired := (s.WorktreePath == "") == (s.WorktreeRepo == "")
+		validPair := s.WorktreePath == "" || (filepath.IsAbs(s.WorktreePath) &&
+			!hasControl(s.WorktreePath) && terminalproto.ValidSlug(s.WorktreeRepo))
+		if !paired || !validPair {
 			return ErrRegistry
 		}
 	}
 	for key, op := range r.Operations {
-		if !terminalproto.ValidID(op.RequestID) || key != receiptKey(op.Kind, op.RequestID) || op.Kind != "create" && op.Kind != "end" {
+		validKey := terminalproto.ValidID(op.RequestID) && key == receiptKey(op.Kind, op.RequestID)
+		validKind := op.Kind == "create" || op.Kind == "end"
+		if !validKey || !validKind {
 			return ErrRegistry
 		}
 		s, ok := r.Sessions[op.SessionID]
 		if !ok {
 			return ErrRegistry
 		}
-		if op.Kind == "create" && (op.Create == nil || op.Create.Validate() != nil || s.CreateRequestID != op.RequestID) || op.Kind == "end" && op.Create != nil {
+		isCreate := op.Kind == "create"
+		createValid := op.Create != nil && op.Create.Validate() == nil && s.CreateRequestID == op.RequestID
+		isEnd := op.Kind == "end"
+		endValid := op.Create == nil
+		valid := (!isCreate || createValid) && (!isEnd || endValid)
+		if !valid {
 			return ErrRegistry
 		}
 	}

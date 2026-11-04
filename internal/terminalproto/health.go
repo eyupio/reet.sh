@@ -52,7 +52,13 @@ type HealthReport struct {
 func (HealthReport) kind() string  { return "health_report" }
 func (h HealthReport) valid() bool { return h.Validate() == nil }
 func (h HealthReport) Validate() error {
-	if h.SchemaVersion != Version || !ValidCounter(h.Sequence) || !ValidID(h.AgentInstanceID) || !ValidCounter(h.SampledAt) || h.Scope != "host" && h.Scope != "container" || !h.CPUPercent.valid(100) || !h.Memory.valid() || !h.Disk.valid() || !h.HostUptimeSeconds.valid(100*366*24*60*60) {
+	validIdentity := h.SchemaVersion == Version && ValidCounter(h.Sequence) &&
+		ValidID(h.AgentInstanceID) && ValidCounter(h.SampledAt)
+	validScope := h.Scope == "host" || h.Scope == "container"
+	validReadings := h.CPUPercent.valid(100) && h.Memory.valid() && h.Disk.valid() &&
+		h.HostUptimeSeconds.valid(100*366*24*60*60)
+	valid := validIdentity && validScope && validReadings
+	if !valid {
 		return ErrInvalid
 	}
 	return nil
@@ -70,7 +76,12 @@ type Aggregate struct {
 }
 
 func (a Aggregate) valid(max float64) bool {
-	if a.Valid < 0 || a.Valid > 120 || a.Missing < 0 || a.Missing > 120 || a.Valid+a.Missing > 120 || !finiteRange(a.Min, max) || !finiteRange(a.Max, max) || math.IsNaN(a.Sum) || math.IsInf(a.Sum, 0) || a.Sum < 0 {
+	validCounts := a.Valid >= 0 && a.Valid <= 120 && a.Missing >= 0 && a.Missing <= 120 &&
+		a.Valid+a.Missing <= 120
+	validRanges := finiteRange(a.Min, max) && finiteRange(a.Max, max)
+	validSum := !math.IsNaN(a.Sum) && !math.IsInf(a.Sum, 0) && a.Sum >= 0
+	valid := validCounts && validRanges && validSum
+	if !valid {
 		return false
 	}
 	if a.Valid == 0 {
@@ -102,7 +113,19 @@ type HealthSummary struct {
 }
 
 func (h HealthSummary) Validate() error {
-	if h.SchemaVersion != Version || h.Scope != "host" && h.Scope != "container" || !h.CPUPercent.valid(100) || !h.MemoryTotalBytes.valid(float64(MaxCounter)) || !h.MemoryAvailableBytes.valid(float64(MaxCounter)) || !h.DiskTotalBytes.valid(float64(MaxCounter)) || !h.DiskAvailableBytes.valid(float64(MaxCounter)) || !h.HostUptimeSeconds.valid(100*366*24*60*60) || len(h.RTTMillis) > 64 || h.MissedProbes < 0 || h.MissedProbes > 120 || h.Reconnects < 0 || h.Reconnects > 120 || h.InputBytes < 0 || h.InputBytes > MaxCounter || h.OutputBytes < 0 || h.OutputBytes > MaxCounter {
+	validIdentity := h.SchemaVersion == Version && (h.Scope == "host" || h.Scope == "container")
+	validCPU := h.CPUPercent.valid(100)
+	validMemory := h.MemoryTotalBytes.valid(float64(MaxCounter)) &&
+		h.MemoryAvailableBytes.valid(float64(MaxCounter))
+	validDisk := h.DiskTotalBytes.valid(float64(MaxCounter)) &&
+		h.DiskAvailableBytes.valid(float64(MaxCounter))
+	validUptime := h.HostUptimeSeconds.valid(100 * 366 * 24 * 60 * 60)
+	validCounts := len(h.RTTMillis) <= 64 && h.MissedProbes >= 0 && h.MissedProbes <= 120 &&
+		h.Reconnects >= 0 && h.Reconnects <= 120
+	validBytes := h.InputBytes >= 0 && h.InputBytes <= MaxCounter &&
+		h.OutputBytes >= 0 && h.OutputBytes <= MaxCounter
+	valid := validIdentity && validCPU && validMemory && validDisk && validUptime && validCounts && validBytes
+	if !valid {
 		return ErrInvalid
 	}
 	for _, v := range h.RTTMillis {

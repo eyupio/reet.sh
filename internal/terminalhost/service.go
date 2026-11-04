@@ -74,7 +74,12 @@ func PlanServices(ctx context.Context, options ServiceOptions) (ServicePlan, err
 	if err != nil {
 		return ServicePlan{}, errors.New("service binary path is invalid")
 	}
-	if info, err := os.Stat(binary); err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+	info, err := os.Stat(binary)
+	if err != nil {
+		return ServicePlan{}, errors.New("service binary must be an executable file")
+	}
+	valid := info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0
+	if !valid {
 		return ServicePlan{}, errors.New("service binary must be an executable file")
 	}
 	configPath, err := filepath.Abs(options.ConfigPath)
@@ -235,7 +240,8 @@ func safeEnvironment() []string {
 	values := map[string]string{}
 	for _, entry := range os.Environ() {
 		key, value, ok := strings.Cut(entry, "=")
-		if ok && allowed[key] && cleanEnvValue(value) {
+		valid := ok && allowed[key] && cleanEnvValue(value)
+		if valid {
 			values[key] = value
 		}
 	}
@@ -273,7 +279,8 @@ func validateEnvironment(env []string) []string {
 	values := map[string]string{}
 	for _, entry := range env {
 		key, value, ok := strings.Cut(entry, "=")
-		if !ok || !allowed[key] || strings.ContainsAny(key, " \t\r\n\x00") || !cleanEnvValue(value) {
+		validKey := ok && allowed[key] && !strings.ContainsAny(key, " \t\r\n\x00")
+		if !validKey || !cleanEnvValue(value) {
 			continue
 		}
 		values[key] = value
@@ -297,7 +304,9 @@ func envList(values map[string]string) []string {
 var runServiceOutput = func(ctx context.Context, name string, args ...string) (string, error) {
 	// Root enrollments use the native system manager, without depending on a
 	// root login/user bus or a root GUI session. Never elevate another user.
-	if os.Geteuid() == 0 && (name == "systemctl" || name == "journalctl") && len(args) > 0 && args[0] == "--user" {
+	rootService := os.Geteuid() == 0 && (name == "systemctl" || name == "journalctl")
+	userUnit := len(args) > 0 && args[0] == "--user"
+	if rootService && userUnit {
 		args = args[1:]
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)

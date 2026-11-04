@@ -56,7 +56,8 @@ func PlanBranchPrune(ctx context.Context, home string, req terminalproto.BranchP
 			continue
 		}
 		name, ok := strings.CutPrefix(ref, "refs/heads/")
-		if !ok || name == "" || !terminalproto.ValidRefName(name) || !isOID(oid) {
+		validName := ok && name != "" && terminalproto.ValidRefName(name)
+		if !validName || !isOID(oid) {
 			continue
 		}
 		if _, seen := oids[name]; seen {

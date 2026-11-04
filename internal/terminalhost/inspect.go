@@ -379,7 +379,8 @@ func inspectGitHub(ctx context.Context, dir string, git func(...string) ([]byte,
 		return r
 	}
 	repo := inspectGitHubRepo(strings.TrimSpace(string(remote)))
-	if repo == "" || r.Branch == "" || strings.HasPrefix(r.Branch, "-") {
+	valid := repo != "" && r.Branch != "" && !strings.HasPrefix(r.Branch, "-")
+	if !valid {
 		r.Reason = "github_unavailable"
 		return r
 	}
@@ -460,7 +461,12 @@ func inspectGitHubRepo(remote string) string {
 		p = strings.TrimPrefix(remote, "git@github.com:")
 	} else {
 		u, err := url.Parse(remote)
-		if err != nil || u.Scheme != "https" || u.Host != "github.com" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		if err != nil {
+			return ""
+		}
+		validURL := u.Scheme == "https" && u.Host == "github.com" && u.User == nil &&
+			u.RawQuery == "" && u.Fragment == ""
+		if !validURL {
 			return ""
 		}
 		p = strings.TrimPrefix(u.Path, "/")
@@ -471,7 +477,8 @@ func inspectGitHubRepo(remote string) string {
 		return ""
 	}
 	for _, part := range parts {
-		if part == "" || part == "." || part == ".." {
+		valid := part != "" && part != "." && part != ".."
+		if !valid {
 			return ""
 		}
 		for _, c := range part {
@@ -559,7 +566,10 @@ func inspectRenameSources(data []byte) map[string]string {
 		if len(line) < 4 || !strings.ContainsAny(line[:2], "RC") {
 			continue
 		}
-		if i+1 < len(records)-1 && terminalproto.ValidInspectPath(line[3:]) && terminalproto.ValidInspectPath(records[i+1]) {
+		hasNext := i+1 < len(records)-1
+		validPaths := hasNext && terminalproto.ValidInspectPath(line[3:]) &&
+			terminalproto.ValidInspectPath(records[i+1])
+		if validPaths {
 			sources[line[3:]] = records[i+1]
 		}
 		i++

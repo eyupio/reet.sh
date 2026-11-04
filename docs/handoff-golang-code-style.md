@@ -14,7 +14,10 @@ rules:
    carry an `else`.
 3. `for i := 0; i < n; i++` index loops.
 
-## Completed in this PR
+## Completed so far
+
+`internal/store` and `internal/api` landed in the first PR. This PR adds
+`internal/terminalproto` and `internal/terminalhost`.
 
 ### Index loops (`range`)
 
@@ -36,8 +39,10 @@ rules:
 
 ### Complex conditions
 
-- `internal/store`: 129 → 0.
-- `internal/api`: 87 → 0.
+- `internal/store`: 129 → 0 (first PR).
+- `internal/api`: 87 → 0 (first PR).
+- `internal/terminalproto`: 97 → 0 (this PR).
+- `internal/terminalhost`: 73 → 0 (this PR).
 
 Conditions were grouped into named booleans, with expensive or
 short-circuit-sensitive checks kept inline (for example a nil check before a
@@ -49,7 +54,7 @@ Current AST audit after this PR:
 
 | Rule | Remaining |
 | --- | --- |
-| `cond>=3` | 566 |
+| `cond>=3` | 397 |
 | `params>4` | 181 |
 | `index-loop` | 8 (all intentional, commented) |
 
@@ -57,8 +62,6 @@ Top packages by remaining complex conditions:
 
 | Package | `cond>=3` |
 | --- | --- |
-| `internal/terminalproto` | 97 |
-| `internal/terminalhost` | 73 |
 | `internal/setup` | 66 |
 | `internal/scan` | 43 |
 | `internal/terminalbroker` | 38 |
@@ -86,8 +89,9 @@ Also untouched from the same style guide:
 
 - `gofmt` clean across the repository.
 - `go build ./...` passes.
-- `go test ./internal/store -count=1` passes.
-- `go test ./internal/api -count=1` passes.
+- `go test ./internal/terminalproto -count=1` passes.
+- `go test ./internal/terminalhost -count=1` passes.
+- `go test ./internal/api ./internal/terminalbroker -count=1` passes.
 - Full `go test ./...` has two failures that also reproduce on pristine
   `main`:
   - `internal/clientconfig` — `TestPromptsAreBoundedAndDoNotConsumeLaterConfirmation`
@@ -108,7 +112,12 @@ counts, walk non-test `.go` files and count:
 
 ## Suggested next step
 
-Continue with `internal/terminalproto` (97 conditions) using the same approach,
-then `internal/terminalhost` (73) and `internal/setup` (66). Do not start with
+Continue with `internal/setup` (66 conditions) using the same approach, then
+`internal/scan` (43) and `internal/terminalbroker` (38). Do not start with
 `params>4` unless a package is being touched for another reason; options-struct
 refactors should be reviewed on their own.
+
+Two regressions were caught locally during this PR and are fixed:
+`hasControl` briefly returned the wrong boolean, and an `if`/`else` in
+`unpushedCount` was mangled while extracting its condition. Both are covered by
+the existing `internal/terminalhost` tests.

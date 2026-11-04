@@ -315,7 +315,9 @@ func validACPImagePaths(paths []string) bool {
 		return false
 	}
 	for _, path := range paths {
-		if !strings.HasPrefix(path, "/") || len(path) > MaxACPImagePathBytes || !plainText(path, MaxACPImagePathBytes) {
+		validPath := strings.HasPrefix(path, "/") && len(path) <= MaxACPImagePathBytes &&
+			plainText(path, MaxACPImagePathBytes)
+		if !validPath {
 			return false
 		}
 	}
@@ -521,7 +523,8 @@ func ValidPermissionID(s string) bool { return validACPID(s) }
 // ValidACPSessionID accepts OpenCode's own session id, which is the only handle
 // a reopened chat has on its stored history.
 func ValidACPSessionID(s string) bool {
-	if !strings.HasPrefix(s, "ses_") || len(s) < 8 || len(s) > 128 {
+	valid := strings.HasPrefix(s, "ses_") && len(s) >= 8 && len(s) <= 128
+	if !valid {
 		return false
 	}
 	for _, c := range s[4:] {
@@ -581,30 +584,38 @@ type ACPQuestion struct {
 func (q ACPQuestion) Valid() bool { return q.valid() }
 
 func (q ACPQuestion) valid() bool {
-	if q.Message == "" || !validChatText(q.Message, MaxACPQuestionMessage) ||
-		len(q.Fields) == 0 || len(q.Fields) > MaxACPQuestionFields {
+	validMessage := q.Message != "" && validChatText(q.Message, MaxACPQuestionMessage)
+	validFields := len(q.Fields) >= 1 && len(q.Fields) <= MaxACPQuestionFields
+	if !validMessage || !validFields {
 		return false
 	}
 	keys := map[string]bool{}
 	for _, f := range q.Fields {
-		if f.Key == "" || keys[f.Key] || !plainText(f.Key, MaxACPQuestionKey) ||
-			!validChatText(f.Title, MaxACPQuestionLabel) || !validChatText(f.Description, MaxACPQuestionDescription) {
+		validKey := f.Key != "" && !keys[f.Key] && plainText(f.Key, MaxACPQuestionKey)
+		validText := validChatText(f.Title, MaxACPQuestionLabel) &&
+			validChatText(f.Description, MaxACPQuestionDescription)
+		if !validKey || !validText {
 			return false
 		}
 		keys[f.Key] = true
 		switch f.Kind {
 		case "text":
-			if len(f.Options) != 0 || f.MinItems != 0 || f.MaxItems != 0 || f.MaxLength < 1 || f.MaxLength > MaxACPQuestionTextAnswer {
+			validOptions := len(f.Options) == 0 && f.MinItems == 0 && f.MaxItems == 0
+			validLength := f.MaxLength >= 1 && f.MaxLength <= MaxACPQuestionTextAnswer
+			if !validOptions || !validLength {
 				return false
 			}
 		case "single", "multi":
 			if f.MaxLength != 0 || !validQuestionOptions(f.Options) {
 				return false
 			}
-			if f.Kind == "single" && (f.MinItems != 0 || f.MaxItems != 0) {
+			invalidSingle := f.MinItems != 0 || f.MaxItems != 0
+			if f.Kind == "single" && invalidSingle {
 				return false
 			}
-			if f.Kind == "multi" && (f.MinItems < 0 || f.MaxItems < 1 || f.MaxItems > len(f.Options) || f.MinItems > f.MaxItems) {
+			validRange := f.MinItems >= 0 && f.MaxItems >= 1 &&
+				f.MaxItems <= len(f.Options) && f.MinItems <= f.MaxItems
+			if f.Kind == "multi" && !validRange {
 				return false
 			}
 		default:
@@ -621,8 +632,11 @@ func validQuestionOptions(options []ACPQuestionOption) bool {
 	}
 	values := map[string]bool{}
 	for _, o := range options {
-		if o.Value == "" || values[o.Value] || !plainText(o.Value, MaxACPQuestionValue) ||
-			o.Label == "" || !validChatText(o.Label, MaxACPQuestionLabel) || !validChatText(o.Description, MaxACPQuestionDescription) {
+		validValue := o.Value != "" && !values[o.Value] && plainText(o.Value, MaxACPQuestionValue)
+		validLabel := o.Label != "" && validChatText(o.Label, MaxACPQuestionLabel)
+		validDescription := validChatText(o.Description, MaxACPQuestionDescription)
+		valid := validValue && validLabel && validDescription
+		if !valid {
 			return false
 		}
 		values[o.Value] = true
@@ -633,10 +647,12 @@ func validQuestionOptions(options []ACPQuestionOption) bool {
 // validQuestionEvent checks the three question kinds. Every field that belongs to
 // another kind must be empty, so a question event cannot smuggle an approval card.
 func (e ACPEvent) validQuestionEvent() bool {
-	if !validACPID(e.QuestionID) || e.PermissionID != "" || e.MessageID != "" || e.Title != "" || e.ToolKind != "" ||
-		e.Status != "" || e.State != "" || e.Text != "" || e.Command != "" || e.Path != "" || e.Diff != "" ||
-		e.Additions != 0 || e.Deletions != 0 || e.DurationMs != 0 || len(e.Locations) != 0 || e.Allow != nil ||
-		e.Bad || e.Truncated || e.Detail != "" {
+	validQuestion := e.PermissionID == "" && e.MessageID == "" && e.Title == "" && e.ToolKind == ""
+	validAnswer := e.Status == "" && e.State == "" && e.Text == "" && e.Command == "" && e.Path == ""
+	validDiff := e.Diff == "" && e.Additions == 0 && e.Deletions == 0 && e.DurationMs == 0
+	validExtras := len(e.Locations) == 0 && e.Allow == nil && !e.Bad && !e.Truncated && e.Detail == ""
+	valid := validACPID(e.QuestionID) && validQuestion && validAnswer && validDiff && validExtras
+	if !valid {
 		return false
 	}
 	switch e.Kind {

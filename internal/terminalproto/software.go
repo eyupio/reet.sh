@@ -127,19 +127,24 @@ type SoftwareEntry struct {
 }
 
 func (e SoftwareEntry) Valid() bool {
-	if !ValidTool(e.Tool) || !e.State.Valid() || !plainText(e.Version, 64) || !plainText(e.Manager, 32) ||
-		!plainText(e.Package, 128) || !plainText(e.Path, 4096) || !plainText(e.Platform, 16) ||
-		!plainText(e.Arch, 16) || !plainText(e.Source, 32) || !plainText(e.Evidence, 128) ||
-		!ValidCounter(e.CheckedAt) {
+	validTool := ValidTool(e.Tool) && e.State.Valid()
+	validText := plainText(e.Version, 64) && plainText(e.Manager, 32) && plainText(e.Package, 128) &&
+		plainText(e.Path, 4096) && plainText(e.Platform, 16) && plainText(e.Arch, 16) &&
+		plainText(e.Source, 32) && plainText(e.Evidence, 128)
+	valid := validTool && validText && ValidCounter(e.CheckedAt)
+	if !valid {
 		return false
 	}
-	if e.Reason != "" && (!e.Reason.Valid() || e.State == SoftwareInstalled) {
+	invalidReason := !e.Reason.Valid() || e.State == SoftwareInstalled
+	if e.Reason != "" && invalidReason {
 		return false
 	}
 	if e.Managed && e.State != SoftwareInstalled {
 		return false
 	}
-	if e.Previous != "" && (!e.Managed || e.State != SoftwareInstalled || !validVersionText(e.Previous)) {
+	invalidPrevious := e.Previous != "" &&
+		(!e.Managed || e.State != SoftwareInstalled || !validVersionText(e.Previous))
+	if invalidPrevious {
 		return false
 	}
 	if len(e.Operations) > 3 {
@@ -230,7 +235,9 @@ type SoftwareApply struct {
 func (SoftwareApply) kind() string { return "software_apply" }
 
 func (s SoftwareApply) valid() bool {
-	if !ValidTool(s.Tool) || !s.Action.Valid() || !s.ExpectedState.Valid() || !plainText(s.ExpectedVersion, 64) || !validVersionText(s.ExpectedPrevious) {
+	validTool := ValidTool(s.Tool) && s.Action.Valid() && s.ExpectedState.Valid()
+	validText := plainText(s.ExpectedVersion, 64) && validVersionText(s.ExpectedPrevious)
+	if !validTool || !validText {
 		return false
 	}
 	switch s.Action {
@@ -310,21 +317,27 @@ type SoftwareApplyResult struct {
 func (SoftwareApplyResult) kind() string { return "software_apply_result" }
 
 func (r SoftwareApplyResult) valid() bool {
-	if !ValidTool(r.Tool) || !r.Action.Valid() || !r.State.Valid() ||
-		!plainText(r.Version, 64) || !plainText(r.Previous, 64) {
+	validTool := ValidTool(r.Tool) && r.Action.Valid() && r.State.Valid()
+	validText := plainText(r.Version, 64) && plainText(r.Previous, 64)
+	if !validTool || !validText {
 		return false
 	}
 	if r.State == SoftwareApplyApplied {
-		if r.Reason != "" || r.Entry == nil || !r.Entry.Valid() {
+		if r.Reason != "" || r.Entry == nil {
+			return false
+		}
+		if !r.Entry.Valid() {
 			return false
 		}
 		switch r.Action {
 		case SoftwareActionRemove:
-			if r.Version != "" || r.Entry.Managed || r.Entry.State == SoftwareInstalled && r.Entry.Managed {
+			if r.Version != "" || r.Entry.Managed {
 				return false
 			}
 		case SoftwareActionInstall, SoftwareActionUpdate, SoftwareActionRollback:
-			if r.Entry.State != SoftwareInstalled || !r.Entry.Managed || r.Entry.Version != r.Version || r.Version == "" {
+			validEntry := r.Entry.State == SoftwareInstalled && r.Entry.Managed &&
+				r.Entry.Version == r.Version
+			if !validEntry || r.Version == "" {
 				return false
 			}
 		}

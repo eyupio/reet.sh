@@ -80,18 +80,24 @@ type ModelsResult struct {
 func (ModelsResult) kind() string { return "models_result" }
 
 func (r ModelsResult) valid() bool {
-	if !ValidToolV2(r.Tool) || r.Reason != "" && !r.Reason.Valid() {
+	invalidReason := r.Reason != "" && !r.Reason.Valid()
+	if !ValidToolV2(r.Tool) || invalidReason {
 		return false
 	}
 	if r.Reason != "" {
 		return len(r.Models) == 0 && !r.More && r.Version == ""
 	}
-	if len(r.Models) > MaxModels || r.More && len(r.Models) == 0 || r.Version != "" && !plainText(r.Version, 64) {
+	validCount := len(r.Models) <= MaxModels
+	validMore := !r.More || len(r.Models) > 0
+	validVersion := r.Version == "" || plainText(r.Version, 64)
+	valid := validCount && validMore && validVersion
+	if !valid {
 		return false
 	}
 	seen := make(map[string]bool, len(r.Models))
 	for _, entry := range r.Models {
-		if !ValidModel(entry.ID) || seen[entry.ID] || !plainText(entry.Provider, 64) {
+		validID := ValidModel(entry.ID) && !seen[entry.ID]
+		if !validID || !plainText(entry.Provider, 64) {
 			return false
 		}
 		provider := entry.ID

@@ -77,7 +77,10 @@ const (
 // for-each-ref, which only reads) and gitOutputLimit
 // for every other git call.
 func outputLimit(args []string) int {
-	if len(args) > 0 && (args[0] == "status" || args[0] == "ls-files" || args[0] == "for-each-ref" || len(args) > 1 && args[0] == "worktree" && args[1] == "list") {
+	isListing := len(args) > 0 &&
+		(args[0] == "status" || args[0] == "ls-files" || args[0] == "for-each-ref")
+	isWorktreeList := len(args) > 1 && args[0] == "worktree" && args[1] == "list"
+	if isListing || isWorktreeList {
 		return gitListLimit
 	}
 	return gitOutputLimit
@@ -164,7 +167,9 @@ func gitEnvironment(environ []string) []string {
 	seen := map[string]bool{}
 	for _, kv := range environ {
 		key, _, ok := strings.Cut(kv, "=")
-		if !ok || seen[key] || key != "HOME" && key != "PATH" && key != "LANG" {
+		allowedKey := key == "HOME" || key == "PATH" || key == "LANG"
+		valid := ok && !seen[key] && allowedKey
+		if !valid {
 			continue
 		}
 		seen[key] = true
@@ -212,7 +217,9 @@ func worktreeDetail(out []byte) string {
 	}
 	var b strings.Builder
 	for _, r := range strings.ToValidUTF8(line, "") {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
+		isControl := unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
+		isSeparator := r == '\u2028' || r == '\u2029'
+		if isControl || isSeparator {
 			continue
 		}
 		if b.Len()+utf8.RuneLen(r) > terminalproto.MaxWorktreeDetailBytes {
@@ -285,7 +292,9 @@ func PrepareWorktree(ctx context.Context, home, repo, project, run, base string,
 func prepareWorktree(ctx context.Context, home, repo, project, run, base string, git GitRunner, budget, cleanupBudget time.Duration) (Worktree, error) {
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	if !terminalproto.ValidRunToken(run) || git == nil || base != "" && !terminalproto.ValidRefName(base) {
+	validBase := base == "" || terminalproto.ValidRefName(base)
+	valid := terminalproto.ValidRunToken(run) && git != nil && validBase
+	if !valid {
 		return Worktree{}, terminalproto.ErrInvalid
 	}
 	repoPath, err := ResolveDir(home, repo)
@@ -307,7 +316,8 @@ func prepareWorktree(ctx context.Context, home, repo, project, run, base string,
 	}
 	gitDir := filepath.Join(repoPath, ".git")
 	info, err := os.Lstat(gitDir)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+	validGitDir := err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
+	if !validGitDir {
 		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, ".git is not a folder in this repository")
 	}
 	for _, marker := range busyMarkers {
@@ -359,8 +369,11 @@ func prepareWorktree(ctx context.Context, home, repo, project, run, base string,
 	if err != nil {
 		return Worktree{}, err
 	}
-	if destExists || branchExists || listed {
-		if destExists && destInfo.IsDir() && destInfo.Mode()&os.ModeSymlink == 0 && branchExists && adoptable {
+	exists := destExists || branchExists
+	if exists || listed {
+		validDest := destExists && destInfo.IsDir() && destInfo.Mode()&os.ModeSymlink == 0
+		canAdopt := validDest && branchExists
+		if canAdopt && adoptable {
 			return w, nil
 		}
 		return Worktree{}, refuseWorktree(terminalproto.WorktreeExists, "")
@@ -402,7 +415,9 @@ func prepareWorktree(ctx context.Context, home, repo, project, run, base string,
 func gitFailed(out []byte, err error) error {
 	detail := worktreeDetail(out)
 	if detail == "" && err != nil {
-		if errors.Is(err, errGitMissing) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		known := errors.Is(err, errGitMissing) || errors.Is(err, context.DeadlineExceeded) ||
+			errors.Is(err, context.Canceled)
+		if known {
 			detail = err.Error()
 		}
 	}
@@ -495,7 +510,8 @@ func gitWorktreeListed(ctx context.Context, git GitRunner, repo, path, branch st
 
 func validHeadLine(line string) bool {
 	hash, ok := strings.CutPrefix(line, "HEAD ")
-	if !ok || len(hash) != 40 && len(hash) != 64 {
+	validLength := len(hash) == 40 || len(hash) == 64
+	if !ok || !validLength {
 		return false
 	}
 	for i := range hash {
@@ -511,7 +527,8 @@ func validHeadLine(line string) bool {
 // others can write, at any step.
 func ensureWorktreeDirs(home, dir string) error {
 	rel, err := filepath.Rel(home, dir)
-	if err != nil || rel == "." || !filepath.IsLocal(rel) {
+	valid := err == nil && rel != "." && filepath.IsLocal(rel)
+	if !valid {
 		return refuseWorktree(terminalproto.WorktreeOutsideHome, "")
 	}
 	current := home
@@ -524,7 +541,9 @@ func ensureWorktreeDirs(home, dir string) error {
 			}
 			info, err = os.Lstat(current)
 		}
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || ownedByCurrentUser(info) != nil || info.Mode().Perm()&0o022 != 0 {
+		invalid := err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() ||
+			ownedByCurrentUser(info) != nil || info.Mode().Perm()&0o022 != 0
+		if invalid {
 			return refuseWorktree(terminalproto.WorktreeOutsideHome, filepath.Join("~", strings.TrimPrefix(current, home))+" is not a folder of yours")
 		}
 	}
@@ -541,7 +560,9 @@ func inside(dir, path string) bool {
 // (bidi overrides and the like), which a path shown to a person must not hold.
 func hasControl(s string) bool {
 	for _, r := range s {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
+		isControl := unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
+		isSeparator := r == '\u2028' || r == '\u2029'
+		if isControl || isSeparator {
 			return true
 		}
 	}
@@ -768,7 +789,7 @@ func scanWorktree(ctx context.Context, path string, maxEntries, maxDepth int) (n
 		if rel == ".git" {
 			return nil // the worktree's own .git file (checked by locateWorktree)
 		}
-		if gitLikeName(d.Name()) || d.IsDir() && hasGitDirLayout(p) {
+		if gitDir := d.IsDir() && hasGitDirLayout(p); gitLikeName(d.Name()) || gitDir {
 			nested = true
 			return fs.SkipAll
 		}
@@ -786,7 +807,8 @@ func gitCount(ctx context.Context, git GitRunner, dir string, args ...string) (i
 	text := strings.TrimSuffix(string(out), "\n")
 	n := 0
 	for i := range text {
-		if text[i] < '0' || text[i] > '9' || n > 1<<30 {
+		notDigit := text[i] < '0' || text[i] > '9'
+		if notDigit || n > 1<<30 {
 			return 0, refuseWorktree(terminalproto.WorktreeGitFailed, "git counted commits unreadably")
 		}
 		n = n*10 + int(text[i]-'0')
@@ -803,13 +825,19 @@ func gitCount(ctx context.Context, git GitRunner, dir string, args ...string) (i
 func unpushedCount(ctx context.Context, w worktreeAt, git GitRunner) (int, error) {
 	args := []string{"rev-list", "--count", "HEAD", "--not", "--remotes", "--exclude=" + w.branch}
 	out, err := git(ctx, w.path, "symbolic-ref", "-q", "HEAD")
-	if ref := strings.TrimSuffix(string(out), "\n"); err == nil && strings.HasPrefix(ref, "refs/heads/") && !strings.ContainsAny(ref, "*?[\\\n") {
+	ref := strings.TrimSuffix(string(out), "\n")
+	validRef := err == nil && strings.HasPrefix(ref, "refs/heads/") &&
+		!strings.ContainsAny(ref, "*?[\\\n")
+	if validRef {
 		if branch := strings.TrimPrefix(ref, "refs/heads/"); branch != w.branch {
 			args = append(args, "--exclude="+branch)
 		}
-	} else if err == nil || ctx.Err() != nil || errors.Is(err, errGitMissing) {
-		// symbolic-ref succeeded with something unexpected, or git itself failed.
-		return 0, gitFailed(out, err)
+	} else {
+		benign := err == nil || ctx.Err() != nil || errors.Is(err, errGitMissing)
+		if benign {
+			// symbolic-ref succeeded with something unexpected, or git itself failed.
+			return 0, gitFailed(out, err)
+		}
 	}
 	args = append(args, "--branches")
 	return gitCount(ctx, git, w.path, args...)
@@ -832,7 +860,9 @@ func parseStatus(out []byte) (int, []string) {
 		if len(paths) < terminalproto.MaxWorktreePaths {
 			paths = append(paths, plainPath(entry[3:]))
 		}
-		if entry[0] == 'R' || entry[0] == 'C' || entry[1] == 'R' || entry[1] == 'C' {
+		renamed := entry[0] == 'R' || entry[0] == 'C'
+		copied := entry[1] == 'R' || entry[1] == 'C'
+		if renamed || copied {
 			i++ // the original path
 		}
 	}
@@ -845,7 +875,9 @@ func parseStatus(out []byte) (int, []string) {
 func plainPath(p string) string {
 	var b strings.Builder
 	for _, r := range strings.ToValidUTF8(p, "�") {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
+		isControl := unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
+		isSeparator := r == '\u2028' || r == '\u2029'
+		if isControl || isSeparator {
 			r = '�'
 		}
 		if b.Len()+utf8.RuneLen(r) > terminalproto.MaxWorktreePathBytes {
@@ -952,7 +984,9 @@ func RemoveWorktree(ctx context.Context, home, project, repo, run string, shown 
 //     and the path exactly once, not first and not prunable: otherwise
 //     not_registered.
 func locateWorktree(ctx context.Context, home, project, repo, run string, git GitRunner) (worktreeAt, error) {
-	if !terminalproto.ValidRunToken(run) || !terminalproto.ValidSlug(project) || repo == "" || git == nil {
+	valid := terminalproto.ValidRunToken(run) && terminalproto.ValidSlug(project) &&
+		repo != "" && git != nil
+	if !valid {
 		return worktreeAt{}, terminalproto.ErrInvalid
 	}
 	realHome, err := filepath.EvalSymlinks(home)
@@ -975,7 +1009,8 @@ func locateWorktree(ctx context.Context, home, project, repo, run string, git Gi
 	// either one alone survives the tests. They keep the "never outside
 	// ~/.reet/worktrees" rule true if the walk above is ever changed.
 	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil || !inside(worktrees, resolved) || resolved == worktrees {
+	validResolved := err == nil && inside(worktrees, resolved) && resolved != worktrees
+	if !validResolved {
 		return worktreeAt{}, refuseWorktree(terminalproto.WorktreeOutsideHome, "the worktree is not under ~/.reet/worktrees")
 	}
 	if resolved != path {
@@ -1011,7 +1046,9 @@ func locateWorktree(ctx context.Context, home, project, repo, run string, git Gi
 		return worktreeAt{}, notRegistered("the worktree does not belong to a normal repository")
 	}
 	w.root = filepath.Dir(common)
-	if w.root == path || inside(worktrees, w.root) || terminalproto.Slug(filepath.Base(w.root), "repo") != repoSlug {
+	invalidRoot := w.root == path || inside(worktrees, w.root)
+	validSlug := terminalproto.Slug(filepath.Base(w.root), "repo") == repoSlug
+	if invalidRoot || !validSlug {
 		return worktreeAt{}, notRegistered("the worktree belongs to another repository")
 	}
 	out, err = git(ctx, path, "worktree", "list", "--porcelain")
@@ -1066,7 +1103,8 @@ func registeredWorktree(listing, root, path string) bool {
 		}
 		matches++
 		for _, line := range r[1:] {
-			if line == "prunable" || strings.HasPrefix(line, "prunable ") || line == "bare" {
+			bare := line == "prunable" || line == "bare"
+			if bare || strings.HasPrefix(line, "prunable ") {
 				return false
 			}
 		}
@@ -1081,7 +1119,8 @@ func registeredWorktree(listing, root, path string) bool {
 // a file there is not_registered.
 func checkWorktreePath(home, path string) error {
 	rel, err := filepath.Rel(home, path)
-	if err != nil || rel == "." || !filepath.IsLocal(rel) {
+	valid := err == nil && rel != "." && filepath.IsLocal(rel)
+	if !valid {
 		return refuseWorktree(terminalproto.WorktreeOutsideHome, "")
 	}
 	parts := strings.Split(rel, string(filepath.Separator))
@@ -1105,7 +1144,8 @@ func checkWorktreePath(home, path string) error {
 			}
 			continue
 		}
-		if !info.IsDir() || ownedByCurrentUser(info) != nil || info.Mode().Perm()&0o022 != 0 {
+		valid := info.IsDir() && ownedByCurrentUser(info) == nil && info.Mode().Perm()&0o022 == 0
+		if !valid {
 			return refuseWorktree(terminalproto.WorktreeOutsideHome, shown+" is not a folder of yours")
 		}
 	}

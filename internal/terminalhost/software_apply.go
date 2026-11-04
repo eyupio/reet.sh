@@ -49,7 +49,9 @@ type SoftwareSource struct {
 // changed since the person approved the plan.
 func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareApply, lookPath func(string) (string, error), sources ...SoftwareSource) terminalproto.SoftwareApplyResult {
 	result := terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action}
-	if req.Tool != agentsoftware.OpenCodeTool || runtime.GOOS != agentsoftware.SupportedPlatform || runtime.GOARCH != agentsoftware.SupportedArch {
+	supported := req.Tool == agentsoftware.OpenCodeTool &&
+		runtime.GOOS == agentsoftware.SupportedPlatform && runtime.GOARCH == agentsoftware.SupportedArch
+	if !supported {
 		result.State, result.Reason = terminalproto.SoftwareApplyRefused, terminalproto.SoftwareApplyUnsupported
 		return result
 	}
@@ -90,7 +92,9 @@ func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareA
 			return result
 		}
 		entry := InspectSoftware(home, req.Tool, lookPath)
-		if entry.State != terminalproto.SoftwareInstalled || !entry.Managed || entry.Version != req.ExpectedPrevious {
+		validPrevious := entry.State == terminalproto.SoftwareInstalled && entry.Managed &&
+			entry.Version == req.ExpectedPrevious
+		if !validPrevious {
 			result.State, result.Reason = terminalproto.SoftwareApplyFailed, terminalproto.SoftwareApplyRollback
 			return result
 		}
@@ -136,7 +140,8 @@ func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareA
 		return result
 	}
 	_, current, found, err := agentsoftware.Current(home, req.Tool)
-	if err != nil || !found || current.Version != agentsoftware.OpenCodeReviewedVersion {
+	valid := err == nil && found && current.Version == agentsoftware.OpenCodeReviewedVersion
+	if !valid {
 		// A failed verification must not leave the failed version current when
 		// an earlier managed version can be restored.
 		_, _ = agentsoftware.RollbackManaged(home, req.Tool)
@@ -144,7 +149,9 @@ func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareA
 		return result
 	}
 	entry := InspectSoftware(home, req.Tool, lookPath)
-	if entry.State != terminalproto.SoftwareInstalled || !entry.Managed || entry.Version != receipt.Version {
+	validReceipt := entry.State == terminalproto.SoftwareInstalled && entry.Managed &&
+		entry.Version == receipt.Version
+	if !validReceipt {
 		result.State, result.Reason = terminalproto.SoftwareApplyFailed, terminalproto.SoftwareApplyInstall
 		return result
 	}

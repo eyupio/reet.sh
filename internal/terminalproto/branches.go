@@ -77,7 +77,11 @@ func (r BranchesResult) valid() bool {
 	if r.Reason != "" {
 		return r.Reason.valid() && r.Current == "" && r.Default == "" && len(r.Branches) == 0 && !r.More
 	}
-	if len(r.Branches) > MaxBranchNames || r.Current != "" && !validRefName(r.Current) || r.Default != "" && !validRefName(r.Default) {
+	validCount := len(r.Branches) <= MaxBranchNames
+	validCurrent := r.Current == "" || validRefName(r.Current)
+	validDefault := r.Default == "" || validRefName(r.Default)
+	valid := validCount && validCurrent && validDefault
+	if !valid {
 		return false
 	}
 	seen := make(map[string]bool, len(r.Branches))
@@ -100,10 +104,16 @@ func ValidRefName(s string) bool { return validRefName(s) }
 // check-ref-format), so a name the connector sends is one git accepts and can
 // never be read as an option.
 func validRefName(s string) bool {
-	if s == "" || s == "@" || len(s) > MaxBrowseNameBytes || !plainText(s, MaxBrowseNameBytes) ||
-		s[0] == '-' || s[0] == '/' || s[len(s)-1] == '/' || s[len(s)-1] == '.' ||
-		strings.Contains(s, "..") || strings.Contains(s, "//") || strings.Contains(s, "@{") ||
-		strings.ContainsAny(s, " ~^:?*[\\\x7f") {
+	validText := s != "" && s != "@" && len(s) <= MaxBrowseNameBytes &&
+		plainText(s, MaxBrowseNameBytes)
+	if !validText {
+		return false
+	}
+	validEdges := s[0] != '-' && s[0] != '/' && s[len(s)-1] != '/' && s[len(s)-1] != '.'
+	validBody := !strings.Contains(s, "..") && !strings.Contains(s, "//") && !strings.Contains(s, "@{")
+	validChars := !strings.ContainsAny(s, " ~^:?*[\\\x7f")
+	valid := validEdges && validBody && validChars
+	if !valid {
 		return false
 	}
 	for _, part := range strings.Split(s, "/") {

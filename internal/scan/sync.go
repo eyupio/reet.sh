@@ -23,7 +23,9 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/clientconfig"
+	"github.com/eyupio/reet.sh/internal/noderuntime"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/systeminstall"
 )
 
 // SyncAction is one install, replace or remove in a sync plan.
@@ -58,20 +60,174 @@ type syncOptions struct {
 	preflight        func([]SyncAction) error
 }
 
-// requireNpx stops an apply that would install skills before any file changes
-// when the skills CLI's runtime is missing, so the person gets a remedy rather
-// than a failed install for the first skill in the plan.
-func requireNpx(actions []SyncAction) error {
+var errMissingNpx = errors.New("npx was not found, or Node.js is older than 18; install a current Node.js (which provides npx and npm) on this machine, then sync again")
+
+// needsNpx reports whether the plan installs a skill through the skills CLI.
+// Removals and private reet-hosted installs never invoke it.
+func needsNpx(actions []SyncAction) bool {
 	for _, action := range actions {
-		if !action.Add || action.Skill.SourceType == "private" {
-			continue
+		if action.Add && action.Skill.SourceType != "private" {
+			return true
 		}
-		if _, err := exec.LookPath("npx"); err != nil {
-			return errors.New("npx was not found in PATH; install Node.js (which provides npx and npm) on this machine, then sync again")
+	}
+	return false
+}
+
+// requireNpx is the non-interactive guard. It accepts an npx on PATH or a
+// runtime a previous interactive run provisioned into the managed directory.
+func requireNpx(actions []SyncAction) error {
+	return resolveNpx(actions, nil, nil, nil)
+}
+
+// requireDependencies is the non-interactive guard for everything an apply
+// would invoke, so the enrolled agent fails before touching files.
+func requireDependencies(actions []SyncAction) error {
+	if err := requireNpx(actions); err != nil {
+		return err
+	}
+	if needsGit(actions) {
+		if _, err := exec.LookPath("git"); err != nil {
+			return errMissingGit
 		}
-		return nil
 	}
 	return nil
+}
+
+// resolveNpx finds the skills CLI runtime and, when a person is present, offers
+// the system package manager or a verified runtime in reet's managed directory.
+// It runs before any file in the plan is touched.
+func resolveNpx(actions []SyncAction, ctx context.Context, in io.Reader, out io.Writer) error {
+	if !needsNpx(actions) {
+		return nil
+	}
+	home, _ := os.UserHomeDir()
+	if path, managed := noderuntime.Lookup(home); path != "" {
+		if managed {
+			noderuntime.Use(path)
+			return nil
+		}
+		if major, ok := noderuntime.Major(); !ok || major >= noderuntime.MinimumMajor {
+			return nil
+		} else if out != nil {
+			fmt.Fprintf(out, "The Node.js on PATH (v%d) is older than %d.\n", major, noderuntime.MinimumMajor)
+		}
+	}
+	if ctx == nil || !clientconfig.Interactive(in) {
+		return errMissingNpx
+	}
+	if plan, ok := systeminstall.For(systeminstall.Request{Linux: []string{"nodejs", "npm"}, Brew: []string{"node"}}); ok {
+		installed, err := offerInstall(ctx, in, out, "Node.js is required to install skills.", plan)
+		if err != nil {
+			return err
+		}
+		if installed {
+			if path, managed := noderuntime.Lookup(home); path != "" {
+				if managed {
+					noderuntime.Use(path)
+					return nil
+				}
+				if major, ok := noderuntime.Major(); !ok || major >= noderuntime.MinimumMajor {
+					return nil
+				} else if out != nil {
+					fmt.Fprintf(out, "The packaged Node.js is still older than %d; using a current runtime instead.\n", noderuntime.MinimumMajor)
+				}
+			} else if out != nil {
+				fmt.Fprintln(out, "The package manager finished, but npx is not on PATH yet; using a self-contained runtime instead.")
+			}
+		}
+	}
+	answer, err := clientconfig.Ask(in, out, "Download a verified Node.js runtime into ~/.reet instead? About 250 MB installed, no sudo needed (yes/no)", "no")
+	if err != nil {
+		return err
+	}
+	if !isYes(answer) {
+		return errors.New("cancelled; no skills changed")
+	}
+	path, err := noderuntime.Install(ctx, nil, home, out)
+	if err != nil {
+		return fmt.Errorf("could not install Node.js: %w", err)
+	}
+	noderuntime.Use(path)
+	return nil
+}
+
+var errMissingGit = errors.New("git was not found in PATH; install git to install skills from GitHub, then sync again")
+
+func needsGit(actions []SyncAction) bool {
+	for _, action := range actions {
+		if action.Add && action.Skill.SourceType == "github" {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveGit offers the system package manager for GitHub-sourced skills,
+// which the skills CLI fetches with git.
+func resolveGit(actions []SyncAction, ctx context.Context, in io.Reader, out io.Writer) error {
+	if !needsGit(actions) {
+		return nil
+	}
+	if _, err := exec.LookPath("git"); err == nil {
+		return nil
+	}
+	if ctx == nil || !clientconfig.Interactive(in) {
+		return errMissingGit
+	}
+	plan, ok := systeminstall.For(systeminstall.Request{Linux: []string{"git"}, Brew: []string{"git"}})
+	if !ok {
+		return errMissingGit
+	}
+	installed, err := offerInstall(ctx, in, out, "Git is required to install skills from GitHub.", plan)
+	if err != nil {
+		return err
+	}
+	if !installed {
+		return errors.New("cancelled; no skills changed")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		return errors.New("git was installed, but it is still not on PATH; open a new shell and sync again")
+	}
+	return nil
+}
+
+// offerInstall shows the exact command, asks first, then runs it with the real
+// terminal so sudo can prompt. It reports whether the command ran and succeeded.
+func offerInstall(ctx context.Context, in io.Reader, out io.Writer, why string, plan systeminstall.Plan) (bool, error) {
+	command := strings.Join(plan.Command, " ")
+	question := fmt.Sprintf("%s Install it with %s now? %s (may ask for your sudo password) (yes/no)", why, plan.Label, command)
+	answer, err := clientconfig.Ask(in, out, question, "no")
+	if err != nil {
+		return false, err
+	}
+	if !isYes(answer) {
+		return false, nil
+	}
+	fmt.Fprintf(out, "Running %s\n", command)
+	if err := systeminstall.Run(ctx, plan, in, out); err != nil {
+		return false, fmt.Errorf("%s installation failed: %w", plan.Label, err)
+	}
+	return true, nil
+}
+
+// networkFailure spots the common offline, proxy and registry errors from the
+// skills CLI so the retry advice can mention connectivity.
+func networkFailure(err error) bool {
+	text := strings.ToLower(err.Error())
+	for _, marker := range []string{"eai_again", "enotfound", "etimedout", "econnrefused", "econnreset", "network", "proxy", "registry", "certificate"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isYes(answer string) bool {
+	switch strings.ToLower(answer) {
+	case "yes", "y":
+		return true
+	}
+	return false
 }
 
 var safeSlug = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
@@ -212,6 +368,9 @@ func listTargets(server, token string) ([]store.SyncTarget, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return nil, fmt.Errorf("the controller rejected your token (%s); update it with reet configure, then sync again", resp.Status)
+		}
 		return nil, fmt.Errorf("controller replied %s", resp.Status)
 	}
 	var state struct {
@@ -230,6 +389,7 @@ func listTargets(server, token string) ([]store.SyncTarget, error) {
 // TargetChoice is one saved sync target, labelled for a picker.
 type TargetChoice struct {
 	ID, Label string
+	Here      bool
 }
 
 // ListTargetChoices returns the account's saved targets, those on host first, so
@@ -239,27 +399,31 @@ func ListTargetChoices(server, token, host string) ([]TargetChoice, error) {
 	if err != nil {
 		return nil, err
 	}
-	var here, other []TargetChoice
+	var hereChoices, other []TargetChoice
 	for _, t := range targets {
 		label := t.Target.Name
 		if label == "" {
 			label = t.Target.ID
 		}
+		onThisMachine := host != "" && t.Target.Host == host
 		detail := []string{t.Target.Host}
+		if onThisMachine {
+			detail = append(detail, "this machine")
+		}
 		if t.Target.Project != "" {
 			detail = append(detail, t.Target.Project)
 		}
 		if t.Mode != "" {
 			detail = append(detail, t.Mode)
 		}
-		choice := TargetChoice{ID: t.Target.ID, Label: label + " (" + strings.Join(detail, ", ") + ")"}
-		if host != "" && t.Target.Host == host {
-			here = append(here, choice)
+		choice := TargetChoice{ID: t.Target.ID, Label: label + " (" + strings.Join(detail, ", ") + ")", Here: onThisMachine}
+		if onThisMachine {
+			hereChoices = append(hereChoices, choice)
 		} else {
 			other = append(other, choice)
 		}
 	}
-	return append(here, other...), nil
+	return append(hereChoices, other...), nil
 }
 
 func fetchTarget(server, token, id string) (store.SyncTarget, error) {
@@ -284,9 +448,9 @@ func chooseSyncMode(in io.Reader, out io.Writer) (bool, error) {
 			return false, err
 		}
 		switch strings.ToLower(answer) {
-		case "preview", "p":
+		case "preview", "p", "1":
 			return false, nil
-		case "apply", "a":
+		case "apply", "a", "2":
 			return true, nil
 		}
 		fmt.Fprintln(out, "Enter preview or apply.")
@@ -298,16 +462,26 @@ func RunSync(args []string, in io.Reader, out io.Writer) error {
 }
 
 func RunSyncVersion(args []string, in io.Reader, out io.Writer, version string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
-	defer cancel()
 	return runSyncWithOptions(args, in, out, func(args []string, cwd string) error {
+		// Each install gets its own budget. The interactive session itself is
+		// unbounded, so a person can read the plan and answer prompts without
+		// racing a clock that started before they did.
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+		defer cancel()
 		cmd := exec.CommandContext(ctx, "npx", args...)
 		cmd.Dir = cwd
 		cmd.Stdout = out
 		cmd.Stderr = out
 		cmd.Stdin = in
 		return cmd.Run()
-	}, version, syncOptions{verifyEnrollment: true, preflight: requireNpx})
+	}, version, syncOptions{verifyEnrollment: true, preflight: func(actions []SyncAction) error {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		defer cancel()
+		if err := resolveNpx(actions, ctx, in, os.Stderr); err != nil {
+			return err
+		}
+		return resolveGit(actions, ctx, in, os.Stderr)
+	}})
 }
 
 func runSync(args []string, in io.Reader, out io.Writer, execute func([]string, string) error, version string) error {
@@ -367,21 +541,41 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	*token = tokenValue
 	if *targetID == "" && clientconfig.Interactive(in) {
 		// Offer the account's saved targets instead of asking for an ID by heart.
-		if choices, err := ListTargetChoices(*server, *token, *host); err == nil && len(choices) > 0 {
-			fmt.Fprintln(os.Stderr, "Saved targets:")
+		choices, choiceErr := ListTargetChoices(*server, *token, *host)
+		switch {
+		case choiceErr != nil:
+			return choiceErr
+		case len(choices) == 0:
+			fmt.Fprintf(os.Stderr, "No saved sync targets yet. Create one at %s/machines?view=compare (Machines -> Sync), then run reet sync again.\n", strings.TrimRight(*server, "/"))
+		default:
+			fmt.Fprintln(os.Stderr, "Saved targets (a target runs only on its own machine):")
 			for i, c := range choices {
 				fmt.Fprintf(os.Stderr, "  %d. %s\n", i+1, c.Label)
 			}
-			answer, err := clientconfig.Ask(in, os.Stderr, "Pick a number, or paste a target ID", "1")
-			if err != nil {
-				return err
-			}
-			n, convErr := strconv.Atoi(answer)
-			valid := convErr == nil && n >= 1 && n <= len(choices)
-			if valid {
-				*targetID = choices[n-1].ID
+			choice := ""
+			if choices[0].Here {
+				choice = "1"
 			} else {
-				*targetID = answer
+				fmt.Fprintln(os.Stderr, "No target is saved for this machine; another machine's target will be refused here.")
+			}
+			for {
+				answer, err := clientconfig.Ask(in, os.Stderr, "Pick a number, or paste a target ID", choice)
+				if err != nil {
+					return err
+				}
+				n, convErr := strconv.Atoi(answer)
+				if convErr != nil {
+					if answer != "" {
+						*targetID = answer
+						break
+					}
+					continue
+				}
+				if n >= 1 && n <= len(choices) {
+					*targetID = choices[n-1].ID
+					break
+				}
+				fmt.Fprintf(os.Stderr, "Enter a number from 1 to %d, or paste a target ID.\n", len(choices))
 			}
 		}
 	}
@@ -414,17 +608,17 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	if *apply && options.verifyEnrollment {
 		c, err := loadAgentConfig(*config)
 		if err != nil {
-			return fmt.Errorf("enroll this machine with reet agent enroll before applying: %w", err)
+			return fmt.Errorf("this machine is not enrolled, so apply is refused (preview still works). Enroll it from Machines -> Add a machine at %s, then run the printed reet agent enroll command: %w", strings.TrimRight(*server, "/"), err)
 		}
 		if strings.TrimRight(*server, "/") != c.Server {
-			return errors.New("enrollment belongs to another controller")
+			return fmt.Errorf("this machine is enrolled with another controller than %s; re-enroll it for this one before applying", strings.TrimRight(*server, "/"))
 		}
 		var a store.SyncAgent
 		if err := agentRequest(c, "/api/v2/sync/identity", map[string]string{}, &a, version); err != nil {
 			return err
 		}
 		if !strings.EqualFold(a.Host, *host) {
-			return errors.New("this installation is enrolled as a different machine")
+			return fmt.Errorf("this installation is enrolled as a different machine than %s; check reet agent enroll --env", target.Target.Host)
 		}
 		applicationLock := *config + ".apply.lock"
 		lock, err := os.OpenFile(applicationLock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -466,7 +660,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	projectMismatch := !filepath.IsAbs(target.Target.Project) ||
 		filepath.Clean(resolvedCWD) != filepath.Clean(target.Target.Project)
 	if target.Target.Project != "" && projectMismatch {
-		return fmt.Errorf("run this command from project %s", target.Target.Project)
+		return fmt.Errorf("run this command from project %s (currently %s)", target.Target.Project, resolvedCWD)
 	}
 	customClaude := target.Target.Project == "" && target.Target.Agent == "claude" &&
 		os.Getenv("CLAUDE_CONFIG_DIR") != ""
@@ -667,7 +861,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		return rescan()
 	}
 	if !*apply {
-		fmt.Fprintln(out, "Preview only. Add --apply to review and confirm these changes.")
+		fmt.Fprintln(out, "Preview only. Run reet sync again and choose apply to make these changes.")
 		return nil
 	}
 	if options.preflight != nil {
@@ -676,12 +870,13 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 	}
 	if options.approvedHash == "" {
-		fmt.Fprintf(out, "Removals move entries into .reet-sync-backups beside the skills folder. This may affect skills available to this agent. Type %q to apply: ", target.Target.Name)
+		fmt.Fprint(os.Stderr, "Removals move entries into .reet-sync-backups beside the skills folder. This may affect skills available to this agent. Type yes to apply: ")
 		line, err := bufio.NewReader(in).ReadString('\n')
 		if err != nil && err != io.EOF {
 			return err
 		}
-		if strings.TrimSpace(line) != target.Target.Name {
+		answer := strings.TrimSpace(line)
+		if !isYes(answer) && !strings.EqualFold(answer, target.Target.Name) {
 			return errors.New("cancelled; no skills changed")
 		}
 	}
@@ -746,7 +941,11 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 		if operationErr != nil {
 			_ = rescan()
-			return fmt.Errorf("sync stopped at %s: %w; rescan and preview again", action.Skill.Slug, operationErr)
+			hint := "rescan and preview again"
+			if networkFailure(operationErr) {
+				hint += "; check network access to registry.npmjs.org and github.com (or your proxy)"
+			}
+			return fmt.Errorf("sync stopped at %s: %w; %s", action.Skill.Slug, operationErr, hint)
 		}
 	}
 

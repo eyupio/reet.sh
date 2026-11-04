@@ -75,7 +75,7 @@ func RunSyncReport(opts SyncReportOptions) (SyncReport, error) {
 	}
 	options := syncOptions{
 		verifyEnrollment: true,
-		preflight:        requireNpx,
+		preflight:        requireDependencies,
 		approvedHash:     opts.ApprovedHash,
 		cwd:              opts.Dir,
 		onTarget: func(target store.SyncTarget) {

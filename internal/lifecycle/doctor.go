@@ -197,10 +197,15 @@ func (a *App) DoctorReport(opts DoctorOptions) (Report, error) {
 	}
 	for _, tool := range []string{"node", "npx"} {
 		if _, e := exec.LookPath(tool); e != nil {
-			add(tool, "warn", tool+" is unavailable.", "Install Node.js/npm to apply skill sync changes; scanning and the server do not need them.")
+			add(tool, "warn", tool+" is unavailable.", "Run reet sync and choose apply to let reet install Node.js with your confirmation, or install Node.js/npm yourself; scanning and the server do not need them.")
 		} else {
 			add(tool, "pass", tool+" is available for skill sync.", "")
 		}
+	}
+	if _, e := exec.LookPath("git"); e != nil {
+		add("git", "warn", "git is unavailable.", "Skills sourced from GitHub need git. Run reet sync and choose apply to let reet offer the install, or install git yourself.")
+	} else {
+		add("git", "pass", "git is available for skill sync from GitHub.", "")
 	}
 	controller := opts.Server
 	if controller == "" {

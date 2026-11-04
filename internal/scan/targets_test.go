@@ -17,8 +17,11 @@ func TestListTargetChoicesPutsThisHostFirst(t *testing.T) {
 	if err != nil || len(choices) != 2 || choices[0].ID != "t2" || choices[1].ID != "t1" {
 		t.Fatalf("choices = %+v err = %v", choices, err)
 	}
-	if choices[0].Label != "codex (ns1, /srv/app, bidirectional)" {
+	if choices[0].Label != "codex (ns1, this machine, /srv/app, bidirectional)" {
 		t.Fatalf("label = %q", choices[0].Label)
+	}
+	if !choices[0].Here || choices[1].Here {
+		t.Fatalf("this-machine flags = %+v", choices)
 	}
 }
 

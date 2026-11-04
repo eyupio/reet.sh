@@ -1,9 +1,11 @@
 <script lang="ts">
- // The in-app twin of the boot shell in index.html: while the first auth answer is on its way, the page keeps a shape
- // instead of reporting a bare "Loading…". It is covered by the static shell on a first load and takes over on a later
- // one, so the two share their spacing and the swap is invisible.
+ import RouteSkeleton from './RouteSkeleton.svelte'
+ let { layout = 'content' }: { layout?: string } = $props()
 </script>
 
+{#if layout === 'home' || layout === 'workspace'}
+ <RouteSkeleton variant={layout} />
+{:else}
 <div class="boot-page" role="status" aria-busy="true" aria-label="Loading reet.sh">
  <span class="vh">Loading reet.sh…</span>
  <div class="head" aria-hidden="true"><i class="slim"></i><i class="title"></i></div>
@@ -15,8 +17,10 @@
  </div>
 </div>
 
+{/if}
+
 <style>
- .boot-page { display: grid; gap: 18px; max-width: var(--content-width); margin: 0 auto; padding: 38px 40px 56px; }
+ .boot-page { display: grid; gap: 18px; width: 100%; min-width: 0; }
  .head { display: grid; gap: 12px; margin-bottom: 8px; }
  i { display: block; background: var(--line); border-radius: 6px; height: 13px; }
  i.slim { height: 10px; }
@@ -30,6 +34,6 @@
  .row i:first-child { flex: 0 0 32%; }
  @media (prefers-reduced-motion: no-preference) { i { background: linear-gradient(90deg, var(--line) 0%, var(--line-soft) 50%, var(--line) 100%); background-size: 200% 100%; animation: boot-shimmer 1.8s ease-in-out infinite; } }
  @keyframes boot-shimmer { to { background-position: -200% 0; } }
- @media (max-width: 850px) { .boot-page { padding: 26px 24px 44px; } .cards { grid-template-columns: 1fr; } }
- @media (max-width: 550px) { .boot-page { padding: 18px 16px 36px; } }
+ @media (max-width: 850px) { .cards { grid-template-columns: 1fr; } }
+
 </style>

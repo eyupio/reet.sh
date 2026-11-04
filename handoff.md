@@ -18,6 +18,22 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## GAFFER-STATE-1: retain live choices and actionable replay (4 November 2026)
+
+Branch `fix/gaffer-recovery-state`. `chatHost.setModel` now copies the process's actual model read-back into the live
+session and its existing restart record, even on a failed or unconfirmed switch. It does not guess from the requested model
+or recreate a removed record. A plain refusal keeps the old read-back; an unknown model clears the old launch choice.
+
+The controller's live chat ring evicts ordinary history before pending approval/question cards and the latest status,
+matching the connector's detached queue. Count and byte limits remain hard; pending state alone can still fill them.
+Resolved cards become evictable again. Live subscribers receive the newly published event even when that event itself
+cannot be retained in a ring full of pending state. The stored transcript remains bounded and connector reconnect replay
+continues to restore retained pending cards after a controller restart.
+
+Regression tests first reproduced stale restart models (confirmed, unknown and different-model replies) and loss of a
+waiting approval/status at both ring limits. Tests also cover explicit refusal, question cancellation and a ring filled
+entirely with pending state. Validation and merge status are recorded in the PR. No wire or dependency changes.
+
 ## AUTH-CARD-1: the account card agrees with the landing page (3 November 2026)
 
 Branch `claude/fervent-wright-5omayg`. Copy only. The card on the sign-in, sign-up and first-run owner-setup pages

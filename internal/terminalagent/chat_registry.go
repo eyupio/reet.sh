@@ -144,6 +144,21 @@ func (r *chatRegistry) touch(id string, yolo bool) {
 	r.saveLocked()
 }
 
+// setModel updates an existing restart record from the process's read-back.
+// It never recreates a record concurrently removed by End or a mode handoff.
+func (r *chatRegistry) setModel(id, model string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec, ok := r.chats[id]
+	if !ok {
+		return
+	}
+	rec.Model = model
+	rec.UpdatedAt = time.Now().UnixMilli()
+	r.chats[id] = rec
+	r.saveLocked()
+}
+
 // seen refreshes when a recorded chat last did something, so an active chat is
 // not dropped by the age bound while it is still in use.
 func (r *chatRegistry) seen(id string) {

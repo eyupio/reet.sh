@@ -1345,7 +1345,20 @@ func (h *chatHost) setModel(ctx context.Context, sessionID, model string) error 
 	}
 	changeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	return process.SetModel(changeCtx, model)
+	err := process.SetModel(changeCtx, model)
+	// A switch may apply a different model, or lose its acknowledgement. Use
+	// the process read-back even on error, so a restart cannot restore a stale
+	// launch model. A plain refusal leaves the process's old read-back intact.
+	if reader, ok := cs.process.(interface{ Model() string }); ok {
+		confirmed := reader.Model()
+		h.sup.mu.Lock()
+		cs.model = confirmed
+		h.sup.mu.Unlock()
+		if h.sup.registry != nil {
+			h.sup.registry.setModel(sessionID, confirmed)
+		}
+	}
+	return err
 }
 
 // setAgentMode moves a live chat to one of its agent's choosable modes. The

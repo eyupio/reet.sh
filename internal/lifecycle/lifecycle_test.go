@@ -387,6 +387,35 @@ func TestDoctorIsReadOnlyAndRedactsCredentials(t *testing.T) {
 		t.Fatal("help leaked credentials")
 	}
 }
+func TestDoctorRejectionNamesTheTokenSourceAndServerReason(t *testing.T) {
+	a, state, _ := testApp(t)
+	output := &bytes.Buffer{}
+	a.Out = output
+	t.Setenv("REET_TOKEN", "BOOTSTRAP_SECRET")
+	t.Setenv("REET_URL", "https://controller.invalid")
+	a.client = &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
+		return response(401, `{"error":"bootstrap token disabled; create a personal API token"}`), nil
+	})}
+	if err := a.Run("doctor", []string{"--state-dir", state, "--json"}); err == nil {
+		t.Fatal("doctor did not fail for rejected token")
+	}
+	var r report
+	if err := json.Unmarshal(output.Bytes(), &r); err != nil {
+		t.Fatal(err)
+	}
+	var found diagnostic
+	for _, check := range r.Checks {
+		if check.Name == "controller" {
+			found = check
+		}
+	}
+	if found.Status != "fail" || !strings.Contains(found.Message, "bootstrap token disabled") || !strings.Contains(found.Advice, "REET_TOKEN") {
+		t.Fatalf("rejection should say why and where the token came from: %+v", found)
+	}
+	if strings.Contains(output.String(), "BOOTSTRAP_SECRET") {
+		t.Fatal("leaked credentials")
+	}
+}
 func TestLifecycleLock(t *testing.T) {
 	state := t.TempDir()
 	unlock, err := acquire(state)

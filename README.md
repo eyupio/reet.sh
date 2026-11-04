@@ -300,6 +300,15 @@ is saved as plain text in `reet/token` with owner-only permissions
 explicit `--token` or `--env-file` selection overrides it. Forget it with
 `reet configure --forget-token`.
 
+If the server rejects the token a command used (HTTP 401), the command says where
+that token came from, tries a different saved token, and in a terminal asks for a
+new personal token and retries. The new token is saved only when it would be used
+next time; a token from `REET_TOKEN`, `--token` or an env file takes precedence, so
+the command says which one to change. With accounts enabled, the `REET_TOKEN` in the
+server's own `.env` is the setup bootstrap token and is refused once personal tokens
+exist. Use a personal token from the Account page for CLI commands. This covers
+`doctor`, `scan`, `sync`, `agent enroll` and `setup profile push`/`pull`.
+
 Run `reet` with no command in a terminal for its grouped home: Check & maintain,
 Skills & setups, Machines & access and More commands. Use arrows or `j`/`k`,
 Enter, `/` to search, `e` to edit the selected command's arguments and `?` for

@@ -345,7 +345,7 @@
   const live = $derived(connectionState === 'live')
   // Only agent sessions have skills; a plain shell shows no button. One reason serves the button's title and the open guard.
   const skillsOff = $derived(live?'':'Skills can be inserted once the terminal is connected.')
-  const stateLabel = $derived(({ connecting:'Connecting',resynchronising:'Restoring screen',live:'Live',reconnecting:'Reconnecting',detached:'Disconnected',taken_over:'Open elsewhere',ended:'Ended',lost:'Shell unavailable',access_denied:'Access denied' })[connectionState])
+  const stateLabel = $derived(({ connecting:'Connecting',resynchronising:'Restoring screen',live:'Live',reconnecting:'Reconnecting',detached:'Disconnected',taken_over:'Open elsewhere',ending:'Ending',ended:'Ended',lost:'Shell unavailable',access_denied:'Access denied' })[connectionState])
 
   onMount(() => {
     if (!element) return

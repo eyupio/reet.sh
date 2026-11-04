@@ -57,7 +57,28 @@ type Broker struct {
 	lateReplies atomic.Int64
 	// progress holds the launch stages machines report while a create runs.
 	progress launchProgress
+	// endRetries holds the sessions a pending end is being retried for, so a
+	// transient answer failure does not leave it waiting forever.
+	endRetries map[endKey]struct{}
 }
+
+// endKey is one session's pending end retry.
+type endKey struct {
+	uid     int64
+	agent   string
+	session string
+}
+
+// endRetryDelay is the first wait before an end that was sent but not
+// answered is tried again. It grows to endRetryMax while the person keeps the
+// session and the machine keeps the connection. endSweepInterval is how often
+// a connected machine's pending ends are picked up.
+var (
+	endRetryDelay    = 2 * time.Second
+	endRetryMax      = time.Minute
+	endSweepInterval = 30 * time.Second
+)
+
 type Peer struct {
 	b            *Broker
 	key          key
@@ -158,7 +179,44 @@ func ID() string {
 	return hex.EncodeToString(b[:])
 }
 func New(st *store.Store) *Broker {
-	return &Broker{st: st, peers: map[key]*Peer{}, tickets: map[string]ticket{}, bridges: map[string]*Bridge{}, chats: map[chatKey]*chatLog{}, approvals: map[chatKey]map[string]bool{}, queueWorkers: map[chatKey]bool{}, queueOwner: ID(), queueStop: make(chan struct{})}
+	b := &Broker{st: st, peers: map[key]*Peer{}, tickets: map[string]ticket{}, bridges: map[string]*Bridge{}, chats: map[chatKey]*chatLog{}, approvals: map[chatKey]map[string]bool{}, queueWorkers: map[chatKey]bool{}, queueOwner: ID(), queueStop: make(chan struct{}), endRetries: map[endKey]struct{}{}}
+	b.wg.Add(1)
+	go b.sweepEnds()
+	return b
+}
+
+// sweepEnds starts a retry for every pending end of a connected machine. It is
+// the safety net for a request whose first send failed before this broker was
+// watching it (for example one made while the machine was reconnecting), so a
+// live connection does not leave the session ending indefinitely.
+func (b *Broker) sweepEnds() {
+	defer b.wg.Done()
+	ticker := time.NewTicker(endSweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-b.queueStop:
+			return
+		case <-ticker.C:
+		}
+		b.mu.Lock()
+		peers := make([]*Peer, 0, len(b.peers))
+		for _, p := range b.peers {
+			peers = append(peers, p)
+		}
+		b.mu.Unlock()
+		for _, p := range peers {
+			ops, err := b.st.PendingTerminalOperationsFor(p.key.uid, p.key.agent, p.Generation)
+			if err != nil {
+				continue
+			}
+			for _, op := range ops {
+				if op.Kind == "end" {
+					b.retryEnd(p.key.uid, p.key.agent, op.SessionID, op.RequestID, p.Generation)
+				}
+			}
+		}
+	}
 }
 
 func (b *Broker) Revoke(uid int64, agent string) {
@@ -587,6 +645,11 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 			}
 		}
 		if err := p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, s.ID, p.Generation, state, code); err != nil {
+			// One row the store will not move must not stop the others from
+			// being reconciled, nor the pending ends below from being sent.
+			if errors.Is(err, store.ErrTerminalConflict) || errors.Is(err, store.ErrRemoteNotFound) {
+				continue
+			}
 			return err
 		}
 		hasActivity := observed.ActivityAt > 0 || observed.BellAt > 0
@@ -625,7 +688,10 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 			continue
 		}
 		if err := p.end(ctx, op.SessionID, op.RequestID); err != nil {
-			return err
+			// The answer may have been lost even though the machine heard the
+			// end. Keep trying while this connection lives rather than leave
+			// the session ending indefinitely.
+			p.b.retryEnd(p.key.uid, p.key.agent, op.SessionID, op.RequestID, p.Generation)
 		}
 	}
 	p.mu.Lock()
@@ -946,11 +1012,18 @@ func (p *Peer) end(ctx context.Context, session, request string) error {
 	if err != nil {
 		return err
 	}
-	state, ok := reply.Body.(*terminalproto.SessionChanged)
-	if !ok {
-		return ErrOffline
+	switch body := reply.Body.(type) {
+	case *terminalproto.SessionChanged:
+		return p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, session, p.Generation, body.State, body.ExitCode)
+	case *terminalproto.Result:
+		if body.Code == terminalproto.NotFound {
+			// The machine answers NotFound only when its registry no longer
+			// holds this session. That is a final answer, not a lost one:
+			// settle the row instead of waiting for a reconnect forever.
+			return p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, session, p.Generation, terminalproto.Lost, nil)
+		}
 	}
-	return p.b.st.ObserveTerminalStateFor(p.key.uid, p.key.agent, session, p.Generation, state.State, state.ExitCode)
+	return ErrOffline
 }
 func (b *Broker) End(ctx context.Context, uid int64, session, request string, removeHistory ...bool) (store.TerminalSession, error) {
 	s, err := b.st.TerminalSessionFor(uid, session)
@@ -967,9 +1040,74 @@ func (b *Broker) End(ctx context.Context, uid int64, session, request string, re
 	}
 	b.mu.Unlock()
 	if p, e := b.peer(uid, s.AgentID, false); e == nil {
-		_ = p.end(ctx, session, request)
+		if err := p.end(ctx, session, request); err != nil {
+			b.retryEnd(uid, s.AgentID, session, request, p.Generation)
+		}
 	}
 	return b.st.TerminalSessionFor(uid, session)
+}
+
+// retryEnd keeps trying an end whose answer was lost while the same machine
+// stays connected. A reconnect instead dispatches every pending end through
+// Synchronize, so this stops when the peer goes away. It never invents a new
+// request: the machine sees the original one every time.
+func (b *Broker) retryEnd(uid int64, agent, session, request string, generation int64) {
+	k := endKey{uid: uid, agent: agent, session: session}
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return
+	}
+	if _, retrying := b.endRetries[k]; retrying {
+		b.mu.Unlock()
+		return
+	}
+	b.endRetries[k] = struct{}{}
+	b.wg.Add(1)
+	b.mu.Unlock()
+	go func() {
+		defer b.wg.Done()
+		defer func() {
+			b.mu.Lock()
+			delete(b.endRetries, k)
+			b.mu.Unlock()
+		}()
+		delay := endRetryDelay
+		for {
+			p, err := b.peer(uid, agent, false)
+			if err != nil || p.Generation != generation {
+				// The machine is gone; a later connection reconciles the end.
+				return
+			}
+			s, err := b.st.TerminalSessionFor(uid, session)
+			if err != nil || !s.State.ReservesQuota() {
+				return
+			}
+			op, err := b.st.TerminalOperationFor(uid, agent, "end", request)
+			if err != nil || op.State != "pending" {
+				return
+			}
+			if err := p.end(context.Background(), session, request); err == nil {
+				return
+			}
+			timer := time.NewTimer(delay)
+			select {
+			case <-timer.C:
+			case <-p.done:
+				timer.Stop()
+				return
+			case <-b.queueStop:
+				timer.Stop()
+				return
+			}
+			if delay < endRetryMax {
+				delay *= 2
+				if delay > endRetryMax {
+					delay = endRetryMax
+				}
+			}
+		}
+	}()
 }
 
 // Ticket values are random, short lived, single use, and bound to the exact

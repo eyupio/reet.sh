@@ -1,6 +1,6 @@
 import { terminalSessions, terminalTicket, TerminalError } from './api'
 
-export type ConnectionState = 'connecting' | 'resynchronising' | 'live' | 'reconnecting' | 'detached' | 'taken_over' | 'ended' | 'lost' | 'access_denied'
+export type ConnectionState = 'connecting' | 'resynchronising' | 'live' | 'reconnecting' | 'detached' | 'taken_over' | 'ending' | 'ended' | 'lost' | 'access_denied'
 export type Renderer = { write: (bytes: Uint8Array, reset: boolean, done: () => void) => void }
 export type ConnectionOptions = { session: string; renderer: Renderer; dimensions: () => { cols: number; rows: number }; onstate: (state: ConnectionState, message: string) => void }
 const frameLimit = 32 * 1024, queueLimit = 256 * 1024
@@ -47,7 +47,8 @@ export class TerminalConnection {
       if (session.state !== 'running') {
         if (session.state === 'creating') { this.schedule(epoch, 'Waiting for the original creation to be reconciled.'); return }
         if(session.state==='lost'){this.set('lost','The host can no longer find this shell. No replacement was created.');return}
-        this.set('ended', session.state === 'end_requested' ? 'Ending when the machine reconnects.' : `This shell ${session.state === 'exited' ? 'exited' : 'ended'}.`); return
+        if(session.state==='end_requested'){this.set('ending', 'Ending when the machine reconnects.'); return}
+        this.set('ended', `This shell ${session.state === 'exited' ? 'exited' : 'ended'}.`); return
       }
       const size = this.options.dimensions()
       const ticket = await terminalTicket(this.options.session, size.cols, size.rows, takeover, request.signal)

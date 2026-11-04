@@ -33,6 +33,8 @@ If the selected model rejects an effort, choose an advertised value or Agent def
 has not been delivered. Installation choices are suggestions; models may offer different runtime values. Agents that do
 not advertise thought-level options use Agent default until their live session offers controls. These settings do not add
 automatic model routing. No live paid-provider turn, physical phone, Safari or cross-platform release rollout was exercised.
+Offline edit preserves an existing Gaffer plan and its unchanged model/effort even when capabilities are unavailable;
+editing its prompt cannot silently convert it to a terminal plan. The browser regression covers this saved-plan recovery.
 Rollback can hide `acpStartOptions` or revert this follow-up; retained backlog choices remain editable.
 
 Screenshots and device checks are recorded in [UI verification](../ui-verification.md#startup-and-backlog-options-4-november-2026).

@@ -10,32 +10,51 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
-// RestoreOptions chooses what survives a restore.
+// RestoreOptions chooses what is checked and what survives a restore. Sessions
+// and personal tokens come across unless dropped.
 type RestoreOptions struct {
-	// KeepTokens leaves personal API tokens and MCP connections working.
-	// Browser sign-ins always end.
-	KeepTokens bool
+	// DropSessions ends every browser sign-in and password-reset link.
+	DropSessions bool
+	// DropTokens revokes every personal API token and MCP connection.
+	DropTokens bool
+	// OwnerEmail, when set, must be an owner account in the copy that can sign
+	// in, or the restore is refused before anything is replaced.
+	OwnerEmail string
+	// CheckOnly runs every check and reports, and replaces nothing.
+	CheckOnly bool
+	// Before is called with the inventory once the copy has passed every
+	// check, and before anything live changes.
+	Before func(RestoreReport)
+	// Source is where the request came from ("cli" or "api"), for the
+	// activity log.
+	Source string
 }
 
-// RestoreReport says what a copy held and what was done to it so it is safe
+// RestoreReport says what a copy holds and what was done to it so it is safe
 // on the controller it lands on.
 type RestoreReport struct {
-	ID            string `json:"id"`
-	Release       string `json:"release,omitempty"`
-	TakenAt       int64  `json:"takenAt"`
-	SchemaVersion int    `json:"schemaVersion"`
-	Users         int    `json:"users"`
-	Skills        int    `json:"skills"`
-	Lists         int    `json:"lists"`
-	Tags          int    `json:"tags"`
-	Environments  int    `json:"environments"`
+	ID            string         `json:"id"`
+	Release       string         `json:"release,omitempty"`
+	TakenAt       int64          `json:"takenAt"`
+	SchemaVersion int            `json:"schemaVersion"`
+	Users         int            `json:"users"`
+	UsersByRole   map[string]int `json:"usersByRole"`
+	Shelves       int            `json:"shelves"`
+	Skills        int            `json:"skills"`
+	Lists         int            `json:"lists"`
+	Tags          int            `json:"tags"`
+	Environments  int            `json:"environments"`
+	Machines      int            `json:"machines"`
+	Destinations  int            `json:"destinations"`
 
+	SessionsKept          int  `json:"sessionsKept"`
 	SessionsEnded         int  `json:"sessionsEnded"`
 	TokensRevoked         int  `json:"tokensRevoked"`
 	MCPConnectionsRevoked int  `json:"mcpConnectionsRevoked"`
@@ -43,21 +62,45 @@ type RestoreReport struct {
 	IdentityDropped       bool `json:"identityDropped"`
 
 	// Unreadable names each stored secret the key on this controller cannot
-	// open. They are left in place, so the right key still opens them, and
-	// are entered again otherwise.
+	// open, with what to do about it. Each is cleared in the copy.
 	Unreadable []string `json:"unreadable"`
 }
 
-// Lines is the report as a person reads it.
-func (r RestoreReport) Lines() []string {
+// Inventory is what the copy holds, as a person reads it.
+func (r RestoreReport) Inventory() []string {
+	roles := make([]string, 0, len(r.UsersByRole))
+	for role := range r.UsersByRole {
+		roles = append(roles, role)
+	}
+	sort.Strings(roles)
+	for i, role := range roles {
+		roles[i] = fmt.Sprintf("%d %s", r.UsersByRole[role], role)
+	}
+	accounts := fmt.Sprintf("%d accounts", r.Users)
+	if len(roles) > 0 {
+		accounts += " (" + strings.Join(roles, ", ") + ")"
+	}
+	return []string{
+		fmt.Sprintf("The copy %s holds %s, %d shelves, %d skills, %d lists, %d tags, %d environments, %d connected machines and %d backup destinations.",
+			r.ID, accounts, r.Shelves, r.Skills, r.Lists, r.Tags, r.Environments, r.Machines, r.Destinations),
+	}
+}
+
+// Lines is the whole report as a person reads it.
+func (r RestoreReport) Lines() []string { return append(r.Inventory(), r.Outcome()...) }
+
+// Outcome is what was, or would be, done to the copy.
+func (r RestoreReport) Outcome() []string {
 	var l []string
-	l = append(l, fmt.Sprintf("Came across: %d accounts, %d skills on shelves, %d lists, %d tags, %d environments.",
-		r.Users, r.Skills, r.Lists, r.Tags, r.Environments))
-	l = append(l, fmt.Sprintf("Ended %d browser sign-in(s).", r.SessionsEnded))
-	if r.TokensKept {
-		l = append(l, "Kept personal API tokens and MCP connections, as asked. The old controller's tokens open this one.")
+	if r.SessionsEnded > 0 || r.SessionsKept == 0 {
+		l = append(l, fmt.Sprintf("Ended %d browser sign-in(s) and any password-reset links, as asked.", r.SessionsEnded))
 	} else {
-		l = append(l, fmt.Sprintf("Revoked %d personal API token(s) and %d MCP connection(s); make new ones here.", r.TokensRevoked, r.MCPConnectionsRevoked))
+		l = append(l, fmt.Sprintf("Kept %d browser sign-in(s); they open this controller. Use --drop-sessions to end them.", r.SessionsKept))
+	}
+	if r.TokensKept {
+		l = append(l, "Kept personal API tokens and MCP connections; the old controller's tokens open this one. Use --drop-tokens to revoke them.")
+	} else {
+		l = append(l, fmt.Sprintf("Revoked %d personal API token(s) and %d MCP connection(s), as asked; make new ones here.", r.TokensRevoked, r.MCPConnectionsRevoked))
 	}
 	if r.IdentityDropped {
 		l = append(l, "Dropped the private-connection identity; this controller makes its own, so two never share one.")
@@ -65,10 +108,11 @@ func (r RestoreReport) Lines() []string {
 	if len(r.Unreadable) == 0 {
 		l = append(l, "Every stored secret opens with this controller's backup key.")
 	} else {
-		l = append(l, "These stored secrets were sealed under a different REET_BACKUP_KEY and cannot be opened here; enter them again, or restart with the old key:")
+		l = append(l, "These stored secrets were sealed under a different REET_BACKUP_KEY. They cannot be opened here, so they were cleared:")
 		for _, u := range r.Unreadable {
 			l = append(l, "  - "+u)
 		}
+		l = append(l, "The cleared values are still in the database that was replaced, which opens with the old key.")
 	}
 	return l
 }
@@ -83,12 +127,15 @@ type RestoreResult struct {
 }
 
 // ErrNewerSchema is returned for a copy taken by a newer reet.
-var ErrNewerSchema = errors.New("this copy was taken by a newer reet than this one and may hold data this version cannot read; upgrade reet, then restore it")
+var ErrNewerSchema = errors.New("this copy was taken by a newer reet than this one")
 
 // prepare checks a copy's payload, then adapts it in place at path. Nothing
-// live is touched, so a refusal leaves the controller as it was.
+// live is touched, so a refusal leaves the controller as it was. The checks
+// run in this order: the copy is a whole-instance copy that SQLite accepts, it
+// is not newer than this build reads, and it has the owner the operator wants
+// to sign in as. Only then is the copy changed, and only the file at path.
 func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload []byte, opts RestoreOptions) (RestoreReport, error) {
-	rep := RestoreReport{ID: m.ID, Release: m.Version, TakenAt: m.TakenAt, TokensKept: opts.KeepTokens, Unreadable: []string{}}
+	rep := RestoreReport{ID: m.ID, Release: m.Version, TakenAt: m.TakenAt, UsersByRole: map[string]int{}, Unreadable: []string{}}
 	if m.Kind != "instance" {
 		return rep, errors.New("that is not an instance backup")
 	}
@@ -103,23 +150,48 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 		return rep, err
 	}
 	if sum.SchemaVersion > store.SchemaVersion {
-		return rep, ErrNewerSchema
+		release := m.Version
+		if release == "" {
+			release = "unknown"
+		}
+		return rep, fmt.Errorf("%w: it is data format %d (release %s) and this reet reads up to data format %d; upgrade reet, then restore it", ErrNewerSchema, sum.SchemaVersion, release, store.SchemaVersion)
 	}
-	ad, err := store.AdaptDatabaseFile(ctx, path, store.AdaptOptions{KeepTokens: opts.KeepTokens})
+	if email := strings.TrimSpace(opts.OwnerEmail); email != "" {
+		found := false
+		for _, o := range sum.Owners {
+			if strings.EqualFold(o, email) {
+				found = true
+			}
+		}
+		if !found {
+			return rep, fmt.Errorf("the copy has no owner account for %s that can sign in, so nobody could sign in with it; nothing was changed (owners in the copy: %s)", email, strings.Join(sum.Owners, ", "))
+		}
+	}
+	ad, err := store.AdaptDatabaseFile(ctx, path, store.AdaptOptions{
+		DropSessions: opts.DropSessions,
+		DropTokens:   opts.DropTokens,
+		Unreadable: func(sealed string) bool {
+			if s.cfg.Sealer == nil {
+				return true
+			}
+			_, err := s.cfg.Sealer.OpenSecret(sealed)
+			return err != nil
+		},
+		EventSource: opts.Source,
+		EventAction: "backup-restored",
+		EventDetail: map[string]any{"id": m.ID, "release": m.Version, "ownerChecked": strings.TrimSpace(opts.OwnerEmail) != ""},
+	})
 	if err != nil {
 		return rep, fmt.Errorf("adapting the copy: %w", err)
 	}
 	rep.SchemaVersion = sum.SchemaVersion
-	rep.Users, rep.Skills, rep.Lists, rep.Tags, rep.Environments = sum.Users, sum.Skills, sum.Lists, sum.Tags, sum.Environments
+	rep.Users, rep.UsersByRole, rep.Shelves, rep.Skills = sum.Users, sum.UsersByRole, sum.Shelves, sum.Skills
+	rep.Lists, rep.Tags, rep.Environments, rep.Machines, rep.Destinations = sum.Lists, sum.Tags, sum.Environments, sum.Machines, sum.Destinations
+	rep.SessionsKept = sum.Sessions - ad.SessionsEnded
+	rep.TokensKept = !opts.DropTokens
 	rep.SessionsEnded, rep.TokensRevoked, rep.MCPConnectionsRevoked, rep.IdentityDropped =
 		ad.SessionsEnded, ad.TokensRevoked, ad.MCPConnectionsRevoked, ad.IdentityDropped
-	for _, sec := range sum.Secrets {
-		if s.cfg.Sealer == nil {
-			rep.Unreadable = append(rep.Unreadable, sec.Where)
-		} else if _, err := s.cfg.Sealer.OpenSecret(sec.Sealed); err != nil {
-			rep.Unreadable = append(rep.Unreadable, sec.Where)
-		}
-	}
+	rep.Unreadable = ad.Cleared
 	return rep, nil
 }
 
@@ -144,9 +216,18 @@ func RestoreInstance(ctx context.Context, svc *Service, dataDir, id, password st
 	tempName := temp.Name()
 	temp.Close()
 	defer os.Remove(tempName)
+	if opts.Source == "" {
+		opts.Source = "cli"
+	}
 	rep, err := svc.prepare(ctx, tempName, manifest, payload, opts)
 	if err != nil {
 		return RestoreResult{Report: rep}, err
+	}
+	if opts.Before != nil {
+		opts.Before(rep)
+	}
+	if opts.CheckOnly {
+		return RestoreResult{ID: id, Report: rep}, nil
 	}
 	if err := closeStore(); err != nil {
 		return RestoreResult{}, err
@@ -161,7 +242,7 @@ func RestoreInstance(ctx context.Context, svc *Service, dataDir, id, password st
 		fmt.Fprintf(&message, "The database that was live is now %s.\n", previous)
 	}
 	fmt.Fprintf(&message, "Restored %s.\n", id)
-	for _, l := range rep.Lines() {
+	for _, l := range rep.Outcome() {
 		message.WriteString(l + "\n")
 	}
 	message.WriteString("Start reet again; it will open the restored database.\n")

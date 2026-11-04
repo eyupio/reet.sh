@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 )
 
@@ -30,26 +31,26 @@ func stampSchemaVersion(db *sql.DB) error {
 	return err
 }
 
-// SealedSecret is one value in a database that only the backup key it was
-// sealed under can open.
-type SealedSecret struct {
-	Where  string
-	Sealed string
-}
-
 // RestoreSummary is what a copy holds, read without opening it for writing.
 type RestoreSummary struct {
 	// SchemaVersion is 0 for a copy taken before versions were recorded.
-	SchemaVersion  int
-	Users          int
+	SchemaVersion int
+	Users         int
+	UsersByRole   map[string]int
+	// Shelves is the accounts that hold at least one skill on their shelf;
+	// Skills is every skill the controller knows.
+	Shelves        int
 	Skills         int
 	Lists          int
 	Tags           int
 	Environments   int
+	Machines       int
+	Destinations   int
 	Sessions       int
 	APITokens      int
 	MCPConnections int
-	Secrets        []SealedSecret
+	// Owners are the addresses of the owner accounts that can sign in.
+	Owners []string
 }
 
 // Adaptation is what was changed in a copy so it is safe to run on the
@@ -59,13 +60,27 @@ type Adaptation struct {
 	TokensRevoked         int
 	MCPConnectionsRevoked int
 	IdentityDropped       bool
+	// Cleared names each stored secret that could not be opened on the
+	// controller the copy lands on, and what to do about it. The value is
+	// removed rather than kept as something nothing can read.
+	Cleared []string
 }
 
-// AdaptOptions chooses what survives the move.
+// AdaptOptions chooses what is changed in the copy.
 type AdaptOptions struct {
-	// KeepTokens leaves personal API tokens and MCP connections working, for
-	// a move where the old controller is being retired.
-	KeepTokens bool
+	// DropSessions ends every browser sign-in and password-reset link. By
+	// default they come across.
+	DropSessions bool
+	// DropTokens revokes personal API tokens and MCP connections. By default
+	// they come across.
+	DropTokens bool
+	// Unreadable says whether a sealed secret cannot be opened by the
+	// controller the copy lands on. Nil leaves every secret alone.
+	Unreadable func(sealed string) bool
+	// EventSource and EventAction, with EventDetail, add one line to the
+	// copy's activity log. Nothing secret belongs in the detail.
+	EventSource, EventAction string
+	EventDetail              map[string]any
 }
 
 func openDatabaseFile(ctx context.Context, path string, readOnly bool) (*sql.DB, error) {
@@ -91,81 +106,98 @@ func tableExists(ctx context.Context, db rowQuerier, name string) bool {
 	return err == nil && n > 0
 }
 
-// countRows tolerates a table an older copy never had.
-func countFileRows(ctx context.Context, db *sql.DB, table, where string) int {
-	if !tableExists(ctx, db, table) {
-		return 0
-	}
-	q := `SELECT COUNT(*) FROM ` + table
-	if where != "" {
-		q += ` WHERE ` + where
-	}
-	var n int
-	if err := db.QueryRowContext(ctx, q).Scan(&n); err != nil {
-		return 0
-	}
-	return n
-}
-
 // InspectDatabaseFile reports what a restored database would bring, so an
-// operator is told what came across rather than only an id.
+// operator is told what came across rather than only an id. The file is
+// opened read-only.
 func InspectDatabaseFile(ctx context.Context, path string) (RestoreSummary, error) {
 	db, err := openDatabaseFile(ctx, path, true)
 	if err != nil {
 		return RestoreSummary{}, err
 	}
 	defer db.Close()
-	var sum RestoreSummary
+	sum := RestoreSummary{UsersByRole: map[string]int{}, Owners: []string{}}
 	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&sum.SchemaVersion); err != nil {
 		return sum, err
 	}
-	sum.Users = countFileRows(ctx, db, "users", "")
-	sum.Skills = countFileRows(ctx, db, "shelf", "")
-	sum.Lists = countFileRows(ctx, db, "lists", "")
-	sum.Tags = countFileRows(ctx, db, "tags", "")
-	sum.Environments = countFileRows(ctx, db, "environments", "")
-	sum.Sessions = countFileRows(ctx, db, "sessions", "")
-	sum.APITokens = countFileRows(ctx, db, "api_tokens", "revoked_at=0")
-	sum.MCPConnections = countFileRows(ctx, db, "mcp_connections", "revoked_at=0")
-
-	collect := func(table, query string, label func(a, b string) string) {
-		if !tableExists(ctx, db, table) {
-			return
-		}
-		rows, err := db.QueryContext(ctx, query)
-		if err != nil {
-			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var a, b string
-			if rows.Scan(&a, &b) == nil && b != "" {
-				sum.Secrets = append(sum.Secrets, SealedSecret{Where: label(a, b), Sealed: b})
-			}
-		}
-	}
-	collect("backup_remotes", `SELECT name,secret_sealed FROM backup_remotes WHERE secret_sealed<>''`,
-		func(a, _ string) string { return fmt.Sprintf("the access key of backup destination %q", a) })
-	collect("backup_settings", `SELECT CAST(owner_id AS TEXT),password_sealed FROM backup_settings WHERE password_sealed<>''`,
-		func(a, _ string) string {
-			if a == "0" {
-				return "the instance copy password"
-			}
-			return "a person's copy password"
-		})
-	collect("mail_settings", `SELECT 'mail',password_sealed FROM mail_settings WHERE password_sealed<>''`,
-		func(string, string) string { return "the outgoing mail password" })
+	fillSummary(ctx, db, &sum)
 	return sum, nil
 }
 
+type queryer interface {
+	rowQuerier
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func fillSummary(ctx context.Context, db queryer, sum *RestoreSummary) {
+	count := func(table, where string) int {
+		if !tableExists(ctx, db, table) {
+			return 0
+		}
+		q := `SELECT COUNT(*) FROM ` + table
+		if where != "" {
+			q += ` WHERE ` + where
+		}
+		var n int
+		if err := db.QueryRowContext(ctx, q).Scan(&n); err != nil {
+			return 0
+		}
+		return n
+	}
+	sum.Users = count("users", "")
+	sum.Skills = count("skills", "")
+	sum.Lists = count("lists", "")
+	sum.Tags = count("tags", "")
+	sum.Environments = count("environments", "")
+	sum.Machines = count("sync_agents", "")
+	sum.Destinations = count("backup_remotes", "")
+	sum.Sessions = count("sessions", "")
+	sum.APITokens = count("api_tokens", "revoked_at=0")
+	sum.MCPConnections = count("mcp_connections", "revoked_at=0")
+	if tableExists(ctx, db, "shelf") {
+		_ = db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT user_id) FROM shelf`).Scan(&sum.Shelves)
+	}
+	if tableExists(ctx, db, "users") {
+		if rows, err := db.QueryContext(ctx, `SELECT role,COUNT(*) FROM users GROUP BY role`); err == nil {
+			for rows.Next() {
+				var role string
+				var n int
+				if rows.Scan(&role, &n) == nil {
+					sum.UsersByRole[role] = n
+				}
+			}
+			rows.Close()
+		}
+		if rows, err := db.QueryContext(ctx, `SELECT email FROM users WHERE role='owner' AND disabled_at=0 ORDER BY id`); err == nil {
+			for rows.Next() {
+				var e string
+				if rows.Scan(&e) == nil {
+					sum.Owners = append(sum.Owners, e)
+				}
+			}
+			rows.Close()
+		}
+	}
+}
+
+// Holdings reads the same counts from the live database, for deciding
+// whether a controller already holds data.
+func (s *Store) Holdings(ctx context.Context) RestoreSummary {
+	sum := RestoreSummary{UsersByRole: map[string]int{}, Owners: []string{}}
+	fillSummary(ctx, s.db, &sum)
+	return sum
+}
+
+const unreadableFix = "enter it again"
+
 // AdaptDatabaseFile makes a restored copy safe to run beside, or in place of,
-// the controller it was taken from. Browser sign-ins and password-reset links
-// always end. Personal API tokens and MCP connections are revoked unless the
-// operator chose to keep them, because otherwise a credential from the old
-// machine opens the new one. The private-connection identity is removed so
-// the new controller mints its own: two controllers must never present one.
+// the controller it was taken from. Sessions and personal tokens come across
+// unless the operator drops them: a credential from the old machine opening
+// the new one is then a choice, not an accident. Stored secrets this
+// controller cannot open are cleared. The private-connection identity is
+// always removed so the new controller mints its own: two controllers must
+// never present one.
 func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Adaptation, error) {
-	var out Adaptation
+	out := Adaptation{Cleared: []string{}}
 	db, err := openDatabaseFile(ctx, path, false)
 	if err != nil {
 		return out, err
@@ -187,13 +219,15 @@ func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Ada
 		n, _ := res.RowsAffected()
 		return int(n), nil
 	}
-	if out.SessionsEnded, err = exec("sessions", `DELETE FROM sessions`); err != nil {
-		return out, err
+	if opts.DropSessions {
+		if out.SessionsEnded, err = exec("sessions", `DELETE FROM sessions`); err != nil {
+			return out, err
+		}
+		if _, err = exec("password_resets", `DELETE FROM password_resets`); err != nil {
+			return out, err
+		}
 	}
-	if _, err = exec("password_resets", `DELETE FROM password_resets`); err != nil {
-		return out, err
-	}
-	if !opts.KeepTokens {
+	if opts.DropTokens {
 		at := now()
 		if out.TokensRevoked, err = exec("api_tokens", `UPDATE api_tokens SET revoked_at=? WHERE revoked_at=0`, at); err != nil {
 			return out, err
@@ -212,10 +246,114 @@ func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Ada
 		return out, err
 	}
 	out.IdentityDropped = n > 0
+	if opts.Unreadable != nil {
+		if out.Cleared, err = clearUnreadable(ctx, tx, opts.Unreadable); err != nil {
+			return out, err
+		}
+	}
+	if opts.EventAction != "" && tableExists(ctx, tx, "events") {
+		detail := map[string]any{}
+		for k, v := range opts.EventDetail {
+			detail[k] = v
+		}
+		detail["sessionsDropped"] = opts.DropSessions
+		detail["tokensDropped"] = opts.DropTokens
+		detail["secretsCleared"] = len(out.Cleared)
+		raw, _ := json.Marshal(detail)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO events(at,user_id,actor,source,action,skill_id,detail) VALUES(?,0,'',?,?,'',?)`,
+			now(), opts.EventSource, opts.EventAction, string(raw)); err != nil {
+			return out, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return out, err
 	}
 	// Fold the write-ahead log in so the single file is the whole copy.
 	_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
 	return out, nil
+}
+
+// clearUnreadable removes each sealed secret the caller says cannot be opened
+// and marks what owned it as needing the secret again. A destination is also
+// switched off so it is not tried with no key.
+func clearUnreadable(ctx context.Context, tx *sql.Tx, unreadable func(string) bool) ([]string, error) {
+	cleared := []string{}
+	type row struct {
+		key    string
+		label  string
+		sealed string
+	}
+	collect := func(table, query string, label func(a string) string) ([]row, error) {
+		if !tableExists(ctx, tx, table) {
+			return nil, nil
+		}
+		rows, err := tx.QueryContext(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []row
+		for rows.Next() {
+			var r row
+			if err := rows.Scan(&r.key, &r.sealed); err != nil {
+				return nil, err
+			}
+			r.label = label(r.key)
+			out = append(out, r)
+		}
+		return out, rows.Err()
+	}
+	remotes, err := collect("backup_remotes", `SELECT id,secret_sealed FROM backup_remotes WHERE secret_sealed<>''`,
+		func(string) string { return "" })
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range remotes {
+		if !unreadable(r.sealed) {
+			continue
+		}
+		var name string
+		if err := tx.QueryRowContext(ctx, `SELECT name FROM backup_remotes WHERE id=?`, r.key).Scan(&name); err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE backup_remotes SET secret_sealed='',disabled=1,last_error=? WHERE id=?`,
+			"the secret access key must be entered again", r.key); err != nil {
+			return nil, err
+		}
+		cleared = append(cleared, fmt.Sprintf("the access key of backup destination %q was sealed under another key; it is cleared and the destination is switched off. Enter its secret access key again under Admin → Backups, then switch it on.", name))
+	}
+	pw, err := collect("backup_settings", `SELECT CAST(owner_id AS TEXT),password_sealed FROM backup_settings WHERE password_sealed<>''`,
+		func(a string) string {
+			if a == "0" {
+				return "the instance copy password"
+			}
+			return "a person's copy password"
+		})
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range pw {
+		if !unreadable(r.sealed) {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE backup_settings SET password_sealed='' WHERE CAST(owner_id AS TEXT)=?`, r.key); err != nil {
+			return nil, err
+		}
+		cleared = append(cleared, r.label+" was sealed under another key and is cleared; later copies are sealed under the backup key until you set a password again. Copies already taken with it still need it.")
+	}
+	mail, err := collect("mail_settings", `SELECT 'mail',password_sealed FROM mail_settings WHERE password_sealed<>''`,
+		func(string) string { return "the outgoing mail password" })
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range mail {
+		if !unreadable(r.sealed) {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE mail_settings SET password_sealed=''`); err != nil {
+			return nil, err
+		}
+		cleared = append(cleared, r.label+" was sealed under another key and is cleared; "+unreadableFix+" under Admin → Email.")
+	}
+	return cleared, nil
 }

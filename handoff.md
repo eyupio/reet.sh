@@ -402,6 +402,17 @@ through the same private-revision path, with no publish step.
 1. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
    Do not claim these from the Chromium fixtures.
 
+## Careful whole-controller restore (4 November 2026)
+
+Branch `backup-restore-checks`. `reet backup restore` checks everything before the swap, in order: integrity, schema version (the
+refusal names both data formats), `--owner-email`, then prints the inventory (accounts by role, shelves, skills, lists, tags,
+environments, connected machines, destinations). Without `--yes` it reports and changes nothing. Sessions and personal tokens now come
+across by default; `--drop-sessions` and `--drop-tokens` end them, and `--keep-tokens` is an accepted no-op. Sealed secrets the
+controller's key cannot open are cleared (a destination is also switched off) and listed with what to do. The choices are written to the
+restored database's activity log as `backup-restored`. The staged import over the API shares `Service.prepare`, so it takes the same
+checks and the query options `dropSessions`, `dropTokens` and `ownerEmail`. Next: an import command and a replace guard for a
+controller that already holds data.
+
 ## Whole-controller restore and import (2 November 2026)
 
 `reet backup restore` now adapts the copy before it replaces anything (`internal/backup/restore.go`, `internal/store/store_restore.go`):

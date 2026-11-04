@@ -46,7 +46,9 @@
   let pendingImport = $state<RestoreReport | null>(null)
   let importFile = $state<File | null>(null)
   let importPassword = $state('')
-  let importKeepTokens = $state(false)
+  let importDropSessions = $state(false)
+  let importDropTokens = $state(false)
+  let importOwnerEmail = $state('')
   let importAskPassword = $state(false)
   let copySearch = $state('')
   let copyScope = $state<BackupCopyScope>('all')
@@ -54,8 +56,9 @@
   let runScope = $state<BackupRunScope>('all')
 
   function reportLines(r: RestoreReport): string[] {
-    const l = [`${r.users} account(s), ${r.skills} skill(s) on shelves, ${r.lists} list(s), ${r.tags} tag(s) and ${r.environments} environment(s) come across.`,
-      `${r.sessionsEnded} browser sign-in(s) end.`]
+    const roles = Object.entries(r.usersByRole ?? {}).map(([role, n]) => `${n} ${role}`).join(', ')
+    const l = [`${r.users} account(s)${roles ? ` (${roles})` : ''}, ${r.shelves} shelf(s), ${r.skills} skill(s), ${r.lists} list(s), ${r.tags} tag(s), ${r.environments} environment(s), ${r.machines} connected machine(s) and ${r.destinations} backup destination(s) come across.`,
+      r.sessionsEnded ? `${r.sessionsEnded} browser sign-in(s) end.` : `${r.sessionsKept} browser sign-in(s) are kept.`]
     l.push(r.tokensKept
       ? 'Personal API tokens and MCP connections are kept, so the old controller\'s tokens open this one.'
       : `${r.tokensRevoked} personal API token(s) and ${r.mcpConnectionsRevoked} MCP connection(s) are revoked.`)
@@ -69,7 +72,7 @@
     error = ''
     saved = ''
     try {
-      pendingImport = await stageImport(importFile, { password: importPassword, keepTokens: importKeepTokens })
+      pendingImport = await stageImport(importFile, { password: importPassword, dropSessions: importDropSessions, dropTokens: importDropTokens, ownerEmail: importOwnerEmail })
       importFile = null
       importPassword = ''
       importAskPassword = false
@@ -853,7 +856,7 @@
               {#each reportLines(pendingImport) as line}<li>{line}</li>{/each}
             </ul>
             {#if pendingImport.unreadable.length}
-              <p>Sealed under a different backup key, so they cannot be opened here and are entered again afterwards:</p>
+              <p>Sealed under a different backup key, so they cannot be opened here. They were cleared:</p>
               <ul>{#each pendingImport.unreadable as u}<li>{u}</li>{/each}</ul>
             {/if}
             <div class="formacts"><button type="button" class="btn" onclick={discardImport} disabled={busy === 'import'}>Discard the staged import</button></div>
@@ -869,8 +872,16 @@
               </label>
             {/if}
             <label class="keep">
-              <input type="checkbox" bind:checked={importKeepTokens} />
-              Keep personal API tokens and MCP connections (only if the old controller is being retired)
+              <input type="checkbox" bind:checked={importDropSessions} />
+              End every browser sign-in in the copy
+            </label>
+            <label class="keep">
+              <input type="checkbox" bind:checked={importDropTokens} />
+              Revoke every personal API token and MCP connection in the copy
+            </label>
+            <label>
+              <span>Make sure this owner can sign in (optional)</span>
+              <input type="email" autocomplete="off" bind:value={importOwnerEmail} />
             </label>
             <div class="formacts">
               <button type="button" class="btn primary" onclick={stage} disabled={!importFile || busy === 'import'}>{busy === 'import' ? 'Checking…' : 'Check and stage'}</button>

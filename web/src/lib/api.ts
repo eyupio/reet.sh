@@ -906,19 +906,24 @@ export async function restoreUserBackup(id: string, password?: string): Promise<
 }
 export type RestoreReport = {
   id: string; release?: string; takenAt: number; schemaVersion: number
-  users: number; skills: number; lists: number; tags: number; environments: number
-  sessionsEnded: number; tokensRevoked: number; mcpConnectionsRevoked: number; tokensKept: boolean; identityDropped: boolean
+  users: number; usersByRole: Record<string, number>; shelves: number; skills: number; lists: number; tags: number; environments: number
+  machines: number; destinations: number
+  sessionsKept: number; sessionsEnded: number; tokensRevoked: number; mcpConnectionsRevoked: number; tokensKept: boolean; identityDropped: boolean
   unreadable: string[]
 }
 export async function getPendingImport(): Promise<RestoreReport | null> {
   return ((await (await req('/api/v2/admin/backups/import')).json()) as { pending: RestoreReport | null }).pending
 }
 /** Stages a sealed instance copy; it replaces the database at the controller's next start, not now. */
-export async function stageImport(file: File, opts: { password?: string; keepTokens?: boolean }): Promise<RestoreReport> {
+export async function stageImport(file: File, opts: { password?: string; dropSessions?: boolean; dropTokens?: boolean; ownerEmail?: string }): Promise<RestoreReport> {
   const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' }
   // A header cannot carry every password: non-Latin characters throw and surrounding spaces are trimmed. Send the UTF-8 bytes.
   if (opts.password) headers['X-Copy-Password-B64'] = btoa(String.fromCharCode(...new TextEncoder().encode(opts.password)))
-  const res = await req(`/api/v2/admin/backups/import${opts.keepTokens ? '?keepTokens=1' : ''}`, { method: 'POST', headers, body: file })
+  const query = new URLSearchParams()
+  if (opts.dropSessions) query.set('dropSessions', '1')
+  if (opts.dropTokens) query.set('dropTokens', '1')
+  if (opts.ownerEmail?.trim()) query.set('ownerEmail', opts.ownerEmail.trim())
+  const res = await req(`/api/v2/admin/backups/import${query.size ? `?${query}` : ''}`, { method: 'POST', headers, body: file })
   return ((await res.json()) as { report: RestoreReport }).report
 }
 export async function cancelPendingImport(): Promise<void> {

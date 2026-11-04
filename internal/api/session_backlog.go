@@ -107,7 +107,11 @@ func (s *server) sessionBacklogSave(w http.ResponseWriter, r *http.Request) {
 		bad("Use a session title of 1 to 80 plain characters.")
 		return
 	}
-	validTool := terminalproto.ValidToolV2(d.Tool) && terminalproto.ValidEffort(d.Effort)
+	validEffort := terminalproto.ValidEffort(d.Effort)
+	if d.Chat {
+		validEffort = d.Effort == "" || terminalproto.ValidModel(d.Effort)
+	}
+	validTool := terminalproto.ValidToolV2(d.Tool) && validEffort
 	validModel := d.Model == "" || terminalproto.ValidModel(d.Model)
 	if !validTool || !validModel {
 		bad("Choose a supported agent, model and effort.")
@@ -150,10 +154,10 @@ func (s *server) sessionBacklogSave(w http.ResponseWriter, r *http.Request) {
 		bad("Choose a base branch only with a worktree, and use a valid branch name.")
 		return
 	}
-	chatTool := d.Chat && d.Tool != "opencode"
-	trustWithoutChat := d.Trust && !d.Chat
+	chatTool := d.Chat && !terminalproto.ReviewedChatTool(d.Tool)
+	trustWithoutChat := d.Trust && (!d.Chat || d.Tool != "opencode")
 	if chatTool || trustWithoutChat {
-		bad("Chat is only for OpenCode, and the plugin trust applies only to a chat.")
+		bad("Choose an agent with Gaffer support. Plugin trust applies only to an OpenCode chat.")
 		return
 	}
 	if len(d.Images) > 4 {

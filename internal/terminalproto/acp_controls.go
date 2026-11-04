@@ -8,6 +8,19 @@ import (
 
 const ACPLiveControlsFeature = "acp-live-controls-v1"
 
+// ACPStartOptionsFeature negotiates structured create effort. A connector with
+// live controls alone still uses the older create validation contract.
+const ACPStartOptionsFeature = "acp-start-options-v1"
+
+func SupportsACPStartOptions(features string) bool {
+	for _, f := range strings.Split(features, ",") {
+		if strings.TrimSpace(f) == ACPStartOptionsFeature {
+			return true
+		}
+	}
+	return false
+}
+
 func SupportsACPLiveControls(features string) bool {
 	for _, f := range strings.Split(features, ",") {
 		if strings.TrimSpace(f) == ACPLiveControlsFeature {

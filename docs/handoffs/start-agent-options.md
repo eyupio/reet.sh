@@ -1,0 +1,40 @@
+# Startup and backlog model/effort handoff
+
+Updated 4 November 2026. Branch: `feat/start-agent-options`. Follow-up to merged live-controls PR #488.
+
+## Behaviour and compatibility
+
+Both the workspace Start an agent modal and the Home Start a session modal expose Model and Effort. The backlog composer
+supports those choices at creation and edit, and retains them across save, reload and Start. Existing model catalogues,
+favourites and configured IDs remain available. Reviewed Claude/Codex Gaffer plans are now supported alongside OpenCode;
+folder-plugin trust remains specific to OpenCode.
+
+Native effort suggestions come only from the selected machine's advertised thought-level values. Agent default remains
+available. Missing options and older connectors show an explanation. Unsupported saved choices remain visible and can be
+cleared to default; they cannot be silently dropped on launch. Terminal launches retain their fixed preset mappings.
+
+Negotiate `acp-start-options-v1` separately from `acp-live-controls-v1`: previously released live-controls connectors still
+reject structured create effort. Both controller and connector refuse unnegotiated startup effort. The selected model and
+effort are confirmed by the actual session before readiness or its opening prompt. A definite refused admission clears
+unconfirmed session metadata while retaining the operation receipt and saved backlog plan. No database migration is needed.
+
+## Verification
+
+Web unit checks, Svelte check and build pass on the initial implementation. The new desktop/phone browser test covers both
+start dialogs and backlog save/reload/edit; legacy Codex and Start an agent suites pass. Focused race-enabled protocol,
+broker, admission, saved-effort acknowledgement and backlog tests cover requested values, refusals and persistence.
+Independent capability negotiation and the refusal regression pass; web check/build report zero Svelte errors or warnings,
+and the final three-path browser suite passes on desktop and phone. Current main `ac5938d` integrated without conflicts. The terminal-browser workflow runs the new
+`web/tests/launch-options.e2e.mjs` regression. Review and final-head CI must pass before merge.
+
+## Recovery and remaining limits
+
+If the selected model rejects an effort, choose an advertised value or Agent default and start again; the opening prompt
+has not been delivered. Installation choices are suggestions; models may offer different runtime values. Agents that do
+not advertise thought-level options use Agent default until their live session offers controls. These settings do not add
+automatic model routing. No live paid-provider turn, physical phone, Safari or cross-platform release rollout was exercised.
+Rollback can hide `acpStartOptions` or revert this follow-up; retained backlog choices remain editable.
+
+Screenshots and device checks are recorded in [UI verification](../ui-verification.md#startup-and-backlog-options-4-november-2026).
+
+Next: publish the follow-up PR, address review and final-head CI, resolve any new conflicts and merge when green.

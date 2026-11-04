@@ -253,7 +253,11 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				return respond(terminalhost.ErrLaunchUnavailable)
 			}
 			if create, ok := msg.Body.(*terminalproto.Create); ok {
-				if (create.Base != "" || create.Effort != "" || create.Yolo || create.Tool != "" && !terminalproto.ValidTool(create.Tool)) && !terminalproto.SupportsAgents(headers.Get(terminalproto.FeatureHeader)) {
+				if create.Structured && create.Effort != "" && !terminalproto.SupportsACPStartOptions(headers.Get(terminalproto.FeatureHeader)) {
+					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
+					return send(callCtx, reply)
+				}
+				if (create.Base != "" || !create.Structured && create.Effort != "" || create.Yolo || create.Tool != "" && !terminalproto.ValidTool(create.Tool)) && !terminalproto.SupportsAgents(headers.Get(terminalproto.FeatureHeader)) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)
 				}

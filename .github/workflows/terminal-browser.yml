@@ -243,6 +243,7 @@ jobs:
           node web/tests/phone-dialogs.e2e.mjs
           node web/tests/chat.e2e.mjs
           node web/tests/chat-controls.e2e.mjs
+          node web/tests/launch-options.e2e.mjs
           node web/tests/chat-recovery.e2e.mjs
           node web/tests/chat-claude.e2e.mjs
           node web/tests/chat-codex.e2e.mjs

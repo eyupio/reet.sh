@@ -23,11 +23,18 @@ Review batches: [process recovery #480](https://github.com/eyupio/reet.sh/pull/4
 [transcript retention #484](https://github.com/eyupio/reet.sh/pull/484). Eight reproduced defects are addressed across the three
 focused batches below. Each PR records its checks and merge state. All handoff entries are retained when integrating the stack.
 
+## GAFFER-START-1: launch and backlog model/effort selection (4 November 2026)
+
+Implementation and verification are tracked in [the startup-options handoff](docs/handoffs/start-agent-options.md).
+Both start dialogs and backlog creation/editing retain model and native effort choices. The new `acp-start-options-v1`
+contract prevents older live-control connectors receiving unsupported create fields. Runtime confirmation precedes readiness
+and the opening prompt. The local web, browser and focused race checks pass. This follow-up awaits PR review and final-head checks before merge.
+
 ## GAFFER-LIVE-1: live settings and durable message delivery (4 November 2026)
 
 Implementation and verification are tracked in [the live-controls handoff](docs/handoffs/live-chat-controls.md).
 This covers negotiated runtime model/effort selectors, capability-aware steering, durable shared queues and recovery
-from uncertain delivery. [PR #488](https://github.com/eyupio/reet.sh/pull/488) is in review; merge only after its final-head checks pass.
+from uncertain delivery. [PR #488](https://github.com/eyupio/reet.sh/pull/488) merged as `ac5938d` after final-head checks and review fixes passed.
 
 ## GAFFER-BOUNDS-1: keep history bounded around waiting cards (4 November 2026)
 

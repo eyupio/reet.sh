@@ -1315,6 +1315,9 @@ func chatResult(err error) terminalproto.Result {
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "That agent does not support chats on this machine."}
 	case errors.Is(err, acpagent.ErrPluginsUnreadable):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The folder's agent extensions could not be read, so the chat was not started."}
+	case errors.Is(err, acpagent.ErrControl):
+		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not confirm the chosen effort for this model. Choose an offered effort or Agent default. No opening prompt was sent."}
+
 	case errors.Is(err, acpagent.ErrModel):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not use the chosen model, so the chat was not started."}
 	default:

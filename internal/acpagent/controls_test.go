@@ -76,10 +76,15 @@ func TestSavedEffortIsConfirmedBeforeTheSessionIsReady(t *testing.T) {
 	if s.Controls().Options[1].Current != "high" {
 		t.Fatal("saved effort was not applied")
 	}
+	ready := false
+	opts.OnReady = func() { ready = true }
 	opts.Effort = "invented"
 	if other, err := Start(t.Context(), opts); err == nil {
 		other.Close()
 		t.Fatal("unsupported saved effort admitted")
+	}
+	if ready {
+		t.Fatal("unconfirmed effort announced the session ready")
 	}
 }
 

@@ -478,6 +478,19 @@ test('OpenCode on an acp machine launches a native chat by default', () => {
   assert.equal(toCreate(terminal, openProject, 'r'.repeat(16), 'a'.repeat(16)).launch.structured, undefined)
 })
 
+test('Gaffer model and effort are carried together and require an upgraded connector', () => {
+ const target=machine('m-studio','studio',{tools:['opencode'],acp:true,acpLiveControls:true,acpStartOptions:true})
+ const picked={...reet,defaultTool:'opencode'}
+ const selected={...initialChoice([picked],profile,{machines:[target]}),model:'provider/model',effort:'ultra',trust:true}
+ assert.equal(startable(selected,[picked],[target],profile),null)
+ const request=toCreate(selected,picked,'r'.repeat(16),'a'.repeat(16)).launch
+ assert.equal(request.model,'provider/model')
+ assert.equal(request.effort,'ultra')
+ assert.equal(request.structured,true)
+ assert.match(startable(selected,[picked],[{...target,capabilities:{...target.capabilities,acpStartOptions:false}}],profile),/Update reet/)
+ assert.notEqual(startable({...selected,agent:'codex',chat:false},[picked],[target],profile),null)
+})
+
 test('without acp OpenCode stays a terminal and history is absent', () => {
   const openProject = { ...reet, defaultTool: 'opencode' }
   const start = initialChoice([openProject], profile, { machines: [] })

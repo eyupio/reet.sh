@@ -874,7 +874,7 @@ func (s *Store) FailTerminalCreateWithResultFor(uid int64, agentID, requestID st
 		// A definite chat refusal never confirmed the requested model. Keep
 		// the operation fingerprint for replay, but do not display that request
 		// as a confirmed choice on the failed chat. Terminal metadata is unchanged.
-		if _, err := tx.Exec(`UPDATE terminal_sessions SET state='lost',model=CASE WHEN structured=1 THEN '' ELSE model END,updated_at=? WHERE id=?`, now(), sessionID); err != nil {
+		if _, err := tx.Exec(`UPDATE terminal_sessions SET state='lost',model=CASE WHEN structured=1 THEN '' ELSE model END,effort=CASE WHEN structured=1 THEN '' ELSE effort END,updated_at=? WHERE id=?`, now(), sessionID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`UPDATE terminal_operations SET state='failed',result_code=?,reason=?,detail=?,updated_at=? WHERE user_id=? AND agent_id=? AND session_id=? AND kind='create'`, code, result.Reason, result.Detail, now(), uid, agentID, sessionID); err != nil {

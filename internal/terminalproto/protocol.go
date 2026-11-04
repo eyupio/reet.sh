@@ -154,6 +154,7 @@ type Capabilities struct {
 	ACPHistory      bool `json:"acpHistory,omitempty"`
 	ACPModel        bool `json:"acpModel,omitempty"`
 	ACPLiveControls bool `json:"acpLiveControls,omitempty"`
+	ACPStartOptions bool `json:"acpStartOptions,omitempty"`
 	// ACPAgentMode is set on a connection that negotiated acp-agent-mode-v1.
 	ACPAgentMode bool `json:"acpAgentMode,omitempty"`
 	// ACPAgentOptions is set on a connection that negotiated
@@ -196,6 +197,9 @@ type Capabilities struct {
 
 func (c Capabilities) Validate() error {
 	var features []string
+	if c.ACPStartOptions {
+		features = append(features, ACPStartOptionsFeature)
+	}
 	if c.ACPLiveControls {
 		features = append(features, ACPLiveControlsFeature)
 	}
@@ -210,6 +214,9 @@ func (c Capabilities) Validate() error {
 
 // ValidateFor validates capabilities against the features negotiated by the peer.
 func (c Capabilities) ValidateFor(features string) error {
+	if c.ACPStartOptions && (!SupportsACPStartOptions(features) || !c.ACPLiveControls) {
+		return ErrInvalid
+	}
 	if c.ACPLiveControls && !SupportsACPLiveControls(features) {
 		return ErrInvalid
 	}
@@ -405,7 +412,7 @@ func (c Create) Validate() error {
 	if !ValidTitle(c.Title) || !ValidDimensions(c.Cols, c.Rows) || !c.validLaunch() || !c.validWorktree() || c.Base != "" && (c.Worktree == "" || !validRefName(c.Base)) {
 		return ErrInvalid
 	}
-	if c.Structured && (!ReviewedChatTool(c.Tool) || c.Worktree != "" || c.Project != "" || c.Base != "" || c.Effort != "" || c.Resume) {
+	if c.Structured && (!ReviewedChatTool(c.Tool) || c.Worktree != "" || c.Project != "" || c.Base != "" || c.Resume) {
 		return ErrInvalid
 	}
 	if c.Trust && !c.Structured {

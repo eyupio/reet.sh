@@ -753,12 +753,15 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if in.Yolo && !caps.Capabilities.Yolo {
 			return store.TerminalSession{}, false, ErrYoloRefused
 		}
-		if (in.Base != "" || in.Effort != "" || in.Tool != "" && !terminalproto.ValidTool(in.Tool)) && !caps.Capabilities.AgentsV2 {
+		if (in.Base != "" || !in.Structured && in.Effort != "" || in.Tool != "" && !terminalproto.ValidTool(in.Tool)) && !caps.Capabilities.AgentsV2 {
 			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
 		}
 		// Options the agent's preset has no mapping for are refused here, not
 		// by the machine after a session is reserved.
-		if in.Effort != "" && !terminalproto.ToolTakesEffort(in.Tool) || in.Model != "" && !terminalproto.ToolTakesModel(in.Tool) {
+		if in.Structured && in.Effort != "" && !caps.Capabilities.ACPStartOptions {
+			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
+		}
+		if !in.Structured && in.Effort != "" && !terminalproto.ToolTakesEffort(in.Tool) || in.Model != "" && !terminalproto.ToolTakesModel(in.Tool) {
 			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
 		}
 		// A peer without resume-v1 is never sent the resume field.

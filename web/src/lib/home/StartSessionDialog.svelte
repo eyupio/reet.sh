@@ -4,8 +4,9 @@
   import { shell } from '../dialogShell'
   import { getYoloSetting, UnauthorizedError, listModelFavourites, type Skill, type YoloSetting } from '../api'
   import { agentChoices, CATALOGUE } from '../catalogue'
+  import { launchEfforts, effortHelp } from '../terminal/launchOptions'
   import { MAX_PROMPT_BYTES, cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateDir, validateModel, validatePrompt } from '../agentLaunch'
-  import { effortChoices, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
+  import { modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
   import { installPrompt } from '../install'
   import { insertSkillPrompt } from '../skillPrompt'
   import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from '../terminal/upload'
@@ -50,7 +51,7 @@
   const offers = $derived(machine ? agentChoices(machine).filter(o => o.available) : [])
   const hasChat = $derived(!!structuredAgent(machine?.capabilities, choice.agent))
   const chat = $derived(hasChat && choice.chat === true)
-  const why = $derived(startable(choice, projects, machines, profile))
+  const why = $derived.by(() => startable(choice, projects, machines, profile) || (choice.effort && !efforts.includes(choice.effort) ? 'Choose an effort offered by this machine, or Agent default.' : null))
   const promptBytes = $derived(new TextEncoder().encode(choice.prompt).length)
   const promptProblem = $derived(validatePrompt(choice.agent, choice.prompt) ?? '')
   // The trust box is the one choice that stops a Gaffer start: say so beside the box, not only in the note.
@@ -65,8 +66,8 @@
   const yoloGateList = $derived(yoloGates(choice, yoloSetting, projects, machines))
 
   // Model, effort and skills, as in the plan dialog. The model list is read from the machine the project lives on.
-  const efforts = $derived(effortChoices(choice.agent))
-  const takesEffort = $derived(!chat && efforts.length > 1)
+  const efforts = $derived(launchEfforts(choice.agent, machine?.capabilities, chat))
+  const takesEffort = $derived(efforts.length > 1)
   let favourites = $state<ModelFavourite[]>([])
   let modelRead = $state<{ key: string; machine: MachineModels | null; loading: boolean }>({ key: '', machine: null, loading: false })
   const modelKey = $derived(machine && choice.agent ? `${machine.agentId}\u0000${choice.agent}` : '')
@@ -337,8 +338,9 @@
             <div class="field"><span>Model</span>
               <button type="button" class="picker" bind:this={modelButton} aria-label={`Model: ${choice.model || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={modelOpen} onclick={() => modelOpen = !modelOpen}><span class="value">{choice.model || 'Agent default'}</span><span class="chev" aria-hidden="true">▾</span></button></div>
             <div class="field"><span>Effort</span>
-              <button type="button" class="picker" bind:this={effortButton} aria-label={`Effort: ${choice.effort || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={effortOpen} disabled={!takesEffort} title={takesEffort ? '' : `${toolName(choice.agent)} chooses its own effort.`} onclick={() => effortOpen = !effortOpen}><span class="value">{takesEffort ? choice.effort || 'Agent default' : 'This agent decides'}</span>{#if takesEffort}<span class="chev" aria-hidden="true">▾</span>{/if}</button></div>
+              <button type="button" class="picker" bind:this={effortButton} aria-label={`Effort: ${choice.effort || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={effortOpen} disabled={!takesEffort && !choice.effort} title={effortHelp(choice.agent, machine?.capabilities, chat)} onclick={() => effortOpen = !effortOpen}><span class="value">{choice.effort || 'Agent default'}</span>{#if takesEffort}<span class="chev" aria-hidden="true">▾</span>{/if}</button></div>
           </div>
+          <p class="hint">{effortHelp(choice.agent, machine?.capabilities, chat)}</p>
           <div class="field"><span>Interface</span>
             <div class="mode" role="group" aria-label="Interface">
               <button use:gafferTooltip type="button" class:on={chat} aria-pressed={chat} aria-disabled={!hasChat} title={hasChat ? '' : 'This machine does not offer Gaffer for that agent.'} onclick={() => { if (hasChat) pickTui(true) }}>Gaffer</button>

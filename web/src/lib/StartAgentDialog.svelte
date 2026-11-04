@@ -7,7 +7,8 @@
  import { insertSkillPrompt } from './skillPrompt'
  import SkillPromptPicker from './home/SkillPromptPicker.svelte'
  import { CATALOGUE } from './catalogue'
- import { defaultLabel, effortChoices, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
+ import { launchEfforts, effortHelp } from './terminal/launchOptions'
+ import { defaultLabel, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
  import { createTerminal, getFolderProject, launchUpload, machineModels, readiness, refreshMachineModels, refusalSentence, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
  import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './terminal/upload'
  import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
@@ -53,7 +54,7 @@
 
  const id = $props.id()
  const OTHER = '\u0000other', TYPED = '\u0000typed'
- let dialog = $state<HTMLDialogElement>(), machineSelect = $state<HTMLSelectElement>(), modelButton = $state<HTMLButtonElement>()
+ let dialog = $state<HTMLDialogElement>(), machineSelect = $state<HTMLSelectElement>(), modelButton = $state<HTMLButtonElement>(), effortSelect = $state<HTMLSelectElement>()
  let startButton = $state<HTMLButtonElement>()
  // svelte-ignore state_referenced_locally
  let projectSel = $state(projectId)
@@ -154,7 +155,9 @@
  })
  // Any model value the picker gives is sent as chosen; a project/account default needs no static hint.
  const model = $derived(modelChoice === OTHER ? cleanModel(modelOther) : cleanModel(modelChoice))
- const effortOptions = $derived(effortChoices(chosenTool))
+ const effortOptions = $derived(launchEfforts(chosenTool, machine?.capabilities, structured))
+ const effortError = $derived(effort && !effortOptions.includes(effort) ? 'Choose an effort offered by this machine, or Agent default.' : '')
+ const effortHint = $derived(effortHelp(chosenTool, machine?.capabilities, structured))
  const chatCapable = $derived(!!structuredAgent(machine?.capabilities, chosenTool))
  // OpenCode is a chat by default when the machine offers ACP; the checkbox is
  // the explicit terminal escape hatch. A machine or agent change starts over.
@@ -165,7 +168,7 @@
   if (!chatCapable) { sessionTouched = false; structured = false; return }
   if (!sessionTouched) structured = true
  })
- const modelLabel = $derived(modelChoice === OTHER ? cleanModel(modelOther) || 'Other…' : modelChoice || (structured ? 'OpenCode’s configured model' : 'Agent default'))
+ const modelLabel = $derived(modelChoice === OTHER ? cleanModel(modelOther) || 'Other…' : modelChoice || (structured ? `${chatToolName(chosenTool)}’s configured model` : 'Agent default'))
  const modelKey = $derived(machine && chosenTool ? `${machine.agentId}\u0000${chosenTool}` : '')
  const modelMachine = $derived(modelList.key === modelKey ? modelList.machine : null)
  const modelLoading = $derived(!!modelKey && modelList.key === modelKey && modelList.loading)
@@ -478,6 +481,7 @@
   if (where === 'machine') return field('machine')
   if (where === 'tool') return field('tool')
   if (where === 'model') return modelButton
+  if (where === 'effort') return effortSelect
   if (where === 'folder') return folderChoice === TYPED ? field('dir') : field('folder')
   if (where === 'prompt') return field('prompt')
   return startButton
@@ -489,13 +493,13 @@
   if (!operation) {
    if (blocked || !machine) return
    // The errors are derived, so they already count this attempt; no await here, or a second press could slip past the busy guard.
-   const invalid = modelError ? ['model', modelError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
+   const invalid = modelError ? ['model', modelError] : effortError ? ['effort', effortError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
    if (invalid) { failed = true; message = invalid[1]; invalidMessage = true; field(invalid[0])?.focus(); return }
    if (imageReason) { failed = true; field('prompt')?.focus(); return }
    const launch: LaunchRequest & { tool: string } = { tool: chosenTool }
    if (structured) { launch.structured = true; if (chosenTool === 'opencode') launch.trust = true }
    if (model) launch.model = model
-   if (!structured && effort && effortOptions.length > 1) launch.effort = effort as NonNullable<LaunchRequest['effort']>
+   if (effort) launch.effort = effort as NonNullable<LaunchRequest['effort']>
    if (dir) launch.dir = dir
    if (prompt) launch.prompt = prompt
    if (yoloChosen && !yoloWhy) launch.yolo = true
@@ -701,15 +705,18 @@
      <span class="value">{modelLabel}</span><span class="chev" aria-hidden="true">⌄</span>
     </button>
     {#if modelChoice === OTHER && modelError}<p class="reason" id={`${id}-model-error`}>{modelError}</p>{/if}
-    {#if structured}<p class="hint">Gaffer uses this model. Leave it at {chatToolName(chosenTool)}’s configured model to keep {chatToolName(chosenTool)}’s own; its thinking comes from {chatToolName(chosenTool)}.</p>{/if}
+    {#if structured}<p class="hint">Gaffer uses this model. Leave it at {chatToolName(chosenTool)}’s configured model to keep {chatToolName(chosenTool)}’s own; choose effort below when this machine offers it.</p>{/if}
    </div>
 
-   {#if !structured && effortOptions.length > 1}
+   {#if structured || effortOptions.length > 1 || effort}
     <div class="field">
-     <label for={`${id}-effort`}>Thinking</label>
-     <select id={`${id}-effort`} bind:value={effort} onchange={() => { explicitEffort = true; edited() }} disabled={!chosenTool}>
-      {#each effortOptions as value (value || 'default')}<option value={value}>{value || 'default'}</option>{/each}
+     <label for={`${id}-effort`}>{structured ? 'Effort' : 'Thinking'}</label>
+     <select id={`${id}-effort`} bind:this={effortSelect} bind:value={effort} onchange={() => { explicitEffort = true; edited() }} disabled={!chosenTool || effortOptions.length < 2 && !effort}>
+      {#if effortError}<option value={effort} disabled>{effort} — unavailable</option>{/if}
+      {#each effortOptions as value (value || 'default')}<option value={value}>{value || 'Agent default'}</option>{/each}
      </select>
+     {#if effortError}<p class="reason" role="alert">{effortError}</p>{/if}
+     {#if structured}<p class="hint">{effortHint}</p>{/if}
     </div>
    {/if}
 

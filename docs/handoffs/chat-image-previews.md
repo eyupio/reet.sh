@@ -26,7 +26,9 @@ for all related PRs, current heads, merge gates and portable commands. The PR at
 - Web unit suite, Svelte check (zero errors/warnings) and production build pass.
 - `go vet ./...` passes.
 - Focused race suites pass for preview extraction and streamed paths, protocol bounds, cache persistence/isolation/expiry/quota,
-  sparse tool targets, negotiated delivery, chunk/hash/ownership checks and HTTP reply filtering/authentication.
+  sparse tool targets, negotiated delivery, chunk/hash/ownership checks and HTTP reply filtering/authentication. The age
+  rule and the file-count bound each have their own case, and the count case lowers `previewCacheFiles` rather than creating
+  a thousand files; pruning keeps one free slot for the snapshot being written.
 - Desktop/phone light/dark browser regression passes, including offline retry, decoding, lightbox focus/Escape, replay,
   limits, no overflow and object URL cleanup. It is included in terminal-browser CI.
 - Screenshots are tracked in `docs/images/ui/agent-preview-*.png`, linked from `docs/ui-verification.md`.

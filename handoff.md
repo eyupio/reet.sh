@@ -23,6 +23,24 @@ Review batches: [process recovery #480](https://github.com/eyupio/reet.sh/pull/4
 [transcript retention #484](https://github.com/eyupio/reet.sh/pull/484). Eight reproduced defects are addressed across the three
 focused batches below. Each PR records its checks and merge state. All handoff entries are retained when integrating the stack.
 
+## SEO-1: public search surface and documentation (4 November 2026)
+
+The public-search audit and its current status are in [SEO_AUDIT.md](SEO_AUDIT.md). The continuation state, remaining
+tasks and a copy-paste starting prompt are in [the SEO follow-up handoff](docs/handoffs/seo-follow-up.md). Read that
+file before changing the public routes, metadata, sitemap or docs.
+
+Merged on `main`: real 404s and private-route noindex (#479, `e54cd9c`); install-first landing CTAs (#481, `aed7d36`);
+server-rendered community and public lists (#483, `187a5c7`); hosted skill page metadata and sitemap entries (#487,
+`7f713c2`); documentation at `/docs/` (#489, `3d8d1bb`); AI-crawler files and public nav pointing at the docs (#494,
+`5b4050a`); the first guides and skills.sh comparison (#496, `f507b6f`); the sitemap crawl contract test (#497,
+`b6b6ea4`); readable public list addresses for new lists (#502, `35c2182`); Open WebUI and LibreChat comparisons plus
+the no-VPN guide (#505, `e95cb81`); and landing-page links to the guides (#507, `701e1cd`).
+
+Remaining, in order: a readable-link action with permanent redirects for existing public lists; external measurement
+(Search Console, Bing, and an explicit analytics decision); the marketing/app bundle split; and more intent content.
+Do not treat the lab timings in the audit as field data, and do not add a third-party tracker while "no telemetry"
+remains the default.
+
 ## GAFFER-PREVIEWS-1: agent image previews and continuation (4 November 2026)
 
 Start a new environment with [the current continuation handoff](docs/handoffs/gaffer-continuation.md). It records the

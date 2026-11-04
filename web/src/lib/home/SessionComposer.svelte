@@ -46,7 +46,9 @@
   const efforts = $derived.by(() => launchEfforts(tool, machine?.capabilities, rules.chat))
   const takesEffort = $derived(efforts.length > 1)
   const project = $derived(mode === 'project' ? projects.find(p => p.id === projectId) : undefined)
-  const rules = $derived(draftOptionRules({ tool, isRepo: !!project?.isRepo, canChat: !!structuredAgent(machine?.capabilities, tool), chat }))
+  // An offline capability read must not turn an existing Gaffer plan into a terminal plan.
+  const canPlanChat = $derived(!!structuredAgent(machine?.capabilities, tool) || !!draft?.chat && draft.agentId === agentId && draft.tool === tool)
+  const rules = $derived(draftOptionRules({ tool, isRepo: !!project?.isRepo, canChat: canPlanChat, chat }))
   // Starting is only offered while the refined item could actually start; saving first would strand it half-done.
   const blocker = $derived(startNow && startCheck ? startCheck({ agentId, tool, projectId: mode === 'project' ? projectId : '', dir, imageCount: images.length, effort, chat: rules.chat }) : null)
   const modelStatusInfo = $derived.by(() => {
@@ -252,11 +254,12 @@
     event.preventDefault(); if (busy || reading) return
     const why = !agentId ? 'Choose a machine.' : mode === 'project' && !projectId ? 'Choose a project.' : idea ? ideaProblem({ idea, title, prompt }) || (prompt.trim() ? validatePrompt(tool, prompt) : null) || validateModel(model) || (dir ? validateDir(dir) : null) : !prompt.trim() ? 'Describe what the agent should do.' : validatePrompt(tool, prompt) || validateModel(model) || (dir ? validateDir(dir) : null)
     if (why) { message = why; return }
-    if (effort && !efforts.includes(effort)) { message = 'Choose an effort offered by this machine, or Agent default.'; return }
+    const retainedNativeEffort = !startNow && draft?.chat && rules.chat && draft.agentId === agentId && draft.tool === tool && draft.effort === effort
+    if (effort && !efforts.includes(effort) && !retainedNativeEffort) { message = 'Choose an effort offered by this machine, or Agent default.'; return }
     if (blocker) { message = blocker; return }
     busy = true; message = ''
     try {
-      const saved = await saveDraft({ title: title.trim() || defaultTitle(prompt), prompt, idea, projectId: mode === 'project' ? projectId : '', agentId, dir, tool, model: model.trim(), effort, ...cleanDraftOptions({ tool, isRepo: !!project?.isRepo, canChat: !!structuredAgent(machine?.capabilities, tool), chat, worktree, base, trust, yolo }), images, version: draft?.version ?? 0 }, draft?.id, AbortSignal.timeout(20_000))
+      const saved = await saveDraft({ title: title.trim() || defaultTitle(prompt), prompt, idea, projectId: mode === 'project' ? projectId : '', agentId, dir, tool, model: model.trim(), effort, ...cleanDraftOptions({ tool, isRepo: !!project?.isRepo, canChat: canPlanChat, chat, worktree, base, trust, yolo }), images, version: draft?.version ?? 0 }, draft?.id, AbortSignal.timeout(20_000))
       onsaved(saved)
     } catch (e) { onerror(e); message = e instanceof Error ? e.message : "Couldn't save this session. Your draft is still here." }
     finally { busy = false }
@@ -306,6 +309,7 @@
             {#if worktree}<label class="field"><span>Base branch <small>Optional · leave empty for the default</small></span><input aria-label="Base branch" bind:value={base} placeholder="main" maxlength="200" /></label>{/if}{/if}
           {#if rules.showTrust}<label class="check"><input type="checkbox" bind:checked={trust} /> I trust this folder; OpenCode plugins in <code>.opencode</code> may run.</label>{/if}
         </div>
+        {#if rules.chat && !structuredAgent(machine?.capabilities, tool)}<p class="hint">Gaffer is saved for this plan. Reconnect or update this machine before starting it.</p>{/if}
         {#if yolo}<p class="hint yolo-hint" role="note">YOLO is saved as a plan only. You’ll be asked to confirm, with the account and machine checks, when you start it.</p>{/if}
         {#if startNow}<p class="hint">Starting saves this to your backlog first, so nothing is lost if the session can’t start.</p>
         {:else}<p class="hint">{machine && !machine.ready ? 'This machine is offline. You can save now and start when it reconnects.' : 'Saving to the backlog keeps everything ready for later.'}</p>{/if}

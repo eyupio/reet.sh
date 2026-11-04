@@ -37,6 +37,26 @@ func TestBrokenOutputStreamEndsChat(t *testing.T) {
 	}
 }
 
+func TestLeaderExitWithInheritedOutputEndsChat(t *testing.T) {
+	for _, scenario := range []string{"leader-exit-open-stdout", "leader-exit-open-stderr"} {
+		t.Run(scenario, func(t *testing.T) {
+			opts, _ := options(t, scenario, testVersion)
+			opts.TurnTimeout = time.Minute
+			s, err := Start(t.Context(), opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			go func() { _ = s.Prompt(t.Context(), "exit with a child") }()
+			select {
+			case <-s.Done():
+			case <-time.After(3 * time.Second):
+				t.Fatal("leader exit was hidden by a child holding output open")
+			}
+		})
+	}
+}
+
 func TestRecoveredProviderErrorRetiresUnresponsiveAgent(t *testing.T) {
 	opts, got := options(t, "ignore-cancel", testVersion)
 	opts.TurnTimeout = time.Minute

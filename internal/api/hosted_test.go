@@ -69,6 +69,19 @@ func TestHostedSkillsPublicationAndOwnership(t *testing.T) {
 	if strings.Contains(page, "<script>alert") || !strings.Contains(page, "npx skills add "+srv.URL+"/alice/reet-demo") {
 		t.Fatalf("unsafe page or wrong install command: %s", page)
 	}
+	for _, want := range []string{
+		`name="robots" content="index,follow"`,
+		`rel="canonical" href="` + srv.URL + `/alice/reet-demo"`,
+		`property="og:url" content="` + srv.URL + `/alice/reet-demo"`,
+		`property="og:image" content="` + srv.URL + `/og-image.png"`,
+		`"@type":"SoftwareSourceCode"`,
+		`"@type":"BreadcrumbList"`,
+		`href="/community"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("hosted page missing %s", want)
+		}
+	}
 	if body := expect(0, "GET", "/alice/reet-demo/SKILL.md", nil, 200); body != sk.Content {
 		t.Fatal("changed skill contents")
 	}

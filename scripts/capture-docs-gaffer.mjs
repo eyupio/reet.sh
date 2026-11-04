@@ -3,13 +3,16 @@
 import { createRequire } from "node:module";
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { startHarness } from "../web/tests/helpers/harness.mjs";
 import { active, openWorkspace } from "../web/tests/helpers/workspace.mjs";
 
 const { chromium, expect } = createRequire(
   new URL("../web/package.json", import.meta.url),
 )("@playwright/test");
-const output = fileURLToPath(new URL("../docs/images/ui/", import.meta.url));
+const output =
+  process.env.REET_DOCS_SCREENSHOT_DIR ||
+  fileURLToPath(new URL("../docs/images/ui/", import.meta.url));
 const machineId = "docs-studio",
   sessionId = "docs-gaffer-session";
 const now = Date.now();
@@ -231,7 +234,7 @@ try {
     }
     expect(errors).toEqual([]);
     await page.screenshot({
-      path: `${output}gaffer-showcase-${theme}.png`,
+      path: join(output, `gaffer-showcase-${theme}.png`),
       fullPage: true,
     });
     await context.close();

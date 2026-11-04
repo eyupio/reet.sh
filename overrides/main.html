@@ -1,0 +1,28 @@
+{#
+  Canonical and sharing metadata for the docs pages. Material already emits the
+  title, description and search metadata; this extends it rather than replacing
+  the template. The canonical URL is the one MkDocs computes from site_url, so
+  it follows DOCS_SITE_URL when the site is mounted somewhere else.
+#}
+{% extends "base.html" %}
+
+{% block htmltitle %}
+  {% if page.meta and page.meta.title %}
+    <title>{{ page.meta.title }}</title>
+  {% else %}
+    {{ super() }}
+  {% endif %}
+{% endblock %}
+
+{% block extrahead %}
+  {{ super() }}
+  <link rel="canonical" href="{{ page.canonical_url }}">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="{{ config.site_name }}">
+  <meta property="og:title" content="{{ page.meta.title if page.meta and page.meta.title else page.title }}">
+  <meta property="og:description" content="{{ page.meta.description if page.meta and page.meta.description else config.site_description }}">
+  <meta property="og:url" content="{{ page.canonical_url }}">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="{{ page.meta.title if page.meta and page.meta.title else page.title }}">
+  <meta name="twitter:description" content="{{ page.meta.description if page.meta and page.meta.description else config.site_description }}">
+{% endblock %}

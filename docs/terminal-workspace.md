@@ -36,7 +36,7 @@ On a tablet and a phone the page is one column: machines, then Needs you, then I
 Sessions screen. Every target there is at least 44 px. In flight's rows open the session screen and say the state with
 the words its header pill uses. The phone's launch bar has a one-line prompt, a round 48 px Start and one summary line with
 **Change**; the tablet's has the shorter sentence with its own Change. Checks:
-[Agents home shell and Home](ui-verification.md#agents-home-shell-and-home--26-october-2026).
+[Agents home shell and Home](https://github.com/eyupio/reet.sh/blob/main/docs/ui-verification.md#agents-home-shell-and-home--26-october-2026).
 
 ## The Sessions page
 
@@ -92,7 +92,7 @@ beside it). Its parts:
   update reet. This is the direct non-agent terminal entry point. **Open a terminal beside this session…** creates the
   same plain shell but shows it in the right-hand panel while Gaffer or agent TUI stays in the main column; Close
   ends that shell. The side panel replaces the context panel while it is open.
-- **Gaffer pane** for a structured OpenCode session ([structured sessions](structured-sessions.md)): the streamed
+- **Gaffer pane** for a structured OpenCode session ([structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md)): the streamed
   conversation, tool calls, approval cards with **Allow once** and **Deny**, a composer (Enter sends, Shift+Enter adds a
   line), **Attach image** (pasted, dropped or chosen; the machine embeds it in the prompt when it negotiated
   `acp-image-v1`, otherwise the prompt names the uploaded path), **Stop**, and the watchdog's "still working" notice. A lost or crashed
@@ -366,7 +366,7 @@ Switching machines or sessions preserves the old shell. End requests on unavaila
 machines remain pending until confirmed. Remove from history uses a persistent controller tombstone and rejects active or
 pending sessions. Confirmation captures the session ID/title. Failed removals stay
 visible; success cannot detach a newer selection. It remains available when terminal
-execution is disabled. See [the archive contract](terminal-history-archive.md).
+execution is disabled. See [the archive contract](https://github.com/eyupio/reet.sh/blob/main/docs/terminal-history-archive.md).
 
 - Ctrl+C interrupts when there is no selected output. On Windows/Linux, selected
   output makes Ctrl+C copy. On Mac, Cmd+C copies and Ctrl+C interrupts. The visible
@@ -458,7 +458,7 @@ start `npm --prefix web run preview -- --host 127.0.0.1 --port 4173`, then run
 `node web/tests/terminal-phone.e2e.mjs`, and `node web/tests/sessions-phone.e2e.mjs` for the session screen on phones.
 The whole Agents home across every width, both themes, reduced motion and the phone keyboard is
 `node web/tests/matrix/agents-home.matrix.mjs` (local only, several minutes; `REET_AXE=<axe.min.js>` adds axe-core;
-results in [UI verification](ui-verification.md#agents-home-layout-focus-and-motion-matrix--28-october-2026-pr-h-task-h4)).
+results in [UI verification](https://github.com/eyupio/reet.sh/blob/main/docs/ui-verification.md#agents-home-layout-focus-and-motion-matrix--28-october-2026-pr-h-task-h4)).
 These fixtures cover synthetic two-machine continuation, permissions/errors,
 viewport bounds, clipboard, intentional disconnect, delayed observations, per-host
 retries, pending end, quota and explicit takeover. They do not prove remote

@@ -9,6 +9,7 @@
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
   import { SYNC_FILTERS, SYNC_UNAVAILABLE, matchesSyncFilter, settledJobsKey, skillSyncIntent, skillSyncSummary, type SyncFilter } from './lib/skillSync'
   import { audienceLabel } from './lib/api'
+  import { DOCS_URL } from './lib/links'
   import { onMount, tick } from 'svelte'
   import {
     addSkill, addSkillTags, applyTheme, clearThemeChoice, clearToken, getAuthStatus, getNotificationCount, getProfile, getSyncState, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
@@ -1002,7 +1003,7 @@
     {#if !authenticated && authMode==='accounts' && !isPublicList && !isCommunity && !isJoin}
       <nav class="site-nav" aria-label="Public navigation">{#if !isWelcome}<a href="/welcome">Workspace</a>{/if}<a href={isWelcome ? '#self-host' : '/welcome#self-host'}>Self-host</a><ThemePicker />{#if !setupRequired}<a class="entry-link" href="/signin">Sign in →</a>{/if}</nav>
     {:else if isPublicList || isCommunity || isJoin}
-      <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a href="/docs/">Docs</a><ThemePicker /><a class="entry-link" href="/">Open your workspace →</a></nav>
+      <nav class="site-nav" aria-label="Public navigation"><a href="/community">Public community</a><a href={DOCS_URL}>Docs</a><ThemePicker /><a class="entry-link" href="/">Open your workspace →</a></nav>
     {/if}
     {#if (!authenticated || needsAuth) && authMode !== 'accounts' && !isPublicList && !isCommunity && !isJoin && !isWelcome}<span class="tag">Your AI workspace</span>{/if}
   </div>

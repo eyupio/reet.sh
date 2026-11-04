@@ -7,3 +7,6 @@ web/dist/*
 /reet
 
 .playwright-cli/
+
+# MkDocs build output
+site/

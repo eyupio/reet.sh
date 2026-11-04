@@ -72,9 +72,9 @@ try {
    await expect(page.getByText(/orchestrat/i)).toHaveCount(0)
    // Guides turn the public docs into a next step from the landing page.
    const guides=page.getByRole('region',{name:'Start with a job to do.'})
-   await expect(guides.getByRole('link',{name:/Run Claude Code on a VPS/})).toHaveAttribute('href','/docs/run-claude-code-on-a-vps/')
-   await expect(guides.getByRole('link',{name:/Sync skills between machines/})).toHaveAttribute('href','/docs/sync-skills-between-machines/')
-   await expect(guides.getByRole('link',{name:/Connect an AI client with MCP/})).toHaveAttribute('href','/docs/self-host-mcp-server/')
+   await expect(guides.getByRole('link',{name:/Run Claude Code on a VPS/})).toHaveAttribute('href','https://reet.sh/docs/run-claude-code-on-a-vps/')
+   await expect(guides.getByRole('link',{name:/Sync skills between machines/})).toHaveAttribute('href','https://reet.sh/docs/sync-skills-between-machines/')
+   await expect(guides.getByRole('link',{name:/Connect an AI client with MCP/})).toHaveAttribute('href','https://reet.sh/docs/self-host-mcp-server/')
    // The colour choice is in the header, as a three-way control that applies at once and is remembered in this browser.
    const picker=page.locator('header .theme-picker')
    await expect(picker.getByRole('button')).toHaveCount(3)
@@ -115,7 +115,7 @@ try {
    // Public pages carry the help and trust links, and the roadmap link opens a short roadmap, not an internal log.
    const footer=page.getByRole('contentinfo')
    await expect(footer.getByRole('link',{name:'GitHub'})).toHaveAttribute('href','https://github.com/eyupio/reet.sh')
-   await expect(footer.getByRole('link',{name:'Docs'})).toHaveAttribute('href','/docs/')
+   await expect(footer.getByRole('link',{name:'Docs'})).toHaveAttribute('href','https://reet.sh/docs/')
    await expect(footer.getByRole('link',{name:'AGPL-3.0'})).toHaveAttribute('href','https://github.com/eyupio/reet.sh/blob/main/LICENSE')
    await expect(page.getByRole('link',{name:/See what.s next/})).toHaveAttribute('href','https://github.com/eyupio/reet.sh/blob/main/docs/roadmap.md')
    await layout(); await noOldPitch()

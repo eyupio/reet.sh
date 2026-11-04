@@ -1,0 +1,6 @@
+# The docs build is deliberately small and pinned. Material supplies the theme,
+# search, code copy and navigation; pymdownx supplies the Markdown extensions
+# used in mkdocs.yml. Bump these together and rebuild.
+mkdocs==1.6.1
+mkdocs-material==9.8.0
+pymdown-extensions==12.3

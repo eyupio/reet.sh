@@ -21,7 +21,7 @@ the request host and HTTPS proxy header. Configure the proxy to preserve the
 public host and replace forwarded headers. Do not strip bearer authorization.
 
 No Node process or separate MCP service is needed for the hosted connection.
-The optional [stdio bridge](../mcp/README.md) is available for subprocess-only
+The optional [stdio bridge](https://github.com/eyupio/reet.sh/blob/main/mcp/README.md) is available for subprocess-only
 clients. OAuth and managed MCP credentials require `REET_AUTH=accounts`.
 
 ## Your access controls
@@ -134,4 +134,4 @@ OAuth grant binding and rotation, and browser API enforcement. The optional
 TypeScript package tests real SDK interoperability with the Go HTTP endpoint
 and scoped stdio forwarding. The web UI is type-checked with `npm run check` in
 `web/`. Reproducible read-only evaluation tasks live in
-[`mcp/evaluations`](../mcp/evaluations/README.md).
+[`mcp/evaluations`](https://github.com/eyupio/reet.sh/blob/main/mcp/evaluations/README.md).

@@ -167,12 +167,12 @@ The models UI now exists wherever a model or a default is chosen:
 Only OpenCode has a machine list; other agents show favourites, suggestions and
 Other…, and say so. A per-machine default stays deferred. The next stage is
 Program 2 (structured OpenCode sessions), not more model UI. See
-[terminal layout](ui-verification.md) for the size/touch evidence.
+[terminal layout](https://github.com/eyupio/reet.sh/blob/main/docs/ui-verification.md) for the size/touch evidence.
 
 No real provider or paid model was used to test this backend: the listing parser
 and runner are tested with fake executables, the protocol with round-trip and
 limit tests, and the cache/API with synthetic machines. A physical phone, Safari
 and a live machine with provider credentials are not checked.
 
-See [the design](../docs/research/models-design.md) for the task split and the
+See [the design](https://github.com/eyupio/reet.sh/blob/main/docs/research/models-design.md) for the task split and the
 reasoning, and [terminal launch](terminal-launch.md) for the model field itself.

@@ -119,11 +119,13 @@ beside it). Its parts:
   reaches into the panel's widened padding, covers no control and reaches no further over the terminal than its 24 px
   track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
   extra keys are 40 × 40 px.
-- **Phones** keep the same session actions as desktop. The identity row shows the session and its state, with labelled
-  **Theatre**, **Details** and **More** controls. Interface and approval choices stay visible below it, with 44 px touch
-  targets; the toolbar wraps instead of moving them into the menu. **Terminal here** opens a terminal in the same folder.
-  With the keyboard up, the site's top bar steps aside and the session controls remain reachable. In landscape, identity
-  and actions share a compact row where there is room. Connection recovery buttons remain available in the pane.
+- **Phones** keep the same session actions as desktop. Outside a Gaffer chat's super focus, the identity row shows the
+  session and its state, with labelled **Focus**, **Theatre**, **Details** and **More** controls. Interface and approval
+  choices stay visible below it, with 44 px touch targets; the toolbar wraps instead of moving them into the menu.
+  **Terminal here** opens a terminal in the same folder. A Gaffer chat opens in super focus, where Back, the title, the
+  state and **Exit focus** are the header and **Exit focus** restores the full controls. With the keyboard up, the site's
+  top bar steps aside and the session controls remain reachable. In landscape, identity and actions share a compact row
+  where there is room. Connection recovery buttons remain available in the pane.
 
 
 The terminal route uses compact app navigation and the remaining usable viewport

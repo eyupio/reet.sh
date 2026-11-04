@@ -57,3 +57,8 @@ composer and the negotiated `acp-start-options-v1` contract are exactly as verif
 
 Final-head CI on this branch is the merge gate, and the head recorded in the pull request is authoritative. Merge #490
 first, then this branch, then the combined image preview branch.
+
+On the merged head, web unit tests, Svelte check with zero errors and warnings and the production build pass, as do the
+Start-agent/start-session/backlog selection regression, the Sessions phone suite and the Sessions suite. No startup option
+code changed in the merge, so the earlier backend race suites and negotiation tests remain the evidence for the protocol,
+broker, admission and backlog paths.

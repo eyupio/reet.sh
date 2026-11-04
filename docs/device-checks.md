@@ -6,17 +6,35 @@ in `docs/structured-chat-plan.md` and the PR that records them.
 
 ## Recorded results
 
-Nothing below has been recorded, so typed questions (`elicitation.form`), Claude chats (`REET_EXPERIMENTAL_CLAUDE_CHAT`) and
-Codex chats (`REET_EXPERIMENTAL_CODEX_CHAT`) stay off.
+The signed-out half of both login gates and the connector-level Claude start are recorded; the signed-in runs and the phone and
+reader checks are not. Typed questions (`elicitation.form`), Claude chats (`REET_EXPERIMENTAL_CLAUDE_CHAT`) and Codex chats
+(`REET_EXPERIMENTAL_CODEX_CHAT`) therefore stay off.
 
 | Gate | Evidence to record | State |
 | --- | --- | --- |
 | 1. Typed questions on a phone and with a screen reader | device and OS, browser and reader versions, each item pass or fail | Not run |
-| 2. Claude: real login and no login | Runs A and B output, `authenticatedHint`, the logged-out error text, Run C | Not run |
-| 3. Codex sign-in | the signed-in Run B result or its "Authentication required" answer, `authStatusUpdates`, then Run A | Deferred by the owner on 2 November; not run |
+| 2. Claude: real login and no login | Runs A and B output, `authenticatedHint`, the logged-out error text, Run C | Run A and Run C recorded 4 November; Run B (signed in) not run |
+| 3. Codex sign-in | the signed-in Run B result or its "Authentication required" answer, `authStatusUpdates`, then Run A | Run A recorded 4 November; Run B (signed in) deferred by the owner on 2 November, not run |
 
 Record each result here with the date and the pull request that carries it, and in `docs/structured-chat-plan.md` beside the
 slice it unblocks. A pass recorded anywhere else does not remove a gate.
+
+### Recorded on 4 November 2026
+
+The probe machine is signed in to neither agent (`~/.claude` and `~/.codex` absent, no credential variables set), so these runs
+are the logged-out behaviour of the pinned adapters on Linux with Node 24.
+
+- **Claude, Run A (logged out), `@agentclientprotocol/claude-agent-acp@0.99.1`:** `initialize` advertises **no** authentication
+  methods, `session/new` succeeds, and the first prompt fails in 0.1 s with `-32000 Authentication required`
+  (`replyIsOk: false`, `authenticatedHint: false`, no tools requested). A missing login therefore appears only at the prompt, which
+  is where the browser now names the sign-in step.
+- **Claude, Run C (connector profile, no model call):** `REET_CLAUDE_ACP=…/claude-agent-acp go test ./internal/acpagent -run
+  TestRealClaudeStart` passes — version floor `0.99.1`, adapter identity, the required `default` mode, and process retirement.
+- **Codex, Run A (signed out), `@agentclientprotocol/codex-acp@1.13.1` with `@openai/codex@0.156.1`:** `initialize` advertises
+  `api-key` and `chat-gpt`; `session/new` before any authenticate fails `-32000 Authentication required`; `_auth/status_update` is
+  `{"kind": "none", "label": "Not logged in"}`. This is the refusal the profile already reports as "Sign in to Codex on that
+  machine first."
+
 
 ## 1. Typed questions on a phone and with a screen reader
 

@@ -860,6 +860,13 @@ func TestChatHostCodexLoginErrorReachesTheBrowser(t *testing.T) {
 	}
 }
 
+func TestChatHostClaudeLoginErrorReachesTheBrowser(t *testing.T) {
+	got := chatResult(acpagent.ErrClaudeLogin)
+	if got.Code != terminalproto.ACPUnavailable || got.Detail != "Sign in to Claude on that machine first." {
+		t.Fatalf("login error hidden: %+v", got)
+	}
+}
+
 func TestChatHostForwardsCodexLoginNoticeDuringStart(t *testing.T) {
 	t.Setenv(acpagent.CodexSwitch, "1")
 	h, proc, out := testChatHost(t)

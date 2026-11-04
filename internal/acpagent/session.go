@@ -65,6 +65,29 @@ type rpcError struct {
 
 func (e *rpcError) Error() string { return safeRPCText(e.Message) }
 
+// authRequired reports the refusal an adapter sends when nobody is signed in on
+// that machine. Codex says it at session/new; Claude creates a session without a
+// login and says it at the first prompt, so both places ask this.
+func authRequired(err error) bool {
+	var rpcErr *rpcError
+	return errors.As(err, &rpcErr) && rpcErr.Code == -32000 && rpcErr.Message == "Authentication required"
+}
+
+// loginError names the sign-in step for the agent whose request was refused, or
+// nil when this is not a login refusal or the agent has no reviewed chat login.
+func loginError(spec Spec, err error) error {
+	if !authRequired(err) {
+		return nil
+	}
+	switch spec.Key {
+	case CodexCandidate.Key:
+		return ErrCodexLogin
+	case ClaudeCandidate.Key:
+		return ErrClaudeLogin
+	}
+	return nil
+}
+
 type rpcResult struct {
 	result json.RawMessage
 	err    *rpcError
@@ -271,12 +294,8 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	raw, err = s.request(newCtx, method, params)
 	if err != nil {
 		s.Close()
-		var rpcErr *rpcError
-		isCodex := spec.Key == CodexCandidate.Key
-		authErr := errors.As(err, &rpcErr) && rpcErr.Code == -32000 &&
-			rpcErr.Message == "Authentication required"
-		if isCodex && authErr {
-			return nil, ErrCodexLogin
+		if login := loginError(spec, err); login != nil {
+			return nil, login
 		}
 		return nil, ErrExited
 	}
@@ -1422,6 +1441,10 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 			_ = s.Cancel()
 			s.emit(Event{Kind: "status", State: "cancelled", Detail: "The turn timed out."})
 			return ErrTimeout
+		}
+		if login := loginError(s.opts.Agent, err); login != nil {
+			s.emit(Event{Kind: "status", State: "error", Detail: login.Error()})
+			return login
 		}
 		s.emit(Event{Kind: "status", State: "error", Detail: safeRPCText(err.Error())})
 		return err

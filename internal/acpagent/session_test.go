@@ -50,6 +50,7 @@ func TestFakeACP(t *testing.T) {
 	}
 	scenario, version := os.Getenv("ACP_SCENARIO"), os.Getenv("ACP_VERSION")
 	codexLoginScenario := scenario == "codex-login" || scenario == "codex-auth-required" || scenario == "codex-other-error"
+	claudeScenario := scenario == "claude-prompt-auth-required"
 	in := bufio.NewScanner(os.Stdin)
 	out := bufio.NewWriter(os.Stdout)
 	defer out.Flush()
@@ -116,8 +117,11 @@ func TestFakeACP(t *testing.T) {
 		switch message.Method {
 		case "initialize":
 			name, protocol := "OpenCode", 1
-			if codexLoginScenario {
+			if codexLoginScenario || scenario == "codex-prompt-auth-required" {
 				name = "@agentclientprotocol/codex-acp"
+			}
+			if claudeScenario {
+				name = "@agentclientprotocol/claude-agent-acp"
 			}
 			if scenario == "wrong-name" {
 				name = "Another Agent"
@@ -255,6 +259,12 @@ func TestFakeACP(t *testing.T) {
 			if scenario == "codex-login" {
 				mode = "agent"
 			}
+			if scenario == "codex-prompt-auth-required" {
+				mode = "read-only"
+			}
+			if claudeScenario {
+				mode = "default"
+			}
 			if scenario == "mode-plan" || scenario == "mode-lost" || scenario == "mode-lost-once" || scenario == "mode-switch" || scenario == "mode-ignored" || scenario == "mode-silent" {
 				mode = "plan"
 			}
@@ -293,6 +303,10 @@ func TestFakeACP(t *testing.T) {
 			_ = json.Unmarshal(message.Params, &params)
 			session = params.SessionID
 			promptID = message.ID
+			if scenario == "claude-prompt-auth-required" || scenario == "codex-prompt-auth-required" || scenario == "prompt-auth-required" {
+				send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32000, "message": "Authentication required"}})
+				continue
+			}
 			switch scenario {
 			case "exit-final-frames":
 				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_final", "content": map[string]string{"type": "text", "text": "first final chunk"}})

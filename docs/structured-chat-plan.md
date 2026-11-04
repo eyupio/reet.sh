@@ -625,3 +625,22 @@ Next: SC2's remaining integration gates (see the probe report); Claude's lifecyc
 embedded images and managed software maintenance have already shipped on main;
 SC3–SC5 must extend those contracts rather than restart their implementations.
 SC5's broader process recovery and generic controls remain future work.
+
+## Progress note: logged-out runs recorded (4 November 2026)
+
+The pinned adapters were run on a machine signed in to neither agent, which records the logged-out half of device-check sections 2
+and 3 without touching a switch:
+
+- `claude-agent-acp@0.99.1` advertises no authentication methods, creates a session with `session/new`, and refuses the first
+  prompt with `-32000 Authentication required` (`replyIsOk: false`, `authenticatedHint: false`, no tools requested). A missing
+  Claude login is therefore visible only at the prompt, which settles section 2's "does the browser need a message?" question:
+  it does, and it has to be at the prompt.
+- `TestRealClaudeStart` passes against that adapter with no model call: version floor, adapter identity, the required `default`
+  mode and process retirement.
+- `codex-acp@1.13.1` with `@openai/codex@0.156.1` advertises `api-key` and `chat-gpt`, refuses `session/new` before any
+  authenticate, and reports `{kind: none, label: "Not logged in"}`.
+
+The prompt path now names the sign-in step for both reviewed chat agents (`ErrClaudeLogin`, `ErrCodexLogin`) instead of showing
+the adapter's raw words, and the connector reports either as unavailable with that sentence. Signed-in runs for both agents and
+every phone and reader item remain open, so both switches and `elicitation.form` stay off.
+

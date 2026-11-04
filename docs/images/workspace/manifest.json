@@ -1,0 +1,91 @@
+{
+  "application": "standalone Reet workspace",
+  "sourceCommit": "5af82e64dbaca23f04ee8ee20399566786cc979c",
+  "data": "Synthetic example data; no account, machine or provider connection.",
+  "screenshots": {
+    "home-desktop-light": {
+      "file": "home-desktop-light-992a1261390c.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "992a1261390cdd2e2203edbb2912bfc03a95fd1bd90135c010ec2040b5705dbc"
+    },
+    "machines-desktop-light": {
+      "file": "machines-desktop-light-811518861955.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "811518861955ca1fa0f63a74717c5000ad3981a060fe5cb024587141b626e4eb"
+    },
+    "skills-desktop-light": {
+      "file": "skills-desktop-light-0d1e2f170410.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "0d1e2f1704108a5b9dab784811e2328a4a290da61106d4b4d163fbbdefae1ae6"
+    },
+    "home-phone-light": {
+      "file": "home-phone-light-1e35a570d740.png",
+      "width": 390,
+      "height": 844,
+      "sha256": "1e35a570d74041cb0754adc2138f0e59a815b7e6015caf9bb24e54509faf7c10"
+    },
+    "machines-phone-light": {
+      "file": "machines-phone-light-5865a05e5c32.png",
+      "width": 390,
+      "height": 844,
+      "sha256": "5865a05e5c32ce0fd0b023dc42a0102a030f93de0f7b255d0da53e514fe4f085"
+    },
+    "skills-phone-light": {
+      "file": "skills-phone-light-1b8111dd9878.png",
+      "width": 390,
+      "height": 844,
+      "sha256": "1b8111dd9878f819d69dd8ca621c45649928c2da1badd2026749bb7fd2d3251c"
+    },
+    "home-desktop-dark": {
+      "file": "home-desktop-dark-f6a68f6000dd.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "f6a68f6000dd78bb7b5a8cd03284ca5137f0792dda2a14675f759c14827c4166"
+    },
+    "machines-desktop-dark": {
+      "file": "machines-desktop-dark-4eb0c3f8a037.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "4eb0c3f8a037191159f4b34ba984bad29b0519cbada8f8dd93e063addf093b81"
+    },
+    "skills-desktop-dark": {
+      "file": "skills-desktop-dark-0f289a8cc13e.png",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "0f289a8cc13ea3bf777a01f96c73c905806d09ead96c2201e163218466f15218"
+    },
+    "home-phone-dark": {
+      "file": "home-phone-dark-4300d32caec3.png",
+      "width": 390,
+      "height": 844,
+      "sha256": "4300d32caec3f0404a928f12f57f6cc078b5665c7fed92e86d46b97e2e1fd533"
+    },
+    "machines-phone-dark": {
+      "file": "machines-phone-dark-8e65f0e4f64a.png",
+      "width": 390,
+      "height": 844,
+      "sha256": "8e65f0e4f64aec130a984a40e8c46e8964043192a41d4087a0014745b90c138b"
+    },
+    "skills-phone-dark": {
+      "file": "skills-phone-dark-dd161dbcc9af.png",
+      "width": 390,
+      "height": 844,
+      "sha256": "dd161dbcc9af6f604424c0d14d7bffa8f7a3043fe69bbe03a51f0d4759d3f50d"
+    },
+    "gaffer-desktop-light": {
+      "file": "gaffer-desktop-light-4a58471fa2f8.png",
+      "width": 1440,
+      "height": 841,
+      "sha256": "4a58471fa2f8cac2b104db0e28d5290702dd12f0bbb2a0b6488da034eb717fa5"
+    },
+    "gaffer-desktop-dark": {
+      "file": "gaffer-desktop-dark-334d43cc33e1.png",
+      "width": 1440,
+      "height": 841,
+      "sha256": "334d43cc33e18fd9c59202b704222f215d11c7e152d535a3d0c030c8461358b1"
+    }
+  }
+}

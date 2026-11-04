@@ -24,7 +24,7 @@ One Go binary. One SQLite file. No telemetry.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/control-dark.png">
-  <img src="docs/images/control-light.png" alt="The reet.sh machine workspace, with example connection data" width="860">
+  <img src="docs/images/workspace/home-desktop-light-992a1261390c.png" alt="The Reet workspace, with ideas and Backlog, Active and Finished work" width="860">
 </picture>
 <p><em>Example machine inventory.</em></p>
 
@@ -88,8 +88,8 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 <summary>Dark mode and phone</summary>
 
 <p align="center">
-  <img src="docs/images/shelf-dark.png" alt="reet.sh in dark mode" width="560">
-  <img src="docs/images/shelf-phone.png" alt="reet.sh on a phone" width="190">
+  <img src="docs/images/workspace/skills-desktop-dark-0f289a8cc13e.png" alt="reet.sh in dark mode" width="560">
+  <img src="docs/images/workspace/skills-phone-light-1b8111dd9878.png" alt="reet.sh on a phone" width="190">
 </p>
 
 </details>

@@ -1,8 +1,195 @@
 # Reet work orchestration and Eli: staged implementation handoff
 
-Prepared: 1 November 2026. Status: proposed follow-on work; implementation has not started.
+Prepared: 1 November 2026. Updated: 5 November 2026. Active direction: the Gaffer
+session-companion MVP below. This update records product decisions and source
+inspection; the new AI chat and offline coordination runtime are not implemented.
+
+## Active direction: Gaffer session-companion MVP (5 November 2026)
+
+This section records the user's latest decisions and takes precedence over older
+sequencing and coordinator-placement proposals in this document. The broader KZ
+roadmap remains the direction for durable work across agents, models and machines.
+Deliver the first useful companion around existing reet sessions before requiring
+that entire domain, cross-machine dispatch and independent-review system.
+
+### Product contract agreed with the user
+
+Gaffer is the user's critical buddy. The model already working on the reet session
+does the implementation, runs commands, raises the PR and addresses checks or merge
+conflicts. Gaffer reads permitted evidence, asks useful questions and communicates
+follow-up instructions to that existing session. Its own provider/model and
+conversation are separate from the working model's context and credentials.
+
+```mermaid
+flowchart LR
+    User[You] --> General[General Gaffer chat]
+    User --> Companion[Gaffer conversation for session A]
+    General --> Reads[Authorised reet reads]
+    General <-->|Provider and model| Provider[Gaffer backend]
+    Companion --> Reads
+    Companion <-->|Independent provider and model| Provider
+    Companion -->|Next-turn instruction| Queue[Existing session message queue]
+    Queue --> Worker[Session A working model]
+    Worker --> Work[Code, tests and PR actions]
+    Worker -->|Progress and tool results| Companion
+```
+
+Example: inside a session, the user asks, "Look after this session for me and
+ensure a PR is raised and issues fixed." Gaffer retains that goal, follows the
+working model's progress and requests the next useful action within the agreed
+scope. It brings approval requests and scope changes back to the user. It can
+explain what happened, what remains, what is blocked and what needs a decision.
+
+| Decision | Agreed behaviour |
+| --- | --- |
+| Initial delivery | An MVP using reet's MCP foundation, extending its tools and grants where needed |
+| Complete MVP scope | Provider settings, floating chat, evidence-based summaries and session follow-up through PR creation, check fixes and conflict resolution by the working model |
+| General chat | Outside a session, a separate Zoomies-style Gaffer conversation for general reet questions and permitted activity reads |
+| Session chat | Each reet session has its own Gaffer conversation and context; changing sessions must not carry the previous session's conversation into the new one |
+| Several sessions | Gaffer can follow several explicitly selected sessions independently, each with its own goal, conversation and progress |
+| Activation | The user explicitly asks the session's Gaffer to look after it; opening the widget alone does not start background follow-up |
+| Busy worker | Queue instructions for the next turn by default; offer an explicit interrupt option through supported session controls |
+| Eligible workers | Initially follow supported structured chats with a verified message channel to the existing model; clearly explain availability for other sessions |
+| Offline operation | Persist coordination on the controller; continue without the browser and reconcile after controller restart when the session is available |
+| Discretion | Proactively question progress and request next steps within the user's agreed goal; return approval requests and scope changes to the user |
+| Context | The followed session's goal, retained conversation history and relevant tool results, subject to the configured provider permissions |
+| Gaffer model | Use the user's default Gaffer provider/model, with an optional override per session, independently of the working model |
+| Provider parity | Match Zoomies' provider choices, including OpenCode Zen/Go and Ollama Cloud, and its actual backend capability boundaries |
+| Deployment | Native controller service and Docker, with backend availability and setup requirements clearly shown |
+| Experience | Professionally polished, accessible UI, dynamically populated model choices where supported, and Gaffer's quirky Eli-like personality |
+| Repository scope | Change reet.sh only; Zoomies and the other attached repositories are references |
+| Development credentials | Implement and test with local fake providers; configure real credentials later through Gaffer settings |
+
+Gaffer must not acquire a parallel coding, shell, GitHub-write or merge path. A
+follow-up message uses the working session's existing model, permissions, trust
+and approval rules. The discussion did not grant Gaffer permission to answer
+worker approval cards or turn on YOLO. A request about PR readiness does not by
+itself authorise merging; any merge instruction remains subject to the user's
+goal and the worker's existing authority.
+
+### Source-grounded feasibility and current gaps
+
+Inspected local reet `d5485e12` and Zoomies `3c4d0962` on 5 November 2026.
+Both working trees were used as local references; remote PR state, production
+deployments, paid providers and physical devices were not checked for this update.
+
+| Current seam | Reuse and remaining work |
+| --- | --- |
+| `internal/elicore/provider.go` | Already defines streaming, tool calls, cancellation, usage and optional model listing; only the fake-backed probe is present, with no production caller or adapters |
+| Zoomies `internal/assistant/provider/` and settings components | Adapt adapters, provider presets, model listing, testing and useful UX; bind ownership, secrets, routes and design tokens to reet |
+| `internal/store/store_chat_events.go` and broker chat subscriptions | Read existing account/session-bound retained history; it is bounded to 1,000 events / 256 KiB and is not necessarily the full native transcript |
+| `internal/terminalbroker/chat_queue.go` | Existing persisted next-turn queue outlives the browser, records delivery intent and preserves uncertain outcomes; reuse stable message IDs and its recovery behaviour |
+| `internal/api/terminal_chat*.go` | Existing prompt, queue, cancel, live-control and approval routes; their account and capability checks remain authoritative |
+| `internal/terminalbroker/inspect.go` | Existing account/session-bound workspace and GitHub reads; unavailable, stale or incomplete evidence must remain visible |
+| `internal/api/mcp_tools.json` and `mcp_access.go` | The current 30 tools cover the skills shelf and related metadata, with no session transcript or prompt tools; existing shelf credentials do not authorise session reads or messages |
+| Zoomies conversations and repair watches | Useful bounds and durable-attempt patterns; its foreground conversation is saved by the browser after answers, so copying it alone cannot provide offline Gaffer coordination |
+
+Session context should read the existing retained worker events through an
+authorised, bounded view. Store Gaffer's own conversation and compact progress
+checkpoints separately. Do not introduce native-transcript ingestion or promise
+that trimmed worker history can be reconstructed. Distinguish a missing event,
+an incomplete summary and a verified current observation.
+
+For MCP, add a small session read/message surface with explicit consent and
+account/session binding. The same authorised operations should back Gaffer's
+toolbox and MCP transports; internal calls must enforce the same access rules.
+Define the session grants before exposing tools. Existing shelf OAuth/manual
+credentials retain their current scope. Keep generated hosted/stdio definitions
+and supported transport behaviour consistent, and report unsupported paths.
+
+Provider parity must describe real capabilities. Zoomies API adapters offer
+tools; its Claude Code, Codex and Copilot subscription backends do not expose
+Eli's fleet toolbox. Those CLI backends also need a usable signed-in installation
+on the controller host and are unavailable in Zoomies' stock controller image.
+Preserve those limits unless a new backend contract is implemented and verified.
+OpenCode presets currently use the OpenAI chat protocol, with documented model
+protocol exclusions. A provider's model list is not proof that every listed model
+supports that protocol or tool use. Fetch model lists where available, show
+loading/retry/empty states, and offer an explained manual/default choice where a
+backend cannot list models. Do not present fixed aliases as live discovery.
+Automated follow-up requires both a tool-capable Gaffer backend/model and an
+eligible structured worker. Show those capabilities separately from general-chat
+availability and offer a clear route to choosing a suitable Gaffer backend.
+
+### MVP delivery sequence and acceptance
+
+These are proposed reviewable slices, not completed KZ stages or permission to
+run parallel agents. Keep settings, UI and runtime changes in reet.sh and refresh
+this handoff with each implementation batch.
+
+| Slice | Outcome and gate |
+| --- | --- |
+| GM0 | Finalise the session-companion contract: map verified structured-worker/provider capabilities, account/session grants, queue receipt mapping, retention, limits, backup/restore and ownership. |
+| GM1 | Adapt the provider foundation and account-owned configuration, secret storage and lifecycle, native/Docker availability, model discovery, test/default selection and polished settings UI. Verify adapters with local fake protocol servers. |
+| GM2 | Implement server-owned general and session-specific Gaffer conversations, streaming, provider/model overrides and bounded permitted context reads. Restore conversations without replaying calls. |
+| GM3 | Add the scoped MCP session read/message contract and an explicitly allowed Gaffer toolbox over the same operations. Prove consent, revocation, account/session separation and definition parity. |
+| GM4 | Implement durable per-session goals and background coordination through the existing worker queue. Prove restart reconciliation, uncertain delivery, concurrent sessions, pause/stop and bounded follow-up. |
+| GM5 | Finish the floating widget and session companion experience, evidence-linked summaries, action receipts and quirky personality across desktop/phone and light/dark themes. Validate the complete working flow. |
+| GM6 | Complete integrated recovery, permission, provider/deployment and operational checks; document actual limitations, backup/restore behaviour and delivery state. |
+
+Persist the agreed goal, its revision and owner, the bound session, effective
+provider/model choice, last observed worker event, pending instruction/receipt,
+follow-up limits and coordination state. A single admitted Gaffer turn per
+session evaluates new progress or an explicit bounded status recheck. Reconcile
+before sending after a restart; uncertain delivery is not a reason to resubmit.
+Recheck user access and provider policy on context reads, and goal revision,
+access, policy and session eligibility immediately before any queued message.
+Pausing prevents new follow-ups, and changing the goal invalidates stale pending
+proposals. Show provider/model changes in the timeline; an unavailable choice
+stays blocked until the user chooses an alternative.
+
+Use event-driven progress with bounded rechecks for external PR/check changes,
+backoff and limits on rounds, repeated instructions, elapsed time and provider
+usage. Report spend as unknown when a backend cannot measure it. A worker waiting
+for human input, missing capability, unavailable provider/machine, exhausted
+limit or an ambiguous outcome must have a recoverable visible state. A turn
+ending or a quiet worker alone does not prove the user's goal is complete.
+
+Browser disconnection leaves an explicitly active background goal running.
+Closing the panel, cancelling a Gaffer answer, pausing follow-up and interrupting
+the working model need clearly distinct user actions and lifecycle semantics.
+Cancellation and shutdown must join controller-owned work under the existing
+concurrency contracts.
+
+Gaffer should feel quirky like Eli: dry Yorkshire humour, warmth, varied short
+lines and the existing cap, brew and measured animation vocabulary. The personality
+should make progress pleasant to follow while preserving precise approval,
+failure, blocked and stale-evidence messages. Respect reduced motion and the
+existing animation preference. The panel names the session and both actual
+models, shows Gaffer's queued/sent follow-ups, and gives a concise "what happened /
+what remains / needs you" view with evidence and last-observed times. Retain the
+current working-model chat, composer, action toolbar and responsive workspace.
+
+### Relationship to the larger roadmap and exact next task
+
+The MVP coordinates conversations with already-created sessions. It can land
+without implementing cross-machine artifact preparation, new worker launches,
+atomic work claims, autonomous routing or independent-review acceptance. Those
+capabilities retain KZ5-KZ12's domain and acceptance dependencies. The MVP's
+session-specific goals and message receipts are not a substitute for the future
+work/plan/step/attempt/artifact/review domain. Link them explicitly when it exists;
+do not equate a followed session, a Gaffer conversation or a green PR with accepted
+cross-session work.
+
+Next task: finish GM0 against the current structured-chat capability contract.
+The user selected supported structured chats with a verified message channel for
+the first MVP. Show an actionable availability reason for other sessions. This
+decision preserves experimental-adapter gates and excludes terminal keystroke
+automation. Provider/tool and deployment limitations above remain explicit.
+
+This update is documentation only. KZ0's live discovery measurements and remote
+overlap checks, KZ5A's remaining validation and the GM implementation gates remain
+incomplete. Validate this edit with local links/anchors and `git diff --check`.
+Implementation checks must additionally prove fake-backed provider/tool turns,
+session isolation, durable message receipts and restart behaviour, approval
+preservation, MCP compatibility and the responsive UI. Record live-provider and
+device evidence separately when actually obtained.
 
 ## Gaffer branding and Eli reuse (1 November 2026)
+
+Historical delivery record. Its PR state and immediate next steps describe the
+1 November checkpoint; use the dated active direction above and current records
+when continuing the AI companion work.
 
 **Gaffer** is reet's native agent control interface and the user-facing identity
 for its structured browser experience. **Eli AI Chat** is the underlying provider/chat
@@ -73,14 +260,15 @@ assistant already built into Zoomies, is a candidate conversational interface
 and source of reusable provider/chat patterns. Kanzo supplies additional lessons
 about shared work, atomic claims and measured operating costs.
 
-The core product direction is work orchestration. Installation, MCP payload and
-refresh improvements remain independent supporting slices; completing those
-slices is not a prerequisite for designing the core workflow.
+The broader product direction is work orchestration. The active first release is
+the Gaffer session-companion MVP above. Installation, MCP payload and refresh
+improvements remain independent supporting slices; completing those slices is
+not a prerequisite for designing the companion or the broader work domain.
 
 **Keep this as a linked companion to `handoff.md`.** The root handoff remains the
 entry point for current state, product priorities, standing rules and the active
-implementation task. This file owns the KZ stages and their acceptance criteria.
-The root file needs only a link, the selected KZ stage when one becomes active,
+implementation task. This file owns the GM and KZ stages and their acceptance criteria.
+The root file needs only a link, the selected GM/KZ stage when one becomes active,
 and the normal completion record. Do not duplicate the full plan in both places.
 
 The existing structured-chat work continues under `docs/structured-chat-plan.md`.
@@ -99,9 +287,9 @@ permissions or a production rollout as completed or selected for immediate execu
 
 | Document | Owns | Update rule |
 | --- | --- | --- |
-| `handoff.md` | Current product state, active task, standing rules, checked publication state | Add a short KZ pointer; record the one selected stage and its completion |
+| `handoff.md` | Current product state, active task, standing rules, checked publication state | Add a short GM/KZ pointer; record the one selected stage and its completion |
 | `docs/structured-chat-plan.md` | SC capabilities, adapters, questions and recovery | Preserve its current sequence and gates |
-| This file | KZ stage scope, decisions, dependencies and acceptance evidence | Keep each stage's status and exact next task current |
+| This file | Active GM scope and broader KZ decisions, dependencies and acceptance evidence | Keep each stage's status and exact next task current |
 | `docs/roadmap.md` | Public directions | Update only when an outcome is shipped or a direction changes |
 | `handoff-history.md` | Older delivery narrative | Follow the repository's existing archive convention |
 
@@ -248,22 +436,27 @@ separate opt-in workflow. Subscription-backed CLI chat has a different capabilit
 contract from API tool-calling providers. These distinctions must survive reuse;
 copying the widget does not create a remote multi-agent scheduler.
 
-For reet, begin with a coordinator that reads permitted work/fleet state and
-proposes a structured plan. The person reviews assignments, evidence sharing and
-budget, then starts it through ordinary domain operations. Subsequent automation
-can advance already-approved steps within a bounded policy. Plan text and model
-tool output never directly acquire arbitrary execution authority.
+The active session-companion MVP reads permitted reet/session evidence and
+communicates with an existing worker under the user's agreed goal. The later
+durable-work coordinator additionally proposes structured plans: the person
+reviews assignments, evidence sharing and budget, then starts them through
+ordinary domain operations. Its later automation can advance approved steps
+within a bounded policy. Plan text and model tool output never directly acquire
+arbitrary execution authority.
 
-Eli's saved coordinator conversation is a proposed new reet record. It is distinct
-from copying worker ACP/native transcripts into the controller, which remains
-outside this plan. Essential plan decisions and progress survive conversation
-retention because they live in the work records.
+Gaffer's saved companion conversation is a proposed new reet record, separate
+from the worker events already retained by reet. The MVP reads those events under
+provider permissions; full native-transcript ingestion/indexing remains deferred.
+Its goal and delivery receipts survive conversation trimming. Later work-plan
+decisions and acceptance additionally live in the KZ work records.
 
 ## Delivery sequence and status
 
-The original handoff started no stages. The Gaffer follow-up above contributes a bounded
-KZ5A probe; KZ0 and KZ5A remain incomplete, and all other stages remain **not started**.
-KZ0 is the next task when this workstream is selected.
+The active first-release sequence is GM0-GM6 above; GM0 is the next design slice.
+The table below retains the broader durable-work roadmap. The original handoff
+started no stages. The branding follow-up contributes a bounded KZ5A probe; KZ0
+and KZ5A remain incomplete, and all other KZ stages remain **not started**. The
+current inspection does not establish KZ0's live measurements or remote PR state.
 
 | ID | Deliverable | Depends on | Approximate scope |
 | --- | --- | --- | --- |
@@ -284,7 +477,7 @@ KZ0 is the next task when this workstream is selected.
 | KZ11 | Policy-driven routing and bounded automatic progression | KZ9B and KZ10 | Explicit opt-in automation slices |
 | KZ12 | End-to-end acceptance, operational coverage and release readiness | Selected core features above | Bounded hardening/documentation PR |
 
-For the clarified product goal, the recommended core sequence is KZ0 → KZ5A →
+For the later cross-machine durable-work goal, the recommended core sequence is KZ0 → KZ5A →
 KZ5 → KZ6 → KZ7 → KZ8A → KZ8B → KZ9A → KZ9B → KZ10 → KZ11 → KZ12.
 KZ10's read/proposal surface can be brought forward once KZ6 exists; dispatch
 remains unavailable until its execution prerequisites are delivered. Start with
@@ -855,6 +1048,11 @@ different machines using KZ9A's acknowledged artifact.
 
 ## KZ10 — Bring an Eli-style coordinator into reet
 
+The active GM slices bring provider chat and an existing-session companion
+forward. This KZ stage retains the later work-plan/routing responsibilities.
+Reuse the GM foundation when implementing it; session message delivery is distinct
+from dispatching new KZ work attempts and does not satisfy those prerequisites.
+
 **Outcome:** a person can discuss a goal, inspect fleet/work evidence and receive
 a structured plan with proposed agent/model/machine assignments.
 
@@ -969,9 +1167,11 @@ checks are named. Release/merge/deployment state is recorded from actual records
 ## Boundaries and deferred work
 
 Keep one Go binary, one SQLite database and the existing embedded Svelte app.
-Begin with personal work ownership, existing machine/folder contexts and explicit
-assignments, then add verified cross-machine preparation and policy-driven
-progression in the named stages. A new service or message broker is not required.
+Begin with account-owned general/session Gaffer conversations and explicit goals
+for eligible existing sessions. The broader work domain adds personal work
+ownership and explicit assignments, then verified cross-machine preparation and
+policy-driven progression in its named stages. A new service or message broker
+is not required.
 
 Deferred unless separately selected: arbitrary DAG/workflow editors, recurring
 work, cross-instance federation, shared/team work permissions, automatic MCP injection
@@ -1034,19 +1234,46 @@ local edits and other workstreams' progress entries.
 
 ## Resume instructions
 
-When the KZ workstream is selected, start with KZ0. Read the current root handoff
-first, inspect current main and local changes, verify existing progress and record
-the one next slice. For the user's clarified orchestration goal, the next design
-slice is KZ5A, then KZ5. KZ1–KZ4 can be selected separately as supporting work.
-Reconcile integration timing with current structured-chat and recovery work.
+For the currently selected companion MVP, read the active GM section and root
+handoff, inspect current code/local changes and complete GM0 before runtime
+changes. Reconcile the current worker, provider, message-queue and MCP access
+contracts. Then select one GM implementation slice and record its evidence.
+
+When the broader KZ workstream is selected, start with KZ0 reconciliation, followed
+by the remaining KZ5A work and KZ5. Reuse delivered GM functionality instead of
+creating another provider/chat or message-delivery stack. KZ1-KZ4 can be selected
+separately as supporting work. Preserve structured-chat and recovery contracts.
 
 Suggested continuation request:
 
-> Read handoff.md and docs/work-orchestration-handoff.md. Reconcile KZ0 against
-> current code and verified PR state, preserving active work. Implement only the
-> selected next KZ slice, record its acceptance evidence and update both handoffs.
+> Read handoff.md and docs/work-orchestration-handoff.md, starting with the active
+> Gaffer session-companion MVP. Complete GM0 against the current verified
+> structured-session and MCP access contracts, preserving unrelated work. Keep
+> Gaffer as the critical buddy that messages the existing working model, retain
+> the broader KZ roadmap, and update both handoffs for each selected slice.
+
+### 5 November 2026 realignment record
+
+- User decisions recorded: general chat plus a Gaffer conversation per session,
+  explicit multi-session follow-up, independent provider/model overrides, durable
+  offline continuity, bounded discretion, permitted retained context and verified
+  structured-worker eligibility. Quirky Eli-like personality is a requirement.
+- Source review: local reet `d5485e12` and Zoomies `3c4d0962`; existing provider
+  probe, bounded history, durable queue, worker controls, inspection and MCP access
+  were compared with Zoomies provider and conversation capabilities.
+- Scope: handoff realignment only. No production adapters, credentials, runtime
+  routes, migrations, worker control, deployment or experimental gates changed.
+- Next design slice: GM0. The broader KZ dependencies and unfinished gates remain.
+- Validation: `git diff --check` passed; all three newly added local Markdown
+  links/anchors, touched-document fence balance and the active source paths were
+  checked. No application suite or paid-provider call was run for this prose edit.
+- Publication branch: `docs/gaffer-session-companion-plan`. The associated draft
+  PR is authoritative for its head and review state; no merge or deployment is
+  part of this plan-capture task.
 
 ### Delivery record for this file
+
+The following record describes the original 1 November documentation delivery.
 
 - Completed: source-grounded staged handoff and a short root-handoff index entry.
 - User clarification incorporated: route steps across agents, models and machines,

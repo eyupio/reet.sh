@@ -2,8 +2,17 @@
 
 Inspected 1 November 2026 against reet main `9b8bc1743282fa69fc086f1015720a31a355eab6`
 and Zoomies `b4c67a1413c8274334d18225df4053959861fbc0`, the handoff's pinned source.
-This is a bounded contribution to KZ5A. KZ0 and KZ5A remain incomplete: full access,
-MCP discovery measurements and coordinator configuration decisions are still outstanding.
+This is a bounded contribution to KZ5A. KZ0 and KZ5A remain incomplete. At the
+original inspection, full access, MCP discovery measurements and coordinator
+configuration decisions were outstanding; the update below reconciles the decisions.
+
+Updated direction, 5 November 2026: the
+[active session-companion handoff](../work-orchestration-handoff.md#active-direction-gaffer-session-companion-mvp-5-november-2026)
+records the user's now-agreed placement, provider selection, context and offline
+coordination choices, plus a newer local source comparison. The dated inspection
+below remains evidence for the original probe. GM0 resolves the remaining access,
+delivery, retention and recovery contract; no production provider runtime is
+enabled by this documentation update.
 
 Gaffer is reet's native browser agent control interface. Eli AI Chat provides the
 reusable provider foundation. OpenCode TUI remains OpenCode's original terminal
@@ -16,8 +25,8 @@ interface. The binary's CLI TUI retains its existing name and behaviour.
 | `internal/assistant/provider.go` | Adapt as `internal/elicore/provider.go` | Standard-library-only provider, stream, tool-call, usage and cancellation types. No runtime caller yet. |
 | `internal/assistant/contract.go`, `fake.go` | Adapt into test-only conformance probe | Retain upstream contract assertions; remove Zoomies demo fleet assumptions. Fake reads require no credentials or provider spend. |
 | `internal/controller/assistant_chat.go`, `assistant_tools.go` | Adapt orchestration patterns later | Existing owner/provider selection, redaction, bounded rounds and explicit tool allowlist must bind to reet's access model. No direct import of the Zoomies controller or toolbox. |
-| `internal/api/handlers_assistant_conversations.go`, `internal/store/queries_assistant_conversations.go` | Keep account/store wiring product-local | Zoomies conversation ownership, limits and redaction are useful patterns. Reet work records and retention need KZ5/KZ6 first. Do not persist ACP transcripts through this route. |
-| `web/src/lib/assistant/conversation.svelte.ts`, `EliWidget.svelte`, Markdown helpers | Adapt only where needed after domain design | Widget/state imports assume Zoomies routes, provider settings, contexts and design tokens. Keep reet's working ChatPane and reducer. Integrate future coordinator proposals into Gaffer rather than shipping another chat surface. |
+| `internal/api/handlers_assistant_conversations.go`, `internal/store/queries_assistant_conversations.go` | Keep account/store wiring product-local | Adapt ownership, bounds and redaction for GM session-bound conversations and goals; later work records retain KZ5/KZ6's gates. Read existing retained worker events separately rather than importing ACP transcripts through the conversation-save route. |
+| `web/src/lib/assistant/conversation.svelte.ts`, `EliWidget.svelte`, Markdown helpers | Adapt for the general and per-session Gaffer companion | Widget/state imports assume Zoomies routes, provider settings, contexts and design tokens. Retain reet's working ChatPane and reducer alongside the separate companion conversation. Offline continuity needs server-owned conversation and goal records. |
 | `internal/controller/eli_repairs.go` | Compare durable-attempt patterns | Repair opt-in, budgets and deduplication inform KZ5. They do not replace reet's request IDs, session supervisor, trust gates or work acceptance. |
 
 Both repositories carry GNU AGPL version 3. The small adapted files retain
@@ -42,14 +51,21 @@ messages, then cancels a stream. This proves the local contract can be reused;
 it does not prove a real provider, authenticated read route or dispatcher works.
 The fake is test-only and no Gaffer session is routed to it.
 
-## KZ5 decisions still required
+## Remaining design work after the 5 November decisions
 
-- Coordinator placement inside Gaffer and attachment to a durable work identity.
-- Account-owned provider configuration, secret storage, redaction, permitted
-  evidence sharing and cancellation on disconnect/reload.
-- Versioned plan proposal schema and explicit transition to approved domain
-  operations. No dispatch before KZ7/KZ9A dependencies exist.
-- Conversation limits, retention, backup/export and usage/budget reporting.
+- Placement is agreed: general chat outside sessions and a separate Gaffer
+  conversation for each session, with explicit offline goals. The Gaffer default
+  provider/model has a per-session override independent of the working model.
+- GM0 must specify account-owned provider secrets, per-provider permitted context,
+  scoped MCP session access, bounded retention and usage, backup/export and the
+  distinction between foreground cancellation and active offline goals.
+- Map stable Gaffer instruction IDs to existing durable queue receipts and
+  preserve uncertain outcomes, worker approvals and verified capability gates.
+- Retain Zoomies' actual provider limitations: subscription CLI backends have no
+  fleet toolbox, and model discovery/protocol support varies by backend/model.
+- Later KZ work still needs the versioned plan proposal schema, work identity and
+  approved execution transitions. KZ attempt dispatch retains KZ7/KZ9A's gates;
+  the MVP messages existing sessions through their existing verified controls.
 - Narrow adaptation versus a jointly versioned shared core after real adapters
   and both products demonstrate a stable common contract.
 

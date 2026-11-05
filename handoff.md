@@ -18,6 +18,23 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## Gaffer AI session-companion MVP: agreed direction (5 November 2026)
+
+The user selected the [Gaffer session-companion MVP](docs/work-orchestration-handoff.md#active-direction-gaffer-session-companion-mvp-5-november-2026)
+as the initial AI-chat direction. Outside a session Gaffer is a general
+Zoomies-style chat; each reet session has its own Gaffer conversation. Gaffer is
+the user's quirky critical buddy: it reads permitted context and messages the
+existing working model, which performs the coding and PR actions. Explicit goals
+can continue for several selected sessions while the user is offline and recover
+after controller restart. Initial follow-up supports verified structured chats.
+
+The companion handoff records all choices, source evidence, provider/MCP
+limitations and proposed GM0-GM6 slices alongside the broader KZ roadmap. Next:
+complete GM0's session, provider, grant, receipt and recovery contract. This
+realignment is documentation only; AI-chat runtime implementation remains ahead.
+Keep that handoff current in every implementation batch. Changes remain confined
+to reet.sh; reference repositories are read-only.
+
 ## OVERVIEW-2: the machine reads the extra pull request fields (5 November 2026)
 
 Part B of the session overview. `internal/terminalhost/inspect.go` now fills the optional fields added to the
@@ -876,9 +893,11 @@ independent Kanzo-inspired documentation/resource/refresh improvements. This fil
 remains the entry point for standing rules and the active task. The core stages
 fit richer run orchestration; the current structured-chat sequence retains its
 recorded priority and capability gates until the active task is explicitly changed.
-Only the handoff and this index entry are delivered. No KZ runtime implementation stage is complete; the Gaffer follow-up above records
-a bounded KZ5A probe. When this workstream is selected, begin with KZ0 baseline reconciliation
-and record the one active slice here.
+No KZ runtime implementation stage is complete; the branding follow-up records
+a bounded KZ5A probe. The 5 November session-companion MVP now owns the active
+first-release direction, with GM0 as its next design slice. The broader KZ
+workstream retains its KZ0 reconciliation and later dependencies. Record the one
+selected slice here and keep the companion's active section authoritative.
 
 **Docs tidy-up (27 October 2026).** Finished plans, specs, stage documents and audits were removed
 on 27 October 2026; they live in git history before commit `bd9e56c` (for example

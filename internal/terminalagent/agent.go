@@ -336,7 +336,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			acpCreate, acpOK := msg.Body.(*terminalproto.Create)
 			needsACP := acpOK && acpCreate.Structured
 			if needsACP && !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
-				reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "Update reet on this machine to use OpenCode chats."}
+				reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "Update reet on this machine to use Gaffer chats."}
 				return send(callCtx, reply)
 			}
 			// Worktree status and remove are served only on a generation that

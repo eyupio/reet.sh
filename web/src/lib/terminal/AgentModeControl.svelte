@@ -15,7 +15,9 @@
 
   const LABELS: Record<string, { label: string; meaning: (tool: string) => string }> = {
     'read-only': { label: 'Ask before leaving the sandbox', meaning: t => `${t} runs commands inside its sandbox and asks before one leaves it.` },
-    agent: { label: 'Let Codex decide', meaning: t => `${t} decides for itself what needs your approval. You may not be asked.` }
+    agent: { label: 'Let Codex decide', meaning: t => `${t} decides for itself what needs your approval. You may not be asked.` },
+    act: { label: 'Make changes', meaning: t => `${t} explores and changes the project, and asks before each command or edit.` },
+    plan: { label: 'Plan only', meaning: t => `${t} explores and plans without changing files.` }
   }
   const labelOf = (mode: string) => LABELS[mode]?.label ?? mode
   const meaning = $derived(current === 'read-only' && yolo ? `${tool} runs commands inside its sandbox. YOLO is on for this chat, so when it asks to leave the sandbox you are not asked.` : current ? LABELS[current]?.meaning(tool) ?? `${tool} is in ${current} mode.` : `${tool}’s mode isn’t confirmed. Choose one before you send anything else.`)

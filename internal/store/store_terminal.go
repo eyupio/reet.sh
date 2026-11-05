@@ -913,10 +913,12 @@ func (s *Store) CanResumeACPToolSessionFor(uid int64, agentID, tool, acpSessionI
 	return ok, err
 }
 
-// RecordTerminalACPSessionFor stores OpenCode's session id on a structured
-// session. It is idempotent for the same id and refuses a different one.
+// RecordTerminalACPSessionFor stores a reviewed adapter's own session id on a
+// structured session. It is idempotent for the same id and refuses a different
+// one. The shape check is per adapter: a handle is bound to the session's tool
+// as well as to this account, machine and session.
 func (s *Store) RecordTerminalACPSessionFor(uid int64, agentID, sessionID, acpSessionID string) error {
-	if !terminalproto.ValidID(sessionID) || !terminalproto.ValidACPSessionID(acpSessionID) {
+	if !terminalproto.ValidID(sessionID) || !terminalproto.ValidACPHandle(acpSessionID) {
 		return terminalproto.ErrInvalid
 	}
 	return s.withTx(func(tx *sql.Tx) error {

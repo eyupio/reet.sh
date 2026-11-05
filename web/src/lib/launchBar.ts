@@ -56,6 +56,15 @@ const takesEffort = (id: string): boolean => agentOf(id)?.effort === true
 /** The effort values this launch can choose: the agent's own for a terminal, the machine's advertised values for Gaffer. */
 const effortsFor = (choice: LaunchChoice, host: string | undefined, machines: LaunchMachine[]): string[] =>
   launchEfforts(choice.agent, machines.find(m => m.agentId === host)?.capabilities, choice.chat === true)
+/**
+ * The effort a choice can carry. A chat sends one only when its own descriptor offers that value, so a project or
+ * account default for the agent's terminal thinking (Cline's `--thinking`) is dropped when the same agent runs in
+ * Gaffer, whose ACP has no thought-level option. An empty effort is the agent default and is always allowed.
+ */
+export function chatEffort(choice: LaunchChoice, host: string | undefined, machines: LaunchMachine[] | undefined): Effort {
+  if (choice.chat !== true || !choice.effort) return choice.effort
+  return effortsFor(choice, host, machines ?? []).includes(choice.effort) ? choice.effort : ''
+}
 const chosen = (choice: LaunchChoice, projects: LaunchProject[]): LaunchProject[] =>
   choice.projectIds.map(id => projects.find(p => p.id === id)).filter((p): p is LaunchProject => !!p)
 
@@ -112,12 +121,14 @@ export function initialChoice(projects: LaunchProject[], profile: LaunchDefaults
   const base = resolveLaunchDefaults({ project: first, account: profile, availableAgents })
   const favourite = favouriteFor(base.agent, options.favourites)
   const next = favourite ? resolveLaunchDefaults({ project: first, account: profile, favouriteDefault: favourite, availableAgents }) : base
-  return {
+  const out: LaunchChoice = {
     agent: next.agent, model: next.model, projectIds: first ? [first.id] : [],
     branch: first?.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(first ?? undefined, profile),
     effort: next.effort as Effort, prompt: '', approvals: first ? approvalsFor([first]) : 'ask',
     ...(supportsChat(next.agent, first?.host, options.machines) ? { chat: true } : {}),
   }
+  out.effort = chatEffort(out, first?.host, options.machines)
+  return out
 }
 
 const EFFORTS: Effort[] = ['low', 'medium', 'high']
@@ -159,6 +170,7 @@ export function withProject(choice: LaunchChoice, project: LaunchProject, profil
   }
   if (chat) out.chat = true
   else if (isChatTool(next.agent) && choice.chat === false) out.chat = false
+  out.effort = chatEffort(out, project.host, options.machines)
   return out
 }
 
@@ -171,6 +183,7 @@ export function withAgent(choice: LaunchChoice, agent: string, project: LaunchPr
   if (chat) out.chat = true
   else if (isChatTool(next.agent) && choice.chat === false) out.chat = false
   else delete out.chat
+  out.effort = chatEffort(out, host, options.machines)
   return out
 }
 
@@ -202,6 +215,7 @@ export function withHome(choice: LaunchChoice, agentId: string, profile: LaunchD
   if (chat) out.chat = true
   else if (isChatTool(next.agent) && choice.chat === false) out.chat = false
   else delete out.chat
+  out.effort = chatEffort(out, agentId, options.machines)
   return out
 }
 

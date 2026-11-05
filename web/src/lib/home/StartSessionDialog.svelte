@@ -13,7 +13,7 @@
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import SkillPromptPicker from './SkillPromptPicker.svelte'
   import FolderBrowser from './FolderBrowser.svelte'
-  import { defaultTitle, initialChoice, startable, toCreate, withAgent, withHome, withProject, yoloCanStart, yoloGates, type LaunchChoice, type LaunchCreate, type LaunchDefaults } from '../launchBar'
+  import { chatEffort, defaultTitle, initialChoice, startable, toCreate, withAgent, withHome, withProject, yoloCanStart, yoloGates, type LaunchChoice, type LaunchCreate, type LaunchDefaults } from '../launchBar'
   import YoloDialog from '../launch/YoloDialog.svelte'
   import { createTerminal, launchUpload, listBranches, machineModels, refusalSentence, type BranchesResult, structuredAgent, TerminalError, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
 
@@ -185,7 +185,12 @@
     if (next) { yoloConfirmed = false; choice = withProject(choice, next, profile, { machines }) }
   }
   function pickAgent(value: string) { choice = withAgent(choice, value, project ? { ...project } : null, profile, { machines }) }
-  function pickTui(reet: boolean) { const { trust: _t, ...rest } = choice; choice = { ...rest, chat: reet } }
+  function pickTui(reet: boolean) {
+    const { trust: _t, ...rest } = choice
+    const next: LaunchChoice = { ...rest, chat: reet }
+    // A chat takes an effort only when its descriptor offers it; a terminal's thinking choice is kept for the TUI.
+    choice = { ...next, effort: reet ? chatEffort(next, machine?.agentId, machines) : next.effort }
+  }
   function askMode() { yoloConfirmed = false; if (choice.approvals === 'yolo') choice = { ...choice, approvals: 'ask' } }
   function openYolo() {
     if (busy || yoloWhy) return

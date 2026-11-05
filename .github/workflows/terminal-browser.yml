@@ -250,6 +250,7 @@ jobs:
           node web/tests/chat-recovery.e2e.mjs
           node web/tests/chat-claude.e2e.mjs
           node web/tests/chat-codex.e2e.mjs
+          node web/tests/chat-cline.e2e.mjs
           node web/tests/question-card.e2e.mjs
           node web/tests/gaffer-artwork.e2e.mjs
           node web/tests/gaffer-theme.e2e.mjs

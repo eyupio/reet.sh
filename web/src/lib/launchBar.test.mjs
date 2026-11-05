@@ -20,7 +20,7 @@ const source = compile('./launchBar.ts')
   .replaceAll("from './terminal/api'", `from '${terminalApi}'`)
   .replace("from './terminal/launchOptions'", `from '${launchOptions}'`)
   .replace("from './models'", `from '${models}'`)
-const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText, yoloGates, yoloCanStart } = await import(asURL(source))
+const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText, yoloGates, yoloCanStart, chatEffort } = await import(asURL(source))
 const { refusalText } = await import(agentLaunch)
 
 const caps = (extra = {}) => ({ protocolVersion: 1, os: 'linux', osUser: 'u', terminalEnabled: true, terminalControl: true, healthEnabled: true, readiness: 'ready',
@@ -79,6 +79,24 @@ test('thinking shows only for an agent that takes effort', () => {
   assert.equal(words(sentence(choice({ agent: 'cline', model: '', effort: 'high' }), projects, machines)), 'Run Cline with default on reet at studio from main in a fresh worktree · thinking high')
   assert.equal(words(sentence(choice({ agent: 'cline', model: '' }), projects, machines)).endsWith('· thinking default'), true)
   assert.ok(!slots(sentence(choice({ effort: 'high' }), projects, machines)).includes('effort'))
+})
+
+test('a Gaffer chat drops a thinking default its own descriptor does not offer', () => {
+  const clineChat = machine('m-studio', 'studio', { tools: ['cline'], acp: true, acpStartOptions: true,
+    acpAgents: [{ tool: 'cline', adapter: 'cline', state: 'available', modes: ['act', 'plan'] }] })
+  // Cline's own CLI takes --thinking, but its ACP session has no thought-level option, so the chat opens on the agent default.
+  const opened = initialChoice([{ ...reet, defaultTool: 'cline', defaultEffort: 'high' }], profile, { machines: [clineChat] })
+  assert.equal(opened.chat, true)
+  assert.equal(opened.effort, '')
+  // Without Gaffer the same default is the terminal's own choice and is kept.
+  assert.equal(initialChoice([{ ...reet, defaultTool: 'cline', defaultEffort: 'high' }], profile, { machines: [] }).effort, 'high')
+  assert.equal(chatEffort(choice({ agent: 'cline', chat: false, effort: 'high' }), 'm-studio', [clineChat]), 'high')
+  assert.equal(chatEffort(choice({ agent: 'cline', chat: true, effort: 'high' }), 'm-studio', [clineChat]), '')
+  // A descriptor that does offer the value keeps it, and still refuses one it does not offer.
+  const codexChat = machine('m-studio', 'studio', { tools: ['codex'], acp: true, acpStartOptions: true,
+    acpAgents: [{ tool: 'codex', adapter: 'codex-acp', state: 'available', options: [{ id: 'reasoning_effort', category: 'thought_level', values: ['low', 'high'] }] }] })
+  assert.equal(chatEffort(choice({ agent: 'codex', chat: true, effort: 'high' }), 'm-studio', [codexChat]), 'high')
+  assert.equal(chatEffort(choice({ agent: 'codex', chat: true, effort: 'medium' }), 'm-studio', [codexChat]), '')
 })
 
 test('sentence for several projects', () => {

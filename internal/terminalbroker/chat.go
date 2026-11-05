@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	ErrACPUnsupported      = errors.New("that machine does not support OpenCode chats")
-	ErrACPVersion          = errors.New("the machine needs OpenCode 1.19.5 or newer for chats")
+	ErrACPUnsupported      = errors.New("that machine does not support Gaffer chats")
+	ErrACPVersion          = errors.New("the machine needs a newer agent for chats")
 	ErrACPModelRejected    = errors.New("The agent did not confirm the chosen model. Its current model may have changed. Choose a model configured on this machine and try again.")
 	ErrACPModelUnsupported = errors.New("Update reet on this machine to switch models during a session.")
 	// ErrACPAgentModeUnsupported means the machine or agent does not offer that mode switch.
@@ -63,11 +63,25 @@ type ACPTrustError struct{ Detail string }
 
 func (e *ACPTrustError) Error() string { return "this folder has OpenCode plugins" }
 
-// ACPUnavailableError carries the machine's plain sentence when OpenCode could
+// ACPUnavailableError carries the machine's plain sentence when the agent could
 // not start for a reason other than version or trust.
 type ACPUnavailableError struct{ Detail string }
 
-func (e *ACPUnavailableError) Error() string { return "OpenCode could not start the chat" }
+func (e *ACPUnavailableError) Error() string { return "the agent could not start the chat" }
+
+// ACPVersionError carries the connector's sentence naming the agent and the
+// version floor it refused, so the browser does not blame OpenCode for a Cline
+// or Claude version.
+type ACPVersionError struct{ Detail string }
+
+func (e *ACPVersionError) Error() string {
+	if e.Detail != "" {
+		return e.Detail
+	}
+	return ErrACPVersion.Error()
+}
+
+func (e *ACPVersionError) Unwrap() error { return ErrACPVersion }
 
 func acpRefusal(code terminalproto.ResultCode, detail string) error {
 	switch code {
@@ -77,7 +91,7 @@ func acpRefusal(code terminalproto.ResultCode, detail string) error {
 		}
 		return &ACPUnavailableError{Detail: detail}
 	case terminalproto.ACPVersion:
-		return ErrACPVersion
+		return &ACPVersionError{Detail: detail}
 	case terminalproto.ACPTrustRequired:
 		return &ACPTrustError{Detail: detail}
 	}

@@ -295,7 +295,8 @@ test('Gaffer sentence says it asks before it acts', () => {
 })
 
 test('Gaffer refusals have plain sentences', () => {
-  assert.match(refusalText(409, 'acp_version'), /OpenCode 1\.19\.5 or newer/)
+  assert.match(refusalText(409, 'acp_version'), /needs a newer agent/)
+  assert.match(refusalText(409, 'acp_version', 'Cline reported 3.0.73; Cline 3.0.74 is required.'), /Cline 3\.0\.74 is required/)
   assert.match(refusalText(409, 'acp_unavailable', 'No OpenCode here.'), /No OpenCode here\./)
   assert.match(refusalText(409, 'acp_trust_required', 'This folder has OpenCode plugins.'), /OpenCode plugins/)
 })

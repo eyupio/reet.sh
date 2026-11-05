@@ -16,7 +16,7 @@ session.promptExcerpt = EXCERPT; session.promptMore = true
 const ok = name => ({name,state:'SUCCESS'})
 const second = {...session, id:'session-insights-002', title:'Second session', promptExcerpt:'SECOND-SESSION-PROMPT is a short one.', promptMore:false}
 async function open(width=1600,theme='dark', supported=true, hold=null, opts={}) {
- const calls=[], box={fail:false, answer:null, pull:null}, prompts=[]
+ const calls=[], box={fail:false, answer:null, pull:null, reason:null}, prompts=[]
  const first = {...session, ...opts.session}
  const inspect = async request=>{
    const q=new URL(request.url()).searchParams,view=q.get('view'),path=q.get('path');calls.push({view,path})
@@ -25,6 +25,7 @@ async function open(width=1600,theme='dark', supported=true, hold=null, opts={})
    if(box.fail)return {status:503,json:{error:'Machine unavailable'}}
    if(view==='status')return {...snapshot(),...opts.status}
    if(view==='github'&&opts.reason)return {...snapshot(),...opts.status,reason:opts.reason}
+   if(view==='github'&&box.reason)return {...snapshot(),reason:box.reason}
    if(view==='github'&&box.pull)return box.pull()
    if(view==='github'){const answer=pull();return opts.noPull?{...snapshot(),...opts.status}:{...answer,...opts.status,pull:{...answer.pull,...opts.pull}}}
    if(view==='files')return {checkedAt:Date.now(),files:path?[{path:'src/session.ts',added:0,removed:0}]:[{path:'src',directory:true,added:0,removed:0},{path:'README.md',added:0,removed:0}],ahead:0,behind:0,changed:0,conflicts:0}
@@ -717,6 +718,49 @@ try {
   expect(fits,`${theme} ${width}px: the tracker or card overflows sideways`).toBe(true)
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   if(phone){for(const target of await panel.locator('.tracker button, .tracker a, .pull button, .pull a').all()){const b=await target.boundingBox();if(b)expect(b.height,'a touch target under 44px').toBeGreaterThanOrEqual(43)}}
+  expect(errors).toEqual([]);await context.close()
+ }
+
+ // Every slot of the Overview stays put while the headline, the notice, the activity and the pull request all change, at the panel widths and on the phone sheet.
+ for(const theme of ['dark','light']) for(const width of [300,340,520,'phone']){
+  const phone=width==='phone',viewport=phone?340:1600
+  const {page,context,panel,errors,box}=await open(viewport,theme,true,null,{second:true,pull:{mergeable:'MERGEABLE',review:'REVIEW_REQUIRED',checks:[ok('Build')],detailKnown:true,reviews:{approved:0,changesRequested:0,commented:0,requested:1},threads:{open:0,resolved:0}}})
+  if(!phone)await page.locator('.session-screen').evaluate((el,w)=>el.style.setProperty('--context-width',w+'px'),width)
+  const label=`${theme} ${phone?'phone sheet':width+'px'}`
+  await expect(panel.getByRole('group',{name:'Pull request'})).toContainText('#42')
+  await expect(panel.getByRole('group',{name:'You asked'})).toContainText('Rebuild the session overview')
+  const settle=()=>page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
+  const pinned=()=>panel.evaluate(el=>{const top=n=>n?Math.round(n.getBoundingClientRect().top):null,h=name=>[...el.querySelectorAll('.panel-body h4')].find(n=>n.textContent.trim().toLowerCase()===name);return{run:top(el.querySelector('.run-line')),notice:top(el.querySelector('.session-summary .notice')),facts:top(h('in progress')),latest:top(h('latest agent update')),prompt:top(h('you asked')),tracker:top(h('progress')),pull:top(h('pull request')),changes:top(h('workspace changes')),where:top(h("where it's working")),details:top(el.querySelector('.session-details > summary'))}})
+  const baseline=await pinned()
+  const long='Allow the agent to run a command that rewrites several generated files across the whole repository before the build starts?'
+  const tool=(id,title,status,extra={})=>({kind:'tool',toolCallId:id,title,toolKind:'edit',status,...extra})
+  // One change per round, each followed by a settle and a comparison of every block against the baseline.
+  const rounds=[
+   ['a long task title',async()=>{await page.evaluate(e=>window.__insightStream.emit('chat',e),{seq:50,...tool('x1','Edit web/src/lib/sessions/ContextPanel.svelte so the overview keeps every section where it is','in_progress',{path:'a.ts'})})}],
+   ['a long agent update',async()=>{await page.evaluate(e=>window.__insightStream.emit('chat',e),{seq:51,kind:'agent',messageId:'long2',text:Array.from({length:14},(_,i)=>`Paragraph ${i+1} of a long update that wraps in a narrow panel.`).join('\n\n')})}],
+   ['the agent asks permission',async()=>{await page.evaluate(e=>window.__insightStream.emit('chat',e),{seq:52,kind:'permission',permissionId:'ask9',title:long,toolKind:'execute'})}],
+   ['the chat reports an error',async()=>{await page.evaluate(e=>window.__insightStream.emit('chat',e),{seq:53,kind:'status',state:'error',detail:long+' '+long})}],
+   ['a pull request with conflicts and a long base',async()=>{box.pull=()=>({...snapshot(),pull:{...pull().pull,mergeable:'CONFLICTING',base:'a-very-long-branch-name-that-cannot-possibly-fit-in-the-slot-at-three-hundred-pixels'}});await panel.getByRole('button',{name:'Refresh session workspace'}).click()}],
+   ['failing checks with long names',async()=>{box.pull=()=>({...snapshot(),pull:{...pull().pull,mergeable:'MERGEABLE',checks:[{name:'A check with a name long enough to need cutting off somewhere sensible',state:'FAILURE',url:'https://github.com/example/project/actions/runs/9'},{name:'Other',state:'FAILURE'}]}});await panel.getByRole('button',{name:'Refresh session workspace'}).click()}],
+   ['the pull request is merged',async()=>{box.pull=()=>({...snapshot(),pull:{...pull().pull,state:'MERGED',mergeable:'UNKNOWN',checks:[],mergedAt:Date.now()-720000}});await panel.getByRole('button',{name:'Refresh session workspace'}).click()}],
+   ['the pull request is read from an older machine',async()=>{box.pull=()=>({...snapshot(),pull:{...pull().pull,detailKnown:undefined,reviews:undefined,threads:undefined,lastPushAt:undefined}});await panel.getByRole('button',{name:'Refresh session workspace'}).click()}],
+   ['there is no pull request',async()=>{box.reason='no_pr';await panel.getByRole('button',{name:'Refresh session workspace'}).click()}],
+  ]
+  for(const [name,change] of rounds){
+   await change();await settle()
+   await expect(panel.getByRole('button',{name:'Refresh session workspace'})).toBeEnabled()
+   await settle()
+   expect(await pinned(),`${label}: blocks moved for ${name}`).toEqual(baseline)
+  }
+  const fits=await panel.evaluate(el=>[...el.querySelectorAll('.prompt, .tracker, .pull, .where, .session-summary, .live')].every(n=>n.scrollWidth<=n.clientWidth+1))
+  expect(fits,`${label}: a slot overflows sideways`).toBe(true)
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${label}: the page scrolls sideways`).toBe(true)
+  if(phone){
+   expect(await page.evaluate(()=>matchMedia('(pointer: coarse)').matches),'the phone context has a coarse pointer').toBe(true)
+   const targets=await panel.locator('.prompt button, .prompt a, .tracker button, .tracker a, .pull button, .pull a, .where button, .where a, .notice-action, .session-summary button').all()
+   expect(targets.length,'there are touch targets to measure').toBeGreaterThan(0)
+   for(const target of targets){const b=await target.boundingBox();if(b)expect(b.height,`${label}: a touch target under 44px`).toBeGreaterThanOrEqual(43)}
+  }
   expect(errors).toEqual([]);await context.close()
  }
  console.log('Session workspace: tabs, return summary, changes, previews, folders, CI, stale data, sidebar signals, context panel resize/collapse and phone/tablet focus passed.')

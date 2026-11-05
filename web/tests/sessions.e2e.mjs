@@ -567,7 +567,7 @@ try {
   await expect(panel(page).getByRole('heading',{name:"Where it's working"})).toBeVisible()
   await expect(fact(page,'Machine')).toHaveText(/^studio\s*●\s*online$/)
   await expect(fact(page,'Project')).toHaveText('reet')
-  await expect(fact(page,'Branch')).toContainText('reet/reet-0f1e2d3c4b5a6978')
+  await expect(fact(page,'Branch').locator('.mono')).toHaveText('reet/reet-0f1e2d3c4b5a6978')
   await expect(fact(page,'Worktree')).toHaveText('Own worktree')
   // Skills on this machine: the fleet card's line, and Manage opens that machine's skills.
   await panel(page).getByText('Skills & session decisions',{exact:true}).click()
@@ -577,7 +577,7 @@ try {
   await sidebarRow(page, 'Speed up the runner pool').click()
   await expect(fact(page,'Machine')).toHaveText(/^server\s*●\s*online$/)
   await expect(fact(page,'Project')).toHaveText('site')
-  await expect(fact(page,'Branch')).toContainText('Not recorded')
+  await expect(fact(page,'Branch').locator('.mono')).toHaveText('Not recorded')
   await expect(fact(page,'Worktree')).toHaveText('Shared checkout')
   await panel(page).getByText('Skills & session decisions',{exact:true}).click()
   await expect(panel(page).locator('.skills-line')).toHaveText('Not checked')

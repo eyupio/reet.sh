@@ -1,5 +1,66 @@
 # UI verification — 4 November 2026
 
+## Session workspace: the Overview (5 November 2026)
+
+The Overview now has a run clock, a prompt card and dialog, a five-step tracker with one Next line, a pull request
+card, a Where card and a status dot on the GitHub tab; GitHub is read on one shared cadence that respects Live
+updates. The contents and rules are in [Session workspace details](terminal-workspace.md#session-workspace-details).
+
+Commands run on the final tree, from `web/` unless stated, with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium`
+and `npm run build` followed by `npx vite preview --port 4173` (stopped afterwards):
+
+- `npm test`: 66 suites, 828 tests, 0 failures. `npm run check`: 392 files, 0 errors, 2 warnings (unused CSS
+  selectors in `LaunchBar.svelte` and `SessionHoverCard.svelte`, not touched here). `npm run build`: succeeds.
+- `GOTOOLCHAIN=auto go vet ./...`: clean. `GOTOOLCHAIN=auto go test ./internal/terminalproto/ ./internal/terminalhost/
+  ./internal/store/ ./internal/api/ -count=1`: all four packages pass.
+- Browser, all passing: `session-workspace`, `sessions`, `chat`, `chat-controls`, `chat-previews`, `chat-recovery`,
+  `chat-claude`, `sessions-phone`, `phone-layout`, `phone-dialogs` (259 s), `phone-zoom`, `terminal-clipboard`.
+  `session-board` needs the Vite dev server on port 5173, so it was run once against `npx vite --port 5173`
+  (stopped afterwards) and passes.
+- **Not passing here.** `terminal.e2e.mjs` refuses to start without the Go terminal fixture. Run through it
+  (`REET_BROWSER_TESTS=1 go test ./internal/api -run TestTerminalPrivateLifecyclePreservesActualShell`) it fails in this
+  container at `.xterm-accessibility-tree` not containing `💥 __split_utf8__`, the same failure the entry below records on
+  the original code; it was not re-run on the original code for this change, and the later stages were not reached.
+- Not run: the other browser files that do not open a session screen or the panel, Firefox, Safari and physical
+  devices. No screenshots were captured.
+
+Layout stability. The Overview's existing check moved the headline, notice, activity and pull request state one at a time
+at 1600 and 375 px. A new block in `session-workspace.e2e.mjs` now changes all of them in one run (a long task title, a
+long agent update, a permission request, a chat error, then conflicts with a long base branch, failing checks with long
+names, a merged pull request, a machine that cannot read the extra fields, and no pull request) and, after each change,
+compares the top of the run line, notice, activity, latest update, prompt card, tracker, pull request card, changes card,
+Where card and details fold with where they started. It runs in both themes at panel widths 300, 340 and 520 px and in the
+phone sheet at 340 px, and also fails on a slot that scrolls sideways or a page that does. In the phone sheet it checks that
+the pointer is coarse and that every button and link in the prompt, tracker, pull request and Where cards, and the
+notice button, is at least 43 px tall. It passed first time; no shift was found in the new components. The
+`.latest-text` height and the notice height were each removed to see it fail: both runs stopped in the older stability
+block first (`1600px: sections moved after a long agent update` and `... after the agent asks permission`), so that
+the new block catches them is not shown by those runs. The same pass tightened the Branch assertion in `sessions.e2e.mjs`
+from `toContainText` back to `toHaveText` on the monospace branch element, for both the recorded branch and `Not recorded`.
+
+Seen failing with the rule removed, from the task reports (only what they record):
+
+- Run clock: `runClock.test.mjs` and the pull request verdict tests were first run before their modules existed
+  (`ENOENT`); the verdict tests are characterisation tests of the moved text, so they were not made to fail by a rule.
+- Stage rules: disabling the empty-checks guard fails `stage table: Checks unknown: none reported` and the named
+  no-checks case. After a review round four tests failed before the change (the no-review Ready line, truncated
+  threads, unread reason and the replaced Next case) and 55 pass after.
+- Prompt dialog: without the key handling, `panelKey` closed the sheet on Escape (`expect(panel).toBeVisible() ... element(s)
+  not found`). In `promptLoader.test.mjs`, removing the abort check fails tests 3, 4, 7 and 8, removing the id comparison
+  fails 1 and 2, and removing the per-call abort fails 7 and 8. A mutation of the in-component abort, id comparison and
+  reset still passed the browser check, because the session screen remounts per session; the guards are defence in depth.
+- Pull request card: the merged row's height without its fix-row margin fails `merging moved the blocks below`; removing the
+  in-flight and cadence guards fails `the panel and the navigation share the first read` (Expected 1, Received 2).
+- GitHub read cadence: removing the `auto` clause fails `Live updates off is never due...`; replacing the stored-age clause
+  fails `a warm store within the cadence is not read again...`; making `hasStored` local-only fails `opening a session whose
+  pull request was read moments ago makes no extra read` (Expected 2, Received 3). Before that extraction, removing the Live
+  updates guard in `backgroundGitHub()` alone did not fail a test, and the mount-effect path cannot be exercised end to end
+  (Live updates is on at mount).
+- Fix shortcut: the composer test failed first on `expect(.composer-input).toHaveValue(MESSAGE)` (received an empty
+  string); before the second round, `fixDelivery.test.mjs` had two failing tests and the e2e failed `two clicks: the message
+  is there once` (the message doubled). The nothing-is-sent check asserts only GET requests are made.
+- Not mutation-tested rule by rule, as Task 7's report says: the fix message wording and cleaning rules.
+
 ## Automatic session names (5 November 2026)
 
 A session started without a title is named from what its prompt asks for, or from its agent and folder; the

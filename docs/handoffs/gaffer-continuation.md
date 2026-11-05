@@ -207,3 +207,9 @@ Application code, workflow gates and dependencies are unchanged. Reproduce with 
 Local evidence against the same production build: the original concurrent fixture passed in 96.8 seconds;
 the sequential fixture passed all 23 dialogs at all six sizes in 262.5 seconds. The self-hosted failure above
 is the evidence for the change; local success alone does not establish the runner result.
+
+The follow-up's Go CI then exposed a separate test cleanup race in
+`TestSupervisorRemembersAndResumesAcrossProcesses`: cancellation does not synchronously finish registry writes,
+so its temporary layout could be removed while a supervisor was still using it. Register both supervisors'
+`Close` cleanups and wait for the first to close before simulating the second process. No application change.
+The original test failed three times in a 100-run race-detector reproduction; the fixed test passed all 100.

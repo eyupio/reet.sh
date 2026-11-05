@@ -214,8 +214,10 @@ func TestSupervisorRemembersAndResumesAcrossProcesses(t *testing.T) {
 	layout := terminalhost.Layout{Dir: layoutDir}
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
+	t.Cleanup(cancel1)
 	first := &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}
 	sup1 := newChatSupervisor(ctx1, terminalhost.ManagerOptions{Home: home, Layout: layout})
+	t.Cleanup(sup1.Close)
 	sup1.lookPath = func(string) (string, error) { return "/bin/true", nil }
 	sup1.start = func(_ context.Context, _ acpagent.Options) (chatProcess, error) { return first, nil }
 	h1 := sup1.attach(ctx1, 1, (&sent{}).send, true, true)
@@ -226,12 +228,14 @@ func TestSupervisorRemembersAndResumesAcrossProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	cancel1()
+	sup1.Close()
 
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	t.Cleanup(cancel2)
 	second := &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}
 	resumed := make(chan acpagent.Options, 1)
 	sup2 := newChatSupervisor(ctx2, terminalhost.ManagerOptions{Home: home, Layout: layout})
+	t.Cleanup(sup2.Close)
 	sup2.lookPath = func(string) (string, error) { return "/bin/true", nil }
 	sup2.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
 		resumed <- opts

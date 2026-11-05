@@ -90,10 +90,10 @@ several projects and for an address that hands Home projects (`#launch`, `/?proj
 `/?projects=<id>,<id>`). It is a **Describe the job** box, **Start**, and the launch sentence, whose
 bold words are the choices. It no longer sits docked at the foot of the page.
 
-For OpenCode or Cline on a machine that advertises `acp`, the sentence says **in Gaffer** by default and Start
-opens Gaffer instead of the agent terminal UI. For OpenCode, Home asks you to confirm **I trust this folder** first,
-because OpenCode runs any plugins in `.opencode` when Gaffer starts; Cline has no folder plugin warning. The **Gaffer**
-word switches it to **in the agent TUI**; the worktree and thinking choices come back for that terminal. The Model word
+For OpenCode, Cline or AGY on a machine that offers its Gaffer integration, the sentence says **in Gaffer** by default and Start
+opens Gaffer instead of the agent terminal UI. OpenCode and AGY ask you to confirm **I trust this folder** first:
+OpenCode plugins in `.opencode`, or AGY workspace hooks and customizations, may run. Cline has no folder plugin warning. The **Gaffer**
+word switches it to **in the agent TUI**; the worktree choices come back for that terminal. AGY also offers its supported effort choices in Gaffer. The Model word
 chooses the chat's model; leave it at **default** to use the agent's configured model. Gaffer runs in the chosen project
 folder (not a worktree) and can attach images through Home's existing pasted-image path. It starts in one folder at a time. A session's actions menu has **Open a terminal here…**, which starts a plain shell in
 the same folder as a separate session.

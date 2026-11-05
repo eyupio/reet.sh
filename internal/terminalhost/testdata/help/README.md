@@ -10,6 +10,9 @@ Cline 3.0.74 help establishes `--auto-approve <boolean>` (default true),
 `--tui`, `--model`, and `--thinking` low/medium/high. The preset explicitly
 passes `--auto-approve false --tui` before other options and the positional prompt.
 Single-word prompts are refused because command dispatch may treat them as subcommands.
+The help also includes `--acp`; that mode was measured separately, without a
+model turn except two refused tool calls, in
+[docs/research/cline-acp-probe.md](../../docs/research/cline-acp-probe.md).
 
 Pi 0.73.1 is installed and captured but remains disabled. Its packaged README says:
 

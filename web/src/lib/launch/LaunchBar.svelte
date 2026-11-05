@@ -9,7 +9,7 @@
   import { defaultLabel, favouriteKey, modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
   import { launchEfforts } from '../terminal/launchOptions'
-  import { afterLaunch, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
+  import { afterLaunch, chatEffort, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
   import { createTerminal, getFolderProject, getSelectionRun, launchProgress, launchUpload, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
     type BranchesResult, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
@@ -145,7 +145,10 @@
     const current = choice, all = machines
     if (!current || locked || !isChatTool(current.agent) || current.chat !== undefined) return
     const host = current.projectIds.length === 1 ? projects?.find(p => p.id === current.projectIds[0])?.host : current.homeMachine
-    if (structuredAgent(all?.find(m => m.agentId === host)?.capabilities, current.agent)) choice = { ...current, chat: true }
+    if (structuredAgent(all?.find(m => m.agentId === host)?.capabilities, current.agent)) {
+      const next: LaunchChoice = { ...current, chat: true }
+      choice = { ...next, effort: chatEffort(next, host, all) }
+    }
   })
   // Favourites are a help, not a prerequisite: the bar opens on the project/account defaults and the favourite
   // marked for the agent only fills a model that neither of those set. A late favourites read therefore cannot hold up
@@ -559,7 +562,11 @@
       const project = picked.length === 1 ? picked[0] : null
       explicitModel = false; explicitEffort = false
       choice = withAgent(choice, value, project, profile, { machines: machines ?? [], favourites })
-    } else if (slot === 'chat') choice = value === 'chat' ? { ...choice, chat: true } : { ...choice, chat: false }
+    } else if (slot === 'chat') {
+      const next: LaunchChoice = { ...choice, chat: value === 'chat' }
+      const host = picked.length === 1 ? picked[0].host : choice.homeMachine
+      choice = { ...next, effort: chatEffort(next, host, machines ?? []) }
+    }
     else if (slot === 'model') { explicitModel = true; choice = { ...choice, model: value } }
     else if (slot === 'project') {
       if (value === ADD) { const opener = open?.opener; if (opener) onaddproject?.(opener); return }

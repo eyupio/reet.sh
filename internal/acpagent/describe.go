@@ -7,7 +7,7 @@ import "github.com/eyupio/reet.sh/internal/terminalproto"
 // Describe uses installation evidence only. No program runs: available means a
 // reviewed adapter is installed; --version and initialize remain launch gates.
 func Describe(tool string, installed bool, version string) terminalproto.ACPAgent {
-	adapters := map[string]string{"opencode": "opencode", "claude": "claude-agent-acp", "codex": "codex-acp", "gemini": "gemini"}
+	adapters := map[string]string{"opencode": "opencode", "claude": "claude-agent-acp", "codex": "codex-acp", "gemini": "gemini", "cline": "cline"}
 	entry := terminalproto.ACPAgent{Tool: tool, Adapter: adapters[tool], State: "missing"}
 	spec, reviewed := Lookup(tool)
 	if reviewed {
@@ -40,6 +40,9 @@ func Describe(tool string, installed bool, version string) terminalproto.ACPAgen
 		entry.Approval = true
 		return entry
 	}
+	// OpenCode and Cline were measured end to end: history replay through
+	// session/load, images in the prompt, a confirmed model switch and approval
+	// cards for every tool call.
 	entry.History, entry.Images, entry.Model, entry.Approval = true, true, true, true
 	return entry
 }

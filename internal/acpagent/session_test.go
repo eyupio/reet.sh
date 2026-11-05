@@ -51,6 +51,7 @@ func TestFakeACP(t *testing.T) {
 	scenario, version := os.Getenv("ACP_SCENARIO"), os.Getenv("ACP_VERSION")
 	codexLoginScenario := scenario == "codex-login" || scenario == "codex-auth-required" || scenario == "codex-other-error"
 	claudeScenario := scenario == "claude-prompt-auth-required"
+	clineScenario := scenario == "cline" || strings.HasPrefix(scenario, "cline-")
 	in := bufio.NewScanner(os.Stdin)
 	out := bufio.NewWriter(os.Stdout)
 	defer out.Flush()
@@ -95,6 +96,21 @@ func TestFakeACP(t *testing.T) {
 		return true
 	}
 	liveModel, liveEffort := "stub/model", "low"
+	// Cline reports a boolean auto-approve option, a mode option and the model
+	// catalogue in the same configOptions reply.
+	clineModel, clineMode := "stub/model", "act"
+	if scenario == "cline-default-model" || scenario == "cline-model-refused" {
+		clineModel = "stub/default"
+	}
+	clineApprove := scenario == "cline-approve-on"
+	clineConfig := func() []map[string]any {
+		return []map[string]any{
+			{"type": "select", "id": "provider", "category": "_provider", "currentValue": "cline", "options": []map[string]string{{"value": "cline"}}},
+			{"type": "select", "id": "model", "category": "model", "currentValue": clineModel, "options": []map[string]string{{"value": "stub/model"}, {"value": "provider/other"}}},
+			{"type": "select", "id": "mode", "category": "mode", "currentValue": clineMode, "options": []map[string]string{{"value": "act"}, {"value": "plan"}}},
+			{"type": "boolean", "id": "auto_approve", "currentValue": clineApprove},
+		}
+	}
 	liveSettings := func() []map[string]any {
 		return []map[string]any{
 			{"id": "model", "category": "model", "currentValue": liveModel, "options": []map[string]string{{"value": "stub/model"}, {"value": "provider/other"}}},
@@ -104,6 +120,7 @@ func TestFakeACP(t *testing.T) {
 	}
 	var promptID json.RawMessage
 	var session string
+	permissionCall := "call_1"
 	modeCalls := 0
 	for in.Scan() {
 		var message struct {
@@ -122,6 +139,9 @@ func TestFakeACP(t *testing.T) {
 			}
 			if claudeScenario {
 				name = "@agentclientprotocol/claude-agent-acp"
+			}
+			if clineScenario {
+				name = "cline"
 			}
 			if scenario == "wrong-name" {
 				name = "Another Agent"
@@ -149,6 +169,25 @@ func TestFakeACP(t *testing.T) {
 				SessionID string `json:"sessionId"`
 			}
 			_ = json.Unmarshal(message.Params, &params)
+			if clineScenario {
+				// Cline confirms a mode and a model switch with the whole
+				// configOptions snapshot, and refuses an unknown config id.
+				switch params.ConfigID {
+				case "model":
+					if scenario == "cline-model-refused" {
+						send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32602, "message": "invalid model"}})
+					} else {
+						clineModel = params.Value
+						reply(message.ID, map[string]any{"configOptions": clineConfig()})
+					}
+				case "mode":
+					clineMode = params.Value
+					reply(message.ID, map[string]any{"configOptions": clineConfig()})
+				default:
+					os.Exit(2)
+				}
+				continue
+			}
 			if strings.HasPrefix(scenario, "live-controls") {
 				if scenario == "live-controls-hang" {
 					continue
@@ -253,6 +292,17 @@ func TestFakeACP(t *testing.T) {
 			if strings.HasPrefix(scenario, "live-controls") {
 				session = "ses_fake_1"
 				reply(message.ID, map[string]any{"sessionId": session, "configOptions": liveSettings()})
+				continue
+			}
+			if clineScenario {
+				// Captured shape from Cline 3.0.74: the task id, modes and models
+				// beside a configOptions list that includes a boolean
+				// auto_approve. --auto-approve false is what makes it false.
+				session = "1793848855723_8zvJS_cli"
+				reply(message.ID, map[string]any{"sessionId": session,
+					"modes":         map[string]any{"availableModes": []map[string]string{{"id": "act", "name": "Act"}, {"id": "plan", "name": "Plan"}}, "currentModeId": clineMode},
+					"models":        map[string]any{"currentModelId": clineModel, "availableModels": []map[string]string{{"modelId": "stub/model", "name": "Stub"}}},
+					"configOptions": clineConfig()})
 				continue
 			}
 			mode := "build"
@@ -381,6 +431,31 @@ func TestFakeACP(t *testing.T) {
 					"toolCall": map[string]any{"toolCallId": "call_write", "title": "Write marker.txt", "kind": "edit", "status": "pending",
 						"rawInput": map[string]string{"file_path": "/work/marker.txt", "description": "Write an isolated probe marker", "diff": "@@ -0,0 +1 @@\n+marker\n"}},
 					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "reject", "kind": "reject_once", "name": "Reject"}},
+				}})
+			case "cline-read", "cline-editor", "cline-command":
+				// Shapes captured from Cline 3.0.74 with --auto-approve false:
+				// a read of files, an editor write that carries path/new_text
+				// instead of a diff, and a run_commands call whose input is a
+				// commands list. Options are allow_once / allow_always /
+				// reject_once.
+				var call map[string]any
+				switch scenario {
+				case "cline-read":
+					call = map[string]any{"toolCallId": "call_read", "title": `read_files: {"files":[{"path":"/work/notes.txt"}]}`, "kind": "read", "status": "pending",
+						"rawInput": map[string]any{"files": []map[string]string{{"path": "/work/notes.txt"}}}}
+				case "cline-editor":
+					call = map[string]any{"toolCallId": "call_edit", "title": `editor: {"path":"/work/new.txt","new_text":"reet-probe"}`, "kind": "edit", "status": "pending",
+						"rawInput": map[string]any{"path": "/work/new.txt", "new_text": "reet-probe"}}
+				case "cline-command":
+					call = map[string]any{"toolCallId": "call_run", "title": "run_commands: go test ./...", "kind": "execute", "status": "pending",
+						"rawInput": map[string]any{"commands": []string{"go test ./..."}}}
+				}
+				permissionCall = fmt.Sprint(call["toolCallId"])
+				update(session, "tool_call", call)
+				send(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "session/request_permission", "params": map[string]any{
+					"sessionId": session,
+					"toolCall":  call,
+					"options":   []map[string]string{{"optionId": "allow_once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "allow_always", "kind": "allow_always", "name": "Allow always"}, {"optionId": "reject_once", "kind": "reject_once", "name": "Reject"}},
 				}})
 			case "bare-permission":
 				// Neither slot: the card is unchanged and carries no reason.
@@ -535,12 +610,14 @@ func TestFakeACP(t *testing.T) {
 					} `json:"result"`
 				}
 				_ = json.Unmarshal(in.Bytes(), &answer)
-				if answer.Result.Outcome.OptionID == "once" || answer.Result.Outcome.OptionID == "reject" {
+				allowed := answer.Result.Outcome.OptionID == "once" || answer.Result.Outcome.OptionID == "allow_once"
+				rejected := answer.Result.Outcome.OptionID == "reject" || answer.Result.Outcome.OptionID == "reject_once"
+				if allowed || rejected {
 					status := "completed"
-					if answer.Result.Outcome.OptionID == "reject" {
+					if rejected {
 						status = "failed"
 					}
-					update(session, "tool_call_update", map[string]any{"toolCallId": "call_1", "title": "write hello.txt", "kind": "edit", "status": status})
+					update(session, "tool_call_update", map[string]any{"toolCallId": permissionCall, "title": "write hello.txt", "kind": "edit", "status": status})
 					reply(promptID, map[string]any{"stopReason": "end_turn"})
 					promptID = nil
 				} else if scenario == "late-permission" || scenario == "permission-on-cancel" {

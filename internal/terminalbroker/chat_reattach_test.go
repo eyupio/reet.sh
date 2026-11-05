@@ -357,7 +357,10 @@ func TestReattachMachineRefusalsMap(t *testing.T) {
 			var trust *ACPTrustError
 			return errors.As(err, &trust) && trust.Detail != ""
 		}},
-		{"version", terminalproto.Result{Code: terminalproto.ACPVersion, Detail: "old"}, func(err error) bool { return errors.Is(err, ErrACPVersion) }},
+		{"version", terminalproto.Result{Code: terminalproto.ACPVersion, Detail: "Cline reported 3.0.73; Cline 3.0.74 is required"}, func(err error) bool {
+			var version *ACPVersionError
+			return errors.As(err, &version) && version.Detail != "" && errors.Is(err, ErrACPVersion)
+		}},
 		{"unavailable", terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "That agent could not start the chat in that folder."}, func(err error) bool {
 			var unavailable *ACPUnavailableError
 			return errors.As(err, &unavailable)

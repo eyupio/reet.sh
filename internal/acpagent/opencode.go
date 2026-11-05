@@ -48,7 +48,7 @@ var OpenCode = Spec{
 
 // agents is the catalogue of adapters this connector can start. Adding an
 // agent is a Spec entry plus a compatibility verification, not a new client.
-var agents = map[string]Spec{OpenCode.Key: OpenCode}
+var agents = map[string]Spec{OpenCode.Key: OpenCode, Cline.Key: Cline}
 
 const openCodeConfigTemplate = `{"$schema":"https://opencode.ai/config.json","autoupdate":false,"share":"disabled","default_agent":"build","permission":{"edit":"ask","bash":"ask","external_directory":"ask","task":"deny","webfetch":"deny"},"agent":{"build":{"permission":{"edit":"ask","bash":"ask","external_directory":"ask","task":"deny","webfetch":"deny"}},"plan":{"permission":{"edit":"ask","bash":"ask","external_directory":"ask","task":"deny","webfetch":"deny"}},"general":{"permission":{"edit":"ask","bash":"ask","external_directory":"ask","task":"deny","webfetch":"deny"}},"explore":{"permission":{"edit":"ask","bash":"ask","external_directory":"ask","task":"deny","webfetch":"deny"}}}}`
 

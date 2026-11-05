@@ -1,4 +1,4 @@
-import { structuredAgent, terminalClosed, type Capabilities, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
+import { isChatTool, structuredAgent, terminalClosed, type Capabilities, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
 import { groupSessions, sessionOwners, type Group, type GroupBy } from './home'
 import { toolName } from './agentLaunch'
 import { CATALOGUE } from './catalogue'
@@ -139,11 +139,12 @@ export function continueLaunch(s: Pick<TerminalSession, 'state' | 'tool' | 'mode
   return launch
 }
 
-/** A closed structured chat reopens as a new row that asks the machine to load OpenCode's stored history. The old row
- *  stays in history. */
+/** A closed structured chat reopens as a new row that asks the machine to load that agent's stored history. The old row
+ *  stays in history. Trust is OpenCode's plugin warning; no other chat tool reads the folder's extensions. */
 export function continueChatLaunch(s: Pick<TerminalSession, 'state' | 'tool' | 'structured' | 'acpSessionId' | 'dir' | 'projectId' | 'model'>): LaunchRequest | null {
-  if (!s.structured || !s.acpSessionId || !terminalClosed(s.state) || s.tool !== 'opencode') return null
-  const launch: LaunchRequest = { tool: 'opencode', structured: true, trust: true, resumeAcp: s.acpSessionId }
+  if (!s.structured || !s.acpSessionId || !terminalClosed(s.state) || !isChatTool(s.tool)) return null
+  const launch: LaunchRequest = { tool: s.tool as string, structured: true, resumeAcp: s.acpSessionId }
+  if (s.tool === 'opencode') launch.trust = true
   if (s.model) launch.model = s.model
   if (s.dir) launch.dir = s.dir
   if (s.projectId) launch.projectId = s.projectId

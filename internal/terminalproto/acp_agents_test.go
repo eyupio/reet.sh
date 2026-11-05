@@ -99,9 +99,22 @@ func TestACPAgentsRejectInvalidClaims(t *testing.T) {
 
 func TestNativeIDNamespacesAreDisjointAndGated(t *testing.T) {
 	const uuid = "0b9f6a1c-3d2e-4f5a-8b7c-1234567890ab"
+	const cline = "1793848855723_8zvJS_cli"
 	for id, want := range map[string]map[string]bool{
-		uuid:                                    {"opencode": false, "claude": true, "codex": true},
-		"ses_fake0001":                          {"opencode": true, "claude": false, "codex": false},
+		uuid:                                    {"opencode": false, "claude": true, "codex": true, "cline": false},
+		"ses_fake0001":                          {"opencode": true, "claude": false, "codex": false, "cline": false},
+		cline:                                   {"opencode": false, "claude": false, "codex": false, "cline": true},
+		"1793850943237_9D-BF_cli":               {"cline": true},
+		"1793850943237_9_-BF_cli":               {"cline": true},
+		"1793848303972_xxmw4":                   {"cline": false},
+		"1793848855723_8zvJS":                   {"cline": false},
+		"1793848855723_8zvJS_cli2":              {"cline": false},
+		"1793848855723_8zvJS_cli\n":             {"cline": false},
+		"1793848855723_8zvJS_cli/../x":          {"cline": false},
+		"../1793848855723_8zvJS_cli":            {"cline": false},
+		"1793848855723_8zvJ_cli":                {"cline": false},
+		"1793848855723_8zvJSS_cli":              {"cline": false},
+		"17938488557238zvJS_cli":                {"cline": false},
 		strings.ToUpper(uuid):                   {"claude": false, "codex": false},
 		"0b9f6a1c-3d2e-4f5a-8b7c-1234567890a":   {"claude": false},
 		"0b9f6a1c-3d2e-4f5a-8b7c-1234567890abc": {"claude": false},
@@ -115,13 +128,29 @@ func TestNativeIDNamespacesAreDisjointAndGated(t *testing.T) {
 			}
 		}
 	}
-	// Claude and Codex are reviewed (their descriptors still gate availability);
-	// the other measured candidates are not, so none of them may validate.
+	// A session snapshot or change carries no tool, so its handle check accepts
+	// every reviewed namespace; a caller that knows the tool stays strict.
+	for _, handle := range []string{"ses_fake0001", uuid, cline} {
+		if !ValidACPHandle(handle) {
+			t.Fatalf("ValidACPHandle(%q) refused a reviewed handle", handle)
+		}
+	}
+	for _, handle := range []string{"", "ses_", "1793848303972_xxmw4", "../" + cline} {
+		if ValidACPHandle(handle) {
+			t.Fatalf("ValidACPHandle(%q) accepted an unknown handle", handle)
+		}
+	}
+	// Claude, Codex and Cline are reviewed (their descriptors still gate
+	// availability); the other measured candidates are not, so none of them may
+	// validate.
 	if !ValidACPSessionIDFor("claude", uuid) || ValidACPSessionIDFor("claude", "ses_fake0001") {
 		t.Fatal("claude identifier namespace")
 	}
 	if !ValidACPSessionIDFor("codex", uuid) || ValidACPSessionIDFor("codex", "ses_fake0001") {
 		t.Fatal("codex identifier namespace")
+	}
+	if !ValidACPSessionIDFor("cline", cline) || ValidACPSessionIDFor("cline", "ses_fake0001") || ValidACPSessionIDFor("cline", uuid) {
+		t.Fatal("cline identifier namespace")
 	}
 	if nativeIDMatches("gemini", uuid) {
 		t.Fatal("unreviewed tool accepted")
@@ -306,5 +335,36 @@ func TestACPAgentOptionsRoundTrip(t *testing.T) {
 	options := (*got.Capabilities.ACPAgents)[0].Options
 	if len(options) != 1 || options[0].ID != "effort" || options[0].Category != AgentOptionThoughtLevel || !slices.Equal(options[0].Values, []string{"low", "high"}) {
 		t.Fatalf("options: %+v", options)
+	}
+}
+
+// Cline is a reviewed chat tool: a descriptor with its own adapter name is
+// available, carries the measured features and ids, and no other adapter name
+// can claim it.
+func TestClineIsAReviewedChatTool(t *testing.T) {
+	c := chatCapabilities()
+	c.AgentsV2 = true
+	c.Tools = []string{"cline"}
+	c.ACPHistory, c.ACPImages, c.ACPModel, c.ACPApproval = true, true, true, true
+	entries := []ACPAgent{{
+		Tool: "cline", Adapter: "cline", State: "available", MinimumVersion: "3.0.74",
+		History: true, Images: true, Model: true, Approval: true, Modes: []string{"act", "plan"},
+	}}
+	c.ACPAgents = &entries
+	c.ACPAgentMode = true
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	agent, ok := c.ChatAgent("cline")
+	if !ok || !agent.History || !agent.Images || !agent.Model || !agent.Approval || !slices.Equal(agent.Modes, []string{"act", "plan"}) {
+		t.Fatalf("cline descriptor: %+v %v", agent, ok)
+	}
+	for _, adapter := range []string{"opencode", "claude-agent-acp", "codex-acp", "cline-acp"} {
+		bad := []ACPAgent{entries[0]}
+		bad[0].Adapter = adapter
+		c.ACPAgents = &bad
+		if c.Validate() == nil {
+			t.Fatalf("cline accepted with adapter %q", adapter)
+		}
 	}
 }

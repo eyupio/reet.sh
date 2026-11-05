@@ -56,6 +56,9 @@ failures recorded in GM1A. See the companion handoff for exact evidence and
 limits. After alignment to merged main, vet, Gaffer API race tests and the full
 store race suite pass. The PR is open and mergeable with CI started; use
 final-head CI before any owner-authorised merge.
+Follow-up: #603’s docs browser check found the old eight-guide assumption.
+The fixture now checks filter restoration and no-JS parity against the initial
+card count and explicitly finds the Gaffer guide; all 40 responsive views pass.
 Keep that handoff current in every implementation batch. Changes remain confined
 to reet.sh; reference repositories are read-only.
 

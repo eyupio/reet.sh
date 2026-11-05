@@ -37,6 +37,22 @@ HTTP provider adapters and fake-backed protocol tests; the companion handoff's
 GM1A entry records scope, verification and remaining settings/integration work.
 AI-chat routes and offline coordination remain ahead. Tests use local fake
 providers, with real credentials supplied later through Gaffer settings.
+
+GM1B continues on `feat/gaffer-provider-settings`: account-owned provider records,
+encrypted key lifecycle and restore, bounded discovery/testing, context policy,
+defaults and Account → Gaffer AI. See the companion handoff's GM1B record and
+[provider setup guide](docs/gaffer-ai.md). The page retains Gaffer's quirky voice
+and explicitly says companion chat/follow-up are coming next. The plan (#600)
+and HTTP foundation (#601) were merged by the owner; this batch does not merge
+anything. General/session conversations, scoped MCP grants and durable offline
+coordination remain unimplemented. Complete GM0's grants and receipt mapping
+before those integration slices.
+
+GM1B local checks: web check/build, vet, 16 MCP tests, strict docs (51 pages),
+targeted Go race tests and the Gaffer/Profile/MCP browser suites pass. The full
+Go race run passes all packages except the same five baseline terminal-host
+failures recorded in GM1A. See the companion handoff for exact evidence and
+limits; use final-head CI before any owner-authorised merge.
 Keep that handoff current in every implementation batch. Changes remain confined
 to reet.sh; reference repositories are read-only.
 

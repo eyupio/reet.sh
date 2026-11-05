@@ -7,6 +7,7 @@
   import ActivitySection from './ActivitySection.svelte'
   import MaintenanceSection from './MaintenanceSection.svelte'
   import AgentsSettings from './AgentsSettings.svelte'
+  import GafferSettings from './GafferSettings.svelte'
   import Backups from './Backups.svelte'
   import CopyButton from './CopyButton.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -24,7 +25,7 @@
     user, onsignout, onerror, onuserchange, writer,
   }: { user: User; onsignout: () => void; onerror?: (e: unknown) => void; onuserchange?: (u: User) => void; writer?: boolean } = $props()
 
-  type Section = 'machines' | 'sync' | 'profile' | 'agents' | 'security' | 'sso' | 'sessions' | 'tokens' | 'mcp' | 'backups' | 'maintenance' | 'activity'
+  type Section = 'machines' | 'sync' | 'profile' | 'agents' | 'gaffer' | 'security' | 'sso' | 'sessions' | 'tokens' | 'mcp' | 'backups' | 'maintenance' | 'activity'
   // svelte-ignore state_referenced_locally
   let who = $state<User>(user)
   let sso = $state<SsoIdentity | null>(null)
@@ -33,6 +34,7 @@
   const sections: { key: Section; label: string }[] = $derived([
     { key: 'profile', label: 'Profile' },
     { key: 'agents', label: 'Agents' },
+    ...(canWrite ? [{ key: 'gaffer' as const, label: 'Gaffer AI' }] : []),
     { key: 'security', label: 'Password' },
     ...(sso?.enabled ? [{ key: 'sso' as const, label: 'Single sign-on' }] : []),
     { key: 'sessions', label: 'Sessions' },
@@ -75,7 +77,7 @@
     const fromPath = location.pathname === '/activity' ? 'activity' : location.pathname.split('/')[2] || ''
     const h = location.hash.slice(1) || fromPath || 'profile'
     if (h === 'connect-machine') return 'machines'
-    return ['profile', 'agents', 'security', 'sso', 'sessions', 'machines', 'sync', 'tokens', 'mcp', 'backups', 'maintenance', 'activity'].includes(h) ? h as Section : 'profile'
+    return ['profile', 'agents', 'gaffer', 'security', 'sso', 'sessions', 'machines', 'sync', 'tokens', 'mcp', 'backups', 'maintenance', 'activity'].includes(h) ? h as Section : 'profile'
   }
 
   onMount(() => {
@@ -638,6 +640,8 @@
         {/if}
       </CollectionPanel>
     {/if}
+  {:else if section === 'gaffer'}
+    {#if canWrite}<GafferSettings {onerror} />{:else}<p class="notice">This account is read-only, so it cannot configure Gaffer providers.</p>{/if}
   {:else if section === 'mcp'}
     <MCPAccess timeZone={profile.timezone} dateFormat={profile.dateFormat} />
   {:else if section === 'backups'}

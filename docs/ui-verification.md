@@ -1,5 +1,35 @@
 # UI verification — 4 November 2026
 
+## Gaffer AI provider settings (5 November 2026)
+
+Account → Gaffer AI now has account-owned provider cards, default/pause/remove
+controls, a shared-shell editor and an explicit connection test. The existing tea
+portrait, warm palette and short Yorkshire copy carry Gaffer's personality through
+setup. The page clearly identifies chat and session follow-up as forthcoming.
+
+- **Go.** Fake HTTP backends exercise model discovery and connection tests. Tests
+  cover ownership, browser-only writes, encrypted/address-bound keys, stale edits
+  and replies, probe cancellation, request/concurrency limits and unreadable-key
+  restore. No live credentials or paid provider calls are used.
+- **Browser.** `web/tests/gaffer-settings.e2e.mjs` exercises create/edit/remove,
+  search and model selection, discovery failure/manual entry, failed-save draft
+  preservation, stale discovery, dependent context permissions, empty password on
+  edit/reopen and a viewer's unavailable settings. It checks 1440, 390 and 320 px
+  in both themes, page/dialog width and phone input height. It has its own CI job,
+  leaving the terminal browser job's budget unchanged.
+- **Seen.** Chromium screenshots with synthetic data were inspected at desktop
+  and phone width: readable cards, wrapped addresses, visible defaults and paused
+  state, a bounded scrolling editor and existing light/dark artwork. Images:
+  [desktop light](images/ui/gaffer-settings-1440-light.png),
+  [desktop dark](images/ui/gaffer-settings-1440-dark.png),
+  [phone light](images/ui/gaffer-settings-390-light.png),
+  [phone dark](images/ui/gaffer-settings-390-dark.png),
+  [phone editor](images/ui/gaffer-provider-form-390-light.png) and
+  [desktop editor](images/ui/gaffer-provider-form-1440-dark.png).
+- **Limits.** Browser fixtures do not prove a live provider or network deployment.
+  Physical phones, Safari, Firefox and subscription CLI backends were not tested.
+  These settings do not yet start companion conversations or follow sessions.
+
 ## Session reference image preview (5 November 2026)
 
 A home session card's reference-image badge now opens a polished preview on hover or keyboard focus instead of

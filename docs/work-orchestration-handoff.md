@@ -2,8 +2,8 @@
 
 Prepared: 1 November 2026. Updated: 5 November 2026. Active direction: the Gaffer
 session-companion MVP below. Product decisions and the initial HTTP provider
-foundation are recorded here; the new chat and offline coordination runtime are
-not implemented.
+foundation and account provider settings are recorded here; the new chat and
+offline coordination runtime are not implemented.
 
 ## Active direction: Gaffer session-companion MVP (5 November 2026)
 
@@ -242,6 +242,106 @@ local-only policy before enabling requests. Continue with server-owned general
 and per-session conversations, scoped MCP operations and durable worker-message
 coordination in their recorded slices. Preserve the independent Gaffer/working
 model identities and quirky UX requirements throughout.
+
+### GM1B: account provider settings (5 November 2026)
+
+Branch `feat/gaffer-provider-settings`, built on the merged HTTP foundation.
+Live GitHub reads confirm #600 merged as `f31b032e` and #601 as `54f66f75` on
+5 November. #601's source/web/build/test checks passed. This batch opens a new
+draft PR against main; it does not merge or deploy. The previous GM1A record
+above describes its original checkout and publication conditions.
+
+**Implemented contract**
+
+- `internal/store/store_gaffer.go` owns up to twelve providers per account with
+  a unique name, explicit default, revision-checked writes and owned reads.
+  Deleting an account cascades to its providers. A paused default stays selected;
+  deleting it leaves no default. Editing invalidates its old connection result.
+- `internal/gaffer` owns validation, address policy, credentials and bounded
+  probes. `cmd/reet` passes the existing stable instance sealer to the API.
+  Keys use encrypted envelopes bound to account, row, backend kind and canonical
+  address, and are omitted from JSON/audit data. An address/kind change cannot
+  forward the old saved key. No environment key import or live test is automatic.
+- Browser accounts with write access manage their own settings through
+  `/api/v2/gaffer/providers`; test/model-discovery/default/enabled operations
+  share existing canonical-origin protection. Viewers, anonymous access and
+  API/MCP tokens do not acquire this authority. Only owners/admins can use
+  local-network endpoints. A demoted owner can still pause/delete their row.
+- Hosted endpoints require HTTPS and public-only DNS results. Local-only means
+  loopback, private or Tailnet addresses reachable from the controller. Reject
+  metadata/link-local/multicast/unspecified addresses, mixed network scopes and
+  redirects. Direct requests validate/pin DNS at dial time; hosted requests may
+  use the deployment's trusted forward proxy, which owns its upstream resolution.
+  Local traffic bypasses forward proxies. Native and Docker share these rules;
+  Docker localhost is the container. No host-model installation is implied.
+- Presets cover OpenAI, Anthropic, OpenCode Zen/Go, Ollama Cloud/local and other
+  compatible APIs. OpenAI-compatible choices use chat-completions, with protocol
+  limitations shown. Subscription CLI backends/capability discovery are still
+  pending; do not call this full provider parity or claim listed models work.
+- Discovery uses the current draft without persisting it; it has a 20 s bound.
+  An explicit connection test uses the saved revision with a 45 s bound. There
+  are at most two active probes per account, four across the service and twelve
+  per account/minute. Key operations share two slots; saves are limited to thirty
+  per account/minute. Shutdown cancels/joins admitted service work. Editing,
+  pausing or deleting cancels probes; revision checks reject late results.
+- `web/src/lib/GafferSettings.svelte` supplies Account → Gaffer AI cards and the
+  editor: live searchable model list, manual fallback, clear errors, preserved
+  draft after save failure, saved-key metadata, default/pause/remove, model effort
+  where supported, explicit test/cancel and private-network guidance. Requests
+  are cancelled on teardown and stale discovery cannot replace newer input.
+  The existing portrait and warm Yorkshire copy keep the quirky critical buddy.
+- Status, followed-session context and code/log sharing are independent stored
+  policy, default off; code/logs require session context. No context is sent by
+  this slice. These flags do not grant access to sessions. GM2/GM3 must enforce
+  effective account/session grants, current provider policy and context bounds
+  on every read/call; GM4 must recheck immediately before queued instructions.
+- Full instance DB copies include encrypted rows. Restore clears unreadable keys,
+  pauses the affected provider and increments its revision, with an actionable
+  re-entry message. Personal shelf exports exclude provider settings/keys.
+
+**Verification and limits**
+
+Local fake-backed domain/store/API race tests, web unit/type checks, production
+build, MCP compatibility and strict documentation checks are recorded with this
+batch's final PR. The browser matrix covers desktop, 390/320 px, both themes,
+CRUD, failure/manual fallback, key privacy, stale requests and viewer access;
+account profile and MCP browser checks guard navigation regressions. Evidence is
+in [UI verification](ui-verification.md#gaffer-ai-provider-settings-5-november-2026),
+and the standalone Gaffer browser workflow retains captures without extending
+the terminal-browser job.
+
+Final local results: `npm --prefix web run check` passes (zero errors, two
+existing unused-selector warnings); production build and `go vet ./...` pass.
+`npm --prefix mcp test` passes all 16 checks, including tool-definition parity.
+The Gaffer settings, Account Profile and Account MCP Chromium suites pass. Strict
+MkDocs and rendered-site checks pass all 51 pages. Targeted API/domain/store race
+checks pass, including the final shutdown and token-refusal regressions.
+
+The complete Go race run on the foundation plus this slice passed API (420 s),
+store (193 s), broker (72 s) and every other package except `internal/terminalhost`.
+Its same five baseline failures remain: `TestListModelsTimeoutKillsTheProcessGroup`,
+`TestTimedOutAddKillsGitsChildrenAndCleansUp` and the three missing-tmux service
+checks listed in GM1A above. Those failures were previously reproduced in the
+unchanged baseline; no terminal-host source changed here. This is not a green
+full-suite result. The branch was then aligned to merged main `54f66f75`, retaining
+its independent sync-store changes; vet and the store race suite are rerun for
+that integration. Final-head remote CI remains the merge gate.
+
+No real credential, paid provider, physical device, new experimental worker,
+subscription backend or production deployment was exercised. A test response is
+not a guarantee of model identity, tool support or future health. The complete
+MVP remains incomplete: no floating companion widget, Gaffer conversation store,
+scoped session MCP tools or background follow-up worker is enabled here.
+
+**Exact next task**
+
+Finish GM0's effective account/session grants, verified structured-worker message
+capabilities, receipt/delivery mapping and retention/recovery contract against
+current main. Then implement GM2's controller-owned general and per-session
+conversations using these providers and bounded context. Keep the working model
+separate; only it performs coding, commands and PR work. Subsequent GM3/GM4 add
+scoped tools and durable offline goals through the existing next-turn queue,
+without answering approval cards or enabling terminal keystroke automation.
 
 ## Gaffer branding and Eli reuse (1 November 2026)
 

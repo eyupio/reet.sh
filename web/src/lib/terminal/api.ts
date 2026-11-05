@@ -558,3 +558,9 @@ export async function scanWorktrees(minAgeDays: number, signal?: AbortSignal): P
 export async function cleanWorktrees(items: Pick<SweepItem, 'agentId' | 'project' | 'repo' | 'run'>[], signal?: AbortSignal): Promise<{ items: SweepItem[] }> {
   return (await terminalRequest('/api/v2/maintenance/worktrees/clean', { method: 'POST', signal, body: JSON.stringify({ items: items.map(({ agentId, project, repo, run }) => ({ agentId, project, repo, run })) }) })).json()
 }
+
+/** The whole opening prompt of a session; the list carries only its first 300 characters. An empty string means the server kept none. */
+export async function sessionPrompt(id: string, signal?: AbortSignal): Promise<string> {
+  const body: { prompt?: unknown } = await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/prompt`, { signal })).json()
+  return typeof body.prompt === 'string' ? body.prompt : ''
+}

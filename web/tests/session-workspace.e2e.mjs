@@ -9,19 +9,15 @@ const session = {id:'session-insights-001',agentId:'a1',title:'Improve session w
 const machine = {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:caps}
 const snapshot = () => ({checkedAt:Date.now(),repo:true,branch:'feature/session-workspace',ahead:2,behind:1,upstream:true,changed:3,conflicts:1,countsKnown:true,files:[{path:'src/session.ts',status:' M',added:42,removed:12},{path:'src/conflict.ts',status:'UU',added:3,removed:1},{path:'new.md',status:'??',added:0,removed:0}]})
 const pull = () => ({...snapshot(),pull:{number:42,title:'Improve the session workspace',url:'https://github.com/example/project/pull/42',state:'OPEN',draft:false,review:'CHANGES_REQUESTED',mergeable:'CONFLICTING',added:45,removed:13,checks:[{name:'Browser checks',state:'FAILURE',url:'https://github.com/example/project/actions/runs/1'},{name:'Build',state:'IN_PROGRESS'},{name:'Unit tests',state:'SUCCESS'}]}})
-async function open(width=1600,theme='dark', supported=true, hold=null) {
- const calls=[], box={fail:false, answer:null}
- const routes={
-  '/api/v2/terminal/status':{configured:true,available:true,reason:''},
-  '/api/v2/terminal/machines':{machines:[{...machine,capabilities:{...caps,inspect:supported}}]},
-  '/api/v2/machines/health':()=>({serverNow:Date.now(),machines:[{...machine,state:'connected',connection:{connected:true,reportFresh:true,reportAt:Date.now(),contactAt:Date.now(),missedProbes:0,reconnects:0,path:'direct'}}]}),
-  '/api/v2/terminal/sessions':{sessions:[session]},
-  '/api/v2/folder-projects':{projects:[{id:'p1',name:'reet',host:'a1',machine:'studio',dir:session.dir,isRepo:true,baseBranch:'main',worktreeDefault:'inherit',colour:'green',defaultTool:'opencode',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1}],savedWaiting:0},
-  '/api/v2/projects':{projects:[]},
-  [`/api/v2/terminal/sessions/${session.id}/seen`]:{},
-  [`/api/v2/terminal/sessions/${session.id}/skills`]:{skills:[],machineSeen:Date.now(),host:'studio'},
-  '/api/v2/yolo':{allowed:false},
-  [`/api/v2/terminal/sessions/${session.id}/inspect`]:async request=>{
+// The opening prompt as the server keeps it: the list carries its first 300 characters, the prompt route the whole text.
+const FULL_PROMPT = 'Rebuild the session overview so the opening prompt is readable at a glance.\n\n' + 'Keep the quote short and the status header where it is. '.repeat(6) + '\n\nFINAL-LINE-ONLY-IN-FULL-TEXT'
+const EXCERPT = FULL_PROMPT.slice(0, 300)
+session.promptExcerpt = EXCERPT; session.promptMore = true
+const second = {...session, id:'session-insights-002', title:'Second session', promptExcerpt:'SECOND-SESSION-PROMPT is a short one.', promptMore:false}
+async function open(width=1600,theme='dark', supported=true, hold=null, opts={}) {
+ const calls=[], box={fail:false, answer:null}, prompts=[]
+ const first = {...session, ...opts.session}
+ const inspect = async request=>{
    const q=new URL(request.url()).searchParams,view=q.get('view'),path=q.get('path');calls.push({view,path})
    if(hold&&view==='status')await hold
    if(box.answer)return box.answer(view,path)
@@ -30,19 +26,36 @@ async function open(width=1600,theme='dark', supported=true, hold=null) {
    if(view==='github')return pull()
    if(view==='files')return {checkedAt:Date.now(),files:path?[{path:'src/session.ts',added:0,removed:0}]:[{path:'src',directory:true,added:0,removed:0},{path:'README.md',added:0,removed:0}],ahead:0,behind:0,changed:0,conflicts:0}
    return {checkedAt:Date.now(),text:view==='diff'?'@@ -1 +1 @@\n-old value\n+new value':'export const status = "working"',ahead:0,behind:0,changed:0,conflicts:0}
-  },
+ }
+ const promptRoute = id => async request=>{prompts.push(id);if(opts.promptGate&&id===first.id)await opts.promptGate;return opts.prompt?opts.prompt(request,id):{prompt:id===first.id?FULL_PROMPT:second.promptExcerpt}}
+ const routes={
+  [`/api/v2/terminal/sessions/${first.id}/prompt`]:promptRoute(first.id),
+  [`/api/v2/terminal/sessions/${second.id}/prompt`]:promptRoute(second.id),
+  [`/api/v2/terminal/sessions/${second.id}/seen`]:{},
+  [`/api/v2/terminal/sessions/${second.id}/skills`]:{skills:[],machineSeen:Date.now(),host:'studio'},
+  [`/api/v2/terminal/sessions/${second.id}/inspect`]:inspect,
+  '/api/v2/terminal/status':{configured:true,available:true,reason:''},
+  '/api/v2/terminal/machines':{machines:[{...machine,capabilities:{...caps,inspect:supported}}]},
+  '/api/v2/machines/health':()=>({serverNow:Date.now(),machines:[{...machine,state:'connected',connection:{connected:true,reportFresh:true,reportAt:Date.now(),contactAt:Date.now(),missedProbes:0,reconnects:0,path:'direct'}}]}),
+  '/api/v2/terminal/sessions':{sessions:opts.second?[first,second]:[first]},
+  '/api/v2/folder-projects':{projects:[{id:'p1',name:'reet',host:'a1',machine:'studio',dir:session.dir,isRepo:true,baseBranch:'main',worktreeDefault:'inherit',colour:'green',defaultTool:'opencode',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1}],savedWaiting:0},
+  '/api/v2/projects':{projects:[]},
+  [`/api/v2/terminal/sessions/${session.id}/seen`]:{},
+  [`/api/v2/terminal/sessions/${session.id}/skills`]:{skills:[],machineSeen:Date.now(),host:'studio'},
+  '/api/v2/yolo':{allowed:false},
+  [`/api/v2/terminal/sessions/${session.id}/inspect`]:inspect,
  }
  const opened=await openWorkspace(browser,{width,height:1000,touch:width<800,theme,routes})
- await opened.page.addInitScript(()=>{
+ await opened.page.addInitScript(delay=>{
   class Stream {
-   constructor(){this.listeners={};window.__insightStream=this;setTimeout(()=>{this.onopen?.({});this.emit('reset',{truncated:false});this.emit('chat',{seq:1,kind:'agent',messageId:'reply',text:'The workspace is connected. I am checking the browser layout.'});this.emit('chat',{seq:2,kind:'tool',toolCallId:'done',title:'Read session component',toolKind:'read',status:'completed'});this.emit('chat',{seq:3,kind:'tool',toolCallId:'current',title:'Run browser checks',toolKind:'execute',status:'in_progress',command:'npm run check'});this.emit('chat',{seq:4,kind:'status',state:'working'})},0)}
+   constructor(){this.listeners={};window.__insightStream=this;setTimeout(()=>{this.onopen?.({});this.emit('reset',{truncated:false});this.emit('chat',{seq:1,kind:'agent',messageId:'reply',text:'The workspace is connected. I am checking the browser layout.'});this.emit('chat',{seq:2,kind:'tool',toolCallId:'done',title:'Read session component',toolKind:'read',status:'completed'});this.emit('chat',{seq:3,kind:'tool',toolCallId:'current',title:'Run browser checks',toolKind:'execute',status:'in_progress',command:'npm run check'});this.emit('chat',{seq:4,kind:'status',state:'working'})},delay)}
    addEventListener(type,fn){(this.listeners[type]??=[]).push(fn)}
    emit(type,data){for(const fn of this.listeners[type]??[])fn({data:JSON.stringify(data)})}
    close(){}
   }
   window.EventSource=Stream
   sessionStorage.setItem('reet-session-visit:session-insights-001',JSON.stringify({seq:1,at:Date.now()-600000}))
- })
+ },opts.streamDelay||0)
  await opened.page.goto(`${base}/sessions?agent=a1&session=${session.id}`,{timeout:120000})
  const panel=opened.page.getByRole('complementary',{name:'Session context'})
  if(width<1100){
@@ -53,7 +66,7 @@ async function open(width=1600,theme='dark', supported=true, hold=null) {
   await opened.page.getByRole('button',{name:'Details',exact:true}).click()
  }
  try { await expect(panel).toBeVisible({timeout:60000}) } catch(e) { console.error('Runtime errors:',opened.errors,'Unexpected routes:',opened.state.unexpected); throw e }
- return {...opened,calls,box,panel}
+ return {...opened,calls,box,panel,prompts}
 }
 async function audit(page,panel) {
  if(!process.env.REET_AXE_PATH)return
@@ -219,6 +232,101 @@ try {
   await expect(details).toBeFocused();await expect(details).toHaveAttribute('aria-expanded','false')
   await details.click();await expect(panel).toBeVisible();await expect(separator).toBeVisible();expect(await width()).toBe(360)
   await expect(details).toHaveAttribute('aria-expanded','true')
+  expect(errors).toEqual([]);await context.close()
+ }
+
+ // The opening prompt: a two-line quote under the status header, and the whole text one tap away.
+ {
+  const {page,context,panel,errors,prompts}=await open(1600,'dark',true,null,{second:true})
+  await context.grantPermissions(['clipboard-read','clipboard-write'])
+  const card=panel.getByRole('group',{name:'You asked'}),quote=card.locator('blockquote p')
+  await expect(quote).toContainText('Rebuild the session overview')
+  const clamp=await quote.evaluate(el=>({lines:Math.round(el.clientHeight/parseFloat(getComputedStyle(el).lineHeight)),cut:el.scrollHeight>el.clientHeight}))
+  expect(clamp,'the quote shows two lines and cuts the rest').toEqual({lines:2,cut:true})
+  await expect(page.locator('body')).not.toContainText('FINAL-LINE-ONLY-IN-FULL-TEXT')
+  const trigger=card.getByRole('button',{name:'Read full prompt'})
+  await trigger.click()
+  const dialog=page.getByRole('dialog',{name:'You asked'})
+  await expect(dialog).toContainText('FINAL-LINE-ONLY-IN-FULL-TEXT')
+  await expect(dialog.locator('[data-shell-body] .text')).toHaveCSS('white-space','pre-wrap')
+  await expect(dialog.getByText('opencode',{exact:true})).toBeVisible();await expect(dialog.getByText('provider/model',{exact:true})).toBeVisible()
+  expect(prompts).toEqual(['session-insights-001'])
+  await dialog.getByRole('button',{name:'Copy prompt'}).click()
+  await expect(dialog.getByRole('button',{name:'Copied'})).toBeVisible()
+  expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(FULL_PROMPT)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden();await expect(trigger).toBeFocused()
+  expect(errors).toEqual([]);await context.close()
+ }
+ // The chips say how the session was started, including the auto-approve decision.
+ {
+  const {page,context,panel,errors}=await open(1600,'light',true,null,{session:{yolo:true,effort:'high'}})
+  await panel.getByRole('button',{name:'Read full prompt'}).click()
+  const dialog=page.getByRole('dialog',{name:'You asked'})
+  await expect(dialog.getByText('high',{exact:true})).toBeVisible();await expect(dialog.getByText('YOLO',{exact:true})).toBeVisible()
+  expect(errors).toEqual([]);await context.close()
+ }
+ // A prompt that arrives after the person has moved to another session is dropped, never shown under the wrong one.
+ {
+  let release;const gate=new Promise(done=>{release=done})
+  const {page,context,panel,errors,prompts}=await open(1600,'dark',true,null,{second:true,promptGate:gate})
+  await panel.getByRole('button',{name:'Read full prompt'}).click()
+  const dialog=page.getByRole('dialog',{name:'You asked'})
+  await expect(dialog).toContainText('Rebuild the session overview')
+  await expect.poll(()=>prompts.length).toBe(1)
+  // The open dialog makes the rest of the page inert, so the switch is made from the page, as a late deep link would.
+  await page.getByRole('button',{name:/Second session/}).first().evaluate(el=>el.click())
+  await expect(panel.getByRole('group',{name:'You asked'})).toContainText('SECOND-SESSION-PROMPT')
+  release()
+  await page.waitForTimeout(300)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.locator('body')).not.toContainText('FINAL-LINE-ONLY-IN-FULL-TEXT')
+  await expect(page.locator('body')).not.toContainText('Rebuild the session overview')
+  expect(errors).toEqual([]);await context.close()
+ }
+ // A session started before prompts were kept says so, in the same slot, with no console errors and no request.
+ {
+  const {page,context,panel,errors,prompts}=await open(1600,'dark',true,null,{session:{promptExcerpt:undefined,promptMore:undefined},streamDelay:700})
+  const card=panel.getByRole('group',{name:'You asked'}),where=panel.getByRole('heading',{name:"Where it's working"})
+  await expect(card).toContainText('Loading')
+  await expect(card.getByText('This session started before reet kept opening prompts.')).toHaveCount(0)
+  const loading={card:Math.round((await card.boundingBox()).height),where:Math.round((await where.boundingBox()).y)}
+  await expect(card.getByText('This session started before reet kept opening prompts.')).toBeVisible()
+  expect({card:Math.round((await card.boundingBox()).height),where:Math.round((await where.boundingBox()).y)},'the blocks below the prompt moved when it loaded').toEqual(loading)
+  await expect(card.getByRole('button',{name:'Read full prompt'})).toHaveCount(0)
+  expect(prompts).toEqual([]);expect(errors).toEqual([]);await context.close()
+ }
+ // The server keeps no text for this session: a 404 reads the same as an old session.
+ {
+  const {page,context,panel,errors}=await open(1600,'dark',true,null,{prompt:()=>({status:404,json:{error:'No prompt kept.'}})})
+  await panel.getByRole('button',{name:'Read full prompt'}).click()
+  const dialog=page.getByRole('dialog',{name:'You asked'})
+  await expect(dialog.getByText('This session started before reet kept opening prompts.')).toBeVisible()
+  await expect(dialog.getByText("Couldn't load the full prompt. Try again.")).toHaveCount(0)
+  expect(errors).toEqual([]);await context.close()
+ }
+ // A failed read keeps the excerpt, says so, and the retry fetches again.
+ {
+  let calls=0
+  const {page,context,panel,errors}=await open(1600,'dark',true,null,{prompt:()=>++calls===1?{status:500,json:{error:'The server could not read it.'}}:{prompt:FULL_PROMPT}})
+  await panel.getByRole('button',{name:'Read full prompt'}).click()
+  const dialog=page.getByRole('dialog',{name:'You asked'})
+  await expect(dialog.getByText("Couldn't load the full prompt. Try again.")).toBeVisible()
+  await expect(dialog).toContainText('Rebuild the session overview');await expect(dialog).not.toContainText('FINAL-LINE-ONLY-IN-FULL-TEXT')
+  await dialog.getByRole('button',{name:'Try again'}).click()
+  await expect(dialog).toContainText('FINAL-LINE-ONLY-IN-FULL-TEXT')
+  await expect(dialog.getByText("Couldn't load the full prompt. Try again.")).toHaveCount(0)
+  expect(calls).toBe(2);expect(errors).toEqual([]);await context.close()
+ }
+ // On a phone the dialog fits and the card adds no sideways scroll.
+ {
+  const {page,context,panel,errors}=await open(375,'dark')
+  await panel.getByRole('button',{name:'Read full prompt'}).click()
+  const dialog=page.getByRole('dialog',{name:'You asked'})
+  await expect(dialog).toContainText('FINAL-LINE-ONLY-IN-FULL-TEXT')
+  const box=await dialog.boundingBox();expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(375)
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  expect((await dialog.getByRole('button',{name:'Copy prompt'}).boundingBox()).height).toBeGreaterThanOrEqual(42)
   expect(errors).toEqual([]);await context.close()
  }
  console.log('Session workspace: tabs, return summary, changes, previews, folders, CI, stale data, sidebar signals, context panel resize/collapse and phone/tablet focus passed.')

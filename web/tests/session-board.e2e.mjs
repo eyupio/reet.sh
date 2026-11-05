@@ -179,6 +179,18 @@ try {
   await expect(page.locator('.active .session-card')).toHaveCount(3)
   await expect(page.locator('.backlog .session-card')).toHaveCount(2)
   expect(box.starts).toHaveLength(1)
+  // Dragging a backlog card onto Active starts it; a card that cannot start says why and stays put.
+  const dragCard = page.locator('.session-card').filter({ hasText: 'Give the settings page a proper polish' })
+  const startsBeforeDrag = box.starts.length
+  await dragCard.dragTo(page.locator('.stage.active'))
+  await expect.poll(() => box.starts.length).toBe(startsBeforeDrag + 1)
+  await expect(page.locator('.active .session-card').filter({ hasText: 'Give the settings page a proper polish' })).toHaveCount(1)
+  const offlineDrag = page.locator('.session-card').filter({ hasText: 'Bring the case studies up to date' })
+  const startsBeforeOfflineDrag = box.starts.length
+  await offlineDrag.dragTo(page.locator('.stage.active'))
+  await expect(page.locator('.notice')).toContainText('reconnecting')
+  expect(box.starts).toHaveLength(startsBeforeOfflineDrag)
+  await expect(page.locator('.backlog .session-card').filter({ hasText: 'Bring the case studies up to date' })).toHaveCount(1)
   // Launch options travel with a backlog item; YOLO is saved as intent and confirmed only at Start.
   await page.getByRole('button', { name: 'New session', exact: true }).click()
   const options = page.getByRole('dialog')

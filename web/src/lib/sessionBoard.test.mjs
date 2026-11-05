@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 const source = readFileSync(new URL('./sessionBoard.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { boardItems, sessionStage, filterBoard, sortBoard, emptyFilters } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
+const { boardItems, dropIntent, sessionStage, filterBoard, sortBoard, emptyFilters } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
 const draft = (id, over = {}) => ({ id, title: 'Improve checkout', prompt: 'Polish the empty state', agentId: 'm1', projectId: 'p1', dir: '/work/shop', tool: 'codex', model: 'gpt-test', effort: '', imageCount: 0, version: 1, createdAt: 1, updatedAt: 2, ...over })
 const session = (id, state = 'running', over = {}) => ({ id, title: 'Build search', state, agentId: 'm2', projectId: 'p2', dir: '/work/search', tool: 'claude', model: '', createdAt: 3, updatedAt: 4, ...over })
 const names = { machines: new Map([['m1', 'Studio'], ['m2', 'Laptop']]), projects: new Map([['p1', 'Shop'], ['p2', 'Search']]) }
@@ -41,4 +41,10 @@ test('sorting never mutates the source and uses stable tie breaks', () => {
   assert.deepEqual(sortBoard(items, 'oldest').map(i => i.key), ['draft:z', 'session:live', 'draft:a'])
   assert.deepEqual(sortBoard(items, 'newest').map(i => i.key), ['session:live', 'draft:a', 'draft:z'])
   assert.equal(items[0].key, 'draft:z')
+})
+test('dropping on Active starts a ready item, refines an idea and explains a blocked one', () => {
+  assert.deepEqual(dropIntent({ idea: false, starting: false }, null), { kind: 'start' })
+  assert.deepEqual(dropIntent({ idea: true, starting: false }, null), { kind: 'refine' })
+  assert.deepEqual(dropIntent({ idea: false, starting: false }, 'This machine is offline.'), { kind: 'blocked', reason: 'This machine is offline.' })
+  assert.deepEqual(dropIntent({ idea: false, starting: true }, null), { kind: 'blocked', reason: 'Start was requested. Retry checks the same request.' })
 })

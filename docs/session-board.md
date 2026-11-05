@@ -56,6 +56,11 @@ started like any other. If it could not start, for example because its machine i
 offline, the dialog says why and nothing is saved. Cancel leaves the idea as it
 was. The server still refuses to start an item that is marked as an idea.
 
+Drag a backlog card onto **Active** to start it without opening the card. A
+ready item starts at once, exactly as its Start button would; an idea opens the
+same refine-and-start dialog; and an item that cannot start says why instead of
+moving. The Start button remains the keyboard route.
+
 Start checks machine readiness, installed agents, image-upload capability, and
 project identity. The server freezes the launch parameters before dispatch and
 uses the backlog item's stable ID as the terminal create request ID. Concurrent

@@ -83,7 +83,7 @@ Nothing is sent to skills.sh except read-only page fetches for names and descrip
 - **Sealed backups, here and off-site.** The owner backs up the whole instance; every person can back up their own shelf. Copies are encrypted before they are written or shipped, verified after every take, pruned by a count you choose, and sent to any S3-compatible destination.
 - **Yorkshire at heart.** A reet good toolkit, with a white-rose bookmark and a practical, quietly quirky voice. See [voice and copy](docs/voice-and-copy.md) when changing user-facing text.
 - **Pleasant to use.** Light and dark themes, works on a phone, keyboard friendly, respects reduced motion.
-- **A bit of Gaffer.** His status follows the real session, with a varied repertoire of quiet gestures, a proper cuppa and a resting head after a finished turn. Animation can be paused, follows reduced motion, and stops while the tab is hidden.
+- **A bit of Gaffer.** His status follows the real session, with a varied repertoire of quiet gestures, a proper cuppa and a resting head after a finished turn. Animation can be paused, follows reduced motion, and stops while the tab is hidden. Quiet commands keep running while you are away; the ten-minute silence deadline applies when no tool or approval is outstanding, with a two-hour hard cap on each turn.
 
 <details>
 <summary>Dark mode and phone</summary>

@@ -62,10 +62,13 @@ that takes the prompt after a flag of its own (see the presets).
 ## Structured chats
 
 `terminalproto.Create` also has `structured`, `trust` and `resumeAcp` fields, sent only after `acp-v1` (see
-[structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md)). `structured: true` is accepted only with `tool: opencode` and without a
-worktree, resume, YOLO, base or effort; the machine starts `opencode acp` instead of tmux. `trust: true` confirms the
-repository-plugin warning. `resumeAcp` is an OpenCode session id owned by one of the account's closed structured sessions
-on that machine; the machine loads its history instead of creating a new session. A structured create reserves the same session record and quota as a shell, but the session has
+[structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md)). `structured: true` is accepted only with a reviewed chat tool
+(`opencode`, `cline`, or Claude Code and Codex behind their machine switches) and without a
+worktree, resume, YOLO, base or effort; the machine starts that agent's chat process (`opencode acp`, `cline --acp`, or
+the pinned Claude/Codex adapter) instead of tmux. `trust: true` confirms the
+repository-plugin warning, which OpenCode is the only reviewed tool to read. `resumeAcp` is a native session id owned by one of the account's closed structured sessions
+of the same tool and folder on that machine (OpenCode `ses_…`, Claude and Codex UUIDs, Cline
+`<milliseconds>_<5 characters>_cli`); the machine loads its history instead of creating a new session. A structured create reserves the same session record and quota as a shell, but the session has
 no terminal: attach, resize, history and command-history requests answer not found. `acp_prompt`, `acp_cancel` and
 `acp_permission` carry the chat; `acp_event` carries bounded updates back. The seven conditions and the approval rules are
 in [structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md).

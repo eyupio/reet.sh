@@ -49,7 +49,7 @@ The machine creates or adopts the requested worktree before starting the agent t
 The base follows the launch and project settings. Without an explicitly selected base, the machine uses the checkout’s current commit. Check that commit before running several tasks that need the same starting point.
 
 !!! note "Gaffer uses the project folder"
-    OpenCode in Gaffer starts in the chosen project folder. Its launch path does not offer the same worktree option as a terminal launch. Choose the supported terminal mode when a fresh worktree is required; see [Start an agent session](start-agent-session.md).
+    OpenCode or Cline in Gaffer starts in the chosen project folder. Its launch path does not offer the same worktree option as a terminal launch. Choose the supported terminal mode when a fresh worktree is required; see [Start an agent session](start-agent-session.md).
 
 ## Keep task boundaries visible
 

@@ -27,18 +27,20 @@ says so and Start waits.
 
 ## Gaffer or the agent TUI
 
-For OpenCode on a machine that advertises `acp`, the dialog's **Session** choice is **Gaffer** by default; choose
-**OpenCode TUI** for the terminal UI instead. It sends `structured: true` and
-the person's trust confirmation. The **Model** control chooses the model; **Agent default** uses OpenCode's configured
-model, and Thinking stays OpenCode's own. The opening prompt is the first message. The new session opens on its Gaffer, where OpenCode asks before it edits a file
-or runs a command with **Allow once** / **Deny**. On a machine that negotiated `session-mode-v1`, the session header's
-**OpenCode TUI** button switches the running session to OpenCode's own terminal UI and **Gaffer** switches it back,
-once the agent is idle; a session started in the OpenCode TUI cannot move to Gaffer. Terminal scrollback is not kept
-across a switch, and returning to Gaffer asks you to trust a folder with OpenCode plugins. **Attach image** (or paste/drop)
-sends a file through the launch-upload path and puts its path in the message. A Gaffer chat that was lost or crashed
-reconnects in place (same session, same transcript) on a machine with `chat-reattach-v1`; a chat you ended, or one on an
-older machine, offers **Continue in Gaffer with history…**, which loads OpenCode's stored conversation into a new session row. The conditions, deadlines and limits are in
-[OpenCode in Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md).
+For OpenCode (1.19.5 or newer) or Cline (3.0.74 or newer) on a machine that advertises `acp`, the dialog's **Session**
+choice is **Gaffer** by default; choose the agent's own TUI for the terminal interface instead. A chat sends
+`structured: true`, and OpenCode also sends the person's trust confirmation. The **Model** control chooses the model;
+**Agent default** uses the agent's configured model, and Thinking stays the agent's own. The opening prompt is the first
+message. The new session opens on its Gaffer, where the agent asks before it edits a file or runs a command with
+**Allow once** / **Deny**. On a machine that negotiated `session-mode-v1`, OpenCode's session header **OpenCode TUI**
+button switches the running session to OpenCode's own terminal UI and **Gaffer** switches it back, once the agent is idle;
+a session started in the OpenCode TUI cannot move to Gaffer, and a Cline chat stays in Gaffer. Terminal scrollback is not
+kept across a switch, and returning to Gaffer asks you to trust a folder with OpenCode plugins. **Attach image** (or
+paste/drop) sends a file through the launch-upload path and puts its path in the message. A Gaffer chat that was lost or
+crashed reconnects in place (same session, same transcript) on a machine with `chat-reattach-v1`, for OpenCode; a chat you
+ended, or one on an older machine, offers **Continue in Gaffer with history…**, which loads the agent's stored
+conversation into a new session row. The conditions, deadlines and limits are in
+[structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md).
 
 For a plain shell, **New session**, the workspace’s **✦ Start a new Terminal session**, and the
 sidebar machine menu’s **Terminal** open the terminal settings dialog. Choose its machine, enter an
@@ -80,12 +82,12 @@ several projects and for an address that hands Home projects (`#launch`, `/?proj
 `/?projects=<id>,<id>`). It is a **Describe the job** box, **Start**, and the launch sentence, whose
 bold words are the choices. It no longer sits docked at the foot of the page.
 
-For OpenCode on a machine that advertises `acp`, the sentence says **in Gaffer** by default and Start
-opens Gaffer instead of the agent terminal UI. Home asks you to confirm **I trust this folder** first, because
-OpenCode runs any plugins in `.opencode` when Gaffer starts. The **Gaffer** word switches it to **in OpenCode TUI**;
-the worktree and thinking choices come back for that terminal. The Model word chooses the chat's model; leave it at
-**default** to use OpenCode's configured model. Gaffer runs in the chosen project folder (not a worktree) and can
-attach images through Home's existing pasted-image path. It starts in one folder at a time. A session's actions menu has **Open a terminal here…**, which starts a plain shell in
+For OpenCode or Cline on a machine that advertises `acp`, the sentence says **in Gaffer** by default and Start
+opens Gaffer instead of the agent terminal UI. For OpenCode, Home asks you to confirm **I trust this folder** first,
+because OpenCode runs any plugins in `.opencode` when Gaffer starts; Cline has no folder plugin warning. The **Gaffer**
+word switches it to **in the agent TUI**; the worktree and thinking choices come back for that terminal. The Model word
+chooses the chat's model; leave it at **default** to use the agent's configured model. Gaffer runs in the chosen project
+folder (not a worktree) and can attach images through Home's existing pasted-image path. It starts in one folder at a time. A session's actions menu has **Open a terminal here…**, which starts a plain shell in
 the same folder as a separate session.
 
 > Run **Claude Code** with **default** on **Store rewrite** at **studio** from **main** in **a fresh worktree** · thinking **high**

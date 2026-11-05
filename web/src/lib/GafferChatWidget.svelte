@@ -209,10 +209,10 @@
               <option value="">Provider default{provider ? ` · ${provider.model}` : ''}</option>
               {#if model && !models.includes(model)}<option value={model}>{model} · current choice</option>{/if}{#each models as id}<option value={id}>{id}</option>{/each}<option value="__manual__">Enter a model name…</option>
             </select>
-            {#if manualModel}<label>Exact Gaffer model<input value={model} oninput={event => model = event.currentTarget.value} maxlength="256" autocomplete="off" /></label>{/if}
+            {#if manualModel}<label>Exact Gaffer model<input value={model} oninput={event => model = event.currentTarget.value} required maxlength="256" autocomplete="off" /></label>{/if}
             {#if modelsError}<p class="bad" role="status">{modelsError}</p>{/if}
             <p class="note">Your next message shares this Gaffer conversation’s history with the chosen provider. Working-agent settings stay separate.</p>
-            {#if current}<button class="btn" disabled={!dirty || !provider?.enabled}>Apply choice</button>{:else}<p class="note">Used when you send your first message.</p>{/if}
+            {#if current}<button class="btn" disabled={!dirty || !provider?.enabled || (manualModel && !model.trim())}>Apply choice</button>{:else}<p class="note">Used when you send your first message.</p>{/if}
           </fieldset>
           <a href="/account/gaffer">Manage providers and keys →</a>
         </form>

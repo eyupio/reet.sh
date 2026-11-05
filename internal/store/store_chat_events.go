@@ -67,7 +67,7 @@ func (s *Store) TrimTerminalChatEventsFor(uid int64, sessionID string, beforeSeq
 	if !terminalproto.ValidID(sessionID) || beforeSeq <= 1 {
 		return terminalproto.ErrInvalid
 	}
-	_, err := s.db.Exec(`DELETE FROM terminal_chat_events WHERE user_id=? AND session_id=? AND seq<?`, uid, sessionID, beforeSeq)
+	_, err := s.writeStmts.exec(`DELETE FROM terminal_chat_events WHERE user_id=? AND session_id=? AND seq<?`, uid, sessionID, beforeSeq)
 	return err
 }
 

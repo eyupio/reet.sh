@@ -14,9 +14,9 @@ const app=(cols,rows)=>{let out='\x1b[?1049h\x1b[2J'
  for(let row=1;row<=rows;row++)out+=`\x1b[${row};1H`+(row===1?`agent ${cols}x${rows}`:row===rows?'> ask anything':`row ${row}`).slice(0,cols)
  return Buffer.from(out)}
 
-async function open({width,height,touch,query='',layout=null,motion='no-preference',screen=null}){
+async function open({width,height,touch,query='',layout=null,motion='no-preference',screen=null,mouse=false}){
  const context=await browser.newContext({viewport:{width,height},hasTouch:touch,isMobile:touch,reducedMotion:motion,...(screen?{screen}:{})})
- const page=await context.newPage(),errors=[],tickets=[],frames=[]
+ const page=await context.newPage(),errors=[],tickets=[],frames=[],inputs=[]
  // A saved sessions-panel layout, as a wider screen would have left it.
  if(layout)await page.addInitScript(value=>{if(!sessionStorage.getItem('seeded')){sessionStorage.setItem('seeded','1');localStorage.setItem('reet-terminal-layout:1',value)}},JSON.stringify(layout))
  let sockets=0
@@ -47,6 +47,7 @@ async function open({width,height,touch,query='',layout=null,motion='no-preferen
   else if(path==='/api/v2/terminal/machines')data={machines}
   else if(path==='/api/v2/terminal/status')data={available:true,configured:true,reason:''}
   else if(path==='/api/v2/terminal/sessions'){if(request.method()!=='GET')return route.fulfill({status:400,json:{error:'No implicit creation permitted'}});data={sessions}}
+  else if(path.endsWith('/history'))return route.fulfill({body:Array.from({length:400},(_,i)=>`saved output ${i}`).join('\n')})
   else if(path.endsWith('/attachments')){tickets.push(request.postDataJSON());data={ticket:'fixture-ticket00000000000'}}
   else if(path==='/api/skills')data={skills:[],counts:{all:0,used:0,liked:0,bookmarked:0}}
   else if(path==='/api/environments')data={environments:[],machines:[]}
@@ -59,16 +60,16 @@ async function open({width,height,touch,query='',layout=null,motion='no-preferen
  await page.routeWebSocket('**/api/v2/terminal/socket',socket=>{
   sockets++
   socket.onMessage(message=>{
-   if(typeof message!=='string')return
+   if(typeof message!=='string'){inputs.push(message.toString());return}
    const data=JSON.parse(message)
-   if(data.ticket){const ticket=tickets.at(-1);socket.send('{"type":"ready"}');socket.send(app(ticket.cols,ticket.rows))}
+   if(data.ticket){const ticket=tickets.at(-1);socket.send('{"type":"ready"}');socket.send(app(ticket.cols,ticket.rows));if(mouse)socket.send(Buffer.from('\x1b[?1000h\x1b[?1006h'))}
    else if(data.type==='resize'){frames.push({cols:data.cols,rows:data.rows});socket.send(app(data.cols,data.rows))}
   })
  })
  await page.goto(`${base}/sessions?agent=${agentA}&session=${sessionA}${query}`)
  const pane=page.locator('.pane')
  await expect(pane).toHaveAttribute('data-connection-state','live')
- return {context,page,errors,tickets,frames,pane,sockets:()=>sockets}
+ return {context,page,errors,tickets,frames,pane,inputs,sockets:()=>sockets}
 }
 const box=async(page,selector)=>page.evaluate(selector=>{const element=document.querySelector(selector);if(!element||!element.getClientRects().length)return null;const r=element.getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:r.height}},selector)
 // The layout has settled: at least the 150 ms send debounce plus a margin has passed, the terminal's drawn grid (rows and
@@ -91,6 +92,57 @@ const visibleRows=page=>page.evaluate(()=>{const screen=document.querySelector('
 const viewportMeta=page=>page.locator('meta[name="viewport"]').getAttribute('content')
 
 try{
+ // Scrolling survives a reattach on desktop, phones and tablets.
+ for(const size of [{width:1360,height:900,touch:false},{width:390,height:844,touch:true},{width:844,height:390,touch:true},{width:820,height:1180,touch:true}]){
+  const f=await open({...size,mouse:true}),p=f.page
+  const earlier=p.getByRole('button',{name:'Earlier output',exact:true})
+  const button=await earlier.boundingBox(),tools=await p.locator('.terminal-toolbar').boundingBox()
+  expect(button.x+button.width).toBeLessThanOrEqual(tools.x+tools.width)
+  const grid=p.locator('.xterm-screen')
+  const wheelInputs=()=>f.inputs.join('').match(/\x1b\[<6[45];/g)?.length||0
+  const swipe=async(points=1,horizontal=false)=>{
+   const b=await grid.boundingBox(),cdp=await f.context.newCDPSession(p)
+   const x=b.x+b.width/2,y=b.y+b.height/3
+   const touches=offset=>Array.from({length:points},(_,i)=>({x:x+i*30+(horizontal?offset:0),y:y+(horizontal?0:offset),id:i+1}))
+   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:touches(0)})
+   for(const offset of [16,40,70])await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:touches(offset)})
+   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]})
+   await cdp.detach()
+  }
+  if(size.touch){
+   await swipe();await expect.poll(wheelInputs).toBeGreaterThan(0)
+   const count=wheelInputs()
+   await swipe(1,true);await swipe(2)
+   expect(wheelInputs()).toBe(count)
+  }else{
+   await grid.hover();await p.mouse.wheel(0,-120)
+   await expect.poll(wheelInputs).toBeGreaterThan(0)
+   expect(f.inputs.join('')).not.toMatch(/\x1b\[[AB]/)
+  }
+  await expect(p.getByRole('region',{name:'Earlier terminal output',exact:true})).toHaveCount(0)
+  await earlier.click()
+  const output=p.getByRole('region',{name:'Scrollable terminal output',exact:true})
+  await expect(output).toContainText('saved output 399')
+  const before=f.inputs.length
+  await output.focus();await output.press('PageUp')
+  expect(f.inputs.length).toBe(before)
+  expect(await output.evaluate(e=>e.scrollHeight>e.clientHeight)).toBe(true)
+  expect(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  await p.getByRole('button',{name:'Back to live ↓',exact:true}).click()
+  await p.reload();await expect(f.pane).toHaveAttribute('data-connection-state','live')
+  expect(f.sockets()).toBe(2)
+  await p.getByRole('button',{name:'Earlier output',exact:true}).click()
+  await expect(output).toContainText('saved output 0')
+  expect(f.errors).toEqual([])
+  await f.context.close()
+ }
+ // Old connectors fall back to history without sending cursor keys to a prompt.
+ const fallback=await open({width:390,height:844,touch:true})
+ await fallback.page.locator('.xterm-screen').dispatchEvent('wheel',{deltaY:-100,bubbles:true,cancelable:true})
+ await expect(fallback.page.getByRole('region',{name:'Scrollable terminal output',exact:true})).toContainText('saved output 399')
+ expect(fallback.inputs).toEqual([])
+ await fallback.context.close()
+
  // ── Phone: 390×844, touch ────────────────────────────────────────────────
  const phone=await open({width:390,height:844,touch:true})
  const {page,frames,tickets,pane}=phone

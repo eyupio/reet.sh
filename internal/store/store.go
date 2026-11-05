@@ -161,6 +161,9 @@ type Store struct {
 	// every write (and every other read) behind it.
 	read *sql.DB
 	dir  string
+	// Prepared statements for hot fixed and repeated query shapes.
+	readStmts  stmtCache
+	writeStmts stmtCache
 
 	// runClaims holds the Project run members a goroutine in this process has
 	// claimed to start. It is deliberately not persisted: after a restart no
@@ -192,6 +195,7 @@ var schemaV12 = []string{
 	`CREATE TABLE IF NOT EXISTS scan_errors (env_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE, error TEXT NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS sync_private_sources (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE, bundle_id TEXT NOT NULL,revision_id TEXT NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(user_id,skill_id))`,
 	hostedSyncSourcesTable,
+	`CREATE TABLE IF NOT EXISTS sync_library (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, origin TEXT NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS sync_policies (target_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE, follow_source INTEGER NOT NULL DEFAULT 0, problem TEXT NOT NULL DEFAULT '')`,
 	`CREATE TABLE IF NOT EXISTS sync_options (target_id TEXT PRIMARY KEY REFERENCES environments(id) ON DELETE CASCADE, mode TEXT NOT NULL DEFAULT 'mirror', baseline TEXT NOT NULL DEFAULT '[]', applied_revision TEXT NOT NULL DEFAULT '')`,
 	`CREATE TABLE IF NOT EXISTS sync_agents (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, host TEXT NOT NULL, secret_hash TEXT NOT NULL, version TEXT NOT NULL, source_commit TEXT NOT NULL DEFAULT '', last_seen INTEGER NOT NULL, paused INTEGER NOT NULL DEFAULT 0, auto_update INTEGER NOT NULL DEFAULT 1, UNIQUE(user_id,host))`,
@@ -466,6 +470,8 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	st.readStmts.setDB(st.read)
+	st.writeStmts.setDB(st.db)
 	return st, nil
 }
 
@@ -482,7 +488,10 @@ func OpenWithoutMigrations(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db, read: read, dir: dir}, nil
+	st := &Store{db: db, read: read, dir: dir}
+	st.readStmts.setDB(read)
+	st.writeStmts.setDB(db)
+	return st, nil
 }
 
 func openDB(dir string) (*sql.DB, error) {
@@ -540,6 +549,8 @@ func ensureColumn(db *sql.DB, name, ddl string) error {
 }
 
 func (s *Store) Close() error {
+	s.readStmts.close()
+	s.writeStmts.close()
 	readErr := s.read.Close()
 	if err := s.db.Close(); err != nil {
 		return err
@@ -588,7 +599,7 @@ func (s *Store) Health(ctx context.Context) (int, error) {
 	}
 	if s.healthCountAt.IsZero() || now.Sub(s.healthCountAt) >= 30*time.Second {
 		var n int
-		if err := s.read.QueryRowContext(ctx, "SELECT COUNT(*) FROM skills").Scan(&n); err != nil {
+		if err := s.readStmts.queryRowContext(ctx, "SELECT COUNT(*) FROM skills").Scan(&n); err != nil {
 			return 0, err
 		}
 		s.healthCount, s.healthCountAt = n, now

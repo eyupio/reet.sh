@@ -18,12 +18,16 @@ layout: article
 
 # Sync skills between machines
 
-A skill that only exists on your laptop is not much use on the VPS. reet.sh keeps a central skill library and sends a reviewed selection to one machine or many.
+A skill that only exists on your laptop is not much use on the VPS. Reet keeps one shared library on your connected machines. Add a machine once; its first complete scan sets up sync. Add a skill or write a private draft; connected machines follow automatically. **Skills → Sync all machines** lets you bring the whole fleet up to date immediately.
+
+The library combines your shelf and your own written skills. Written skills use private immutable revisions, including when they are published, so saving an edit changes the revision machines receive. Machine-only skills are copied privately through their enrolled source machine. Files needing review remain visible in Sync. Offline machines catch up when they reconnect; paused machines remain paused.
+
+Automatic sync covers supported home folders: Shared agents / Codex, Claude, Cursor and OpenCode. Project folders remain explicit. Other local skills are kept, and replacements are backed up. Edit written skills in Reet; a captured machine-only skill is a saved snapshot, not a live filesystem mirror.
 
 This guide covers the explicit preview-and-approve path in **Advanced sync**: scan what is there, choose a source and destinations, preview the exact plan, approve it, and check the result.
 
-!!! note "Sync now and Keep synced are different flows"
-    The simpler **Sync now** flow can automatically approve additive install and replacement plans after you choose the skills and machines. **Keep synced** maintains that selection on later polls. Local remote-apply consent is still required; removals and conflicts need review. Use **Advanced sync** and **Preview on machine** for the deliberate preview-and-approve workflow below. See [Skills and Sync](skills-machines-ux.md) for the current simplified controls.
+!!! note "Shared library is the default"
+    **Sync all machines** enables the shared library on every enrolled machine, including offline machines. The Add a machine command enables local apply as part of connection. Existing scan-only enrollments still need `reet agent allow-apply on` on that machine. For a custom home-folder plan, turn **Automatic sync** off for that machine first; project plans remain explicit. The rest of this guide describes Advanced sync.
 
 ## What sync does and does not do
 

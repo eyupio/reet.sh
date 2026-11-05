@@ -17,6 +17,7 @@ const stamp=()=>Date.now()+(++seq)
 const scope=(host,over={})=>({id:`scope-${host}`,host,name:host,kind:'agent',agent:'agents',project:'',complete:true,scannedAt:stamp(),lastSeen:stamp(),skills:[],skillCount:1,content:{state:'observed',skills:[{name:'demo',complete:true,files:3,bytes:92,digest:'d'.repeat(64)}]},os:'linux',arch:'amd64',version:'dev',...over})
 const connector=(id,host,paused=false)=>({id,host,version:'dev',paused,autoUpdate:false,lastSeen:Date.now()})
 let scopes=[scope('workstation')],agents=[connector('agent-ws','workstation')]
+let syncTargets=[]
 const machinesOf=()=>{const by=new Map();for(const s of scopes)by.set(s.host,[...(by.get(s.host)??[]),s]);return[...by].map(([host,groups])=>({host,groups,skillCount:0,...(aliasesOf[host]?{aliases:aliasesOf[host]}:{})}))}
 const reset=()=>{aliasesOf={};scopes=[scope('workstation')];agents=[connector('agent-ws','workstation')];syncStatus=0;syncHold=null;tokenMode='ok'}
 const TOO_LONG='That name is too long. Use at most 200 bytes; accented letters and emoji take more than one.'
@@ -37,7 +38,7 @@ await page.route('**/api/**',async route=>{
   if(syncHold)await syncHold.promise
   if(syncStatus===401)return route.fulfill({status:401,json:{error:'missing or wrong token'}})
   if(syncStatus)return route.fulfill({status:syncStatus,json:{error:'The machines could not be read right now.'}})
-  data=emptied?{environments:[],machines:[],agents:[],targets:[],jobs:[]}:{environments:scopes,machines:machinesOf(),agents,targets:[],jobs:[]}
+  data=emptied?{environments:[],machines:[],agents:[],targets:[],jobs:[]}:{environments:scopes,machines:machinesOf(),agents,targets:syncTargets,jobs:[]}
  }
  else if(path==='/api/v2/models')data={machines:[{agentId:'agent-ws',host:'workstation',state:'listed',models:[{id:'anthropic/claude-sonnet-4-5',provider:'anthropic'},{id:'openai/gpt-5',provider:'openai'}],more:false,source:'opencode models',version:'',fetchedAt:Date.now()-3*3600000,checkedAt:Date.now()-3*3600000,reason:'',sentence:''}]}
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[]}
@@ -146,11 +147,7 @@ const storageCalls=()=>page.evaluate(()=>window.__storageCalls.length)
 const card=host=>page.locator('article').filter({has:page.getByRole('heading',{name:host,exact:true})})
 const q=s=>"'"+s.replaceAll("'","'\\''")+"'"
 // The block written out in full, from the three existing builders' text, so it is checked against the words and not against the code.
-const block=name=>[
- 'curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh\nexport PATH="$HOME/.local/bin:$PATH"\nreet --version',
- `reet configure --url ${q(SITE)} --version latest`,
- `reet agent enroll --server ${q(SITE)} --env ${q(name)}\nreet agent run`,
-].join('\n\n')
+const block=name=>`curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh -s -- --server ${q(SITE)} --name ${q(name)}`
 
 // Whitespace counts: the blank lines between the three parts are part of what is pasted.
 const commandsAre=async(p,name)=>{await expect.poll(()=>p.commands.textContent()).toBe(block(name))}
@@ -998,6 +995,26 @@ try{
   await quiet()
  }
  await page.emulateMedia({colorScheme:'light'});await page.setViewportSize({width:1360,height:1000})
+
+ // A new shared-library enrollment must finish sync before the dialog says Ready.
+ {
+  const d=await open(),p=parts(d)
+  await p.name.fill('library-machine')
+  agents.push({...connector('library-agent','library-machine'),keepSynced:true})
+  const folder=scope('library-machine')
+  scopes.push(folder)
+  syncTargets=[{target:folder,sourceId:'library',revision:'library-revision',desired:[{id:'demo'}],missing:[{id:'demo'}],extra:[],mode:'additive'}]
+  await expect(p.status).toContainText('Syncing your skill library')
+  await expect(p.anyUse).toHaveCount(0)
+  syncTargets[0].problem='The source machine must reconnect to copy this skill.'
+  await expect(p.status).toContainText('Sync needs attention')
+  await expect(d.getByRole('link',{name:'Open sync activity'})).toBeVisible()
+  syncTargets[0].problem=''
+  syncTargets[0].missing=[]
+  await expect(p.status).toContainText('Ready · library in sync')
+  await p.use('library-machine').click()
+  syncTargets=[]
+ }
 
  // Nothing was written to browser storage.
  expect(await storageCalls()).toBe(callsBefore)

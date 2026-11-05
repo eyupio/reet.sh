@@ -2,6 +2,15 @@
 
 package acpagent
 
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
 // Cline is the launch profile for Cline's built-in ACP mode (Cline CLI 3.0.74,
 // measured 5 November 2026 with `cline --acp`; see
 // docs/research/cline-acp-probe.md).
@@ -45,4 +54,83 @@ var Cline = Spec{
 	// Only the credential the CLI was verified to read. Provider redirects and
 	// other agents' keys are never inherited.
 	EnvAllowlist: []string{"CLINE_API_KEY"},
+	// A provider failure that never reaches ACP is written to Cline's own log
+	// under CLINE_DIR, so the reason can be shown instead of a silent turn.
+	RecoverError: clineLogError,
+	RecoverLive:  clineLogError,
+}
+
+// clineLogError recovers the provider error Cline logged for a turn it ended
+// without an ACP message. Cline writes newline-delimited JSON under
+// <CLINE_DIR>/data/logs/cline.log: level 50 is an error, and a failed turn
+// carries the session id and err.message. Only lines after the turn started are
+// considered, and only that session's, so another chat's failure is never shown.
+func clineLogError(root, sessionID string, afterMS int64) string {
+	if root == "" || sessionID == "" {
+		return ""
+	}
+	return clineLogErrorAt(filepath.Join(root, "data", "logs", "cline.log"), sessionID, afterMS)
+}
+
+// clineLogTail bounds the log read: a turn's failure is written at its end.
+const clineLogTail = 1 << 20
+
+func clineLogErrorAt(path, sessionID string, afterMS int64) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	start := info.Size() - clineLogTail
+	if start < 0 {
+		start = 0
+	}
+	data := make([]byte, info.Size()-start)
+	n, _ := file.ReadAt(data, start)
+	data = data[:n]
+	if start > 0 {
+		lineEnd := bytes.IndexByte(data, '\n')
+		if lineEnd < 0 {
+			return ""
+		}
+		data = data[lineEnd+1:]
+	}
+	newest := int64(0)
+	message := ""
+	for _, line := range bytes.Split(data, []byte{'\n'}) {
+		var entry struct {
+			Level     int    `json:"level"`
+			Time      string `json:"time"`
+			SessionID string `json:"sessionId"`
+			Message   string `json:"message"`
+			Err       struct {
+				Message string `json:"message"`
+			} `json:"err"`
+		}
+		if json.Unmarshal(line, &entry) != nil || entry.Level < 50 || entry.SessionID != sessionID {
+			continue
+		}
+		text := strings.TrimSpace(entry.Err.Message)
+		if text == "" {
+			text = strings.TrimSpace(entry.Message)
+		}
+		if text == "" {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339Nano, entry.Time)
+		if err != nil || at.UnixMilli() < afterMS {
+			continue
+		}
+		if ms := at.UnixMilli(); message == "" || ms >= newest {
+			newest, message = ms, text
+		}
+	}
+	if len(message) > 500 {
+		message = cutUTF8(message, 500)
+	}
+	return message
 }

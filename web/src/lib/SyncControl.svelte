@@ -523,6 +523,7 @@
 
 
 {#if view === 'compare'}
+<SyncSetup {snapshot} {canWrite} {onupdate} />
 {#if activity.total || location.hash === '#sync-jobs'}
 <section id="sync-jobs" class="activity" aria-labelledby="sync-jobs-title">
   <header class="activity-head">
@@ -564,11 +565,11 @@
   {/if}
 </section>
 {/if}
-<SyncSetup {snapshot} {canWrite} {onupdate} />
+{#if snapshot.agents?.length}
 <details class="advanced-selection"><summary>Advanced sync · lists, reference machines &amp; removal rules</summary>
 <section id="sync-selection" class="control" aria-labelledby="selection-title">
   <h2 id="selection-title">Choose what to sync</h2>
-  <p>Choose skills from your shelf, a list, or another machine. Compare, save a sync plan, then preview and approve changes.</p>
+  <p>Use a custom plan for project folders, or turn Automatic sync off above to manage a machine manually. Home folders with automatic sync follow your shared library.</p>
   <div class="pickers">
     <label>Source<select aria-label="Source" bind:value={source} onchange={loadSource} disabled={busy}><option value="shelf">Shelf &amp; lists</option><option value="hosted">My written skills</option>{#each fleet as m (m.host)}<optgroup label={m.host}>{#each agentGroups(m) as g (g.id)}<option value={g.id}>{groupLabel(g)}</option>{/each}</optgroup>{/each}</select></label>
     {#if source === 'shelf'}<label>List<select aria-label="List" bind:value={listId} onchange={loadSource} disabled={busy}><option value={0}>My shelf</option>{#each lists as list}<option value={list.id}>{list.name}</option>{/each}</select></label>{/if}
@@ -716,6 +717,7 @@
 <!-- Fleet-wide actions belong beside the activity they create, not between the person and the task. -->
 <FleetActions {snapshot} {canWrite} {onupdate} />
 </details>
+{/if}
 
 
 

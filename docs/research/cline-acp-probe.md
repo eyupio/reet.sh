@@ -86,9 +86,12 @@ first prompt.
 
 One turn used a provider whose balance was empty. Cline wrote the provider error
 into its own message store as a display-only error and ended the turn with no
-`agent_message_chunk`, so nothing reached the client. reet therefore shows a
-finished turn with no reply. This is a known limit: Cline has no log mirror like
-OpenCode's for reet to read the reason from.
+`agent_message_chunk`, so nothing reached the client. Cline also logs the failure
+to `CLINE_DIR/data/logs/cline.log` as a JSON line with `level` 50, the session
+id, `err.message` and `msg` `Interactive turn failed`; a failed stream adds
+`[ai-sdk] provider error` with the provider id. reet reads the newest of those
+lines for this chat after the turn started, so the turn now ends with the reason
+instead of no reply. The message store itself is still display-only and not read.
 
 ## What this does not establish
 

@@ -690,17 +690,22 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 			now := time.Now()
 			s.mu.Lock()
 			start, started := s.toolStart[u.ToolCallID]
-			if !started {
+			status := u.Status
+			if status == "" {
+				// Output-only updates must not reopen an already finished tool.
+				status = s.tools[u.ToolCallID]
+			}
+			final := status == "completed" || status == "failed" || status == "cancelled"
+			if !started && !final {
 				s.toolStart[u.ToolCallID] = now
 			}
-			final := u.Status == "completed" || u.Status == "failed" || u.Status == "cancelled"
 			if final {
 				if started {
 					durationMs = now.Sub(start).Milliseconds()
 				}
 				delete(s.toolStart, u.ToolCallID)
 			}
-			s.tools[u.ToolCallID] = u.Status
+			s.tools[u.ToolCallID] = status
 			s.mu.Unlock()
 		}
 		text := toolText(u.Content)
@@ -1322,13 +1327,26 @@ func (s *Session) cancelCards() {
 	}
 }
 
+// recoverRoot is where this adapter keeps its own logs and store: the person's
+// login folder when the profile routes one (Cline's ~/.cline), otherwise the
+// private chat home.
+func (s *Session) recoverRoot() string {
+	if s.opts.Agent.LoginHomeEnv == "" {
+		return s.opts.Home
+	}
+	if root, err := loginHome(s.opts.Agent, s.opts.BaseEnv); err == nil {
+		return root
+	}
+	return ""
+}
+
 // recoverLive asks the adapter for an error it logged while the turn has been
 // silent. It returns "" when the adapter has no live source or the log is quiet.
 func (s *Session) recoverLive(acpID string, afterMS int64) string {
 	if s.opts.Agent.RecoverLive == nil {
 		return ""
 	}
-	return s.opts.Agent.RecoverLive(s.opts.Home, acpID, afterMS)
+	return s.opts.Agent.RecoverLive(s.recoverRoot(), acpID, afterMS)
 }
 
 // reportTurnError ends a turn whose provider failed without ACP reporting it.
@@ -1481,10 +1499,12 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 				warnNow, recoverNow := false, false
 				s.mu.Lock()
 				quiet := quietNow.Sub(s.lastEvent)
-				pending := len(s.pending) > 0
+				// ACP tools need not stream output while they run. Their silence
+				// is not a stalled provider; the hard deadline still bounds them.
+				waiting := len(s.pending) > 0 || len(s.toolStart) > 0
 				progress := s.turnProgress
 				s.mu.Unlock()
-				if !pending && quiet >= s.opts.stillWorkingAfter() {
+				if !waiting && quiet >= s.opts.stillWorkingAfter() {
 					if !s.warned {
 						s.warned = true
 						warnNow = true
@@ -1494,7 +1514,7 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 						recoverNow = true
 					}
 				}
-				timedOut := elapsed >= s.opts.maxTurn() || (!pending && quiet >= s.opts.turnTimeout())
+				timedOut := elapsed >= s.opts.maxTurn() || (!waiting && quiet >= s.opts.turnTimeout())
 				s.turnMu.Unlock()
 				if recoverNow {
 					if message := s.recoverLive(acpID, startedAt.UnixMilli()); message != "" {
@@ -1590,7 +1610,7 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		progress := s.turnProgress
 		s.mu.Unlock()
 		if !progress && s.opts.Agent.RecoverError != nil {
-			if message := s.opts.Agent.RecoverError(s.opts.Home, acpID, startedAt.UnixMilli()); message != "" {
+			if message := s.opts.Agent.RecoverError(s.recoverRoot(), acpID, startedAt.UnixMilli()); message != "" {
 				s.emit(Event{Kind: "status", State: "error", Detail: safeRPCText(message)})
 				return nil
 			}

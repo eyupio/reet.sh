@@ -80,6 +80,7 @@ type Hub struct {
 	closed  bool
 	done    chan struct{}
 	prune   sync.Once
+	pruner  sync.WaitGroup
 	probes  sync.WaitGroup
 	writers sync.WaitGroup
 }
@@ -188,7 +189,15 @@ func (h *Hub) startPrune() {
 		return
 	}
 	h.prune.Do(func() {
+		h.mu.Lock()
+		if h.closed {
+			h.mu.Unlock()
+			return
+		}
+		h.pruner.Add(1)
+		h.mu.Unlock()
 		go func() {
+			defer h.pruner.Done()
 			if err := h.st.PruneRemoteHealth(); err != nil {
 				h.logf("health summary pruning failed")
 			}
@@ -227,6 +236,7 @@ func (h *Hub) Close() {
 	for _, c := range conns {
 		c.Close()
 	}
+	h.pruner.Wait()
 	h.probes.Wait()
 	h.writers.Wait()
 }

@@ -53,7 +53,7 @@
   let channelTouched = $state(false)
   // svelte-ignore state_referenced_locally
   let profileName = $state(profiles[0]?.name ?? '')
-  let allowApply = $state(false)
+  let allowApply = $state(true)
   let checking = $state(false)
   let terminalError = $state('')
   let terminalHosts = $state<TerminalMachine[]>([])
@@ -81,7 +81,7 @@
   const revision = $derived(selectedProfile?.revision ?? 1)
   const name = $derived(host.trim() || 'my-machine')
   const install = $derived(installCommands(channel))
-  const configure = $derived(configureCommand(site))
+  const configure = $derived(configureCommand(site, channel))
   const scan = $derived(scanCommand(site, name))
   const enroll = $derived(enrollCommands(site, name, allowApply))
   const pull = $derived(selectedProfile ? profilePullCommand(site, selectedProfile.name) : '')
@@ -434,7 +434,7 @@
             {/if}
           </div>
         {/if}
-        <label class="check"><input type="checkbox" bind:checked={allowApply} /> Allow this machine to apply sync plans I approve here</label>
+        <label class="check"><input type="checkbox" bind:checked={allowApply} /> Keep my shared skill library synced on this machine</label>
         <div class="command">
           <div class="command-copy"><span>Enroll and connect</span><CopyButton text={enroll} label="Copy enrollment command" compact /></div>
           <pre>{enroll}</pre>

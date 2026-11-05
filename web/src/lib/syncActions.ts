@@ -1,4 +1,4 @@
-import { getSyncState, queueSyncJob, saveDesired, startSyncRun, syncCandidates, type Skill, type SyncSkill, type SyncState } from './api'
+import { getSyncState, queueSyncJob, saveDesired, startSyncRun, syncCandidates, syncLibraryMachine, type Skill, type SyncSkill, type SyncState } from './api'
 import { agentOnline } from './machines'
 import { fallbackInstallTarget, foldHost, pickSyncCandidate, savedInstallTargets } from './syncOverview'
 
@@ -17,7 +17,7 @@ async function candidatesFor(sourceId: string, state: SyncState, cache: Map<stri
   const key = sourceId || 'shelf'
   if (!cache.has(key)) {
     cache.set(key, (async () => {
-      if (sourceId === 'hosted') return (await syncCandidates(0, 'hosted')).skills
+      if (sourceId === 'hosted' || sourceId === 'library') return (await syncCandidates(0, sourceId)).skills
       const list = /^list:(\d+)$/.exec(sourceId)
       if (list) return (await syncCandidates(Number(list[1]), 'shelf')).skills
       if (sourceId && sourceId !== 'shelf') {
@@ -41,6 +41,11 @@ export async function installSkillOnMachine(skill: Pick<Skill, 'id' | 'slug' | '
   const cache = new Map<string, Promise<SyncSkill[]>>()
   const shelf = await candidatesFor('shelf', state, cache)
   if (!pickSyncCandidate(shelf, skill)) throw new MachineSourceRequired(`${skill.name} needs a copy from a machine that has it.`)
+
+  if (agent.keepSynced) {
+    const next = await syncLibraryMachine(agent.id)
+    return { state: next, host: machine.host, targets: next.targets.filter(target => foldHost(target.target.host) === foldHost(host)).length, createdScope: false }
+  }
 
   let next = state
   const targetIds: string[] = []

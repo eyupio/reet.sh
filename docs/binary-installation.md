@@ -40,6 +40,35 @@ reet scan --server https://your-reet-instance.example --token "$REET_TOKEN" --en
 
 ## Connect an enrolled scanner
 
+For the normal shared-library workflow, open **Machines → Add a machine** and
+copy its command. You can also connect directly:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh -s -- --server 'https://your-reet-instance.example' --name 'my-laptop'
+```
+
+This verifies and installs the binary, saves the connection, asks for the machine
+token privately, enables skill sync and installs the native sync service. It
+creates a shared skills folder on a blank machine. The first scan sets up the
+library automatically, including private drafts you wrote. New skills and edits
+to written skills follow on agent polls. No browser needs to remain open.
+
+The sync service needs neither tmux nor shell access. Terminal setup is separate:
+run `reet agent terminal setup` when you want it. `reet agent service install
+--sync-only` installs just monitoring and skill sync. On Linux, a user service
+starts at login; keeping it running after logout or before login may require an
+administrator to enable user lingering. macOS uses a LaunchAgent for the logged-in
+user. The installer prints this guidance.
+
+If a native manager is unavailable, the installer starts a background agent and
+explains that `reet agent run` is needed after login or reboot. Re-running the
+connection command reuses an enrollment only for the same site and machine.
+Changing sites or names requires inspecting the existing enrollment explicitly.
+Add `--version dev` to the installer command to use the development channel.
+
+The new connection flags require a binary release containing this workflow.
+Publish the matching binary before making the updated installer the default.
+
 Use `reet agent enroll --server https://reet.sh --env NAME` with your personal `REET_TOKEN`, then `reet agent run`. Add `--allow-apply` during enrollment to enable plans approved in the web UI (changed later with `reet agent allow-apply on` on that machine), and `--project /absolute/path` for tracked project scopes. See [controller sync](controller-sync.md) for private configuration, controls and recovery.
 
 ## Run the web UI

@@ -979,3 +979,64 @@ func TestStartPromptRefusesAfterSupervisorClose(t *testing.T) {
 		t.Fatal("startPrompt marked the session busy after Close")
 	}
 }
+
+// ended decides whether to announce an exit from link.live, which every writer
+// changes under the supervisor's lock. It used to read it after releasing that
+// lock, so a link going not-live (a reconnect, a shutdown) while a chat exited
+// was a data race. It surfaced in CI as an intermittent failure of an unrelated
+// test, and only the race detector can see it.
+func TestEndedReadsTheLinkUnderTheSupervisorLock(t *testing.T) {
+	sup := newChatSupervisor(t.Context(), terminalhost.ManagerOptions{Home: t.TempDir()})
+	link := &chatLink{generation: 1, send: func(context.Context, terminalproto.Message) error { return nil }, live: true}
+	sup.mu.Lock()
+	sup.link = link
+	sup.mu.Unlock()
+
+	stop := make(chan struct{})
+	var flipper sync.WaitGroup
+	flipper.Add(1)
+	go func() {
+		defer flipper.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			sup.mu.Lock()
+			link.live = !link.live
+			sup.mu.Unlock()
+		}
+	}()
+	for i := 0; i < 500; i++ {
+		sup.ended(&chatSession{id: "session-0123456789", state: terminalproto.Running}, 0)
+	}
+	close(stop)
+	flipper.Wait()
+}
+
+func TestSupervisorCloseCancelsItsContext(t *testing.T) {
+	sup := newChatSupervisor(t.Context(), terminalhost.ManagerOptions{Home: t.TempDir()})
+	sup.Close()
+	select {
+	case <-sup.ctx.Done():
+	default:
+		t.Fatal("Close did not cancel the supervisor context")
+	}
+}
+
+func TestChatControlsRefuseAfterSupervisorClose(t *testing.T) {
+	sup := newChatSupervisor(t.Context(), terminalhost.ManagerOptions{Home: t.TempDir()})
+	const id = "session-0123456789"
+	sup.mu.Lock()
+	sup.sessions[id] = &chatSession{id: id, state: terminalproto.Running}
+	sup.mu.Unlock()
+	h := &chatHost{sup: sup, link: &chatLink{}}
+	sup.Close()
+	if err := h.setModel(t.Context(), id, "provider/model"); !errors.Is(err, terminalhost.ErrManagerClosed) {
+		t.Fatalf("setModel after close: %v", err)
+	}
+	if err := h.setAgentMode(t.Context(), id, "mode"); !errors.Is(err, terminalhost.ErrManagerClosed) {
+		t.Fatalf("setAgentMode after close: %v", err)
+	}
+}

@@ -36,6 +36,7 @@ func TestInstallRelease(t *testing.T) {
 		omitVersion                          bool
 		badVersion, cannotRun                bool
 		immutable                            bool
+		connect, failConnect, fallback       bool
 	}{
 		{name: "environment dev", system: "Linux", arch: "x86_64", envVersion: "dev", omitVersion: true},
 		{name: "environment stable", system: "Linux", arch: "x86_64", envVersion: "latest", omitVersion: true},
@@ -49,6 +50,10 @@ func TestInstallRelease(t *testing.T) {
 		{name: "binary cannot run preserves old binary", system: "Linux", arch: "x86_64", version: "v9.8.7", cannotRun: true, problem: "cannot run"},
 		{name: "immutable dev", system: "Linux", arch: "x86_64", version: "dev", immutable: true},
 		{name: "rolling dev", system: "Linux", arch: "x86_64", version: "dev"},
+		{name: "connect and sync stable", system: "Linux", arch: "x86_64", version: "latest", connect: true},
+		{name: "connect and sync dev", system: "Linux", arch: "x86_64", version: "dev", connect: true},
+		{name: "connect without native services", system: "Linux", arch: "x86_64", version: "latest", connect: true, fallback: true},
+		{name: "connection failure stops enrollment", system: "Linux", arch: "x86_64", version: "latest", connect: true, failConnect: true},
 		{name: "linux latest", system: "Linux", arch: "x86_64", version: "latest"},
 		{name: "linux arm64", system: "Linux", arch: "aarch64", version: "9.8.7"},
 		{name: "macOS arm64", system: "Darwin", arch: "arm64", version: "v9.8.7"},
@@ -113,6 +118,9 @@ esac
 				fixtureCommit = strings.Repeat("a", 40)
 			}
 			binary := []byte(fmt.Sprintf("#!/bin/sh\nprintf 'reet %s (%s)\\n'\n", fixtureVersion, fixtureCommit))
+			if tc.connect {
+				binary = []byte(fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = --version ]; then printf 'reet %s (%s)\\n'; exit; fi\nprintf '<%%s>' \"$@\" >> \"$REET_FIXTURE/commands\"\nprintf '\\n' >> \"$REET_FIXTURE/commands\"\nif [ \"${REET_CONNECT_FAIL:-}\" = \"$1\" ] || { [ \"${REET_SERVICE_FAIL:-}\" = true ] && [ \"${2:-}\" = service ]; }; then exit 17; fi\n", fixtureVersion, fixtureCommit))
+			}
 			if tc.cannotRun {
 				binary = []byte("#!/bin/sh\nexit 1\n")
 			}
@@ -171,12 +179,44 @@ esac
 			if !tc.omitVersion {
 				args = append(args, "--version", tc.version)
 			}
+			machineName := "Sam's laptop $(printf ignored)"
+			if tc.connect {
+				args = append(args, "--server", "https://reet.example", "--name", machineName)
+			}
 			cmd := exec.Command("sh", args...)
 			cmd.Env = append(os.Environ(), "PATH="+mockBin+string(os.PathListSeparator)+os.Getenv("PATH"), "REET_FIXTURE="+root, "REET_VERSION="+tc.envVersion, fmt.Sprintf("REET_IMMUTABLE_FIXTURE=%t", tc.immutable))
+			if tc.failConnect {
+				cmd.Env = append(cmd.Env, "REET_CONNECT_FAIL=configure")
+			}
+			if tc.fallback {
+				cmd.Env = append(cmd.Env, "REET_SERVICE_FAIL=true")
+			}
 			output, installErr := cmd.CombinedOutput()
 			installed, err := os.ReadFile(filepath.Join(installDir, "reet"))
 			if err != nil {
 				t.Fatal(err)
+			}
+			if tc.connect {
+				commands, err := os.ReadFile(filepath.Join(root, "commands"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := "<configure><--url><https://reet.example><--version><" + tc.version + ">\n"
+				if !tc.failConnect {
+					want += "<agent><enroll><--server><https://reet.example><--env><" + machineName + "><--allow-apply><--if-needed><--skip-terminal-setup>\n<agent><service><install><--sync-only>\n"
+				}
+				if tc.fallback {
+					want += "<agent><restart>\n"
+				}
+				if string(commands) != want {
+					t.Fatalf("connection arguments changed: %q", commands)
+				}
+				if tc.failConnect {
+					if installErr == nil || !bytes.Equal(installed, binary) {
+						t.Fatal("connection failure did not stop after verified installation", installErr)
+					}
+					return
+				}
 			}
 			if tc.problem != "" {
 				if installErr == nil || !strings.Contains(string(output), tc.problem) {

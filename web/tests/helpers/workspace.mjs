@@ -30,6 +30,7 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/tags')return json({tags:[]})
   if(path==='/api/v2/lists')return json({lists:[],linkEnabled:false})
   if(path==='/api/v2/sync')return json(sync)
+  if(path==='/api/v2/sync/candidates')return json({skills})
   if(path==='/api/v2/setup/profiles')return json({profiles:[]})
   if(path==='/api/v2/hosting')return json(hosting)
   if(path==='/api/v2/skill-imports')return json({requests:[],capabilities:[]})

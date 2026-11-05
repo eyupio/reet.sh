@@ -17,6 +17,9 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 	if !enabled || role == "viewer" {
 		return nil
 	}
+	if err := s.prepareLibraryTargets(uid, role, agent, false); err != nil {
+		return err
+	}
 	targets, err := s.SyncTargetsFor(uid)
 	if err != nil {
 		return err
@@ -32,6 +35,8 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 	if err != nil {
 		return err
 	}
+	var libraryCandidates []SyncSkill
+	libraryRead := false
 	for _, target := range targets {
 		if !strings.EqualFold(target.Target.Host, agent.Host) {
 			continue
@@ -55,7 +60,16 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 		if target.FollowSource {
 			in := DesiredSelection{TargetID: target.Target.ID, SourceID: target.SourceID, Mode: target.Mode, Revision: target.Revision, FollowSource: true}
 			var candidates []SyncSkill
-			if target.SourceID == "shelf" {
+			if target.SourceID == "library" {
+				if !libraryRead {
+					libraryCandidates, err = s.SyncLibraryFor(uid, role)
+					libraryRead = err == nil
+				}
+				candidates = libraryCandidates
+				if libraryRead {
+					err = nil
+				}
+			} else if target.SourceID == "shelf" {
 				candidates, err = s.SyncCandidatesFor(uid, role, 0)
 			} else if strings.HasPrefix(target.SourceID, "list:") {
 				in.SourceID = "shelf"
@@ -85,14 +99,22 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 			// the durable transfer queues this destination when the bytes arrive.
 			preparing := false
 			for _, sk := range candidates {
-				shelfSource := target.SourceID == "shelf"
+				shelfSource := target.SourceID == "shelf" || target.SourceID == "library"
 				customSource := sk.Source != "" && sk.SourceType != "local"
-				if !shelfSource || customSource {
+				if !shelfSource || customSource || sk.Problem != "" {
 					continue
 				}
 				preparing = true
 				key := "follow_" + secretHash(target.Target.ID+"\x00"+sk.ID)
-				_, e := s.RequestMachineSkillSync(uid, sk.ID, agent.Host, "", key, target.Target.ID, target.SourceID == "shelf")
+				if target.SourceID == "library" {
+					// One private capture can serve the whole fleet. Other folders
+					// pick up its immutable source on their next poll.
+					key = "library_" + secretHash(sk.ID)
+				}
+				request, e := s.RequestMachineSkillSync(uid, sk.ID, agent.Host, "", key, target.Target.ID, true)
+				if e == nil && (request.State == "failed" || request.State == "expired" || request.State == "cancelled") {
+					e = fmt.Errorf("private copy %s: %s; use Sync all machines to retry", request.State, request.Error)
+				}
 				if e != nil {
 					if e = problem("Connect and update the source machine to copy " + sk.Name + ". " + e.Error()); e != nil {
 						return e
@@ -104,15 +126,12 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 			if preparing {
 				continue
 			}
-			ids := func(skills []SyncSkill) []string {
-				out := []string{}
-				for _, sk := range skills {
-					out = append(out, sk.ID)
-				}
-				slices.Sort(out)
+			ordered := func(skills []SyncSkill) []SyncSkill {
+				out := slices.Clone(skills)
+				slices.SortFunc(out, func(a, b SyncSkill) int { return strings.Compare(a.ID, b.ID) })
 				return out
 			}
-			if !slices.Equal(ids(candidates), ids(target.Desired)) {
+			if !slices.Equal(ordered(candidates), ordered(target.Desired)) {
 				if err = s.SaveDesiredFor(uid, role, in); err != nil {
 					if e := problem("Sync selection needs attention: " + err.Error()); e != nil {
 						return e

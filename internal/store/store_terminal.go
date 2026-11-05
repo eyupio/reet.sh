@@ -423,7 +423,7 @@ func (s *Store) TerminalSessionFor(uid int64, sessionID string) (TerminalSession
 	return t, nil
 }
 func (s *Store) TerminalSessionsFor(uid int64) ([]TerminalSession, error) {
-	rows, err := s.db.Query(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE user_id=? AND NOT EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id) AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer') ORDER BY state IN ('creating','running','end_requested') DESC,updated_at DESC,id LIMIT 100`, uid, uid)
+	rows, err := s.readStmts.query(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE user_id=? AND NOT EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id) AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer') ORDER BY state IN ('creating','running','end_requested') DESC,updated_at DESC,id LIMIT 100`, uid, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -464,7 +464,7 @@ func (s *Store) terminalSeenFor(uid int64, sessions []TerminalSession) (map[stri
 	for _, session := range sessions {
 		args = append(args, session.ID)
 	}
-	rows, err := s.read.Query(`SELECT session_id,seen_at FROM terminal_session_seen WHERE user_id=? AND session_id IN (`+placeholders(len(sessions))+`)`, args...)
+	rows, err := s.readStmts.query(`SELECT session_id,seen_at FROM terminal_session_seen WHERE user_id=? AND session_id IN (`+placeholders(len(sessions))+`)`, args...)
 	if err != nil {
 		return nil, err
 	}

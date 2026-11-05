@@ -63,6 +63,9 @@ type server struct {
 	queue          chan ref.Ref
 	stop           chan struct{}
 	stopOnce       sync.Once
+	ctx            context.Context
+	cancel         context.CancelFunc
+	workers        sync.WaitGroup
 	backups        *backup.Service
 	mail           *mail.Mailer
 	notify         *notify.Service
@@ -271,8 +274,14 @@ func (s *Server) Close() error {
 		return nil
 	}
 	if s.s.stop != nil {
-		s.s.stopOnce.Do(func() { close(s.s.stop) })
+		s.s.stopOnce.Do(func() {
+			close(s.s.stop)
+			if s.s.cancel != nil {
+				s.s.cancel()
+			}
+		})
 	}
+	s.s.workers.Wait()
 	if s.s.healthHub != nil {
 		s.s.healthHub.Close()
 	}
@@ -299,6 +308,7 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) *Server 
 
 func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *server {
 	dummy, _ := auth.HashPassword("not-a-real-password")
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
 		st: st, f: f, token: token, version: "dev", commit: "unknown",
 		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
@@ -306,6 +316,8 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		folderWrites: auth.NewLimiter(folderProjectWriteLimit, time.Minute),
 		queue:        make(chan ref.Ref, 256),
 		stop:         make(chan struct{}),
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -317,15 +329,19 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 			}
 		}
 	}
-	go s.worker()
+	s.workers.Add(1)
+	go func() { defer s.workers.Done(); s.worker() }()
 	if s.topics {
-		go s.topicWorker()
+		s.workers.Add(1)
+		go func() { defer s.workers.Done(); s.topicWorker() }()
 	}
 	if s.refreshJob {
-		go s.refreshWorker()
+		s.workers.Add(1)
+		go func() { defer s.workers.Done(); s.refreshWorker() }()
 	}
 	if s.maintenanceJob {
-		go s.maintenanceWorker()
+		s.workers.Add(1)
+		go func() { defer s.workers.Done(); s.maintenanceWorker() }()
 	}
 	s.healthHub = agenthealth.NewHub(agenthealth.HubConfig{Store: st, Logf: func(format string, args ...any) {
 		log.Printf("machine health: "+format, args...)
@@ -800,13 +816,22 @@ func (s *server) worker() {
 	}
 }
 
+// baseContext is the server's lifetime context. Test servers built as a bare
+// literal have none, so they fall back to Background.
+func (s *server) baseContext() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return context.Background()
+}
+
 func (s *server) fetchInto(r ref.Ref) bool {
 	if r.SourceType == "hosted" {
 		_, username, _ := strings.Cut(r.Source, "/")
 		sk, err := s.st.PublishedHostedSkill(username, r.Slug)
 		return err == nil && s.st.SetMeta(r.ID, sk.Slug, sk.Description, 0, 0, nil) == nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(s.baseContext(), 10*time.Second)
 	defer cancel()
 	m := s.f.Fetch(ctx, r)
 	if m.Empty() {
@@ -857,7 +882,7 @@ func (s *server) syncTopics() {
 	if v, _ := s.st.GetSetting("topics_enabled"); v == "0" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(s.baseContext(), 90*time.Second)
 	defer cancel()
 	topics, err := s.f.Topics(ctx)
 	if err != nil {
@@ -917,6 +942,9 @@ func (s *server) refreshBatch() {
 	}
 	failures := 0
 	for _, id := range ids {
+		if s.ctx != nil && s.ctx.Err() != nil {
+			return
+		}
 		rf, err := ref.Parse(id)
 		if err != nil {
 			continue
@@ -930,11 +958,27 @@ func (s *server) refreshBatch() {
 				if s.debug {
 					log.Printf("refresh backing off after %d failures", failures)
 				}
-				time.Sleep(time.Hour)
+				if !s.wait(time.Hour) {
+					return
+				}
 				failures = 0
 			}
 		}
-		time.Sleep(2 * time.Second)
+		if !s.wait(2 * time.Second) {
+			return
+		}
+	}
+}
+
+// wait sleeps for d, or returns false when the server stops.
+func (s *server) wait(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-s.stop:
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
@@ -1335,6 +1379,33 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 	}
 	var rf ref.Ref
 	local := false
+	privateWritten, privatePublished := false, false
+	if source == "" && item.Host != "" && item.Agent != "" {
+		wanted, ok, err := s.st.PrivateSyncIdentityFor(userID, item.Host, item.Agent, item.Project, name)
+		if err != nil {
+			return "", false, false, err
+		}
+		if ok && strings.HasPrefix(wanted.ID, "hosted/") {
+			username, err := s.st.PublishingUsername(userID)
+			if err != nil {
+				return "", false, false, err
+			}
+			// Ownership and the saved private target authorize this identity;
+			// the public-input parser deliberately rejects unpublished drafts.
+			candidate, err := ref.ParseAt(requestOrigin(request)+"/"+username+"/"+name, request.Host)
+			if err == nil && candidate.ID == wanted.ID {
+				written, err := s.st.HostedSkillsFor(userID)
+				if err != nil {
+					return "", false, false, err
+				}
+				for _, skill := range written {
+					if skill.Slug == name {
+						rf, privateWritten, privatePublished = candidate, true, skill.Published
+					}
+				}
+			}
+		}
+	}
 	if strings.Contains(source, "://") {
 		if parsed, err := s.parseSkillInput(request, strings.TrimRight(source, "/")+"/"+name); err == nil && parsed.SourceType == "hosted" {
 			rf = parsed
@@ -1381,7 +1452,11 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 	if err != nil {
 		return id, false, false, err
 	}
-	if !local {
+	if privateWritten {
+		if err = s.st.SetHostedSkillVisible(sk.ID, privatePublished); err != nil {
+			return id, false, false, err
+		}
+	} else if !local {
 		s.enqueue(rf)
 	}
 	if item.Host != "" && item.Agent != "" {

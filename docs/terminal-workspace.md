@@ -532,7 +532,18 @@ terminal connection and display an update prompt until upgraded and restarted.
 
 ### Scrollback and viewing layouts
 
-**Scrollback** (or Shift+PageUp while the terminal has focus) opens earlier output
+Scroll directly in a terminal or agent TUI with a mouse wheel, trackpad, or a
+vertical one-finger swipe on a phone or tablet. Tmux forwards scrolling to a
+mouse-aware app so its own conversation history remains available when you
+return to the session. For shells and apps without mouse support, tmux opens its
+retained scrollback (up to 5,000 lines); scroll back to the bottom or press Escape
+to leave tmux's copy mode.
+Hold Shift while dragging to select terminal text when mouse reporting is active,
+or use Select text for native selection on touch devices. Taps, horizontal drags
+and two-finger pinch zoom are not converted into terminal scrolling. Scrolling
+while disconnected sends nothing and is never replayed.
+
+**Earlier output**, at the start of the toolbar (or Shift+PageUp while the terminal has focus), opens earlier output
 inside the terminal panel. It reads the machine's most recent 2,000 lines / 256 KiB
 using the existing bounded output-history API. Scroll vertically/horizontally,
 select text, use Page Up/Down, or search and move between literal matches. It is a
@@ -540,9 +551,13 @@ read-only snapshot; Refresh obtains newer output, and Back to live returns input
 focus to the same running shell. Its header's **Copy all** copies the snapshot it
 is showing without saving it. Nothing is saved in browser storage. The live
 xterm stays mounted and receives redraws behind the reader; no keystrokes from
-reading/search are forwarded. Scrolling an interactive app such as `top` remains
-under that app's control. Tmux's alternate-screen rendering means a browser-only
-xterm scrollbar cannot expose its machine-side history.
+reading/search are forwarded. An older connector without mouse reporting opens
+this reader when you scroll upward, rather than sending cursor keys to the shell.
+Full-screen apps can keep conversation history inside the app; this snapshot
+contains only the output tmux retained. Use direct scrolling for the app's own
+history. Tmux's alternate-screen rendering means a browser-only xterm scrollbar
+cannot expose its machine-side history. Neither view reconstructs output the app
+has discarded.
 
 **Theatre view** hides the session panel and workspace toolbar while retaining the
 site navigation. Exit theatre restores the previous panel layout. **Maximise**

@@ -1,7 +1,7 @@
 import type { Machine, SyncAgent, SyncEnvironment } from './api'
 import { sameHost, scopeEligibility } from './contentReview'
 import { groupLabel, agentGroups } from './machines'
-import { configureCommand, enrollCommands, installCommands, retryDelay, supportedAgents } from './machineSetup'
+import { shellQuote, retryDelay, supportedAgents } from './machineSetup'
 import type { ReleaseChannel } from './machineSetup'
 
 // What the "Add a machine" dialog says and where it lands. Pure: no DOM, no fetch, no clock of its own (callers pass
@@ -32,13 +32,27 @@ export function validateMachineName(name: string): NameCheck {
 /** Install, save the connection, then enrol and run: one paste. The name is quoted by the builders; no token appears. */
 export function joinCommands(site: string, name: string, channel: ReleaseChannel): string {
   const host = name.trim()
-  return [installCommands(channel), configureCommand(site), enrollCommands(site, host)].join('\n\n')
+  return `curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh -s --${channel === 'dev' ? ' --version dev' : ''} --server ${shellQuote(site)} --name ${shellQuote(host)}`
 }
 
-export type JoinStage = 'waiting' | 'already_here' | 'connected' | 'first_scan' | 'ready' | 'unknown'
+export type JoinStage = 'waiting' | 'already_here' | 'connected' | 'first_scan' | 'syncing' | 'sync_issue' | 'ready' | 'unknown'
 export type JoinView = { stage: JoinStage; label: string; detail: string; canUse: boolean }
 /** What was already reporting under the name: connector ids, and the newest complete supported scan (0 if none). */
 export type JoinBaseline = { agentIds: string[]; scannedAt: number } | null
+
+/** A first scan is only the start: new enrolments finish after library sync. */
+export function joinSyncState(view: JoinView, host: string, snapshot: import('./api').SyncState): JoinView {
+  if (view.stage !== 'ready') return view
+  const agent = snapshot.agents?.find(item => sameHost(item.host, host))
+  if (!agent?.keepSynced) return view // legacy or deliberately manual enrolment
+  const targets = snapshot.targets.filter(item => sameHost(item.target.host, host) && !item.target.project && item.sourceId === 'library')
+  const jobs = (snapshot.jobs ?? []).filter(job => job.agentId === agent.id && job.kind !== 'update')
+  const problem = targets.find(target => target.problem)?.problem
+  const latest = [...jobs].sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  if (problem || latest?.status === 'failed' || jobs.some(job => job.status === 'awaiting-approval')) return { stage: 'sync_issue', label: 'Sync needs attention', detail: problem || latest?.message || 'Review the pending changes in Sync activity.', canUse: false }
+  if (!targets.length || targets.some(target => target.missing.length > 0) || jobs.some(job => ['queued', 'running'].includes(job.status))) return { stage: 'syncing', label: 'Syncing your skill library', detail: latest?.stages?.find(stage => stage.status === 'running')?.detail || 'Reet is bringing this machine up to date. You can close this dialog; sync will continue.', canUse: false }
+  return { stage: 'ready', label: 'Ready · library in sync', detail: 'Your skill library is on this machine. New skills and edits to your written skills will follow automatically.', canUse: true }
+}
 
 const isAgent = (a: unknown): a is SyncAgent => !!a && typeof a === 'object' && typeof (a as SyncAgent).id === 'string' && typeof (a as SyncAgent).host === 'string'
 const isMachine = (m: unknown): m is Machine => !!m && typeof m === 'object' && typeof (m as Machine).host === 'string' && Array.isArray((m as Machine).groups) &&

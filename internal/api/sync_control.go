@@ -18,6 +18,7 @@ func (s *server) registerSyncControl(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/sync/content-observations/prepare", s.requireWriter(s.contentObservation))
 	mux.HandleFunc("POST /api/v2/sync/content-observations", s.requireWriter(s.contentObservation))
 	mux.HandleFunc("GET /api/v2/sync/candidates", s.syncCandidates)
+	mux.HandleFunc("POST /api/v2/sync/library", s.requireWriter(s.syncLibraryMachines))
 	mux.HandleFunc("PUT /api/v2/sync/desired", s.requireWriter(s.saveDesired))
 	mux.HandleFunc("POST /api/v2/sync/reconcile", s.requireWriter(s.reconcileDesired))
 	mux.HandleFunc("POST /api/v2/sync/adopt", s.requireWriter(s.adoptSyncSkills))
@@ -40,11 +41,38 @@ func (s *server) syncCandidates(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("collection") == "hosted" {
 		skills, err = s.st.SyncHostedFor(s.uid(r), requestOrigin(r))
 	}
+	if r.URL.Query().Get("collection") == "library" {
+		if err = s.st.SetSyncLibraryOrigin(s.uid(r), requestOrigin(r)); err == nil {
+			skills, err = s.st.SyncLibraryFor(s.uid(r), s.role(r))
+		}
+	}
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"skills": skills})
+}
+func (s *server) syncLibraryMachines(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		AgentID string `json:"agentId"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	s.importMu.Lock()
+	var err error
+	if in.AgentID == "" {
+		err = s.st.SyncLibraryMachinesFor(s.uid(r), s.role(r), requestOrigin(r))
+	} else {
+		err = s.st.SyncLibraryMachineFor(s.uid(r), s.role(r), requestOrigin(r), in.AgentID)
+	}
+	s.importMu.Unlock()
+	if err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	s.eventRequest(r, "sync-library", "", map[string]string{"agent": in.AgentID})
+	s.syncState(w, r)
 }
 func (s *server) saveDesired(w http.ResponseWriter, r *http.Request) {
 	var in store.DesiredSelection
@@ -154,6 +182,15 @@ func (s *server) enrollSyncAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, err.Error())
 		return
 	}
+	if err = s.st.SetSyncLibraryOrigin(s.uid(r), requestOrigin(r)); err == nil {
+		err = s.st.ControlSyncAgent(s.uid(r), a.ID, "keep-sync-on")
+	}
+	if err != nil {
+		_ = s.st.ControlSyncAgent(s.uid(r), a.ID, "revoke")
+		writeErr(w, 500, err.Error())
+		return
+	}
+	a.KeepSynced = true
 	writeJSON(w, 201, map[string]any{"agent": a, "secret": secret})
 }
 func (s *server) controlSyncAgent(w http.ResponseWriter, r *http.Request) {

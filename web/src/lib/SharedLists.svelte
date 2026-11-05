@@ -163,18 +163,18 @@
 
 <style>
   .layout { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); }
-  .layout button { min-height: 34px; padding: 4px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .layout button { min-height: 34px; padding: 4px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .layout button:hover { color: var(--ink); }
   .layout button[aria-pressed='true'] { background: var(--tint); color: var(--ink); font-weight: 600; }
 
   .list-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
-  .search { flex: 1 1 260px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .search { flex: 1 1 260px; display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
   .search input { width: 100%; }
   .scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .scope:hover { border-color: var(--muted); color: var(--ink); }
   .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
-  .scope small { margin-left: 5px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .scope small { margin-left: 5px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 
   .lists { display: grid; }
   .list { color: var(--ink); text-decoration: none; min-width: 0; }
@@ -183,11 +183,11 @@
   .rows .list:hover h2 { text-decoration: underline; text-underline-offset: 2px; }
   .description { min-width: 0; }
   h2 { margin: 0 0 4px; font: 500 1.2rem/1.3 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
-  .description p { margin: 0; color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
+  .description p { margin: 0; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
   .metadata { display: grid; width: 100%; justify-items: end; gap: 5px; }
-  .meta-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 5px 14px; color: var(--muted); font-size: 0.75rem; text-align: right; }
+  .meta-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 5px 14px; color: var(--muted); font-size: 0.875rem; text-align: right; }
   .meta-row > * { flex: none; }
-  .badge { border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; color: var(--ink); font-size: 0.7rem; white-space: nowrap; }
+  .badge { border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; color: var(--ink); font-size: 0.875rem; white-space: nowrap; }
   .go { width: 7px; height: 7px; border-top: 2px solid var(--muted); border-right: 2px solid var(--muted); transform: rotate(45deg); }
 
   .cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 14px; padding-top: 14px; }

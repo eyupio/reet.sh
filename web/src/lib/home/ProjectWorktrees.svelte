@@ -122,7 +122,7 @@
   header { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; padding: 22px; border-bottom: 1px solid var(--line); }
   header > div { min-width: 0; }
   h2 { margin: 4px 0 0; font: 500 1.65rem/1.2 var(--serif); overflow-wrap: anywhere; }
-  .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; overflow-wrap: anywhere; }
+  .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: 0.875rem; letter-spacing: .1em; overflow-wrap: anywhere; }
   .lede { margin: 8px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.5; overflow-wrap: anywhere; }
   header .btn { flex: none; white-space: nowrap; }
   .body { display: grid; gap: 12px; padding: 22px; min-height: 0; overflow: auto; align-content: start; font-size: .88rem; line-height: 1.5; }
@@ -130,7 +130,7 @@
   li { display: grid; gap: 2px; justify-items: start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); min-width: 0; }
   li p { margin: 0; overflow-wrap: anywhere; }
   li .btn { margin-top: 6px; min-height: 40px; }
-  .mono { font-family: var(--mono); font-size: .8rem; }
+  .mono { font-family: var(--mono); font-size: 0.875rem; }
   .meta, .muted { color: var(--muted); margin: 0; }
   .bad { color: var(--bad); margin: 0; }
   @media (pointer: coarse) { li .btn { min-height: 44px; } }

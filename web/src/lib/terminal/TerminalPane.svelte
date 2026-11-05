@@ -493,46 +493,46 @@
   header {display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;background:var(--bg);border-bottom:1px solid var(--line)}
   .identity,.controls {display:flex;align-items:center;gap:8px;min-width:0}
   .identity {flex:1;flex-wrap:wrap;column-gap:6px;row-gap:1px}
-  .identity strong {font-size:.85rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .identity strong {font-size:0.875rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .terminal-icon {font:700 1rem var(--mono);color:var(--accent-text)}
-  .host {font-size:.75rem;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .host {font-size:0.875rem;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .controls {flex-shrink:0}
-  .state {font-size:.72rem;color:var(--muted);white-space:nowrap}
+  .state {font-size:0.875rem;color:var(--muted);white-space:nowrap}
   .state.live {color:var(--good)}
-  button {font:inherit;font-size:.75rem;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:6px 10px;min-height:32px;cursor:pointer;white-space:nowrap}
+  button {font:inherit;font-size:0.875rem;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:6px 10px;min-height:32px;cursor:pointer;white-space:nowrap}
   button:disabled {opacity:.45;cursor:default}
   button.continue {background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
-  .tools {display:flex;gap:6px;align-items:center;flex-wrap:nowrap;overflow-x:auto;min-width:0;scrollbar-width:thin;padding:6px 10px;border-bottom:1px solid var(--line);font-size:.72rem}
+  .tools {display:flex;gap:6px;align-items:center;flex-wrap:nowrap;overflow-x:auto;min-width:0;scrollbar-width:thin;padding:6px 10px;border-bottom:1px solid var(--line);font-size:0.875rem}
   .tools>button,.tools label {flex-shrink:0}
-  .upload-off {font-size:.66rem;color:var(--muted);white-space:nowrap;align-self:center}
-  .terminal-toolbar{background:var(--bg);padding:5px 8px;gap:2px}.terminal-toolbar button{display:flex;align-items:center;gap:6px;border-color:transparent;background:transparent;font-size:.72rem;padding:6px 8px;min-height:32px}.terminal-toolbar button:hover:not(:disabled){background:var(--card);border-color:var(--line)}.tool-space{flex:1}.tool-divider{height:16px;width:1px;background:var(--line);margin:0 5px;flex-shrink:0}
+  .upload-off {font-size:0.875rem;color:var(--muted);white-space:nowrap;align-self:center}
+  .terminal-toolbar{background:var(--bg);padding:5px 8px;gap:2px}.terminal-toolbar button{display:flex;align-items:center;gap:6px;border-color:transparent;background:transparent;font-size:0.875rem;padding:6px 8px;min-height:32px}.terminal-toolbar button:hover:not(:disabled){background:var(--card);border-color:var(--line)}.tool-space{flex:1}.tool-divider{height:16px;width:1px;background:var(--line);margin:0 5px;flex-shrink:0}
   .tools label {display:flex;gap:8px;align-items:center;min-width:0}
-  .tools input {min-width:0;max-width:180px;font-size:.8rem}
+  .tools input {min-width:0;max-width:180px;font-size:0.875rem}
   .tools button:hover:not(:disabled) {border-color:var(--accent);background:var(--tint)}
   .tools button[aria-pressed=true] {border-color:var(--accent);color:var(--accent-text)}
   .tools.mobile-keys {display:none;border-top:1px solid var(--line);border-bottom:0}
   .upload-input {display:none}
   .screen-frame {position:relative;flex:1;height:0;min-height:0;min-width:0;overflow:hidden;padding:12px 10px 8px 14px}
   .screen {height:100%;min-height:0;min-width:0;overflow:hidden;padding:0}
-  .drop-overlay {position:absolute;inset:6px;z-index:4;display:grid;place-items:center;border:1px dashed var(--accent);border-radius:8px;background:color-mix(in srgb,var(--bg) 88%,transparent);color:var(--ink);font-size:.8rem;pointer-events:none}
+  .drop-overlay {position:absolute;inset:6px;z-index:4;display:grid;place-items:center;border:1px dashed var(--accent);border-radius:8px;background:color-mix(in srgb,var(--bg) 88%,transparent);color:var(--ink);font-size:0.875rem;pointer-events:none}
   .upload-chips {position:absolute;top:8px;right:8px;z-index:3;display:grid;gap:6px;max-width:min(260px,calc(100% - 16px));max-height:calc(100% - 48px);overflow:auto;pointer-events:none}
   .screen.reading {visibility:hidden}
   .screen :global(.xterm) {height:100%;padding:0}
   .screen :global(.xterm-viewport) {overscroll-behavior:contain}
   .screen :global(.xterm-screen) {touch-action:pinch-zoom}
-  .connection-message {max-height:72px;overflow:auto;padding:6px 12px;margin:0;font-size:.73rem;background:var(--tint);border-bottom:1px solid var(--line)}
-  .agent-copy {display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 12px;font-size:.73rem;background:var(--tint);border-bottom:1px solid var(--line)}
+  .connection-message {max-height:72px;overflow:auto;padding:6px 12px;margin:0;font-size:0.875rem;background:var(--tint);border-bottom:1px solid var(--line)}
+  .agent-copy {display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 12px;font-size:0.875rem;background:var(--tint);border-bottom:1px solid var(--line)}
   .agent-copy span {flex:1;min-width:0;overflow-wrap:anywhere}
-  .agent-copy code {font-size:.68rem}
-  .agent-copy button {font-size:.7rem;min-height:28px;padding:3px 8px}
+  .agent-copy code {font-size:0.875rem}
+  .agent-copy button {font-size:0.875rem;min-height:28px;padding:3px 8px}
   @media(pointer:coarse) {.agent-copy button {min-width:40px;min-height:40px}}
-  footer {padding:5px 10px;border-top:1px solid var(--line);display:flex;gap:12px;justify-content:space-between;align-items:center;font-size:.65rem;color:var(--muted)}
-  footer button {font-size:.65rem;min-height:28px;padding:3px 8px}
+  footer {padding:5px 10px;border-top:1px solid var(--line);display:flex;gap:12px;justify-content:space-between;align-items:center;font-size:0.875rem;color:var(--muted)}
+  footer button {font-size:0.875rem;min-height:28px;padding:3px 8px}
   /* The session screen's Approvals line (Ask me or YOLO), first in the footer. */
-  .approvals {color:var(--ink-soft);font-size:.72rem;white-space:nowrap}
+  .approvals {color:var(--ink-soft);font-size:0.875rem;white-space:nowrap}
   footer .link-state {flex:1;min-width:0}
   .session-menu {position:relative}
-  .session-menu>summary {cursor:pointer;font-size:.75rem;min-height:32px;padding:6px 9px;border:1px solid var(--line);border-radius:7px;list-style:none}
+  .session-menu>summary {cursor:pointer;font-size:0.875rem;min-height:32px;padding:6px 9px;border:1px solid var(--line);border-radius:7px;list-style:none}
   .session-menu>summary::-webkit-details-marker {display:none}
   .session-menu>div {position:absolute;right:0;top:calc(100% + 4px);min-width:150px;display:grid;gap:5px;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--card);box-shadow:var(--shadow);z-index:10}
   .session-menu button {text-align:left}
@@ -544,14 +544,14 @@
   @media(max-width:650px),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {
     header {padding:2px 4px 2px 8px}
     .identity {flex-wrap:nowrap}
-    .identity strong {font-size:.74rem;flex:0 1 auto}
+    .identity strong {font-size:0.875rem;flex:0 1 auto}
     .terminal-icon {display:none}
-    .host {flex:0 1 auto;min-width:0;max-width:none;font-size:.62rem}
+    .host {flex:0 1 auto;min-width:0;max-width:none;font-size:0.875rem}
     .controls {gap:4px}
-    .state {font-size:.65rem}
-    .controls>button,.session-menu>summary {font-size:.67rem;padding:5px 7px;min-height:30px}
+    .state {font-size:0.875rem}
+    .controls>button,.session-menu>summary {font-size:0.875rem;padding:5px 7px;min-height:30px}
     .tools {padding:2px 4px;gap:4px}
-    .tools button {min-height:32px;font-size:.69rem;padding:5px 8px}
+    .tools button {min-height:32px;font-size:0.875rem;padding:5px 8px}
     .terminal-toolbar .tool-label{display:none}.terminal-toolbar{padding:2px 4px}.terminal-toolbar button{padding:6px;min-width:30px}.terminal-toolbar .tool-divider{margin:0 2px}.terminal-toolbar .tool-space{display:none}
     .tools.mobile-keys {display:flex}
     .mobile-keys button {min-width:34px;min-height:32px}
@@ -561,12 +561,12 @@
     .tools:global(.more-start.more-end) {-webkit-mask-image:linear-gradient(to right,transparent,#000 36px,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(to right,transparent,#000 36px,#000 calc(100% - 36px),transparent)}
     .mobile-keys:focus-visible {outline:2px solid var(--accent);outline-offset:-2px}
     .screen-frame {padding:4px}
-    footer {font-size:.6rem;padding:2px 8px}
+    footer {font-size:0.875rem;padding:2px 8px}
     footer span {max-width:75%}
-    footer button {font-size:.6rem;min-height:24px}
+    footer button {font-size:0.875rem;min-height:24px}
     /* While the on-screen keyboard is open the terminal already has focus. */
     .pane.keyboard>footer {display:none}
-    .connection-message {font-size:.68rem;max-height:55px}
+    .connection-message {font-size:0.875rem;max-height:55px}
     .pane.maximised {inset:0;top:var(--terminal-top,0px);height:var(--terminal-viewport,100dvh);border-radius:0}
     .pane.maximised footer {padding-bottom:max(2px,env(safe-area-inset-bottom))}
   }

@@ -114,23 +114,23 @@
   dialog::backdrop { background: var(--scrim); }
   .sheet { display: grid; gap: 16px; padding: 22px; overflow: auto; max-height: inherit; }
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
-  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
   h2 { margin: 5px 0 0; font: 500 clamp(1.4rem, 3vw, 1.8rem)/1.15 var(--serif); letter-spacing: -0.025em; overflow-wrap: anywhere; }
-  .lede { margin: 8px 0 0; color: var(--muted); font-size: 0.84rem; line-height: 1.55; }
+  .lede { margin: 8px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.55; }
   .icon { width: 38px; height: 38px; flex: none; border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--muted); font-size: 1.25rem; cursor: pointer; }
   .icon:hover { color: var(--ink); border-color: var(--muted); }
-  .search { display: grid; gap: 5px; color: var(--muted); font-size: 0.8rem; }
+  .search { display: grid; gap: 5px; color: var(--muted); font-size: 0.875rem; }
   .search input { width: 100%; }
   .skills { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--line-soft); }
   .skills li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 2px; border-bottom: 1px solid var(--line-soft); }
   .skills li > div { min-width: 0; display: grid; gap: 2px; }
   .skills strong { overflow-wrap: anywhere; }
-  .skills small { color: var(--muted); font-size: 0.76rem; overflow-wrap: anywhere; }
-  .tag { flex: none; padding: 2px 8px; border: 1px solid color-mix(in srgb, var(--good) 35%, var(--line)); border-radius: 999px; color: var(--good); font-size: 0.72rem; }
+  .skills small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+  .tag { flex: none; padding: 2px 8px; border: 1px solid color-mix(in srgb, var(--good) 35%, var(--line)); border-radius: 999px; color: var(--good); font-size: 0.875rem; }
   .empty { padding: 18px 0; max-width: 48ch; }
   .empty h3 { margin: 0; font: 500 1.2rem/1.25 var(--serif); }
-  .empty p { margin: 6px 0 0; color: var(--muted); font-size: 0.84rem; }
-  .notice { margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.84rem; }
+  .empty p { margin: 6px 0 0; color: var(--muted); font-size: 0.875rem; }
+  .notice { margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.875rem; }
   .notice.bad { border-color: var(--bad); }
   footer { display: flex; justify-content: flex-end; padding-top: 12px; border-top: 1px solid var(--line); }
   @media (max-width: 560px) {

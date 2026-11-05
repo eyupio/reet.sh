@@ -161,20 +161,20 @@
  h3 { margin: 0 0 8px; font-size: 1rem; }
  h3:focus { outline: none; }
  h3:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
- .hint, .empty, small { color: var(--muted); font-size: .8rem; line-height: 1.5; }
+ .hint, .empty, small { color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
  .hint, .empty { margin: 6px 0 12px; }
  small { display: block; }
  .error { color: var(--bad); overflow-wrap: anywhere; }
  .pins { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
  .pins li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
- .info { display: grid; gap: 2px; min-width: 0; flex: 1 1 220px; font-size: .8rem; overflow-wrap: anywhere; }
+ .info { display: grid; gap: 2px; min-width: 0; flex: 1 1 220px; font-size: 0.875rem; overflow-wrap: anywhere; }
  .info strong { font-size: .9rem; }
  .info span { color: var(--muted); }
  .where { margin-left: .4em; }
  .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
  form { display: grid; gap: 16px; }
  .field { display: grid; gap: 5px; min-width: 0; }
- label, legend { font-size: .82rem; font-weight: 600; }
+ label, legend { font-size: 0.875rem; font-weight: 600; }
  select { width: 100%; min-width: 0; }
  fieldset { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
  legend { padding: 0; margin-bottom: 6px; }

@@ -156,8 +156,8 @@
 
 <style>
   .menu { position: fixed; z-index: 110; width: 240px; max-height: calc(100dvh - 16px); overflow: auto; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
-  .menu p { margin: 5px 8px 8px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
-  .menu small { display: block; margin-top: 3px; font-size: 12px; font-weight: 400; color: var(--muted); }
+  .menu p { margin: 5px 8px 8px; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+  .menu small { display: block; margin-top: 3px; font-size: 14px; font-weight: 400; color: var(--muted); }
   .menu [role=menuitem] { display: block; min-height: 36px; padding: 8px 9px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 400 14px var(--sans); text-align: left; text-decoration: none; cursor: pointer; }
   .menu [role=menuitem]:hover:not(:disabled):not([aria-disabled=true]), .menu [role=menuitem]:focus-visible { background: var(--tint); outline: none; }
   .menu [role=menuitem]:disabled, .menu [role=menuitem][aria-disabled=true] { opacity: .45; cursor: default; }

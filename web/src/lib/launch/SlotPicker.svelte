@@ -258,7 +258,7 @@ export type SlotOption = { value: string; label: string; description?: string; d
   .list { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; outline: none; }
   .group { display: flex; flex-direction: column; gap: 2px; }
   .group + .group { margin-top: 6px; }
-  .heading { padding: 4px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .heading { padding: 4px 10px 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   .option-row { display: flex; align-items: stretch; gap: 4px; scroll-margin-top: 36px; }
   .option-row + .option-row { margin-top: 2px; }
@@ -271,13 +271,13 @@ export type SlotOption = { value: string; label: string; description?: string; d
   .star:hover { background: var(--tint); border-color: var(--line); }
   .make-default {
     flex-shrink: 0; min-height: 34px; padding: 4px 8px; border: 1px solid transparent; border-radius: 8px;
-    background: transparent; color: var(--muted); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer;
+    background: transparent; color: var(--muted); font: inherit; font-size: 14px; white-space: nowrap; cursor: pointer;
   }
   .make-default[aria-pressed=true] { color: var(--accent-text); border-color: var(--line); font-weight: 600; }
   .make-default:hover { background: var(--tint); border-color: var(--line); }
   .status-action {
     margin-left: 8px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px;
-    background: var(--card); color: var(--accent-text); font: inherit; font-size: .7rem; cursor: pointer;
+    background: var(--card); color: var(--accent-text); font: inherit; font-size: 0.875rem; cursor: pointer;
   }
   .status-action:disabled { opacity: .45; cursor: default; }
   .heading { position: sticky; top: 0; z-index: 1; background: var(--card-raised); pointer-events: none; }
@@ -291,9 +291,9 @@ export type SlotOption = { value: string; label: string; description?: string; d
   .option[aria-selected='true'] { box-shadow: inset 3px 0 0 var(--accent-text); font-weight: 600; }
   .option[aria-disabled='true'] { cursor: default; }
   .option[aria-disabled='true'] .name { color: var(--muted); }
-  .description { font-size: 12px; line-height: 1.35; color: var(--ink-soft); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .detail { font: 12px/1.3 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .reason { font-size: 12px; color: var(--ink-soft); font-weight: 400; overflow-wrap: anywhere; }
+  .description { font-size: 14px; line-height: 1.35; color: var(--ink-soft); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .detail { font: 14px/1.3 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .reason { font-size: 14px; color: var(--ink-soft); font-weight: 400; overflow-wrap: anywhere; }
   .name { overflow-wrap: anywhere; }
   .filter, .other input {
     width: 100%; min-width: 0; min-height: 36px; padding: 6px 10px; font: inherit; font-size: 14px; color: var(--ink);
@@ -302,12 +302,12 @@ export type SlotOption = { value: string; label: string; description?: string; d
   .filter { flex: none; }
   .heading { top: 0; }
   .other { display: grid; gap: 4px; padding: 4px; }
-  .other label { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .other label { font-size: 14px; font-weight: 600; color: var(--muted); }
   .other-row { display: flex; gap: 6px; }
   .use { flex: none; min-height: 36px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
-  .error { margin: 0; font-size: 12px; color: var(--bad); }
+  .error { margin: 0; font-size: 14px; color: var(--bad); }
   [aria-invalid='true'] { border-color: var(--bad); }
-  .status, .empty { margin: 0; padding: 4px 10px; font-size: 12px; color: var(--muted); }
+  .status, .empty { margin: 0; padding: 4px 10px; font-size: 14px; color: var(--muted); }
 
   dialog { width: min(420px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 0; overflow: hidden; background: transparent; color: var(--ink); }
   dialog::backdrop { background: var(--scrim); }

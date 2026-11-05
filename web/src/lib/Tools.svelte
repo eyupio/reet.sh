@@ -203,20 +203,20 @@
   .tools { margin-top: 48px; padding-top: 28px; border-top: 1px solid var(--line); }
   .tools.quiet { margin-top: 24px; padding-top: 0; border-top: 0; }
   .tools-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
-  .eyebrow { margin: 0 0 6px; color: var(--accent-text); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; }
+  .eyebrow { margin: 0 0 6px; color: var(--accent-text); font-size: 0.875rem; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; }
   h2 { margin: 0; font: 500 1.8rem/1.2 var(--serif); letter-spacing: -0.025em; }
   h3 { margin: 0 0 12px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }
-  h4 { margin: 22px 0 8px; font-size: 0.86rem; }
+  h4 { margin: 22px 0 8px; font-size: 0.875rem; }
   .panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; margin-top: 22px; }
   .tool-card { min-width: 0; padding: 24px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
   .import, .organise { grid-column: 1 / -1; }
-  p { margin: 8px 0 14px; color: var(--muted); font-size: 0.84rem; max-width: 75ch; }
-  code { font-size: 0.8rem; overflow-wrap: anywhere; }
+  p { margin: 8px 0 14px; color: var(--muted); font-size: 0.875rem; max-width: 75ch; }
+  code { font-size: 0.875rem; overflow-wrap: anywhere; }
   .links { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 0; }
   textarea { display: block; margin: 16px 0 12px; }
-  .check { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--muted); font-size: 0.82rem; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--muted); font-size: 0.875rem; }
   .export-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
-  .export-row label { color: var(--muted); font-size: 0.8rem; }
+  .export-row label { color: var(--muted); font-size: 0.875rem; }
   .export-row select { max-width: 100%; }
   .check input { min-height: 0; }
   .ignored { list-style: none; margin: 8px 0 0; padding: 0; }

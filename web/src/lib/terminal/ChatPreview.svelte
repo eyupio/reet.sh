@@ -49,8 +49,8 @@
  .agent-preview { margin: 8px 0 12px; max-width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
  .image { display: block; width: 100%; min-height: 44px; border: 0; padding: 0; cursor: zoom-in; background: transparent; }
  img { display: block; max-width: 100%; max-height: 340px; margin: auto; object-fit: contain; border-radius: 5px; }
- figcaption { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; margin-top: 8px; color: var(--muted); font: 12px/1.5 var(--sans); overflow-wrap: anywhere; }
- .placeholder { min-height: 44px; color: var(--muted); font: 13px/1.6 var(--sans); }
+ figcaption { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; margin-top: 8px; color: var(--muted); font: 14px/1.5 var(--sans); overflow-wrap: anywhere; }
+ .placeholder { min-height: 44px; color: var(--muted); font: 14px/1.6 var(--sans); }
  .retry { min-height: 44px; padding: 6px 12px; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; background: var(--card); cursor: pointer; }
  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
  @media (max-width: 650px) { .agent-preview { padding: 8px; } img { max-height: 260px; } }

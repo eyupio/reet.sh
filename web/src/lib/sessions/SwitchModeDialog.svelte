@@ -77,12 +77,12 @@
   .box { padding: 28px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-dock); overflow-wrap: anywhere; }
   h2 { margin: 0; font: 600 1.5rem/1.15 var(--serif); letter-spacing: -0.02em; text-wrap: balance; }
   p { margin: 10px 0 0; color: var(--muted); }
-  .terms { margin: 16px 0 0; padding: 12px 0 0 20px; border-top: 1px solid var(--line); display: grid; gap: 8px; color: var(--muted); font-size: 0.86rem; list-style: disc; }
+  .terms { margin: 16px 0 0; padding: 12px 0 0 20px; border-top: 1px solid var(--line); display: grid; gap: 8px; color: var(--muted); font-size: 0.875rem; list-style: disc; }
   .trust { margin-top: 16px; padding: 12px 14px; border: 1px solid var(--warn); border-radius: 10px; background: color-mix(in srgb, var(--warn) 8%, transparent); }
   .trust .warn { margin: 0; display: flex; gap: 8px; align-items: flex-start; color: var(--ink); font-weight: 500; }
-  .trust .mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid var(--warn); border-radius: 50%; color: var(--warn); font-size: 0.8rem; font-weight: 700; }
-  .trust .detail { margin: 6px 0 0 28px; font-size: 0.86rem; }
-  .trust label { display: flex; align-items: flex-start; gap: 9px; margin: 12px 0 0; font-size: 0.86rem; line-height: 1.4; color: var(--ink); cursor: pointer; }
+  .trust .mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid var(--warn); border-radius: 50%; color: var(--warn); font-size: 0.875rem; font-weight: 700; }
+  .trust .detail { margin: 6px 0 0 28px; font-size: 0.875rem; }
+  .trust label { display: flex; align-items: flex-start; gap: 9px; margin: 12px 0 0; font-size: 0.875rem; line-height: 1.4; color: var(--ink); cursor: pointer; }
   .trust input { flex: none; width: 16px; height: 16px; min-height: 0; margin: 2px 0 0; padding: 0; accent-color: var(--accent); }
   .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; flex-wrap: wrap; }
   @media (pointer: coarse) { .trust label { min-height: 44px; align-items: center; } .trust input { margin-top: 0; width: 20px; height: 20px; } }

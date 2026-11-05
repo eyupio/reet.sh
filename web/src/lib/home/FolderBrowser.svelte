@@ -155,7 +155,7 @@
 
 <style>
   .browser { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
-  .crumb-row { display: flex; align-items: center; gap: 6px; padding: 10px 14px; font-size: 13px; color: var(--ink-soft); border-bottom: 1px solid var(--line-soft); }
+  .crumb-row { display: flex; align-items: center; gap: 6px; padding: 10px 14px; font-size: 14px; color: var(--ink-soft); border-bottom: 1px solid var(--line-soft); }
   nav { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
   .crumb { display: inline-flex; align-items: center; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; overflow-wrap: anywhere; text-align: left; }
   .crumb:hover:not([aria-disabled]) { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
@@ -163,11 +163,11 @@
   .current { overflow-wrap: anywhere; }
   .current.home { color: var(--muted); }
   .sep { color: var(--line-deep); }
-  .count { margin-left: auto; flex: none; font-size: 12px; color: var(--muted); }
+  .count { margin-left: auto; flex: none; font-size: 14px; color: var(--muted); }
   .tools { display: flex; flex-direction: column; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); }
-  .tools input.filter { width: 100%; height: 36px; min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; font: 13px var(--mono); color: var(--ink); }
+  .tools input.filter { width: 100%; height: 36px; min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; font: 14px var(--mono); color: var(--ink); }
   .filter::placeholder { color: var(--faint); }
-  .hidden { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; cursor: pointer; width: fit-content; }
+  .hidden { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; cursor: pointer; width: fit-content; }
   /* The box is drawn, the real checkbox lies over it (so it is the control that is clicked and focused). */
   .hidden { position: relative; }
   .hidden input { position: absolute; left: 0; top: 0; bottom: 0; z-index: 1; width: 16px; height: 16px; margin: auto 0; opacity: 0; cursor: pointer; }
@@ -184,19 +184,19 @@
   .row:focus-visible { outline-offset: -2px; }
   .icon { width: 16px; height: 16px; flex: none; fill: var(--muted); }
   .row.repo .icon { fill: var(--repo); }
-  .name { flex-grow: 1; min-width: 0; font: 400 13px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .name { flex-grow: 1; min-width: 0; font: 400 14px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row.repo .name { font-weight: 600; }
-  .badge { flex: none; font: 600 10px var(--sans); letter-spacing: .08em; color: var(--repo); border: 1px solid var(--repo-line); border-radius: 4px; padding: 2px 6px; }
-  .empty { margin: 0; padding: 12px 14px; color: var(--muted); font-size: 13px; }
+  .badge { flex: none; font: 600 14px var(--sans); letter-spacing: .08em; color: var(--repo); border: 1px solid var(--repo-line); border-radius: 4px; padding: 2px 6px; }
+  .empty { margin: 0; padding: 12px 14px; color: var(--muted); font-size: 14px; }
   .more { margin: 6px 14px 10px; height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink); font-weight: 500; cursor: pointer; }
   .foot { border-top: 1px solid var(--line-soft); }
   .foot:empty { display: none; }
   .here-row, .note-row, .browse-error { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
   .note-row, .browse-error { padding-top: 0; }
   .browse-error { padding-top: 10px; }
-  .here { flex-grow: 1; min-width: 0; margin: 0; font: 13px var(--mono); color: var(--ink-soft); overflow-wrap: anywhere; }
+  .here { flex-grow: 1; min-width: 0; margin: 0; font: 14px var(--mono); color: var(--ink-soft); overflow-wrap: anywhere; }
   .repo-word { color: var(--repo); }
-  .repo-note, .browse-error p, .partial { flex-grow: 1; min-width: 0; margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
+  .repo-note, .browse-error p, .partial { flex-grow: 1; min-width: 0; margin: 0; font-size: 14px; color: var(--muted); line-height: 1.45; }
   .browse-error p { color: var(--bad); }
   .partial { padding: 0 14px 10px; }
   .use, .ghost { flex: none; height: 36px; padding: 0 14px; border-radius: 8px; font-weight: 500; cursor: pointer; background: transparent; }

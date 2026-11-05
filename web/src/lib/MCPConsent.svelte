@@ -42,12 +42,12 @@
   p { line-height:1.65; }
   .lede,.muted,.details,.callback { color:var(--muted); }
   .permissions { margin:26px 0; }
-  .label { font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+  .label { font-size:0.875rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
   .choice { display:flex; align-items:flex-start; gap:12px; padding:16px; border:1px solid var(--line); border-radius:10px; margin-top:10px; cursor:pointer; }
   .choice:has(input:checked) { border-color:var(--accent); background:var(--tint); }
   input { flex:none; width:16px; height:16px; margin-top:3px; accent-color:var(--accent); }
-  small { display:block; color:var(--muted); font-size:.8rem; line-height:1.6; margin-top:5px; }
-  .details,.callback { font-size:.8rem; }
+  small { display:block; color:var(--muted); font-size:0.875rem; line-height:1.6; margin-top:5px; }
+  .details,.callback { font-size:0.875rem; }
   .callback { padding-top:16px; border-top:1px solid var(--line); overflow-wrap:anywhere; }
   .actions { margin-top:28px; display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
   .error { border:1px solid var(--bad); padding:14px; border-radius:8px; }

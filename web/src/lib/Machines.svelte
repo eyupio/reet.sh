@@ -57,9 +57,9 @@
   </details>
 {/if}
 <style>
- nav,form {display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:20px} a {text-decoration:none} a[aria-current=page] {background:var(--tint);border-color:var(--accent)} label {display:grid;gap:6px;font-size:.85rem} p {font-size:.85rem;color:var(--muted)}
+ nav,form {display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:20px} a {text-decoration:none} a[aria-current=page] {background:var(--tint);border-color:var(--accent)} label {display:grid;gap:6px;font-size:0.875rem} p {font-size:0.875rem;color:var(--muted)}
  .projects-drawer {margin:26px 0 0;border-top:1px solid var(--line);padding-top:14px}
- .projects-drawer > summary {cursor:pointer;color:var(--muted);font-size:.82rem;font-weight:650;min-height:32px}
+ .projects-drawer > summary {cursor:pointer;color:var(--muted);font-size:0.875rem;font-weight:650;min-height:32px}
  @media (max-width:560px) { nav {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch} nav a {justify-content:center} }
  /* The terminal workspace is its own chunk, so opening a session waits for it. This holds the workspace's shape so the
     page never shows a bare sentence on an empty background, then gives way to the real thing. */
@@ -75,7 +75,7 @@
  .rail i { height:38px; border-radius:8px; }
  .rail i:nth-child(2n) { width:82%; }
  .screen { display:flex; align-items:flex-end; padding:18px; background:var(--bg-sunk); }
- .screen p { margin:0; font:12px/1.7 var(--mono); color:var(--muted); display:flex; align-items:center; gap:8px; }
+ .screen p { margin:0; font:14px/1.7 var(--mono); color:var(--muted); display:flex; align-items:center; gap:8px; }
  .screen b { color:var(--accent-text); font-weight:400; }
  .screen .cursor { display:inline-block; width:7px; height:13px; background:var(--accent-text); }
  @media (prefers-reduced-motion: no-preference) { .workspace-boot-bar i, .workspace-boot-bar .mark, .workspace-boot-bar .bar, .rail i { animation:boot-pulse 1.7s ease-in-out infinite; } .screen .cursor { animation:boot-pulse 1s steps(2,end) infinite; } }

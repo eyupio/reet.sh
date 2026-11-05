@@ -518,7 +518,7 @@
   .identity-row { display: flex; align-items: center; gap: 12px; min-height: 58px; min-width: 0; }
   .header-actions { display: flex; align-items: center; gap: 6px; flex: none; }
   .session-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
-  .tool-action, .theatre-button, .focus-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--ink-soft); font: 500 12px var(--sans); cursor: pointer; }
+  .tool-action, .theatre-button, .focus-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
   .tool-action:hover:not(:disabled), .theatre-button:hover, .focus-button:hover { background: var(--tint); color: var(--ink); }
   .tool-action:disabled { opacity: .5; cursor: default; }
   .focus-button { display: none; }
@@ -531,15 +531,15 @@
   .back svg { width: 22px; height: 22px; }
   .back:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   .title { margin: 0; font: 600 21px/1.3 var(--serif); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .sub, .where-phone { margin: 0; font-size: 13px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .sub, .where-phone { margin: 0; font-size: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .where-phone { display: none; }
   .pill { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 99px; box-sizing: border-box;
-    background: var(--status-wash); border: 1px solid var(--status-edge); color: var(--status); font-size: 13px; font-weight: 600; white-space: nowrap; }
+    background: var(--status-wash); border: 1px solid var(--status-edge); color: var(--status); font-size: 14px; font-weight: 600; white-space: nowrap; }
   .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-  .badge { flex: none; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 99px; font-size: 12px; line-height: 22px; color: var(--muted); }
+  .badge { flex: none; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 99px; font-size: 14px; line-height: 22px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }
   .approvals { flex: none; display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-  .approvals button { padding: 7px 12px; border: 0; background: none; color: var(--muted); font: 400 13px var(--sans); cursor: pointer; }
+  .approvals button { padding: 7px 12px; border: 0; background: none; color: var(--muted); font: 400 14px var(--sans); cursor: pointer; }
   .approvals button[aria-pressed=true] { color: var(--ink); font-weight: 600; }
   .approvals button[aria-pressed=true]:first-child { background: var(--line-soft); }
   .approvals button[aria-pressed=true]:last-child { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
@@ -556,8 +556,8 @@
   .more { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 40px; min-height: 40px; padding: 0; border: 0; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; }
   .more:hover { background: var(--tint); color: var(--ink); }
   .more svg { width: 20px; height: 20px; }
-  .more span { font: 500 12px var(--sans); }
-  .live p { margin: 0 28px 8px; font-size: 13px; color: var(--muted); }
+  .more span { font: 500 14px var(--sans); }
+  .live p { margin: 0 28px 8px; font-size: 14px; color: var(--muted); }
   .live p.bad { color: var(--bad); }
   .stage { min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line-soft); }
   .menu { position: fixed; z-index: 110; width: 240px; max-height: calc(100dvh - 16px); overflow: auto; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
@@ -575,7 +575,7 @@
   /* Phones retain every control. Layout actions use 44 px icons; the toolbar wraps instead of hiding choices. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .sub, .identity-row > .pill { display: none; }
-    .where-phone { display: block; font-size: 12px; }
+    .where-phone { display: block; font-size: 14px; }
     .back { display: flex; }
     .head { padding: 0 6px 6px; }
     .identity-row { min-height: 52px; gap: 4px; }
@@ -583,18 +583,18 @@
     .header-actions .theatre-button, .header-actions .details, .header-actions .more, .header-actions .focus-button { width: 44px; min-width: 44px; min-height: 44px; padding: 0; }
     .header-actions .focus-button { display: inline-flex; }
     .header-actions button { flex-direction: column; gap: 1px; }
-    .header-actions button span { display: block; font: 500 10px/12px var(--sans); }
+    .header-actions button span { display: block; font: 500 14px/12px var(--sans); }
     .header-actions button .wide-label { display: none; }
     .header-actions :global(svg) { width: 19px; height: 19px; }
     .session-tools { gap: 6px; }
-    .view button { padding: 6px 10px; font-size: 12px; min-height: 44px; }
-    .approvals button { padding: 6px 10px; font-size: 12px; min-height: 44px; }
+    .view button { padding: 6px 10px; font-size: 14px; min-height: 44px; }
+    .approvals button { padding: 6px 10px; font-size: 14px; min-height: 44px; }
     .tool-action { min-height: 44px; padding: 0 10px; }
     .heading { flex: 1 1 0; }
     .title { font: 600 15px/1.3 var(--sans); }
-    .pill { height: 28px; padding: 0 10px; gap: 6px; font-size: 12px; }
+    .pill { height: 28px; padding: 0 10px; gap: 6px; font-size: 14px; }
     .pill .lk { display: none; }
-    .badge { font-size: 11px; line-height: 18px; padding: 0 6px; }
+    .badge { font-size: 14px; line-height: 18px; padding: 0 6px; }
 
     .details { padding: 0 10px; }
   }

@@ -806,7 +806,7 @@
  header { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; padding: 22px; border-bottom: 1px solid var(--line); }
  header > div { min-width: 0; }
  h2 { margin: 4px 0 0; font: 500 1.65rem/1.2 var(--serif); overflow-wrap: anywhere; }
- .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; }
+ .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: 0.875rem; letter-spacing: .1em; }
  .lede { margin: 8px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
  header .btn { flex: none; white-space: nowrap; }
  /* The fields scroll; the footer with the status line and Start sits below them, outside the scrolling part, so it never covers a field. */
@@ -814,11 +814,11 @@
  .body { display: grid; gap: 16px; padding: 22px; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; }
  fieldset { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 18px; }
  .field { display: grid; gap: 6px; min-width: 0; }
- label { font-size: .85rem; font-weight: 600; }
+ label { font-size: 0.875rem; font-weight: 600; }
  .label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
  .label-row .skill-add { min-height: 28px; padding: 0; }
  label.sub { font-weight: 500; margin-top: 4px; }
- .optional { color: var(--muted); font-weight: 400; font-size: .78rem; }
+ .optional { color: var(--muted); font-weight: 400; font-size: 0.875rem; }
  select, input:not([type=radio]), textarea { min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
  .picker { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
  .picker:disabled { opacity: .55; cursor: default; }
@@ -828,31 +828,31 @@
  @media (max-width: 560px) { select, input:not([type=radio]), textarea, .picker { font-size: 16px; } }
  textarea { resize: vertical; min-height: 80px; }
  [aria-invalid='true'] { border-color: var(--bad); }
- .approvals .legend { font-size: .85rem; }
+ .approvals .legend { font-size: 0.875rem; }
  .approval-choices { display: flex; gap: 8px; flex-wrap: wrap; }
- .approval-choices label { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font-size: .85rem; cursor: pointer; }
+ .approval-choices label { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font-size: 0.875rem; cursor: pointer; }
  .approval-choices label.on { border-color: var(--accent); background: var(--tint); }
  .approval-choices label.off { opacity: .55; cursor: not-allowed; }
  .approval-choices label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
- .hint, small { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
+ .hint, small { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
  .prompt-tools { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
- .attach { position: relative; align-self: start; padding: 4px 0; color: var(--accent-text); font-size: .83rem; font-weight: 600; cursor: pointer; }
+ .attach { position: relative; align-self: start; padding: 4px 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 600; cursor: pointer; }
  .attach input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
  .attach:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
  .attach:has(input:disabled) { opacity: .55; cursor: default; }
  .attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
- .attachments li { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; font-size: .78rem; }
+ .attachments li { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.875rem; }
  .attachments img { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; }
  .attachments span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
  .attachments button { min-width: 28px; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; }
  .attachments button:disabled { cursor: default; opacity: .55; }
  .count.over { color: var(--bad); }
- .reason { margin: 0; color: var(--bad); font-size: .83rem; line-height: 1.5; }
- .chat-choice code { font-size: .9em; }
- .sentence { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--bg); font-size: .85rem; line-height: 1.5; }
- .status { flex: 1 0 100%; margin: 0; font-size: .85rem; line-height: 1.5; }
+ .reason { margin: 0; color: var(--bad); font-size: 0.875rem; line-height: 1.5; }
+ .chat-choice code { font-size: max(0.875rem, .9em); }
+ .sentence { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--bg); font-size: 0.875rem; line-height: 1.5; }
+ .status { flex: 1 0 100%; margin: 0; font-size: 0.875rem; line-height: 1.5; }
  .status.bad { color: var(--bad); }
- .linklike { justify-self: start; padding: 4px 0; min-height: 32px; font: inherit; font-size: .83rem; color: var(--accent-text); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
+ .linklike { justify-self: start; padding: 4px 0; min-height: 32px; font: inherit; font-size: 0.875rem; color: var(--accent-text); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
  /* Always in view below the scrolling fields, so Start is reachable on a short screen. */
  footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 22px 22px; border-top: 1px solid var(--line); background: var(--card); overflow-wrap: anywhere; }
  @media (max-width: 500px) { header { padding: 16px; } .body { padding: 16px; } footer { padding: 12px 16px 16px; } h2 { font-size: 1.35rem; } footer .btn { width: 100%; } }

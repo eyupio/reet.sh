@@ -213,7 +213,7 @@
  header { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; padding: 22px; border-bottom: 1px solid var(--line); }
  header > div { min-width: 0; }
  h2 { margin: 4px 0 0; font: 500 1.65rem/1.2 var(--serif); }
- .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; overflow-wrap: anywhere; }
+ .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: 0.875rem; letter-spacing: .1em; overflow-wrap: anywhere; }
  .lede { margin: 8px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
  header .btn { flex: none; white-space: nowrap; }
  .body { display: grid; gap: 14px; padding: 22px; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; font-size: .88rem; line-height: 1.5; }
@@ -223,7 +223,7 @@
  dl div { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 8px; }
  dt { color: var(--muted); }
  dd { margin: 0; min-width: 0; }
- .mono { font-family: var(--mono); font-size: .8rem; overflow-wrap: anywhere; }
+ .mono { font-family: var(--mono); font-size: 0.875rem; overflow-wrap: anywhere; }
  .counts { margin: 0; padding-left: 1.2em; display: grid; gap: 2px; }
  .counts .bad, .blocked p { color: var(--bad); }
  .paths { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
@@ -235,8 +235,8 @@
  .tick { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; }
  .tick input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--accent); }
  .detail { margin: 0; color: var(--muted); }
- .hint { margin: 0; color: var(--muted); font-size: .8rem; }
- .status { flex: 1 0 100%; margin: 0; font-size: .85rem; line-height: 1.5; }
+ .hint { margin: 0; color: var(--muted); font-size: 0.875rem; }
+ .status { flex: 1 0 100%; margin: 0; font-size: 0.875rem; line-height: 1.5; }
  .status.bad { color: var(--bad); }
  footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 12px; padding: 14px 22px 22px; border-top: 1px solid var(--line); background: var(--card); overflow-wrap: anywhere; }
  @media (max-width: 500px) { header { padding: 16px; } .body { padding: 16px; } footer { padding: 12px 16px 16px; } h2 { font-size: 1.35rem; } footer .btn { width: 100%; } dl div { grid-template-columns: minmax(0, 1fr); gap: 0; } }

@@ -35,13 +35,13 @@
 <style>
   nav { min-width: 0; }
   .nav-group { position: relative; }
-  .nav-group > summary { list-style: none; display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 8px 12px; color: var(--muted); border-radius: 8px; font-size: 0.82rem; cursor: pointer; }
+  .nav-group > summary { list-style: none; display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 8px 12px; color: var(--muted); border-radius: 8px; font-size: 0.875rem; cursor: pointer; }
   .nav-group > summary::-webkit-details-marker { display: none; }
   .nav-group > summary.current { background: var(--tint); color: var(--ink); }
   .nav-group svg { width: 14px; height: 14px; }
   .group-links { position: absolute; right: 0; top: 100%; display: grid; gap: 4px; z-index: 25; min-width: 200px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 12px 28px rgb(0 0 0 / 0.12); }
   .desktop { display: flex; gap: 4px; flex-wrap: wrap; }
-  a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.82rem; font-weight: 500; text-decoration: none; border-radius: 8px; }
+  a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.875rem; font-weight: 500; text-decoration: none; border-radius: 8px; }
   a:hover { background: var(--card); color: var(--ink); }
   a[aria-current='page'] { color: var(--ink); background: var(--tint); font-weight: 600; }
   nav { border-bottom: 1px solid var(--line); padding-bottom: 12px; margin: 12px 0 20px; }
@@ -49,9 +49,9 @@
   @media (max-width: 1000px) {
     .desktop { display: none; }
     .mobile { display: block; position: relative; }
-    summary { list-style: none; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 600; background: var(--card); }
+    summary { list-style: none; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: 0.875rem; font-weight: 600; background: var(--card); }
     summary::-webkit-details-marker { display: none; }
-    summary span { color: var(--muted); font-size: 0.8rem; font-weight: 400; margin-left: auto; }
+    summary span { color: var(--muted); font-size: 0.875rem; font-weight: 400; margin-left: auto; }
     summary svg { width: 16px; height: 16px; flex: none; }
     details[open] summary svg { transform: rotate(180deg); }
     .links { display: grid; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 12px 28px rgb(0 0 0 / 0.1); margin-top: 6px; }

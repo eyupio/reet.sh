@@ -91,25 +91,25 @@
   .avatar {
     position: relative; width: 30px; height: 30px; display: grid; place-items: center; flex: none;
     border-radius: 50%; background: var(--tint); color: var(--accent-text);
-    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em;
+    font-size: 0.875rem; font-weight: 700; letter-spacing: 0.03em;
   }
   .badge {
     position: absolute; top: -5px; right: -7px; min-width: 18px; height: 18px; padding: 0 5px; display: grid; place-items: center;
     border-radius: 999px; background: var(--accent); color: var(--accent-ink); border: 2px solid var(--card);
-    font-size: 0.62rem; font-weight: 700; letter-spacing: 0; line-height: 1;
+    font-size: 0.875rem; font-weight: 700; letter-spacing: 0; line-height: 1;
   }
   .count {
     margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; display: inline-grid; place-items: center;
-    border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 0.7rem; font-weight: 700;
+    border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 0.875rem; font-weight: 700;
   }
   .who { display: grid; line-height: 1.15; min-width: 0; }
   .who strong {
     max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    color: var(--ink); font-size: 0.8rem; font-weight: 600;
+    color: var(--ink); font-size: 0.875rem; font-weight: 600;
   }
   .who small {
     max-width: 20ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    color: var(--muted); font-size: 0.66rem;
+    color: var(--muted); font-size: 0.875rem;
   }
   summary svg { width: 14px; height: 14px; flex: none; }
   details[open] summary svg { transform: rotate(180deg); }
@@ -119,19 +119,19 @@
     background: var(--card); box-shadow: 0 12px 28px rgb(0 0 0 / 0.14);
   }
   .panel-who { display: grid; gap: 1px; padding: 8px 10px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
-  .panel-who strong { color: var(--ink); font-size: 0.85rem; }
-  .panel-who span { color: var(--muted); font-size: 0.72rem; overflow-wrap: anywhere; }
+  .panel-who strong { color: var(--ink); font-size: 0.875rem; }
+  .panel-who span { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
   .panel a, .panel button {
     display: flex; align-items: center; width: 100%; min-height: 40px; padding: 8px 10px;
     border: 0; border-radius: 8px; background: none; color: var(--ink);
-    font: inherit; font-size: 0.82rem; text-align: left; text-decoration: none; cursor: pointer;
+    font: inherit; font-size: 0.875rem; text-align: left; text-decoration: none; cursor: pointer;
   }
   .panel a:hover, .panel button:hover { background: var(--tint); }
   .theme { display: flex; justify-content: center; padding: 6px 4px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
   /* The top bar shows the initials only, as drawn; the name and email are at the top of the panel. */
   .who { display: none; }
   summary { min-width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 50%; background: none; justify-content: center; }
-  .avatar { width: 36px; height: 36px; background: var(--accent-wash); font-size: 13px; font-weight: 600; letter-spacing: 0; }
+  .avatar { width: 36px; height: 36px; background: var(--accent-wash); font-size: 14px; font-weight: 600; letter-spacing: 0; }
   summary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
   @media (pointer: coarse) { summary { min-width: 44px; min-height: 44px; } }
   summary > svg { display: none; }

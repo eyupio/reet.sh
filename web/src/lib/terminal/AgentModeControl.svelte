@@ -46,12 +46,12 @@
 
 <style>
   .mode-control { display: grid; gap: 4px; min-width: 0; }
-  .label { font: 600 10px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--faint); }
+  .label { font: 600 14px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--faint); }
   .options { display: flex; flex-wrap: wrap; gap: 6px; }
-  .option { min-height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--ink); font: 500 12px/1 var(--sans); cursor: pointer; }
+  .option { min-height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--ink); font: 500 14px/1 var(--sans); cursor: pointer; }
   .option.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
   .option:disabled { opacity: .55; cursor: default; }
-  .meaning { margin: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-  .problem { margin: 0; font-size: 12px; color: var(--bad); overflow-wrap: anywhere; }
+  .meaning { margin: 0; font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+  .problem { margin: 0; font-size: 14px; color: var(--bad); overflow-wrap: anywhere; }
   @media (pointer: coarse) { .option { min-height: 44px; } }
 </style>

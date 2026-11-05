@@ -140,14 +140,14 @@
   .line select { margin: 0 4px; }
   .status { min-height: 1.4em; }
   .bad { color: var(--bad); }
-  .hint { font-size: .8rem; }
+  .hint { font-size: 0.875rem; }
   .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
   .list li { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
   .list label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
   .list input { margin-top: 3px; }
   .review { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
   .list span { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
-  .list small { color: var(--muted); font-size: .78rem; }
+  .list small { color: var(--muted); font-size: 0.875rem; }
   .list small.bad { color: var(--bad); }
   .mono { font-family: var(--mono); }
 </style>

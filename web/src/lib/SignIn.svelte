@@ -84,6 +84,6 @@
   .help p { margin: 10px 0 6px; color: var(--muted); font-size: 0.9rem; }
   .help code {
     display: block; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
-    background: var(--bg); font-size: 0.85rem; overflow-wrap: anywhere;
+    background: var(--bg); font-size: 0.875rem; overflow-wrap: anywhere;
   }
 </style>

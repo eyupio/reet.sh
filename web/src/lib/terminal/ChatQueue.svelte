@@ -61,7 +61,7 @@
 {/if}
 
 <style>
- .server-queue { flex: none; max-height: 15rem; overflow: auto; padding: 10px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunk); font-size: 12px; }
+ .server-queue { flex: none; max-height: 15rem; overflow: auto; padding: 10px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunk); font-size: 14px; }
  header, .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
  header { justify-content: space-between; }
  small { color: var(--muted); }

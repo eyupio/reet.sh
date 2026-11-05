@@ -23,7 +23,7 @@
     border: 1px dashed var(--accent); color: var(--ink); text-decoration: none; min-height: 36px;
   }
   .pill:hover { background: var(--tint); }
-  .hint { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
+  .hint { margin: 4px 0 0; font-size: 0.875rem; color: var(--muted); }
   @media (pointer: coarse) { .pill { min-height: 44px; } }
   @media (max-width: 560px) {
     .links { flex-direction: column; align-items: stretch; }

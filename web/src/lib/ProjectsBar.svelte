@@ -158,31 +158,31 @@
 <style>
   .bar { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 13px; background: var(--card); }
   .head { display: flex; align-items: baseline; gap: 12px; }
-  .title { margin: 0; font: 600 13px/1.3 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-  .head a { margin-left: auto; font-size: 13px; color: var(--accent-text); }
+  .title { margin: 0; font: 600 14px/1.3 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .head a { margin-left: auto; font-size: 14px; color: var(--accent-text); }
   ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
   li { display: flex; align-items: stretch; min-width: 0; border: 1px solid var(--line); border-left: 3px solid var(--project-colour, transparent); border-radius: 9px; background: var(--bg); }
   li:hover { border-color: var(--line-strong); }
-  .chip { display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 34px; padding: 5px 8px; color: var(--ink); text-decoration: none; font-size: 13px; border-radius: 8px 0 0 8px; }
+  .chip { display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 34px; padding: 5px 8px; color: var(--ink); text-decoration: none; font-size: 14px; border-radius: 8px 0 0 8px; }
   .chip:hover { background: var(--tint); }
   .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--project-colour, transparent); border: 1px solid var(--line-strong); }
   .name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-  .live { color: var(--good); font-size: 11px; font-weight: 600; }
+  .live { color: var(--good); font-size: 14px; font-weight: 600; }
   .action { flex: none; display: grid; place-items: center; min-width: 32px; padding: 0 4px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font: 500 1rem var(--sans); cursor: pointer; }
   .action:hover:not(:disabled) { color: var(--accent-text); background: var(--tint); }
   .action:disabled { opacity: .4; cursor: default; }
   .action.more { border-radius: 0 8px 8px 0; font-size: .9rem; }
-  .empty { margin: 0; font-size: 13px; color: var(--muted); }
+  .empty { margin: 0; font-size: 14px; color: var(--muted); }
   .empty a { color: var(--accent-text); }
-  .project-menu { position: fixed; z-index: 60; min-width: 210px; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: 0 14px 34px var(--scrim); font-size: 13px; }
+  .project-menu { position: fixed; z-index: 60; min-width: 210px; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: 0 14px 34px var(--scrim); font-size: 14px; }
   .project-menu p { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 6px 10px; font-weight: 600; }
-  .project-menu p small { font-weight: 400; font-size: 11px; color: var(--muted); }
+  .project-menu p small { font-weight: 400; font-size: 14px; color: var(--muted); }
   .project-menu button, .project-menu > a { min-height: 34px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; text-align: left; text-decoration: none; display: flex; align-items: center; cursor: pointer; }
   .project-menu button:hover:not(:disabled), .project-menu > a:hover { background: var(--line-soft); }
   .project-menu button:disabled { color: var(--faint); cursor: default; }
-  .label { padding: 5px 10px 1px; color: var(--muted); font-size: 11px; }
+  .label { padding: 5px 10px 1px; color: var(--muted); font-size: 14px; }
   .colours { display: flex; gap: 7px; padding: 4px 10px 6px; }
-  .colours button { min-height: 0; width: 20px; height: 20px; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--swatch); color: var(--ink); font-size: 11px; line-height: 1; }
+  .colours button { min-height: 0; width: 20px; height: 20px; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--swatch); color: var(--ink); font-size: 14px; line-height: 1; }
   .colours button[aria-checked='true'] { box-shadow: 0 0 0 2px var(--accent); }
   @media (pointer: coarse) { .chip, .action, .project-menu button, .project-menu > a { min-height: 44px; } }
 </style>

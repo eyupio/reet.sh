@@ -49,16 +49,16 @@
 </footer>
 
 <style>
-  footer { color: var(--muted); font-size: 0.85rem; padding: 0 40px; }
+  footer { color: var(--muted); font-size: 0.875rem; padding: 0 40px; }
   .inner {
     display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px;
     max-width: calc(var(--content-width) - 80px); margin: 0 auto; padding: 22px 0 32px; border-top: 1px solid var(--line);
   }
   .brand { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
   .name { font-weight: 600; color: var(--ink); }
-  .version { color: var(--muted); font-size: 0.72rem; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
-  .meaning { font-size: 0.75rem; }
-  .descriptor { letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.75rem; }
+  .version { color: var(--muted); font-size: 0.875rem; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+  .meaning { font-size: 0.875rem; }
+  .descriptor { letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.875rem; }
   .end { display: inline-flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   .public-links { display: inline-flex; flex-wrap: wrap; gap: 4px 16px; }
   .public-links a { color: var(--muted); font-weight: 500; text-underline-offset: 3px; }
@@ -68,10 +68,10 @@
   .credit a:hover, .credit a:focus-visible { color: var(--ink); text-decoration: underline; }
   .signout, .admin {
     background: none; border: 0; padding: 4px 0; min-height: 32px; cursor: pointer;
-    color: var(--muted); font-size: 0.85rem; text-underline-offset: 3px; text-decoration: none;
+    color: var(--muted); font-size: 0.875rem; text-underline-offset: 3px; text-decoration: none;
   }
   .admin { display: inline-flex; align-items: center; }
-  .user { color: var(--muted); font-size: 0.85rem; max-width: 180px; overflow-wrap: anywhere; text-decoration: none; }
+  .user { color: var(--muted); font-size: 0.875rem; max-width: 180px; overflow-wrap: anywhere; text-decoration: none; }
   .user:hover, .user:focus-visible { color: var(--ink); text-decoration: underline; }
   .signout:hover, .signout:focus-visible, .admin:hover, .admin:focus-visible { color: var(--ink); text-decoration: underline; }
   @media (pointer: coarse) { .signout, .admin { min-height: 44px; } }

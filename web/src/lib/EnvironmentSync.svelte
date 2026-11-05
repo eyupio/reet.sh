@@ -337,22 +337,22 @@
 <style>
   .sync-empty { border: 1px dashed var(--line); border-radius: 12px; padding: 18px; background: var(--card); }
   .sync-empty h3 { margin: 0 0 12px; font: 500 1.3rem/1.2 var(--serif); letter-spacing: -0.02em; }
-  .sync-empty p { margin: 12px 0 0; max-width: 60ch; color: var(--muted); font-size: 0.86rem; line-height: 1.6; }
+  .sync-empty p { margin: 12px 0 0; max-width: 60ch; color: var(--muted); font-size: 0.875rem; line-height: 1.6; }
   .sync { margin-top: 24px; padding: clamp(14px, 2.4vw, 22px); border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
   .sync.compare { padding: 0; border: 0; background: transparent; }
   .page-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-  .tools-status { flex: 1 1 240px; margin: 0; text-align: right; font-size: .75rem; }
-  .hint { color: var(--muted); font-size: .83rem; margin: 6px 0; overflow-wrap: anywhere; }
+  .tools-status { flex: 1 1 240px; margin: 0; text-align: right; font-size: 0.875rem; }
+  .hint { color: var(--muted); font-size: 0.875rem; margin: 6px 0; overflow-wrap: anywhere; }
   .machine-focus a { color: var(--accent-text); }
   .machine-focus strong { color: var(--ink); }
   .maintenance { margin: 16px 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
   .maintenance > summary { cursor: pointer; min-height: 24px; font-weight: 600; }
   .machine-form { display: grid; gap: 12px; margin-top: 16px; }
-  .machine-form label { display: grid; gap: 4px; font-size: .85rem; font-weight: 600; }
+  .machine-form label { display: grid; gap: 4px; font-size: 0.875rem; font-weight: 600; }
   .fleet-command { margin-top: 16px; }
   .fleet-command > strong { overflow-wrap: anywhere; }
   .command { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
-  pre { flex: 1 1 260px; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: .78rem/1.6 var(--mono); }
+  pre { flex: 1 1 260px; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 0.875rem/1.6 var(--mono); }
   .advanced-fleet { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px; }
   .advanced-fleet > summary { cursor: pointer; font-weight: 650; font-size: .88rem; }
   .banners { display: contents; }

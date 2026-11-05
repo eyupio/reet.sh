@@ -166,7 +166,7 @@
   .workspace-label { display: none; }
   @media (min-width: 1100px) {
     .shell-bar.workspace { padding-left: 264px; gap: 20px; }
-    .workspace-label { display: flex; align-items: center; gap: 13px; font-size: 12px; color: var(--muted); min-width: 0; }
+    .workspace-label { display: flex; align-items: center; gap: 13px; font-size: 14px; color: var(--muted); min-width: 0; }
     .workspace-label strong { color: var(--ink); font-weight: 500; white-space: nowrap; }
     .workspace-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
   }

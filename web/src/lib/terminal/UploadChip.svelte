@@ -13,11 +13,11 @@
 </div>
 
 <style>
-  .upload-chip { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--line); border-radius:8px; background:var(--card); box-shadow:var(--shadow); font-size:.7rem; color:var(--ink); pointer-events:auto }
+  .upload-chip { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--line); border-radius:8px; background:var(--card); box-shadow:var(--shadow); font-size:0.875rem; color:var(--ink); pointer-events:auto }
   .upload-chip-copy { display:flex; flex-direction:column; min-width:0; flex:1 }
   .upload-chip-name { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-  .upload-chip-size { color:var(--muted); font-size:.65rem }
+  .upload-chip-size { color:var(--muted); font-size:0.875rem }
   .upload-chip progress { width:56px; height:4px; accent-color:var(--accent) }
-  .upload-chip button { font:inherit; font-size:.65rem; min-height:28px; padding:3px 7px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink); cursor:pointer }
+  .upload-chip button { font:inherit; font-size:0.875rem; min-height:28px; padding:3px 7px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink); cursor:pointer }
   @media(pointer:coarse) { .upload-chip button { min-width:40px; min-height:40px } }
 </style>

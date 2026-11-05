@@ -78,13 +78,13 @@
     padding: 28px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
     box-shadow: 0 28px 80px -24px rgb(0 0 0 / 0.45);
   }
-  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   h2 { margin: 6px 0 0; font: 500 1.8rem/1.15 var(--serif); letter-spacing: -0.02em; }
   .lede { margin: 8px 0 18px; color: var(--muted); font-size: 0.9rem; }
-  .field { display: grid; gap: 6px; margin-top: 12px; font-size: 0.82rem; font-weight: 600; }
+  .field { display: grid; gap: 6px; margin-top: 12px; font-size: 0.875rem; font-weight: 600; }
   .field small { color: var(--muted); font-weight: 400; }
   .field input { width: 100%; font-weight: 400; }
-  .error { margin: 14px 0 0; color: var(--bad); font-size: 0.85rem; }
+  .error { margin: 14px 0 0; color: var(--bad); font-size: 0.875rem; }
   .actions { position:sticky; bottom:-28px; background:var(--card); padding:14px 0; display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; flex-wrap: wrap; }
   @media (max-width: 560px) {
     .box { padding: 20px; border-radius: 14px; }

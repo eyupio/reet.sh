@@ -48,7 +48,8 @@ merged by the owner as `6f4abb45`. Floating general/session chat includes indepe
 model choices, durable receipt recovery, scoped drafts, cancellation and history
 cleanup. Its final CI was green, including the launcher/composer/keyboard fixes.
 
-GM3A is implemented on `feat/gaffer-context-reads`, based on that merged main.
+GM3A is [PR #608](https://github.com/eyupio/reet.sh/pull/608) on
+`feat/gaffer-context-reads`, aligned with main `9ab70f83` after #607.
 Gaffer's **Context** dialog previews explicit, off-by-default retained status,
 event metadata and optional user/agent text under provider policy. Shared domain
 reads also back hosted MCP, browser tools and scoped stdio: grants are separate

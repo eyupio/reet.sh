@@ -72,7 +72,8 @@ goal and the worker's existing authority.
 ### GM3A: retained context and explicit read grants (5 November 2026)
 
 The owner merged #606 as `6f4abb45`; its final head had green checks. The next
-slice, `feat/gaffer-context-reads`, implements passive context on explicit Gaffer
+slice, [PR #608](https://github.com/eyupio/reet.sh/pull/608)
+(`feat/gaffer-context-reads`, based on main `9ab70f83`), implements passive context on explicit Gaffer
 sends and the same authorised projection through MCP. The detailed
 [conversation/access contract](handoffs/gaffer-conversations.md#gm3a-implemented-context-disclosure-and-scoped-mcp-reads)
 records field boundaries, lifecycle, API and recovery.
@@ -96,7 +97,16 @@ records field boundaries, lifecycle, API and recovery.
 - Fake-backed domain/store/HTTP and browser tests exercise default-off consent,
   provider and account boundaries, revocation, archive, retained counts, omitted
   raw fields, bounds, restart receipts and independent MCP subjects. No paid call
-  or new dependency is needed. Exact final checks appear below when publishing.
+  or new dependency is needed.
+
+Verification at publication: targeted store/domain/HTTP context race tests and all
+16 MCP compatibility tests pass. Web check/build pass on the aligned main (two
+existing unused-selector warnings). Context sharing passes six width/theme views;
+existing chat, settings and MCP account browser suites pass. Strict docs, 51-page
+static checks and the 40-view docs browser smoke pass. Full repository race checks
+are being rerun on the aligned base; the first full run ended without a complete
+report. Final-head CI is the merge gate, not an assumed local pass. No merge was
+performed. See the PR for the latest check results.
 
 This is the GM3 read half, not the whole supervision MVP. GM3B must add explicit
 worker-message grants and durable idempotent mapping to the existing queue before

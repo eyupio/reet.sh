@@ -212,7 +212,7 @@ phone it only closes). The rules live in `terminal/panelLayout.ts`, unit tested 
 **Your sessions** lists every session and its machine; machines also appear as group headings
 when grouped by Machine, each with its own **+** and menu. Organising never creates or stops a
 shell. Select a row to continue that exact session across machines. Sort by custom
-order, name, recent metadata activity, creation or state; group by machine, state,
+order, name, recent metadata activity, creation or state; group by project (the default, shown as a tree with a "No project" group last), machine, state,
 colour or none. Drag the row's action handle within its group in Custom order;
 keyboard users can choose Move up/down from the same menu. Colours mark sessions
 separately from running-state dots. Organisation choices stay in this browser.

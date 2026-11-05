@@ -507,6 +507,75 @@ try {
    expect(live.errors).toEqual([]);await live.context.close()
   }
  }
+ // Asking the agent to fix: the message goes into the chat composer for the person to read and send, or onto the clipboard. Nothing is sent for them.
+ {
+  const detail = {detailKnown:true,reviews:{approved:0,changesRequested:0,commented:0,requested:0},threads:{open:0,resolved:0}}
+  const conflicted = {pull:{mergeable:'CONFLICTING',review:'REVIEW_REQUIRED',checks:[ok('Build')],base:'main',...detail}}
+  const MESSAGE = 'Resolve the merge conflicts with main on this branch, then push.'
+  const ready = async opts => {
+   const o = await open(1600,'dark',true,null,opts)
+   await o.context.grantPermissions(['clipboard-read','clipboard-write'])
+   const tracker = o.panel.getByRole('group',{name:'Progress'})
+   const requests = []
+   const watch = () => o.page.on('request',r=>{requests.push(r.method()+' '+new URL(r.url()).pathname)})
+   return {...o,tracker,requests,watch,composer:o.page.locator('.composer-input')}
+  }
+  // Nothing but reads: no write method, and no route that sends a chat message.
+  const onlyReads = (requests,name) => {
+   expect(requests.filter(r=>!/^(GET|HEAD) /.test(r)),`${name}: nothing is written`).toEqual([])
+   expect(requests.filter(r=>/chat|message|prompt/i.test(r)&&!/^GET /.test(r)),`${name}: no message is sent`).toEqual([])
+  }
+  {
+   const t = await ready(conflicted)
+   await expect(t.composer).toBeVisible()
+   t.watch()
+   const fix = t.tracker.getByRole('button',{name:'Ask the agent to fix the conflicts'})
+   await expect(fix).toHaveText('Ask the agent to fix')
+   await fix.click()
+   await expect(t.composer).toHaveValue(MESSAGE)
+   await expect(t.composer).toBeFocused()
+   await t.page.waitForTimeout(300)
+   onlyReads(t.requests,'a chat with an empty composer')
+   expect(t.errors).toEqual([]);await t.context.close()
+  }
+  {
+   const t = await ready(conflicted)
+   await t.composer.fill('Also check the lockfile')
+   t.watch()
+   await t.tracker.getByRole('button',{name:'Ask the agent to fix the conflicts'}).click()
+   await expect(t.composer).toHaveValue('Also check the lockfile\n'+MESSAGE)
+   await expect(t.composer).toBeFocused()
+   onlyReads(t.requests,'a half-typed draft')
+   expect(t.errors).toEqual([]);await t.context.close()
+  }
+  {
+   const t = await ready(conflicted)
+   const draft = 'x'.repeat(1990)
+   await t.composer.fill(draft)
+   t.watch()
+   await t.tracker.getByRole('button',{name:'Ask the agent to fix the conflicts'}).click()
+   const note = t.tracker.getByRole('status')
+   await expect(note).toHaveText('Copied. The composer is nearly full.')
+   await expect(note).toHaveAttribute('aria-live','polite')
+   expect(await t.page.evaluate(()=>navigator.clipboard.readText())).toBe(MESSAGE)
+   await expect(t.composer).toHaveValue(draft)
+   onlyReads(t.requests,'a nearly full composer')
+   expect(t.errors).toEqual([]);await t.context.close()
+  }
+  {
+   const t = await ready({...conflicted,session:{structured:false}})
+   // A terminal asks for its own attach ticket as it opens; that is the page loading, not the click, so let it finish first.
+   await t.page.waitForTimeout(2000)
+   t.watch()
+   const fix = t.tracker.getByRole('button',{name:/conflicts/})
+   await expect(fix).toHaveText('Copy message for the agent')
+   await fix.click()
+   await expect(t.tracker.getByRole('status')).toHaveText('Copied')
+   expect(await t.page.evaluate(()=>navigator.clipboard.readText())).toBe(MESSAGE)
+   onlyReads(t.requests,'a terminal session')
+   await t.context.close()
+  }
+ }
  // The pull request card: facts only, "not read" where the machine did not read, and a placeholder when there is no pull request.
  {
   const detail = (over={}) => ({detailKnown:true,reviews:{approved:1,changesRequested:1,commented:0,requested:0},threads:{open:3,resolved:2},...over})

@@ -3,6 +3,8 @@
  import { fly } from 'svelte/transition'
  import { applyChatEvent, checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, rejectLabel, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, approvalOutcome, foldApprovals, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
+ import { composerPrefill } from '../sessions/composerPrefill'
+ import { prefillText } from '../sessions/fixMessages'
  import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
  import { defaultLabel, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
@@ -182,6 +184,16 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  type Picture = { id: number; file: File; preview: string }
  let images = $state<{ id: number; file: File; preview: string }[]>([]), imageSeq = 0, attachNote = $state('')
  let fileInput: HTMLInputElement | undefined = $state()
+ // A fix request from the session overview. It joins what is typed (never replaces or cuts it), is refused rather than truncated, and is never sent: the person reads it and presses Send.
+ let prefillSeen = 0
+ $effect(() => {
+  const ask = $composerPrefill
+  if (!ask || ask.sessionId !== session.id || ask.nonce <= prefillSeen) return
+  prefillSeen = ask.nonce
+  const next = !composerInput || reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting' ? null : prefillText(untrack(() => draft), ask.text)
+  if (next !== null) { draft = next; void tick().then(() => { composerInput?.focus(); composerInput?.setSelectionRange(next.length, next.length) }) }
+  ask.answer?.(next !== null)
+ })
  // The skill picker. It only ever puts an invocation into the draft; nothing is sent until the person presses Send.
  let composerInput: HTMLTextAreaElement | undefined = $state()
  let skillsOpen = $state(false), skillData = $state<SessionSkills | null>(null), skillsLoading = $state(false), skillsError = $state(''), skillQuery = $state('')

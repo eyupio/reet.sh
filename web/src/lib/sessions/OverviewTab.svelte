@@ -10,18 +10,23 @@
   import PullCard from './PullCard.svelte'
   import StageTracker from './StageTracker.svelte'
   import WhereCard from './WhereCard.svelte'
-  import type { FixKind } from './fixMessages'
+  import { copyText } from '../clipboard'
+  import { onDestroy } from 'svelte'
+  import { offerPrefill } from './composerPrefill'
+  import { copyNote, fixRoute } from './fixDelivery'
+  import { fixMessage, type FixKind } from './fixMessages'
   import { deriveStages } from './overviewStages'
   import { placeholderLine } from './pullFacts'
+  import { splitChecks } from './pullVerdict'
   import { runLine } from './runClock'
 
   // The panel owns reading and polling; the Overview only shows what it is handed, so it can grow cards without touching either.
-  let { id, session, host, status, project, skills, now, chat, supported, workspace, github, checking, base, remote, pending, errors, baseline, newEvents, terminalAdvanced, onterminal, onpick, onfull, onfix }: {
+  let { id, session, host, status, project, skills, now, chat, supported, workspace, github, checking, base, remote, pending, errors, baseline, newEvents, terminalAdvanced, onterminal, onpick, onfull }: {
     id: string; session: TerminalSession; host: string; status: FleetCard['status'] | undefined
     project: string; skills: FleetCard['skills'] | null | undefined; now: number; chat?: ChatState; supported: boolean
     workspace: SessionInsight | null; github: SessionInsight | null; checking: boolean; base?: string; remote?: string; pending: Record<string, boolean>; errors: Record<string, string>
     baseline: { seq: number; at: number; activityAt?: number } | null; newEvents: number; terminalAdvanced: boolean | null
-    onterminal?: () => void; onpick: (tab: 'changes') => void; onfull: () => void; onfix?: (kind: FixKind) => void
+    onterminal?: () => void; onpick: (tab: 'changes') => void; onfull: () => void
   } = $props()
   const chatAttention = $derived(chat?.connection === 'open' ? ({ working: 'working', waiting: 'waiting', starting: 'starting', idle: 'quiet', error: 'failed', ended: 'finished', cancelled: 'quiet' } as const)[chat.status.state as 'working' | 'waiting' | 'starting' | 'idle' | 'error' | 'ended' | 'cancelled'] : undefined)
   const sessionState = $derived(stateWord(chatAttention ? { ...session, attention: chatAttention, attentionSource: 'chat' } : session))
@@ -51,6 +56,18 @@
     return { ...derived, next: { text: placeholderLine({ supported, loading: reading }), tone: 'muted' as const } }
   })
   const placeholder = $derived(placeholderLine({ supported, loading: reading, reason: pullReason }))
+  // The message is made here, from what the pull request says, and either put in the chat composer for the person to read and send,
+  // or copied. A chat whose composer cannot take it (nearly full, disabled, not on screen) falls back to the copy, so it is never lost.
+  let fixNote = $state(''), fixTimer: ReturnType<typeof setTimeout> | undefined
+  onDestroy(() => clearTimeout(fixTimer))
+  function say(text: string) { fixNote = text; clearTimeout(fixTimer); fixTimer = setTimeout(() => { fixNote = '' }, 6000) }
+  async function fix(kind: FixKind) {
+    const message = fixMessage(kind, { base: pull?.base, checks: splitChecks(pull?.checks ?? []).failed.map(c => c.name), threads: pull?.threads?.open })
+    const structured = !!session.structured
+    fixNote = ''
+    if (fixRoute(structured) === 'composer' && await offerPrefill(session.id, message)) return
+    say(copyNote(structured, await copyText(message)))
+  }
   const errorDetail = $derived(chat?.status.state === 'error' ? chat.status.detail : '')
 </script>
 
@@ -67,7 +84,7 @@
   {#if session.structured}<div class="facts"><span><b>{activity.done.length}</b> tools done</span><span class:bad={activity.failed.length > 0}><b>{activity.failed.length}</b> failed</span><span><b>{activity.active.length}</b> active</span></div><p class="quiet one-line" title={countsLine}>{countsLine}</p>{:else}<p class="quiet">Terminal state comes from process and output activity. Agent steps are available in Gaffer chats.</p>{/if}
 </section>
 <div class="prompt-slot"><PromptCard {session} {chat} {now} /></div>
-<div class="stage-slot"><StageTracker {id} {stages} {now} onsession={() => onterminal?.()} onfix={kind => onfix?.(kind)} /></div>
+<div class="stage-slot"><StageTracker {id} {stages} {now} onsession={() => onterminal?.()} onfix={fix} terminal={!session.structured} note={fixNote} /></div>
 <div class="pull-slot"><PullCard {id} {pull} {placeholder} {now} {onfull} /></div>
 {#if session.structured}
   <section class="live" aria-label="Agent activity">

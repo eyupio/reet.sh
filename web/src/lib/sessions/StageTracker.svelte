@@ -2,17 +2,19 @@
   import { elapsedWord } from '../sessionInsights'
   import type { FixKind } from './fixMessages'
   import type { Stages, StepState } from './overviewStages'
+  import { fixButtonText } from './fixDelivery'
   import InsightIcon from './InsightIcon.svelte'
 
-  let { id, stages, now, onsession, onfix }: { id: string; stages: Stages; now: number; onsession: () => void; onfix: (kind: FixKind) => void } = $props()
+  // `terminal` is a session with no composer to fill, so the button copies; `note` is what the last click did, said politely and in words.
+  let { id, stages, now, onsession, onfix, terminal = false, note = '' }: { id: string; stages: Stages; now: number; onsession: () => void; onfix: (kind: FixKind) => void; terminal?: boolean; note?: string } = $props()
 
   // Every state has a word as well as an icon and a colour: colour is never the only signal.
   const WORDS: Record<StepState, string> = { done: 'Done', current: 'Now', attention: 'Needs you', upcoming: 'Not yet', unknown: 'Not read' }
   // The button's name says what it is for; the visible text is the part that fits a 300 px panel.
-  const FIX: Record<FixKind, { name: string; short: string }> = {
-    conflicts: { name: 'Ask the agent to fix the conflicts', short: 'Ask the agent to fix' },
-    checks: { name: 'Ask the agent to fix the checks', short: 'Ask the agent to fix' },
-    threads: { name: 'Ask the agent to address the threads', short: 'Ask the agent to address' },
+  const FIX: Record<FixKind, { what: string; short: string }> = {
+    conflicts: { what: 'fix the conflicts', short: 'Ask the agent to fix' },
+    checks: { what: 'fix the checks', short: 'Ask the agent to fix' },
+    threads: { what: 'address the threads', short: 'Ask the agent to address' },
   }
   // One step is "the step": the first that is in progress, else the first that needs the person.
   const here = $derived.by(() => {
@@ -22,6 +24,8 @@
   const next = $derived(stages.next)
   const primary = $derived(next.primary)
   const fix = $derived(next.fix ? FIX[next.fix] : undefined)
+  // The accessible name keeps the kind, and for a terminal still contains the visible words.
+  const fixName = $derived(fix ? (terminal ? `Copy message for the agent to ${fix.what}` : `Ask the agent to ${fix.what}`) : '')
 </script>
 
 <div class="tracker" role="group" aria-labelledby={`${id}-progress`}>
@@ -57,7 +61,7 @@
       {:else if primary?.kind === 'link' && primary.href}<a class="primary" href={primary.href} target="_blank" rel="noopener noreferrer">{primary.label} <InsightIcon name="arrow" /></a>{/if}
     </div>
     <!-- Held empty when there is nothing to ask, so a pull request that changes does not move the blocks below. -->
-    <div class="fix-row">{#if fix && next.fix}{@const kind = next.fix}<button type="button" class="fix" aria-label={fix.name} onclick={() => onfix(kind)}>{fix.short}</button>{/if}</div>
+    <div class="fix-row">{#if fix && next.fix}{@const kind = next.fix}<button type="button" class="fix" aria-label={fixName} onclick={() => onfix(kind)}>{fixButtonText(!terminal, fix.short)}</button>{/if}<span class="fix-note" role="status" aria-live="polite">{note}</span></div>
   {/if}
 </div>
 
@@ -95,6 +99,7 @@
   .primary:hover { filter: brightness(1.06); }
   .fix-row { height: var(--fix); display: flex; align-items: center; margin-top: 2px; }
   .fix { font: inherit; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; border: 0; background: none; padding: 5px 0; min-height: 30px; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+  .fix-note { flex: 1; min-width: 0; margin-left: 10px; font-size: 10px; line-height: 12px; color: var(--ink-soft); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
   /* The merged row is as tall as the tracker, the Next slot and the fix row together, so merging moves nothing below. */
   .merged { height: calc(var(--steps) + var(--gap) + var(--next) + var(--fix) + 2px); }
   .merged strong { color: var(--ink); font-size: 13px; }

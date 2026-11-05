@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/eyupio/reet.sh/internal/sealed"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -977,5 +978,292 @@ func TestTerminalEndRequestedForIsScoped(t *testing.T) {
 	}
 	if _, err := s.TerminalEndRequestedFor(uid, a.ID, "bad"); !errors.Is(err, terminalproto.ErrInvalid) {
 		t.Fatalf("malformed id: %v", err)
+	}
+}
+
+// reserveWithPrompt starts an agent session that carries an opening prompt.
+func reserveWithPrompt(t *testing.T, s *Store, uid int64, a SyncAgent, c RemoteAgentCapabilities, prompt string) TerminalSession {
+	t.Helper()
+	in := terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "claude", Prompt: prompt}
+	got, created, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in)
+	if err != nil || !created {
+		t.Fatalf("reserve: created=%v err=%v", created, err)
+	}
+	return got
+}
+
+func TestReserveStoresTheOpeningPromptAndTheListCarriesOnlyAnExcerpt(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	long := strings.Repeat("abcdefghi ", 100)
+	if utf8.RuneCountInString(long) != 1000 {
+		t.Fatal("the fixture prompt is not 1,000 characters")
+	}
+	got := reserveWithPrompt(t, s, uid, a, c, long)
+	if got.PromptExcerpt != long[:300] || !got.PromptMore {
+		t.Fatalf("reserved a long prompt: %d characters, more=%v", utf8.RuneCountInString(got.PromptExcerpt), got.PromptMore)
+	}
+	listedLong, raw := listed(t, s, uid, got.ID)
+	if listedLong.PromptExcerpt != long[:300] || !listedLong.PromptMore {
+		t.Fatalf("listed a long prompt: %d characters, more=%v", utf8.RuneCountInString(listedLong.PromptExcerpt), listedLong.PromptMore)
+	}
+	// The list is sent to every open tab and rides the event stream, so the whole
+	// prompt must be reachable only through TerminalPromptFor.
+	if strings.Contains(raw, long[:301]) {
+		t.Fatal("the session list carries more than the excerpt", raw)
+	}
+	if full, err := s.TerminalPromptFor(uid, got.ID); err != nil || full != long {
+		t.Fatalf("the whole prompt: %d characters, %v", len(full), err)
+	}
+
+	short := strings.Repeat("abcdefghi ", 12)
+	if utf8.RuneCountInString(short) != 120 {
+		t.Fatal("the fixture prompt is not 120 characters")
+	}
+	brief := reserveWithPrompt(t, s, uid, a, c, short)
+	listedShort, _ := listed(t, s, uid, brief.ID)
+	if brief.PromptExcerpt != short || brief.PromptMore || listedShort.PromptExcerpt != short || listedShort.PromptMore {
+		t.Fatalf("a short prompt is its own excerpt: reserved %q more=%v, listed %q more=%v", brief.PromptExcerpt, brief.PromptMore, listedShort.PromptExcerpt, listedShort.PromptMore)
+	}
+	if full, err := s.TerminalPromptFor(uid, brief.ID); err != nil || full != short {
+		t.Fatalf("the short prompt: %q, %v", full, err)
+	}
+
+	// A plain shell has no prompt, and says nothing about one.
+	plain := createTerminal(t, s, uid, a, c)
+	x, _ := listed(t, s, uid, plain.ID)
+	own, _ := json.Marshal(x)
+	if x.PromptExcerpt != "" || x.PromptMore || strings.Contains(string(own), "prompt") {
+		t.Fatalf("a shell lists a prompt: %+v %s", x, own)
+	}
+	if full, err := s.TerminalPromptFor(uid, plain.ID); err != nil || full != "" {
+		t.Fatalf("a shell's prompt: %q, %v", full, err)
+	}
+}
+
+// SQLite counts characters in substr, so the cut can fall between two emoji but
+// never inside one. A broken last character would make the whole list invalid
+// UTF-8 for the browser.
+func TestAnExcerptNeverSplitsAMultibyteCharacter(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	got := reserveWithPrompt(t, s, uid, a, c, strings.Repeat("a", 299)+"😀😀")
+	for name, excerpt := range map[string]string{"reserved": got.PromptExcerpt, "listed": func() string { x, _ := listed(t, s, uid, got.ID); return x.PromptExcerpt }()} {
+		if !utf8.ValidString(excerpt) || utf8.RuneCountInString(excerpt) != 300 {
+			t.Fatalf("%s excerpt: valid=%v, %d characters", name, utf8.ValidString(excerpt), utf8.RuneCountInString(excerpt))
+		}
+	}
+	if !got.PromptMore {
+		t.Fatal("a 301-character prompt has more than its excerpt")
+	}
+	if full, err := s.TerminalPromptFor(uid, got.ID); err != nil || full != strings.Repeat("a", 299)+"😀😀" {
+		t.Fatalf("the whole prompt: %q, %v", full, err)
+	}
+}
+
+// The create's stored parameters already refuse a retry that changes anything,
+// so the prompt written at INSERT time is the only one a session ever has.
+func TestARetriedCreateKeepsTheFirstPrompt(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	request := syncID()
+	in := terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "claude", Prompt: "fix the first thing"}
+	first, created, err := s.ReserveTerminalCreateFor(uid, a.ID, request, c.Generation, in)
+	if err != nil || !created {
+		t.Fatal(created, err)
+	}
+	changed := in
+	changed.Prompt = "fix a different thing"
+	if _, _, err := s.ReserveTerminalCreateFor(uid, a.ID, request, c.Generation, changed); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatal("a retry that changes the prompt", err)
+	}
+	if got, err := s.TerminalPromptFor(uid, first.ID); err != nil || got != "fix the first thing" {
+		t.Fatalf("after a changed retry: %q, %v", got, err)
+	}
+	again, created, err := s.ReserveTerminalCreateFor(uid, a.ID, request, c.Generation, in)
+	if err != nil || created || again.ID != first.ID || again.PromptExcerpt != "fix the first thing" {
+		t.Fatalf("an identical retry: %+v created=%v %v", again, created, err)
+	}
+	if got, err := s.TerminalPromptFor(uid, first.ID); err != nil || got != "fix the first thing" {
+		t.Fatalf("after an identical retry: %q, %v", got, err)
+	}
+}
+
+// Sessions are never deleted, only hidden, so archiving is the one moment the
+// controller can stop holding what the person typed. Both ways a session gets
+// archived must do it.
+func TestArchivingClearsThePromptOnBothPaths(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	const prompt = "rewrite the invoice export and keep it quiet"
+	running := func() TerminalSession {
+		session := reserveWithPrompt(t, s, uid, a, c, prompt)
+		if err := s.ObserveTerminalStateFor(uid, a.ID, session.ID, c.Generation, terminalproto.Running, nil); err != nil {
+			t.Fatal(err)
+		}
+		return session
+	}
+	byHand, onClose, kept := running(), running(), running()
+	for _, session := range []TerminalSession{byHand, onClose, kept} {
+		if got, err := s.TerminalPromptFor(uid, session.ID); err != nil || got != prompt {
+			t.Fatalf("before closing %s: %q, %v", session.ID, got, err)
+		}
+	}
+
+	// ArchiveTerminalFor: the person hides a session whose end is requested.
+	if _, err := s.RequestTerminalEndFor(uid, a.ID, byHand.ID, syncID()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ArchiveTerminalFor(uid, byHand.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// archiveTerminalOnClose: the machine confirms a close that asked for the
+	// history to be removed.
+	if _, err := s.RequestTerminalEndFor(uid, a.ID, onClose.ID, syncID(), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ObserveTerminalStateFor(uid, a.ID, onClose.ID, c.Generation, terminalproto.Ended, nil); err != nil {
+		t.Fatal(err)
+	}
+	if archived, err := s.TerminalArchivedFor(uid, onClose.ID); err != nil || !archived {
+		t.Fatal("the close did not archive the session", archived, err)
+	}
+
+	for name, session := range map[string]TerminalSession{"ArchiveTerminalFor": byHand, "archiveTerminalOnClose": onClose} {
+		if got, err := s.TerminalPromptFor(uid, session.ID); err != nil || got != "" {
+			t.Fatalf("%s kept the prompt: %q, %v", name, got, err)
+		}
+		row, err := s.TerminalSessionFor(uid, session.ID)
+		if err != nil || row.PromptExcerpt != "" || row.PromptMore {
+			t.Fatalf("%s kept an excerpt: %+v %v", name, row, err)
+		}
+		var stored int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM terminal_sessions WHERE id=? AND prompt<>''`, session.ID).Scan(&stored); err != nil || stored != 0 {
+			t.Fatalf("%s left the column filled: %d %v", name, stored, err)
+		}
+	}
+
+	// A session that ended but stays in history is not archived, so the person
+	// can still open its Overview and read what they asked for.
+	if _, err := s.RequestTerminalEndFor(uid, a.ID, kept.ID, syncID()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ObserveTerminalStateFor(uid, a.ID, kept.ID, c.Generation, terminalproto.Ended, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.TerminalPromptFor(uid, kept.ID); err != nil || got != prompt {
+		t.Fatalf("a closed session still in history lost its prompt: %q, %v", got, err)
+	}
+}
+
+func TestAnotherAccountCannotReadAPrompt(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	session := reserveWithPrompt(t, s, uid, a, c, "rewrite the invoice export")
+	other, err := s.CreateUser("prompt-other@example.test", "Other", "admin", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another account's session and a session that does not exist answer alike.
+	for _, id := range []string{session.ID, syncID()} {
+		if got, err := s.TerminalPromptFor(other.ID, id); !errors.Is(err, ErrRemoteNotFound) || got != "" {
+			t.Fatalf("%s for another account: %q, %v", id, got, err)
+		}
+	}
+	if _, err := s.TerminalPromptFor(uid, "bad id"); !errors.Is(err, terminalproto.ErrInvalid) {
+		t.Fatal("a malformed id", err)
+	}
+}
+
+// TerminalSessionFor refuses a viewer and a disabled account, and the prompt is
+// the more private half of the same record.
+func TestAViewerOrADisabledAccountCannotReadAPrompt(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	session := reserveWithPrompt(t, s, uid, a, c, "rewrite the invoice export")
+	if _, err := s.db.Exec(`UPDATE users SET role='viewer' WHERE id=?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.TerminalPromptFor(uid, session.ID); !errors.Is(err, ErrRemoteNotFound) || got != "" {
+		t.Fatalf("a viewer: %q, %v", got, err)
+	}
+	if _, err := s.db.Exec(`UPDATE users SET role='owner',disabled_at=1 WHERE id=?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.TerminalPromptFor(uid, session.ID); !errors.Is(err, ErrRemoteNotFound) || got != "" {
+		t.Fatalf("a disabled account: %q, %v", got, err)
+	}
+	if _, err := s.db.Exec(`UPDATE users SET disabled_at=0 WHERE id=?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.TerminalPromptFor(uid, session.ID); err != nil || got != "rewrite the invoice export" {
+		t.Fatalf("the owner again: %q, %v", got, err)
+	}
+}
+
+// A database from before the prompt was kept: opening it adds the column, its
+// rows read as having no prompt, and opening it again changes nothing.
+func TestAnOlderDatabaseGainsThePromptColumn(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid, _ := s.DefaultOwner()
+	a, c := terminalAgent(t, s, uid, "laptop")
+	old := reserveWithPrompt(t, s, uid, a, c, "an opening prompt from before")
+	if _, err := s.db.Exec(`ALTER TABLE terminal_sessions DROP COLUMN prompt`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	for i := 0; i < 2; i++ {
+		s, err = Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := hasColumn(s.db, "terminal_sessions", "prompt"); err != nil || !ok {
+			t.Fatalf("open %d: no prompt column: %v", i, err)
+		}
+		row, _ := listed(t, s, uid, old.ID)
+		if row.PromptExcerpt != "" || row.PromptMore {
+			t.Fatalf("open %d: an old row lists a prompt: %+v", i, row)
+		}
+		if got, err := s.TerminalPromptFor(uid, old.ID); err != nil || got != "" {
+			t.Fatalf("open %d: an old row's prompt: %q, %v", i, got, err)
+		}
+		s.Close()
+	}
+	// The column is usable straight away.
+	s, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	a, c = terminalAgent(t, s, uid, "desktop")
+	fresh := reserveWithPrompt(t, s, uid, a, c, "an opening prompt after")
+	if got, err := s.TerminalPromptFor(uid, fresh.ID); err != nil || got != "an opening prompt after" {
+		t.Fatalf("a new row's prompt: %q, %v", got, err)
+	}
+}
+
+// Sessions go with their account (the machine they ran on cascades from the
+// user), so the prompt is not kept past an account's deletion.
+func TestDeletingAnAccountRemovesItsSessionRowsAndPrompts(t *testing.T) {
+	s := newStore(t)
+	s.DefaultOwner()
+	user, err := s.CreateUser("prompt-member@example.com", "Member", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, c := terminalAgent(t, s, user.ID, "host")
+	reserveWithPrompt(t, s, user.ID, a, c, "rewrite the invoice export")
+	var held int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM terminal_sessions WHERE prompt<>''`).Scan(&held); err != nil || held != 1 {
+		t.Fatal("the prompt was not stored before the deletion", held, err)
+	}
+	if err := s.DeleteUser(user.ID); err != nil {
+		t.Fatal(err)
+	}
+	var rows, prompts int
+	if err := s.db.QueryRow(`SELECT COUNT(*),COALESCE(SUM(prompt<>''),0) FROM terminal_sessions`).Scan(&rows, &prompts); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 || prompts != 0 {
+		t.Fatalf("account deletion left %d session rows and %d prompts", rows, prompts)
 	}
 }

@@ -82,7 +82,7 @@ func TestProfileDefaultsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSessionListingCarriesLaunchMetadataNotPrompt(t *testing.T) {
+func TestSessionListingCarriesLaunchMetadataAndOnlyAnExcerptOfThePrompt(t *testing.T) {
 	var logs bytes.Buffer
 	original := log.Writer()
 	log.SetOutput(&logs)
@@ -95,7 +95,9 @@ func TestSessionListingCarriesLaunchMetadataNotPrompt(t *testing.T) {
 	}
 	body := launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "model": "sonnet", "dir": "/home/tester/site", "prompt": launchTestPrompt, "projectId": project.ID})
 	code, created, raw := f.create(t, body)
-	if code != 200 || created["projectId"] != project.ID || strings.Contains(raw, "flaky login") {
+	// The reply is the session as the listing will show it: the prompt only as
+	// its excerpt, which for a prompt this short is all of it.
+	if code != 200 || created["projectId"] != project.ID || created["promptExcerpt"] != launchTestPrompt {
 		t.Fatal("create", code, raw)
 	}
 	if sent := f.sent(); len(sent) != 1 || sent[0].ProjectID != "" || sent[0].Prompt != launchTestPrompt {
@@ -113,8 +115,8 @@ func TestSessionListingCarriesLaunchMetadataNotPrompt(t *testing.T) {
 	if _, has := s["worktreeBranch"]; has {
 		t.Fatal("listing", raw)
 	}
-	if strings.Contains(raw, "flaky login") || strings.Contains(raw, `"prompt"`) {
-		t.Fatal("the prompt reached the listing", raw)
+	if s["promptExcerpt"] != launchTestPrompt || strings.Contains(raw, "promptMore") || strings.Contains(raw, `"prompt"`) {
+		t.Fatal("the listing carries the prompt only as its excerpt", raw)
 	}
 	events, _ := f.st.ListEventsFor(f.uid, 100, "")
 	everything, _ := json.Marshal(events)

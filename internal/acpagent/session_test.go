@@ -436,6 +436,15 @@ func TestFakeACP(t *testing.T) {
 						"rawInput": map[string]string{"file_path": "/work/marker.txt", "description": "Write an isolated probe marker", "diff": "@@ -0,0 +1 @@\n+marker\n"}},
 					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "reject", "kind": "reject_once", "name": "Reject"}},
 				}})
+			case "cline-silent-error":
+				// The provider failed before any ACP frame; Cline writes the
+				// reason to its own log and ends the turn.
+				logDir := filepath.Join(os.Getenv("CLINE_DIR"), "data", "logs")
+				line := fmt.Sprintf(`{"level":50,"time":%q,"sessionId":%q,"err":{"message":"Insufficient balance for this chat"},"msg":"Interactive turn failed"}`+"\n", time.Now().UTC().Format(time.RFC3339Nano), session)
+				if os.MkdirAll(logDir, 0o700) == nil {
+					_ = os.WriteFile(filepath.Join(logDir, "cline.log"), []byte(line), 0o600)
+				}
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
 			case "cline-read", "cline-editor", "cline-command":
 				// Shapes captured from Cline 3.0.74 with --auto-approve false:
 				// a read of files, an editor write that carries path/new_text
@@ -553,6 +562,19 @@ func TestFakeACP(t *testing.T) {
 			case "running-command":
 				// A command is started and never reported finished; the prompt waits for session/cancel.
 				update(session, "tool_call", map[string]any{"toolCallId": "call_run", "title": "sleep 47", "kind": "execute", "status": "in_progress"})
+			case "quiet-command", "quiet-command-then-hang":
+				update(session, "tool_call", map[string]any{"toolCallId": "call_run", "title": "wait for checks", "kind": "execute", "status": "in_progress"})
+				time.Sleep(300 * time.Millisecond)
+				update(session, "tool_call_update", map[string]any{"toolCallId": "call_run", "status": "completed"})
+				if scenario == "quiet-command" {
+					reply(promptID, map[string]any{"stopReason": "end_turn"})
+					promptID = nil
+				}
+				if scenario == "quiet-command-then-hang" {
+					// A sparse output update must not reopen a completed tool and
+					// exempt the silent provider from its deadline again.
+					update(session, "tool_call_update", map[string]any{"toolCallId": "call_run", "content": []map[string]any{{"type": "content", "content": map[string]string{"type": "text", "text": "checks passed"}}}})
+				}
 			case "ignore-cancel":
 				// Never answers the prompt and ignores session/cancel.
 			case "steady-progress":
@@ -1213,6 +1235,98 @@ func TestActiveTurnOutlivesTheIdleTimeout(t *testing.T) {
 		if event.Kind == "notice" && strings.Contains(event.Text, "took too long") {
 			t.Fatalf("an active turn was timed out: %+v", event)
 		}
+	}
+}
+
+func TestQuietCommandOutlivesTheIdleTimeout(t *testing.T) {
+	opts, got := options(t, "quiet-command", testVersion)
+	opts.StillWorkingAfter = 20 * time.Millisecond
+	opts.TurnTimeout = 100 * time.Millisecond
+	opts.MaxTurn = 2 * time.Second
+	session, err := Start(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	// A return to the chat must find the completed work, and the same process
+	// must remain usable for the person's next message.
+	for range 2 {
+		if err := session.Prompt(t.Context(), "wait for checks"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	for _, event := range got.all {
+		if event.Kind == "notice" || (event.Kind == "status" && event.State == "cancelled") {
+			t.Fatalf("a running command was mistaken for a silent provider: %+v", event)
+		}
+	}
+}
+
+func TestSilenceAfterAQuietCommandStillTimesOut(t *testing.T) {
+	opts, got := options(t, "quiet-command-then-hang", testVersion)
+	opts.StillWorkingAfter = 20 * time.Millisecond
+	opts.TurnTimeout = 100 * time.Millisecond
+	session, err := Start(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(t.Context(), "wait for checks") }()
+	completed := false
+	for {
+		event := got.next(t)
+		if event.Kind == "tool" && event.ToolCallID == "call_run" && event.Status == "completed" {
+			completed = true
+		}
+		if event.Kind == "notice" && event.Bad {
+			if !completed {
+				t.Fatal("the command was stopped before it finished")
+			}
+			break
+		}
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the silent turn stayed busy after the command finished")
+	}
+}
+
+func TestQuietCommandStillHasAHardDeadline(t *testing.T) {
+	opts, got := options(t, "running-command", testVersion)
+	opts.StillWorkingAfter = 20 * time.Millisecond
+	opts.TurnTimeout = 100 * time.Millisecond
+	opts.MaxTurn = 250 * time.Millisecond
+	session, err := Start(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	started := time.Now()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(t.Context(), "wait for checks") }()
+	for {
+		event := got.next(t)
+		if event.Kind == "notice" && event.Bad {
+			if time.Since(started) < opts.MaxTurn {
+				t.Fatal("the idle deadline stopped a command before the hard deadline")
+			}
+			break
+		}
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the hard deadline did not stop the command")
 	}
 }
 

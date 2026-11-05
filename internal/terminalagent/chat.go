@@ -93,6 +93,7 @@ const (
 // model: the transport is replaceable, the agent process is not.
 type chatSupervisor struct {
 	ctx      context.Context
+	cancel   context.CancelFunc
 	opts     terminalhost.ManagerOptions
 	start    chatStarter
 	lookPath func(string) (string, error)
@@ -149,8 +150,9 @@ func NewChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *C
 }
 
 func newChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *chatSupervisor {
+	ctx, cancel := context.WithCancel(ctx)
 	s := &chatSupervisor{
-		ctx: ctx, opts: opts, previews: newChatPreviewStore(opts.Layout.Dir, opts.Home),
+		ctx: ctx, cancel: cancel, opts: opts, previews: newChatPreviewStore(opts.Layout.Dir, opts.Home),
 		start: func(ctx context.Context, opts acpagent.Options) (chatProcess, error) {
 			return acpagent.Start(ctx, opts)
 		},
@@ -175,7 +177,19 @@ func (s *chatSupervisor) startResume() {
 	if s.registry == nil {
 		return
 	}
-	s.resumeOnce.Do(func() { go s.resumePersisted() })
+	s.resumeOnce.Do(func() {
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return
+		}
+		s.wg.Add(1)
+		s.mu.Unlock()
+		go func() {
+			defer s.wg.Done()
+			s.resumePersisted()
+		}()
+	})
 }
 
 // Close ends every chat process and refuses new sessions.
@@ -199,6 +213,9 @@ func (s *chatSupervisor) closeOnce() {
 			s.link = nil
 		}
 		s.mu.Unlock()
+		if s.cancel != nil {
+			s.cancel()
+		}
 		close(s.stop)
 		for _, cs := range sessions {
 			if cs.process != nil {
@@ -1401,14 +1418,15 @@ func cutText(s string, max int) string {
 }
 
 func (h *chatHost) setModel(ctx context.Context, sessionID, model string) error {
-	cs := h.find(sessionID)
-	if cs == nil {
-		return terminalhost.ErrSessionMissing
-	}
 	h.sup.mu.Lock()
 	if h.sup.closed {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrManagerClosed
+	}
+	cs := h.sup.sessions[sessionID]
+	if cs == nil {
+		h.sup.mu.Unlock()
+		return terminalhost.ErrSessionMissing
 	}
 	if chatUnavailable(cs) {
 		h.sup.mu.Unlock()
@@ -1445,14 +1463,15 @@ func (h *chatHost) setModel(ctx context.Context, sessionID, model string) error 
 // session refuses any other mode and reports success only when the agent
 // confirms the new one.
 func (h *chatHost) setAgentMode(ctx context.Context, sessionID, mode string) error {
-	cs := h.find(sessionID)
-	if cs == nil {
-		return terminalhost.ErrSessionMissing
-	}
 	h.sup.mu.Lock()
 	if h.sup.closed {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrManagerClosed
+	}
+	cs := h.sup.sessions[sessionID]
+	if cs == nil {
+		h.sup.mu.Unlock()
+		return terminalhost.ErrSessionMissing
 	}
 	if chatUnavailable(cs) {
 		h.sup.mu.Unlock()

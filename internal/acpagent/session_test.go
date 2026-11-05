@@ -1667,6 +1667,75 @@ func TestStartModeIsConfirmedOrTheChatIsRefused(t *testing.T) {
 	}
 }
 
+// Stop after the working state is published but before the prompt is written
+// must prevent that turn from starting, while leaving the next turn usable.
+func TestStopBeforePromptWriteDoesNotStartWork(t *testing.T) {
+	opts, got := options(t, "running-command", testVersion)
+	opts.Agent.EndChatOnStopWhileToolRuns = false
+	opts.TurnTimeout, opts.ForceStopGrace = time.Minute, time.Minute
+	ready, release := make(chan struct{}), make(chan struct{})
+	var first, released sync.Once
+	var reportedError atomic.Bool
+	resume := func() { released.Do(func() { close(release) }) }
+	onEvent := opts.OnEvent
+	opts.OnEvent = func(event Event) {
+		if event.Kind == "status" && event.State == "error" {
+			reportedError.Store(true)
+		}
+		if event.Kind == "status" && event.State == "working" {
+			first.Do(func() { close(ready); <-release })
+		}
+		onEvent(event)
+	}
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { resume(); session.Close() })
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "stop before sending") }()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the turn never reached the send boundary")
+	}
+	if err := session.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	resume()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("early Stop returned an error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stopped prompt was sent after cancellation")
+	}
+	if session.Working() || got.has("tool") || reportedError.Load() {
+		t.Fatal("the cancelled prompt started work or reported an error")
+	}
+	select {
+	case <-session.Done():
+		t.Fatal("early Stop ended the chat")
+	default:
+	}
+	// The cancellation belongs to the old turn; a later turn can still run.
+	go func() { done <- session.Prompt(context.Background(), "next turn") }()
+	for got.next(t).Kind != "tool" {
+	}
+	if err := session.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the next turn did not cancel")
+	}
+}
+
 // For an adapter whose cancel leaves a command alive, Stop with a command running
 // ends the chat, retires the process group and says so; Stop with nothing running
 // only cancels the turn and leaves the chat usable.

@@ -192,3 +192,15 @@ Branch: `feat/gaffer-animation-variety`, 4 November 2026. The standalone workspa
 - `gaffer-variety.e2e.mjs` is included in the existing browser workflow. It drives the real component with a controlled clock and stream. The theme suite checks the four action frames of every new performance in both themes, in addition to prior blending, status-priority, pause and cleanup contracts.
 
 Local validation: unit suite and production build; the existing Gaffer artwork, theme, return, interaction, progress and minimised browser checks; the new foreground-rotation regression. Final-head GitHub checks and review remain the merge gate. The new preview and both theme sheets are linked from `docs/ui-verification.md`.
+
+## Session lifecycle and browser reliability follow-up
+
+Branch: `fix/phone-dialog-runner-contention`, based on `98615e5` after #543 merged with all PR checks green.
+
+- Stop can arrive after a turn is marked working but before its prompt is written. `writeRequest` orders the prompt write with the cancellation marker under the turn lock. A turn already cancelled is never sent and returns as stopped; the next turn remains usable. This is the only application change in the follow-up.
+- The self-hosted main run reported ten five-second waits for a live terminal before drawer checks could start. Run the phone fixture's viewports sequentially instead of competing in six concurrent browser contexts. All 23 dialogs, six screen sizes, both keyboard simulations, geometry, scroll locking, hit testing, API/error guards and existing deadlines remain.
+- `TestSupervisorRemembersAndResumesAcrossProcesses` cancelled supervisors without waiting for registry writes before removing temporary layouts. Register both Close cleanups and close the first before simulating the next process.
+
+Evidence: the deterministic early-Stop regression failed before the application fix. Twenty race-detector repetitions of early Stop, command-aware Stop and permission-on-cancel pass afterwards; both full `acpagent` and `terminalagent` packages pass under the race detector. The supervisor cleanup reproduced three failures in 100 runs before its fix and passed all 100 afterwards.
+
+The original concurrent phone fixture passed locally in 96.8 seconds; the sequential fixture passed all 23 dialogs at all six sizes in 262.5 seconds and in the first PR CI run in 235.8 seconds. The self-hosted post-merge run remains the validation of its runner-specific contention. Reproduce with `REET_UI_URL=... node web/tests/phone-dialogs.e2e.mjs`. No workflow gate, deadline or dependency was relaxed. Final-head CI and review remain the merge gate.

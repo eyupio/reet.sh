@@ -257,4 +257,7 @@ func (s *server) recordRunWorktreeRemoved(uid int64, agent, run string) {
 	if err := s.st.SetRunMemberRemovedFor(uid, agent, run); err != nil {
 		log.Printf("projects: record removed worktree: %v", err)
 	}
+	if err := s.st.MarkWorktreeGoneByRun(uid, agent, run); err != nil {
+		log.Printf("maintenance: record removed worktree: %v", err)
+	}
 }

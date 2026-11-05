@@ -531,3 +531,25 @@ export async function chatPreview(session: string, id: string, signal?: AbortSig
  if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(blob.type) || blob.size > 5 * 1024 * 1024 || !blob.size) throw new Error('This image preview could not be verified.')
  return blob
 }
+
+// Machine maintenance (Account → Maintenance). A scan reads finished sessions' worktrees; a clean removes the ones picked
+// from a scan, and only when the machine still finds nothing unsaved in them.
+export type SweepStatus = 'safe' | 'review' | 'blocked' | 'unreachable' | 'gone'
+export type SweepItem = {
+  sessionId: string; agentId: string; host: string; title: string; project: string; repo: string; run: string
+  path: string; branch: string; endedAt: number; status: SweepStatus; changed: number; unpushed: number; reason?: string; removed?: boolean
+}
+export type WorktreeMaintenance = { enabled: boolean; intervalHours: number; minAgeDays: number; changedBy?: string }
+export type MaintenanceState = { worktrees: WorktreeMaintenance; lastRun: { at: number; removed: number; review: number; unreachable: number; failed: number } | null }
+export async function maintenanceState(signal?: AbortSignal): Promise<MaintenanceState> {
+  return (await terminalRequest('/api/v2/maintenance', { signal: within(signal) })).json()
+}
+export async function setWorktreeMaintenance(change: Partial<Pick<WorktreeMaintenance, 'enabled' | 'intervalHours' | 'minAgeDays'>>, signal?: AbortSignal): Promise<MaintenanceState> {
+  return (await terminalRequest('/api/v2/maintenance/worktrees', { method: 'PUT', signal: within(signal), body: JSON.stringify(change) })).json()
+}
+export async function scanWorktrees(minAgeDays: number, signal?: AbortSignal): Promise<{ items: SweepItem[]; more: boolean; minAgeDays: number }> {
+  return (await terminalRequest('/api/v2/maintenance/worktrees/scan', { method: 'POST', signal, body: JSON.stringify({ minAgeDays }) })).json()
+}
+export async function cleanWorktrees(items: Pick<SweepItem, 'agentId' | 'project' | 'repo' | 'run'>[], signal?: AbortSignal): Promise<{ items: SweepItem[] }> {
+  return (await terminalRequest('/api/v2/maintenance/worktrees/clean', { method: 'POST', signal, body: JSON.stringify({ items: items.map(({ agentId, project, repo, run }) => ({ agentId, project, repo, run })) }) })).json()
+}

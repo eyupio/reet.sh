@@ -5,6 +5,7 @@
   import CollectionPanel from './CollectionPanel.svelte'
   import Skeleton from './Skeleton.svelte'
   import ActivitySection from './ActivitySection.svelte'
+  import MaintenanceSection from './MaintenanceSection.svelte'
   import AgentsSettings from './AgentsSettings.svelte'
   import Backups from './Backups.svelte'
   import CopyButton from './CopyButton.svelte'
@@ -23,7 +24,7 @@
     user, onsignout, onerror, onuserchange, writer,
   }: { user: User; onsignout: () => void; onerror?: (e: unknown) => void; onuserchange?: (u: User) => void; writer?: boolean } = $props()
 
-  type Section = 'machines' | 'sync' | 'profile' | 'agents' | 'security' | 'sso' | 'sessions' | 'tokens' | 'mcp' | 'backups' | 'activity'
+  type Section = 'machines' | 'sync' | 'profile' | 'agents' | 'security' | 'sso' | 'sessions' | 'tokens' | 'mcp' | 'backups' | 'maintenance' | 'activity'
   // svelte-ignore state_referenced_locally
   let who = $state<User>(user)
   let sso = $state<SsoIdentity | null>(null)
@@ -40,6 +41,7 @@
     { key: 'sync', label: 'Compare & sync' },
     ...(canWrite ? [{ key: 'tokens' as const, label: 'API tokens' }] : []),
     { key: 'backups', label: 'Backups' },
+    ...(canWrite ? [{ key: 'maintenance' as const, label: 'Maintenance' }] : []),
     { key: 'activity', label: 'Activity' },
   ])
 
@@ -73,7 +75,7 @@
     const fromPath = location.pathname === '/activity' ? 'activity' : location.pathname.split('/')[2] || ''
     const h = location.hash.slice(1) || fromPath || 'profile'
     if (h === 'connect-machine') return 'machines'
-    return ['profile', 'agents', 'security', 'sso', 'sessions', 'machines', 'sync', 'tokens', 'mcp', 'backups', 'activity'].includes(h) ? h as Section : 'profile'
+    return ['profile', 'agents', 'security', 'sso', 'sessions', 'machines', 'sync', 'tokens', 'mcp', 'backups', 'maintenance', 'activity'].includes(h) ? h as Section : 'profile'
   }
 
   onMount(() => {
@@ -569,6 +571,8 @@
         </ul>
       {/if}
     </CollectionPanel>
+  {:else if section === 'maintenance'}
+    <MaintenanceSection admin={who.role === 'owner' || who.role === 'admin'} onsignedout={onerror} />
   {:else if section === 'activity'}
     <ActivitySection writer={writer ?? canWrite} onsignedout={onerror} timeZone={profile.timezone} dateFormat={profile.dateFormat} />
   {:else if section === 'machines'}

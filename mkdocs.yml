@@ -172,6 +172,7 @@ nav:
     - Remote machines: remote-machine-operations.md
     - Device checks: device-checks.md
     - Branch pruning: branch-pruning.md
+    - Machine maintenance: machine-maintenance.md
     - Shell command recall: terminal-command-history.md
     - Controller terminal commands: terminal-controller-commands.md
   - Reference:

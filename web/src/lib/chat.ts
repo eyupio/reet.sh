@@ -547,20 +547,109 @@ export function textSegments(text: string): CodeSegment[] {
   return out
 }
 
-export type InlineSegment = { kind: 'text' | 'code' | 'strong'; text: string }
+export type InlineSegment =
+  | { kind: 'text' | 'code' | 'strong'; text: string }
+  | { kind: 'link'; text: string; href: string }
 
-/** Split a prose line into plain text, `inline code` and **bold**, without interpreting anything as HTML. */
+/** A bare URL stops before trailing punctuation, and before a closing bracket that balances nothing. */
+function trimLink(raw: string): string {
+  let end = raw.length
+  while (end > 0 && /[.,;:!?'”’]/.test(raw[end - 1])) end--
+  while (end > 0 && raw[end - 1] === ')') {
+    const slice = raw.slice(0, end)
+    const opens = (slice.match(/\(/g) ?? []).length, closes = (slice.match(/\)/g) ?? []).length
+    if (closes <= opens) break
+    end--
+  }
+  return raw.slice(0, end)
+}
+
+/** A markdown link whose destination may itself hold balanced parentheses, as Wikipedia titles often do. */
+function markdownLinkAt(text: string, start: number): { label: string; href: string; end: number } | null {
+  const close = text.indexOf(']', start + 1)
+  if (close === -1 || text[close + 1] !== '(') return null
+  const label = text.slice(start + 1, close)
+  if (!label || label.includes('\n')) return null
+  let depth = 1, i = close + 2
+  while (i < text.length) {
+    const ch = text[i]
+    if (ch === '\n' || /\s/.test(ch)) return null
+    if (ch === '(') depth++
+    else if (ch === ')') {
+      depth--
+      if (depth === 0) {
+        const href = text.slice(close + 2, i)
+        return /^https?:\/\//.test(href) ? { label, href, end: i + 1 } : null
+      }
+    }
+    i++
+  }
+  return null
+}
+
+/** A bare http(s) URL, cut at whitespace and stripped of trailing punctuation that belongs to the sentence. */
+function bareLinkAt(text: string, start: number): { href: string; end: number } | null {
+  if (!/^https?:\/\//.test(text.slice(start))) return null
+  let end = start
+  while (end < text.length && !/[\s<>"']/.test(text[end])) end++
+  const raw = text.slice(start, end)
+  return { href: trimLink(raw), end }
+}
+
+/**
+ * Split a prose line into plain text, `inline code`, **bold**, markdown links and bare http(s) URLs, without
+ * interpreting anything as HTML. Only http and https links are returned, so a crafted message cannot smuggle in a
+ * `javascript:` or `data:` target.
+ */
 export function inlineSegments(text: string): InlineSegment[] {
   const out: InlineSegment[] = []
-  const pattern = /`([^`\n]+)`|\*\*([^*\n]+)\*\*/g
-  let at = 0, match: RegExpExecArray | null
-  while ((match = pattern.exec(text))) {
-    if (match.index > at) out.push({ kind: 'text', text: text.slice(at, match.index) })
-    if (match[1] !== undefined) out.push({ kind: 'code', text: match[1] })
-    else out.push({ kind: 'strong', text: match[2] })
-    at = pattern.lastIndex
+  const pushText = (value: string) => {
+    if (!value) return
+    const last = out[out.length - 1]
+    if (last?.kind === 'text') last.text += value
+    else out.push({ kind: 'text', text: value })
   }
-  if (at < text.length) out.push({ kind: 'text', text: text.slice(at) })
+  let at = 0
+  while (at < text.length) {
+    const ch = text[at]
+    if (ch === '`') {
+      const end = text.indexOf('`', at + 1)
+      if (end > at + 1 && !text.slice(at + 1, end).includes('\n')) {
+        out.push({ kind: 'code', text: text.slice(at + 1, end) })
+        at = end + 1
+        continue
+      }
+    }
+    if (ch === '*' && text[at + 1] === '*' && text[at + 2] !== '*') {
+      const end = text.indexOf('**', at + 2)
+      const inner = end > at + 2 ? text.slice(at + 2, end) : ''
+      if (inner && !inner.includes('\n') && !inner.includes('*')) {
+        out.push({ kind: 'strong', text: inner })
+        at = end + 2
+        continue
+      }
+    }
+    if (ch === '[') {
+      const link = markdownLinkAt(text, at)
+      if (link) {
+        out.push({ kind: 'link', text: link.label, href: link.href })
+        at = link.end
+        continue
+      }
+    }
+    if (ch === 'h') {
+      const link = bareLinkAt(text, at)
+      const prev = at > 0 ? text[at - 1] : ''
+      if (link?.href && (!prev || /[\s(\[{'"“‘]/.test(prev))) {
+        out.push({ kind: 'link', text: link.href, href: link.href })
+        pushText(text.slice(at + link.href.length, link.end))
+        at = link.end
+        continue
+      }
+    }
+    pushText(ch)
+    at++
+  }
   return out
 }
 

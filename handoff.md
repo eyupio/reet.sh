@@ -527,8 +527,8 @@ without a login and refuses the first prompt with `-32000 Authentication require
 that adapter with no model call; Codex `codex-acp@1.13.1` refuses `session/new` before any authenticate and reports
 `{kind: none, label: "Not logged in"}`. Because Claude answers at the prompt rather than at session/new, the prompt path now maps that refusal to
 `acpagent.ErrClaudeLogin` ("Sign in to Claude on that machine first.") the way session/new already did for Codex, so a signed-out machine says what
-to do instead of looking broken; the chat shows it as that turn's error detail (merged as `c600e114`). Signed-in runs for both agents and every
-phone/reader item are still open.
+to do instead of looking broken; the chat shows it as a sign-in step, not an error to diagnose (merged as `c600e114`, and the
+status now carries `code: "login"` so the panel can say so). Signed-in runs for both agents and every phone/reader item are still open.
 
 **Delivered SC5 slices:**
 - #392: live model controls and lookups follow each available agent descriptor. Merged; bot review was blocked by account quota and its terminal CI

@@ -118,6 +118,9 @@ type Event struct {
 	Truncated  bool
 	Reason     string
 	Detail     string
+	// Code names a known reason a status carries ("login" today), so the browser
+	// can say what to do instead of showing a generic failure.
+	Code string
 }
 
 func boolPtr(v bool) *bool { return &v }

@@ -1443,7 +1443,7 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 			return ErrTimeout
 		}
 		if login := loginError(s.opts.Agent, err); login != nil {
-			s.emit(Event{Kind: "status", State: "error", Detail: login.Error()})
+			s.emit(Event{Kind: "status", State: "error", Detail: login.Error(), Code: "login"})
 			return login
 		}
 		s.emit(Event{Kind: "status", State: "error", Detail: safeRPCText(err.Error())})

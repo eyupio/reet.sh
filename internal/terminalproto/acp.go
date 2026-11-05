@@ -246,6 +246,10 @@ type ACPEvent struct {
 	Truncated    bool           `json:"truncated,omitempty"`
 	Reason       string         `json:"reason,omitempty"`
 	Detail       string         `json:"detail,omitempty"`
+	// Code names a known reason a status carries, so a person reads the step they
+	// can take instead of a generic failure. Only "login" is defined for now, and
+	// only the status kind may carry it.
+	Code string `json:"code,omitempty"`
 	// QuestionID and Question carry a typed question. They are meaningful only on
 	// the question kinds and must be absent on every other kind.
 	QuestionID string       `json:"questionId,omitempty"`
@@ -255,6 +259,9 @@ type ACPEvent struct {
 func (ACPEvent) kind() string { return "acp_event" }
 
 func (e ACPEvent) valid() bool {
+	if e.Code != "" && e.Kind != "status" {
+		return false
+	}
 	if e.Kind == "preview" {
 		return e.Preview != nil && e.Preview.Valid() && (e.ToolCallID == "" || validACPID(e.ToolCallID)) && (e.MessageID == "" || validACPID(e.MessageID)) && e.PermissionID == "" && e.QuestionID == "" && e.Question == nil && e.Allow == nil && e.Text == ""
 	}
@@ -282,7 +289,7 @@ func (e ACPEvent) valid() bool {
 	case "notice":
 		return e.MessageID == "" && e.ToolCallID == "" && e.PermissionID == "" && e.Allow == nil && e.Text != "" && validChatText(e.Text, MaxACPEventBytes)
 	case "status":
-		return validACPState(e.State) && validChatText(e.Detail, 500)
+		return validACPState(e.State) && validChatText(e.Detail, 500) && validACPEventCode(e.Kind, e.Code)
 	case "permission":
 		return validACPID(e.PermissionID) && (e.ToolCallID == "" || validACPID(e.ToolCallID)) &&
 			validChatText(e.Title, 200) && (e.ToolKind == "" || validToolKind(e.ToolKind)) &&
@@ -492,6 +499,16 @@ func validACPState(s string) bool {
 		return true
 	}
 	return false
+}
+
+// validACPEventCode accepts the defined codes on the kind that carries them, and
+// no code anywhere else. A new code needs the browser to know what to say, so the
+// set stays a closed list rather than free text.
+func validACPEventCode(kind, code string) bool {
+	if code == "" {
+		return true
+	}
+	return kind == "status" && code == "login"
 }
 
 func validLocations(paths []string) bool {

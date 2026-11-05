@@ -30,6 +30,9 @@ export type ChatEvent = {
   truncated?: boolean
   reason?: string
   detail?: string
+  // code names a known reason a status carries ("login" today), so the chat can
+  // say which step to take instead of reporting a generic failure.
+  code?: string
 }
 
 // A typed agent question, as the controller sends it. The machine validates every answer against the question it
@@ -58,13 +61,13 @@ export type ChatItem =
 
 export type ChatState = {
   items: ChatItem[]
-  status: { state: string; detail: string }
+  status: { state: string; detail: string; code: string }
   lastSeq: number
   truncated: boolean
   connection: 'connecting' | 'open' | 'reconnecting'
 }
 
-export const initialChat = (): ChatState => ({ items: [], status: { state: '', detail: '' }, lastSeq: 0, truncated: false, connection: 'connecting' })
+export const initialChat = (): ChatState => ({ items: [], status: { state: '', detail: '', code: '' }, lastSeq: 0, truncated: false, connection: 'connecting' })
 
 export function resetChat(truncated: boolean): ChatState {
   return { ...initialChat(), truncated }
@@ -108,7 +111,7 @@ function cancelPending(items: ChatItem[], reason: string): ChatItem[] {
 function settledWaiting(state: ChatState, items: ChatItem[]): ChatState['status'] {
   if (state.status.state !== 'waiting') return state.status
   const waiting = items.some(item => (item.kind === 'permission' || item.kind === 'question') && !item.decision)
-  return waiting ? state.status : { state: 'working', detail: '' }
+  return waiting ? state.status : { state: 'working', detail: '', code: '' }
 }
 
 function itemChars(item: ChatItem): number {
@@ -202,7 +205,7 @@ function reduceChatEvent(state: ChatState, event: ChatEvent): ChatState {
     case 'notice':
       return { ...next, items: [...state.items, { kind: 'notice', key: `n${event.seq}`, text: event.text ?? '', bad: event.bad }] }
     case 'status': {
-      const status = { state: event.state ?? '', detail: event.detail ?? '' }
+      const status = { state: event.state ?? '', detail: event.detail ?? '', code: event.code ?? '' }
       const stopped = status.state === 'cancelled' || status.state === 'idle' || status.state === 'error' || status.state === 'ended'
       // Thinking belongs to the working phase: once the turn waits, finishes or stops, the thought is finished.
       const settled = status.state !== 'working' && status.state !== 'starting' ? settleThoughts(state.items) : state.items

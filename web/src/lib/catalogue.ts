@@ -10,6 +10,7 @@ export const CATALOGUE: CatalogueAgent[] = [
   { id: 'pi', name: 'Pi', models: [], effort: false, enabled: false, disabledReason: "reet doesn't start this agent yet." },
   { id: 'cursor', name: 'Cursor Agent', models: [], effort: false, enabled: false, disabledReason: "reet doesn't start this agent yet." },
   { id: 'cline', name: 'Cline', models: [], effort: true, enabled: true, yolo: true },
+  { id: 'antigravity', name: 'Google Antigravity (AGY)', models: [], effort: true, enabled: true, yolo: true },
 ]
 const ORIGINAL = new Set(['claude', 'codex', 'opencode', 'gemini'])
 export function agentChoices(machine: TerminalMachine): { agent: CatalogueAgent; available: boolean; reason?: string }[] {

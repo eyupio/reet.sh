@@ -11,7 +11,7 @@ test('installed first, then not installed, then disabled', () => {
   assert.deepEqual(choices.filter(c => c.available).map(c => c.agent.id), ['codex'])
   assert.equal(choices.find(c => c.agent.id === 'claude').reason, 'Not installed on studio')
   assert.equal(new Set(CATALOGUE.map(a => a.id)).size, CATALOGUE.length)
-  assert.deepEqual(CATALOGUE.filter(a => a.enabled).map(a => a.id), ['claude', 'codex', 'opencode', 'gemini', 'cline'])
+  assert.deepEqual(CATALOGUE.filter(a => a.enabled).map(a => a.id), ['claude', 'codex', 'opencode', 'gemini', 'cline', 'antigravity'])
 })
 test('old machine offers only four', () => {
   const choices = agentChoices(machine(['codex', 'pi'], false))
@@ -38,4 +38,14 @@ test('Cline effort is offered only after confirmed CLI help supports it', () => 
   assert.equal(choice.available, true)
   assert.equal(choice.agent.effort, true)
   assert.equal(agentChoices(machine(['cline'], false)).find(c => c.agent.id === 'cline').reason, 'Update reet on that machine')
+})
+
+test('Google Antigravity requires installation and agents-v2', () => {
+  const choice = agentChoices(machine(['antigravity'])).find(c => c.agent.id === 'antigravity')
+  assert.equal(choice?.available, true)
+  assert.equal(choice.agent.name, 'Google Antigravity (AGY)')
+  assert.equal(choice.agent.effort, true)
+  assert.equal(choice.agent.yolo, true)
+  assert.equal(agentChoices(machine([])).find(c => c.agent.id === 'antigravity').reason, 'Not installed on studio')
+  assert.equal(agentChoices(machine(['antigravity'], false)).find(c => c.agent.id === 'antigravity').reason, 'Update reet on that machine')
 })

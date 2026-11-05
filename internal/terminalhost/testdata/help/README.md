@@ -29,3 +29,13 @@ OpenCode 1.19.5 is captured from the 28 October 2026 probe report rather than a 
 version, top-level help, `models --help` and the empty-HOME `opencode models` output with
 `OPENCODE_DISABLE_MODELS_FETCH=1`. The probe saw no outbound call with that setting. Only
 version, help and the model listing were run; no agent turn, prompt or ACP session.
+
+Antigravity CLI 1.5.0 was downloaded from the official Google Storage archive
+referenced by Homebrew's `antigravity-cli` cask on 5 November 2026. Its SHA-256
+matched the cask before extraction. Only `--version` and `--help` ran, under
+`work/agy-capture` with isolated home, XDG directories and project and without
+credentials. The archive calls its executable `antigravity`; the cask installs
+the `agy` alias, which is the only binary this preset resolves. The capture
+confirms `--model`, `--prompt-interactive`, `--effort` low/medium/high and the
+separate `--dangerously-skip-permissions` flag. `--prompt` aliases print mode and
+is never used. Resume, ACP and model listing were not run or enabled.

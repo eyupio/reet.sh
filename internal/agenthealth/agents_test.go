@@ -11,7 +11,7 @@ func TestAgentsV2NegotiationFiltersNewTools(t *testing.T) {
 	for _, v2 := range []bool{false, true} {
 		cfg := AgentConfig{TerminalSession: func(context.Context, *http.Client, http.Header, int64, Sender) (func(context.Context, terminalproto.Message) error, func()) {
 			return nil, nil
-		}, LaunchTools: func() []string { return []string{"cline", "claude", "cline", "unknown"} }}
+		}, LaunchTools: func() []string { return []string{"cline", "claude", "antigravity", "cline", "antigravity", "unknown"} }}
 		features := terminalproto.LaunchFeature
 		if v2 {
 			features += "," + terminalproto.AgentsFeature
@@ -21,7 +21,7 @@ func TestAgentsV2NegotiationFiltersNewTools(t *testing.T) {
 		if caps.AgentsV2 != v2 {
 			t.Fatalf("agentsV2=%v want %v", caps.AgentsV2, v2)
 		}
-		if len(caps.Tools) != 1+btoi(v2) {
+		if len(caps.Tools) != 1+2*btoi(v2) {
 			t.Fatalf("v2=%v tools=%v", v2, caps.Tools)
 		}
 		if !v2 && caps.OSVersion != "" {

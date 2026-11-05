@@ -58,15 +58,17 @@ func TestCreateStillComparable(t *testing.T) {
 	}
 }
 func TestCapabilitiesNewToolIDsNeedAgentsV2(t *testing.T) {
-	c := Capabilities{Launch: true, TerminalControl: true, Tools: []string{"cline"}, ProtocolVersion: Version, OS: "linux", OSUser: "test", TerminalEnabled: true, Readiness: Ready}
-	if c.Validate() == nil || c.ValidateFor("") == nil {
-		t.Fatal("old peer accepts new tool")
-	}
-	if c.ValidateFor("launch-v1, agents-v2") != nil {
-		t.Fatal("new peer refuses tool")
-	}
-	if !SupportsAgents(" launch-v1, agents-v2 ") || SupportsAgents("agents-v2-extra") || !ValidToolV2("cline") || ValidTool("cline") {
-		t.Fatal("feature or tool check failed")
+	for _, tool := range []string{"cline", "antigravity"} {
+		c := Capabilities{Launch: true, TerminalControl: true, Tools: []string{tool}, ProtocolVersion: Version, OS: "linux", OSUser: "test", TerminalEnabled: true, Readiness: Ready}
+		if c.Validate() == nil || c.ValidateFor("") == nil {
+			t.Fatal("old peer accepts new tool")
+		}
+		if c.ValidateFor("launch-v1, agents-v2") != nil {
+			t.Fatal("new peer refuses tool")
+		}
+		if !SupportsAgents(" launch-v1, agents-v2 ") || SupportsAgents("agents-v2-extra") || !ValidToolV2(tool) || ValidTool(tool) {
+			t.Fatal("feature or tool check failed")
+		}
 	}
 }
 func TestCapabilitiesYoloNeedsAgentsV2(t *testing.T) {
@@ -108,7 +110,7 @@ func TestAgentsV2ToolsAndOptions(t *testing.T) {
 	for _, tc := range []struct {
 		tool          string
 		effort, model bool
-	}{{"claude", false, true}, {"codex", false, true}, {"opencode", false, true}, {"gemini", false, true}, {"cline", true, true}, {"pi", false, false}} {
+	}{{"claude", false, true}, {"codex", false, true}, {"opencode", false, true}, {"gemini", false, true}, {"cline", true, true}, {"antigravity", true, true}, {"pi", false, false}} {
 		if ToolTakesEffort(tc.tool) != tc.effort || ToolTakesModel(tc.tool) != tc.model {
 			t.Fatalf("%s: effort=%v model=%v", tc.tool, ToolTakesEffort(tc.tool), ToolTakesModel(tc.tool))
 		}

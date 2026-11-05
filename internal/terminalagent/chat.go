@@ -1346,7 +1346,9 @@ func chatResult(err error) terminalproto.Result {
 		var version *acpagent.VersionError
 		if errors.As(err, &version) {
 			detail = version.Error()
-			if version.Required == "" {
+			if version.Required == "" || version.Found == "" && version.Reason != "" && version.Reason != "the agent is not installed" {
+				// Also when the probe itself failed or timed out: no version was
+				// read, so "needs 1.19.5 or newer" would be untrue.
 				// A different agent answered: update/install guidance would
 				// point at the wrong thing, so report it as unavailable.
 				code = terminalproto.ACPUnavailable

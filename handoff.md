@@ -38,7 +38,8 @@ GM1A entry records scope, verification and remaining settings/integration work.
 AI-chat routes and offline coordination remain ahead. Tests use local fake
 providers, with real credentials supplied later through Gaffer settings.
 
-GM1B continues on `feat/gaffer-provider-settings`: account-owned provider records,
+GM1B is [draft PR #603](https://github.com/eyupio/reet.sh/pull/603),
+`feat/gaffer-provider-settings`: account-owned provider records,
 encrypted key lifecycle and restore, bounded discovery/testing, context policy,
 defaults and Account → Gaffer AI. See the companion handoff's GM1B record and
 [provider setup guide](docs/gaffer-ai.md). The page retains Gaffer's quirky voice
@@ -52,7 +53,9 @@ GM1B local checks: web check/build, vet, 16 MCP tests, strict docs (51 pages),
 targeted Go race tests and the Gaffer/Profile/MCP browser suites pass. The full
 Go race run passes all packages except the same five baseline terminal-host
 failures recorded in GM1A. See the companion handoff for exact evidence and
-limits; use final-head CI before any owner-authorised merge.
+limits. After alignment to merged main, vet, Gaffer API race tests and the full
+store race suite pass. The PR is open and mergeable with CI started; use
+final-head CI before any owner-authorised merge.
 Keep that handoff current in every implementation batch. Changes remain confined
 to reet.sh; reference repositories are read-only.
 

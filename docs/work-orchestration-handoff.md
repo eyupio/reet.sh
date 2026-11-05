@@ -248,7 +248,8 @@ model identities and quirky UX requirements throughout.
 Branch `feat/gaffer-provider-settings`, built on the merged HTTP foundation.
 Live GitHub reads confirm #600 merged as `f31b032e` and #601 as `54f66f75` on
 5 November. #601's source/web/build/test checks passed. This batch opens a new
-draft PR against main; it does not merge or deploy. The previous GM1A record
+[draft PR #603](https://github.com/eyupio/reet.sh/pull/603) against main; it does
+not merge or deploy. The previous GM1A record
 above describes its original checkout and publication conditions.
 
 **Implemented contract**
@@ -324,8 +325,10 @@ Its same five baseline failures remain: `TestListModelsTimeoutKillsTheProcessGro
 checks listed in GM1A above. Those failures were previously reproduced in the
 unchanged baseline; no terminal-host source changed here. This is not a green
 full-suite result. The branch was then aligned to merged main `54f66f75`, retaining
-its independent sync-store changes; vet and the store race suite are rerun for
-that integration. Final-head remote CI remains the merge gate.
+its independent sync-store changes; vet, targeted Gaffer API race tests and the
+complete store race suite (131 s) pass after alignment. GitHub confirms #603 is
+open, draft and mergeable; its checks, including the dedicated Gaffer browser
+job, have started. Final-head remote CI remains the merge gate.
 
 No real credential, paid provider, physical device, new experimental worker,
 subscription backend or production deployment was exercised. A test response is

@@ -673,7 +673,7 @@ func (s *Store) attachListsFor(userID int64, skills []Skill) error {
 		return nil
 	}
 	var role string
-	if err := s.read.QueryRow(`SELECT role FROM users WHERE id=?`, userID).Scan(&role); err != nil {
+	if err := s.readStmts.queryRow(`SELECT role FROM users WHERE id=?`, userID).Scan(&role); err != nil {
 		return err
 	}
 	args := make([]any, 0, len(skills)+3)
@@ -689,7 +689,7 @@ func (s *Store) attachListsFor(userID int64, skills []Skill) error {
 		args = append(args, 0)
 	}
 	args = append(args, userID, userID)
-	rows, err := s.read.Query(`SELECT ls.skill_id,l.id,l.name FROM list_skills ls JOIN lists l ON l.id=ls.list_id
+	rows, err := s.readStmts.query(`SELECT ls.skill_id,l.id,l.name FROM list_skills ls JOIN lists l ON l.id=ls.list_id
 		WHERE ls.skill_id IN (`+placeholders(len(skills))+`)
 		AND (?=1 OR l.owner_id=? OR (l.visibility<>'personal' AND NOT EXISTS(SELECT 1 FROM list_exclusions x WHERE x.list_id=l.id AND x.user_id=?)))
 		ORDER BY lower(l.name)`, args...)

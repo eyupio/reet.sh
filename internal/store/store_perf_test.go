@@ -165,3 +165,54 @@ func BenchmarkListForCompact(b *testing.B) {
 		}
 	}
 }
+
+func TestAppendTerminalChatEventsForBatch(t *testing.T) {
+	s := newStore(t)
+	u, err := s.CreateUser("batch@example.com", "batch", "owner", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := "batch-session-0001"
+	events := []StoredChatEvent{
+		{Seq: 1, At: 1, Event: []byte(`{"kind":"agent"}`)},
+		{Seq: 2, At: 2, Event: []byte(`{"kind":"agent"}`)},
+		{Seq: 3, At: 3, Event: []byte(`{"kind":"agent"}`)},
+	}
+	if err := s.AppendTerminalChatEventsFor(u.ID, session, events); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendTerminalChatEventsFor(u.ID, session, events); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := s.TerminalChatEventsFor(u.ID, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 3 {
+		t.Fatalf("stored %d events, want 3", len(stored))
+	}
+}
+
+func BenchmarkAppendTerminalChatEventsFor32(b *testing.B) {
+	s := benchStore(b)
+	u, err := s.CreateUser("bench-batch@example.com", "bench", "owner", "hash")
+	if err != nil {
+		b.Fatal(err)
+	}
+	event := []byte(`{"kind":"agent","text":"hello"}`)
+	batch := make([]StoredChatEvent, 32)
+	for i := range batch {
+		batch[i] = StoredChatEvent{At: int64(i + 1), Event: event}
+	}
+	base := int64(0)
+	b.ResetTimer()
+	for range b.N {
+		for i := range batch {
+			base++
+			batch[i].Seq = base
+		}
+		if err := s.AppendTerminalChatEventsFor(u.ID, "bench-batch-0001", batch); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

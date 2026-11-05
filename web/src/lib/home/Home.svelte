@@ -398,14 +398,14 @@
 </div>
 
 <style>
-  .workspace-heading { padding: 11px 0 9px; }
-  .workspace-heading .eyebrow { font: 9px var(--mono); letter-spacing: .1em; color: var(--accent-text); margin: 0 0 17px; overflow-wrap: anywhere; }
-  .workspace-heading h1 { font: 600 clamp(35px, 3.8vw, 49px)/1.08 var(--serif); letter-spacing: -.04em; margin: 0 0 14px; }
+  .workspace-heading { padding: 8px 0 0; }
+  .workspace-heading .eyebrow { font: 9px var(--mono); letter-spacing: .1em; color: var(--accent-text); margin: 0 0 8px; overflow-wrap: anywhere; }
+  .workspace-heading h1 { font: 600 clamp(30px, 3.2vw, 42px)/1.08 var(--serif); letter-spacing: -.04em; margin: 0 0 8px; }
   .welcome-note { color: var(--muted); font-size: 13px; margin: 0; }
-  .workspace-summary { display: flex; flex-wrap: wrap; gap: 24px; color: var(--muted); font-size: 11px; margin-top: 20px; }
+  .workspace-summary { display: flex; flex-wrap: wrap; gap: 24px; color: var(--muted); font-size: 11px; margin-top: 10px; }
   .workspace-summary span { display: inline-flex; align-items: center; gap: 7px; }
   .workspace-summary i { width: 5px; height: 5px; background: var(--good); border-radius: 50%; }
-  @media (max-width: 650px) { .workspace-heading { padding-top: 12px; } .workspace-heading h1 { font-size: 40px; } .workspace-heading .eyebrow { font-size: 8px; } .workspace-summary { margin-top: 18px; } }
+  @media (max-width: 650px) { .workspace-heading { padding-top: 8px; } .workspace-heading h1 { font-size: 34px; } .workspace-heading .eyebrow { font-size: 8px; margin-bottom: 6px; } .workspace-summary { margin-top: 10px; } }
   /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
      column's minimum height; if the header changes, the cost is a small gap or a little extra scroll, never an overlap. */
   .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -418,7 +418,7 @@
   .home.writer > :global(aside.rail) { grid-column: 1; grid-row: 1; }
   .home.writer > .column { grid-column: 2; grid-row: 1; }
   .home:not(.writer) > .column { grid-column: 1; grid-row: 1; }
-  .column { min-width: 0; display: flex; flex-direction: column; gap: 18px; padding: 20px 24px 0; min-height: calc(100dvh - var(--top) - var(--bottom-chrome, 0px)); }
+  .column { min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 18px 24px 0; min-height: calc(100dvh - var(--top) - var(--bottom-chrome, 0px)); }
   .home:not(.writer) .column { padding-bottom: 36px; }
   .problem, .notice { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
   .problem { border-color: var(--warn); }

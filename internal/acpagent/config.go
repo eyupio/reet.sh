@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -37,7 +38,20 @@ func ProbeVersion(ctx context.Context, binary string, spec Spec, dir, home strin
 	if binary == "" {
 		return "", &VersionError{Agent: spec.displayName(), Required: spec.MinVersion}
 	}
-	runCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	// A cold start of the agent binary (or a busy machine) can outlast a short
+	// probe, so a failed probe is tried once more before it is reported.
+	found, err := probeOnce(ctx, binary, spec, dir, home, base, min)
+	var verr *VersionError
+	if errors.As(err, &verr) && verr.Reason == probeFailed && ctx.Err() == nil {
+		found, err = probeOnce(ctx, binary, spec, dir, home, base, min)
+	}
+	return found, err
+}
+
+const probeFailed = "the version probe failed"
+
+func probeOnce(ctx context.Context, binary string, spec Spec, dir, home string, base []string, min semver) (string, error) {
+	runCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	cmd := exec.Command(binary, "--version")
 	cmd.Dir = dir
@@ -66,7 +80,7 @@ func ProbeVersion(ctx context.Context, binary string, spec Spec, dir, home strin
 	failed := runCtx.Err() != nil || waitErr != nil
 	invalid := failed || stdout.overflow
 	if invalid || stderr.overflow {
-		return "", &VersionError{Agent: spec.displayName(), Required: spec.MinVersion, Reason: "the version probe failed"}
+		return "", &VersionError{Agent: spec.displayName(), Required: spec.MinVersion, Reason: probeFailed}
 	}
 	found, ok := extractSemver(raw)
 	if !ok || !found.atLeast(min) {

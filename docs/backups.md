@@ -288,34 +288,83 @@ against the restored controller once it answers at the address they use.
 
 ### Import into a running controller
 
-The server cannot swap the database it is serving, so an import is staged and
-applied at the next start. The owner does this under **Admin → Backups → Import
-a copy from another controller**: choose the copy, enter its password if it has
-one, and choose whether to end sign-ins, revoke tokens or require an owner
-account. The page shows the report and a
-**Discard** button while it waits. The same thing over the API:
+For a team that cannot stop a controller to run a command on its machine. The
+owner sends a copy and its password to the running controller, which runs the
+same checks and prints the same report as a restore (`Service.prepare` is one
+function, used by both), and stages the result.
+
+**Why it is staged, not applied.** The server holds `reet.db` open, with its
+write-ahead log and connections, and swapping the file under it would corrupt
+what it is writing. The smallest safe way is to do everything that can fail
+while the server keeps serving, then put the file in place before the database
+is opened: the checked, adapted copy waits in `pending-import/`, and `reet serve`
+swaps it in at its next start, before anything opens the database. Restart the
+controller to finish. If the swap fails, the staged folder is moved aside and
+the controller starts on the database it had. A second import replaces the
+first; `DELETE` discards it.
+
+**From the terminal**, from any machine that can reach the controller:
 
 ```sh
-curl -X POST --data-binary @copy.reetbackup \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/octet-stream' \
-  -H 'X-Copy-Password: the copy password' \
-  "$REET_URL/api/v2/admin/backups/import?dropTokens=1&dropSessions=1&ownerEmail=you@example.com"
+reet backup import --server https://reet.example --token-file ./owner.token \
+  --password-file ./copy.password --owner-email you@example.com copy.reetbackup
 ```
 
-`X-Copy-Password` is only for a copy protected with a password. `dropSessions=1`,
-`dropTokens=1` and `ownerEmail=` are optional and mean what the restore flags
-mean (see above). A password with non-Latin characters or
-spaces at either end cannot travel in a plain header: send its UTF-8 bytes
-base64-encoded as `X-Copy-Password-B64` instead (the page does).
+The token is an owner's personal API token. A secret on the command line is a
+file or `-` for standard input, never an argument; the token and the password
+cannot both be `-`. `--drop-sessions`, `--drop-tokens` and `--owner-email` mean
+what they do for a restore. `--replace` is described below. The command streams
+the file, so it is not read into memory on this side.
 
-The copy is opened, checked and adapted immediately with the same code a
-restore uses, and the response is the same report a restore prints, so problems show before anything is replaced. The
-live database is not touched. `GET` on the same path shows what is staged and
-`DELETE` discards it. On the next start the staged database replaces the live
-one, which is kept as `reet.db.before-restore-<timestamp>`; the report is
-written to the log. A second import replaces the first. If the swap fails the
-staged folder is moved aside and the controller starts on the database it had.
+**From the page**, under **Admin → Backups → Import a copy from another
+controller**: choose the copy, enter its password if it has one, pick the
+options. The page shows the report and a **Discard** button while it waits.
+
+**Over the API**, `POST /api/v2/admin/backups/import` takes `multipart/form-data`
+and the owner only. Send the options first and the copy last, as the field
+`file`, and add the header `X-Reet-Import: 1` (a website cannot add a header to a
+form, which keeps the upload from being forged cross-site):
+
+```sh
+curl -X POST "$REET_URL/api/v2/admin/backups/import" \
+  -H "Authorization: Bearer $TOKEN" -H 'X-Reet-Import: 1' \
+  -F 'password=<copy.password' -F ownerEmail=you@example.com \
+  -F dropSessions=1 -F dropTokens=1 -F replace=0 \
+  -F file=@copy.reetbackup
+```
+
+(`-F 'password=<file'` sends the file's contents as the field, so the password is
+not on the command line; the file must hold the password and nothing else, with no
+trailing newline, because the server uses it exactly as sent.) The password is a form field in the body, never in the
+address or a header; nothing logs it, the response does not repeat it and the
+activity log does not hold it. The upload is capped at the largest copy this
+build opens (512 MiB) and written to disk as it arrives, then removed. A copy is
+sealed and opened as one payload, so this build still holds the opened payload in
+memory once while it checks it; the cap is what bounds that. `GET` on the same
+path shows what is staged and `DELETE` discards it.
+
+**A controller that already holds data is refused** with `409`, naming what it
+holds, unless you send `replace` (`--replace`). A new controller has its first
+owner and nothing else: no other account and no skills, shelves, lists, tags,
+environments or connected machines. Backup destinations and settings do not
+count, because they are set up before an import on purpose. Nor does what a
+controller makes for itself on first start: the topic tags the daily sync adds
+and the report the server makes of its own machine. A tag you created, or a
+machine you connected, does count.
+
+**A safety copy comes first.** After every check has passed and before anything
+is staged, the live database is copied to `reet.db.before-import-<timestamp>`
+(mode 0600) beside it, and the response, the report and the activity log say
+where. Together with `reet.db.before-restore-<timestamp>`, which the swap at the
+next start leaves, the database you replaced is never lost. A refusal, a wrong
+password or a damaged copy changes nothing: no safety copy, nothing staged, no
+upload left on disk.
+
+The activity log gets one `backup-import-staged` line with the copy's id and the
+choices (`dropSessions`, `dropTokens`, `ownerChecked`, `replace`, the safety copy
+and how many secrets were cleared). On the next start the staged database
+replaces the live one, which is kept as `reet.db.before-restore-<timestamp>`, and
+the report is written to the log.
 
 ### A machine rebuilt from nothing
 

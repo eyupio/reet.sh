@@ -196,3 +196,50 @@ func TestARestoreWritesItsChoicesToTheActivityLog(t *testing.T) {
 	}
 	t.Fatal("the restore left no line in the activity log")
 }
+
+// A controller that has just started already holds the topic tags the daily
+// sync added and the report the server makes of its own machine. They are not
+// data anyone made, so they must not make a new controller refuse an import.
+func TestANewControllersOwnStartupDefaultsDoNotCountAsData(t *testing.T) {
+	raw, _ := movable(t)
+	svc, dir := destination(t)
+	owner, err := svc.st.EnsureLocalOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.st.ReplaceTopics([]store.Topic{{Slug: "frontend", Name: "Frontend & React", Skills: []string{"acme/skills/button"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.st.RegisterMachineFor(owner.ID, store.MachineInfo{Host: "vm", Server: true}); err != nil {
+		t.Fatal(err)
+	}
+	h := svc.st.Holdings(context.Background())
+	if h.Tags != 1 || h.Environments != 1 {
+		t.Fatalf("the fixture should hold the defaults: %+v", h)
+	}
+	if _, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{}); err != nil {
+		t.Fatalf("a new controller was refused: %v", err)
+	}
+}
+
+func TestATagOrMachineAPersonMadeStillCountsAsData(t *testing.T) {
+	raw, _ := movable(t)
+	for name, add := range map[string]func(*store.Store, store.User) error{
+		"a tag": func(st *store.Store, _ store.User) error { _, err := st.CreateTag("mine"); return err },
+		"a machine": func(st *store.Store, u store.User) error {
+			return st.RegisterMachineFor(u.ID, store.MachineInfo{Host: "laptop"})
+		},
+	} {
+		svc, dir := destination(t)
+		owner, err := svc.st.EnsureLocalOwner()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := add(svc.st, owner); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{}); !errors.Is(err, ErrNotEmpty) {
+			t.Fatalf("%s must count as data, got %v", name, err)
+		}
+	}
+}

@@ -262,8 +262,8 @@ try {
   await expect(chooser.getByRole('button',{name:/^Store rewrite/})).toBeVisible()
   await expect(chooser.getByRole('button',{name:/^Notes/})).toHaveCount(0)
   await chooser.getByRole('button',{name:/^Terminal session/}).click()
-  await expect.poll(() => box.createdBody?.title ?? null).toBe('Shell')
-  expect(box.createdBody).toMatchObject({agentId:'a1', title:'Shell'})
+  await expect.poll(() => box.createdBody?.title ?? null).toBe('Terminal')
+  expect(box.createdBody).toMatchObject({agentId:'a1', title:'Terminal'})
   expect(box.createdBody.tool).toBeUndefined()
   await expect(page).toHaveURL(/\/sessions\?/)
   await page.goto(base)
@@ -272,7 +272,7 @@ try {
   const menu = page.getByRole('menu',{name:'studio'})
   await expect(menu.getByRole('menuitem')).toHaveText(['New session…','New project…','New terminal','Open on Machines','Skills & sync'])
   await menu.getByRole('menuitem',{name:'New terminal'}).click()
-  await expect.poll(() => box.createdBody?.title ?? null).toBe('Shell')
+  await expect.poll(() => box.createdBody?.title ?? null).toBe('Terminal')
   expect(box.createdBody.tool).toBeUndefined()
   await expect(page).toHaveURL(/\/sessions\?/)
   expect(errors).toEqual([])
@@ -409,11 +409,12 @@ try {
     return {changed:3, unpushed:1, branch:'reet/store-split'}
    },
   }})
+  const queueNow = Date.now()
   box.sessions = [
-   session('s1','a1','Refactor the store layer','running',{projectId:'fp1',attention:'waiting',attentionSource:'terminal',bellAt:now-2*MIN,changedSinceSeen:true}),
-   session('s2','a1','Tidy the release notes','running',{attention:'working',attentionSource:'terminal',activityAt:now-5_000}),
-   session('s3','a1','Split the worktree','exited',{exitCode:0,projectId:'fp1',attention:'finished',attentionSource:'terminal',updatedAt:now-10*MIN,changedSinceSeen:true,worktreePath:'/home/dev/.reet/worktrees/store/store/split',worktreeRepo:'store',worktreeBranch:'reet/store-split'}),
-   session('s4','a1','Docs pass','exited',{exitCode:2,attention:'failed',attentionSource:'terminal',updatedAt:now-HOUR,changedSinceSeen:true}),
+   session('s1','a1','Refactor the store layer','running',{projectId:'fp1',attention:'waiting',attentionSource:'terminal',bellAt:queueNow-2*MIN,changedSinceSeen:true}),
+   session('s2','a1','Tidy the release notes','running',{attention:'working',attentionSource:'terminal',activityAt:queueNow-5_000}),
+   session('s3','a1','Split the worktree','exited',{exitCode:0,projectId:'fp1',attention:'finished',attentionSource:'terminal',updatedAt:queueNow-10*MIN,changedSinceSeen:true,worktreePath:'/home/dev/.reet/worktrees/store/store/split',worktreeRepo:'store',worktreeBranch:'reet/store-split'}),
+   session('s4','a1','Docs pass','exited',{exitCode:2,attention:'failed',attentionSource:'terminal',updatedAt:queueNow-HOUR,changedSinceSeen:true}),
   ]
   await page.goto(base)
   await expect.poll(() => page.title()).toBe('(3) Home · reet.sh')
@@ -924,7 +925,7 @@ try {
   await d.getByRole('textbox',{name:'Folder',exact:true}).fill('/home/dev/site')
   await d.getByRole('button',{name:'Add project'}).click()
   // Signed out on / is the welcome and sign-in page.
-  await expect(page).toHaveTitle('Your whole AI setup, on every machine · reet.sh')
+  await expect(page).toHaveTitle('Sign in · reet.sh')
   await expect(rail(page)).toHaveCount(0)
   await expect(page.getByRole('dialog',{name:'Add a project',exact:true})).toHaveCount(0)
   expect(errors).toEqual([])
@@ -1160,7 +1161,7 @@ try {
   for (const [width,touch] of [[1440,false],[834,true],[390,true],[320,true]]) {
    const {context,page,errors} = await home({width,touch})
    await page.goto(base)
-   await expect(page.getByRole('heading',{name:'A reet good day’s work.'})).toBeVisible()
+   await expect(page.getByRole('heading',{name:'Your work, in good order.'})).toBeVisible()
    await expect(page.getByRole('region',{name:'Active'})).toBeVisible()
    if (width >= 1100) await expect(rail(page)).toBeVisible()
    else await expect(page.locator('main aside.rail')).toHaveCount(0)

@@ -360,6 +360,48 @@ func installAgentServices(plan terminalhost.ServicePlan, out io.Writer) error {
 	}
 	return errors.New("services were installed but the native agent did not become ready; no successful handoff was verified")
 }
+
+func installSyncAgentService(plan terminalhost.ServicePlan, out io.Writer) error {
+	startup, err := filelock.Acquire(plan.ConfigPath + ".start.lock")
+	if err != nil {
+		return err
+	}
+	defer startup.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	if running, err := agentRunning(plan.ConfigPath); err != nil {
+		return err
+	} else if running {
+		var state agentLocalStatus
+		if err := localAgentCall(plan.ConfigPath, "GET", "/status", &state); err != nil {
+			return err
+		}
+		if state.Supervised && state.ServicePrefix != plan.Prefix {
+			return errors.New("this enrollment uses another service prefix; inspect reet agent status")
+		}
+		if !state.Supervised {
+			if err := stopLocalAgent(plan.ConfigPath, plan.Prefix, out); err != nil {
+				return err
+			}
+		}
+	}
+	if err := terminalhost.InstallAgent(ctx, plan); err != nil {
+		return err
+	}
+	if err := waitAgent(plan.ConfigPath, true); err != nil {
+		return err
+	}
+	var state agentLocalStatus
+	if err := localAgentCall(plan.ConfigPath, "GET", "/status", &state); err != nil {
+		return err
+	}
+	if !state.Supervised || state.ServicePrefix != plan.Prefix {
+		return errors.New("native sync service did not become ready")
+	}
+	fmt.Fprintln(out, "Skill sync service is running and will start automatically at login or boot.")
+	fmt.Fprintln(out, terminalhost.LingerGuidance(ctx))
+	return nil
+}
 func localTerminalAgentNative(config, version string) (bool, error) {
 	running, err := agentRunning(config)
 	if err != nil || !running {

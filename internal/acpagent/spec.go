@@ -34,6 +34,10 @@ var (
 	// ErrClaudeLogin means the first prompt needs a login made outside reet:
 	// Claude creates a session without one and answers at the prompt instead.
 	ErrClaudeLogin = errors.New("Sign in to Claude on that machine first.")
+	// ErrClineLogin means session creation needs a login made outside reet.
+	ErrClineLogin = errors.New("Sign in to Cline on that machine first.")
+	// AGY reuses the machine's selected login; reet never starts an OAuth flow.
+	ErrAntigravityLogin = errors.New("Sign in to Google Antigravity on that machine first (run agy).")
 	// ErrMode means the requested mode is not one this profile lets a person
 	// choose, or the agent did not confirm the switch.
 	ErrMode = errors.New("the agent did not switch to that mode")
@@ -99,6 +103,18 @@ type Spec struct {
 	// no configOptions field. An explicit list is always authoritative; other
 	// profiles must read the applied model back, as measured for Claude.
 	AllowOmittedModelAck bool
+	// ConfirmModelBySwitch applies a chosen model with session/set_config_option
+	// once the session is open, and requires the reply to report it. An adapter
+	// that starts on its configured model and ignores a model at session/new
+	// (Cline) would otherwise refuse every start that names one. The switch is
+	// never assumed: an unconfirmed reply refuses the chat.
+	ConfirmModelBySwitch bool
+	// RequireOptions names config option values that must be active before a
+	// turn may start, for example {"auto_approve": "false"}. A missing option or
+	// another value refuses the chat rather than trusting a launch flag: Cline's
+	// --auto-approve false is a request, and the session's own report is the
+	// acknowledgement that no tool call can run without a card.
+	RequireOptions map[string]string
 	// EnvAllowlist names additional inherited variables the adapter may
 	// read (provider credentials), on top of the infrastructure allowlist.
 	EnvAllowlist []string
@@ -127,8 +143,8 @@ type Spec struct {
 	// keeps running is to retire the process group, so the person is told and the
 	// chat ends. A stop with no tool running only cancels the turn.
 	EndChatOnStopWhileToolRuns bool
-	// Trust reports the files in dir that the agent would execute before a
-	// chat starts. Nil means this adapter has no repository trust surface.
+	// Trust reports executable files or configuration surfaces in dir that need
+	// acknowledgement. Nil means this adapter has no repository trust surface.
 	Trust func(dir string) ([]string, error)
 	// ConfigEnv supplies the adapter's private environment for one session
 	// (owned config, password, opt-outs). It is applied after the inherited
@@ -165,6 +181,32 @@ func sessionRequest(spec Spec, dir, resume string) (string, map[string]any) {
 		params["_meta"] = spec.SessionMeta
 	}
 	return method, params
+}
+
+// configOption is one entry of an adapter's configOptions reply. CurrentValue
+// keeps the text form of a string and of Cline's boolean auto_approve option.
+type configOption struct {
+	ID           string      `json:"id"`
+	Category     string      `json:"category"`
+	CurrentValue optionValue `json:"currentValue"`
+}
+
+// checkRequiredOptions confirms a profile's pinned option values before a turn.
+// A reply that omits an option, or reports another value, refuses the chat.
+func (s Spec) checkRequiredOptions(options []configOption) error {
+	if len(s.RequireOptions) == 0 {
+		return nil
+	}
+	values := make(map[string]string, len(options))
+	for _, option := range options {
+		values[option.ID] = string(option.CurrentValue)
+	}
+	for id, want := range s.RequireOptions {
+		if values[id] != want {
+			return fmt.Errorf("%w: %s did not confirm %s=%s", ErrSafety, s.displayName(), id, want)
+		}
+	}
+	return nil
 }
 
 func (s Spec) displayName() string {

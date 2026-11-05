@@ -23,6 +23,7 @@ List, take and restore sealed copies.
 - `reet backup list` — Read local instance copies.
 - `reet backup run` — Write a sealed instance copy.
 - `reet backup restore` — Press e to add the backup ID and options.
+- `reet backup import` — Press e to add the server, token file and copy.
 - `reet backup open` — Press e to add a file and options.
 
 ## reet branches
@@ -38,7 +39,7 @@ Report installed skills to your account.
 
 ## reet sync
 
-Preview a saved target; --apply asks first.
+Preview a saved target, then choose whether to apply it.
 
 ## reet setup
 

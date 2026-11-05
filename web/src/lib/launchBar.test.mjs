@@ -11,12 +11,16 @@ const catalogue = asURL(compile('./catalogue.ts'))
 const agentLaunch = asURL(compile('./agentLaunch.ts').replace("from './catalogue'", `from '${catalogue}'`))
 const terminalApi = asURL(compile('./terminal/api.ts'))
 const models = asURL(compile('./models.ts').replace("from './catalogue'", `from '${catalogue}'`))
+const launchOptions = asURL(compile('./terminal/launchOptions.ts')
+  .replace("from '../models'", `from '${models}'`)
+  .replaceAll("from './api'", `from '${terminalApi}'`))
 const source = compile('./launchBar.ts')
   .replace("from './catalogue'", `from '${catalogue}'`)
   .replace("from './agentLaunch'", `from '${agentLaunch}'`)
   .replaceAll("from './terminal/api'", `from '${terminalApi}'`)
+  .replace("from './terminal/launchOptions'", `from '${launchOptions}'`)
   .replace("from './models'", `from '${models}'`)
-const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText, yoloGates, yoloCanStart } = await import(asURL(source))
+const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText, yoloGates, yoloCanStart, chatEffort } = await import(asURL(source))
 const { refusalText } = await import(agentLaunch)
 
 const caps = (extra = {}) => ({ protocolVersion: 1, os: 'linux', osUser: 'u', terminalEnabled: true, terminalControl: true, healthEnabled: true, readiness: 'ready',
@@ -75,6 +79,24 @@ test('thinking shows only for an agent that takes effort', () => {
   assert.equal(words(sentence(choice({ agent: 'cline', model: '', effort: 'high' }), projects, machines)), 'Run Cline with default on reet at studio from main in a fresh worktree · thinking high')
   assert.equal(words(sentence(choice({ agent: 'cline', model: '' }), projects, machines)).endsWith('· thinking default'), true)
   assert.ok(!slots(sentence(choice({ effort: 'high' }), projects, machines)).includes('effort'))
+})
+
+test('a Gaffer chat drops a thinking default its own descriptor does not offer', () => {
+  const clineChat = machine('m-studio', 'studio', { tools: ['cline'], acp: true, acpStartOptions: true,
+    acpAgents: [{ tool: 'cline', adapter: 'cline', state: 'available', modes: ['act', 'plan'] }] })
+  // Cline's own CLI takes --thinking, but its ACP session has no thought-level option, so the chat opens on the agent default.
+  const opened = initialChoice([{ ...reet, defaultTool: 'cline', defaultEffort: 'high' }], profile, { machines: [clineChat] })
+  assert.equal(opened.chat, true)
+  assert.equal(opened.effort, '')
+  // Without Gaffer the same default is the terminal's own choice and is kept.
+  assert.equal(initialChoice([{ ...reet, defaultTool: 'cline', defaultEffort: 'high' }], profile, { machines: [] }).effort, 'high')
+  assert.equal(chatEffort(choice({ agent: 'cline', chat: false, effort: 'high' }), 'm-studio', [clineChat]), 'high')
+  assert.equal(chatEffort(choice({ agent: 'cline', chat: true, effort: 'high' }), 'm-studio', [clineChat]), '')
+  // A descriptor that does offer the value keeps it, and still refuses one it does not offer.
+  const codexChat = machine('m-studio', 'studio', { tools: ['codex'], acp: true, acpStartOptions: true,
+    acpAgents: [{ tool: 'codex', adapter: 'codex-acp', state: 'available', options: [{ id: 'reasoning_effort', category: 'thought_level', values: ['low', 'high'] }] }] })
+  assert.equal(chatEffort(choice({ agent: 'codex', chat: true, effort: 'high' }), 'm-studio', [codexChat]), 'high')
+  assert.equal(chatEffort(choice({ agent: 'codex', chat: true, effort: 'medium' }), 'm-studio', [codexChat]), '')
 })
 
 test('sentence for several projects', () => {
@@ -156,11 +178,15 @@ test('Enter sends on a hardware keyboard; Shift+Enter adds a line; touch never s
 test('title from the first line', () => {
   assert.equal(defaultTitle('Fix the failing tests\nThen push'), 'Fix the failing tests')
   assert.equal(defaultTitle('\n  \n  Docs pass  \nmore'), 'Docs pass')
-  assert.equal(defaultTitle('x'.repeat(90)), 'x'.repeat(80))
-  assert.equal(defaultTitle('é'.repeat(81)), 'é'.repeat(80))
-  assert.equal(defaultTitle('tab\there\u200bnow'), 'tab herenow')
+  // A long first line is cut at a word, or at 60 characters when it has none, with an ellipsis.
+  assert.equal(defaultTitle('x'.repeat(90)), 'X' + 'x'.repeat(59) + '…')
+  assert.equal(defaultTitle('é'.repeat(81)), 'é'.repeat(60) + '…')
+  assert.equal(defaultTitle('tab\there\u200bnow'), 'Tab herenow')
   assert.equal(defaultTitle(''), '')
   assert.equal(defaultTitle('', 'Claude Code · reet'), 'Claude Code · reet')
+  // Greetings and "please" are not the work; a prompt with nothing in it falls back.
+  assert.equal(defaultTitle('Hi, can you please fix the login redirect loop on staging? It started after the deploy.'), 'Fix the login redirect loop on staging')
+  assert.equal(defaultTitle('hi', 'Claude Code · reet'), 'Claude Code · reet')
 })
 
 test('a prompt starting with - is refused with the launch sentence', () => {
@@ -519,4 +545,30 @@ test('explicit per-agent chat descriptors govern defaults and crafted launch cho
  assert.match(startable({ ...selected, agent: 'codex' }, [chatProject], [target]), /does not offer/)
  target.capabilities.acpAgents[0].state = 'incompatible'
  assert.match(startable(selected, [chatProject], [target]), /does not offer/)
+})
+
+test('Gaffer offers the effort its machine advertises', () => {
+  const agent = { tool: 'codex', adapter: 'codex-acp', state: 'available', model: true, options: [{ id: 'reasoning_effort', category: 'thought_level', values: ['low', 'high', 'ultra'] }] }
+  const acp = machine('m-studio', 'studio', { tools: ['codex'], acp: true, acpStartOptions: true, acpAgents: [agent] })
+  const picked = { ...reet, defaultTool: 'codex' }
+  const start = { ...initialChoice([picked], profile, { machines: [acp] }), effort: 'ultra' }
+  assert.equal(start.chat, true)
+  const parts = sentence(start, [picked], [acp])
+  assert.ok(slots(parts).includes('effort'))
+  assert.equal(words(parts), 'Run Codex in Gaffer with default on reet at studio · thinking ultra')
+  assert.equal(summary(parts), 'Codex on reet at studio · thinking ultra')
+})
+
+test('AGY Gaffer needs its own descriptor and folder trust', () => {
+ const agent={tool:'antigravity',adapter:'agy',state:'available',minimumVersion:'1.5.0',model:true,approval:true,options:[{id:'thought_level',category:'thought_level',values:['low','medium','high']}]}
+ const target=machine('m-studio','studio',{tools:['antigravity'],acp:true,acpStartOptions:true,acpAgents:[agent]})
+ const picked={...reet,defaultTool:'antigravity'}
+ const selected={...initialChoice([picked],profile,{machines:[target]}),model:'gemini-4-argon',effort:'medium'}
+ assert.equal(selected.chat,true)
+ assert.match(startable(selected,[picked],[target]),/trust this folder/)
+ const trusted={...selected,trust:true}
+ assert.equal(startable(trusted,[picked],[target]),null)
+ assert.deepEqual(toCreate(trusted,picked,'r'.repeat(16),'a'.repeat(16)).launch,{tool:'antigravity',structured:true,trust:true,model:'gemini-4-argon',dir:picked.dir,projectId:picked.id,effort:'medium'})
+ target.capabilities.acpAgents=[]
+ assert.match(startable(trusted,[picked],[target]),/does not offer Gaffer/)
 })

@@ -24,6 +24,7 @@ func Commands() []Command {
 			{Name: "backup list", Title: "List backups", Summary: "Read local instance copies", Args: []string{"backup", "list"}},
 			{Name: "backup run", Title: "Take a backup", Summary: "Write a sealed instance copy", Args: []string{"backup", "run"}},
 			{Name: "backup restore", Title: "Restore a backup", Summary: "Press e to add the backup ID and options", Args: []string{"backup", "restore"}},
+			{Name: "backup import", Title: "Import a backup", Summary: "Press e to add the server, token file and copy", Args: []string{"backup", "import"}},
 			{Name: "backup open", Title: "Open a backup", Summary: "Press e to add a file and options", Args: []string{"backup", "open"}},
 		}},
 		{Name: "branches", Title: "Branches", Summary: "List merged local branches and prune them", Group: "Check & maintain", Args: []string{"branches"}, Children: []Command{
@@ -31,7 +32,7 @@ func Commands() []Command {
 			{Name: "branches prune", Title: "Prune branches", Summary: "Press e to add --dry-run, --yes or a folder", Args: []string{"branches", "prune"}},
 		}},
 		{Name: "scan", Title: "Scan", Summary: "Report installed skills to your account", Group: "Skills & setups", Args: []string{"scan"}},
-		{Name: "sync", Title: "Sync", Summary: "Preview a saved target; --apply asks first", Group: "Skills & setups", Args: []string{"sync"}},
+		{Name: "sync", Title: "Sync", Summary: "Preview a saved target, then choose whether to apply it", Group: "Skills & setups", Args: []string{"sync"}},
 		{Name: "setup", Title: "Setups", Summary: "Discover, save and restore agent setups", Group: "Skills & setups", Args: []string{"setup"}, Children: []Command{
 			{Name: "setup scan", Title: "Discover setups", Summary: "Inspect known local setup locations", Args: []string{"setup", "scan"}},
 			{Name: "setup profile", Title: "Setup profiles", Summary: "Open the existing create/push wizard", Args: []string{"setup", "profile"}},

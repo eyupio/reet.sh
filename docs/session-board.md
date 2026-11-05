@@ -1,13 +1,15 @@
 # Session board
 
-![Home session board with Backlog, Active and Finished columns](images/session-board-light.png){ .screen-light width="1100" }
+![Home session board with Backlog, Active and Finished columns](images/workspace/home-desktop-light-992a1261390c.png){ .screen-light width="1100" }
 
-![Home session board in the dark theme](images/session-board-dark.png){ .screen-dark width="1100" }
+![Home session board in the dark theme](images/workspace/home-desktop-dark-f6a68f6000dd.png){ .screen-dark width="1100" }
 
 <details markdown="1">
 <summary>Phone view</summary>
 
-![Focused Active sessions view on a phone](images/session-board-phone.png){ width="390" }
+![Home on a phone, with an idea and saved prompts in the Backlog](images/workspace/home-phone-light-1e35a570d740.png){ .screen-light width="390" height="844" }
+
+![Home on a phone in the dark theme](images/workspace/home-phone-dark-4300d32caec3.png){ .screen-dark width="390" height="844" }
 
 </details>
 

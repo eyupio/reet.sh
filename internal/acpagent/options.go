@@ -36,7 +36,8 @@ type Options struct {
 	// StillWorkingAfter emits one notice when the model has been silent.
 	StillWorkingAfter time.Duration
 	// TurnTimeout cancels a prompt that has gone silent: no agent event for this
-	// long. A turn that keeps making progress is not cut off by it.
+	// long, with no outstanding approval or tool. Active tools may be quiet;
+	// MaxTurn still bounds the whole turn.
 	TurnTimeout time.Duration
 	// MaxTurn is the hard wall-clock cap on one prompt, however active.
 	MaxTurn time.Duration

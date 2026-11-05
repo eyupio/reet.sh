@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -300,6 +301,12 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Yolo: in.Yolo, Resume: in.Resume, Structured: in.Structured, Trust: in.Trust, ResumeACP: in.ResumeACP}
+	// A session started without a title is named from its prompt, or its agent
+	// and folder. The name depends only on the request, so a retry whose reply
+	// was lost asks for the same session under the same name.
+	if strings.TrimSpace(create.Title) == "" {
+		create.Title = terminalproto.AutoTitle(in.Tool, in.Prompt, in.Dir)
+	}
 	uid := s.uid(r)
 	// The project is checked before any machine is asked, so an unknown
 	// project is refused the same way whether the machine is online or not.
@@ -339,7 +346,11 @@ func (s *server) terminalCreateRecorded(uid int64, agent, requestID string) bool
 func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64, agent, tool string) {
 	var trust *terminalbroker.ACPTrustError
 	if errors.As(err, &trust) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "This folder has OpenCode plugins. Start only in a folder you trust.", "code": "acp_trust_required", "detail": trust.Detail})
+		message := "This folder has OpenCode plugins. Start only in a folder you trust."
+		if tool == "antigravity" {
+			message = "AGY workspace hooks and customizations may run. Start only in a folder you trust."
+		}
+		writeJSON(w, http.StatusConflict, map[string]string{"error": message, "code": "acp_trust_required", "detail": trust.Detail})
 		return
 	}
 	var acpUnavailable *terminalbroker.ACPUnavailableError
@@ -396,9 +407,14 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 	case errors.Is(err, terminalbroker.ErrACPResumeNotFound):
 		writeErrCode(w, http.StatusNotFound, "acp_resume_not_found", "", "That reet session's history is no longer available on that machine.", "")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported):
-		writeErrCode(w, http.StatusConflict, "acp_unavailable", "", "Update reet on that machine to use OpenCode chats.", "")
+		writeErrCode(w, http.StatusConflict, "acp_unavailable", "", "Update reet on that machine to use Gaffer chats.", "")
 	case errors.Is(err, terminalbroker.ErrACPVersion):
-		writeErrCode(w, http.StatusConflict, "acp_version", "", "Gaffer needs OpenCode 1.19.5 or newer on that machine.", "")
+		detail := "Gaffer needs a newer agent on that machine."
+		var version *terminalbroker.ACPVersionError
+		if errors.As(err, &version) && version.Detail != "" {
+			detail = version.Detail
+		}
+		writeErrCode(w, http.StatusConflict, "acp_version", "", detail, "")
 	default:
 		terminalError(w, err)
 	}
@@ -483,7 +499,7 @@ func (s *server) terminalArchive(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.st.ArchiveTerminalFor(s.uid(r), r.PathValue("id")); err != nil {
 		if errors.Is(err, store.ErrTerminalConflict) {
-			writeErr(w, 409, "Only ended, exited or lost sessions can be removed from history.")
+			writeErr(w, 409, "Request the session to end before removing it from history.")
 			return
 		}
 		terminalError(w, err)

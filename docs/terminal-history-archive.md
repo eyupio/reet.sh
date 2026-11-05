@@ -6,8 +6,10 @@ canonical Origin. API/MCP tokens, viewers, other accounts and disabled users fai
 This controller-only operation works when remote terminal execution is disabled.
 Create, rename, end, attachments and socket authorization retain their current gates.
 
-Only controller-confirmed ended/exited/lost rows can be archived. Creating, running
-and end-requested rows return 409, including offline hosts. A transaction locks the
+Controller-confirmed ended/exited/lost rows and end-requested rows can be archived.
+Creating and running rows return 409: request an end first. Hiding a pending end
+does not confirm termination or release quota; its durable stop request is still
+delivered when the machine reconnects. A transaction locks the
 owned session with a write before reading its state; this serializes against
 observations/end requests and across database handles. Missing/foreign rows retain
 the existing indistinguishable 403 policy. Malformed IDs/bodies return 400.
@@ -21,8 +23,10 @@ receipts, states, quota accounting and host files/processes are unchanged. No ho
 request is sent. Archival is persistent across controller restart and does not need
 an online connector. There is no undo or bulk archive endpoint in this first stage.
 
-The UI offers Remove from history only for closed sessions. Confirmation captures
-the immutable ID/title and explains that machine files are kept. Failed requests
+The UI offers Remove from history for closed sessions and pending end requests,
+including offline machines and disabled terminal servers. Confirmation captures
+the immutable ID/title and explains that machine files are kept. Pending-end
+confirmation also explains the queued stop and retained quota. Failed requests
 leave the entry visible. Successful responses remove only that entry; if the user
 has selected a different session while waiting, keep the newer selection attached.
 An archived deep link becomes unavailable without starting another shell.
@@ -36,7 +40,8 @@ again because it ignores tombstones; session/receipt identities remain intact.
 The existing end endpoint additionally accepts `removeHistory: true`. Omitting it
 keeps history. The choice is part of the immutable end-operation parameters;
 changing it on a retry with the same request ID returns 409. Pending termination
-remains visible. Only an authenticated, generation-fenced ended/exited/lost
+remains visible unless explicitly removed through the archive endpoint. An
+authenticated, generation-fenced ended/exited/lost
 observation (or confirmed failed creation) adds the archive tombstone, in the
 same transaction as closure. Controller restart preserves this decision. End
 still requires the existing execution/account/Origin gates; no automatic end is

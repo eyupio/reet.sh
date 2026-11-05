@@ -41,29 +41,35 @@ import (
 )
 
 type server struct {
-	importMu     sync.Mutex
-	st           *store.Store
-	f            meta.Fetcher
-	token        string
-	version      string
-	commit       string
-	debug        bool
-	topics       bool
-	refreshJob   bool
-	authMode     AuthMode
-	signup       bool
-	supportDesk  bool
-	contactEmail string
-	limiter      *auth.Limiter
-	dummyHash    string
-	oauthLimiter *auth.Limiter
-	publicURL    string
-	defaultUser  store.User
-	queue        chan ref.Ref
-	backups      *backup.Service
-	mail         *mail.Mailer
-	notify       *notify.Service
-	releases     *agentupdate.Checker
+	importMu       sync.Mutex
+	st             *store.Store
+	f              meta.Fetcher
+	token          string
+	version        string
+	commit         string
+	debug          bool
+	topics         bool
+	refreshJob     bool
+	maintenanceJob bool
+	authMode       AuthMode
+	signup         bool
+	supportDesk    bool
+	contactEmail   string
+	limiter        *auth.Limiter
+	dummyHash      string
+	oauthLimiter   *auth.Limiter
+	publicURL      string
+	defaultUser    store.User
+	queue          chan ref.Ref
+	stop           chan struct{}
+	stopOnce       sync.Once
+	ctx            context.Context
+	cancel         context.CancelFunc
+	workers        sync.WaitGroup
+	backups        *backup.Service
+	mail           *mail.Mailer
+	notify         *notify.Service
+	releases       *agentupdate.Checker
 
 	sso                *oidc.Provider
 	ssoLimiter         *auth.Limiter
@@ -153,6 +159,11 @@ func WithDebug(debug bool) Option {
 // WithTopics enables the daily skills.sh topic seed.
 func WithTopics(enabled bool) Option {
 	return func(s *server) { s.topics = enabled }
+}
+
+// WithMaintenance enables the scheduled machine maintenance sweeps (off until an admin turns them on).
+func WithMaintenance(enabled bool) Option {
+	return func(s *server) { s.maintenanceJob = enabled }
 }
 
 // WithRefresh enables the six-hourly metadata refresh.
@@ -256,12 +267,21 @@ func (s *server) publicOrigin() string {
 	return s.publicURL
 }
 
-// Close stops the private listener and any of its active streams. It does not
-// close the store or background workers, as in earlier increments.
+// Close stops the private listener, the background workers and any of its
+// active streams. It does not close the store.
 func (s *Server) Close() error {
 	if s == nil || s.s == nil {
 		return nil
 	}
+	if s.s.stop != nil {
+		s.s.stopOnce.Do(func() {
+			close(s.s.stop)
+			if s.s.cancel != nil {
+				s.s.cancel()
+			}
+		})
+	}
+	s.s.workers.Wait()
 	if s.s.healthHub != nil {
 		s.s.healthHub.Close()
 	}
@@ -288,12 +308,16 @@ func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) *Server 
 
 func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *server {
 	dummy, _ := auth.HashPassword("not-a-real-password")
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
 		st: st, f: f, token: token, version: "dev", commit: "unknown",
 		authMode: AuthToken, limiter: auth.NewLimiter(5, time.Minute), oauthLimiter: auth.NewLimiter(30, time.Minute), dummyHash: dummy,
 		ssoLimiter: auth.NewLimiter(60, time.Minute), logoutLimiter: auth.NewLimiter(60, time.Minute),
 		folderWrites: auth.NewLimiter(folderProjectWriteLimit, time.Minute),
 		queue:        make(chan ref.Ref, 256),
+		stop:         make(chan struct{}),
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -305,12 +329,19 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 			}
 		}
 	}
-	go s.worker()
+	s.workers.Add(1)
+	go func() { defer s.workers.Done(); s.worker() }()
 	if s.topics {
-		go s.topicWorker()
+		s.workers.Add(1)
+		go func() { defer s.workers.Done(); s.topicWorker() }()
 	}
 	if s.refreshJob {
-		go s.refreshWorker()
+		s.workers.Add(1)
+		go func() { defer s.workers.Done(); s.refreshWorker() }()
+	}
+	if s.maintenanceJob {
+		s.workers.Add(1)
+		go func() { defer s.workers.Done(); s.maintenanceWorker() }()
 	}
 	s.healthHub = agenthealth.NewHub(agenthealth.HubConfig{Store: st, Logf: func(format string, args ...any) {
 		log.Printf("machine health: "+format, args...)
@@ -415,6 +446,10 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/admin/settings", s.requireOwner(s.adminSettings))
 	mux.HandleFunc("GET /api/v2/settings/yolo", s.requireWriter(s.yoloSettingGet))
 	mux.HandleFunc("PUT /api/v2/settings/yolo", s.requireAdmin(s.yoloSettingPut))
+	mux.HandleFunc("GET /api/v2/maintenance", s.requireWriter(s.maintenanceGet))
+	mux.HandleFunc("PUT /api/v2/maintenance/worktrees", s.requireAdmin(s.maintenancePut))
+	mux.HandleFunc("POST /api/v2/maintenance/worktrees/scan", s.terminal(s.maintenanceWorktreeScan))
+	mux.HandleFunc("POST /api/v2/maintenance/worktrees/clean", s.terminal(s.maintenanceWorktreeClean))
 	mux.HandleFunc("GET /api/v2/settings/branch-prune", s.requireWriter(s.branchPruneSettingGet))
 	mux.HandleFunc("PUT /api/v2/settings/branch-prune", s.requireAdmin(s.branchPruneSettingPut))
 	mux.HandleFunc("GET /api/export", s.requireWriter(s.export))
@@ -601,12 +636,18 @@ func (s *server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// backupImportUpload is the sealed copy an owner sends to be staged. It is
-// binary, so it cannot be JSON; a browser cannot send this Content-Type
-// cross-origin without a preflight, which keeps the check's purpose.
+// importHeader marks an import upload. A form can send multipart/form-data
+// from any website without asking first, but it cannot add a header of its
+// own, so requiring this one keeps the upload from being forged cross-site.
+const importHeader = "X-Reet-Import"
+
+// backupImportUpload is the multipart form an owner sends to stage a sealed
+// copy. It is not JSON, so it is exempt from the JSON check, on this path
+// and with the marker header.
 func backupImportUpload(r *http.Request) bool {
 	return r.Method == http.MethodPost && r.URL.Path == "/api/v2/admin/backups/import" &&
-		strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/octet-stream")
+		strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") &&
+		r.Header.Get(importHeader) != ""
 }
 
 func (s *server) requireOwner(next http.HandlerFunc) http.HandlerFunc {
@@ -765,9 +806,23 @@ func clientIP(r *http.Request) string {
 }
 
 func (s *server) worker() {
-	for r := range s.queue {
-		s.fetchInto(r)
+	for {
+		select {
+		case <-s.stop:
+			return
+		case r := <-s.queue:
+			s.fetchInto(r)
+		}
 	}
+}
+
+// baseContext is the server's lifetime context. Test servers built as a bare
+// literal have none, so they fall back to Background.
+func (s *server) baseContext() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return context.Background()
 }
 
 func (s *server) fetchInto(r ref.Ref) bool {
@@ -776,7 +831,7 @@ func (s *server) fetchInto(r ref.Ref) bool {
 		sk, err := s.st.PublishedHostedSkill(username, r.Slug)
 		return err == nil && s.st.SetMeta(r.ID, sk.Slug, sk.Description, 0, 0, nil) == nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(s.baseContext(), 10*time.Second)
 	defer cancel()
 	m := s.f.Fetch(ctx, r)
 	if m.Empty() {
@@ -803,6 +858,7 @@ func (s *server) fetchInto(r ref.Ref) bool {
 
 func (s *server) enqueue(r ref.Ref) {
 	select {
+	case <-s.stop:
 	case s.queue <- r:
 	default:
 	}
@@ -812,8 +868,13 @@ func (s *server) topicWorker() {
 	s.syncTopics()
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
-	for range ticker.C {
-		s.syncTopics()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			s.syncTopics()
+		}
 	}
 }
 
@@ -821,7 +882,7 @@ func (s *server) syncTopics() {
 	if v, _ := s.st.GetSetting("topics_enabled"); v == "0" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(s.baseContext(), 90*time.Second)
 	defer cancel()
 	topics, err := s.f.Topics(ctx)
 	if err != nil {
@@ -848,12 +909,23 @@ func (s *server) syncTopics() {
 }
 
 func (s *server) refreshWorker() {
-	time.Sleep(10 * time.Second)
+	delay := time.NewTimer(10 * time.Second)
+	defer delay.Stop()
+	select {
+	case <-s.stop:
+		return
+	case <-delay.C:
+	}
 	s.refreshBatch()
 	ticker := time.NewTicker(6 * time.Hour)
 	defer ticker.Stop()
-	for range ticker.C {
-		s.refreshBatch()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			s.refreshBatch()
+		}
 	}
 }
 
@@ -870,6 +942,9 @@ func (s *server) refreshBatch() {
 	}
 	failures := 0
 	for _, id := range ids {
+		if s.ctx != nil && s.ctx.Err() != nil {
+			return
+		}
 		rf, err := ref.Parse(id)
 		if err != nil {
 			continue
@@ -883,11 +958,27 @@ func (s *server) refreshBatch() {
 				if s.debug {
 					log.Printf("refresh backing off after %d failures", failures)
 				}
-				time.Sleep(time.Hour)
+				if !s.wait(time.Hour) {
+					return
+				}
 				failures = 0
 			}
 		}
-		time.Sleep(2 * time.Second)
+		if !s.wait(2 * time.Second) {
+			return
+		}
+	}
+}
+
+// wait sleeps for d, or returns false when the server stops.
+func (s *server) wait(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-s.stop:
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
@@ -1009,17 +1100,25 @@ func filterFromRequest(r *http.Request) store.Filter {
 			}
 		}
 	}
+	if n, err := strconv.Atoi(q.Get("limit")); err == nil && n > 0 && n <= 1000 {
+		f.Limit = n
+	}
+	if n, err := strconv.Atoi(q.Get("offset")); err == nil && n > 0 {
+		f.Offset = n
+	}
 	return f
 }
 
 func (s *server) list(w http.ResponseWriter, r *http.Request) {
-	skills, counts, err := s.st.ListFor(s.uid(r), filterFromRequest(r))
+	q := r.URL.Query()
+	compact := q.Get("compact") == "1" || q.Get("compact") == "true" || q.Get("fields") != ""
+	filter := filterFromRequest(r)
+	filter.Compact = compact
+	skills, counts, err := s.st.ListFor(s.uid(r), filter)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	q := r.URL.Query()
-	compact := q.Get("compact") == "1" || q.Get("compact") == "true" || q.Get("fields") != ""
 	if compact {
 		fields := []string{"id", "name", "source", "sourceType", "stage", "liked", "bookmarked", "tags", "environment_count"}
 		if raw := strings.TrimSpace(q.Get("fields")); raw != "" {
@@ -1042,7 +1141,7 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 		}
 		compactSkills := make([]map[string]any, 0, len(skills))
 		for _, sk := range skills {
-			row := map[string]any{}
+			row := make(map[string]any, len(fields))
 			for _, field := range fields {
 				switch field {
 				case "id":
@@ -1066,7 +1165,7 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 					}
 					row["tags"] = names
 				case "environment_count":
-					row["environment_count"] = len(sk.Environments)
+					row["environment_count"] = sk.EnvironmentCount
 				}
 			}
 			compactSkills = append(compactSkills, row)
@@ -1280,6 +1379,33 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 	}
 	var rf ref.Ref
 	local := false
+	privateWritten, privatePublished := false, false
+	if source == "" && item.Host != "" && item.Agent != "" {
+		wanted, ok, err := s.st.PrivateSyncIdentityFor(userID, item.Host, item.Agent, item.Project, name)
+		if err != nil {
+			return "", false, false, err
+		}
+		if ok && strings.HasPrefix(wanted.ID, "hosted/") {
+			username, err := s.st.PublishingUsername(userID)
+			if err != nil {
+				return "", false, false, err
+			}
+			// Ownership and the saved private target authorize this identity;
+			// the public-input parser deliberately rejects unpublished drafts.
+			candidate, err := ref.ParseAt(requestOrigin(request)+"/"+username+"/"+name, request.Host)
+			if err == nil && candidate.ID == wanted.ID {
+				written, err := s.st.HostedSkillsFor(userID)
+				if err != nil {
+					return "", false, false, err
+				}
+				for _, skill := range written {
+					if skill.Slug == name {
+						rf, privateWritten, privatePublished = candidate, true, skill.Published
+					}
+				}
+			}
+		}
+	}
 	if strings.Contains(source, "://") {
 		if parsed, err := s.parseSkillInput(request, strings.TrimRight(source, "/")+"/"+name); err == nil && parsed.SourceType == "hosted" {
 			rf = parsed
@@ -1326,7 +1452,11 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 	if err != nil {
 		return id, false, false, err
 	}
-	if !local {
+	if privateWritten {
+		if err = s.st.SetHostedSkillVisible(sk.ID, privatePublished); err != nil {
+			return id, false, false, err
+		}
+	} else if !local {
 		s.enqueue(rf)
 	}
 	if item.Host != "" && item.Agent != "" {

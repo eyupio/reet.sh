@@ -56,6 +56,34 @@ try {
    await expect(start).toHaveCount(0)
    await page.waitForURL(new RegExp(`session=${S}`))
 
+   // The launch bar's Start a session offers the machine's Gaffer effort too, as a sentence slot or in the Change sheet.
+   await page.goto(`${base}/#launch`)
+   const bar=page.getByRole('dialog',{name:'Start a session',exact:true})
+   await bar.getByPlaceholder(/Describe the job/).fill('Choose effort in the launch bar')
+   const wide=width>=650
+   if (wide) {
+    const thinking=bar.getByRole('button',{name:/^Thinking:/})
+    await expect(thinking).toBeVisible()
+    await thinking.click()
+   } else {
+    await expect(bar.locator('.summary-text')).toContainText('thinking')
+    await bar.getByRole('button',{name:'Change',exact:true}).last().click()
+    const thinking=bar.getByRole('dialog',{name:'Change the launch'}).getByRole('button',{name:/^Thinking:/})
+    await expect(thinking).toBeVisible()
+    await thinking.click()
+   }
+   const effortList=page.getByRole('listbox',{name:'Thinking',exact:true})
+   await effortList.getByRole('option',{name:'ultra',exact:true}).click()
+   if (wide) await expect(bar.getByRole('button',{name:/^Thinking:/})).toHaveAccessibleName(/ultra$/)
+   else {
+    await expect(bar.getByRole('dialog',{name:'Change the launch'}).getByRole('button',{name:/^Thinking:/})).toHaveAccessibleName(/ultra$/)
+    await bar.getByRole('button',{name:'Done',exact:true}).click()
+   }
+   await bar.getByRole('button',{name:/^Start the session$/}).click()
+   await expect.poll(()=>requests.length).toBe(3)
+   expect(requests.at(-1)).toMatchObject({model:'provider/one',effort:'ultra',structured:true})
+   await page.waitForURL(new RegExp(`session=${S}`))
+
    // Backlog creation and editing preserve both choices across a reload.
    await page.goto(`${base}/`)
    await page.getByRole('button',{name:'New session',exact:true}).click()

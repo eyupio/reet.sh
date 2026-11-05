@@ -261,7 +261,7 @@ A remove is refused, and nothing is touched, when:
 | Condition | Code | HTTP | Sentence |
 | --- | --- | --- | --- |
 | The counts differ from the ones the person was shown, in either direction | `worktree_changed` | 409 | That worktree changed since you looked. Check again. |
-| `changed` is above zero, even when it was shown | `has_changes` | 422 | This worktree has changes you haven't saved. Commit, stash or discard them in the worktree, then check again. |
+| `changed` is above zero and the request did not carry `discard: true` (the person ticked that the shown changes may be deleted; the machine then runs `git worktree remove --force`, and every other row here still refuses) | `has_changes` | 422 | This worktree has changes you haven't saved. Commit, stash or discard them in the worktree, then check again. |
 | `hidden` is above zero | `hidden_changes` | 422 | Git is not tracking some edits in this worktree. Review them before removing. |
 | `unreferenced` is above zero | `unreferenced_commits` | 422 | Some commits in this worktree are not on any branch. Put them on a branch first, then check again. |
 | Another repository is inside (ignored ones included) | `nested_repository` | 422 | This worktree contains another git repository. Move or remove it first. |

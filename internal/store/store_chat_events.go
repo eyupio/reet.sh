@@ -22,59 +22,53 @@ type StoredChatEvent struct {
 	Event []byte
 }
 
-// AppendTerminalChatEventFor stores one chat event and trims the transcript to
-// its count and byte ceilings, oldest first. The primary key is the chat's own
-// sequence number, so a retry of the same event is idempotent.
+// AppendTerminalChatEventFor stores one chat event. It is a single-event
+// wrapper around AppendTerminalChatEventsFor so a caller that has one event
+// keeps the same idempotent primary-key behaviour.
 func (s *Store) AppendTerminalChatEventFor(uid int64, sessionID string, seq, at int64, event []byte) error {
-	validIdentity := terminalproto.ValidID(sessionID) && terminalproto.ValidCounter(seq) && at > 0
-	validEvent := len(event) > 0 && len(event) <= maxStoredChatBytes && json.Valid(event)
-	if !validIdentity || !validEvent {
+	return s.AppendTerminalChatEventsFor(uid, sessionID, []StoredChatEvent{{Seq: seq, At: at, Event: event}})
+}
+
+// AppendTerminalChatEventsFor stores a batch of chat events in one
+// transaction. The primary key is the chat's own sequence number, so retrying
+// the same batch is idempotent. Batching matters because each commit is an
+// fsync in WAL mode: one transaction per streamed chunk is otherwise the
+// dominant cost of a live chat. The caller trims the transcript in batches
+// with TrimTerminalChatEventsFor.
+func (s *Store) AppendTerminalChatEventsFor(uid int64, sessionID string, events []StoredChatEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	if !terminalproto.ValidID(sessionID) {
 		return terminalproto.ErrInvalid
 	}
+	for _, event := range events {
+		if !terminalproto.ValidCounter(event.Seq) || event.At <= 0 ||
+			len(event.Event) == 0 || len(event.Event) > maxStoredChatBytes || !json.Valid(event.Event) {
+			return terminalproto.ErrInvalid
+		}
+	}
 	return s.withTx(func(tx *sql.Tx) error {
-		if _, err := tx.Exec(`INSERT INTO terminal_chat_events(user_id,session_id,seq,at,event,bytes)
-			VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,session_id,seq) DO NOTHING`,
-			uid, sessionID, seq, at, string(event), len(event)); err != nil {
-			return err
-		}
-		var count int
-		var bytes int64
-		if err := tx.QueryRow(`SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM terminal_chat_events WHERE user_id=? AND session_id=?`,
-			uid, sessionID).Scan(&count, &bytes); err != nil {
-			return err
-		}
-		if count <= maxStoredChatEvents && bytes <= maxStoredChatBytes {
-			return nil
-		}
-		rows, err := tx.Query(`SELECT seq,bytes FROM terminal_chat_events WHERE user_id=? AND session_id=? ORDER BY seq DESC`,
-			uid, sessionID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		keepSeq := int64(0)
-		kept, keptBytes := 0, int64(0)
-		for rows.Next() {
-			var seq, size int64
-			if err := rows.Scan(&seq, &size); err != nil {
+		for _, event := range events {
+			if _, err := tx.Exec(`INSERT INTO terminal_chat_events(user_id,session_id,seq,at,event,bytes)
+				VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,session_id,seq) DO NOTHING`,
+				uid, sessionID, event.Seq, event.At, string(event.Event), len(event.Event)); err != nil {
 				return err
 			}
-			if kept+1 > maxStoredChatEvents || keptBytes+size > maxStoredChatBytes {
-				break
-			}
-			kept++
-			keptBytes += size
-			keepSeq = seq
 		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		if keepSeq == 0 {
-			return nil
-		}
-		_, err = tx.Exec(`DELETE FROM terminal_chat_events WHERE user_id=? AND session_id=? AND seq<?`, uid, sessionID, keepSeq)
-		return err
+		return nil
 	})
+}
+
+// TrimTerminalChatEventsFor drops stored events older than beforeSeq, keeping
+// the persisted transcript aligned with the live ring. It is a single indexed
+// range delete, so callers can batch it instead of paying per event.
+func (s *Store) TrimTerminalChatEventsFor(uid int64, sessionID string, beforeSeq int64) error {
+	if !terminalproto.ValidID(sessionID) || beforeSeq <= 1 {
+		return terminalproto.ErrInvalid
+	}
+	_, err := s.db.Exec(`DELETE FROM terminal_chat_events WHERE user_id=? AND session_id=? AND seq<?`, uid, sessionID, beforeSeq)
+	return err
 }
 
 // TerminalChatEventsFor reads a chat transcript in order. It returns nil when

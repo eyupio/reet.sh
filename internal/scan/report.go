@@ -10,7 +10,6 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 )
@@ -138,7 +137,7 @@ func RunReport(opts ReportOptions) (Report, error) {
 			}
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-Reet-Token", token)
-			resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+			resp, err := httpClient.Do(req)
 			if err != nil {
 				return err
 			}
@@ -195,7 +194,7 @@ func RunReport(opts ReportOptions) (Report, error) {
 		if token != "" {
 			req.Header.Set("X-Reet-Token", token)
 		}
-		resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			return err
 		}

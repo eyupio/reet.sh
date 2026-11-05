@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"mime/multipart"
+	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,11 +23,11 @@ import (
 func runBackup(args []string, out io.Writer) error {
 	help := len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help")
 	if help {
-		fmt.Fprintln(out, "Usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] ID\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
+		fmt.Fprintln(out, "Usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] ID | import --server URL --token-file F FILE\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nimport sends a copy to a running controller, which applies it at its next start.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
 		return nil
 	}
 	if len(args) == 0 {
-		return errors.New("usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] ID")
+		return errors.New("usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] ID | import --server URL --token-file F FILE")
 	}
 	switch args[0] {
 	case "keygen":
@@ -44,8 +49,10 @@ func runBackup(args []string, out io.Writer) error {
 		return backupUnescrow(args[1:], out)
 	case "restore":
 		return backupRestore(args[1:], out)
+	case "import":
+		return backupImport(args[1:], out)
 	default:
-		return fmt.Errorf("unknown backup command %q; use keygen, list, run, open, escrow, unescrow or restore", args[0])
+		return fmt.Errorf("unknown backup command %q; use keygen, list, run, open, escrow, unescrow, restore or import", args[0])
 	}
 }
 
@@ -355,6 +362,143 @@ func backupRestore(args []string, out io.Writer) error {
 		return errors.New("nothing was changed; this replaces the live database, so stop reet, then run again with --yes")
 	}
 	fmt.Fprint(out, result.Message)
+	return nil
+}
+
+// readSecretFile reads a secret from a file, or standard input for "-", and
+// never from an argument.
+func readSecretFile(file, label string) (string, error) {
+	var raw []byte
+	var err error
+	if file == "-" {
+		raw, err = io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
+	} else {
+		raw, err = os.ReadFile(file)
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", label, err)
+	}
+	return strings.TrimSpace(string(raw)), nil
+}
+
+// backupImport sends a sealed copy to a running controller. The server runs
+// the same checks a restore does and stages the copy; it takes effect when
+// the controller next starts, because a running server cannot swap the
+// database it is serving.
+func backupImport(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet backup import", flag.ContinueOnError)
+	f.SetOutput(out)
+	server := f.String("server", os.Getenv("REET_URL"), "the controller's address (default: REET_URL)")
+	tokenFile := f.String("token-file", "", "read an owner's API token from this file, or - for standard input")
+	passwordFile := f.String("password-file", "", "read the copy password from this file, or - for standard input")
+	dropSessions := f.Bool("drop-sessions", false, "end every browser sign-in and password-reset link in the copy")
+	dropTokens := f.Bool("drop-tokens", false, "revoke every personal API token and MCP connection in the copy")
+	owner := f.String("owner-email", "", "refuse unless this address is an owner account in the copy")
+	replace := f.Bool("replace", false, "import even though this controller already holds data")
+	if err := f.Parse(args); err != nil {
+		return err
+	}
+	if f.NArg() != 1 {
+		return errors.New("expected one sealed copy FILE")
+	}
+	if *server == "" {
+		return errors.New("give the controller's address with --server or REET_URL")
+	}
+	base, err := url.Parse(strings.TrimRight(*server, "/"))
+	if err != nil {
+		return errors.New("--server must be an http(s) address without credentials")
+	}
+	httpScheme := base.Scheme == "http" || base.Scheme == "https"
+	plain := base.Host != "" && base.User == nil
+	if !httpScheme || !plain {
+		return errors.New("--server must be an http(s) address without credentials")
+	}
+	if *tokenFile == "" {
+		return errors.New("give an owner's API token with --token-file FILE (or - for standard input); it is never taken as an argument")
+	}
+	if *tokenFile == "-" && *passwordFile == "-" {
+		return errors.New("standard input can hold the token or the password, not both")
+	}
+	token, err := readSecretFile(*tokenFile, "the token")
+	if err != nil {
+		return err
+	}
+	password := ""
+	if *passwordFile != "" {
+		if password, err = readSecretFile(*passwordFile, "the copy password"); err != nil {
+			return err
+		}
+	}
+	file, err := os.Open(f.Arg(0))
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// The options come first and the copy last, and the copy is streamed, so
+	// the server can refuse early and this side never holds it whole.
+	pr, pw := io.Pipe()
+	defer pr.Close()
+	mw := multipart.NewWriter(pw)
+	go func() {
+		fields := [][2]string{{"password", password}, {"ownerEmail", *owner},
+			{"dropSessions", fmt.Sprint(*dropSessions)}, {"dropTokens", fmt.Sprint(*dropTokens)}, {"replace", fmt.Sprint(*replace)}}
+		for _, fl := range fields {
+			if err := mw.WriteField(fl[0], fl[1]); err != nil {
+				pw.CloseWithError(err)
+				return
+			}
+		}
+		part, err := mw.CreateFormFile("file", filepath.Base(f.Arg(0)))
+		if err == nil {
+			_, err = io.Copy(part, file)
+		}
+		if err == nil {
+			err = mw.Close()
+		}
+		pw.CloseWithError(err)
+	}()
+	req, err := http.NewRequest(http.MethodPost, base.String()+"/api/v2/admin/backups/import", pr)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Reet-Import", "1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("sending the copy: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(body, &e)
+		if e.Error == "" {
+			e.Error = resp.Status
+		}
+		hint := ""
+		switch {
+		case strings.Contains(e.Error, "password") && password == "":
+			hint = " (give it with --password-file)"
+		case resp.StatusCode == http.StatusConflict:
+			hint = " (add --replace to import anyway)"
+		}
+		return fmt.Errorf("the controller refused the copy and changed nothing: %s%s", e.Error, hint)
+	}
+	var ok struct {
+		Report backup.RestoreReport `json:"report"`
+	}
+	if err := json.Unmarshal(body, &ok); err != nil {
+		return fmt.Errorf("the controller's answer could not be read: %w", err)
+	}
+	fmt.Fprintf(out, "Staged %s on %s.\n", ok.Report.ID, base.Host)
+	for _, l := range ok.Report.Lines() {
+		fmt.Fprintln(out, l)
+	}
+	fmt.Fprintln(out, "It takes effect when the controller next starts; restart it, and it will open the imported database.")
 	return nil
 }
 

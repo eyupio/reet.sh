@@ -35,6 +35,8 @@ type RestoreOptions struct {
 	// Source is where the request came from ("cli" or "api"), for the
 	// activity log.
 	Source string
+	// Replace allows an import into a controller that already holds data.
+	Replace bool
 }
 
 // RestoreReport says what a copy holds and what was done to it so it is safe
@@ -60,6 +62,11 @@ type RestoreReport struct {
 	MCPConnectionsRevoked int  `json:"mcpConnectionsRevoked"`
 	TokensKept            bool `json:"tokensKept"`
 	IdentityDropped       bool `json:"identityDropped"`
+
+	// SafetyCopy is where the live database was copied before an import was
+	// staged, so that what it replaces can be put back. Empty for a restore,
+	// which moves the live database aside instead.
+	SafetyCopy string `json:"safetyCopy,omitempty"`
 
 	// Unreadable names each stored secret the key on this controller cannot
 	// open, with what to do about it. Each is cleared in the copy.
@@ -101,6 +108,9 @@ func (r RestoreReport) Outcome() []string {
 		l = append(l, "Kept personal API tokens and MCP connections; the old controller's tokens open this one. Use --drop-tokens to revoke them.")
 	} else {
 		l = append(l, fmt.Sprintf("Revoked %d personal API token(s) and %d MCP connection(s), as asked; make new ones here.", r.TokensRevoked, r.MCPConnectionsRevoked))
+	}
+	if r.SafetyCopy != "" {
+		l = append(l, "The database that is live now was copied to "+r.SafetyCopy+" first.")
 	}
 	if r.IdentityDropped {
 		l = append(l, "Dropped the private-connection identity; this controller makes its own, so two never share one.")
@@ -307,10 +317,69 @@ func sealedFrom(raw []byte) ([]byte, error) {
 	return nil, errors.New("that zip holds no .sealed copy")
 }
 
+// ErrNotEmpty is returned when an import would replace data a controller
+// already holds and the operator did not say to.
+var ErrNotEmpty = errors.New("this controller already holds data")
+
+// holds says what a controller holds that an import would replace. A new
+// controller has its first owner and nothing else: no other account and no
+// skills, shelves, lists, tags, environments or connected machines. The topic
+// tags the daily sync adds and the server's own machine report are not
+// counted: a controller makes them for itself before anyone uses it. Backup
+// destinations and settings are configuration, set up before an import on
+// purpose, so they do not count.
+func holds(h store.RestoreSummary) []string {
+	var what []string
+	add := func(n int, noun string) {
+		if n > 0 {
+			what = append(what, fmt.Sprintf("%d %s", n, noun))
+		}
+	}
+	if h.Users > 1 {
+		what = append(what, fmt.Sprintf("%d accounts", h.Users))
+	}
+	add(h.Shelves, "shelves")
+	add(h.Skills, "skills")
+	add(h.Lists, "lists")
+	add(h.MadeTags, "tags")
+	add(h.MadeEnvironments, "environments")
+	add(h.Machines, "connected machines")
+	return what
+}
+
+// StageImportFile stages the sealed copy in the file at path, which an upload
+// was streamed to. The format opens a copy in one piece, so the file is read
+// whole here and no more than MaxImportBytes of it.
+func (s *Service) StageImportFile(ctx context.Context, dataDir, path, password string, opts RestoreOptions) (RestoreReport, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return RestoreReport{}, err
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, MaxImportBytes+1))
+	if err != nil {
+		return RestoreReport{}, err
+	}
+	if len(raw) > MaxImportBytes {
+		return RestoreReport{}, errors.New("that copy is larger than this build opens")
+	}
+	return s.StageImport(ctx, dataDir, raw, password, opts)
+}
+
 // StageImport opens an uploaded copy and stages it for the next start. A
 // second import replaces the first. The copy is opened with this controller's
 // key, or the password given; a password-protected copy needs one.
+//
+// Everything that can refuse runs before anything changes: whether this
+// controller holds data (unless opts.Replace), opening the copy, and every
+// check a restore makes. Then the live database is copied aside, and only
+// then is the import staged.
 func (s *Service) StageImport(ctx context.Context, dataDir string, raw []byte, password string, opts RestoreOptions) (RestoreReport, error) {
+	if !opts.Replace {
+		if what := holds(s.st.Holdings(ctx)); len(what) > 0 {
+			return RestoreReport{}, fmt.Errorf("%w (%s); importing would replace it, so say you want to replace it, or import into a new controller", ErrNotEmpty, strings.Join(what, ", "))
+		}
+	}
 	raw, err := sealedFrom(raw)
 	if err != nil {
 		return RestoreReport{}, err
@@ -328,6 +397,15 @@ func (s *Service) StageImport(ctx context.Context, dataDir string, raw []byte, p
 	if err != nil {
 		return rep, err
 	}
+	safety := filepath.Join(dataDir, "reet.db.before-import-"+time.Now().UTC().Format("20060102T150405Z"))
+	if err := s.st.VacuumInto(ctx, safety); err != nil {
+		os.Remove(safety)
+		return rep, fmt.Errorf("copying the live database aside before the import: %w", err)
+	}
+	if err := os.Chmod(safety, 0o600); err != nil {
+		return rep, err
+	}
+	rep.SafetyCopy = safety
 	state, _ := json.Marshal(rep)
 	if err := os.WriteFile(filepath.Join(stage, pendingState), state, 0o600); err != nil {
 		return rep, err

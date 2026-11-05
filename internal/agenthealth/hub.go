@@ -80,6 +80,8 @@ type Hub struct {
 	closed  bool
 	done    chan struct{}
 	prune   sync.Once
+	pruner  sync.WaitGroup
+	probes  sync.WaitGroup
 	writers sync.WaitGroup
 }
 
@@ -167,6 +169,7 @@ func (h *Hub) Connect(uid int64, agentID string, generation int64, instance stri
 		c.acc.NoteReconnect()
 	}
 	h.live[key] = c
+	h.probes.Add(1)
 	if h.st != nil {
 		h.writers.Add(1)
 	}
@@ -174,7 +177,7 @@ func (h *Hub) Connect(uid int64, agentID string, generation int64, instance stri
 	if old != nil {
 		old.Close()
 	}
-	go c.probeLoop()
+	go func() { defer h.probes.Done(); c.probeLoop() }()
 	if h.st != nil {
 		go func() { defer h.writers.Done(); c.persistLoop() }()
 	}
@@ -186,7 +189,15 @@ func (h *Hub) startPrune() {
 		return
 	}
 	h.prune.Do(func() {
+		h.mu.Lock()
+		if h.closed {
+			h.mu.Unlock()
+			return
+		}
+		h.pruner.Add(1)
+		h.mu.Unlock()
 		go func() {
+			defer h.pruner.Done()
 			if err := h.st.PruneRemoteHealth(); err != nil {
 				h.logf("health summary pruning failed")
 			}
@@ -225,6 +236,8 @@ func (h *Hub) Close() {
 	for _, c := range conns {
 		c.Close()
 	}
+	h.pruner.Wait()
+	h.probes.Wait()
 	h.writers.Wait()
 }
 

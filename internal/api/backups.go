@@ -4,11 +4,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -653,38 +654,113 @@ func (s *server) adminImportPending(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"pending": rep})
 }
 
-// adminImportStage takes a sealed instance copy as the request body. The
+// importBodyLimit bounds an upload: the largest copy this build opens, plus
+// room for the form fields around it.
+var importBodyLimit int64 = backup.MaxImportBytes + 1<<20
+
+// adminImportStage takes a sealed instance copy as a multipart form. The
 // running server cannot swap the database it serves, so the copy is opened,
 // checked and adapted now and put in place at the next start.
+//
+// The copy and its password both travel in the body, never in the URL or a
+// header. The options (password, dropSessions, dropTokens, ownerEmail,
+// replace) come first and the copy last, so it is streamed to disk as it
+// arrives and a refusal never waits for the whole upload.
 func (s *server) adminImportStage(w http.ResponseWriter, r *http.Request) {
 	svc := s.backupsOr(w)
 	if svc == nil {
 		return
 	}
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, backup.MaxImportBytes+1<<20))
+	r.Body = http.MaxBytesReader(w, r.Body, importBodyLimit)
+	mr, err := r.MultipartReader()
 	if err != nil {
+		writeErr(w, http.StatusUnsupportedMediaType, "send the copy as multipart/form-data: the options first, then the file")
+		return
+	}
+	opts := backup.RestoreOptions{Source: "api"}
+	var password, upload string
+	defer func() {
+		if upload != "" {
+			os.Remove(upload)
+		}
+	}()
+	field := func(p *multipart.Part) (string, error) {
+		b, err := io.ReadAll(io.LimitReader(p, 4<<10))
+		return string(b), err
+	}
+	for upload == "" {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			s.importReadFailed(w, err)
+			return
+		}
+		name := part.FormName()
+		if name == "file" {
+			f, err := os.CreateTemp(s.st.Dir(), ".reet-upload-*")
+			if err != nil {
+				writeErr(w, 500, err.Error())
+				return
+			}
+			upload = f.Name()
+			_, err = io.Copy(f, part)
+			if cerr := f.Close(); err == nil {
+				err = cerr
+			}
+			if err != nil {
+				s.importReadFailed(w, err)
+				return
+			}
+			continue
+		}
+		v, err := field(part)
+		if err != nil {
+			s.importReadFailed(w, err)
+			return
+		}
+		switch name {
+		case "password":
+			password = v
+		case "ownerEmail":
+			opts.OwnerEmail = v
+		case "dropSessions":
+			opts.DropSessions = v == "1" || v == "true"
+		case "dropTokens":
+			opts.DropTokens = v == "1" || v == "true"
+		case "replace":
+			opts.Replace = v == "1" || v == "true"
+		}
+	}
+	if upload == "" {
+		writeErr(w, 400, "the form has no copy: add it as the field \"file\", after the options")
+		return
+	}
+	rep, err := svc.StageImportFile(r.Context(), s.st.Dir(), upload, password, opts)
+	if err != nil {
+		code := 400
+		if errors.Is(err, backup.ErrNotEmpty) {
+			code = http.StatusConflict
+		}
+		writeErr(w, code, err.Error())
+		return
+	}
+	s.event(s.uid(r), "backup", "backup-import-staged", "", map[string]any{
+		"id": rep.ID, "dropSessions": opts.DropSessions, "dropTokens": opts.DropTokens,
+		"ownerChecked": strings.TrimSpace(opts.OwnerEmail) != "", "replace": opts.Replace,
+		"safetyCopy": rep.SafetyCopy, "secretsCleared": len(rep.Unreadable),
+	})
+	writeJSON(w, 200, map[string]any{"staged": true, "restartRequired": true, "report": rep})
+}
+
+func (s *server) importReadFailed(w http.ResponseWriter, err error) {
+	var tooBig *http.MaxBytesError
+	if errors.As(err, &tooBig) {
 		writeErr(w, http.StatusRequestEntityTooLarge, "that copy is larger than this build opens")
 		return
 	}
-	q := r.URL.Query()
-	opts := backup.RestoreOptions{
-		DropSessions: q.Get("dropSessions") == "1",
-		DropTokens:   q.Get("dropTokens") == "1",
-		OwnerEmail:   q.Get("ownerEmail"),
-		Source:       "api",
-	}
-	password, err := importPassword(r)
-	if err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	rep, err := svc.StageImport(r.Context(), s.st.Dir(), raw, password, opts)
-	if err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	s.event(s.uid(r), "backup", "backup-import-staged", "", map[string]any{"id": rep.ID, "dropSessions": opts.DropSessions, "dropTokens": opts.DropTokens, "ownerChecked": opts.OwnerEmail != ""})
-	writeJSON(w, 200, map[string]any{"staged": true, "restartRequired": true, "report": rep})
+	writeErr(w, 400, "the upload could not be read: "+err.Error())
 }
 
 func (s *server) adminImportCancel(w http.ResponseWriter, r *http.Request) {
@@ -698,20 +774,4 @@ func (s *server) adminImportCancel(w http.ResponseWriter, r *http.Request) {
 	}
 	s.event(s.uid(r), "backup", "backup-import-cancelled", "", nil)
 	writeJSON(w, 200, map[string]any{"pending": nil})
-}
-
-// importPassword reads the copy password. A header cannot carry every
-// password a person may have chosen (non-Latin characters are refused and
-// surrounding spaces are trimmed), so the page sends the UTF-8 bytes
-// base64-encoded in X-Copy-Password-B64. The plain X-Copy-Password stays for
-// scripts whose passwords are simple.
-func importPassword(r *http.Request) (string, error) {
-	if enc := r.Header.Get("X-Copy-Password-B64"); enc != "" {
-		raw, err := base64.StdEncoding.DecodeString(enc)
-		if err != nil {
-			return "", errors.New("X-Copy-Password-B64 is not valid base64")
-		}
-		return string(raw), nil
-	}
-	return r.Header.Get("X-Copy-Password"), nil
 }

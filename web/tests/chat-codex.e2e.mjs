@@ -86,11 +86,11 @@ try {
   // Start the model-capability checks from a clean event sequence, as a fresh stream would.
   await page.evaluate(() => window.__chatStream.emit('reset', { truncated: false }))
   // The reviewed descriptor offers modes but no live model switch. A global flag cannot override it.
-  await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Model:/ })).toHaveCount(0)
   expect(state.modelReads ?? 0).toBe(readsBeforeChat)
   machine.capabilities.acpModel = true
   await page.getByRole('button', { name: 'Refresh status', exact: true }).click()
-  await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Model:/ })).toHaveCount(0)
   let errorSeq = 0
   for (const [detail, guidance] of [
     ['Authentication required', 'Check this provider’s credentials on the session’s machine, then send your message again.'],
@@ -106,7 +106,7 @@ try {
   state.deferModels = true
   codexChat.model = true
   await page.getByRole('button', { name: 'Refresh status', exact: true }).click()
-  await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Model:/ })).toBeVisible()
   await expect.poll(() => state.modelReads ?? 0).toBe(readsBeforeChat + 1)
   const sameRefresh = page.waitForResponse(response => response.url().endsWith('/api/v2/terminal/machines'))
   await page.getByRole('button', { name: 'Refresh status', exact: true }).click()
@@ -116,17 +116,20 @@ try {
 
   codexChat.model = false
   await page.getByRole('button', { name: 'Refresh status', exact: true }).click()
-  await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Model:/ })).toHaveCount(0)
   // Releasing the old request after revocation cannot populate the next control's options.
   state.releaseModels()
   codexChat.model = true
   await page.getByRole('button', { name: 'Refresh status', exact: true }).click()
-  await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toBeVisible()
-  await expect(page.locator(`datalist[id="${S}-models"] option[value="codex/test-model"]`)).toHaveCount(1)
-  await expect(page.locator(`datalist[id="${S}-models"] option[value="codex/old-model"]`)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Model:/ })).toBeVisible()
+  await page.getByRole('button', { name: /^Model:/ }).click()
+  const modelList = page.getByRole('listbox', { name: 'Model', exact: true })
+  await expect(modelList.getByRole('option', { name: 'codex/test-model', exact: true })).toBeVisible()
+  await expect(modelList.getByRole('option', { name: 'codex/old-model', exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
   codexChat.model = false
   await page.getByRole('button', { name: 'Refresh status', exact: true }).click()
-  await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Model:/ })).toHaveCount(0)
 
   await expect(page.getByText('Ask OpenCode', { exact: false })).toHaveCount(0)
   const group = page.getByRole('radiogroup', { name: 'Approvals' })
@@ -170,7 +173,7 @@ try {
   for (const theme of ['dark', 'light']) for (const width of [1360, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme)
-    await expect(page.getByRole('textbox', { name: 'Model', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Model:/ })).toHaveCount(0)
     await expect(page.getByRole('radiogroup', { name: 'Approvals' })).toBeVisible()
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     if (process.env.REET_UI_SCREENSHOTS) await page.screenshot({ path: `${process.env.REET_UI_SCREENSHOTS}/codex-${theme}-${width}.png`, fullPage: true })

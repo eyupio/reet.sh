@@ -1,5 +1,35 @@
 # UI verification — 4 November 2026
 
+## Automatic session names (5 November 2026)
+
+A session started without a title is named from what its prompt asks for, or from its agent and folder; the
+plain-terminal dialog's **New session name** is now optional, with the name it would get as its placeholder and a
+one-line hint that follows the folder. The rules and their cases are in
+[Launch requests](terminal-launch.md#session-titles).
+
+- **Unit.** `agentLaunch.test.mjs` and `launchBar.test.mjs` read the controller's own cases
+  (`internal/terminalproto/testdata/autotitle.json`, 38 prompt and 14 whole-title cases) and agree on every one.
+  The new tests failed against a stub first (`expected 'Terminal'`, `actual ''`). The whole web unit suite passes
+  and `svelte-check` reports no errors; its one warning, an unused selector in `SessionHoverCard.svelte`, was
+  already there.
+- **Browser, red then green.** With the two Svelte files put back to their old state and the updated
+  expectations in place, `home`, `start-agent` and `terminal-organisation` failed on `Expected "Terminal"` /
+  `Received "Shell"` and `terminal-start` on the name field (`Expected ""`, `Received "Shell"`). With the new
+  code all four pass. `terminal-start` gained the folder case: the field is empty, its placeholder and hint read
+  `Terminal · project with spaces`, and New terminal is enabled without typing a name.
+- **Whole e2e set.** All 82 files ran against `vite preview` in Chromium. 78 passed first time. `chat` failed
+  once under load (the hosted-skill Approve button detached) and passes in isolation, twice on the original code
+  and twice on this change. `launch` hit my own 180-second limit while the machine was busy and passes in 37
+  seconds on both. `phone-dialogs` takes 244 seconds on both, so it also outran that limit. `terminal` needs the
+  Go terminal fixture and cannot run on its own.
+- **Real controller, tmux and browser.** `REET_BROWSER_TESTS=1 go test ./internal/api` passes the launch,
+  worktree and browse/branches tests. `TestTerminalPrivateLifecyclePreservesActualShell` fails in this container
+  on `.xterm-accessibility-tree` not containing the emoji line `💥 __split_utf8__`, on the original code as well
+  as on this change, so the later stages of `terminal.e2e.mjs` were not reached in either run.
+- **Seen.** The real dialog at 1360×900 and 390×844 in the light theme: the hint wraps cleanly on the phone, the
+  page does not scroll sideways and no page errors were logged. The dark theme, Firefox, Safari and physical
+  devices were not exercised, and no screenshots are kept in the repository.
+
 ## Gaffer: transparent artwork and smoother state changes
 
 The approved Grid/Phosphor drawings now render as transparent ink in the app's actual palette:
@@ -937,7 +967,9 @@ is hit-testable, and sideways the scrolling part has at least 140 px (and 40% of
 the footer's buttons share a row when their own widths fit. With the keyboard simulated twice (the
 page resized to 55% of its height, and only `visualViewport.height` shrunk to 55%) for each dialog
 with a text field: the same, plus the focused field wholly in view and not under a pinned footer or
-header. About 50–55 s; its own `phone-dialogs` job in `terminal-browser.yml`.
+header. Its own `phone-dialogs` job in `terminal-browser.yml`. Viewports run one at a time so
+their terminal renderers do not compete for the browser and CPU on the self-hosted runner;
+the connection and dialog deadlines, viewport coverage and assertions are unchanged.
 `REET_E2E_ONLY=<regexp>`, `REET_E2E_VIEWPORTS=320x568,844x390`, `REET_DIALOG_SHOTS=<dir>` and
 `REET_DIALOG_LOG=1` narrow or explain a run.
 
@@ -2804,3 +2836,22 @@ content hashes, negotiation and production reply filtering. No live provider, ph
 
 [Desktop light](images/ui/agent-preview-desktop-light.png) · [Desktop dark](images/ui/agent-preview-desktop-dark.png) ·
 [Phone light](images/ui/agent-preview-phone-light.png) · [Phone dark](images/ui/agent-preview-phone-dark.png)
+
+
+## Gaffer foreground repertoire, 4 November 2026
+
+The periodic performance used to replay the current work-phase gesture. Tea was mostly visible after returning from an absent tab. Ambient performances now keep recent history across routine tool updates, avoid the last three choices and include a brew by the second performance, then at least once in six. Quiet intervals are 12–20 seconds during work and 22–30 seconds when stopped.
+
+Two additional compressed sprite sheets add a head scratch, chin rub, ear scratch, glances, nose twitch and a resting head. The reviewed scratch artwork removes duplicate lowered-arm fragments and keeps the marked sleeves white. A resting head is chosen only for idle/ended turns and wakes immediately for new work. None of these gestures changes session state, tool facts or the handover.
+
+Routine phase updates preserve an in-flight performance and its animation element. Questions, approvals, connection trouble, errors and cancellation take precedence immediately. Per-card pause, account animation preference, reduced motion and hidden-tab suspension remain effective. Paused and reduced-motion portraits use their neutral final frame.
+
+The clock-driven browser regression covers foreground tea, a tool update during a performance, completion during a brew, idle rest, immediate wake, approval interruption and reduced motion. Artwork checks cover all four frames of the six new performances in both themes, including transparent surrounds and the app's actual ink colours. The existing return, interaction, progress and minimised-card browser suites also pass.
+
+Reproduce these captures with `node web/tests/gaffer-variety-capture.mjs` after installing the web dependencies and FFmpeg.
+
+[Motion preview from the real components](images/ui/gaffer-ambient-performances.gif)
+
+![The actual repertoire in the dark theme](images/ui/gaffer-ambient-review-dark.png){ loading="lazy" }
+
+![The actual repertoire in the light theme](images/ui/gaffer-ambient-review-light.png){ loading="lazy" }

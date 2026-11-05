@@ -36,7 +36,7 @@ try {
    if(width===1440) await expect(page.locator('.fleet .os').first()).toHaveText('Linux 6.1')
    const values = await page.evaluate(()=>{
     const box = selector => {const e=document.querySelector(selector),r=e.getBoundingClientRect(),s=getComputedStyle(e);return {x:r.x,y:r.y,width:r.width,height:r.height,gap:s.gap,fontSize:s.fontSize,fontWeight:s.fontWeight,lineHeight:s.lineHeight,background:s.backgroundColor,border:s.borderWidth,padding:s.padding}}
-    return {shell:box('.shell-bar'),logo:box('.shell-bar .logo'),avatar:box('.account .avatar'),jump:box('.jump'),home:box('div.home'),bell:box('.bell-button'),bottom:box('.bottom-tabs'),scrollWidth:document.documentElement.scrollWidth,navOverflow:(n=>n?n.scrollWidth-n.clientWidth:0)(document.querySelector('.shell-bar > .top-tabs')),viewport:innerWidth,footer:!!document.querySelector('body > footer, main > footer'),headerTargets:[...document.querySelectorAll('.shell-bar > .home, .shell-bar > .top-tabs, .shell-bar > .jump, .shell-bar > .search-button, .shell-bar > .bell, .shell-bar > .account')].filter(e=>getComputedStyle(e).display!=='none').map(e=>({name:e.className,left:e.getBoundingClientRect().left,right:e.getBoundingClientRect().right}))}
+    return {shell:box('.shell-bar'),logo:box(innerWidth>=1100?'.workspace-sidebar .logo':'.shell-bar .logo'),sidebar:document.querySelector('.workspace-sidebar')?box('.workspace-sidebar'):null,avatar:box('.account .avatar'),jump:box('.jump'),home:box('div.home'),bell:box('.bell-button'),bottom:box('.bottom-tabs'),scrollWidth:document.documentElement.scrollWidth,navOverflow:(n=>n?n.scrollWidth-n.clientWidth:0)(document.querySelector('.workspace-sidebar > nav, .shell-bar > .top-tabs')),viewport:innerWidth,footer:!!document.querySelector('body > footer, main > footer'),headerTargets:[...document.querySelectorAll('.shell-bar > .workspace-label, .shell-bar > .home, .shell-bar > .top-tabs, .shell-bar > .jump, .shell-bar > .search-button, .shell-bar > .bell, .shell-bar > .account')].filter(e=>getComputedStyle(e).display!=='none').map(e=>({name:e.className,left:e.getBoundingClientRect().left,right:e.getBoundingClientRect().right}))}
    })
    readings.push({theme,width,height,...values})
    expect(values.scrollWidth,`${theme} ${width}: horizontal scroll`).toBeLessThanOrEqual(width)
@@ -48,11 +48,16 @@ try {
     if(i) expect(target.left,`${width}: header controls never overlap`).toBeGreaterThanOrEqual(values.headerTargets[i-1].right)
    }
    expect(values.footer, 'Home leaves the dock at the bottom without a site footer').toBe(false)
-   expect(values.logo.width).toBeCloseTo(120,0)
+   expect(values.logo.width).toBeCloseTo(width>=1100?134:120,0)
+   if(width>=1100) {
+    expect(values.sidebar.x).toBe(0)
+    expect(values.sidebar.width).toBe(228)
+    for(const target of await page.locator('.workspace-sidebar nav a, .workspace-sidebar nav button').all()) expect((await target.boundingBox()).height).toBeGreaterThanOrEqual(44)
+   } else expect(values.sidebar).toBeNull()
    expect(values.avatar.width).toBe(36)
    expect(values.avatar.height).toBe(36)
    if(width===1440) {
-    expect(values.shell.gap).toBe('28px')
+    expect(values.shell.gap).toBe('20px')
     expect(values.jump.width).toBe(326)
     expect(values.shell.lineHeight).toBe('18.2px')
    }

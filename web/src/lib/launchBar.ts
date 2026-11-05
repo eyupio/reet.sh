@@ -1,9 +1,10 @@
 import type { Profile, YoloSetting } from './api'
 import type { BranchesResult, FolderProject, LaunchRequest, TerminalMachine, TerminalSession } from './terminal/api'
-import { isChatTool, readiness, structuredAgent } from './terminal/api'
+import { chatNeedsTrust, isChatTool, readiness, structuredAgent } from './terminal/api'
 import { CATALOGUE, agentChoices } from './catalogue'
+import { launchEfforts } from './terminal/launchOptions'
 import { resolveLaunchDefaults, type ModelFavourite } from './models'
-import { MAX_PROMPT_BYTES, cleanModel, codeSentence, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
+import { MAX_PROMPT_BYTES, cleanModel, codeSentence, promptTitle, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
 
 // The launch bar's logic: what the sentence says, what it starts from, whether Start may be pressed, and the one create
 // request per session. Pure: no DOM, no fetch, no storage. The controller and the machine check everything again.
@@ -47,11 +48,22 @@ const supportsChat = (agent: string, host: string | undefined, machines: LaunchM
 
 const UPDATE_FOR_OPTION = 'Update reet on that machine to use that option.'
 const NO_OPTION = "That agent doesn't take that option."
-const MAX_TITLE = 80
 const MAX_SLUG = 40
 
 const agentOf = (id: string) => CATALOGUE.find(agent => agent.id === id)
 const takesEffort = (id: string): boolean => agentOf(id)?.effort === true
+/** The effort values this launch can choose: the agent's own for a terminal, the machine's advertised values for Gaffer. */
+const effortsFor = (choice: LaunchChoice, host: string | undefined, machines: LaunchMachine[]): string[] =>
+  launchEfforts(choice.agent, machines.find(m => m.agentId === host)?.capabilities, choice.chat === true)
+/**
+ * The effort a choice can carry. A chat sends one only when its own descriptor offers that value, so a project or
+ * account default for the agent's terminal thinking (Cline's `--thinking`) is dropped when the same agent runs in
+ * Gaffer, whose ACP has no thought-level option. An empty effort is the agent default and is always allowed.
+ */
+export function chatEffort(choice: LaunchChoice, host: string | undefined, machines: LaunchMachine[] | undefined): Effort {
+  if (choice.chat !== true || !choice.effort) return choice.effort
+  return effortsFor(choice, host, machines ?? []).includes(choice.effort) ? choice.effort : ''
+}
 const chosen = (choice: LaunchChoice, projects: LaunchProject[]): LaunchProject[] =>
   choice.projectIds.map(id => projects.find(p => p.id === id)).filter((p): p is LaunchProject => !!p)
 
@@ -108,12 +120,14 @@ export function initialChoice(projects: LaunchProject[], profile: LaunchDefaults
   const base = resolveLaunchDefaults({ project: first, account: profile, availableAgents })
   const favourite = favouriteFor(base.agent, options.favourites)
   const next = favourite ? resolveLaunchDefaults({ project: first, account: profile, favouriteDefault: favourite, availableAgents }) : base
-  return {
+  const out: LaunchChoice = {
     agent: next.agent, model: next.model, projectIds: first ? [first.id] : [],
     branch: first?.baseBranch || profile.defaultBaseBranch || '', worktree: worktreeFor(first ?? undefined, profile),
     effort: next.effort as Effort, prompt: '', approvals: first ? approvalsFor([first]) : 'ask',
     ...(supportsChat(next.agent, first?.host, options.machines) ? { chat: true } : {}),
   }
+  out.effort = chatEffort(out, first?.host, options.machines)
+  return out
 }
 
 const EFFORTS: Effort[] = ['low', 'medium', 'high']
@@ -155,6 +169,7 @@ export function withProject(choice: LaunchChoice, project: LaunchProject, profil
   }
   if (chat) out.chat = true
   else if (isChatTool(next.agent) && choice.chat === false) out.chat = false
+  out.effort = chatEffort(out, project.host, options.machines)
   return out
 }
 
@@ -167,6 +182,7 @@ export function withAgent(choice: LaunchChoice, agent: string, project: LaunchPr
   if (chat) out.chat = true
   else if (isChatTool(next.agent) && choice.chat === false) out.chat = false
   else delete out.chat
+  out.effort = chatEffort(out, host, options.machines)
   return out
 }
 
@@ -198,6 +214,7 @@ export function withHome(choice: LaunchChoice, agentId: string, profile: LaunchD
   if (chat) out.chat = true
   else if (isChatTool(next.agent) && choice.chat === false) out.chat = false
   else delete out.chat
+  out.effort = chatEffort(out, agentId, options.machines)
   return out
 }
 
@@ -209,7 +226,7 @@ export function summary(parts: SentencePart[]): string {
   const worktree = text('worktree')
   if (!chat && worktree === 'a fresh worktree') out.push(text('branch'), 'fresh worktree')
   else if (!chat && worktree) out.push(worktree)
-  if (!chat && parts.some(p => p.slot === 'effort')) out.push(`thinking ${text('effort')}`)
+  if (parts.some(p => p.slot === 'effort')) out.push(`thinking ${text('effort')}`)
   return out.join(' · ')
 }
 
@@ -263,7 +280,7 @@ export function sentence(choice: LaunchChoice, projects: LaunchProject[], machin
       if (picked.length === 1) parts.push({ slot: 'checkout', text: current ? `Works in the checkout on ${current}.` : 'Works in the checkout.' })
     }
   }
-  if (!chat && takesEffort(choice.agent)) parts.push(word('·'), word('thinking'), { slot: 'effort', text: choice.effort || 'default' })
+  if (effortsFor(choice, chatHost, machines).length > 1) parts.push(word('·'), word('thinking'), { slot: 'effort', text: choice.effort || 'default' })
   return parts
 }
 
@@ -278,8 +295,7 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
   if (prompt) return prompt
   if (choice.chat === true) {
     if (picked.length > 1) return 'Gaffer starts in one folder at a time. Choose one project, or switch to the agent TUI.'
-    // The trust prompt is OpenCode's plugin warning; Claude ignores a folder's own settings, so there is nothing to confirm.
-    if (choice.agent === 'opencode' && choice.trust !== true) return 'Confirm you trust this folder before starting Gaffer.'
+    if (chatNeedsTrust(choice.agent) && choice.trust !== true) return 'Confirm you trust this folder before starting Gaffer.'
     const model = validateModel(choice.model)
     if (model) return model
     const target = machines.find(x => x.agentId === (picked[0]?.host ?? choice.homeMachine ?? ''))
@@ -317,14 +333,9 @@ export function projectSlug(name: string): string {
   return cut || 'project'
 }
 
-// Control and format characters and the two Unicode line separators; a title may hold none of them.
-const INVISIBLE = new RegExp('[\\p{Cc}\\p{Cf}\\u2028\\u2029]', 'gu')
-
-/** The session title from the prompt: its first line with text, without invisible characters, at most 80 characters; `fallback` when there is none. */
+/** The session title from the prompt (see `promptTitle`: the work it asks for, without greetings or "please", at most 60 characters); `fallback` when it says nothing. */
 export function defaultTitle(prompt: string, fallback = ''): string {
-  const line = String(prompt ?? '').split(/\r?\n/).map(l => l.replace(/\t/g, ' ').replace(INVISIBLE, '').trim()).find(l => l !== '') ?? ''
-  if (line === '') return fallback
-  return Array.from(line).slice(0, MAX_TITLE).join('').trim()
+  return promptTitle(prompt) || fallback
 }
 
 /**
@@ -334,8 +345,7 @@ export function defaultTitle(prompt: string, fallback = ''): string {
 export function toCreate(choice: LaunchChoice, project: LaunchProject | null, requestId: string, runToken: string, profile: LaunchDefaults = {}): LaunchCreate {
   const chat = choice.chat === true && isChatTool(choice.agent)
   const launch: LaunchRequest = { tool: choice.agent }
-  // Trust is OpenCode's plugin warning; no other chat tool takes it, so it is never sent for one.
-  if (chat) { launch.structured = true; if (choice.trust === true && choice.agent === 'opencode') launch.trust = true }
+  if (chat) { launch.structured = true; if (choice.trust === true && chatNeedsTrust(choice.agent)) launch.trust = true }
   const model = cleanModel(choice.model)
   if (model) launch.model = model
   if (project) launch.dir = project.dir

@@ -98,6 +98,8 @@ await page.routeWebSocket('**/api/v2/terminal/socket',socket=>{socket.onMessage(
 // the fixture across page loads (a later write cannot hide an earlier one).
 const storageWrites=[]
 await page.exposeFunction('__recordStorage',(op,key,value)=>{storageWrites.push(`${op} ${key} ${value}`)})
+// This check starts a plain terminal from a machine's header, which the Machine grouping shows; Project is the default now. Seeded before the recorder below, so it is not counted as a write.
+await page.addInitScript(()=>{try{localStorage.setItem('reet-terminal-layout:1:sessions',JSON.stringify({group:'machine'}))}catch{/* optional */}})
 await page.addInitScript(()=>{
  window.__storageCalls=[]
  for(const op of ['setItem','removeItem','clear']){const original=Storage.prototype[op];Storage.prototype[op]=function(...args){window.__storageCalls.push({op,key:String(args[0]??''),value:String(args[1]??'')});window.__recordStorage(op,String(args[0]??''),String(args[1]??''));return original.apply(this,args)}}
@@ -324,7 +326,7 @@ try{
  await expect.poll(()=>posts.length).toBe(2)
  const plain=body(1)
  expect(Object.keys(plain)).toEqual(['agentId','requestId','title','cols','rows'])
- expect(posts[1]).toBe(JSON.stringify({agentId:A,requestId:plain.requestId,title:'Shell',cols:100,rows:30}))
+ expect(posts[1]).toBe(JSON.stringify({agentId:A,requestId:plain.requestId,title:'Terminal',cols:100,rows:30}))
  await expect(page).toHaveURL(new RegExp(`session=session-${plain.requestId.replaceAll('-','').slice(0,20)}`))
 
  // ── A held first Start: every field locked, Close and Escape wait, a second submit sends nothing. ──
@@ -1058,6 +1060,33 @@ try{
  await expect(d.getByRole('radio',{name:'YOLO',exact:true})).toBeDisabled()
  await expect(d.getByText('dev-laptop doesn’t accept YOLO sessions.')).toBeVisible()
  await page.keyboard.press('Escape')
+
+ // AGY uses the shared picker and sends its tool id, custom model and effort.
+ // A one-word prompt goes through the CLI's interactive prompt flag.
+ d=await openAt(A);p=parts(d)
+ await expect(p.opt('Google Antigravity (AGY)')).toBeDisabled()
+ await expect(p.agentWhy).toContainText('Google Antigravity (AGY) · Not installed on dev-laptop')
+ await page.keyboard.press('Escape')
+ tmachines[0].capabilities.tools.push('antigravity')
+ d=await openAt(A);p=parts(d)
+ await p.pick('Google Antigravity (AGY)')
+ await expect(p.effort).toBeVisible()
+ await p.effort.selectOption('high')
+ await pickOtherModel(d,'custom-model')
+ await p.prompt.fill('update')
+ await expect(d.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
+ const agyPosts=posts.length
+ await p.start.click()
+ await expect(d).toHaveCount(0)
+ await expect.poll(()=>posts.length).toBe(agyPosts+1)
+ expect(JSON.parse(posts.at(-1))).toMatchObject({tool:'antigravity',model:'custom-model',effort:'high',prompt:'update'})
+ expect(JSON.parse(posts.at(-1))).not.toHaveProperty('yolo')
+ tmachines[0].capabilities.agentsV2=false
+ d=await openAt(A);p=parts(d)
+ await expect(p.opt('Google Antigravity (AGY)')).toBeDisabled()
+ await expect(p.agentWhy).toContainText('Google Antigravity (AGY) · Update reet on that machine')
+ await page.keyboard.press('Escape')
+ tmachines[0].capabilities.agentsV2=true
  expect(errors).toEqual([])
  console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old four otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, a pasted image uploaded before the start with its path joined to the opening prompt, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and only numeric recap markers in tab storage. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

@@ -93,6 +93,7 @@ const (
 // model: the transport is replaceable, the agent process is not.
 type chatSupervisor struct {
 	ctx      context.Context
+	cancel   context.CancelFunc
 	opts     terminalhost.ManagerOptions
 	start    chatStarter
 	lookPath func(string) (string, error)
@@ -149,8 +150,9 @@ func NewChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *C
 }
 
 func newChatSupervisor(ctx context.Context, opts terminalhost.ManagerOptions) *chatSupervisor {
+	ctx, cancel := context.WithCancel(ctx)
 	s := &chatSupervisor{
-		ctx: ctx, opts: opts, previews: newChatPreviewStore(opts.Layout.Dir, opts.Home),
+		ctx: ctx, cancel: cancel, opts: opts, previews: newChatPreviewStore(opts.Layout.Dir, opts.Home),
 		start: func(ctx context.Context, opts acpagent.Options) (chatProcess, error) {
 			return acpagent.Start(ctx, opts)
 		},
@@ -175,7 +177,19 @@ func (s *chatSupervisor) startResume() {
 	if s.registry == nil {
 		return
 	}
-	s.resumeOnce.Do(func() { go s.resumePersisted() })
+	s.resumeOnce.Do(func() {
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return
+		}
+		s.wg.Add(1)
+		s.mu.Unlock()
+		go func() {
+			defer s.wg.Done()
+			s.resumePersisted()
+		}()
+	})
 }
 
 // Close ends every chat process and refuses new sessions.
@@ -199,6 +213,9 @@ func (s *chatSupervisor) closeOnce() {
 			s.link = nil
 		}
 		s.mu.Unlock()
+		if s.cancel != nil {
+			s.cancel()
+		}
 		close(s.stop)
 		for _, cs := range sessions {
 			if cs.process != nil {
@@ -350,8 +367,11 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 // transcript, so only what happens after the start reaches it.
 func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create, dropReplay bool) (terminalproto.SessionChanged, error) {
 	if in.Tool == agentsoftware.OpenCodeTool {
-		softwareGate.RLock()
-		defer softwareGate.RUnlock()
+		release, err := lockSoftwareRead(h.sup.ctx)
+		if err != nil {
+			return terminalproto.SessionChanged{}, terminalhost.ErrManagerClosed
+		}
+		defer release()
 	}
 	h.sup.mu.Lock()
 	if h.sup.closed {
@@ -608,7 +628,7 @@ func chatUnavailable(cs *chatSession) bool {
 
 func (h *chatHost) startPrompt(cs *chatSession, text string, images []acpagent.Attachment) bool {
 	h.sup.mu.Lock()
-	if chatUnavailable(cs) {
+	if h.sup.closed || chatUnavailable(cs) {
 		h.sup.mu.Unlock()
 		return false
 	}
@@ -1346,7 +1366,9 @@ func chatResult(err error) terminalproto.Result {
 		var version *acpagent.VersionError
 		if errors.As(err, &version) {
 			detail = version.Error()
-			if version.Required == "" {
+			if version.Required == "" || version.Found == "" && version.Reason != "" && version.Reason != "the agent is not installed" {
+				// Also when the probe itself failed or timed out: no version was
+				// read, so "needs 1.19.5 or newer" would be untrue.
 				// A different agent answered: update/install guidance would
 				// point at the wrong thing, so report it as unavailable.
 				code = terminalproto.ACPUnavailable
@@ -1360,12 +1382,18 @@ func chatResult(err error) terminalproto.Result {
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: acpagent.ErrCodexLogin.Error()}
 	case errors.Is(err, acpagent.ErrClaudeLogin):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: acpagent.ErrClaudeLogin.Error()}
+	case errors.Is(err, acpagent.ErrClineLogin):
+		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: acpagent.ErrClineLogin.Error()}
+	case errors.Is(err, acpagent.ErrAntigravityLogin):
+		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: acpagent.ErrAntigravityLogin.Error()}
 	case errors.Is(err, acpagent.ErrUnsupported):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "That agent does not support chats on this machine."}
 	case errors.Is(err, acpagent.ErrPluginsUnreadable):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The folder's agent extensions could not be read, so the chat was not started."}
 	case errors.Is(err, acpagent.ErrControl):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not confirm the chosen effort for this model. Choose an offered effort or Agent default. No opening prompt was sent."}
+	case errors.Is(err, acpagent.ErrSafety):
+		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not confirm that it asks before each command or edit, so the chat was not started."}
 
 	case errors.Is(err, acpagent.ErrModel):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not use the chosen model, so the chat was not started."}
@@ -1389,11 +1417,16 @@ func cutText(s string, max int) string {
 }
 
 func (h *chatHost) setModel(ctx context.Context, sessionID, model string) error {
-	cs := h.find(sessionID)
+	h.sup.mu.Lock()
+	if h.sup.closed {
+		h.sup.mu.Unlock()
+		return terminalhost.ErrManagerClosed
+	}
+	cs := h.sup.sessions[sessionID]
 	if cs == nil {
+		h.sup.mu.Unlock()
 		return terminalhost.ErrSessionMissing
 	}
-	h.sup.mu.Lock()
 	if chatUnavailable(cs) {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict
@@ -1429,11 +1462,16 @@ func (h *chatHost) setModel(ctx context.Context, sessionID, model string) error 
 // session refuses any other mode and reports success only when the agent
 // confirms the new one.
 func (h *chatHost) setAgentMode(ctx context.Context, sessionID, mode string) error {
-	cs := h.find(sessionID)
+	h.sup.mu.Lock()
+	if h.sup.closed {
+		h.sup.mu.Unlock()
+		return terminalhost.ErrManagerClosed
+	}
+	cs := h.sup.sessions[sessionID]
 	if cs == nil {
+		h.sup.mu.Unlock()
 		return terminalhost.ErrSessionMissing
 	}
-	h.sup.mu.Lock()
 	if chatUnavailable(cs) {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict

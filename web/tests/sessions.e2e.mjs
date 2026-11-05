@@ -87,7 +87,9 @@ async function open(options={}) {
   window.EventSource = FakeEventSource
  }, !!options.chatHold)
  // The sessions panel's saved colours, as the workspace keeps them in this browser.
- if (options.colours) await opened.page.addInitScript(colors => localStorage.setItem('reet-terminal-layout:1:sessions', JSON.stringify({colors})), options.colours)
+ // These checks were written against the machine grouping; Project is the default now, so the panel is seeded with Machine.
+ if (!options.defaultGroup) await opened.page.addInitScript(colors => localStorage.setItem('reet-terminal-layout:1:sessions', JSON.stringify({group:'machine',...(colors?{colors}:{})})), options.colours)
+ else if (options.colours) await opened.page.addInitScript(colors => localStorage.setItem('reet-terminal-layout:1:sessions', JSON.stringify({colors})), options.colours)
  // A session's own writes: rename (PATCH), end and remove from history (POST).
  await opened.page.route('**/api/v2/terminal/sessions/*', async route => {
   const request = route.request(), id = decodeURIComponent(new URL(request.url()).pathname.split('/').pop())
@@ -123,7 +125,7 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
 try {
  // The page itself: the heading, Group by shared with Home, the groups as the mock-up draws them, and the projects below.
  if (run('page')) {
-  const {context,page,errors,state} = await open()
+  const {context,page,errors,state} = await open({defaultGroup:true})
   await page.goto(`${base}/sessions?view=list`)
   await expect(page.getByRole('heading',{name:'Sessions',level:1})).toBeVisible()
   expect(await page.title()).toBe('Sessions · reet.sh')
@@ -674,11 +676,11 @@ try {
   await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
   await expect(view.getByRole('button',{name:'OpenCode TUI'})).toHaveAttribute('aria-pressed','true')
   await expect(view.getByRole('button',{name:'Gaffer'})).toHaveAttribute('aria-disabled','false')
-  // Another agent has no Gaffer at all.
+  // Another agent cannot switch between Gaffer and its TUI.
   await sidebarRow(page, 'Add browse-v1 protocol').click()
   const chat = view.getByRole('button',{name:'Gaffer'})
   await expect(chat).toHaveAttribute('aria-disabled','true')
-  await expect(chat).toHaveAccessibleDescription("Gaffer is for a structured OpenCode session. Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI.")
+  await expect(chat).toHaveAccessibleDescription("Switching between Gaffer and the agent’s TUI is currently available for OpenCode only. Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI.")
   await expect(view.getByRole('button',{name:'Claude Code TUI'})).toHaveAttribute('aria-pressed','true')
   // Choosing it changes nothing (it is aria-disabled, so it stays in the tab order with its reason).
   await chat.click({force:true})
@@ -736,6 +738,14 @@ try {
   for (const theme of ['light','dark']) for (const [width,height,touch] of [[1360,900,false],[768,1024,true],[390,844,true],[320,740,true],[844,390,true]]) {
    const {context,page,errors} = await open({width,height,touch,theme,sessions:[...sessions(),...opencodeSessions()],machines:switchMachines(),chat:true})
    await page.goto(`${base}/sessions?agent=a1&session=s9`)
+   // A phone opens a Gaffer chat in super focus; the ordinary session controls wait behind Exit focus.
+   if (width <= 650 || (height <= 500 && touch)) {
+    await expect(screen(page)).toHaveClass(/focus/)
+    const exitFocus = screen(page).getByRole('button',{name:'Exit focus mode',exact:true})
+    await expect(exitFocus).toBeVisible()
+    await exitFocus.click()
+    await expect(screen(page)).not.toHaveClass(/focus/)
+   }
    const head = screen(page).locator('.head')
    await expect(head.getByRole('button',{name:'Theatre view',exact:true})).toBeVisible()
    await expect(page.getByRole('button',{name:'Theatre view',exact:true})).toHaveCount(1)
@@ -752,7 +762,9 @@ try {
    expect(await page.evaluate(() => window.__originalChat === window.__chatStream)).toBe(true)
    await head.getByRole('button',{name:'Session actions'}).click()
    const menu=page.getByRole('menu')
-   await expect(menu.getByRole('menuitem')).toHaveText(['Rename…','End session…'])
+   // A phone's actions menu also offers Focus mode once the chat has left super focus.
+   const menuItems = width <= 650 || (height <= 500 && touch) ? ['Rename…','Focus mode','End session…'] : ['Rename…','End session…']
+   await expect(menu.getByRole('menuitem')).toHaveText(menuItems)
    await expect(menu.getByRole('menuitem',{name:'Rename…'})).toBeFocused()
    await page.keyboard.press('Escape')
    await expect(head.getByRole('button',{name:'Session actions'})).toBeFocused()

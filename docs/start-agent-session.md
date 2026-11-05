@@ -9,10 +9,16 @@ choose it. The dialog is
 in [Launch requests](terminal-launch.md). The design spec was removed in the docs tidy-up
 (see git history before bd9e56c).
 
-The browser never sends a command line. It names a tool id (`claude`, `codex`, `opencode` or
-`gemini`) and the values you chose. The machine looks the tool up in a table built into its own
-connector and decides the program and its flags itself. No preset uses a flag that skips the
-agent's own permission prompts.
+The browser never sends a command line. It names a tool id (`claude`, `codex`, `opencode`,
+`gemini`, `cline` or `antigravity`) and the values you chose. The machine looks the tool up in a table built into its own
+connector and decides the program and its flags itself. Approval-bypass flags are sent only
+when you choose YOLO and the account and machine allow it.
+
+**Google Antigravity (AGY)** uses the official `agy` CLI on the machine's PATH; the
+Antigravity desktop app alone does not count as installed. It supports an optional model,
+an interactive opening prompt (including one word), and low/medium/high thinking. Update
+the machine's reet connector if AGY is installed but not offered. Its model defaults and
+sign-in remain AGY's own; reet does not install it or sign in for you.
 
 Paste an image into the **Opening prompt**, or use **Attach images**, and each file is uploaded to the
 machine before the session starts; its absolute path joins the opening prompt, so the agent starts
@@ -21,23 +27,34 @@ says so and Start waits.
 
 ## Gaffer or the agent TUI
 
-For OpenCode on a machine that advertises `acp`, the dialog's **Session** choice is **Gaffer** by default; choose
-**OpenCode TUI** for the terminal UI instead. It sends `structured: true` and
-the person's trust confirmation. The **Model** control chooses the model; **Agent default** uses OpenCode's configured
-model, and Thinking stays OpenCode's own. The opening prompt is the first message. The new session opens on its Gaffer, where OpenCode asks before it edits a file
-or runs a command with **Allow once** / **Deny**. On a machine that negotiated `session-mode-v1`, the session header's
-**OpenCode TUI** button switches the running session to OpenCode's own terminal UI and **Gaffer** switches it back,
-once the agent is idle; a session started in the OpenCode TUI cannot move to Gaffer. Terminal scrollback is not kept
-across a switch, and returning to Gaffer asks you to trust a folder with OpenCode plugins. **Attach image** (or paste/drop)
-sends a file through the launch-upload path and puts its path in the message. A Gaffer chat that was lost or crashed
-reconnects in place (same session, same transcript) on a machine with `chat-reattach-v1`; a chat you ended, or one on an
-older machine, offers **Continue in Gaffer with history…**, which loads OpenCode's stored conversation into a new session row. The conditions, deadlines and limits are in
-[OpenCode in Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md).
+Google Antigravity (AGY) offers **Gaffer** on an updated machine that reports its
+native ACP integration. Choose **Google Antigravity (AGY) TUI** for its terminal
+instead. Gaffer uses AGY's configured permission rules, displays its approval
+requests, and supports model/effort choices, images and continuing closed chats
+with history. Workspace hooks and customizations may run, so start only in a
+folder you trust. Sign in with `agy` on that machine first. See
+[AGY in Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md#google-antigravity-agy-in-gaffer).
+
+For OpenCode (1.19.5 or newer) or Cline (3.0.74 or newer) on a machine that advertises `acp`, the dialog's **Session**
+choice is **Gaffer** by default; choose the agent's own TUI for the terminal interface instead. A chat sends
+`structured: true`, and OpenCode also sends the person's trust confirmation. The **Model** control chooses the model;
+**Agent default** uses the agent's configured model, and Thinking stays the agent's own. The opening prompt is the first
+message. The new session opens on its Gaffer, where the agent asks before it edits a file or runs a command with
+**Allow once** / **Deny**. On a machine that negotiated `session-mode-v1`, OpenCode's session header **OpenCode TUI**
+button switches the running session to OpenCode's own terminal UI and **Gaffer** switches it back, once the agent is idle;
+a session started in the OpenCode TUI cannot move to Gaffer, and a Cline chat stays in Gaffer. Terminal scrollback is not
+kept across a switch, and returning to Gaffer asks you to trust a folder with OpenCode plugins. **Attach image** (or
+paste/drop) sends a file through the launch-upload path and puts its path in the message. A Gaffer chat that was lost or
+crashed reconnects in place (same session, same transcript) on a machine with `chat-reattach-v1`, for OpenCode; a chat you
+ended, or one on an older machine, offers **Continue in Gaffer with history…**, which loads the agent's stored
+conversation into a new session row. The conditions, deadlines and limits are in
+[structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md).
 
 For a plain shell, **New session**, the workspace’s **✦ Start a new Terminal session**, and the
 sidebar machine menu’s **Terminal** open the terminal settings dialog. Choose its machine, enter an
-absolute folder path (or leave it empty for that machine’s home folder), and name the session before
-pressing **New terminal**. Changing draft settings or closing the dialog leaves the current session
+absolute folder path (or leave it empty for that machine’s home folder), and, if you like, name the
+session before pressing **New terminal**. Left empty, the name is Terminal, followed by the folder’s last
+part when you chose one (Terminal · api); the field shows it as you type the folder. Changing draft settings or closing the dialog leaves the current session
 in place. An unconfirmed creation preserves its original machine, folder, name and request ID for retry.
 
 ## Who sees it
@@ -74,12 +91,12 @@ several projects and for an address that hands Home projects (`#launch`, `/?proj
 `/?projects=<id>,<id>`). It is a **Describe the job** box, **Start**, and the launch sentence, whose
 bold words are the choices. It no longer sits docked at the foot of the page.
 
-For OpenCode on a machine that advertises `acp`, the sentence says **in Gaffer** by default and Start
-opens Gaffer instead of the agent terminal UI. Home asks you to confirm **I trust this folder** first, because
-OpenCode runs any plugins in `.opencode` when Gaffer starts. The **Gaffer** word switches it to **in OpenCode TUI**;
-the worktree and thinking choices come back for that terminal. The Model word chooses the chat's model; leave it at
-**default** to use OpenCode's configured model. Gaffer runs in the chosen project folder (not a worktree) and can
-attach images through Home's existing pasted-image path. It starts in one folder at a time. A session's actions menu has **Open a terminal here…**, which starts a plain shell in
+For OpenCode, Cline or AGY on a machine that offers its Gaffer integration, the sentence says **in Gaffer** by default and Start
+opens Gaffer instead of the agent terminal UI. OpenCode and AGY ask you to confirm **I trust this folder** first:
+OpenCode plugins in `.opencode`, or AGY workspace hooks and customizations, may run. Cline has no folder plugin warning. The **Gaffer**
+word switches it to **in the agent TUI**; the worktree choices come back for that terminal. AGY also offers its supported effort choices in Gaffer. The Model word
+chooses the chat's model; leave it at **default** to use the agent's configured model. Gaffer runs in the chosen project
+folder (not a worktree) and can attach images through Home's existing pasted-image path. It starts in one folder at a time. A session's actions menu has **Open a terminal here…**, which starts a plain shell in
 the same folder as a separate session.
 
 > Run **Claude Code** with **default** on **Store rewrite** at **studio** from **main** in **a fresh worktree** · thinking **high**
@@ -118,8 +135,14 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   that machine to list its branches."
 - **Starter prompt.** A project's starter prompt is offered as **Use the starter prompt** while the
   box is empty. It is never put in the box, or sent, by itself.
-- **Title.** The prompt's first line is the session's title, shown as Titled "…" before sending (and
-  stored as the session title); without a prompt it is \<Agent\> · \<folder name\>.
+- **Title.** The session is titled by the work the prompt asks for, shown as Titled "…" before sending (and
+  stored as the session title). That is the first line with something to say, without a greeting or
+  "please" ("Hi, can you please fix the login redirect loop? It started after the deploy." becomes
+  "Fix the login redirect loop"), up to the end of its first sentence and at most 60 characters, cut at a
+  word with an ellipsis. The `Use the {name} skill.` line the skills picker adds, code fences and lines of
+  punctuation are skipped. Without a prompt, or one with nothing to name it from, it is
+  \<Agent\> · \<folder name\>. A title you type is kept as typed. [Session titles](terminal-launch.md#session-titles)
+  says how the controller names a session whose request carries none.
 - **Keys.** Enter sends from a hardware keyboard; Shift+Enter adds a line. Ctrl+Enter and Cmd+Enter
   also send. On touch no key sends, Enter included: only **Start** does.
 - **Images.** Paste (or drop) a PNG, JPEG, GIF or WebP into the prompt to attach it. Each image is
@@ -165,9 +188,9 @@ It is one screen:
 | Field | What it offers |
 | --- | --- |
 | **Machine** | Every terminal machine. A machine that isn't ready is listed but can't be chosen. If the one you came from isn't ready and another is, the other is chosen and the dialog says "\<from\> isn't ready, so \<other\> is selected." **Not listed? Add a machine** opens [Add a machine](add-machine-in-context.md). |
-| **Agent** | Claude Code, Codex, OpenCode, Gemini CLI and, on a machine with `agents-v2`, Cline. Only an agent the machine reports as installed can be chosen. Any other is listed but disabled, with the reason "Not installed on <machine>." |
+| **Agent** | Claude Code, Codex, OpenCode, Gemini CLI and, on a machine with `agents-v2`, Cline and Google Antigravity (AGY). Only an agent the machine reports as installed can be chosen. Any other is listed but disabled, with the reason "Not installed on <machine>." |
 | **Model** (optional) | The shared picker: **Agent default**, the account's favourites for this agent, the machine's list by provider, reet's suggestions and **Other…** for any model name made of letters, digits and `. _ : / @ + -`, up to 100 characters. A star adds or removes a favourite. A list is only a hint; if a model name doesn't exist, the agent says so itself. Nothing is sent for Agent default. |
-| **Thinking** | Only for an agent that takes an effort level (Cline): **Agent default**, low, medium or high. Nothing is sent for Agent default. |
+| **Thinking** | Only for an agent that takes an effort level (Cline and Google Antigravity): **Agent default**, low, medium or high. Nothing is sent for Agent default. |
 | **Folder** | **Home folder**, the project folders that machine has reported, and **Type a path…**. A typed path must be absolute. The machine decides whether it may start there: the folder must exist and be inside the home folder it was enrolled with. |
 | **Opening prompt** (optional) | Up to 8,000 bytes, with a byte counter. It can't start with a dash. For Claude Code, Codex and Cline it must be at least two words, because a single word could be read as one of their subcommands. "Secrets don't belong here." |
 

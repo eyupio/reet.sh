@@ -22,15 +22,15 @@
 </header>
 
 <style>
-  .page-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 28px; }
+  .page-heading { display: flex; justify-content: space-between; align-items: center; gap: 28px; margin-bottom: 32px; }
   .copy { min-width: 0; }
-  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
-  h1 { margin: 10px 0 12px; font: 500 clamp(2rem, 4vw, 3rem)/1.07 var(--serif); letter-spacing: -0.035em; overflow-wrap: anywhere; }
-  .lede { margin: 0; color: var(--muted); max-width: 60ch; font-size: 0.88rem; }
+  .eyebrow { margin: 0; color: var(--accent-text); font: 10px/1.6 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
+  h1 { margin: 14px 0 14px; font: 600 clamp(2.2rem, 4vw, 3rem)/1.1 var(--serif); letter-spacing: -0.04em; overflow-wrap: anywhere; }
+  .lede { margin: 0; color: var(--muted); max-width: 64ch; font-size: 14px; line-height: 1.8; }
   .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; color: var(--muted); font-size: 0.78rem; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; }
   @media (max-width: 1000px) {
     .page-heading { align-items: flex-start; flex-direction: column; gap: 10px; margin-bottom: 16px; }
-    h1 { margin: 6px 0 8px; font-size: clamp(1.75rem, 4vw, 2.25rem); }
+    h1 { margin: 9px 0 10px; font-size: clamp(1.9rem, 5vw, 2.5rem); }
   }
 </style>

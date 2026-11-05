@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick, type Snippet } from 'svelte'
   import Logo from '../Logo.svelte'
+  import WorkspaceSidebar from './WorkspaceSidebar.svelte'
   import { browserViewport, keyboardChrome, keyboardLikelyOpen, PHONE_SCREEN, ViewportTracker } from '../terminal/sizing'
   import Bell from './Bell.svelte'
   import BottomTabs from './BottomTabs.svelte'
@@ -12,7 +13,7 @@
   import type { NeedCard } from '../home'
 
   // The signed-in top bar and, on a phone, the bottom tab bar (spec: Information architecture and navigation, R13).
-  // Desktop (1100 px and wider): logo, every tab, Jump, the bell, More, and the account menu.
+  // Desktop (1100 px and wider): a workspace sidebar, with Jump, the bell and the account menu in the bar.
   // Tablet (651-1099 px): logo, the bar's tabs and More, a search button, the bell, the account menu.
   // Phone (PHONE_SCREEN): a slim bar with logo, search button, bell and account; the bar's tabs and More along the bottom.
   // `compact` is the terminal workspace's slim header: no bottom bar (the terminal keeps its own height rule), and on a
@@ -40,6 +41,7 @@
   const overflow = $derived(tabs.filter(tab => !bar.some(b => b.href === tab.href)))
   let viewportWidth = $state(window.innerWidth)
   let phoneLayout = $state(matchMedia(PHONE_SCREEN).matches)
+  const showSidebar = $derived(!compact && viewportWidth >= 1100 && !phoneLayout)
   const visibleOverflow = $derived(viewportWidth < 1100 || phoneLayout ? overflow : [])
   const moreCurrent = $derived([...visibleOverflow, ...more].some(tab => tab.current))
 
@@ -114,6 +116,11 @@
   // Jump's focus change is.
   $effect(() => { void chromeFocus.launch; void chromeFocus.session; measureKeyboard() })
 
+  $effect(() => {
+    document.documentElement.toggleAttribute('data-workspace-shell', showSidebar)
+    return () => { document.documentElement.removeAttribute('data-workspace-shell') }
+  })
+
   // The page keeps room at its foot for the phone's tab bar (app.css reads this attribute under the phone rule).
   $effect(() => {
     const root = document.documentElement
@@ -128,9 +135,14 @@
 
 <svelte:window onkeydown={shortcut} bind:innerWidth={viewportWidth} />
 
-<div class="shell-bar" class:compact>
-  <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
-  <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
+{#if showSidebar}<WorkspaceSidebar {tabs} {moreCurrent} {moreOpen} onmore={openMore} />{/if}
+<div class="shell-bar" class:compact class:workspace={showSidebar}>
+  {#if showSidebar}
+    <div class="workspace-label"><span>{location.host}</span><span aria-hidden="true">›</span><strong>{tabs.find(tab => tab.current)?.label ?? more.find(tab => tab.current)?.label ?? 'Workspace'}</strong></div>
+  {:else}
+    <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
+    <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
+  {/if}
   <span class="grow"></span>
   <JumpSearch load={jump} open={searchOpen} bind:input onclose={closeSearch}
     onfocuschange={(focused) => { searchFocused = focused; measureKeyboard() }} />
@@ -151,6 +163,13 @@
 {#if moreOpen}<MoreSheet items={sheetItems} opener={moreOpener} onclose={() => (moreOpen = false)} />{/if}
 
 <style>
+  .workspace-label { display: none; }
+  @media (min-width: 1100px) {
+    .shell-bar.workspace { padding-left: 264px; gap: 20px; }
+    .workspace-label { display: flex; align-items: center; gap: 13px; font-size: 12px; color: var(--muted); min-width: 0; }
+    .workspace-label strong { color: var(--ink); font-weight: 500; white-space: nowrap; }
+    .workspace-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+  }
   .shell-bar { position: relative; display: flex; align-items: center; gap: 28px; height: 60px; line-height: 1.3; padding: 0 24px; }
   .shell-bar > :global(.top-tabs) { margin-left: 0; }
   .home { display: flex; align-items: center; flex: none; color: inherit; text-decoration: none; }

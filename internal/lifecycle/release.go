@@ -28,6 +28,8 @@ const ReleaseDownloads = "https://github.com/eyupio/reet.sh/releases/download"
 
 const imageRepo = "ghcr.io/eyupio/reet.sh"
 
+var commitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
 var tagPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$`)
 
 type release struct {
@@ -119,7 +121,7 @@ func fetchBinary(ctx context.Context, client *http.Client, root, tag, dir string
 		}
 		if err == nil {
 			sha := strings.TrimSpace(string(pointer))
-			if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(sha) {
+			if !commitPattern.MatchString(sha) {
 				return "", fmt.Errorf("invalid dev build pointer")
 			}
 			name = fmt.Sprintf("reet_dev_%s_%s_%s.tar.gz", sha, runtime.GOOS, runtime.GOARCH)
@@ -264,7 +266,10 @@ func replaceBinary(source, target string) error {
 	}
 	return os.Rename(name, target)
 }
-func defaultClient() *http.Client { return &http.Client{Timeout: 2 * time.Minute} }
+
+var releaseHTTPClient = &http.Client{Timeout: 2 * time.Minute}
+
+func defaultClient() *http.Client { return releaseHTTPClient }
 
 type releaseHTTPError struct{ Status int }
 

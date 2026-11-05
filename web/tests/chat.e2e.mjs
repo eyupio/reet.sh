@@ -126,9 +126,13 @@ try {
   await dialog.getByRole('textbox', { name: /Opening prompt/ }).fill('fix the failing build')
   await dialog.getByRole('button', { name: 'Start', exact: true }).click()
   await page.waitForURL(new RegExp(`session=${S}`))
+  // The URL changes before the dialog has finished closing, and while it is a modal the page behind it is inert: focus() on the
+  // button would do nothing and no tooltip would open. Wait for it to go, then check the button really took the focus.
+  await expect(dialog).toBeHidden()
   await expect(page.getByRole('button', { name: 'Gaffer', exact: true })).toHaveAttribute('aria-pressed', 'true')
   const gaffer = page.getByRole('button', { name: 'Gaffer', exact: true })
   await gaffer.focus()
+  await expect(gaffer).toBeFocused()
   await expect(page.getByRole('tooltip')).toHaveText(`Gaffer${explanation}`)
   await page.keyboard.press('Escape')
   await expect(page.getByRole('tooltip')).toHaveCount(0)
@@ -150,7 +154,7 @@ try {
   await expect(page.locator('.approval .command').filter({ hasText: 'go test ./...' })).toBeVisible()
   // On a touch screen every typeable field in the chat is at least 16px: a touch browser zooms the page in to a smaller field the
   // moment it takes focus (this is the touch tablet width, above the app.css phone rule), and the page is then left scaled and clipped.
-  for (const field of [page.locator('.composer-input'), page.locator('.model-controls input')]) {
+  for (const field of [page.locator('.composer-input'), page.locator('.model-picker')]) {
     expect(Number.parseFloat(await field.evaluate(node => getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(16)
   }
   // The card shows the agent's own words for the request, attributed to the agent, above the command it is asking about.
@@ -332,8 +336,9 @@ try {
   await expect(page.getByRole('group', { name: 'Broken' })).toHaveCount(0)
 
   // The live chat's model switch offers Make default, stars a chosen model that is not yet a favourite, and Clear default removes it.
-  const modelInput = page.locator('.model-controls input')
-  await modelInput.fill('anthropic/claude-sonnet-4-5')
+  const modelPicker = page.getByRole('button', { name: /^Model:/ })
+  await modelPicker.click()
+  await page.getByRole('listbox', { name: 'Model', exact: true }).getByRole('option', { name: 'anthropic/claude-sonnet-4-5', exact: true }).click()
   await page.getByRole('button', { name: 'Make anthropic/claude-sonnet-4-5 the default for OpenCode', exact: true }).click()
   await expect.poll(() => state.favourite).toEqual({ tool: 'opencode', model: 'anthropic/claude-sonnet-4-5' })
   await expect.poll(() => state.modelDefault).toEqual({ tool: 'opencode', model: 'anthropic/claude-sonnet-4-5' })
@@ -601,8 +606,25 @@ try {
     await picker.getByRole('button', { name: 'Install pdf', exact: true }).click()
     await expect(panelOf).toBeVisible()
   }
-  const confirmInstall = async () => { await panelOf.getByRole('button', { name: 'Install', exact: true }).click() }
+  // The mocked install route numbers the job as it handles the request, and the tests name that job (cur()) straight afterwards,
+  // so wait until it has: on a slow machine the click returns first and cur() would still name the previous job.
+  const confirmInstall = async () => {
+    const before = inst.installs.length
+    await panelOf.getByRole('button', { name: 'Install', exact: true }).click()
+    await expect.poll(() => inst.installs.length).toBeGreaterThan(before)
+  }
   const poll = () => page.clock.runFor(2000)
+  // The clock keeps running after install(), so on a slow machine the panel's own 2 second poll can land between the test swapping the
+  // mocked job and the click that is meant to meet the old plan. Hold time still for that span; poll() and fastForward() still move it.
+  // pauseAt() must name a time still ahead of the page's clock, which keeps moving while the call is on its way, so allow more room each try.
+  const holdClock = async body => {
+    for (let ahead = 100; ; ahead *= 4) {
+      try { await page.clock.pauseAt((await page.evaluate(() => Date.now())) + ahead); break } catch (error) {
+        if (!/past/.test(String(error)) || ahead > 6400) throw error
+      }
+    }
+    try { await body() } finally { await page.clock.resume() }
+  }
 
   // Both a published and a private-draft reet row offer Install; the draft says so in its source line.
   resetInstall()
@@ -727,9 +749,11 @@ try {
   inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
   await poll()
   await expect(panelOf.getByRole('button', { name: 'Approve and install', exact: true })).toBeVisible()
-  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }, { add: false, skill: { slug: 'gone' } }], { hash: 'hash-late-2' })
-  await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
-  await expect(panelOf.getByRole('button', { name: 'Approve and install' })).toHaveCount(0)
+  await holdClock(async () => {
+    inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }, { add: false, skill: { slug: 'gone' } }], { hash: 'hash-late-2' })
+    await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
+    await expect(panelOf.getByRole('button', { name: 'Approve and install' })).toHaveCount(0)
+  })
   await expect(panelOf.getByText('This install would change other skills. Review it on the Sync page.')).toBeVisible()
   expect(inst.patches).toEqual([])
   await page.keyboard.press('Escape')
@@ -741,9 +765,11 @@ try {
   inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
   await poll()
   await expect(panelOf.getByRole('button', { name: 'Approve and install', exact: true })).toBeFocused()
-  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }], { hash: 'hash-new', revision: 'r2', plan: { directory: '/elsewhere/skills', actions: [{ add: true, skill: { slug: 'pdf' } }] } })
-  await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
-  await expect(statusOf).toHaveText('This install changed while you were reviewing it. Check it again.')
+  await holdClock(async () => {
+    inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }], { hash: 'hash-new', revision: 'r2', plan: { directory: '/elsewhere/skills', actions: [{ add: true, skill: { slug: 'pdf' } }] } })
+    await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
+    await expect(statusOf).toHaveText('This install changed while you were reviewing it. Check it again.')
+  })
   await expect(panelOf.getByText('Folder: /elsewhere/skills', { exact: true })).toBeVisible()
   expect(inst.patches).toEqual([])
   await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
@@ -878,6 +904,34 @@ try {
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('textbox', { name: 'Message OpenCode' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  // A phone opens Gaffer in super focus: the site chrome, workspace toolbar and secondary session controls step aside,
+  // while the narrative and composer (skills and attachments included) keep the screen. Exit focus restores them.
+  const focusScreen = page.locator('.session-screen')
+  await expect(focusScreen).toHaveClass(/focus/)
+  await expect(page.locator('.site-header')).toBeHidden()
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeHidden()
+  await expect(page.locator('.workspace-toolbar')).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Exit focus mode', exact: true })).toBeVisible()
+  await expect(page.locator('.composer-bar').getByRole('button', { name: 'Skills', exact: true })).toBeVisible()
+  // The model control stays in the phone's super focus, and opens a full-width sheet rather than a native list.
+  const phoneModel = page.locator('.composer-bar').getByRole('button', { name: /^Model:/ })
+  await expect(phoneModel).toBeVisible()
+  await phoneModel.click()
+  await expect(page.getByRole('dialog', { name: 'Model', exact: true })).toBeVisible()
+  await expect(page.getByRole('listbox', { name: 'Model', exact: true }).getByRole('option', { name: 'anthropic/claude-sonnet-4-5', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  // A tablet keeps the same control with room for the toolbar.
+  await page.setViewportSize({ width: 820, height: 1180 })
+  await expect(page.locator('.composer-bar').getByRole('button', { name: /^Model:/ })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Exit focus mode', exact: true }).click()
+  await expect(focusScreen).not.toHaveClass(/focus/)
+  await expect(page.locator('.site-header')).toBeVisible()
+  await expect(page.locator('.workspace-toolbar')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Focus mode', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Focus mode', exact: true }).click()
+  await expect(focusScreen).toHaveClass(/focus/)
   // The question card fits a phone: no sideways scroll and every control stays inside the viewport. (Its larger touch
   // targets come from the same coarse-pointer rule as the approval buttons; this mouse-driven run does not exercise it.)
   await page.evaluate(form => window.__chatStream.emit('chat', { seq: 30, kind: 'question', questionId: 'q9', question: { ...form, message: 'Phone question with a fairly long line of text that has to wrap inside the card?' } }), form)
@@ -908,6 +962,10 @@ try {
   // A closed chat keeps OpenCode's session id and reopens as a new row that loads its history.
   state.closed = true
   await page.goto(`${base}/sessions?agent=${A}&session=${S2}`)
+  // Focus keeps the ended chat and its Continue action on the screen; the ordinary session actions wait behind Exit focus.
+  await expect(page.locator('.session-screen')).toHaveClass(/focus/)
+  await expect(page.getByRole('button', { name: 'Session actions' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Exit focus mode', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Session actions' })).toBeVisible()
   // A chat that exited does not say who ended it (it may have stopped on its own or been ended by the person), only what can be done next.
   await expect(page.locator('.ended-note')).toContainText('This OpenCode chat has ended. What was already shown stays here.')

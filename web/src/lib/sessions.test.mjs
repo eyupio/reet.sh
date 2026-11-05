@@ -174,6 +174,9 @@ test('session header: agent · model · started, and the decisions line', () => 
   assert.equal(decisionsLine({ yolo: true, structured: false }), 'YOLO: the agent asked not to be prompted; the launch is audited.')
   assert.equal(decisionsLine({ structured: true }), 'Asked in the chat: Allow once or Deny.')
   assert.deepEqual(continueChatLaunch({ tool: 'opencode', structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site', projectId: 'p1', model: 'anthropic/claude-sonnet-4-5' }), { tool: 'opencode', dir: '/home/u/site', model: 'anthropic/claude-sonnet-4-5', structured: true, trust: true, resumeAcp: 'ses_1', projectId: 'p1' })
+  // A Cline chat reopens through its own stored session id, and only OpenCode carries the plugin trust flag.
+  assert.deepEqual(continueChatLaunch({ tool: 'cline', structured: true, acpSessionId: '1793848855723_8zvJS_cli', state: 'exited', dir: '/home/u/site' }), { tool: 'cline', structured: true, resumeAcp: '1793848855723_8zvJS_cli', dir: '/home/u/site' })
+  assert.equal(continueChatLaunch({ tool: 'gemini', structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site' }), null)
   assert.equal(continueChatLaunch({ tool: 'opencode', structured: true, acpSessionId: 'ses_1', state: 'running', dir: '/home/u/site' }), null)
   assert.deepEqual(continueChatLaunch({ tool: 'opencode', structured: true, acpSessionId: 'ses_1', state: 'exited' }), { tool: 'opencode', structured: true, trust: true, resumeAcp: 'ses_1' })
   assert.equal(continueChatLaunch({ structured: true, state: 'exited', dir: '/home/u/site' }), null)
@@ -197,6 +200,16 @@ test('changed files: at most twenty paths and the total', () => {
   assert.deepEqual(changedList({ changed: 0, paths: [] }), { shown: [], total: 0, more: 0 })
 })
 
+test('AGY history continuation retains its folder acknowledgement and stored conversation', () => {
+ const capabilities = { acp: true, acpAgents: [{ tool: 'antigravity', adapter: 'agy', state: 'available', history: true }] }
+ for (const state of ['lost', 'ended', 'exited']) {
+  const s = { tool: 'antigravity', structured: true, state, dir: '/home/u/site', projectId: 'p1', model: 'gemini-4-argon', acpSessionId: '123e4567-e89b-12d3-a456-426614174000' }
+  assert.equal(canContinueChat(s, { capabilities }), true)
+  assert.deepEqual(continueChatLaunch(s), { tool: 'antigravity', structured: true, trust: true, dir: s.dir, projectId: s.projectId, model: s.model, resumeAcp: s.acpSessionId })
+  assert.equal(canContinueChat(s, { capabilities: { acp: true, acpHistory: true } }), false)
+ }
+})
+
 test('chat descriptors override legacy flags and continuation retains the stored agent', () => {
  const s = { structured: true, tool: 'opencode', acpSessionId: 'ses_stored', state: 'exited', dir: '/home/u/site' }
  const capabilities = { acp: true, acpHistory: true, acpAgents: [] }
@@ -205,7 +218,12 @@ test('chat descriptors override legacy flags and continuation retains the stored
  assert.equal(canContinueChat(s, { capabilities }), false)
  capabilities.acpAgents[0].history = true
  assert.equal(canContinueChat(s, { capabilities }), true)
- assert.equal(continueChatLaunch({ ...s, tool: 'codex' }), null)
+ assert.equal(continueChatLaunch({ ...s, tool: 'gemini' }), null)
+ // A Cline chat continues when its own descriptor reports history.
+ capabilities.acpAgents = [{ tool: 'cline', adapter: 'cline', state: 'available', history: true }]
+ const cline = { ...s, tool: 'cline', acpSessionId: '1793848855723_8zvJS_cli' }
+ assert.equal(canContinueChat(cline, { capabilities }), true)
+ assert.deepEqual(continueChatLaunch(cline), { tool: 'cline', structured: true, resumeAcp: '1793848855723_8zvJS_cli', dir: '/home/u/site' })
  for (const state of ['missing', 'unverified', 'incompatible']) {
   capabilities.acpAgents[0].state = state
   assert.equal(canContinueChat(s, { capabilities }), false)
@@ -242,12 +260,12 @@ test('switchModeState: the inactive TUI button, enabled or with the reason it is
     ['a chat with no saved OpenCode conversation cannot open in the OpenCode TUI', fresh, caps, false, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
     ['an old machine outranks no saved conversation, as on the controller', fresh, old, false, { to: 'terminal', enabled: false, why: UPDATE }],
     ['no saved conversation outranks a busy chat', fresh, caps, true, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
-    ['another agent has no Gaffer', { ...started, tool: 'claude' }, caps, false, { to: 'chat', enabled: false, why: 'Gaffer is for a structured OpenCode session.' }],
+    ['another agent cannot switch between Gaffer and its TUI', { ...started, tool: 'claude' }, caps, false, { to: 'chat', enabled: false, why: 'Switching between Gaffer and the agent’s TUI is currently available for OpenCode only.' }],
     ['OpenCode among the launch tools keeps the switch', chat, { ...caps, tools: ['claude', 'opencode'] }, false, { to: 'terminal', enabled: true, why: '' }],
     ['OpenCode not a launch tool on the machine, to the OpenCode TUI', chat, { ...caps, tools: ['claude'] }, false, { to: 'terminal', enabled: false, why: UPDATE }],
     ['OpenCode not a launch tool on the machine, to Gaffer', tui, { ...caps, tools: ['claude'] }, false, { to: 'chat', enabled: false, why: UPDATE }],
     ['an empty launch tool list is a known list without OpenCode', chat, { ...caps, tools: [] }, false, { to: 'terminal', enabled: false, why: UPDATE }],
-    ['a plain shell has no Gaffer', { ...started, tool: undefined }, caps, false, { to: 'chat', enabled: false, why: 'Gaffer is for a structured OpenCode session.' }],
+    ['a plain shell cannot switch to Gaffer', { ...started, tool: undefined }, caps, false, { to: 'chat', enabled: false, why: 'Switching between Gaffer and the agent’s TUI is currently available for OpenCode only.' }],
   ]
   for (const [name, s, c, busy, want] of rows) assert.deepEqual(switchModeState(s, c, busy), want, name)
 })

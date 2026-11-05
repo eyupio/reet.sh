@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import html
 import gzip
+import logging
 import math
 import os
 import re
+import subprocess
+from datetime import datetime, timezone
 from xml.sax.saxutils import escape
 
 from markdown.extensions.toc import slugify
@@ -22,6 +25,69 @@ DESCRIPTION = re.compile(r'<meta\s+name="description"\s+content="([^"]*)"', re.I
 PARAGRAPH = re.compile(r"^(?!#|!\[|\[|<|[-*+]\s|\d+\.\s)(.+)$", re.M)
 MARKDOWN = re.compile(r"[#*_`>\[\]()]")
 SPACES = re.compile(r"\s+")
+
+log = logging.getLogger("mkdocs.hooks.docs")
+
+# Each page's last-edited date, keyed by the file MkDocs writes for it
+# (`documentation/index.html`), filled once per build by on_files.
+_lastmod: dict[str, str] = {}
+
+
+def _utc(stamp):
+    """A commit's ISO 8601 time as UTC, `2026-03-04T10:00:00Z`, or "" if git gave none.
+
+    The whole time is kept, not just the day: a docs deploy runs on every merge, a
+    page is often edited more than once in a day, and a date alone would give both
+    versions the same stamp, so the second deploy would tell search engines
+    nothing. UTC, so a contributor's time zone never looks like an edit.
+    """
+    try:
+        return datetime.fromisoformat(stamp).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return ""
+
+
+def _git_dates(docs_dir):
+    """Map each file under docs_dir to when the last commit that touched it was made."""
+    cmd = ["git", "log", "--pretty=format:%x00%cI", "--name-only", "--no-renames", "--relative", "--", "."]
+    try:
+        out = subprocess.run(
+            cmd, cwd=docs_dir, capture_output=True, text=True, timeout=60, check=True
+        ).stdout
+    except (OSError, subprocess.SubprocessError) as err:
+        log.warning("no git history for the docs, so the sitemap carries no last-edited dates: %s", err)
+        return {}
+    dates = {}
+    current = ""
+    for line in out.splitlines():
+        if line.startswith("\x00"):
+            # A commit header: every path until the next one was touched by it.
+            current = _utc(line[1:])
+        elif line.strip():
+            # Newest first, so the first commit seen for a path is its last edit.
+            dates.setdefault(line.strip(), current)
+    return dates
+
+
+def on_files(files, config):
+    """Read the history once, before any page is rendered.
+
+    The sitemap tells a crawler when a page last changed. MkDocs' own stamps
+    every URL with the build date, which says the whole site changed on every
+    build and so says nothing; the time a page was last edited is in git. A
+    page with no history (a shallow checkout, a file not yet committed) is left
+    undated rather than given today's date, because an invented date reads as a
+    change and would have the whole site resubmitted to search engines on every
+    deploy. The docs workflow checks out full history for the same reason.
+    """
+    global _lastmod
+    dates = _git_dates(config["docs_dir"])
+    _lastmod = {
+        file.dest_uri: dates[file.src_uri]
+        for file in files.documentation_pages()
+        if dates.get(file.src_uri)
+    }
+    return files
 
 
 def on_page_markdown(markdown, page, config, files):
@@ -124,6 +190,7 @@ def on_post_build(config, **kwargs):
                     "url": base + path,
                     "title": html.unescape(title_match.group(1)).strip() if title_match else path,
                     "description": html.unescape(desc_match.group(1)).strip() if desc_match else "",
+                    "lastmod": _lastmod.get(relative, ""),
                 }
             )
 
@@ -140,7 +207,10 @@ def write_sitemap(site_dir, pages):
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     ]
     for page in pages:
-        lines += ["  <url>", "    <loc>" + escape(page["url"]) + "</loc>", "  </url>"]
+        lines += ["  <url>", "    <loc>" + escape(page["url"]) + "</loc>"]
+        if page.get("lastmod"):
+            lines.append("    <lastmod>" + page["lastmod"] + "</lastmod>")
+        lines.append("  </url>")
     lines.append("</urlset>")
     body = "\n".join(lines) + "\n"
     _write(site_dir, "sitemap.xml", body)

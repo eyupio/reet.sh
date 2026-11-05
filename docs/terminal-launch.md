@@ -1,7 +1,7 @@
 # Launch requests: starting an agent in a terminal session
 
 A launch request asks a machine to start one of its installed agent CLIs (`claude`,
-`codex`, `opencode`, `gemini`) in a chosen folder, with an optional model and an
+`codex`, `opencode`, `gemini`, `cline`, `antigravity`) in a chosen folder, with an optional model and an
 optional opening prompt, instead of the plain login shell that a terminal session
 starts today. It is an optional field set on the existing create-session call.
 Nothing changes for a plain shell: the arguments the connector gives tmux for a
@@ -47,7 +47,7 @@ comparable struct and `omitempty` keeps a plain create unchanged. They are named
 
 | Field | Meaning | Limits |
 | --- | --- | --- |
-| `tool` | Tool id | One of `claude`, `codex`, `opencode`, `gemini`; `cline` under `agents-v2` |
+| `tool` | Tool id | One of `claude`, `codex`, `opencode`, `gemini`; `cline` and `antigravity` under `agents-v2` |
 | `model` | Model id, optional | 1 to 100 bytes; letters, digits and `. _ : / @ + -`; the first character must be a letter or digit |
 | `dir` | Folder, optional | Absolute; at most 4,096 bytes; valid UTF-8; no control characters |
 | `prompt` | Opening prompt, optional | At most 8,000 bytes; valid UTF-8; no control characters except newline; must not begin with `-` |
@@ -59,13 +59,45 @@ validate; the connector validates again before it starts anything.
 The leading `-` rule exists so that a prompt can never be read as a flag by a tool
 that takes the prompt after a flag of its own (see the presets).
 
+## Session titles
+
+`title` is optional on the create call. A request that leaves it out, or sends only spaces, is named by the
+controller before anything else is checked, so the browser, the API, a project run and a saved draft
+(a draft with a prompt but no title) all name a session the same way. A title that is sent is validated and
+kept exactly as sent: 1 to 80 plain characters, as before.
+
+The name is made from the request alone, with no model, no network and no clock, so a retry of a create
+whose reply was lost asks for the same session under the same name. It is:
+
+1. **The work the prompt asks for**, if the prompt says anything. The first line with something to say,
+   without control characters. Blank lines, code fences, the `Use the {name} skill.` line and lines with
+   no letter or digit are skipped. A leading heading, quote or list marker, and leading English filler
+   (a greeting, "please", "can you", "I'd like you to", "help me", "let's"), are removed. The name
+   ends at the first sentence: a `?` or `!`, or a `.` after a word of three or more characters with no
+   full stop in it ("e.g." does not end one), once at least 8 characters have been read. It is trimmed
+   of trailing punctuation and an ASCII first letter is capitalised; other scripts are left alone. Over
+   60 characters it is cut at the last space (not earlier than the 20th character), or at 60 if there is
+   none, and ends in an ellipsis.
+2. **Otherwise the agent and folder**: the agent's name ("Claude Code", "Codex", "OpenCode",
+   "Gemini CLI", "Cline", "Google Antigravity (AGY)") or "Terminal" for a plain shell, then · and the last
+   part of the folder when there is one and it holds no control or format characters.
+
+The rules live in `terminalproto.PromptTitle` and `terminalproto.AutoTitle`. The browser mirrors them
+(`promptTitle` and `titleFor` in `web/src/lib/agentLaunch.ts`) so the title the dialog suggests is the
+one the controller would give, and both are tested against the same cases in
+`internal/terminalproto/testdata/autotitle.json`. A session that already has a title is never renamed by
+this; Rename works as before.
+
 ## Structured chats
 
 `terminalproto.Create` also has `structured`, `trust` and `resumeAcp` fields, sent only after `acp-v1` (see
-[structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md)). `structured: true` is accepted only with `tool: opencode` and without a
-worktree, resume, YOLO, base or effort; the machine starts `opencode acp` instead of tmux. `trust: true` confirms the
-repository-plugin warning. `resumeAcp` is an OpenCode session id owned by one of the account's closed structured sessions
-on that machine; the machine loads its history instead of creating a new session. A structured create reserves the same session record and quota as a shell, but the session has
+[structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md)). `structured: true` is accepted only with a reviewed chat tool
+(`opencode`, `cline`, or Claude Code and Codex behind their machine switches) and without a
+worktree, resume, YOLO, base or effort; the machine starts that agent's chat process (`opencode acp`, `cline --acp`, or
+the pinned Claude/Codex adapter) instead of tmux. `trust: true` confirms the
+repository-plugin warning, which OpenCode is the only reviewed tool to read. `resumeAcp` is a native session id owned by one of the account's closed structured sessions
+of the same tool and folder on that machine (OpenCode `ses_…`, Claude and Codex UUIDs, Cline
+`<milliseconds>_<5 characters>_cli`); the machine loads its history instead of creating a new session. A structured create reserves the same session record and quota as a shell, but the session has
 no terminal: attach, resize, history and command-history requests answer not found. `acp_prompt`, `acp_cancel` and
 `acp_permission` carry the chat; `acp_event` carries bounded updates back. The seven conditions and the approval rules are
 in [structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md).
@@ -88,6 +120,7 @@ test pins the ordinary flags to `--model`, `--prompt` and
 | `codex` | `codex --model <model> -- <prompt>` | https://learn.chatgpt.com/docs/developer-commands?surface=cli (reached from https://developers.openai.com/codex/cli/reference): "Running `codex` with no subcommand launches the interactive terminal UI", `--model, -m`, and an optional `PROMPT`. Source: `codex-rs/tui/src/cli.rs` in openai/codex has a positional `prompt: Option<String>`. |
 | `opencode` | `opencode --model <model> --prompt <prompt>` | https://opencode.ai/docs/cli/: "opencode [project]" starts the terminal UI, with `--prompt` and `--model`. The positional is a project path, so the prompt goes through the flag. |
 | `gemini` | `gemini --model <model> --prompt-interactive <prompt>` | https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/cli-reference.md and `packages/cli/src/config/config.ts`: `--prompt-interactive` runs the prompt and continues interactively; `--model` sets the model. `-p/--prompt` is headless and is deliberately not used. |
+| `antigravity` | `agy --model <model> --prompt-interactive <prompt>` | Antigravity CLI 1.5.0 captured version/help in `internal/terminalhost/testdata/help/agy.txt`; official archive and verified SHA-256 in `sources.json`. `--prompt` is a print-mode alias and is not used. The `agy` alias distinguishes the CLI from the desktop app. |
 
 ## Models read from the machine
 
@@ -255,7 +288,7 @@ and the Activity label for `terminal-launch` are described in
 
 The controller advertises `agents-v2` alongside the existing feature tokens. A
 connector reports `agentsV2:true` and optional `osVersion` only after negotiating
-that token. Without it, the connector reports only the original four tool ids
+that token. The additional `antigravity-cli-v1` token gates the AGY tool id: an older controller whose `agents-v2` catalogue predates AGY receives no AGY claim. Without `agents-v2`, the connector reports only the original four tool ids
 and never sends the added capability fields. OS version is informational: Linux
 reports its kernel release and macOS its product version; a failed local reading
 leaves it absent.
@@ -269,12 +302,12 @@ answers 422 `base_missing`, naming the machine in the sentence. An empty base
 keeps the existing HEAD behaviour.
 
 Effort accepts `low`, `medium` or `high`. Cline 3.0.74 maps these to its
-confirmed `--thinking` option; other presets have no effort mapping until their
+confirmed `--thinking` option and Antigravity CLI 1.5.0 to `--effort`; other presets have no effort mapping until their
 exact CLI arguments have captured help evidence. An
 unsupported mapping answers `launch_option_unsupported`; it never silently
 ignores the choice. YOLO maps to a reviewed option only for Codex
-(`--ask-for-approval never`), OpenCode (`--auto`) and Cline
-(`--yolo --tui`); every other preset refuses it with
+(`--ask-for-approval never`), OpenCode (`--auto`), Cline
+(`--yolo --tui`) and Antigravity (`--dangerously-skip-permissions`); every other preset refuses it with
 `launch_option_unsupported`. A machine switch (`reet terminal yolo off`) refuses
 it with `yolo_refused`, and the account setting must allow it first.
 
@@ -291,6 +324,15 @@ authorised the pinned help-only installations; no agent task was run.
 The web catalogue holds display names only and never supplies executable paths
 or argument vectors. No additional agents were inferred from an unavailable
 owner list.
+
+Antigravity CLI 1.5.0 is enabled after capturing only version and help from its
+official Linux archive in an isolated home and project. The checksum matches the
+Homebrew `antigravity-cli` cask. The connector resolves only `agy`, reports the
+`antigravity` tool id only after both `agents-v2` and `antigravity-cli-v1` are negotiated, and passes an opening prompt through
+`--prompt-interactive` as one argument. No print, approval-bypass or mode flag is
+sent for an ordinary launch. Terminal model listing and terminal resume remain
+unreviewed. The separate native Gaffer integration requires `antigravity-acp-v1`;
+see [AGY in Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md#google-antigravity-agy-in-gaffer).
 
 The session listing retains tool, model and effort; it never includes the opening
 prompt. The launch audit records `effort`, `base` and `yolo`, without prompt text.

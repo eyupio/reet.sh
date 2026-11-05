@@ -2,12 +2,13 @@
  import { onMount, tick } from 'svelte'
  import { shell } from './dialogShell'
  import { UnauthorizedError } from './api'
- import { removeWorktree, terminalSessions, worktreeStatus, TerminalError } from './terminal/api'
- import { branchKept, removeConfirmText, worktreeBlockers, worktreeRefusalText, type RunMember, type WorktreeStatus } from './projects'
+ import { inspectSession, removeWorktree, terminalSessions, worktreeStatus, TerminalError } from './terminal/api'
+ import { branchKept, discardWarning, removeConfirmText, worktreeBlockers, worktreeRefusalText, type RunMember, type WorktreeStatus } from './projects'
 
  // Remove one run's worktree. The machine's status is read and shown first; Remove is offered only when nothing blocks
  // it, and the remove request repeats the counts that were shown, so changes made after the person looked are never lost.
- // The branch is kept. reet never removes a worktree by itself.
+ // Uncommitted changes are warned about (more strongly when the branch has no pull request) and are deleted only after the
+ // person ticks that they understand. The branch is kept. reet never removes a worktree by itself.
  let { member, host, opener = null, onremoved, onsignedout, onclose }: {
   member: RunMember
   /** The machine's name, for the words. */
@@ -29,11 +30,17 @@
  const measure = () => { if (body) scrolls = body.scrollHeight > body.clientHeight + 1 || body.scrollWidth > body.clientWidth + 1 }
  let busy = $state<'' | 'checking' | 'removing'>(''), message = $state(''), failed = $state(false), detail = $state('')
  let status = $state<WorktreeStatus | null>(null)
+ // The branch's pull request, looked up only when there are uncommitted changes. `null` after a lookup means none was found
+ // (or it could not be read), and the warning then says so.
+ let pull = $state<{ number: number } | null>(null), pullChecked = $state(false), understood = $state(false)
  // The remove finished, or the worktree was not there: there is nothing left to do here but close.
  let gone = $state(false)
  const life = new AbortController()
  const blockers = $derived(status ? worktreeBlockers(status) : [])
- const canRemove = $derived(!!status && blockers.length === 0 && !gone)
+ const warning = $derived(status ? discardWarning(status, pull) : '')
+ const needsTick = $derived(!!status && status.changed > 0)
+ const canRemove = $derived(!!status && blockers.length === 0 && !gone && (!needsTick || (pullChecked && understood)))
+ const canOffer = $derived(!!status && blockers.length === 0 && !gone)
  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
  function shutdown(returnFocus: boolean) {
@@ -51,12 +58,23 @@
 
  async function check() {
   if (busy || life.signal.aborted) return
-  busy = 'checking'; failed = false; detail = ''; status = null
+  busy = 'checking'; failed = false; detail = ''; status = null; pull = null; pullChecked = false; understood = false
   message = `Checking the worktree on ${host}…`
   try {
    const next = await worktreeStatus(target, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]))
    if (life.signal.aborted) return
    status = next
+   if (next.changed > 0 && member.sessionId) {
+    try {
+     const insight = await inspectSession(member.sessionId, 'github', '', AbortSignal.any([life.signal, AbortSignal.timeout(20000)]))
+     if (life.signal.aborted) return
+     pull = !insight.reason && insight.pull ? { number: insight.pull.number } : null
+    } catch (e) {
+     if (life.signal.aborted || signedOut(e)) return
+     pull = null
+    }
+   }
+   pullChecked = true
    message = worktreeBlockers(next).length ? "This worktree can't be removed yet." : 'Checked. Nothing here stops the remove.'
   } catch (e) {
    if (life.signal.aborted || signedOut(e)) return
@@ -72,7 +90,7 @@
  }
 
  async function remove() {
-  if (busy || life.signal.aborted || !status || worktreeBlockers(status).length) return
+  if (busy || life.signal.aborted || !status || worktreeBlockers(status).length || !canRemove) return
   // Exactly the counts on screen: if the machine sees different ones, it refuses and the person looks again.
   const shown = { changed: status.changed, unpushed: status.unpushed }
   busy = 'removing'; failed = false; detail = ''
@@ -92,7 +110,7 @@
    busy = ''; void focusAfter(); return
   }
   try {
-   const done = await removeWorktree(target, shown, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]))
+   const done = await removeWorktree(target, shown, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]), shown.changed > 0 && understood && status.fingerprint ? { fingerprint: status.fingerprint } : undefined)
    if (life.signal.aborted) return
    gone = true
    message = `Sorted. The worktree${done.path ? ` at ${done.path}` : ''} is removed. ${branchKept(done.branch || status.branch)}`
@@ -135,7 +153,7 @@
   <div>
    <p class="eyebrow" data-shell-aside>{host}</p>
    <h2 id={`${id}-title`}>Remove worktree</h2>
-   <p class="lede" data-shell-aside>reet looks first, and removes nothing you haven't saved.</p>
+   <p class="lede" data-shell-aside>reet looks first, and asks before it deletes anything you haven't saved.</p>
   </div>
   <button type="button" class="btn" onclick={close} disabled={!!busy} aria-label="Close" data-shell-close>Close ×</button>
  </header>
@@ -166,6 +184,10 @@
    {#if blockers.length}
     <div class="blocked">{#each blockers as line (line)}<p>{line}</p>{/each}</div>
    {:else if !gone}
+    {#if warning}
+     <div class="blocked" role="alert"><p>{warning}</p></div>
+     <label class="tick"><input type="checkbox" bind:checked={understood} disabled={!!busy} /> <span>I understand these changes will be deleted and can't be brought back.</span></label>
+    {/if}
     <p class="confirm" id={`${id}-confirm`}>{removeConfirmText(status)}</p>
    {/if}
   {/if}
@@ -175,9 +197,9 @@
   <p class="status" class:bad={failed} role="status" aria-live="polite" aria-atomic="true">{message}</p>
   {#if gone}
    <button type="button" class="btn primary" bind:this={mainButton} onclick={close}>Done</button>
-  {:else if canRemove}
+  {:else if canOffer}
    <button type="button" class="btn" onclick={check} disabled={!!busy}>Check again</button>
-   <button type="button" class="btn primary danger" bind:this={mainButton} onclick={remove} disabled={!!busy} aria-busy={busy === 'removing'} aria-describedby={`${id}-confirm`}>{busy === 'removing' ? 'Removing…' : `Remove with ${status!.unpushed === 0 ? 'no unpushed commits' : plural(status!.unpushed, 'unpushed commit', 'unpushed commits')}`}</button>
+   <button type="button" class="btn primary danger" bind:this={mainButton} onclick={remove} disabled={!!busy || !canRemove} aria-busy={busy === 'removing'} aria-describedby={`${id}-confirm`}>{busy === 'removing' ? 'Removing…' : status!.changed > 0 ? `Delete ${plural(status!.changed, 'changed file', 'changed files')} and remove` : `Remove with ${status!.unpushed === 0 ? 'no unpushed commits' : plural(status!.unpushed, 'unpushed commit', 'unpushed commits')}`}</button>
   {:else}
    <button type="button" class="btn primary" bind:this={mainButton} onclick={check} disabled={!!busy} aria-busy={busy === 'checking'}>{busy === 'checking' ? 'Checking…' : 'Check again'}</button>
   {/if}
@@ -210,6 +232,8 @@
  .blocked { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--bad); border-radius: 8px; }
  .blocked p { margin: 0; }
  .confirm { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--bg); }
+ .tick { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; }
+ .tick input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--accent); }
  .detail { margin: 0; color: var(--muted); }
  .hint { margin: 0; color: var(--muted); font-size: .8rem; }
  .status { flex: 1 0 100%; margin: 0; font-size: .85rem; line-height: 1.5; }

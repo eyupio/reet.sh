@@ -8,6 +8,20 @@ import (
 // ACPAgentsFeature negotiates per-tool structured-chat descriptors. An absent
 // list is a legacy OpenCode-only peer; an explicit empty list supports no chats.
 const ACPAgentsFeature = "acp-agents-v1"
+
+// AntigravityACPFeature keeps descriptors off the wire to controllers that
+// understand AGY terminals but have not reviewed its Gaffer adapter.
+const AntigravityACPFeature = "antigravity-acp-v1"
+
+func SupportsAntigravityACP(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == AntigravityACPFeature {
+			return true
+		}
+	}
+	return false
+}
+
 const MaxACPAgents = 8
 
 func SupportsACPAgents(features string) bool {
@@ -87,6 +101,10 @@ func chatAdapter(tool string) string {
 		return "claude-agent-acp"
 	case "codex":
 		return "codex-acp"
+	case "cline":
+		return "cline"
+	case "antigravity":
+		return "agy"
 	}
 	return ""
 }
@@ -236,6 +254,14 @@ func ValidACPSessionIDFor(tool, id string) bool {
 	return ReviewedChatTool(tool) && nativeIDMatches(tool, id)
 }
 
+// ValidACPHandle accepts a native session handle in any reviewed adapter's
+// namespace. A session snapshot and a session change carry no tool, so they must
+// still accept every handle the connector can report; a caller that knows the
+// tool uses ValidACPSessionIDFor, where the namespaces stay disjoint.
+func ValidACPHandle(s string) bool {
+	return ValidACPSessionID(s) || validUUIDSessionID(s) || validClineSessionID(s)
+}
+
 // nativeIDMatches checks the identifier namespace measured for each candidate
 // adapter. It is deliberately independent of ReviewedChatTool so the formats
 // can be tested before a candidate is enabled; ValidACPSessionIDFor still
@@ -245,10 +271,45 @@ func nativeIDMatches(tool, id string) bool {
 	switch tool {
 	case "opencode":
 		return ValidACPSessionID(id)
-	case "claude", "codex":
+	case "claude", "codex", "antigravity":
 		return validUUIDSessionID(id)
+	case "cline":
+		return validClineSessionID(id)
 	}
 	return false
+}
+
+// validClineSessionID accepts the form Cline 3.0.74's ACP session/new returns
+// and session/load reads: the millisecond task id, an underscore, five
+// characters from the adapter's base64url-style alphabet and the "_cli" suffix
+// (for example "1793848855723_8zvJS_cli" or "1793850943237_9D-BF_cli"). The TUI's
+// own task ids have no suffix and are never stored as a chat handle.
+func validClineSessionID(s string) bool {
+	const suffix = "_cli"
+	if !strings.HasSuffix(s, suffix) {
+		return false
+	}
+	body := s[:len(s)-len(suffix)]
+	at := strings.IndexByte(body, '_')
+	if at <= 0 || at > 20 {
+		return false
+	}
+	for i := 0; i < at; i++ {
+		if body[i] < '0' || body[i] > '9' {
+			return false
+		}
+	}
+	tail := body[at+1:]
+	if len(tail) != 5 {
+		return false
+	}
+	for i := 0; i < len(tail); i++ {
+		c := tail[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // validUUIDSessionID accepts the canonical lower-case 8-4-4-4-12 form observed

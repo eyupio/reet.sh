@@ -28,14 +28,13 @@ try {
  if (run('setup')) {
   const {context,page,errors} = await open({width:1440,status:{setupRequired:true,user:null}})
   await page.goto(base)
-  await page.getByRole('link',{name:'Set up this instance'}).click()
   await page.getByLabel('Your name').fill('Sam')
   await page.getByLabel('Email').fill('sam@example.test')
   await page.getByLabel('Password',{exact:true}).fill('correct-horse-battery')
   await page.getByLabel('Confirm password',{exact:true}).fill('correct-horse-battery')
   await page.getByRole('button',{name:'Create account'}).click()
   await page.waitForURL(`${base}/`)
-  await expect(page.getByRole('heading',{name:'A reet good day’s work.',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Your work, in good order.',exact:true})).toBeVisible()
   expect(await page.title()).toBe('Home · reet.sh')
   expect(errors).toEqual([])
   await context.close()
@@ -46,7 +45,7 @@ try {
   const {context,page} = await open({width:1440})
   await page.goto(`${base}${path}`)
   await page.waitForURL(`${base}/`)
-  await expect(page.getByRole('heading',{name:'A reet good day’s work.',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Your work, in good order.',exact:true})).toBeVisible()
   await context.close()
  }
 
@@ -58,7 +57,7 @@ try {
   expect(await page.title()).toContain('Page not found')
   await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toHaveCount(0)
   await page.getByRole('link',{name:'Back to Home'}).click()
-  await expect(page.getByRole('heading',{name:'A reet good day’s work.',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Your work, in good order.',exact:true})).toBeVisible()
   await page.goto(`${base}/skills`)
   await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toBeVisible()
   await context.close()
@@ -68,8 +67,7 @@ try {
  for (const route of run('authfit') ? ['/signin','/setup'] : []) {
   const {context,page} = await open({width:375,height:812,status:{user:null,setupRequired:route==='/setup'}})
   await page.goto(`${base}${route}`)
-  const headline = await page.locator('.headline').innerText()
-  expect(headline).toContain('Your whole AI setup. Ready to control.')
+  await expect(page.locator('.form-panel .instance')).toBeVisible()
   const submit = await page.locator('form button[type="submit"]').evaluate(el=>el.getBoundingClientRect().bottom)
   expect(submit, `submit button bottom on ${route} at 375x812`).toBeLessThanOrEqual(812)
   await context.close()
@@ -132,9 +130,9 @@ try {
   await page.route('**/assets/index-*.js', async route => { await gate; await route.continue() })
   await page.goto(base, {waitUntil:'commit'})
   await expect(page.locator('.crawl-fallback')).toBeHidden()
-  await expect(page.locator('#boot [data-boot="welcome"]')).toBeVisible()
+  await expect(page.locator('#boot [data-boot="welcome"]')).toBeHidden()
   await expect(page.locator('#boot [data-boot="app"]')).toBeHidden()
-  await expect(page.locator('#boot [data-boot="auth"]')).toBeHidden()
+  await expect(page.locator('#boot [data-boot="auth"]')).toBeVisible()
   // The shell is decoration: the words arrive with the app, so nothing claims the page is ready.
   await expect(page.getByRole('status',{name:'Loading reet.sh'})).toHaveCount(0)
   // The recovery line is a live region of its own: outside the aria-hidden shell, so a screen reader can receive it,
@@ -146,17 +144,16 @@ try {
   release()
   // The shell fades once the first auth answer is in, and is removed rather than left over the page.
   await expect(page.locator('#boot')).toHaveCount(0)
-  await expect(page.getByRole('heading',{name:/One command on any machine/})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Sign in to your workspace'})).toBeVisible()
   expect(errors).toEqual([])
   await context.close()
   // A crawler that runs no JavaScript still gets the readable landing copy, not an empty shell.
   const crawler = await browser.newContext({viewport:{width:1280,height:800}, javaScriptEnabled:false})
   const plain = await crawler.newPage()
   await plain.goto(base)
-  await expect(plain.getByRole('heading',{name:'One command on any machine. Your whole AI setup shows up, ready to control.'})).toBeVisible()
-  await expect(plain.getByText('One command on any machine. Your whole AI setup shows up, ready to control.')).toBeVisible()
-  await expect(plain.getByText('bring a brand-new, empty machine up to speed with one command.')).toBeVisible()
-  await expect(plain.getByRole('heading',{name:'Start with nothing. End with everything.'})).toBeVisible()
+  await expect(plain.getByRole('heading',{name:'Your workspace.',exact:true})).toBeVisible()
+  await expect(plain.getByText(/JavaScript is needed/)).toBeVisible()
+  await expect(plain.getByRole('link',{name:'Documentation'})).toHaveAttribute('href','https://reet.sh/documentation/')
   await crawler.close()
  }
  // A public screen that needs nothing from the auth answer must not wait behind it.

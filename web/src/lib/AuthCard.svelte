@@ -1,22 +1,21 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import GafferAvatar from './terminal/GafferAvatar.svelte'
 
-  let { title, lede, eyebrow = 'Ey up. Your AI workspace', children }: { title: string; lede: string; eyebrow?: string; children: Snippet } = $props()
+  let { title, lede, eyebrow = 'YOUR OWN CORNER OF REET', children }: { title: string; lede: string; eyebrow?: string; children: Snippet } = $props()
+  const instance = location.host
 </script>
 
 <section class="auth" aria-labelledby="auth-title">
-  <aside class="intro" aria-label="About your workspace">
+  <aside class="intro" aria-label="Your Reet installation">
     <p class="eyebrow">{eyebrow}</p>
-    <p class="headline">Your whole AI setup. <br />Ready to control.</p>
-    <p class="intro-copy">Enrol the machines you work on and your agents, skills and setups go with you. Open a terminal to use your installed tools and return to ongoing work.</p>
-    <ol class="stages" aria-label="How your workspace works">
-      <li><span aria-hidden="true">01</span><div><strong>Your machines</strong><small>Enrol a laptop, a VPS or a lab box with one command.</small></div></li>
-      <li><span aria-hidden="true">02</span><div><strong>Your agent toolkit</strong><small>Skills and reusable setups, in sync across them.</small></div></li>
-      <li><span aria-hidden="true">03</span><div><strong>Your ongoing work</strong><small>Continue the same session when you return.</small></div></li>
-    </ol>
-    <p class="local">Self-hosted. No telemetry. AGPL-3.0.</p>
+    <p class="headline">Your work.<br />All reet.</p>
+    <p class="intro-copy">Your sessions, projects and machines.<br />Right where you left them.</p>
+    <div class="gaffer-welcome"><GafferAvatar paused /><div><strong>“Go on, make yourself at home.”</strong><span>GAFFER / READY WHEN YOU ARE</span></div></div>
+    <p class="local">This is the Reet installation at <strong>{instance}</strong>.</p>
   </aside>
   <div class="form-panel">
+    <div class="instance"><span class="instance-mark" aria-hidden="true">{instance[0]?.toUpperCase() || 'R'}</span><div><strong>{instance}</strong><span>Your Reet installation</span></div><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
     <h1 id="auth-title">{title}</h1>
     <p class="lede">{lede}</p>
     {@render children()}
@@ -24,47 +23,37 @@
 </section>
 
 <style>
-  .auth {
-    display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
-    margin: 12px auto 24px; overflow: hidden;
-    background: var(--card); border: 1px solid var(--line); border-radius: 18px;
-    box-shadow: var(--shadow);
-  }
-  .intro { display: flex; flex-direction: column; padding: clamp(24px, 4vw, 40px); background: color-mix(in srgb, var(--tint) 28%, var(--bg)); border-right: 1px solid var(--line); }
-  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-  .headline { margin: 22px 0 0; font: 500 clamp(1.75rem, 3vw, 2.25rem)/1.12 var(--serif); letter-spacing: -0.03em; }
-  .intro-copy { margin: 14px 0 0; color: var(--muted); font-size: 0.9rem; }
-  .stages { list-style: none; display: grid; gap: 20px; padding: 0; margin: 32px 0; }
-  .stages li { display: flex; align-items: baseline; gap: 14px; }
-  .stages li > span { color: var(--accent-text); font: 0.72rem var(--mono); }
-  .stages strong { display: block; font-size: 0.88rem; font-weight: 600; }
-  .stages small { display: block; margin-top: 2px; color: var(--muted); font-size: 0.8rem; }
-  .local { margin: auto 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.75rem; }
-  .form-panel { min-width: 0; align-self: center; padding: clamp(24px, 4vw, 40px); }
-  h1 { margin: 0; font: 500 1.8rem/1.15 var(--serif); letter-spacing: -0.02em; }
-  .lede { margin: 8px 0 0; color: var(--muted); max-width: 40ch; }
-  @media (max-width: 560px) {
-    .auth { grid-template-columns: 1fr; margin-top: 24px; border-radius: 14px; }
-    /* The form and its button come first on a phone; the explanation follows it. */
-    .intro { order: 2; padding: 22px; border-right: 0; border-top: 1px solid var(--line); }
-    .form-panel { order: 1; }
-    .headline { margin-top: 10px; font-size: 1.65rem; }
-    .headline br { display: none; }
-    .intro-copy { font-size: 0.84rem; }
-    .stages { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
-    .stages li { gap: 5px; align-items: center; }
-    .stages strong { display: inline; font-size: 0.76rem; }
-    .stages small { display: none; }
-    .stages li > span { font-size: 0.64rem; }
-    .local { margin-top: 12px; padding-top: 10px; font-size: 0.72rem; }
-    .form-panel { padding: 24px 22px; }
-    h1 { font-size: 1.5rem; }
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    .auth { animation: rise 320ms var(--ease-out) both; }
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
+  .auth { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: clamp(35px, 6vw, 85px); align-items: center; margin: 12px auto 35px; }
+  .intro { min-width: 0; padding: 18px 0; }
+  .eyebrow { margin: 0 0 23px; color: var(--accent-text); font: 9px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+  .headline { margin: 0; font: 600 clamp(43px, 5.1vw, 66px)/1.04 var(--serif); letter-spacing: -.045em; }
+  .intro-copy { margin: 25px 0 0; color: var(--muted); font-size: 15px; line-height: 1.85; }
+  .gaffer-welcome { display: flex; align-items: center; gap: 15px; margin-top: 36px; }
+  .gaffer-welcome :global(.gaffer-avatar) { width: 52px; height: 52px; flex: none; }
+  .gaffer-welcome strong { display: block; font: 600 17px/1.4 var(--serif); }
+  .gaffer-welcome span { display: block; font: 8px var(--mono); color: var(--muted); letter-spacing: .04em; margin-top: 8px; }
+  .local { margin: 34px 0 0; padding-top: 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.8; overflow-wrap: anywhere; }
+  .local strong { font-weight: 500; color: var(--ink); }
+  .form-panel { min-width: 0; align-self: center; padding: 30px; background: var(--card); border: 1px solid var(--line); border-radius: 11px; box-shadow: 0 18px 50px color-mix(in srgb, var(--ink) 5%, transparent); }
+  /* Leave room around focused controls when a short viewport scrolls the form. */
+  .form-panel :global(:is(button, a, input, select, summary)) { scroll-margin-block: 16px; }
+  .instance { display: flex; align-items: center; gap: 11px; padding-bottom: 23px; margin-bottom: 25px; border-bottom: 1px solid var(--line); }
+  .instance-mark { width: 32px; height: 35px; flex: none; display: grid; place-items: center; background: var(--ink); color: var(--bg); border-radius: 5px; font: 600 21px var(--serif); }
+  .instance > div { min-width: 0; flex: 1; }
+  .instance strong { display: block; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+  .instance div > span { display: block; font-size: 10px; color: var(--muted); margin-top: 3px; }
+  .instance > svg { flex: none; width: 15px; height: 15px; color: var(--muted); }
+  h1 { margin: 0; font: 600 clamp(28px, 3vw, 35px)/1.15 var(--serif); letter-spacing: -.03em; }
+  .lede { margin: 11px 0 0; color: var(--muted); max-width: 40ch; font-size: 13px; line-height: 1.8; }
+  @media (max-width: 760px) {
+    .auth { grid-template-columns: 1fr; max-width: 490px; gap: 0; }
+    .intro { display: none; }
+    .eyebrow { font-size: 8px; margin-bottom: 15px; }
+    .headline { font-size: 44px; }
+    .intro-copy { margin: 17px 0 0; font-size: 13px; }
+    .gaffer-welcome, .local { display: none; }
+    .form-panel { padding: 25px; }
+    h1 { font-size: 28px; }
+    .instance { padding-bottom: 16px; margin-bottom: 19px; }
   }
 </style>

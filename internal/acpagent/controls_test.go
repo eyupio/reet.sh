@@ -45,6 +45,30 @@ func TestLiveSelectorsInvalidateUnsafeOrMalformedReplacements(t *testing.T) {
 	<-done
 }
 
+func TestClineSettingsSkipValuesReetCannotName(t *testing.T) {
+	s, done := runningControlSession(t, "live-controls")
+	s.updateSettings(json.RawMessage(`{"configOptions":[
+		{"type":"select","id":"provider","category":"_provider","currentValue":"cline","options":[{"value":"cline"}]},
+		{"type":"select","id":"model","category":"model","currentValue":"anthropic/claude-sonnet-5.5","options":[{"value":"~alias/latest"},{"value":"anthropic/claude-sonnet-5.5"}]},
+		{"type":"select","id":"mode","category":"mode","currentValue":"act","options":[{"value":"act"},{"value":"plan"}]},
+		{"type":"boolean","id":"auto_approve","currentValue":false}
+	]}`))
+	controls := s.Controls()
+	if len(controls.Options) != 1 || controls.Options[0].Category != "model" || controls.Model != "anthropic/claude-sonnet-5.5" {
+		t.Fatalf("controls: %+v", controls)
+	}
+	if len(controls.Options[0].Values) != 1 || controls.Options[0].Values[0] != "anthropic/claude-sonnet-5.5" {
+		t.Fatalf("values: %+v", controls.Options[0].Values)
+	}
+	// An unrepresentable current value keeps the selector but claims no value.
+	s.updateSettings(json.RawMessage(`{"configOptions":[{"id":"model","category":"model","currentValue":"~alias/latest","options":[{"value":"~alias/latest"},{"value":"anthropic/claude-sonnet-5.5"}]}]}`))
+	if controls := s.Controls(); len(controls.Options) != 1 || controls.Options[0].Current != "" || controls.Model != "" {
+		t.Fatalf("unrepresentable current: %+v", controls)
+	}
+	s.Cancel()
+	<-done
+}
+
 func TestSteerWaitsForCompactionAndApprovals(t *testing.T) {
 	s, done := runningControlSession(t, "live-controls")
 	s.handleUpdate(json.RawMessage(`{"update":{"sessionUpdate":"compaction_update","status":"in_progress"}}`))

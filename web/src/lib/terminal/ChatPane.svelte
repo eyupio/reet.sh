@@ -1,11 +1,13 @@
 <script lang="ts">
  import { onDestroy, onMount, tick, untrack } from 'svelte'
- import { fade, fly } from 'svelte/transition'
+ import { fly } from 'svelte/transition'
  import { applyChatEvent, checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, rejectLabel, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, approvalOutcome, foldApprovals, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
  import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
- import { defaultLabel, type ModelFavourite } from '../models'
+ import { defaultLabel, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
+ import { modelSuggestions, validateModel } from '../agentLaunch'
+ import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
  import Toast from '../Toast.svelte'
  import ImageLightbox from './ImageLightbox.svelte'
  import ChatPreview from './ChatPreview.svelte'
@@ -96,7 +98,8 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
    feedback = e instanceof Error ? e.message : 'The agent did not confirm that setting.'
   } finally { changingModel = false; settingSerial++ }
  }
- let models = $state<string[]>([]), modelNote = $state('')
+ let modelMachine = $state<MachineModels | null>(null), modelNote = $state('')
+ let modelOpen = $state(false), modelButton = $state<HTMLButtonElement>(), touchModels = $state(false)
  let favourites = $state<ModelFavourite[]>([]), favouriteBusy = $state(false)
  // Confirmations (model changed, default saved) say it once and fade away: the star and the model field already show the result.
  let toast = $state<{ id: number; text: string; bad: boolean } | null>(null), toastSeq = 0
@@ -117,9 +120,20 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   try { await setAgentMode(session.id, mode); modeOverride = mode }
   catch (e) { modeOverride = ''; throw e }
  }
- const agentDefault = $derived(favourites.find(f => f.tool === tool && f.agentDefault)?.model ?? '')
- const selectedIsDefault = $derived(!!selectedModel.trim() && selectedModel.trim() === agentDefault)
- const selectedIsFavourite = $derived(favourites.some(f => f.tool === tool && f.model === selectedModel.trim()))
+  const agentDefault = $derived(favourites.find(f => f.tool === tool && f.agentDefault)?.model ?? '')
+  const selectedIsDefault = $derived(!!selectedModel.trim() && selectedModel.trim() === agentDefault)
+  const selectedIsFavourite = $derived(favourites.some(f => f.tool === tool && f.model === selectedModel.trim()))
+  const modelChoices = $derived<SlotOption[]>(modelOptions({
+   tool, current: currentModel, machine: modelMachine, favourites, recent: [],
+   suggestions: [...new Set([...modelSuggestions(tool), ...(liveModel?.values ?? [])])],
+   selectedModel, agentName: toolName,
+  }).filter(option => option.value !== '' || !selectedModel.trim()))
+  const modelStatusLine = $derived.by(() => {
+   if (modelNote) return modelNote
+   if (!modelMachine) return ''
+   const info = modelStatus(modelMachine, '')
+   return [info.sentence, info.age ? `Read ${info.age}.` : ''].filter(Boolean).join(' ')
+  })
  const failed = $derived(chat.status.state === 'error')
  // A refusal that names a sign-in is a step the person can take, not a failure of
  // the agent, so it reads as that step rather than as an error to diagnose.
@@ -573,17 +587,18 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  // option lists with the descriptor, so a late response cannot restore a control.
  $effect(() => {
   const supported = modelAvailable, agentId = modelAgentId, agentTool = tool
-  models = []; favourites = []; modelNote = ''
+  modelMachine = null; favourites = []; modelNote = ''
   if (!supported) return
   const life = new AbortController()
   void machineModels(agentId, agentTool, life.signal).then(result => {
-   if (!life.signal.aborted) models = result.models.map(model => model.id)
+   if (!life.signal.aborted) modelMachine = result
   }).catch(() => { if (!life.signal.aborted) modelNote = 'Model list unavailable. Enter a model ID configured on this machine.' })
   void listModelFavourites(life.signal).then(answer => { if (!life.signal.aborted) favourites = answer.favourites }).catch(() => {})
   return () => life.abort()
  })
 
  onMount(() => {
+  touchModels = matchMedia('(pointer: coarse)').matches
   const stream = new EventSource(chatURL(session.id))
   source = stream
   stream.addEventListener('reset', readReset)
@@ -941,22 +956,27 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
        {#each liveEffort.values as value}<option {value}>{value}</option>{/each}
       </select>
      </div>{/if}
-     {#if modelAvailable}<div class="model-controls" data-keeps-focus>
-      <label for={`${session.id}-model`}>Model</label>
-      <input id={`${session.id}-model`} data-combo-list={`${session.id}-models`} bind:value={selectedModel} disabled={modelBlocked} placeholder="provider/model" spellcheck="false" autocomplete="off" />
-      <datalist id={`${session.id}-models`}>{#each models as model}<option value={model}></option>{/each}</datalist>
-      {#if selectedModel.trim() && selectedModel !== currentModel}
-       <button type="button" class="btn change" transition:fade={{ duration: 120 }} disabled={modelBlocked} onclick={() => void changeModel()}>{changingModel ? 'Changing…' : 'Change model'}</button>
-      {/if}
-      <button type="button" class="star" class:on={selectedIsDefault} disabled={!selectedModel.trim() || favouriteBusy || chat.connection !== 'open'} aria-pressed={selectedIsDefault} aria-label={defaultLabel(tool, selectedModel.trim(), selectedIsDefault)} title={selectedIsDefault ? `Default for new ${tool} sessions. Click to clear.` : `Make this the default for new ${tool} sessions`} onclick={() => void toggleDefault()}>
-       <svg viewBox="0 0 24 24" fill={selectedIsDefault ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z" /></svg>
-       <span class="star-word">{favouriteBusy ? 'Saving…' : selectedIsDefault ? 'Default' : 'Make default'}</span>
-      </button>
-     </div>{/if}
+      {#if modelAvailable}<div class="model-controls" data-keeps-focus>
+       <label for={`${session.id}-model`}>Model</label>
+       <button id={`${session.id}-model`} type="button" class="model-picker" bind:this={modelButton} aria-label={`Model: ${selectedModel.trim() || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={modelOpen} disabled={modelBlocked} onclick={() => modelOpen = !modelOpen}>
+        <span class="value">{selectedModel.trim() || 'Agent default'}</span>
+        {#if changingModel}<span class="chev" aria-hidden="true">…</span>{:else}<span class="chev" aria-hidden="true">▾</span>{/if}
+       </button>
+       <button type="button" class="star" class:on={selectedIsDefault} disabled={!selectedModel.trim() || favouriteBusy || chat.connection !== 'open'} aria-pressed={selectedIsDefault} aria-label={defaultLabel(tool, selectedModel.trim(), selectedIsDefault)} title={selectedIsDefault ? `Default for new ${tool} sessions. Click to clear.` : `Make this the default for new ${tool} sessions`} onclick={() => void toggleDefault()}>
+        <svg viewBox="0 0 24 24" fill={selectedIsDefault ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z" /></svg>
+        <span class="star-word">{favouriteBusy ? 'Saving…' : selectedIsDefault ? 'Default' : 'Make default'}</span>
+       </button>
+      </div>{/if}
     </div>
     <span class="hint">Enter to send · Shift + Enter for a new line</span>
    </div>
-   {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} sessionId={session.id} onrefresh={() => void loadSkills()} onpick={pickSkill} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
+    {#if modelOpen}
+     <SlotPicker label="Model" options={modelChoices} value={selectedModel} sheet={touchModels} opener={modelButton ?? null}
+      filter="Filter models" status={modelStatusLine}
+      other={{ label: 'Other…', field: 'Model name', validate: validateModel }}
+      onpick={value => { selectedModel = value; modelOpen = false; void changeModel() }} onclose={() => modelOpen = false} />
+    {/if}
+    {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} sessionId={session.id} onrefresh={() => void loadSkills()} onpick={pickSkill} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
    {#if canAttach}<input class="vh" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={picked} />{/if}
   </div>
  {/if}
@@ -971,14 +991,16 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  .error-panel summary { cursor: pointer; }
  .effort-controls { display: flex; align-items: center; gap: 6px; font-size: 12px; }
  .effort-controls select { min-height: 30px; max-width: 10rem; color: var(--ink); background: var(--bg-sunk); border: 1px solid var(--line); border-radius: 6px; }
- /* The model is a quiet control in the composer's toolbar: a labelled field, a star for the default, and Change model only once the value differs. */
- .model-controls { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; max-width: 30rem; }
+ /* The model is a labelled dropdown in the composer's toolbar, with a star for the default. */
+ .model-controls { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 18rem; max-width: 44rem; }
  .model-controls label { flex: none; font: 600 10px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--faint); }
- .model-controls input { flex: 1 1 8rem; min-width: 0; height: 30px; padding: 0 9px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg-sunk); color: var(--ink-soft); font: 12px var(--mono); text-overflow: ellipsis; transition: border-color .15s, background .15s; }
- .model-controls input:hover:not(:disabled) { border-color: var(--line); }
- .model-controls input:focus-visible { outline: none; border-color: var(--accent-text); background: var(--card); color: var(--ink); }
- .model-controls input:disabled { opacity: .6; }
- .model-controls .change { flex: none; min-height: 30px; padding: 0 10px; font-size: 12px; }
+ .model-picker { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: 1 1 auto; min-width: 0; height: 32px; padding: 0 9px 0 10px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg-sunk); color: var(--ink-soft); font: 12px var(--mono); text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
+ .model-picker .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ .model-picker .chev { flex: none; color: var(--muted); font-size: 11px; }
+ .model-picker:hover:not(:disabled) { border-color: var(--line); }
+ .model-picker[aria-expanded='true'] { border-color: var(--accent-text); background: var(--card); color: var(--ink); }
+ .model-picker:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+ .model-picker:disabled { opacity: .6; cursor: default; }
  .star { display: inline-flex; align-items: center; gap: 5px; flex: none; height: 30px; padding: 0 9px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--muted); font: 500 12px var(--sans); cursor: pointer; transition: color .15s, background .15s, border-color .15s; }
  .star svg { width: 15px; height: 15px; }
  .star:hover:not(:disabled) { background: var(--tint); color: var(--ink); }
@@ -1202,12 +1224,18 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  @container chat-pane (max-width: 760px) {
   .meta .lines, .meta .time { display: none; }
  }
+ @container chat-pane (max-width: 900px) {
+  /* A narrow pane drops the spare words first so the model and effort keep a usable target without a second row. */
+  .hint, .star-word { display: none; }
+  .model-controls { flex: 1 1 12rem; max-width: none; }
+  .composer-tools { flex-wrap: wrap; row-gap: 6px; }
+ }
  @container chat-pane (max-width: 540px) {
   .tool-head { grid-template-columns: 8px 16px auto minmax(0, 1fr) auto 14px; gap: 7px; padding: 6px 8px; }
   .meta { display: none; }
   .hint { display: none; }
   .composer { margin: 0 8px 8px; padding: 8px; }
-  .model-controls label { display: none; }
+  .model-controls label, .effort-controls label { display: none; }
   .star-word { display: none; }
   .think-preview { font-size: 11.5px; }
  }
@@ -1224,7 +1252,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  @media (pointer: coarse) {
   .tool-head { min-height: 44px; }
   /* A touch browser zooms the page in to a field under 16px when it takes focus and leaves it scaled; app.css only sets 16px up to 560px. */
-  .composer-input, .model-controls input, .qfield textarea { font-size: 16px; }
+  .composer-input, .model-picker, .qfield textarea { font-size: 16px; }
   .skills-btn, .icon-btn { min-height: 44px; min-width: 44px; }
   .queue-list li { min-height: 44px; }
   .queue-actions button { min-height: 36px; padding: 0 9px; }
@@ -1234,6 +1262,6 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   .copy { min-height: 32px; padding: 0 10px; font-size: 12px; }
   .tile-remove { width: 30px; height: 30px; top: -8px; right: -8px; }
   .star { height: 36px; }
-  .model-controls input { height: 36px; }
+  .model-picker { height: 36px; }
  }
 </style>

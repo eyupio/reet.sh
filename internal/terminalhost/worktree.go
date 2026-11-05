@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -581,7 +584,13 @@ var ErrWorktreeNotFound = errors.New("the worktree is not there")
 var ErrWorktreeChanged = errors.New("the worktree changed since it was shown")
 
 // WorktreeCounts are the two numbers a person is shown before a remove.
-type WorktreeCounts struct{ Changed, Unpushed int }
+type WorktreeCounts struct {
+	Changed, Unpushed int
+	// Discard is the person's explicit confirmation to delete uncommitted
+	// changes, and Fingerprint the status fingerprint they were shown.
+	Discard     bool
+	Fingerprint string
+}
 
 // worktreeAt is a run's worktree that passed every check in locateWorktree.
 type worktreeAt struct {
@@ -643,6 +652,11 @@ func worktreeState(ctx context.Context, w worktreeAt, git GitRunner) (terminalpr
 	}
 	changed, paths := parseStatus(out)
 	state := terminalproto.WorktreeState{Path: w.path, Branch: w.branch, Changed: changed, Paths: paths}
+	if changed > 0 {
+		if state.Fingerprint, err = changeFingerprint(ctx, w, git, out); err != nil {
+			return terminalproto.WorktreeState{}, err
+		}
+	}
 	if state.Unpushed, err = unpushedCount(ctx, w, git); err != nil {
 		return terminalproto.WorktreeState{}, err
 	}
@@ -895,7 +909,8 @@ func plainPath(p string) string {
 //  2. The status is computed again; unless both counts equal shown, the
 //     remove is refused with ErrWorktreeChanged, so changes made after the
 //     person looked are never thrown away.
-//  3. Any uncommitted change (Changed > 0) is refused as has_changes: git
+//  3. Any uncommitted change (Changed > 0) is refused as has_changes unless
+//     the person confirmed discarding them (shown.Discard, then --force): git
 //     would refuse it without --force, and reet never forces. Hidden edits
 //     (hidden_changes), commits only HEAD holds (unreferenced_commits), a
 //     nested repository (nested_repository) and an incomplete check
@@ -947,8 +962,11 @@ func RemoveWorktree(ctx context.Context, home, project, repo, run string, shown 
 		return WorktreeRemoved{}, ErrWorktreeChanged
 	}
 	switch {
-	case state.Changed > 0:
+	case state.Changed > 0 && !shown.Discard:
 		return WorktreeRemoved{}, refuseWorktree(terminalproto.WorktreeHasChanges, "")
+	case state.Changed > 0 && (state.Fingerprint == "" || state.Fingerprint != shown.Fingerprint):
+		// The counts match but the edits are not the ones the person saw.
+		return WorktreeRemoved{}, ErrWorktreeChanged
 	case state.Hidden > 0:
 		return WorktreeRemoved{}, refuseWorktree(terminalproto.WorktreeHiddenChanges, "")
 	case state.Unreferenced > 0:
@@ -963,7 +981,13 @@ func RemoveWorktree(ctx context.Context, home, project, repo, run string, shown 
 	}
 	removeCtx, cancelRemove := context.WithTimeout(context.WithoutCancel(ctx), removeStepTimeout)
 	defer cancelRemove()
-	if out, err := git(removeCtx, w.root, "worktree", "remove", w.path); err != nil {
+	args := []string{"worktree", "remove"}
+	if shown.Discard && state.Changed > 0 {
+		// Only with the person's explicit confirmation, and only for the
+		// changes they were shown: every other check above still refused.
+		args = append(args, "--force")
+	}
+	if out, err := git(removeCtx, w.root, append(args, w.path)...); err != nil {
 		return WorktreeRemoved{}, gitFailed(out, err)
 	}
 	return WorktreeRemoved{Path: w.path, Branch: w.branch}, nil
@@ -1148,6 +1172,74 @@ func checkWorktreePath(home, path string) error {
 		if !valid {
 			return refuseWorktree(terminalproto.WorktreeOutsideHome, shown+" is not a folder of yours")
 		}
+	}
+	return nil
+}
+
+// fingerprintFileLimit bounds how much of one changed file is read into the
+// fingerprint; a larger file contributes its size and modification time.
+const fingerprintFileLimit = 64 << 20
+
+// changeFingerprint summarises the uncommitted changes: git's status, what the
+// index holds against HEAD, and for every changed path its kind and content.
+// A discard repeats it, so a path edited, reverted or added after the person
+// looked gives a different value even when the counts are the same.
+func changeFingerprint(ctx context.Context, w worktreeAt, git GitRunner, status []byte) (string, error) {
+	h := sha256.New()
+	h.Write(status)
+	staged, err := git(ctx, w.path, "diff-index", "--cached", "-z", "--no-renames", "HEAD")
+	if err != nil {
+		return "", gitFailed(staged, err)
+	}
+	h.Write([]byte{0})
+	h.Write(staged)
+	fields := strings.Split(string(status), "\x00")
+	for i := 0; i < len(fields); i++ {
+		entry := fields[i]
+		if len(entry) < 4 {
+			continue
+		}
+		if entry[0] == 'R' || entry[0] == 'C' || entry[1] == 'R' || entry[1] == 'C' {
+			i++
+		}
+		h.Write([]byte{0})
+		if err := hashPathContent(h, filepath.Join(w.path, filepath.FromSlash(entry[3:]))); err != nil {
+			return "", err
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func hashPathContent(h interface{ Write([]byte) (int, error) }, p string) error {
+	info, err := os.Lstat(p)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		h.Write([]byte("absent"))
+		return nil
+	case err != nil:
+		return refuseWorktree(terminalproto.WorktreeCheckIncomplete, "")
+	}
+	fmt.Fprintf(h, "%o %d ", info.Mode(), info.Size())
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		target, err := os.Readlink(p)
+		if err != nil {
+			return refuseWorktree(terminalproto.WorktreeCheckIncomplete, "")
+		}
+		h.Write([]byte(target))
+	case info.Mode().IsRegular() && info.Size() <= fingerprintFileLimit:
+		f, err := os.Open(p)
+		if err != nil {
+			return refuseWorktree(terminalproto.WorktreeCheckIncomplete, "")
+		}
+		defer f.Close()
+		sum := sha256.New()
+		if _, err := io.Copy(sum, f); err != nil {
+			return refuseWorktree(terminalproto.WorktreeCheckIncomplete, "")
+		}
+		h.Write(sum.Sum(nil))
+	default:
+		fmt.Fprintf(h, "%d", info.ModTime().UnixNano())
 	}
 	return nil
 }

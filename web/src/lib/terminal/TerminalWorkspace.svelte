@@ -3,7 +3,7 @@
  import type { ChatState } from '../chat'
   import { onMount, tick, untrack } from 'svelte'
   import {getProfile,getSyncState,saveProfile,type Machine} from '../api'
-  import { validateDir } from '../agentLaunch'
+  import { titleFor, validateDir } from '../agentLaunch'
   import StartAgentDialog from '../StartAgentDialog.svelte'
   import AddProjectDialog from '../home/AddProjectDialog.svelte'
   import SessionSidebar from './SessionSidebar.svelte'
@@ -21,7 +21,7 @@
   import { continuationFailureInPane, offersContinueAfterReattach, quietReattachRefusal, reattachTrust, recoveryInFlight, shouldAutoReattach } from './reattachState'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import HealthHistory from './HealthHistory.svelte'
-  import { renameTerminal, endTerminal, archiveTerminal, terminalClosed } from './api'
+  import { renameTerminal, endTerminal, terminalArchiveBody, archiveTerminal, terminalClosed } from './api'
   import { TerminalError, reattachChat, validTerminalTitle } from './api'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalCommandReference from './TerminalCommandReference.svelte'
@@ -93,7 +93,7 @@
   let chatBusy = $state<{ id: string; busy: boolean | undefined } | null>(null)
   let health = $state<HealthResponse>({ serverNow:Date.now(),machines:[] })
   let receivedAt = performance.now(), elapsed = $state(0)
-  let loading = $state(true), busy = $state(false), error = $state(''), title = $state('Shell')
+  let loading = $state(true), busy = $state(false), error = $state(''), title = $state('')
   type Creation = { requestId: string; title: string; dir: string; error: string }
   let creations = $state<Record<string, Creation>>({})
   // A continuation whose reply was lost keeps its request id and launch, so Continue again replays the same operation.
@@ -122,6 +122,8 @@
   const pendingCreation = $derived(creations[selectedAgent])
   // Draft settings do not switch the workspace behind the dialog.
   let terminalAgent=$state(''),terminalDir=$state('')
+  // A shell started without a name is called what the controller would call it: Terminal, and its folder when it has one.
+  const autoName=$derived(titleFor('',terminalDir.trim()))
   const createMachine=$derived(machines.find(item=>item.agentId===terminalAgent))
   const formCreation=$derived(creations[terminalAgent])
   const requestId=$derived(formCreation?.requestId || '')
@@ -148,7 +150,7 @@
   let agentStart=$state<{agent:string;opener:HTMLElement|null;dir?:string;projectId?:string}|null>(null),agentFolders=$state<Machine[]|undefined>(),folderRead=0
   // Add a project from the session panel: the same dialog as Home, without leaving the terminal.
   let addingProject=$state<{opener:HTMLElement|null}|null>(null)
-  let action = $state<'rename'|'end'|'archive'|null>(null), actionSession = $state(''), rename = $state(''), actionTitle = $state(''), actionBusy = $state(false)
+  let action = $state<'rename'|'end'|'archive'|null>(null), actionSession = $state(''), rename = $state(''), actionTitle = $state(''), actionState = $state<TerminalSession['state']>('ended'), actionBusy = $state(false)
   let removeOnClose=$state(false),removeDefault=$state(false),defaultOn=$state(false),defaultEdited=$state(false),preferenceError=$state('')
   const endKeys = new Map<string,{key:string;remove:boolean}>()
   let refreshing = false, refreshAgain = false, disposed = false, inventoryVersion = 0
@@ -202,7 +204,7 @@
     selectedAgent=id
     const previous=rememberedSessions.get(id)
     selectedSession=sessions.find(item=>item.agentId===id&&item.id===previous)?.id || sessions.find(item=>item.agentId===id&&item.state==='running')?.id || ''
-    title=creations[id]?.title || 'Shell';error='';machineSearchOpen=false;remember()
+    title=creations[id]?.title || '';error='';machineSearchOpen=false;remember()
   }
   function chooseSession(item: TerminalSession) { if(selectedAgent&&selectedSession)rememberedSessions.set(selectedAgent,selectedSession);selectedAgent=item.agentId;selectedSession=item.id;title=creations[selectedAgent]?.title||'Shell';error='';remember();closeDrawer() }
   async function refresh(signal?: AbortSignal) {
@@ -243,7 +245,7 @@
   function selectTerminalMachine(agent:string){
     terminalAgent=agent
     const pending=creations[agent]
-    title=pending?.title||'Shell';terminalDir=pending?.dir||'';error=''
+    title=pending?.title||'';terminalDir=pending?.dir||'';error=''
   }
   function openTerminalStart(agent=selectedAgent){
     if(accessDenied||!machines.length||busy)return
@@ -264,12 +266,12 @@
   }
   function submitCreate(){void create()}
   async function create() {
-    if(busy||accessDenied||!createMachine?.ready||createMachine.serverEnabled===false||!validTerminalTitle(title.trim())||dirError||createAtQuota&&!requestId)return
+    if(busy||accessDenied||!createMachine?.ready||createMachine.serverEnabled===false||!validTerminalTitle(title.trim()||autoName)||dirError||createAtQuota&&!requestId)return
     busy=true;error=''
     // One immutable retry operation per machine, including its original title.
     const agent=terminalAgent
     const originAgent=selectedAgent,originSession=selectedSession
-    const operation=creations[agent] || {requestId:crypto.randomUUID(),title:title.trim(),dir:terminalDir,error:''}
+    const operation=creations[agent] || {requestId:crypto.randomUUID(),title:title.trim()||autoName,dir:terminalDir,error:''}
     creations={...creations,[agent]:{...operation,error:''}}
     const request=new AbortController();creationRequest=request
     const timeout=setTimeout(()=>request.abort(),15000)
@@ -476,7 +478,7 @@
       void reattachSession(target, { auto: true })
     })
   })
-  function openAction(kind:'rename'|'end'|'archive',target=session) { if(!target)return;actionSession=target.id;actionTitle=target.title;rename=target.title;removeOnClose=endKeys.get(target.id)?.remove??(target.state==='end_requested'?(target.removeHistory??false):removeDefault);defaultOn=removeDefault;defaultEdited=false;preferenceError='';action=kind }
+  function openAction(kind:'rename'|'end'|'archive',target=session) { if(!target)return;actionSession=target.id;actionTitle=target.title;actionState=target.state;rename=target.title;removeOnClose=endKeys.get(target.id)?.remove??(target.state==='end_requested'?(target.removeHistory??false):removeDefault);defaultOn=removeDefault;defaultEdited=false;preferenceError='';action=kind }
   async function performAction() {
     const kind=action,id=actionSession;action=null;if(!kind||actionBusy)return
     actionBusy=true;error=''
@@ -521,7 +523,7 @@
     // The shell hides and shows the site's chrome (keyboardChrome) after this measure has set the session focus: measure again
     // whenever it does, so the height is never one taken while the top bar was aside.
     const chrome=new MutationObserver(measure)
-    chrome.observe(document.documentElement,{attributes:true,attributeFilter:['data-chrome-aside','data-bottom-tabs']})
+    chrome.observe(document.documentElement,{attributes:true,attributeFilter:['data-chrome-aside','data-bottom-tabs','data-session-focus']})
     // A docked panel that would become a drawer (a narrower window, a phone) closes rather than cover the terminal.
     const viewportChanged=()=>{const wasDocked=panelView==='docked';viewportWidth=innerWidth;screenSide=readScreen();if(wasDocked&&!panelDocks(viewportWidth,pinned,phone))mode='closed'}
     window.addEventListener('resize',viewportChanged)
@@ -569,10 +571,11 @@
     </select></label>
     <label>Folder<input bind:value={terminalDir} disabled={busy || !!requestId} placeholder="Home folder (default)" aria-invalid={!!dirError} aria-describedby="terminal-folder-help" /></label>
     <p id="terminal-folder-help">{dirError || 'Leave empty for the machine’s home folder, or enter a full path starting with /.'}</p>
-    <label>New session name<input bind:value={title} disabled={busy || !!requestId} maxlength="80" required placeholder="Build, deploy, investigate…" /></label>
+    <label>New session name<input bind:value={title} disabled={busy || !!requestId} maxlength="80" placeholder={autoName} aria-describedby="terminal-name-help" /></label>
+    <p id="terminal-name-help">Optional. Left empty, the session is called {autoName}.</p>
     {#if !createMachine?.ready || createMachine.serverEnabled===false}<p class="create-reason" role="status">{readiness(createMachine) || 'Choose a machine before creating a shell.'}</p>{/if}
     <p>{createActive} / 8 active on this machine · {accountActive} / 32 across your account{createAtQuota ? ' · Session limit reached' : ''}. Existing shells keep running when you switch or disconnect.</p>
-    <button class="btn primary" disabled={busy || !validTerminalTitle(title.trim()) || !!dirError || !createMachine?.ready || createMachine.serverEnabled===false || createAtQuota && !requestId} aria-busy={busy}>{busy ? 'Creating…' : requestId ? 'Retry creation' : 'New terminal'}</button>
+    <button class="btn primary" disabled={busy || !validTerminalTitle(title.trim()||autoName) || !!dirError || !createMachine?.ready || createMachine.serverEnabled===false || createAtQuota && !requestId} aria-busy={busy}>{busy ? 'Creating…' : requestId ? 'Retry creation' : 'New terminal'}</button>
 
   </form>
 {/snippet}
@@ -669,7 +672,7 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   <TerminalCommandReference />
   <section class="shortcut-help"><h3>Keyboard &amp; clipboard</h3><p>Ctrl+C interrupts the shell. On Windows/Linux, Ctrl+C copies selected terminal output; use Interrupt to send Ctrl+C when text is selected. On Mac, Cmd+C copies.</p><p>Ctrl+V / Cmd+V pastes. Ctrl+Shift+C/V are alternatives. Right-click the terminal for Copy/Paste; Shift+right-click keeps the browser menu. Ctrl+X stays a shell/editor key; cut works normally in editable app fields.</p><p>Multiple lines, control characters and large pastes need review. Disconnect keeps the shell running. End session stops its running work.</p></section>
 </WorkspaceDialog>{/if}
-{#if action === 'rename'}<ConfirmDialog title="Rename session" body="Only the display name changes. The running shell stays the same." confirmLabel="Save name" onconfirm={() => void performAction()} oncancel={() => action = null}><label>Session name<input bind:value={rename} maxlength="80" required /></label></ConfirmDialog>{:else if action === 'end'}<ConfirmDialog title={`End ${actionTitle}?`} body="This stops the shell and its running jobs. Disconnecting keeps them running. If the machine is offline, the request stays pending until it reconnects." confirmLabel="End session" danger onconfirm={() => void performAction()} oncancel={() => action = null}><div class="end-options"><div class="option"><label><input type="checkbox" bind:checked={removeOnClose} disabled={endKeys.has(actionSession)||sessions.find(item=>item.id===actionSession)?.state==='end_requested'} /><span>Remove from history when this session ends</span></label><p>Files are kept. Pending sessions remain visible until the machine confirms they have ended.</p></div><div class="option"><label><input type="checkbox" bind:checked={defaultOn} onchange={()=>defaultEdited=true} /><span>Remove from history by default</span></label><p>{defaultOn===removeDefault?(removeDefault?'This is your current default. Untick to change it.':'Not your current default. Tick to change it.'):(defaultOn?'Will become your default when you end this session.':'Your default will change to keeping history when you end this session.')}</p></div><a href="/account#profile">Manage terminal preferences →</a></div></ConfirmDialog>{:else if action === 'archive'}<ConfirmDialog title={`Remove ${actionTitle} from history?`} body="This removes the closed session from your history. Files on the machine are kept. You cannot restore it from the web interface." confirmLabel="Remove from history" onconfirm={()=>void performAction()} oncancel={()=>action=null} />{/if}
+{#if action === 'rename'}<ConfirmDialog title="Rename session" body="Only the display name changes. The running shell stays the same." confirmLabel="Save name" onconfirm={() => void performAction()} oncancel={() => action = null}><label>Session name<input bind:value={rename} maxlength="80" required /></label></ConfirmDialog>{:else if action === 'end'}<ConfirmDialog title={`End ${actionTitle}?`} body="This stops the shell and its running jobs. Disconnecting keeps them running. If the machine is offline, the request stays pending until it reconnects." confirmLabel="End session" danger onconfirm={() => void performAction()} oncancel={() => action = null}><div class="end-options"><div class="option"><label><input type="checkbox" bind:checked={removeOnClose} disabled={endKeys.has(actionSession)||sessions.find(item=>item.id===actionSession)?.state==='end_requested'} /><span>Remove from history when this session ends</span></label><p>Files are kept. Pending sessions remain visible until the machine confirms they have ended.</p></div><div class="option"><label><input type="checkbox" bind:checked={defaultOn} onchange={()=>defaultEdited=true} /><span>Remove from history by default</span></label><p>{defaultOn===removeDefault?(removeDefault?'This is your current default. Untick to change it.':'Not your current default. Tick to change it.'):(defaultOn?'Will become your default when you end this session.':'Your default will change to keeping history when you end this session.')}</p></div><a href="/account#profile">Manage terminal preferences →</a></div></ConfirmDialog>{:else if action === 'archive'}<ConfirmDialog title={`Remove ${actionTitle} from history?`} body={terminalArchiveBody(actionState)} confirmLabel="Remove from history" onconfirm={()=>void performAction()} oncancel={()=>action=null} />{/if}
 
 <style>
   .ended{position:relative;overflow:hidden}.ended>*{position:relative}.ended-glow{position:absolute!important;inset:-20% 20% auto;height:60%;background:radial-gradient(closest-side,color-mix(in srgb,var(--accent-text) 22%,transparent),transparent);filter:blur(30px);pointer-events:none}
@@ -701,6 +704,12 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   .panel-separator{position:relative;z-index:3;margin:0 -8px;display:flex;align-items:center;justify-content:center;cursor:col-resize;touch-action:none;outline:0}.panel-separator::after{content:'';width:4px;height:40px;border-radius:2px;background:var(--line)}.panel-separator:hover::after,.workspace.resizing .panel-separator::after{background:var(--accent);height:64px}.panel-separator:focus-visible::after{background:var(--accent);height:64px;outline:2px solid var(--accent);outline-offset:3px}
   .workspace.resizing{cursor:col-resize;user-select:none}
   @media(max-width:650px){.workspace{border-radius:8px}.workspace-toolbar{gap:6px;padding:5px 6px}.workspace-title h1{display:none}.workspace-actions>button[aria-controls="terminal-sessions"]{max-width:52px;white-space:normal;line-height:1.1}.quick-machine{padding:4px 7px;min-width:28px}.workspace-toolbar .find-machine{display:none}.workspace-title>a{padding:3px}.workspace-actions{gap:4px}.workspace-actions .btn{padding:5px 7px;min-height:32px;font-size:.67rem}.workspace-actions .count,.workspace-actions .wide-label{display:none}.workspace-actions .mobile-label{display:inline}.empty{padding:20px 14px}.empty h2{font-size:1.35rem}.create-form{grid-template-columns:minmax(0,1fr)}.create-form p{grid-column:1}.workspace-notice{font-size:.65rem;padding:5px 8px}}
+  /* Gaffer's super focus on a phone, held upright or sideways: even the workspace frame and toolbar give their room to
+     the conversation. */
+  @media (max-width:650px), (max-height:500px) and (pointer:coarse) and (orientation:landscape){
+    .workspace:has(:global(.session-screen.focus)){border:0;border-radius:0;background:var(--bg)}
+    .workspace:has(:global(.session-screen.focus))>.workspace-toolbar{display:none}
+  }
   @media(pointer:coarse){.workspace-actions .btn{min-height:40px;min-width:40px}.quick-machine{min-width:40px}.workspace-toolbar .find-machine{min-height:40px}.workspace-title>a{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px;box-sizing:border-box}}
   /* A touch tablet (wider than a phone, not a phone held sideways): the toolbar's targets are 44 px, as everything around the session screen; the panel's separator has a 44 × 88 px grip. */
   @media(pointer:coarse) and (min-width:651px) and (max-width:1099px) and (min-height:501px){.panel-separator:not(.mini)::before{content:'';position:absolute;top:50%;right:calc(50% - 4px);width:44px;height:88px;transform:translateY(-50%)}}

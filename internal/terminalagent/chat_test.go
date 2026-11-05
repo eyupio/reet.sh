@@ -966,3 +966,42 @@ func TestProcessEndingDuringAdmissionIsObservedAfterAdmission(t *testing.T) {
 		t.Fatalf("exit was overwritten by admission: %q", last)
 	}
 }
+
+func TestStartPromptRefusesAfterSupervisorClose(t *testing.T) {
+	sup := newChatSupervisor(t.Context(), terminalhost.ManagerOptions{Home: t.TempDir()})
+	sup.Close()
+	h := &chatHost{sup: sup, link: &chatLink{}}
+	cs := &chatSession{id: "session-0123456789", state: terminalproto.Running}
+	if h.startPrompt(cs, "hello", nil) {
+		t.Fatal("startPrompt accepted work after Close")
+	}
+	if cs.busy {
+		t.Fatal("startPrompt marked the session busy after Close")
+	}
+}
+
+func TestSupervisorCloseCancelsItsContext(t *testing.T) {
+	sup := newChatSupervisor(t.Context(), terminalhost.ManagerOptions{Home: t.TempDir()})
+	sup.Close()
+	select {
+	case <-sup.ctx.Done():
+	default:
+		t.Fatal("Close did not cancel the supervisor context")
+	}
+}
+
+func TestChatControlsRefuseAfterSupervisorClose(t *testing.T) {
+	sup := newChatSupervisor(t.Context(), terminalhost.ManagerOptions{Home: t.TempDir()})
+	const id = "session-0123456789"
+	sup.mu.Lock()
+	sup.sessions[id] = &chatSession{id: id, state: terminalproto.Running}
+	sup.mu.Unlock()
+	h := &chatHost{sup: sup, link: &chatLink{}}
+	sup.Close()
+	if err := h.setModel(t.Context(), id, "provider/model"); !errors.Is(err, terminalhost.ErrManagerClosed) {
+		t.Fatalf("setModel after close: %v", err)
+	}
+	if err := h.setAgentMode(t.Context(), id, "mode"); !errors.Is(err, terminalhost.ErrManagerClosed) {
+		t.Fatalf("setAgentMode after close: %v", err)
+	}
+}

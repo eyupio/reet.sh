@@ -165,7 +165,43 @@ test('summaries disclose truncated history, bound the handover, omit code blocks
   assert.equal(gafferProgress({ ...chat, items: chat.items.slice(1) }, '', true, true).visible, true)
 })
 
-const { gafferPose, gafferGesture, gafferAside, gafferClickRun, gafferPoke, gafferClickAside } = await import(asURL(compile('./gafferPersonality.ts')))
+const { gafferPose, gafferGesture, gafferAside, gafferClickRun, gafferPoke, gafferClickAside, gafferMayPerform, gafferPerformance, gafferPerformanceGap } = await import(asURL(compile('./gafferPersonality.ts')))
+
+test('the foreground repertoire includes a brew by its second performance and avoids its last three gestures', () => {
+  for (const random of [() => 0, () => .25, () => .5, () => .99]) {
+    const recent = []
+    for (let i = 0; i < 40; i++) {
+      const phase = ['editing', 'reading', 'running', 'searching'][i % 4]
+      const next = gafferPerformance(phase, recent, random)
+      assert.ok(next)
+      assert.ok(!recent.slice(0, 3).includes(next))
+      assert.notEqual(next, 'rest-head')
+      recent.unshift(next)
+      if (i >= 1) assert.ok(recent.indexOf('sip') <= 5)
+      recent.length = Math.min(recent.length, 10)
+    }
+  }
+})
+
+test('questions, approvals, connection trouble and errors interrupt decoration rather than making tea', () => {
+  for (const phase of ['starting', 'approval', 'question', 'connecting', 'reconnecting', 'error', 'cancelled']) {
+    assert.equal(gafferMayPerform(phase), false)
+    assert.equal(gafferPerformance(phase, ['biscuit'], () => 0), gafferGesture(phase))
+  }
+})
+
+test('resting the head belongs to a stopped job and its intervals are quieter', () => {
+  for (const phase of ['idle', 'ended']) {
+    assert.equal(gafferPerformance(phase, [], () => 0), 'rest-head')
+    assert.equal(gafferPerformanceGap(phase, () => 0), 22_000)
+    assert.ok(gafferPerformanceGap(phase, () => .999) < 30_000)
+  }
+  assert.equal(gafferPerformanceGap('editing', () => 0), 12_000)
+  assert.ok(gafferPerformanceGap('editing', () => .999) < 20_000)
+  const history = ['nod', 'look-around', 'scratch-ear']
+  gafferPerformance('working', history, () => NaN)
+  assert.deepEqual(history, ['nod', 'look-around', 'scratch-ear'])
+})
 
 test('returning to work means tea, returning to a stopped session means sleep, and problems or decisions always win', () => {
   for (const phase of ['planning', 'reading', 'searching', 'editing', 'running', 'responding']) assert.equal(gafferPose(phase, true), 'tea')

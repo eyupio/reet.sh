@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/reet.sh/internal/noderuntime"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -21,9 +22,11 @@ func TestChooseSyncMode(t *testing.T) {
 	}{
 		{name: "apply", input: "apply\n", apply: true},
 		{name: "apply shorthand", input: "a\n", apply: true},
+		{name: "apply number", input: "2\n", apply: true},
 		{name: "uppercase apply", input: "APPLY\n", apply: true},
 		{name: "preview", input: "preview\n"},
 		{name: "preview shorthand", input: "p\n"},
+		{name: "preview number", input: "1\n"},
 		{name: "empty answers preview", input: "\n"},
 		{name: "unknown then preview", input: "later\npreview\n"},
 		{name: "unknown then apply", input: "yes please\napply\n", apply: true},
@@ -45,6 +48,8 @@ func TestChooseSyncMode(t *testing.T) {
 }
 
 func TestRequireNpxOnlyForInstalls(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	t.Setenv("PATH", t.TempDir())
 	install := []SyncAction{{Add: true, Skill: store.SyncSkill{SourceType: "github"}}}
 	err := requireNpx(install)
@@ -58,12 +63,27 @@ func TestRequireNpxOnlyForInstalls(t *testing.T) {
 		t.Fatalf("removal should not need npx: %v", err)
 	}
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "npx"), []byte("#!/bin/sh\n"), 0755); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"npx", "node"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Setenv("PATH", bin)
 	if err := requireNpx(install); err != nil {
 		t.Fatalf("present npx = %v", err)
+	}
+	managed := filepath.Join(noderuntime.Dir(home), "bin")
+	if err := os.MkdirAll(managed, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"npx", "node"} {
+		if err := os.WriteFile(filepath.Join(managed, name), []byte("#!/bin/sh\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", t.TempDir())
+	if err := requireNpx(install); err != nil {
+		t.Fatalf("managed runtime = %v", err)
 	}
 }
 
@@ -75,6 +95,7 @@ func TestSyncPreviewConfirmationAndApply(t *testing.T) {
 		{name: "preview"},
 		{name: "confirmation declined", apply: true, input: "no\n", problem: "cancelled"},
 		{name: "apply install and removal", apply: true, input: "Laptop Claude\n"},
+		{name: "apply accepts yes", apply: true, input: "yes\n"},
 		{name: "command fails and reports inventory", apply: true, input: "Laptop Claude\n", fail: true, problem: "sync stopped"},
 		{name: "controller changed", apply: true, input: "Laptop Claude\n", changed: true, problem: "controller target changed"},
 		{name: "concurrent local sync", apply: true, input: "Laptop Claude\n", locked: true, problem: "cannot lock target"},
@@ -361,5 +382,19 @@ func TestSyncReplacesLocalDuplicateAndBacksItUp(t *testing.T) {
 	backups, err := filepath.Glob(filepath.Join(home, ".claude", ".reet-sync-backups", "removed-*", "improve", "SKILL.md"))
 	if err != nil || len(backups) != 1 {
 		t.Fatalf("local copy was not backed up: %v %v", backups, err)
+	}
+}
+
+func TestNetworkFailureRecognisesOfflineErrors(t *testing.T) {
+	for _, message := range []string{"getaddrinfo ENOTFOUND github.com", "npm ERR! network request failed", "proxyconnect tcp: connection refused"} {
+		if !networkFailure(errors.New(message)) {
+			t.Fatalf("%q was not treated as a network failure", message)
+		}
+	}
+	if !networkFailure(&commandOutputError{err: errors.New("exit status 1"), output: "npm ERR! code ENOTFOUND"}) {
+		t.Fatal("captured command output was not classified")
+	}
+	if networkFailure(errors.New("source conflict for alpha")) {
+		t.Fatal("ordinary refusal looked like a network failure")
 	}
 }

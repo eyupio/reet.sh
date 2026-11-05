@@ -51,7 +51,7 @@ async function workspace(width = 1440, theme = 'light', touch = false, entry = '
   const app = await openWorkspace(browser, { width, height: 1000, theme, touch, terminalMachines: machines, terminalStatus: { configured: true, available: true, reason: '' }, routes,
     skills: [skill('brainstorm'), skill('polish')] })
   await app.page.goto(new URL(entry, base).href)
-  await expect(app.page.getByRole('heading', { name: 'A reet good day’s work.' })).toBeVisible()
+  await expect(app.page.getByRole('heading', { name: 'Your work, in good order.' })).toBeVisible()
   // An address naming one project narrows the board to that project's sessions.
   await expect(app.page.locator('.session-card')).toHaveCount(entry.includes('?project=') ? 2 : 7)
   return { ...app, box }
@@ -98,6 +98,17 @@ try {
   const app = await workspace(), { page, box } = app
   page.setDefaultTimeout(7000)
   await page.screenshot({ path: '../work/screenshots/session-board-desktop.png', fullPage: true })
+  // Cards open from their core details: the saved prompt or branch waits behind Details, and closes again.
+  const detailCard = page.locator('.session-card').filter({ hasText: 'Give the settings page a proper polish' })
+  const showDetails = detailCard.getByRole('button', { name: 'Show details for Give the settings page a proper polish', exact: true })
+  const hideDetails = detailCard.getByRole('button', { name: 'Hide details for Give the settings page a proper polish', exact: true })
+  await expect(showDetails).toHaveAttribute('aria-expanded', 'false')
+  await expect(detailCard.locator('.details')).toHaveAttribute('inert', '')
+  await showDetails.click()
+  await expect(hideDetails).toHaveAttribute('aria-expanded', 'true')
+  await expect(detailCard.locator('.details')).not.toHaveAttribute('inert', '')
+  await hideDetails.click()
+  await expect(showDetails).toHaveAttribute('aria-expanded', 'false')
   await page.getByRole('button', { name: /^Backlog/ }).click()
   await expect(page.locator('.stage')).toHaveCount(1); await expect(page.locator('.session-card')).toHaveCount(3)
   await page.screenshot({path:'../work/screenshots/session-backlog-focus.png',fullPage:true})

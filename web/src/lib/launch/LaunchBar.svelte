@@ -1,6 +1,6 @@
 <script lang="ts">
   import { gafferTooltip } from '../gafferTooltip'
- import { isChatTool, structuredAgent } from '../terminal/api'
+ import { chatNeedsTrust, chatTrustText, isChatTool, structuredAgent } from '../terminal/api'
   import { onMount, tick, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { shell } from '../dialogShell'
@@ -8,7 +8,8 @@
   import { CATALOGUE, agentChoices } from '../catalogue'
   import { defaultLabel, favouriteKey, modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
-  import { afterLaunch, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
+  import { launchEfforts } from '../terminal/launchOptions'
+  import { afterLaunch, chatEffort, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
   import { createTerminal, getFolderProject, getSelectionRun, launchProgress, launchUpload, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
     type BranchesResult, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
@@ -144,7 +145,10 @@
     const current = choice, all = machines
     if (!current || locked || !isChatTool(current.agent) || current.chat !== undefined) return
     const host = current.projectIds.length === 1 ? projects?.find(p => p.id === current.projectIds[0])?.host : current.homeMachine
-    if (structuredAgent(all?.find(m => m.agentId === host)?.capabilities, current.agent)) choice = { ...current, chat: true }
+    if (structuredAgent(all?.find(m => m.agentId === host)?.capabilities, current.agent)) {
+      const next: LaunchChoice = { ...current, chat: true }
+      choice = { ...next, effort: chatEffort(next, host, all) }
+    }
   })
   // Favourites are a help, not a prerequisite: the bar opens on the project/account defaults and the favourite
   // marked for the agent only fills a model that neither of those set. A late favourites read therefore cannot hold up
@@ -466,7 +470,7 @@
   const reason = $derived(!choice || !projects ? '' : !machines ? 'Start waits until your machines have been read.' : startable(choice, projects, machines, profile))
   const locked = $derived(busy || leaving || operation !== null)
   // The trust box is the one choice that stops a Gaffer start: say so beside the box, not only in the status line.
-  const trustMissing = $derived(!!choice?.chat && choice.agent === 'opencode' && choice.trust !== true)
+  const trustMissing = $derived(!!choice?.chat && chatNeedsTrust(choice.agent) && choice.trust !== true)
   // Why YOLO cannot even open the dialog. A machine that refuses it is shown in the dialog instead.
   const yoloWhy = $derived.by(() => {
     if (!yoloSetting) return 'Reading the account setting…'
@@ -536,7 +540,7 @@
       return [{ value: '', label: current ? `the current branch (${current})` : 'the current branch' }, ...listed.map(b => ({ value: b, label: b }))]
     }
     if (slot === 'worktree') return [{ value: 'yes', label: 'a fresh worktree' }, { value: 'no', label: 'the checkout' }]
-    if (slot === 'effort') return [{ value: '', label: 'default' }, { value: 'low', label: 'low' }, { value: 'medium', label: 'medium' }, { value: 'high', label: 'high' }]
+    if (slot === 'effort') return launchEfforts(choice.agent, target?.capabilities, choice.chat === true).map(value => ({ value, label: value || 'Agent default' }))
     return []
   }
   function valueOf(slot: string): string {
@@ -558,7 +562,11 @@
       const project = picked.length === 1 ? picked[0] : null
       explicitModel = false; explicitEffort = false
       choice = withAgent(choice, value, project, profile, { machines: machines ?? [], favourites })
-    } else if (slot === 'chat') choice = value === 'chat' ? { ...choice, chat: true } : { ...choice, chat: false }
+    } else if (slot === 'chat') {
+      const next: LaunchChoice = { ...choice, chat: value === 'chat' }
+      const host = picked.length === 1 ? picked[0].host : choice.homeMachine
+      choice = { ...next, effort: chatEffort(next, host, machines ?? []) }
+    }
     else if (slot === 'model') { explicitModel = true; choice = { ...choice, model: value } }
     else if (slot === 'project') {
       if (value === ADD) { const opener = open?.opener; if (opener) onaddproject?.(opener); return }
@@ -1063,10 +1071,10 @@
         aria-describedby={[choice?.prompt ? `${id}-secrets` : '', shownStatus ? `${id}-status` : ''].filter(Boolean).join(' ') || undefined}
         autocomplete="off" spellcheck="true"></textarea>
     </div>
-    {#if choice?.chat && choice.agent === 'opencode'}
+    {#if choice?.chat && chatNeedsTrust(choice.agent)}
       <label class="trust" class:missing={trustMissing}>
         <input type="checkbox" bind:checked={choice.trust} disabled={locked} aria-invalid={trustMissing} aria-describedby={trustMissing ? `${id}-trust-why` : undefined} />
-        <span>I trust this folder; OpenCode plugins in <code>.opencode</code> may run.
+        <span>{chatTrustText(choice.agent)}
           {#if trustMissing}<span class="trust-why" id={`${id}-trust-why`} role="alert">Tick this box to start Gaffer.</span>{/if}
         </span>
       </label>

@@ -56,8 +56,8 @@ try {
     await expect(page).toHaveTitle(/Write a skill · reet\.sh/)
     await page.locator('.skill-choice').filter({ hasText: 'reet-review' }).click()
     await page.locator('.save-dock').getByRole('button', { name: 'Save draft', exact: true }).click()
-    await expect(page.getByText(/Next: Put it on a machine/)).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Put it on a machine', exact: true })).toHaveAttribute('href', `/sync?skill=${encodeURIComponent(`hosted/${new URL(base).host}/sam/reet-review`)}`)
+    await expect(page.getByText(/Ready for your machines/)).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Sync all machines', exact: true })).toHaveAttribute('href', `/sync?skill=${encodeURIComponent(`hosted/${new URL(base).host}/sam/reet-review`)}`)
 
     await page.goto(`${base}/skills`)
     await expect(page.getByRole('heading', { name: /Your drafts/ })).toBeVisible()

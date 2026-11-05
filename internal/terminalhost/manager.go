@@ -753,5 +753,5 @@ func (m *Manager) WorktreeRemove(ctx context.Context, in terminalproto.WorktreeR
 	if err := m.allowed(); err != nil {
 		return WorktreeRemoved{}, err
 	}
-	return RemoveWorktree(ctx, m.home, in.Project, in.Repo, in.Run, WorktreeCounts{Changed: in.Changed, Unpushed: in.Unpushed}, m.git)
+	return RemoveWorktree(ctx, m.home, in.Project, in.Repo, in.Run, WorktreeCounts{Changed: in.Changed, Unpushed: in.Unpushed, Discard: in.Discard, Fingerprint: in.Fingerprint}, m.git)
 }

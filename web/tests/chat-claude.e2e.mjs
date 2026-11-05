@@ -50,7 +50,7 @@ try {
   const dialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })
   await dialog.getByRole('combobox', { name: 'Agent', exact: true }).selectOption({ label: 'Claude Code' })
   await expect(dialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue('reet')
-  await expect(dialog.getByText('Claude Code asks before it edits a file or runs a command.', { exact: false })).toBeVisible()
+  await expect(dialog.locator('.hint').filter({ hasText: 'Claude Code asks before it edits a file or runs a command.' })).toBeVisible()
   await expect(dialog.getByText('Only your own Claude settings apply', { exact: false })).toBeVisible()
   await expect(dialog.getByText('.opencode', { exact: false })).toHaveCount(0)
   await dialog.getByRole('textbox', { name: /Opening prompt/ }).fill('fix the failing build')

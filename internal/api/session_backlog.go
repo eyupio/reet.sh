@@ -103,6 +103,11 @@ func (s *server) sessionBacklogSave(w http.ResponseWriter, r *http.Request) {
 		bad("Give the idea a title or a note.")
 		return
 	}
+	// A draft saved without a title is named from what it says, as the start
+	// dialog would have suggested. With nothing to go on it is still refused.
+	if d.Title == "" {
+		d.Title = terminalproto.PromptTitle(d.Prompt)
+	}
 	if !terminalproto.ValidTitle(d.Title) {
 		bad("Use a session title of 1 to 80 plain characters.")
 		return

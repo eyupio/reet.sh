@@ -20,26 +20,54 @@ import (
 //go:embed testdata/help/*.txt testdata/help/sources.json
 var catalogueHelp embed.FS
 
-func TestCatalogueHasSevenAgents(t *testing.T) {
+func TestCatalogueHasEightAgents(t *testing.T) {
 	var ids []string
 	for _, p := range Catalogue {
 		ids = append(ids, p.ID)
 	}
-	if !reflect.DeepEqual(ids, []string{"claude", "codex", "opencode", "gemini", "pi", "cursor", "cline"}) {
+	if !reflect.DeepEqual(ids, []string{"claude", "codex", "opencode", "gemini", "pi", "cursor", "cline", "antigravity"}) {
 		t.Fatal(ids)
 	}
 }
 
 func TestOldControllerSeesOnlyFourTools(t *testing.T) {
-	look := fakeLookPath("claude", "codex", "opencode", "gemini", "pi", "cursor-agent", "cline")
+	look := fakeLookPath("claude", "codex", "opencode", "gemini", "pi", "cursor-agent", "cline", "agy")
 	want := []string{"claude", "codex", "gemini", "opencode"}
 	if got := InstalledTools(look, false); !reflect.DeepEqual(got, want) {
 		t.Fatal(got)
 	}
 	// New launch modes remain unavailable until captured CLI help establishes
 	// their prompt, model, and permission arguments.
-	if got := InstalledTools(look, true); !reflect.DeepEqual(got, []string{"claude", "cline", "codex", "gemini", "opencode"}) {
+	if got := InstalledTools(look, true); !reflect.DeepEqual(got, []string{"antigravity", "claude", "cline", "codex", "gemini", "opencode"}) {
 		t.Fatal("unconfirmed preset advertised", got)
+	}
+}
+
+func TestAntigravityUsesOnlyAGYBinary(t *testing.T) {
+	if got := InstalledTools(fakeLookPath("agy"), true); !reflect.DeepEqual(got, []string{"antigravity"}) {
+		t.Fatal(got)
+	}
+	// The desktop app also uses this name; it is not the terminal CLI alias.
+	if got := InstalledTools(fakeLookPath("antigravity"), true); len(got) != 0 {
+		t.Fatal("desktop binary advertised as CLI", got)
+	}
+	if argv, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "antigravity"}, fakeLookPath("antigravity")); argv != nil || !errors.Is(err, ErrLaunchUnavailable) {
+		t.Fatal(argv, err)
+	}
+}
+
+func TestLaunchArgvAntigravityOptions(t *testing.T) {
+	for _, yolo := range []bool{false, true} {
+		in := terminalproto.Create{Title: "test", Cols: 80, Rows: 24, Tool: "antigravity", Model: "custom-model", Effort: "high", Prompt: "update", Yolo: yolo}
+		want := []string{"/opt/fake/bin/agy"}
+		if yolo {
+			want = append(want, "--dangerously-skip-permissions")
+		}
+		want = append(want, "--effort", "high", "--model", in.Model, "--prompt-interactive", in.Prompt)
+		got, err := LaunchArgv(in, fakeLookPath("agy"))
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatal(got, err)
+		}
 	}
 }
 
@@ -418,9 +446,10 @@ func TestYoloNeverWithoutFlag(t *testing.T) {
 		{"codex", []string{"--ask-for-approval", "never"}},
 		{"opencode", []string{"--auto"}},
 		{"cline", []string{"--yolo"}},
+		{"antigravity", []string{"--dangerously-skip-permissions"}},
 	} {
 		in := terminalproto.Create{Title: "test", Cols: 80, Rows: 24, Tool: tc.tool}
-		got, err := LaunchArgv(in, fakeLookPath(tc.tool))
+		got, err := LaunchArgv(in, fakeLookPath(tc.tool, "agy"))
 		if err != nil {
 			t.Fatal(tc.tool, err)
 		}
@@ -454,7 +483,7 @@ func TestOnlyOpenCodeHasAConfirmedModelListing(t *testing.T) {
 	if !ListsModels("opencode") {
 		t.Fatal("OpenCode should list models")
 	}
-	for _, tool := range []string{"claude", "codex", "gemini", "cline", "pi", "cursor", "unknown"} {
+	for _, tool := range []string{"claude", "codex", "gemini", "cline", "antigravity", "pi", "cursor", "unknown"} {
 		if ListsModels(tool) {
 			t.Fatalf("%s should not run a model listing", tool)
 		}

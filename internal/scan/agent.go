@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -126,7 +125,7 @@ func agentRequestContext(ctx context.Context, c agentConfig, path string, body a
 	req.Header.Set("X-Reet-Agent-Key", c.Secret)
 	req.Header.Set("X-Reet-Version", version)
 	req.Header.Set("X-Reet-Commit", buildCommit)
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -193,6 +192,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	remoteStatus := fs.Bool("remote", false, "also request controller status (may wait for the network)")
 	skipTerminalSetup := fs.Bool("skip-terminal-setup", false, "skip the interactive terminal connection wizard after enrollment")
 	allow := fs.Bool("allow-apply", false, "allow this installation to execute plans approved in the web UI")
+	ifNeeded := fs.Bool("if-needed", false, "reuse an enrollment for the same site and machine (installer retries)")
 	var projects multi
 	fs.Var(&projects, "project", "absolute project directory to track (repeatable at enrollment)")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -212,6 +212,26 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	switch action {
 	case "enroll":
 		if _, err := os.Stat(*config); err == nil {
+			if *ifNeeded {
+				c, err := loadAgentConfig(*config)
+				if err != nil {
+					return err
+				}
+				if c.Server != strings.TrimRight(*server, "/") || !strings.EqualFold(c.Host, *host) || len(projects) != 0 {
+					return errors.New("existing enrollment is for another site, machine or project selection; inspect reet agent status before reconnecting")
+				}
+				if *allow {
+					c.AllowApply = true
+					if err = os.MkdirAll(filepath.Join(c.Home, ".agents", "skills"), 0755); err != nil {
+						return err
+					}
+					if err = writePrivate(*config, c); err != nil {
+						return err
+					}
+				}
+				fmt.Fprintf(out, "Already enrolled as %s. Reusing this machine's connection.\n", c.Host)
+				return nil
+			}
 			return errors.New("configuration already exists; keep it or revoke the enrollment before replacing it")
 		}
 		if *server == "" {
@@ -279,7 +299,13 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 		if err = writePrivate(*config, c); err != nil {
 			return fmt.Errorf("enrolled but could not save configuration; revoke enrollment in Machines before retrying: %w", err)
 		}
+		if c.AllowApply {
+			if err = os.MkdirAll(filepath.Join(c.Home, ".agents", "skills"), 0755); err != nil {
+				return fmt.Errorf("enrolled but could not prepare the shared skills folder: %w", err)
+			}
+		}
 		fmt.Fprintf(out, "Enrolled %s. Private configuration: %s\nRun reet agent run --config %q to report inventories and process approved jobs. Remote apply enabled: %t\n", c.Host, *config, *config, c.AllowApply)
+		fmt.Fprintln(out, "Your shared skill library will sync after the first scan, including skills you write in reet. New library skills follow automatically.")
 		if !*skipTerminalSetup {
 			OfferTerminalHostSetup(TerminalSetupOptions{Config: *config, Version: version}, in, out)
 		}
@@ -407,6 +433,8 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	}
 	lastScan := time.Time{}
 	announcedWaiting := false
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 	for {
 		if err = agentCycle(ctx, c, *config, out, version, &lastScan, !*once); err != nil {
 			if *once {
@@ -426,7 +454,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-time.After(5 * time.Second):
+		case <-ticker.C:
 		}
 	}
 }
@@ -585,7 +613,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 			}
 			if operationErr == nil {
 				args := []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--target", j.TargetID, "--config", config}
-				opts := syncOptions{cwd: dir, verifyEnrollment: true, preflight: requireNpx, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }, onProgress: func(stage, detail string) {
+				opts := syncOptions{cwd: dir, verifyEnrollment: true, preflight: requireDependencies, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }, onProgress: func(stage, detail string) {
 					reportCtx, reportCancel := context.WithTimeout(ctx, 5*time.Second)
 					defer reportCancel()
 					_ = agentRequestContext(reportCtx, c, "/api/v2/sync/jobs/stage", map[string]string{"id": j.ID, "stage": stage, "detail": detail}, nil, version)
@@ -596,13 +624,12 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 				}
 				runCtx, cancel := context.WithTimeout(ctx, 8*time.Minute)
 				operationErr = runSyncWithOptions(args, strings.NewReader(""), out, func(args []string, cwd string) error {
-					cmd := exec.CommandContext(runCtx, "npx", args...)
-					cmd.Dir = cwd
-					cmd.Stdout = out
-					cmd.Stderr = out
-					return cmd.Run()
+					return runNpxCommand(runCtx, args, cwd, nil, out)
 				}, version, opts)
 				cancel()
+				if operationErr == nil && (j.Kind == "apply" || len(result.Plan.Actions) == 0) {
+					operationErr = reportContentObservations(ctx, c, version)
+				}
 				kindOK := j.Kind == "preview" || j.Kind == "auto"
 				if operationErr == nil && kindOK {
 					result.Status = "awaiting-approval"

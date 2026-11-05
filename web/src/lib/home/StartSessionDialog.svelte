@@ -13,9 +13,9 @@
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import SkillPromptPicker from './SkillPromptPicker.svelte'
   import FolderBrowser from './FolderBrowser.svelte'
-  import { defaultTitle, initialChoice, startable, toCreate, withAgent, withHome, withProject, yoloCanStart, yoloGates, type LaunchChoice, type LaunchCreate, type LaunchDefaults } from '../launchBar'
+  import { chatEffort, defaultTitle, initialChoice, startable, toCreate, withAgent, withHome, withProject, yoloCanStart, yoloGates, type LaunchChoice, type LaunchCreate, type LaunchDefaults } from '../launchBar'
   import YoloDialog from '../launch/YoloDialog.svelte'
-  import { createTerminal, launchUpload, listBranches, machineModels, refusalSentence, type BranchesResult, structuredAgent, TerminalError, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { chatNeedsTrust, chatTrustText, createTerminal, launchUpload, listBranches, machineModels, refusalSentence, type BranchesResult, structuredAgent, TerminalError, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
 
   // Starts a session straight from the Active column. The interface choice is the launch bar's own: Gaffer is the default
   // wherever the machine offers it, and the agent's own TUI is one click away. Everything else (defaults, refusals, the one
@@ -55,7 +55,7 @@
   const promptBytes = $derived(new TextEncoder().encode(choice.prompt).length)
   const promptProblem = $derived(validatePrompt(choice.agent, choice.prompt) ?? '')
   // The trust box is the one choice that stops a Gaffer start: say so beside the box, not only in the note.
-  const trustMissing = $derived(chat && choice.agent === 'opencode' && choice.trust !== true)
+  const trustMissing = $derived(chat && chatNeedsTrust(choice.agent) && choice.trust !== true)
   const yoloWhy = $derived.by(() => {
     if (!yoloSetting) return 'Reading the account setting…'
     if (!yoloSetting.allowed) return 'An owner or admin can allow YOLO for this account in Settings.'
@@ -185,7 +185,12 @@
     if (next) { yoloConfirmed = false; choice = withProject(choice, next, profile, { machines }) }
   }
   function pickAgent(value: string) { choice = withAgent(choice, value, project ? { ...project } : null, profile, { machines }) }
-  function pickTui(reet: boolean) { const { trust: _t, ...rest } = choice; choice = { ...rest, chat: reet } }
+  function pickTui(reet: boolean) {
+    const { trust: _t, ...rest } = choice
+    const next: LaunchChoice = { ...rest, chat: reet }
+    // A chat takes an effort only when its descriptor offers it; a terminal's thinking choice is kept for the TUI.
+    choice = { ...next, effort: reet ? chatEffort(next, machine?.agentId, machines) : next.effort }
+  }
   function askMode() { yoloConfirmed = false; if (choice.approvals === 'yolo') choice = { ...choice, approvals: 'ask' } }
   function openYolo() {
     if (busy || yoloWhy) return
@@ -346,7 +351,7 @@
               <button use:gafferTooltip type="button" class:on={chat} aria-pressed={chat} aria-disabled={!hasChat} title={hasChat ? '' : 'This machine does not offer Gaffer for that agent.'} onclick={() => { if (hasChat) pickTui(true) }}>Gaffer</button>
               <button type="button" class:on={!chat} aria-pressed={!chat} onclick={() => pickTui(false)}>{toolName(choice.agent)} TUI</button>
             </div>
-            <small>{chat ? (choice.agent === 'opencode' ? 'A native chat with approvals, history and images.' : choice.agent === 'codex' ? 'A native chat. Codex runs commands in its sandbox and asks before one leaves it.' : 'A native chat that asks before it changes anything.') : `${toolName(choice.agent)}’s own terminal interface.`}</small>
+            <small>{chat ? (choice.agent === 'opencode' ? 'A native chat with approvals, history and images.' : choice.agent === 'antigravity' ? 'A native chat with AGY’s configured permission rules and approval cards.' : choice.agent === 'codex' ? 'A native chat. Codex runs commands in its sandbox and asks before one leaves it.' : 'A native chat that asks before it changes anything.') : `${toolName(choice.agent)}’s own terminal interface.`}</small>
           </div>
           {#if chat}
             <div class="field"><span>Approvals</span>
@@ -354,12 +359,12 @@
                 <button type="button" class:on={choice.approvals !== 'yolo'} aria-pressed={choice.approvals !== 'yolo'} onclick={askMode}>Ask me</button>
                 <button type="button" class:on={choice.approvals === 'yolo'} aria-pressed={choice.approvals === 'yolo'} disabled={!!yoloWhy} title={yoloWhy || 'Start only after a confirmation.'} onclick={openYolo}>YOLO</button>
               </div>
-              <small>{choice.approvals === 'yolo' ? 'Every command and edit runs without asking. The start is audited.' : yoloWhy || 'reet asks before each command or edit.'}</small>
+              <small>{choice.approvals === 'yolo' ? 'Every command and edit runs without asking. The start is audited.' : yoloWhy || (choice.agent === 'antigravity' ? 'AGY’s configured permission rules apply; approval requests appear here.' : 'reet asks before each command or edit.')}</small>
             </div>
-            {#if choice.agent === 'opencode'}
+            {#if chatNeedsTrust(choice.agent)}
               <label class="trust" class:missing={trustMissing}>
                 <input type="checkbox" checked={choice.trust === true} onchange={e => choice = { ...choice, trust: e.currentTarget.checked }} aria-invalid={trustMissing} aria-describedby={trustMissing ? `${id}-trust-why` : undefined} />
-                <span>I trust this folder. OpenCode plugins in it may run.
+                <span>{chatTrustText(choice.agent)}
                   {#if trustMissing}<span class="trust-why" id={`${id}-trust-why`} role="alert">Tick this box to start Gaffer.</span>{/if}
                 </span>
               </label>

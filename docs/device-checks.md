@@ -19,6 +19,26 @@ reader checks are not. Typed questions (`elicitation.form`), Claude chats (`REET
 Record each result here with the date and the pull request that carries it, and in `docs/structured-chat-plan.md` beside the
 slice it unblocks. A pass recorded anywhere else does not remove a gate.
 
+### Recorded on 5 November 2026
+
+- **Google Antigravity (AGY), native CLI 1.5.0 with a local provider stub:**
+  `TestRealAntigravityGaffer` passes with an isolated home and workspace outside
+  `/tmp`: missing login, Default mode, confirmed model/effort, streamed text,
+  command and edit Allow/Deny effects, images, history after restart and Stop
+  during a tool. No real Google request or OAuth login was used. The contract and
+  reproduction command are in [the AGY ACP probe](https://github.com/eyupio/reet.sh/blob/main/docs/research/antigravity-acp-probe.md).
+  `web/tests/chat-antigravity.e2e.mjs` also passes in Chromium at 1360 px and
+  320 px in light and dark themes: descriptor gating, folder trust, model/effort,
+  sign-in refusal and retry, streaming and approval answers. These are emulated
+  browser checks, not physical-device or real OAuth results.
+- **Cline, real signed-in CLI, `cline` 3.0.74:** `REET_CLINE_ACP=…/cline CLINE_DIR=…/.cline go test ./internal/acpagent
+  -run TestRealClineStart` passes — the version floor, the reported identity, `act` mode, a boolean `auto_approve`
+  of `false`, a confirmed plan/act switch and a confirmed model switch, with no prompt and therefore no model call.
+  Two prompts with every permission rejected recorded the read, editor and command cards, and a stored conversation
+  replayed through `session/load`; the frames are in
+  [the Cline ACP probe](https://github.com/eyupio/reet.sh/blob/main/docs/research/cline-acp-probe.md). Cline is not
+  behind a switch.
+
 ### Recorded on 4 November 2026
 
 The probe machine is signed in to neither agent (`~/.claude` and `~/.codex` absent, no credential variables set), so these runs

@@ -18,10 +18,90 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## GAFFER-TIMEOUT-1: quiet commands survive the silence deadline (5 November 2026)
+
+The turn watchdog treated a tool that did not stream output as a silent provider, stopping it after ten minutes.
+It now excludes outstanding tools from both the provider-retry notice and the silence deadline. The two-hour hard
+cap still applies, and the silence deadline resumes after the final tool finishes. An output-only update retains
+the tool's last known state so late output cannot reopen a completed tool and suppress timeout recovery.
+
+Three regressions failed before the watchdog fix: quiet command completion and a subsequent prompt, silence after
+command completion, and the hard deadline. Removing the sparse-state fix separately makes the completion/silence
+regression fail. After rebasing onto current main (`c594d81f`), full
+`go test -race ./internal/acpagent ./internal/terminalagent -count=1`, `go vet ./...` and
+`npm --prefix web run check` pass. The web check reports zero errors and two existing unused CSS selector warnings
+in `LaunchBar.svelte` and `SessionHoverCard.svelte`. No Svelte files changed.
+[PR #577](https://github.com/eyupio/reet.sh/pull/577), branch `fix/gaffer-quiet-command-timeout`, carries the fix;
+final-head CI and review remain the merge gate. No live connector has been updated or restarted.
+
 Review batches: [process recovery #480](https://github.com/eyupio/reet.sh/pull/480),
 [retained state #485](https://github.com/eyupio/reet.sh/pull/485), and
 [transcript retention #484](https://github.com/eyupio/reet.sh/pull/484). Eight reproduced defects are addressed across the three
 focused batches below. Each PR records its checks and merge state. All handoff entries are retained when integrating the stack.
+
+## AUTOTITLE-1: automatic session names (5 November 2026)
+
+A session started without a title now gets a name that says what it is, instead of the first 80 characters of
+the prompt or the same `Claude Code · studio` for every session started without one. The name is offline and
+deterministic: no model, no network, no schema change and no setting. Choosing between this, the agent's own
+title after its first turn and a model-written title was the one real decision; the first was picked because
+the controller makes no outbound calls today and the README promises none.
+
+- **Rules.** `terminalproto.PromptTitle` and `AutoTitle` (`internal/terminalproto/autotitle.go`), mirrored by
+  `promptTitle` and `titleFor` in `web/src/lib/agentLaunch.ts`. The first line with something to say; blank
+  lines, code fences, the skills picker's `Use the {name} skill.` line and punctuation-only lines are skipped;
+  heading and bullet markers and English filler (a greeting, "please", "can you", "I'd like you to", "help me",
+  "let's") are removed; the name ends at the first sentence (`e.g.` does not end one, and nothing under 8
+  characters does); an ASCII first letter is capitalised; over 60 characters it is cut at the last space (not
+  before the 20th character) with an ellipsis, else at 60. With nothing usable it is `<Agent> · <folder>`, or
+  `Terminal` and `Terminal · <folder>` for a plain shell. Stated in full in
+  [Launch requests → Session titles](docs/terminal-launch.md#session-titles).
+- **One list of cases for both languages.** `internal/terminalproto/testdata/autotitle.json` (38 prompt cases,
+  14 whole-title cases) is read by `autotitle_test.go` and `web/src/lib/agentLaunch.test.mjs`, so the title the
+  dialog suggests cannot drift from the one the controller would give. The expected values were worked out by
+  hand from the rules before the code existed. Five deliberate breakages of the rules (the limit scan, the
+  abbreviation guard, the minimum word, the minimum sentence, the skills line) each failed the fixture.
+- **Where it applies.** `POST /api/v2/terminal/sessions` names a blank or whitespace-only title (an absent one
+  used to be a 400); `POST`/`PUT /api/v2/session-backlog` names a draft that has a prompt or note but no title
+  (nothing to go on is still a 422); `projectrun.SelectionTitle` calls `PromptTitle`. The plain-terminal dialog's
+  **New session name** is optional (it was pre-filled with `Shell` and required) and its placeholder and hint
+  follow the folder; Home's machine-card shell takes the same name. A title that is sent or typed is kept as
+  typed, Rename is untouched and sessions that already exist are not renamed.
+- **Visible changes.** An unnamed plain shell is now `Terminal` or `Terminal · <folder>`, not `Shell`, matching
+  the `Terminal · <folder>` that "Open a terminal here…" already used; the `home`, `start-agent` and
+  `terminal-organisation` e2e expectations moved with it and `terminal-start` gained the folder case. A long
+  prompt now gives a 60-character name ending in an ellipsis, not a hard cut at 80, so `defaultTitle`'s unit
+  expectations changed.
+- **For the next author.** `terminalhost.TestPackageSourceHasNoInvisibleCharacters` also scans
+  `internal/terminalproto/*.go`. Write zero-width, bidi and line-separator characters as `\u` escapes, and check
+  a new file's bytes afterwards: tooling can turn an escape into the literal character, which is what that test
+  caught here.
+- **Not covered.** A session started with no prompt, or one whose prompt is typed into the terminal afterwards,
+  can only be named from its agent and folder; a name from what the agent actually did needs the agent's own
+  title or a model, both ruled out above. The filler list is English only. Go's `(?i)` folds a few non-ASCII
+  letters that JavaScript's `/i` does not, so a prompt written with, say, a long s could be named differently by
+  the two; no real prompt is affected and the fixture holds no such case.
+
+## GAFFER-CLINE-1: Cline chats in Gaffer (5 November 2026)
+
+Cline CLI 3.0.74 runs its ACP server with `cline --acp`, and reet now offers it as a Gaffer chat beside
+OpenCode. The profile (`internal/acpagent/cline.go`) launches `cline --acp --auto-approve false`, requires
+`act` mode, reads the boolean `auto_approve` back as `false` before any turn (`Spec.RequireOptions`), applies a
+chosen model with a confirmed `session/set_config_option` because Cline ignores one at `session/new`
+(`Spec.ConfirmModelBySwitch`), and routes the person's own `~/.cline` through `CLINE_DIR` while keeping the
+private chat home. The reviewed tool set, the Cline handle shape (`<ms>_<5 base64url>_cli`), the descriptor
+(history, images, model, approvals, act/plan modes) and the scan probe are wired through
+`internal/terminalproto`, `internal/scan`, the browser's chat adapter table and both start dialogs. Cards now
+show a read's file, an editor's `path`/`new_text` as a diff and a `commands` list as the command; a card with
+nothing to review stays unapprovable. Opt-in `TestRealClineStart` passes against the installed binary with no
+prompt: version floor, identity, act mode, a confirmed plan/act switch and a confirmed model switch. Two prompts
+with every permission rejected recorded the cards, and a stored conversation replayed through `session/load`.
+The evidence and limits are in [the Cline ACP probe](docs/research/cline-acp-probe.md). Not covered: images, MCP
+tools or subagents in a turn. A provider failure Cline logs without an ACP frame is now shown as that turn's error
+([PR #573](https://github.com/eyupio/reet.sh/pull/573)); in-place reconnect for a lost Cline chat is in review
+([PR #567](https://github.com/eyupio/reet.sh/pull/567)).
+Merged as [PR #554](https://github.com/eyupio/reet.sh/pull/554) (`3919deef`); all 18 checks passed, including the
+browser suite that runs the new `chat-cline.e2e.mjs`.
 
 ## SEO-1: public search surface and documentation (4 November 2026)
 
@@ -425,6 +505,15 @@ through the same private-revision path, with no publish step.
 **Next UI work:**
 1. **Physical-device checks** for the refreshed pages: 320/390 touch, screen reader, Safari/Firefox.
    Do not claim these from the Chromium fixtures.
+
+## Import into a running controller (4 November 2026)
+
+Branch `backup-import-running`, on top of `backup-restore-checks`. `POST /api/v2/admin/backups/import` is now `multipart/form-data`
+(options first, then `file`; header `X-Reet-Import: 1`), owner only, with the password in the body. The upload is streamed to a temp file and
+bounded. `Service.StageImport` refuses a controller that holds data (`ErrNotEmpty`, `409`) unless `replace`, runs `prepare`, copies
+the live database to `reet.db.before-import-<ts>` with `VacuumInto`, then stages it; `ApplyPendingImport` still swaps it in at the next
+start. `reet backup import --server URL --token-file F FILE` is the matching command. Empty means the first owner and nothing else
+(`holds` in `restore.go`; the topic tags and the server's own `reet-server` environment a new controller makes for itself are not counted). The old octet-stream plus `X-Copy-Password` form is gone.
 
 ## Careful whole-controller restore (4 November 2026)
 

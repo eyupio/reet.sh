@@ -12,11 +12,12 @@
   import { CATALOGUE } from '../catalogue'
   import YoloDialog from '../launch/YoloDialog.svelte'
   import { yoloCanStart, type YoloGate } from '../launchBar'
-  import { structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalArchivable, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
   import type { ChatState } from '../chat'
   import SwitchModeDialog from './SwitchModeDialog.svelte'
   import TerminalIcon from '../terminal/TerminalIcon.svelte'
+  import { PHONE_SCREEN } from '../terminal/sizing'
   import { CONTEXT_DEFAULT, CONTEXT_MIN, clampContextWidth, contextKeyWidth, contextLayoutRecord, readContextLayout, widestContext } from './contextLayout'
 
   // The session screen: identity and persistent layout actions above a wrapping toolbar for interface, approvals
@@ -47,6 +48,18 @@
   const chatView = $derived(!!session.structured)
   const terminalLabel = $derived(session.tool ? `${toolName(session.tool)} TUI` : 'Terminal')
 
+  // A phone opens a Gaffer chat in focus mode: the narrative and composer take the screen, and the site chrome, workspace
+  // toolbar and secondary session controls step aside. The choice lasts for this browser; Exit focus in the header or the
+  // actions menu brings everything back.
+  let phone = $state(typeof matchMedia === 'function' && matchMedia(PHONE_SCREEN).matches)
+  // svelte-ignore state_referenced_locally (the panel key is fixed for this screen, and a browser preference needs it at once)
+  const focusKey = `${contextKey}:focus`
+  function savedFocus(): boolean | null {
+    try { const saved = localStorage.getItem(focusKey); return saved === '1' ? true : saved === '0' ? false : null } catch { return null }
+  }
+  let focusWanted = $state<boolean | null>(savedFocus())
+  const focusOn = $derived(phone && chatView && (focusWanted ?? true))
+
   // The skills line comes from the sync state, read once when the screen opens (undefined while reading, null if it failed).
   let sync = $state<SyncState | null | undefined>(undefined)
   onMount(() => {
@@ -54,6 +67,34 @@
     void getSyncState(life.signal).then(state => { sync = state }).catch(() => { if (!life.signal.aborted) sync = null })
     return () => life.abort()
   })
+
+  // The phone rules include a short touch screen held sideways, so the mode follows the same query the layout does.
+  onMount(() => {
+    const mq = matchMedia(PHONE_SCREEN)
+    const update = () => { phone = mq.matches }
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  })
+
+  // The whole page knows when the session is in focus, so the shell can drop its chrome and the workspace can recompute its
+  // height. Only one session screen is mounted at a time; leaving the screen restores everything.
+  $effect(() => {
+    const root = document.documentElement
+    root.toggleAttribute('data-session-focus', focusOn)
+    return () => root.removeAttribute('data-session-focus')
+  })
+
+  let focusButton = $state<HTMLButtonElement>()
+  async function toggleFocus() {
+    const next = !focusOn
+    focusWanted = next
+    menuAt = null
+    try { localStorage.setItem(focusKey, next ? '1' : '0') } catch { /* optional browser preference */ }
+    if (next) sheetOpen = false
+    await tick()
+    if (next) screen?.querySelector<HTMLTextAreaElement>('.composer-input')?.focus({ preventScroll: true })
+    else focusButton?.focus()
+  }
 
   // The panel's saved width and open state, and the room the screen actually gives it (the container query's 1100 px
   // is measured on this element, so the docked decision matches what CSS used to decide).
@@ -198,6 +239,8 @@
   const docked = $derived(!theatre && screenWidth > 1099)
   const hasSide = $derived(showSide && !!side)
   const contextOpen = $derived(docked ? dockedOpen : sheetOpen)
+  // Focus keeps the conversation alone on the screen, so a Details sheet opened before it goes away.
+  $effect(() => { if (focusOn) sheetOpen = false })
   // The separator's 8 px track sits between the terminal and the panel; the panel takes at most 40 % of what is left.
   const CONTEXT_TRACK = 8
   const contextRoom = $derived(Math.max(0, bodyWidth - CONTEXT_TRACK))
@@ -345,7 +388,7 @@
 
 <!-- One grid: the header and status line, then the context panel, then the terminal, so the tab order is header → panel →
      terminal while the panel shows beside the terminal (right column) or over its edge (as a sheet below the header). -->
-<div class="session-screen" class:theatre class:keyboard class:resizing={contextResizing}
+<div class="session-screen" class:theatre class:keyboard class:focus={focusOn} class:resizing={contextResizing}
   bind:this={screen} style={`--context-width:${shownContextWidth}px`}>
   <div class="body" class:context-docked={docked && contextOpen && !hasSide} class:context-sheet={!docked && contextOpen && !hasSide} bind:clientWidth={bodyWidth}>
     <header class="head">
@@ -358,6 +401,11 @@
       </div>
       <span class="pill" data-status={statusKind} title={source}><span class="dot" aria-hidden="true"></span>{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
       <div class="header-actions">
+        <button type="button" class="focus-button" bind:this={focusButton} aria-pressed={focusOn}
+          aria-label={focusOn ? 'Exit focus mode' : 'Focus mode'} title={focusOn ? 'Show the full session screen' : 'Focus on the conversation and composer'}
+          onclick={() => void toggleFocus()}>
+          <TerminalIcon name={focusOn ? 'contract' : 'expand'} /><span class="wide-label">{focusOn ? 'Exit focus' : 'Focus'}</span><span class="compact-label">{focusOn ? 'Exit' : 'Focus'}</span>
+        </button>
         <button type="button" class="theatre-button" aria-pressed={theatre} aria-label={theatre ? 'Exit theatre view' : 'Theatre view'} title={theatre ? 'Restore the session panels' : 'Hide the panels and focus on this session'} onclick={theatreView}>
           <TerminalIcon name="theatre" /><span class="wide-label">{theatre ? 'Exit theatre' : 'Theatre view'}</span><span class="compact-label">{theatre ? 'Exit' : 'Theatre'}</span>
         </button>
@@ -420,9 +468,11 @@
   <!-- data-keeps-focus: a reconnecting terminal never takes focus out of the open menu. -->
   <div class="menu" role="menu" aria-label={`Actions for ${session.title}`} tabindex="-1" data-keeps-focus bind:this={menu} style={`left:${menuAt.x}px;top:${menuAt.y}px`} onkeydown={menuKey}>
     <button role="menuitem" disabled={busy || serverOff} onclick={() => act('rename')}>Rename…</button>
+    {#if phone && chatView}<button role="menuitem" onclick={() => void toggleFocus()}>{focusOn ? 'Exit focus mode' : 'Focus mode'}</button>{/if}
     {#if session.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}
     {#if live}<button role="menuitem" class="danger" disabled={busy || serverOff} onclick={() => act('end')}>{session.state === 'end_requested' ? 'Retry end request…' : 'End session…'}</button>
-    {:else}<button role="menuitem" disabled={busy} onclick={() => act('archive')}>Remove from history…</button>{/if}
+    {/if}
+    {#if terminalArchivable(session.state)}<button role="menuitem" disabled={busy} onclick={() => act('archive')}>Remove from history…</button>{/if}
     {#if target}<button role="menuitem" disabled={live || away} title={live ? 'End the session first: it is working in this worktree.' : away ? offlineSentence(host) : undefined} onclick={checkWorktree}>Check and remove worktree…</button>{/if}
   </div>
 {/if}
@@ -466,12 +516,13 @@
   .identity-row { display: flex; align-items: center; gap: 12px; min-height: 58px; min-width: 0; }
   .header-actions { display: flex; align-items: center; gap: 6px; flex: none; }
   .session-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
-  .tool-action, .theatre-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--ink-soft); font: 500 12px var(--sans); cursor: pointer; }
-  .tool-action:hover:not(:disabled), .theatre-button:hover { background: var(--tint); color: var(--ink); }
+  .tool-action, .theatre-button, .focus-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--ink-soft); font: 500 12px var(--sans); cursor: pointer; }
+  .tool-action:hover:not(:disabled), .theatre-button:hover, .focus-button:hover { background: var(--tint); color: var(--ink); }
   .tool-action:disabled { opacity: .5; cursor: default; }
+  .focus-button { display: none; }
   .compact-label { display: none; }
   .theatre-button[aria-pressed=true] { border-color: var(--accent-text); background: var(--line-soft); color: var(--ink); }
-  .tool-action:focus-visible, .theatre-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .tool-action:focus-visible, .theatre-button:focus-visible, .focus-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .heading { flex-grow: 1; min-width: 0; }
   /* Back to the Sessions screen: the phone's slim header has it (the workspace toolbar's arrow gives way there). */
   .back { display: none; flex: none; width: 44px; height: 44px; align-items: center; justify-content: center; color: var(--ink-soft); border-radius: 10px; }
@@ -527,7 +578,8 @@
     .head { padding: 0 6px 6px; }
     .identity-row { min-height: 52px; gap: 4px; }
     .header-actions { gap: 2px; }
-    .header-actions .theatre-button, .header-actions .details, .header-actions .more { width: 44px; min-width: 44px; min-height: 44px; padding: 0; }
+    .header-actions .theatre-button, .header-actions .details, .header-actions .more, .header-actions .focus-button { width: 44px; min-width: 44px; min-height: 44px; padding: 0; }
+    .header-actions .focus-button { display: inline-flex; }
     .header-actions button { flex-direction: column; gap: 1px; }
     .header-actions button span { display: block; font: 500 10px/12px var(--sans); }
     .header-actions button .wide-label { display: none; }
@@ -543,6 +595,33 @@
     .badge { font-size: 11px; line-height: 18px; padding: 0 6px; }
 
     .details { padding: 0 10px; }
+  }
+  /* Super focus on a phone: one slim identity row, then the conversation and composer with nothing competing for the room.
+     The site chrome and workspace toolbar are hidden through data-session-focus and the workspace's own rule. */
+  @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
+    .session-screen.focus .head { padding: 0 6px; padding-top: env(safe-area-inset-top, 0px); }
+    .session-screen.focus .identity-row { min-height: 50px; gap: 6px; }
+    .session-screen.focus .heading { min-width: 0; max-width: none; flex: 1 1 auto; }
+    .session-screen.focus .title { font: 600 16px/1.25 var(--sans); }
+    .session-screen.focus .sub, .session-screen.focus .where-phone { display: none; }
+    .session-screen.focus .identity-row > .pill { display: inline-flex; }
+    .session-screen.focus .session-tools { display: none; }
+    .session-screen.focus .header-actions { gap: 0; }
+    .session-screen.focus .header-actions .theatre-button,
+    .session-screen.focus .header-actions .details,
+    .session-screen.focus .header-actions .more { display: none; }
+    .session-screen.focus .header-actions .focus-button { width: 44px; min-width: 44px; min-height: 44px; }
+    .session-screen.focus .live p { margin: 0 8px 6px; }
+    .session-screen.focus .stage { border-top: 0; }
+    /* The narrative is the screen: larger prose, a tighter log, and the composer's secondary tools wait behind Exit focus. */
+    .session-screen.focus :global(.chat-status) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    .session-screen.focus :global(.log) { padding: 12px 14px 16px; gap: 10px; }
+    .session-screen.focus :global(.bubble.agent) { font-size: 15px; line-height: 1.68; }
+    .session-screen.focus :global(.row.user) { margin-top: 14px; }
+    .session-screen.focus :global(.row.user .bubble) { max-width: 90%; }
+    .session-screen.focus :global(.composer) { margin: 0 8px max(8px, env(safe-area-inset-bottom, 0px)); padding: 8px; }
+    .session-screen.focus :global(.hint) { display: none; }
+    .session-screen.focus :global(.tool-head) { min-height: 44px; }
   }
   /* In landscape keep the controls reachable and trim secondary metadata. */
   @media (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {

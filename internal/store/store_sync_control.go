@@ -85,7 +85,10 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 	var err error
 	name := "Reet.sh selected skills"
 	source := in.SourceID
-	if source == "hosted" {
+	if source == "library" {
+		candidates, err = s.SyncLibraryFor(uid, role)
+		name = "Your shared skill library"
+	} else if source == "hosted" {
 		candidates, err = s.SyncHostedFor(uid, in.Origin)
 		name = "My written skills"
 	} else if source == "" || source == "shelf" {
@@ -131,6 +134,9 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		}
 		in.SkillIDs = nil
 		for _, sk := range candidates {
+			if sk.Problem != "" {
+				return errors.New(sk.Problem)
+			}
 			if sk.Source == "" || sk.SourceType == "local" {
 				return errors.New("link all skill sources before syncing the whole source")
 			}
@@ -223,8 +229,8 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 			}
 			return errors.New("link unknown sources before saving; local copies cannot be installed")
 		}
-		if len(linked) > 1 {
-			conflicting := linked[0].Source != linked[1].Source || linked[0].SourceType != linked[1].SourceType
+		for _, other := range linked[1:] {
+			conflicting := linked[0].Source != other.Source || linked[0].SourceType != other.SourceType
 			if conflicting {
 				return errors.New("resolve duplicate names before saving; more than one source is selected")
 			}
@@ -247,6 +253,15 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		validTarget := Syncable(agent) && (project == "" || strings.HasPrefix(project, "/"))
 		if !fresh || !validTarget {
 			return ErrSync
+		}
+		if project == "" && source != "library" && in.Origin != "" {
+			var shared int
+			if err := tx.QueryRow(`SELECT count(*) FROM sync_agents a JOIN environments e ON e.user_id=a.user_id AND e.host=a.host COLLATE NOCASE JOIN sync_library l ON l.user_id=a.user_id WHERE a.user_id=? AND e.id=? AND a.keep_synced=1`, uid, in.TargetID).Scan(&shared); err != nil {
+				return err
+			}
+			if shared > 0 {
+				return errors.New("this machine follows your shared library; turn Automatic sync off before saving a custom home-folder plan, or choose a project folder")
+			}
 		}
 		var revision string
 		err := tx.QueryRow(`SELECT revision FROM sync_targets WHERE user_id=? AND target_id=?`, uid, in.TargetID).Scan(&revision)
@@ -766,6 +781,16 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 				if len(planActions(plan)) == 0 {
 					finalStatus = "succeeded"
 					message = "Already in sync."
+					result, e := tx.Exec(`UPDATE sync_options SET baseline=(SELECT desired FROM sync_targets WHERE target_id=? AND user_id=?),applied_revision=? WHERE target_id=? AND EXISTS(SELECT 1 FROM sync_targets WHERE target_id=? AND user_id=? AND revision=?)`, j.TargetID, uid, j.Revision, j.TargetID, j.TargetID, uid, j.Revision)
+					if e != nil {
+						return e
+					}
+					if count, e := result.RowsAffected(); e != nil {
+						return e
+					} else if count == 0 {
+						finalStatus, replan = "failed", true
+						message = "Desired revision changed during preview; requesting a fresh plan."
+					}
 				} else {
 					finalStatus = "queued"
 					message = "Additive plan approved automatically; applying."

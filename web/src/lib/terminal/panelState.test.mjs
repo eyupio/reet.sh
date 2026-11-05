@@ -93,3 +93,12 @@ test('more live projects than the cap still all show', () => {
 test('expanded lists every project', () => {
   assert.deepEqual(p.visibleProjects(projects, new Map(), new Set(), '', true), { shown: projects, hidden: 0 })
 })
+
+test('project groups: sessions group by project, with "No project" last', async () => {
+  const { NO_PROJECT, projectGroupKey, orderProjectGroups } = p
+  assert.equal(projectGroupKey({ projectId: 'p1' }), 'p1')
+  assert.equal(projectGroupKey({}), NO_PROJECT)
+  assert.equal(projectGroupKey({ projectId: '' }), NO_PROJECT)
+  const out = orderProjectGroups([{ key: NO_PROJECT }, { key: 'gone' }, { key: 'b' }, { key: 'a' }], ['a', 'b'])
+  assert.deepEqual(out.map(g => g.key), ['a', 'b', 'gone', NO_PROJECT])
+})

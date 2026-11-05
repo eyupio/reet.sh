@@ -8,11 +8,40 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strconv"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 var ErrControl = errors.New("the agent did not confirm that setting")
+
+// ErrSafety means an adapter did not confirm a safety option the profile
+// requires before a turn, such as Cline's auto-approve switch being off.
+var ErrSafety = errors.New("the agent did not confirm a required safety setting")
+
+// optionValue is a config option's current value. ACP adapters report most as
+// strings, but Cline reports its boolean auto-approve option as a JSON boolean,
+// so one text form keeps a single comparison rule. JSON null is the empty value,
+// as an absent string was before.
+type optionValue string
+
+func (v *optionValue) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*v = ""
+		return nil
+	}
+	var text string
+	if json.Unmarshal(data, &text) == nil {
+		*v = optionValue(text)
+		return nil
+	}
+	var flag bool
+	if json.Unmarshal(data, &flag) == nil {
+		*v = optionValue(strconv.FormatBool(flag))
+		return nil
+	}
+	return errors.New("unsupported config option value")
+}
 
 // readSettings admits only non-permission selectors from the live session.
 // Static installation descriptors never authorise a configuration change.
@@ -26,7 +55,7 @@ func readSettings(raw json.RawMessage) ([]terminalproto.ACPSetting, bool) {
 	var options []struct {
 		ID       string          `json:"id"`
 		Category string          `json:"category"`
-		Current  string          `json:"currentValue"`
+		Current  optionValue     `json:"currentValue"`
 		Options  json.RawMessage `json:"options"`
 	}
 	if json.Unmarshal(reply.Options, &options) != nil {
@@ -46,7 +75,14 @@ func readSettings(raw json.RawMessage) ([]terminalproto.ACPSetting, bool) {
 		if category != "model" && category != "thought_level" {
 			continue
 		}
-		setting := terminalproto.ACPSetting{ID: o.ID, Category: category, Current: o.Current, Values: []string{}}
+		current := string(o.Current)
+		if current != "" && !terminalproto.ValidModel(current) {
+			// An adapter may report a current value reet cannot represent (one
+			// Cline alias starts with "~"). Keep the selector but do not claim
+			// a confirmed value it cannot name.
+			current = ""
+		}
+		setting := terminalproto.ACPSetting{ID: o.ID, Category: category, Current: current, Values: []string{}}
 		var choices []struct {
 			Value   string `json:"value"`
 			Options []struct {
@@ -57,7 +93,7 @@ func readSettings(raw json.RawMessage) ([]terminalproto.ACPSetting, bool) {
 			return nil, false
 		}
 		add := func(v string) {
-			canAdd := len(setting.Values) < 16 && v != ""
+			canAdd := len(setting.Values) < 16 && v != "" && terminalproto.ValidModel(v)
 			if canAdd && !slices.Contains(setting.Values, v) {
 				setting.Values = append(setting.Values, v)
 			}

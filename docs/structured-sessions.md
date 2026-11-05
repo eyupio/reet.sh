@@ -1,12 +1,13 @@
-# OpenCode in Gaffer
+# Agents in Gaffer
 
 **Gaffer** is reet's native agent control interface. **Eli AI Chat** is the underlying technology intended for reuse from Zoomies; **OpenCode TUI** is the agent's original terminal interface. The reet CLI TUI is separate. A bounded Eli provider compatibility probe is documented in [the reuse review](research/eli-reuse.md); the coordinator is not enabled and live worker chat still uses ACP. Existing ACP, session ownership, permissions, streaming and lifecycle paths stay in place.
 
-A structured session is **OpenCode in Gaffer**, a conversation over the Agent Client Protocol (ACP). It is not a
-terminal: OpenCode streams messages and tool calls, and reet shows an approval card before an edit or command runs.
-Terminal sessions are unchanged.
+A structured session is an agent in **Gaffer**, a conversation over the Agent Client Protocol (ACP). It is not a
+terminal: the agent streams messages and tool calls, and reet displays its approval requests.
+OpenCode was the first integration and is described in most detail below; Claude Code, Codex, Cline and Google Antigravity share the same
+client and its contracts. Terminal sessions are unchanged.
 
-Slice 1 is deliberately narrow: OpenCode only, trusted folders only, and **Allow once** or **Deny** only. Always allow is
+Slice 1 was deliberately narrow: OpenCode only, trusted folders only, and **Allow once** or **Deny** only. Always allow is
 not offered; later slices add a per-session command/file allowance and a live Ask me ↔ YOLO switch, both described below. The probe is [OpenCode `opencode acp` hands-on probe](research/probe-report.md); the plan is
 [Program 2, slice 1](superpowers/plans/2026-10-29-program-2-slice-1.md).
 
@@ -25,10 +26,65 @@ the connection's capabilities rather than querying a package registry.
 - `unverified`: an adapter is present but reet has not verified its integration.
 - `incompatible`: readable installation evidence does not meet the reviewed floor.
 
-OpenCode is the only available integration in this stage. Claude Code, Codex
-and Gemini entries describe missing or unverified support; installing an adapter
-alone does not enable its chat. No CLI is executed to build these descriptors,
-and availability does not establish a successful model turn or authentication.
+OpenCode, Claude Code (behind its switch), Codex (behind its switch), Cline and Google Antigravity
+have reviewed integrations. Gemini entries describe missing or unverified support;
+installing an adapter alone does not enable its chat. No CLI is executed to build
+these descriptors, and availability does not establish a successful model turn or
+authentication.
+
+### Cline in Gaffer
+
+Cline CLI 3.0.74 and newer runs its ACP server with `cline --acp`. A machine that
+reports Cline as available offers **Gaffer** in both start dialogs, and the chat
+lists its models, modes and approvals:
+
+- Every launch passes `--auto-approve false`, and the session must report
+  `auto_approve=false` before its first prompt. Without that flag Cline approves
+  every tool itself, so a session that does not confirm the setting is refused.
+- A chat starts in **act** mode, and the approvals control also offers **plan**,
+  "Plan only", which explores without changing files. Both say what they mean.
+- Cline asks before it reads a file, edits one or runs a command. A read card
+  names the file, an edit is shown as the text it will write (with removed lines
+  when it replaces text), and a command list is shown as the command. Only
+  **Allow once** and **Deny** are offered, as for every chat.
+- Sign-in, settings, hooks and stored sessions come from the person's own
+  `~/.cline`, reached through `CLINE_DIR`; the private chat home is unchanged and
+  provider redirects such as `CLINE_MODEL` are not inherited. A machine that is
+  not signed in is told to sign in to Cline before the first prompt.
+- A closed Cline chat can be continued with its stored history: the connector
+  runs `session/load`, and the conversation replays into the new row. In-place
+  reconnect is OpenCode-only.
+- Cline keeps provider failures in its own message store and may end a turn with
+  no reply; it also writes the reason to its own log, which the connector reads
+  for that chat and turn, so a failed turn ends with the error instead of
+  nothing.
+
+The measured behaviour, the exact frames and the two refused tool calls are in
+[Cline ACP probe](research/cline-acp-probe.md).
+
+### Google Antigravity (AGY) in Gaffer
+
+AGY 1.5.0 and newer uses the native `agy acp` server. Updated controllers and
+connectors negotiate `antigravity-acp-v1` before advertising it; a connector
+that only supports AGY terminals continues to offer the terminal UI.
+
+- Choose **Google Antigravity (AGY)** and **Gaffer**. Start only in a folder you
+  trust: AGY workspace hooks and customizations may run.
+- The adapter verifies the executable's version and ACP identity, then requires
+  Default mode. AGY's configured permission rules apply, including its rules
+  for temporary files; approval requests appear as **Allow once** / **Deny** cards.
+- A chosen model is applied and confirmed through ACP before the opening
+  prompt. Effort choices depend on the model; the agent must confirm the choice.
+- Image attachments and continuing a closed chat with its stored history are
+  supported. Reconnecting a lost chat in place and switching a live chat to its
+  terminal UI remain OpenCode-only.
+- Sign in with `agy` on the machine first. Reet uses that login and does not
+  start OAuth or change accounts. A missing login is reported with that step.
+- Stop during a running tool ends the AGY chat and retires its process group,
+  so a command cannot continue behind a stopped conversation.
+
+The real executable was checked against a local provider stub, without a real
+Google model call. See the [AGY ACP probe](research/antigravity-acp-probe.md).
 
 ### Experimental: Claude Code and Codex chats
 
@@ -55,7 +111,7 @@ history continuation both enforce the per-agent result; stored history must also
 belong to the same account, machine, tool and folder, from a closed reet session.
 No transcript, database migration or new execution control is introduced.
 
-The live chat's **Model**, **Change model** and **Make default** controls appear only when that agent's available descriptor offers model switching.
+The live chat's **Model** dropdown and **Make default** control appear only when that agent's available descriptor offers model switching. The dropdown lists the machine's models, any live selector values, favourites and suggestions, and choosing one applies it at once; **Other…** accepts a model the machine did not list.
 An explicit descriptor overrides machine-wide flags; an older OpenCode peer must report `acpModel`. Without that capability, the pane does not request
 model options or favourites, and provider-error guidance does not direct the person to a missing model control. A capability update applies to an open
 pane: removing support hides the control, clears its option list and retires pending lookups. A delayed reply cannot repopulate a later control.
@@ -232,10 +288,13 @@ folder, as the connector's user. All seven conditions are mandatory:
    own environment, including that password; this is accepted for slice 1.
 3. **No subagents.** `task: deny` removes the `task` tool. OpenCode does not forward a subagent's permission request over
    ACP, so allowing subagents would hang the turn and hide an approval.
-4. **Deadlines.** One card waits at most five minutes; a turn is cancelled after ten minutes and says "still working" after
-   twenty seconds of silence. If OpenCode logged a provider error during that silence but did not send it over ACP, reet
-   shows the error and stops the turn instead of waiting for the ten-minute deadline. On cancel or timeout reet closes its
-   own cards and sends `session/cancel`, because OpenCode never withdraws an outstanding `request_permission`.
+4. **Deadlines.** One card waits at most five minutes. A turn with no outstanding tool or approval is cancelled after ten
+   minutes without an agent event and says "still working" after twenty seconds of silence. A running tool can be quiet
+   without being stopped; once it finishes, the silence deadline applies again. Every turn still has a two-hour hard cap.
+   Leaving and returning to the chat does not change those deadlines. If OpenCode logged a provider error during that
+   silence but did not send it over ACP, reet shows the error and stops the turn instead of waiting for the ten-minute
+   deadline. On cancel or timeout reet closes its own cards and sends `session/cancel`, because OpenCode never withdraws
+   an outstanding `request_permission`.
 5. **An allowlist environment and opt-outs.** Only PATH, HOME, XDG directories, TMPDIR/TEMP/TMP, locale, timezone and the
    connector's own OpenCode settings reach the process. `SSH_AUTH_SOCK`, `DISPLAY`, DBus, GitHub/cloud tokens and shell
    settings do not. The model fetch, autoupdate, default plugins, LSP download, Claude Code compatibility and external
@@ -478,8 +537,9 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
   separately from evictable history: a card never pins the output after it, and tool commands, paths and diffs count towards
   the text budget. If waiting cards alone exceed the budget they stay answerable. A continued chat replaying a long history stays responsive instead of building an
   unbounded page.
-- **Messages typed while it works are queued.** On upgraded connectors, the queue holds at most ten messages per session
-  in the controller database and is shared by all tabs. Images are uploaded before enqueueing. Closing a browser or restarting
+- **Messages typed while it works are queued.** A message sent while the agent is idle is delivered at once; it only waits
+  in the queue when the turn is busy or an earlier message must go first. On upgraded connectors, the queue holds at most ten
+  messages per session in the controller database and is shared by all tabs. Images are uploaded before enqueueing. Closing a browser or restarting
   the controller preserves queued messages; sending normally waits for the actual turn to finish, including cancellation,
   approvals and compaction. **Edit**, **Remove** and **Retry** use revisions so another tab cannot overwrite a delivery in progress.
   **Send now** appears when the active agent explicitly supports mid-turn steering. It injects the selected message into that
@@ -506,10 +566,11 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
 - **Approval mode can change while a structured chat runs**, on a connector that negotiated `acp-approval-v1`. The
   per-session approval card and the Ask me/YOLO switch are described above. A terminal session cannot change the flags
   it was launched with.
-- **Dropped provider errors are recovered.** When OpenCode ends a turn without streaming any progress, the connector reads
-  the newest matching error from OpenCode's local store and shows it instead of leaving a silently empty turn. A provider
-  error OpenCode writes to its log during a silent turn is read the same way; the connector shows it and stops that turn
-  rather than leaving "still working" until the deadline.
+- **Dropped provider errors are recovered.** When an agent ends a turn without streaming any progress, the connector reads
+  the newest matching error from that agent's own store and shows it instead of leaving a silently empty turn. OpenCode's
+  store and log are read this way, and so is Cline's log (`CLINE_DIR/data/logs/cline.log`, this chat's error written after
+  the turn started). An error written while a turn is still silent is read the same way; the connector shows it and stops
+  that turn rather than leaving "still working" until the deadline.
 - **Images are embedded when the machine supports it.** An `acp-image-v1` machine embeds the uploaded image in the ACP prompt
   (at most eight per prompt); an older machine names the path as text. OpenCode's agent modes, MCP servers, resume of a live turn and other
   agents are not in this slice.

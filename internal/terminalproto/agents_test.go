@@ -58,15 +58,34 @@ func TestCreateStillComparable(t *testing.T) {
 	}
 }
 func TestCapabilitiesNewToolIDsNeedAgentsV2(t *testing.T) {
-	c := Capabilities{Launch: true, TerminalControl: true, Tools: []string{"cline"}, ProtocolVersion: Version, OS: "linux", OSUser: "test", TerminalEnabled: true, Readiness: Ready}
-	if c.Validate() == nil || c.ValidateFor("") == nil {
-		t.Fatal("old peer accepts new tool")
+	for _, tool := range []string{"cline", "antigravity"} {
+		c := Capabilities{Launch: true, TerminalControl: true, Tools: []string{tool}, ProtocolVersion: Version, OS: "linux", OSUser: "test", TerminalEnabled: true, Readiness: Ready}
+		if c.Validate() == nil || c.ValidateFor("") == nil {
+			t.Fatal("old peer accepts new tool")
+		}
+		features := "launch-v1, agents-v2"
+		if tool == "antigravity" {
+			features += "," + AntigravityFeature
+		}
+		if c.ValidateFor(features) != nil {
+			t.Fatal("new peer refuses tool")
+		}
+		if !SupportsAgents(" launch-v1, agents-v2 ") || SupportsAgents("agents-v2-extra") || !ValidToolV2(tool) || ValidTool(tool) {
+			t.Fatal("feature or tool check failed")
+		}
 	}
-	if c.ValidateFor("launch-v1, agents-v2") != nil {
-		t.Fatal("new peer refuses tool")
+}
+
+func TestAntigravityCapabilityRequiresItsNegotiatedFeature(t *testing.T) {
+	c := Capabilities{AgentsV2: true, Launch: true, TerminalControl: true, Tools: []string{"antigravity"}, ProtocolVersion: Version, OS: "linux", OSUser: "test", TerminalEnabled: true, Readiness: Ready}
+	if c.ValidateFor(AgentsFeature) == nil {
+		t.Fatal("AGY claimed to a controller with only the older agents-v2 catalogue")
 	}
-	if !SupportsAgents(" launch-v1, agents-v2 ") || SupportsAgents("agents-v2-extra") || !ValidToolV2("cline") || ValidTool("cline") {
-		t.Fatal("feature or tool check failed")
+	if c.Validate() != nil || c.ValidateFor(AgentsFeature+","+AntigravityFeature) != nil {
+		t.Fatal("negotiated AGY refused")
+	}
+	if !SupportsAntigravity(" launch-v1, "+AntigravityFeature+" ") || SupportsAntigravity(AntigravityFeature+"0") {
+		t.Fatal("AGY token matching changed")
 	}
 }
 func TestCapabilitiesYoloNeedsAgentsV2(t *testing.T) {
@@ -108,7 +127,7 @@ func TestAgentsV2ToolsAndOptions(t *testing.T) {
 	for _, tc := range []struct {
 		tool          string
 		effort, model bool
-	}{{"claude", false, true}, {"codex", false, true}, {"opencode", false, true}, {"gemini", false, true}, {"cline", true, true}, {"pi", false, false}} {
+	}{{"claude", false, true}, {"codex", false, true}, {"opencode", false, true}, {"gemini", false, true}, {"cline", true, true}, {"antigravity", true, true}, {"pi", false, false}} {
 		if ToolTakesEffort(tc.tool) != tc.effort || ToolTakesModel(tc.tool) != tc.model {
 			t.Fatalf("%s: effort=%v model=%v", tc.tool, ToolTakesEffort(tc.tool), ToolTakesModel(tc.tool))
 		}

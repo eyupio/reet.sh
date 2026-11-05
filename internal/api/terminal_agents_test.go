@@ -138,6 +138,8 @@ func TestCreateUnsupportedAgentOptionsRefusedBeforeReserving(t *testing.T) {
 		{"tool pi old peer", false, map[string]any{"tool": "pi"}, 422, "tool_unavailable", disabledSentence},
 		{"unknown tool", true, map[string]any{"tool": "nonesuch"}, 422, "tool_unavailable", disabledSentence},
 		{"cline without agents-v2", false, map[string]any{"tool": "cline"}, 409, "launch_option_unsupported", updateSentence},
+		{"antigravity without agents-v2", false, map[string]any{"tool": "antigravity"}, 409, "launch_option_unsupported", updateSentence},
+		{"antigravity not advertised", true, map[string]any{"tool": "antigravity"}, 422, "tool_not_installed", "That agent isn't installed on that machine."},
 		{"tool not advertised", true, map[string]any{"tool": "gemini"}, 422, "tool_not_installed", "That agent isn't installed on that machine."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -163,6 +165,19 @@ func TestCreateUnsupportedAgentOptionsRefusedBeforeReserving(t *testing.T) {
 				t.Fatalf("operation reserved: %+v", op)
 			}
 		})
+	}
+}
+
+func TestCreateAntigravityAcceptedOnAgentsV2(t *testing.T) {
+	caps := launchCaps("antigravity")
+	caps.AgentsV2 = true
+	f := launchAPIFixture(t, caps)
+	status, out, _ := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "antigravity", "effort": "high", "model": "custom-model", "prompt": "update"}))
+	if status != 200 || out["tool"] != "antigravity" || out["effort"] != "high" {
+		t.Fatalf("%d %v", status, out)
+	}
+	if sent := f.sent(); len(sent) != 1 || sent[0].Tool != "antigravity" || sent[0].Effort != "high" || sent[0].Model != "custom-model" || sent[0].Prompt != "update" || sent[0].Yolo {
+		t.Fatalf("%v", sent)
 	}
 }
 

@@ -1,7 +1,7 @@
 import type { GafferPhase } from './gafferProgress'
 
 export type GafferPose = 'duty' | 'tea' | 'asleep' | 'attention' | 'concerned'
-export type GafferReaction = '' | 'ponder' | 'scan' | 'scribble' | 'watch' | 'nod' | 'tip-cap' | 'sip' | 'startle' | 'stretch' | 'shake' | 'listen' | 'biscuit' | 'shrug' | 'huff'
+export type GafferReaction = '' | 'ponder' | 'scan' | 'scribble' | 'watch' | 'nod' | 'tip-cap' | 'sip' | 'startle' | 'stretch' | 'shake' | 'listen' | 'biscuit' | 'shrug' | 'huff' | 'scratch-head' | 'scratch-chin' | 'scratch-ear' | 'look-around' | 'nose-twitch' | 'rest-head'
 export const GAFFER_AWAY_AFTER = 15_000
 export const GAFFER_CLICK_GAP = 650
 export const GAFFER_CLICK_WINDOW = 20_000
@@ -41,6 +41,35 @@ export function gafferGesture(phase: GafferPhase): GafferReaction {
     case 'ended': case 'idle': return 'tip-cap'
     default: return 'nod'
   }
+}
+
+/** A request or a snag always gets the portrait's attention immediately. */
+export function gafferMayPerform(phase: GafferPhase): boolean {
+  return !['starting', 'approval', 'question', 'connecting', 'reconnecting', 'error', 'cancelled'].includes(phase)
+}
+
+function sample(random: () => number): number {
+  const value = random()
+  return Number.isFinite(value) ? Math.max(0, Math.min(.999999, value)) : .5
+}
+
+/** Recent performances survive ordinary phase changes, so busy tools cannot keep restarting the same nod. */
+export function gafferPerformance(phase: GafferPhase, recent: readonly GafferReaction[] = [], random = Math.random): GafferReaction {
+  if (!gafferMayPerform(phase)) return gafferGesture(phase)
+  const tea = recent.indexOf('sip')
+  // A brew appears by the second ambient performance, then at least once in six.
+  if ((recent.length > 0 && tea < 0) || tea >= 5) return 'sip'
+  const resting = phase === 'idle' || phase === 'ended'
+  const repertoire: GafferReaction[] = resting
+    ? ['rest-head', 'look-around', 'nose-twitch', 'sip', 'biscuit', 'scratch-chin']
+    : ['look-around', 'scratch-head', 'scratch-chin', 'scratch-ear', 'nose-twitch', 'sip', 'biscuit', 'shrug', ...(['waiting', 'running'].includes(phase) ? ['huff' as const] : [])]
+  const options = repertoire.filter(next => !recent.slice(0, 3).includes(next))
+  return options[Math.floor(sample(random) * options.length)]
+}
+
+/** Quiet intervals between gestures, with a slower pace when the job has stopped. */
+export function gafferPerformanceGap(phase: GafferPhase, random = Math.random): number {
+  return Math.floor((phase === 'idle' || phase === 'ended' ? 22_000 : 12_000) + sample(random) * 8_000)
 }
 
 const returnQuotes: Record<GafferPose, readonly string[]> = {

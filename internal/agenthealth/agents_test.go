@@ -4,39 +4,35 @@ import (
 	"context"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 	"net/http"
+	"slices"
 	"testing"
 )
 
 func TestAgentsV2NegotiationFiltersNewTools(t *testing.T) {
-	for _, v2 := range []bool{false, true} {
+	for _, tc := range []struct {
+		features string
+		want     []string
+	}{
+		{terminalproto.LaunchFeature, []string{"claude"}},
+		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature, []string{"claude", "cline"}},
+		{terminalproto.LaunchFeature + "," + terminalproto.AntigravityFeature, []string{"claude"}},
+		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature + "," + terminalproto.AntigravityFeature, []string{"antigravity", "claude", "cline"}},
+	} {
 		cfg := AgentConfig{TerminalSession: func(context.Context, *http.Client, http.Header, int64, Sender) (func(context.Context, terminalproto.Message) error, func()) {
 			return nil, nil
-		}, LaunchTools: func() []string { return []string{"cline", "claude", "cline", "unknown"} }}
-		features := terminalproto.LaunchFeature
-		if v2 {
-			features += "," + terminalproto.AgentsFeature
-		}
-		negotiateFeatures(&cfg, features)
+		}, LaunchTools: func() []string { return []string{"cline", "claude", "antigravity", "cline", "antigravity", "unknown"} }}
+		negotiateFeatures(&cfg, tc.features)
 		caps := capabilitiesFor(cfg, true, terminalproto.Ready)
-		if caps.AgentsV2 != v2 {
-			t.Fatalf("agentsV2=%v want %v", caps.AgentsV2, v2)
+		if !slices.Equal(caps.Tools, tc.want) {
+			t.Fatalf("features=%s tools=%v want=%v", tc.features, caps.Tools, tc.want)
 		}
-		if len(caps.Tools) != 1+btoi(v2) {
-			t.Fatalf("v2=%v tools=%v", v2, caps.Tools)
-		}
-		if !v2 && caps.OSVersion != "" {
-			t.Fatal("old controller received OSVersion")
-		}
-		if err := caps.Validate(); err != nil {
+		if err := caps.ValidateFor(tc.features); err != nil {
 			t.Fatal(err)
 		}
+		if terminalproto.SupportsAntigravity(terminalFeatures(cfg)) != slices.Contains(tc.want, "antigravity") {
+			t.Fatal("dispatcher received unnegotiated AGY feature")
+		}
 	}
-}
-func btoi(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 func TestYoloCapabilityNeedsAgentsV2AndTheLocalSwitch(t *testing.T) {

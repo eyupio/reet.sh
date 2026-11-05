@@ -212,14 +212,33 @@ func (c Capabilities) Validate() error {
 	if c.AgentsV2 {
 		features = append(features, AgentsFeature)
 	}
+	for _, tool := range c.Tools {
+		if tool == "antigravity" {
+			features = append(features, AntigravityFeature)
+			break
+		}
+	}
 	if c.ACPAgents != nil {
 		features = append(features, ACPAgentsFeature)
+		for _, entry := range *c.ACPAgents {
+			if entry.Tool == "antigravity" {
+				features = append(features, AntigravityACPFeature)
+				break
+			}
+		}
 	}
 	return c.ValidateFor(strings.Join(features, ","))
 }
 
 // ValidateFor validates capabilities against the features negotiated by the peer.
 func (c Capabilities) ValidateFor(features string) error {
+	if c.ACPAgents != nil {
+		for _, entry := range *c.ACPAgents {
+			if entry.Tool == "antigravity" && !SupportsAntigravityACP(features) {
+				return ErrInvalid
+			}
+		}
+	}
 	validPreviews := c.ACP && SupportsACPPreviews(features)
 	if c.ACPPreviews && !validPreviews {
 		return ErrInvalid
@@ -244,6 +263,11 @@ func (c Capabilities) ValidateFor(features string) error {
 	validLaunch := !c.Launch || c.TerminalControl
 	toolsNeedLaunch := len(c.Tools) == 0 || c.Launch
 	validToolList := validTools(c.Tools, SupportsAgents(features))
+	for _, tool := range c.Tools {
+		if tool == "antigravity" && !SupportsAntigravity(features) {
+			validToolList = false
+		}
+	}
 	toolsValid := validLaunch && toolsNeedLaunch && validToolList
 	if !toolsValid {
 		return ErrInvalid
@@ -405,7 +429,7 @@ func (r Reconcile) valid() bool {
 	for _, s := range r.Sessions {
 		validSession := ValidID(s.ID) && ValidTitle(s.Title) && s.State.Valid() &&
 			validExit(s.State, s.ExitCode) && validSnapshotAttention(s)
-		validACP := s.ACPSessionID == "" || ValidACPSessionID(s.ACPSessionID)
+		validACP := s.ACPSessionID == "" || ValidACPHandle(s.ACPSessionID)
 		valid := validSession && validACP && !seen[s.ID]
 		if !valid {
 			return false
@@ -660,7 +684,7 @@ func (s SessionChanged) valid() bool {
 	if bothSet && *s.ExitCode != *s.ExitStatus {
 		return false
 	}
-	return s.State.Valid() && validExit(s.State, s.ExitCode) && (s.ACPSessionID == "" || ValidACPSessionID(s.ACPSessionID))
+	return s.State.Valid() && validExit(s.State, s.ExitCode) && (s.ACPSessionID == "" || ValidACPHandle(s.ACPSessionID))
 }
 
 func (m Message) Validate() error {

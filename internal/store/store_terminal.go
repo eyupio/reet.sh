@@ -111,6 +111,9 @@ func (s *Store) migrateTerminalTables() error {
                 name TEXT NOT NULL, command TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
                 revision INTEGER NOT NULL CHECK(revision>0), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
 			`CREATE INDEX IF NOT EXISTS terminal_commands_owner ON terminal_commands(user_id)`,
+			`CREATE TABLE IF NOT EXISTS worktree_cleanups (
+				user_id INTEGER NOT NULL, agent_id TEXT NOT NULL, path TEXT NOT NULL, removed_at INTEGER NOT NULL,
+				PRIMARY KEY(user_id,agent_id,path))`,
 			`CREATE TABLE IF NOT EXISTS terminal_session_archives (
                 session_id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, agent_id TEXT NOT NULL,
                 archived_at INTEGER NOT NULL,
@@ -439,13 +442,46 @@ func (s *Store) TerminalSessionsFor(uid int64) ([]TerminalSession, error) {
 	}
 	rows.Close()
 	nowTime := time.Now()
+	seen, err := s.terminalSeenFor(uid, out)
+	if err != nil {
+		return nil, err
+	}
 	for i := range out {
-		s.populateAttention(uid, &out[i], nowTime)
+		out[i].SeenAt = seen[out[i].ID]
+		applyAttention(&out[i], nowTime)
 	}
 	return out, nil
 }
 
-// ArchiveTerminalFor hides only confirmed closed sessions from browser history.
+// terminalSeenFor reads the seen stamps for a page of sessions in one query.
+func (s *Store) terminalSeenFor(uid int64, sessions []TerminalSession) (map[string]int64, error) {
+	seen := make(map[string]int64, len(sessions))
+	if len(sessions) == 0 {
+		return seen, nil
+	}
+	args := make([]any, 0, len(sessions)+1)
+	args = append(args, uid)
+	for _, session := range sessions {
+		args = append(args, session.ID)
+	}
+	rows, err := s.read.Query(`SELECT session_id,seen_at FROM terminal_session_seen WHERE user_id=? AND session_id IN (`+placeholders(len(sessions))+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var at int64
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, err
+		}
+		seen[id] = at
+	}
+	return seen, rows.Err()
+}
+
+// ArchiveTerminalFor hides closed or end-requested sessions from browser history.
+// Hiding a pending end does not confirm termination or release its quota.
 // Session/operation rows remain available to retry and host reconciliation paths.
 // The initial write serializes state checks against concurrent end/observation
 // transactions across Store handles without depending on host connectivity.
@@ -470,7 +506,7 @@ func (s *Store) ArchiveTerminalFor(uid int64, sessionID string) error {
 			return err
 		}
 		switch session.State {
-		case terminalproto.Ended, terminalproto.Exited, terminalproto.Lost:
+		case terminalproto.EndRequested, terminalproto.Ended, terminalproto.Exited, terminalproto.Lost:
 		default:
 			return ErrTerminalConflict
 		}
@@ -912,10 +948,12 @@ func (s *Store) CanResumeACPToolSessionFor(uid int64, agentID, tool, acpSessionI
 	return ok, err
 }
 
-// RecordTerminalACPSessionFor stores OpenCode's session id on a structured
-// session. It is idempotent for the same id and refuses a different one.
+// RecordTerminalACPSessionFor stores a reviewed adapter's own session id on a
+// structured session. It is idempotent for the same id and refuses a different
+// one. The shape check is per adapter: a handle is bound to the session's tool
+// as well as to this account, machine and session.
 func (s *Store) RecordTerminalACPSessionFor(uid int64, agentID, sessionID, acpSessionID string) error {
-	if !terminalproto.ValidID(sessionID) || !terminalproto.ValidACPSessionID(acpSessionID) {
+	if !terminalproto.ValidID(sessionID) || !terminalproto.ValidACPHandle(acpSessionID) {
 		return terminalproto.ErrInvalid
 	}
 	return s.withTx(func(tx *sql.Tx) error {

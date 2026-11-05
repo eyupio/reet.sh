@@ -70,7 +70,11 @@ func (e *rpcError) Error() string { return safeRPCText(e.Message) }
 // login and says it at the first prompt, so both places ask this.
 func authRequired(err error) bool {
 	var rpcErr *rpcError
-	return errors.As(err, &rpcErr) && rpcErr.Code == -32000 && rpcErr.Message == "Authentication required"
+	// Claude and Codex answer exactly "Authentication required"; Cline appends
+	// its own advice to the same bounded prefix.
+	prefix := "Authentication required"
+	return errors.As(err, &rpcErr) && rpcErr.Code == -32000 &&
+		(rpcErr.Message == prefix || strings.HasPrefix(rpcErr.Message, prefix+":"))
 }
 
 // loginError names the sign-in step for the agent whose request was refused, or
@@ -84,6 +88,10 @@ func loginError(spec Spec, err error) error {
 		return ErrCodexLogin
 	case ClaudeCandidate.Key:
 		return ErrClaudeLogin
+	case Cline.Key:
+		return ErrClineLogin
+	case Antigravity.Key:
+		return ErrAntigravityLogin
 	}
 	return nil
 }
@@ -300,32 +308,36 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		return nil, ErrExited
 	}
 	var created struct {
-		SessionID     string `json:"sessionId"`
-		ConfigOptions []struct {
-			ID           string `json:"id"`
-			Category     string `json:"category"`
-			CurrentValue string `json:"currentValue"`
-		} `json:"configOptions"`
+		SessionID     string         `json:"sessionId"`
+		ConfigOptions []configOption `json:"configOptions"`
 	}
 	valid := json.Unmarshal(raw, &created) == nil && (!opened || created.SessionID != "")
 	if !valid {
 		s.Close()
 		return nil, ErrExited
 	}
+	// A profile may pin an option that must be in force before any turn, such as
+	// Cline's auto-approve switch being off. The launch flag is a request; only
+	// the session's own report is the acknowledgement.
+	if err := spec.checkRequiredOptions(created.ConfigOptions); err != nil {
+		s.Close()
+		return nil, err
+	}
 	mode, model := "", ""
 	for _, option := range created.ConfigOptions {
 		switch option.ID {
 		case "mode":
-			mode = option.CurrentValue
+			mode = string(option.CurrentValue)
 		case "model":
-			model = option.CurrentValue
+			model = string(option.CurrentValue)
 		}
 	}
 	// A profile may name one mode to start in (StartMode). It is switched to only
 	// when the adapter's reply confirms it; otherwise the chat is refused below.
 	specified := spec.StartMode != "" && mode != ""
 	if specified && mode != spec.StartMode {
-		switched, err := s.switchMode(newCtx, sessionID0(created.SessionID, opts.Resume), spec.StartMode)
+		session := sessionID0(created.SessionID, opts.Resume)
+		switched, err := s.switchMode(newCtx, session, spec.StartMode)
 		if err != nil || switched != spec.StartMode {
 			s.Close()
 			return nil, fmt.Errorf("%s did not start in %s mode; the chat was not started", spec.displayName(), spec.StartMode)
@@ -338,19 +350,6 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		s.Close()
 		return nil, fmt.Errorf("%s is not in %s mode; the chat was not started", spec.displayName(), spec.RequireMode)
 	}
-	// The launch environment carries a request, not an acknowledgement. A
-	// chosen model needs one unambiguous read-back on both new and load before
-	// this session can be announced or receive its opening prompt. Agent-default
-	// launches retain their existing behaviour when no model is reported.
-	if opts.Model != "" {
-		// Startup has no omitted-list exception, including for OpenCode.
-		confirmed, ok := acknowledgedModel(raw, opts.Model, false)
-		if !ok || confirmed != opts.Model {
-			s.Close()
-			return nil, ErrModel
-		}
-		model = confirmed
-	}
 	sessionID := created.SessionID
 	if !opened {
 		sessionID = opts.Resume
@@ -361,6 +360,26 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	s.model = model
 	s.mu.Unlock()
 	s.updateSettings(raw)
+	// The launch environment carries a request, not an acknowledgement. A
+	// chosen model needs one unambiguous read-back on both new and load before
+	// this session can be announced or receive its opening prompt. An adapter
+	// that ignores a model at session/new (Cline) applies it by a confirmed
+	// switch instead; an unconfirmed switch still refuses the chat.
+	if opts.Model != "" {
+		// Startup has no omitted-list exception, including for OpenCode.
+		confirmed, ok := acknowledgedModel(raw, opts.Model, false)
+		switch {
+		case ok && confirmed == opts.Model:
+		case spec.ConfirmModelBySwitch:
+			if err := s.SetModel(newCtx, opts.Model); err != nil {
+				s.Close()
+				return nil, ErrModel
+			}
+		default:
+			s.Close()
+			return nil, ErrModel
+		}
+	}
 	if opts.Model != "" && s.Model() != opts.Model {
 		s.Close()
 		return nil, ErrModel
@@ -471,6 +490,20 @@ func (s *Session) request(ctx context.Context, method string, params any) (json.
 	return s.requestWithReply(ctx, method, params, nil)
 }
 
+func (s *Session) writeRequest(method string, message any) error {
+	if method == "session/prompt" {
+		// Working is visible before the prompt is written. Order that write
+		// with Cancel: never send a turn Stop already cancelled, and never
+		// let session/cancel overtake a prompt being committed to the pipe.
+		s.turnMu.Lock()
+		defer s.turnMu.Unlock()
+		if s.cancelledSeq == s.turnSeq {
+			return context.Canceled
+		}
+	}
+	return s.write(message)
+}
+
 // apply runs in protocol read order before a later notification can supersede
 // this reply. It must be bounded and must never wait for another RPC.
 func (s *Session) requestWithReply(ctx context.Context, method string, params any, apply func(json.RawMessage)) (json.RawMessage, error) {
@@ -483,7 +516,7 @@ func (s *Session) requestWithReply(ctx context.Context, method string, params an
 	}
 	s.calls[id] = rpcCall{reply: ch, apply: apply}
 	s.mu.Unlock()
-	if err := s.write(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
+	if err := s.writeRequest(method, map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
 		s.mu.Lock()
 		delete(s.calls, id)
 		s.mu.Unlock()
@@ -522,7 +555,10 @@ func (s *Session) readLoop() {
 	scanner := bufio.NewScanner(s.stdout)
 	scanner.Buffer(make([]byte, 64<<10), maxLineBytes)
 	for scanner.Scan() {
-		line := append([]byte(nil), scanner.Bytes()...)
+		// Scanner reuses its buffer, but json.Unmarshal copies every field it
+		// keeps (strings and json.RawMessage), and handle is synchronous, so
+		// the line does not need another copy.
+		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
 		}
@@ -643,17 +679,22 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 			now := time.Now()
 			s.mu.Lock()
 			start, started := s.toolStart[u.ToolCallID]
-			if !started {
+			status := u.Status
+			if status == "" {
+				// Output-only updates must not reopen an already finished tool.
+				status = s.tools[u.ToolCallID]
+			}
+			final := status == "completed" || status == "failed" || status == "cancelled"
+			if !started && !final {
 				s.toolStart[u.ToolCallID] = now
 			}
-			final := u.Status == "completed" || u.Status == "failed" || u.Status == "cancelled"
 			if final {
 				if started {
 					durationMs = now.Sub(start).Milliseconds()
 				}
 				delete(s.toolStart, u.ToolCallID)
 			}
-			s.tools[u.ToolCallID] = u.Status
+			s.tools[u.ToolCallID] = status
 			s.mu.Unlock()
 		}
 		text := toolText(u.Content)
@@ -705,13 +746,17 @@ func toolDetails(rawInput, rawOutput json.RawMessage) toolDetailsValue {
 	var detail toolDetailsValue
 	if len(rawInput) > 0 {
 		var input struct {
-			Command  string `json:"command"`
-			FilePath string `json:"filePath"`
-			Filepath string `json:"filepath"`
-			Path     string `json:"path"`
+			Command     string `json:"command"`
+			CommandLine string `json:"CommandLine"`
+			FilePath    string `json:"filePath"`
+			Filepath    string `json:"filepath"`
+			Path        string `json:"path"`
 		}
 		if json.Unmarshal(rawInput, &input) == nil {
 			detail.command = input.Command
+			if detail.command == "" {
+				detail.command = input.CommandLine
+			}
 			detail.path = firstNonEmpty(input.FilePath, input.Filepath, input.Path)
 		}
 	}
@@ -815,34 +860,42 @@ func typedDiff(blocks []permissionContent) (diff, path string, truncated, ok boo
 		if !valid {
 			continue
 		}
-		var sb strings.Builder
-		sb.WriteString("--- " + b.Path + "\n+++ " + b.Path + "\n")
-		write := func(prefix string, text string) {
-			for _, line := range strings.SplitAfter(text, "\n") {
-				if line == "" || sb.Len() > maxDiffBytes {
-					continue
-				}
-				// Bound each line's copy so a huge single line cannot allocate more.
-				if len(line) > maxDiffBytes {
-					line = line[:maxDiffBytes]
-				}
-				sb.WriteString(prefix + line)
-				if !strings.HasSuffix(line, "\n") {
-					sb.WriteString("\n")
-				}
-			}
-		}
-		if b.OldText != nil {
-			write("-", *b.OldText)
-		}
-		write("+", *b.NewText)
-		out := sb.String()
-		if len(out) > maxDiffBytes {
-			out, truncated = cutUTF8(out, maxDiffBytes), true
-		}
-		return out, b.Path, truncated, true
+		diff, truncated = renderTextDiff(b.Path, b.OldText, *b.NewText)
+		return diff, b.Path, truncated, true
 	}
 	return "", "", false, false
+}
+
+// renderTextDiff renders one file change as a bounded, line-prefixed patch. A
+// nil oldText means the change only adds text. It makes no attempt to align
+// lines, so it never hides a change.
+func renderTextDiff(path string, oldText *string, newText string) (string, bool) {
+	var sb strings.Builder
+	sb.WriteString("--- " + path + "\n+++ " + path + "\n")
+	write := func(prefix string, text string) {
+		for _, line := range strings.SplitAfter(text, "\n") {
+			if line == "" || sb.Len() > maxDiffBytes {
+				continue
+			}
+			// Bound each line's copy so a huge single line cannot allocate more.
+			if len(line) > maxDiffBytes {
+				line = line[:maxDiffBytes]
+			}
+			sb.WriteString(prefix + line)
+			if !strings.HasSuffix(line, "\n") {
+				sb.WriteString("\n")
+			}
+		}
+	}
+	if oldText != nil {
+		write("-", *oldText)
+	}
+	write("+", newText)
+	out := sb.String()
+	if len(out) > maxDiffBytes {
+		return cutUTF8(out, maxDiffBytes), true
+	}
+	return out, false
 }
 
 type permissionParams struct {
@@ -868,11 +921,21 @@ type permissionParams struct {
 		} `json:"_meta"`
 		Content  []permissionContent `json:"content"`
 		RawInput struct {
-			Command      string `json:"command"`
+			Command     string   `json:"command"`
+			CommandLine string   `json:"CommandLine"`
+			Commands    []string `json:"commands"`
+			URL         string   `json:"url"`
+			Queries     []string `json:"queries"`
+			Files       []struct {
+				Path string `json:"path"`
+			} `json:"files"`
 			Description  string `json:"description"`
 			Diff         string `json:"diff"`
 			FilePath     string `json:"filepath"`
 			SnakePath    string `json:"file_path"`
+			Path         string `json:"path"`
+			OldText      string `json:"old_text"`
+			NewText      string `json:"new_text"`
 			Prompt       string `json:"prompt"`
 			SubagentType string `json:"subagent_type"`
 			ParentDir    string `json:"parentDir"`
@@ -926,17 +989,62 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 		s.respond(rpcID, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}}, nil)
 		return
 	}
-	diff := params.ToolCall.RawInput.Diff
+	input := params.ToolCall.RawInput
+	diff := input.Diff
 	truncated := false
 	typedPath := ""
 	if diff == "" && params.ToolCall.Kind == "edit" {
-		var ok bool
-		diff, typedPath, truncated, ok = typedDiff(params.ToolCall.Content)
-		_ = ok
+		if typed, fromContent, cut, ok := typedDiff(params.ToolCall.Content); ok {
+			diff, typedPath, truncated = typed, fromContent, cut
+		} else if input.Path != "" && input.NewText != "" {
+			// Cline's editor reports the file and its new text instead of a
+			// diff. old_text is the replaced text when the call is a
+			// replacement; without it the call creates or inserts, so the
+			// addition is the whole change.
+			var oldText *string
+			if input.OldText != "" {
+				oldText = &input.OldText
+			}
+			diff, truncated = renderTextDiff(input.Path, oldText, input.NewText)
+			typedPath = input.Path
+		}
 	}
 	if len(diff) > maxDiffBytes {
 		diff = cutUTF8(diff, maxDiffBytes)
 		truncated = true
+	}
+	command := input.Command
+	if command == "" {
+		command = input.CommandLine
+	}
+	if command == "" && len(input.Commands) > 0 {
+		command = strings.Join(input.Commands, "\n")
+	}
+	if command == "" && input.URL != "" {
+		command = input.URL
+	}
+	if command == "" && len(input.Queries) > 0 {
+		command = strings.Join(input.Queries, "\n")
+	}
+	if len(command) > maxDiffBytes {
+		command = cutUTF8(command, maxDiffBytes)
+		truncated = true
+	}
+	path := input.FilePath
+	if path == "" {
+		path = input.SnakePath
+	}
+	if path == "" {
+		path = input.Path
+	}
+	if path == "" {
+		path = typedPath
+	}
+	if path == "" && len(input.Files) > 0 {
+		path = input.Files[0].Path
+	}
+	if path == "" && len(params.ToolCall.Locations) > 0 {
+		path = params.ToolCall.Locations[0].Path
 	}
 	// A card the person cannot review must not offer Allow once. The probe
 	// always sends the diff for an edit and the command for an execute; a
@@ -944,26 +1052,31 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 	if params.ToolCall.Kind == "edit" && diff == "" {
 		truncated = true
 	}
-	if params.ToolCall.Kind == "execute" && params.ToolCall.RawInput.Command == "" {
+	if params.ToolCall.Kind == "execute" && command == "" {
 		truncated = true
 	}
-	command := params.ToolCall.RawInput.Command
+	// Some tools (a read of several files, a search, a fetch) carry nothing the
+	// card's command, path or diff would show. The adapter's own title names the
+	// tool and its input, so it fills the command rather than dropping a request
+	// the person is still expected to answer.
+	if command == "" && path == "" && diff == "" {
+		command = strings.TrimSpace(params.ToolCall.Title)
+		if command == "" {
+			// Nothing names the request, so it cannot be reviewed.
+			command = s.opts.Agent.displayName() + " tool call"
+			truncated = true
+		}
+		if len(command) > maxDiffBytes {
+			command = cutUTF8(command, maxDiffBytes)
+			truncated = true
+		}
+	}
 	if params.ToolCall.Kind == "think" {
 		// Claude reports a subagent delegation as kind "think". The person must
 		// see what the subagent is told before it may run tools on their behalf.
 		var cut bool
 		command, cut = subagentSummary(params.ToolCall.RawInput.SubagentType, params.ToolCall.RawInput.Prompt)
 		truncated = truncated || cut || command == ""
-	}
-	path := params.ToolCall.RawInput.FilePath
-	if path == "" {
-		path = params.ToolCall.RawInput.SnakePath
-	}
-	if path == "" {
-		path = typedPath
-	}
-	if path == "" && len(params.ToolCall.Locations) > 0 {
-		path = params.ToolCall.Locations[0].Path
 	}
 	locations := make([]string, 0, len(params.ToolCall.Locations))
 	for _, location := range params.ToolCall.Locations {
@@ -1203,13 +1316,26 @@ func (s *Session) cancelCards() {
 	}
 }
 
+// recoverRoot is where this adapter keeps its own logs and store: the person's
+// login folder when the profile routes one (Cline's ~/.cline), otherwise the
+// private chat home.
+func (s *Session) recoverRoot() string {
+	if s.opts.Agent.LoginHomeEnv == "" {
+		return s.opts.Home
+	}
+	if root, err := loginHome(s.opts.Agent, s.opts.BaseEnv); err == nil {
+		return root
+	}
+	return ""
+}
+
 // recoverLive asks the adapter for an error it logged while the turn has been
 // silent. It returns "" when the adapter has no live source or the log is quiet.
 func (s *Session) recoverLive(acpID string, afterMS int64) string {
 	if s.opts.Agent.RecoverLive == nil {
 		return ""
 	}
-	return s.opts.Agent.RecoverLive(s.opts.Home, acpID, afterMS)
+	return s.opts.Agent.RecoverLive(s.recoverRoot(), acpID, afterMS)
 }
 
 // reportTurnError ends a turn whose provider failed without ACP reporting it.
@@ -1362,10 +1488,12 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 				warnNow, recoverNow := false, false
 				s.mu.Lock()
 				quiet := quietNow.Sub(s.lastEvent)
-				pending := len(s.pending) > 0
+				// ACP tools need not stream output while they run. Their silence
+				// is not a stalled provider; the hard deadline still bounds them.
+				waiting := len(s.pending) > 0 || len(s.toolStart) > 0
 				progress := s.turnProgress
 				s.mu.Unlock()
-				if !pending && quiet >= s.opts.stillWorkingAfter() {
+				if !waiting && quiet >= s.opts.stillWorkingAfter() {
 					if !s.warned {
 						s.warned = true
 						warnNow = true
@@ -1375,7 +1503,7 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 						recoverNow = true
 					}
 				}
-				timedOut := elapsed >= s.opts.maxTurn() || (!pending && quiet >= s.opts.turnTimeout())
+				timedOut := elapsed >= s.opts.maxTurn() || (!waiting && quiet >= s.opts.turnTimeout())
 				s.turnMu.Unlock()
 				if recoverNow {
 					if message := s.recoverLive(acpID, startedAt.UnixMilli()); message != "" {
@@ -1431,6 +1559,10 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		"prompt":    prompt,
 	})
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			// Cancel already reported the stopped turn; no request was sent.
+			return nil
+		}
 		s.mu.Lock()
 		reported := s.turnError
 		s.mu.Unlock()
@@ -1467,7 +1599,7 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		progress := s.turnProgress
 		s.mu.Unlock()
 		if !progress && s.opts.Agent.RecoverError != nil {
-			if message := s.opts.Agent.RecoverError(s.opts.Home, acpID, startedAt.UnixMilli()); message != "" {
+			if message := s.opts.Agent.RecoverError(s.recoverRoot(), acpID, startedAt.UnixMilli()); message != "" {
 				s.emit(Event{Kind: "status", State: "error", Detail: safeRPCText(message)})
 				return nil
 			}
@@ -1768,17 +1900,14 @@ func (s *Session) switchMode(ctx context.Context, id, mode string) (string, erro
 		return "", err
 	}
 	var result struct {
-		ConfigOptions []struct {
-			ID           string `json:"id"`
-			CurrentValue string `json:"currentValue"`
-		} `json:"configOptions"`
+		ConfigOptions []configOption `json:"configOptions"`
 	}
 	if json.Unmarshal(raw, &result) != nil {
 		return "", nil
 	}
 	for _, option := range result.ConfigOptions {
 		if option.ID == "mode" {
-			return option.CurrentValue, nil
+			return string(option.CurrentValue), nil
 		}
 	}
 	return "", nil

@@ -51,6 +51,7 @@ type Runtime struct {
 	retrying    bool
 	closed      bool
 	done        chan struct{}
+	retry       sync.WaitGroup
 }
 
 // NewRuntime prepares a lazy runtime. It performs no network work, reads no
@@ -190,11 +191,13 @@ func (r *Runtime) scheduleRetryLocked() {
 		return
 	}
 	r.retrying = true
+	r.retry.Add(1)
 	wait := time.Until(r.nextAttempt)
 	if wait < 0 {
 		wait = 0
 	}
 	go func() {
+		defer r.retry.Done()
 		timer := time.NewTimer(wait)
 		defer timer.Stop()
 		select {
@@ -282,5 +285,6 @@ func (r *Runtime) Close() error {
 			err = errors.Join(err, ErrUnavailable)
 		}
 	}
+	r.retry.Wait()
 	return err
 }

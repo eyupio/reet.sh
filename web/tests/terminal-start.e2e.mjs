@@ -88,6 +88,11 @@ try {
  await expect(terminalDialog.getByRole('button',{name:'New terminal',exact:true})).toBeDisabled()
  await expect(terminalDialog.getByText('Use a full path that starts with /.')).toBeVisible()
  await terminalDialog.getByLabel('Folder',{exact:true}).fill('/srv/project with spaces')
+ // The name is optional: left empty, the session is Terminal and the folder's last part, as the controller would name it.
+ await expect(terminalDialog.getByLabel('New session name')).toHaveValue('')
+ await expect(terminalDialog.getByLabel('New session name')).toHaveAttribute('placeholder','Terminal · project with spaces')
+ await expect(terminalDialog.getByText('Optional. Left empty, the session is called Terminal · project with spaces.')).toBeVisible()
+ await expect(terminalDialog.getByRole('button',{name:'New terminal',exact:true})).toBeEnabled()
  await terminalDialog.getByLabel('New session name').fill('Configured shell')
  expect(new URL(page.url()).searchParams.get('agent')).toBe(agentA)
  expect(writes).toHaveLength(0)

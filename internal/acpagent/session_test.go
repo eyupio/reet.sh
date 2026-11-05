@@ -51,9 +51,14 @@ func TestFakeACP(t *testing.T) {
 	scenario, version := os.Getenv("ACP_SCENARIO"), os.Getenv("ACP_VERSION")
 	codexLoginScenario := scenario == "codex-login" || scenario == "codex-auth-required" || scenario == "codex-other-error"
 	claudeScenario := scenario == "claude-prompt-auth-required"
+	clineScenario := scenario == "cline" || strings.HasPrefix(scenario, "cline-")
 	in := bufio.NewScanner(os.Stdin)
 	out := bufio.NewWriter(os.Stdout)
 	defer out.Flush()
+	if strings.HasPrefix(scenario, "antigravity-") {
+		runAntigravityHelper(in, out, scenario, version)
+		os.Exit(0)
+	}
 	send := func(v any) {
 		data, _ := json.Marshal(v)
 		_, _ = out.Write(append(data, '\n'))
@@ -95,6 +100,21 @@ func TestFakeACP(t *testing.T) {
 		return true
 	}
 	liveModel, liveEffort := "stub/model", "low"
+	// Cline reports a boolean auto-approve option, a mode option and the model
+	// catalogue in the same configOptions reply.
+	clineModel, clineMode := "stub/model", "act"
+	if scenario == "cline-default-model" || scenario == "cline-model-refused" {
+		clineModel = "stub/default"
+	}
+	clineApprove := scenario == "cline-approve-on"
+	clineConfig := func() []map[string]any {
+		return []map[string]any{
+			{"type": "select", "id": "provider", "category": "_provider", "currentValue": "cline", "options": []map[string]string{{"value": "cline"}}},
+			{"type": "select", "id": "model", "category": "model", "currentValue": clineModel, "options": []map[string]string{{"value": "stub/model"}, {"value": "provider/other"}}},
+			{"type": "select", "id": "mode", "category": "mode", "currentValue": clineMode, "options": []map[string]string{{"value": "act"}, {"value": "plan"}}},
+			{"type": "boolean", "id": "auto_approve", "currentValue": clineApprove},
+		}
+	}
 	liveSettings := func() []map[string]any {
 		return []map[string]any{
 			{"id": "model", "category": "model", "currentValue": liveModel, "options": []map[string]string{{"value": "stub/model"}, {"value": "provider/other"}}},
@@ -104,6 +124,7 @@ func TestFakeACP(t *testing.T) {
 	}
 	var promptID json.RawMessage
 	var session string
+	permissionCall := "call_1"
 	modeCalls := 0
 	for in.Scan() {
 		var message struct {
@@ -122,6 +143,9 @@ func TestFakeACP(t *testing.T) {
 			}
 			if claudeScenario {
 				name = "@agentclientprotocol/claude-agent-acp"
+			}
+			if clineScenario {
+				name = "cline"
 			}
 			if scenario == "wrong-name" {
 				name = "Another Agent"
@@ -149,6 +173,25 @@ func TestFakeACP(t *testing.T) {
 				SessionID string `json:"sessionId"`
 			}
 			_ = json.Unmarshal(message.Params, &params)
+			if clineScenario {
+				// Cline confirms a mode and a model switch with the whole
+				// configOptions snapshot, and refuses an unknown config id.
+				switch params.ConfigID {
+				case "model":
+					if scenario == "cline-model-refused" {
+						send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32602, "message": "invalid model"}})
+					} else {
+						clineModel = params.Value
+						reply(message.ID, map[string]any{"configOptions": clineConfig()})
+					}
+				case "mode":
+					clineMode = params.Value
+					reply(message.ID, map[string]any{"configOptions": clineConfig()})
+				default:
+					os.Exit(2)
+				}
+				continue
+			}
 			if strings.HasPrefix(scenario, "live-controls") {
 				if scenario == "live-controls-hang" {
 					continue
@@ -253,6 +296,17 @@ func TestFakeACP(t *testing.T) {
 			if strings.HasPrefix(scenario, "live-controls") {
 				session = "ses_fake_1"
 				reply(message.ID, map[string]any{"sessionId": session, "configOptions": liveSettings()})
+				continue
+			}
+			if clineScenario {
+				// Captured shape from Cline 3.0.74: the task id, modes and models
+				// beside a configOptions list that includes a boolean
+				// auto_approve. --auto-approve false is what makes it false.
+				session = "1793848855723_8zvJS_cli"
+				reply(message.ID, map[string]any{"sessionId": session,
+					"modes":         map[string]any{"availableModes": []map[string]string{{"id": "act", "name": "Act"}, {"id": "plan", "name": "Plan"}}, "currentModeId": clineMode},
+					"models":        map[string]any{"currentModelId": clineModel, "availableModels": []map[string]string{{"modelId": "stub/model", "name": "Stub"}}},
+					"configOptions": clineConfig()})
 				continue
 			}
 			mode := "build"
@@ -382,6 +436,40 @@ func TestFakeACP(t *testing.T) {
 						"rawInput": map[string]string{"file_path": "/work/marker.txt", "description": "Write an isolated probe marker", "diff": "@@ -0,0 +1 @@\n+marker\n"}},
 					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "reject", "kind": "reject_once", "name": "Reject"}},
 				}})
+			case "cline-silent-error":
+				// The provider failed before any ACP frame; Cline writes the
+				// reason to its own log and ends the turn.
+				logDir := filepath.Join(os.Getenv("CLINE_DIR"), "data", "logs")
+				line := fmt.Sprintf(`{"level":50,"time":%q,"sessionId":%q,"err":{"message":"Insufficient balance for this chat"},"msg":"Interactive turn failed"}`+"\n", time.Now().UTC().Format(time.RFC3339Nano), session)
+				if os.MkdirAll(logDir, 0o700) == nil {
+					_ = os.WriteFile(filepath.Join(logDir, "cline.log"), []byte(line), 0o600)
+				}
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
+			case "cline-read", "cline-editor", "cline-command":
+				// Shapes captured from Cline 3.0.74 with --auto-approve false:
+				// a read of files, an editor write that carries path/new_text
+				// instead of a diff, and a run_commands call whose input is a
+				// commands list. Options are allow_once / allow_always /
+				// reject_once.
+				var call map[string]any
+				switch scenario {
+				case "cline-read":
+					call = map[string]any{"toolCallId": "call_read", "title": `read_files: {"files":[{"path":"/work/notes.txt"}]}`, "kind": "read", "status": "pending",
+						"rawInput": map[string]any{"files": []map[string]string{{"path": "/work/notes.txt"}}}}
+				case "cline-editor":
+					call = map[string]any{"toolCallId": "call_edit", "title": `editor: {"path":"/work/new.txt","new_text":"reet-probe"}`, "kind": "edit", "status": "pending",
+						"rawInput": map[string]any{"path": "/work/new.txt", "new_text": "reet-probe"}}
+				case "cline-command":
+					call = map[string]any{"toolCallId": "call_run", "title": "run_commands: go test ./...", "kind": "execute", "status": "pending",
+						"rawInput": map[string]any{"commands": []string{"go test ./..."}}}
+				}
+				permissionCall = fmt.Sprint(call["toolCallId"])
+				update(session, "tool_call", call)
+				send(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "session/request_permission", "params": map[string]any{
+					"sessionId": session,
+					"toolCall":  call,
+					"options":   []map[string]string{{"optionId": "allow_once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "allow_always", "kind": "allow_always", "name": "Allow always"}, {"optionId": "reject_once", "kind": "reject_once", "name": "Reject"}},
+				}})
 			case "bare-permission":
 				// Neither slot: the card is unchanged and carries no reason.
 				update(session, "tool_call", map[string]any{"toolCallId": "call_bare", "title": "Run command", "kind": "execute", "status": "pending"})
@@ -474,6 +562,19 @@ func TestFakeACP(t *testing.T) {
 			case "running-command":
 				// A command is started and never reported finished; the prompt waits for session/cancel.
 				update(session, "tool_call", map[string]any{"toolCallId": "call_run", "title": "sleep 47", "kind": "execute", "status": "in_progress"})
+			case "quiet-command", "quiet-command-then-hang":
+				update(session, "tool_call", map[string]any{"toolCallId": "call_run", "title": "wait for checks", "kind": "execute", "status": "in_progress"})
+				time.Sleep(300 * time.Millisecond)
+				update(session, "tool_call_update", map[string]any{"toolCallId": "call_run", "status": "completed"})
+				if scenario == "quiet-command" {
+					reply(promptID, map[string]any{"stopReason": "end_turn"})
+					promptID = nil
+				}
+				if scenario == "quiet-command-then-hang" {
+					// A sparse output update must not reopen a completed tool and
+					// exempt the silent provider from its deadline again.
+					update(session, "tool_call_update", map[string]any{"toolCallId": "call_run", "content": []map[string]any{{"type": "content", "content": map[string]string{"type": "text", "text": "checks passed"}}}})
+				}
 			case "ignore-cancel":
 				// Never answers the prompt and ignores session/cancel.
 			case "steady-progress":
@@ -535,12 +636,14 @@ func TestFakeACP(t *testing.T) {
 					} `json:"result"`
 				}
 				_ = json.Unmarshal(in.Bytes(), &answer)
-				if answer.Result.Outcome.OptionID == "once" || answer.Result.Outcome.OptionID == "reject" {
+				allowed := answer.Result.Outcome.OptionID == "once" || answer.Result.Outcome.OptionID == "allow_once"
+				rejected := answer.Result.Outcome.OptionID == "reject" || answer.Result.Outcome.OptionID == "reject_once"
+				if allowed || rejected {
 					status := "completed"
-					if answer.Result.Outcome.OptionID == "reject" {
+					if rejected {
 						status = "failed"
 					}
-					update(session, "tool_call_update", map[string]any{"toolCallId": "call_1", "title": "write hello.txt", "kind": "edit", "status": status})
+					update(session, "tool_call_update", map[string]any{"toolCallId": permissionCall, "title": "write hello.txt", "kind": "edit", "status": status})
 					reply(promptID, map[string]any{"stopReason": "end_turn"})
 					promptID = nil
 				} else if scenario == "late-permission" || scenario == "permission-on-cancel" {
@@ -1135,6 +1238,98 @@ func TestActiveTurnOutlivesTheIdleTimeout(t *testing.T) {
 	}
 }
 
+func TestQuietCommandOutlivesTheIdleTimeout(t *testing.T) {
+	opts, got := options(t, "quiet-command", testVersion)
+	opts.StillWorkingAfter = 20 * time.Millisecond
+	opts.TurnTimeout = 100 * time.Millisecond
+	opts.MaxTurn = 2 * time.Second
+	session, err := Start(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	// A return to the chat must find the completed work, and the same process
+	// must remain usable for the person's next message.
+	for range 2 {
+		if err := session.Prompt(t.Context(), "wait for checks"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	for _, event := range got.all {
+		if event.Kind == "notice" || (event.Kind == "status" && event.State == "cancelled") {
+			t.Fatalf("a running command was mistaken for a silent provider: %+v", event)
+		}
+	}
+}
+
+func TestSilenceAfterAQuietCommandStillTimesOut(t *testing.T) {
+	opts, got := options(t, "quiet-command-then-hang", testVersion)
+	opts.StillWorkingAfter = 20 * time.Millisecond
+	opts.TurnTimeout = 100 * time.Millisecond
+	session, err := Start(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(t.Context(), "wait for checks") }()
+	completed := false
+	for {
+		event := got.next(t)
+		if event.Kind == "tool" && event.ToolCallID == "call_run" && event.Status == "completed" {
+			completed = true
+		}
+		if event.Kind == "notice" && event.Bad {
+			if !completed {
+				t.Fatal("the command was stopped before it finished")
+			}
+			break
+		}
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the silent turn stayed busy after the command finished")
+	}
+}
+
+func TestQuietCommandStillHasAHardDeadline(t *testing.T) {
+	opts, got := options(t, "running-command", testVersion)
+	opts.StillWorkingAfter = 20 * time.Millisecond
+	opts.TurnTimeout = 100 * time.Millisecond
+	opts.MaxTurn = 250 * time.Millisecond
+	session, err := Start(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	started := time.Now()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(t.Context(), "wait for checks") }()
+	for {
+		event := got.next(t)
+		if event.Kind == "notice" && event.Bad {
+			if time.Since(started) < opts.MaxTurn {
+				t.Fatal("the idle deadline stopped a command before the hard deadline")
+			}
+			break
+		}
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the hard deadline did not stop the command")
+	}
+}
+
 func TestSilentTurnIsAbandonedWhenCancelIsIgnored(t *testing.T) {
 	old := cancelGrace
 	cancelGrace = 100 * time.Millisecond
@@ -1664,6 +1859,75 @@ func TestStartModeIsConfirmedOrTheChatIsRefused(t *testing.T) {
 	opts, _ := options(t, "mode-switch", testVersion)
 	if _, err := Start(context.Background(), opts); err == nil {
 		t.Fatal("plan mode accepted without a StartMode")
+	}
+}
+
+// Stop after the working state is published but before the prompt is written
+// must prevent that turn from starting, while leaving the next turn usable.
+func TestStopBeforePromptWriteDoesNotStartWork(t *testing.T) {
+	opts, got := options(t, "running-command", testVersion)
+	opts.Agent.EndChatOnStopWhileToolRuns = false
+	opts.TurnTimeout, opts.ForceStopGrace = time.Minute, time.Minute
+	ready, release := make(chan struct{}), make(chan struct{})
+	var first, released sync.Once
+	var reportedError atomic.Bool
+	resume := func() { released.Do(func() { close(release) }) }
+	onEvent := opts.OnEvent
+	opts.OnEvent = func(event Event) {
+		if event.Kind == "status" && event.State == "error" {
+			reportedError.Store(true)
+		}
+		if event.Kind == "status" && event.State == "working" {
+			first.Do(func() { close(ready); <-release })
+		}
+		onEvent(event)
+	}
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { resume(); session.Close() })
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "stop before sending") }()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the turn never reached the send boundary")
+	}
+	if err := session.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	resume()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("early Stop returned an error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stopped prompt was sent after cancellation")
+	}
+	if session.Working() || got.has("tool") || reportedError.Load() {
+		t.Fatal("the cancelled prompt started work or reported an error")
+	}
+	select {
+	case <-session.Done():
+		t.Fatal("early Stop ended the chat")
+	default:
+	}
+	// The cancellation belongs to the old turn; a later turn can still run.
+	go func() { done <- session.Prompt(context.Background(), "next turn") }()
+	for got.next(t).Kind != "tool" {
+	}
+	if err := session.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the next turn did not cancel")
 	}
 }
 

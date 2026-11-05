@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	ErrACPUnsupported      = errors.New("that machine does not support OpenCode chats")
-	ErrACPVersion          = errors.New("the machine needs OpenCode 1.19.5 or newer for chats")
+	ErrACPUnsupported      = errors.New("that machine does not support Gaffer chats")
+	ErrACPVersion          = errors.New("the machine needs a newer agent for chats")
 	ErrACPModelRejected    = errors.New("The agent did not confirm the chosen model. Its current model may have changed. Choose a model configured on this machine and try again.")
 	ErrACPModelUnsupported = errors.New("Update reet on this machine to switch models during a session.")
 	// ErrACPAgentModeUnsupported means the machine or agent does not offer that mode switch.
@@ -63,11 +63,25 @@ type ACPTrustError struct{ Detail string }
 
 func (e *ACPTrustError) Error() string { return "this folder has OpenCode plugins" }
 
-// ACPUnavailableError carries the machine's plain sentence when OpenCode could
+// ACPUnavailableError carries the machine's plain sentence when the agent could
 // not start for a reason other than version or trust.
 type ACPUnavailableError struct{ Detail string }
 
-func (e *ACPUnavailableError) Error() string { return "OpenCode could not start the chat" }
+func (e *ACPUnavailableError) Error() string { return "the agent could not start the chat" }
+
+// ACPVersionError carries the connector's sentence naming the agent and the
+// version floor it refused, so the browser does not blame OpenCode for a Cline
+// or Claude version.
+type ACPVersionError struct{ Detail string }
+
+func (e *ACPVersionError) Error() string {
+	if e.Detail != "" {
+		return e.Detail
+	}
+	return ErrACPVersion.Error()
+}
+
+func (e *ACPVersionError) Unwrap() error { return ErrACPVersion }
 
 func acpRefusal(code terminalproto.ResultCode, detail string) error {
 	switch code {
@@ -77,7 +91,7 @@ func acpRefusal(code terminalproto.ResultCode, detail string) error {
 		}
 		return &ACPUnavailableError{Detail: detail}
 	case terminalproto.ACPVersion:
-		return ErrACPVersion
+		return &ACPVersionError{Detail: detail}
 	case terminalproto.ACPTrustRequired:
 		return &ACPTrustError{Detail: detail}
 	}
@@ -94,6 +108,15 @@ type chatKey struct {
 type ChatEvent struct {
 	Seq int64 `json:"seq"`
 	terminalproto.ACPEvent
+	// size is the encoded byte length, kept so eviction does not re-marshal.
+	size int
+}
+
+// chatWrite is one persisted event waiting for the next batch flush.
+type chatWrite struct {
+	seq  int64
+	at   int64
+	data []byte
 }
 
 type chatLog struct {
@@ -118,12 +141,25 @@ type chatLog struct {
 	updatedAt   int64
 	completedAt int64
 	lastState   string
+	// trims counts ring evictions since the last persisted transcript trim.
+	trims int
+	// writes buffers transcript rows for one batched commit; writeTimer bounds
+	// how long a quiet chat leaves its tail unpersisted.
+	writes     []chatWrite
+	writeTimer *time.Timer
+	writeMu    sync.Mutex
+	// flushWG counts batches that have left l.writes but have not finished
+	// their store commit. close waits for it before returning.
+	flushWG sync.WaitGroup
+	closing bool
 }
 
 const (
-	maxChatEvents = 1000
-	maxChatBytes  = 256 << 10
-	maxChatSubs   = 32
+	maxChatEvents  = 1000
+	maxChatBytes   = 256 << 10
+	maxChatSubs    = 32
+	chatWriteBatch = 32
+	chatWriteDelay = 200 * time.Millisecond
 )
 
 func newChatLog() *chatLog {
@@ -146,7 +182,14 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 	l.ensureLoaded()
 	nowMs := time.Now().UnixMilli()
 	l.mu.Lock()
-	defer l.mu.Unlock()
+	var batch []chatWrite
+	var trimSeq int64
+	// Persist after unlocking: subscribers and the ring must not wait for a WAL
+	// commit, and one batch commit replaces one fsync per streamed event.
+	defer func() {
+		l.mu.Unlock()
+		l.persist(batch, trimSeq)
+	}()
 	l.updatedAt = nowMs
 	switch event.Kind {
 	case "user":
@@ -336,12 +379,12 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 		}
 	}
 	l.seq++
-	published := ChatEvent{Seq: l.seq, ACPEvent: event}
+	published := ChatEvent{Seq: l.seq, ACPEvent: event, size: len(data)}
 	l.events = append(l.events, published)
 	l.bytes += len(data)
 	for len(l.events) > maxChatEvents || l.bytes > maxChatBytes {
 		drop := l.oldestHistoryEvent()
-		l.bytes -= len(mustJSON(l.events[drop].ACPEvent))
+		l.bytes -= l.events[drop].size
 		if drop == 0 {
 			l.events[0] = ChatEvent{}
 			l.events = l.events[1:]
@@ -352,8 +395,15 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 		}
 		l.truncated = true
 	}
-	if l.st != nil {
-		_ = l.st.AppendTerminalChatEventFor(l.uid, l.sessionID, l.seq, nowMs, data)
+	if l.st != nil && !l.closing {
+		l.writes = append(l.writes, chatWrite{seq: l.seq, at: nowMs, data: data})
+		if l.writeTimer == nil {
+			l.writeTimer = time.AfterFunc(chatWriteDelay, l.flushLater)
+		}
+		l.trims++
+		if len(l.writes) >= chatWriteBatch {
+			batch, trimSeq = l.takeWritesLocked()
+		}
 	}
 	for id, ch := range l.subs {
 		select {
@@ -364,6 +414,60 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 			delete(l.subs, id)
 			close(ch)
 		}
+	}
+}
+
+// takeWritesLocked removes the queued rows and, when the ring has evicted
+// enough entries, the sequence below which the stored transcript can be
+// trimmed. The caller holds l.mu.
+func (l *chatLog) takeWritesLocked() ([]chatWrite, int64) {
+	if l.writeTimer != nil {
+		l.writeTimer.Stop()
+		l.writeTimer = nil
+	}
+	if len(l.writes) == 0 {
+		return nil, 0
+	}
+	batch := l.writes
+	l.writes = nil
+	l.flushWG.Add(1)
+	var trimSeq int64
+	if l.trims >= 32 && len(l.events) > 0 {
+		l.trims = 0
+		trimSeq = l.events[0].Seq
+	}
+	return batch, trimSeq
+}
+
+// flushLater persists a quiet chat's buffer once the write delay expires.
+func (l *chatLog) flushLater() {
+	l.mu.Lock()
+	batch, trimSeq := l.takeWritesLocked()
+	l.mu.Unlock()
+	l.persist(batch, trimSeq)
+}
+
+// persist writes one batch and trims the stored transcript afterwards. It
+// never runs while l.mu is held.
+func (l *chatLog) persist(batch []chatWrite, trimSeq int64) {
+	if len(batch) == 0 {
+		return
+	}
+	defer l.flushWG.Done()
+	if l.st == nil {
+		return
+	}
+	events := make([]store.StoredChatEvent, len(batch))
+	for i := range batch {
+		events[i] = store.StoredChatEvent{Seq: batch[i].seq, At: batch[i].at, Event: batch[i].data}
+	}
+	l.writeMu.Lock()
+	defer l.writeMu.Unlock()
+	if err := l.st.AppendTerminalChatEventsFor(l.uid, l.sessionID, events); err != nil {
+		return
+	}
+	if trimSeq > 0 {
+		_ = l.st.TrimTerminalChatEventsFor(l.uid, l.sessionID, trimSeq)
 	}
 }
 
@@ -511,10 +615,15 @@ func (l *chatLog) subscribe() (snapshot []ChatEvent, truncated bool, events <-ch
 	l.nextSub++
 	if len(l.subs) >= maxChatSubs {
 		// Oldest subscriber is dropped; its stream reconnects and resets.
-		for old, oldCh := range l.subs {
-			delete(l.subs, old)
-			close(oldCh)
-			break
+		oldest := -1
+		for id := range l.subs {
+			if oldest < 0 || id < oldest {
+				oldest = id
+			}
+		}
+		if oldest >= 0 {
+			close(l.subs[oldest])
+			delete(l.subs, oldest)
 		}
 	}
 	l.subs[id] = ch
@@ -545,11 +654,17 @@ func (l *chatLog) permissionEvent(permissionID string) (terminalproto.ACPEvent, 
 
 func (l *chatLog) close() {
 	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.closing = true
+	batch, trimSeq := l.takeWritesLocked()
 	for id, ch := range l.subs {
 		delete(l.subs, id)
 		close(ch)
 	}
+	l.mu.Unlock()
+	l.persist(batch, trimSeq)
+	// A timer callback may already have taken a batch and be committing it.
+	// Wait for it before the caller deletes the transcript or shuts down.
+	l.flushWG.Wait()
 }
 
 func (b *Broker) chatLog(uid int64, session string) *chatLog {
@@ -588,7 +703,7 @@ func (l *chatLog) ensureLoaded() {
 			if json.Unmarshal(e.Event, &event) != nil {
 				continue
 			}
-			l.events = append(l.events, ChatEvent{Seq: e.Seq, ACPEvent: event})
+			l.events = append(l.events, ChatEvent{Seq: e.Seq, ACPEvent: event, size: len(e.Event)})
 			l.bytes += len(e.Event)
 		}
 		if len(l.events) == 0 {

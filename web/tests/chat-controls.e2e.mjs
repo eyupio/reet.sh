@@ -45,11 +45,12 @@ async function open() {
 }
 try {
  await open()
- const model = page.getByRole('textbox', { name: 'Model', exact: true })
+ const model = page.getByRole('button', { name: /^Model:/ })
  await expect(model).toBeEnabled()
- await model.fill('provider/two')
- await page.getByRole('button', { name: 'Change model', exact: true }).click()
+ await model.click()
+ await page.getByRole('listbox', { name: 'Model', exact: true }).getByRole('option', { name: 'provider/two', exact: true }).click()
  await expect.poll(() => controls.model).toBe('provider/two')
+ await expect(page.getByRole('button', { name: 'Model: provider/two', exact: true })).toBeVisible()
  await page.getByRole('combobox', { name: 'Effort', exact: true }).selectOption('high')
  await expect.poll(() => changes.some(c => c.configId === 'effort' && c.value === 'high')).toBe(true)
  const composer = page.getByRole('textbox', { name: 'Message OpenCode', exact: true })

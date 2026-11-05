@@ -7,6 +7,25 @@ import (
 	"testing"
 )
 
+func TestSitemapKeepsPublishedSkillsAndExcludesPrivateWorkspacePaths(t *testing.T) {
+	h := Handler("https://reet.example", WithSitemapURLs(func() []string {
+		return []string{"/", "/welcome", "/signin", "/account/machines", "/sessions", "/community", "/l/example", "/sam/review-code"}
+	}))
+	rec := get(t, h, "/sitemap.xml")
+	var doc sitemap
+	if err := xml.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.URLs) != 3 {
+		t.Fatalf("expected only explicitly published content, got %+v", doc.URLs)
+	}
+	for _, want := range []string{"/community", "/l/example", "/sam/review-code"} {
+		if !strings.Contains(rec.Body.String(), "<loc>https://reet.example"+want+"</loc>") {
+			t.Errorf("published URL %s was lost", want)
+		}
+	}
+}
+
 // TestSitemapURLsArePublicAndSelfCanonical is the crawl contract: every address the sitemap advertises must be served,
 // indexable and canonical to itself. It catches a public page that quietly becomes a 404, a noindex or a duplicate of
 // the homepage.
@@ -32,7 +51,7 @@ func TestSitemapURLsArePublicAndSelfCanonical(t *testing.T) {
 	if err := xml.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
 		t.Fatalf("invalid sitemap XML: %v", err)
 	}
-	if len(doc.URLs) < 3 {
+	if len(doc.URLs) != 2 {
 		t.Fatalf("sitemap has only %d urls", len(doc.URLs))
 	}
 	for _, entry := range doc.URLs {
@@ -57,8 +76,8 @@ func TestSitemapURLsArePublicAndSelfCanonical(t *testing.T) {
 			}
 		}
 	}
-	for _, private := range []string{"/signin", "/admin/overview", "/account", "/lists/1", "/sessions"} {
-		if strings.Contains(rec.Body.String(), "https://reet.sh"+private) {
+	for _, private := range []string{"/", "/welcome", "/signin", "/admin/overview", "/account", "/lists/1", "/sessions"} {
+		if strings.Contains(rec.Body.String(), "<loc>https://reet.sh"+private+"</loc>") {
 			t.Errorf("sitemap lists private route %s", private)
 		}
 	}

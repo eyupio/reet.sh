@@ -24,7 +24,7 @@ skill row carries its saved sync intent, and choosing it brings that card into v
 | In flight | Live sessions, and finished ones for a day, grouped by project, Machine or State. A session joins the folder project it was started in (its own project id); the subtitle is `project · machine · branch`. Each row shows the state word and where it came from ("from terminal activity", "from the session's state" or "from the exit code"). There is no step or progress bar. A row opens the session; a right-click (or Shift+F10 / the menu key) opens the same actions menu as the Sessions page: Rename, Open in theatre, Copy branch, End session or Remove from history (each confirmed), and Check and remove worktree. | |
 | Needs you | Sessions that are waiting for you (a terminal bell or a pending Gaffer permission since you last opened or marked the session seen), finished cleanly ("Ready to review", with changed-file count when the session ran in a worktree) or exited with an error, newest first, with **Open** and **Mark seen** (`POST /api/v2/terminal/sessions/{id}/seen`). Empty state: "Nothing needs you." | Inline Allow once / Deny cards on Home: a later slice |
 | Project rail | Your folder projects ([Projects](projects.md)): each card's colour, machine, base branch, state in words and worktrees in use; choosing one sets the launch bar's project, while its **+** (and New session here in its menu) starts a session there at once; a menu, from the card's button or a right-click, with New session here, Edit, project colour, Worktrees, Move up and down, and Remove from reet. **Select projects** in the heading's menu (or a long press on touch) turns the cards into checkboxes for a start in 2 to 12 projects. **Add** opens the folder browser. Under 1240 px it is a 56 px strip that shows how many are chosen. On a tablet or phone it is on the **Sessions** screen instead (see [The Sessions page](#the-sessions-page)); Home there keeps the launch sentence's project slot and its Add a project. | |
-| Launch bar | Opens in a modal from Home's Select and from an address that hands over projects: **Describe the job**, **Start** and the launch sentence ("Run Claude Code with default on Store rewrite at studio from main in a fresh worktree"), whose words are the choices. OpenCode on an acp machine reads "Run OpenCode in Gaffer…" by default; the **Gaffer** word switches it to **OpenCode TUI**. A project's **+** opens the Start an agent dialog, as it does on Machines and the Sessions panel. Details: [Start an agent session](start-agent-session.md#on-home-the-launch-bar). | **YOLO** needs the account setting, the machine's acceptance and a per-session confirmation. A live structured chat can switch Ask me ↔ YOLO from its header under the same gates. |
+| Launch bar | Opens in a modal from Home's Select and from an address that hands over projects: **Describe the job**, **Start** and the launch sentence ("Run Claude Code with default on Store rewrite at studio from main in a fresh worktree"), whose words are the choices. OpenCode, Cline or AGY on a machine offering its Gaffer integration reads "Run \<agent\> in Gaffer…" by default; the **Gaffer** word switches it to **\<agent\> TUI**. A project's **+** opens the Start an agent dialog, as it does on Machines and the Sessions panel. Details: [Start an agent session](start-agent-session.md#on-home-the-launch-bar). | **YOLO** needs the account setting, the machine's acceptance and a per-session confirmation. A live structured chat can switch Ask me ↔ YOLO from its header under the same gates. |
 | Bell | The Needs you count across your machines, with a popover listing the same cards as Needs you. The page title prefixes `(N)` when `N > 0`, and a polite live region announces transitions into Waiting at most once per session per minute. | |
 
 Viewers, single-token and open sign-ins get the fleet strip only. Those sign-ins cannot read sessions, so the cards
@@ -79,7 +79,7 @@ beside it). Its parts:
 - **Header**: the title, `agent · model · started …`, the state pill (Home's state words, with where the word came from in
   its tooltip and read out; while this browser's connection to a live session is down it says that instead, such as
   "Reconnecting" or "Disconnected", from the connection), a **YOLO** badge when on (or **Ask me | YOLO** for a live structured chat that can switch), **Gaffer | the agent TUI** — the agent TUI chosen for a shell or terminal
-  session, Gaffer chosen for a structured OpenCode session (and the agent TUI disabled there), and
+  session, Gaffer chosen for a structured chat (the switch to the agent's own TUI is OpenCode's, so Cline and AGY chats show it disabled), and
   Gaffer disabled with its reason for a shell. **Theatre view** is a direct header button that hides the panels without changing the session. Interface, approvals, **Terminal here** and (on larger screens) **Terminal beside** stay in a wrapping toolbar. The actions menu (More / ⋮, or Shift+F10 on it) contains Rename, Copy branch,
   End session or Remove from history, Check and remove worktree. Tab from the open menu goes on to the control after ⋮
   (Shift+Tab back to ⋮), and a reconnecting terminal never takes focus out of it. A terminal session shows no steps and no
@@ -92,13 +92,18 @@ beside it). Its parts:
   update reet. This is the direct non-agent terminal entry point. **Open a terminal beside this session…** creates the
   same plain shell but shows it in the right-hand panel while Gaffer or agent TUI stays in the main column; Close
   ends that shell. The side panel replaces the context panel while it is open.
-- **Gaffer pane** for a structured OpenCode session ([structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md)): the streamed
+- **Gaffer pane** for a structured OpenCode, Cline or AGY session ([structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md)): the streamed
   conversation, tool calls, approval cards with **Allow once** and **Deny**, a composer (Enter sends, Shift+Enter adds a
   line), **Attach image** (pasted, dropped or chosen; the machine embeds it in the prompt when it negotiated
   `acp-image-v1`, otherwise the prompt names the uploaded path), **Stop**, and the watchdog's "still working" notice. A lost or crashed
-  chat reconnects in place; a session a person ended offers **Continue in Gaffer with history…** in its menu, which opens
-  a new Gaffer and loads OpenCode's stored conversation. It asks before an edit or command; there is no shell in this
+  chat reconnects in place (OpenCode only); a session a person ended offers **Continue in Gaffer with history…** in its menu,
+  which opens a new Gaffer and loads the agent's stored conversation. Approval requests appear here; AGY uses its configured permission rules. There is no shell in this
   session. It has no terminal or session tabs on a phone; the usual slim header and End actions stay.
+- **Super focus on a phone**: a Gaffer chat opens with the site chrome, workspace toolbar and secondary session controls
+  out of the way, so the conversation and composer take the whole screen. The slim header keeps Back, the title, the
+  state and **Exit focus**; the chat status stays a live region but is not drawn, and the composer keeps its message field,
+  **Stop**/**Queue**, **Skills** and attach while effort and model wait behind **Exit focus**. The choice is remembered for
+  this browser; **Focus** in the header or the actions menu turns it back on.
 - **Context panel** (340 px): *Where it's working* (machine and whether it is reporting, project, branch, worktree: "own
   copy" or "the checkout"); *Changed files* for a session in its own worktree (the first 20 paths from the worktree status
   and the total, read when the panel opens on the session and again only from **Refresh**, R19); *Skills on this machine*
@@ -114,11 +119,13 @@ beside it). Its parts:
   reaches into the panel's widened padding, covers no control and reaches no further over the terminal than its 24 px
   track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
   extra keys are 40 × 40 px.
-- **Phones** keep the same session actions as desktop. The identity row shows the session and its state, with labelled
-  **Theatre**, **Details** and **More** controls. Interface and approval choices stay visible below it, with 44 px touch
-  targets; the toolbar wraps instead of moving them into the menu. **Terminal here** opens a terminal in the same folder.
-  With the keyboard up, the site's top bar steps aside and the session controls remain reachable. In landscape, identity
-  and actions share a compact row where there is room. Connection recovery buttons remain available in the pane.
+- **Phones** keep the same session actions as desktop. Outside a Gaffer chat's super focus, the identity row shows the
+  session and its state, with labelled **Focus**, **Theatre**, **Details** and **More** controls. Interface and approval
+  choices stay visible below it, with 44 px touch targets; the toolbar wraps instead of moving them into the menu.
+  **Terminal here** opens a terminal in the same folder. A Gaffer chat opens in super focus, where Back, the title, the
+  state and **Exit focus** are the header and **Exit focus** restores the full controls. With the keyboard up, the site's
+  top bar steps aside and the session controls remain reachable. In landscape, identity and actions share a compact row
+  where there is room. Connection recovery buttons remain available in the pane.
 
 
 The terminal route uses compact app navigation and the remaining usable viewport
@@ -205,7 +212,7 @@ phone it only closes). The rules live in `terminal/panelLayout.ts`, unit tested 
 **Your sessions** lists every session and its machine; machines also appear as group headings
 when grouped by Machine, each with its own **+** and menu. Organising never creates or stops a
 shell. Select a row to continue that exact session across machines. Sort by custom
-order, name, recent metadata activity, creation or state; group by machine, state,
+order, name, recent metadata activity, creation or state; group by project (the default, shown as a tree with a "No project" group last), machine, state,
 colour or none. Drag the row's action handle within its group in Custom order;
 keyboard users can choose Move up/down from the same menu. Colours mark sessions
 separately from running-state dots. Organisation choices stay in this browser.
@@ -264,7 +271,10 @@ Stopping a session includes **Remove from history when this session ends** and
 **Remove from history by default**, which starts as your saved default and says so
 ("This is your current default. Untick to change it."); toggling it and ending the session saves the
 new default. Account → Profile also stores the default.
-History stays visible during offline/pending termination. The immutable end
+History stays visible during offline/pending termination unless you explicitly
+choose **Remove from history** from the session's menu. That action hides the
+entry without confirming termination: the stop remains queued for reconnection
+and quota stays reserved until closure is confirmed. The immutable end
 receipt stores the explicit choice; authenticated host closure inserts the
 existing archive tombstone in the same transaction. Changing preferences later
 never changes an already requested stop. Files and operation receipts remain.
@@ -359,12 +369,14 @@ reet refuses the install, and says why, when:
 | Manage → End session | Confirm and request termination of the exact shell and its work |
 | History | Search saved Bash/Zsh commands; paste to edit or explicitly review and run |
 | History → Terminal output history | Read a bounded output snapshot |
-| Manage → Remove from history | Hide an ended/exited/lost record; keep machine files and operation identity |
+| Manage → Remove from history | Hide a closed or still-ending record; keep the queued stop, machine files and operation identity |
 
 Intentional disconnect stays disconnected through online/visibility events.
 Switching machines or sessions preserves the old shell. End requests on unavailable
-machines remain pending until confirmed. Remove from history uses a persistent controller tombstone and rejects active or
-pending sessions. Confirmation captures the session ID/title. Failed removals stay
+machines remain pending until confirmed. Remove from history uses a persistent controller tombstone and rejects creating
+or running sessions. Hiding a pending end does not confirm termination: the stop
+stays queued for reconnection and quota remains reserved until closure is confirmed.
+Confirmation captures the session ID/title. Failed removals stay
 visible; success cannot detach a newer selection. It remains available when terminal
 execution is disabled. See [the archive contract](https://github.com/eyupio/reet.sh/blob/main/docs/terminal-history-archive.md).
 
@@ -656,6 +668,6 @@ The right-hand panel keeps the session's status and workspace alongside the conv
 - **Files** browses one folder at a time under the session's recorded workspace. Links, Git metadata and special-file previews are excluded. Previews and listings are bounded, with truncation labelled. File browsing respects the machine's local folder-browse consent.
 - **GitHub** reads the branch's PR using `gh pr view` on the session's machine. It needs an explicit github.com origin, the GitHub CLI and an existing sign-in there. It leads with what needs attention — merge conflicts, failing checks, requested changes, running checks or a review — and names the checks still running or failing. A coloured check meter and counts summarise failing, running and passing checks; failed and pending checks appear first, with passing/skipped checks folded. Review decision, merge conflicts and change totals follow below. Check links open provider details. Missing checks do not establish success, and the panel does not claim merge eligibility from green checks alone.
 
-Local status refreshes every 15 seconds while working and every minute while quiet. GitHub refreshes every two minutes while its tab is selected. Returning to a visible browser tab refreshes the current status and selected GitHub view. Hidden browser tabs pause inspection polling. **Live updates** pauses automatic reads; manual Refresh remains available. Files and previews refresh on navigation or manually. Each view displays its last check time; a failed refresh retains a clearly marked last-known result when available. Compact file/PR signals appear in the navigation for sessions inspected during this visit, with last-check tooltips.
+Local status refreshes every 15 seconds while working and every minute while quiet. GitHub refreshes every two minutes while its tab is selected. Returning to a visible browser tab refreshes the current status and selected GitHub view. Hidden browser tabs pause inspection polling. **Live updates** pauses automatic reads; manual Refresh remains available. Files and previews refresh on navigation or manually. Each view displays its last check time; a failed refresh retains a clearly marked last-known result when available. Compact file/PR signals appear in the navigation for sessions inspected during this visit, with last-check tooltips. Each session on a machine that offers `session-inspect-v1` also has its branch's pull request read in the background (about every two minutes while live and every ten while quiet), so a PR created in a session shows its number without opening that session's GitHub tab first. These reads are in-memory only for this visit.
 
 Workspace inspection requires a machine running reet with `session-inspect-v1`. Older machines retain manually refreshed worktree path listings and show an update message for new views. Inspection uses the existing account browser-session checks, controller-owned workspace paths, local terminal consent, bounded private-protocol replies and background workers. It never edits files, stages, commits, fetches, pushes or merges. Git hooks, fsmonitor and clean/process/diff helpers are disabled for the inspection commands. Partial clones are refused rather than allowing an implicit object fetch. GitHub uses the machine's configured credentials; no new token is requested or copied to the browser.

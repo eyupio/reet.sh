@@ -27,10 +27,11 @@ try {
     const header = await page.locator('#boot .boot-bar-inner').boundingBox()
     expect(header.x).toBe(0)
     expect(header.width).toBe(width)
+    const workspaceRail = width >= 1100 && !path.includes('view=terminal') && (path === '/' || path === '/machines' || path === '/sessions?view=list') ? 228 : 0
     const rail = path === '/' ? width >= 1240 && !collapsed ? 301 : width >= 1100 ? 56 : 0 : 0
     if (path === '/') {
-      expect(staticBox.x).toBe(rail)
-      expect(staticBox.width).toBe(width - rail)
+      expect(staticBox.x).toBe(workspaceRail + rail)
+      expect(staticBox.width).toBe(width - workspaceRail - rail)
     }
     bundleReady()
     await expect(page.locator('#main-content')).toBeAttached()

@@ -133,6 +133,10 @@ func (e *WorktreeError) Is(target error) bool { return target == ErrWorktreeRefu
 type WorktreeCounts struct {
 	Changed  int
 	Unpushed int
+	// Discard confirms that the uncommitted changes shown may be deleted.
+	Discard bool
+	// Fingerprint is the status fingerprint that was shown; a discard needs it.
+	Fingerprint string
 }
 
 // validWorktreeRequest applies the protocol's own rules to a request body.
@@ -147,7 +151,7 @@ func validWorktreeRequest(body terminalproto.Body) error {
 // CheckWorktreeRemove validates a remove request without sending it, so a
 // caller can refuse a malformed one before it asks for status.
 func CheckWorktreeRemove(project, repo, run string, shown WorktreeCounts) error {
-	return validWorktreeRequest(terminalproto.WorktreeRemove{Run: run, Project: project, Repo: repo, Changed: shown.Changed, Unpushed: shown.Unpushed})
+	return validWorktreeRequest(terminalproto.WorktreeRemove{Run: run, Project: project, Repo: repo, Changed: shown.Changed, Unpushed: shown.Unpushed, Discard: shown.Discard, Fingerprint: shown.Fingerprint})
 }
 
 // worktreePeer returns a ready peer whose current connection advertised the
@@ -219,7 +223,7 @@ func (b *Broker) WorktreeStatus(ctx context.Context, uid int64, agent, project, 
 // deleted and the branch it kept. A remove sent but never answered is
 // ErrWorktreeReplyLost; asking for status shows whether it happened.
 func (b *Broker) WorktreeRemove(ctx context.Context, uid int64, agent, project, repo, run string, shown WorktreeCounts) (terminalproto.WorktreeResult, error) {
-	body := terminalproto.WorktreeRemove{Run: run, Project: project, Repo: repo, Changed: shown.Changed, Unpushed: shown.Unpushed}
+	body := terminalproto.WorktreeRemove{Run: run, Project: project, Repo: repo, Changed: shown.Changed, Unpushed: shown.Unpushed, Discard: shown.Discard, Fingerprint: shown.Fingerprint}
 	p, err := b.worktreePeer(uid, agent, body)
 	if err != nil {
 		return terminalproto.WorktreeResult{}, err

@@ -508,6 +508,42 @@ func TestStructuredSessionPersistsAndReadsBack(t *testing.T) {
 	}
 }
 
+func TestStructuredClineSessionIDRecordsAndResumes(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	id := "1793848855723_8zvJS_cli"
+	dir := "/home/tester/site"
+	got, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "cline", Structured: true, Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordTerminalACPSessionFor(uid, a.ID, got.ID, id); err != nil {
+		t.Fatal(err)
+	}
+	// A handle from another adapter's namespace, and an OpenCode handle, are
+	// refused for a Cline session.
+	for _, wrong := range []string{"0b9f6a1c-3d2e-4f5a-8b7c-1234567890ab", "ses_other0000000000000000000001", "1793848303972_xxmw4"} {
+		if err := s.RecordTerminalACPSessionFor(uid, a.ID, got.ID, wrong); !errors.Is(err, terminalproto.ErrInvalid) && !errors.Is(err, ErrTerminalConflict) {
+			t.Fatalf("%s: %v", wrong, err)
+		}
+	}
+	ok, err := s.CanResumeACPToolSessionFor(uid, a.ID, "cline", id, dir)
+	if err != nil || ok {
+		t.Fatalf("running chat resumable: %v %v", ok, err)
+	}
+	if err := s.ObserveTerminalStateFor(uid, a.ID, got.ID, c.Generation, terminalproto.Exited, nil); err != nil {
+		t.Fatal(err)
+	}
+	ok, err = s.CanResumeACPToolSessionFor(uid, a.ID, "cline", id, dir)
+	if err != nil || !ok {
+		t.Fatalf("closed chat not resumable: %v %v", ok, err)
+	}
+	// The same handle is not a handle for another tool; the shape itself is
+	// refused there, so the answer is invalid rather than a stale yes.
+	if ok, err := s.CanResumeACPToolSessionFor(uid, a.ID, "opencode", id, dir); ok || !errors.Is(err, terminalproto.ErrInvalid) {
+		t.Fatalf("cline handle resumed as opencode: %v %v", ok, err)
+	}
+}
+
 func TestStructuredACPSessionIDRecordsAndResumesOnlyClosed(t *testing.T) {
 	s, uid, a, c := terminalFixture(t)
 	id := "ses_fake000000000000000000000001"

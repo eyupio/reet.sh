@@ -22,6 +22,15 @@ sections describe the previous selection-based interface and its history.
 
 The signed-in Sync page now starts with two choices: **all shelf skills or individual skills**, then **one or more machines**. **Sync now** saves the selection and starts the existing agent preview/apply chain. The default preserves other installed skills. Lists, reference machines, exact-set removals and per-location controls remain under Advanced sync.
 
+## One press (5 November 2026)
+
+Sync is one sentence and one button wherever it appears.
+
+- **The Sync page** leads with `fleetSyncStatus` (`web/src/lib/fleetSync.ts`, unit tested): *Everything is in sync.*, *N machines need syncing.*, *Syncing your machines…*, *N machines need a look.*, *Your machines will sync when they're back online.* or *Sync is paused on all your machines.* A machine that is switched off or paused is never counted as behind, and a machine between two of its folders is still syncing. The button is hidden for read-only accounts and when every machine is paused, and is quiet when nothing is behind. The old summary tiles and the success paragraph are gone: the sentence is the answer.
+- **Sync all machines works in place** from the Skills header, the toast after adding a skill and the save notice on Write a skill. It sends the same request as the Sync page, then opens the activity dock for the whole fleet or, when there is nothing to start, says where things stand in one line. A refusal is a toast with the reason. With no machine yet, or on a read-only account, they open Sync as before, and the per-skill **Sync to machines…** links still open Sync.
+- **Fleet software** is one sentence and one button (*OpenCode can be updated on 2 machines.* and **Update 2 machines**) that starts a batch of every machine that can apply now. Choosing machines, their order and one-off applies sit under **Machines**.
+- **No server change.** Pressing Sync already tried a machine again after a failed or cancelled attempt, and a store test now pins it. The machine's own polls still leave such a machine alone.
+
 ## One vocabulary and one Sync place (3 November 2026)
 
 User-facing copy now follows one glossary: a **skill**, the **shelf**, a **machine**, an **install location** (one agent's skills folder), a **sync plan** (what a machine should have), and **Sync** as the verb. “Desired set”, “saved set”, “scope”, “environment”, “target” and “destination” are retired from the UI; the API keeps its field names. Sync is a subtab of Machines only, so the duplicate **Sync** entry in More is gone. The authoring page is **Write a skill**, and every save notice ends with **Next: Put it on a machine** linking to Sync with that skill selected. The Skills page's writing block is **Your drafts**; a published written skill appears only as its shelf card, whose quick actions link back to **Edit written skill**. Unpublishing or deleting hides that card while preserving its tags, notes and list membership for a later republish; the hosted content and shelf projection now share one lifecycle. See [the vocabulary spec](https://github.com/eyupio/reet.sh/blob/main/docs/superpowers/specs/2026-11-03-skills-sync-vocabulary.md) and [the one-card spec](https://github.com/eyupio/reet.sh/blob/main/docs/superpowers/specs/2026-11-03-written-skill-record.md).
@@ -34,7 +43,7 @@ Live activity appears above setup. Current agents report read, plan, apply and v
 
 Each shelf card with machine badges also carries one line of **sync intent** under them, read from the sync plans rather than from scans: *Set to sync to dev-laptop*, *Pending on build-box · synced to dev-laptop*, or *Not set to sync* with a **Sync to machines…** link. Badges say what a machine last reported; the line says what you asked for, and never claims the files are there. The Machines filter row gains **Not on any machine**, **Missing somewhere**, **Not set to sync** and **Sync pending**, applied in the browser on top of the server filters (`web/src/lib/skillSync.ts`, unit tested; `skill-card.e2e.mjs` covers the line, the link and the four filters). The line is absent when the sync state cannot be read.
 
-**Your drafts** rows and the **Write a skill** editor's save notice link to **Sync to machines…**, which opens the Sync page with that skill pre-selected. A draft is listed there as *Your private draft · synced from this reet.sh, not published* and installs privately; the session skill picker installs it the same way, without publishing (see [controller sync](controller-sync.md#your-own-drafts-sync-without-publishing)); publishing is no longer the only way to get a skill you wrote onto your own machine.
+**Your drafts** rows link to **Sync to machines…**, which opens the Sync page. The **Write a skill** save notice offers **Sync all machines** as a button that works in place (see *One press* below); without a machine to sync to it links to Sync instead. A draft is listed there as *Your private draft · synced from this reet.sh, not published* and installs privately; the session skill picker installs it the same way, without publishing (see [controller sync](controller-sync.md#your-own-drafts-sync-without-publishing)); publishing is no longer the only way to get a skill you wrote onto your own machine.
 
 Collapsed skill cards expose **Copy install** and **Copy prompt**. The Skills page also shows **Your drafts**, including private drafts, editing, public visibility and sharing. A published written skill appears on the shelf; its **Edit written skill** action returns to the authoring page. Publishing makes share-link and prompt copying available immediately. Large hosted libraries show a few entries first with search and Show all. Publishing and unpublishing remain explicit user actions; visibility changes read the latest content and preserve supporting files, tags, notes and list membership.
 
@@ -94,8 +103,8 @@ unconnected machines.
 
 ### Live sync activity
 
-`SyncActivity.svelte` is a non-modal dock mounted on Machines and on Skills while an install is
-running. The Sync page owns its own activity section, so the dock never covers the page that
+`SyncActivity.svelte` is a non-modal dock mounted on Skills and on Write a skill while sync work is
+running, and as soon as **Sync all machines** is pressed there. The Sync page owns its own activity section, so the dock never covers the page that
 already lists the same jobs. The dock:
 
 - appears as a compact one-line bar when a job starts, rather than opening a panel over the page;

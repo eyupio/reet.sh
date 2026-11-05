@@ -165,26 +165,32 @@ type activeProbe struct {
 	cancel   context.CancelFunc
 }
 type Service struct {
-	store     *store.Store
-	sealer    *sealed.Sealer
-	limiter   *auth.Limiter
-	writes    *auth.Limiter
-	sealSlots chan struct{}
-	mu        sync.Mutex
-	closed    bool
-	serial    uint64
-	active    map[uint64]activeProbe
-	wg        sync.WaitGroup
+	store           *store.Store
+	sealer          *sealed.Sealer
+	limiter         *auth.Limiter
+	writes          *auth.Limiter
+	sealSlots       chan struct{}
+	mu              sync.Mutex
+	closed          bool
+	serial          uint64
+	active          map[uint64]activeProbe
+	chatJobs        map[string]*chatJob
+	chatLimiter     *auth.Limiter
+	chatRecoveryErr error
+	wg              sync.WaitGroup
 }
 
 func New(st *store.Store, s *sealed.Sealer) *Service {
-	return &Service{store: st, sealer: s, limiter: auth.NewLimiter(12, time.Minute), writes: auth.NewLimiter(30, time.Minute), sealSlots: make(chan struct{}, 2), active: map[uint64]activeProbe{}}
+	return &Service{store: st, sealer: s, limiter: auth.NewLimiter(12, time.Minute), writes: auth.NewLimiter(30, time.Minute), sealSlots: make(chan struct{}, 2), active: map[uint64]activeProbe{}, chatJobs: map[string]*chatJob{}, chatLimiter: auth.NewLimiter(12, time.Minute), chatRecoveryErr: st.RecoverGafferTurns()}
 }
 func (s *Service) Available() bool { return s != nil && s.sealer != nil }
 
 func (s *Service) Close() {
 	s.mu.Lock()
 	s.closed = true
+	for _, job := range s.chatJobs {
+		job.cancel(errGafferStopped)
+	}
 	for _, a := range s.active {
 		a.cancel()
 	}
@@ -195,6 +201,11 @@ func (s *Service) Close() {
 func (s *Service) cancelProvider(uid int64, id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	for _, job := range s.chatJobs {
+		if job.uid == uid && job.provider == id {
+			job.cancel(errGafferPolicy)
+		}
+	}
 	for _, a := range s.active {
 		if a.user == uid && a.provider == id {
 			a.cancel()

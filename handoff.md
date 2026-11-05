@@ -59,6 +59,22 @@ final-head CI before any owner-authorised merge.
 Follow-up: #603’s docs browser check found the old eight-guide assumption.
 The fixture now checks filter restoration and no-JS parity against the initial
 card count and explicitly finds the Gaffer guide; all 40 responsive views pass.
+
+GM0/GM2A is [draft PR #605](https://github.com/eyupio/reet.sh/pull/605),
+`feat/gaffer-conversations`, stacked on #603: see the
+[conversation/access contract](docs/handoffs/gaffer-conversations.md) for current
+worker eligibility, grants, queue receipt/recovery and retention boundaries.
+The backend adds separate owned general/session conversations, versioned provider/
+model choices, durable turn IDs, SSE replies, cancellation and restart recovery
+without replay. Only typed companion messages reach the provider; no worker
+context, scoped MCP operation or background goal is enabled. The next slice is
+the floating UI, followed by tested context projections and explicit session
+grants. Targeted race tests, vet, web/MCP and strict docs/browser checks pass.
+The full Go race run retains only the known five terminal-host failures. #603's
+docs build is fixed; its Go CI hit two unchanged timing assertions (both pass five
+local race repetitions), and only that failed job was requested again. #603
+remains unmerged; do not merge either slice without owner direction.
+
 Keep that handoff current in every implementation batch. Changes remain confined
 to reet.sh; reference repositories are read-only.
 

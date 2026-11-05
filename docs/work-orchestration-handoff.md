@@ -2,8 +2,9 @@
 
 Prepared: 1 November 2026. Updated: 5 November 2026. Active direction: the Gaffer
 session-companion MVP below. Product decisions and the initial HTTP provider
-foundation and account provider settings are recorded here; the new chat and
-offline coordination runtime are not implemented.
+foundation, account provider settings and durable conversation backend are recorded
+here. The widget is a separate stacked PR; scoped tools and offline coordination
+remain unimplemented.
 
 ## Active direction: Gaffer session-companion MVP (5 November 2026)
 
@@ -386,6 +387,57 @@ Next: build the floating companion UI over these routes, then the contract's
 allowlisted context projections and explicit scoped grants for GM3. Prove those
 before enabling GM4's durable offline supervision. Backend/subscription parity,
 provider/model tool capability and physical/deployed-flow evidence remain open.
+
+### PR #603 review follow-up and current stack (5 November 2026)
+
+This checkpoint supersedes the PR state and immediate next task above. The owner
+merged #605 into `feat/gaffer-provider-settings`, producing `628118e8`; #603 is open
+against main and includes GM1B settings and the GM2A conversation backend. #606
+is the separate draft floating-widget PR, based on #603. Neither #603 nor #606
+has been merged into main. Keep changes confined to reet.sh and retain the worker
+model's sole coding/PR authority. Scoped context, MCP grants/messages and durable
+follow goals are still the integration work after the widget.
+
+**Review and CI fixes**
+
+- Provider dialing previously pinned only the first validated DNS address. A real
+  IPv4-only HTTP listener at dual-stack `localhost` reproduces the review finding:
+  the old code fails on `::1`, even though IPv4 is reachable. The transport now
+  tries the validated literal addresses in order within each family, starts the
+  other family after 300 ms (or an immediate first-family failure), and shares a
+  ten-second budget. The full address set remains validated before any socket;
+  there is no new hostname resolution during dialing. Cancellation joins all
+  racers and closes late connections. Hosted forward-proxy behaviour is unchanged.
+- The post-merge Go CI failure was `TestBrowseOfflineMachineAnswersAtOnce` at
+  106.25 ms against its 100 ms limit. That request test now runs in a
+  `testing/synctest` bubble; fixture listeners remain outside it. Scheduler and
+  filesystem pauses do not consume its fake time. The 100 ms assertion, all six
+  offline/access cases, response checks and no-send/no-audit assertions remain.
+  A temporary injected 101 ms sleep fails at exactly 101 ms. Production browse
+  code is unchanged, and the injected mutation was restored before final checks.
+
+**Verification at this checkpoint**
+
+The old-code localhost regression fails and the fixed transport passes. Five
+race repetitions of the full Gaffer package and focused Gaffer API/offline-browse
+checks pass. Coverage includes immediate refusal, same-family fallback, a stalled
+family, shared deadline, pre-cancellation, rejected mixed-network address sets and
+closing late successful connections. Web check/build, vet, all 16 MCP checks and
+the real Gaffer settings Chromium matrix pass. The web check retains two existing
+unused-selector warnings. Strict docs and rendered-site checks pass all 51 pages.
+The complete Go race run passes API (408.7 s), Gaffer (39.8 s), store (197.1 s),
+broker (66.4 s) and every package except `internal/terminalhost`. Its same five
+baseline failures remain: three require unavailable tmux, and
+`TestListModelsTimeoutKillsTheProcessGroup` /
+`TestTimedOutAddKillsGitsChildrenAndCleansUp` fail process-group cleanup in this
+environment. No terminal-host source changed. This is not a green full-suite
+result; final-head remote CI remains the merge gate. No real credentials, paid
+provider, deployment or physical device was used.
+
+Continue #606's widget verification on its own branch. Then implement GM3's
+allowlisted context projections and explicit session grants before enabling GM4's
+durable offline supervision. Keep uncertain worker-message delivery and approval
+cards under the existing queue/worker authority.
 
 ## Gaffer branding and Eli reuse (1 November 2026)
 

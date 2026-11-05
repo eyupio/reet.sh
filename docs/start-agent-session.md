@@ -37,7 +37,8 @@ button switches the running session to OpenCode's own terminal UI and **Gaffer**
 a session started in the OpenCode TUI cannot move to Gaffer, and a Cline chat stays in Gaffer. Terminal scrollback is not
 kept across a switch, and returning to Gaffer asks you to trust a folder with OpenCode plugins. **Attach image** (or
 paste/drop) sends a file through the launch-upload path and puts its path in the message. A Gaffer chat that was lost or
-crashed reconnects in place (same session, same transcript) on a machine with `chat-reattach-v1`, for OpenCode; a chat you
+crashed reconnects in place (same session, same transcript) on a machine with `chat-reattach-v1`, for OpenCode and, on a
+connection that negotiated `acp-agent-reattach-v1`, for Cline; a chat you
 ended, or one on an older machine, offers **Continue in Gaffer with history…**, which loads the agent's stored
 conversation into a new session row. The conditions, deadlines and limits are in
 [structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md).

@@ -340,7 +340,7 @@ func TestACPAgentOptionsRoundTrip(t *testing.T) {
 
 // Cline is a reviewed chat tool: a descriptor with its own adapter name is
 // available, carries the measured features and ids, and no other adapter name
-// can claim it.
+// can claim it. Its reattach claim is honoured only when negotiated.
 func TestClineIsAReviewedChatTool(t *testing.T) {
 	c := chatCapabilities()
 	c.AgentsV2 = true
@@ -348,17 +348,40 @@ func TestClineIsAReviewedChatTool(t *testing.T) {
 	c.ACPHistory, c.ACPImages, c.ACPModel, c.ACPApproval = true, true, true, true
 	entries := []ACPAgent{{
 		Tool: "cline", Adapter: "cline", State: "available", MinimumVersion: "3.0.74",
-		History: true, Images: true, Model: true, Approval: true, Modes: []string{"act", "plan"},
+		History: true, Images: true, Model: true, Approval: true, Modes: []string{"act", "plan"}, Reattach: true,
 	}}
 	c.ACPAgents = &entries
 	c.ACPAgentMode = true
+	// A descriptor claiming reattach needs the negotiated claim.
+	if c.Validate() == nil {
+		t.Fatal("reattach claim accepted without acp-agent-reattach-v1")
+	}
+	c.ACPAgentReattach = true
+	c.ChatReattach = true
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	agent, ok := c.ChatAgent("cline")
-	if !ok || !agent.History || !agent.Images || !agent.Model || !agent.Approval || !slices.Equal(agent.Modes, []string{"act", "plan"}) {
+	if !ok || !agent.History || !agent.Images || !agent.Model || !agent.Approval || !agent.Reattach || !slices.Equal(agent.Modes, []string{"act", "plan"}) {
 		t.Fatalf("cline descriptor: %+v %v", agent, ok)
 	}
+	if !c.ChatReattachFor("cline") {
+		t.Fatal("chat reattach not offered for a claimed agent")
+	}
+	// The machine-wide flag alone never enables a claim.
+	c.ACPAgentReattach = false
+	if c.ChatReattachFor("cline") {
+		t.Fatal("claim honoured without the negotiated feature")
+	}
+	c.ACPAgentReattach = true
+	// Reattach without history is not a descriptor.
+	noHistory := []ACPAgent{entries[0]}
+	noHistory[0].History = false
+	c.ACPAgents = &noHistory
+	if noHistory[0].Valid() {
+		t.Fatal("reattach accepted without history")
+	}
+	c.ACPAgents = &entries
 	for _, adapter := range []string{"opencode", "claude-agent-acp", "codex-acp", "cline-acp"} {
 		bad := []ACPAgent{entries[0]}
 		bad[0].Adapter = adapter

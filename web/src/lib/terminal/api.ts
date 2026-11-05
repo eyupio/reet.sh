@@ -478,7 +478,7 @@ export async function chatModel(id: string, model: string): Promise<void> { awai
 
 /** Local adapter evidence; available still checks --version and identity at launch. */
 export type StructuredAgentOption = { id: string; category: 'thought_level' | 'model_config' | 'collaboration_mode'; values: string[] }
-export type StructuredAgent = { tool: string; adapter: string; state: 'available' | 'missing' | 'unverified' | 'incompatible'; version?: string; minimumVersion?: string; history?: boolean; images?: boolean; model?: boolean; approval?: boolean; questions?: boolean; modes?: string[]; options?: StructuredAgentOption[] }
+export type StructuredAgent = { tool: string; adapter: string; state: 'available' | 'missing' | 'unverified' | 'incompatible'; version?: string; minimumVersion?: string; history?: boolean; images?: boolean; model?: boolean; approval?: boolean; questions?: boolean; modes?: string[]; options?: StructuredAgentOption[]; reattach?: boolean }
 
 /** The adapter each reviewed chat tool must report; a descriptor for any other adapter never makes a tool chat-capable. */
 const CHAT_ADAPTERS: Record<string, string> = { opencode: 'opencode', claude: 'claude-agent-acp', codex: 'codex-acp', cline: 'cline' }

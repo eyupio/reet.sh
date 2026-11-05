@@ -422,7 +422,7 @@ func (l *chatLog) oldestHistoryEvent() int {
 }
 
 // ApplyChatAttention overlays live structured-chat attention state onto a
-// session record when the session is a structured OpenCode chat.
+// session record when the session is a structured chat.
 func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
 	if s == nil || !s.Structured {
 		return

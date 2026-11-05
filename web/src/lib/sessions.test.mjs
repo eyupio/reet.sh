@@ -285,4 +285,11 @@ test('canReattachChat only for a lost or exited OpenCode chat on a ready machine
   assert.equal(canReattachChat(s, { ...m, capabilities: { ...m.capabilities, acpAgents: [{ ...m.capabilities.acpAgents[0], history: false }] } }), false)
   assert.equal(canReattachChat({ ...s, tool: 'claude' }, m), false)
   assert.equal(canReattachChat(s, undefined), false)
+  // Another agent needs its own descriptor's claim (acp-agent-reattach-v1).
+  const cline = { state: 'lost', tool: 'cline', structured: true, acpSessionId: '1793848855723_8zvJS_cli' }
+  const clineCapabilities = { acp: true, chatReattach: true, acpAgents: [{ tool: 'cline', adapter: 'cline', state: 'available', history: true, reattach: true }] }
+  assert.equal(canReattachChat(cline, { ready: true, capabilities: clineCapabilities }), true)
+  assert.equal(canReattachChat(cline, { ready: true, capabilities: { ...clineCapabilities, acpAgents: [{ ...clineCapabilities.acpAgents[0], reattach: undefined }] } }), false)
+  assert.equal(canReattachChat({ ...cline, acpSessionId: '' }, { ready: true, capabilities: clineCapabilities }), false)
+  assert.equal(canReattachChat({ ...cline, state: 'ended' }, { ready: true, capabilities: clineCapabilities }), false)
 })

@@ -84,6 +84,30 @@ func TestReattachStartsLoadUnderSameSessionID(t *testing.T) {
 // close of a tool call the crash interrupted (or its card keeps spinning) and
 // the idle status with the confirmed model (or the row keeps showing the
 // crashed turn's working state). Later events are forwarded as usual.
+// Reattach follows the agent's own profile: a reviewed profile that claims
+// reattach (Cline) loads its conversation, while an agent without the claim is
+// refused instead of being asked to open a conversation it cannot reload.
+func TestReattachFollowsTheAgentsOwnClaim(t *testing.T) {
+	h, proc, _, loads := reattachHost(t)
+	body := reattachBody(h, proc)
+	body.Tool = "cline"
+	changed, err := h.reattach("request-cline-reattach00001", "session-cline-reattach000001", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.State != terminalproto.Running || loads.count() != 1 || loads.loads[0] != proc.SessionID() {
+		t.Fatalf("cline reattach %+v loads %v", changed, loads.loads)
+	}
+	t.Setenv(acpagent.ClaudeSwitch, "1")
+	body.Tool = "claude"
+	if _, err := h.reattach("request-claude-reattach001", "session-claude-reattach0001", body); !errors.Is(err, acpagent.ErrUnsupported) {
+		t.Fatalf("an agent without the reattach claim was asked: %v", err)
+	}
+	if loads.count() != 1 {
+		t.Fatalf("a refused agent still started: %v", loads.loads)
+	}
+}
+
 func TestReattachDropsReplay(t *testing.T) {
 	h, proc, out, loads := reattachHost(t)
 	h.sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {

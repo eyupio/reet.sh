@@ -51,9 +51,13 @@ lists its models, modes and approvals:
   `~/.cline`, reached through `CLINE_DIR`; the private chat home is unchanged and
   provider redirects such as `CLINE_MODEL` are not inherited. A machine that is
   not signed in is told to sign in to Cline before the first prompt.
-- A closed Cline chat can be continued with its stored history: the connector
-  runs `session/load`, and the conversation replays into the new row. In-place
-  reconnect is OpenCode-only.
+- A lost or crashed Cline chat reconnects in place under the same reet session id:
+  the connector runs `session/load`, and the replay is dropped because the
+  controller keeps its own transcript. OpenCode has done this since
+  `chat-reattach-v1`; Cline joins it on a connection that negotiated
+  `acp-agent-reattach-v1`. A closed Cline chat can also be continued with its
+  stored history as a new row. A chat Cline never stored (no prompt ran) cannot
+  be loaded, and its refusal says exactly that.
 - Cline keeps provider failures in its own message store and may end a turn with
   no reply; Gaffer then shows the turn as finished with nothing to show.
 
@@ -285,12 +289,15 @@ bounded transcript of the conversation it has shown, restored with the session a
 a chat closes depends on how it closed and on what the machine supports.
 
 **A lost or crashed chat reconnects in place.** On a machine that negotiated `chat-reattach-v1` (it requires `acp-v1` and
-`acp-history-v1`; the capability is `chatReattach`), a chat that is `lost`, or `exited` without a person ending it (the
-OpenCode process died), with a saved id comes back by itself,
-in the same reet session: same row, same URL, same transcript. The browser makes one automatic attempt per session per page
+`acp-history-v1`; the capability is `chatReattach`), a chat that is `lost`, or `exited` without a person ending it (its agent
+process died), with a saved id comes back by itself,
+in the same reet session: same row, same URL, same transcript. OpenCode has reattached under this rule from the start;
+another agent is asked only when its own descriptor claims reattach on a connection that negotiated
+`acp-agent-reattach-v1`, so a connector that can only reopen OpenCode is never asked to reopen another agent's chat.
+The browser makes one automatic attempt per session per page
 load. The pane shows **Reconnecting to your conversation…** with the composer disabled and the Gaffer card reconnecting,
 and the conversation stays visible. The controller sends the machine a `chat_reattach` message that carries the row's launch
-data (folder, model, YOLO, saved id, trust), and the machine runs `session/load` on the saved OpenCode conversation. The
+data (folder, model, YOLO, saved id, trust), and the machine runs `session/load` on the saved conversation. The
 replayed conversation is dropped because the controller already holds the transcript; the chat's idle status and any tool
 that was left running (shown as interrupted) are forwarded. A reply that was running is stopped, so the chat needs a new
 prompt. If the machine still has a live process for the conversation, it adopts that process instead of restarting it.
@@ -317,7 +324,7 @@ The route answers 204, or an error with one of these codes:
 
 | Code | Status | Sentence | Try again |
 | --- | --- | --- | --- |
-| `chat_reattach_unsupported` | 409 | "Update reet on this machine to reconnect this chat." (machine without the feature or history), or "This chat cannot be reconnected in place." (not an OpenCode chat) | no |
+| `chat_reattach_unsupported` | 409 | "Update reet on this machine to reconnect this chat." (machine without the feature or history), or "This chat cannot be reconnected in place." (the agent cannot reconnect a chat here) | no |
 | `chat_reattach_ended` | 409 | "You ended this chat. Continue it with history as a new session." | no (quiet when automatic, see below) |
 | `chat_reattach_not_closed` | 409 | "This chat is still running." | yes (quiet when automatic) |
 | `chat_reattach_no_conversation` | 409 | "This chat has no saved conversation to reconnect." | no |
@@ -521,10 +528,11 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
   when the pane closes.
 - **A control connection loss does not end a reet session.** The connector owns one process per reet session for the life of
   the agent process. A reconnect adopts the running sessions, includes them in reconciliation, and drains the bounded event
-  queue produced while detached. A connector restart or machine reboot reopens the recorded chats from OpenCode's store;
+  queue produced while detached. A connector restart or machine reboot reopens the recorded chats from the agent's own store;
   see [Recovery after a connector restart or reboot](#recovery-after-a-connector-restart-or-reboot).
-- **Only OpenCode, at least 1.19.5.** No other agent has an ACP adapter in this slice. A machine with an older OpenCode
-  shows the version refusal; a newer release passes the name and semver checks.
+- **Reviewed agents, at their version floors.** OpenCode 1.19.5 or newer, Cline 3.0.74 or newer, or Claude Code and Codex
+  behind their machine switches. A machine with an older agent shows its version refusal; a newer release passes the name
+  and semver checks.
 - **The model is chosen at launch.** **Agent default** uses OpenCode's configured model. A chosen model is passed in
   `OPENCODE_CONFIG_CONTENT`. New and loaded chats must report exactly one valid model matching that choice; missing, empty, ambiguous or mismatched read-back refuses startup before the opening prompt. A definite failed chat create clears its unconfirmed model metadata while keeping the refusal receipt for replay. Agent-default launches keep their existing behaviour.
   Thinking remains OpenCode's own. Continuing a chat keeps the model recorded on the closed session.

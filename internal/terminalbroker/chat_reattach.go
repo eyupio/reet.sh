@@ -18,8 +18,7 @@ var (
 	// ErrReattachNotClosed means the row is not lost or exited: the chat is
 	// still starting, running or ending.
 	ErrReattachNotClosed = errors.New("This chat is still running.")
-	// ErrReattachNoConversation means the row has no OpenCode session id to
-	// load.
+	// ErrReattachNoConversation means the row has no native session id to load.
 	ErrReattachNoConversation = errors.New("This chat has no saved conversation to reconnect.")
 	// ErrReattachArchived means the chat was archived: its transcript is gone,
 	// so it is not reconnected.
@@ -67,11 +66,11 @@ func (b *Broker) reattachJoined(uid int64, session string, trust bool) int {
 	return 0
 }
 
-// ReattachChat reconnects a lost or exited OpenCode chat in place: the
-// machine starts it again with session/load under the same reet session id,
-// and the row returns to running with its transcript. No row is created, and
-// the row is left as it was on any error. Concurrent calls for one session
-// and trust share a single machine request and its result.
+// ReattachChat reconnects a lost or exited chat in place: the machine starts
+// it again with session/load under the same reet session id, and the row
+// returns to running with its transcript. No row is created, and the row is
+// left as it was on any error. Concurrent calls for one session and trust
+// share a single machine request and its result.
 //
 // trust confirms that the person trusts the chat's folder, which lets the
 // machine load OpenCode plugins there. It is sent only for this call and is

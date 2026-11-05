@@ -36,6 +36,10 @@ var (
 	ErrClaudeLogin = errors.New("Sign in to Claude on that machine first.")
 	// ErrClineLogin means session creation needs a login made outside reet.
 	ErrClineLogin = errors.New("Sign in to Cline on that machine first.")
+	// ErrNoStoredConversation means session/load was asked for a conversation
+	// the adapter does not have. Cline stores a chat at its first prompt, so a
+	// chat that never ran one cannot be reopened.
+	ErrNoStoredConversation = errors.New("the agent has no stored conversation for this chat")
 	// ErrMode means the requested mode is not one this profile lets a person
 	// choose, or the agent did not confirm the switch.
 	ErrMode = errors.New("the agent did not switch to that mode")
@@ -101,6 +105,11 @@ type Spec struct {
 	// no configOptions field. An explicit list is always authoritative; other
 	// profiles must read the applied model back, as measured for Claude.
 	AllowOmittedModelAck bool
+	// Reattach reports that this adapter can reopen a stored conversation under
+	// the same reet session id (session/load), so a lost chat is reconnected in
+	// place rather than continued as a new row. It is published in the
+	// descriptor only on a connection that negotiated acp-agent-reattach-v1.
+	Reattach bool
 	// ConfirmModelBySwitch applies a chosen model with session/set_config_option
 	// once the session is open, and requires the reply to report it. An adapter
 	// that starts on its configured model and ignores a model at session/new

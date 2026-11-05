@@ -281,6 +281,43 @@ func TestChatReattachCapabilityNeedsNegotiationAndHistory(t *testing.T) {
 	}
 }
 
+// A machine whose only chat agent claims in-place reattach offers it once the
+// controller negotiated that claim; without the claim the descriptor is
+// stripped and the machine stays OpenCode-only.
+func TestAgentReattachClaimEnablesAnotherAgentsReattach(t *testing.T) {
+	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPHistoryFeature +
+		"," + terminalproto.ChatReattachFeature + "," + terminalproto.ACPAgentsFeature + "," + terminalproto.AgentsFeature
+	agents := func() []terminalproto.ACPAgent {
+		return []terminalproto.ACPAgent{{
+			Tool: "cline", Adapter: "cline", State: "available", MinimumVersion: "3.0.74",
+			History: true, Reattach: true,
+		}}
+	}
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"cline"} }, StructuredAgents: agents}
+	negotiateFeatures(&cfg, base)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if c.ACPAgents == nil || len(*c.ACPAgents) != 1 {
+		t.Fatalf("descriptor missing: %+v", c)
+	}
+	if c.ACPAgentReattach || c.ChatReattach || (*c.ACPAgents)[0].Reattach || c.ChatReattachFor("cline") {
+		t.Fatalf("claim leaked to a peer that did not negotiate it: %+v", c)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	negotiateFeatures(&cfg, base+","+terminalproto.ACPAgentReattachFeature)
+	c = capabilitiesFor(cfg, true, terminalproto.Ready)
+	if !c.ACPAgentReattach || !c.ChatReattach || !(*c.ACPAgents)[0].Reattach || !c.ChatReattachFor("cline") {
+		t.Fatalf("negotiated claim: %+v", c)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !terminalproto.SupportsACPAgentReattach(terminalFeatures(cfg)) {
+		t.Fatal("the negotiated claim was not advertised")
+	}
+}
+
 func TestStartupOptionsDoNotLeakToLiveControlsOnlyPeer(t *testing.T) {
 	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
 	live := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPLiveControlsFeature

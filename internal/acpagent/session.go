@@ -94,6 +94,14 @@ func loginError(spec Spec, err error) error {
 	return nil
 }
 
+// noStoredConversation reports an adapter's refusal to load a conversation it
+// does not have. Cline answers -32002 "Resource not found: <id>", because it
+// stores a chat only when its first prompt arrives.
+func noStoredConversation(err error) bool {
+	var rpcErr *rpcError
+	return errors.As(err, &rpcErr) && rpcErr.Code == -32002 && strings.HasPrefix(rpcErr.Message, "Resource not found")
+}
+
 type rpcResult struct {
 	result json.RawMessage
 	err    *rpcError
@@ -302,6 +310,9 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		s.Close()
 		if login := loginError(spec, err); login != nil {
 			return nil, login
+		}
+		if !opened && noStoredConversation(err) {
+			return nil, ErrNoStoredConversation
 		}
 		return nil, ErrExited
 	}

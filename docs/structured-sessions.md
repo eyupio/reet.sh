@@ -506,8 +506,9 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
   separately from evictable history: a card never pins the output after it, and tool commands, paths and diffs count towards
   the text budget. If waiting cards alone exceed the budget they stay answerable. A continued chat replaying a long history stays responsive instead of building an
   unbounded page.
-- **Messages typed while it works are queued.** On upgraded connectors, the queue holds at most ten messages per session
-  in the controller database and is shared by all tabs. Images are uploaded before enqueueing. Closing a browser or restarting
+- **Messages typed while it works are queued.** A message sent while the agent is idle is delivered at once; it only waits
+  in the queue when the turn is busy or an earlier message must go first. On upgraded connectors, the queue holds at most ten
+  messages per session in the controller database and is shared by all tabs. Images are uploaded before enqueueing. Closing a browser or restarting
   the controller preserves queued messages; sending normally waits for the actual turn to finish, including cancellation,
   approvals and compaction. **Edit**, **Remove** and **Retry** use revisions so another tab cannot overwrite a delivery in progress.
   **Send now** appears when the active agent explicitly supports mid-turn steering. It injects the selected message into that

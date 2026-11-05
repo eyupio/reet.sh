@@ -9,6 +9,7 @@
     reorderProjectGroups, setFolderProjectGroup, terminalMachines, updateFolderProject, updateProjectGroup, TerminalError,
     type FolderProject, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import AddProjectDialog from './AddProjectDialog.svelte'
+  import ManageProjectsDialog from './ManageProjectsDialog.svelte'
   import ProjectGroupDialog from './ProjectGroupDialog.svelte'
   import ProjectRail from './ProjectRail.svelte'
   import ProjectWorktrees from './ProjectWorktrees.svelte'
@@ -80,6 +81,8 @@
   // The Add project dialog: a new project, or the one being changed (read with its starter prompt). `host` is the machine a
   // machine card's New project named, so the dialog opens with it already chosen.
   let adding = $state<{ opener: HTMLElement | null; project?: FolderProject; host?: string } | null>(null)
+  // Manage projects: the whole registry, arranged in one place. Its Add and Edit open the same dialogs as the rail's.
+  let managing = $state<{ opener: HTMLElement | null } | null>(null)
   let removing = $state<{ opener: HTMLElement | null; project: FolderProject } | null>(null)
   let listing = $state<{ opener: HTMLElement | null; project: FolderProject } | null>(null)
   let groupDialog = $state<{ opener: HTMLElement | null; group?: ProjectGroup } | null>(null)
@@ -105,6 +108,12 @@
     if (await machinesForDialog()) adding = { opener, host }
   }
   // Edit reads the project again with its starter prompt (only the single read carries it), then opens the dialog.
+  /** Opens Manage projects at once; the machines are read again in the background so its repository finder is current. */
+  export function openManage(opener: HTMLElement) {
+    onnotice(null)
+    managing = { opener }
+    if (!checking) void machinesForDialog()
+  }
   async function openEdit(project: FolderProject, opener: HTMLElement) {
     if (checking) return
     onnotice(null)
@@ -137,6 +146,8 @@
       onnotice({ text: answer.message })
       await tick()
       const shown = (el: HTMLElement) => el.getClientRects().length > 0
+      // Manage projects keeps the focus in its own dialog: the rail behind it is not where the person is working.
+      if (managing) { document.querySelector<HTMLElement>('dialog[open] footer .btn:last-child')?.focus(); return }
       const cards = [...document.querySelectorAll<HTMLElement>('aside.rail .card, aside.rail .mini')].filter(shown)
       const add = [...document.querySelectorAll<HTMLElement>('aside.rail button[aria-label="Add a project"]')].find(shown)
       ;(cards[Math.min(Math.max(at, 0), cards.length - 1)] ?? add)?.focus()
@@ -195,6 +206,34 @@
       onnotice({ text: refusalSentence(e), bad: true })
       onreload()
     } finally { pending.delete(project.id) }
+  }
+  // A rename from Manage projects: the new name shows at once, and a refusal puts the old one back.
+  async function rename(project: FolderProject, name: string) {
+    if (pending.has(project.id)) return
+    pending.add(project.id); onnotice(null)
+    const before = projects ?? []
+    onsettle(before.map(p => p.id === project.id ? { ...p, name } : p))
+    try {
+      const saved = await updateFolderProject(project.id, { name }, project.version, signal())
+      onsettle((projects ?? []).map(p => p.id === saved.id ? saved : p))
+    } catch (e) {
+      onsettle(before)
+      if (refused(e)) { signOut(); return }
+      onnotice({ text: refusalSentence(e), bad: true })
+      onreload()
+    } finally { pending.delete(project.id) }
+  }
+  // A drag in Manage projects sends the groups' whole order, each with the version that was read.
+  async function arrangeGroups(ids: string[], versions: number[]) {
+    if (groupMoving || ids.length !== versions.length) return
+    groupMoving = true; onnotice(null)
+    try {
+      settleGroups(await reorderProjectGroups(ids, versions, signal()))
+    } catch (e) {
+      if (refused(e)) { signOut(); return }
+      onnotice({ text: refusalSentence(e), bad: true })
+      onreload()
+    } finally { groupMoving = false }
   }
   const sortProjects = (list: FolderProject[]) => [...list].sort((a, b) => a.position - b.position)
   const sortGroups = (list: ProjectGroup[]) => [...list].sort((a, b) => a.position - b.position)
@@ -319,11 +358,22 @@
 
 {#if rail}<ProjectRail {projects} {groups} {failed} {reporting} {running} {known} {worktrees} {savedWaiting} {chosen} busy={checking} {importing} {pending} {moving}
   {selecting} {selected} {onselecting} {ontoggle} {variant} {selectAction} {userId} {scope} {onscope} {collapsed} {oncollapsed}
-  {onnew} onadd={(opener) => void openAdd(opener)} {onchoose} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
+  {onnew} onadd={(opener) => void openAdd(opener)} onmanage={(opener) => void openManage(opener)} {onchoose} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
   onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} oncolour={colour}
   onarrange={(order) => void arrange(order)} ongroupadd={openGroupAdd} ongroupedit={openGroupEdit}
   ongroupremove={(group, opener) => (groupRemoving = { group, opener })} ongroupmove={moveGroup} ongroupcolour={colourGroup} ongroupmovebusy={groupMoving}
   onmovetogroup={(project, groupId) => void moveToGroup(project, groupId)} />>{/if}
+{#if managing}
+  <ManageProjectsDialog projects={projects} {groups} machines={terminals ?? []} {signal} opener={managing.opener}
+    onadd={(opener) => void openAdd(opener)} onedit={openEdit}
+    onremove={(project, opener) => (removing = { project, opener })} oncolour={colour} onrename={rename}
+    onmovetogroup={(project, groupId) => void moveToGroup(project, groupId)} onarrange={(order) => void arrange(order)}
+    ongroupadd={openGroupAdd} ongroupedit={openGroupEdit}
+    ongroupremove={(group, opener) => (groupRemoving = { group, opener })} ongroupcolour={colourGroup}
+    ongroupsarrange={(ids, versions) => void arrangeGroups(ids, versions)}
+    onsettle={settleProjects} onnotice={onnotice} onreload={onreload} onsignedout={signOut}
+    onclose={() => (managing = null)} />
+{/if}
 {#if groupDialog}
   <ProjectGroupDialog group={groupDialog.group} busy={groupBusy} onsave={(name, colour) => void saveGroup(name, colour)}
     onclose={() => { const opener = groupDialog?.opener; groupDialog = null; opener?.focus() }} />

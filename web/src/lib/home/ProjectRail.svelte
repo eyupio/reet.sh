@@ -15,7 +15,7 @@
   let { projects, groups = undefined, failed = false, reporting, running, known = true, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
     selecting = false, selected = [], onselecting, ontoggle, variant = 'home', selectAction, userId = 0, scope = null, onscope,
     collapsed = false, oncollapsed,
-    onadd, onchoose, onnew, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour,
+    onadd, onchoose, onnew, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour, onmanage,
     onarrange, ongroupadd, ongroupedit, ongroupremove, ongroupmove, ongroupcolour, ongroupmovebusy = false, onmovetogroup }: {
     projects: FolderProject[] | undefined
     /** The account's groups, in rail order. */
@@ -61,6 +61,8 @@
     ondismiss: (project: FolderProject) => void
     onimport: () => void
     oncolour: (project: FolderProject, colour: ProjectColour) => void
+    /** Opens Manage projects, where the whole registry is arranged. */
+    onmanage?: (opener: HTMLElement) => void
     /** Whose rail: the folded groups are remembered per account. */
     userId?: number
     /** The project or group the board is showing. */
@@ -142,7 +144,7 @@
     headMenu = true
     const box = headButton!.getBoundingClientRect()
     menuX = Math.min(Math.max(8, box.right - 212), Math.max(8, innerWidth - 222))
-    menuY = Math.min(box.bottom + 4, Math.max(8, innerHeight - 120))
+    menuY = Math.min(box.bottom + 4, Math.max(8, innerHeight - 190))
     await tick()
     document.querySelector<HTMLElement>(`#${CSS.escape(`${id}-head-menu`)} [role=menuitem]`)?.focus()
   }
@@ -168,6 +170,10 @@
   function groupFromMenu() {
     headMenu = false
     if (headButton) ongroupadd?.(headButton)
+  }
+  function manageFromMenu() {
+    headMenu = false
+    if (headButton) onmanage?.(headButton)
   }
   const folders = (n: number) => `${n} ${n === 1 ? 'folder' : 'folders'}`
 
@@ -435,7 +441,7 @@
       {/if}
       <h2 id={`${id}-title`}>{variant === 'sessions' && projects ? `Projects · ${projects.length}` : 'Projects'}</h2>
       {#if panelOpen}<button type="button" class="close-panel" aria-label="Close the project rail" onclick={() => closePanel(true)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18" /></svg></button>{/if}
-      {#if ongroupadd || (projects && projects.length > 1)}
+      {#if ongroupadd || onmanage || (projects && projects.length > 1)}
         <button type="button" class="head-more" bind:this={headButton} aria-label="Projects menu" aria-haspopup="menu" aria-expanded={headMenu}
           aria-controls={headMenu ? `${id}-head-menu` : undefined} onclick={openHeadMenu}>
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
@@ -556,6 +562,7 @@
   <!-- svelte-ignore a11y_interactive_supports_focus -->
   <div class="menu" id={`${id}-head-menu`} style:left={`${menuX}px`} style:top={`${menuY}px`} role="menu" aria-label="Projects" tabindex="-1" onkeydown={headKeys}>
     {#if ongroupadd}<button type="button" role="menuitem" onclick={groupFromMenu}>New group</button>{/if}
+    {#if onmanage}<button type="button" role="menuitem" onclick={manageFromMenu}>Manage projects…</button>{/if}
     <button type="button" role="menuitem" onclick={selectFromMenu}>{selecting ? 'Stop selecting' : 'Select projects'}</button>
   </div>
 {/if}

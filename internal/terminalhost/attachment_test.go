@@ -42,6 +42,96 @@ func attachManaged(t *testing.T, m *Manager, id string, generation int64, takeov
 	return a, drained
 }
 
+func TestAttachmentScrollsRetainedHistoryAfterReattach(t *testing.T) {
+	m, _ := managerFixture(t)
+	s := createManaged(t, m, 1)
+	ctx := context.Background()
+	// Simulate a server started before mouse support was enabled.
+	if _, err := m.command(ctx, 0, "set-option", "-g", "mouse", "off"); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := attachManaged(t, m, s.ID, 1, false, time.Minute)
+	if _, err := first.Write([]byte("i=0; while [ $i -lt 100 ]; do printf 'retained-line-%s\\n' $i; i=$((i+1)); done\r")); err != nil {
+		t.Fatal(err)
+	}
+	wait := func(ready func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if ready() {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatal("terminal scroll state did not arrive")
+	}
+	wait(func() bool {
+		data, _ := m.History(ctx, s.ID, 200)
+		return bytes.Contains(data, []byte("retained-line-99"))
+	})
+	first.Close()
+	second, _ := attachManaged(t, m, s.ID, 2, false, time.Minute)
+	// An SGR wheel report from xterm enters tmux history, rather than recalling
+	// a shell command. It uses the history kept while the browser was detached.
+	if _, err := second.Write([]byte("\x1b[<64;10;5M")); err != nil {
+		t.Fatal(err)
+	}
+	wait(func() bool {
+		data, _ := m.command(ctx, 0, "display-message", "-p", "-t", s.PaneID, "#{pane_in_mode}")
+		return bytes.Equal(bytes.TrimSpace(data), []byte("1"))
+	})
+	data, err := m.History(ctx, s.ID, 200)
+	if err != nil || !bytes.Contains(data, []byte("retained-line-0\n")) {
+		t.Fatalf("earlier history was lost after reattach: %v", err)
+	}
+	// Scrolling back to the bottom returns to live output on touch devices,
+	// which may have no hardware Escape key.
+	if _, err := second.Write([]byte("\x1b[<65;10;5M")); err != nil {
+		t.Fatal(err)
+	}
+	wait(func() bool {
+		data, _ := m.command(ctx, 0, "display-message", "-p", "-t", s.PaneID, "#{pane_in_mode}")
+		return bytes.Equal(bytes.TrimSpace(data), []byte("0"))
+	})
+}
+
+func TestAttachmentForwardsWheelToMouseAwareTUI(t *testing.T) {
+	m, _ := managerFixture(t)
+	s := createManaged(t, m, 1)
+	a, _ := attachManaged(t, m, s.ID, 1, false, time.Minute)
+	// A minimal full-screen app reads a wheel report without echoing it as
+	// prompt input. Tmux must forward it rather than entering its own history.
+	app := "stty -echo -icanon; printf '\\033[?1049h\\033[?1000h\\033[?1006h'; dd bs=1 count=11 2>/dev/null | od -An -tx1; stty echo icanon\r"
+	if _, err := a.Write([]byte(app)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	ready := false
+	for time.Now().Before(deadline) {
+		data, _ := m.command(context.Background(), 0, "display-message", "-p", "-t", s.PaneID, "#{mouse_standard_flag}")
+		if bytes.Equal(bytes.TrimSpace(data), []byte("1")) {
+			ready = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatal("TUI did not enable mouse reporting")
+	}
+	if _, err := a.Write([]byte("\x1b[<64;10;5M")); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		data, _ := m.History(context.Background(), s.ID, 100)
+		if bytes.Contains(data, []byte("1b 5b 3c 36 34 3b 31 30 3b 35 4d")) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("wheel report did not reach the TUI")
+}
+
 func TestAttachmentDisconnectTransferAndLeaseKeepShell(t *testing.T) {
 	m, _ := managerFixture(t)
 	s := createManaged(t, m, 1)

@@ -204,7 +204,15 @@ func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in Pri
 				return err
 			}
 			if n >= MaxPrivateSkillBundles {
-				return ErrPrivateSkillCapacity
+				// Deleting or renaming a written skill leaves its bundle behind and
+				// nothing can delete a bundle, so free those before refusing.
+				freed, e := freeDeadHostedBundles(tx, uid, n-MaxPrivateSkillBundles+1)
+				if e != nil {
+					return e
+				}
+				if n-freed >= MaxPrivateSkillBundles {
+					return ErrPrivateSkillCapacity
+				}
 			}
 			id, e = privateSkillRandomID()
 			if e != nil {
@@ -230,11 +238,21 @@ func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in Pri
 				return ErrPrivateSkillMissing
 			}
 		}
-		var revisions int
-		if e = tx.QueryRow(`SELECT count(*) FROM private_skill_revisions WHERE user_id=?`, uid).Scan(&revisions); e != nil {
+		// Superseded history is freed before the bound refuses an edit, so the
+		// bound only ever applies to revisions something still uses.
+		revisionsFull := func() (bool, error) {
+			var revisions int
+			err := tx.QueryRow(`SELECT count(*) FROM private_skill_revisions WHERE user_id=?`, uid).Scan(&revisions)
+			return revisions >= MaxPrivateSkillRevisions, err
+		}
+		full, e := revisionsFull()
+		if e == nil && full {
+			full, e = makeRoomInPrivateStorage(tx, uid, revisionsFull)
+		}
+		if e != nil {
 			return e
 		}
-		if revisions >= MaxPrivateSkillRevisions {
+		if full {
 			return ErrPrivateSkillCapacity
 		}
 		rid, e := privateSkillRandomID()
@@ -259,11 +277,21 @@ func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in Pri
 				return e
 			}
 		}
-		var total int64
-		if e = tx.QueryRow(`SELECT coalesce(sum(length(data)),0) FROM private_skill_blobs WHERE user_id=?`, uid).Scan(&total); e != nil {
+		// This revision is not the head yet, so it is named explicitly: reclaiming
+		// must never free the write that asked for the room.
+		bytesFull := func() (bool, error) {
+			var total int64
+			err := tx.QueryRow(`SELECT coalesce(sum(length(data)),0) FROM private_skill_blobs WHERE user_id=?`, uid).Scan(&total)
+			return total > MaxPrivateSkillBytes, err
+		}
+		full, e = bytesFull()
+		if e == nil && full {
+			full, e = makeRoomInPrivateStorage(tx, uid, bytesFull, rid)
+		}
+		if e != nil {
 			return e
 		}
-		if total > MaxPrivateSkillBytes {
+		if full {
 			return ErrPrivateSkillCapacity
 		}
 		result, e := tx.Exec(`UPDATE private_skill_bundles SET head=? WHERE user_id=? AND id=? AND head=?`, rid, uid, id, b.Head)

@@ -2994,3 +2994,34 @@ Reproduce these captures with `node web/tests/gaffer-variety-capture.mjs` after 
 ![The actual repertoire in the dark theme](images/ui/gaffer-ambient-review-dark.png){ loading="lazy" }
 
 ![The actual repertoire in the light theme](images/ui/gaffer-ambient-review-light.png){ loading="lazy" }
+
+## Sync with skills that cannot sync, 5 November 2026
+
+Pressing **Sync all machines** is the whole job. One skill that could not come across
+used to stop it for every machine: a name two sources shared, a written skill that
+could not be stored, and a machine-only skill whose machine was switched off each
+froze the library, and the Sync card showed a red banner per skill with raw codes such
+as `capture_failed`. The card now says what is true in one calm note and everything
+that can sync does.
+
+- `sync-left-out.e2e.mjs` reproduces the reported account with fixtures: eight written
+  skills that cannot be stored, a skill whose copy failed twice, three failed machine
+  copies, three shared names, and three machines (offline, online, automatic sync off).
+  It checks that there is one note rather than a banner per skill, that skills left
+  out for the same reason share one line, that no skill name is said twice in a row,
+  that no raw error code or **View private copy** row appears, that the machine rows
+  stay honest, that shared names are explained in the library list as information, and
+  that nothing overflows horizontally. It runs at phone and desktop width in both
+  themes; `REET_CAPTURE=<dir>` saves the screenshots.
+- `first-skills.e2e.mjs` (`sync-draft`) still shows a skill that cannot be stored with
+  its reason and marks it **Left out for now** in the library list.
+- `skills-sync-simple.e2e.mjs`, `machine-skill-sync.e2e.mjs`, `machine-add-skill.e2e.mjs`,
+  `machine-import.e2e.mjs`, `machines-fleet.e2e.mjs`, `sync-remove.e2e.mjs` and
+  `control.e2e.mjs` pass unchanged.
+- `librarySync.test.mjs` covers which copy requests are shown (only the newest per skill,
+  never a failed one), the grouping and wording of what was left out, and the shared-name
+  note. `syncOverview.test.mjs` checks that saving private copies shows as work in
+  progress, not as **Sync needs attention**.
+- The controller side is covered by store and API tests: a shared name, a skill that
+  cannot be stored, a machine-only skill on an offline machine, a copy waiting for a
+  review, and the storage that used to fill for good. Each fails without its change.

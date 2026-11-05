@@ -42,16 +42,24 @@ func (s *server) syncCandidates(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("collection") == "hosted" {
 		skills, err = s.st.SyncHostedFor(s.uid(r), requestOrigin(r))
 	}
+	response := map[string]any{}
 	if r.URL.Query().Get("collection") == "library" {
 		if err = s.st.SetSyncLibraryOrigin(s.uid(r), requestOrigin(r)); err == nil {
-			skills, err = s.st.SyncLibraryFor(s.uid(r), s.role(r))
+			var view store.SyncLibraryView
+			if view, err = s.st.SyncLibraryViewFor(s.uid(r), s.role(r)); err == nil {
+				skills = view.Skills
+				// Names with more than one copy: the library keeps one and says which
+				// were left out, so the page can mention it without calling it an error.
+				response["duplicates"] = view.Duplicates
+			}
 		}
 	}
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"skills": skills})
+	response["skills"] = skills
+	writeJSON(w, 200, response)
 }
 func (s *server) syncLibraryMachines(w http.ResponseWriter, r *http.Request) {
 	var in struct {

@@ -1,24 +1,25 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { syncCandidates, syncLibraryMachines, controlSyncAgent, getImports, type ImportRequest, type SyncState, type SyncSkill } from './api'
+  import { syncCandidates, syncLibraryMachines, controlSyncAgent, getImports, type ImportRequest, type SyncDuplicate, type SyncState, type SyncSkill } from './api'
   import MachineSkillSync from './MachineSkillSync.svelte'
   import { agentOnline } from './machines'
+  import { copyingLine, duplicatesNote, leftOutHeadline, libraryNotice } from './librarySync'
   import { machineSyncOverview } from './syncOverview'
   import Skeleton from './Skeleton.svelte'
 
   let { snapshot, canWrite, onupdate }: { snapshot: SyncState; canWrite: boolean; onupdate: (state: SyncState) => void } = $props()
-  let skills = $state<SyncSkill[]>([])
+  let skills = $state<SyncSkill[]>([]), duplicates = $state<SyncDuplicate[]>([])
   let loading = $state(true), busy = $state(false), error = $state(''), notice = $state(''), query = $state('')
   let imports = $state<ImportRequest[]>([]), importError = $state(''), copying = $state<ImportRequest | null>(null)
   const agents = $derived(snapshot.agents ?? [])
   const online = $derived(agents.filter(agent => agentOnline(agent) && !agent.paused).length)
   const filtered = $derived(skills.filter(skill => `${skill.name} ${skill.source}`.toLowerCase().includes(query.toLowerCase())))
-  const problems = $derived(skills.filter(skill => skill.problem))
+  const library = $derived(libraryNotice(skills, imports, snapshot.runs ?? []))
   const privateSkills = $derived(skills.filter(skill => skill.sourceType === 'private').length)
 
   async function readLibrary() {
     loading = true
-    try { skills = (await syncCandidates(0, 'library')).skills }
+    try { const read = await syncCandidates(0, 'library'); skills = read.skills; duplicates = read.duplicates ?? [] }
     catch (e) { error = e instanceof Error ? e.message : String(e) }
     finally { loading = false }
   }
@@ -70,11 +71,21 @@
   <p class="promise">New machines sync after their first scan. New skills and edits to your written skills follow automatically, even when this page is closed. Your drafts stay private.</p>
   {#if error}<p class="message error" role="alert">{error}<button type="button" class="btn" disabled={busy} onclick={() => { error = ''; void readLibrary() }}>Reload library</button></p>{/if}
   {#if notice}<p class="message" role="status">{notice}</p>{/if}
-  {#each problems as skill (skill.id)}<p class="message error" role="status">{skill.name}: {skill.problem}</p>{/each}
   {#if importError}<p class="message error" role="status">Private copy progress could not be read: {importError}</p>{/if}
-  {#each imports.filter(item => item.syncSkillId && item.destinationId && (!item.syncRunId || snapshot.runs?.some(run => run.id === item.syncRunId && run.status !== 'completed')) && !imports.some(other => other.id !== item.id && other.syncSkillId === item.syncSkillId && other.state === 'completed' && other.createdAt > item.createdAt)) as item (item.id)}
-    <p class="message" role="status">{item.name}: {item.state === 'reviewing' ? 'Some files need your review before they can be copied.' : item.syncError || item.error || 'Copying privately from its machine.'}<button class="btn" onclick={() => copying = item}>View private copy</button></p>
+  {#each library.review as item (item.id)}
+    <p class="message" role="status">{item.name}: Some files need your review before they can be copied.<button class="btn" onclick={() => copying = item}>Review files</button></p>
   {/each}
+  {#if library.copying.length}<p class="message calm" role="status">{copyingLine(library.copying)}</p>{/if}
+  {#if library.leftOutCount}
+    <!-- A skill that cannot sync is a note, not an alarm: everything else still syncs, and Sync all machines tries these again. -->
+    <div class="left-out" role="status">
+      <details open={library.leftOut.length <= 2}>
+        <summary>{leftOutHeadline(library.leftOutCount)}</summary>
+        <ul>{#each library.leftOut as group (group.key)}<li><strong>{group.names.join(', ')}</strong>{group.reason}</li>{/each}</ul>
+        <p>Sync all machines tries them again.</p>
+      </details>
+    </div>
+  {/if}
   <div class="machine-list" aria-label="Machine sync status">
     {#each agents as agent (agent.id)}
       {@const machine = snapshot.machines?.find(item => item.host.toLowerCase() === agent.host.toLowerCase())}
@@ -93,7 +104,8 @@
     {:else if !skills.length}<p>Your library is ready for its first skill. <a href="/skills">Add a skill</a> or <a href="/hosting">write your own</a>.</p>
     {:else}
       <label class="search">Find a skill<input type="search" bind:value={query} placeholder="Search your library" /></label>
-      <ul>{#each filtered as skill (skill.id)}<li><strong>{skill.name}</strong><span>{skill.problem ? 'Needs attention' : skill.sourceType === 'private' ? 'Private · only your machines' : skill.sourceType === 'local' || !skill.source ? 'Copying privately from its machine' : skill.source}</span></li>{:else}<li>No skills match your search.</li>{/each}</ul>
+      <ul>{#each filtered as skill (skill.id)}<li><strong>{skill.name}</strong><span>{skill.problem ? 'Left out for now' : skill.sourceType === 'private' ? 'Private · only your machines' : skill.sourceType === 'local' || !skill.source ? 'Copying privately from its machine' : skill.source}</span></li>{:else}<li>No skills match your search.</li>{/each}</ul>
+      {#if duplicates.length}<p class="footnote">{duplicatesNote(duplicates)}</p>{/if}
     {/if}
   </details>
   {#if agents.length}<details class="library-content"><summary>Automatic sync settings</summary><p class="footnote">Turn automatic sync off to manage a machine manually. Sync all machines restores the shared library for every machine.</p>
@@ -144,6 +156,13 @@
   .footnote { margin: 20px 0 0; font-size: 0.875rem; line-height: 1.6; color: var(--muted); }
   .message { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 14px; font-size: 0.875rem; line-height: 1.6; }
   .error { color: var(--bad); }
+  .message.calm { color: var(--muted); }
+  .left-out { border: 1px solid var(--line); border-radius: 10px; padding: 2px 14px; margin: 12px 0; font-size: 0.875rem; line-height: 1.6; }
+  .left-out summary { padding: 12px 0; }
+  .left-out ul { max-height: none; overflow: visible; margin: 0; padding: 0 0 4px; }
+  .left-out li { display: block; border-bottom: 0; padding: 6px 0; color: var(--muted); }
+  .left-out li strong { color: var(--ink); font-weight: 600; }
+  .left-out p { margin: 0 0 12px; color: var(--muted); }
   .empty { padding: 24px 0; font-size: .9rem; }
   .empty p { color: var(--muted); }
   .automatic { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; padding: 10px 0; font-size: 0.875rem; overflow-wrap: anywhere; }

@@ -143,7 +143,7 @@ try {
   await expect(unpublished).toHaveCount(1)
   await expect(unpublished).toContainText('Private · only your machines')
   await expect(page.getByRole('status').filter({hasText:'private skill storage is full'})).toBeVisible()
-  await expect(page.locator('.library-content li', {hasText:'reet-broken'})).toContainText('Needs attention')
+  await expect(page.locator('.library-content li', {hasText:'reet-broken'})).toContainText('Left out for now')
   expect(errors).toEqual([])
   await context.close()
  }

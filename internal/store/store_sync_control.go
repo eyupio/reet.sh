@@ -132,23 +132,24 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		if source == "hosted" {
 			return errors.New("choose individual published skills for syncing")
 		}
-		// A machine-only skill whose private copy failed is listed with its reason
-		// and skipped; structural library problems still need a decision.
-		var captureProblems map[string]string
-		if source == "library" {
-			if captureProblems, err = s.libraryCaptureProblems(uid); err != nil {
-				return err
-			}
-		}
+		// In the shared library a skill with a problem (a private copy that failed,
+		// a draft that cannot be stored) is listed with its reason and left out, so
+		// one skill never holds back the rest. Any other source is a deliberate
+		// selection, and a problem in it still needs a decision.
 		in.SkillIDs = nil
 		for _, sk := range candidates {
 			if sk.Problem != "" {
-				if _, failed := captureProblems[sk.ID]; failed {
+				if source == "library" {
 					continue
 				}
 				return errors.New(sk.Problem)
 			}
 			if sk.Source == "" || sk.SourceType == "local" {
+				// A machine-only skill has no source until its private copy arrives.
+				// In the library it joins the plan then; it does not stop the rest.
+				if source == "library" {
+					continue
+				}
 				return errors.New("link all skill sources before syncing the whole source")
 			}
 			in.SkillIDs = append(in.SkillIDs, sk.ID)

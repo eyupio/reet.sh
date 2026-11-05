@@ -238,7 +238,7 @@ func (s *Store) attachMetaForMode(userID int64, skills []Skill, compact bool) er
 		index[skills[i].ID] = i
 		args = append(args, skills[i].ID)
 	}
-	tagRows, err := s.read.Query(`SELECT st.skill_id,t.id,t.name,st.source,st.hidden
+	tagRows, err := s.readStmts.query(`SELECT st.skill_id,t.id,t.name,st.source,st.hidden
 		FROM skill_tags st JOIN tags t ON t.id=st.tag_id
 		WHERE st.user_id=? AND st.hidden=0 AND st.skill_id IN (`+placeholders(len(skills))+`)
 		ORDER BY lower(t.name)`, args...)
@@ -264,7 +264,7 @@ func (s *Store) attachMetaForMode(userID int64, skills []Skill, compact bool) er
 	}
 	tagRows.Close()
 	if compact {
-		envRows, err := s.read.Query(`SELECT se.skill_id,COUNT(*) FROM skill_envs se JOIN environments e ON e.id=se.env_id
+		envRows, err := s.readStmts.query(`SELECT se.skill_id,COUNT(*) FROM skill_envs se JOIN environments e ON e.id=se.env_id
 			WHERE e.user_id=? AND se.skill_id IN (`+placeholders(len(skills))+`)
 			GROUP BY se.skill_id`, args...)
 		if err != nil {
@@ -283,7 +283,7 @@ func (s *Store) attachMetaForMode(userID int64, skills []Skill, compact bool) er
 		}
 		return envRows.Err()
 	}
-	envRows, err := s.read.Query(`SELECT se.skill_id,e.id,e.name,e.kind,e.agent,e.host,e.path,e.project,
+	envRows, err := s.readStmts.query(`SELECT se.skill_id,e.id,e.name,e.kind,e.agent,e.host,e.path,e.project,
 		e.first_seen,se.last_seen,se.source_path
 		FROM skill_envs se JOIN environments e ON e.id=se.env_id
 		WHERE e.user_id=? AND se.skill_id IN (`+placeholders(len(skills))+`)
@@ -363,7 +363,7 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		f.Machine = host
 	}
 	var c Counts
-	if err := s.read.QueryRow(`SELECT COUNT(*),COALESCE(SUM(sh.liked),0),COALESCE(SUM(sh.bookmarked),0),COALESCE(SUM(sh.used),0)
+	if err := s.readStmts.queryRow(`SELECT COUNT(*),COALESCE(SUM(sh.liked),0),COALESCE(SUM(sh.bookmarked),0),COALESCE(SUM(sh.used),0)
 		FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`, userID).Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
 		return nil, c, err
 	}
@@ -438,7 +438,7 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		q += ` LIMIT ? OFFSET ?`
 		args = append(args, limit, f.Offset)
 	}
-	rows, err := s.read.Query(q, args...)
+	rows, err := s.readStmts.query(q, args...)
 	if err != nil {
 		return nil, c, err
 	}

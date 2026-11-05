@@ -161,6 +161,9 @@ type Store struct {
 	// every write (and every other read) behind it.
 	read *sql.DB
 	dir  string
+	// Prepared statements for hot fixed and repeated query shapes.
+	readStmts  stmtCache
+	writeStmts stmtCache
 
 	// runClaims holds the Project run members a goroutine in this process has
 	// claimed to start. It is deliberately not persisted: after a restart no
@@ -467,6 +470,8 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	st.readStmts.setDB(st.read)
+	st.writeStmts.setDB(st.db)
 	return st, nil
 }
 
@@ -483,7 +488,10 @@ func OpenWithoutMigrations(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db, read: read, dir: dir}, nil
+	st := &Store{db: db, read: read, dir: dir}
+	st.readStmts.setDB(read)
+	st.writeStmts.setDB(db)
+	return st, nil
 }
 
 func openDB(dir string) (*sql.DB, error) {
@@ -541,6 +549,8 @@ func ensureColumn(db *sql.DB, name, ddl string) error {
 }
 
 func (s *Store) Close() error {
+	s.readStmts.close()
+	s.writeStmts.close()
 	readErr := s.read.Close()
 	if err := s.db.Close(); err != nil {
 		return err
@@ -589,7 +599,7 @@ func (s *Store) Health(ctx context.Context) (int, error) {
 	}
 	if s.healthCountAt.IsZero() || now.Sub(s.healthCountAt) >= 30*time.Second {
 		var n int
-		if err := s.read.QueryRowContext(ctx, "SELECT COUNT(*) FROM skills").Scan(&n); err != nil {
+		if err := s.readStmts.queryRowContext(ctx, "SELECT COUNT(*) FROM skills").Scan(&n); err != nil {
 			return 0, err
 		}
 		s.healthCount, s.healthCountAt = n, now

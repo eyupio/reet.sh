@@ -63,12 +63,29 @@ func TestCapabilitiesNewToolIDsNeedAgentsV2(t *testing.T) {
 		if c.Validate() == nil || c.ValidateFor("") == nil {
 			t.Fatal("old peer accepts new tool")
 		}
-		if c.ValidateFor("launch-v1, agents-v2") != nil {
+		features := "launch-v1, agents-v2"
+		if tool == "antigravity" {
+			features += "," + AntigravityFeature
+		}
+		if c.ValidateFor(features) != nil {
 			t.Fatal("new peer refuses tool")
 		}
 		if !SupportsAgents(" launch-v1, agents-v2 ") || SupportsAgents("agents-v2-extra") || !ValidToolV2(tool) || ValidTool(tool) {
 			t.Fatal("feature or tool check failed")
 		}
+	}
+}
+
+func TestAntigravityCapabilityRequiresItsNegotiatedFeature(t *testing.T) {
+	c := Capabilities{AgentsV2: true, Launch: true, TerminalControl: true, Tools: []string{"antigravity"}, ProtocolVersion: Version, OS: "linux", OSUser: "test", TerminalEnabled: true, Readiness: Ready}
+	if c.ValidateFor(AgentsFeature) == nil {
+		t.Fatal("AGY claimed to a controller with only the older agents-v2 catalogue")
+	}
+	if c.Validate() != nil || c.ValidateFor(AgentsFeature+","+AntigravityFeature) != nil {
+		t.Fatal("negotiated AGY refused")
+	}
+	if !SupportsAntigravity(" launch-v1, "+AntigravityFeature+" ") || SupportsAntigravity(AntigravityFeature+"0") {
+		t.Fatal("AGY token matching changed")
 	}
 }
 func TestCapabilitiesYoloNeedsAgentsV2(t *testing.T) {

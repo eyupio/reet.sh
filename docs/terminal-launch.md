@@ -256,7 +256,7 @@ and the Activity label for `terminal-launch` are described in
 
 The controller advertises `agents-v2` alongside the existing feature tokens. A
 connector reports `agentsV2:true` and optional `osVersion` only after negotiating
-that token. Without it, the connector reports only the original four tool ids
+that token. The additional `antigravity-cli-v1` token gates the AGY tool id: an older controller whose `agents-v2` catalogue predates AGY receives no AGY claim. Without `agents-v2`, the connector reports only the original four tool ids
 and never sends the added capability fields. OS version is informational: Linux
 reports its kernel release and macOS its product version; a failed local reading
 leaves it absent.
@@ -296,7 +296,7 @@ owner list.
 Antigravity CLI 1.5.0 is enabled after capturing only version and help from its
 official Linux archive in an isolated home and project. The checksum matches the
 Homebrew `antigravity-cli` cask. The connector resolves only `agy`, reports the
-`antigravity` tool id under `agents-v2`, and passes an opening prompt through
+`antigravity` tool id only after both `agents-v2` and `antigravity-cli-v1` are negotiated, and passes an opening prompt through
 `--prompt-interactive` as one argument. No print, approval-bypass or mode flag is
 sent for an ordinary launch. Model listing, resume and Gaffer integration remain
 unreviewed and unavailable for this preset.

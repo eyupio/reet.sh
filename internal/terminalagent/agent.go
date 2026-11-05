@@ -262,6 +262,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				return respond(terminalhost.ErrLaunchUnavailable)
 			}
 			if create, ok := msg.Body.(*terminalproto.Create); ok {
+				if create.Tool == "antigravity" && !terminalproto.SupportsAntigravity(headers.Get(terminalproto.FeatureHeader)) {
+					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
+					return send(callCtx, reply)
+				}
 				needsStartOptions := create.Structured && create.Effort != ""
 				if needsStartOptions && !terminalproto.SupportsACPStartOptions(headers.Get(terminalproto.FeatureHeader)) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}

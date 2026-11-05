@@ -41,6 +41,7 @@ type AgentConfig struct {
 	launch             bool
 	resume             bool
 	agentsV2           bool
+	antigravity        bool
 	worktree           bool
 	browse             bool
 	branches           bool
@@ -750,6 +751,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.launch = terminalproto.SupportsLaunch(advertised)
 	cfg.resume = terminalproto.SupportsResume(advertised)
 	cfg.agentsV2 = terminalproto.SupportsAgents(advertised)
+	cfg.antigravity = cfg.agentsV2 && terminalproto.SupportsAntigravity(advertised)
 	cfg.worktree = terminalproto.SupportsWorktree(advertised)
 	cfg.browse = terminalproto.SupportsBrowse(advertised)
 	cfg.branches = terminalproto.SupportsBranches(advertised)
@@ -803,6 +805,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.agentsV2 {
 		features = append(features, terminalproto.AgentsFeature)
+	}
+	if cfg.antigravity {
+		features = append(features, terminalproto.AntigravityFeature)
 	}
 	if cfg.launch {
 		features = append(features, terminalproto.LaunchFeature)
@@ -896,6 +901,9 @@ func terminalFeatures(cfg AgentConfig) string {
 func launchTools(cfg AgentConfig) []string {
 	var tools []string
 	for _, tool := range cfg.LaunchTools() {
+		if tool == "antigravity" && !cfg.antigravity {
+			continue
+		}
 		validTool := terminalproto.ValidTool(tool) || (cfg.agentsV2 && terminalproto.ValidToolV2(tool))
 		if validTool && !slices.Contains(tools, tool) {
 			tools = append(tools, tool)

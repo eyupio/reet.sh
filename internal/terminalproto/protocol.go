@@ -212,6 +212,12 @@ func (c Capabilities) Validate() error {
 	if c.AgentsV2 {
 		features = append(features, AgentsFeature)
 	}
+	for _, tool := range c.Tools {
+		if tool == "antigravity" {
+			features = append(features, AntigravityFeature)
+			break
+		}
+	}
 	if c.ACPAgents != nil {
 		features = append(features, ACPAgentsFeature)
 	}
@@ -244,6 +250,11 @@ func (c Capabilities) ValidateFor(features string) error {
 	validLaunch := !c.Launch || c.TerminalControl
 	toolsNeedLaunch := len(c.Tools) == 0 || c.Launch
 	validToolList := validTools(c.Tools, SupportsAgents(features))
+	for _, tool := range c.Tools {
+		if tool == "antigravity" && !SupportsAntigravity(features) {
+			validToolList = false
+		}
+	}
 	toolsValid := validLaunch && toolsNeedLaunch && validToolList
 	if !toolsValid {
 		return ErrInvalid

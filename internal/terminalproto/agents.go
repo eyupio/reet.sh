@@ -5,6 +5,19 @@ import "strings"
 // AgentsFeature negotiates the expanded agent catalogue and launch fields.
 const AgentsFeature = "agents-v2"
 
+// AntigravityFeature keeps the added tool id off the wire to controllers whose
+// agents-v2 catalogue predates AGY. Their strict decoders reject unknown ids.
+const AntigravityFeature = "antigravity-cli-v1"
+
+func SupportsAntigravity(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == AntigravityFeature {
+			return true
+		}
+	}
+	return false
+}
+
 func SupportsAgents(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == AgentsFeature {

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -136,6 +137,8 @@ type Filter struct {
 	Stage            string
 	SourceType       string
 	Untagged         bool
+	Limit            int
+	Offset           int
 }
 
 type Counts struct {
@@ -146,13 +149,27 @@ type Counts struct {
 }
 
 type Store struct {
-	db  *sql.DB
-	dir string
+	db *sql.DB
+	// read is a second handle used by read-only list endpoints. WAL lets it run
+	// alongside the single writer handle, so a slow list query no longer queues
+	// every write (and every other read) behind it.
+	read *sql.DB
+	dir  string
 
 	// runClaims holds the Project run members a goroutine in this process has
 	// claimed to start. It is deliberately not persisted: after a restart no
 	// create call is in flight, so every pending member may be claimed again.
 	runClaims runClaims
+
+	// healthMu guards the cached readiness probe. Liveness probes arrive far
+	// faster than the database can change writability or its row count, so both
+	// are cached briefly instead of taking a write lock and scanning on every
+	// request.
+	healthMu      sync.Mutex
+	healthAt      time.Time
+	healthErr     error
+	healthCountAt time.Time
+	healthCount   int
 }
 
 const cols = `id,source,slug,source_type,url,name,description,notes,installs,installs_week,trend,liked,bookmarked,used,created_at,updated_at`
@@ -438,6 +455,11 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	st.read, err = openReadDB(dir)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
 	return st, nil
 }
 
@@ -449,7 +471,12 @@ func OpenWithoutMigrations(dir string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{db: db, dir: dir}, nil
+	read, err := openReadDB(dir)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &Store{db: db, read: read, dir: dir}, nil
 }
 
 func openDB(dir string) (*sql.DB, error) {
@@ -461,6 +488,18 @@ func openDB(dir string) (*sql.DB, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	return db, nil
+}
+
+// openReadDB opens the same database for concurrent reads. The writer handle
+// stays at one connection; WAL lets these readers proceed while a write is in
+// flight, and SQLite still serializes writers.
+func openReadDB(dir string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", filepath.Join(dir, "reet.db")+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=query_only(1)")
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(8)
 	return db, nil
 }
 
@@ -494,7 +533,13 @@ func ensureColumn(db *sql.DB, name, ddl string) error {
 	return err
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	readErr := s.read.Close()
+	if err := s.db.Close(); err != nil {
+		return err
+	}
+	return readErr
+}
 
 // Path is the data directory that holds the database.
 func (s *Store) Path() string { return s.dir }
@@ -511,22 +556,38 @@ func (s *Store) Size() (int64, error) {
 // Health proves the database can take a write lock, then counts the shelf.
 // A read-only data directory fails the lock rather than reporting a false all-clear.
 func (s *Store) Health(ctx context.Context) (int, error) {
-	conn, err := s.db.Conn(ctx)
-	if err != nil {
-		return 0, err
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	now := time.Now()
+	if s.healthAt.IsZero() || now.Sub(s.healthAt) >= 30*time.Second {
+		err := error(nil)
+		if conn, connErr := s.db.Conn(ctx); connErr != nil {
+			err = connErr
+		} else {
+			if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err == nil {
+				_, err = conn.ExecContext(ctx, "ROLLBACK")
+			}
+			conn.Close()
+		}
+		if err != nil {
+			s.healthErr = err
+			s.healthAt = time.Time{}
+		} else {
+			s.healthErr = nil
+			s.healthAt = now
+		}
 	}
-	defer conn.Close()
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return 0, err
+	if s.healthErr != nil {
+		return 0, s.healthErr
 	}
-	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
-		return 0, err
+	if s.healthCountAt.IsZero() || now.Sub(s.healthCountAt) >= 30*time.Second {
+		var n int
+		if err := s.read.QueryRowContext(ctx, "SELECT COUNT(*) FROM skills").Scan(&n); err != nil {
+			return 0, err
+		}
+		s.healthCount, s.healthCountAt = n, now
 	}
-	var n int
-	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM skills").Scan(&n); err != nil {
-		return 0, err
-	}
-	return n, nil
+	return s.healthCount, nil
 }
 
 func b2i(b *bool) int {
@@ -692,9 +753,13 @@ func (s *Store) attachHiddenTags(skills []Skill) error {
 	for i := range skills {
 		index[skills[i].ID] = i
 	}
-	rows, err := s.db.Query(`SELECT st.skill_id,t.id,t.name,st.source
+	args := make([]any, 0, len(skills))
+	for _, skill := range skills {
+		args = append(args, skill.ID)
+	}
+	rows, err := s.read.Query(`SELECT st.skill_id,t.id,t.name,st.source
 		FROM skill_tags st JOIN tags t ON t.id=st.tag_id
-		WHERE st.hidden=1 ORDER BY lower(t.name)`)
+		WHERE st.hidden=1 AND st.skill_id IN (`+placeholders(len(skills))+`) ORDER BY lower(t.name)`, args...)
 	if err != nil {
 		return err
 	}
@@ -752,12 +817,14 @@ func (s *Store) attachMeta(skills []Skill) error {
 		return nil
 	}
 	index := make(map[string]int, len(skills))
+	args := make([]any, 0, len(skills))
 	for i := range skills {
 		index[skills[i].ID] = i
+		args = append(args, skills[i].ID)
 	}
-	tagRows, err := s.db.Query(`SELECT st.skill_id,t.id,t.name,st.source,st.hidden
+	tagRows, err := s.read.Query(`SELECT st.skill_id,t.id,t.name,st.source,st.hidden
 		FROM skill_tags st JOIN tags t ON t.id=st.tag_id
-		WHERE st.hidden=0 ORDER BY lower(t.name)`)
+		WHERE st.hidden=0 AND st.skill_id IN (`+placeholders(len(skills))+`) ORDER BY lower(t.name)`, args...)
 	if err != nil {
 		return err
 	}
@@ -780,8 +847,8 @@ func (s *Store) attachMeta(skills []Skill) error {
 	}
 	tagRows.Close()
 
-	envRows, err := s.db.Query(`SELECT se.skill_id,e.id,e.name,e.kind,e.agent,e.host,e.path,e.first_seen,se.last_seen,se.source_path
-		FROM skill_envs se JOIN environments e ON e.id=se.env_id ORDER BY lower(e.name)`)
+	envRows, err := s.read.Query(`SELECT se.skill_id,e.id,e.name,e.kind,e.agent,e.host,e.path,e.first_seen,se.last_seen,se.source_path
+		FROM skill_envs se JOIN environments e ON e.id=se.env_id WHERE se.skill_id IN (`+placeholders(len(skills))+`) ORDER BY lower(e.name)`, args...)
 	if err != nil {
 		return err
 	}

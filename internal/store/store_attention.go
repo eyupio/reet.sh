@@ -232,6 +232,16 @@ func (s *Store) populateAttention(uid int64, item *TerminalSession, nowTime time
 	if seen, err := s.SessionSeenFor(uid, item.ID); err == nil {
 		item.SeenAt = seen
 	}
+	applyAttention(item, nowTime)
+}
+
+// applyAttention derives the card state from an item whose SeenAt is already
+// filled, so list callers can batch the seen lookups instead of querying once
+// per session.
+func applyAttention(item *TerminalSession, nowTime time.Time) {
+	if item == nil {
+		return
+	}
 	if item.hasNoAttention() {
 		item.NoAttention = true
 		return

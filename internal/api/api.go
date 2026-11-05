@@ -1015,6 +1015,12 @@ func filterFromRequest(r *http.Request) store.Filter {
 			}
 		}
 	}
+	if n, err := strconv.Atoi(q.Get("limit")); err == nil && n > 0 && n <= 1000 {
+		f.Limit = n
+	}
+	if n, err := strconv.Atoi(q.Get("offset")); err == nil && n > 0 {
+		f.Offset = n
+	}
 	return f
 }
 
@@ -1048,7 +1054,7 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 		}
 		compactSkills := make([]map[string]any, 0, len(skills))
 		for _, sk := range skills {
-			row := map[string]any{}
+			row := make(map[string]any, len(fields))
 			for _, field := range fields {
 				switch field {
 				case "id":

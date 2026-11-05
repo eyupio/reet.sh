@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,7 +29,7 @@ func updateAgentBinary(ctx context.Context, config, jobID, requested, current st
 	report(store.UpdateStageDownload, "Resolving the "+channelName(requested)+" channel")
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	client := &http.Client{Timeout: 2 * time.Minute}
+	client := longHTTPClient
 	resolved, err := lifecycle.ResolveRelease(ctx, client, requested)
 	if err != nil {
 		return "", "", err

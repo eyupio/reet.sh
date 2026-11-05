@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/eyupio/reet.sh/internal/contentobs"
 	"github.com/eyupio/reet.sh/internal/skillbundle"
@@ -27,6 +26,11 @@ import (
 // skillScopeRoot maps a reported scope onto this installation's own configured
 // root, never onto anything the controller supplied. For a project it also returns
 // the canonical enrolled project directory.
+var (
+	importRequestID = regexp.MustCompile(`^[A-Za-z0-9_-]{16,80}$`)
+	importBundleID  = regexp.MustCompile(`^[a-f0-9]{32}$`)
+)
+
 func skillScopeRoot(c agentConfig, agent, project string) (string, string, error) {
 	if !contentobs.ValidScope(agent, project) {
 		return "", "", errors.New("choose a supported agent and one skill folder name")
@@ -116,7 +120,7 @@ func skillImportRequest(ctx context.Context, c agentConfig, method string, body,
 	req.Header.Set("X-Reet-Agent-Key", c.Secret)
 	req.Header.Set("X-Reet-Version", version)
 	req.Header.Set("X-Reet-Commit", buildCommit)
-	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := noRedirectClient
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -181,11 +185,11 @@ func runAgentSkillImport(args []string, in io.Reader, out io.Writer, version str
 	if badArgs || badPair {
 		return errors.New("invalid import arguments; append needs --bundle and --expected-base, confirmation needs --upload")
 	}
-	if *requestID != "" && !regexp.MustCompile(`^[A-Za-z0-9_-]{16,80}$`).MatchString(*requestID) {
+	if *requestID != "" && !importRequestID.MatchString(*requestID) {
 		return errors.New("request ID must contain 16–80 ASCII letters, digits, underscores or hyphens")
 	}
-	invalidBundle := *bundle != "" && !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(*bundle)
-	invalidBase := *base != "" && !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(*base)
+	invalidBundle := *bundle != "" && !importBundleID.MatchString(*bundle)
+	invalidBase := *base != "" && !importBundleID.MatchString(*base)
 	if invalidBundle || invalidBase {
 		return errors.New("bundle and expected-base must be private 32-character hexadecimal IDs")
 	}

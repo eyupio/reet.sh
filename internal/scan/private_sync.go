@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/skillimport"
@@ -45,7 +44,7 @@ func installPrivateSkill(server, token string, skill store.SyncSkill, targetPath
 		return err
 	}
 	req.Header.Set("X-Reet-Token", token)
-	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := noRedirectClient
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

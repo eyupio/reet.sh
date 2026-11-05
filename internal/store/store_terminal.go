@@ -439,10 +439,42 @@ func (s *Store) TerminalSessionsFor(uid int64) ([]TerminalSession, error) {
 	}
 	rows.Close()
 	nowTime := time.Now()
+	seen, err := s.terminalSeenFor(uid, out)
+	if err != nil {
+		return nil, err
+	}
 	for i := range out {
-		s.populateAttention(uid, &out[i], nowTime)
+		out[i].SeenAt = seen[out[i].ID]
+		applyAttention(&out[i], nowTime)
 	}
 	return out, nil
+}
+
+// terminalSeenFor reads the seen stamps for a page of sessions in one query.
+func (s *Store) terminalSeenFor(uid int64, sessions []TerminalSession) (map[string]int64, error) {
+	seen := make(map[string]int64, len(sessions))
+	if len(sessions) == 0 {
+		return seen, nil
+	}
+	args := make([]any, 0, len(sessions)+1)
+	args = append(args, uid)
+	for _, session := range sessions {
+		args = append(args, session.ID)
+	}
+	rows, err := s.read.Query(`SELECT session_id,seen_at FROM terminal_session_seen WHERE user_id=? AND session_id IN (`+placeholders(len(sessions))+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var at int64
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, err
+		}
+		seen[id] = at
+	}
+	return seen, rows.Err()
 }
 
 // ArchiveTerminalFor hides closed or end-requested sessions from browser history.

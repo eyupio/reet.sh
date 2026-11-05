@@ -2,8 +2,8 @@
 
 Prepared: 1 November 2026. Updated: 5 November 2026. Active direction: the Gaffer
 session-companion MVP below. Product decisions and the initial HTTP provider
-foundation are recorded here; the new chat and offline coordination runtime are
-not implemented.
+foundation, provider settings and general/session companion chat are recorded
+here. Scoped context/message tools and offline coordination are not implemented.
 
 ## Active direction: Gaffer session-companion MVP (5 November 2026)
 
@@ -242,6 +242,309 @@ local-only policy before enabling requests. Continue with server-owned general
 and per-session conversations, scoped MCP operations and durable worker-message
 coordination in their recorded slices. Preserve the independent Gaffer/working
 model identities and quirky UX requirements throughout.
+
+### GM1B: account provider settings (5 November 2026)
+
+Branch `feat/gaffer-provider-settings`, built on the merged HTTP foundation.
+Live GitHub reads confirm #600 merged as `f31b032e` and #601 as `54f66f75` on
+5 November. #601's source/web/build/test checks passed. This batch opens a new
+[draft PR #603](https://github.com/eyupio/reet.sh/pull/603) against main; it does
+not merge or deploy. The previous GM1A record
+above describes its original checkout and publication conditions.
+
+**Implemented contract**
+
+- `internal/store/store_gaffer.go` owns up to twelve providers per account with
+  a unique name, explicit default, revision-checked writes and owned reads.
+  Deleting an account cascades to its providers. A paused default stays selected;
+  deleting it leaves no default. Editing invalidates its old connection result.
+- `internal/gaffer` owns validation, address policy, credentials and bounded
+  probes. `cmd/reet` passes the existing stable instance sealer to the API.
+  Keys use encrypted envelopes bound to account, row, backend kind and canonical
+  address, and are omitted from JSON/audit data. An address/kind change cannot
+  forward the old saved key. No environment key import or live test is automatic.
+- Browser accounts with write access manage their own settings through
+  `/api/v2/gaffer/providers`; test/model-discovery/default/enabled operations
+  share existing canonical-origin protection. Viewers, anonymous access and
+  API/MCP tokens do not acquire this authority. Only owners/admins can use
+  local-network endpoints. A demoted owner can still pause/delete their row.
+- Hosted endpoints require HTTPS and public-only DNS results. Local-only means
+  loopback, private or Tailnet addresses reachable from the controller. Reject
+  metadata/link-local/multicast/unspecified addresses, mixed network scopes and
+  redirects. Direct requests validate/pin DNS at dial time; hosted requests may
+  use the deployment's trusted forward proxy, which owns its upstream resolution.
+  Local traffic bypasses forward proxies. Native and Docker share these rules;
+  Docker localhost is the container. No host-model installation is implied.
+- Presets cover OpenAI, Anthropic, OpenCode Zen/Go, Ollama Cloud/local and other
+  compatible APIs. OpenAI-compatible choices use chat-completions, with protocol
+  limitations shown. Subscription CLI backends/capability discovery are still
+  pending; do not call this full provider parity or claim listed models work.
+- Discovery uses the current draft without persisting it; it has a 20 s bound.
+  An explicit connection test uses the saved revision with a 45 s bound. There
+  are at most two active probes per account, four across the service and twelve
+  per account/minute. Key operations share two slots; saves are limited to thirty
+  per account/minute. Shutdown cancels/joins admitted service work. Editing,
+  pausing or deleting cancels probes; revision checks reject late results.
+- `web/src/lib/GafferSettings.svelte` supplies Account → Gaffer AI cards and the
+  editor: live searchable model list, manual fallback, clear errors, preserved
+  draft after save failure, saved-key metadata, default/pause/remove, model effort
+  where supported, explicit test/cancel and private-network guidance. Requests
+  are cancelled on teardown and stale discovery cannot replace newer input.
+  The existing portrait and warm Yorkshire copy keep the quirky critical buddy.
+- Status, followed-session context and code/log sharing are independent stored
+  policy, default off; code/logs require session context. No context is sent by
+  this slice. These flags do not grant access to sessions. GM2/GM3 must enforce
+  effective account/session grants, current provider policy and context bounds
+  on every read/call; GM4 must recheck immediately before queued instructions.
+- Full instance DB copies include encrypted rows. Restore clears unreadable keys,
+  pauses the affected provider and increments its revision, with an actionable
+  re-entry message. Personal shelf exports exclude provider settings/keys.
+
+**Verification and limits**
+
+Local fake-backed domain/store/API race tests, web unit/type checks, production
+build, MCP compatibility and strict documentation checks are recorded with this
+batch's final PR. The browser matrix covers desktop, 390/320 px, both themes,
+CRUD, failure/manual fallback, key privacy, stale requests and viewer access;
+account profile and MCP browser checks guard navigation regressions. Evidence is
+in [UI verification](ui-verification.md#gaffer-ai-provider-settings-5-november-2026),
+and the standalone Gaffer browser workflow retains captures without extending
+the terminal-browser job.
+
+Final local results: `npm --prefix web run check` passes (zero errors, two
+existing unused-selector warnings); production build and `go vet ./...` pass.
+`npm --prefix mcp test` passes all 16 checks, including tool-definition parity.
+The Gaffer settings, Account Profile and Account MCP Chromium suites pass. Strict
+MkDocs and rendered-site checks pass all 51 pages. Targeted API/domain/store race
+checks pass, including the final shutdown and token-refusal regressions.
+
+The complete Go race run on the foundation plus this slice passed API (420 s),
+store (193 s), broker (72 s) and every other package except `internal/terminalhost`.
+Its same five baseline failures remain: `TestListModelsTimeoutKillsTheProcessGroup`,
+`TestTimedOutAddKillsGitsChildrenAndCleansUp` and the three missing-tmux service
+checks listed in GM1A above. Those failures were previously reproduced in the
+unchanged baseline; no terminal-host source changed here. This is not a green
+full-suite result. The branch was then aligned to merged main `54f66f75`, retaining
+its independent sync-store changes; vet, targeted Gaffer API race tests and the
+complete store race suite (131 s) pass after alignment. GitHub confirms #603 is
+open, draft and mergeable; its checks, including the dedicated Gaffer browser
+job, have started. Final-head remote CI remains the merge gate.
+
+No real credential, paid provider, physical device, new experimental worker,
+subscription backend or production deployment was exercised. A test response is
+not a guarantee of model identity, tool support or future health. The complete
+MVP remains incomplete: no floating companion widget, Gaffer conversation store,
+scoped session MCP tools or background follow-up worker is enabled here.
+
+**Exact next task**
+
+Finish GM0's effective account/session grants, verified structured-worker message
+capabilities, receipt/delivery mapping and retention/recovery contract against
+current main. Then implement GM2's controller-owned general and per-session
+conversations using these providers and bounded context. Keep the working model
+separate; only it performs coding, commands and PR work. Subsequent GM3/GM4 add
+scoped tools and durable offline goals through the existing next-turn queue,
+without answering approval cards or enabling terminal keystroke automation.
+
+### GM0 contract and GM2A conversation runtime (5 November 2026)
+
+[Draft PR #605](https://github.com/eyupio/reet.sh/pull/605),
+`feat/gaffer-conversations`, is stacked on provider settings #603. Its docs browser
+failure was a stale eight-guide expectation after adding Gaffer's ninth guide;
+that test now checks filter/no-JS parity against the initial card count and
+explicitly locates Gaffer's guide. The complete local docs browser run passes.
+The fix is on #603, which remains owner-controlled and unmerged at this checkpoint.
+
+The [conversation/access contract](handoffs/gaffer-conversations.md) fixes the
+account/session/provider boundaries, current structured-worker eligibility checks,
+queue-receipt mapping and uncertain-delivery/restart rules before tool integration.
+GM2A implements owned general and per-session conversations, versioned provider/
+model choices, durable request receipts, partial replies, SSE observation,
+cancellation, bounded context/storage and restart interruption without replay.
+It sends only explicitly typed Gaffer messages. No worker history, status tool,
+MCP grant, worker message or offline follow goal is enabled; no UI uses the new
+routes yet. The working model retains all implementation and PR authority.
+
+Verification: the final targeted Gaffer store/domain/API race tests pass, including
+actual DB reopen, a UTF-8 output ceiling and cross-account/viewer HTTP refusal.
+The full Go race run passes API (477 s), store (239 s), broker (104 s) and all
+packages except the same five baseline terminal-host failures recorded above.
+The last small metadata/cancel/deadline refinements have additional targeted
+race coverage. `go vet ./...`, web checks (zero errors, two existing warnings),
+all 16 MCP tests, strict docs/rendered-site checks (51 pages) and the real static
+docs browser matrix (40 responsive views and no-JS) pass. No live provider or
+physical device was used; the frontend has not changed in this slice.
+
+#603's final settings head `ecaa08be` passes Gaffer browser, web and docs build.
+Its Go CI run failed two unchanged wall-clock assertions: offline browse took
+102.8 ms against 100 ms, and a retry took 772.7 ms against 650 ms. Both source
+tests match unchanged `d5485e12`; both pass five local race repetitions. Only the
+failed Go job was requested again; its final result remains a merge gate, not a
+reason to weaken those tests or claim CI is green.
+
+Next: build the floating companion UI over these routes, then the contract's
+allowlisted context projections and explicit scoped grants for GM3. Prove those
+before enabling GM4's durable offline supervision. Backend/subscription parity,
+provider/model tool capability and physical/deployed-flow evidence remain open.
+
+### PR #603 review follow-up and current stack (5 November 2026)
+
+This checkpoint supersedes the PR state and immediate next task above. The owner
+merged #605 into `feat/gaffer-provider-settings`, producing `628118e8`; #603 is open
+against main and includes GM1B settings and the GM2A conversation backend. #606
+is the separate draft floating-widget PR, based on #603. Neither #603 nor #606
+has been merged into main. Keep changes confined to reet.sh and retain the worker
+model's sole coding/PR authority. Scoped context, MCP grants/messages and durable
+follow goals are still the integration work after the widget.
+
+**Review and CI fixes**
+
+- Provider dialing previously pinned only the first validated DNS address. A real
+  IPv4-only HTTP listener at dual-stack `localhost` reproduces the review finding:
+  the old code fails on `::1`, even though IPv4 is reachable. The transport now
+  tries the validated literal addresses in order within each family, starts the
+  other family after 300 ms (or an immediate first-family failure), and shares a
+  ten-second budget. The full address set remains validated before any socket;
+  there is no new hostname resolution during dialing. Cancellation joins all
+  racers and closes late connections. Hosted forward-proxy behaviour is unchanged.
+- The post-merge Go CI failure was `TestBrowseOfflineMachineAnswersAtOnce` at
+  106.25 ms against its 100 ms limit. That request test now runs in a
+  `testing/synctest` bubble; fixture listeners remain outside it. Scheduler and
+  filesystem pauses do not consume its fake time. The 100 ms assertion, all six
+  offline/access cases, response checks and no-send/no-audit assertions remain.
+  A temporary injected 101 ms sleep fails at exactly 101 ms. Production browse
+  code is unchanged, and the injected mutation was restored before final checks.
+
+**Verification at this checkpoint**
+
+The old-code localhost regression fails and the fixed transport passes. Five
+race repetitions of the full Gaffer package and focused Gaffer API/offline-browse
+checks pass. Coverage includes immediate refusal, same-family fallback, a stalled
+family, shared deadline, pre-cancellation, rejected mixed-network address sets and
+closing late successful connections. Web check/build, vet, all 16 MCP checks and
+the real Gaffer settings Chromium matrix pass. The web check retains two existing
+unused-selector warnings. Strict docs and rendered-site checks pass all 51 pages.
+The complete Go race run passes API (408.7 s), Gaffer (39.8 s), store (197.1 s),
+broker (66.4 s) and every package except `internal/terminalhost`. Its same five
+baseline failures remain: three require unavailable tmux, and
+`TestListModelsTimeoutKillsTheProcessGroup` /
+`TestTimedOutAddKillsGitsChildrenAndCleansUp` fail process-group cleanup in this
+environment. No terminal-host source changed. This is not a green full-suite
+result; final-head remote CI remains the merge gate. No real credentials, paid
+provider, deployment or physical device was used.
+
+Continue #606's widget verification on its own branch. Then implement GM3's
+allowlisted context projections and explicit session grants before enabling GM4's
+durable offline supervision. Keep uncertain worker-message delivery and approval
+cards under the existing queue/worker authority.
+
+### GM2B: floating general/session companion UI (5 November 2026)
+
+[Open PR #606](https://github.com/eyupio/reet.sh/pull/606),
+`feat/gaffer-floating-chat`, targets provider/conversation PR #603. #605 was merged
+into #603's branch as `628118e8`, not into main. This branch now includes #603's
+review/CI fix `d7bfa84e` as well. #603 and #606 remain open; do not merge either
+without owner direction. Older records above describe their dated checkpoints.
+
+- `GafferChatWidget.svelte`, the typed API and receipt helpers connect the GM2A
+  runtime to a global **Ask Gaffer** launcher for private browser writers. It does
+  no provider/conversation work while closed. Public/auth/viewer/legacy modes
+  have no launcher. The existing portrait follows motion/reduced-motion settings.
+- `SessionScreen.svelte` publishes only active session identity/model to a small
+  UI context store. The panel automatically binds active-session mode to that ID,
+  also offers general chat, and explains plain-terminal unavailability. It does
+  not read or copy worker history; backend ownership checks remain authoritative.
+- Desktop chat is modeless, with an expand control; phone chat uses the existing
+  dialog shell, visual-viewport/short-screen rules and native modal focus. Escape
+  closes and returns focus. The launcher is raised above the worker composer.
+- General and session drafts stay separate in memory. Request epochs and aborted
+  reads prevent a late response from A replacing B. Closing/switching aborts only
+  browser reads and observation, not an admitted provider answer. Reopening reads
+  the saved scope and observes any running turn. Cancellation targets only Gaffer.
+- Before a send, browser session storage records only account/scope-bound receipt
+  metadata, never prompt text or credentials. An uncertain outcome blocks a new
+  send until reconciliation; explicit safe retry uses the original ID/body/revision.
+  A reload can find an already-admitted receipt without calling the model again.
+  Gateway/server failures also retain uncertainty. Retrying the original message
+  preserves any newer draft the user has typed while checking delivery.
+  Definitive initial refusals retain the draft; a failed retry keeps its uncertainty.
+- Provider/model choices are independent of the worker. Discovery/manual fallback
+  and explicit application of overrides disclose conversation-history sharing.
+  The UI shows requested provider/model per reply, known/unknown usage, truncation,
+  partial/error/interrupted state and copy controls. Model text is escaped plain text.
+- **Saved chats** lists owned metadata and removes histories, including archived
+  worker scopes. Removing a companion stops its answer, leaves the worker alone,
+  and does not refund provider credits. Context flags remain future policy:
+  only explicitly typed Gaffer messages and completed companion history are sent.
+
+Verification: receipt unit tests, web checks (zero errors, two existing warnings)
+and production build pass. The new Chromium matrix and existing Gaffer settings,
+session workspace, navigation and phone-layout suites pass. Static docs build and
+rendered-site checks pass 51 pages; all 16 MCP checks and the static docs browser
+matrix (40 responsive views plus no-JS) also pass. UI captures and exact cases are recorded in
+[UI verification](ui-verification.md#gaffer-floating-companion-chat-5-november-2026).
+Go vet passes. The full Go race run passes API (471 s), store (246 s), Gaffer
+(48 s), broker (76 s) and all packages except four previously reproduced terminal-
+host failures: the model-list process-group check and three missing-tmux service
+checks. The previously observed git-child timeout check passed on this run. No
+Go runtime authority was changed; the full local suite is not green.
+
+No live provider credentials, paid requests, physical device or deployment was
+used. Native EventSource is exercised over a synthetic HTTP SSE envelope; the
+remaining browser flow uses synthetic API/stream fixtures. Scope is GM2B, not the
+complete MVP: no live reet status, worker transcript tool, scoped MCP message,
+follow goal or background PR supervision is enabled.
+
+Exact next task: GM3A's account/session grants and bounded context projections,
+following [the contract](handoffs/gaffer-conversations.md). Define and test the
+allowlisted status/history/tool fields before making any worker data available to
+Gaffer or MCP. Then add GM3B's explicit worker-message operations and receipt
+mapping over the existing queue; GM4 adds durable offline goals only after those
+boundaries are verified. Preserve separate identities, existing approvals and the
+quirky critical-buddy voice throughout.
+
+### GM2B browser follow-up: keep controls reachable (5 November 2026)
+
+Final-head widget CI exposed two launcher collisions: the skill editor's **Save
+draft** action and the worker's **Queue** action. Fixed offsets did not account
+for a growing composer, its queue, work-update card or a page's fixed action dock. The launcher now
+measures explicitly marked clearance regions and stays above those in its column.
+It observes insertion/removal, size changes, scrolling and viewport changes, and
+disconnects its observers/listeners when the launcher unmounts. Other columns
+remain usable without unnecessarily moving the launcher.
+
+The previously failing sync-vocabulary and live-chat-controls browser flows pass.
+Their additional geometry checks cover the save dock and a multi-line worker
+instruction with its queue/live controls in both themes at desktop and phone
+widths. The full Gaffer companion browser matrix also passes. Web check/build
+retain only the two existing warnings. #603's provider fallback and deterministic
+browse-test fixes are carried forward; its full local race result is recorded in
+the review checkpoint above. The full phone run subsequently exposed a plain-terminal **Focus terminal**
+collision. Its footer and bottom extra-key row now opt into the same clearance
+contract; the sideways top key row does not. The launcher also stays inside the
+visual viewport above an on-screen keyboard. Phone session tests cover 320/390 px,
+keyboard visibility and sideways layout alongside the existing terminal actions.
+
+Provider settings also directs users to Ask Gaffer now that companion chat is
+available; only live session context and follow-up remain forthcoming. Final-head
+CI remains the merge gate for #606. All final-head GitHub checks on #603
+`d7bfa84e` pass, including full Go race, browsers and native-service checks. Both
+PRs remain open; neither was merged in this batch.
+
+### GM2B alignment after #603 merged (5 November 2026)
+
+GitHub merged #603 as `b3b8e781` at 19:06 UTC and retargeted #606 to main.
+The only merge conflict was `web/package.json`: preserve main's Overview test
+commands and Gaffer's receipt tests together. The branch now contains that main
+merge, including the independent Overview and sync-dedupe work, without removing
+any of their changes. Recheck the merged UI and final-head CI; do not merge #606
+without owner direction. The prior PR-state paragraphs are dated checkpoints.
+
+Before alignment, all 24 local phone/dialog/worker/terminal browser groups pass
+on `ca976cf4`, including the three formerly blocked controls, keyboard visibility,
+clipboard and uploads. The aligned branch must retain these behaviours and its
+separate Gaffer/worker identities. Live context, scoped messages and durable
+supervision remain the next integration slices.
 
 ## Gaffer branding and Eli reuse (1 November 2026)
 

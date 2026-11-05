@@ -1,4 +1,5 @@
 <script lang="ts">
+  import GafferChatWidget from './lib/GafferChatWidget.svelte'
   import { gafferAnimations, gafferCompact } from './lib/gafferMotion'
   import Skeleton from './lib/Skeleton.svelte'
   import AppShell from './lib/shell/AppShell.svelte'
@@ -1436,6 +1437,9 @@
 </main>
 
 {#if authMode === 'accounts' && currentUser && !needsAuth && !isMCPConsent}<WebMCP />{/if}
+{#if authMode === 'accounts' && currentUser && canWrite && !needsAuth && !isMCPConsent && !isPublicList && !isCommunity && !isJoin && !isReset && !setupRequired}
+  {#key currentUser.id}<GafferChatWidget userId={currentUser.id} onerror={fail} {timeZone} {dateFormat} />{/key}
+{/if}
 {#if machineCopy}<MachineSkillSync skill={machineCopy.skill} destination={machineCopy.host} onclose={() => {machineCopy=null;void loadMeta()}} />{/if}
 {#if isSkills && authenticated && !needsAuth}<SyncActivity open={syncWatch !== null} context={syncWatch} {canWrite} onclose={() => (syncWatch = null)} onupdate={syncUpdated} />{/if}
 {#if !terminalLayout && !homeLayout}<Footer

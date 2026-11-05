@@ -127,6 +127,7 @@ extra:
     - parallel-coding-agents-git-worktrees.md
     - self-hosted-ai-agent-control-room.md
     - self-hosted-ai-agents-checklist.md
+    - gaffer-ai.md
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/eyupio/reet.sh
@@ -179,6 +180,7 @@ nav:
     - Command reference: cli-reference.md
 - Guides:
   - Field guide: guides/index.md
+  - Set up Gaffer AI: gaffer-ai.md
   - Run Claude Code on a VPS: run-claude-code-on-a-vps.md
   - Sync skills between machines: sync-skills-between-machines.md
   - Connect an AI client with MCP: self-host-mcp-server.md

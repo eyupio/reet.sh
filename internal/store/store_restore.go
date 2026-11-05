@@ -334,6 +334,19 @@ func clearUnreadable(ctx context.Context, tx *sql.Tx, unreadable func(string) bo
 		}
 		cleared = append(cleared, fmt.Sprintf("the access key of backup destination %q was sealed under another key; it is cleared and the destination is switched off. Enter its secret access key again under Admin → Backups, then switch it on.", name))
 	}
+	providers, err := collect("gaffer_providers", `SELECT id,key_sealed FROM gaffer_providers WHERE key_sealed<>''`, func(string) string { return "a Gaffer provider key" })
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range providers {
+		if !unreadable(r.sealed) {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE gaffer_providers SET key_sealed='',enabled=0,revision=revision+1,check_at=0,check_error='' WHERE id=?`, r.key); err != nil {
+			return nil, err
+		}
+		cleared = append(cleared, "A Gaffer provider key could not be opened and was cleared. Re-enter it in Account → Gaffer AI, then enable the provider.")
+	}
 	pw, err := collect("backup_settings", `SELECT CAST(owner_id AS TEXT),password_sealed FROM backup_settings WHERE password_sealed<>''`,
 		func(a string) string {
 			if a == "0" {

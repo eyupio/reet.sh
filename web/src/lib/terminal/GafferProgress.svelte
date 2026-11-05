@@ -173,7 +173,7 @@
 </script>
 
 {#if view.visible && minimised}
-  <section class="gaffer-progress mini" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-mode="minimised" data-poke-count={clicks.count}>
+  <section data-floating-clearance class="gaffer-progress mini" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-mode="minimised" data-poke-count={clicks.count}>
     <button type="button" class="mini-portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant="bust" active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} {pokeKind} {pokeKey} paused={still} /></button>
     <div class="mini-status" role="status" aria-live="polite" aria-atomic="true">
       <span class="signal" class:live={view.active} aria-hidden="true">{#if needsYou}?{:else if view.phase === 'idle'}✓{:else if view.phase === 'ended' || view.phase === 'cancelled'}<i class="sq"></i>{:else if view.phase === 'error' || view.phase === 'reconnecting'}!{:else}<i></i><i></i><i></i>{/if}</span>
@@ -187,7 +187,7 @@
     {#if view.active}<div class="activity-line" aria-hidden="true"><span></span></div>{/if}
   </section>
 {:else if view.visible}
-  <section class="gaffer-progress" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:compact={stopped} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-poke-count={clicks.count}>
+  <section data-floating-clearance class="gaffer-progress" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:compact={stopped} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-poke-count={clicks.count}>
     <div class="gaffer-main">
       <button type="button" class="portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant="bust" active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} {pokeKind} {pokeKey} paused={still} /></button>
       <div class="brief">

@@ -1,5 +1,85 @@
 # UI verification — 4 November 2026
 
+## Gaffer floating companion chat (5 November 2026)
+
+**Ask Gaffer** now opens a modeless desktop panel or a modal phone sheet, with the
+existing cap-and-brew portrait, Yorkshire copy and light/dark tokens. General and
+active-session conversations have separate messages/drafts. The panel names both
+models, exposes live model discovery/overrides, streams replies, distinguishes
+cancellation from closure, and shows partial/error/interrupted/usage states.
+Saved-chat metadata supports cleanup even after the worker session is archived.
+The UI explicitly limits this slice to typed companion messages; session context,
+worker instructions and offline follow-up remain subsequent work.
+
+- **Unit/type/build.** Receipt helpers cover account/scope keys, metadata-only
+  storage, blocked/malformed storage, request IDs, UTF-8 limits, terminal-state
+  monotonicity and stream identity. Web unit/type checks and production build
+  pass; two existing unused-selector warnings remain.
+- **Browser.** `web/tests/gaffer-chat.e2e.mjs` covers first send, partial/final
+  streaming, close/reopen without another send, exact-receipt retry, lost reply
+  acknowledgement/gateway failure across reload, preserving newer drafts during
+  exact-receipt retry, provider/model override, cancellation, removal,
+  archived-chat cleanup, separate drafts, late session-A responses after switching
+  to B, worker-history exclusion, plain-terminal guidance, native EventSource,
+  no-provider/access states, UTF-8 limits and Escape/focus return. It exercises
+  1440, 390 and 320 px in both themes and a 390×430 short screen. The existing
+  settings, session-workspace, navigation and phone-layout browser suites pass.
+  The dedicated Gaffer workflow includes this suite; the terminal job is unchanged.
+- **Seen.** Inspected the actual rendered panel and phone sheet with synthetic
+  data: readable portrait/text, bounded panels, scrollable history, independent
+  model labels and touch-sized actions. Captures:
+  [desktop light](images/ui/gaffer-chat-1440-light.png),
+  [desktop dark](images/ui/gaffer-chat-1440-dark.png),
+  [phone light](images/ui/gaffer-chat-390-light.png),
+  [phone dark](images/ui/gaffer-chat-390-dark.png).
+- **Limits.** Chromium fixtures and a synthetic native SSE response do not prove
+  a live LLM deployment or physical phone keyboard. Safari, Firefox, paid model
+  calls and controller/Docker rollout were not exercised. No backend authority
+  changed in this UI slice.
+
+Follow-up: final-head browser CI found the launcher covering **Save draft** and
+worker **Queue**. The launcher now measures the actual composer, work-update card and fixed save
+dock, including their changing height, rather than using a fixed session offset.
+The previously failing sync-vocabulary/live-controls flows pass, with geometry
+assertions for the save dock and multi-line worker composer in desktop/phone and
+both themes. The companion browser matrix and web check/build also pass. No
+worker/provider authority or model interaction changed in this layout fix.
+The complete phone run also found **Focus terminal** blocked. The terminal footer
+and bottom extra-key row now supply clearance; the sideways top key row does not.
+The launcher stays above the visual keyboard. Phone sessions (320/390 px, keyboard
+open, and sideways), clipboard and uploads pass after this follow-up. Provider
+settings now points to Ask Gaffer; live context and offline follow-up remain ahead.
+
+## Gaffer AI provider settings (5 November 2026)
+
+Account → Gaffer AI now has account-owned provider cards, default/pause/remove
+controls, a shared-shell editor and an explicit connection test. The existing tea
+portrait, warm palette and short Yorkshire copy carry Gaffer's personality through
+setup. The page clearly identifies chat and session follow-up as forthcoming.
+
+- **Go.** Fake HTTP backends exercise model discovery and connection tests. Tests
+  cover ownership, browser-only writes, encrypted/address-bound keys, stale edits
+  and replies, probe cancellation, request/concurrency limits and unreadable-key
+  restore. No live credentials or paid provider calls are used.
+- **Browser.** `web/tests/gaffer-settings.e2e.mjs` exercises create/edit/remove,
+  search and model selection, discovery failure/manual entry, failed-save draft
+  preservation, stale discovery, dependent context permissions, empty password on
+  edit/reopen and a viewer's unavailable settings. It checks 1440, 390 and 320 px
+  in both themes, page/dialog width and phone input height. It has its own CI job,
+  leaving the terminal browser job's budget unchanged.
+- **Seen.** Chromium screenshots with synthetic data were inspected at desktop
+  and phone width: readable cards, wrapped addresses, visible defaults and paused
+  state, a bounded scrolling editor and existing light/dark artwork. Images:
+  [desktop light](images/ui/gaffer-settings-1440-light.png),
+  [desktop dark](images/ui/gaffer-settings-1440-dark.png),
+  [phone light](images/ui/gaffer-settings-390-light.png),
+  [phone dark](images/ui/gaffer-settings-390-dark.png),
+  [phone editor](images/ui/gaffer-provider-form-390-light.png) and
+  [desktop editor](images/ui/gaffer-provider-form-1440-dark.png).
+- **Limits.** Browser fixtures do not prove a live provider or network deployment.
+  Physical phones, Safari, Firefox and subscription CLI backends were not tested.
+  These settings do not yet start companion conversations or follow sessions.
+
 ## Session reference image preview (5 November 2026)
 
 A home session card's reference-image badge now opens a polished preview on hover or keyboard focus instead of

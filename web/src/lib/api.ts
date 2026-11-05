@@ -220,6 +220,68 @@ async function req(path: string, init: RequestInit = {}): Promise<Response> {
 
 const json = (v: unknown) => JSON.stringify(v)
 
+export type GafferCheck = { at: number; ok: boolean; model: string; latencyMs: number; usageReported: boolean; error?: string }
+export type GafferProvider = {
+  id: string; revision: number; name: string; kind: string; baseUrl: string; model: string; reasoningEffort: string
+  enabled: boolean; isDefault: boolean; localOnly: boolean; allowStatus: boolean; allowSessions: boolean; allowCode: boolean
+  hasKey: boolean; lastCheck?: GafferCheck; createdAt: number; updatedAt: number
+}
+export type GafferPreset = { id: string; name: string; kind: string; baseUrl: string; help: string; localOnly: boolean }
+export type GafferSettings = { providers: GafferProvider[]; presets: GafferPreset[]; available: boolean; canUseLocal: boolean; maxProviders: number }
+export type GafferInput = {
+  id?: string; revision?: number; name: string; kind: string; baseUrl: string; model: string; reasoningEffort: string
+  enabled: boolean; localOnly: boolean; allowStatus: boolean; allowSessions: boolean; allowCode: boolean
+  apiKey?: string; clearKey?: boolean; makeDefault?: boolean
+}
+export async function getGafferSettings(signal?: AbortSignal): Promise<GafferSettings> {
+  return (await req('/api/v2/gaffer/providers', { signal, cache: 'no-store' })).json()
+}
+export async function saveGafferProvider(input: GafferInput, signal?: AbortSignal): Promise<GafferSettings> {
+  const path = input.id ? `/api/v2/gaffer/providers/${encodeURIComponent(input.id)}` : '/api/v2/gaffer/providers'
+  return (await req(path, { method: input.id ? 'PUT' : 'POST', body: json(input), signal })).json()
+}
+export async function getGafferModels(input: GafferInput, signal?: AbortSignal): Promise<{ models: string[] }> {
+  return (await req('/api/v2/gaffer/providers/models', { method: 'POST', body: json(input), signal })).json()
+}
+export async function actOnGafferProvider(p: GafferProvider, action: 'test' | 'default' | 'enabled' | 'delete', enabled?: boolean, signal?: AbortSignal): Promise<GafferSettings> {
+  const path = `/api/v2/gaffer/providers/${encodeURIComponent(p.id)}${action === 'delete' ? '' : `/${action}`}`
+  return (await req(path, { method: action === 'delete' ? 'DELETE' : 'POST', body: json({ revision: p.revision, ...(enabled === undefined ? {} : { enabled }) }), signal })).json()
+}
+
+export type GafferConversation = { id: string; sessionId: string; providerId: string; model: string; revision: number; createdAt: number; updatedAt: number }
+export type GafferTurn = {
+  id: string; conversationId: string; requestRevision: number; prompt: string; answer: string
+  state: 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'; providerId: string; providerName: string; model: string
+  error?: string; inputTokens: number; outputTokens: number; usageReported: boolean; cut: boolean; startedAt: number; updatedAt: number; finishedAt: number
+}
+export type GafferConversationView = { conversation: GafferConversation; turns: GafferTurn[] }
+const gafferConversationPath = (id: string) => `/api/v2/gaffer/conversations/${encodeURIComponent(id)}`
+const gafferSignal = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000)
+export async function listGafferConversations(signal?: AbortSignal): Promise<{conversations:GafferConversation[]}> {
+  return (await req('/api/v2/gaffer/conversations?all=true', {signal:gafferSignal(signal),cache:'no-store'})).json()
+}
+export async function getGafferConversation(sessionId: string, signal?: AbortSignal): Promise<GafferConversationView> {
+  return (await req(`/api/v2/gaffer/conversations?${new URLSearchParams({sessionId})}`, {signal: gafferSignal(signal), cache: 'no-store'})).json()
+}
+export async function createGafferConversation(sessionId: string, providerId: string, model: string, signal?: AbortSignal): Promise<GafferConversationView> {
+  return (await req('/api/v2/gaffer/conversations', {method:'POST',body:json({sessionId,providerId,model}),signal:gafferSignal(signal)})).json()
+}
+export async function configureGafferConversation(c: GafferConversation, providerId: string, model: string, signal?: AbortSignal): Promise<GafferConversationView> {
+  return (await req(gafferConversationPath(c.id), {method:'PATCH',body:json({revision:c.revision,sessionId:c.sessionId,providerId,model}),signal:gafferSignal(signal)})).json()
+}
+export async function sendGafferMessage(c: GafferConversation, id: string, text: string, signal?: AbortSignal): Promise<GafferTurn> {
+  return (await req(`${gafferConversationPath(c.id)}/turns`, {method:'POST',body:json({id,revision:c.revision,text}),signal:gafferSignal(signal)})).json()
+}
+export async function cancelGafferAnswer(c: GafferConversation, id: string, signal?: AbortSignal): Promise<void> {
+  await req(`${gafferConversationPath(c.id)}/turns/${encodeURIComponent(id)}/cancel`, {method:'POST',body:'{}',signal:gafferSignal(signal)})
+}
+export async function removeGafferConversation(c: GafferConversation, signal?: AbortSignal): Promise<void> {
+  await req(gafferConversationPath(c.id), {method:'DELETE',body:json({revision:c.revision}),signal:gafferSignal(signal)})
+}
+export function gafferTurnEventsURL(conversation: string, id: string): string {
+  return `${gafferConversationPath(conversation)}/turns/${encodeURIComponent(id)}/events`
+}
+
 export async function getAuthStatus(): Promise<AuthStatus> {
   return (await req('/api/v2/auth/status')).json()
 }

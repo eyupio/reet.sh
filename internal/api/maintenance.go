@@ -365,8 +365,13 @@ func (s *server) maintenanceWorktreeClean(w http.ResponseWriter, r *http.Request
 func (s *server) maintenanceWorker() {
 	ticker := time.NewTicker(maintCheckEvery)
 	defer ticker.Stop()
-	for range ticker.C {
-		s.runScheduledMaintenance(time.Now())
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			s.runScheduledMaintenance(time.Now())
+		}
 	}
 }
 

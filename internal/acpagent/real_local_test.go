@@ -5,6 +5,7 @@ package acpagent
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"regexp"
 	"testing"
 	"time"
@@ -99,4 +100,61 @@ func TestRealClaudeStart(t *testing.T) {
 		refused.Close()
 		t.Fatal("an adapter below the version floor was started")
 	}
+}
+
+// TestRealClineStart is opt-in: it starts the installed Cline CLI through the
+// Cline profile and sends no prompt, so it spends nothing. It checks the version
+// floor, the reported identity, act mode, the boolean auto-approve
+// acknowledgement, the handle shape and a confirmed model switch on start.
+func TestRealClineStart(t *testing.T) {
+	binary := os.Getenv("REET_CLINE_ACP")
+	if binary == "" {
+		t.Skip("set REET_CLINE_ACP to a cline binary and CLINE_DIR to a signed-in folder")
+	}
+	login := os.Getenv("CLINE_DIR")
+	if login == "" {
+		login = filepath.Join(os.Getenv("HOME"), ".cline")
+	}
+	home, dir := t.TempDir(), t.TempDir()
+	base := []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8", "HOME=" + home, "CLINE_DIR=" + login}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	options := Options{Agent: Cline, Binary: binary, Dir: dir, Home: home, BaseEnv: base, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second}
+	session, err := Start(ctx, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matched, _ := regexp.MatchString(`^[0-9]{13}_[0-9A-Za-z_-]{5}_cli$`, session.SessionID()); !matched || session.Mode() != "act" || session.Model() == "" {
+		t.Fatalf("session %q mode %q model %q", session.SessionID(), session.Mode(), session.Model())
+	}
+	id, model := session.SessionID(), session.Model()
+	// A mode switch is confirmed by the reply, without a prompt.
+	if err := session.SetMode(ctx, "plan"); err != nil || session.Mode() != "plan" {
+		t.Fatalf("plan switch: %v mode %q", err, session.Mode())
+	}
+	if err := session.SetMode(ctx, "act"); err != nil || session.Mode() != "act" {
+		t.Fatalf("act switch: %v mode %q", err, session.Mode())
+	}
+	// A chosen model is applied and read back, without a prompt.
+	other := "stub/other"
+	for _, setting := range session.Controls().Options {
+		if setting.Category == "model" && len(setting.Values) > 1 && setting.Values[1] != model {
+			other = setting.Values[1]
+		}
+	}
+	if other == model {
+		t.Log("the installation offers one model, so the confirmed switch is the recorded one")
+	} else if err := session.SetModel(ctx, other); err != nil || session.Model() != other {
+		t.Fatalf("model switch to %q: %v (model %q)", other, err, session.Model())
+	} else if err := session.SetModel(ctx, model); err != nil || session.Model() != model {
+		t.Fatalf("model switch back to %q: %v (model %q)", model, err, session.Model())
+	}
+	session.Close()
+	if !session.GroupRetired() {
+		t.Fatal("Close did not confirm that every process the adapter started is gone")
+	}
+	// session/load is not tested here: Cline stores a session when its first
+	// prompt arrives, so a prompt-less chat has nothing to load. The probe
+	// report records a replay of a stored conversation.
+	t.Logf("cline %q in act mode, handle %q, model %q", Cline.MinVersion, id, model)
 }

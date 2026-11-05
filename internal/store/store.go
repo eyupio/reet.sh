@@ -47,6 +47,9 @@ type Skill struct {
 	HiddenTags   []Tag         `json:"hiddenTags,omitempty"`
 	Environments []Environment `json:"environments,omitempty"`
 	Lists        []ListRef     `json:"lists,omitempty"`
+	// EnvironmentCount is set for compact listings, where the full environment
+	// rows are not loaded but the card still shows how many there are.
+	EnvironmentCount int `json:"-"`
 }
 
 // ListRef is a shared list containing a skill, as shown on a card.
@@ -139,6 +142,9 @@ type Filter struct {
 	Untagged         bool
 	Limit            int
 	Offset           int
+	// Compact asks for tags and an environment count only, not full
+	// environment rows or shared-list labels.
+	Compact bool
 }
 
 type Counts struct {

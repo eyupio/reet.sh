@@ -396,9 +396,14 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 	case errors.Is(err, terminalbroker.ErrACPResumeNotFound):
 		writeErrCode(w, http.StatusNotFound, "acp_resume_not_found", "", "That reet session's history is no longer available on that machine.", "")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported):
-		writeErrCode(w, http.StatusConflict, "acp_unavailable", "", "Update reet on that machine to use OpenCode chats.", "")
+		writeErrCode(w, http.StatusConflict, "acp_unavailable", "", "Update reet on that machine to use Gaffer chats.", "")
 	case errors.Is(err, terminalbroker.ErrACPVersion):
-		writeErrCode(w, http.StatusConflict, "acp_version", "", "Gaffer needs OpenCode 1.19.5 or newer on that machine.", "")
+		detail := "Gaffer needs a newer agent on that machine."
+		var version *terminalbroker.ACPVersionError
+		if errors.As(err, &version) && version.Detail != "" {
+			detail = version.Detail
+		}
+		writeErrCode(w, http.StatusConflict, "acp_version", "", detail, "")
 	default:
 		terminalError(w, err)
 	}

@@ -390,13 +390,15 @@ func (s *chatSupervisor) retireSwapped(sessionID, title, tool, acpID string, str
 func (s *chatSupervisor) awaitStray(cs *chatSession, process chatProcess) {
 	defer s.wg.Done()
 	retired, ok := process.(interface{ GroupRetired() bool })
+	ticker := time.NewTicker(strayRecheckInterval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
 		case <-s.stop:
 			return
-		case <-time.After(strayRecheckInterval):
+		case <-ticker.C:
 		}
 		process.Close()
 		if !ok || retired.GroupRetired() {

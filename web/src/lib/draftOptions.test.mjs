@@ -14,7 +14,7 @@ test('worktree shows only for a repository project', () => {
 })
 test('reviewed agents can use Gaffer when the machine supports it, without a worktree', () => {
   assert.equal(draftOptionRules({ ...base, tool: 'gemini', canChat: true }).showChat, false)
-  for (const tool of ['claude','codex']) assert.deepEqual(draftOptionRules({...base, tool, canChat:true, chat:true}), {showChat:true, chat:true, showWorktree:false, showTrust:false})
+  for (const tool of ['claude','codex','cline']) assert.deepEqual(draftOptionRules({...base, tool, canChat:true, chat:true}), {showChat:true, chat:true, showWorktree:false, showTrust:false})
   const r = draftOptionRules({ ...base, tool: 'opencode', canChat: true, chat: true })
   assert.deepEqual(r, { showChat: true, chat: true, showWorktree: false, showTrust: true })
   assert.equal(draftOptionRules({ ...base, tool: 'opencode', canChat: false, chat: true }).chat, false)

@@ -196,7 +196,7 @@
 
 <section class="session-board" aria-labelledby={`${id}-heading`}>
   <header class="heading">
-    <div><div class="eyebrow">YOUR WORK, IN GOOD ORDER</div><h2 id={`${id}-heading`}>Your work, in good order.</h2><p>Plan it. Start it. See it through. <span>One place for every session.</span></p></div>
+    <h2 id={`${id}-heading`}>Your work, in good order.</h2>
     <button class="btn primary new-session" aria-label="New session" onclick={e => composer = { draft: null, opener: e.currentTarget }}><BoardIcon name="plus" />New session</button>
   </header>
   <div class="viewbar">
@@ -291,12 +291,10 @@
 
 <style>
   .session-board { min-width: 0; }
-  .heading { display: flex; align-items: center; justify-content: space-between; gap: 22px; margin: 5px 0 27px; }
-  .eyebrow { font-size: 9px; font-weight: 650; letter-spacing: .14em; color: var(--accent-text); margin-bottom: 9px; }
-  h2 { font: 500 clamp(25px, 2.6vw, 36px)/1.15 var(--serif); letter-spacing: -.035em; margin: 0 0 9px; }
-  .heading p { margin: 0; color: var(--muted); font-size: 12px; }
+  .heading { display: flex; align-items: center; justify-content: space-between; gap: 22px; margin: 0 0 14px; }
+  h2 { font: 500 clamp(22px, 2vw, 28px)/1.15 var(--serif); letter-spacing: -.035em; margin: 0; }
   .new-session { flex-shrink: 0; font-size: 12px; box-shadow: 0 2px 4px color-mix(in srgb, var(--ink) 6%, transparent); }
-  .viewbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+  .viewbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
   .views { display: flex; align-items: center; gap: 3px; }
   .views button { display: flex; align-items: center; gap: 7px; border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 7px; padding: 8px 10px; cursor: pointer; font: 500 12px var(--sans); min-height: 36px; }
   .views button.selected { color: var(--ink); background: var(--card); border-color: var(--line); box-shadow: 0 1px 3px color-mix(in srgb, var(--ink) 3%, transparent); }
@@ -315,7 +313,7 @@
   .scope-count { flex: none; color: var(--muted); }
   .scope-reset { display: flex; align-items: center; gap: 5px; margin-left: auto; flex: none; min-height: 30px; padding: 4px 9px; border: 1px solid var(--line-mid); border-radius: 6px; background: var(--card); color: var(--ink-soft); font: 500 11px var(--sans); cursor: pointer; }
   .scope-reset:hover { border-color: var(--muted); color: var(--ink); }
-  .filterbar { display: flex; align-items: center; gap: 10px; padding: 17px 0; }
+  .filterbar { display: flex; align-items: center; gap: 10px; padding: 12px 0; }
   .search { display: flex; align-items: center; gap: 8px; color: var(--muted); flex: 1; max-width: 360px; border: 1px solid var(--line); background: var(--card); border-radius: 7px; padding: 0 10px; }
   .search input { border: 0; min-height: 35px; padding: 7px 0; width: 100%; outline: 0; font-size: 12px; background: transparent; }
   .search:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }.search button, .filter-head button { border: 0; padding: 4px; background: transparent; color: var(--muted); cursor: pointer; }
@@ -362,9 +360,9 @@
   .live:empty { display: none; }.notice, .problem { padding: 10px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); margin: 0 0 14px; font-size: 12px; }.problem { border-color: var(--warn); }.problem button { border: 0; background: none; color: var(--accent-text); cursor: pointer; text-decoration: underline; }.no-options { font-size: 11px; color: var(--muted); }
   .delete-dialog { padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); max-width: min(430px, calc(100vw - 48px)); }.delete-dialog h2 { font-size: 24px; }.delete-dialog p { font-size: 13px; margin: 14px 0 22px; overflow-wrap: anywhere; }.delete-dialog > div { display: flex; justify-content: flex-end; gap: 8px; }.delete-dialog::backdrop { background: var(--scrim); }
   @media (min-width: 1800px) { .session-card { padding: 17px; }h4 { font-size: 15px; }.prompt-preview { font-size: 12px; }.agent-meta, .machine-line, .age, .status { font-size: 11px; } }
-  @media (max-width: 1400px) { .board { gap: 10px; }.stage { padding: 12px 8px 8px; }.session-card { padding: 11px; }.card-foot { flex-wrap: wrap; }.card-actions { gap: 9px; }.heading p span { display: none; } }
+  @media (max-width: 1400px) { .board { gap: 10px; }.stage { padding: 12px 8px 8px; }.session-card { padding: 11px; }.card-foot { flex-wrap: wrap; }.card-actions { gap: 9px; } }
   @media (max-width: 850px) { .board { grid-template-columns: minmax(0, 1fr); gap: 18px; }.cards { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }.stage { min-height: 0; }.stage-hint { font-size: 11px; }.stage-head h3 { font-size: 14px; }.session-card h4 { font-size: 14px; }.agent-meta, .machine-line, .card-actions button, .status, .open-session, .age { font-size: 11px; }.card-actions button, .open-session { min-height: 30px; }.filter-panel { right: 0; width: min(480px, calc(100vw - 54px)); }.display select { max-width: 120px; }.viewbar { flex-wrap: wrap; }.views { flex: 1; }.display { margin-left: auto; } }
-  @media (max-width: 650px) { .disclosure-text { display: none; }.disclosure { margin-right: -2px; }.scope { flex-wrap: wrap; padding: 10px 11px; } .scope p { flex-wrap: wrap; row-gap: 2px; } .scope-reset { margin-left: 0; width: 100%; justify-content: center; min-height: 40px; } .heading { margin: 4px 0 24px; gap: 12px; align-items: start; }h2 { font-size: 27px; max-width: 220px; }.eyebrow { font-size: 8px; }.heading p { font-size: 11px; max-width: 190px; }.new-session { font-size: 0; width: 40px; height: 40px; padding: 0; margin-top: 23px; }.new-session :global(svg) { width: 20px; height: 20px; }.new-session::after { content: 'New'; font-size: 10px; }.new-session { width: auto; padding: 0 11px; }.views { gap: 1px; justify-content: space-between; width: 100%; }.views button { padding: 9px 6px; font-size: 11px; gap: 5px; min-height: 42px; }.views button :global(svg) { width: 14px; }.divider { margin: 0 2px; }.view-count { font-size: 9px; min-width: 14px; padding: 1px 2px; }.viewbar { gap: 9px; padding-bottom: 10px; }.display { width: 100%; justify-content: space-between; }.display select { max-width: none; padding-left: 0; font-size: 16px; }.filterbar { gap: 8px; padding: 13px 0; flex-wrap: wrap; }.search { max-width: none; min-width: 0; }.search input { min-height: 42px; font-size: 16px; }.filter-button { min-height: 44px; }.result-count { display: none; }.filter-panel { position: fixed; top: 15dvh; left: 16px; right: 16px; width: auto; max-height: 70dvh; box-sizing: border-box; }.filter-groups { gap: 16px; }.filter-groups label { padding: 9px 0; }.board-foot { align-items: start; font-size: 9px; }.board-foot span { max-width: 180px; }.board-foot span :global(svg) { flex-shrink: 0; }.focused .cards, .cards { grid-template-columns: minmax(0, 1fr); }.card-foot { flex-wrap: nowrap; }.empty { padding: 25px 12px; }.prompt-preview { font-size: 12px; } }
+  @media (max-width: 650px) { .disclosure-text { display: none; }.disclosure { margin-right: -2px; }.scope { flex-wrap: wrap; padding: 10px 11px; } .scope p { flex-wrap: wrap; row-gap: 2px; } .scope-reset { margin-left: 0; width: 100%; justify-content: center; min-height: 40px; } .heading { margin: 0 0 16px; gap: 12px; align-items: center; }h2 { font-size: 22px; }.new-session { font-size: 12px; }.views { gap: 1px; justify-content: space-between; width: 100%; }.views button { padding: 9px 6px; font-size: 11px; gap: 5px; min-height: 42px; }.views button :global(svg) { width: 14px; }.divider { margin: 0 2px; }.view-count { font-size: 9px; min-width: 14px; padding: 1px 2px; }.viewbar { gap: 9px; padding-bottom: 10px; }.display { width: 100%; justify-content: space-between; }.display select { max-width: none; padding-left: 0; font-size: 16px; }.filterbar { gap: 8px; padding: 13px 0; flex-wrap: wrap; }.search { max-width: none; min-width: 0; }.search input { min-height: 42px; font-size: 16px; }.filter-button { min-height: 44px; }.result-count { display: none; }.filter-panel { position: fixed; top: 15dvh; left: 16px; right: 16px; width: auto; max-height: 70dvh; box-sizing: border-box; }.filter-groups { gap: 16px; }.filter-groups label { padding: 9px 0; }.board-foot { align-items: start; font-size: 9px; }.board-foot span { max-width: 180px; }.board-foot span :global(svg) { flex-shrink: 0; }.focused .cards, .cards { grid-template-columns: minmax(0, 1fr); }.card-foot { flex-wrap: nowrap; }.empty { padding: 25px 12px; }.prompt-preview { font-size: 12px; } }
   @media (max-width: 380px) { .views button:not(:first-child) :global(svg) { display: none; } }
   @media (pointer: coarse) { .disclosure { min-height: 40px; padding: 8px 7px; } }
   @media (prefers-reduced-motion: reduce) { .session-card, .details, .disclosure :global(svg) { transition: none; } }

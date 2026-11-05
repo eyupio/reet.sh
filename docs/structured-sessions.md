@@ -1,12 +1,13 @@
-# OpenCode in Gaffer
+# Agents in Gaffer
 
 **Gaffer** is reet's native agent control interface. **Eli AI Chat** is the underlying technology intended for reuse from Zoomies; **OpenCode TUI** is the agent's original terminal interface. The reet CLI TUI is separate. A bounded Eli provider compatibility probe is documented in [the reuse review](research/eli-reuse.md); the coordinator is not enabled and live worker chat still uses ACP. Existing ACP, session ownership, permissions, streaming and lifecycle paths stay in place.
 
-A structured session is **OpenCode in Gaffer**, a conversation over the Agent Client Protocol (ACP). It is not a
-terminal: OpenCode streams messages and tool calls, and reet shows an approval card before an edit or command runs.
-Terminal sessions are unchanged.
+A structured session is an agent in **Gaffer**, a conversation over the Agent Client Protocol (ACP). It is not a
+terminal: the agent streams messages and tool calls, and reet shows an approval card before an edit or command runs.
+OpenCode was the first integration and is described in most detail below; Claude Code, Codex and Cline share the same
+client and its contracts. Terminal sessions are unchanged.
 
-Slice 1 is deliberately narrow: OpenCode only, trusted folders only, and **Allow once** or **Deny** only. Always allow is
+Slice 1 was deliberately narrow: OpenCode only, trusted folders only, and **Allow once** or **Deny** only. Always allow is
 not offered; later slices add a per-session command/file allowance and a live Ask me ↔ YOLO switch, both described below. The probe is [OpenCode `opencode acp` hands-on probe](research/probe-report.md); the plan is
 [Program 2, slice 1](superpowers/plans/2026-10-29-program-2-slice-1.md).
 
@@ -25,10 +26,39 @@ the connection's capabilities rather than querying a package registry.
 - `unverified`: an adapter is present but reet has not verified its integration.
 - `incompatible`: readable installation evidence does not meet the reviewed floor.
 
-OpenCode is the only available integration in this stage. Claude Code, Codex
-and Gemini entries describe missing or unverified support; installing an adapter
-alone does not enable its chat. No CLI is executed to build these descriptors,
-and availability does not establish a successful model turn or authentication.
+OpenCode, Claude Code (behind its switch), Codex (behind its switch) and Cline
+have reviewed integrations. Gemini entries describe missing or unverified support;
+installing an adapter alone does not enable its chat. No CLI is executed to build
+these descriptors, and availability does not establish a successful model turn or
+authentication.
+
+### Cline in Gaffer
+
+Cline CLI 3.0.74 and newer runs its ACP server with `cline --acp`. A machine that
+reports Cline as available offers **Gaffer** in both start dialogs, and the chat
+lists its models, modes and approvals:
+
+- Every launch passes `--auto-approve false`, and the session must report
+  `auto_approve=false` before its first prompt. Without that flag Cline approves
+  every tool itself, so a session that does not confirm the setting is refused.
+- A chat starts in **act** mode, and the approvals control also offers **plan**,
+  "Plan only", which explores without changing files. Both say what they mean.
+- Cline asks before it reads a file, edits one or runs a command. A read card
+  names the file, an edit is shown as the text it will write (with removed lines
+  when it replaces text), and a command list is shown as the command. Only
+  **Allow once** and **Deny** are offered, as for every chat.
+- Sign-in, settings, hooks and stored sessions come from the person's own
+  `~/.cline`, reached through `CLINE_DIR`; the private chat home is unchanged and
+  provider redirects such as `CLINE_MODEL` are not inherited. A machine that is
+  not signed in is told to sign in to Cline before the first prompt.
+- A closed Cline chat can be continued with its stored history: the connector
+  runs `session/load`, and the conversation replays into the new row. In-place
+  reconnect is OpenCode-only.
+- Cline keeps provider failures in its own message store and may end a turn with
+  no reply; Gaffer then shows the turn as finished with nothing to show.
+
+The measured behaviour, the exact frames and the two refused tool calls are in
+[Cline ACP probe](research/cline-acp-probe.md).
 
 ### Experimental: Claude Code and Codex chats
 

@@ -608,7 +608,7 @@ func chatUnavailable(cs *chatSession) bool {
 
 func (h *chatHost) startPrompt(cs *chatSession, text string, images []acpagent.Attachment) bool {
 	h.sup.mu.Lock()
-	if chatUnavailable(cs) {
+	if h.sup.closed || chatUnavailable(cs) {
 		h.sup.mu.Unlock()
 		return false
 	}
@@ -1362,12 +1362,16 @@ func chatResult(err error) terminalproto.Result {
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: acpagent.ErrCodexLogin.Error()}
 	case errors.Is(err, acpagent.ErrClaudeLogin):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: acpagent.ErrClaudeLogin.Error()}
+	case errors.Is(err, acpagent.ErrClineLogin):
+		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: acpagent.ErrClineLogin.Error()}
 	case errors.Is(err, acpagent.ErrUnsupported):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "That agent does not support chats on this machine."}
 	case errors.Is(err, acpagent.ErrPluginsUnreadable):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The folder's agent extensions could not be read, so the chat was not started."}
 	case errors.Is(err, acpagent.ErrControl):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not confirm the chosen effort for this model. Choose an offered effort or Agent default. No opening prompt was sent."}
+	case errors.Is(err, acpagent.ErrSafety):
+		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not confirm that it asks before each command or edit, so the chat was not started."}
 
 	case errors.Is(err, acpagent.ErrModel):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not use the chosen model, so the chat was not started."}
@@ -1396,6 +1400,10 @@ func (h *chatHost) setModel(ctx context.Context, sessionID, model string) error 
 		return terminalhost.ErrSessionMissing
 	}
 	h.sup.mu.Lock()
+	if h.sup.closed {
+		h.sup.mu.Unlock()
+		return terminalhost.ErrManagerClosed
+	}
 	if chatUnavailable(cs) {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict
@@ -1436,6 +1444,10 @@ func (h *chatHost) setAgentMode(ctx context.Context, sessionID, mode string) err
 		return terminalhost.ErrSessionMissing
 	}
 	h.sup.mu.Lock()
+	if h.sup.closed {
+		h.sup.mu.Unlock()
+		return terminalhost.ErrManagerClosed
+	}
 	if chatUnavailable(cs) {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict

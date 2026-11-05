@@ -23,6 +23,25 @@ Review batches: [process recovery #480](https://github.com/eyupio/reet.sh/pull/4
 [transcript retention #484](https://github.com/eyupio/reet.sh/pull/484). Eight reproduced defects are addressed across the three
 focused batches below. Each PR records its checks and merge state. All handoff entries are retained when integrating the stack.
 
+## GAFFER-CLINE-1: Cline chats in Gaffer (5 November 2026)
+
+Cline CLI 3.0.74 runs its ACP server with `cline --acp`, and reet now offers it as a Gaffer chat beside
+OpenCode. The profile (`internal/acpagent/cline.go`) launches `cline --acp --auto-approve false`, requires
+`act` mode, reads the boolean `auto_approve` back as `false` before any turn (`Spec.RequireOptions`), applies a
+chosen model with a confirmed `session/set_config_option` because Cline ignores one at `session/new`
+(`Spec.ConfirmModelBySwitch`), and routes the person's own `~/.cline` through `CLINE_DIR` while keeping the
+private chat home. The reviewed tool set, the Cline handle shape (`<ms>_<5 base64url>_cli`), the descriptor
+(history, images, model, approvals, act/plan modes) and the scan probe are wired through
+`internal/terminalproto`, `internal/scan`, the browser's chat adapter table and both start dialogs. Cards now
+show a read's file, an editor's `path`/`new_text` as a diff and a `commands` list as the command; a card with
+nothing to review stays unapprovable. Opt-in `TestRealClineStart` passes against the installed binary with no
+prompt: version floor, identity, act mode, a confirmed plan/act switch and a confirmed model switch. Two prompts
+with every permission rejected recorded the cards, and a stored conversation replayed through `session/load`.
+The evidence and limits are in [the Cline ACP probe](docs/research/cline-acp-probe.md). Not covered: images, MCP
+tools or subagents in a turn, and Cline's display-only provider errors (a failed turn can end with no reply).
+Merged as [PR #554](https://github.com/eyupio/reet.sh/pull/554) (`3919deef`); all 18 checks passed, including the
+browser suite that runs the new `chat-cline.e2e.mjs`.
+
 ## SEO-1: public search surface and documentation (4 November 2026)
 
 The public-search audit and its current status are in [SEO_AUDIT.md](SEO_AUDIT.md). The continuation state, remaining

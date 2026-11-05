@@ -209,11 +209,11 @@
         {#if summary && clickAside}<p class="quote click-aside" role="status" aria-live="polite"><span aria-hidden="true">“</span>{clickAside}<span aria-hidden="true">”</span></p>{/if}
       </div>
       <div class="controls">
-      <button type="button" class="quiet fold" aria-label="Minimise Gaffer’s card to one line" aria-expanded="true" title="Minimise to one line; Gaffer keeps talking" onclick={() => foldChoice = true}>
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 10 4-4 4 4" /></svg>
-      </button>
       <button type="button" class="quiet pause" aria-label={paused ? 'Resume Gaffer animation' : 'Pause Gaffer animation'} title={!$gafferAnimations ? 'Animation is off in Account → Profile' : reduced ? 'Your device requests reduced motion' : paused ? 'Resume animation' : 'Pause animation; quotes and updates continue'} aria-pressed={paused || !$gafferAnimations || reduced} disabled={!$gafferAnimations || reduced} onclick={() => paused = !paused}>
         <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">{#if paused}<path d="m7 4 9 6-9 6z" />{:else}<rect x="5" y="4" width="3" height="12" rx="1" /><rect x="12" y="4" width="3" height="12" rx="1" />{/if}</svg>
+      </button>
+      <button type="button" class="quiet fold" aria-label="Minimise Gaffer’s card to one line" aria-expanded="true" title="Minimise to one line; Gaffer keeps talking" onclick={() => foldChoice = true}>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 10 4-4 4 4" /></svg>
       </button>
       </div>
     </div>

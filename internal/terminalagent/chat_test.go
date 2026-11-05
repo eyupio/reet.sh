@@ -966,3 +966,16 @@ func TestProcessEndingDuringAdmissionIsObservedAfterAdmission(t *testing.T) {
 		t.Fatalf("exit was overwritten by admission: %q", last)
 	}
 }
+
+func TestStartPromptRefusesAfterSupervisorClose(t *testing.T) {
+	sup := newChatSupervisor(t.Context(), terminalhost.ManagerOptions{Home: t.TempDir()})
+	sup.Close()
+	h := &chatHost{sup: sup, link: &chatLink{}}
+	cs := &chatSession{id: "session-0123456789", state: terminalproto.Running}
+	if h.startPrompt(cs, "hello", nil) {
+		t.Fatal("startPrompt accepted work after Close")
+	}
+	if cs.busy {
+		t.Fatal("startPrompt marked the session busy after Close")
+	}
+}

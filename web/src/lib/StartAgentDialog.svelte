@@ -158,6 +158,11 @@
  const effortOptions = $derived(launchEfforts(chosenTool, machine?.capabilities, structured))
  const effortError = $derived(effort && !effortOptions.includes(effort) ? 'Choose an effort offered by this machine, or Agent default.' : '')
  const effortHint = $derived(effortHelp(chosenTool, machine?.capabilities, structured))
+ // A chat takes an effort only when this agent's descriptor offers it. Cline's terminal thinking choice cannot be sent to
+ // its ACP session, so switching to Gaffer clears it rather than blocking Start with an option the chat does not have.
+ $effect(() => {
+  if (structured && effort && !effortOptions.includes(effort)) effort = ''
+ })
  const chatCapable = $derived(!!structuredAgent(machine?.capabilities, chosenTool))
  // OpenCode is a chat by default when the machine offers ACP; the checkbox is
  // the explicit terminal escape hatch. A machine or agent change starts over.
@@ -689,6 +694,8 @@
        <p class="hint">In Gaffer, Claude Code asks before it edits a file or runs a command. Only your own Claude settings apply; this folder's repository settings and hooks are ignored. Its transcript is kept with the session.</p>
       {:else if chosenTool === 'codex'}
        <p class="hint">In Gaffer, Codex starts in the mode where it runs commands inside its sandbox and asks before one leaves it. You can switch it to let Codex decide for itself, in which case you may not be asked. Its transcript is kept with the session.</p>
+      {:else if chosenTool === 'cline'}
+       <p class="hint">In Gaffer, Cline asks before it reads a file, edits one or runs a command. Its own settings and hooks apply, and its transcript is kept with the session, which can be restored after reet restarts on the machine.</p>
       {:else}
        <p class="hint">In Gaffer, OpenCode asks before it edits a file or runs a command. Any plugins in this folder's <code>.opencode</code> run when it starts, so use a folder you trust. Its transcript is kept with the session, which can be restored after reet restarts on the machine.</p>
       {/if}

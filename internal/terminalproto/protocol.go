@@ -416,7 +416,7 @@ func (r Reconcile) valid() bool {
 	for _, s := range r.Sessions {
 		validSession := ValidID(s.ID) && ValidTitle(s.Title) && s.State.Valid() &&
 			validExit(s.State, s.ExitCode) && validSnapshotAttention(s)
-		validACP := s.ACPSessionID == "" || ValidACPSessionID(s.ACPSessionID)
+		validACP := s.ACPSessionID == "" || ValidACPHandle(s.ACPSessionID)
 		valid := validSession && validACP && !seen[s.ID]
 		if !valid {
 			return false
@@ -671,7 +671,7 @@ func (s SessionChanged) valid() bool {
 	if bothSet && *s.ExitCode != *s.ExitStatus {
 		return false
 	}
-	return s.State.Valid() && validExit(s.State, s.ExitCode) && (s.ACPSessionID == "" || ValidACPSessionID(s.ACPSessionID))
+	return s.State.Valid() && validExit(s.State, s.ExitCode) && (s.ACPSessionID == "" || ValidACPHandle(s.ACPSessionID))
 }
 
 func (m Message) Validate() error {

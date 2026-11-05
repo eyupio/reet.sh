@@ -363,7 +363,7 @@
   .image span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .image button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 20px; min-width: 30px; }
   .section-title { margin: 24px 0 12px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; font-weight: 650; }
-  .mode { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 3px; background: var(--bg-sunk); margin-bottom: 16px; }
+  .mode { display: inline-flex; align-self: flex-start; border: 1px solid var(--line); border-radius: 8px; padding: 3px; background: var(--bg-sunk); margin-bottom: 16px; }
   .mode button { padding: 8px 14px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--muted); font: 500 12px var(--sans); cursor: pointer; }
   .mode button.on { background: var(--card); color: var(--ink); border-color: var(--line); box-shadow: 0 1px 3px color-mix(in srgb, var(--ink) 6%, transparent); }
   .location { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; margin-top: -8px; }

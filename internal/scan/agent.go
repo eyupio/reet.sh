@@ -406,6 +406,8 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	}
 	lastScan := time.Time{}
 	announcedWaiting := false
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 	for {
 		if err = agentCycle(ctx, c, *config, out, version, &lastScan, !*once); err != nil {
 			if *once {
@@ -425,7 +427,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-time.After(5 * time.Second):
+		case <-ticker.C:
 		}
 	}
 }

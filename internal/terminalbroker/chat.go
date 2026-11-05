@@ -63,7 +63,7 @@ type ACPTrustError struct{ Detail string }
 
 func (e *ACPTrustError) Error() string { return "this folder has OpenCode plugins" }
 
-// ACPUnavailableError carries the machine's plain sentence when OpenCode could
+// ACPUnavailableError carries the machine's plain sentence when the agent could
 // not start for a reason other than version or trust.
 type ACPUnavailableError struct{ Detail string }
 

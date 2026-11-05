@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { sessionInsights } from './insightStore'
+  import { ensurePullInsight, sessionInsights } from './insightStore'
   import { checkTone } from '../sessionInsights'
   import InsightIcon from './InsightIcon.svelte'
-  let { sessionId, now }: { sessionId: string; now: number } = $props()
+  let { sessionId, now, canInspect = false, active = false }: { sessionId: string; now: number; canInspect?: boolean; active?: boolean } = $props()
   const data = $derived($sessionInsights[sessionId])
   const status = $derived(data?.status)
   const github = $derived(data?.github)
@@ -13,6 +13,15 @@
   const blocked = $derived(failed || pr?.mergeable === 'CONFLICTING' || pr?.review === 'CHANGES_REQUESTED')
   const healthy = $derived(!blocked && !pending && !pr?.draft && !!pr?.checks?.length)
   const githubStale = $derived(!github?.checkedAt || now - github.checkedAt > 180_000)
+  // Read the branch's pull request after the fact: a PR created in a session shows its number in the navigation
+  // without the person opening that session's GitHub panel first. Live sessions are read often, quiet ones rarely.
+  $effect(() => {
+    if (!canInspect) return
+    const read = () => { if (!document.hidden) void ensurePullInsight(sessionId, active) }
+    read()
+    const timer = setInterval(read, active ? 120_000 : 600_000)
+    return () => clearInterval(timer)
+  })
 </script>
 {#if status?.changed || pr}
   <span class="signals" class:stale>

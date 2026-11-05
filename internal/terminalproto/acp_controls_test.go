@@ -1,6 +1,9 @@
 package terminalproto
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestStructuredStartupEffortUsesAgentOptionTokens(t *testing.T) {
 	for _, effort := range []string{"high", "xhigh", "max", "ultra"} {
@@ -76,5 +79,39 @@ func TestStartupOptionsRequireSeparateNegotiation(t *testing.T) {
 	c.ACPLiveControls = false
 	if c.Validate() == nil {
 		t.Fatal("startup options accepted without live configuration support")
+	}
+}
+
+// A model selector may carry a whole catalogue: Cline offers 307 ids. The
+// effort selector keeps the shorter bound, and a snapshot still fits one frame.
+func TestModelCatalogueBoundsTheModelSelectorNotEffort(t *testing.T) {
+	models := make([]string, 0, MaxACPSettingValues)
+	for i := 0; i < MaxACPSettingValues; i++ {
+		models = append(models, fmt.Sprintf("provider/model-%03d", i))
+	}
+	state := ACPControls{Model: models[0], Options: []ACPSetting{{ID: "model", Category: "model", Current: models[0], Values: models}}}
+	if !state.Valid() {
+		t.Fatalf("a %d-value catalogue was refused", len(models))
+	}
+	tooMany := state
+	tooMany.Options = []ACPSetting{{ID: "model", Category: "model", Current: models[0], Values: append(models, "provider/one-too-many")}}
+	if tooMany.Valid() {
+		t.Fatal("a selector over the catalogue bound was admitted")
+	}
+	efforts := make([]string, 0, MaxACPThoughtLevelValues+1)
+	for i := 0; i <= MaxACPThoughtLevelValues; i++ {
+		efforts = append(efforts, fmt.Sprintf("level-%02d", i))
+	}
+	long := ACPControls{Options: []ACPSetting{{ID: "effort", Category: "thought_level", Values: efforts}}}
+	if long.Valid() {
+		t.Fatal("an effort selector over its bound was admitted")
+	}
+	// The wire form keeps the same bounds in both directions.
+	raw, err := Encode(Message{Version: Version, RequestID: "request-catalogue0123456789", SessionID: "session-catalogue0123456789", Generation: 1, Body: ACPControlResult{Controls: state}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Decode(raw); err != nil {
+		t.Fatalf("a catalogue reply was refused on the wire: %v", err)
 	}
 }

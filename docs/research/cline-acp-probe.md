@@ -39,7 +39,10 @@ The last row is why the connector names the sign-in step instead of retrying.
 - `modes`: `plan` and `act`, with `act` current. The descriptions are Cline's
   own: plan "explore the codebase and plan changes without modifying files", act
   "make changes to the codebase".
-- `models`: the provider's catalogue and the current model.
+- `models`: the provider's catalogue and the current model. The catalogue held
+  307 ids on the measured machine, so the model selector needs the whole list
+  rather than the 16 a live control reply was sized for: reet sends it under
+  `acp-model-catalogue-v1` and trims it to 16 for a controller without it.
 - `configOptions`: `provider` (category `_provider`), `model` (category
   `model`), `mode` (category `mode`), and `auto_approve`, a **boolean** whose
   value was `false` because of the launch flag.

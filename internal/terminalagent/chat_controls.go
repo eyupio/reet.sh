@@ -86,10 +86,31 @@ func (h *chatHost) control(ctx context.Context, session string, in terminalproto
 			err = nil
 		}
 	}
-	answer.Controls = controls.Controls()
+	answer.Controls = h.forConnection(controls.Controls())
 	h.sup.mu.Lock()
 	answer.Controls.Working = answer.Controls.Working || cs.busy
 	answer.Controls.Configuring = answer.Controls.Configuring || cs.changing
 	h.sup.mu.Unlock()
 	return answer, err
+}
+
+// forConnection shapes a controls snapshot for this connection. A controller
+// that negotiated acp-model-catalogue-v1 reads the whole model list; an older
+// one keeps the 16 values its decoder and frame budget were sized for. The
+// session keeps every value either way, so a reconnect with the feature gets
+// the full list without asking the agent again.
+func (h *chatHost) forConnection(state terminalproto.ACPControls) terminalproto.ACPControls {
+	if h.link.catalogue {
+		return state
+	}
+	options := make([]terminalproto.ACPSetting, len(state.Options))
+	copy(options, state.Options)
+	for i := range options {
+		if options[i].Category != "model" || len(options[i].Values) <= terminalproto.MaxACPThoughtLevelValues {
+			continue
+		}
+		options[i].Values = options[i].Values[:terminalproto.MaxACPThoughtLevelValues]
+	}
+	state.Options = options
+	return state
 }

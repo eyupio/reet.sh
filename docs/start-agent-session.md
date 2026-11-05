@@ -52,8 +52,9 @@ conversation into a new session row. The conditions, deadlines and limits are in
 
 For a plain shell, **New session**, the workspace’s **✦ Start a new Terminal session**, and the
 sidebar machine menu’s **Terminal** open the terminal settings dialog. Choose its machine, enter an
-absolute folder path (or leave it empty for that machine’s home folder), and name the session before
-pressing **New terminal**. Changing draft settings or closing the dialog leaves the current session
+absolute folder path (or leave it empty for that machine’s home folder), and, if you like, name the
+session before pressing **New terminal**. Left empty, the name is Terminal, followed by the folder’s last
+part when you chose one (Terminal · api); the field shows it as you type the folder. Changing draft settings or closing the dialog leaves the current session
 in place. An unconfirmed creation preserves its original machine, folder, name and request ID for retry.
 
 ## Who sees it
@@ -134,8 +135,14 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   that machine to list its branches."
 - **Starter prompt.** A project's starter prompt is offered as **Use the starter prompt** while the
   box is empty. It is never put in the box, or sent, by itself.
-- **Title.** The prompt's first line is the session's title, shown as Titled "…" before sending (and
-  stored as the session title); without a prompt it is \<Agent\> · \<folder name\>.
+- **Title.** The session is titled by the work the prompt asks for, shown as Titled "…" before sending (and
+  stored as the session title). That is the first line with something to say, without a greeting or
+  "please" ("Hi, can you please fix the login redirect loop? It started after the deploy." becomes
+  "Fix the login redirect loop"), up to the end of its first sentence and at most 60 characters, cut at a
+  word with an ellipsis. The `Use the {name} skill.` line the skills picker adds, code fences and lines of
+  punctuation are skipped. Without a prompt, or one with nothing to name it from, it is
+  \<Agent\> · \<folder name\>. A title you type is kept as typed. [Session titles](terminal-launch.md#session-titles)
+  says how the controller names a session whose request carries none.
 - **Keys.** Enter sends from a hardware keyboard; Shift+Enter adds a line. Ctrl+Enter and Cmd+Enter
   also send. On touch no key sends, Enter included: only **Start** does.
 - **Images.** Paste (or drop) a PNG, JPEG, GIF or WebP into the prompt to attach it. Each image is

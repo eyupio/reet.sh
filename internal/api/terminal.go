@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -300,6 +301,12 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Yolo: in.Yolo, Resume: in.Resume, Structured: in.Structured, Trust: in.Trust, ResumeACP: in.ResumeACP}
+	// A session started without a title is named from its prompt, or its agent
+	// and folder. The name depends only on the request, so a retry whose reply
+	// was lost asks for the same session under the same name.
+	if strings.TrimSpace(create.Title) == "" {
+		create.Title = terminalproto.AutoTitle(in.Tool, in.Prompt, in.Dir)
+	}
 	uid := s.uid(r)
 	// The project is checked before any machine is asked, so an unknown
 	// project is refused the same way whether the machine is online or not.

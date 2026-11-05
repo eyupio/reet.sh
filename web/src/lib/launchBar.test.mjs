@@ -178,11 +178,15 @@ test('Enter sends on a hardware keyboard; Shift+Enter adds a line; touch never s
 test('title from the first line', () => {
   assert.equal(defaultTitle('Fix the failing tests\nThen push'), 'Fix the failing tests')
   assert.equal(defaultTitle('\n  \n  Docs pass  \nmore'), 'Docs pass')
-  assert.equal(defaultTitle('x'.repeat(90)), 'x'.repeat(80))
-  assert.equal(defaultTitle('é'.repeat(81)), 'é'.repeat(80))
-  assert.equal(defaultTitle('tab\there\u200bnow'), 'tab herenow')
+  // A long first line is cut at a word, or at 60 characters when it has none, with an ellipsis.
+  assert.equal(defaultTitle('x'.repeat(90)), 'X' + 'x'.repeat(59) + '…')
+  assert.equal(defaultTitle('é'.repeat(81)), 'é'.repeat(60) + '…')
+  assert.equal(defaultTitle('tab\there\u200bnow'), 'Tab herenow')
   assert.equal(defaultTitle(''), '')
   assert.equal(defaultTitle('', 'Claude Code · reet'), 'Claude Code · reet')
+  // Greetings and "please" are not the work; a prompt with nothing in it falls back.
+  assert.equal(defaultTitle('Hi, can you please fix the login redirect loop on staging? It started after the deploy.'), 'Fix the login redirect loop on staging')
+  assert.equal(defaultTitle('hi', 'Claude Code · reet'), 'Claude Code · reet')
 })
 
 test('a prompt starting with - is refused with the launch sentence', () => {

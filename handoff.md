@@ -23,6 +23,49 @@ Review batches: [process recovery #480](https://github.com/eyupio/reet.sh/pull/4
 [transcript retention #484](https://github.com/eyupio/reet.sh/pull/484). Eight reproduced defects are addressed across the three
 focused batches below. Each PR records its checks and merge state. All handoff entries are retained when integrating the stack.
 
+## AUTOTITLE-1: automatic session names (5 November 2026)
+
+A session started without a title now gets a name that says what it is, instead of the first 80 characters of
+the prompt or the same `Claude Code · studio` for every session started without one. The name is offline and
+deterministic: no model, no network, no schema change and no setting. Choosing between this, the agent's own
+title after its first turn and a model-written title was the one real decision; the first was picked because
+the controller makes no outbound calls today and the README promises none.
+
+- **Rules.** `terminalproto.PromptTitle` and `AutoTitle` (`internal/terminalproto/autotitle.go`), mirrored by
+  `promptTitle` and `titleFor` in `web/src/lib/agentLaunch.ts`. The first line with something to say; blank
+  lines, code fences, the skills picker's `Use the {name} skill.` line and punctuation-only lines are skipped;
+  heading and bullet markers and English filler (a greeting, "please", "can you", "I'd like you to", "help me",
+  "let's") are removed; the name ends at the first sentence (`e.g.` does not end one, and nothing under 8
+  characters does); an ASCII first letter is capitalised; over 60 characters it is cut at the last space (not
+  before the 20th character) with an ellipsis, else at 60. With nothing usable it is `<Agent> · <folder>`, or
+  `Terminal` and `Terminal · <folder>` for a plain shell. Stated in full in
+  [Launch requests → Session titles](docs/terminal-launch.md#session-titles).
+- **One list of cases for both languages.** `internal/terminalproto/testdata/autotitle.json` (38 prompt cases,
+  14 whole-title cases) is read by `autotitle_test.go` and `web/src/lib/agentLaunch.test.mjs`, so the title the
+  dialog suggests cannot drift from the one the controller would give. The expected values were worked out by
+  hand from the rules before the code existed. Five deliberate breakages of the rules (the limit scan, the
+  abbreviation guard, the minimum word, the minimum sentence, the skills line) each failed the fixture.
+- **Where it applies.** `POST /api/v2/terminal/sessions` names a blank or whitespace-only title (an absent one
+  used to be a 400); `POST`/`PUT /api/v2/session-backlog` names a draft that has a prompt or note but no title
+  (nothing to go on is still a 422); `projectrun.SelectionTitle` calls `PromptTitle`. The plain-terminal dialog's
+  **New session name** is optional (it was pre-filled with `Shell` and required) and its placeholder and hint
+  follow the folder; Home's machine-card shell takes the same name. A title that is sent or typed is kept as
+  typed, Rename is untouched and sessions that already exist are not renamed.
+- **Visible changes.** An unnamed plain shell is now `Terminal` or `Terminal · <folder>`, not `Shell`, matching
+  the `Terminal · <folder>` that "Open a terminal here…" already used; the `home`, `start-agent` and
+  `terminal-organisation` e2e expectations moved with it and `terminal-start` gained the folder case. A long
+  prompt now gives a 60-character name ending in an ellipsis, not a hard cut at 80, so `defaultTitle`'s unit
+  expectations changed.
+- **For the next author.** `terminalhost.TestPackageSourceHasNoInvisibleCharacters` also scans
+  `internal/terminalproto/*.go`. Write zero-width, bidi and line-separator characters as `\u` escapes, and check
+  a new file's bytes afterwards: tooling can turn an escape into the literal character, which is what that test
+  caught here.
+- **Not covered.** A session started with no prompt, or one whose prompt is typed into the terminal afterwards,
+  can only be named from its agent and folder; a name from what the agent actually did needs the agent's own
+  title or a model, both ruled out above. The filler list is English only. Go's `(?i)` folds a few non-ASCII
+  letters that JavaScript's `/i` does not, so a prompt written with, say, a long s could be named differently by
+  the two; no real prompt is affected and the fixture holds no such case.
+
 ## GAFFER-CLINE-1: Cline chats in Gaffer (5 November 2026)
 
 Cline CLI 3.0.74 runs its ACP server with `cline --acp`, and reet now offers it as a Gaffer chat beside

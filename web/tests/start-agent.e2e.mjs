@@ -326,7 +326,7 @@ try{
  await expect.poll(()=>posts.length).toBe(2)
  const plain=body(1)
  expect(Object.keys(plain)).toEqual(['agentId','requestId','title','cols','rows'])
- expect(posts[1]).toBe(JSON.stringify({agentId:A,requestId:plain.requestId,title:'Shell',cols:100,rows:30}))
+ expect(posts[1]).toBe(JSON.stringify({agentId:A,requestId:plain.requestId,title:'Terminal',cols:100,rows:30}))
  await expect(page).toHaveURL(new RegExp(`session=session-${plain.requestId.replaceAll('-','').slice(0,20)}`))
 
  // ── A held first Start: every field locked, Close and Escape wait, a second submit sends nothing. ──

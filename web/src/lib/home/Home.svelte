@@ -3,7 +3,7 @@
   import { getProfile, getSyncState, UnauthorizedError, type SyncState } from '../api'
   import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
-  import { notStartedText, refusalText } from '../agentLaunch'
+  import { notStartedText, refusalText, titleFor } from '../agentLaunch'
   import { announceWaiting, attentionCount, fleetCards, handedProjects, reporting, needsYou, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type HomeSession, type NeedCard } from '../home'
   import type { LaunchDefaults } from '../launchBar'
   import StartAgentDialog from '../StartAgentDialog.svelte'
@@ -281,7 +281,7 @@
     if (shellStarting) return
     const why = readiness(terminals?.find(m => m.agentId === card.agentId))
     if (why) { notice = { text: why, bad: true }; opener?.focus(); return }
-    const request = shellRequests[card.agentId] ?? { requestId: crypto.randomUUID(), title: 'Shell' }
+    const request = shellRequests[card.agentId] ?? { requestId: crypto.randomUUID(), title: titleFor('', '') }
     if (!shellRequests[card.agentId]) shellRequests = { ...shellRequests, [card.agentId]: request }
     shellStarting = card.agentId
     notice = null

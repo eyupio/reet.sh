@@ -4,7 +4,7 @@ import { chatNeedsTrust, isChatTool, readiness, structuredAgent } from './termin
 import { CATALOGUE, agentChoices } from './catalogue'
 import { launchEfforts } from './terminal/launchOptions'
 import { resolveLaunchDefaults, type ModelFavourite } from './models'
-import { MAX_PROMPT_BYTES, cleanModel, codeSentence, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
+import { MAX_PROMPT_BYTES, cleanModel, codeSentence, promptTitle, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
 
 // The launch bar's logic: what the sentence says, what it starts from, whether Start may be pressed, and the one create
 // request per session. Pure: no DOM, no fetch, no storage. The controller and the machine check everything again.
@@ -48,7 +48,6 @@ const supportsChat = (agent: string, host: string | undefined, machines: LaunchM
 
 const UPDATE_FOR_OPTION = 'Update reet on that machine to use that option.'
 const NO_OPTION = "That agent doesn't take that option."
-const MAX_TITLE = 80
 const MAX_SLUG = 40
 
 const agentOf = (id: string) => CATALOGUE.find(agent => agent.id === id)
@@ -334,14 +333,9 @@ export function projectSlug(name: string): string {
   return cut || 'project'
 }
 
-// Control and format characters and the two Unicode line separators; a title may hold none of them.
-const INVISIBLE = new RegExp('[\\p{Cc}\\p{Cf}\\u2028\\u2029]', 'gu')
-
-/** The session title from the prompt: its first line with text, without invisible characters, at most 80 characters; `fallback` when there is none. */
+/** The session title from the prompt (see `promptTitle`: the work it asks for, without greetings or "please", at most 60 characters); `fallback` when it says nothing. */
 export function defaultTitle(prompt: string, fallback = ''): string {
-  const line = String(prompt ?? '').split(/\r?\n/).map(l => l.replace(/\t/g, ' ').replace(INVISIBLE, '').trim()).find(l => l !== '') ?? ''
-  if (line === '') return fallback
-  return Array.from(line).slice(0, MAX_TITLE).join('').trim()
+  return promptTitle(prompt) || fallback
 }
 
 /**

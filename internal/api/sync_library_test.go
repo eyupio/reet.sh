@@ -240,3 +240,64 @@ func TestLibrarySyncNewMachinesDraftEditsAndReconnect(t *testing.T) {
 		t.Fatal("another account read private library", code, body, err)
 	}
 }
+
+func TestDedupeLibraryEndpointPreviewsThenRemoves(t *testing.T) {
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	uid, _ := st.DefaultOwner()
+	if _, err = st.CreateAPIToken(uid, "owner", auth.HashToken("dedupe-owner")); err != nil {
+		t.Fatal(err)
+	}
+	firstRef, err := ref.Parse("a/b/improve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := st.UpsertFor(uid, firstRef, store.Patch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRef, err := ref.Parse("c/d/improve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.UpsertFor(uid, secondRef, store.Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts)))
+	defer srv.Close()
+
+	code, response := doClient(t, srv.Client(), srv, "POST", "/api/v2/sync/library/dedupe", `{}`, "X-Reet-Token", "dedupe-owner")
+	if code != 200 {
+		t.Fatal(code, response)
+	}
+	var preview struct {
+		Groups  []store.SyncDuplicateGroup `json:"groups"`
+		Removed []string                   `json:"removed"`
+	}
+	if err = json.Unmarshal([]byte(response), &preview); err != nil {
+		t.Fatal(err, response)
+	}
+	if len(preview.Groups) != 1 || len(preview.Removed) != 1 || preview.Groups[0].Keep.ID != first.ID {
+		t.Fatalf("unexpected preview: %+v", preview)
+	}
+	if _, ok, err := st.GetFor(uid, first.ID); err != nil || !ok {
+		t.Fatal("preview removed a skill")
+	}
+
+	code, response = doClient(t, srv.Client(), srv, "POST", "/api/v2/sync/library/dedupe", `{"confirm":true}`, "X-Reet-Token", "dedupe-owner")
+	if code != 200 {
+		t.Fatal(code, response)
+	}
+	if err = json.Unmarshal([]byte(response), &preview); err != nil {
+		t.Fatal(err, response)
+	}
+	if len(preview.Removed) != 1 {
+		t.Fatalf("nothing removed: %+v", preview)
+	}
+	if _, ok, err := st.GetFor(uid, preview.Removed[0]); err != nil || ok {
+		t.Fatal("duplicate survived confirm")
+	}
+}

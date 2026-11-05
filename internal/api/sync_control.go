@@ -19,6 +19,7 @@ func (s *server) registerSyncControl(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/sync/content-observations", s.requireWriter(s.contentObservation))
 	mux.HandleFunc("GET /api/v2/sync/candidates", s.syncCandidates)
 	mux.HandleFunc("POST /api/v2/sync/library", s.requireWriter(s.syncLibraryMachines))
+	mux.HandleFunc("POST /api/v2/sync/library/dedupe", s.requireWriter(s.dedupeSyncLibrary))
 	mux.HandleFunc("PUT /api/v2/sync/desired", s.requireWriter(s.saveDesired))
 	mux.HandleFunc("POST /api/v2/sync/reconcile", s.requireWriter(s.reconcileDesired))
 	mux.HandleFunc("POST /api/v2/sync/adopt", s.requireWriter(s.adoptSyncSkills))
@@ -74,6 +75,26 @@ func (s *server) syncLibraryMachines(w http.ResponseWriter, r *http.Request) {
 	s.eventRequest(r, "sync-library", "", map[string]string{"agent": in.AgentID})
 	s.syncState(w, r)
 }
+func (s *server) dedupeSyncLibrary(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Confirm bool `json:"confirm"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	s.importMu.Lock()
+	groups, removed, err := s.st.DedupeLibraryConflictsFor(s.uid(r), !in.Confirm)
+	s.importMu.Unlock()
+	if err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	if in.Confirm && len(removed) > 0 {
+		s.eventRequest(r, "sync-library-dedupe", "", map[string]any{"removed": removed})
+	}
+	writeJSON(w, 200, map[string]any{"groups": groups, "removed": removed})
+}
+
 func (s *server) saveDesired(w http.ResponseWriter, r *http.Request) {
 	var in store.DesiredSelection
 	if !decode(w, r, &in) {

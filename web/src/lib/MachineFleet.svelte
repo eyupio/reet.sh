@@ -5,7 +5,7 @@
   import { getMachineHealth as machineHealth } from './api'
   import MachineHealthStrip from './terminal/MachineHealthStrip.svelte'
   import type { Machine, SyncAgent, SyncEnvironment, SyncJob, SyncState } from './api'
-  import { controlSyncAgent, controlSyncJob, forgetEnvironment, forgetMachine, queueSyncJob, startSyncRun, updateSyncAgent } from './api'
+  import { controlSyncAgent, controlSyncJob, dedupeSyncLibrary, forgetEnvironment, forgetMachine, getSyncState, queueSyncJob, startSyncRun, updateSyncAgent } from './api'
   import { agentBuild, agentGroups, agentUpdateTarget, groupLabel, machineMatchesSearch, updateJobFor } from './machines'
   import { machineStatus, scanOnlyAgents, supportedAgents } from './machineSetup'
   import MachineCommands from './MachineCommands.svelte'
@@ -20,6 +20,7 @@
   import ConfirmDialog from './ConfirmDialog.svelte'
   import Icon from './Icon.svelte'
   import { agoLabel, machineSyncOverview } from './syncOverview'
+  import { offersDedupe } from './syncProblems'
   import { formatWhen } from './time'
 
   let {
@@ -67,7 +68,7 @@
     onsignedout?: (error: unknown) => void
   } = $props()
 
-  type Pending = { title: string; body: string; confirmLabel: string; danger?: boolean; action: () => Promise<void> }
+  type Pending = { title: string; body: string; details?: string; confirmLabel: string; danger?: boolean; action: () => Promise<void> }
   let commandsFor = $state<Machine | null>(null)
   let addSkillFor = $state<Machine | null>(null)
   let fleetQuery = $state('')
@@ -249,6 +250,41 @@
   function savedTargets(machine: Machine) {
     return snapshot.targets.filter(item => item.target.host.toLowerCase() === machine.host.toLowerCase())
   }
+  async function dedupe(machine: Machine) {
+    if (busy) return
+    busy = `dedupe-${machine.host}`
+    try {
+      const preview = await dedupeSyncLibrary(false)
+      if (!preview.groups.length) {
+        onnotice('No duplicate skill names to remove. Review the skill sources instead.')
+        return
+      }
+      const count = preview.groups.reduce((total, group) => total + group.remove.length, 0)
+      const details = preview.groups.map(group => [
+        group.slug,
+        `  keep   ${group.keep.source || group.keep.name}`,
+        ...group.remove.map(skill => `  remove ${skill.source || skill.name}`),
+      ].join('\n')).join('\n\n')
+      confirm = {
+        title: 'Remove duplicate skills?',
+        body: `Reet will remove ${count} duplicate ${count === 1 ? 'entry' : 'entries'} from your shelf so sync can continue. The copy a saved sync plan already uses is kept; installed files on machines are not changed.`,
+        details,
+        confirmLabel: 'Remove duplicates',
+        danger: true,
+        action: async () => {
+          await run(`dedupe-${machine.host}`, async () => {
+            const result = await dedupeSyncLibrary(true)
+            onnotice(`Removed ${result.removed.length} duplicate ${result.removed.length === 1 ? 'skill' : 'skills'}. Sync can continue.`)
+            return getSyncState()
+          })
+        },
+      }
+    } catch (error) {
+      onerror(error)
+    } finally {
+      busy = ''
+    }
+  }
   async function syncNow(machine: Machine, agent: SyncAgent) {
     if (await run(`sync-${agent.id}`, () => startSyncRun(agent.id, savedTargets(machine).map(item => item.target.id)))) {
       onnotice(`Automatic sync started for ${machine.host}. Additive plans apply on their own; removals wait for review.`)
@@ -424,7 +460,9 @@
             <div><strong>{sync.label}</strong><small>{sync.detail}</small></div>
           </div>
           <div class="sync-cta">
-            {#if sync.canSync}
+            {#if offersDedupe(sync.detail)}
+              <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); void dedupe(machine) }}>{busy === `dedupe-${machine.host}` ? 'Checking…' : 'Dedupe skills'}</button>
+            {:else if sync.canSync}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); if (enrolled) void syncNow(machine, enrolled) }}>{busy === `sync-${enrolled?.id}` ? 'Starting…' : 'Sync now'}</button>
             {:else if sync.tone === 'working'}
               <a class="btn sync-now" href="/sync#sync-jobs">View progress</a>
@@ -574,6 +612,7 @@
   <ConfirmDialog
     title={confirm.title}
     body={confirm.body}
+    details={confirm.details}
     confirmLabel={confirm.confirmLabel}
     danger={confirm.danger}
     onconfirm={() => { const action = confirm?.action; confirm = null; void action?.() }}

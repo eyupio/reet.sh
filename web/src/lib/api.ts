@@ -1063,6 +1063,8 @@ export async function controlSyncAgent(id: string, action: string): Promise<Sync
 export async function startSyncRun(agentId: string, targetIds: string[] = []): Promise<SyncState> { return (await req('/api/v2/sync/run', { method: 'POST', body: json({ agentId, targetIds }) })).json() }
 export async function syncLibraryMachines(): Promise<SyncState> { return (await req('/api/v2/sync/library', { method: 'POST', body: json({}) })).json() }
 export async function syncLibraryMachine(agentId: string): Promise<SyncState> { return (await req('/api/v2/sync/library', { method: 'POST', body: json({ agentId }) })).json() }
+export type SyncDuplicate = { slug: string; keep: SyncSkill; remove: SyncSkill[] }
+export async function dedupeSyncLibrary(confirm = false): Promise<{ groups: SyncDuplicate[]; removed: string[] }> { return (await req('/api/v2/sync/library/dedupe', { method: 'POST', body: json({ confirm }) })).json() }
 export async function updateSyncAgent(id: string, version = 'latest'): Promise<SyncState> { return (await req('/api/v2/sync/agents/update', { method: 'POST', body: json({ id, version }) })).json() }
 
 export async function listSetupProfiles(): Promise<{ profiles: SetupProfileSummary[] }> {

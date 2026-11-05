@@ -1,7 +1,7 @@
 <script lang="ts">
  import SessionSignals from '../sessions/SessionSignals.svelte'
  import {onMount,tick} from 'svelte'
- import {terminalClosed,type FolderProject,type TerminalMachine,type TerminalSession} from './api'
+ import {terminalArchivable,terminalClosed,type FolderProject,type TerminalMachine,type TerminalSession} from './api'
  import TerminalIcon from './TerminalIcon.svelte'
  import { toolName } from '../agentLaunch'
  import { PROJECT_COLOURS as palette, projectColour, projectColourHex, type ProjectColour } from '../projectColour'
@@ -136,7 +136,7 @@
  <p>{context.item.title}<small>{machineName(context.item.agentId)}</small></p>
  <button role="menuitem" disabled={busy||machines.find(m=>m.agentId===context!.item.agentId)?.serverEnabled===false} onclick={()=>action('rename')}>Rename session</button>
  <button role="menuitem" disabled={context.item.id!==selectedSession||terminalClosed(context.item.state)} onclick={()=>{closeMenu(false);ondisconnect()}}>Disconnect this browser</button>
- {#if terminalClosed(context.item.state)}<button role="menuitem" disabled={busy} onclick={()=>action('archive')}>Remove from history…</button>{:else}<button role="menuitem" class="danger" disabled={busy||machines.find(m=>m.agentId===context!.item.agentId)?.serverEnabled===false} onclick={()=>action('end')}>{context.item.state==='end_requested'?'Retry end request…':'Stop session…'}</button>{/if}
+ {#if terminalArchivable(context.item.state)}<button role="menuitem" disabled={busy} onclick={()=>action('archive')}>Remove from history…</button>{/if}{#if !terminalClosed(context.item.state)}<button role="menuitem" class="danger" disabled={busy||machines.find(m=>m.agentId===context!.item.agentId)?.serverEnabled===false} onclick={()=>action('end')}>{context.item.state==='end_requested'?'Retry end request…':'Stop session…'}</button>{/if}
  <div class="menu-order"><button role="menuitem" disabled={sort!=='custom'} onclick={()=>moveBy(-1)}>Move up</button><button role="menuitem" disabled={sort!=='custom'} onclick={()=>moveBy(1)}>Move down</button></div>
  <span class="colour-label">Session colour</span><div class="colours">{#each palette as choice}<button role="menuitemradio" aria-checked={(colors[context.item.id]||'')===choice.id} aria-label={choice.name} title={choice.name} style={`--swatch:${choice.hex}`} onclick={()=>colour(choice.id)}>{choice.id===''?'×':''}</button>{/each}</div>
 </div>{/if}

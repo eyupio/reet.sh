@@ -483,7 +483,7 @@ func (s *server) terminalArchive(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.st.ArchiveTerminalFor(s.uid(r), r.PathValue("id")); err != nil {
 		if errors.Is(err, store.ErrTerminalConflict) {
-			writeErr(w, 409, "Only ended, exited or lost sessions can be removed from history.")
+			writeErr(w, 409, "Request the session to end before removing it from history.")
 			return
 		}
 		terminalError(w, err)

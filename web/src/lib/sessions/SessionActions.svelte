@@ -5,7 +5,7 @@
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import WorktreeDialog from '../WorktreeDialog.svelte'
   import { offlineSentence, tabFromMenu, worktreeTargetOf } from '../sessions'
-  import { archiveTerminal, endTerminal, renameTerminal, sessionHref, terminalClosed, TerminalError, validTerminalTitle,
+  import { terminalArchivable, terminalArchiveBody, archiveTerminal, endTerminal, renameTerminal, sessionHref, terminalClosed, TerminalError, validTerminalTitle,
     type TerminalMachine, type TerminalSession } from '../terminal/api'
 
   // The actions menu a session offers wherever its row is drawn (Home's In flight and the Sessions page): right-click,
@@ -125,7 +125,8 @@
     {:else}<a role="menuitem" href={`${sessionHref(item)}&theatre=1`}>Open in theatre</a>{/if}
     {#if item.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}
     {#if live(item)}<button role="menuitem" class="danger" disabled={busy || serverOff(item)} onclick={() => begin('end')}>{item.state === 'end_requested' ? 'Retry end request…' : 'End session…'}</button>
-    {:else}<button role="menuitem" disabled={busy} onclick={() => begin('archive')}>Remove from history…</button>{/if}
+    {/if}
+    {#if terminalArchivable(item.state)}<button role="menuitem" disabled={busy} onclick={() => begin('archive')}>Remove from history…</button>{/if}
     {#if target}<button role="menuitem" disabled={live(item) || away} title={live(item) ? 'End the session first: it is working in this worktree.' : away ? offlineSentence(hostOf(item.agentId)) : undefined} onclick={checkWorktree}>Check and remove worktree…</button>{/if}
   </div>
 {/if}
@@ -137,7 +138,7 @@
     <label class="option"><input type="checkbox" bind:checked={removeOnEnd} disabled={endKeys.has(action.item.id) || action.item.state === 'end_requested'} /><span>Remove from history when this session ends</span></label>
   </ConfirmDialog>
 {:else if action?.kind === 'archive'}
-  <ConfirmDialog title={`Remove ${action.item.title} from history?`} body="This removes the closed session from your history. Files on the machine are kept. You cannot restore it from the web interface." confirmLabel="Remove from history" onconfirm={() => void perform()} oncancel={cancel} />
+  <ConfirmDialog title={`Remove ${action.item.title} from history?`} body={terminalArchiveBody(action.item.state)} confirmLabel="Remove from history" onconfirm={() => void perform()} oncancel={cancel} />
 {/if}
 {#if removing && member}
   <WorktreeDialog {member} host={removing.host} opener={returnFocus ?? null} onremoved={() => void onchanged()} onsignedout={onsignedout} onclose={() => (removing = null)} />

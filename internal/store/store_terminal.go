@@ -445,7 +445,8 @@ func (s *Store) TerminalSessionsFor(uid int64) ([]TerminalSession, error) {
 	return out, nil
 }
 
-// ArchiveTerminalFor hides only confirmed closed sessions from browser history.
+// ArchiveTerminalFor hides closed or end-requested sessions from browser history.
+// Hiding a pending end does not confirm termination or release its quota.
 // Session/operation rows remain available to retry and host reconciliation paths.
 // The initial write serializes state checks against concurrent end/observation
 // transactions across Store handles without depending on host connectivity.
@@ -470,7 +471,7 @@ func (s *Store) ArchiveTerminalFor(uid int64, sessionID string) error {
 			return err
 		}
 		switch session.State {
-		case terminalproto.Ended, terminalproto.Exited, terminalproto.Lost:
+		case terminalproto.EndRequested, terminalproto.Ended, terminalproto.Exited, terminalproto.Lost:
 		default:
 			return ErrTerminalConflict
 		}

@@ -8,7 +8,15 @@ const url = source => `data:text/javascript;base64,${Buffer.from(source).toStrin
 const apiURL = url(transpile('api'))
 const { TerminalConnection } = await import(url(transpile('connection').replace("from './api'", `from '${apiURL}'`)))
 const { value, percent, fresh, uptime } = await import(url(transpile('health')))
-const { readiness, cardReadiness, validTerminalTitle } = await import(apiURL)
+const { readiness, cardReadiness, validTerminalTitle, terminalArchivable, terminalClosed, terminalArchiveBody } = await import(apiURL)
+test('pending ends can be hidden without being described as closed', () => {
+  for (const state of ['creating', 'running']) assert.equal(terminalArchivable(state), false)
+  for (const state of ['end_requested', 'ended', 'exited', 'lost']) assert.equal(terminalArchivable(state), true)
+  assert.equal(terminalClosed('end_requested'), false)
+  assert.match(terminalArchiveBody('end_requested'), /end request stays queued/)
+  assert.match(terminalArchiveBody('end_requested'), /still counts towards its limit/)
+  assert.match(terminalArchiveBody('ended'), /closed session/)
+})
 test('session titles reject terminal controls, format controls and overlong names before creating a retry key',()=>{
   for(const title of ['', '   ', 'a'.repeat(81),'bad\x1btitle','bad\u202etitle','bad\u2028title'])assert.equal(validTerminalTitle(title),false)
   for(const title of ['Root build','Café 💥','a'.repeat(80)])assert.equal(validTerminalTitle(title),true)

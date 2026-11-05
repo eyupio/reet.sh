@@ -18,6 +18,29 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## CONCURRENCY-1: background work is stopped and joined (5 November 2026)
+
+A Go concurrency audit of the connector, controller and agent loops found work that could outlive its owner or
+wait without a deadline. Three focused batches merged on `main`:
+
+- [#559](https://github.com/eyupio/reet.sh/pull/559) (`63f55857`): `Server.Close` stops the API queue, topic and
+  refresh workers; health probe loops are joined; the backup-import pipe reader closes on every path; long-lived
+  scan and stray-chat waits use tickers; a prompt, model change or mode change refuses once the chat supervisor
+  is closed.
+- [#569](https://github.com/eyupio/reet.sh/pull/569) (`60de2b79`): the software gate is now a context-aware
+  weighted semaphore, so a launch waiting behind an apply gives up with its request, and the apply's work has a
+  21-minute deadline; the chat ring evicts its oldest subscriber, as its comment promised.
+- [#575](https://github.com/eyupio/reet.sh/pull/575) (`84bad853`): chat resume is tracked and canceled by
+  `Close`; the API workers, health-prune loop and private-connection retry goroutine are joined, and their
+  network and sweep contexts follow the server lifetime; model and mode controls check `closed` under the same
+  lock as their session lookup.
+
+`golang.org/x/sync` was already required indirectly; #569 imports its `semaphore` directly. Checks: `go vet
+./...`; `go test -race` for `internal/terminalagent`, `internal/terminalbroker`, `internal/agenthealth`,
+`internal/privateconn` and `internal/api` (549–575 s for API); the full CI race suite, browser matrix and Codex
+review were green on each final head. Known limit: an apply runs the host's install step without a context, so a
+hung filesystem syscall can still hold its goroutine, though launches now stop waiting for it.
+
 ## GAFFER-TIMEOUT-1: quiet commands survive the silence deadline (5 November 2026)
 
 The turn watchdog treated a tool that did not stream output as a silent provider, stopping it after ten minutes.

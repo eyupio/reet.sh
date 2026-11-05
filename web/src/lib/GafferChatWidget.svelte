@@ -7,6 +7,8 @@
   import GafferAvatar from './terminal/GafferAvatar.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import GafferChatHistory from './GafferChatHistory.svelte'
+  import ContextSharing from './ContextSharing.svelte'
+  import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import CopyButton from './CopyButton.svelte'
   import { shell } from './dialogShell'
   import { canAutoFocus } from './focus'
@@ -16,6 +18,7 @@
 
   let { userId, onerror, timeZone = '', dateFormat = 'locale' }: { userId: number; onerror?: (e: unknown) => void; timeZone?: string; dateFormat?: string } = $props()
   let historyOpen = $state(false)
+  let contextOpen = $state(false)
   let open = $state(false), phone = $state(false), expanded = $state(false), mode = $state('session')
   let panel = $state<HTMLDialogElement>(), launcher = $state<HTMLButtonElement>(), composer = $state<HTMLTextAreaElement>(), transcript = $state<HTMLDivElement>()
   let settings = $state<GafferSettings | null>(null), view = $state<GafferConversationView | null>(null), loadedScope = $state<string | null>(null)
@@ -33,7 +36,7 @@
   const provider = $derived(settings?.providers.find(p => p.id === providerId))
   const dirty = $derived(!!current && (current.conversation.providerId !== providerId || current.conversation.model !== model))
   const bytes = $derived(gafferMessageBytes(drafts[scope] ?? ''))
-  const blocked = $derived(loadedScope !== scope || loading || sending || updating || !!running || !!pending || unavailable || !!streamError || !settings?.available || !provider?.enabled || dirty || (manualModel && !model.trim()))
+  const blocked = $derived(loadedScope !== scope || loading || sending || updating || !!running || !!pending || unavailable || !!streamError || !settings?.available || !provider?.enabled || dirty || !!current?.context?.needsReview || (manualModel && !model.trim()))
   const last = $derived(current?.turns.at(-1))
 
   onMount(() => {
@@ -41,7 +44,7 @@
     resize(); mq.addEventListener('change', resize)
     return () => { mq.removeEventListener('change', resize); dispose(); drafts = {}; pendingMemory.clear() }
   })
-  $effect(() => { const key = scope, shown = open; untrack(() => { if (shown) void load(key); else dispose() }) })
+  $effect(() => { const key = scope, shown = open; untrack(() => { contextOpen=false; if (shown) void load(key); else dispose() }) })
   $effect(() => {
     if (!open || !panel) return
     const mobile = phone, dialog = panel
@@ -131,6 +134,17 @@
     catch (e) { if (mine === epoch) error = message(e) }
     finally { if (mine === epoch) updating = false }
   }
+  async function contextChoices(){
+    if(loading||sending||updating||dirty||unavailable)return
+    if(manualModel&&!model.trim()){choicesOpen=true;error='Enter an exact model name first.';return}
+    if(!current&&!provider?.enabled){choicesOpen=true;return}
+    const mine=epoch;updating=true;error=''
+    try{
+      if(!current){const v=await createGafferConversation(scope,providerId,model,request?.signal);if(mine!==epoch)return;view=v}
+      if(mine===epoch)contextOpen=true
+    }catch(e){if(mine===epoch)error=message(e)}finally{if(mine===epoch)updating=false}
+  }
+  async function contextSaved(){contextOpen=false;await load(scope);notice='Context sharing updated. The working agent keeps running.'}
   async function send(existing?: PendingGafferSend) {
     if (!existing && (blocked || !drafts[scope]?.trim() || bytes > 8000)) return
     const mine = epoch, key = scope, text = existing?.text ?? drafts[key] ?? ''
@@ -201,6 +215,7 @@
     {:else}
       <div class="conversation-body" data-shell-body>
       <div class="identity"><span>{loading ? 'Reading Gaffer’s choice of brains…' : `Gaffer: ${provider?.name || 'Choose a provider'} · ${model || provider?.model || 'Choose a model'}`}</span><button class="quiet" aria-expanded={choicesOpen} onclick={() => choicesOpen = !choicesOpen}>Model</button></div>
+      <div class="context-strip"><span class:attention={current?.context?.needsReview}>{current?.context?.needsReview?'Review context sharing':current?.context?.grant && (current.context.grant.status||current.context.grant.history||current.context.grant.text)?'Selected context shared':'Context off · typed messages only'}</span><button class="quiet" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void contextChoices()}>Context</button></div>
       {#if choicesOpen && settings}
         <form class="choices" onsubmit={applyChoice}>
           <fieldset disabled={!!running || sending || updating || !!pending}>
@@ -231,6 +246,7 @@
               {#if turn.cut}<p class="turn-error">This reply reached its output limit and may be incomplete.</p>{/if}
               <div class="reply-foot"><span title={formatWhen(turn.startedAt, timeZone, dateFormat)}>{turn.providerName} · {turn.model}</span>{#if turn.answer}<CopyButton text={turn.answer} label="Copy Gaffer reply" />{/if}</div>
               {#if turn.state !== 'running'}<p class="usage">{turn.usageReported ? `${turn.inputTokens} input · ${turn.outputTokens} output tokens` : 'Usage not reported'}</p>{/if}
+              {#if turn.context}<p class="usage">Retained context · read {formatWhen(turn.context.readAt,timeZone,dateFormat)}{turn.context.lastSeq?` · through event #${turn.context.lastSeq}`:''}{turn.context.truncated?' · trimmed or incomplete':''}</p>{/if}
             </div>
           </article>
         {/each}{/if}
@@ -248,11 +264,13 @@
         <div class="compose-actions"><span class:bad={bytes > 8000}>{bytes > 7200 ? `${bytes.toLocaleString()} / 8,000 bytes` : dirty ? 'Apply your model choice first' : 'Ctrl / ⌘ Enter to send'}</span>{#if running}<button class="btn" type="button" disabled={cancelling || sending} onclick={() => void cancelAnswer()}>{cancelling ? 'Cancelling…' : 'Cancel answer'}</button>{:else}<button class="btn primary" disabled={blocked || !drafts[scope]?.trim() || bytes > 8000}>{sending ? 'Sending…' : 'Send message'}</button>{/if}</div>
       </form>
     {/if}
-    <footer class="chat-foot"><p>Only messages here are shared. Session reads and follow-up are coming next. Closing keeps the current answer running.</p><div><a href="/account/gaffer">Settings</a><button class="quiet" onclick={() => historyOpen = true}>Saved chats</button>{#if current}<button class="quiet remove" aria-label="Remove conversation" disabled={sending || updating || loading} onclick={() => confirming = true}>Remove chat</button>{/if}</div></footer>
+    <footer class="chat-foot"><p>Context is shared only as selected. Worker instructions and offline follow-up are coming next. Closing keeps the current answer running.</p><div><a href="/account/gaffer">Settings</a><button class="quiet" onclick={() => historyOpen = true}>Saved chats</button>{#if current}<button class="quiet remove" aria-label="Remove conversation" disabled={sending || updating || loading} onclick={() => confirming = true}>Remove chat</button>{/if}</div></footer>
   </dialog>
 {/if}
 {#if historyOpen}<GafferChatHistory {timeZone} {dateFormat} onerror={message} onclose={() => historyOpen = false} onremoved={c => { if (current?.conversation.id === c.id || pending?.conversationId === c.id) { remember(scope, null); drafts[scope] = ''; void load() } }} />{/if}
 {#if confirming && current}<ConfirmDialog title="Remove this Gaffer conversation?" body="This deletes its messages and stops its current answer. Your working agent keeps running. Provider credits already used cannot be recovered." confirmLabel="Remove conversation" danger oncancel={() => confirming = false} onconfirm={() => void removeConversation()} />{/if}
+
+{#if contextOpen && current}<WorkspaceDialog title="What Gaffer can read" onclose={()=>contextOpen=false}><ContextSharing {timeZone} {dateFormat} path={`/api/v2/gaffer/conversations/${encodeURIComponent(current.conversation.id)}/context`} gaffer onchanged={contextSaved}/></WorkspaceDialog>{/if}
 
 <style>
   .gaffer-launcher { position: fixed; z-index: 18; right: 24px; bottom: var(--launcher-clearance, calc(var(--bottom-chrome, 0px) + 20px)); min-height: 52px; display: flex; align-items: center; gap: 8px; padding: 4px 16px 4px 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--card-raised); color: var(--ink); box-shadow: 0 5px 22px var(--scrim); font: 600 14px var(--sans); cursor: pointer; }
@@ -277,6 +295,7 @@
   .scope-title { margin: 6px 0 0; font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
   .worker { margin: 3px 0 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
   .conversation-body { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  .context-strip { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 18px;border-bottom:1px solid var(--line-soft);font-size:14px;color:var(--muted);flex:none }.attention { color:var(--bad) }
   .identity { display: flex; align-items: center; gap: 8px; padding: 6px 18px; border-bottom: 1px solid var(--line-soft); font-size: 14px; color: var(--muted); flex: none; }
   .identity span { min-width: 0; overflow-wrap: anywhere; flex: 1; }
   .quiet { border: 0; background: transparent; color: var(--accent-text); padding: 8px; min-height: 36px; font: 600 14px var(--sans); cursor: pointer; border-radius: 7px; }

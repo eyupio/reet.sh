@@ -176,12 +176,13 @@ type Service struct {
 	active          map[uint64]activeProbe
 	chatJobs        map[string]*chatJob
 	chatLimiter     *auth.Limiter
+	contextLimiter  *auth.Limiter
 	chatRecoveryErr error
 	wg              sync.WaitGroup
 }
 
 func New(st *store.Store, s *sealed.Sealer) *Service {
-	return &Service{store: st, sealer: s, limiter: auth.NewLimiter(12, time.Minute), writes: auth.NewLimiter(30, time.Minute), sealSlots: make(chan struct{}, 2), active: map[uint64]activeProbe{}, chatJobs: map[string]*chatJob{}, chatLimiter: auth.NewLimiter(12, time.Minute), chatRecoveryErr: st.RecoverGafferTurns()}
+	return &Service{store: st, sealer: s, limiter: auth.NewLimiter(12, time.Minute), writes: auth.NewLimiter(30, time.Minute), sealSlots: make(chan struct{}, 2), active: map[uint64]activeProbe{}, chatJobs: map[string]*chatJob{}, chatLimiter: auth.NewLimiter(12, time.Minute), contextLimiter: auth.NewLimiter(60, time.Minute), chatRecoveryErr: st.RecoverGafferTurns()}
 }
 func (s *Service) Available() bool { return s != nil && s.sealer != nil }
 

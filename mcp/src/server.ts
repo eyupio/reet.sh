@@ -60,6 +60,14 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     });
   }
 
+  const contextConnectionRequired = async (): Promise<JsonObject> => {
+    throw new Error('Context reads require a scoped MCP connection. Use OAuth or set REET_API_TOKEN to a reet_mcp_ bearer token, then grant context access in Account → MCP access. General API and legacy tokens do not grant session access.');
+  };
+  tool('list_context_access', 'List granted context scopes', 'List only this MCP connection’s explicitly granted account/session scopes and data categories. Existing shelf permissions grant no session access. Archived sessions are omitted. IDs are exact inputs to reet_get_context. Does not read a transcript or change anything.', {}, contextConnectionRequired);
+  tool('get_context', 'Read granted reet context', 'Read a bounded controller-retained snapshot for one explicitly granted scope. Empty session_id selects account activity counts; a session ID selects only that session. Includes read/source timestamps, omissions and truncation; it is not live machine health, current GitHub checks or the full transcript. No commands, worker messages or approvals are executed. Requires OAuth or an MCP bearer connection with explicit context grants.', {
+    session_id: z.string().max(128).default('').describe('Exact sessionId returned by reet_list_context_access, or empty for an explicitly granted account status scope.'),
+  }, contextConnectionRequired);
+
   tool('list_skills', 'Search the shelf', 'Search personal shelf names, IDs, descriptions and notes. Filters combine with AND; #tag syntax is supported by q. compact=true returns only id, name, source, sourceType, stage, liked, bookmarked, tags and environment_count; use it to page a large shelf. Does not change anything. Example: {stage:"try",compact:true,limit:100}.', {
     ...pagination,
     q: z.string().max(500).optional().describe('Search text, e.g. testing #development.'),

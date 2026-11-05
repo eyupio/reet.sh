@@ -1,5 +1,27 @@
 # UI verification — 4 November 2026
 
+## Gaffer retained-context sharing (5 November 2026)
+
+The shared **Context** dialog starts with sharing off, names the Gaffer destination,
+and requires a preview before enabling selected categories. Provider maxima disable
+unavailable categories. MCP connection and browser grants use their own scope
+picker and do not inherit Gaffer sharing. Stop sharing needs no preview. This
+slice makes no worker writes and does not start offline supervision.
+
+`web/tests/gaffer-context.e2e.mjs` passes at 1440, 390 and 320 px in light/dark.
+It checks default-off, preview gating, provider policy, revision refresh before
+send, retained-context receipts, stop sharing, isolated MCP grants, escaped worker
+text and no worker queue writes. The four captures below were visually inspected:
+no horizontal overflow; the native modal scrolls on phone, keeps Close accessible
+and supports Escape. Synthetic data and fake providers only; no physical phone,
+real credentials or live PR checks were exercised.
+
+![Context sharing desktop light](images/ui/gaffer-context-1440-light.png)
+![Context sharing desktop dark](images/ui/gaffer-context-1440-dark.png)
+![Context sharing phone light](images/ui/gaffer-context-390-light.png)
+![Context sharing phone dark](images/ui/gaffer-context-390-dark.png)
+
+
 ## Gaffer floating companion chat (5 November 2026)
 
 **Ask Gaffer** now opens a modeless desktop panel or a modal phone sheet, with the

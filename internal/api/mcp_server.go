@@ -62,7 +62,30 @@ func (s *server) hostedMCP(api http.Handler) http.Handler {
 			return nil
 		}
 		srv := mcp.NewServer(&mcp.Implementation{Name: "reet-mcp-server", Version: s.version}, &mcp.ServerOptions{SchemaCache: cache})
+		// The SDK applies object defaults before validating a null map. Guard
+		// that input here; an omitted optional arguments object means {}.
+		srv.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+			return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+				if call, ok := req.(*mcp.CallToolRequest); ok && call.Params != nil {
+					raw := bytes.TrimSpace(call.Params.Arguments)
+					if bytes.Equal(raw, []byte("null")) {
+						return nil, errors.New("tool arguments must be a JSON object; use {} when no arguments are needed")
+					}
+					if len(raw) == 0 {
+						params := *call.Params
+						params.Arguments = json.RawMessage(`{}`)
+						copy := *call
+						copy.Params = &params
+						req = &copy
+					}
+				}
+				return next(ctx, method, req)
+			}
+		})
 		for _, tool := range mcpToolDefinitions {
+			if mcpContextTool(tool.Name) && access.User.Role == "viewer" {
+				continue
+			}
 			if !access.canWrite() && !tool.Annotations.ReadOnlyHint {
 				continue
 			}
@@ -308,6 +331,9 @@ func (s *server) executeMCPMachines(ctx context.Context, api http.Handler, acces
 }
 
 func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAccess, origin, name string, args map[string]any) (map[string]any, error) {
+	if mcpContextTool(name) {
+		return s.executeMCPContext(access, name, args)
+	}
 	if name == "reet_forget_machine" || name == "reet_merge_machines" {
 		return s.executeMCPMachines(ctx, api, access, origin, name, args)
 	}

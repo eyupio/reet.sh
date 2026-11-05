@@ -148,12 +148,16 @@ func gafferError(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrGafferName):
 		writeErrCode(w, 422, "invalid_provider", "name", err.Error(), "")
 	case errors.As(err, &invalid):
-		writeErrCode(w, 422, "invalid_provider", invalid.Field, invalid.Message, "")
+		code := "invalid_provider"
+		if invalid.Field == "context" {
+			code = "invalid_context"
+		}
+		writeErrCode(w, 422, code, invalid.Field, invalid.Message, "")
 	case errors.As(err, &probe):
 		writeErr(w, 502, probe.Message)
-	case errors.Is(err, gaffer.ErrForbidden):
+	case errors.Is(err, gaffer.ErrForbidden), errors.Is(err, gaffer.ErrContextForbidden):
 		writeErr(w, 403, err.Error())
-	case errors.Is(err, gaffer.ErrBusy):
+	case errors.Is(err, gaffer.ErrBusy), errors.Is(err, gaffer.ErrContextBusy):
 		w.Header().Set("Retry-After", "30")
 		writeErr(w, 429, err.Error())
 	case errors.Is(err, gaffer.ErrUnavailable):

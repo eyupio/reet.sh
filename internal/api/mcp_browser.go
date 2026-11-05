@@ -39,7 +39,7 @@ func (s *server) browserAccess(w http.ResponseWriter, r *http.Request) (mcpAcces
 		writeErr(w, 403, "browser WebMCP is not enabled")
 		return mcpAccess{}, false
 	}
-	return mcpAccess{User: s.currentUser(r), Connection: store.MCPConnection{Name: "Browser WebMCP", Scope: scope}}, true
+	return mcpAccess{User: s.currentUser(r), Connection: store.MCPConnection{Name: "Browser WebMCP", Scope: scope, Kind: "browser"}}, true
 }
 
 func (s *server) mcpBrowserTools(w http.ResponseWriter, r *http.Request) {
@@ -49,6 +49,9 @@ func (s *server) mcpBrowserTools(w http.ResponseWriter, r *http.Request) {
 	}
 	tools := []any{}
 	for _, tool := range mcpToolDefinitions {
+		if mcpContextTool(tool.Name) && access.User.Role == "viewer" {
+			continue
+		}
 		if access.canWrite() || tool.Annotations.ReadOnlyHint {
 			tools = append(tools, tool)
 		}

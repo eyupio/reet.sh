@@ -35,7 +35,12 @@ https://reet.sh/docs/) submits its own pages and nobody else's.
 prints the payload, and writes it to $GITHUB_OUTPUT as `payload` when that is
 set. An empty payload means there is nothing to submit. It never fails the
 build: a live sitemap that cannot be fetched means nothing is submitted, and
-says why.
+says why. Under GitHub Actions that is a warning annotation, so a green run that
+compared nothing is visible on its summary and not only in its log.
+
+The request names itself. The sites sit behind a CDN that answers 403 to Python's
+default User-Agent (`Python-urllib/3.x`) and 200 to any other, and the first
+deploy with this step compared nothing for that reason alone.
 """
 
 from __future__ import annotations
@@ -50,6 +55,7 @@ from urllib.parse import urlparse
 NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 # The protocol's own ceiling for one request.
 LIMIT = 10_000
+USER_AGENT = "sitemap-reader/1.0"
 
 
 def entries(xml: str) -> dict[str, str]:
@@ -117,10 +123,12 @@ def main(argv: list[str]) -> int:
         print("indexnow: this build asks crawlers not to index it; submitting nothing")
     else:
         try:
-            with urllib.request.urlopen(live_url, timeout=30) as resp:
+            request = urllib.request.Request(live_url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(request, timeout=30) as resp:
                 live = entries(resp.read().decode("utf-8"))
         except Exception as err:  # noqa: BLE001 -- any failure means "submit nothing"
-            print(f"indexnow: could not read the live sitemap ({err}); submitting nothing")
+            note = f"indexnow: could not read the live sitemap ({err}); submitting nothing"
+            print(f"::warning::{note}" if os.environ.get("GITHUB_ACTIONS") else note)
         else:
             urls = changed(built, live)
     if len(urls) > LIMIT:

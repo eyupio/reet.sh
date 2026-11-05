@@ -4,12 +4,14 @@ Run with: python -m unittest discover -s hooks -p '*_test.py'
 """
 
 import contextlib
+import http.server
 import io
 import json
 import os
 import shutil
 import sys
 import tempfile
+import threading
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -142,6 +144,66 @@ class Main(unittest.TestCase):
     def test_it_submits_nothing_when_nothing_changed(self):
         pages = {"https://reet.sh/a/": "2026-01-01"}
         self.assertEqual(self.run_main(pages, sitemap(pages)), "")
+
+
+class LiveSitemap(unittest.TestCase):
+    """A real HTTP fetch, against a server that behaves like the sites' edge.
+
+    Both public sites sit behind a CDN that answers 403 to Python's default
+    User-Agent (`Python-urllib/3.x`) and 200 to everything else. The first deploy
+    with this step compared nothing for exactly that reason: the fetch failed,
+    "submit nothing" is the safe answer, and the build stayed green.
+    """
+
+    def serve(self, body: str):
+        seen = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                agent = self.headers.get("User-Agent", "")
+                seen.append(agent)
+                if agent.startswith("Python-urllib"):
+                    self.send_response(403)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/xml")
+                self.end_headers()
+                self.wfile.write(body.encode("utf-8"))
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        return f"http://127.0.0.1:{server.server_address[1]}/sitemap.xml", seen
+
+    def run_main(self, built: dict[str, str], live_url: str):
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory, ignore_errors=True)
+        (directory / "sitemap.xml").write_text(sitemap(built), encoding="utf-8")
+        output = directory / "github_output"
+        out = io.StringIO()
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), contextlib.redirect_stdout(out):
+            indexnow.main(["indexnow.py", str(directory / "sitemap.xml"), live_url, "k3y"])
+        return output.read_text(encoding="utf-8")[len("payload="):].strip(), out.getvalue()
+
+    def test_the_fetch_does_not_announce_itself_as_python_urllib(self):
+        live_url, seen = self.serve(sitemap({"https://reet.sh/a/": "2026-01-01T00:00:00Z"}))
+        payload, _ = self.run_main({"https://reet.sh/a/": "2026-02-01T00:00:00Z"}, live_url)
+        self.assertNotEqual(payload, "", "the live sitemap was refused, so nothing was compared")
+        self.assertEqual(json.loads(payload)["urlList"], ["https://reet.sh/a/"])
+        self.assertFalse(any(agent.startswith("Python-urllib") for agent in seen), seen)
+
+    def test_a_refused_fetch_shows_up_as_a_workflow_warning(self):
+        # Submitting nothing is right, but a green run that says so only in its log
+        # is how the first failure went unseen.
+        live_url, _ = self.serve("")  # a 200 whose body is not a sitemap
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+            _, printed = self.run_main({"https://reet.sh/a/": "2026-02-01T00:00:00Z"}, live_url)
+        self.assertIn("::warning::", printed)
 
 
 class IndexingAllowed(unittest.TestCase):

@@ -3,7 +3,7 @@
  import type { ChatState } from '../chat'
   import { onMount, tick, untrack } from 'svelte'
   import {getProfile,getSyncState,saveProfile,type Machine} from '../api'
-  import { validateDir } from '../agentLaunch'
+  import { titleFor, validateDir } from '../agentLaunch'
   import StartAgentDialog from '../StartAgentDialog.svelte'
   import AddProjectDialog from '../home/AddProjectDialog.svelte'
   import SessionSidebar from './SessionSidebar.svelte'
@@ -93,7 +93,7 @@
   let chatBusy = $state<{ id: string; busy: boolean | undefined } | null>(null)
   let health = $state<HealthResponse>({ serverNow:Date.now(),machines:[] })
   let receivedAt = performance.now(), elapsed = $state(0)
-  let loading = $state(true), busy = $state(false), error = $state(''), title = $state('Shell')
+  let loading = $state(true), busy = $state(false), error = $state(''), title = $state('')
   type Creation = { requestId: string; title: string; dir: string; error: string }
   let creations = $state<Record<string, Creation>>({})
   // A continuation whose reply was lost keeps its request id and launch, so Continue again replays the same operation.
@@ -122,6 +122,8 @@
   const pendingCreation = $derived(creations[selectedAgent])
   // Draft settings do not switch the workspace behind the dialog.
   let terminalAgent=$state(''),terminalDir=$state('')
+  // A shell started without a name is called what the controller would call it: Terminal, and its folder when it has one.
+  const autoName=$derived(titleFor('',terminalDir.trim()))
   const createMachine=$derived(machines.find(item=>item.agentId===terminalAgent))
   const formCreation=$derived(creations[terminalAgent])
   const requestId=$derived(formCreation?.requestId || '')
@@ -202,7 +204,7 @@
     selectedAgent=id
     const previous=rememberedSessions.get(id)
     selectedSession=sessions.find(item=>item.agentId===id&&item.id===previous)?.id || sessions.find(item=>item.agentId===id&&item.state==='running')?.id || ''
-    title=creations[id]?.title || 'Shell';error='';machineSearchOpen=false;remember()
+    title=creations[id]?.title || '';error='';machineSearchOpen=false;remember()
   }
   function chooseSession(item: TerminalSession) { if(selectedAgent&&selectedSession)rememberedSessions.set(selectedAgent,selectedSession);selectedAgent=item.agentId;selectedSession=item.id;title=creations[selectedAgent]?.title||'Shell';error='';remember();closeDrawer() }
   async function refresh(signal?: AbortSignal) {
@@ -243,7 +245,7 @@
   function selectTerminalMachine(agent:string){
     terminalAgent=agent
     const pending=creations[agent]
-    title=pending?.title||'Shell';terminalDir=pending?.dir||'';error=''
+    title=pending?.title||'';terminalDir=pending?.dir||'';error=''
   }
   function openTerminalStart(agent=selectedAgent){
     if(accessDenied||!machines.length||busy)return
@@ -264,12 +266,12 @@
   }
   function submitCreate(){void create()}
   async function create() {
-    if(busy||accessDenied||!createMachine?.ready||createMachine.serverEnabled===false||!validTerminalTitle(title.trim())||dirError||createAtQuota&&!requestId)return
+    if(busy||accessDenied||!createMachine?.ready||createMachine.serverEnabled===false||!validTerminalTitle(title.trim()||autoName)||dirError||createAtQuota&&!requestId)return
     busy=true;error=''
     // One immutable retry operation per machine, including its original title.
     const agent=terminalAgent
     const originAgent=selectedAgent,originSession=selectedSession
-    const operation=creations[agent] || {requestId:crypto.randomUUID(),title:title.trim(),dir:terminalDir,error:''}
+    const operation=creations[agent] || {requestId:crypto.randomUUID(),title:title.trim()||autoName,dir:terminalDir,error:''}
     creations={...creations,[agent]:{...operation,error:''}}
     const request=new AbortController();creationRequest=request
     const timeout=setTimeout(()=>request.abort(),15000)
@@ -569,10 +571,11 @@
     </select></label>
     <label>Folder<input bind:value={terminalDir} disabled={busy || !!requestId} placeholder="Home folder (default)" aria-invalid={!!dirError} aria-describedby="terminal-folder-help" /></label>
     <p id="terminal-folder-help">{dirError || 'Leave empty for the machine’s home folder, or enter a full path starting with /.'}</p>
-    <label>New session name<input bind:value={title} disabled={busy || !!requestId} maxlength="80" required placeholder="Build, deploy, investigate…" /></label>
+    <label>New session name<input bind:value={title} disabled={busy || !!requestId} maxlength="80" placeholder={autoName} aria-describedby="terminal-name-help" /></label>
+    <p id="terminal-name-help">Optional. Left empty, the session is called {autoName}.</p>
     {#if !createMachine?.ready || createMachine.serverEnabled===false}<p class="create-reason" role="status">{readiness(createMachine) || 'Choose a machine before creating a shell.'}</p>{/if}
     <p>{createActive} / 8 active on this machine · {accountActive} / 32 across your account{createAtQuota ? ' · Session limit reached' : ''}. Existing shells keep running when you switch or disconnect.</p>
-    <button class="btn primary" disabled={busy || !validTerminalTitle(title.trim()) || !!dirError || !createMachine?.ready || createMachine.serverEnabled===false || createAtQuota && !requestId} aria-busy={busy}>{busy ? 'Creating…' : requestId ? 'Retry creation' : 'New terminal'}</button>
+    <button class="btn primary" disabled={busy || !validTerminalTitle(title.trim()||autoName) || !!dirError || !createMachine?.ready || createMachine.serverEnabled===false || createAtQuota && !requestId} aria-busy={busy}>{busy ? 'Creating…' : requestId ? 'Retry creation' : 'New terminal'}</button>
 
   </form>
 {/snippet}

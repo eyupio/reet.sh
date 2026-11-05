@@ -59,6 +59,35 @@ validate; the connector validates again before it starts anything.
 The leading `-` rule exists so that a prompt can never be read as a flag by a tool
 that takes the prompt after a flag of its own (see the presets).
 
+## Session titles
+
+`title` is optional on the create call. A request that leaves it out, or sends only spaces, is named by the
+controller before anything else is checked, so the browser, the API, a project run and a saved draft
+(a draft with a prompt but no title) all name a session the same way. A title that is sent is validated and
+kept exactly as sent: 1 to 80 plain characters, as before.
+
+The name is made from the request alone, with no model, no network and no clock, so a retry of a create
+whose reply was lost asks for the same session under the same name. It is:
+
+1. **The work the prompt asks for**, if the prompt says anything. The first line with something to say,
+   without control characters. Blank lines, code fences, the `Use the {name} skill.` line and lines with
+   no letter or digit are skipped. A leading heading, quote or list marker, and leading English filler
+   (a greeting, "please", "can you", "I'd like you to", "help me", "let's"), are removed. The name
+   ends at the first sentence: a `?` or `!`, or a `.` after a word of three or more characters with no
+   full stop in it ("e.g." does not end one), once at least 8 characters have been read. It is trimmed
+   of trailing punctuation and an ASCII first letter is capitalised; other scripts are left alone. Over
+   60 characters it is cut at the last space (not earlier than the 20th character), or at 60 if there is
+   none, and ends in an ellipsis.
+2. **Otherwise the agent and folder**: the agent's name ("Claude Code", "Codex", "OpenCode",
+   "Gemini CLI", "Cline", "Google Antigravity (AGY)") or "Terminal" for a plain shell, then · and the last
+   part of the folder when there is one and it holds no control or format characters.
+
+The rules live in `terminalproto.PromptTitle` and `terminalproto.AutoTitle`. The browser mirrors them
+(`promptTitle` and `titleFor` in `web/src/lib/agentLaunch.ts`) so the title the dialog suggests is the
+one the controller would give, and both are tested against the same cases in
+`internal/terminalproto/testdata/autotitle.json`. A session that already has a title is never renamed by
+this; Rename works as before.
+
 ## Structured chats
 
 `terminalproto.Create` also has `structured`, `trust` and `resumeAcp` fields, sent only after `acp-v1` (see

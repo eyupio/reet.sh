@@ -114,9 +114,85 @@ export function launchSentence(tool: string, dir: string, machine: string, hasPr
   return hasPrompt ? `${start} The prompt is kept with the session record and is visible to other users of that machine in its process list.` : start
 }
 
-/** The session title: the agent, and the last part of the folder when one is chosen. At most 80 characters, no control or format characters. */
+// Automatic session names. The controller names a session that was started without a title
+// (internal/terminalproto/autotitle.go); these are the same rules, so the title the dialog suggests is the one the
+// controller would choose. Both are checked against internal/terminalproto/testdata/autotitle.json.
+const TITLE_CAP = 60 // longest name made from a prompt before it is cut at a word; the protocol allows 80
+const TITLE_MIN_WORD = 20 // the earliest space a cut may fall on: a name cut at "ab" says nothing
+const SENTENCE_MIN_HEAD = 8 // the shortest start of a prompt that a full stop, ? or ! may end
+const TITLE_TRAIL = /[ ,:;.!?\-–—]+$/
+// Leading words that ask rather than say: greetings, "please", "can you", "I'd like you to", "help me", "let's".
+// English only; any other language passes through untouched.
+const TITLE_FILLER = [
+  /^(?:hi|hey|hello|hiya|yo)\b(?: (?:claude|codex|opencode|gemini|cline|agy|antigravity|there|team|all|everyone))?[ ,!.:;-]*/i,
+  /^(?:please|pls|kindly)\b[ ,:-]*/i,
+  /^(?:can|could|would|will) you(?: please| kindly)?\b[ ,:-]*/i,
+  /^i(?:['’]d| would)? (?:like|love|want|need) (?:you )?to\b[ ,:-]*/i,
+  /^help me(?: (?:to|with))?\b[ ,:-]*/i,
+  /^let['’]?s\b[ ,:-]*/i,
+]
+const TITLE_SKILL_LINE = /^use the .+ skill\.?$/i // the line the skills picker puts in a prompt: not what the work is
+const TITLE_MARKER = /^(?:[#>*-]+ )+/ // a heading, quote or list marker at the start of a line
+const INVISIBLE_ALL = new RegExp(INVISIBLE.source, 'gu')
+
+const cleanTitleLine = (line: string): string => line.replace(/\t/g, ' ').replace(INVISIBLE_ALL, '').replace(/ {2,}/g, ' ').replace(/^ +| +$/g, '')
+const skipTitleLine = (line: string): boolean => line === '' || line.startsWith('```') || line.startsWith('~~~') || TITLE_SKILL_LINE.test(line) || !/[\p{L}\p{N}]/u.test(line)
+const trimTitleEnd = (text: string): string => text.replace(TITLE_TRAIL, '')
+
+function stripTitleFiller(line: string): string {
+  for (let round = 0; round < 8; round++) {
+    let changed = false
+    for (const filler of TITLE_FILLER) {
+      const hit = filler.exec(line)
+      if (hit && hit[0].length > 0) { line = line.slice(hit[0].length); changed = true }
+    }
+    if (!changed) break
+  }
+  return line
+}
+
+/** The first sentence. A full stop only ends one after a word of three or more characters with no full stop in it ("e.g." does not), and no sentence is shorter than SENTENCE_MIN_HEAD. */
+function cutSentence(chars: string[]): string[] {
+  let tokenStart = 0
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i]
+    if (c === ' ') { tokenStart = i + 1; continue }
+    if (c !== '.' && c !== '!' && c !== '?') continue
+    if ((i + 1 < chars.length && chars[i + 1] !== ' ') || i < SENTENCE_MIN_HEAD) continue
+    if (c === '.') { const token = chars.slice(tokenStart, i); if (token.length < 3 || token.includes('.')) continue }
+    return chars.slice(0, i)
+  }
+  return chars
+}
+
+/** Keeps a name to TITLE_CAP characters: cut at the last space (not earlier than TITLE_MIN_WORD) with an ellipsis, or at TITLE_CAP when there is none. */
+function capTitle(text: string): string {
+  const chars = Array.from(text)
+  if (chars.length <= TITLE_CAP) return text
+  let cut = TITLE_CAP
+  for (let i = TITLE_CAP; i >= TITLE_MIN_WORD; i--) if (chars[i] === ' ') { cut = i; break }
+  return trimTitleEnd(chars.slice(0, cut).join('')) + '…'
+}
+
+/**
+ * A short name for the work a prompt asks for, or '' when it says nothing a name could be made from: the first line
+ * with something to say, without greetings or "please", up to the end of its first sentence, at most 60 characters.
+ * An ASCII first letter is capitalised; other scripts are left alone so this and the controller agree to the character.
+ */
+export function promptTitle(prompt: string): string {
+  for (const raw of String(prompt ?? '').split('\n')) {
+    const line = cleanTitleLine(raw)
+    if (skipTitleLine(line)) continue
+    const text = trimTitleEnd(cutSentence(Array.from(stripTitleFiller(line.replace(TITLE_MARKER, '')))).join(''))
+    if (text === '') continue
+    return capTitle(text.replace(/^[a-z]/, first => first.toUpperCase()))
+  }
+  return ''
+}
+
+/** The session title when the prompt gives none: the agent ("Terminal" for a plain shell), and the last part of the folder when one is chosen. At most 80 characters, no control or format characters. */
 export function titleFor(tool: string, dir: string): string {
-  const name = nameOf(tool)
+  const name = tool ? nameOf(tool) : 'Terminal'
   const last = String(dir ?? '').split('/').filter(Boolean).pop() ?? ''
   if (last === '' || INVISIBLE.test(last) || hasLoneSurrogate(last)) return name
   const title = `${name} \u00b7 ${last}`

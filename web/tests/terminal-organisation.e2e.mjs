@@ -203,7 +203,7 @@ try{
  await expect(page.getByRole('dialog',{name:'New terminal session'})).toHaveCount(0)
  await live()
  const creates=mutations.filter(item=>item.kind==='create')
- expect(creates).toHaveLength(2);expect(creates[0].agentId).toBe(c);expect(creates[0].title).toBe('Shell');expect(creates[1]).toEqual(creates[0]);expect(creations.size).toBe(1)
+ expect(creates).toHaveLength(2);expect(creates[0].agentId).toBe(c);expect(creates[0].title).toBe('Terminal');expect(creates[1]).toEqual(creates[0]);expect(creations.size).toBe(1)
  expect(tickets.at(-1)).toBe([...creations.values()][0].id)
  // The collapsed sidebar can be reopened beside the terminal, including theatre view.
  await sidebar.getByRole('button',{name:'Shrink sessions to a mini rail',exact:true}).click()

@@ -1,0 +1,295 @@
+{
+ "about": "Shared by terminalproto (Go) and agentLaunch (web). Expected values are worked out by hand from the auto-title rules.",
+ "prompt": [
+  {
+   "name": "first line with text",
+   "prompt": "Fix the failing tests\nThen push",
+   "want": "Fix the failing tests"
+  },
+  {
+   "name": "blank lines are skipped",
+   "prompt": "\n  \n  Docs pass  \nmore",
+   "want": "Docs pass"
+  },
+  {
+   "name": "CRLF line ends",
+   "prompt": "Fix the build\r\nthen deploy",
+   "want": "Fix the build"
+  },
+  {
+   "name": "greeting, request and a second sentence",
+   "prompt": "Hi, can you please fix the login redirect loop on staging? It started after the deploy.",
+   "want": "Fix the login redirect loop on staging"
+  },
+  {
+   "name": "please and a closing full stop",
+   "prompt": "Please add a dark mode toggle.",
+   "want": "Add a dark mode toggle"
+  },
+  {
+   "name": "I'd like you to",
+   "prompt": "I'd like you to refactor the billing module",
+   "want": "Refactor the billing module"
+  },
+  {
+   "name": "typographic apostrophe",
+   "prompt": "I’d like you to add a health endpoint",
+   "want": "Add a health endpoint"
+  },
+  {
+   "name": "a greeting-only first line is passed over",
+   "prompt": "Hello Claude,\n\nCould you help me debug the CSV import?",
+   "want": "Debug the CSV import"
+  },
+  {
+   "name": "stacked filler",
+   "prompt": "Hey, please could you fix it",
+   "want": "Fix it"
+  },
+  {
+   "name": "let's",
+   "prompt": "Let's get the CI green again",
+   "want": "Get the CI green again"
+  },
+  {
+   "name": "I need to, and an exclamation mark",
+   "prompt": "I need to fix the flaky login test!",
+   "want": "Fix the flaky login test"
+  },
+  {
+   "name": "filler in capitals",
+   "prompt": "PLEASE FIX THE BUILD",
+   "want": "FIX THE BUILD"
+  },
+  {
+   "name": "a word that merely starts like a greeting is kept",
+   "prompt": "history of the repo needs tidying",
+   "want": "History of the repo needs tidying"
+  },
+  {
+   "name": "the skill picker's line is skipped",
+   "prompt": "Use the brainstorming skill.\nDesign a retry queue for webhooks",
+   "want": "Design a retry queue for webhooks"
+  },
+  {
+   "name": "every skill line is skipped",
+   "prompt": "Use the brainstorming skill.\nUse the test-driven-development skill.\nAdd retries to the uploader",
+   "want": "Add retries to the uploader"
+  },
+  {
+   "name": "a code fence line is skipped",
+   "prompt": "```\nTypeError: x is undefined\n```\nwhy does this crash",
+   "want": "TypeError: x is undefined"
+  },
+  {
+   "name": "heading marker",
+   "prompt": "## Add rate limiting to the API",
+   "want": "Add rate limiting to the API"
+  },
+  {
+   "name": "bullet marker",
+   "prompt": "- fix the flaky retry test",
+   "want": "Fix the flaky retry test"
+  },
+  {
+   "name": "a flag's dashes are not a marker",
+   "prompt": "--force flag handling is wrong",
+   "want": "--force flag handling is wrong"
+  },
+  {
+   "name": "a separator line is skipped",
+   "prompt": "---\nTidy the changelog",
+   "want": "Tidy the changelog"
+  },
+  {
+   "name": "an abbreviation is not a sentence end",
+   "prompt": "Update the README, e.g. the install section",
+   "want": "Update the README, e.g. the install section"
+  },
+  {
+   "name": "a short fragment is not a sentence",
+   "prompt": "Fix. The login page is broken",
+   "want": "Fix. The login page is broken"
+  },
+  {
+   "name": "invisible characters are removed",
+   "prompt": "tab\there\u200bnow",
+   "want": "Tab herenow"
+  },
+  {
+   "name": "whitespace is collapsed",
+   "prompt": "fix   the    bug",
+   "want": "Fix the bug"
+  },
+  {
+   "name": "other languages are left alone",
+   "prompt": "corrige el error de inicio de sesión",
+   "want": "Corrige el error de inicio de sesión"
+  },
+  {
+   "name": "a non-ASCII first letter is left alone",
+   "prompt": "überprüfe die Tests",
+   "want": "überprüfe die Tests"
+  },
+  {
+   "name": "over the limit, cut at the last word",
+   "prompt": "Investigate why the nightly backup job intermittently fails when the object store is slow to respond",
+   "want": "Investigate why the nightly backup job intermittently fails…"
+  },
+  {
+   "name": "exactly 60 characters is kept whole",
+   "prompt": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+   "want": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+  },
+  {
+   "name": "61 characters with no space is cut hard",
+   "prompt": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+   "want": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé…"
+  },
+  {
+   "name": "90 characters with no space is cut hard",
+   "prompt": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+   "want": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé…"
+  },
+  {
+   "name": "an early space is not a word cut",
+   "prompt": "ab éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+   "want": "Ab ééééééééééééééééééééééééééééééééééééééééééééééééééééééééé…"
+  },
+  {
+   "name": "a word ending exactly at the limit is kept",
+   "prompt": "éééééééééééééééééééé ééééééééééééééééééééééééééééééééééééééé tail",
+   "want": "éééééééééééééééééééé ééééééééééééééééééééééééééééééééééééééé…"
+  },
+  {
+   "name": "nothing to say: a greeting",
+   "prompt": "hi",
+   "want": ""
+  },
+  {
+   "name": "nothing to say: a lone greeting word",
+   "prompt": "Hello",
+   "want": ""
+  },
+  {
+   "name": "nothing to say: a lone request",
+   "prompt": "can you",
+   "want": ""
+  },
+  {
+   "name": "nothing to say: punctuation",
+   "prompt": "...\n!!!",
+   "want": ""
+  },
+  {
+   "name": "nothing to say: empty",
+   "prompt": "",
+   "want": ""
+  },
+  {
+   "name": "nothing to say: only whitespace",
+   "prompt": "   \n\t",
+   "want": ""
+  }
+ ],
+ "auto": [
+  {
+   "name": "agent only",
+   "tool": "claude",
+   "prompt": "",
+   "dir": "",
+   "want": "Claude Code"
+  },
+  {
+   "name": "agent and folder",
+   "tool": "claude",
+   "prompt": "",
+   "dir": "/work/app",
+   "want": "Claude Code · app"
+  },
+  {
+   "name": "trailing slash",
+   "tool": "gemini",
+   "prompt": "",
+   "dir": "/work/app/",
+   "want": "Gemini CLI · app"
+  },
+  {
+   "name": "root folder",
+   "tool": "gemini",
+   "prompt": "",
+   "dir": "/",
+   "want": "Gemini CLI"
+  },
+  {
+   "name": "a long agent name",
+   "tool": "antigravity",
+   "prompt": "",
+   "dir": "/home/dev/site",
+   "want": "Google Antigravity (AGY) · site"
+  },
+  {
+   "name": "cline",
+   "tool": "cline",
+   "prompt": "",
+   "dir": "/x",
+   "want": "Cline · x"
+  },
+  {
+   "name": "codex",
+   "tool": "codex",
+   "prompt": "",
+   "dir": "/work/app",
+   "want": "Codex · app"
+  },
+  {
+   "name": "opencode",
+   "tool": "opencode",
+   "prompt": "",
+   "dir": "/work/app",
+   "want": "OpenCode · app"
+  },
+  {
+   "name": "plain shell and folder",
+   "tool": "",
+   "prompt": "",
+   "dir": "/srv/api",
+   "want": "Terminal · api"
+  },
+  {
+   "name": "plain shell, no folder",
+   "tool": "",
+   "prompt": "",
+   "dir": "",
+   "want": "Terminal"
+  },
+  {
+   "name": "an invisible character in the folder",
+   "tool": "claude",
+   "prompt": "",
+   "dir": "/x/a\u0007b",
+   "want": "Claude Code"
+  },
+  {
+   "name": "a prompt with nothing to say falls back",
+   "tool": "claude",
+   "prompt": "hi",
+   "dir": "/work/app",
+   "want": "Claude Code · app"
+  },
+  {
+   "name": "the prompt wins",
+   "tool": "claude",
+   "prompt": "Please fix the build",
+   "dir": "/work/app",
+   "want": "Fix the build"
+  },
+  {
+   "name": "the prompt wins for a shell too",
+   "tool": "",
+   "prompt": "Check disk usage on the backup volume",
+   "dir": "/srv",
+   "want": "Check disk usage on the backup volume"
+  }
+ ]
+}

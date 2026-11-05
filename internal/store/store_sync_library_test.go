@@ -223,3 +223,87 @@ func TestLibrarySourceConflictPreservesLastGoodSelection(t *testing.T) {
 		t.Fatalf("last good selection changed: %+v", targets)
 	}
 }
+
+func TestLibrarySkipsSkillWhosePrivateCopyFailed(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	if err := s.SetSyncLibraryOrigin(uid, "https://reet.example"); err != nil {
+		t.Fatal(err)
+	}
+	s.UpsertFor(uid, mustRef(t, "a/b/one"), Patch{})
+	if _, err := s.UpsertLocalFor(uid, "huge", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	source, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.TouchEnvironmentFor(uid, "laptop", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	srcEnv := EnvironmentIDFor(uid, "laptop", "agents", "")
+	if err = s.RecordInventoryFor(uid, srcEnv, true, MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RecordEnvironmentFor(uid, "local/huge", "laptop", "agents", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	destination, _, err := s.EnrollSyncAgent(uid, "desktop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.TouchEnvironmentFor(uid, "desktop", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	destEnv := EnvironmentIDFor(uid, "desktop", "agents", "")
+	if err = s.RecordInventoryFor(uid, destEnv, true, MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ClaimRemoteImportFor(uid, source.ID, strings.Repeat("a", 48)); err != nil {
+		t.Fatal(err)
+	}
+	request, err := s.RequestMachineSkillSync(uid, "local/huge", destination.Host, "", "library_"+secretHash("local/huge"), destEnv, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.FailRemoteImportFor(uid, source.ID, request.ID, request.Instance, "capture_failed"); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates, err := s.SyncLibraryFor(uid, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var problem string
+	for _, candidate := range candidates {
+		if candidate.ID == "local/huge" {
+			problem = candidate.Problem
+		}
+	}
+	if !strings.Contains(problem, "could not be copied") {
+		t.Fatalf("uncopyable skill not explained: %q", problem)
+	}
+
+	// The failure belongs to one skill, not the whole machine: the rest of the
+	// library still reaches the destination.
+	destination.KeepSynced = true
+	if err = s.prepareLibraryTargets(uid, "owner", destination, false); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.MaintainSync(uid, "owner", destination); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := s.SyncJobsFor(uid)
+	if err != nil || len(jobs) == 0 {
+		t.Fatalf("one uncopyable skill blocked the library: %+v %v", jobs, err)
+	}
+	targets, err := s.SyncTargetsFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range targets {
+		if target.Target.ID == destEnv && target.Problem != "" {
+			t.Fatalf("machine kept the skill failure as its own: %+v", target)
+		}
+	}
+}

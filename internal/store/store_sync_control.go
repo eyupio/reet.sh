@@ -134,8 +134,10 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		}
 		in.SkillIDs = nil
 		for _, sk := range candidates {
+			// A skill with a reported problem is listed and explained on its own;
+			// it must not stop the rest of a whole-source library from syncing.
 			if sk.Problem != "" {
-				return errors.New(sk.Problem)
+				continue
 			}
 			if sk.Source == "" || sk.SourceType == "local" {
 				return errors.New("link all skill sources before syncing the whole source")

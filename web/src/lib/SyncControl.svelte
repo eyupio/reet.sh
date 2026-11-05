@@ -3,7 +3,7 @@
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import SyncSetup from './SyncSetup.svelte'
-  import { syncCandidates, listLists, getList, saveDesired, reconcileDesired, adoptSyncSkills, queueSyncJob, controlSyncJob, deleteSyncTarget, updateSyncAgent, type SyncState, type SyncSkill, type SharedList, type SyncTarget, type SyncJob, type SyncEnvironment } from './api'
+  import { syncCandidates, listLists, getList, saveDesired, reconcileDesired, adoptSyncSkills, queueSyncJob, controlSyncJob, deleteSyncTarget, updateSyncAgent, dedupeSyncLibrary, getSyncState, type SyncState, type SyncSkill, type SharedList, type SyncTarget, type SyncJob, type SyncEnvironment } from './api'
   import { agentGroups, agentOnline, groupLabel, inventory, inventoryMachines } from './machines'
   import { elapsed } from './time'
   import ContentObservation from './ContentObservation.svelte'
@@ -15,6 +15,7 @@
   import { dedupeSkills, linked as isLinked, localDuplicates as findLocalDuplicates, sourceConflicts as findSourceConflicts } from './syncSelection'
   import { syncActivityOverview, type SyncActivityEntry, type SyncHostActivity } from './syncActivity'
   import { jobPlanCounts, syncJobStages } from './syncOverview'
+  import { offersDedupe } from './syncProblems'
   import { startSyncRun } from './api'
   let { snapshot, canWrite, onupdate, view = 'compare' }: { snapshot: SyncState; canWrite: boolean; onupdate: (s: SyncState) => void; view?: 'machines' | 'compare' } = $props()
   let source = $state('shelf'), selectedMachine = $state(''), selectedAgents = $state<string[]>([]), listId = $state(0), mode = $state('additive')
@@ -150,6 +151,32 @@
     selectedAgents = selectedAgents.includes(id) ? selectedAgents.filter(value => value !== id) : [...selectedAgents, id]
     adopt = []
     conflicts = []
+  }
+  async function dedupeLibrary(item: SyncTarget) {
+    await run(async () => {
+      const preview = await dedupeSyncLibrary(false)
+      if (!preview.groups.length) {
+        notice = 'No duplicate skill names to remove. Review the skill sources instead.'
+        return
+      }
+      const count = preview.groups.reduce((total, group) => total + group.remove.length, 0)
+      const details = preview.groups.map(group => [
+        group.slug,
+        `  keep   ${group.keep.source || group.keep.name}`,
+        ...group.remove.map(skill => `  remove ${skill.source || skill.name}`),
+      ].join('\n')).join('\n\n')
+      confirm = {
+        title: 'Remove duplicate skills?',
+        body: `This removes ${count} duplicate ${count === 1 ? 'entry' : 'entries'} from your shelf. The copy a saved sync plan already uses is kept; installed files on machines are not changed.`,
+        details,
+        confirmLabel: 'Remove duplicates',
+        action: () => run(async () => {
+          const result = await dedupeSyncLibrary(true)
+          onupdate(await getSyncState())
+          notice = `Removed ${result.removed.length} duplicate ${result.removed.length === 1 ? 'skill' : 'skills'}. ${item.target.host} can sync again.`
+        }),
+      }
+    })
   }
   async function save(revisions: Map<string, string>, allowEmpty = false) {
     await run(async () => {
@@ -691,7 +718,7 @@
           <div class="scope-set">
             <div class="scope-title"><strong>{groupLabel(item.target)}</strong><span class="badge">{modeLabel(item.mode || 'mirror')} · {item.desired.length} {item.desired.length === 1 ? 'skill' : 'skills'}</span></div>
             <p>{item.sourceName}</p>
-            {#if item.problem}<p class="bad" role="status">{item.problem} <a href="/skills">Review skill sources</a></p>{/if}
+            {#if item.problem}<p class="bad" role="status">{item.problem} {#if offersDedupe(item.problem)}<button class="btn quiet" type="button" disabled={busy} onclick={() => dedupeLibrary(item)}>Dedupe skills</button>{:else}<a href="/skills">Review skill sources</a>{/if}</p>{/if}
             <p class:bad={!env?.complete || (env?.scannedAt ?? 0) < Date.now() - 14 * 86400000}>{env?.complete && env.scannedAt > Date.now() - 14 * 86400000 ? `${item.missing.length} to install · ${item.extra.length} extra${item.mode === 'additive' ? ' (kept)' : ' (review removals)'}` : 'Current differences unconfirmed — rescan required'}</p>
             <p class="hint">Last report: {env?.scannedAt ? ago(env.scannedAt) : 'none'} · {item.appliedRevision === item.revision ? 'Plan revision acknowledged' : 'Plan revision not yet acknowledged'}</p>
             {#if canWrite}

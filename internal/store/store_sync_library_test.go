@@ -423,3 +423,79 @@ func TestLibrarySourceConflictStillBlocksAutomation(t *testing.T) {
 		t.Fatalf("last good selection was replaced: %+v", targets[0].Desired)
 	}
 }
+
+func TestDedupeLibraryConflictsKeepsTheSavedPlanCopy(t *testing.T) {
+	s, uid, id := controlFixture(t)
+	if err := s.SetSyncLibraryOrigin(uid, "https://reet.example"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.UpsertFor(uid, mustRef(t, "a/b/improve"), Patch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.UpsertFor(uid, mustRef(t, "c/d/improve"), Patch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A saved plan from before the second copy arrived still points at the second.
+	if err = s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", SkillIDs: []string{second.ID}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.db.Exec(`UPDATE sync_policies SET problem=? WHERE target_id=?`, "Sync selection needs attention: More than one source uses the name improve. Remove the duplicate from your shelf before syncing.", id); err != nil {
+		t.Fatal(err)
+	}
+	library, err := s.SyncLibraryFor(uid, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	problem := ""
+	for _, sk := range library {
+		if strings.Contains(sk.Problem, "More than one source") {
+			problem = sk.Problem
+		}
+	}
+	if problem == "" {
+		t.Fatal("duplicate names were not reported")
+	}
+
+	groups, removed, err := s.DedupeLibraryConflictsFor(uid, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 1 || groups[0].Keep.ID != second.ID || len(removed) != 1 || removed[0] != first.ID {
+		t.Fatalf("dry run chose the wrong copy: %+v %v", groups, removed)
+	}
+	if _, ok, err := s.GetFor(uid, first.ID); err != nil || !ok {
+		t.Fatal("dry run removed a skill")
+	}
+
+	groups, removed, err = s.DedupeLibraryConflictsFor(uid, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 1 || len(removed) != 1 {
+		t.Fatalf("dedupe did not remove the extra copy: %+v %v", groups, removed)
+	}
+	if _, ok, err := s.GetFor(uid, first.ID); err != nil || ok {
+		t.Fatal("duplicate was not removed")
+	}
+	if sk, ok, err := s.GetFor(uid, second.ID); err != nil || !ok || sk.ID != second.ID {
+		t.Fatal("the saved plan's copy was removed")
+	}
+	library, err = s.SyncLibraryFor(uid, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sk := range library {
+		if sk.Problem != "" {
+			t.Fatalf("duplicate problem survived dedupe: %+v", sk)
+		}
+	}
+	targets, err := s.SyncTargetsFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].Problem != "" {
+		t.Fatalf("stale policy problem survived dedupe: %+v", targets)
+	}
+}

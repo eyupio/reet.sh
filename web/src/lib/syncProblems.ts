@@ -47,6 +47,7 @@ const projectScope = /project is not enrolled/i
 const scanBlocked = /scan incomplete|no changes allowed|cannot read target skills directory[\s\S]*permission denied/i
 const stalePlan = /approved plan no longer matches|target identity or revision changed|controller target changed|local skills changed|desired revision changed|preview again/i
 const busy = /another sync may be running|cannot lock target/i
+const duplicateName = /More than one source uses the name/i
 const sharedSource = /has no linked install source yet|has no linked source|not in the saved sync source|no linked install source|is shared with|source conflict|local-only skill|no supported install source|has no supported install source|duplicate skill names/i
 const paused = /sync is paused/i
 const unconnected = /has no reet agent yet|no machine named|is connected\. refresh machines/i
@@ -69,6 +70,11 @@ function agentCommand(context: SyncProblemContext): string {
  * wrong, the exact command that fixes it, and whether trying again from the
  * web is safe. Keep the raw message out of sight unless it is all we have.
  */
+/** True when a name conflict can be fixed by removing the extra shelf copy. */
+export function offersDedupe(message: string): boolean {
+  return duplicateName.test(message ?? '')
+}
+
 export function explainSyncFailure(message: string, context: SyncProblemContext = {}): SyncProblem {
   const text = (message ?? '').trim()
   const host = machine(context)

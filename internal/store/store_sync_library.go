@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 )
@@ -117,6 +118,108 @@ func (s *Store) SyncLibraryFor(uid int64, role string) ([]SyncSkill, error) {
 	}
 	slices.SortFunc(out, func(a, b SyncSkill) int { return strings.Compare(a.ID, b.ID) })
 	return out, nil
+}
+
+// SyncDuplicateGroup is one name that more than one shelf source claims. Keep
+// is the copy that stays; Remove is what deduping takes off the shelf.
+type SyncDuplicateGroup struct {
+	Slug   string      `json:"slug"`
+	Keep   SyncSkill   `json:"keep"`
+	Remove []SyncSkill `json:"remove"`
+}
+
+// DedupeLibraryConflictsFor removes the extra shelf entries that make the
+// shared library ambiguous. It keeps the copy a saved plan already references,
+// then the oldest copy, so the fix follows the plan rather than inventing one.
+// A dry run reports the same groups and removes nothing.
+func (s *Store) DedupeLibraryConflictsFor(uid int64, dryRun bool) ([]SyncDuplicateGroup, []string, error) {
+	skills, _, err := s.ListFor(uid, Filter{})
+	if err != nil {
+		return nil, nil, err
+	}
+	desired, err := s.desiredSkillCounts(uid)
+	if err != nil {
+		return nil, nil, err
+	}
+	bySlug := map[string][]Skill{}
+	slugs := []string{}
+	for _, sk := range skills {
+		if sk.Source == "" || sk.SourceType == "local" {
+			continue
+		}
+		if _, ok := bySlug[sk.Slug]; !ok {
+			slugs = append(slugs, sk.Slug)
+		}
+		bySlug[sk.Slug] = append(bySlug[sk.Slug], sk)
+	}
+	sort.Strings(slugs)
+	groups := []SyncDuplicateGroup{}
+	removed := []string{}
+	for _, slug := range slugs {
+		members := bySlug[slug]
+		sources := map[string]bool{}
+		for _, sk := range members {
+			sources[sk.SourceType+":"+sk.Source] = true
+		}
+		if len(members) < 2 || len(sources) < 2 {
+			continue
+		}
+		sort.SliceStable(members, func(i, j int) bool {
+			if desired[members[i].ID] != desired[members[j].ID] {
+				return desired[members[i].ID] > desired[members[j].ID]
+			}
+			if members[i].CreatedAt != members[j].CreatedAt {
+				return members[i].CreatedAt < members[j].CreatedAt
+			}
+			return members[i].ID < members[j].ID
+		})
+		group := SyncDuplicateGroup{Slug: slug, Keep: asSync(members[0])}
+		for _, sk := range members[1:] {
+			group.Remove = append(group.Remove, asSync(sk))
+			removed = append(removed, sk.ID)
+		}
+		groups = append(groups, group)
+	}
+	if dryRun || len(removed) == 0 {
+		return groups, removed, nil
+	}
+	err = s.withTx(func(tx *sql.Tx) error {
+		for _, id := range removed {
+			if err := s.removeShelfTx(tx, uid, id, false); err != nil {
+				return err
+			}
+		}
+		// The dedupe just answered this exact complaint; a later poll recomputes
+		// the policy problem from whatever is left on the shelf.
+		_, err := tx.Exec(`UPDATE sync_policies SET problem='' WHERE problem LIKE '%More than one source uses the name%' AND target_id IN (SELECT id FROM environments WHERE user_id=?)`, uid)
+		return err
+	})
+	return groups, removed, err
+}
+
+// desiredSkillCounts counts how many saved plans reference each skill, so a
+// duplicate that a plan still points at is the one kept.
+func (s *Store) desiredSkillCounts(uid int64) (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT desired FROM sync_targets WHERE user_id=?`, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var skills []SyncSkill
+		if err := json.Unmarshal([]byte(raw), &skills); err != nil {
+			return nil, err
+		}
+		for _, sk := range skills {
+			counts[sk.ID]++
+		}
+	}
+	return counts, rows.Err()
 }
 
 // libraryCaptureProblems explains machine-only skills whose private copy has

@@ -37,10 +37,11 @@ actions, the same model/effort choices in both start dialogs and backlog plans, 
 
 All three feature PRs are merged in dependency order (#490, #493, #498) and the handoff refresh that records them landed as
 [#503](https://github.com/eyupio/reet.sh/pull/503) (`4539386`) and [#504](https://github.com/eyupio/reet.sh/pull/504)
-(`80ae4cc`), both documentation only. Main has since advanced through #499 and #502 and other content work (#496, #501);
-none of it touches the Gaffer code paths, and the addresses and page registration of the delivered documentation stay
-intact. No Gaffer pull request remains open. Other work streams keep opening and merging their own pull requests, so read
-`gh pr list --state open` rather than relying on any snapshot here.
+(`80ae4cc`), both documentation only. Main has advanced far past those merges since, including the session-overview work, Cline
+and Google Antigravity chats, and documentation/benchmark changes from other streams; read `git log` and
+`gh pr list --state open` for the current tip rather than treating any commit here as it. None of that work changes the Gaffer
+behaviour described below, and the addresses and page registration of the delivered documentation stay intact. No Gaffer pull
+request remains open.
 The toolbar/panel overlap between #490 and #495 is resolved as follows:
 the persistent Theatre action, the wrapping interface/approval/`Terminal here` toolbar and the duplicate-free menu stay,
 and the docked panel keeps its separator, saved width/open state, sheet mode below 1100 px, and `holdSize` while it is
@@ -82,8 +83,8 @@ Web check/build, embedded-web checks, responsive light/dark desktop/tablet/phone
 Start an agent, the full phone-dialog suite, chat/recovery, launch and Sessions-phone checks pass locally. The full backend,
 build, source, CodeQL, terminal-browser (including the real tmux shell) and zoom checks passed on earlier source head `f7020afe`.
 The phone job first stalled in the unchanged launch browser suite; that full suite passes locally. Its retry reached a stale
-Sessions-phone assertion for the old header. That assertion and landscape geometry check were corrected and pass locally
-in the latest published `5ea4303` head. That head still needs its own final CI. No inline review findings were open at the last check.
+Sessions-phone assertion for the old header. That assertion and landscape geometry check were corrected in `5ea4303` and its
+final merged head `d94f1d2` passed every check, with no inline review findings open.
 
 ### #493: startup/backlog settings
 
@@ -102,7 +103,7 @@ Gaffer plan and its unchanged model/effort when machine capabilities are unavail
 Web check/build, the desktop/phone three-flow browser test (including offline edit), legacy Codex and Start an agent suites
 pass. Complete race suites for `internal/acpagent`, `internal/agenthealth`, `internal/terminalproto`, `internal/terminalbroker`,
 `internal/terminalagent`, `internal/store` and `internal/api` passed before the final UI-only offline edit (API: 472 seconds).
-Independent negotiation/reconnect tests pass. Final published-head CI/review remain required. No inline findings were open.
+Independent negotiation/reconnect tests pass, and the final head `906cb2d` passed every check with no inline findings open.
 
 ### Image previews
 

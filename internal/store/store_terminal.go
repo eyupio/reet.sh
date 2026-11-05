@@ -60,6 +60,7 @@ func (s *Store) migrateTerminal() error {
 		{"terminal_sessions", "structured INTEGER NOT NULL DEFAULT 0 CHECK(structured IN (0,1))"},
 		{"terminal_sessions", "acp_session_id TEXT NOT NULL DEFAULT ''"},
 		{"terminal_sessions", "agent_mode TEXT NOT NULL DEFAULT ''"},
+		{"terminal_sessions", "prompt TEXT NOT NULL DEFAULT ''"},
 	} {
 		ok, err := hasColumn(s.db, c.table, strings.Fields(c.ddl)[0])
 		if err != nil {
@@ -329,15 +330,23 @@ type TerminalSession struct {
 	WorktreePath   string `json:"worktreePath,omitempty"`
 	WorktreeRepo   string `json:"worktreeRepo,omitempty"`
 	WorktreeBranch string `json:"worktreeBranch,omitempty"`
-	// Launch metadata for the listing. The opening prompt is deliberately
-	// absent: it is kept only with the create request. Effort is the requested
-	// launch level; Yolo records the person's confirmation for this session.
-	// ProjectID is null for a session started outside a folder project.
+	// Launch metadata for the listing. Effort is the requested launch level;
+	// Yolo records the person's confirmation for this session. ProjectID is null
+	// for a session started outside a folder project.
 	Tool      string  `json:"tool"`
 	Model     string  `json:"model"`
 	Effort    string  `json:"effort"`
 	Yolo      bool    `json:"yolo"`
 	ProjectID *string `json:"projectId"`
+	// PromptExcerpt is the first 300 characters of the opening prompt and
+	// PromptMore says there was more. The listing carries only this much, because
+	// it goes to every open tab and rides the event stream; the whole prompt (at
+	// most terminalproto.MaxPromptBytes) is read with TerminalPromptFor. The
+	// controller holds the prompt only while the session is in the person's
+	// history: sessions are never deleted, so archiving is what ends the hold, and
+	// both archive paths clear it (clearArchivedPrompt).
+	PromptExcerpt string `json:"promptExcerpt,omitempty"`
+	PromptMore    bool   `json:"promptMore,omitempty"`
 	// Dir is where the agent ran: the worktree it made, else the folder its
 	// create named. It is kept on the session so a continuation starts in the
 	// same folder even after the project's folder changes.
@@ -390,14 +399,14 @@ type PendingPermission struct {
 	Queued       int    `json:"queued,omitempty"`
 }
 
-const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,activity_at,bell_at,attention_observed,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}'),completed_at,chat_status,agent_mode`
+const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,activity_at,bell_at,attention_observed,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}'),completed_at,chat_status,agent_mode,substr(prompt,1,300),length(prompt)>300`
 
 func readTerminal(row interface{ Scan(...any) error }) (TerminalSession, error) {
 	var t TerminalSession
 	var exit sql.NullInt64
 	var project sql.NullString
 	var attentionObserved int
-	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.ACPSessionID, &t.ActivityAt, &t.BellAt, &attentionObserved, &t.RemoveHistory, &t.CompletedAt, &t.ChatStatus, &t.AgentMode)
+	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.ACPSessionID, &t.ActivityAt, &t.BellAt, &attentionObserved, &t.RemoveHistory, &t.CompletedAt, &t.ChatStatus, &t.AgentMode, &t.PromptExcerpt, &t.PromptMore)
 	t.AttentionObserved = attentionObserved != 0
 	if exit.Valid {
 		n := int(exit.Int64)
@@ -422,6 +431,24 @@ func (s *Store) TerminalSessionFor(uid int64, sessionID string) (TerminalSession
 	s.populateAttention(uid, &t, time.Now())
 	return t, nil
 }
+
+// TerminalPromptFor is the whole opening prompt of one of the account's
+// sessions: "" for a session that had none and for one that has been archived,
+// whose prompt is cleared. An unknown session and another account's answer
+// alike, under the conditions TerminalSessionFor applies. This is the only read
+// of the full text; callers must not log it or write it into an audit detail.
+func (s *Store) TerminalPromptFor(uid int64, sessionID string) (string, error) {
+	if !terminalproto.ValidID(sessionID) {
+		return "", terminalproto.ErrInvalid
+	}
+	var prompt string
+	err := s.db.QueryRow(`SELECT prompt FROM terminal_sessions WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, sessionID, uid, uid).Scan(&prompt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrRemoteNotFound
+	}
+	return prompt, err
+}
+
 func (s *Store) TerminalSessionsFor(uid int64) ([]TerminalSession, error) {
 	rows, err := s.readStmts.query(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE user_id=? AND NOT EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id) AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer') ORDER BY state IN ('creating','running','end_requested') DESC,updated_at DESC,id LIMIT 100`, uid, uid)
 	if err != nil {
@@ -514,9 +541,30 @@ func (s *Store) ArchiveTerminalFor(uid int64, sessionID string) error {
 		if err != nil {
 			return err
 		}
+		if err = clearArchivedPrompt(tx, uid, session.ID); err != nil {
+			return err
+		}
 		_, err = tx.Exec(`UPDATE terminal_chat_queue SET text='',images='[]',state='removed',note='',revision=revision+1 WHERE session_id=? AND user_id=?`, session.ID, uid)
 		return err
 	})
+}
+
+// clearArchivedPrompt drops the opening prompt of a session that has an archive
+// row. Sessions are never deleted, only hidden, so without this the controller
+// would hold what the person typed for as long as the database lives. It runs
+// straight after each archive INSERT, in the same transaction, and does nothing
+// for a session that is not archived.
+func clearArchivedPrompt(tx *sql.Tx, uid int64, sessionID string) error {
+	if _, err := tx.Exec(`UPDATE terminal_sessions SET prompt='' WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id)`, sessionID, uid); err != nil {
+		return err
+	}
+	// The stored create request carries the prompt too (the retry comparison needs
+	// the whole request). Dispatch reads a create only while the session is
+	// creating, and archiving needs a closed or end-requested one, so nothing
+	// sends it again. A retry of an archived create that had a prompt no longer
+	// matches and answers ErrTerminalConflict instead of replaying.
+	_, err := tx.Exec(`UPDATE terminal_operations SET parameters=json_remove(parameters,'$.prompt') WHERE session_id=? AND user_id=? AND kind='create' AND json_valid(parameters) AND EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_operations.session_id)`, sessionID, uid)
+	return err
 }
 
 // ReserveTerminalCreateFor only reserves metadata/quota. The future broker must
@@ -582,10 +630,17 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 		if project.Valid {
 			t.ProjectID = &project.String
 		}
-		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at,tool,model,effort,yolo,project_id,dir,structured,acp_session_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt, t.Tool, t.Model, t.Effort, t.Yolo, project, t.Dir, t.Structured, t.ACPSessionID); err != nil {
+		// The prompt is written here and nowhere else, so a retry (which returns
+		// the recorded session above) can never change it.
+		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at,tool,model,effort,yolo,project_id,dir,structured,acp_session_id,prompt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt, t.Tool, t.Model, t.Effort, t.Yolo, project, t.Dir, t.Structured, t.ACPSessionID, in.Prompt); err != nil {
 			return err
 		}
-		_, err = tx.Exec(`INSERT INTO terminal_operations(request_id,user_id,agent_id,session_id,kind,state,parameters,created_at,updated_at) VALUES(?,?,?,?,'create','pending',?,?,?)`, requestID, uid, agentID, t.ID, string(parameters), t.CreatedAt, t.UpdatedAt)
+		if _, err = tx.Exec(`INSERT INTO terminal_operations(request_id,user_id,agent_id,session_id,kind,state,parameters,created_at,updated_at) VALUES(?,?,?,?,'create','pending',?,?,?)`, requestID, uid, agentID, t.ID, string(parameters), t.CreatedAt, t.UpdatedAt); err != nil {
+			return err
+		}
+		// Read the row back so a first create and a retry return the same
+		// excerpt, cut by the one rule in terminalSessionCols.
+		t, err = terminalForTx(tx, uid, agentID, t.ID)
 		created = err == nil
 		return err
 	})
@@ -750,7 +805,10 @@ func (s *Store) PendingTerminalOperationsFor(uid int64, agentID string, generati
 // archiveTerminalOnClose only runs inside a transaction that has confirmed closure.
 func archiveTerminalOnClose(tx *sql.Tx, uid int64, agentID, sessionID string) error {
 	_, err := tx.Exec(`INSERT INTO terminal_session_archives(session_id,user_id,agent_id,archived_at) SELECT id,user_id,agent_id,? FROM terminal_sessions WHERE id=? AND user_id=? AND agent_id=? AND state IN ('ended','exited','lost') AND EXISTS(SELECT 1 FROM terminal_operations WHERE session_id=? AND user_id=? AND agent_id=? AND kind='end' AND parameters='{"removeHistory":true}') ON CONFLICT(session_id) DO NOTHING`, now(), sessionID, uid, agentID, sessionID, uid, agentID)
-	return err
+	if err != nil {
+		return err
+	}
+	return clearArchivedPrompt(tx, uid, sessionID)
 }
 
 // ObserveTerminalStateFor applies authenticated, generation-fenced reconciliation.

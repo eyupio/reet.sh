@@ -92,7 +92,7 @@ func listed(t *testing.T, s *Store, uid int64, id string) (TerminalSession, stri
 	return TerminalSession{}, ""
 }
 
-func TestSessionListingCarriesLaunchMetadataNotPrompt(t *testing.T) {
+func TestSessionListingCarriesLaunchMetadataAndOnlyAnExcerptOfThePrompt(t *testing.T) {
 	s, uid, a, c := terminalFixture(t)
 	project := mustFP(t, s, uid, fp(a.ID, "/home/tester/site"))
 	in := terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "claude", Model: "sonnet", Dir: "/home/tester/site", Prompt: agentsHomeTestPrompt, ProjectID: project.ID}
@@ -115,8 +115,10 @@ func TestSessionListingCarriesLaunchMetadataNotPrompt(t *testing.T) {
 	if strings.Contains(raw, "worktree") {
 		t.Fatal("a session without a worktree lists worktree fields", raw)
 	}
-	if strings.Contains(raw, "billing export") || strings.Contains(raw, "prompt") {
-		t.Fatal("the prompt reached the listing", raw)
+	// A prompt shorter than the excerpt is its own excerpt and says nothing more;
+	// TestReserveStoresTheOpeningPromptAndTheListCarriesOnlyAnExcerpt holds the cut.
+	if x.PromptExcerpt != agentsHomeTestPrompt || x.PromptMore || !strings.Contains(raw, `"promptExcerpt":"`+agentsHomeTestPrompt+`"`) || strings.Contains(raw, "promptMore") {
+		t.Fatalf("the listing's view of the prompt: %+v %s", x, raw)
 	}
 	// A plain shell has no project: projectId is null, not "".
 	plain := createTerminal(t, s, uid, a, c)
@@ -180,9 +182,10 @@ func TestReserveWithProjectIDChecksAccountAndMachine(t *testing.T) {
 	}
 }
 
-// A database from before tool, model, effort, yolo and project_id were
+// A database from before tool, model, effort, yolo, project_id and prompt were
 // columns: opening it adds them, fills tool and model from the stored create
-// (never the prompt), and opening it again changes nothing.
+// (never the prompt, which older rows simply do not have), and opening it again
+// changes nothing.
 func TestSessionListingOnAnOldDatabase(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
@@ -196,7 +199,7 @@ func TestSessionListingOnAnOldDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	plain := createTerminal(t, s, uid, a, c)
-	for _, col := range []string{"tool", "model", "effort", "yolo", "project_id"} {
+	for _, col := range []string{"tool", "model", "effort", "yolo", "project_id", "prompt"} {
 		if _, err := s.db.Exec(`ALTER TABLE terminal_sessions DROP COLUMN ` + col); err != nil {
 			t.Fatal(col, err)
 		}

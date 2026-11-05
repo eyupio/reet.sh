@@ -102,12 +102,18 @@ func TestSelectionRunAuditHasNoPrompt(t *testing.T) {
 	launched, _ := json.Marshal(worktreeEvents(t, f.st, f.uid, "terminal-launch"))
 	_, _, read := f.do(t, f.cookie, "GET", "/api/v2/folder-projects/runs/"+runID, nil)
 	_, _, sessions := f.do(t, f.cookie, "GET", "/api/v2/terminal/sessions", nil)
-	// The prompt's second line is nowhere; its first line only as the
-	// sessions' titles (the title a single launch would give).
-	for _, text := range []string{string(events), string(launched), read, sessions, f.logs.String()} {
+	// The prompt's second line is in no audit event, run read or log; its first
+	// line only as the sessions' titles (the title a single launch would give).
+	// The session list is the one place that carries more, and only as each
+	// session's excerpt.
+	for _, text := range []string{string(events), string(launched), read, f.logs.String()} {
 		if strings.Contains(text, "zebra-sentinel") {
 			t.Fatal("the prompt's second line leaked:", text)
 		}
+	}
+	excerpt, _ := json.Marshal(selectionAPIPrompt)
+	if n := strings.Count(sessions, `"promptExcerpt":`+string(excerpt)); n != 3 || strings.Count(sessions, "zebra-sentinel") != 3 {
+		t.Fatalf("the session list carries the prompt other than as %d excerpts: %s", 3, sessions)
 	}
 	for _, text := range []string{string(events), read, f.logs.String()} {
 		if strings.Contains(text, "Fix the failing tests") {
@@ -117,10 +123,11 @@ func TestSelectionRunAuditHasNoPrompt(t *testing.T) {
 	if n := strings.Count(sessions, `"title":"Fix the failing tests"`); n != 3 {
 		t.Fatalf("%d sessions titled from the prompt's first line: %s", n, sessions)
 	}
-	for name, text := range map[string]string{"sessions": sessions, "launch audit": string(launched)} {
-		if n, titled := strings.Count(text, "Fix the failing tests"), strings.Count(text, `"title":"Fix the failing tests"`); n != titled {
-			t.Fatalf("the %s carry the prompt's first line %d times, only %d as a title: %s", name, n, titled, text)
-		}
+	if n, titled := strings.Count(sessions, "Fix the failing tests"), strings.Count(sessions, `"title":"Fix the failing tests"`); n != titled+3 {
+		t.Fatalf("the sessions carry the prompt's first line %d times, %d as a title and 3 in excerpts: %s", n, titled, sessions)
+	}
+	if n, titled := strings.Count(string(launched), "Fix the failing tests"), strings.Count(string(launched), `"title":"Fix the failing tests"`); n != titled {
+		t.Fatalf("the launch audit carries the prompt's first line %d times, only %d as a title: %s", n, titled, launched)
 	}
 }
 

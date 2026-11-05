@@ -27,11 +27,12 @@ the tool's last known state so late output cannot reopen a completed tool and su
 
 Three regressions failed before the watchdog fix: quiet command completion and a subsequent prompt, silence after
 command completion, and the hard deadline. Removing the sparse-state fix separately makes the completion/silence
-regression fail. Full `go test -race ./internal/acpagent ./internal/terminalagent -count=1` and `go vet ./...` pass.
-`REET_THEME_BASE=HEAD npm --prefix web run check` passes with zero errors and one existing unused `.vh` selector
-warning in `SessionHoverCard.svelte`. The explicit theme base checks this patch: the checkout's stale `origin/main`
-otherwise makes the existing colour test exceed Node's Git-output buffer. No Svelte files changed.
-The change is local; no live connector has been updated or restarted.
+regression fail. After rebasing onto current main (`c594d81f`), full
+`go test -race ./internal/acpagent ./internal/terminalagent -count=1`, `go vet ./...` and
+`npm --prefix web run check` pass. The web check reports zero errors and two existing unused CSS selector warnings
+in `LaunchBar.svelte` and `SessionHoverCard.svelte`. No Svelte files changed.
+[PR #577](https://github.com/eyupio/reet.sh/pull/577), branch `fix/gaffer-quiet-command-timeout`, carries the fix;
+final-head CI and review remain the merge gate. No live connector has been updated or restarted.
 
 Review batches: [process recovery #480](https://github.com/eyupio/reet.sh/pull/480),
 [retained state #485](https://github.com/eyupio/reet.sh/pull/485), and

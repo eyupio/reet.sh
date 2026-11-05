@@ -14,6 +14,7 @@ const { deriveStages } = await import(asURL(source))
 
 const pull = (over = {}) => ({ number: 42, title: 't', url: 'https://github.com/o/r/pull/42', state: 'OPEN', draft: false, review: 'APPROVED', mergeable: 'MERGEABLE', added: 1, removed: 1,
   checks: [{ name: 'build', state: 'SUCCESS' }], base: 'main', detailKnown: true, threads: { open: 0, resolved: 2 }, ...over })
+const NOTHING = 'Nothing needs you right now.'
 const input = (over = {}) => ({ live: true, planning: false, needsInput: '', active: true, pull: pull(), ...over })
 const states = r => r.steps.map(s => s.state)
 const bad = (name, url) => ({ name, state: 'FAILURE', url })
@@ -144,9 +145,41 @@ test('next 12: no pull request yet depends on whether the session is live', () =
   assert.deepEqual(deriveStages(input({ ...base, live: true })).next, { text: 'Nothing needs you right now.', tone: 'muted' })
   assert.deepEqual(deriveStages(input({ ...base, live: false, active: false })).next, { text: 'Nothing needs you right now.', tone: 'muted' })
 })
-test('next 13: an open pull request with nothing wrong and not ready leaves nothing to do', () => {
-  const r = deriveStages(input({ pull: pull({ review: '' }) }))
-  assert.deepEqual(r.next, { text: 'Nothing needs you right now.', tone: 'muted' })
+test('next 13: an open pull request with a review requested and nothing else wrong leaves nothing to do', () => {
+  const r = deriveStages(input({ pull: pull({ review: '', reviews: { approved: 0, changesRequested: 0, commented: 0, requested: 1 } }) }))
+  assert.deepEqual(r.next, { text: NOTHING, tone: 'muted' })
+  assert.equal(r.steps[3].state, 'current')
+  assert.equal(r.steps[3].detail, 'Review requested')
+  assert.notEqual(r.steps[4].state, 'current')
+})
+test('a repository that requires no review reaches Ready once reviews were read and none are requested', () => {
+  const r = deriveStages(input({ pull: pull({ review: '', reviews: { approved: 0, changesRequested: 0, commented: 0, requested: 0 } }) }))
+  assert.equal(r.steps[3].state, 'done')
+  assert.equal(r.steps[3].detail, 'No review required, no open threads')
+  assert.equal(r.next.text, 'Ready. GitHub decides whether it can merge.')
+})
+test('with reviews unread and no decision, Review stays current and Ready does not fire', () => {
+  const r = deriveStages(input({ pull: pull({ review: '', reviews: undefined }) }))
+  assert.equal(r.steps[3].state, 'current')
+  assert.equal(r.next.text, 'Nothing needs you right now.')
+})
+test('zero open threads in a truncated list do not make Review done', () => {
+  for (const review of ['APPROVED', '']) {
+    const r = deriveStages(input({ pull: pull({ review, reviews: { approved: 0, changesRequested: 0, commented: 0, requested: 0 }, threads: { open: 0, resolved: 100, more: true } }) }))
+    assert.equal(r.steps[3].state, 'current', review)
+    assert.equal(r.steps[3].detail, '100+ threads, not all read')
+    assert.notEqual(r.next.text, 'Ready. GitHub decides whether it can merge.')
+    assert.notEqual(r.steps[4].state, 'current')
+  }
+})
+test('a missing or unexpected pullReason is unread, never a claim that there is no pull request', () => {
+  for (const pullReason of [undefined, 'busy', 'denied', 'timed_out']) {
+    const r = deriveStages(input({ pull: undefined, pullReason, live: false }))
+    assert.deepEqual(states(r).slice(1), ['unknown', 'unknown', 'unknown', 'unknown'], String(pullReason))
+    assert.notEqual(r.steps[0].state, 'attention')
+    assert.doesNotMatch(r.steps[0].detail, /no pull request/i)
+    assert.deepEqual(r.next, { text: 'GitHub status could not be read.', tone: 'muted' })
+  }
 })
 
 test('a pull request with no reported checks never marks Checks done or Merge ready', () => {

@@ -44,7 +44,9 @@ export function deriveStages(input: StageInput): Stages {
   const threads = pull ? threadsOf(pull) : undefined
   const openThreads = threads?.open ?? 0
   const conflicting = pull?.mergeable === 'CONFLICTING'
-  const unavailable = !pull && !!pullReason && pullReason !== 'no_pr'
+  // Only 'no_pr' asserts there is none; a missing or other reason means the machine did not read it.
+  const noPull = !pull && pullReason === 'no_pr'
+  const unavailable = !pull && !noPull
   const notRead = `Not read: ${reasons[pullReason || ''] || 'This view could not be read'}`
   const url = pull ? safeInsightURL(pull.url) : undefined
 
@@ -52,7 +54,7 @@ export function deriveStages(input: StageInput): Stages {
     ? { key: 'code', label: 'Planning', state: 'current', detail: 'The agent is in a planning mode' }
     : pull ? { key: 'code', label: 'Code', state: 'done', detail: 'A pull request exists' }
     : live && active ? { key: 'code', label: 'Code', state: 'current', detail: 'The agent is working' }
-    : active ? { key: 'code', label: 'Code', state: 'attention', detail: 'Finished with changes and no pull request' }
+    : active && noPull ? { key: 'code', label: 'Code', state: 'attention', detail: 'Finished with changes and no pull request' }
     : { key: 'code', label: 'Code', state: 'upcoming', detail: 'Nothing yet' }
 
   let prStep: Step
@@ -78,14 +80,16 @@ export function deriveStages(input: StageInput): Stages {
     else if (pull.review === 'CHANGES_REQUESTED') reviewStep = { key: 'review', label: 'Review', state: 'attention', detail: 'Changes requested' }
     else if (openThreads > 0) reviewStep = { key: 'review', label: 'Review', state: 'attention', detail: `${plural(openThreads, 'open thread', 'open threads')}${threads?.more ? ' or more' : ''}` }
     else if (pull.review === 'REVIEW_REQUIRED') reviewStep = { key: 'review', label: 'Review', state: 'current', detail: 'Review required' }
-    else if (pull.review === 'APPROVED') {
+    else if (!threads) reviewStep = pull.review === 'APPROVED'
       // Approved but unread threads may still be open, so this is never done until they have been read.
-      reviewStep = threads
-        ? { key: 'review', label: 'Review', state: 'done', detail: 'Approved, no open threads' }
-        : { key: 'review', label: 'Review', state: 'current', detail: `Approved. ${THREADS_UNREAD}` }
-    } else reviewStep = threads
-      ? { key: 'review', label: 'Review', state: 'current', detail: 'No review decision yet' }
+      ? { key: 'review', label: 'Review', state: 'current', detail: `Approved. ${THREADS_UNREAD}` }
       : { key: 'review', label: 'Review', state: 'unknown', detail: THREADS_UNREAD }
+    // Zero open in a truncated list says nothing about the rest.
+    else if (threads.more) reviewStep = { key: 'review', label: 'Review', state: 'current', detail: '100+ threads, not all read' }
+    else if (pull.review === 'APPROVED') reviewStep = { key: 'review', label: 'Review', state: 'done', detail: 'Approved, no open threads' }
+    else if (pull.review === '' && pull.reviews && pull.reviews.requested === 0) reviewStep = { key: 'review', label: 'Review', state: 'done', detail: 'No review required, no open threads' }
+    else if (pull.review === '' && pull.reviews) reviewStep = { key: 'review', label: 'Review', state: 'current', detail: 'Review requested' }
+    else reviewStep = { key: 'review', label: 'Review', state: 'current', detail: 'No review decision yet' }
 
     const ready = open && !pull.draft && !conflicting && checksStep.state === 'done' && reviewStep.state === 'done'
     if (merged) mergeStep = { key: 'merge', label: 'Merge', state: 'done', detail: 'Merged' }
@@ -119,7 +123,7 @@ export function deriveStages(input: StageInput): Stages {
   if (pull && pull.draft) return result({ text: 'Draft pull request. Mark it ready when the work is complete.', tone: 'muted' })
   if (pull && pull.review === 'REVIEW_REQUIRED') return result({ text: 'A review is required before this can merge.', tone: 'warn' })
   if (pull && checksStep.state === 'done' && reviewStep.state === 'done') return result(withPrimary({ text: READY, tone: 'good' }, open_('Open pull request')))
-  if (unavailable && pullReason === 'github_unavailable') return result({ text: 'GitHub status is not available on this machine.', tone: 'muted' })
-  if (!pull && !live && active) return result({ text: 'No pull request yet.', tone: 'muted' })
+  if (unavailable) return result({ text: pullReason === 'github_unavailable' ? 'GitHub status is not available on this machine.' : 'GitHub status could not be read.', tone: 'muted' })
+  if (noPull && !live && active) return result({ text: 'No pull request yet.', tone: 'muted' })
   return result({ text: NOTHING, tone: 'muted' })
 }

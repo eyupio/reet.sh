@@ -4,6 +4,7 @@
   import { agentOnline, groupLabel } from './machines'
   import { activeJobKindLabel, agoLabel, jobPlanCounts, syncJobStages } from './syncOverview'
   import SyncProblem from './SyncProblem.svelte'
+  import { keepLauncherClear } from './floatingLauncher'
 
   let {
     snapshot = null,
@@ -135,16 +136,21 @@
   }
 
   // Toasts share this corner. Publish the dock's actual top edge, including
-  // phone navigation, so collapsed and expanded activity both leave room.
+  // phone navigation, so collapsed and expanded activity both leave room. The
+  // dock can also rise above a fixed action bar (see keepLauncherClear), which
+  // moves its top edge without changing its size, so a change of style counts too.
   function reserveToastSpace(node: HTMLElement) {
     const root = document.documentElement
     const measure = () => root.style.setProperty('--sync-dock-clearance', `${window.innerHeight - node.getBoundingClientRect().top}px`)
     const observer = new ResizeObserver(measure)
+    const moved = new MutationObserver(measure)
     observer.observe(node)
+    moved.observe(node, { attributes: true, attributeFilter: ['style'] })
     window.addEventListener('resize', measure)
     measure()
     return { destroy() {
       observer.disconnect()
+      moved.disconnect()
       window.removeEventListener('resize', measure)
       root.style.removeProperty('--sync-dock-clearance')
     } }
@@ -222,7 +228,7 @@
 {/snippet}
 
 {#if show}
-  <aside use:reserveToastSpace class="sync-dock" class:working={live} class:expanded aria-label="Sync activity" aria-live="polite">
+  <aside use:reserveToastSpace use:keepLauncherClear class="sync-dock" class:working={live} class:expanded aria-label="Sync activity" aria-live="polite">
     <div class="accent" aria-hidden="true"></div>
     {#if expanded}
       <header class="dock-head">
@@ -311,7 +317,7 @@
 
 <style>
   .sync-dock {
-    position: fixed; z-index: 60; right: 20px; bottom: calc(20px + var(--bottom-chrome, 0px));
+    position: fixed; z-index: 60; right: 20px; bottom: var(--launcher-clearance, calc(20px + var(--bottom-chrome, 0px)));
     width: min(420px, calc(100vw - 32px));
     overflow: hidden; border: 1px solid var(--line-strong); border-radius: 16px;
     background: color-mix(in srgb, var(--card-raised) 94%, transparent);
@@ -394,7 +400,7 @@
   .dock-foot a { color: var(--accent-text); font-weight: 600; text-decoration: none; }
   .dock-foot a:hover { text-decoration: underline; }
   @media (max-width: 650px) {
-    .sync-dock { right: 12px; left: 12px; bottom: calc(12px + var(--bottom-chrome, 0px)); width: auto; }
+    .sync-dock { right: 12px; left: 12px; bottom: var(--launcher-clearance, calc(12px + var(--bottom-chrome, 0px))); width: auto; }
     .sync-dock.expanded { max-height: min(58dvh, 520px); }
   }
   @media (prefers-reduced-motion: reduce) {

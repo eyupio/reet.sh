@@ -14,7 +14,7 @@
   import { onMount, tick } from 'svelte'
   import {
     addSkill, addSkillTags, applyTheme, clearThemeChoice, clearToken, getAuthStatus, getNotificationCount, getProfile, getSyncState, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
-    patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, saveProfile, signOutAccount, tagSkills, takeThemeChoice, UnauthorizedError,
+    patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, saveProfile, signOutAccount, syncLibraryMachines, tagSkills, takeThemeChoice, UnauthorizedError,
     type Counts, type Environment, type Event, type Flags, type ListRef, type SharedList, type Skill, type Sort, type Tag, type User,
   } from './lib/api'
   import AccountMenu from './lib/AccountMenu.svelte'
@@ -39,6 +39,7 @@
   import MachineSkillSync from './lib/MachineSkillSync.svelte'
   import SyncProblem from './lib/SyncProblem.svelte'
   import { MachineSourceRequired, installSkillOnMachine } from './lib/syncActions'
+  import { fleetSyncSentence, fleetSyncStatus } from './lib/fleetSync'
   import Bookmarklets from './lib/Bookmarklets.svelte'
   import Toast from './lib/Toast.svelte'
   import { ssoErrorFromSearch, ssoErrorMessage, withoutSsoError, type SsoStatus } from './lib/sso'
@@ -125,6 +126,7 @@
   let machineCopy = $state<{skill:Skill;host:string}|null>(null)
   let installFailure = $state<{ message: string; host: string; skill: Skill } | null>(null)
   let syncWatch = $state<{ host: string; title: string; note: string } | null>(null)
+  let syncingAll = $state(false)
   const shelfMachines = $derived(inventoryMachines(machines))
   const machineReports = $derived(installationReports(shelfMachines, inventoryNow))
   let onlyOne = $state(false)
@@ -208,6 +210,9 @@
   const canLoad = $derived(authChecked && authenticated && !needsAuth && !isCommunity && !isPublicList)
   const role = $derived(currentUser?.role ?? (authMode === 'accounts' ? 'viewer' : 'owner'))
   const canWrite = $derived(authMode !== 'accounts' || role !== 'viewer')
+  // Sync all machines is one button wherever it appears. With a machine to sync to and a role that may, it does the job
+  // where it is. Otherwise it opens Sync, which explains what is missing.
+  const syncInPlace = $derived(canWrite && (syncSnapshot?.agents?.length ?? 0) > 0)
   const terminalLayout = $derived(isTerminals && authMode === 'accounts' && authenticated && canWrite && !needsAuth)
   const isAdminUser = $derived(authMode !== 'accounts' || role === 'owner' || role === 'admin')
   // Navigation (R13): four tabs on a desktop (Activity lives in the account; without accounts it is a fifth tab); Home,
@@ -658,7 +663,7 @@
       syncFilter = ''
       selectedMachine = ''
       onlyOne = false
-      showToast(s.created ? `Added ${s.name} to your library. Ready for your machines.` : `Already on the shelf, in ${stageTitle(stageOf(s))}.`, 'Sync machines', () => { location.assign('/sync') })
+      showToast(s.created ? `Added ${s.name} to your library. Ready for your machines.` : `Already on the shelf, in ${stageTitle(stageOf(s))}.`, 'Sync all machines', syncInPlace ? syncAll : () => { location.assign('/sync') })
       await reloadAll()
       await flash(s.id)
       setTimeout(load, 2500) // pick up fetched metadata
@@ -859,6 +864,25 @@
     if (key === settledJobs) return
     settledJobs = key
     void loadMeta()
+  }
+
+  // The whole job in one press. When work starts, the activity dock follows it live; when there is nothing to start, one
+  // line says where things stand. A failure is a toast, so it shows on every page this button is on.
+  async function syncAll() {
+    if (!canWrite || syncingAll) return
+    syncingAll = true
+    try {
+      const next = await syncLibraryMachines()
+      syncUpdated(next)
+      const status = fleetSyncStatus(next)
+      if (status.state === 'syncing') syncWatch = { host: '', title: 'Syncing your machines', note: 'All connected machines · live progress' }
+      else ok(fleetSyncSentence(status))
+    } catch (e) {
+      if (e instanceof UnauthorizedError) fail(e)
+      else showToast(e instanceof Error ? e.message : String(e), undefined, undefined, 'bad')
+    } finally {
+      syncingAll = false
+    }
   }
 
   async function copyMissing() {
@@ -1088,7 +1112,7 @@
     {#await pages.Hosting()}
       <RouteSkeleton variant="form" />
     {:then { default: Page }}
-      <Page {canWrite} reports={machineReports} snapshot={syncSnapshot} />
+      <Page {canWrite} reports={machineReports} snapshot={syncSnapshot} onsync={syncInPlace ? syncAll : undefined} syncing={syncingAll} />
     {:catch}
       <PageLoadError />
     {/await}
@@ -1212,7 +1236,7 @@
     {/await}
   {:else if isSkills}
     <PageHeader eyebrow="Ey up. Your skill shelf." title="Skills." lede="Add a skill once. Keep your library on every machine, including skills you write yourself.">
-      {#snippet actions()}<a class="btn" href="/sync">Sync all machines</a>{#if canWrite && authMode !== 'accounts'}<a class="btn" href="/hosting">Create a skill</a>{/if}{/snippet}
+      {#snippet actions()}{#if syncInPlace}<button class="btn" type="button" disabled={syncingAll} onclick={() => void syncAll()}>{syncingAll ? 'Starting…' : 'Sync all machines'}</button>{:else}<a class="btn" href="/sync">Sync all machines</a>{/if}{#if canWrite && authMode !== 'accounts'}<a class="btn" href="/hosting">Create a skill</a>{/if}{/snippet}
     </PageHeader>
     {#if canWrite}
       <form class="add" onsubmit={add} aria-busy={adding}>
@@ -1441,7 +1465,7 @@
   {#key currentUser.id}<GafferChatWidget userId={currentUser.id} onerror={fail} {timeZone} {dateFormat} />{/key}
 {/if}
 {#if machineCopy}<MachineSkillSync skill={machineCopy.skill} destination={machineCopy.host} onclose={() => {machineCopy=null;void loadMeta()}} />{/if}
-{#if isSkills && authenticated && !needsAuth}<SyncActivity open={syncWatch !== null} context={syncWatch} {canWrite} onclose={() => (syncWatch = null)} onupdate={syncUpdated} />{/if}
+{#if (isSkills || isHosting) && authenticated && !needsAuth}<SyncActivity open={syncWatch !== null} context={syncWatch} {canWrite} onclose={() => (syncWatch = null)} onupdate={syncUpdated} />{/if}
 {#if !terminalLayout && !homeLayout}<Footer
   signedIn={!isPublicList && authMode !== 'none' && authenticated && !needsAuth}
   showAdmin={!isPublicList && authenticated && !needsAuth && isAdminUser}

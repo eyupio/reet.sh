@@ -11,7 +11,8 @@
   import type { Skill, SyncState } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
 
-  let { canWrite = true, reports = [], snapshot }: { canWrite?: boolean; reports?: InstallationReport[]; snapshot?: SyncState } = $props()
+  // `onsync` is Sync all machines done in place; without it (no machine yet, or a read-only account) the notice links to Sync.
+  let { canWrite = true, reports = [], snapshot, onsync, syncing = false }: { canWrite?: boolean; reports?: InstallationReport[]; snapshot?: SyncState; onsync?: () => void | Promise<void>; syncing?: boolean } = $props()
   let username = $state('')
   let prefix = $state('')
   let wantedName = $state('')
@@ -360,7 +361,7 @@
 <svelte:window ondragover={windowDragOver} ondrop={windowDrop} />
 <PageHeader eyebrow="Write &amp; publish" title="Write a skill." lede="Keep it on your machines, or publish it for anyone to install." />
 {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
-{#if notice}<p class="notice good" role="status">{notice}{#if syncHref && /saved|published|Renamed/.test(notice)}<span class="next-action">Ready for your machines. <a href={syncHref}>Sync all machines</a>.</span>{/if}</p>{/if}
+{#if notice}<p class="notice good" role="status">{notice}{#if syncHref && /saved|published|Renamed/.test(notice)}<span class="next-action">Ready for your machines. {#if onsync}<button class="btn" type="button" disabled={syncing} onclick={() => void onsync()}>{syncing ? 'Starting…' : 'Sync all machines'}</button>{:else}<a href={syncHref}>Sync all machines</a>.{/if}</span>{/if}</p>{/if}
 {#if loading}<Skeleton label="Loading your skills…" shape="cards" count={3} />
 {:else if !canWrite}<p class="notice">Your account is read-only. Ask an admin for publishing access.</p>
 {:else if !username}

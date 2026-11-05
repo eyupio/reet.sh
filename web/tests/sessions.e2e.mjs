@@ -1341,10 +1341,14 @@ try {
   for (const dy of [-40, 0, 40]) expect(await role(paneLeft + 10, mid[1] + dy), `10 px into the terminal at ${dy} px`).not.toBe('separator')
   const covered = await page.evaluate(() => {
    const sep = document.querySelector('.panel-separator'), g = sep.getBoundingClientRect(), out = []
+   const side = document.querySelector('#terminal-sessions').getBoundingClientRect()
    const near = r => r.right >= g.left - 24 - 22 && r.left <= g.right + 24 + 22
    for (const el of document.querySelectorAll('.workspace :is(a[href], button, select, input, summary, [role=button], [tabindex="0"]):not(.panel-separator)')) {
     if (!el.getClientRects().length || el.closest('.xterm, .vh') || (el.closest('details:not([open])') && !el.matches('summary'))) continue
     const r = el.getBoundingClientRect()
+    // A control scrolled below or beside the panel's own box is not on screen to be covered; the panel scrolls it into
+    // view. The separator spans the workspace, not that hidden part of the panel's scroll area.
+    if ((r.left + r.right) / 2 < side.left || (r.left + r.right) / 2 > side.right || (r.top + r.bottom) / 2 < side.top || (r.top + r.bottom) / 2 > side.bottom) continue
     if (!near(r) || r.width === 0 || r.bottom < 0 || r.top > innerHeight) continue
     const pts = [[(r.left + r.right) / 2, (r.top + r.bottom) / 2], [r.left + 1, (r.top + r.bottom) / 2], [r.right - 1, (r.top + r.bottom) / 2], [(r.left + r.right) / 2, r.top + 1], [(r.left + r.right) / 2, r.bottom - 1]]
     for (const [x, y] of pts) { const hit = document.elementFromPoint(x, y); if (hit && hit !== el && !el.contains(hit)) out.push(`${(el.getAttribute('aria-label') || el.textContent).trim().slice(0, 30)} at ${Math.round(x)},${Math.round(y)} → ${hit.className || hit.tagName}`) }

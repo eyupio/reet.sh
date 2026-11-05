@@ -28,6 +28,16 @@ export function sessionStage(session: Pick<TerminalSession, 'state'>): Stage {
   return ['creating', 'running', 'end_requested'].includes(session.state) ? 'active' : 'finished'
 }
 
+export type DropIntent = { kind: 'start' } | { kind: 'refine' } | { kind: 'blocked'; reason: string }
+
+// What dropping a backlog item on Active should do. A blocked item says why instead of starting, an idea is refined
+// first, and everything else starts straight away.
+export function dropIntent(draft: Pick<SessionDraft, 'idea' | 'starting'>, reason: string | null): DropIntent {
+  if (draft.starting) return { kind: 'blocked', reason: 'Start was requested. Retry checks the same request.' }
+  if (reason) return { kind: 'blocked', reason }
+  return draft.idea ? { kind: 'refine' } : { kind: 'start' }
+}
+
 export function boardItems(drafts: SessionDraft[], sessions: TerminalSession[]): BoardItem[] {
   return [
     ...drafts.filter(d => !d.sessionId).map(d => ({ ...d, key: `draft:${d.id}`, stage: 'backlog' as const, draft: d })),

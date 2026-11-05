@@ -88,6 +88,7 @@ try {
    await page.goto(`${base}/`)
    await page.getByRole('button',{name:'New session',exact:true}).click()
    const composer=page.getByRole('dialog',{name:'A little planning. Proper progress.',exact:true})
+   await composer.getByLabel('Project',{exact:true}).selectOption('project-options')
    await composer.getByRole('textbox',{name:'Session title',exact:true}).fill('Saved native options')
    await composer.getByRole('textbox',{name:'Prompt',exact:true}).fill('Use the saved model and effort')
    await composer.getByRole('button',{name:'Gaffer',exact:true}).click()

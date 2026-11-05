@@ -9,7 +9,7 @@
   import { shortAge, stateWord } from '../home'
   import { sessionStatus } from '../sessionStatus'
   import { listDrafts, getDraft, deleteDraft, startDraft } from '../sessionBacklog'
-  import { boardItems, emptyFilters, filterBoard, filterCount, sortBoard, STAGES, type BoardView, type SessionDraft } from '../sessionBoard'
+  import { boardItems, dropIntent, emptyFilters, filterBoard, filterCount, sortBoard, STAGES, type BoardView, type SessionDraft } from '../sessionBoard'
   import { launchUpload, readiness, sessionHref, TerminalError, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { imagePrompt } from '../terminal/upload'
   import type { LaunchDefaults } from '../launchBar'
@@ -40,6 +40,8 @@
   let starting = $state<{ opener: HTMLElement } | null>(null)
   let removing = $state<SessionDraft | null>(null), deleteBusy = $state(false)
   let working = $state(''), phase = $state(''), loadingId = $state('')
+  // Dragging a backlog card onto Active starts it. The source element is kept so a refined idea can return focus to it.
+  let dragDraft = $state(''), dragOpener: HTMLElement | undefined, dropActive = $state(false)
   // YOLO is confirmed here, at Start, never when the item is saved or remembered by the browser.
   let yoloAsk = $state<SessionDraft | null>(null), yoloSetting = $state<YoloSetting | null>(null)
   let actions = $state<SessionActions>(), filterButton = $state<HTMLButtonElement>(), filterPanel = $state<HTMLDivElement>(), deleteDialog = $state<HTMLDialogElement>()
@@ -102,6 +104,37 @@
     try { const full = await getDraft(draft.id, signal()); if (!life.signal.aborted) composer = { draft: full, opener, start } }
     catch (e) { error(e); notice = e instanceof Error ? e.message : "Couldn't open that item." }
     finally { loadingId = '' }
+  }
+  function dragStart(event: DragEvent, draft: SessionDraft) {
+    if (draft.starting || working || loadingId) { event.preventDefault(); return }
+    dragDraft = draft.id; dragOpener = event.currentTarget as HTMLElement
+    if (event.dataTransfer) { event.dataTransfer.setData('application/x-reet-backlog', draft.id); event.dataTransfer.effectAllowed = 'move' }
+  }
+  function dragEnd() { dragDraft = ''; dropActive = false }
+  function activeOver(event: DragEvent) {
+    if (!dragDraft) return
+    event.preventDefault()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+    dropActive = true
+  }
+  function activeLeave(event: DragEvent) {
+    if (!dragDraft) return
+    if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) dropActive = false
+  }
+  function activeDrop(event: DragEvent) {
+    if (!dragDraft) return
+    event.preventDefault()
+    const id = event.dataTransfer?.getData('application/x-reet-backlog') || dragDraft
+    const draft = (drafts ?? []).find(d => d.id === id)
+    dragEnd()
+    if (draft) dropToActive(draft)
+  }
+  // Dropping says what the card's Start button would do, in the same words, so the two routes cannot disagree.
+  function dropToActive(draft: SessionDraft) {
+    const intent = dropIntent(draft, startReason(draft))
+    if (intent.kind === 'blocked') { notice = intent.reason; return }
+    if (intent.kind === 'refine') { void edit(draft, dragOpener ?? document.body, true); return }
+    void activate(draft)
   }
   function closeStart() { const opener = starting?.opener; starting = null; void tick().then(() => opener?.focus()) }
   function startedHere(session: TerminalSession) { starting = null; if (onstarted) onstarted(session); else { notice = `Started “${session.title}”. You’ll find it in Active.`; void onchanged() } }
@@ -238,9 +271,9 @@
   <div class="board" class:focused={view !== 'board'} class:compact>
     {#each columns as stage}
       {@const items = filtered.filter(item => item.stage === stage.id)}
-      <section class="stage {stage.id}" aria-labelledby={`${id}-${stage.id}`}>
+      <section class="stage {stage.id}" class:drop-target={stage.id === 'active' && !!dragDraft} class:drop-ready={stage.id === 'active' && dropActive} aria-labelledby={`${id}-${stage.id}`} ondragover={stage.id === 'active' ? activeOver : undefined} ondragleave={stage.id === 'active' ? activeLeave : undefined} ondrop={stage.id === 'active' ? activeDrop : undefined}>
         <header class="stage-head"><span class="stage-mark"><BoardIcon name={stage.id} size={15}/></span><h3 id={`${id}-${stage.id}`}>{stage.label}</h3><span class="stage-count">{items.length}</span>{#if stage.id === 'backlog'}<button aria-label="Add session to backlog" onclick={e => composer = { draft: null, opener: e.currentTarget }}><BoardIcon name="plus" /></button>{:else if stage.id === 'active'}<button aria-label="Start a session" title="Start a session" onclick={e => starting = { opener: e.currentTarget }}><BoardIcon name="plus" /></button>{/if}</header>
-        <p class="stage-hint">{stage.hint}</p>
+        <p class="stage-hint">{stage.id === 'active' && dropActive ? 'Drop to start it on its machine.' : stage.hint}</p>
         <div class="cards" aria-busy={stage.id === 'backlog' && drafts === undefined && !problem || stage.id !== 'backlog' && sessions === undefined && !sessionsFailed}>
           {#if stage.id !== 'backlog' && sessions === undefined && sessionsFailed}
             <div class="empty"><span class="empty-icon"><BoardIcon name="clock" size={24}/></span><strong>Couldn’t read your sessions.</strong><p>Try again to see what’s active and finished.</p><button onclick={() => void onchanged()}>Try again</button></div>
@@ -259,7 +292,7 @@
               {@const hasDetails = detailText !== ''}
               {@const detailOpen = expanded.includes(item.key)}
               {@const detailId = `${id}-${stage.id}-${index}-details`}
-              <article class="session-card" class:attention={session?.attention === 'waiting'} class:starting={working === draft?.id} data-status={session ? sessionStatus(session) : undefined}>
+              <article class="session-card" class:attention={session?.attention === 'waiting'} class:starting={working === draft?.id} class:dragging={!!draft && dragDraft === draft.id} data-status={session ? sessionStatus(session) : undefined} draggable={draft ? !draft.starting && !working && !loadingId : undefined} ondragstart={draft ? event => dragStart(event, draft) : undefined} ondragend={draft ? dragEnd : undefined}>
                 <div class="card-top"><span class="project-label" title={project?.name ?? item.dir}><BoardIcon name="folder" size={13}/>{project?.name || (item.projectId ? 'Removed project' : item.dir.split('/').filter(Boolean).at(-1) || 'Home folder')}</span>{#if draft?.idea}<span class="idea-badge">Idea</span>{/if}{#if draft?.imageCount}<span class="image-count" title={`${draft.imageCount} reference images`}><BoardIcon name="image" size={13}/>{draft.imageCount}</span>{/if}<div class="card-tools">{#if hasDetails}<button type="button" class="disclosure" aria-expanded={detailOpen} aria-controls={detailId} aria-label={`${detailOpen ? 'Hide' : 'Show'} details for ${item.title}`} title={detailOpen ? 'Hide details' : 'Show details'} onclick={() => toggleDetails(item.key)}><span class="disclosure-text" aria-hidden="true">{detailOpen ? 'Hide' : 'Details'}</span><BoardIcon name="chevron" size={13}/></button>{/if}{#if session}<button class="more" aria-label={`Actions for ${item.title}`} onclick={e => void actions?.openMenu(e, session)}><BoardIcon name="more"/></button>{/if}</div></div>
                 <h4>{#if session}<a href={sessionHref(session)}>{item.title}</a>{:else}<button onclick={e => draft && void edit(draft, e.currentTarget)} disabled={!!loadingId || !!draft?.starting}>{item.title}</button>{/if}</h4>
                 {#if hasDetails}<div class="details" class:open={detailOpen} id={detailId} inert={!detailOpen}><div class="details-inner">{#if draft}<p class="prompt-preview">{detailText}</p>{:else}<p class="branch" title={session?.worktreeBranch}>↳ {detailText}</p>{/if}</div></div>{/if}
@@ -331,12 +364,16 @@
   .chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 0 14px; }.chips button { display: flex; align-items: center; gap: 7px; font-size: 10px; color: var(--ink-soft); background: var(--card); border: 1px solid var(--line); padding: 5px 8px; border-radius: 5px; cursor: pointer; }.chips .clear { background: none; border-color: transparent; color: var(--muted); }
   .board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
   .board.focused { grid-template-columns: minmax(0, 1fr); }.stage { min-width: 0; border: 1px solid var(--line); border-radius: 11px; background: var(--bg-sunk); padding: 14px 10px 10px; min-height: 345px; }
+  .stage.drop-target { border-style: dashed; border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .stage.drop-ready { border-style: solid; border-color: var(--accent); background: var(--accent-wash); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); }
+  .stage.drop-ready .stage-hint { color: var(--accent-text); font-weight: 550; }
   .stage-head { display: flex; align-items: center; gap: 7px; padding: 0 4px; }.stage-mark { color: var(--muted); display: flex; }.active .stage-mark { color: var(--accent-text); }.finished .stage-mark { color: var(--good); }
   h3 { font-size: 12px; font-weight: 650; margin: 0; }.stage-count { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; min-width: 18px; text-align: center; box-sizing: border-box; }
   .stage-head > button { margin-left: auto; border: 0; background: transparent; color: var(--muted); display: flex; align-items: center; justify-content: center; cursor: pointer; width: 24px; height: 24px; border-radius: 4px; }.stage-head > button:hover { background: var(--card); }
   .stage-hint { font-size: 10px; color: var(--muted); margin: 6px 4px 15px; }
   .cards { display: grid; gap: 10px; }.focused .cards { grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
   .session-card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 13px; box-shadow: 0 2px 3px color-mix(in srgb, var(--ink) 1%, transparent); min-width: 0; transition: border-color .16s, box-shadow .16s; }.session-card:hover { border-color: var(--line-strong); box-shadow: 0 3px 9px color-mix(in srgb, var(--ink) 3%, transparent); }
+  .session-card[draggable='true'] { cursor: grab; }.session-card.dragging { opacity: .55; cursor: grabbing; }
   .session-card[data-status] { box-shadow: inset 3px 0 var(--status), 0 2px 3px color-mix(in srgb, var(--ink) 1%, transparent); }
   .session-card[data-status='working'], .session-card[data-status='waiting'], .session-card[data-status='starting'], .session-card[data-status='failed'] { background: color-mix(in srgb, var(--status) 4%, var(--card)); }.session-card.attention { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }.session-card.starting { border-color: var(--accent-text); }
   .card-top { display: flex; align-items: center; gap: 7px; min-height: 18px; color: var(--muted); font-size: 10px; }.project-label { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.project-label :global(svg) { flex-shrink: 0; }.image-count { display: flex; align-items: center; gap: 3px; }

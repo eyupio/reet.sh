@@ -89,7 +89,7 @@
   }
   function changeMode(next: 'project' | 'folder') {
     mode = next; browse = false
-    if (next === 'project') { projectId ||= projects[0]?.id ?? ''; chooseProject() }
+    if (next === 'project') { if (projectId) chooseProject() }
     else { projectId = ''; agentId ||= machines[0]?.agentId ?? '' }
   }
   $effect(() => {
@@ -111,8 +111,10 @@
       if (!draft.chat && !CATALOGUE.find(agent => agent.id === tool)?.effort) effort = ''
       mode = projectId ? 'project' : 'folder'; titleTouched = true
     } else {
-      projectId = initialProject || projects[0]?.id || ''; mode = projectId ? 'project' : 'folder'
-      if (projectId) chooseProject(); else { agentId = machines[0]?.agentId ?? ''; defaults() }
+      projectId = initialProject || ''
+      mode = projects.length ? 'project' : 'folder'
+      if (projectId) chooseProject()
+      else { agentId = machines[0]?.agentId ?? ''; defaults() }
     }
     original = initial(); dialog.showModal()
     return () => life.abort()
@@ -252,7 +254,7 @@
   }
   async function save(event: SubmitEvent) {
     event.preventDefault(); if (busy || reading) return
-    const why = !agentId ? 'Choose a machine.' : mode === 'project' && !projectId ? 'Choose a project.' : idea ? ideaProblem({ idea, title, prompt }) || (prompt.trim() ? validatePrompt(tool, prompt) : null) || validateModel(model) || (dir ? validateDir(dir) : null) : !prompt.trim() ? 'Describe what the agent should do.' : validatePrompt(tool, prompt) || validateModel(model) || (dir ? validateDir(dir) : null)
+    const why = mode === 'project' && !projectId ? 'Choose a project.' : !agentId ? 'Choose a machine.' : idea ? ideaProblem({ idea, title, prompt }) || (prompt.trim() ? validatePrompt(tool, prompt) : null) || validateModel(model) || (dir ? validateDir(dir) : null) : !prompt.trim() ? 'Describe what the agent should do.' : validatePrompt(tool, prompt) || validateModel(model) || (dir ? validateDir(dir) : null)
     if (why) { message = why; return }
     const retainedNativeEffort = !startNow && draft?.chat && rules.chat && draft.agentId === agentId && draft.tool === tool && draft.effort === effort
     if (effort && !efforts.includes(effort) && !retainedNativeEffort) { message = 'Choose an effort offered by this machine, or Agent default.'; return }
@@ -334,15 +336,17 @@
 </dialog>
 
 <style>
-  dialog { width: min(760px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--card); color: var(--ink); box-shadow: 0 24px 100px color-mix(in srgb, var(--ink) 18%, transparent); }
+  dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: hidden; padding: 0; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--card); color: var(--ink); box-shadow: 0 24px 100px color-mix(in srgb, var(--ink) 18%, transparent); }
+  dialog[open] { display: grid; grid-template-rows: minmax(0, 1fr); }
   dialog::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
-  form { display: flex; flex-direction: column; max-height: 90dvh; }
+  /* Only the fields scroll. The frame and the form take the same height, so no second scrollbar appears on the dialog. */
+  form { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; max-height: 90dvh; }
   header { display: flex; justify-content: space-between; gap: 20px; padding: 26px 28px 20px; border-bottom: 1px solid var(--line); }
   .eyebrow { font-size: 10px; font-weight: 650; letter-spacing: .13em; color: var(--accent-text); }
   h2 { font: 500 27px/1.2 var(--serif); margin: 8px 0; letter-spacing: -.025em; }
   header p { margin: 0; color: var(--muted); font-size: 13px; }
   .close { align-self: start; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 24px; cursor: pointer; }
-  .body { padding: 22px 28px; overflow-y: auto; }
+  .body { padding: 22px 28px; overflow-y: auto; min-height: 0; }
   fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
   .field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 17px; font-size: 13px; font-weight: 600; min-width: 0; }
   .field small { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 6px; }

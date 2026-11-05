@@ -392,7 +392,20 @@ func TestWorktreeRemoveDiscardsChangesOnlyWithTheConfirmation(t *testing.T) {
 	if !exists(w.Path) {
 		t.Fatal("removed on stale counts")
 	}
-	shown.Discard = true
+	shown.Discard, shown.Fingerprint = true, s.Fingerprint
+	if s.Fingerprint == "" {
+		t.Fatal("a worktree with changes must be fingerprinted")
+	}
+	// The same file edited again keeps the counts but not the fingerprint: it is not what was shown.
+	writeFile(t, filepath.Join(w.Path, "scratch.txt"), "edited after looking\n")
+	if err := WorktreeRemove(context.Background(), home, "p", "site", testRun, shown, ExecGit); !errors.Is(err, ErrWorktreeChanged) {
+		t.Fatal("edit after looking", err)
+	}
+	if !exists(w.Path) {
+		t.Fatal("removed edits the person had not seen")
+	}
+	s = status(t, home, "site", testRun)
+	shown.Fingerprint = s.Fingerprint
 	if err := WorktreeRemove(context.Background(), home, "p", "site", testRun, shown, ExecGit); err != nil {
 		t.Fatal(err)
 	}

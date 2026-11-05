@@ -131,6 +131,7 @@ func worktreeStateJSON(state terminalproto.WorktreeState) map[string]any {
 	return map[string]any{
 		"path": state.Path, "branch": state.Branch, "changed": state.Changed, "unpushed": state.Unpushed, "paths": paths,
 		"unreferenced": state.Unreferenced, "hidden": state.Hidden, "nested": state.Nested, "incomplete": state.Incomplete,
+		"fingerprint": state.Fingerprint,
 	}
 }
 
@@ -158,7 +159,8 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 		Changed  *int `json:"changed"`
 		Unpushed *int `json:"unpushed"`
 		// Discard confirms that the uncommitted changes shown may be deleted.
-		Discard bool `json:"discard"`
+		Discard     bool   `json:"discard"`
+		Fingerprint string `json:"fingerprint"`
 	}
 	if !terminalJSON(w, r, &in) {
 		return
@@ -167,7 +169,12 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 		terminalError(w, terminalproto.ErrInvalid)
 		return
 	}
-	shown := terminalbroker.WorktreeCounts{Changed: *in.Changed, Unpushed: *in.Unpushed, Discard: in.Discard}
+	if in.Discard && in.Fingerprint == "" {
+		// A discard names the changes it was shown.
+		terminalError(w, terminalproto.ErrInvalid)
+		return
+	}
+	shown := terminalbroker.WorktreeCounts{Changed: *in.Changed, Unpushed: *in.Unpushed, Discard: in.Discard, Fingerprint: in.Fingerprint}
 	if err := terminalbroker.CheckWorktreeRemove(in.Project, in.Repo, in.Run, shown); err != nil {
 		terminalError(w, err)
 		return

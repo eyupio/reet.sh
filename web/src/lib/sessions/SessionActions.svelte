@@ -145,7 +145,7 @@
   </ConfirmDialog>
 {:else if action?.kind === 'archive'}
   <ConfirmDialog title={`Remove ${action.item.title} from history?`} body={terminalArchiveBody(action.item.state)} confirmLabel="Remove from history" onconfirm={() => void perform()} oncancel={cancel}>
-    {#if worktreeTargetOf(action.item) && !offline.has(action.item.agentId)}
+    {#if worktreeTargetOf(action.item) && !live(action.item) && !offline.has(action.item.agentId)}
       <label class="option"><input type="checkbox" bind:checked={alsoWorktree} /><span>Then check its worktree. You see any unsaved changes before anything is deleted.</span></label>
     {/if}
   </ConfirmDialog>

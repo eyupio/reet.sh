@@ -212,11 +212,15 @@ type WorktreeRemove struct {
 	// Discard is the person's explicit confirmation to delete the uncommitted
 	// changes counted in Changed. It never overrides any other check.
 	Discard bool `json:"discard,omitempty"`
+	// Fingerprint is the state's Fingerprint the person was shown. A discard
+	// is refused unless the machine's own is still equal, so edits made
+	// after the person looked are never deleted.
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 func (WorktreeRemove) kind() string { return "worktree_remove" }
 func (w WorktreeRemove) valid() bool {
-	return ValidRunToken(w.Run) && ValidSlug(w.Project) && validRepoName(w.Repo) && validWorktreeCount(w.Changed) && validWorktreeCount(w.Unpushed)
+	return ValidRunToken(w.Run) && ValidSlug(w.Project) && validRepoName(w.Repo) && validWorktreeCount(w.Changed) && validWorktreeCount(w.Unpushed) && validFingerprint(w.Fingerprint) && (!w.Discard || w.Fingerprint != "")
 }
 
 // WorktreeState is a worktree's status. Unreferenced, Hidden, Nested and
@@ -237,13 +241,33 @@ type WorktreeState struct {
 	Nested bool `json:"nested,omitempty"`
 	// Incomplete is true when the worktree could not be checked completely.
 	Incomplete bool `json:"incomplete,omitempty"`
+	// Fingerprint (64 hex characters) summarises which paths changed and
+	// what is in them. It is set only when Changed is above zero, and a
+	// discard must repeat it.
+	Fingerprint string `json:"fingerprint,omitempty"`
+}
+
+// validFingerprint accepts no fingerprint, or a lower-case SHA-256 in hex.
+func validFingerprint(f string) bool {
+	if f == "" {
+		return true
+	}
+	if len(f) != 64 {
+		return false
+	}
+	for _, c := range f {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func (WorktreeState) kind() string { return "worktree_state" }
 func (w WorktreeState) valid() bool {
 	validText := validDir(w.Path) && plainText(w.Branch, 255) && w.Branch != ""
 	validCounts := validWorktreeCount(w.Changed) && validWorktreeCount(w.Unpushed) &&
-		validWorktreeCount(w.Unreferenced) && validWorktreeCount(w.Hidden)
+		validWorktreeCount(w.Unreferenced) && validWorktreeCount(w.Hidden) && validFingerprint(w.Fingerprint)
 	valid := validText && validCounts && len(w.Paths) <= MaxWorktreePaths
 	if !valid {
 		return false

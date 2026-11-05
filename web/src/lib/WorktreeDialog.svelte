@@ -110,7 +110,7 @@
    busy = ''; void focusAfter(); return
   }
   try {
-   const done = await removeWorktree(target, shown, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]), shown.changed > 0 && understood)
+   const done = await removeWorktree(target, shown, AbortSignal.any([life.signal, AbortSignal.timeout(15000)]), shown.changed > 0 && understood && status.fingerprint ? { fingerprint: status.fingerprint } : undefined)
    if (life.signal.aborted) return
    gone = true
    message = `Sorted. The worktree${done.path ? ` at ${done.path}` : ''} is removed. ${branchKept(done.branch || status.branch)}`

@@ -43,6 +43,8 @@ export type WorktreeTarget = { agentId: string; project: string; repo: string; r
 export type WorktreeStatus = {
   path: string; branch: string; changed: number; unpushed: number; paths: string[]
   unreferenced: number; hidden: number; nested: boolean; incomplete: boolean
+  /** Identifies the uncommitted changes shown; a discard repeats it. Absent from a machine that is not up to date. */
+  fingerprint?: string
 }
 
 /** Go's path.Clean: one slash between parts, no `.` parts, and each `..` removes the part before it (never above /). */
@@ -126,6 +128,7 @@ export function worktreeBlockers(s: WorktreeStatus): string[] {
   if (s.hidden > 0) out.push(codeSentence('hidden_changes'))
   if (s.nested) out.push(codeSentence('nested_repository'))
   if (s.incomplete) out.push(codeSentence('check_incomplete'))
+  if (s.changed > 0 && !s.fingerprint) out.push('Update reet on that machine to remove a worktree that has uncommitted changes.')
   return out
 }
 

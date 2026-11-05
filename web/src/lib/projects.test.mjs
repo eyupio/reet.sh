@@ -176,12 +176,13 @@ test('a worktree can be removed only when nothing blocks it, and changes always 
   const { worktreeBlockers } = p
   assert.deepEqual(worktreeBlockers(state()), [])
   assert.deepEqual(worktreeBlockers(state({ unpushed: 3 })), [])
-  assert.deepEqual(worktreeBlockers(state({ changed: 1, paths: ['a.txt'] })), [])
+  assert.deepEqual(worktreeBlockers(state({ changed: 1, paths: ['a.txt'], fingerprint: 'f' })), [])
+  assert.deepEqual(worktreeBlockers(state({ changed: 1, paths: ['a.txt'] })), ['Update reet on that machine to remove a worktree that has uncommitted changes.'])
   assert.deepEqual(worktreeBlockers(state({ unreferenced: 2 })), ['Some commits in this worktree are not on any branch. Put them on a branch first, then check again.'])
   assert.deepEqual(worktreeBlockers(state({ hidden: 1 })), ['Git is not tracking some edits in this worktree. Review them before removing.'])
   assert.deepEqual(worktreeBlockers(state({ nested: true })), ['This worktree contains another git repository. Move or remove it first.'])
   assert.deepEqual(worktreeBlockers(state({ incomplete: true })), ["reet couldn't check all of this worktree. Remove it yourself."])
-  assert.equal(worktreeBlockers(state({ changed: 4, unreferenced: 1, hidden: 1, nested: true, incomplete: true })).length, 4)
+  assert.equal(worktreeBlockers(state({ changed: 4, fingerprint: 'f', unreferenced: 1, hidden: 1, nested: true, incomplete: true })).length, 4)
 })
 
 test('the remove confirmation states the counts that were shown and what is deleted and kept', () => {

@@ -259,18 +259,38 @@ func TestSoftwareBatchRetryAndAbandon(t *testing.T) {
 		t.Fatalf("retried member: %+v", done.Members[0])
 	}
 
-	// A fresh batch with no connected machine stops offline and can be abandoned.
+	// A machine that is not connected when its turn comes has not failed: nothing
+	// reached it. It is skipped and the batch finishes, so there is nothing to
+	// retry, skip or abandon.
 	second := softwareBatchAPIFixture(t, 1)
 	code, batch, body = second.start(t, "batch_request_0005", second.agents[0].ID)
 	if code != http.StatusCreated {
 		t.Fatalf("create: %d %s", code, body)
 	}
-	second.wait(t, batch.ID, store.SoftwareBatchStopped)
-	if w := second.request(t, http.MethodPost, "/api/v2/software/batches/"+batch.ID+"/abandon", ""); w.Code != http.StatusOK {
+	skipped := second.wait(t, batch.ID, store.SoftwareBatchDone)
+	if skipped.Members[0].State != store.SoftwareMemberSkipped || skipped.Members[0].Code != "offline" {
+		t.Fatalf("an offline machine should be skipped, not failed: %+v", skipped.Members[0])
+	}
+	if w := second.request(t, http.MethodPost, "/api/v2/software/batches/"+batch.ID+"/abandon", ""); w.Code != http.StatusConflict {
+		t.Fatalf("abandon a finished batch: %d %s", w.Code, w.Body.String())
+	}
+
+	// A failure the machine itself reports is what stops a batch, and abandoning
+	// it keeps the failure it stopped on.
+	third := softwareBatchAPIFixture(t, 1)
+	third.connect(t, 0, func(in terminalproto.SoftwareApply) terminalproto.SoftwareApplyResult {
+		return terminalproto.SoftwareApplyResult{Tool: in.Tool, Action: in.Action, State: terminalproto.SoftwareApplyFailed, Reason: terminalproto.SoftwareApplyDownload}
+	})
+	code, batch, body = third.start(t, "batch_request_0105", third.agents[0].ID)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	third.wait(t, batch.ID, store.SoftwareBatchStopped)
+	if w := third.request(t, http.MethodPost, "/api/v2/software/batches/"+batch.ID+"/abandon", ""); w.Code != http.StatusOK {
 		t.Fatalf("abandon: %d %s", w.Code, w.Body.String())
 	}
-	abandoned := second.wait(t, batch.ID, store.SoftwareBatchAbandoned)
-	if abandoned.Members[0].State != store.SoftwareMemberFailed || abandoned.Members[0].Code != "offline" {
+	abandoned := third.wait(t, batch.ID, store.SoftwareBatchAbandoned)
+	if abandoned.Members[0].State != store.SoftwareMemberFailed || abandoned.Members[0].Code != string(terminalproto.SoftwareApplyDownload) {
 		t.Fatalf("an abandoned batch keeps the failure it stopped on: %+v", abandoned.Members[0])
 	}
 }

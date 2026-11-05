@@ -3022,6 +3022,10 @@ that can sync does.
   never a failed one), the grouping and wording of what was left out, and the shared-name
   note. `syncOverview.test.mjs` checks that saving private copies shows as work in
   progress, not as **Sync needs attention**.
+- `software.test.mjs` checks the Fleet software notes. A machine that was not
+  connected when its turn came is skipped and says nothing was changed on it. A
+  connection that dropped mid-apply is a failure with its own wording, never described
+  as "wasn't connected".
 - The controller side is covered by store and API tests: a shared name, a skill that
   cannot be stored, a machine-only skill on an offline machine, a copy waiting for a
   review, and the storage that used to fill for good. Each fails without its change.

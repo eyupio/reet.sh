@@ -90,6 +90,11 @@ func (b *Broker) machinePeer(uid int64, agent string, body terminalproto.Body) (
 // request id only, so a late answer never reaches another request.
 func (p *Peer) ask(ctx context.Context, body terminalproto.Body, limit time.Duration) (terminalproto.Body, error) {
 	reply, err := p.callWithin(ctx, terminalproto.Message{Body: body}, limit)
+	return p.answer(ctx, reply, err)
+}
+
+// answer turns the outcome of a call into what a caller of ask is given.
+func (p *Peer) answer(ctx context.Context, reply terminalproto.Message, err error) (terminalproto.Body, error) {
 	if errors.Is(err, errReplyLost{}) {
 		select {
 		case <-p.done:

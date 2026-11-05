@@ -377,14 +377,19 @@ func loadSoftwareBatchMember(q softwareBatchQuerier, uid int64, batchID string, 
 }
 
 // SetSoftwareBatchMemberState records a running member's outcome: applied
-// (with the version now installed) or failed (with a code). The batch is then
-// settled: still running while work remains, stopped at a failure, or done.
+// (with the version now installed), failed (with a code), or skipped (with a
+// code) for a machine the apply never reached, which has not failed and leaves
+// nothing to review. The batch is then settled: still running while work remains,
+// stopped at a failure, or done. A skipped member does not stop it.
 func (s *Store) SetSoftwareBatchMemberState(uid int64, batchID string, position int, state, code, version string) error {
-	if state != SoftwareMemberApplied && state != SoftwareMemberFailed {
-		return fmt.Errorf("%w: an outcome is applied or failed", ErrSoftwareBatchMemberNotRunning)
+	if state != SoftwareMemberApplied && state != SoftwareMemberFailed && state != SoftwareMemberSkipped {
+		return fmt.Errorf("%w: an outcome is applied, failed or skipped", ErrSoftwareBatchMemberNotRunning)
 	}
 	if state == SoftwareMemberFailed && !validCode(code) {
 		code = "apply_failed"
+	}
+	if state == SoftwareMemberSkipped && !validCode(code) {
+		code = "skipped"
 	}
 	if !shortPlain(version, 64) || !shortPlain(code, maxCodeBytes) {
 		return fmt.Errorf("%w: an outcome carries plain text within its limits", ErrSoftwareBatchMemberNotRunning)

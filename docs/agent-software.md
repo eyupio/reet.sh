@@ -111,7 +111,13 @@ whose evidence no longer supports its plan is left out with the reason shown.
 
 A batch applies to one machine at a time, in that order, and stops at the first
 failure. A stopped batch names the failed machine and offers **Retry**, **Skip and
-continue**, or **Abandon batch**. A machine already at the target version (for
+continue**, or **Abandon batch**. A machine that is not connected when its turn comes
+has not failed, because nothing reached it: it is skipped, with a note that nothing
+was changed on it, and the batch carries on and finishes. Review the fleet again once
+that machine is back. A connection that drops after the plan was sent is different,
+because the machine may be part-way through installing. That is a failure
+(`connection_lost`) and stops the batch, and **Retry** checks what is installed
+before doing anything. A machine already at the target version (for
 example after a lost reply) is reconciled as applied instead of failing. A member
 left running by a controller restart is tried again and reconciled the same way.
 At most one batch is active per signed-in person, and a machine can be in only one.

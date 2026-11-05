@@ -80,6 +80,15 @@ try {
    await expect(region).toBeVisible()
    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
    expect(overflow).toBe(false)
+   // Gaffer's entry point follows the composer's actual height, including
+   // the durable queue, live controls and a multi-line worker instruction.
+   await composer.fill('Keep the scope agreed.\n'.repeat(8))
+   await expect.poll(() => page.evaluate(() => {
+    const launcher = document.querySelector('.gaffer-launcher')?.getBoundingClientRect()
+    const docks = [...document.querySelectorAll('[data-floating-clearance]')].map(node => node.getBoundingClientRect()).filter(r => r.width && r.height)
+    return !!launcher && docks.length > 0 && launcher.top >= 0 && docks.every(dock => launcher.left >= dock.right + 10 || launcher.right <= dock.left - 10 || launcher.bottom <= dock.top - 10)
+   })).toBe(true)
+   await composer.fill('')
    await page.screenshot({ path: `${process.env.REET_SCREENSHOT_DIR || "/tmp"}/live-chat-${theme}-${width}.png`, fullPage: true })
   }
  }

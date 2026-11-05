@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { gafferSessionContext } from '../gafferContext'
   import { gafferTooltip } from '../gafferTooltip'
   import { onMount, tick, type Snippet } from 'svelte'
   import { getSyncState, getYoloSetting, type SyncState, type YoloSetting } from '../api'
@@ -43,6 +44,12 @@
     /** Present only when this closed session can be continued here. */
     oncontinue?: () => void; onterminal?: () => void; onside?: () => void; side?: Snippet; showSide?: boolean; children: Snippet
   } = $props()
+
+  $effect(() => {
+    const current = { id: session.id, title: session.title, structured: !!session.structured, model: session.model ?? '', tool: session.tool ?? '' }
+    gafferSessionContext.set(current)
+    return () => gafferSessionContext.update(value => value === current ? null : value)
+  })
 
   const id = $props.id()
   const chatView = $derived(!!session.structured)

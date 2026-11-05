@@ -915,7 +915,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
   {#if liveControls}<ChatQueue sessionId={session.id} controls={null} active={false} />{/if}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}
  {:else}
-  <div class="composer" onpaste={pasted} class:dropping={dropping}>
+  <div class="composer" data-floating-clearance onpaste={pasted} class:dropping={dropping}>
    {#if liveControls}<ChatQueue sessionId={session.id} controls={runtime} active={!ended} reloadKey={queuePulse} />{/if}
    {#if runtimeNote}<p class="notice" role="status">{runtimeNote}</p>{/if}
    {#if queued.length}

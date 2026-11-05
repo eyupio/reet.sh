@@ -2,9 +2,8 @@
 
 Prepared: 1 November 2026. Updated: 5 November 2026. Active direction: the Gaffer
 session-companion MVP below. Product decisions and the initial HTTP provider
-foundation, account provider settings and durable conversation backend are recorded
-here. The widget is a separate stacked PR; scoped tools and offline coordination
-remain unimplemented.
+foundation, provider settings and general/session companion chat are recorded
+here. Scoped context/message tools and offline coordination are not implemented.
 
 ## Active direction: Gaffer session-companion MVP (5 November 2026)
 
@@ -438,6 +437,114 @@ Continue #606's widget verification on its own branch. Then implement GM3's
 allowlisted context projections and explicit session grants before enabling GM4's
 durable offline supervision. Keep uncertain worker-message delivery and approval
 cards under the existing queue/worker authority.
+
+### GM2B: floating general/session companion UI (5 November 2026)
+
+[Open PR #606](https://github.com/eyupio/reet.sh/pull/606),
+`feat/gaffer-floating-chat`, targets provider/conversation PR #603. #605 was merged
+into #603's branch as `628118e8`, not into main. This branch now includes #603's
+review/CI fix `d7bfa84e` as well. #603 and #606 remain open; do not merge either
+without owner direction. Older records above describe their dated checkpoints.
+
+- `GafferChatWidget.svelte`, the typed API and receipt helpers connect the GM2A
+  runtime to a global **Ask Gaffer** launcher for private browser writers. It does
+  no provider/conversation work while closed. Public/auth/viewer/legacy modes
+  have no launcher. The existing portrait follows motion/reduced-motion settings.
+- `SessionScreen.svelte` publishes only active session identity/model to a small
+  UI context store. The panel automatically binds active-session mode to that ID,
+  also offers general chat, and explains plain-terminal unavailability. It does
+  not read or copy worker history; backend ownership checks remain authoritative.
+- Desktop chat is modeless, with an expand control; phone chat uses the existing
+  dialog shell, visual-viewport/short-screen rules and native modal focus. Escape
+  closes and returns focus. The launcher is raised above the worker composer.
+- General and session drafts stay separate in memory. Request epochs and aborted
+  reads prevent a late response from A replacing B. Closing/switching aborts only
+  browser reads and observation, not an admitted provider answer. Reopening reads
+  the saved scope and observes any running turn. Cancellation targets only Gaffer.
+- Before a send, browser session storage records only account/scope-bound receipt
+  metadata, never prompt text or credentials. An uncertain outcome blocks a new
+  send until reconciliation; explicit safe retry uses the original ID/body/revision.
+  A reload can find an already-admitted receipt without calling the model again.
+  Gateway/server failures also retain uncertainty. Retrying the original message
+  preserves any newer draft the user has typed while checking delivery.
+  Definitive initial refusals retain the draft; a failed retry keeps its uncertainty.
+- Provider/model choices are independent of the worker. Discovery/manual fallback
+  and explicit application of overrides disclose conversation-history sharing.
+  The UI shows requested provider/model per reply, known/unknown usage, truncation,
+  partial/error/interrupted state and copy controls. Model text is escaped plain text.
+- **Saved chats** lists owned metadata and removes histories, including archived
+  worker scopes. Removing a companion stops its answer, leaves the worker alone,
+  and does not refund provider credits. Context flags remain future policy:
+  only explicitly typed Gaffer messages and completed companion history are sent.
+
+Verification: receipt unit tests, web checks (zero errors, two existing warnings)
+and production build pass. The new Chromium matrix and existing Gaffer settings,
+session workspace, navigation and phone-layout suites pass. Static docs build and
+rendered-site checks pass 51 pages; all 16 MCP checks and the static docs browser
+matrix (40 responsive views plus no-JS) also pass. UI captures and exact cases are recorded in
+[UI verification](ui-verification.md#gaffer-floating-companion-chat-5-november-2026).
+Go vet passes. The full Go race run passes API (471 s), store (246 s), Gaffer
+(48 s), broker (76 s) and all packages except four previously reproduced terminal-
+host failures: the model-list process-group check and three missing-tmux service
+checks. The previously observed git-child timeout check passed on this run. No
+Go runtime authority was changed; the full local suite is not green.
+
+No live provider credentials, paid requests, physical device or deployment was
+used. Native EventSource is exercised over a synthetic HTTP SSE envelope; the
+remaining browser flow uses synthetic API/stream fixtures. Scope is GM2B, not the
+complete MVP: no live reet status, worker transcript tool, scoped MCP message,
+follow goal or background PR supervision is enabled.
+
+Exact next task: GM3A's account/session grants and bounded context projections,
+following [the contract](handoffs/gaffer-conversations.md). Define and test the
+allowlisted status/history/tool fields before making any worker data available to
+Gaffer or MCP. Then add GM3B's explicit worker-message operations and receipt
+mapping over the existing queue; GM4 adds durable offline goals only after those
+boundaries are verified. Preserve separate identities, existing approvals and the
+quirky critical-buddy voice throughout.
+
+### GM2B browser follow-up: keep controls reachable (5 November 2026)
+
+Final-head widget CI exposed two launcher collisions: the skill editor's **Save
+draft** action and the worker's **Queue** action. Fixed offsets did not account
+for a growing composer, its queue, work-update card or a page's fixed action dock. The launcher now
+measures explicitly marked clearance regions and stays above those in its column.
+It observes insertion/removal, size changes, scrolling and viewport changes, and
+disconnects its observers/listeners when the launcher unmounts. Other columns
+remain usable without unnecessarily moving the launcher.
+
+The previously failing sync-vocabulary and live-chat-controls browser flows pass.
+Their additional geometry checks cover the save dock and a multi-line worker
+instruction with its queue/live controls in both themes at desktop and phone
+widths. The full Gaffer companion browser matrix also passes. Web check/build
+retain only the two existing warnings. #603's provider fallback and deterministic
+browse-test fixes are carried forward; its full local race result is recorded in
+the review checkpoint above. The full phone run subsequently exposed a plain-terminal **Focus terminal**
+collision. Its footer and bottom extra-key row now opt into the same clearance
+contract; the sideways top key row does not. The launcher also stays inside the
+visual viewport above an on-screen keyboard. Phone session tests cover 320/390 px,
+keyboard visibility and sideways layout alongside the existing terminal actions.
+
+Provider settings also directs users to Ask Gaffer now that companion chat is
+available; only live session context and follow-up remain forthcoming. Final-head
+CI remains the merge gate for #606. All final-head GitHub checks on #603
+`d7bfa84e` pass, including full Go race, browsers and native-service checks. Both
+PRs remain open; neither was merged in this batch.
+
+### GM2B alignment after #603 merged (5 November 2026)
+
+GitHub merged #603 as `b3b8e781` at 19:06 UTC and retargeted #606 to main.
+The only merge conflict was `web/package.json`: preserve main's Overview test
+commands and Gaffer's receipt tests together. The branch now contains that main
+merge, including the independent Overview and sync-dedupe work, without removing
+any of their changes. Recheck the merged UI and final-head CI; do not merge #606
+without owner direction. The prior PR-state paragraphs are dated checkpoints.
+
+Before alignment, all 24 local phone/dialog/worker/terminal browser groups pass
+on `ca976cf4`, including the three formerly blocked controls, keyboard visibility,
+clipboard and uploads. The aligned branch must retain these behaviours and its
+separate Gaffer/worker identities. Live context, scoped messages and durable
+supervision remain the next integration slices.
 
 ## Gaffer branding and Eli reuse (1 November 2026)
 

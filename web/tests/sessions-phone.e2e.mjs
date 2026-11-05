@@ -76,6 +76,11 @@ try {
     expect(Math.min(b.width, b.height), `${width}px header target`).toBeGreaterThanOrEqual(44)
    }
    await expect(page.locator('.site-header')).toBeVisible()
+   await expect.poll(() => page.evaluate(() => {
+    const launcher = document.querySelector('.gaffer-launcher')?.getBoundingClientRect()
+    const docks = [...document.querySelectorAll('[data-floating-clearance]')].map(n => n.getBoundingClientRect()).filter(r => r.width && r.height)
+    return !!launcher && docks.every(d => launcher.bottom <= d.top - 10 || launcher.left >= d.right + 10 || launcher.right <= d.left - 10)
+   })).toBe(true)
    await page.getByRole('button',{name:'Focus terminal',exact:true}).click()
    const field = page.locator('.xterm-helper-textarea')
    await expect(field).toBeFocused()
@@ -84,6 +89,7 @@ try {
    await expect(page.locator('.site-header')).toBeHidden()
    await expect(page.getByRole('navigation',{name:'Main navigation'})).toBeHidden()
    await expect(page.locator('html')).toHaveAttribute('data-chrome-aside','')
+   await expect.poll(() => page.locator('.gaffer-launcher').evaluate(n => n.getBoundingClientRect().bottom)).toBeLessThanOrEqual(keyboard - 10)
    await expect(header).toBeVisible()
    // The layout settles (the keyboard animates in): the pane's foot comes to rest at the keyboard.
    const paneFoot = async () => { const b = await page.locator('.pane').boundingBox(); return Math.round(b.y + b.height) }

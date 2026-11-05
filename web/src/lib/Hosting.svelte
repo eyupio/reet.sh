@@ -518,7 +518,7 @@
     {:else}<section class="panel"><h2>A home for your skills</h2><p>Choose a skill to edit, or create a new one. Drafts stay private until you publish them.</p></section>{/if}
   </div>
   {#if editor && !importing}
-    <div class="save-dock" role="region" aria-label="Save your skill">
+    <div class="save-dock" data-floating-clearance role="region" aria-label="Save your skill">
       <span class="save-state" aria-live="polite">{busy ? 'Saving…' : dirty ? 'Unsaved changes' : originalSlug ? 'All changes saved' : 'Not saved yet'}</span>
       <button type="submit" form="skill-form" class="btn primary" disabled={busy} aria-busy={busy}>{busy ? 'Saving…' : renameNeeded ? 'Rename and save' : editor.published ? 'Save and publish' : 'Save draft'}</button>
     </div>

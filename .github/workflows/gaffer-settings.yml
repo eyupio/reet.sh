@@ -34,7 +34,7 @@ jobs:
           chromium_path="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")"
           test -x "$chromium_path"
           echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromium_path" >> "$GITHUB_ENV"
-      - name: Exercise account provider settings
+      - name: Exercise Gaffer settings and companion chat
         env:
           REET_UI_URL: http://127.0.0.1:4173
           REET_UI_SCREENSHOTS: ${{ runner.temp }}/gaffer-settings
@@ -47,6 +47,7 @@ jobs:
             sleep 1
           done
           node web/tests/gaffer-settings.e2e.mjs
+          node web/tests/gaffer-chat.e2e.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

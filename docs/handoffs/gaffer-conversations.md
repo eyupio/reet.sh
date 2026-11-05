@@ -122,7 +122,8 @@ at 64 KiB. The system prompt discloses omitted/trimmed history and Gaffer's curr
 lack of tools/live evidence. Empty answers, unsolicited tool calls and streams
 without a completion marker are failures, with partial text retained.
 
-The UI is not connected to these routes yet. No tools, scoped MCP session writes,
+GM2B connects the floating general/session UI to these routes; see the newer
+record in the orchestration handoff. No tools, scoped MCP session writes,
 background goals, autonomous polling or PR actions are enabled. There is no
 automatic provider retry/fallback. No new dependency or paid provider was used.
 
@@ -152,8 +153,8 @@ explicit cancellation, provider pause/role change, history isolation, unsolicite
 tools, incomplete streams, disconnect/reconnect and audit privacy. Record exact
 final checks and PR state in the main companion handoff when publishing.
 
-Next: add the floating general/session UI over these routes, including scope,
-provider/model identity, partial/error/restart states, explicit cancellation and
-removal. Then implement the bounded context projections and scoped MCP read/message
+GM2B now supplies the floating UI with scope, independent model identity,
+partial/error/restart states, explicit cancellation/removal and receipt recovery.
+Next: implement the bounded context projections and scoped MCP read/message
 grants above. Durable follow goals remain GM4, after the queue/grant integration
 is verified. Keep the existing worker composer and approval flow authoritative.

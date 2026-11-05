@@ -34,20 +34,28 @@ plan [#600](https://github.com/eyupio/reet.sh/pull/600) and HTTP provider founda
 [#601](https://github.com/eyupio/reet.sh/pull/601) are merged. Tests use local fake
 providers, with real credentials supplied later through Gaffer settings.
 
-GM1B and GM2A now share [open PR #603](https://github.com/eyupio/reet.sh/pull/603),
+GM1B and GM2A shipped in [merged PR #603](https://github.com/eyupio/reet.sh/pull/603),
 `feat/gaffer-provider-settings`. The owner merged conversation backend #605 into
-that branch, not into main. It contains account-owned providers, encrypted keys,
+that branch, then #603 merged into main as `b3b8e781`. It contains account-owned providers, encrypted keys,
 live model selection and Account → Gaffer AI, plus separate durable general/session
 conversations, versioned model choices, turn receipts, SSE, cancellation and
 restart recovery without replay. Only typed companion messages reach providers.
 The [conversation/access contract](docs/handoffs/gaffer-conversations.md) records
 worker eligibility, grants and queue receipt/recovery boundaries for later slices.
 
-GM2B is [draft PR #606](https://github.com/eyupio/reet.sh/pull/606),
-`feat/gaffer-floating-chat`, based on #603. Its floating general/session widget,
-model choices, stream recovery and scope isolation are published separately;
-read that branch's verification record before continuing its browser work. Do not
-merge either PR without owner direction. Scoped context tools, worker messages
+GM2B is [open PR #606](https://github.com/eyupio/reet.sh/pull/606),
+`feat/gaffer-floating-chat`, now based on main after #603 merged. It carries the
+`d7bfa84e` review fix and the independent main-line Overview/sync changes.
+It supplies floating general/session chat, independent model choices, durable
+receipt recovery, scoped drafts, cancellation and history cleanup. Its browser CI
+exposed launcher overlaps with **Save draft** and worker **Queue** controls. The
+launcher now follows measured composer/action-dock bounds; both failing flows and
+the full Gaffer chat browser matrix pass locally. A subsequent phone-terminal
+collision is fixed too: the footer/extra-key controls remain reachable, and the
+launcher stays above an on-screen keyboard. Phone session, clipboard and upload
+flows pass. #603's final `d7bfa84e` GitHub checks are all green. See the companion record and
+[UI evidence](docs/ui-verification.md) for the widget scope and final checks. Do
+not merge #606 without owner direction. Scoped context tools, worker messages
 and durable offline supervision remain ahead; Gaffer has no coding or PR authority.
 
 The 5 November #603 review follow-up fixes first-address-only provider dialing:

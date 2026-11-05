@@ -55,6 +55,11 @@ try {
     await expect(page.getByRole('heading', { name: 'Write a skill.', exact: true })).toBeVisible()
     await expect(page).toHaveTitle(/Write a skill · reet\.sh/)
     await page.locator('.skill-choice').filter({ hasText: 'reet-review' }).click()
+    await expect.poll(() => page.evaluate(() => {
+      const launcher = document.querySelector('.gaffer-launcher')?.getBoundingClientRect()
+      const dock = document.querySelector('.save-dock')?.getBoundingClientRect()
+      return !!launcher && !!dock && launcher.bottom <= dock.top - 10
+    })).toBe(true)
     await page.locator('.save-dock').getByRole('button', { name: 'Save draft', exact: true }).click()
     await expect(page.getByText(/Ready for your machines/)).toBeVisible()
     await expect(page.getByRole('link', { name: 'Sync all machines', exact: true })).toHaveAttribute('href', `/sync?skill=${encodeURIComponent(`hosted/${new URL(base).host}/sam/reet-review`)}`)

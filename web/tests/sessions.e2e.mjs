@@ -674,11 +674,11 @@ try {
   await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
   await expect(view.getByRole('button',{name:'OpenCode TUI'})).toHaveAttribute('aria-pressed','true')
   await expect(view.getByRole('button',{name:'Gaffer'})).toHaveAttribute('aria-disabled','false')
-  // Another agent has no Gaffer at all.
+  // Another agent cannot switch between Gaffer and its TUI.
   await sidebarRow(page, 'Add browse-v1 protocol').click()
   const chat = view.getByRole('button',{name:'Gaffer'})
   await expect(chat).toHaveAttribute('aria-disabled','true')
-  await expect(chat).toHaveAccessibleDescription("Gaffer is for a structured OpenCode session. Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI.")
+  await expect(chat).toHaveAccessibleDescription("Switching between Gaffer and the agent’s TUI is currently available for OpenCode only. Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI.")
   await expect(view.getByRole('button',{name:'Claude Code TUI'})).toHaveAttribute('aria-pressed','true')
   // Choosing it changes nothing (it is aria-disabled, so it stays in the tab order with its reason).
   await chat.click({force:true})

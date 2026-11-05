@@ -38,6 +38,16 @@ block first (`1600px: sections moved after a long agent update` and `... after t
 the new block catches them is not shown by those runs. The same pass tightened the Branch assertion in `sessions.e2e.mjs`
 from `toContainText` back to `toHaveText` on the monospace branch element, for both the recorded branch and `Not recorded`.
 
+Final review fix wave (commit `72a41c36`), on that tree with the same set-up: `npm test` 833 tests, 0 failures; `npm run
+check` 0 errors and the same 2 warnings; `npm run build` succeeds; browser, all passing: `session-workspace`, `sessions`,
+`chat`, `chat-controls`, `chat-previews`, `sessions-phone`, `phone-layout`, `phone-dialogs` (255 s) and `phone-zoom`. The
+axe audits in `session-workspace.e2e.mjs` were not run, because `REET_AXE_PATH` is unset and axe-core is not installed. Seen
+failing against a build without the fix: the prompt dialog closing on a session-list refresh (1600 and 375 px), the
+`githubStale` unit tests and both Last known browser cases, the phone sheet staying over a filled composer, the missing
+Copy pull request link, `aria-current` on the first attention step, `runLine` with no real start time, and the Plan label
+at a 300 px panel (the label did not actually truncate in this Chromium, so the test asserts the short word). The check that
+every stability baseline found its blocks is a guard and was not shown failing.
+
 Seen failing with the rule removed, from the task reports (only what they record):
 
 - Run clock: `runClock.test.mjs` and the pull request verdict tests were first run before their modules existed

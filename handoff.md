@@ -29,7 +29,10 @@ request fields from OVERVIEW-2; contents and rules are in `docs/terminal-workspa
   (`overviewStages.ts`, `StageTracker`); a pull request card (`PullCard`, `pullFacts.ts`, `pullVerdict.ts` shared with the
   GitHub tab); a Where card with copy buttons and a repository link (`WhereCard`); a status dot on the GitHub tab; and one
   automatic GitHub read per cadence that respects Live updates (`githubReadDue`, `insightStore`). The Overview itself is its
-  own component (`OverviewTab`), moved out of `ContextPanel` with no change to what it showed.
+  own component (`OverviewTab`), moved out of `ContextPanel` with no change to what it showed. The final review's fix wave
+  added a `Last known · checked …` marker on the tracker's Next line and the pull request card (`githubStale`), a Copy pull
+  request link button, a prompt dialog that stays open across the 15 s session refresh, and the phone sheet closing after
+  a fix request fills the composer.
 - **The fix shortcut never sends.** "Ask the agent to fix..." fills the chat composer through `composerPrefill.ts`
   and `ChatPane`; a terminal, or a composer that is nearly full, disabled or off screen, gets a copy to the clipboard
   instead (`fixMessages.ts`, `fixDelivery.ts`). A repeated request does not stack. Check and branch names are cleaned

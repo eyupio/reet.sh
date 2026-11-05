@@ -1311,13 +1311,26 @@ func (s *Session) cancelCards() {
 	}
 }
 
+// recoverRoot is where this adapter keeps its own logs and store: the person's
+// login folder when the profile routes one (Cline's ~/.cline), otherwise the
+// private chat home.
+func (s *Session) recoverRoot() string {
+	if s.opts.Agent.LoginHomeEnv == "" {
+		return s.opts.Home
+	}
+	if root, err := loginHome(s.opts.Agent, s.opts.BaseEnv); err == nil {
+		return root
+	}
+	return ""
+}
+
 // recoverLive asks the adapter for an error it logged while the turn has been
 // silent. It returns "" when the adapter has no live source or the log is quiet.
 func (s *Session) recoverLive(acpID string, afterMS int64) string {
 	if s.opts.Agent.RecoverLive == nil {
 		return ""
 	}
-	return s.opts.Agent.RecoverLive(s.opts.Home, acpID, afterMS)
+	return s.opts.Agent.RecoverLive(s.recoverRoot(), acpID, afterMS)
 }
 
 // reportTurnError ends a turn whose provider failed without ACP reporting it.
@@ -1579,7 +1592,7 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		progress := s.turnProgress
 		s.mu.Unlock()
 		if !progress && s.opts.Agent.RecoverError != nil {
-			if message := s.opts.Agent.RecoverError(s.opts.Home, acpID, startedAt.UnixMilli()); message != "" {
+			if message := s.opts.Agent.RecoverError(s.recoverRoot(), acpID, startedAt.UnixMilli()); message != "" {
 				s.emit(Event{Kind: "status", State: "error", Detail: safeRPCText(message)})
 				return nil
 			}

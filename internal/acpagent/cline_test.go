@@ -5,6 +5,7 @@ package acpagent
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -196,5 +197,79 @@ func TestClineEditorReplacementShowsBothSides(t *testing.T) {
 	diff, cut := renderTextDiff("/work/new.txt", &oldText, "new line")
 	if cut || !strings.Contains(diff, "-old line") || !strings.Contains(diff, "+new line") {
 		t.Fatalf("diff: %q cut=%v", diff, cut)
+	}
+}
+
+// A provider failure Cline logged without an ACP frame is read back by session
+// and time: the newest error for this chat, never another chat's or an older
+// turn's, and never a line that carries no message.
+func TestClineLogErrorReadsThisTurnOnly(t *testing.T) {
+	root := t.TempDir()
+	logDir := filepath.Join(root, "data", "logs")
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := "1793848855723_8zvJS_cli"
+	base := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
+	at := func(offset time.Duration) string { return base.Add(offset).Format(time.RFC3339Nano) }
+	lines := []string{
+		`{"level":30,"time":"` + at(0) + `","sessionId":"` + sessionID + `","message":"starting"}`,
+		`{"level":50,"time":"` + at(-time.Minute) + `","sessionId":"` + sessionID + `","err":{"message":"before this turn"}}`,
+		`{"level":50,"time":"` + at(time.Second) + `","sessionId":"another_chat_cli","err":{"message":"another chat"}}`,
+		`{"level":50,"time":"` + at(2*time.Second) + `","sessionId":"` + sessionID + `","err":{"message":"Insufficient balance. Your Cline Credits balance is $-0.00 (Request ID: test)"},"msg":"Interactive turn failed"}`,
+		`{"level":50,"time":"` + at(3*time.Second) + `","sessionId":"` + sessionID + `","err":{"message":"Unauthorized"},"msg":"[ai-sdk] provider error"}`,
+		`{"level":50,"time":"` + at(4*time.Second) + `","sessionId":"` + sessionID + `","msg":"Agent loop caught error"}`,
+		`not json`,
+	}
+	if err := os.WriteFile(filepath.Join(logDir, "cline.log"), []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := clineLogError(root, sessionID, base.UnixMilli()); got != "Unauthorized" {
+		t.Fatalf("newest error: %q", got)
+	}
+	if got := clineLogError(root, sessionID, base.Add(3*time.Second+time.Millisecond).UnixMilli()); got != "" {
+		t.Fatalf("error before the turn start was reported: %q", got)
+	}
+	if got := clineLogError(root, "another_chat_cli", base.UnixMilli()); got != "another chat" {
+		t.Fatalf("another chat: %q", got)
+	}
+	if got := clineLogError(root, "", base.UnixMilli()); got != "" {
+		t.Fatalf("no session id still read the log: %q", got)
+	}
+	if got := clineLogError("", sessionID, base.UnixMilli()); got != "" {
+		t.Fatalf("no login folder still read the log: %q", got)
+	}
+	if got := clineLogError(t.TempDir(), sessionID, base.UnixMilli()); got != "" {
+		t.Fatalf("a missing log reported an error: %q", got)
+	}
+}
+
+// A turn the provider failed before any frame is not silent: the chat ends with
+// the reason Cline logged.
+func TestClineSilentTurnShowsItsLoggedProviderError(t *testing.T) {
+	opts, got := clineOptions(t, "cline-silent-error")
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "hello") }()
+	for {
+		event := got.next(t)
+		if event.Kind == "status" && event.State == "error" {
+			if event.Detail != "Insufficient balance for this chat" {
+				t.Fatalf("detail: %q", event.Detail)
+			}
+			break
+		}
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("prompt: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the failed turn did not end")
 	}
 }

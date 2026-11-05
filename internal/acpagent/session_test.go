@@ -436,6 +436,15 @@ func TestFakeACP(t *testing.T) {
 						"rawInput": map[string]string{"file_path": "/work/marker.txt", "description": "Write an isolated probe marker", "diff": "@@ -0,0 +1 @@\n+marker\n"}},
 					"options": []map[string]string{{"optionId": "once", "kind": "allow_once", "name": "Allow once"}, {"optionId": "reject", "kind": "reject_once", "name": "Reject"}},
 				}})
+			case "cline-silent-error":
+				// The provider failed before any ACP frame; Cline writes the
+				// reason to its own log and ends the turn.
+				logDir := filepath.Join(os.Getenv("CLINE_DIR"), "data", "logs")
+				line := fmt.Sprintf(`{"level":50,"time":%q,"sessionId":%q,"err":{"message":"Insufficient balance for this chat"},"msg":"Interactive turn failed"}`+"\n", time.Now().UTC().Format(time.RFC3339Nano), session)
+				if os.MkdirAll(logDir, 0o700) == nil {
+					_ = os.WriteFile(filepath.Join(logDir, "cline.log"), []byte(line), 0o600)
+				}
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
 			case "cline-read", "cline-editor", "cline-command":
 				// Shapes captured from Cline 3.0.74 with --auto-approve false:
 				// a read of files, an editor write that carries path/new_text

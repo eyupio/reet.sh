@@ -175,8 +175,12 @@ try{
  await expect(page.getByRole('dialog')).toContainText('Paste')
  await page.getByRole('button',{name:'Cancel',exact:true}).click()
  expect(inputs.length).toBe(beforeReview)
+ // The panel's own toggle sits at the top of the panel, above Projects and the sessions list, so it keeps the same
+ // place and icon whether the panel is open or closed.
+ const panelCollapse=sidebar.getByRole('button',{name:'Shrink sessions to a mini rail',exact:true})
+ expect((await panelCollapse.boundingBox()).y).toBeLessThan((await sidebar.getByRole('heading',{name:'Projects'}).boundingBox()).y)
  // On a wide screen the chevron shrinks the panel to the mini rail, and the rail's own chevron closes it.
- await sidebar.getByRole('button',{name:'Shrink sessions to a mini rail',exact:true}).click()
+ await panelCollapse.click()
  await page.getByRole('complementary',{name:'Session rail'}).getByRole('button',{name:'Close session navigation',exact:true}).click()
  await page.reload();await live();await expect(sidebar).toHaveCount(0);await expect(page.getByRole('complementary',{name:'Session rail'})).toHaveCount(0)
  await showSidebar();await expect(sidebar.locator('.session-row')).toHaveCount(3)

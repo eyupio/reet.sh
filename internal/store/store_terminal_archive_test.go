@@ -58,7 +58,7 @@ func TestTerminalArchiveClosedStatesAndAuthorization(t *testing.T) {
 				t.Fatal(err)
 			}
 			err = s.ArchiveTerminalFor(uid, session.ID)
-			if state.ReservesQuota() {
+			if state == terminalproto.Creating || state == terminalproto.Running {
 				if !errors.Is(err, ErrTerminalConflict) {
 					t.Fatal("active archive", err)
 				}
@@ -70,7 +70,7 @@ func TestTerminalArchiveClosedStatesAndAuthorization(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := 0
-			if state.ReservesQuota() {
+			if state == terminalproto.Creating || state == terminalproto.Running {
 				want = 1
 			}
 			if len(rows) != want {
@@ -98,8 +98,8 @@ func TestTerminalArchivePersistsWithoutDeletingRetryReceipts(t *testing.T) {
 	if _, err = s.RequestTerminalEndFor(uid, a.ID, session.ID, endID); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.ArchiveTerminalFor(uid, session.ID); !errors.Is(err, ErrTerminalConflict) {
-		t.Fatal("pending end archived", err)
+	if err = s.ArchiveTerminalFor(uid, session.ID); err != nil {
+		t.Fatal("pending end cannot be hidden", err)
 	}
 	if err = s.ObserveTerminalStateFor(uid, a.ID, session.ID, c.Generation, terminalproto.Ended, nil); err != nil {
 		t.Fatal(err)
@@ -224,6 +224,56 @@ func TestTerminalArchiveCannotReleaseActiveQuota(t *testing.T) {
 	}
 	if _, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, terminalproto.Create{Title: "Extra", Cols: 80, Rows: 24}); !errors.Is(err, ErrTerminalCapacity) {
 		t.Fatal("archive freed active quota", err)
+	}
+}
+
+func TestTerminalArchivePendingEndRetainsQuotaAndReconciliation(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	var hidden, requestID string
+	for i := 0; i < terminalproto.MaxSessionsPerAgent; i++ {
+		session := createTerminal(t, s, uid, a, c)
+		endID := syncID()
+		if _, err := s.RequestTerminalEndFor(uid, a.ID, session.ID, endID); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ArchiveTerminalFor(uid, session.ID); err != nil {
+			t.Fatal(err)
+		}
+		hidden, requestID = session.ID, endID
+	}
+	if rows, err := s.TerminalSessionsFor(uid); err != nil || len(rows) != 0 {
+		t.Fatal("pending entries still visible", rows, err)
+	}
+	in := terminalproto.Create{Title: "Extra", Cols: 80, Rows: 24}
+	if _, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in); !errors.Is(err, ErrTerminalCapacity) {
+		t.Fatal("hiding pending ends released quota", err)
+	}
+	// A reconnect must still receive the stop, and a late running report must
+	// neither resurrect the entry nor cancel termination.
+	if err := s.ObserveTerminalStateFor(uid, a.ID, hidden, c.Generation, terminalproto.Running, nil); err != nil {
+		t.Fatal(err)
+	}
+	ops, err := s.PendingTerminalOperationsFor(uid, a.ID, c.Generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, op := range ops {
+		if op.RequestID == requestID && op.Kind == "end" && op.SessionID == hidden {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("hidden session lost its queued end", ops)
+	}
+	if rows, err := s.TerminalSessionsFor(uid); err != nil || len(rows) != 0 {
+		t.Fatal("late observation resurrected entry", rows, err)
+	}
+	if err := s.ObserveTerminalStateFor(uid, a.ID, hidden, c.Generation, terminalproto.Ended, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in); err != nil {
+		t.Fatal("confirmed closure did not release quota", err)
 	}
 }
 

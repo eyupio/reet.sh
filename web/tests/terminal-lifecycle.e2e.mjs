@@ -53,7 +53,7 @@ await page.route('**/api/**',async route=>{
  }
  else if(path.endsWith('/archive')){
   const id=path.split('/').at(-2),item=sessions.find(item=>item.id===id);archiveRequests.push(id)
-  if(!item||!['ended','exited','lost'].includes(item.state))return route.fulfill({status:409,json:{error:'Only closed sessions can be removed'}})
+  if(!item||!['end_requested','ended','exited','lost'].includes(item.state))return route.fulfill({status:409,json:{error:'Request an end before removing the session'}})
   if(failArchive)return route.fulfill({status:503,json:{error:'History removal unavailable'}})
   const gate=pendingMutation;pendingMutation=null;if(gate){gate.mark();await gate.wait}
   archived.add(id);data={ok:true}
@@ -145,8 +145,10 @@ try{
  await page.getByRole('dialog').getByRole('button',{name:'End session',exact:true}).click()
  await expect(page.getByText(/End requested. Waiting for this machine/)).toBeVisible()
  await page.locator('.session-menu summary').click()
- await expect(page.getByRole('button',{name:'Remove from history',exact:true})).toHaveCount(0)
- await page.locator('.session-menu summary').click()
+ await page.getByRole('button',{name:'Remove from history',exact:true}).click()
+ await expect(page.getByRole('dialog')).toContainText('end request stays queued')
+ await expect(page.getByRole('dialog')).toContainText('still counts towards its limit')
+ await page.getByRole('button',{name:'Cancel',exact:true}).click()
  await manage('Retry end request');await page.getByRole('dialog').getByRole('button',{name:'End session',exact:true}).click()
  await expect.poll(()=>mutations.filter(m=>m.kind==='end').length).toBe(2)
  const ends=mutations.filter(m=>m.kind==='end');expect(ends[0]).toEqual(ends[1]);expect(ends[0].id).toBe(renamedId)
@@ -182,6 +184,24 @@ try{
  await page.locator('.session-menu summary').click()
  await expect(page.getByRole('button',{name:'Remove from history',exact:true})).toHaveCount(0)
  await page.locator('.session-menu summary').click()
+ await chooseMachine(agentB);await live()
+ // A stuck offline end can be removed without another stop or a replacement shell.
+ const pending=makeSession(agentA,'Stuck offline shell');pending.state='end_requested';sessions.push(pending)
+ machines[0].ready=false;machines[0].serverEnabled=false
+ const beforePendingRemoval=operations.length,beforePendingEnd=mutations.filter(m=>m.kind==='end').length
+ await page.goto(`${base}/sessions?agent=${agentA}&session=${pending.id}`)
+ await expect(pane).toHaveAttribute('data-connection-state','ending')
+ await page.getByRole('button',{name:'Session actions',exact:true}).click()
+ await page.getByRole('menuitem',{name:'Remove from history…',exact:true}).click()
+ await expect(page.getByRole('dialog')).toContainText('without confirming that it has stopped')
+ await page.getByRole('dialog').getByRole('button',{name:'Remove from history',exact:true}).click()
+ await expect.poll(()=>archived.has(pending.id)).toBe(true)
+ await page.reload()
+ await expect(page.getByRole('navigation',{name:'Terminal sessions'}).getByRole('button',{name:/^Stuck offline shell/})).toHaveCount(0)
+ expect(pending.state).toBe('end_requested')
+ expect(operations.length).toBe(beforePendingRemoval)
+ expect(mutations.filter(m=>m.kind==='end').length).toBe(beforePendingEnd)
+ machines[0].ready=true;machines[0].serverEnabled=true
  await chooseMachine(agentB);await live()
  // A busy lease requires an explicit transfer and preserves the session ID.
  claimed=true;await page.reload()

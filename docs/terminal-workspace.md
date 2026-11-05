@@ -271,7 +271,10 @@ Stopping a session includes **Remove from history when this session ends** and
 **Remove from history by default**, which starts as your saved default and says so
 ("This is your current default. Untick to change it."); toggling it and ending the session saves the
 new default. Account → Profile also stores the default.
-History stays visible during offline/pending termination. The immutable end
+History stays visible during offline/pending termination unless you explicitly
+choose **Remove from history** from the session's menu. That action hides the
+entry without confirming termination: the stop remains queued for reconnection
+and quota stays reserved until closure is confirmed. The immutable end
 receipt stores the explicit choice; authenticated host closure inserts the
 existing archive tombstone in the same transaction. Changing preferences later
 never changes an already requested stop. Files and operation receipts remain.
@@ -366,12 +369,14 @@ reet refuses the install, and says why, when:
 | Manage → End session | Confirm and request termination of the exact shell and its work |
 | History | Search saved Bash/Zsh commands; paste to edit or explicitly review and run |
 | History → Terminal output history | Read a bounded output snapshot |
-| Manage → Remove from history | Hide an ended/exited/lost record; keep machine files and operation identity |
+| Manage → Remove from history | Hide a closed or still-ending record; keep the queued stop, machine files and operation identity |
 
 Intentional disconnect stays disconnected through online/visibility events.
 Switching machines or sessions preserves the old shell. End requests on unavailable
-machines remain pending until confirmed. Remove from history uses a persistent controller tombstone and rejects active or
-pending sessions. Confirmation captures the session ID/title. Failed removals stay
+machines remain pending until confirmed. Remove from history uses a persistent controller tombstone and rejects creating
+or running sessions. Hiding a pending end does not confirm termination: the stop
+stays queued for reconnection and quota remains reserved until closure is confirmed.
+Confirmation captures the session ID/title. Failed removals stay
 visible; success cannot detach a newer selection. It remains available when terminal
 execution is disabled. See [the archive contract](https://github.com/eyupio/reet.sh/blob/main/docs/terminal-history-archive.md).
 

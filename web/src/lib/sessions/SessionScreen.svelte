@@ -12,7 +12,7 @@
   import { CATALOGUE } from '../catalogue'
   import YoloDialog from '../launch/YoloDialog.svelte'
   import { yoloCanStart, type YoloGate } from '../launchBar'
-  import { structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalArchivable, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
   import type { ChatState } from '../chat'
   import SwitchModeDialog from './SwitchModeDialog.svelte'
@@ -471,7 +471,8 @@
     {#if phone && chatView}<button role="menuitem" onclick={() => void toggleFocus()}>{focusOn ? 'Exit focus mode' : 'Focus mode'}</button>{/if}
     {#if session.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}
     {#if live}<button role="menuitem" class="danger" disabled={busy || serverOff} onclick={() => act('end')}>{session.state === 'end_requested' ? 'Retry end request…' : 'End session…'}</button>
-    {:else}<button role="menuitem" disabled={busy} onclick={() => act('archive')}>Remove from history…</button>{/if}
+    {/if}
+    {#if terminalArchivable(session.state)}<button role="menuitem" disabled={busy} onclick={() => act('archive')}>Remove from history…</button>{/if}
     {#if target}<button role="menuitem" disabled={live || away} title={live ? 'End the session first: it is working in this worktree.' : away ? offlineSentence(host) : undefined} onclick={checkWorktree}>Check and remove worktree…</button>{/if}
   </div>
 {/if}

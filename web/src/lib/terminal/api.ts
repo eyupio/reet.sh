@@ -188,6 +188,13 @@ export async function endTerminal(id: string, requestId: string, removeHistory=f
 /** The address that opens one session (R17). Only ids go in the address. */
 export const sessionHref = (session: Pick<TerminalSession, 'agentId' | 'id'>): string => `/sessions?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
 export function terminalClosed(state: SessionState): boolean { return ['ended','exited','lost'].includes(state) }
+/** Visibility is independent of termination: pending ends still reserve quota. */
+export function terminalArchivable(state: SessionState): boolean { return state === 'end_requested' || terminalClosed(state) }
+export function terminalArchiveBody(state: SessionState): string {
+  return state === 'end_requested'
+    ? 'This hides the session from your history without confirming that it has stopped. The end request stays queued until the machine reconnects, and the session still counts towards its limit until closure is confirmed. Files on the machine are kept. You cannot restore it from the web interface.'
+    : 'This removes the closed session from your history. Files on the machine are kept. You cannot restore it from the web interface.'
+}
 export async function archiveTerminal(id:string):Promise<void>{await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/archive`,{method:'POST',body:'{}'})}
 export async function markSessionSeen(id: string, signal?: AbortSignal): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/seen`, { method: 'POST', body: '{}', signal: within(signal) }) }
 export async function terminalHistory(id: string, signal?: AbortSignal): Promise<string> { return (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/history?lines=2000`, {signal})).text() }

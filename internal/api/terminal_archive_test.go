@@ -33,6 +33,10 @@ func TestTerminalArchiveAuthorizationAndDisabledExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	active := makeSession()
+	pending := makeSession()
+	if _, err = st.RequestTerminalEndFor(uid, a.ID, pending, terminalbroker.ID()); err != nil {
+		t.Fatal(err)
+	}
 	request := func(method, path, body, login, origin, bearer string) int {
 		t.Helper()
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -90,6 +94,9 @@ func TestTerminalArchiveAuthorizationAndDisabledExecution(t *testing.T) {
 		}
 	}
 	for i := 0; i < 2; i++ {
+		if code := request("POST", "/api/v2/terminal/sessions/"+pending+"/archive", `{}`, cookie, "https://reet.example", ""); code != 200 {
+			t.Fatal("pending end archive unavailable while disabled", code)
+		}
 		if code := request("POST", path, `{}`, cookie, "https://reet.example", ""); code != 200 {
 			t.Fatal("archive unavailable while disabled", code)
 		}
@@ -101,6 +108,10 @@ func TestTerminalArchiveAuthorizationAndDisabledExecution(t *testing.T) {
 	retained, err := st.TerminalSessionFor(uid, closed)
 	if err != nil || retained.State != terminalproto.Lost {
 		t.Fatal("archive deleted identity", retained, err)
+	}
+	retained, err = st.TerminalSessionFor(uid, pending)
+	if err != nil || retained.State != terminalproto.EndRequested {
+		t.Fatal("archive falsely confirmed termination", retained, err)
 	}
 	// Anonymous and shared-token deployments cannot inherit interactive metadata writes.
 	for _, mode := range []AuthMode{AuthNone, AuthToken} {

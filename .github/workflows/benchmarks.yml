@@ -47,14 +47,14 @@ jobs:
         run: |
           cd base
           go test ./internal/api/ ./internal/store/ ./internal/terminalbroker/ \
-            -run '^$' -bench "$BENCH_REGEX" -benchmem -count=8 -benchtime=200x \
+            -run '^$' -bench "$BENCH_REGEX" -benchmem -count=8 -benchtime=1s \
             | tee /tmp/base.txt
       - name: Benchmark pull request
         shell: bash
         run: |
           cd pr
           go test ./internal/api/ ./internal/store/ ./internal/terminalbroker/ \
-            -run '^$' -bench "$BENCH_REGEX" -benchmem -count=8 -benchtime=200x \
+            -run '^$' -bench "$BENCH_REGEX" -benchmem -count=8 -benchtime=1s \
             | tee /tmp/new.txt
       - name: Compare with benchstat
         run: python3 pr/scripts/bench-gate.py /tmp/base.txt /tmp/new.txt 15

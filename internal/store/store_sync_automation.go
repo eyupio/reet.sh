@@ -35,6 +35,12 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 	if err != nil {
 		return err
 	}
+	// A failed private copy is reported on its own skill, not as a change to the
+	// saved selection, so it must not make every poll rewrite the desired set.
+	captureProblems, err := s.libraryCaptureProblems(uid)
+	if err != nil {
+		return err
+	}
 	var libraryCandidates []SyncSkill
 	libraryRead := false
 	for _, target := range targets {
@@ -131,7 +137,10 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 				continue
 			}
 			ordered := func(skills []SyncSkill) []SyncSkill {
-				out := slices.Clone(skills)
+				out := slices.DeleteFunc(slices.Clone(skills), func(sk SyncSkill) bool {
+					_, failed := captureProblems[sk.ID]
+					return failed
+				})
 				slices.SortFunc(out, func(a, b SyncSkill) int { return strings.Compare(a.ID, b.ID) })
 				return out
 			}

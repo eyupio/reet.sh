@@ -17,7 +17,7 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(gates[path])await gates[path]
   const json = data => route.fulfill({json:data})
   // A test's own answers, ahead of the defaults below: a function gets the request and the state and returns (or resolves to) {status?, json}, or just the JSON to send.
-  if(routes[path]!==undefined){const answer=typeof routes[path]==='function'?await routes[path](route.request(),state):routes[path];return route.fulfill({status:answer?.status||200,json:answer?.json!==undefined?answer.json:answer})}
+  if(routes[path]!==undefined){const answer=typeof routes[path]==='function'?await routes[path](route.request(),state):routes[path];return route.fulfill({status:answer?.status||200,headers:answer?.headers,json:answer?.json!==undefined?answer.json:answer})}
   if(path==='/api/v2/auth/status')return json(state.status)
   if(path==='/api/v2/auth/setup'){state.status={...state.status,setupRequired:false,user:owner};return json(owner)}
   if(path==='/api/v2/profile'){

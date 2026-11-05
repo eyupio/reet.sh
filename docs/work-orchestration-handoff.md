@@ -531,6 +531,21 @@ CI remains the merge gate for #606. All final-head GitHub checks on #603
 `d7bfa84e` pass, including full Go race, browsers and native-service checks. Both
 PRs remain open; neither was merged in this batch.
 
+### GM2B alignment after #603 merged (5 November 2026)
+
+GitHub merged #603 as `b3b8e781` at 19:06 UTC and retargeted #606 to main.
+The only merge conflict was `web/package.json`: preserve main's Overview test
+commands and Gaffer's receipt tests together. The branch now contains that main
+merge, including the independent Overview and sync-dedupe work, without removing
+any of their changes. Recheck the merged UI and final-head CI; do not merge #606
+without owner direction. The prior PR-state paragraphs are dated checkpoints.
+
+Before alignment, all 24 local phone/dialog/worker/terminal browser groups pass
+on `ca976cf4`, including the three formerly blocked controls, keyboard visibility,
+clipboard and uploads. The aligned branch must retain these behaviours and its
+separate Gaffer/worker identities. Live context, scoped messages and durable
+supervision remain the next integration slices.
+
 ## Gaffer branding and Eli reuse (1 November 2026)
 
 Historical delivery record. Its PR state and immediate next steps describe the

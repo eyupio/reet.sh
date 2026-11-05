@@ -95,6 +95,130 @@ goes straight to it. Motion is removed when the person prefers reduced motion.
   errors were logged. The dark theme, phone width and physical devices were not exercised, and no screenshots
   are kept in the repository.
 
+## The Overview made compact at 14px (5 November 2026)
+
+The 14px round had made the narrow Overview long. It is compact again, still at 14px. At the default 360 px panel the five
+steps sit in one row (92 px; a state word may take two lines), the Next sentence and both its buttons fit 110 px with the
+fix note's line, and the pull request card is a 178 px summary with a **Details** fold for the secondary facts and actions.
+Before, at 360 px, these were 128, 176 and 427 px. A review fix round then made the card's summary row two lines below about
+388 px of panel (it is 158 px from there), so the review word is never cut even beside two-digit check counts; gave a
+terminal session's merged row the height of its two-row Next slot (it had been 38 px shorter, so merging moved the blocks
+below at 340 to 392 px); moved a terminal's one-row buttons from about 386 to 393 px; and gave the fix note two lines under
+about 338 px, where "Could not copy the message. Try again." had been cut. New checks for each were seen failing first: a
+terminal merging at 340, 360 px and the phone, the review word with 12, 13 and 32 checks at five widths, and a failed copy's
+note at 300 px; the cut check also covers the note, the review word and Copy link. The thresholds come from measured 14px words and are in the comments of
+`StageTracker.svelte` and `PullCard.svelte`; the 300 px panel sets the steps three over two.
+
+`session-workspace.e2e.mjs` now checks, in both themes at 300, 340, 360 and 520 px and the 375 px phone sheet: that the steps
+are one row from 340 px up (three over two at 300), that the Next buttons share a row from 340 px, that no fixed word is cut
+across or down with the fold closed and open, that the folded card keeps one height across ten pull request states, and that
+the no pull request and GitHub not available placeholders are 76 px. The card test checks that the fold starts closed, opens
+with the keyboard, reveals "not read on this machine" and "100+ threads", and stays open across a refresh and the Overview's
+own GitHub poll; the 14px block opens the fold first. Against the components before this change, a check script with these
+assertions failed 19 of 25 (one row, Plan at 340 px, the shared button row, the fold, the heights).
+
+Run from `web/` against `npx vite preview --port 4173` (stopped afterwards), Chromium from `/opt/pw-browsers/chromium`:
+`npm test` (834 tests, 0 failures), `npm run check` (0 errors, the 2 existing warnings), `npm run build`; browser, all
+passing: `session-workspace`, `sessions`, `chat`, `chat-controls`, `chat-previews`, `sessions-phone`, `phone-layout`,
+`phone-zoom`, `phone-dialogs` and `start-agent`. Not run: the axe audits (`REET_AXE_PATH` unset), the other browser files,
+the Go tests (no Go file changed), Firefox, Safari and physical devices.
+
+## The Overview at the 14px floor (5 November 2026)
+
+(Superseded for the tracker and pull request card layout by "The Overview made compact at 14px" above: the one-step-per-row
+list and the stacked Next slot described here are gone.)
+
+After `main`'s change that keeps all web UI text at 14px or larger, the Overview's cards and the prompt dialog were
+brought up to the same floor; quiet labels keep their colour and weight. At 14px five steps with their words do not fit
+side by side in a panel under about 450 px, so there the tracker lists the steps one per row, and the Next button, the fix
+button and its note stack beneath the sentence. Under about 380 px the pull request card puts its buttons one per row and
+lets its chips and fact rows take a second line. The pull request placeholder is now 76 px, the height `main` gave the
+changes card. Every slot still has one fixed height per width.
+
+A new block in `session-workspace.e2e.mjs` walks every visible text node in the panel and the prompt dialog at 1600 px and
+at 375 px with a coarse pointer (loaded, Last known, merged, the agent asking, the dialog, and a terminal's "Copied" note)
+and fails on a computed size under 14px. Against the components before this change it failed with 77 elements. The
+tracker stability block also now fails when a step label, state word, Next or fix button or card button is cut; with the
+card's narrow rule removed it failed at 300 px on "Open pull request" and "Open failing check".
+
+Run from `web/` against `npx vite preview --port 4173` (stopped afterwards), Chromium from `/opt/pw-browsers/chromium`:
+`npm test` (833 tests, 0 failures), `npm run check` (0 errors, the 2 existing warnings), `npm run build`; browser, all
+passing: `session-workspace`, `sessions`, `chat`, `chat-controls`, `chat-previews`, `sessions-phone`, `phone-layout`,
+`phone-dialogs`, `phone-zoom` and `start-agent`. `GOTOOLCHAIN=auto go vet ./...` is clean and the `terminalproto`,
+`terminalhost`, `store` and `api` packages pass. Not run: the axe audits (`REET_AXE_PATH` unset), the other browser files,
+Firefox, Safari and physical devices.
+
+## Session workspace: the Overview (5 November 2026)
+
+The Overview now has a run clock, a prompt card and dialog, a five-step tracker with one Next line, a pull request
+card, a Where card and a status dot on the GitHub tab; GitHub is read on one shared cadence that respects Live
+updates. The contents and rules are in [Session workspace details](terminal-workspace.md#session-workspace-details).
+
+Commands run on the final tree, from `web/` unless stated, with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/pw-browsers/chromium`
+and `npm run build` followed by `npx vite preview --port 4173` (stopped afterwards):
+
+- `npm test`: 66 suites, 828 tests, 0 failures. `npm run check`: 392 files, 0 errors, 2 warnings (unused CSS
+  selectors in `LaunchBar.svelte` and `SessionHoverCard.svelte`, not touched here). `npm run build`: succeeds.
+- `GOTOOLCHAIN=auto go vet ./...`: clean. `GOTOOLCHAIN=auto go test ./internal/terminalproto/ ./internal/terminalhost/
+  ./internal/store/ ./internal/api/ -count=1`: all four packages pass.
+- Browser, all passing: `session-workspace`, `sessions`, `chat`, `chat-controls`, `chat-previews`, `chat-recovery`,
+  `chat-claude`, `sessions-phone`, `phone-layout`, `phone-dialogs` (259 s), `phone-zoom`, `terminal-clipboard`.
+  `session-board` needs the Vite dev server on port 5173, so it was run once against `npx vite --port 5173`
+  (stopped afterwards) and passes.
+- **Not passing here.** `terminal.e2e.mjs` refuses to start without the Go terminal fixture. Run through it
+  (`REET_BROWSER_TESTS=1 go test ./internal/api -run TestTerminalPrivateLifecyclePreservesActualShell`) it fails in this
+  container at `.xterm-accessibility-tree` not containing `💥 __split_utf8__`, the same failure the entry below records on
+  the original code; it was not re-run on the original code for this change, and the later stages were not reached.
+- Not run: the other browser files that do not open a session screen or the panel, Firefox, Safari and physical
+  devices. No screenshots were captured.
+
+Layout stability. The Overview's existing check moved the headline, notice, activity and pull request state one at a time
+at 1600 and 375 px. A new block in `session-workspace.e2e.mjs` now changes all of them in one run (a long task title, a
+long agent update, a permission request, a chat error, then conflicts with a long base branch, failing checks with long
+names, a merged pull request, a machine that cannot read the extra fields, and no pull request) and, after each change,
+compares the top of the run line, notice, activity, latest update, prompt card, tracker, pull request card, changes card,
+Where card and details fold with where they started. It runs in both themes at panel widths 300, 340 and 520 px and in the
+phone sheet at 340 px, and also fails on a slot that scrolls sideways or a page that does. In the phone sheet it checks that
+the pointer is coarse and that every button and link in the prompt, tracker, pull request and Where cards, and the
+notice button, is at least 43 px tall. It passed first time; no shift was found in the new components. The
+`.latest-text` height and the notice height were each removed to see it fail: both runs stopped in the older stability
+block first (`1600px: sections moved after a long agent update` and `... after the agent asks permission`), so that
+the new block catches them is not shown by those runs. The same pass tightened the Branch assertion in `sessions.e2e.mjs`
+from `toContainText` back to `toHaveText` on the monospace branch element, for both the recorded branch and `Not recorded`.
+
+Final review fix wave (commit `72a41c36`), on that tree with the same set-up: `npm test` 833 tests, 0 failures; `npm run
+check` 0 errors and the same 2 warnings; `npm run build` succeeds; browser, all passing: `session-workspace`, `sessions`,
+`chat`, `chat-controls`, `chat-previews`, `sessions-phone`, `phone-layout`, `phone-dialogs` (255 s) and `phone-zoom`. The
+axe audits in `session-workspace.e2e.mjs` were not run, because `REET_AXE_PATH` is unset and axe-core is not installed. Seen
+failing against a build without the fix: the prompt dialog closing on a session-list refresh (1600 and 375 px), the
+`githubStale` unit tests and both Last known browser cases, the phone sheet staying over a filled composer, the missing
+Copy pull request link, `aria-current` on the first attention step, `runLine` with no real start time, and the Plan label
+at a 300 px panel (the label did not actually truncate in this Chromium, so the test asserts the short word). The check that
+every stability baseline found its blocks is a guard and was not shown failing.
+
+Seen failing with the rule removed, from the task reports (only what they record):
+
+- Run clock: `runClock.test.mjs` and the pull request verdict tests were first run before their modules existed
+  (`ENOENT`); the verdict tests are characterisation tests of the moved text, so they were not made to fail by a rule.
+- Stage rules: disabling the empty-checks guard fails `stage table: Checks unknown: none reported` and the named
+  no-checks case. After a review round four tests failed before the change (the no-review Ready line, truncated
+  threads, unread reason and the replaced Next case) and 55 pass after.
+- Prompt dialog: without the key handling, `panelKey` closed the sheet on Escape (`expect(panel).toBeVisible() ... element(s)
+  not found`). In `promptLoader.test.mjs`, removing the abort check fails tests 3, 4, 7 and 8, removing the id comparison
+  fails 1 and 2, and removing the per-call abort fails 7 and 8. A mutation of the in-component abort, id comparison and
+  reset still passed the browser check, because the session screen remounts per session; the guards are defence in depth.
+- Pull request card: the merged row's height without its fix-row margin fails `merging moved the blocks below`; removing the
+  in-flight and cadence guards fails `the panel and the navigation share the first read` (Expected 1, Received 2).
+- GitHub read cadence: removing the `auto` clause fails `Live updates off is never due...`; replacing the stored-age clause
+  fails `a warm store within the cadence is not read again...`; making `hasStored` local-only fails `opening a session whose
+  pull request was read moments ago makes no extra read` (Expected 2, Received 3). Before that extraction, removing the Live
+  updates guard in `backgroundGitHub()` alone did not fail a test, and the mount-effect path cannot be exercised end to end
+  (Live updates is on at mount).
+- Fix shortcut: the composer test failed first on `expect(.composer-input).toHaveValue(MESSAGE)` (received an empty
+  string); before the second round, `fixDelivery.test.mjs` had two failing tests and the e2e failed `two clicks: the message
+  is there once` (the message doubled). The nothing-is-sent check asserts only GET requests are made.
+- Not mutation-tested rule by rule, as Task 7's report says: the fix message wording and cleaning rules.
+
 ## Automatic session names (5 November 2026)
 
 A session started without a title is named from what its prompt asks for, or from its agent and folder; the

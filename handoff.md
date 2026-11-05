@@ -34,9 +34,9 @@ plan [#600](https://github.com/eyupio/reet.sh/pull/600) and HTTP provider founda
 [#601](https://github.com/eyupio/reet.sh/pull/601) are merged. Tests use local fake
 providers, with real credentials supplied later through Gaffer settings.
 
-GM1B and GM2A now share [open PR #603](https://github.com/eyupio/reet.sh/pull/603),
+GM1B and GM2A shipped in [merged PR #603](https://github.com/eyupio/reet.sh/pull/603),
 `feat/gaffer-provider-settings`. The owner merged conversation backend #605 into
-that branch, not into main. It contains account-owned providers, encrypted keys,
+that branch, then #603 merged into main as `b3b8e781`. It contains account-owned providers, encrypted keys,
 live model selection and Account → Gaffer AI, plus separate durable general/session
 conversations, versioned model choices, turn receipts, SSE, cancellation and
 restart recovery without replay. Only typed companion messages reach providers.
@@ -44,7 +44,8 @@ The [conversation/access contract](docs/handoffs/gaffer-conversations.md) record
 worker eligibility, grants and queue receipt/recovery boundaries for later slices.
 
 GM2B is [open PR #606](https://github.com/eyupio/reet.sh/pull/606),
-`feat/gaffer-floating-chat`, based on #603 and carrying its `d7bfa84e` review fix.
+`feat/gaffer-floating-chat`, now based on main after #603 merged. It carries the
+`d7bfa84e` review fix and the independent main-line Overview/sync changes.
 It supplies floating general/session chat, independent model choices, durable
 receipt recovery, scoped drafts, cancellation and history cleanup. Its browser CI
 exposed launcher overlaps with **Save draft** and worker **Queue** controls. The
@@ -54,7 +55,7 @@ collision is fixed too: the footer/extra-key controls remain reachable, and the
 launcher stays above an on-screen keyboard. Phone session, clipboard and upload
 flows pass. #603's final `d7bfa84e` GitHub checks are all green. See the companion record and
 [UI evidence](docs/ui-verification.md) for the widget scope and final checks. Do
-not merge either PR without owner direction. Scoped context tools, worker messages
+not merge #606 without owner direction. Scoped context tools, worker messages
 and durable offline supervision remain ahead; Gaffer has no coding or PR authority.
 
 The 5 November #603 review follow-up fixes first-address-only provider dialing:
@@ -71,6 +72,52 @@ merge gate; see the companion handoff's dated follow-up record for exact limits.
 
 Keep that handoff current in every implementation batch. Changes remain confined
 to reet.sh; reference repositories are read-only.
+
+## OVERVIEW-3: the Overview in the browser (5 November 2026)
+
+Part C of the session overview, on branch `claude/session-overview-ui`. The right-hand panel's Overview now
+answers where a session has got to and what is next. It reads the prompt route from OVERVIEW-1 and the extra pull
+request fields from OVERVIEW-2; contents and rules are in `docs/terminal-workspace.md` ("Session workspace details").
+
+- **Shipped.** A run clock line (`runClock.ts`); a "You asked" prompt card with a full-prompt dialog (`PromptCard`,
+  `PromptDialog`, `promptLoader.ts`, `promptSource.ts`); a five-step tracker with one Next line built from facts only
+  (`overviewStages.ts`, `StageTracker`); a pull request card (`PullCard`, `pullFacts.ts`, `pullVerdict.ts` shared with the
+  GitHub tab); a Where card with copy buttons and a repository link (`WhereCard`); a status dot on the GitHub tab; and one
+  automatic GitHub read per cadence that respects Live updates (`githubReadDue`, `insightStore`). The Overview itself is its
+  own component (`OverviewTab`), moved out of `ContextPanel` with no change to what it showed. The final review's fix wave
+  added a `Last known · checked …` marker on the tracker's Next line and the pull request card (`githubStale`), a Copy pull
+  request link button, a prompt dialog that stays open across the 15 s session refresh, and the phone sheet closing after
+  a fix request fills the composer.
+- **The fix shortcut never sends.** "Ask the agent to fix..." fills the chat composer through `composerPrefill.ts`
+  and `ChatPane`; a terminal, or a composer that is nearly full, disabled or off screen, gets a copy to the clipboard
+  instead (`fixMessages.ts`, `fixDelivery.ts`). A repeated request does not stack. Check and branch names are cleaned
+  before they are quoted because GitHub's users write them.
+- **Honesty rules.** No reported checks is never green; threads not read are never zero; Merge is never claimed from green
+  checks alone. An older machine or controller degrades to "not read on this machine" and "started before reet kept opening
+  prompts" instead of a guess.
+- **Validation.** See "Session workspace: the Overview" in `docs/ui-verification.md` for the commands, the files that
+  ran, the one that could not (`terminal.e2e.mjs`, through the Go fixture, fails on the emoji line as it does without this
+  change) and the tests seen failing with their rule removed. This task added a stability block to
+  `session-workspace.e2e.mjs` covering every Overview slot at 300, 340 and 520 px and the 340 px phone sheet, both themes, and
+  restored `toHaveText` on the Branch assertion in `sessions.e2e.mjs`.
+- **Known deferrals (from the task reports).**
+  - Check detail reads "plus 2 mores" with more than two failing or running checks; the test records it. Fix the wording and
+    the test together.
+  - `OverviewTab`'s scoped `section` rules apply to every `section` in it; use `div` for nested cards.
+  - `newEvents` and `terminalAdvanced` are still derived in `ContextPanel` and passed down; they could move inside.
+  - The prompt dialog's switching guards cannot be told apart by the browser test, because the session screen remounts per
+    session; they are held by `promptLoader.test.mjs`.
+  - The Live updates gate on the mount effect cannot be exercised end to end.
+  - The Overview is about 250 px longer than before the two new cards (their heights are fixed, so nothing moves).
+  - The fake clock in the cadence test only moves `Date`, so the Live-off test waits for the panel's real 5 s tick.
+  - `answer` on `composerPrefill` is an extra field beyond the original brief, so a chat can say whether it took the text.
+  - Wording not covered rule by rule: the fix messages (checks and singular threads wording were chosen in Task 7).
+- **Compact at 14px (Task 16).** At the default 360 px panel the five steps are one row, the Next buttons share a row
+  above the fix note's line, and the pull request card is a summary with a native **Details** fold for the secondary facts
+  and actions (closed by default, kept open across polls; its summary row is two lines below about 388 px); the 300 px
+  panel sets the steps three over two. Measurements
+  and thresholds are in `docs/ui-verification.md` and the components' comments.
+- **Not done.** Firefox, Safari and physical devices; screenshots; `terminal.e2e.mjs` passing in this container.
 
 ## OVERVIEW-2: the machine reads the extra pull request fields (5 November 2026)
 

@@ -1,12 +1,14 @@
 <script lang="ts">
-  import { checkLabel, checkTone, safeInsightURL, type InsightCheck, type SessionInsight } from '../sessionInsights'
+  import { checkLabel, checkTone, safeInsightURL, type SessionInsight } from '../sessionInsights'
   import InsightIcon from './InsightIcon.svelte'
+  import { pullVerdict, splitChecks } from './pullVerdict'
   let { data }: { data: SessionInsight } = $props()
   const pr = $derived(data.pull!)
   const checks = $derived(pr.checks ?? [])
-  const failed = $derived(checks.filter(c => checkTone(c.state) === 'bad'))
-  const running = $derived(checks.filter(c => checkTone(c.state) === 'warn'))
-  const passed = $derived(checks.filter(c => checkTone(c.state) === 'good'))
+  const split = $derived(splitChecks(checks))
+  const failed = $derived(split.failed)
+  const running = $derived(split.running)
+  const passed = $derived(split.passed)
   const conflict = $derived(pr.mergeable === 'CONFLICTING')
   const changesRequested = $derived(pr.review === 'CHANGES_REQUESTED')
   const approved = $derived(pr.review === 'APPROVED')
@@ -16,34 +18,7 @@
   const total = $derived(checks.length)
   const share = (n: number) => total ? `${n / total * 100}%` : '0%'
 
-  function count(n: number, one: string, many = `${one}s`) { return `${n} ${n === 1 ? one : many}` }
-  function nameList(list: InsightCheck[], limit = 2) {
-    const names = list.slice(0, limit).map(c => c.name)
-    if (!names.length) return 'the reported checks'
-    const more = list.length - names.length
-    if (names.length === 1) return names[0]
-    return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}${more > 0 ? `, plus ${count(more, 'more')}` : ''}`
-  }
-
-  const verdict = $derived.by((): { tone: 'bad' | 'warn' | 'good' | 'muted'; icon: 'conflict' | 'clock' | 'check' | 'github'; title: string; detail: string } => {
-    if (pr.state === 'MERGED') return { tone: 'good', icon: 'check', title: 'Pull request merged', detail: 'This branch’s pull request is merged.' }
-    if (pr.state === 'CLOSED') return { tone: 'muted', icon: 'github', title: 'Pull request closed', detail: 'This pull request was closed without merging.' }
-    if (conflict) {
-      const also = failed.length ? ` ${count(failed.length, 'check')} ${failed.length === 1 ? 'is' : 'are'} also failing.` : changesRequested ? ' A reviewer also requested changes.' : ''
-      return { tone: 'bad', icon: 'conflict', title: 'Resolve merge conflicts', detail: `GitHub reports conflicts with the base branch.${also}` }
-    }
-    if (failed.length) {
-      const also = changesRequested ? ' A reviewer also requested changes.' : ''
-      return { tone: 'bad', icon: 'conflict', title: `${count(failed.length, 'check')} failed`, detail: `Failing: ${nameList(failed)}.${also}` }
-    }
-    if (changesRequested) return { tone: 'bad', icon: 'conflict', title: 'Changes requested', detail: 'A reviewer asked for changes before this can merge.' }
-    if (running.length) return { tone: 'warn', icon: 'clock', title: `${count(running.length, 'check')} running`, detail: `Waiting on ${nameList(running)}.` }
-    if (pr.draft) return { tone: 'muted', icon: 'github', title: 'Draft pull request', detail: 'Mark it ready for review when the work is complete.' }
-    if (reviewRequired) return { tone: 'warn', icon: 'clock', title: 'Review required', detail: 'A review is required before this can merge.' }
-    if (!total) return { tone: 'muted', icon: 'github', title: 'No checks reported', detail: 'This does not confirm that CI passed.' }
-    if (approved) return { tone: 'good', icon: 'check', title: 'Checks passed', detail: `Review approved. ${count(passed.length, 'check')} passed.` }
-    return { tone: 'good', icon: 'check', title: 'Checks passed', detail: `${count(passed.length, 'check')} passed. No review decision yet.` }
-  })
+  const verdict = $derived(pullVerdict(pr))
 
   const actionable = $derived(failed[0] ?? running[0])
   const statusHref = $derived(safeInsightURL(actionable?.url || (changesRequested ? pr.url : '')))

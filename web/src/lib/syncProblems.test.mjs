@@ -9,7 +9,7 @@ const transpile = (file) => ts.transpileModule(readFileSync(new URL(file, import
 const dataURL = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
 const machinesURL = dataURL(transpile('./machines.ts'))
 const setupURL = dataURL(transpile('./machineSetup.ts').replace("from './machines'", `from '${machinesURL}'`))
-const { explainSyncFailure } = await import(dataURL(transpile('./syncProblems.ts').replace("from './machineSetup'", `from '${setupURL}'`)))
+const { explainSyncFailure, offersDedupe } = await import(dataURL(transpile('./syncProblems.ts').replace("from './machineSetup'", `from '${setupURL}'`)))
 
 const context = { host: 'studio', site: 'https://reet.example' }
 
@@ -59,4 +59,9 @@ test('an unknown failure keeps its own words and still allows a safe retry', () 
   assert.equal(problem.kind, 'other')
   assert.match(problem.detail, /something odd happened/)
   assert.equal(problem.retry, true)
+})
+
+test('a duplicate-name problem offers the shelf dedupe action', () => {
+  assert.equal(offersDedupe('Sync selection needs attention: More than one source uses the name improve-animations. Remove the duplicate from your shelf before syncing.'), true)
+  assert.equal(offersDedupe('the source machine went offline'), false)
 })

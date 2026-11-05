@@ -265,8 +265,9 @@ export async function worktreeStatus(target: WorktreeTarget, signal?: AbortSigna
 }
 export type RemovedWorktree = { ok: boolean; path?: string; branch: string; confirmedBy?: string }
 /** Removes a worktree only if the machine's counts still equal the ones shown; the branch is kept. */
-export async function removeWorktree(target: WorktreeTarget, shown: { changed: number; unpushed: number }, signal?: AbortSignal): Promise<RemovedWorktree> {
-  return (await terminalRequest('/api/v2/terminal/worktrees/remove', { method: 'POST', signal: within(signal), body: JSON.stringify({ ...target, changed: shown.changed, unpushed: shown.unpushed }) })).json()
+export async function removeWorktree(target: WorktreeTarget, shown: { changed: number; unpushed: number }, signal?: AbortSignal, discard?: { fingerprint: string }): Promise<RemovedWorktree> {
+  // discard is sent only when the person confirmed deleting the uncommitted changes they were shown.
+  return (await terminalRequest('/api/v2/terminal/worktrees/remove', { method: 'POST', signal: within(signal), body: JSON.stringify({ ...target, changed: shown.changed, unpushed: shown.unpushed, ...(discard ? { discard: true, fingerprint: discard.fingerprint } : {}) }) })).json()
 }
 
 // Folder projects: one folder on one machine (GET/POST /api/v2/folder-projects, GET/PATCH/DELETE …/{id}, POST …/reorder).
@@ -529,4 +530,26 @@ export async function chatPreview(session: string, id: string, signal?: AbortSig
  const blob = await response.blob()
  if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(blob.type) || blob.size > 5 * 1024 * 1024 || !blob.size) throw new Error('This image preview could not be verified.')
  return blob
+}
+
+// Machine maintenance (Account → Maintenance). A scan reads finished sessions' worktrees; a clean removes the ones picked
+// from a scan, and only when the machine still finds nothing unsaved in them.
+export type SweepStatus = 'safe' | 'review' | 'blocked' | 'unreachable' | 'gone'
+export type SweepItem = {
+  sessionId: string; agentId: string; host: string; title: string; project: string; repo: string; run: string
+  path: string; branch: string; endedAt: number; status: SweepStatus; changed: number; unpushed: number; reason?: string; removed?: boolean
+}
+export type WorktreeMaintenance = { enabled: boolean; intervalHours: number; minAgeDays: number; changedBy?: string }
+export type MaintenanceState = { worktrees: WorktreeMaintenance; lastRun: { at: number; removed: number; review: number; unreachable: number; failed: number } | null }
+export async function maintenanceState(signal?: AbortSignal): Promise<MaintenanceState> {
+  return (await terminalRequest('/api/v2/maintenance', { signal: within(signal) })).json()
+}
+export async function setWorktreeMaintenance(change: Partial<Pick<WorktreeMaintenance, 'enabled' | 'intervalHours' | 'minAgeDays'>>, signal?: AbortSignal): Promise<MaintenanceState> {
+  return (await terminalRequest('/api/v2/maintenance/worktrees', { method: 'PUT', signal: within(signal), body: JSON.stringify(change) })).json()
+}
+export async function scanWorktrees(minAgeDays: number, signal?: AbortSignal): Promise<{ items: SweepItem[]; more: boolean; minAgeDays: number }> {
+  return (await terminalRequest('/api/v2/maintenance/worktrees/scan', { method: 'POST', signal, body: JSON.stringify({ minAgeDays }) })).json()
+}
+export async function cleanWorktrees(items: Pick<SweepItem, 'agentId' | 'project' | 'repo' | 'run'>[], signal?: AbortSignal): Promise<{ items: SweepItem[] }> {
+  return (await terminalRequest('/api/v2/maintenance/worktrees/clean', { method: 'POST', signal, body: JSON.stringify({ items: items.map(({ agentId, project, repo, run }) => ({ agentId, project, repo, run })) }) })).json()
 }

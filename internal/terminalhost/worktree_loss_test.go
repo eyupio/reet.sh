@@ -369,3 +369,47 @@ func TestOnlyReadOnlyListingsGetTheLargerCap(t *testing.T) {
 		}
 	}
 }
+
+func TestWorktreeRemoveDiscardsChangesOnlyWithTheConfirmation(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "code/site")
+	w := madeWorktree(t, home, repo, testRun)
+	writeFile(t, filepath.Join(w.Path, "scratch.txt"), "unsaved\n")
+	s := status(t, home, "site", testRun)
+	if s.Changed == 0 {
+		t.Fatalf("the change must be reported: %+v", s)
+	}
+	shown := WorktreeCounts{Changed: s.Changed, Unpushed: s.Unpushed}
+	refusedWith(t, WorktreeRemove(context.Background(), home, "p", "site", testRun, shown, ExecGit), terminalproto.WorktreeHasChanges)
+	if !exists(w.Path) {
+		t.Fatal("removed without the confirmation")
+	}
+	// Counts that no longer match are still refused, confirmed or not.
+	stale := WorktreeCounts{Changed: s.Changed + 1, Unpushed: s.Unpushed, Discard: true}
+	if err := WorktreeRemove(context.Background(), home, "p", "site", testRun, stale, ExecGit); !errors.Is(err, ErrWorktreeChanged) {
+		t.Fatal(err)
+	}
+	if !exists(w.Path) {
+		t.Fatal("removed on stale counts")
+	}
+	shown.Discard, shown.Fingerprint = true, s.Fingerprint
+	if s.Fingerprint == "" {
+		t.Fatal("a worktree with changes must be fingerprinted")
+	}
+	// The same file edited again keeps the counts but not the fingerprint: it is not what was shown.
+	writeFile(t, filepath.Join(w.Path, "scratch.txt"), "edited after looking\n")
+	if err := WorktreeRemove(context.Background(), home, "p", "site", testRun, shown, ExecGit); !errors.Is(err, ErrWorktreeChanged) {
+		t.Fatal("edit after looking", err)
+	}
+	if !exists(w.Path) {
+		t.Fatal("removed edits the person had not seen")
+	}
+	s = status(t, home, "site", testRun)
+	shown.Fingerprint = s.Fingerprint
+	if err := WorktreeRemove(context.Background(), home, "p", "site", testRun, shown, ExecGit); err != nil {
+		t.Fatal(err)
+	}
+	if exists(w.Path) {
+		t.Fatal("the confirmed remove left the folder")
+	}
+}

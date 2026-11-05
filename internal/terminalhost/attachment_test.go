@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -108,8 +109,8 @@ func TestAttachmentForwardsWheelToMouseAwareTUI(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	ready := false
 	for time.Now().Before(deadline) {
-		data, _ := m.command(context.Background(), 0, "display-message", "-p", "-t", s.PaneID, "#{mouse_standard_flag}")
-		if bytes.Equal(bytes.TrimSpace(data), []byte("1")) {
+		data, _ := m.command(context.Background(), 0, "display-message", "-p", "-t", s.PaneID, "#{mouse_standard_flag}:#{mouse_sgr_flag}")
+		if bytes.Equal(bytes.TrimSpace(data), []byte("1:1")) {
 			ready = true
 			break
 		}
@@ -122,14 +123,16 @@ func TestAttachmentForwardsWheelToMouseAwareTUI(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline = time.Now().Add(3 * time.Second)
+	var output []byte
 	for time.Now().Before(deadline) {
-		data, _ := m.History(context.Background(), s.ID, 100)
-		if bytes.Contains(data, []byte("1b 5b 3c 36 34 3b 31 30 3b 35 4d")) {
+		output, _ = m.History(context.Background(), s.ID, 100)
+		// BSD and GNU od use different padding between byte columns.
+		if strings.Contains(strings.Join(strings.Fields(string(output)), " "), "1b 5b 3c 36 34 3b 31 30 3b 35 4d") {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("wheel report did not reach the TUI")
+	t.Fatalf("wheel report did not reach the TUI; synthetic screen: %q", output)
 }
 
 func TestAttachmentDisconnectTransferAndLeaseKeepShell(t *testing.T) {

@@ -73,6 +73,16 @@ export function libraryNotice(skills: SyncSkill[], imports: ImportRequest[], run
   return { copying, review, leftOut: groupLeftOut(left), leftOutCount: left.length }
 }
 
+/**
+ * Where every library copy stands, as one string. It changes when a copy starts,
+ * finishes or fails, which is also when what the library says about its skill
+ * changes. The Sync card reads the library again when it changes, so a copy that
+ * fails while the page is open is reported at once rather than after a reload.
+ */
+export function copiesSignature(imports: Pick<ImportRequest, 'id' | 'state' | 'syncSkillId'>[]): string {
+  return imports.filter(item => item.syncSkillId).map(item => `${item.id}:${item.state}`).sort().join('|')
+}
+
 function names(list: string[], limit = 4): string {
   if (list.length <= limit) return list.join(', ')
   return `${list.slice(0, limit).join(', ')} and ${list.length - limit} more`

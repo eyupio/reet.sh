@@ -3012,7 +3012,9 @@ that can sync does.
   that no raw error code or **View private copy** row appears, that the machine rows
   stay honest, that shared names are explained in the library list as information, and
   that nothing overflows horizontally. It runs at phone and desktop width in both
-  themes; `REET_CAPTURE=<dir>` saves the screenshots.
+  themes; `REET_CAPTURE=<dir>` saves the screenshots. A last scenario has a copy fail
+  while the card is open and checks that its reason appears with no reload: the library
+  list is not polled, so the card reads it again when any copy changes state.
 - `first-skills.e2e.mjs` (`sync-draft`) still shows a skill that cannot be stored with
   its reason and marks it **Left out for now** in the library list.
 - `skills-sync-simple.e2e.mjs`, `machine-skill-sync.e2e.mjs`, `machine-add-skill.e2e.mjs`,

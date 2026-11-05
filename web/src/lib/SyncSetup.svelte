@@ -3,7 +3,7 @@
   import { syncCandidates, syncLibraryMachines, controlSyncAgent, getImports, type ImportRequest, type SyncDuplicate, type SyncState, type SyncSkill } from './api'
   import MachineSkillSync from './MachineSkillSync.svelte'
   import { agentOnline } from './machines'
-  import { copyingLine, duplicatesNote, leftOutHeadline, libraryNotice } from './librarySync'
+  import { copiesSignature, copyingLine, duplicatesNote, leftOutHeadline, libraryNotice } from './librarySync'
   import { machineSyncOverview } from './syncOverview'
   import Skeleton from './Skeleton.svelte'
 
@@ -22,6 +22,12 @@
     try { const read = await syncCandidates(0, 'library'); skills = read.skills; duplicates = read.duplicates ?? [] }
     catch (e) { error = e instanceof Error ? e.message : String(e) }
     finally { loading = false }
+  }
+  // Reads the library again without the loading state, so what is on screen stays put until the answer arrives.
+  // A failed read keeps what is shown; the next change tries again.
+  async function refreshLibrary() {
+    try { const read = await syncCandidates(0, 'library'); skills = read.skills; duplicates = read.duplicates ?? [] }
+    catch { /* keep what is shown */ }
   }
   async function sync() {
     if (busy || !canWrite) return
@@ -42,10 +48,22 @@
   onMount(() => {
     void readLibrary()
     let alive = true, reading = false
+    // null until the first read, which the mount already covers.
+    let copies: string | null = null
     const refresh = async () => {
       if (!canWrite || reading || document.hidden) return
       reading = true
-      try { const data = await getImports(); if (alive) { imports = data.requests; importError = '' } }
+      try {
+        const data = await getImports()
+        if (alive) {
+          imports = data.requests; importError = ''
+          // A copy that finishes or fails changes what the library says about its skill, and the library list is
+          // not polled. Read it again when any copy changes state, so a failure shows up now and not after a reload.
+          const now = copiesSignature(data.requests)
+          if (copies !== null && now !== copies) void refreshLibrary()
+          copies = now
+        }
+      }
       catch (e) { if (alive) importError = e instanceof Error ? e.message : String(e) }
       finally { reading = false }
     }

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 
 const { outputText } = ts.transpileModule(readFileSync(new URL('./librarySync.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { libraryNotice, groupLeftOut, leftOutHeadline, copyingLine, duplicatesNote } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { libraryNotice, groupLeftOut, leftOutHeadline, copyingLine, duplicatesNote, copiesSignature } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
 const skill = (name, problem) => ({ id: `local/${name}`, name, slug: name, source: problem ? '' : 'org/repo', sourceType: problem ? 'local' : 'github', ...(problem ? { problem } : {}) })
 const copy = (name, state, changes = {}) => ({ id: `${name}-${state}-${changes.createdAt ?? 1}`, requestKey: 'k', agentId: 'a', environmentId: 'e', host: 'laptop', agent: 'agents', project: '', name, syncSkillId: `local/${name}`, destinationId: 'dest', state, bundleId: '', expectedBase: '', createdAt: 1, updatedAt: 1, expiresAt: 9, excluded: [], ...changes })
@@ -133,4 +133,22 @@ test('a shared name is explained as information, not as a problem', () => {
   assert.match(many, /^6 names are/)
   assert.match(many, /a, b, c, d and 2 more/)
   assert.ok(!/error|problem|fail/i.test(`${note} ${many}`))
+})
+
+test('the copies fingerprint changes when a copy starts, finishes or fails, and only then', () => {
+  // The Sync card reads the library again when this changes, so a copy that fails
+  // while the page is open is reported at once instead of after a reload.
+  const quiet = [copy('seo', 'previewing', { id: 'a' }), copy('notes', 'queued', { id: 'b' })]
+  const same = copiesSignature(quiet)
+  assert.equal(copiesSignature([...quiet].reverse()), same, 'the order the server lists them in is not a change')
+  assert.equal(copiesSignature(quiet.map(item => ({ ...item, updatedAt: 99, expiresAt: 5 }))), same, 'a timestamp is not a change')
+  assert.notEqual(copiesSignature([copy('seo', 'failed', { id: 'a' }), quiet[1]]), same, 'a copy failing is a change')
+  assert.notEqual(copiesSignature([copy('seo', 'completed', { id: 'a' }), quiet[1]]), same, 'a copy finishing is a change')
+  assert.notEqual(copiesSignature([...quiet, copy('new', 'queued', { id: 'c' })]), same, 'a new copy is a change')
+  assert.notEqual(copiesSignature([quiet[0]]), same, 'a copy going away is a change')
+})
+
+test('requests that are not about a library skill never trigger a re-read', () => {
+  assert.equal(copiesSignature([copy('manual', 'queued', { syncSkillId: undefined })]), '')
+  assert.equal(copiesSignature([]), '')
 })

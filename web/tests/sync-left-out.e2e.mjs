@@ -13,7 +13,8 @@ const written = ['reet-api-design', 'reet-architect', 'reet-babysit', 'reet-cost
 const seo = { id: 'local/seo', name: 'seo', slug: 'seo', source: '', sourceType: 'local', problem: 'This skill folder could not be copied from its machine; it may contain unsupported files, or be larger than 256 files or 8 MiB.' }
 const ordinary = Array.from({ length: 24 }, (_, i) => skill(`skill-${i}`))
 const library = [...ordinary, ...written, seo]
-const failedCopy = (name, error, createdAt) => ({ id: `${name}-${createdAt}`, requestKey: `k${createdAt}`, agentId: 'a2', environmentId: 'prod', host: 'PROD_Snicket', agent: 'agents', project: '', name, syncSkillId: `local/${name}`, destinationId: 'prod', state: 'failed', error, bundleId: '', expectedBase: '', createdAt, updatedAt: createdAt, expiresAt: createdAt + 1, excluded: [] })
+const copyRequest = (name, state, error, createdAt) => ({ id: `${name}-${createdAt}`, requestKey: `k${createdAt}`, agentId: 'a2', environmentId: 'prod', host: 'PROD_Snicket', agent: 'agents', project: '', name, syncSkillId: `local/${name}`, destinationId: 'prod', state, ...(error ? { error } : {}), bundleId: '', expectedBase: '', createdAt, updatedAt: createdAt, expiresAt: createdAt + 1, excluded: [] })
+const failedCopy = (name, error, createdAt) => copyRequest(name, 'failed', error, createdAt)
 const imports = [failedCopy('seo', 'capture_failed', 1), failedCopy('seo', 'capture_failed', 2), failedCopy('reet-ux-ui', 'transfer_failed', 3), failedCopy('reet-security', 'transfer_failed', 4), failedCopy('reet-product-design', 'transfer_failed', 5)]
 const scope = { id: 'prod', host: 'PROD_Snicket', agent: 'agents', name: 'PROD_Snicket', skills: [], skillCount: 0, complete: true, scannedAt: now, lastSeen: now }
 const sync = { environments: [scope], machines: [{ host: 'PROD_Snicket', groups: [scope], skillCount: 0 }], agents: [
@@ -79,6 +80,31 @@ try {
       await leftOut.scrollIntoViewIfNeeded()
       await page.screenshot({ path: `${process.env.REET_CAPTURE}/sync-left-out-${width}-${theme}.png`, fullPage: true })
     }
+    await fixture.context.close()
+  }
+  // A copy that fails while the card is open is reported without a reload. The library list is not polled, so the
+  // card has to notice that a copy changed state and read the library again. Without that, the failed copy would drop
+  // out of the progress line and its reason would not appear until the page was reloaded.
+  {
+    let phase = 'copying'
+    const waiting = { id: 'local/seo', name: 'seo', slug: 'seo', source: '', sourceType: 'local' }
+    const fixture = await openWorkspace(browser, { width: 1280, height: 960, skills: ordinary, sync, routes: {
+      '/api/v2/sync': () => sync,
+      '/api/v2/sync/candidates': () => ({ skills: [...ordinary, phase === 'copying' ? waiting : seo], duplicates: [] }),
+      '/api/v2/skill-imports': () => ({ requests: [phase === 'copying' ? copyRequest('seo', 'previewing', '', 1) : copyRequest('seo', 'failed', 'capture_failed', 1)], capabilities: [] }),
+    } })
+    const { page, errors } = fixture
+    await page.goto(`${base}/sync`)
+    const section = page.getByRole('region', { name: 'Your skills, everywhere.' })
+    await expect(section.getByText('Copying seo privately from your machines.', { exact: false })).toBeVisible()
+    await expect(section.locator('.left-out')).toHaveCount(0)
+    phase = 'failed'
+    // The copies are read every five seconds, and the library is read again when one changes.
+    await expect(section.locator('.left-out')).toContainText('seo', { timeout: 15000 })
+    await expect(section.locator('.left-out')).toContainText('could not be copied from its machine')
+    await expect(section.getByText('Copying seo privately', { exact: false })).toHaveCount(0)
+    expect(await section.innerText()).not.toMatch(/capture_failed/)
+    expect(errors).toEqual([])
     await fixture.context.close()
   }
   console.log('Sync left out: one calm note for skills that cannot sync, no raw codes, no per-skill red, shared names explained, machines honest.')

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -21,21 +22,42 @@ type StoredChatEvent struct {
 	Event []byte
 }
 
-// AppendTerminalChatEventFor stores one chat event. The primary key is the
-// chat's own sequence number, so a retry of the same event is idempotent. It
-// does not read the transcript: streaming chat would otherwise pay a COUNT/SUM
-// over the whole session for every event. The caller trims the transcript in
-// batches with TrimTerminalChatEventsFor.
+// AppendTerminalChatEventFor stores one chat event. It is a single-event
+// wrapper around AppendTerminalChatEventsFor so a caller that has one event
+// keeps the same idempotent primary-key behaviour.
 func (s *Store) AppendTerminalChatEventFor(uid int64, sessionID string, seq, at int64, event []byte) error {
-	validIdentity := terminalproto.ValidID(sessionID) && terminalproto.ValidCounter(seq) && at > 0
-	validEvent := len(event) > 0 && len(event) <= maxStoredChatBytes && json.Valid(event)
-	if !validIdentity || !validEvent {
+	return s.AppendTerminalChatEventsFor(uid, sessionID, []StoredChatEvent{{Seq: seq, At: at, Event: event}})
+}
+
+// AppendTerminalChatEventsFor stores a batch of chat events in one
+// transaction. The primary key is the chat's own sequence number, so retrying
+// the same batch is idempotent. Batching matters because each commit is an
+// fsync in WAL mode: one transaction per streamed chunk is otherwise the
+// dominant cost of a live chat. The caller trims the transcript in batches
+// with TrimTerminalChatEventsFor.
+func (s *Store) AppendTerminalChatEventsFor(uid int64, sessionID string, events []StoredChatEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	if !terminalproto.ValidID(sessionID) {
 		return terminalproto.ErrInvalid
 	}
-	_, err := s.db.Exec(`INSERT INTO terminal_chat_events(user_id,session_id,seq,at,event,bytes)
-		VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,session_id,seq) DO NOTHING`,
-		uid, sessionID, seq, at, string(event), len(event))
-	return err
+	for _, event := range events {
+		if !terminalproto.ValidCounter(event.Seq) || event.At <= 0 ||
+			len(event.Event) == 0 || len(event.Event) > maxStoredChatBytes || !json.Valid(event.Event) {
+			return terminalproto.ErrInvalid
+		}
+	}
+	return s.withTx(func(tx *sql.Tx) error {
+		for _, event := range events {
+			if _, err := tx.Exec(`INSERT INTO terminal_chat_events(user_id,session_id,seq,at,event,bytes)
+				VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,session_id,seq) DO NOTHING`,
+				uid, sessionID, event.Seq, event.At, string(event.Event), len(event.Event)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // TrimTerminalChatEventsFor drops stored events older than beforeSeq, keeping

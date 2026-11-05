@@ -4,15 +4,18 @@
   import MachineSkillSync from './MachineSkillSync.svelte'
   import { agentOnline } from './machines'
   import { copiesSignature, copyingLine, duplicatesNote, leftOutHeadline, libraryNotice } from './librarySync'
+  import { fleetSyncStatus } from './fleetSync'
   import { machineSyncOverview } from './syncOverview'
   import Skeleton from './Skeleton.svelte'
 
   let { snapshot, canWrite, onupdate }: { snapshot: SyncState; canWrite: boolean; onupdate: (state: SyncState) => void } = $props()
   let skills = $state<SyncSkill[]>([]), duplicates = $state<SyncDuplicate[]>([])
-  let loading = $state(true), busy = $state(false), error = $state(''), notice = $state(''), query = $state('')
+  let loading = $state(true), busy = $state(false), error = $state(''), query = $state('')
   let imports = $state<ImportRequest[]>([]), importError = $state(''), copying = $state<ImportRequest | null>(null)
   const agents = $derived(snapshot.agents ?? [])
-  const online = $derived(agents.filter(agent => agentOnline(agent) && !agent.paused).length)
+  // One sentence for the whole fleet, and whether pressing the button is the right next step.
+  const status = $derived(fleetSyncStatus(snapshot))
+  const showButton = $derived(canWrite && (status.canSync || status.state === 'syncing'))
   const filtered = $derived(skills.filter(skill => `${skill.name} ${skill.source}`.toLowerCase().includes(query.toLowerCase())))
   const library = $derived(libraryNotice(skills, imports, snapshot.runs ?? []))
   const privateSkills = $derived(skills.filter(skill => skill.sourceType === 'private').length)
@@ -30,12 +33,13 @@
     catch { /* keep what is shown */ }
   }
   async function sync() {
-    if (busy || !canWrite) return
-    busy = true; error = ''; notice = ''
+    if (busy || !canWrite || !status.canSync) return
+    busy = true; error = ''
     try {
+      // The headline answers from the state this returns, so there is no success message to read: it flips to
+      // "Syncing your machines…" and then to "Everything is in sync."
       onupdate(await syncLibraryMachines())
-      await readLibrary()
-      notice = 'Library sync is on for all machines. Connected machines catch up now; offline machines catch up when they reconnect. Paused machines stay paused.'
+      await refreshLibrary()
     } catch (e) { error = e instanceof Error ? e.message : String(e) }
     finally { busy = false }
   }
@@ -79,16 +83,19 @@
     {#if canWrite}<a class="btn" class:primary={!agents.length} href="/machines#add-machine">Add a machine</a>{/if}
   </header>
   {#if agents.length}
-  <div class="library-summary">
-    <div><strong>{loading ? '…' : skills.length}</strong><span>skills in your library</span></div>
-    <span class="connection" aria-hidden="true">→</span>
-    <div><strong>{agents.length}</strong><span>{agents.length === 1 ? 'connected machine' : 'connected machines'}<small>{online} online now</small></span></div>
-    <button type="button" class="btn primary" disabled={busy || loading || !canWrite || !agents.length} onclick={sync}>{busy ? 'Starting sync…' : 'Sync all machines'}</button>
+  <!-- The page answers one question, "am I in sync?", and offers one button. Everything else is detail below. -->
+  <div class="fleet" data-state={status.state} role="status" aria-live="polite" aria-busy={busy || status.state === 'syncing'}>
+    <span class="fleet-dot" aria-hidden="true"></span>
+    <div class="fleet-text">
+      <strong>{status.headline}</strong>
+      {#if status.detail}<span>{status.detail}</span>{/if}
+      <small>{loading ? 'Reading your library…' : `${skills.length} ${skills.length === 1 ? 'skill' : 'skills'} · ${agents.length} ${agents.length === 1 ? 'machine' : 'machines'}`}</small>
+    </div>
+    {#if showButton}<button type="button" class="btn" class:primary={status.state !== 'in-sync' && status.state !== 'waiting'} disabled={busy || loading || !status.canSync} onclick={sync}>{busy ? 'Starting…' : status.state === 'syncing' ? 'Syncing…' : 'Sync all machines'}</button>{/if}
   </div>
+  <p class="promise">After this, new skills and edits to your own skills follow by themselves, even when this page is closed.</p>
   {/if}
-  <p class="promise">New machines sync after their first scan. New skills and edits to your written skills follow automatically, even when this page is closed. Your drafts stay private.</p>
   {#if error}<p class="message error" role="alert">{error}<button type="button" class="btn" disabled={busy} onclick={() => { error = ''; void readLibrary() }}>Reload library</button></p>{/if}
-  {#if notice}<p class="message" role="status">{notice}</p>{/if}
   {#if importError}<p class="message error" role="status">Private copy progress could not be read: {importError}</p>{/if}
   {#each library.review as item (item.id)}
     <p class="message" role="status">{item.name}: Some files need your review before they can be copied.<button class="btn" onclick={() => copying = item}>Review files</button></p>
@@ -144,14 +151,20 @@
   h2 { margin: 0; font: 500 clamp(1.7rem, 3vw, 2.25rem)/1.15 var(--serif); }
   .promise { max-width: 65ch; color: var(--muted); font-size: .9rem; line-height: 1.65; }
   header .btn { flex: none; }
-  .library-summary { display: flex; align-items: center; gap: 22px; padding: 22px; margin-top: 20px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
-  .library-summary > div { display: flex; gap: 12px; align-items: center; }
-  .library-summary strong { font: 500 2.5rem/1 var(--serif); font-variant-numeric: tabular-nums; }
-  .library-summary span { font-size: 0.875rem; }
-  .library-summary small { display: block; margin-top: 4px; color: var(--muted); }
-  .library-summary .btn { margin-left: auto; flex: none; min-height: 44px; }
-  .connection { color: var(--muted); }
-  .promise { margin: 16px 0 22px; }
+  .fleet { display: flex; align-items: center; gap: 16px; padding: 20px 22px; margin-top: 20px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
+  .fleet-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); }
+  .fleet[data-state='in-sync'] .fleet-dot { background: var(--good); }
+  .fleet[data-state='behind'] .fleet-dot { background: var(--accent-text); }
+  .fleet[data-state='attention'] .fleet-dot { background: var(--warn); }
+  .fleet[data-state='syncing'] .fleet-dot { background: var(--accent-text); animation: fleet-pulse 1.4s ease-in-out infinite; }
+  @keyframes fleet-pulse { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .fleet[data-state='syncing'] .fleet-dot { animation: none; } }
+  .fleet-text { flex: 1; min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
+  .fleet-text strong { font: 500 clamp(1.25rem, 2.6vw, 1.6rem)/1.25 var(--serif); }
+  .fleet-text span { font-size: 0.875rem; line-height: 1.5; }
+  .fleet-text small { color: var(--muted); font-size: 0.875rem; }
+  .fleet .btn { flex: none; min-height: 44px; }
+  .promise { margin: 14px 0 22px; }
   .machine-list { border-top: 1px solid var(--line); }
   article { display: flex; align-items: center; gap: 14px; padding: 18px 0; border-bottom: 1px solid var(--line); }
   .machine-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
@@ -187,11 +200,9 @@
   .automatic input { width: 20px; min-height: 20px; flex: none; }
   @media (max-width: 650px) {
     header { flex-direction: column; }
-    .library-summary { flex-wrap: wrap; padding: 16px; gap: 16px; }
-    .library-summary strong { font-size: 2rem; }
-    .library-summary > div { flex: 1; }
-    .library-summary .connection { display: none; }
-    .library-summary .btn { width: 100%; }
+    .fleet { flex-wrap: wrap; padding: 16px; gap: 12px; }
+    .fleet-text { flex-basis: calc(100% - 28px); }
+    .fleet .btn { width: 100%; }
     article { flex-wrap: wrap; gap: 10px; }
     .machine-name { flex-basis: calc(100% - 24px); }
     .status { margin-left: 18px; max-width: none; }

@@ -29,18 +29,29 @@ func (b *Broker) SoftwareApply(ctx context.Context, uid int64, agentID string, i
 	if !terminalproto.ValidToolV2(in.Tool) {
 		return terminalproto.SoftwareApplyResult{}, terminalproto.ErrInvalid
 	}
+	// ErrNotSent says nothing reached the machine, which a caller may rely on to
+	// leave the work for later. Plain ErrOffline says only that the connection is
+	// gone, and after the request went out the machine may have acted on it.
 	p, err := b.peer(uid, agentID, true)
+	if errors.Is(err, ErrOffline) {
+		return terminalproto.SoftwareApplyResult{}, ErrNotSent
+	}
 	if err != nil {
 		return terminalproto.SoftwareApplyResult{}, err
 	}
 	caps, err := b.st.RemoteCapabilitiesFor(uid, agentID)
 	if err != nil || caps.Generation != p.Generation {
-		return terminalproto.SoftwareApplyResult{}, ErrOffline
+		return terminalproto.SoftwareApplyResult{}, ErrNotSent
 	}
 	if !caps.Capabilities.SoftwareApply {
 		return terminalproto.SoftwareApplyResult{}, ErrSoftwareApplyUnsupported
 	}
-	body, err := p.ask(ctx, in, SoftwareApplyTimeout)
+	reply, err := p.callWithin(ctx, terminalproto.Message{Body: in}, SoftwareApplyTimeout)
+	if err == ErrOffline {
+		// callWithin reports a request it could not send as plain ErrOffline.
+		return terminalproto.SoftwareApplyResult{}, ErrNotSent
+	}
+	body, err := p.answer(ctx, reply, err)
 	if err != nil {
 		return terminalproto.SoftwareApplyResult{}, err
 	}

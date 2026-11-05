@@ -113,9 +113,11 @@ Limits: 128 retained requests per account; dismiss finished history when full. F
 capture/path limits and conservative credential blocking are unchanged from CLI import.
 Those checks are not a guarantee of detecting every secret format. Only excluded file
 metadata, never their bytes, reaches the controller. Unsupported filesystem entries
-cannot be hidden with exclusions. Existing private storage remains append-only, with
-128 bundles/256 revisions/64 MiB unique bytes per account; broader capacity/deletion/GC
-and content editing/export controls need their own reviewed work.
+cannot be hidden with exclusions. Private storage keeps its bounds of
+128 bundles/256 revisions/64 MiB unique bytes per account. Superseded revisions that
+nothing depends on are freed when a write needs the room, so the revision and byte
+bounds apply to what is in use. Deleting whole skills and content editing/export
+controls need their own reviewed work.
 
 New tables are `machine_import_capabilities` and `machine_import_requests`, both
 account/enrollment scoped with revoke/account-delete cascades. Full controller DB

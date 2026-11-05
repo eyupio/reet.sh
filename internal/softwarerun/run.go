@@ -5,7 +5,9 @@
 // together. The driver takes the lowest pending position, sends its frozen plan
 // through the same apply path a single machine uses, records the outcome, and
 // continues. A failed or refused member stops the batch there; the person then
-// retries it, skips it and continues, or abandons the batch.
+// retries it, skips it and continues, or abandons the batch. A machine that is
+// not connected when its turn comes has not failed, because nothing reached it:
+// it is skipped and the batch carries on.
 //
 // A member left running when the controller stops is reset to pending by the
 // store on resume. Its outcome is unknown, so it is tried again with the same
@@ -39,6 +41,10 @@ const (
 	CodeBadAnswer   = "bad_answer"
 	CodeTimedOut    = "timed_out"
 	CodeApplyFailed = "apply_failed"
+	// CodeConnectionLost is a connection that dropped after the apply was sent,
+	// so the machine may have done it. CodeOffline is the opposite: the machine
+	// was not connected when its turn came and nothing reached it.
+	CodeConnectionLost = "connection_lost"
 	// CodeInternal is used only when a member's outcome cannot be stored; the
 	// member stays running and a resume tries it again.
 	CodeInternal = "internal_error"
@@ -285,6 +291,15 @@ func (o *Orchestrator) step(uid int64, batch store.SoftwareBatch, member store.S
 		return // shutting down: the member stays running for Resume to reset
 	}
 	if err != nil {
+		if errors.Is(err, terminalbroker.ErrNotSent) {
+			// The machine was not connected when its turn came and nothing reached
+			// it, so nothing changed there and there is nothing to review. It is
+			// skipped and the rollout carries on; stopping for a person to say
+			// "skip" would only ask them for what they would always answer. A real
+			// failure still stops the batch.
+			o.record(uid, batch.ID, member.Position, store.SoftwareMemberSkipped, CodeOffline, "")
+			return
+		}
 		o.record(uid, batch.ID, member.Position, store.SoftwareMemberFailed, failureCode(err), "")
 		return
 	}
@@ -351,7 +366,9 @@ func targetVersion(member store.SoftwareBatchMember) string {
 func failureCode(err error) string {
 	switch {
 	case errors.Is(err, terminalbroker.ErrOffline):
-		return CodeOffline
+		// Never-sent is handled before this (ErrNotSent). What is left is a
+		// connection that dropped after the apply went out.
+		return CodeConnectionLost
 	case errors.Is(err, terminalbroker.ErrSoftwareApplyUnsupported):
 		return CodeUnsupported
 	case errors.Is(err, terminalbroker.ErrSoftwareApplyAnswer):

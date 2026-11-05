@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/url"
 	"slices"
 	"sort"
@@ -47,26 +46,41 @@ func (s *Store) PrivateSyncIdentityFor(uid int64, host, agent, project, name str
 	return SyncSkill{}, false, nil
 }
 
+// SyncLibraryView is the shared library, and the copies that were left out of it
+// because another copy of the same name was chosen.
+type SyncLibraryView struct {
+	Skills     []SyncSkill          `json:"skills"`
+	Duplicates []SyncDuplicateGroup `json:"duplicates"`
+}
+
 // SyncLibraryFor is the shared collection: shelf skills and every written skill,
 // including unpublished drafts. Own written content is pinned privately, even
 // when published, so an edit changes its revision and never depends on a public
 // URL cache. An unlinked scan of the same name is not another library entry.
+// Every name appears once: see libraryDuplicates.
 func (s *Store) SyncLibraryFor(uid int64, role string) ([]SyncSkill, error) {
+	view, err := s.SyncLibraryViewFor(uid, role)
+	return view.Skills, err
+}
+
+// SyncLibraryViewFor is SyncLibraryFor plus the names that had more than one
+// copy, for showing what was left out.
+func (s *Store) SyncLibraryViewFor(uid int64, role string) (SyncLibraryView, error) {
 	var origin string
 	if err := s.db.QueryRow(`SELECT origin FROM sync_library WHERE user_id=?`, uid).Scan(&origin); err != nil {
-		return nil, err
+		return SyncLibraryView{}, err
 	}
 	shelf, err := s.SyncCandidatesFor(uid, role, 0)
 	if err != nil {
-		return nil, err
+		return SyncLibraryView{}, err
 	}
 	written, err := s.SyncHostedFor(uid, origin)
 	if err != nil {
-		return nil, err
+		return SyncLibraryView{}, err
 	}
 	hosted, err := s.HostedSkillsFor(uid)
 	if err != nil {
-		return nil, err
+		return SyncLibraryView{}, err
 	}
 	bySlug := map[string]HostedSkill{}
 	for _, sk := range hosted {
@@ -81,19 +95,24 @@ func (s *Store) SyncLibraryFor(uid int64, role string) ([]SyncSkill, error) {
 	}
 	problems, err := s.libraryCaptureProblems(uid)
 	if err != nil {
-		return nil, err
+		return SyncLibraryView{}, err
 	}
 	linked := map[string]bool{}
-	sources := map[string]string{}
-	conflicts := map[string]bool{}
+	claims := map[string][]SyncSkill{}
 	for _, sk := range byID {
 		if sk.Source != "" && sk.SourceType != "local" {
 			linked[sk.Slug] = true
-			key := sk.SourceType + ":" + sk.Source
-			if prior, ok := sources[sk.Slug]; ok && prior != key {
-				conflicts[sk.Slug] = true
-			}
-			sources[sk.Slug] = key
+			claims[sk.Slug] = append(claims[sk.Slug], sk)
+		}
+	}
+	duplicates, err := s.libraryDuplicates(uid, claims)
+	if err != nil {
+		return SyncLibraryView{}, err
+	}
+	leftOut := map[string]bool{}
+	for _, group := range duplicates {
+		for _, sk := range group.Remove {
+			leftOut[sk.ID] = true
 		}
 	}
 	for id, problem := range problems {
@@ -108,16 +127,65 @@ func (s *Store) SyncLibraryFor(uid int64, role string) ([]SyncSkill, error) {
 	}
 	out := []SyncSkill{}
 	for _, sk := range byID {
-		if sk.SourceType == "local" && sk.Problem == "" && linked[sk.Slug] {
+		if leftOut[sk.ID] || (sk.SourceType == "local" && sk.Problem == "" && linked[sk.Slug]) {
 			continue
-		}
-		if conflicts[sk.Slug] {
-			sk.Problem = fmt.Sprintf("More than one source uses the name %s. Remove the duplicate from your shelf before syncing.", sk.Slug)
 		}
 		out = append(out, sk)
 	}
 	slices.SortFunc(out, func(a, b SyncSkill) int { return strings.Compare(a.ID, b.ID) })
-	return out, nil
+	return SyncLibraryView{Skills: out, Duplicates: duplicates}, nil
+}
+
+// libraryDuplicates settles every name that more than one source claims. Two
+// copies cannot share a skills folder, so a person has no useful decision to
+// make: the library keeps the copy a saved plan already installs, then the oldest
+// on the shelf, and leaves the others where they are. Nothing is deleted. A
+// written skill with no shelf entry has no age and counts as the oldest, so a
+// draft the account wrote outranks a shelf copy of its name. DedupeLibraryConflictsFor
+// uses the same order, so removing the extras removes exactly the copies left out.
+func (s *Store) libraryDuplicates(uid int64, claims map[string][]SyncSkill) ([]SyncDuplicateGroup, error) {
+	groups := []SyncDuplicateGroup{}
+	contested := []string{}
+	for slug, members := range claims {
+		sources := map[string]bool{}
+		for _, sk := range members {
+			sources[sk.SourceType+":"+sk.Source] = true
+		}
+		if len(sources) > 1 {
+			contested = append(contested, slug)
+		}
+	}
+	if len(contested) == 0 {
+		return groups, nil
+	}
+	sort.Strings(contested)
+	planned, err := s.desiredSkillCounts(uid)
+	if err != nil {
+		return nil, err
+	}
+	shelf, _, err := s.ListFor(uid, Filter{})
+	if err != nil {
+		return nil, err
+	}
+	created := map[string]int64{}
+	for _, sk := range shelf {
+		created[sk.ID] = sk.CreatedAt
+	}
+	for _, slug := range contested {
+		members := slices.Clone(claims[slug])
+		sort.SliceStable(members, func(i, j int) bool {
+			a, b := members[i], members[j]
+			if planned[a.ID] != planned[b.ID] {
+				return planned[a.ID] > planned[b.ID]
+			}
+			if created[a.ID] != created[b.ID] {
+				return created[a.ID] < created[b.ID]
+			}
+			return a.ID < b.ID
+		})
+		groups = append(groups, SyncDuplicateGroup{Slug: slug, Keep: members[0], Remove: members[1:]})
+	}
+	return groups, nil
 }
 
 // SyncDuplicateGroup is one name that more than one shelf source claims. Keep
@@ -407,25 +475,9 @@ func (s *Store) syncLibraryMachinesFor(uid int64, role, origin, agentID string) 
 	}); err != nil {
 		return err
 	}
-	candidates, err := s.SyncLibraryFor(uid, role)
-	if err != nil {
-		return err
-	}
-	captureProblems, err := s.libraryCaptureProblems(uid)
-	if err != nil {
-		return err
-	}
-	for _, candidate := range candidates {
-		if candidate.Problem == "" {
-			continue
-		}
-		// Another machine's failed private copy is reported on that skill and
-		// skipped; only problems in the library itself stop this action.
-		if _, capture := captureProblems[candidate.ID]; capture {
-			continue
-		}
-		return errors.New(candidate.Problem)
-	}
+	// A skill that cannot be synced is reported on that skill and left out. It
+	// never stops this action: pressing Sync all machines switches every machine
+	// on and brings across everything that can be brought.
 	for _, agent := range agents {
 		if err = s.ControlSyncAgent(uid, agent.ID, "keep-sync-on"); err != nil {
 			return err

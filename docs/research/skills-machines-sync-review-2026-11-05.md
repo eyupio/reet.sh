@@ -181,7 +181,11 @@ These are limits of the current implementation, not hidden guarantees:
    64 MiB per account; written bundles are limited to 2 MiB and 100 supporting
    files. Frequent edits can exhaust revisions. The UI carries the capacity
    error, but retention/garbage collection and a usage meter are still needed
-   before general availability.
+   before general availability. *Update: this was hit in practice, one account
+   filling its revisions and then failing to sync any written skill. Superseded
+   revisions and stranded blobs are now freed on demand, never while something
+   uses them; see [private skill revisions](../private-skill-revisions.md). A usage
+   meter is still open.*
 4. **Projects and legacy Codex folders are separate.** Automatic destinations
    are Shared agents / Codex, Claude, Cursor and OpenCode home folders. Existing
    `.codex/skills` is scanned but remains a legacy scan-only location. Project

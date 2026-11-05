@@ -157,6 +157,11 @@ export function machineSyncOverview(machine: Machine, snapshot: SyncState, now =
     return { ...base, tone: 'attention', label: 'Rescan needed', detail: 'A complete agent scan from the last 14 days is needed before syncing.', canSync: false }
   }
   const problem = targets.find(target => target.problem)?.problem
+  // The scheduler reports private copies in progress through the same field as a
+  // real problem. Saving them is normal work, not something to look at.
+  if (problem && /^Copying machine-only skills privately/.test(problem)) {
+    return { ...base, tone: 'working', label: 'Copying your skills', detail: 'Saving private copies of skills that only exist on your machines, then installing them here.', canSync: false }
+  }
   const failure = [...jobs].sort((a, b) => b.updatedAt - a.updatedAt).find(job => {
     const target = targets.find(target => target.target.id === job.targetId)
     return !!target && job.revision === target.revision

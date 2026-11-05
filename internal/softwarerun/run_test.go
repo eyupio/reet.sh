@@ -208,7 +208,57 @@ func TestSkipContinuesAndFinishes(t *testing.T) {
 	}
 }
 
-func TestOfflineStopsWithCode(t *testing.T) {
+// A machine that is not connected when its turn comes has not failed: the apply
+// never reached it, so nothing changed there. It is skipped and the rollout
+// carries on, rather than waiting for a person to choose Retry, Skip or Abandon.
+func TestNotConnectedIsSkippedAndTheRolloutCarriesOn(t *testing.T) {
+	st, uid, agents := softwareRunFixture(t, "alpha", "beta", "gamma")
+	batch := softwareRunBatch(t, st, uid, agents...)
+	broker := &fakeBroker{apply: func(agentID string, in terminalproto.SoftwareApply) (terminalproto.SoftwareApplyResult, error) {
+		if agentID == agents[1].ID {
+			return terminalproto.SoftwareApplyResult{}, terminalbroker.ErrNotSent
+		}
+		return applied(in), nil
+	}}
+	o := New(Config{Store: st, Broker: broker, Logf: t.Logf})
+	defer o.Close()
+	o.Start(uid, batch.ID)
+	done := waitBatch(t, st, uid, batch.ID, store.SoftwareBatchDone)
+	if got := []string{done.Members[0].State, done.Members[1].State, done.Members[2].State}; got[0] != store.SoftwareMemberApplied || got[1] != store.SoftwareMemberSkipped || got[2] != store.SoftwareMemberApplied {
+		t.Fatalf("the machine behind the offline one was held back: %v", got)
+	}
+	if done.Members[1].Code != CodeOffline {
+		t.Fatalf("the skip does not say why: %+v", done.Members[1])
+	}
+	if len(broker.calls) != 3 {
+		t.Fatalf("expected every machine to get its turn: %v", broker.calls)
+	}
+}
+
+// Every machine being off is still not a failure. The batch ends, with each one
+// skipped, instead of stopping at the first and asking.
+func TestEveryMachineOfflineEndsTheBatchSkipped(t *testing.T) {
+	st, uid, agents := softwareRunFixture(t, "alpha", "beta")
+	batch := softwareRunBatch(t, st, uid, agents...)
+	broker := &fakeBroker{apply: func(string, terminalproto.SoftwareApply) (terminalproto.SoftwareApplyResult, error) {
+		return terminalproto.SoftwareApplyResult{}, terminalbroker.ErrNotSent
+	}}
+	o := New(Config{Store: st, Broker: broker, Logf: t.Logf})
+	defer o.Close()
+	o.Start(uid, batch.ID)
+	done := waitBatch(t, st, uid, batch.ID, store.SoftwareBatchDone)
+	for _, m := range done.Members {
+		if m.State != store.SoftwareMemberSkipped || m.Code != CodeOffline {
+			t.Fatalf("expected both machines skipped as offline: %+v", done.Members)
+		}
+	}
+}
+
+// A connection that drops after the apply was sent is different. The machine may
+// be part-way through installing, or finished, so skipping it would hide an
+// outcome nobody knows. It stops the batch for a person to retry, which
+// reconciles against what is installed now.
+func TestConnectionLostMidApplyStillStopsTheBatch(t *testing.T) {
 	st, uid, agents := softwareRunFixture(t, "alpha", "beta")
 	batch := softwareRunBatch(t, st, uid, agents...)
 	broker := &fakeBroker{apply: func(agentID string, in terminalproto.SoftwareApply) (terminalproto.SoftwareApplyResult, error) {
@@ -218,8 +268,11 @@ func TestOfflineStopsWithCode(t *testing.T) {
 	defer o.Close()
 	o.Start(uid, batch.ID)
 	stopped := waitBatch(t, st, uid, batch.ID, store.SoftwareBatchStopped)
-	if stopped.Members[0].Code != CodeOffline {
-		t.Fatalf("offline code: %+v", stopped.Members[0])
+	if stopped.Members[0].State != store.SoftwareMemberFailed || stopped.Members[0].Code != CodeConnectionLost {
+		t.Fatalf("a lost connection should be a failure with its own code: %+v", stopped.Members[0])
+	}
+	if stopped.Members[1].State != store.SoftwareMemberPending {
+		t.Fatalf("the batch carried on past an apply whose outcome is unknown: %+v", stopped.Members[1])
 	}
 }
 

@@ -228,3 +228,51 @@ func TestActiveSoftwareBatchForRestoresTheStoppedBatch(t *testing.T) {
 		t.Fatalf("another person must not see it: ok=%v err=%v", ok, err)
 	}
 }
+
+// A machine the apply never reached is recorded as skipped. Unlike a failure it
+// does not stop the batch, so the machines behind it still get their turn and the
+// batch ends done. Only a running member can be given an outcome.
+func TestSoftwareBatchSkippedOutcomeDoesNotStopTheBatch(t *testing.T) {
+	s, uid, a, b := softwareBatchFixture(t)
+	batch, _, err := s.CreateSoftwareBatchFor(uid, "", "opencode", []SoftwareBatchMemberInput{pendingMember(0, a), pendingMember(1, b)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSoftwareBatchMemberState(uid, batch.ID, 0, SoftwareMemberSkipped, "offline", ""); !errors.Is(err, ErrSoftwareBatchMemberNotRunning) {
+		t.Fatalf("a member that never started was given an outcome: %v", err)
+	}
+	if _, err := s.SoftwareBatchMemberStart(uid, batch.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSoftwareBatchMemberState(uid, batch.ID, 0, SoftwareMemberSkipped, "offline", ""); err != nil {
+		t.Fatalf("skipped is not accepted as an outcome: %v", err)
+	}
+	running, _ := s.SoftwareBatchFor(uid, batch.ID)
+	if running.State != SoftwareBatchRunning || running.Members[0].State != SoftwareMemberSkipped || running.Members[0].Code != "offline" || running.Members[1].State != SoftwareMemberPending {
+		t.Fatalf("a skipped machine should leave the batch running for the next: %+v", running)
+	}
+	if _, err := s.SoftwareBatchMemberStart(uid, batch.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSoftwareBatchMemberState(uid, batch.ID, 1, SoftwareMemberApplied, "", "1.19.5"); err != nil {
+		t.Fatal(err)
+	}
+	done, _ := s.SoftwareBatchFor(uid, batch.ID)
+	if done.State != SoftwareBatchDone || done.Members[0].State != SoftwareMemberSkipped || done.Members[1].State != SoftwareMemberApplied {
+		t.Fatalf("a batch with a skipped machine should finish: %+v", done)
+	}
+	// A skip with no usable code still says it was skipped.
+	other, _, err := s.CreateSoftwareBatchFor(uid, "", "opencode", []SoftwareBatchMemberInput{pendingMember(0, a)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SoftwareBatchMemberStart(uid, other.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSoftwareBatchMemberState(uid, other.ID, 0, SoftwareMemberSkipped, "Not A Code", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.SoftwareBatchFor(uid, other.ID); got.Members[0].Code != "skipped" {
+		t.Fatalf("an unusable code was stored as given: %+v", got.Members[0])
+	}
+}

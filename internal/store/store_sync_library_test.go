@@ -208,22 +208,6 @@ func TestSyncLibraryAllMachinesPersistsPolicyAndKeepsProjectsExplicit(t *testing
 	}
 }
 
-func TestLibrarySourceConflictPreservesLastGoodSelection(t *testing.T) {
-	s, uid, id := controlFixture(t)
-	if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", Mode: "additive", SkillIDs: []string{"a/b/one"}}); err != nil {
-		t.Fatal(err)
-	}
-	s.EnrollSyncAgent(uid, "laptop", "test")
-	s.UpsertFor(uid, mustRef(t, "c/d/one"), Patch{})
-	if err := s.SyncLibraryMachinesFor(uid, "owner", "https://reet.example"); err == nil {
-		t.Fatal("ambiguous source accepted")
-	}
-	targets, _ := s.SyncTargetsFor(uid)
-	if len(targets) != 1 || len(targets[0].Desired) != 1 || targets[0].Desired[0].ID != "a/b/one" {
-		t.Fatalf("last good selection changed: %+v", targets)
-	}
-}
-
 func TestLibrarySkipsSkillWhosePrivateCopyFailed(t *testing.T) {
 	s := newStore(t)
 	uid, _ := s.DefaultOwner()
@@ -392,7 +376,10 @@ func TestFailedCaptureDoesNotRewriteDesiredSetOnIdlePoll(t *testing.T) {
 	}
 }
 
-func TestLibrarySourceConflictStillBlocksAutomation(t *testing.T) {
+// A second source for a name a machine already follows used to flag the machine
+// "Sync needs attention" and freeze it. The copy it already follows stays, the
+// extra one is left out, and the poll changes nothing.
+func TestLibraryDuplicateNameDoesNotBlockAutomation(t *testing.T) {
 	s, uid, id := controlFixture(t)
 	if err := s.SetSyncLibraryOrigin(uid, "https://reet.example"); err != nil {
 		t.Fatal(err)
@@ -416,11 +403,18 @@ func TestLibrarySourceConflictStillBlocksAutomation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(targets) != 1 || targets[0].Problem == "" {
-		t.Fatalf("ambiguous library was not reported: %+v", targets)
+	if len(targets) != 1 || targets[0].Problem != "" {
+		t.Fatalf("a duplicated name still stops the machine: %+v", targets)
 	}
 	if len(targets[0].Desired) != 1 || targets[0].Desired[0].ID != "a/b/one" {
-		t.Fatalf("last good selection was replaced: %+v", targets[0].Desired)
+		t.Fatalf("the copy the machine follows was replaced: %+v", targets[0].Desired)
+	}
+	revision := targets[0].Revision
+	if err = s.MaintainSync(uid, "owner", agents[0]); err != nil {
+		t.Fatal(err)
+	}
+	if targets, err = s.SyncTargetsFor(uid); err != nil || len(targets) != 1 || targets[0].Revision != revision {
+		t.Fatalf("an idle poll rewrote the selection: %+v %v", targets, err)
 	}
 }
 
@@ -444,19 +438,25 @@ func TestDedupeLibraryConflictsKeepsTheSavedPlanCopy(t *testing.T) {
 	if _, err = s.db.Exec(`UPDATE sync_policies SET problem=? WHERE target_id=?`, "Sync selection needs attention: More than one source uses the name improve. Remove the duplicate from your shelf before syncing.", id); err != nil {
 		t.Fatal(err)
 	}
-	library, err := s.SyncLibraryFor(uid, "owner")
+	// The library already keeps the saved plan's copy and leaves the other out, so
+	// the duplicate is not an error; deduping only tidies the shelf.
+	view, err := s.SyncLibraryViewFor(uid, "owner")
 	if err != nil {
 		t.Fatal(err)
 	}
-	problem := ""
-	for _, sk := range library {
-		if strings.Contains(sk.Problem, "More than one source") {
-			problem = sk.Problem
+	copies := 0
+	for _, sk := range view.Skills {
+		if sk.Slug == "improve" {
+			copies++
+			if sk.ID != second.ID || sk.Problem != "" {
+				t.Fatalf("the saved plan's copy should be the one kept: %+v", sk)
+			}
 		}
 	}
-	if problem == "" {
-		t.Fatal("duplicate names were not reported")
+	if copies != 1 || len(view.Duplicates) != 1 || view.Duplicates[0].Keep.ID != second.ID {
+		t.Fatalf("the duplicate was not settled: %d %+v", copies, view.Duplicates)
 	}
+	library := view.Skills
 
 	groups, removed, err := s.DedupeLibraryConflictsFor(uid, true)
 	if err != nil {

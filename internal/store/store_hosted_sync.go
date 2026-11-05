@@ -66,7 +66,11 @@ func (s *Store) hostedPrivateSource(uid int64, sk HostedSkill) (string, error) {
 	result, err := s.savePrivateSkillRevisionFor(uid, bundle, in, nil)
 	if err != nil {
 		if errors.Is(err, ErrPrivateSkillCapacity) {
-			return "", fmt.Errorf("%s cannot be synced privately: private skill storage is full (128 bundles, 256 revisions or 64 MiB per account)", sk.Slug)
+			// Old revisions and the bundles of deleted written skills are freed on
+			// demand, so this means every slot holds a skill that is still in use.
+			// Deleting a written skill is the one thing a person can do about that, and
+			// it does free its slot.
+			return "", fmt.Errorf("%s cannot be synced privately: private skill storage is full of skills still in use (at most %d skills or %d MiB per account). Delete a written skill you no longer need, then sync again.", sk.Slug, MaxPrivateSkillBundles, MaxPrivateSkillBytes>>20)
 		}
 		return "", fmt.Errorf("%s cannot be synced privately: %w", sk.Slug, err)
 	}

@@ -116,3 +116,16 @@ test('a legacy review run with no pending plan does not keep a synced machine bu
   }), now)
   assert.equal(overview.tone, 'synced')
 })
+
+test('saving private copies of machine-only skills is progress, not a reason to look at the machine', () => {
+  const copying = target('a', [skill('one')], [], { problem: 'Copying machine-only skills privately before installation.' })
+  const overview = machineSyncOverview(machine([group('a')]), state({ targets: [copying], environments: [group('a')] }), now)
+  assert.equal(overview.tone, 'working')
+  assert.equal(overview.label, 'Copying your skills')
+  assert.equal(overview.canSync, false)
+  // A real problem on the same machine still asks for attention.
+  const broken = target('a', [skill('one')], [], { problem: 'Sync source is unavailable: source needs a recent complete scan' })
+  const attention = machineSyncOverview(machine([group('a')]), state({ targets: [broken], environments: [group('a')] }), now)
+  assert.equal(attention.tone, 'attention')
+  assert.equal(attention.label, 'Sync needs attention')
+})

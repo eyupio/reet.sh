@@ -72,6 +72,10 @@ test('batch members name their frozen action and state', () => {
 
 test('batch notes explain codes and prefer an exclusion reason', () => {
   assert.match(batchMemberNote({ code: 'offline' }), /wasn't connected/)
+  // A machine that was never reached says nothing was changed; one whose connection dropped mid-apply does not.
+  assert.match(batchMemberNote({ code: 'offline' }), /nothing was changed/)
+  assert.match(batchMemberNote({ code: 'connection_lost' }), /may or may not have finished/)
+  assert.doesNotMatch(batchMemberNote({ code: 'connection_lost' }), /wasn't connected/)
   assert.match(batchMemberNote({ code: 'checksum_failed' }), /checksum/)
   assert.match(batchMemberNote({ code: 'in_another_batch' }), /another batch/)
   assert.equal(batchMemberNote({ code: 'offline', reason: 'That machine is already in another batch.' }), 'That machine is already in another batch.')

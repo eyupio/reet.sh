@@ -301,3 +301,74 @@ func TestDedupeLibraryEndpointPreviewsThenRemoves(t *testing.T) {
 		t.Fatal("duplicate survived confirm")
 	}
 }
+
+// Sync all machines is one action that works. A name two sources share is settled
+// by the controller instead of failing the request with "More than one source uses
+// the name", and the library read says which copy was left out so the page can
+// mention it without calling it an error.
+func TestSyncAllMachinesSucceedsWhenANameIsShared(t *testing.T) {
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	uid, _ := st.DefaultOwner()
+	if _, err = st.CreateAPIToken(uid, "owner", auth.HashToken("shared-name-owner")); err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range []string{"a/b/improve", "c/d/improve", "e/f/other"} {
+		rf, err := ref.Parse(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = st.UpsertFor(uid, rf, store.Patch{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = st.TouchEnvironmentFor(uid, "laptop", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.RecordInventoryFor(uid, store.EnvironmentIDFor(uid, "laptop", "agents", ""), true, store.MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = st.EnrollSyncAgent(uid, "laptop", "test"); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts)))
+	defer srv.Close()
+
+	if code, response := doClient(t, srv.Client(), srv, "POST", "/api/v2/sync/library", `{}`, "X-Reet-Token", "shared-name-owner"); code != 200 {
+		t.Fatalf("a shared name failed Sync all machines: %d %s", code, response)
+	}
+	agents, err := st.SyncAgentsFor(uid)
+	if err != nil || len(agents) != 1 || !agents[0].KeepSynced {
+		t.Fatalf("automatic sync was not switched on: %+v %v", agents, err)
+	}
+
+	code, response := doClient(t, srv.Client(), srv, "GET", "/api/v2/sync/candidates?collection=library", "", "X-Reet-Token", "shared-name-owner")
+	if code != 200 {
+		t.Fatal(code, response)
+	}
+	var read struct {
+		Skills     []store.SyncSkill          `json:"skills"`
+		Duplicates []store.SyncDuplicateGroup `json:"duplicates"`
+	}
+	if err = json.Unmarshal([]byte(response), &read); err != nil {
+		t.Fatal(err, response)
+	}
+	improve := 0
+	for _, sk := range read.Skills {
+		if sk.Problem != "" {
+			t.Fatalf("a shared name is still reported as a problem: %+v", sk)
+		}
+		if sk.Slug == "improve" {
+			improve++
+		}
+	}
+	if improve != 1 || len(read.Skills) != 2 {
+		t.Fatalf("the library should hold one copy of each name: %+v", read.Skills)
+	}
+	if len(read.Duplicates) != 1 || read.Duplicates[0].Slug != "improve" || len(read.Duplicates[0].Remove) != 1 {
+		t.Fatalf("the copy that was left out is not reported: %s", response)
+	}
+}

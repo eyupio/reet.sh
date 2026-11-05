@@ -103,20 +103,33 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 			// Following the whole source also covers skills discovered without an
 			// upstream URL. Capture one private copy through their enrolled host;
 			// the durable transfer queues this destination when the bytes arrive.
+			//
+			// The shared library never waits for a copy. It installs what is ready
+			// now, and a copy joins the plan when it arrives. A copy that cannot be
+			// made yet (its machine is switched off, or its files need a person to
+			// look at them) is that skill's business, reported on the skill itself.
+			// It must never freeze every other machine. The older shelf-following
+			// plans still wait for their copies before installing.
+			library := target.SourceID == "library"
 			preparing := false
 			for _, sk := range candidates {
-				shelfSource := target.SourceID == "shelf" || target.SourceID == "library"
+				shelfSource := target.SourceID == "shelf" || library
 				customSource := sk.Source != "" && sk.SourceType != "local"
 				if !shelfSource || customSource || sk.Problem != "" {
 					continue
 				}
 				key := "follow_" + secretHash(target.Target.ID+"\x00"+sk.ID)
-				if target.SourceID == "library" {
+				if library {
 					// One private capture can serve the whole fleet. Other folders
 					// pick up its immutable source on their next poll.
 					key = "library_" + secretHash(sk.ID)
 				}
 				request, e := s.RequestMachineSkillSync(uid, sk.ID, agent.Host, "", key, target.Target.ID, true)
+				if library {
+					// The copy is started when it can be. Waiting, failing or needing a
+					// review is reported on the skill, never on the machine.
+					continue
+				}
 				if e == nil && (request.State == "failed" || request.State == "expired" || request.State == "cancelled") {
 					e = fmt.Errorf("private copy %s: %s", request.State, request.Error)
 				}
@@ -138,8 +151,12 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 			}
 			ordered := func(skills []SyncSkill) []SyncSkill {
 				out := slices.DeleteFunc(slices.Clone(skills), func(sk SyncSkill) bool {
+					// A skill the library cannot install yet (left out with a problem,
+					// or not copied yet) is not part of the selection, so it must not
+					// make every poll rewrite the desired set.
 					_, failed := captureProblems[sk.ID]
-					return failed
+					notInstallable := sk.Problem != "" || sk.Source == "" || sk.SourceType == "local"
+					return failed || (library && notInstallable)
 				})
 				slices.SortFunc(out, func(a, b SyncSkill) int { return strings.Compare(a.ID, b.ID) })
 				return out

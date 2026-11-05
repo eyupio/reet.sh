@@ -73,7 +73,10 @@ export function batchMemberLabel(member: Pick<SoftwareBatchMember, 'state' | 've
 export function batchMemberNote(member: Pick<SoftwareBatchMember, 'code' | 'reason'>): string {
   if (member.reason) return member.reason
   switch (member.code) {
-    case 'offline': return "That machine wasn't connected when its turn came."
+    // A skipped machine: nothing reached it, so nothing was changed and nothing needs reviewing.
+    case 'offline': return "That machine wasn't connected when its turn came, so nothing was changed on it. Review the fleet again once it is back."
+    // A failed one: the connection dropped after the plan went out, so the outcome is not known.
+    case 'connection_lost': return 'The connection to that machine dropped while it was applying the plan, so it may or may not have finished. Retry checks what is installed before doing anything.'
     case 'apply_unsupported': return 'Update reet on that machine to install agents.'
     case 'changed': return "The machine's installation changed since you reviewed the plan."
     case 'sessions_running': return 'An OpenCode session started on that machine.'

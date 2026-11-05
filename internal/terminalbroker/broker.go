@@ -549,6 +549,18 @@ type errReplyLost struct{}
 func (errReplyLost) Error() string        { return ErrOffline.Error() }
 func (errReplyLost) Is(target error) bool { return target == ErrOffline }
 
+// ErrNotSent is ErrOffline for a request that never left the controller, because
+// the machine was not connected when the request was due. Nothing reached the
+// machine, so nothing changed there and the work can safely be left for later. A
+// request whose connection dropped after it was sent is plain ErrOffline
+// instead: the machine may already have acted on it.
+var ErrNotSent error = notSent{}
+
+type notSent struct{}
+
+func (notSent) Error() string        { return ErrOffline.Error() }
+func (notSent) Is(target error) bool { return target == ErrOffline }
+
 func (p *Peer) callWithin(ctx context.Context, m terminalproto.Message, limit time.Duration) (terminalproto.Message, error) {
 	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()

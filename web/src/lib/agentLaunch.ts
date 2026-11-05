@@ -26,7 +26,7 @@ export const toolName = (tool: string | undefined): string => (tool ? nameOf(too
 const UPDATE_TO_LAUNCH = 'Update reet on this machine to start agents.'
 export type ToolChoice = { id: string; name: string; available: boolean; reason: string }
 /** Every catalogue agent, offered only when the machine takes launch requests and reports it installed. The catalogue and
- *  the machine's own gate decide: an old connector keeps the original four, an agents-v2 one may offer Cline too. */
+ *  the machine's own gate decide: an old connector keeps the original four, an agents-v2 one may offer newer agents too. */
 export function toolChoices(machine: TerminalMachine | undefined): ToolChoice[] {
   if (!machine) return CATALOGUE.map(agent => ({ id: agent.id, name: agent.name, available: false, reason: UPDATE_TO_LAUNCH }))
   return agentChoices(machine).map(choice => ({

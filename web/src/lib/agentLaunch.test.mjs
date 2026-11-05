@@ -183,24 +183,34 @@ test('toolChoices offers what the machine reports, including Cline under agents-
   assert.equal(out.find(t => t.id === 'cline').available, true)
 })
 
-test('an old machine keeps the original four agents and never offers Cline', () => {
-  const out = m.toolChoices(machine(['claude', 'codex', 'opencode', 'gemini', 'cline'], { agentsV2: false }))
+test('an old machine keeps the original four agents and refuses newer agents', () => {
+  const out = m.toolChoices(machine(['claude', 'codex', 'opencode', 'gemini', 'cline', 'antigravity'], { agentsV2: false }))
   assert.deepEqual(out.filter(t => t.available).map(t => t.id), ['claude', 'codex', 'opencode', 'gemini'])
   assert.equal(out.find(t => t.id === 'cline').available, false)
   assert.equal(out.find(t => t.id === 'cline').reason, 'Update reet on that machine')
+  assert.equal(out.find(t => t.id === 'antigravity').reason, 'Update reet on that machine')
+})
+
+test('Google AGY is named and launched through the shared catalogue', () => {
+  const out = m.toolChoices(machine(['antigravity']))
+  assert.deepEqual(out.filter(t => t.available).map(t => t.id), ['antigravity'])
+  assert.equal(m.toolName('antigravity'), 'Google Antigravity (AGY)')
+  assert.equal(m.validatePrompt('antigravity', 'update'), null)
+  assert.equal(m.validatePrompt('antigravity', '--dangerously-skip-permissions'), 'Start the prompt with a word, not a dash.')
+  assert.equal(m.titleFor('antigravity', '/home/dev/site'), 'Google Antigravity (AGY) · site')
 })
 
 test('toolChoices offers nothing on a machine that cannot take launch requests', () => {
   for (const caps of [undefined, {}, { launch: false, tools: ['claude'] }, { tools: ['claude'] }]) {
     const out = m.toolChoices({ agentId: 'a', host: 'studio', ready: true, capabilities: caps })
-    assert.equal(out.length, 7)
+    assert.equal(out.length, 8)
     assert.ok(out.every(t => !t.available))
-    for (const id of ['claude', 'codex', 'opencode', 'gemini', 'cline']) assert.equal(out.find(t => t.id === id).reason, 'Update reet on that machine')
+    for (const id of ['claude', 'codex', 'opencode', 'gemini', 'cline', 'antigravity']) assert.equal(out.find(t => t.id === id).reason, 'Update reet on that machine')
     for (const id of ['pi', 'cursor']) assert.equal(out.find(t => t.id === id).reason, "reet doesn't start this agent yet.")
   }
   const none = m.toolChoices(machine([]))
   assert.ok(none.every(t => !t.available))
-  for (const id of ['claude', 'codex', 'opencode', 'gemini', 'cline']) assert.equal(none.find(t => t.id === id).reason, 'Not installed on studio')
+  for (const id of ['claude', 'codex', 'opencode', 'gemini', 'cline', 'antigravity']) assert.equal(none.find(t => t.id === id).reason, 'Not installed on studio')
   assert.ok(m.toolChoices(machine(undefined)).every(t => !t.available))
 })
 

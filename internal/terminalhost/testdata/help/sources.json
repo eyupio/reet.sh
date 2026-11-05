@@ -59,6 +59,19 @@
         "OPENCODE_DISABLE_MODELS_FETCH=1 opencode models"
       ],
       "notes": "Copied from the recorded 28 October 2026 probe (docs/research/probe-report.md), not a new run. The models command was run with a fresh HOME and OPENCODE_DISABLE_MODELS_FETCH=1; the probe observed no network call. No agent turn, prompt or ACP session was run for this capture."
+    },
+    {
+      "capture": "agy",
+      "version": "1.5.0",
+      "capturedAt": "2026-11-05",
+      "source": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/a/antigravity-cli.rb",
+      "tarball": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.0-5269980577660928/linux-x64/cli_linux_x64.tar.gz",
+      "sha256": "f65e365a67be49abdaf92f5669c3157bd4b9c569f6b9f448340b00ca261b0f01",
+      "commands": [
+        "antigravity --version",
+        "antigravity --help"
+      ],
+      "notes": "Official archive located through the Homebrew antigravity-cli cask; its published SHA-256 matched before extraction. The extracted executable is named antigravity; the cask installs the agy alias. Only version and help ran in work/agy-capture with isolated home, XDG directories and project, without credentials or a model request."
     }
   ],
   "limits": [

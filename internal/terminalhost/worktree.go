@@ -581,7 +581,11 @@ var ErrWorktreeNotFound = errors.New("the worktree is not there")
 var ErrWorktreeChanged = errors.New("the worktree changed since it was shown")
 
 // WorktreeCounts are the two numbers a person is shown before a remove.
-type WorktreeCounts struct{ Changed, Unpushed int }
+type WorktreeCounts struct {
+	Changed, Unpushed int
+	// Discard is the person's explicit confirmation to delete uncommitted changes.
+	Discard bool
+}
 
 // worktreeAt is a run's worktree that passed every check in locateWorktree.
 type worktreeAt struct {
@@ -895,7 +899,8 @@ func plainPath(p string) string {
 //  2. The status is computed again; unless both counts equal shown, the
 //     remove is refused with ErrWorktreeChanged, so changes made after the
 //     person looked are never thrown away.
-//  3. Any uncommitted change (Changed > 0) is refused as has_changes: git
+//  3. Any uncommitted change (Changed > 0) is refused as has_changes unless
+//     the person confirmed discarding them (shown.Discard, then --force): git
 //     would refuse it without --force, and reet never forces. Hidden edits
 //     (hidden_changes), commits only HEAD holds (unreferenced_commits), a
 //     nested repository (nested_repository) and an incomplete check
@@ -947,7 +952,7 @@ func RemoveWorktree(ctx context.Context, home, project, repo, run string, shown 
 		return WorktreeRemoved{}, ErrWorktreeChanged
 	}
 	switch {
-	case state.Changed > 0:
+	case state.Changed > 0 && !shown.Discard:
 		return WorktreeRemoved{}, refuseWorktree(terminalproto.WorktreeHasChanges, "")
 	case state.Hidden > 0:
 		return WorktreeRemoved{}, refuseWorktree(terminalproto.WorktreeHiddenChanges, "")
@@ -963,7 +968,13 @@ func RemoveWorktree(ctx context.Context, home, project, repo, run string, shown 
 	}
 	removeCtx, cancelRemove := context.WithTimeout(context.WithoutCancel(ctx), removeStepTimeout)
 	defer cancelRemove()
-	if out, err := git(removeCtx, w.root, "worktree", "remove", w.path); err != nil {
+	args := []string{"worktree", "remove"}
+	if shown.Discard && state.Changed > 0 {
+		// Only with the person's explicit confirmation, and only for the
+		// changes they were shown: every other check above still refused.
+		args = append(args, "--force")
+	}
+	if out, err := git(removeCtx, w.root, append(args, w.path)...); err != nil {
 		return WorktreeRemoved{}, gitFailed(out, err)
 	}
 	return WorktreeRemoved{Path: w.path, Branch: w.branch}, nil

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
@@ -156,6 +157,8 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 		// Both counts are required: a remove always states what was shown.
 		Changed  *int `json:"changed"`
 		Unpushed *int `json:"unpushed"`
+		// Discard confirms that the uncommitted changes shown may be deleted.
+		Discard bool `json:"discard"`
 	}
 	if !terminalJSON(w, r, &in) {
 		return
@@ -164,7 +167,7 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 		terminalError(w, terminalproto.ErrInvalid)
 		return
 	}
-	shown := terminalbroker.WorktreeCounts{Changed: *in.Changed, Unpushed: *in.Unpushed}
+	shown := terminalbroker.WorktreeCounts{Changed: *in.Changed, Unpushed: *in.Unpushed, Discard: in.Discard}
 	if err := terminalbroker.CheckWorktreeRemove(in.Project, in.Repo, in.Run, shown); err != nil {
 		terminalError(w, err)
 		return
@@ -190,7 +193,11 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 		worktreeError(w, err, worktreeRemoving)
 		return
 	}
-	s.event(uid, "ui", "worktree-remove", "", map[string]string{"machine": in.AgentID, "host": s.machineHost(uid, in.AgentID), "path": removed.Path, "branch": removed.Branch})
+	detail := map[string]string{"machine": in.AgentID, "host": s.machineHost(uid, in.AgentID), "path": removed.Path, "branch": removed.Branch}
+	if in.Discard && *in.Changed > 0 {
+		detail["discardedChanges"] = strconv.Itoa(*in.Changed)
+	}
+	s.event(uid, "ui", "worktree-remove", "", detail)
 	s.recordRunWorktreeRemoved(uid, in.AgentID, in.Run)
 	s.autoPruneAfterWorktree(uid, in.AgentID, in.Run)
 	writeJSON(w, 200, map[string]any{"ok": true, "path": removed.Path, "branch": removed.Branch})

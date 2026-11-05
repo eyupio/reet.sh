@@ -176,12 +176,12 @@ test('a worktree can be removed only when nothing blocks it, and changes always 
   const { worktreeBlockers } = p
   assert.deepEqual(worktreeBlockers(state()), [])
   assert.deepEqual(worktreeBlockers(state({ unpushed: 3 })), [])
-  assert.deepEqual(worktreeBlockers(state({ changed: 1, paths: ['a.txt'] })), ["This worktree has changes you haven't saved. Commit, stash or discard them in the worktree, then check again."])
+  assert.deepEqual(worktreeBlockers(state({ changed: 1, paths: ['a.txt'] })), [])
   assert.deepEqual(worktreeBlockers(state({ unreferenced: 2 })), ['Some commits in this worktree are not on any branch. Put them on a branch first, then check again.'])
   assert.deepEqual(worktreeBlockers(state({ hidden: 1 })), ['Git is not tracking some edits in this worktree. Review them before removing.'])
   assert.deepEqual(worktreeBlockers(state({ nested: true })), ['This worktree contains another git repository. Move or remove it first.'])
   assert.deepEqual(worktreeBlockers(state({ incomplete: true })), ["reet couldn't check all of this worktree. Remove it yourself."])
-  assert.equal(worktreeBlockers(state({ changed: 4, unreferenced: 1, hidden: 1, nested: true, incomplete: true })).length, 5)
+  assert.equal(worktreeBlockers(state({ changed: 4, unreferenced: 1, hidden: 1, nested: true, incomplete: true })).length, 4)
 })
 
 test('the remove confirmation states the counts that were shown and what is deleted and kept', () => {
@@ -232,4 +232,12 @@ test('a machine is named by its host once the machines are read, by its id until
 test("a saved folder is cleaned as the server cleans it, so a run's folder matches its project", () => {
   const { cleanPath } = p
   for (const [dir, clean] of [['/a//b', '/a/b'], ['/a/./b/', '/a/b'], ['/a/c/../b', '/a/b'], ['/../a', '/a'], ['/', '/'], ['/home/dev//./store/', '/home/dev/store']]) assert.equal(cleanPath(dir), clean, dir)
+})
+
+test('a worktree with uncommitted changes warns, and says whether a pull request exists', () => {
+  const { discardWarning, removeConfirmText } = p
+  assert.equal(discardWarning(state()), '')
+  assert.equal(discardWarning(state({ changed: 2 })), 'This worktree has 2 files with uncommitted changes and no pull request was found for its branch. Removing it deletes that work for good.')
+  assert.equal(discardWarning(state({ changed: 1 }), { number: 7 }), 'This worktree has 1 file with uncommitted changes. Pull request #7 exists, but these changes are not in it and will be deleted.')
+  assert.equal(removeConfirmText(state({ changed: 1 })).startsWith('Remove the worktree at /home/me/.reet/worktrees/site/app/abc and delete its uncommitted changes?'), true)
 })

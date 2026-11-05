@@ -265,8 +265,9 @@ export async function worktreeStatus(target: WorktreeTarget, signal?: AbortSigna
 }
 export type RemovedWorktree = { ok: boolean; path?: string; branch: string; confirmedBy?: string }
 /** Removes a worktree only if the machine's counts still equal the ones shown; the branch is kept. */
-export async function removeWorktree(target: WorktreeTarget, shown: { changed: number; unpushed: number }, signal?: AbortSignal): Promise<RemovedWorktree> {
-  return (await terminalRequest('/api/v2/terminal/worktrees/remove', { method: 'POST', signal: within(signal), body: JSON.stringify({ ...target, changed: shown.changed, unpushed: shown.unpushed }) })).json()
+export async function removeWorktree(target: WorktreeTarget, shown: { changed: number; unpushed: number }, signal?: AbortSignal, discard = false): Promise<RemovedWorktree> {
+  // discard is sent only when the person confirmed deleting the uncommitted changes they were shown.
+  return (await terminalRequest('/api/v2/terminal/worktrees/remove', { method: 'POST', signal: within(signal), body: JSON.stringify({ ...target, changed: shown.changed, unpushed: shown.unpushed, ...(discard ? { discard: true } : {}) }) })).json()
 }
 
 // Folder projects: one folder on one machine (GET/POST /api/v2/folder-projects, GET/PATCH/DELETE …/{id}, POST …/reorder).

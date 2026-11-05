@@ -209,6 +209,9 @@ type WorktreeRemove struct {
 	Repo     string `json:"repo"`
 	Changed  int    `json:"changed"`
 	Unpushed int    `json:"unpushed"`
+	// Discard is the person's explicit confirmation to delete the uncommitted
+	// changes counted in Changed. It never overrides any other check.
+	Discard bool `json:"discard,omitempty"`
 }
 
 func (WorktreeRemove) kind() string { return "worktree_remove" }

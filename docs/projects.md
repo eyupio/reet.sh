@@ -401,7 +401,7 @@ The dialog reads the worktree's status first and shows the folder, branch, saved
 
 | Blocks removal | Sentence |
 | --- | --- |
-| Uncommitted changes (always; up to 20 paths shown, then "and N more not listed.") | "This worktree has changes you haven't saved. Commit, stash or discard them in the worktree, then check again." |
+| Uncommitted changes (up to 20 paths shown, then "and N more not listed.") | Not a block: a red warning says whether the branch has a pull request, and the person must tick that the changes will be deleted before Remove is offered. |
 | Commits on no branch | "Some commits in this worktree are not on any branch. Put them on a branch first, then check again." |
 | Edits git is told not to check | "Git is not tracking some edits in this worktree. Review them before removing." |
 | Another repository inside | "This worktree contains another git repository. Move or remove it first." |

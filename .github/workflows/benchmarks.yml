@@ -43,12 +43,14 @@ jobs:
           go install golang.org/x/perf/cmd/benchstat@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Benchmark base
+        shell: bash
         run: |
           cd base
           go test ./internal/store/ ./internal/terminalbroker/ \
             -run '^$' -bench "$BENCH_REGEX" -benchmem -count=8 -benchtime=200x \
             | tee /tmp/base.txt
       - name: Benchmark pull request
+        shell: bash
         run: |
           cd pr
           go test ./internal/store/ ./internal/terminalbroker/ \

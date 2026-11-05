@@ -591,7 +591,12 @@ try {
     inst.cancels.push(route.request().postDataJSON())
     return route.fulfill(inst.cancelReply ? inst.cancelReply() : { status: 200, json: { reverted: true } })
   })
-  await page.route('**/api/v2/sync', route => { inst.syncReads++; return route.fulfill({ status: 200, json: { environments: [], machines: [], agents: [], targets: [], runs: [], updateJobs: [], jobs: inst.job ? [inst.job] : [] } }) })
+  // Count a read when its answer has been delivered, not when the request arrived: holdClock() waits on this counter
+  // for reads that are still on their way, and one counted too early would let it start while that read lands.
+  await page.route('**/api/v2/sync', async route => {
+    await route.fulfill({ status: 200, json: { environments: [], machines: [], agents: [], targets: [], runs: [], updateJobs: [], jobs: inst.job ? [inst.job] : [] } })
+    inst.syncReads++
+  })
   await page.route('**/api/v2/sync/jobs', route => { inst.patches.push(route.request().postDataJSON()); return route.fulfill({ status: 200, json: { environments: [], targets: [], jobs: inst.job ? [inst.job] : [] } }) })
   const resetInstall = (rows = [hostedPdf, hostedDraft]) => {
     inst.installs.length = 0; inst.cancels.length = 0; inst.patches.length = 0; inst.job = null; inst.installReply = null; inst.cancelReply = null
@@ -623,7 +628,26 @@ try {
         if (!/past/.test(String(error)) || ahead > 6400) throw error
       }
     }
+    // A poll that started before the pause is not a timer: its answer still lands, and if it lands after the swap below
+    // the panel adopts the new plan, so the click meets the plan it was meant to reject. Wait for delivered reads to stop
+    // moving (the paused clock starts nothing new) before handing the page to the caller.
+    for (let settled = -1, stable = 0; stable < 2;) {
+      await page.waitForTimeout(150)
+      if (inst.syncReads === settled) stable++
+      else { settled = inst.syncReads; stable = 0 }
+    }
     try { await body() } finally { await page.clock.resume() }
+  }
+  // The panel disables its buttons while it is busy, so a click that lands in that window is dropped and nothing is
+  // sent. Click again only while nothing was approved: approving a plan the machine already replaced is the failure
+  // these callers assert against, and it is checked before every retry instead of being retried away.
+  const clickUntil = async (approve, settled) => {
+    for (let tries = 0; ; tries++) {
+      await approve.click({ timeout: 5000 })
+      try { await settled(); return } catch { /* the click was dropped */ }
+      expect(inst.patches, 'a plan the machine had replaced was approved instead of reported').toEqual([])
+      if (tries === 4) throw new Error(`the panel did not settle after ${tries + 1} clicks`)
+    }
   }
 
   // Both a published and a private-draft reet row offer Install; the draft says so in its source line.
@@ -751,8 +775,8 @@ try {
   await expect(panelOf.getByRole('button', { name: 'Approve and install', exact: true })).toBeVisible()
   await holdClock(async () => {
     inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }, { add: false, skill: { slug: 'gone' } }], { hash: 'hash-late-2' })
-    await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
-    await expect(panelOf.getByRole('button', { name: 'Approve and install' })).toHaveCount(0)
+    const approve = panelOf.getByRole('button', { name: 'Approve and install', exact: true })
+    await clickUntil(approve, () => expect(approve).toHaveCount(0, { timeout: 3000 }))
   })
   await expect(panelOf.getByText('This install would change other skills. Review it on the Sync page.')).toBeVisible()
   expect(inst.patches).toEqual([])
@@ -767,8 +791,9 @@ try {
   await expect(panelOf.getByRole('button', { name: 'Approve and install', exact: true })).toBeFocused()
   await holdClock(async () => {
     inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }], { hash: 'hash-new', revision: 'r2', plan: { directory: '/elsewhere/skills', actions: [{ add: true, skill: { slug: 'pdf' } }] } })
-    await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
-    await expect(statusOf).toHaveText('This install changed while you were reviewing it. Check it again.')
+    const approve = panelOf.getByRole('button', { name: 'Approve and install', exact: true })
+    const changed = 'This install changed while you were reviewing it. Check it again.'
+    await clickUntil(approve, () => expect.poll(async () => (await statusOf.textContent()) ?? '', { timeout: 3000 }).toContain(changed))
   })
   await expect(panelOf.getByText('Folder: /elsewhere/skills', { exact: true })).toBeVisible()
   expect(inst.patches).toEqual([])

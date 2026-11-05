@@ -2,8 +2,14 @@ import type { ChatState } from './chat'
 
 export type InsightFile = { path: string; status?: string; added: number; removed: number; binary?: boolean; directory?: boolean }
 export type InsightCheck = { name: string; state: string; url?: string }
-export type InsightPull = { number: number; title: string; url: string; state: string; draft: boolean; review: string; mergeable: string; added: number; removed: number; checks?: InsightCheck[]; more?: boolean }
-export type SessionInsight = { reason?: string; checkedAt?: number; repo?: boolean; branch?: string; ahead: number; behind: number; upstream?: boolean; changed: number; changedMore?: boolean; countsKnown?: boolean; conflicts: number; files?: InsightFile[]; more?: boolean; text?: string; binary?: boolean; pull?: InsightPull }
+export type InsightPull = { number: number; title: string; url: string; state: string; draft: boolean; review: string; mergeable: string; added: number; removed: number; checks?: InsightCheck[]; more?: boolean
+  // Added by the extended read. Absent means the machine did not read it (never zero); times are ms.
+  base?: string; head?: string; createdAt?: number; mergedAt?: number; closedAt?: number; lastPushAt?: number
+  autoMerge?: boolean
+  reviews?: { approved: number; changesRequested: number; commented: number; requested: number }
+  threads?: { open: number; resolved: number; more?: boolean }
+  detailKnown?: boolean }
+export type SessionInsight = { reason?: string; checkedAt?: number; repo?: boolean; branch?: string; ahead: number; behind: number; upstream?: boolean; changed: number; changedMore?: boolean; countsKnown?: boolean; conflicts: number; files?: InsightFile[]; more?: boolean; text?: string; binary?: boolean; pull?: InsightPull; remote?: string }
 export type InsightView = 'status' | 'files' | 'file' | 'diff' | 'github'
 
 export function checkTone(state: string): 'good' | 'bad' | 'warn' {

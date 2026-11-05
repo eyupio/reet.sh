@@ -359,7 +359,7 @@ func (s *Store) listAudienceIDs(id, ownerID int64, visibility string) ([]int64, 
 	if visibility == "personal" {
 		return []int64{ownerID}, nil
 	}
-	rows, err := s.db.Query(`SELECT user_id FROM (
+	rows, err := s.read.Query(`SELECT user_id FROM (
  SELECT ? AS user_id UNION SELECT user_id FROM list_members WHERE list_id=?
  UNION SELECT g.owner_id FROM list_group_access a JOIN audience_groups g ON g.id=a.group_id WHERE a.list_id=? AND ?='team'
  UNION SELECT m.user_id FROM list_group_access a JOIN audience_group_members m ON m.group_id=a.group_id WHERE a.list_id=? AND ?='team'

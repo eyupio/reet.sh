@@ -536,7 +536,10 @@ func (s *Session) readLoop() {
 	scanner := bufio.NewScanner(s.stdout)
 	scanner.Buffer(make([]byte, 64<<10), maxLineBytes)
 	for scanner.Scan() {
-		line := append([]byte(nil), scanner.Bytes()...)
+		// Scanner reuses its buffer, but json.Unmarshal copies every field it
+		// keeps (strings and json.RawMessage), and handle is synchronous, so
+		// the line does not need another copy.
+		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
 		}

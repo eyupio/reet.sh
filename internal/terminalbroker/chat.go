@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	ErrACPUnsupported      = errors.New("that machine does not support OpenCode chats")
-	ErrACPVersion          = errors.New("the machine needs OpenCode 1.19.5 or newer for chats")
+	ErrACPUnsupported      = errors.New("that machine does not support Gaffer chats")
+	ErrACPVersion          = errors.New("the machine needs a newer agent for chats")
 	ErrACPModelRejected    = errors.New("The agent did not confirm the chosen model. Its current model may have changed. Choose a model configured on this machine and try again.")
 	ErrACPModelUnsupported = errors.New("Update reet on this machine to switch models during a session.")
 	// ErrACPAgentModeUnsupported means the machine or agent does not offer that mode switch.
@@ -67,7 +67,21 @@ func (e *ACPTrustError) Error() string { return "this folder has OpenCode plugin
 // not start for a reason other than version or trust.
 type ACPUnavailableError struct{ Detail string }
 
-func (e *ACPUnavailableError) Error() string { return "OpenCode could not start the chat" }
+func (e *ACPUnavailableError) Error() string { return "the agent could not start the chat" }
+
+// ACPVersionError carries the connector's sentence naming the agent and the
+// version floor it refused, so the browser does not blame OpenCode for a Cline
+// or Claude version.
+type ACPVersionError struct{ Detail string }
+
+func (e *ACPVersionError) Error() string {
+	if e.Detail != "" {
+		return e.Detail
+	}
+	return ErrACPVersion.Error()
+}
+
+func (e *ACPVersionError) Unwrap() error { return ErrACPVersion }
 
 func acpRefusal(code terminalproto.ResultCode, detail string) error {
 	switch code {
@@ -77,7 +91,7 @@ func acpRefusal(code terminalproto.ResultCode, detail string) error {
 		}
 		return &ACPUnavailableError{Detail: detail}
 	case terminalproto.ACPVersion:
-		return ErrACPVersion
+		return &ACPVersionError{Detail: detail}
 	case terminalproto.ACPTrustRequired:
 		return &ACPTrustError{Detail: detail}
 	}
@@ -94,6 +108,8 @@ type chatKey struct {
 type ChatEvent struct {
 	Seq int64 `json:"seq"`
 	terminalproto.ACPEvent
+	// size is the encoded byte length, kept so eviction does not re-marshal.
+	size int
 }
 
 type chatLog struct {
@@ -118,6 +134,8 @@ type chatLog struct {
 	updatedAt   int64
 	completedAt int64
 	lastState   string
+	// trims counts ring evictions since the last persisted transcript trim.
+	trims int
 }
 
 const (
@@ -336,12 +354,12 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 		}
 	}
 	l.seq++
-	published := ChatEvent{Seq: l.seq, ACPEvent: event}
+	published := ChatEvent{Seq: l.seq, ACPEvent: event, size: len(data)}
 	l.events = append(l.events, published)
 	l.bytes += len(data)
 	for len(l.events) > maxChatEvents || l.bytes > maxChatBytes {
 		drop := l.oldestHistoryEvent()
-		l.bytes -= len(mustJSON(l.events[drop].ACPEvent))
+		l.bytes -= l.events[drop].size
 		if drop == 0 {
 			l.events[0] = ChatEvent{}
 			l.events = l.events[1:]
@@ -354,6 +372,10 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 	}
 	if l.st != nil {
 		_ = l.st.AppendTerminalChatEventFor(l.uid, l.sessionID, l.seq, nowMs, data)
+		if l.trims++; l.trims >= 32 && len(l.events) > 0 {
+			l.trims = 0
+			_ = l.st.TrimTerminalChatEventsFor(l.uid, l.sessionID, l.events[0].Seq)
+		}
 	}
 	for id, ch := range l.subs {
 		select {
@@ -588,7 +610,7 @@ func (l *chatLog) ensureLoaded() {
 			if json.Unmarshal(e.Event, &event) != nil {
 				continue
 			}
-			l.events = append(l.events, ChatEvent{Seq: e.Seq, ACPEvent: event})
+			l.events = append(l.events, ChatEvent{Seq: e.Seq, ACPEvent: event, size: len(e.Event)})
 			l.bytes += len(e.Event)
 		}
 		if len(l.events) == 0 {

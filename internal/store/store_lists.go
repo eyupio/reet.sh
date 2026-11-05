@@ -197,34 +197,57 @@ func (s *Store) scanSharedList(row interface{ Scan(...any) error }) (SharedList,
 // ListListsFor returns the lists a person can see in the toolbar: their own, lists
 // they are on, and every members-visible list. Admins see every list.
 func (s *Store) ListListsFor(userID int64, userRole string) ([]SharedList, error) {
-	rows, err := s.db.Query(`SELECT id FROM lists ORDER BY updated_at DESC,id DESC`)
+	rows, err := s.read.Query(`SELECT l.id,l.owner_id,u.name,l.name,l.description,l.visibility,l.slug,
+		(SELECT COUNT(*) FROM list_skills ls JOIN skills s ON s.id=ls.skill_id WHERE ls.list_id=l.id AND s.hidden=0),
+		(SELECT COUNT(*) FROM (
+			SELECT l.owner_id AS user_id
+			UNION SELECT user_id FROM list_members WHERE list_id=l.id
+			UNION SELECT g.owner_id FROM list_group_access a JOIN audience_groups g ON g.id=a.group_id WHERE a.list_id=l.id AND l.visibility='team'
+			UNION SELECT m.user_id FROM list_group_access a JOIN audience_group_members m ON m.group_id=a.group_id WHERE a.list_id=l.id AND l.visibility='team'
+		) recipients WHERE recipients.user_id=l.owner_id OR NOT EXISTS(SELECT 1 FROM list_exclusions x WHERE x.list_id=l.id AND x.user_id=recipients.user_id)),
+		COALESCE((SELECT m.role FROM list_members m WHERE m.list_id=l.id AND m.user_id=?),''),
+		EXISTS(SELECT 1 FROM list_exclusions x WHERE x.list_id=l.id AND x.user_id=?),
+		(SELECT a.role FROM list_group_access a JOIN audience_groups g ON g.id=a.group_id
+			WHERE a.list_id=l.id AND (g.owner_id=? OR EXISTS(SELECT 1 FROM audience_group_members m WHERE m.group_id=g.id AND m.user_id=?)) LIMIT 1),
+		l.created_at,l.updated_at
+		FROM lists l JOIN users u ON u.id=l.owner_id
+		ORDER BY l.updated_at DESC,l.id DESC`, userID, userID, userID, userID)
 	if err != nil {
 		return nil, err
 	}
-	ids := []int64{}
+	defer rows.Close()
+	out := []SharedList{}
 	for rows.Next() {
-		var id int64
-		if err = rows.Scan(&id); err != nil {
-			rows.Close()
+		var l SharedList
+		var memberRole string
+		var excluded bool
+		var groupRole sql.NullString
+		if err := rows.Scan(&l.ID, &l.OwnerID, &l.OwnerName, &l.Name, &l.Description, &l.Visibility, &l.Slug,
+			&l.SkillCount, &l.MemberCount, &memberRole, &excluded, &groupRole, &l.CreatedAt, &l.UpdatedAt); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	out := []SharedList{}
-	for _, id := range ids {
-		access, e := s.ListAccessFor(userID, userRole, id)
-		if errors.Is(e, ErrNotFound) {
+		administrative := userID == l.OwnerID || userRole == "owner" || userRole == "admin"
+		if !administrative && (excluded || l.Visibility == "personal") {
 			continue
 		}
-		if e != nil {
-			return nil, e
+		inherited := false
+		if l.Visibility == "team" && groupRole.Valid && memberRole != "editor" && (memberRole == "" || groupRole.String == "editor") {
+			memberRole = groupRole.String
+			inherited = true
 		}
-		out = append(out, access.List)
+		role, read, _, _, _ := listAccessFor(userID, userRole, l.OwnerID, memberRole, l.Visibility)
+		if inherited && role == "viewer" {
+			role = "reader"
+		}
+		if !read {
+			continue
+		}
+		l.SharedWithMe = userID != l.OwnerID && memberRole != "" && !excluded
+		l.Role = role
+		out = append(out, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -233,7 +256,7 @@ func (s *Store) ListListsFor(userID int64, userRole string) ([]SharedList, error
 func (s *Store) ListAccessFor(userID int64, userRole string, id int64) (ListAccess, error) {
 	var l SharedList
 	var memberRole string
-	err := s.db.QueryRow(`SELECT l.id,l.owner_id,u.name,l.name,l.description,l.visibility,l.slug,
+	err := s.read.QueryRow(`SELECT l.id,l.owner_id,u.name,l.name,l.description,l.visibility,l.slug,
 		(SELECT COUNT(*) FROM list_skills ls JOIN skills s ON s.id=ls.skill_id WHERE ls.list_id=l.id AND s.hidden=0),
 		1+(SELECT COUNT(*) FROM list_members m WHERE m.list_id=l.id),
 		COALESCE((SELECT m.role FROM list_members m WHERE m.list_id=l.id AND m.user_id=?),''),
@@ -249,7 +272,7 @@ func (s *Store) ListAccessFor(userID int64, userRole string, id int64) (ListAcce
 	}
 	administrative := userID == l.OwnerID || userRole == "owner" || userRole == "admin"
 	var excluded bool
-	if err = s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM list_exclusions WHERE list_id=? AND user_id=?)`, id, userID).Scan(&excluded); err != nil {
+	if err = s.read.QueryRow(`SELECT EXISTS(SELECT 1 FROM list_exclusions WHERE list_id=? AND user_id=?)`, id, userID).Scan(&excluded); err != nil {
 		return ListAccess{}, err
 	}
 	hiddenFromUser := excluded || l.Visibility == "personal"
@@ -259,7 +282,7 @@ func (s *Store) ListAccessFor(userID int64, userRole string, id int64) (ListAcce
 	inherited := false
 	if l.Visibility == "team" {
 		var groupRole string
-		e := s.db.QueryRow(`SELECT a.role FROM list_group_access a JOIN audience_groups g ON g.id=a.group_id WHERE a.list_id=? AND (g.owner_id=? OR EXISTS(SELECT 1 FROM audience_group_members m WHERE m.group_id=g.id AND m.user_id=?))`, id, userID, userID).Scan(&groupRole)
+		e := s.read.QueryRow(`SELECT a.role FROM list_group_access a JOIN audience_groups g ON g.id=a.group_id WHERE a.list_id=? AND (g.owner_id=? OR EXISTS(SELECT 1 FROM audience_group_members m WHERE m.group_id=g.id AND m.user_id=?))`, id, userID, userID).Scan(&groupRole)
 		if e != nil && !errors.Is(e, sql.ErrNoRows) {
 			return ListAccess{}, e
 		}
@@ -650,24 +673,26 @@ func (s *Store) attachListsFor(userID int64, skills []Skill) error {
 		return nil
 	}
 	var role string
-	if err := s.db.QueryRow(`SELECT role FROM users WHERE id=?`, userID).Scan(&role); err != nil {
+	if err := s.read.QueryRow(`SELECT role FROM users WHERE id=?`, userID).Scan(&role); err != nil {
 		return err
 	}
-	lists, err := s.ListListsFor(userID, role)
-	if err != nil {
-		return err
-	}
-	allowed := map[int64]bool{}
-	for _, l := range lists {
-		allowed[l.ID] = true
-	}
-	args := []any{}
+	args := make([]any, 0, len(skills)+3)
 	index := map[string][]int{}
 	for i, k := range skills {
 		args = append(args, k.ID)
 		index[k.ID] = append(index[k.ID], i)
 	}
-	rows, err := s.db.Query(`SELECT ls.skill_id,l.id,l.name FROM list_skills ls JOIN lists l ON l.id=ls.list_id WHERE ls.skill_id IN (`+placeholders(len(skills))+`) ORDER BY lower(l.name)`, args...)
+	admin := role == "owner" || role == "admin"
+	if admin {
+		args = append(args, 1)
+	} else {
+		args = append(args, 0)
+	}
+	args = append(args, userID, userID)
+	rows, err := s.read.Query(`SELECT ls.skill_id,l.id,l.name FROM list_skills ls JOIN lists l ON l.id=ls.list_id
+		WHERE ls.skill_id IN (`+placeholders(len(skills))+`)
+		AND (?=1 OR l.owner_id=? OR (l.visibility<>'personal' AND NOT EXISTS(SELECT 1 FROM list_exclusions x WHERE x.list_id=l.id AND x.user_id=?)))
+		ORDER BY lower(l.name)`, args...)
 	if err != nil {
 		return err
 	}
@@ -677,9 +702,6 @@ func (s *Store) attachListsFor(userID int64, skills []Skill) error {
 		var item ListRef
 		if err = rows.Scan(&skillID, &item.ID, &item.Name); err != nil {
 			return err
-		}
-		if !allowed[item.ID] {
-			continue
 		}
 		for _, i := range index[skillID] {
 			skills[i].Lists = append(skills[i].Lists, item)

@@ -53,6 +53,10 @@ func Endpoint(target string) (string, error) {
 	return endpoint, nil
 }
 
+// checkClient is shared so repeated probes reuse connections instead of
+// building a new transport (and TCP/TLS handshake) for every check.
+var checkClient = &http.Client{Timeout: 3 * time.Second}
+
 // Check requests endpoint and returns what it answered. A non-200 answer is
 // both a Result and an error so callers can show the status that was seen.
 func Check(ctx context.Context, endpoint string) (Result, error) {
@@ -61,9 +65,8 @@ func Check(ctx context.Context, endpoint string) (Result, error) {
 	if err != nil {
 		return result, err
 	}
-	client := &http.Client{Timeout: 3 * time.Second}
 	start := time.Now()
-	resp, err := client.Do(req)
+	resp, err := checkClient.Do(req)
 	result.Latency = time.Since(start)
 	if err != nil {
 		return result, err

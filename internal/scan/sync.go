@@ -399,7 +399,7 @@ func listTargets(server, token string) ([]store.SyncTarget, error) {
 	if token != "" {
 		req.Header.Set("X-Reet-Token", token)
 	}
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

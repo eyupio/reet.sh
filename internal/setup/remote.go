@@ -38,6 +38,8 @@ func serverMessage(data []byte) string {
 	return strings.TrimSpace(string(data))
 }
 
+var profileClient = &http.Client{Timeout: 30 * time.Second}
+
 func profileRequest(method, endpoint, token string, body []byte) ([]byte, error) {
 	req, err := http.NewRequest(method, endpoint, bytes.NewReader(body))
 	if err != nil {
@@ -49,7 +51,7 @@ func profileRequest(method, endpoint, token string, body []byte) ([]byte, error)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := profileClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

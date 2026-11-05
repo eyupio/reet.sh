@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	pprof "net/http/pprof"
 	"net/url"
 	"os"
 	"os/signal"
@@ -169,6 +170,7 @@ Configuration (environment variables):
   REET_OIDC_ISSUER    Turn on sign-in through an identity provider (see docs/single-sign-on.md;
                       also REET_OIDC_CLIENT_ID, REET_OIDC_CLIENT_SECRET[_FILE], REET_OIDC_*)
   REET_REMOTE_TERMINALS  Legacy initial default; use reet terminal start|stop|restart|status
+  REET_PPROF_ADDR        Optional local address (e.g. 127.0.0.1:6060) for /debug/pprof
 
 Local example:
   REET_ADDR=127.0.0.1:8080 REET_DATA_DIR=./data reet serve
@@ -331,6 +333,7 @@ func serve() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	servePprof(ctx)
 	bcfg, berr := backup.FromEnv(os.Getenv)
 	if berr != nil {
 		log.Printf("backups: %v", berr)
@@ -391,6 +394,34 @@ func serve() error {
 		return err
 	}
 	return nil
+}
+
+// servePprof exposes Go's profiles on an opt-in local address. It is off by
+// default because the profiles reveal process details and must not be public.
+func servePprof(ctx context.Context) {
+	addr := strings.TrimSpace(os.Getenv("REET_PPROF_ADDR"))
+	if addr == "" {
+		return
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(shutdown)
+	}()
+	go func() {
+		log.Printf("pprof listening on %s", addr)
+		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("pprof: %v", err)
+		}
+	}()
 }
 
 // Server identity belongs to the configured controller account, or the local

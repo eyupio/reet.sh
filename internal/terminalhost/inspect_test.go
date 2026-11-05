@@ -257,7 +257,11 @@ func fakeGH(t *testing.T, view, graphql string, graphqlFails bool) (repo, log st
 func ghCalls(t *testing.T, log string) []string {
 	t.Helper()
 	data, _ := os.ReadFile(log)
-	return strings.Split(strings.TrimSpace(string(data)), "\n")
+	text := strings.TrimSpace(string(data))
+	if text == "" {
+		return nil
+	}
+	return strings.Split(text, "\n")
 }
 
 func inspectOriginRepo(t *testing.T, repo string) func(...string) ([]byte, error) {
@@ -302,7 +306,18 @@ func TestAnOpenPullReadsReviewsThreadsAndLastPush(t *testing.T) {
 func TestThePullViewAsksOnlyForSmallFields(t *testing.T) {
 	repo, log := fakeGH(t, openView, openGraphQL, false)
 	inspectGitHub(context.Background(), repo, inspectOriginRepo(t, repo), terminalproto.InspectResult{Branch: "feature"})
-	view := ghCalls(t, log)[0]
+	calls := ghCalls(t, log)
+	if len(calls) == 0 {
+		t.Fatal("gh was never called")
+	}
+	view := calls[0]
+	// Dropping these would leave DetailKnown false for every pull request and the
+	// feature would go dark without any other test noticing.
+	for _, want := range []string{"createdAt", "mergedAt", "closedAt", "baseRefName", "headRefName"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("the pull view does not ask for %s: %s", want, view)
+		}
+	}
 	for _, big := range []string{"latestReviews", "reviewRequests", "autoMergeRequest", "commits"} {
 		if strings.Contains(view, big) {
 			t.Fatalf("the pull view asks for %s, which can overrun the output cap: %s", big, view)
@@ -313,14 +328,20 @@ func TestThePullViewAsksOnlyForSmallFields(t *testing.T) {
 func TestTheGraphQLReadPassesTheRepositoryAsVariables(t *testing.T) {
 	repo, log := fakeGH(t, openView, openGraphQL, false)
 	inspectGitHub(context.Background(), repo, inspectOriginRepo(t, repo), terminalproto.InspectResult{Branch: "feature"})
-	call := ghCalls(t, log)[1]
-	for _, want := range []string{"api graphql", "-f owner=o", "-f name=r", "-F number=7"} {
+	calls := ghCalls(t, log)
+	if len(calls) != 2 {
+		t.Fatalf("calls %v", calls)
+	}
+	call := calls[1]
+	for _, want := range []string{"api graphql", "-f query=" + inspectPullQuery, "-f owner=o", "-f name=r", "-F number=7"} {
 		if !strings.Contains(call, want) {
 			t.Fatalf("missing %q in %s", want, call)
 		}
 	}
-	if strings.Contains(inspectPullQuery, `"o"`) || strings.Contains(inspectPullQuery, "number: 7") {
-		t.Fatal("the query must be a constant")
+	for _, variable := range []string{"$owner", "$name", "$number"} {
+		if !strings.Contains(inspectPullQuery, variable) {
+			t.Fatalf("the query does not use %s", variable)
+		}
 	}
 }
 

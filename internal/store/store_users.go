@@ -224,6 +224,10 @@ func (s *Store) MigrateToOwner(ownerID int64) error {
 }
 
 func (s *Store) attachMetaFor(userID int64, skills []Skill) error {
+	return s.attachMetaForMode(userID, skills, false)
+}
+
+func (s *Store) attachMetaForMode(userID int64, skills []Skill, compact bool) error {
 	if len(skills) == 0 {
 		return nil
 	}
@@ -259,6 +263,26 @@ func (s *Store) attachMetaFor(userID int64, skills []Skill) error {
 		return err
 	}
 	tagRows.Close()
+	if compact {
+		envRows, err := s.read.Query(`SELECT se.skill_id,COUNT(*) FROM skill_envs se JOIN environments e ON e.id=se.env_id
+			WHERE e.user_id=? AND se.skill_id IN (`+placeholders(len(skills))+`)
+			GROUP BY se.skill_id`, args...)
+		if err != nil {
+			return err
+		}
+		defer envRows.Close()
+		for envRows.Next() {
+			var skillID string
+			var count int
+			if err := envRows.Scan(&skillID, &count); err != nil {
+				return err
+			}
+			if i, ok := index[skillID]; ok {
+				skills[i].EnvironmentCount = count
+			}
+		}
+		return envRows.Err()
+	}
 	envRows, err := s.read.Query(`SELECT se.skill_id,e.id,e.name,e.kind,e.agent,e.host,e.path,e.project,
 		e.first_seen,se.last_seen,se.source_path
 		FROM skill_envs se JOIN environments e ON e.id=se.env_id
@@ -281,6 +305,9 @@ func (s *Store) attachMetaFor(userID int64, skills []Skill) error {
 	}
 	if err := envRows.Err(); err != nil {
 		return err
+	}
+	for i := range skills {
+		skills[i].EnvironmentCount = len(skills[i].Environments)
 	}
 	return s.attachListsFor(userID, skills)
 }
@@ -436,7 +463,7 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		return nil, c, err
 	}
 	rows.Close()
-	if err := s.attachMetaFor(userID, out); err != nil {
+	if err := s.attachMetaForMode(userID, out, f.Compact); err != nil {
 		return nil, c, err
 	}
 	return out, c, nil

@@ -125,3 +125,43 @@ func TestListForLimitAndOffset(t *testing.T) {
 		t.Fatalf("page: %d %+v %v", len(page), counts, err)
 	}
 }
+
+func BenchmarkListForCompact(b *testing.B) {
+	s := benchStore(b)
+	u, err := s.CreateUser("bench-compact@example.com", "bench", "owner", "hash")
+	if err != nil {
+		b.Fatal(err)
+	}
+	for i := range 200 {
+		r := ref.Ref{
+			ID:         fmt.Sprintf("bench/repo/skill-%03d", i),
+			Source:     "bench/repo",
+			Slug:       fmt.Sprintf("skill-%03d", i),
+			SourceType: "github",
+			URL:        fmt.Sprintf("https://example.com/skill-%03d", i),
+		}
+		if _, err := s.UpsertFor(u.ID, r, Patch{}); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := s.TagManyFor(u.ID, []string{r.ID}, []string{fmt.Sprintf("tag-%d", i%10)}, nil); err != nil {
+			b.Fatal(err)
+		}
+	}
+	for i := range 20 {
+		list, err := s.CreateList(u.ID, fmt.Sprintf("List %02d", i), "", "members")
+		if err != nil {
+			b.Fatal(err)
+		}
+		for j := range 10 {
+			if err := s.AddListSkill(list.ID, fmt.Sprintf("bench/repo/skill-%03d", (i*10+j)%200), "", u.ID); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+	b.ResetTimer()
+	for range b.N {
+		if _, _, err := s.ListFor(u.ID, Filter{Compact: true}); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

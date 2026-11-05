@@ -1053,13 +1053,15 @@ func filterFromRequest(r *http.Request) store.Filter {
 }
 
 func (s *server) list(w http.ResponseWriter, r *http.Request) {
-	skills, counts, err := s.st.ListFor(s.uid(r), filterFromRequest(r))
+	q := r.URL.Query()
+	compact := q.Get("compact") == "1" || q.Get("compact") == "true" || q.Get("fields") != ""
+	filter := filterFromRequest(r)
+	filter.Compact = compact
+	skills, counts, err := s.st.ListFor(s.uid(r), filter)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	q := r.URL.Query()
-	compact := q.Get("compact") == "1" || q.Get("compact") == "true" || q.Get("fields") != ""
 	if compact {
 		fields := []string{"id", "name", "source", "sourceType", "stage", "liked", "bookmarked", "tags", "environment_count"}
 		if raw := strings.TrimSpace(q.Get("fields")); raw != "" {
@@ -1106,7 +1108,7 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 					}
 					row["tags"] = names
 				case "environment_count":
-					row["environment_count"] = len(sk.Environments)
+					row["environment_count"] = sk.EnvironmentCount
 				}
 			}
 			compactSkills = append(compactSkills, row)

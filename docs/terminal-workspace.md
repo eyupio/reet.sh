@@ -96,7 +96,7 @@ beside it). Its parts:
   conversation, tool calls, approval cards with **Allow once** and **Deny**, a composer (Enter sends, Shift+Enter adds a
   line), **Attach image** (pasted, dropped or chosen; the machine embeds it in the prompt when it negotiated
   `acp-image-v1`, otherwise the prompt names the uploaded path), **Stop**, and the watchdog's "still working" notice. A lost or crashed
-  chat reconnects in place (OpenCode only); a session a person ended offers **Continue in Gaffer with history…** in its menu,
+  chat reconnects in place (OpenCode, and Cline on a connection that negotiated `acp-agent-reattach-v1`); a session a person ended offers **Continue in Gaffer with history…** in its menu,
   which opens a new Gaffer and loads the agent's stored conversation. Approval requests appear here; AGY uses its configured permission rules. There is no shell in this
   session. It has no terminal or session tabs on a phone; the usual slim header and End actions stay.
 - **Super focus on a phone**: a Gaffer chat opens with the site chrome, workspace toolbar and secondary session controls

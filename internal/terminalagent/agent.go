@@ -141,7 +141,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 		// swaps tracks the mode swaps in flight. A swap outlives a lost
 		// connection, so the manager does too: its loop runs on its own
 		// context, which cleanup ends only after waiting for the swaps.
-		var swaps sync.WaitGroup
+		swaps := newSwapGroup()
 		managerCtx, stopManager := context.WithCancel(context.WithoutCancel(ctx))
 		if managerErr == nil {
 			wg.Add(1)
@@ -1012,7 +1012,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 		return handler, func() {
 			cancel()
 			chats.close()
-			waitBounded(&swaps, swapDrainTimeout)
+			swaps.Wait(swapDrainTimeout)
 			stopManager()
 			if m != nil {
 				m.Close()
@@ -1363,15 +1363,47 @@ const sessionModeTimeout = terminalproto.SessionModeTimeout
 // for a swap still in flight: as long as a chat start may take.
 const swapDrainTimeout = 60 * time.Second
 
-// waitBounded waits for wg, or gives up after d.
-func waitBounded(wg *sync.WaitGroup, d time.Duration) {
-	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
+// swapGroup counts the mode swaps in flight and lets a closing connection wait
+// a bounded time for them without leaving a waiter goroutine behind.
+type swapGroup struct {
+	mu   sync.Mutex
+	n    int
+	idle chan struct{}
+}
+
+func newSwapGroup() *swapGroup {
+	g := &swapGroup{idle: make(chan struct{})}
+	close(g.idle)
+	return g
+}
+
+func (g *swapGroup) Add(delta int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.n == 0 && delta > 0 {
+		g.idle = make(chan struct{})
+	}
+	g.n += delta
+	if g.n == 0 {
+		close(g.idle)
+	}
+}
+
+func (g *swapGroup) Done() { g.Add(-1) }
+
+// Wait waits for every swap to finish, or for d to pass. It reports whether
+// the group drained.
+func (g *swapGroup) Wait(d time.Duration) bool {
+	g.mu.Lock()
+	idle := g.idle
+	g.mu.Unlock()
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
-	case <-done:
+	case <-idle:
+		return true
 	case <-timer.C:
+		return false
 	}
 }
 

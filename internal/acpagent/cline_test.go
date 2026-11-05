@@ -273,3 +273,32 @@ func TestClineSilentTurnShowsItsLoggedProviderError(t *testing.T) {
 		t.Fatal("the failed turn did not end")
 	}
 }
+
+// session/load reopens the stored conversation under the same reet session id,
+// which is what an in-place reconnect asks for.
+func TestClineReattachesInPlace(t *testing.T) {
+	opts, _ := clineOptions(t, "cline")
+	opts.Resume = "1793848855723_8zvJS_cli"
+	opts.Model = "stub/model"
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if session.SessionID() != opts.Resume || session.Mode() != "act" || session.Model() != opts.Model {
+		t.Fatalf("reattached %q/%q/%q", session.SessionID(), session.Mode(), session.Model())
+	}
+}
+
+// A chat Cline never stored (no prompt ran) cannot be loaded: the refusal names
+// that case instead of a generic start failure.
+func TestClineReattachWithoutAStoredConversationIsRefused(t *testing.T) {
+	opts, _ := clineOptions(t, "cline-no-store")
+	opts.Resume = "1793848855723_8zvJS_cli"
+	if session, err := Start(context.Background(), opts); !errors.Is(err, ErrNoStoredConversation) {
+		if session != nil {
+			session.Close()
+		}
+		t.Fatalf("no stored conversation: %v", err)
+	}
+}

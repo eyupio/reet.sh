@@ -43,6 +43,9 @@ var Cline = Spec{
 	// auto-approve switch is off.
 	RequireOptions:       map[string]string{"auto_approve": "false"},
 	ConfirmModelBySwitch: true,
+	// session/load replays a stored conversation, so a lost chat reconnects in
+	// place under the same reet session id.
+	Reattach: true,
 	// Cline keeps its sign-in, settings, hooks and sessions under ~/.cline.
 	// CLINE_DIR routes that folder without inheriting a provider redirect, and
 	// XDG directories are not inherited for a profile that uses this route.

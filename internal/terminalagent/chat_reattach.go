@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/eyupio/reet.sh/internal/acpagent"
-	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -18,10 +17,11 @@ import (
 // moment rather than that another session owns the conversation.
 var errReattachStarting = fmt.Errorf("%w: the chat is still starting", terminalhost.ErrOperationConflict)
 
-// reattach brings a lost or crashed OpenCode chat back under the controller's
-// existing session id (chat_reattach). OpenCode keeps the conversation, so the
-// chat is started again with session/load of in.ACPSessionID; the replay that
-// produces is dropped because the controller keeps its own transcript.
+// reattach brings a lost or crashed chat back under the controller's existing
+// session id (chat_reattach). A reviewed adapter that sets Spec.Reattach keeps
+// the conversation, so the chat is started again with session/load of
+// in.ACPSessionID; the replay that produces is dropped because the controller
+// keeps its own transcript.
 //
 // A chat this machine still runs under sessionID is adopted as it is: no
 // restart and no second session/load. An exited receipt left for sessionID is
@@ -30,7 +30,7 @@ var errReattachStarting = fmt.Errorf("%w: the chat is still starting", terminalh
 // flight for sessionID with errReattachStarting. A retry with the same requestID answers
 // from the first attempt's receipt.
 func (h *chatHost) reattach(requestID, sessionID string, in terminalproto.ChatReattach) (terminalproto.SessionChanged, error) {
-	if in.Tool != agentsoftware.OpenCodeTool {
+	if spec, ok := acpagent.Lookup(in.Tool); !ok || !spec.Reattach {
 		return terminalproto.SessionChanged{}, acpagent.ErrUnsupported
 	}
 	h.sup.mu.Lock()

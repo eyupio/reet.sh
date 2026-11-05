@@ -156,10 +156,15 @@ export function canContinueChat(s: Pick<TerminalSession, 'state' | 'tool' | 'str
   return continueChatLaunch(s) !== null && structuredAgent(machine?.capabilities, s.tool)?.history === true
 }
 
-/** A lost or exited OpenCode chat can be reattached in place when the machine says it can and still has the agent's history. */
+/** A lost or exited chat can be reattached in place when the machine says it can and still has the agent's history:
+ *  OpenCode under the original `chat-reattach-v1` rule, another agent only when its descriptor claims reattach. */
 export function canReattachChat(s: Pick<TerminalSession, 'state' | 'tool' | 'structured' | 'acpSessionId'>, machine: Pick<TerminalMachine, 'capabilities' | 'ready'> | undefined): boolean {
-  return (s.state === 'lost' || s.state === 'exited') && s.structured === true && s.tool === 'opencode' && !!s.acpSessionId
-    && machine?.ready === true && machine.capabilities?.chatReattach === true && structuredAgent(machine.capabilities, s.tool)?.history === true
+  // OpenCode reattaches under the original chat-reattach-v1 rule; another agent
+  // only when its own descriptor claims reattach (acp-agent-reattach-v1).
+  const agent = structuredAgent(machine?.capabilities, s.tool)
+  const claimed = s.tool === 'opencode' || agent?.reattach === true
+  return (s.state === 'lost' || s.state === 'exited') && s.structured === true && !!s.acpSessionId && claimed
+    && machine?.ready === true && machine.capabilities?.chatReattach === true && agent?.history === true
 }
 
 /** Whether a closed session can be continued: a reviewed resume command for its agent, a machine that negotiated

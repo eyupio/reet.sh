@@ -4,6 +4,7 @@ package acpagent
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -153,8 +154,15 @@ func TestRealClineStart(t *testing.T) {
 	if !session.GroupRetired() {
 		t.Fatal("Close did not confirm that every process the adapter started is gone")
 	}
-	// session/load is not tested here: Cline stores a session when its first
-	// prompt arrives, so a prompt-less chat has nothing to load. The probe
-	// report records a replay of a stored conversation.
+	// A prompt-less chat has nothing stored, so a reconnect says exactly that
+	// rather than a generic start failure. A chat that ran a prompt replays
+	// through session/load; the probe report records that replay.
+	options.Resume, options.Model = id, model
+	if refused, err := Start(ctx, options); !errors.Is(err, ErrNoStoredConversation) {
+		if refused != nil {
+			refused.Close()
+		}
+		t.Fatalf("prompt-less reconnect: %v", err)
+	}
 	t.Logf("cline %q in act mode, handle %q, model %q", Cline.MinVersion, id, model)
 }

@@ -24,9 +24,24 @@ func SupportsAntigravityACP(features string) bool {
 
 const MaxACPAgents = 8
 
+// ACPAgentReattachFeature negotiates the per-agent reattach claim in a
+// descriptor. A peer without it keeps the original OpenCode-only rule, so a
+// connector that only reattaches OpenCode is never asked to reattach another
+// agent's chat.
+const ACPAgentReattachFeature = "acp-agent-reattach-v1"
+
 func SupportsACPAgents(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == ACPAgentsFeature {
+			return true
+		}
+	}
+	return false
+}
+
+func SupportsACPAgentReattach(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ACPAgentReattachFeature {
 			return true
 		}
 	}
@@ -59,6 +74,11 @@ type ACPAgent struct {
 	// list a person may switch, and Model reports the dynamic model catalogue.
 	// Sent only on a connection that negotiated acp-agent-options-v1.
 	Options []ACPAgentOption `json:"options,omitempty"`
+	// Reattach reports that this agent can reopen a stored conversation under
+	// the same reet session id (session/load), so a lost chat can be
+	// reconnected in place. Sent only on a connection that negotiated
+	// acp-agent-reattach-v1, and only with History.
+	Reattach bool `json:"reattach,omitempty"`
 }
 
 // ACPAgentOption is one non-permission selectable option, with the values the
@@ -117,9 +137,9 @@ func (a ACPAgent) Valid() bool {
 	}
 	switch a.State {
 	case "available":
-		return ReviewedChatTool(a.Tool) && a.Adapter == chatAdapter(a.Tool) && a.MinimumVersion != "" && validAgentModes(a.Modes) && validAgentOptions(a.Options)
+		return ReviewedChatTool(a.Tool) && a.Adapter == chatAdapter(a.Tool) && a.MinimumVersion != "" && validAgentModes(a.Modes) && validAgentOptions(a.Options) && (!a.Reattach || a.History)
 	case "missing", "unverified", "incompatible":
-		return !a.History && !a.Images && !a.Model && !a.Approval && !a.Questions && len(a.Modes) == 0 && len(a.Options) == 0
+		return !a.History && !a.Images && !a.Model && !a.Approval && !a.Questions && !a.Reattach && len(a.Modes) == 0 && len(a.Options) == 0
 	}
 	return false
 }
@@ -215,8 +235,9 @@ func (c Capabilities) validACPAgents() bool {
 			validQuestions := !a.Questions || c.ACPQuestions
 			validModes := len(a.Modes) == 0 || c.ACPAgentMode
 			validOptions := len(a.Options) == 0 || c.ACPAgentOptions
+			validReattach := !a.Reattach || c.ACPAgentReattach
 			valid := validBase && validHistory && validImages && validModel &&
-				validApproval && validQuestions && validModes && validOptions
+				validApproval && validQuestions && validModes && validOptions && validReattach
 			if !valid {
 				return false
 			}
@@ -335,9 +356,25 @@ func validUUIDSessionID(s string) bool {
 }
 
 // ChatReattachFor reports whether a lost chat of tool can be reattached in
-// place on this machine. Only OpenCode supports it.
+// place on this machine. OpenCode reattaches under the original chat-reattach-v1
+// rule; another agent only when it negotiated acp-agent-reattach-v1 and its own
+// descriptor claims Reattach, so an older connector is never asked.
 func (c Capabilities) ChatReattachFor(tool string) bool {
-	return c.ChatReattach && tool == "opencode"
+	if !c.ChatReattach {
+		return false
+	}
+	if tool == "opencode" {
+		return true
+	}
+	if !c.ACPAgentReattach || c.ACPAgents == nil {
+		return false
+	}
+	for _, a := range *c.ACPAgents {
+		if a.Tool == tool {
+			return a.Reattach && a.History && a.Valid()
+		}
+	}
+	return false
 }
 
 // SessionModeFor reports whether a session of tool can switch between the

@@ -1139,6 +1139,18 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 				fields = []string{"id", "name"}
 			}
 		}
+		if raw := strings.TrimSpace(q.Get("fields")); raw == "" {
+			compactSkills := make([]compactSkill, len(skills))
+			for i, sk := range skills {
+				compactSkills[i] = compactSkill{
+					ID: sk.ID, Name: sk.Name, Source: sk.Source, SourceType: sk.SourceType,
+					Stage: stageKey(sk), Liked: sk.Liked, Bookmarked: sk.Bookmarked,
+					Tags: compactTagNames(sk), EnvironmentCount: sk.EnvironmentCount,
+				}
+			}
+			writeJSON(w, 200, map[string]any{"skills": compactSkills, "counts": counts})
+			return
+		}
 		compactSkills := make([]map[string]any, 0, len(skills))
 		for _, sk := range skills {
 			row := make(map[string]any, len(fields))
@@ -1159,11 +1171,7 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 				case "bookmarked":
 					row["bookmarked"] = sk.Bookmarked
 				case "tags":
-					names := make([]string, 0, len(sk.Tags))
-					for _, tag := range sk.Tags {
-						names = append(names, tag.Name)
-					}
-					row["tags"] = names
+					row["tags"] = compactTagNames(sk)
 				case "environment_count":
 					row["environment_count"] = sk.EnvironmentCount
 				}
@@ -1174,6 +1182,28 @@ func (s *server) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"skills": skills, "counts": counts})
+}
+
+// compactSkill is the default compact listing shape. A struct marshals much
+// faster than a map per row; the custom fields= form keeps its map path.
+type compactSkill struct {
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Source           string   `json:"source"`
+	SourceType       string   `json:"sourceType"`
+	Stage            string   `json:"stage"`
+	Liked            bool     `json:"liked"`
+	Bookmarked       bool     `json:"bookmarked"`
+	Tags             []string `json:"tags"`
+	EnvironmentCount int      `json:"environment_count"`
+}
+
+func compactTagNames(sk store.Skill) []string {
+	names := make([]string, 0, len(sk.Tags))
+	for _, tag := range sk.Tags {
+		names = append(names, tag.Name)
+	}
+	return names
 }
 
 func stageKey(sk store.Skill) string {

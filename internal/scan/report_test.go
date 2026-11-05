@@ -23,6 +23,7 @@ func TestRunReportDryRunNeedsNoServer(t *testing.T) {
 }
 
 func TestRunReportRefusesAnInteractiveLessScanWithoutServer(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	_, err := RunReport(ReportOptions{Dir: t.TempDir()})
 	if err == nil || !strings.Contains(err.Error(), "server URL required") {
 		t.Fatalf("err = %v", err)

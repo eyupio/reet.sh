@@ -14,6 +14,13 @@ below remains evidence for the original probe. GM0 resolves the remaining access
 delivery, retention and recovery contract; no production provider runtime is
 enabled by this documentation update.
 
+Implementation follow-up: the active handoff's GM1A entry now records HTTP
+adapters and local protocol tests under `internal/elicore/provider/`, adapted
+from the newer pinned source with provenance in `internal/elicore/NOTICE.md`.
+They have no production caller yet. Provider ownership/settings, allowed network
+and context access, conversation persistence and offline coordination still need
+their recorded implementation gates.
+
 Gaffer is reet's native browser agent control interface. Eli AI Chat provides the
 reusable provider foundation. OpenCode TUI remains OpenCode's original terminal
 interface. The binary's CLI TUI retains its existing name and behaviour.

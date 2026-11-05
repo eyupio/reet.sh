@@ -1,8 +1,9 @@
 # Reet work orchestration and Eli: staged implementation handoff
 
 Prepared: 1 November 2026. Updated: 5 November 2026. Active direction: the Gaffer
-session-companion MVP below. This update records product decisions and source
-inspection; the new AI chat and offline coordination runtime are not implemented.
+session-companion MVP below. Product decisions and the initial HTTP provider
+foundation are recorded here; the new chat and offline coordination runtime are
+not implemented.
 
 ## Active direction: Gaffer session-companion MVP (5 November 2026)
 
@@ -177,13 +178,70 @@ the first MVP. Show an actionable availability reason for other sessions. This
 decision preserves experimental-adapter gates and excludes terminal keystroke
 automation. Provider/tool and deployment limitations above remain explicit.
 
-This update is documentation only. KZ0's live discovery measurements and remote
+The scope realignment was documentation only. KZ0's live discovery measurements and remote
 overlap checks, KZ5A's remaining validation and the GM implementation gates remain
 incomplete. Validate this edit with local links/anchors and `git diff --check`.
 Implementation checks must additionally prove fake-backed provider/tool turns,
 session isolation, durable message receipts and restart behaviour, approval
 preservation, MCP compatibility and the responsive UI. Record live-provider and
 device evidence separately when actually obtained.
+
+### Implementation started: GM1A HTTP provider foundation (5 November 2026)
+
+The agreed plan is captured in [draft PR #600](https://github.com/eyupio/reet.sh/pull/600),
+branch `docs/gaffer-session-companion-plan`, head `b42a8958`. The user then asked
+to start implementation and explicitly selected local fake providers for tests;
+real credentials will be configured later through Gaffer settings.
+
+The first isolated code slice is on `feat/gaffer-provider-foundation`, based on
+the plan. Local validation uses reet `d5485e12` plus the plan; the connector
+published the plan against remote `367477ed`, whose four touched documentation
+blobs matched that checkout. The Git CLI proxy was unavailable, so remote GitHub
+operations use the connector. The implementation PR is stacked on the plan PR
+and its remote tree retains the newer main changes.
+
+- Adapted the OpenAI chat-completions and Anthropic Messages HTTP adapters into
+  `internal/elicore/provider/`. OpenAI-compatible gateways, including the OpenCode
+  presets and Ollama endpoints, use the same protocol adapter. Provider presets,
+  CLI subscription backends and settings remain subsequent slices.
+- Implemented streamed text, fragmented tool calls/results, usage, output-limit
+  indication, cancellation, model-list reads and connection checks under the
+  existing `elicore.Provider` / `ModelLister` contracts. There is no SDK dependency.
+- Adapted both protocol conformance suites and local fake HTTP servers as test
+  files. Synthetic credentials stay inside those tests. Source and modification
+  provenance is recorded in `internal/elicore/NOTICE.md`.
+- Additional regressions reproduced redirects carrying credentials, reflected
+  keys in provider errors, oversized multiline events/fragmented tool arguments,
+  invalid OpenAI tool indexes and buffered tool delivery after cancellation.
+  The adapters now refuse redirects, mask the configured key in errors, bound
+  event/tool assembly and terminate before delivering buffered tools on cancel.
+- Validation completed: `go test -race ./internal/elicore/...`, `go vet ./...`
+  and `npm --prefix web run check` pass. The web check reports zero errors and
+  two existing unused CSS selector warnings. The complete repository Go race
+  suite passed every package except `internal/terminalhost`; API passed in 372 s,
+  store in 171 s and broker in 64 s. The full suite is not green.
+- All five terminal-host failures reproduced with `-race -count=1` in an isolated
+  unchanged `d5485e12` worktree: `TestListModelsTimeoutKillsTheProcessGroup`,
+  `TestTimedOutAddKillsGitsChildrenAndCleansUp`,
+  `TestControlAgentServicePreservesTmuxAndChecksEnrollment`,
+  `TestPlanServicesSeparatesUnitsAndFiltersEnvironment` and
+  `TestInstallAndUninstallUseIndependentServices`. The first two concern process
+  cleanup in this environment; the remaining three report missing tmux. No
+  terminal-host code or tests changed in this slice. Keep these baseline limits
+  explicit and use the implementation PR's final-head CI for its remote tree.
+- Toolchain here: `. /workspace/.setup/activate.sh`, Go 1.27.3 and Node 24.19.0.
+  Local HTTP fixtures need the execution sandbox's loopback/network permission.
+- No production caller, credential storage, provider UI, conversation routes,
+  MCP session grants or offline goal worker is enabled by this slice. GM0's
+  integration contract and the remaining GM1-GM6 acceptance gates stay open.
+
+Next: complete the account-owned provider configuration and effective network/
+data-access contract, then wire test/default/model-list settings. The caller
+must provide bounded contexts and enforce allowed provider addresses and any
+local-only policy before enabling requests. Continue with server-owned general
+and per-session conversations, scoped MCP operations and durable worker-message
+coordination in their recorded slices. Preserve the independent Gaffer/working
+model identities and quirky UX requirements throughout.
 
 ## Gaffer branding and Eli reuse (1 November 2026)
 

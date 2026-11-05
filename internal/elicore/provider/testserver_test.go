@@ -1,0 +1,323 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Adapted from eyupio/zoomies, 3c4d09627f78afab72a6575e94624fb0e7710f3f.
+// Original source: internal/assistant/. See ../NOTICE.md for provenance.
+package provider
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+)
+
+// Recorded is one request the server saw.
+type Recorded struct {
+	Method string
+	Path   string
+	Header http.Header
+	Body   map[string]any
+}
+
+// modelServer is a fake model server. Status, when set, is what every request
+// answers with, and Body its body; NoUsage leaves usage out of the stream.
+type modelServer struct {
+	*httptest.Server
+	Model   string
+	Status  int
+	Body    string
+	NoUsage bool
+	// ModelsStatus, when set, is what the model list alone answers with, for a
+	// gateway that serves completions and nothing else.
+	ModelsStatus int
+	// Models, when set, is what the model list answers with, in the order given;
+	// otherwise it lists Model alone.
+	Models []string
+	// CallTool, when set, makes the OpenAI-protocol server answer a request that
+	// offers a tool of that name, and has no tool's answer in it yet, by calling
+	// it with no arguments. The request after that is answered in words.
+	CallTool string
+	// Cut, when set, ends an answer the way a provider does at its output
+	// ceiling: the OpenAI-protocol server streams reasoning and no words and
+	// finishes with length, the Anthropic one stops with max_tokens.
+	Cut bool
+	// Script, when set, is what the OpenAI-protocol server answers each chat
+	// request with, in order: a round of tool calls with arguments, or words.
+	// The last round answers every request after it. It takes precedence over
+	// CallTool, and is what an evaluation scenario drives the loop with.
+	Script []Round
+
+	mu       sync.Mutex
+	requests []Recorded
+	chats    int
+}
+
+// Round is one scripted reply: the calls the model asks for, or, with none,
+// the words it writes.
+type Round struct {
+	Calls []Call
+	Text  string
+}
+
+// Call is one scripted tool call, its arguments as the JSON the model would send.
+type Call struct {
+	Name      string
+	Arguments string
+}
+
+// Requests returns what the server has seen so far.
+func (s *modelServer) Requests() []Recorded {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Recorded(nil), s.requests...)
+}
+
+func (s *modelServer) record(r *http.Request) Recorded {
+	rec := Recorded{Method: r.Method, Path: r.URL.Path, Header: r.Header.Clone()}
+	raw, _ := io.ReadAll(r.Body)
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &rec.Body)
+	}
+	s.mu.Lock()
+	s.requests = append(s.requests, rec)
+	s.mu.Unlock()
+	return rec
+}
+
+func (s *modelServer) refuse(w http.ResponseWriter) bool {
+	if s.Status == 0 {
+		return false
+	}
+	w.WriteHeader(s.Status)
+	fmt.Fprint(w, s.Body)
+	return true
+}
+
+func (s *modelServer) refuseModels(w http.ResponseWriter) bool {
+	if s.ModelsStatus == 0 {
+		return s.refuse(w)
+	}
+	w.WriteHeader(s.ModelsStatus)
+	fmt.Fprint(w, s.Body)
+	return true
+}
+
+// lastUser finds the last user message's text in either protocol's body.
+func lastUser(body map[string]any) string {
+	msgs, _ := body["messages"].([]any)
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m, _ := msgs[i].(map[string]any)
+		if m["role"] != "user" {
+			continue
+		}
+		switch c := m["content"].(type) {
+		case string:
+			return c
+		case []any:
+			for _, b := range c {
+				bm, _ := b.(map[string]any)
+				if bm["type"] == "text" {
+					return bm["text"].(string)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func wantsTool(body map[string]any) bool {
+	tools, _ := body["tools"].([]any)
+	return len(tools) > 0 && strings.HasPrefix(lastUser(body), "Call the echo tool")
+}
+
+func sse(w http.ResponseWriter, event string, data any) {
+	raw, _ := json.Marshal(data)
+	if event != "" {
+		fmt.Fprintf(w, "event: %s\n", event)
+	}
+	fmt.Fprintf(w, "data: %s\n\n", raw)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// NewOpenAI starts a server speaking the OpenAI chat-completions protocol
+// under /v1, and closes it when the test ends.
+func newOpenAIServer(t testing.TB) *modelServer {
+	t.Helper()
+	s := &modelServer{Model: "fake-gpt"}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, r *http.Request) {
+		s.record(r)
+		if s.refuseModels(w) {
+			return
+		}
+		ids := s.Models
+		if ids == nil {
+			ids = []string{s.Model}
+		}
+		data := []map[string]any{}
+		for _, id := range ids {
+			data = append(data, map[string]any{"id": id, "object": "model"})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data})
+	})
+	mux.HandleFunc("POST /v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		rec := s.record(r)
+		if s.refuse(w) {
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		chunk := func(delta map[string]any, finish any) map[string]any {
+			return map[string]any{"id": "chatcmpl-1", "object": "chat.completion.chunk", "model": s.Model,
+				"choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": finish}}}
+		}
+		s.mu.Lock()
+		turn := s.chats
+		s.chats++
+		s.mu.Unlock()
+		if len(s.Script) > 0 {
+			round := s.Script[min(turn, len(s.Script)-1)]
+			if len(round.Calls) > 0 {
+				for i, call := range round.Calls {
+					sse(w, "", chunk(map[string]any{"tool_calls": []any{map[string]any{"index": i, "id": fmt.Sprintf("call_%d_%d", turn, i), "type": "function",
+						"function": map[string]any{"name": call.Name, "arguments": call.Arguments}}}}, nil))
+				}
+				sse(w, "", chunk(map[string]any{}, "tool_calls"))
+			} else {
+				for _, word := range strings.SplitAfter(round.Text, " ") {
+					sse(w, "", chunk(map[string]any{"content": word}, nil))
+				}
+				sse(w, "", chunk(map[string]any{}, "stop"))
+			}
+		} else if s.CallTool != "" && offersTool(rec.Body, s.CallTool) && !hasToolAnswer(rec.Body) {
+			sse(w, "", chunk(map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "call_fleet", "type": "function",
+				"function": map[string]any{"name": s.CallTool, "arguments": `{}`}}}}, nil))
+			sse(w, "", chunk(map[string]any{}, "tool_calls"))
+		} else if wantsTool(rec.Body) {
+			sse(w, "", chunk(map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "call_1", "type": "function",
+				"function": map[string]any{"name": "echo", "arguments": `{"text":`}}}}, nil))
+			sse(w, "", chunk(map[string]any{"tool_calls": []any{map[string]any{"index": 0,
+				"function": map[string]any{"arguments": `"ping"}`}}}}, nil))
+			sse(w, "", chunk(map[string]any{}, "tool_calls"))
+		} else if s.Cut {
+			for _, word := range []string{"Thinking", " about it"} {
+				sse(w, "", chunk(map[string]any{"reasoning_content": word}, nil))
+			}
+			sse(w, "", chunk(map[string]any{}, "length"))
+		} else {
+			for _, word := range []string{"Hello", " from", " the", " fake"} {
+				sse(w, "", chunk(map[string]any{"content": word}, nil))
+			}
+			sse(w, "", chunk(map[string]any{}, "stop"))
+		}
+		if !s.NoUsage {
+			sse(w, "", map[string]any{"id": "chatcmpl-1", "object": "chat.completion.chunk", "model": s.Model, "choices": []any{},
+				"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 4}})
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		s.record(r)
+		http.Error(w, `{"error":{"message":"no such route"}}`, http.StatusNotFound)
+	})
+	s.Server = httptest.NewServer(mux)
+	t.Cleanup(s.Close)
+	return s
+}
+
+// NewAnthropic starts a server speaking the Anthropic Messages protocol, and
+// closes it when the test ends.
+func newAnthropicServer(t testing.TB) *modelServer {
+	t.Helper()
+	s := &modelServer{Model: "fake-claude"}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, r *http.Request) {
+		s.record(r)
+		if s.refuseModels(w) {
+			return
+		}
+		ids := s.Models
+		if ids == nil {
+			ids = []string{s.Model}
+		}
+		data := []map[string]any{}
+		for _, id := range ids {
+			data = append(data, map[string]any{"type": "model", "id": id})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data, "has_more": false})
+	})
+	mux.HandleFunc("POST /v1/messages", func(w http.ResponseWriter, r *http.Request) {
+		rec := s.record(r)
+		if s.refuse(w) {
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		usage := map[string]any{"input_tokens": 7}
+		if s.NoUsage {
+			usage = nil
+		}
+		sse(w, "message_start", map[string]any{"type": "message_start", "message": map[string]any{"id": "msg_1", "type": "message",
+			"role": "assistant", "model": s.Model, "content": []any{}, "usage": usage}})
+		if wantsTool(rec.Body) {
+			sse(w, "content_block_start", map[string]any{"type": "content_block_start", "index": 0,
+				"content_block": map[string]any{"type": "tool_use", "id": "toolu_1", "name": "echo", "input": map[string]any{}}})
+			sse(w, "content_block_delta", map[string]any{"type": "content_block_delta", "index": 0,
+				"delta": map[string]any{"type": "input_json_delta", "partial_json": `{"text":`}})
+			sse(w, "content_block_delta", map[string]any{"type": "content_block_delta", "index": 0,
+				"delta": map[string]any{"type": "input_json_delta", "partial_json": `"ping"}`}})
+			sse(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
+		} else {
+			sse(w, "content_block_start", map[string]any{"type": "content_block_start", "index": 0,
+				"content_block": map[string]any{"type": "text", "text": ""}})
+			for _, word := range []string{"Hello", " from", " the", " fake"} {
+				sse(w, "content_block_delta", map[string]any{"type": "content_block_delta", "index": 0,
+					"delta": map[string]any{"type": "text_delta", "text": word}})
+			}
+			sse(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
+		}
+		stop := "end_turn"
+		if s.Cut {
+			stop = "max_tokens"
+		}
+		delta := map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": stop}}
+		if !s.NoUsage {
+			delta["usage"] = map[string]any{"output_tokens": 4}
+		}
+		sse(w, "message_delta", delta)
+		sse(w, "message_stop", map[string]any{"type": "message_stop"})
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		s.record(r)
+		http.Error(w, `{"type":"error","error":{"type":"not_found_error","message":"no such route"}}`, http.StatusNotFound)
+	})
+	s.Server = httptest.NewServer(mux)
+	t.Cleanup(s.Close)
+	return s
+}
+
+// offersTool reports whether a chat request lists a tool by that name.
+func offersTool(body map[string]any, name string) bool {
+	tools, _ := body["tools"].([]any)
+	for _, t := range tools {
+		fn, _ := t.(map[string]any)["function"].(map[string]any)
+		if fn["name"] == name {
+			return true
+		}
+	}
+	return false
+}
+
+// hasToolAnswer reports whether a chat request already carries a tool's answer.
+func hasToolAnswer(body map[string]any) bool {
+	msgs, _ := body["messages"].([]any)
+	for _, m := range msgs {
+		if mm, _ := m.(map[string]any); mm["role"] == "tool" {
+			return true
+		}
+	}
+	return false
+}

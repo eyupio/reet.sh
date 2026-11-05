@@ -31,9 +31,9 @@ try {
   const first = await panel.locator('.quote').textContent()
   await page.clock.fastForward(10_000)
   await expect(panel.locator('.quote')).toHaveText(first)
-  // Playwright's virtual clock does not advance CSS animation time. Let the one-shot gesture settle.
-  await page.waitForTimeout(2_100)
-  expect(await panel.locator('.gaffer-avatar').evaluate(el => el.getAnimations({ subtree: true }).filter(animation => !animation.effect.target.closest('.eyes')).length)).toBe(0)
+  // CSS uses real animation time even with the virtual clock installed. Poll
+  // completion so a busy runner cannot turn a fixed delay into an early sample.
+  await expect.poll(() => panel.locator('.gaffer-avatar').evaluate(el => el.getAnimations({ subtree: true }).filter(animation => !animation.effect.target.closest('.eyes')).length), { message:'The one-shot gesture settles; eye motion may continue', timeout:10_000 }).toBe(0)
   await page.clock.fastForward(22_000)
   await expect(panel.locator('.quote')).not.toHaveText(first)
   await panel.getByRole('button', { name: 'Pause Gaffer animation' }).click()

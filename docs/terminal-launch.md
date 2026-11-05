@@ -59,6 +59,18 @@ validate; the connector validates again before it starts anything.
 The leading `-` rule exists so that a prompt can never be read as a flag by a tool
 that takes the prompt after a flag of its own (see the presets).
 
+## What is kept
+
+The opening prompt is kept with the session, in the controller's database, capped at 8,000 bytes (the
+limit above). Only the session's owner can read it. The session list carries a 300-character excerpt
+(`promptExcerpt`, with `promptMore` when there was more), and a create reply carries the same excerpt
+because the row is read back after it is written. The whole text comes from
+`GET /api/v2/terminal/sessions/{id}/prompt`, which answers `{"prompt": "..."}` with `Cache-Control: no-store`;
+a session that is not the caller's is a 404, exactly as on the other session routes, and a malformed id is a
+400. Archiving the session clears the prompt, both from the session and from the copy kept with its create
+request, so the endpoint then answers an empty prompt and a retry of that create request that carried a
+prompt answers a conflict instead of replaying. The prompt is never written to the audit trail or to logs.
+
 ## Session titles
 
 `title` is optional on the create call. A request that leaves it out, or sends only spaces, is named by the

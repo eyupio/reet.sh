@@ -39,6 +39,24 @@ Review batches: [process recovery #480](https://github.com/eyupio/reet.sh/pull/4
 [transcript retention #484](https://github.com/eyupio/reet.sh/pull/484). Eight reproduced defects are addressed across the three
 focused batches below. Each PR records its checks and merge state. All handoff entries are retained when integrating the stack.
 
+## OVERVIEW-1: the controller keeps and serves a session's opening prompt (5 November 2026)
+
+First part of the session Overview. The controller now keeps the opening prompt with the session, so the
+Overview can show it after the dialog is gone. Nothing in the browser reads it yet.
+
+- **Kept.** A `prompt` column on `terminal_sessions`, capped at `terminalproto.MaxPromptBytes` (8,000 bytes).
+  The session list and create replies carry only `promptExcerpt` (300 characters) and `promptMore`; the full
+  text is read with `Store.TerminalPromptFor` and served by `GET /api/v2/terminal/sessions/{id}/prompt`
+  (`internal/api/terminal_prompt.go`) as `{"prompt": ...}` with `Cache-Control: no-store`. A session that is
+  not the caller's is a 404, a malformed id a 400.
+- **Cleared.** Both archive paths remove the prompt from the row and from the create operation's stored
+  parameters. An archived session answers an empty prompt. A retry of an archived session's create that
+  carried a prompt now answers a conflict instead of replaying; this is deliberate and pinned by a test.
+- **Never logged.** `auditTerminalLaunch` records no prompt; `TestLaunchAuditNeverCarriesThePrompt` fails
+  when the prompt is added to the detail.
+- **Docs.** `docs/terminal-launch.md` ("What is kept") and `docs/start-agent-session.md`, whose
+  "the prompt is never kept" sentence was no longer true.
+
 ## AUTOTITLE-1: automatic session names (5 November 2026)
 
 A session started without a title now gets a name that says what it is, instead of the first 80 characters of

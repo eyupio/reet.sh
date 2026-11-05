@@ -30,7 +30,10 @@ export function runLine(s: Pick<TerminalSession, 'state' | 'createdAt' | 'comple
   // A missing or zero start would read as 1 January 1970 and a run of twenty thousand days; say nothing instead.
   if (!(typeof s.createdAt === 'number' && Number.isFinite(s.createdAt) && s.createdAt > 0)) return ''
   const started = `Started ${startLabel(s.createdAt, now, locale)}`
-  if (LIVE.has(s.state)) return `${started} · running ${formatLength(now - s.createdAt)}`
+  // A chat's agent stays alive between turns (the row is still `running`), but the broker records when the turn went idle
+  // and clears it when the next one starts, so a positive completedAt means the latest turn has finished.
+  const turnDone = typeof s.completedAt === 'number' && s.completedAt > 0
+  if (LIVE.has(s.state) && !turnDone) return `${started} · running ${formatLength(now - s.createdAt)}`
   if (s.completedAt == null) return started
   return `Ran ${formatLength(s.completedAt - s.createdAt)}`
 }

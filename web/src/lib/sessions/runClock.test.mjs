@@ -43,6 +43,18 @@ test('a finished session shows how long it ran', () => {
   assert.equal(c.runLine(s, now, 'en-GB'), 'Ran 1h 12m')
 })
 
+// A Gaffer chat keeps its agent process alive between turns, so the row stays `running` while the broker records
+// `completedAt` when a turn goes idle and clears it when the next turn starts. The clock follows that signal, or it
+// would keep counting for a chat the Overview already calls finished.
+test('a chat whose turn has finished while its agent still runs shows how long it ran, and counts again when the next turn clears it', () => {
+  const started = at('2026-11-05T14:02:00Z')
+  const idle = { state: 'running', createdAt: started, completedAt: at('2026-11-05T14:12:00Z') }
+  assert.equal(c.runLine(idle, now, 'en-GB'), 'Ran 10m')
+  assert.equal(c.runLine({ ...idle, completedAt: 0 }, now, 'en-GB'), 'Started 14:02 · running 1h 12m')
+  assert.equal(c.runLine({ ...idle, completedAt: undefined }, now, 'en-GB'), 'Started 14:02 · running 1h 12m')
+  assert.equal(c.runLine({ state: 'creating', createdAt: started, completedAt: 0 }, now, 'en-GB'), 'Started 14:02 · running 1h 12m')
+})
+
 test('a finished session without a completion time shows its start and no length', () => {
   const s = { state: 'lost', createdAt: at('2026-11-05T14:02:00Z') }
   assert.equal(c.runLine(s, now, 'en-GB'), 'Started 14:02')

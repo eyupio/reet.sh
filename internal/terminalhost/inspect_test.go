@@ -233,3 +233,194 @@ func TestInspectRenameCountsAndPreviewUseTheSameBaseline(t *testing.T) {
 		})
 	}
 }
+
+// fakeGH installs a gh that logs every invocation and answers `pr view` and
+// `api graphql` from fixed files, so no test depends on a sign-in or the network.
+func fakeGH(t *testing.T, view, graphql string, graphqlFails bool) (repo, log string) {
+	t.Helper()
+	home, repo := inspectRepo(t)
+	bin := filepath.Join(home, "bin")
+	os.Mkdir(bin, 0700)
+	log = filepath.Join(home, "gh.log")
+	os.WriteFile(filepath.Join(bin, "view.json"), []byte(view), 0600)
+	os.WriteFile(filepath.Join(bin, "graphql.json"), []byte(graphql), 0600)
+	fail := "cat " + filepath.Join(bin, "graphql.json")
+	if graphqlFails {
+		fail = "echo boom >&2; exit 1"
+	}
+	script := "#!/bin/sh\necho \"$*\" >> " + log + "\ncase \"$1\" in pr) cat " + filepath.Join(bin, "view.json") + " ;; api) " + fail + " ;; esac\n"
+	os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0700)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return repo, log
+}
+
+func ghCalls(t *testing.T, log string) []string {
+	t.Helper()
+	data, _ := os.ReadFile(log)
+	text := strings.TrimSpace(string(data))
+	if text == "" {
+		return nil
+	}
+	return strings.Split(text, "\n")
+}
+
+func inspectOriginRepo(t *testing.T, repo string) func(...string) ([]byte, error) {
+	t.Helper()
+	return func(...string) ([]byte, error) { return []byte("https://github.com/o/r.git"), nil }
+}
+
+const openView = `{"number":7,"title":"Build","url":"https://github.com/o/r/pull/7","state":"OPEN","mergeable":"MERGEABLE",
+"createdAt":"2026-11-01T10:00:00Z","mergedAt":null,"closedAt":"0001-01-01T00:00:00Z","baseRefName":"main","headRefName":"feature","statusCheckRollup":[]}`
+
+const openGraphQL = `{"data":{"repository":{"pullRequest":{
+"latestReviews":{"nodes":[{"state":"APPROVED"},{"state":"CHANGES_REQUESTED"},{"state":"DISMISSED"}]},
+"reviewRequests":{"totalCount":1},"autoMergeRequest":{"enabledAt":"2026-11-02T00:00:00Z"},
+"reviewThreads":{"totalCount":5,"nodes":[{"isResolved":false},{"isResolved":false},{"isResolved":false},{"isResolved":true},{"isResolved":true}]},
+"commits":{"nodes":[{"commit":{"committedDate":"2026-11-03T12:00:00Z"}}]}}}}}`
+
+func TestAnOpenPullReadsReviewsThreadsAndLastPush(t *testing.T) {
+	repo, log := fakeGH(t, openView, openGraphQL, false)
+	r := inspectGitHub(context.Background(), repo, inspectOriginRepo(t, repo), terminalproto.InspectResult{Branch: "feature"})
+	assertInspect(t, r)
+	p := r.Pull
+	if p == nil || !p.DetailKnown || p.Base != "main" || p.Head != "feature" || !p.AutoMerge {
+		t.Fatalf("pull %+v", p)
+	}
+	if p.Reviews == nil || *p.Reviews != (terminalproto.InspectReviews{Approved: 1, ChangesRequested: 1, Requested: 1}) {
+		t.Fatalf("reviews %+v", p.Reviews)
+	}
+	if p.Threads == nil || *p.Threads != (terminalproto.InspectThreads{Open: 3, Resolved: 2}) {
+		t.Fatalf("threads %+v", p.Threads)
+	}
+	if p.CreatedAt != 1793527200000 || p.LastPushAt != 1793707200000 || p.MergedAt != 0 || p.ClosedAt != 0 {
+		t.Fatalf("times %+v", p)
+	}
+	if r.Remote != "o/r" {
+		t.Fatalf("remote %q", r.Remote)
+	}
+	if got := ghCalls(t, log); len(got) != 2 {
+		t.Fatalf("calls %v", got)
+	}
+}
+
+func TestThePullViewAsksOnlyForSmallFields(t *testing.T) {
+	repo, log := fakeGH(t, openView, openGraphQL, false)
+	inspectGitHub(context.Background(), repo, inspectOriginRepo(t, repo), terminalproto.InspectResult{Branch: "feature"})
+	calls := ghCalls(t, log)
+	if len(calls) == 0 {
+		t.Fatal("gh was never called")
+	}
+	view := calls[0]
+	// Dropping these would leave DetailKnown false for every pull request and the
+	// feature would go dark without any other test noticing.
+	for _, want := range []string{"createdAt", "mergedAt", "closedAt", "baseRefName", "headRefName"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("the pull view does not ask for %s: %s", want, view)
+		}
+	}
+	for _, big := range []string{"latestReviews", "reviewRequests", "autoMergeRequest", "commits"} {
+		if strings.Contains(view, big) {
+			t.Fatalf("the pull view asks for %s, which can overrun the output cap: %s", big, view)
+		}
+	}
+}
+
+func TestTheGraphQLReadPassesTheRepositoryAsVariables(t *testing.T) {
+	repo, log := fakeGH(t, openView, openGraphQL, false)
+	inspectGitHub(context.Background(), repo, inspectOriginRepo(t, repo), terminalproto.InspectResult{Branch: "feature"})
+	calls := ghCalls(t, log)
+	if len(calls) != 2 {
+		t.Fatalf("calls %v", calls)
+	}
+	call := calls[1]
+	for _, want := range []string{"api graphql", "-f query=" + inspectPullQuery, "-f owner=o", "-f name=r", "-F number=7"} {
+		if !strings.Contains(call, want) {
+			t.Fatalf("missing %q in %s", want, call)
+		}
+	}
+	for _, variable := range []string{"$owner", "$name", "$number"} {
+		if !strings.Contains(inspectPullQuery, variable) {
+			t.Fatalf("the query does not use %s", variable)
+		}
+	}
+}
+
+func TestAFailedThreadReadKeepsTheRest(t *testing.T) {
+	repo, _ := fakeGH(t, openView, "", true)
+	r := inspectGitHub(context.Background(), repo, inspectOriginRepo(t, repo), terminalproto.InspectResult{Branch: "feature"})
+	assertInspect(t, r)
+	p := r.Pull
+	if p == nil || !p.DetailKnown || p.Threads != nil || p.Reviews != nil || p.AutoMerge || p.LastPushAt != 0 || p.Base != "main" {
+		t.Fatalf("pull %+v", p)
+	}
+}
+
+func TestANullPullRequestFromGraphQLLeavesDetailUnread(t *testing.T) {
+	repo, _ := fakeGH(t, openView, `{"data":{"repository":{"pullRequest":null}}}`, false)
+	r := inspectGitHub(context.Background(), repo, inspectOriginRepo(t, repo), terminalproto.InspectResult{Branch: "feature"})
+	if r.Pull == nil || r.Pull.Threads != nil || r.Pull.Reviews != nil || !r.Pull.DetailKnown {
+		t.Fatalf("pull %+v", r.Pull)
+	}
+}
+
+func TestAMergedPullRequestMakesNoDetailRead(t *testing.T) {
+	merged := strings.Replace(strings.Replace(openView, `"OPEN"`, `"MERGED"`, 1), `"mergedAt":null`, `"mergedAt":"2026-11-04T09:00:00Z"`, 1)
+	repo, log := fakeGH(t, merged, openGraphQL, false)
+	r := inspectGitHub(context.Background(), repo, inspectOriginRepo(t, repo), terminalproto.InspectResult{Branch: "feature"})
+	if got := ghCalls(t, log); len(got) != 1 {
+		t.Fatalf("calls %v", got)
+	}
+	if r.Pull.MergedAt != 1793782800000 || r.Pull.Threads != nil || r.Pull.Reviews != nil {
+		t.Fatalf("pull %+v", r.Pull)
+	}
+}
+
+func TestAReplyWithoutTheNewFieldsIsNotDetailKnown(t *testing.T) {
+	old := `{"number":7,"title":"Build","url":"https://github.com/o/r/pull/7","state":"OPEN","statusCheckRollup":[]}`
+	repo, log := fakeGH(t, old, openGraphQL, false)
+	r := inspectGitHub(context.Background(), repo, inspectOriginRepo(t, repo), terminalproto.InspectResult{Branch: "feature"})
+	if r.Pull.DetailKnown || len(ghCalls(t, log)) != 1 {
+		t.Fatalf("pull %+v", r.Pull)
+	}
+}
+
+func TestMoreThanAHundredThreadsAreMarked(t *testing.T) {
+	nodes := strings.TrimSuffix(strings.Repeat(`{"isResolved":false},`, 100), ",")
+	gql := `{"data":{"repository":{"pullRequest":{"latestReviews":{"nodes":[]},"reviewRequests":{"totalCount":0},"autoMergeRequest":null,"reviewThreads":{"totalCount":130,"nodes":[` + nodes + `]},"commits":{"nodes":[]}}}}}`
+	repo, _ := fakeGH(t, openView, gql, false)
+	r := inspectGitHub(context.Background(), repo, inspectOriginRepo(t, repo), terminalproto.InspectResult{Branch: "feature"})
+	if r.Pull.Threads == nil || r.Pull.Threads.Open != 100 || !r.Pull.Threads.More || r.Pull.LastPushAt != 0 || r.Pull.AutoMerge {
+		t.Fatalf("threads %+v", r.Pull)
+	}
+}
+
+func TestRemoteIsReportedBeforeAnyPullRequestExists(t *testing.T) {
+	home, repo := inspectRepo(t)
+	inspectGit(t, repo, "remote", "add", "origin", "https://github.com/o/r.git")
+	r := InspectSession(t.Context(), home, terminalproto.Inspect{Dir: repo, View: "status"})
+	assertInspect(t, r)
+	if r.Remote != "o/r" || r.Pull != nil {
+		t.Fatalf("status %+v", r)
+	}
+	inspectGit(t, repo, "remote", "set-url", "origin", "https://evil.test/o/r")
+	r = InspectSession(t.Context(), home, terminalproto.Inspect{Dir: repo, View: "status"})
+	if r.Remote != "" {
+		t.Fatalf("an ineligible origin was reported: %q", r.Remote)
+	}
+}
+
+func TestTheInspectReplyStillFitsWithTheExtraFieldsAndManyChecks(t *testing.T) {
+	r := terminalproto.InspectResult{Repo: true, Branch: "feature", Remote: "o/r", Pull: &terminalproto.InspectPull{
+		Number: 7, Title: strings.Repeat("t", 300), URL: "https://github.com/o/r/pull/7", State: "OPEN",
+		Base: strings.Repeat("b", 255), Head: strings.Repeat("h", 255), CreatedAt: 1, LastPushAt: 2, DetailKnown: true,
+		Reviews: &terminalproto.InspectReviews{Approved: 1}, Threads: &terminalproto.InspectThreads{Open: 3},
+	}}
+	for i := 0; i < 40; i++ {
+		r.Pull.Checks = append(r.Pull.Checks, terminalproto.InspectCheck{Name: strings.Repeat("c", 180), State: "SUCCESS", URL: "https://github.com/" + strings.Repeat("u", 400)})
+	}
+	fitInspect(&r)
+	assertInspect(t, r)
+	if r.Pull == nil || r.Pull.Reviews == nil || !r.Pull.More || len(r.Pull.Checks) == 0 {
+		t.Fatalf("truncation lost the pull request: %+v", r.Pull)
+	}
+}

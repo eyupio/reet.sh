@@ -18,6 +18,24 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## OVERVIEW-2: the machine reads the extra pull request fields (5 November 2026)
+
+Part B of the session overview. `internal/terminalhost/inspect.go` now fills the optional fields added to the
+inspect wire in `3580786`: base and head branch, created, merged and closed times, reviews, review requests,
+auto-merge, review threads, the last commit date and `DetailKnown`, plus `Remote` (`owner/name`) on the status
+and GitHub views, so the page can link the repository before any pull request exists.
+
+- The first `gh pr view --json` call gains only scalar fields (`createdAt,mergedAt,closedAt,baseRefName,headRefName`).
+  Review bodies and commit lists could overrun its 128 KiB output cap and break the whole read, so reviews, review
+  requests, auto-merge, threads and the last commit date come from one fixed-query `gh api graphql` call (owner, name
+  and number as flag variables), for open pull requests only. A merged or closed pull request makes one `gh` call.
+- Absent means "not read": a failed or `null` GraphQL reply leaves reviews, threads, auto-merge and last push unset
+  while `DetailKnown` stays true; a first reply without `createdAt` is not `DetailKnown`.
+- Rollout: the controller decodes machine replies with `DisallowUnknownFields`, so a machine sending these fields to
+  an older controller has its inspect reply refused. Update controllers before machines (documented in
+  `docs/terminal-workspace.md`).
+- The 12 KiB reply cap still trims checks first; the new fields are small and a test holds that.
+
 ## CONCURRENCY-1: background work is stopped and joined (5 November 2026)
 
 A Go concurrency audit of the connector, controller and agent loops found work that could outlive its owner or

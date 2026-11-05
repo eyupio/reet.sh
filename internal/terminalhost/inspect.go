@@ -90,6 +90,11 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 	}
 	branch, _ := git("symbolic-ref", "--quiet", "--short", "HEAD")
 	r.Branch = inspectPlain(strings.TrimSpace(string(branch)), 1024)
+	// The page links the repository before any pull request exists, so the status
+	// view reports it too. A diff preview has no use for it.
+	if req.View != "diff" {
+		r.Remote = inspectRemote(git)
+	}
 	if req.View == "github" {
 		return inspectGitHub(ctx, dir, git, r)
 	}
@@ -379,6 +384,9 @@ func inspectGitHub(ctx context.Context, dir string, git func(...string) ([]byte,
 		return r
 	}
 	repo := inspectGitHubRepo(strings.TrimSpace(string(remote)))
+	if repo != "" {
+		r.Remote = strings.TrimPrefix(repo, "github.com/")
+	}
 	valid := repo != "" && r.Branch != "" && !strings.HasPrefix(r.Branch, "-")
 	if !valid {
 		r.Reason = "github_unavailable"
@@ -389,18 +397,13 @@ func inspectGitHub(ctx context.Context, dir string, git func(...string) ([]byte,
 		r.Reason = "github_unavailable"
 		return r
 	}
-	cmd := exec.CommandContext(ctx, gh, "pr", "view", r.Branch, "--repo", repo, "--json", "number,title,url,state,isDraft,reviewDecision,mergeable,additions,deletions,statusCheckRollup")
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1", "GH_HOST=github.com", "NO_COLOR=1")
-	cmd.WaitDelay = 2 * time.Second
-	killGroupOnCancel(cmd)
-	out := &truncatingBuffer{limit: 128 << 10}
-	errOut := &truncatingBuffer{limit: 2048}
-	cmd.Stdout = out
-	cmd.Stderr = errOut
-	if err := cmd.Run(); err != nil {
+	// Only small scalar fields are asked for here. Review bodies and commit lists can
+	// overrun the output cap and would turn the whole read into github_unavailable;
+	// reviews, requests and auto-merge come from the bounded GraphQL read below.
+	out, errOut, err := inspectRunGH(ctx, gh, dir, "pr", "view", r.Branch, "--repo", repo, "--json", "number,title,url,state,isDraft,reviewDecision,mergeable,additions,deletions,statusCheckRollup,createdAt,mergedAt,closedAt,baseRefName,headRefName")
+	if err != nil {
 		r.Reason = "github_unavailable"
-		if strings.Contains(strings.ToLower(string(errOut.Bytes())), "no pull requests found") {
+		if strings.Contains(strings.ToLower(string(errOut)), "no pull requests found") {
 			r.Reason = "no_pr"
 		}
 		return r
@@ -411,12 +414,27 @@ func inspectGitHub(ctx context.Context, dir string, git func(...string) ([]byte,
 		IsDraft                                      bool
 		Additions, Deletions                         int
 		StatusCheckRollup                            []struct{ Name, Context, Status, Conclusion, State, DetailsURL, TargetURL string }
+		CreatedAt, MergedAt, ClosedAt                string
+		BaseRefName, HeadRefName                     string
 	}
-	if json.Unmarshal(out.Bytes(), &pr) != nil {
+	if json.Unmarshal(out, &pr) != nil {
 		r.Reason = "github_unavailable"
 		return r
 	}
 	r.Pull = &terminalproto.InspectPull{Number: pr.Number, Title: inspectPlain(pr.Title, 300), URL: pr.URL, State: pr.State, Draft: pr.IsDraft, Review: pr.ReviewDecision, Mergeable: pr.Mergeable, Added: pr.Additions, Removed: pr.Deletions}
+	r.Pull.Base = inspectPlain(pr.BaseRefName, 255)
+	r.Pull.Head = inspectPlain(pr.HeadRefName, 255)
+	r.Pull.CreatedAt = inspectTime(pr.CreatedAt)
+	r.Pull.MergedAt = inspectTime(pr.MergedAt)
+	r.Pull.ClosedAt = inspectTime(pr.ClosedAt)
+	// A reply with no creation time did not carry the new fields, so the page must
+	// not read their absence as "never merged" or "nobody reviewed".
+	r.Pull.DetailKnown = r.Pull.CreatedAt > 0
+	if r.Pull.DetailKnown && pr.State == "OPEN" {
+		if d, err := inspectPullDetail(ctx, gh, dir, repo, pr.Number); err == nil {
+			r.Pull.Reviews, r.Pull.Threads, r.Pull.AutoMerge, r.Pull.LastPushAt = d.Reviews, d.Threads, d.AutoMerge, d.LastPushAt
+		}
+	}
 	for _, c := range pr.StatusCheckRollup {
 		state := c.Conclusion
 		if state == "" {
@@ -446,6 +464,122 @@ func inspectGitHub(ctx context.Context, dir string, git func(...string) ([]byte,
 	fitInspect(&r)
 	return r
 }
+
+// inspectRunGH runs gh with the safeguards every read shares: an absolute path,
+// no prompts, the public host only, no colour, a process-group kill and capped
+// output. The output cap is what keeps a hostile or huge reply from filling memory.
+func inspectRunGH(ctx context.Context, gh, dir string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, gh, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1", "GH_HOST=github.com", "NO_COLOR=1")
+	cmd.WaitDelay = 2 * time.Second
+	killGroupOnCancel(cmd)
+	out := &truncatingBuffer{limit: 128 << 10}
+	errOut := &truncatingBuffer{limit: 2048}
+	cmd.Stdout = out
+	cmd.Stderr = errOut
+	err := cmd.Run()
+	return out.Bytes(), errOut.Bytes(), err
+}
+
+// inspectPullQuery is fixed text: the repository and number travel as variables, so
+// nothing a branch or remote contains can alter the query. It selects states and
+// counts only, never bodies, authors or messages.
+const inspectPullQuery = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){` +
+	`latestReviews(first:20){nodes{state}} reviewRequests(first:1){totalCount} autoMergeRequest{enabledAt} ` +
+	`reviewThreads(first:100){totalCount nodes{isResolved}} commits(last:1){nodes{commit{committedDate}}}}}}`
+
+// inspectDetail is what the second read adds. Each part is absent when that read did
+// not happen, so the page can tell "not read" from "none".
+type inspectDetail struct {
+	Reviews    *terminalproto.InspectReviews
+	Threads    *terminalproto.InspectThreads
+	AutoMerge  bool
+	LastPushAt int64
+}
+
+// inspectPullDetail reads reviews, review requests, auto-merge, threads and the last
+// commit date of an open pull request in one GraphQL call.
+func inspectPullDetail(ctx context.Context, gh, dir, repo string, number int) (*inspectDetail, error) {
+	owner, name, ok := strings.Cut(strings.TrimPrefix(repo, "github.com/"), "/")
+	if !ok || number <= 0 {
+		return nil, errors.New("invalid repository")
+	}
+	out, _, err := inspectRunGH(ctx, gh, dir, "api", "graphql", "-f", "query="+inspectPullQuery, "-f", "owner="+owner, "-f", "name="+name, "-F", "number="+strconv.Itoa(number))
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Data struct {
+			Repository struct {
+				PullRequest *struct {
+					LatestReviews struct {
+						Nodes []struct{ State string }
+					}
+					ReviewRequests   struct{ TotalCount int }
+					AutoMergeRequest *struct{}
+					ReviewThreads    struct {
+						TotalCount int
+						Nodes      []struct{ IsResolved bool }
+					}
+					Commits struct {
+						Nodes []struct {
+							Commit struct{ CommittedDate string }
+						}
+					}
+				}
+			}
+		}
+	}
+	if json.Unmarshal(out, &resp) != nil || resp.Data.Repository.PullRequest == nil {
+		return nil, errors.New("pull request not returned")
+	}
+	pr := resp.Data.Repository.PullRequest
+	d := &inspectDetail{Reviews: &terminalproto.InspectReviews{Requested: pr.ReviewRequests.TotalCount}, Threads: &terminalproto.InspectThreads{}, AutoMerge: pr.AutoMergeRequest != nil}
+	for _, n := range pr.LatestReviews.Nodes {
+		switch n.State {
+		case "APPROVED":
+			d.Reviews.Approved++
+		case "CHANGES_REQUESTED":
+			d.Reviews.ChangesRequested++
+		case "COMMENTED":
+			d.Reviews.Commented++
+		}
+	}
+	for _, n := range pr.ReviewThreads.Nodes {
+		if n.IsResolved {
+			d.Threads.Resolved++
+		} else {
+			d.Threads.Open++
+		}
+	}
+	d.Threads.More = pr.ReviewThreads.TotalCount > len(pr.ReviewThreads.Nodes)
+	if len(pr.Commits.Nodes) > 0 {
+		d.LastPushAt = inspectTime(pr.Commits.Nodes[0].Commit.CommittedDate)
+	}
+	return d, nil
+}
+
+// inspectTime reads an RFC 3339 time as Unix milliseconds. gh prints an unset time as
+// year 1, and a malformed one is no time at all; both read as absent (0).
+func inspectTime(s string) int64 {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil || t.Year() <= 1 {
+		return 0
+	}
+	return t.UnixMilli()
+}
+
+// inspectRemote is the origin as "owner/name" for the page's link, or "" for any
+// origin inspectGitHubRepo refuses.
+func inspectRemote(git func(...string) ([]byte, error)) string {
+	out, err := git("config", "--get", "remote.origin.url")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(inspectGitHubRepo(strings.TrimSpace(string(out))), "github.com/")
+}
+
 func inspectCheckRank(s string) int {
 	switch s {
 	case "FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE":

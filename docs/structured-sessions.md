@@ -286,10 +286,13 @@ folder, as the connector's user. All seven conditions are mandatory:
    own environment, including that password; this is accepted for slice 1.
 3. **No subagents.** `task: deny` removes the `task` tool. OpenCode does not forward a subagent's permission request over
    ACP, so allowing subagents would hang the turn and hide an approval.
-4. **Deadlines.** One card waits at most five minutes; a turn is cancelled after ten minutes and says "still working" after
-   twenty seconds of silence. If OpenCode logged a provider error during that silence but did not send it over ACP, reet
-   shows the error and stops the turn instead of waiting for the ten-minute deadline. On cancel or timeout reet closes its
-   own cards and sends `session/cancel`, because OpenCode never withdraws an outstanding `request_permission`.
+4. **Deadlines.** One card waits at most five minutes. A turn with no outstanding tool or approval is cancelled after ten
+   minutes without an agent event and says "still working" after twenty seconds of silence. A running tool can be quiet
+   without being stopped; once it finishes, the silence deadline applies again. Every turn still has a two-hour hard cap.
+   Leaving and returning to the chat does not change those deadlines. If OpenCode logged a provider error during that
+   silence but did not send it over ACP, reet shows the error and stops the turn instead of waiting for the ten-minute
+   deadline. On cancel or timeout reet closes its own cards and sends `session/cancel`, because OpenCode never withdraws
+   an outstanding `request_permission`.
 5. **An allowlist environment and opt-outs.** Only PATH, HOME, XDG directories, TMPDIR/TEMP/TMP, locale, timezone and the
    connector's own OpenCode settings reach the process. `SSH_AUTH_SOCK`, `DISPLAY`, DBus, GitHub/cloud tokens and shell
    settings do not. The model fetch, autoupdate, default plugins, LSP download, Claude Code compatibility and external

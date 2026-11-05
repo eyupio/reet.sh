@@ -18,6 +18,22 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## GAFFER-TIMEOUT-1: quiet commands survive the silence deadline (5 November 2026)
+
+The turn watchdog treated a tool that did not stream output as a silent provider, stopping it after ten minutes.
+It now excludes outstanding tools from both the provider-retry notice and the silence deadline. The two-hour hard
+cap still applies, and the silence deadline resumes after the final tool finishes. An output-only update retains
+the tool's last known state so late output cannot reopen a completed tool and suppress timeout recovery.
+
+Three regressions failed before the watchdog fix: quiet command completion and a subsequent prompt, silence after
+command completion, and the hard deadline. Removing the sparse-state fix separately makes the completion/silence
+regression fail. After rebasing onto current main (`c594d81f`), full
+`go test -race ./internal/acpagent ./internal/terminalagent -count=1`, `go vet ./...` and
+`npm --prefix web run check` pass. The web check reports zero errors and two existing unused CSS selector warnings
+in `LaunchBar.svelte` and `SessionHoverCard.svelte`. No Svelte files changed.
+[PR #577](https://github.com/eyupio/reet.sh/pull/577), branch `fix/gaffer-quiet-command-timeout`, carries the fix;
+final-head CI and review remain the merge gate. No live connector has been updated or restarted.
+
 Review batches: [process recovery #480](https://github.com/eyupio/reet.sh/pull/480),
 [retained state #485](https://github.com/eyupio/reet.sh/pull/485), and
 [transcript retention #484](https://github.com/eyupio/reet.sh/pull/484). Eight reproduced defects are addressed across the three

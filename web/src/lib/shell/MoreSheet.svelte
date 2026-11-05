@@ -61,7 +61,7 @@
   .close svg { width: 20px; height: 20px; }
   nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 8px; }
   section { min-width: 0; }
-  h3 { margin: 4px 12px 6px; color: var(--muted); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  h3 { margin: 4px 12px 6px; color: var(--muted); font-size: 0.875rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
   a:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     nav { grid-template-columns: minmax(0, 1fr); gap: 12px; }

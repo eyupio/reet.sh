@@ -399,13 +399,13 @@
 
 <style>
   .workspace-heading { padding: 8px 0 0; }
-  .workspace-heading .eyebrow { font: 9px var(--mono); letter-spacing: .1em; color: var(--accent-text); margin: 0 0 8px; overflow-wrap: anywhere; }
+  .workspace-heading .eyebrow { font: 14px var(--mono); letter-spacing: .1em; color: var(--accent-text); margin: 0 0 8px; overflow-wrap: anywhere; }
   .workspace-heading h1 { font: 600 clamp(30px, 3.2vw, 42px)/1.08 var(--serif); letter-spacing: -.04em; margin: 0 0 8px; }
-  .welcome-note { color: var(--muted); font-size: 13px; margin: 0; }
-  .workspace-summary { display: flex; flex-wrap: wrap; gap: 24px; color: var(--muted); font-size: 11px; margin-top: 10px; }
+  .welcome-note { color: var(--muted); font-size: 14px; margin: 0; }
+  .workspace-summary { display: flex; flex-wrap: wrap; gap: 24px; color: var(--muted); font-size: 14px; margin-top: 10px; }
   .workspace-summary span { display: inline-flex; align-items: center; gap: 7px; }
   .workspace-summary i { width: 5px; height: 5px; background: var(--good); border-radius: 50%; }
-  @media (max-width: 650px) { .workspace-heading { padding-top: 8px; } .workspace-heading h1 { font-size: 34px; } .workspace-heading .eyebrow { font-size: 8px; margin-bottom: 6px; } .workspace-summary { margin-top: 10px; } }
+  @media (max-width: 650px) { .workspace-heading { padding-top: 8px; } .workspace-heading h1 { font-size: 34px; } .workspace-heading .eyebrow { font-size: 14px; margin-bottom: 6px; } .workspace-summary { margin-top: 10px; } }
   /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
      column's minimum height; if the header changes, the cost is a small gap or a little extra scroll, never an overlap. */
   .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -425,11 +425,11 @@
   .notice { border-color: var(--good); }
   .notice.bad { border-color: var(--bad); }
   .home-detail { border-top: 1px solid var(--line); padding: 14px 0; }
-  .home-detail > summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--ink-soft); }
-  .home-detail > summary span { font-weight: 400; color: var(--muted); margin-left: 8px; font-size: 11px; }
+  .home-detail > summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--ink-soft); }
+  .home-detail > summary span { font-weight: 400; color: var(--muted); margin-left: 8px; font-size: 14px; }
   .home-detail[open] > summary { margin-bottom: 14px; }
   .attention-detail > summary { color: var(--warn); }
-  .start-chosen { min-height: 34px; padding: 4px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent); color: var(--accent-ink); font: 600 13px var(--sans); cursor: pointer; }
+  .start-chosen { min-height: 34px; padding: 4px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent); color: var(--accent-ink); font: 600 14px var(--sans); cursor: pointer; }
   /* The live regions are always present, so a sentence put into one is announced; empty, they take no room. */
   .live:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
 

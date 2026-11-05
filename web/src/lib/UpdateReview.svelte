@@ -98,22 +98,22 @@
   .review { display: grid; gap: 14px; margin-top: 16px; }
   .diff { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); }
   .diff > div { display: grid; gap: 1px; }
-  .lab { color: var(--muted); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-  .diff code { font-size: 0.78rem; }
+  .lab { color: var(--muted); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .diff code { font-size: 0.875rem; }
   .diff code.to { color: var(--accent-text); }
   .arrow { color: var(--muted); }
-  .notes { justify-self: start; font-size: 0.72rem; }
+  .notes { justify-self: start; font-size: 0.875rem; }
   .targets { display: grid; gap: 7px; margin: 0; padding: 0; border: 0; }
-  .targets legend { margin-bottom: 2px; color: var(--muted); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .targets legend { margin-bottom: 2px; color: var(--muted); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
   .target { display: flex; align-items: flex-start; gap: 9px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); cursor: pointer; }
   .target.chosen { border-color: var(--accent); background: var(--tint); }
   .target > span { display: grid; gap: 1px; min-width: 0; }
-  .target strong { font-size: 0.78rem; }
-  .target small { color: var(--muted); font-size: 0.67rem; }
+  .target strong { font-size: 0.875rem; }
+  .target small { color: var(--muted); font-size: 0.875rem; }
   .side { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 10px; }
   .side > div { padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px; }
-  .side p { margin: 0 0 3px; font-size: 0.7rem; font-weight: 650; }
-  .side ul { margin: 0; padding-left: 16px; color: var(--muted); font-size: 0.68rem; line-height: 1.45; }
+  .side p { margin: 0 0 3px; font-size: 0.875rem; font-weight: 650; }
+  .side ul { margin: 0; padding-left: 16px; color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
   .interrupted { color: var(--muted); }
-  .warn { margin: 0; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--warn, #b45309) 35%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--warn, #b45309) 6%, transparent); color: var(--warn, #b45309); font-size: 0.7rem; line-height: 1.45; }
+  .warn { margin: 0; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--warn, #b45309) 35%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--warn, #b45309) 6%, transparent); color: var(--warn, #b45309); font-size: 0.875rem; line-height: 1.45; }
 </style>

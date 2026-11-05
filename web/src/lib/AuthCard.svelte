@@ -25,14 +25,14 @@
 <style>
   .auth { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: clamp(35px, 6vw, 85px); align-items: center; margin: 12px auto 35px; }
   .intro { min-width: 0; padding: 18px 0; }
-  .eyebrow { margin: 0 0 23px; color: var(--accent-text); font: 9px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+  .eyebrow { margin: 0 0 23px; color: var(--accent-text); font: 14px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
   .headline { margin: 0; font: 600 clamp(43px, 5.1vw, 66px)/1.04 var(--serif); letter-spacing: -.045em; }
   .intro-copy { margin: 25px 0 0; color: var(--muted); font-size: 15px; line-height: 1.85; }
   .gaffer-welcome { display: flex; align-items: center; gap: 15px; margin-top: 36px; }
   .gaffer-welcome :global(.gaffer-avatar) { width: 52px; height: 52px; flex: none; }
   .gaffer-welcome strong { display: block; font: 600 17px/1.4 var(--serif); }
-  .gaffer-welcome span { display: block; font: 8px var(--mono); color: var(--muted); letter-spacing: .04em; margin-top: 8px; }
-  .local { margin: 34px 0 0; padding-top: 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.8; overflow-wrap: anywhere; }
+  .gaffer-welcome span { display: block; font: 14px var(--mono); color: var(--muted); letter-spacing: .04em; margin-top: 8px; }
+  .local { margin: 34px 0 0; padding-top: 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
   .local strong { font-weight: 500; color: var(--ink); }
   .form-panel { min-width: 0; align-self: center; padding: 30px; background: var(--card); border: 1px solid var(--line); border-radius: 11px; box-shadow: 0 18px 50px color-mix(in srgb, var(--ink) 5%, transparent); }
   /* Leave room around focused controls when a short viewport scrolls the form. */
@@ -40,17 +40,17 @@
   .instance { display: flex; align-items: center; gap: 11px; padding-bottom: 23px; margin-bottom: 25px; border-bottom: 1px solid var(--line); }
   .instance-mark { width: 32px; height: 35px; flex: none; display: grid; place-items: center; background: var(--ink); color: var(--bg); border-radius: 5px; font: 600 21px var(--serif); }
   .instance > div { min-width: 0; flex: 1; }
-  .instance strong { display: block; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
-  .instance div > span { display: block; font-size: 10px; color: var(--muted); margin-top: 3px; }
+  .instance strong { display: block; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+  .instance div > span { display: block; font-size: 14px; color: var(--muted); margin-top: 3px; }
   .instance > svg { flex: none; width: 15px; height: 15px; color: var(--muted); }
   h1 { margin: 0; font: 600 clamp(28px, 3vw, 35px)/1.15 var(--serif); letter-spacing: -.03em; }
-  .lede { margin: 11px 0 0; color: var(--muted); max-width: 40ch; font-size: 13px; line-height: 1.8; }
+  .lede { margin: 11px 0 0; color: var(--muted); max-width: 40ch; font-size: 14px; line-height: 1.8; }
   @media (max-width: 760px) {
     .auth { grid-template-columns: 1fr; max-width: 490px; gap: 0; }
     .intro { display: none; }
-    .eyebrow { font-size: 8px; margin-bottom: 15px; }
+    .eyebrow { font-size: 14px; margin-bottom: 15px; }
     .headline { font-size: 44px; }
-    .intro-copy { margin: 17px 0 0; font-size: 13px; }
+    .intro-copy { margin: 17px 0 0; font-size: 14px; }
     .gaffer-welcome, .local { display: none; }
     .form-panel { padding: 25px; }
     h1 { font-size: 28px; }

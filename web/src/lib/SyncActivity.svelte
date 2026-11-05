@@ -326,8 +326,8 @@
   .dock-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; min-height: 52px; padding: 6px; border: 1px solid transparent; border-radius: 12px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
   .dock-main:hover { border-color: var(--line); background: color-mix(in srgb, var(--bg) 40%, transparent); }
   .compact-copy { display: grid; gap: 1px; min-width: 0; flex: 1; }
-  .compact-copy strong { font-size: 0.82rem; line-height: 1.3; overflow-wrap: anywhere; }
-  .compact-copy small { color: var(--muted); font-size: 0.71rem; line-height: 1.35; overflow-wrap: anywhere; }
+  .compact-copy strong { font-size: 0.875rem; line-height: 1.3; overflow-wrap: anywhere; }
+  .compact-copy small { color: var(--muted); font-size: 0.875rem; line-height: 1.35; overflow-wrap: anywhere; }
   .chevron { width: 18px; height: 18px; flex: none; color: var(--muted); }
   .dock-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 16px 12px 12px 16px; }
   .dock-id { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
@@ -340,17 +340,17 @@
   .working .spin { animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .dock-copy { display: grid; gap: 2px; min-width: 0; }
-  .dock-copy p { margin: 0; color: var(--accent-text); font-size: 0.65rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+  .dock-copy p { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
   .dock-copy h2 { margin: 0; font: 500 1.12rem/1.25 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; }
-  .dock-copy small { color: var(--muted); font-size: 0.74rem; overflow-wrap: anywhere; }
+  .dock-copy small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
   .dock-control { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); font-size: 1.15rem; line-height: 1; cursor: pointer; }
   .dock-control svg { width: 18px; height: 18px; }
   .dock-control:hover { color: var(--ink); border-color: var(--line); }
   .dock-control.close { width: 44px; height: 44px; }
   .run { padding: 0 16px 12px; display: grid; gap: 6px; }
-  .run-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 0.72rem; }
+  .run-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 0.875rem; }
   .run-meta strong { color: var(--ink); font-variant-numeric: tabular-nums; }
-  .run small { color: var(--muted); font-size: 0.7rem; overflow-wrap: anywhere; }
+  .run small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
   .track { height: 6px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--line) 70%, transparent); }
   .track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--info)); transition: width 0.5s var(--ease-out); }
   .dock-body { display: grid; gap: 10px; padding: 2px 16px 12px; overflow: auto; overscroll-behavior: contain; }
@@ -359,15 +359,15 @@
   .job.failed { border-color: color-mix(in srgb, var(--bad) 38%, var(--line)); }
   .job-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
   .job-head > div { display: grid; gap: 1px; min-width: 0; }
-  .job-head strong { font-size: 0.82rem; overflow-wrap: anywhere; }
-  .job-head small { color: var(--muted); font-size: 0.69rem; overflow-wrap: anywhere; }
-  .job-state { flex: none; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: 0.65rem; font-weight: 600; }
+  .job-head strong { font-size: 0.875rem; overflow-wrap: anywhere; }
+  .job-head small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+  .job-state { flex: none; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; font-weight: 600; }
   .job-state.ok { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
   .job-state.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
   .job-state.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
   .job-state.work { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
   .steps { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 0; padding: 0; }
-  .steps li { display: grid; gap: 5px; min-width: 0; color: var(--muted); font-size: 0.67rem; }
+  .steps li { display: grid; gap: 5px; min-width: 0; color: var(--muted); font-size: 0.875rem; }
   .step-dot { display: block; height: 4px; border-radius: 999px; background: var(--line); }
   .steps li.active { color: var(--accent-text); font-weight: 600; }
   .steps li.active .step-dot { background: linear-gradient(90deg, var(--accent), var(--info)); animation: pulse 1.4s ease-in-out infinite; }
@@ -378,19 +378,19 @@
   .steps li.review { color: var(--warn); }
   .steps li.review .step-dot { background: var(--warn); }
   @keyframes pulse { 50% { opacity: 0.45; } }
-  .plan-count { margin: 0; color: var(--muted); font-size: 0.72rem; }
-  .plan-list { list-style: none; display: grid; gap: 3px; margin: 0; padding: 0; font-size: 0.73rem; }
+  .plan-count { margin: 0; color: var(--muted); font-size: 0.875rem; }
+  .plan-list { list-style: none; display: grid; gap: 3px; margin: 0; padding: 0; font-size: 0.875rem; }
   .plan-list li { display: flex; gap: 7px; align-items: baseline; min-width: 0; }
   .plan-list li span { flex: none; width: 10px; color: var(--good); font-weight: 700; }
   .plan-list li.remove span { color: var(--bad); }
   .plan-list li.more { color: var(--muted); }
-  .job-message { margin: 0; color: var(--muted); font-size: 0.72rem; line-height: 1.5; overflow-wrap: anywhere; }
-  .review { justify-self: start; min-height: 36px; padding: 6px 12px; font-size: 0.76rem; }
-  .more-jobs { color: var(--accent-text); font-size: 0.75rem; font-weight: 600; text-decoration: none; }
+  .job-message { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
+  .review { justify-self: start; min-height: 36px; padding: 6px 12px; font-size: 0.875rem; }
+  .more-jobs { color: var(--accent-text); font-size: 0.875rem; font-weight: 600; text-decoration: none; }
   .more-jobs:hover { text-decoration: underline; }
-  .dock-empty { margin: 0; padding: 8px 0; color: var(--muted); font-size: 0.76rem; }
-  .dock-error { margin: 0; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); border-radius: 8px; color: var(--bad); font-size: 0.75rem; }
-  .dock-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 35%, var(--card)); color: var(--muted); font-size: 0.69rem; }
+  .dock-empty { margin: 0; padding: 8px 0; color: var(--muted); font-size: 0.875rem; }
+  .dock-error { margin: 0; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); border-radius: 8px; color: var(--bad); font-size: 0.875rem; }
+  .dock-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 35%, var(--card)); color: var(--muted); font-size: 0.875rem; }
   .dock-foot a { color: var(--accent-text); font-weight: 600; text-decoration: none; }
   .dock-foot a:hover { text-decoration: underline; }
   @media (max-width: 650px) {

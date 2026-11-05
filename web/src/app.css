@@ -51,6 +51,8 @@
   --bg-sunk: #eeede6; --dock-bg: #f6f5f0; --faint: #656c5e; --ink-soft: #3a4233; --repo-line: #8fc7ba; --line-deep: #7c866f; --line-mid: #d2d8c8; --scrim: rgb(20 18 15 / 0.45);
 }
 *, *::before, *::after { box-sizing: border-box; }
+/* No product copy or chrome is smaller than 14px (0.875rem); labels may be quiet in colour and weight, never in size.
+   The terminal draws its own type from --terminal-font-size, which a person chooses in Terminal appearance. */
 body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(--sans); min-width: 320px; }
 /* One status vocabulary for every session surface. A component sets data-status and inherits --status, its tint and its
    edge from here, so a row, tab, card and pill cannot drift into different meanings for the same state. */
@@ -93,7 +95,7 @@ textarea { width: 100%; resize: vertical; }
 .btn.quiet { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.quiet:hover:not(:disabled) { color: var(--ink); text-decoration: underline; }
 .btn.danger:hover { color: var(--bad); }
-.badge { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; color: var(--muted); font-size: 0.72rem; }
+.badge { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; color: var(--muted); font-size: 0.875rem; }
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (prefers-reduced-motion: no-preference) {
   .btn[aria-busy="true"]::before { animation: btn-spin 0.8s linear infinite; }
@@ -127,12 +129,12 @@ textarea { width: 100%; resize: vertical; }
 .cbx { position: fixed; inset: auto; margin: 0; z-index: 1000; display: flex; flex-direction: column; gap: 6px; padding: 6px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--card-raised, var(--card)); color: var(--ink); box-shadow: 0 12px 30px var(--scrim); font-size: 14px; line-height: 1.3; }
 .cbx-filter { flex: none; width: 100%; min-height: 38px; padding: 6px 10px; }
 .cbx-list { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; overscroll-behavior: contain; }
-.cbx-group { position: sticky; top: 0; padding: 6px 10px 2px; background: var(--card-raised, var(--card)); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.cbx-group { position: sticky; top: 0; padding: 6px 10px 2px; background: var(--card-raised, var(--card)); font-size: 14px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .cbx-option { padding: 7px 10px; min-height: 34px; display: flex; align-items: center; border-radius: 8px; cursor: pointer; overflow-wrap: anywhere; }
 .cbx-option.active { background: var(--line-soft, var(--tint)); }
 .cbx-option[aria-selected='true'] { box-shadow: inset 3px 0 0 var(--accent-text, var(--accent)); font-weight: 600; }
 .cbx-option[aria-disabled='true'] { color: var(--muted); cursor: default; }
-.cbx-empty { margin: 0; padding: 8px 10px; font-size: 12px; color: var(--muted); }
+.cbx-empty { margin: 0; padding: 8px 10px; font-size: 14px; color: var(--muted); }
 @media (pointer: coarse) { .cbx-option { min-height: 48px; font-size: 15px; } .cbx-filter { font-size: 16px; min-height: 44px; } }
 /* Fields that suggest values get the same chevron a select has. */
 input[data-combo-list] { padding-right: 32px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 4.5l4 4 4-4' fill='none' stroke='%238a8a8a' stroke-width='1.5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; background-size: 12px; }

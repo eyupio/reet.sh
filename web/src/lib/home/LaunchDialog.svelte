@@ -67,7 +67,7 @@
   dialog::backdrop { background: var(--scrim); }
   .sheet { display: flex; flex-direction: column; min-height: 0; max-height: calc(100dvh - 32px); border: 1px solid var(--line); border-radius: 16px; background: var(--card-raised); box-shadow: var(--shadow-dock, 0 18px 50px var(--scrim)); }
   header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 8px 12px 18px; border-bottom: 1px solid var(--line-soft); }
-  .eyebrow { margin: 0; font-size: 10px; font-weight: 650; letter-spacing: .13em; text-transform: uppercase; color: var(--accent-text); }
+  .eyebrow { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: .13em; text-transform: uppercase; color: var(--accent-text); }
   h2 { margin: 2px 0 0; font: 500 22px/1.2 var(--serif); letter-spacing: -.02em; }
   .close { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--muted); font-size: 22px; line-height: 1; cursor: pointer; }
   .close:hover { background: var(--line-soft); color: var(--ink); }

@@ -189,22 +189,22 @@
   .identity { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
   .mark { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 7px; background: var(--tint); color: var(--accent-text); font-weight: 700; font-size: 0.9rem; }
   .who { display: grid; gap: 1px; min-width: 0; }
-  .eyebrow { margin: 0; color: var(--muted); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
-  .builds { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 0; font-size: 0.76rem; }
+  .eyebrow { margin: 0; color: var(--muted); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  .builds { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 0; font-size: 0.875rem; }
   .builds code { color: var(--ink); }
   .builds code.to { color: var(--accent-text); font-weight: 600; }
   .arrow { color: var(--muted); }
-  .pill { flex: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.66rem; font-weight: 600; white-space: nowrap; }
+  .pill { flex: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.875rem; font-weight: 600; white-space: nowrap; }
   .pill.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 35%, var(--line)); background: color-mix(in srgb, var(--good) 7%, transparent); }
   .pill.accent { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: var(--tint); }
   .pill.busy { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
   .pill.warn { color: var(--warn, #b45309); border-color: color-mix(in srgb, var(--warn, #b45309) 40%, var(--line)); }
   .pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); background: color-mix(in srgb, var(--bad) 6%, transparent); }
-  .explain { margin: 0; color: var(--muted); font-size: 0.72rem; line-height: 1.5; }
+  .explain { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
   .bar { height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; }
   .bar span { display: block; height: 100%; background: var(--accent); transform-origin: left; transition: transform 400ms var(--ease-out); }
   .stages { list-style: none; display: grid; gap: 5px; margin: 0; padding: 0; }
-  .stages li { display: flex; align-items: flex-start; gap: 7px; color: var(--muted); font-size: 0.7rem; line-height: 1.4; }
+  .stages li { display: flex; align-items: flex-start; gap: 7px; color: var(--muted); font-size: 0.875rem; line-height: 1.4; }
   .dot { flex: none; width: 9px; height: 9px; margin-top: 3px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); }
   .stages li.done .dot { background: var(--good); border-color: var(--good); }
   .stages li.running .dot { border-color: var(--accent); border-width: 2px; background: transparent; }
@@ -212,19 +212,19 @@
   .stage-copy { display: grid; gap: 0; min-width: 0; }
   .stage-label { color: var(--ink); }
   .stages li.pending .stage-label { color: var(--muted); }
-  .stage-detail { color: var(--muted); font-size: 0.67rem; overflow-wrap: anywhere; }
+  .stage-detail { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
   .outcome { display: grid; gap: 3px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
   .outcome.good { border-color: color-mix(in srgb, var(--good) 35%, var(--line)); background: color-mix(in srgb, var(--good) 6%, transparent); }
   .outcome.warn { border-color: color-mix(in srgb, var(--warn, #b45309) 35%, var(--line)); background: color-mix(in srgb, var(--warn, #b45309) 6%, transparent); }
   .outcome.bad { border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); background: color-mix(in srgb, var(--bad) 6%, transparent); }
-  .outcome-title { margin: 0; font-size: 0.74rem; font-weight: 650; }
-  .outcome-body, .outcome-note { margin: 0; color: var(--muted); font-size: 0.69rem; line-height: 1.45; overflow-wrap: anywhere; }
+  .outcome-title { margin: 0; font-size: 0.875rem; font-weight: 650; }
+  .outcome-body, .outcome-note { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.45; overflow-wrap: anywhere; }
   .steps { margin-top: 4px; }
-  .steps > summary { cursor: pointer; color: var(--muted); font-size: 0.69rem; }
+  .steps > summary { cursor: pointer; color: var(--muted); font-size: 0.875rem; }
   .steps > summary:hover { color: var(--ink); }
   .steps[open] > summary { margin-bottom: 6px; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-  .actions .btn { min-height: 34px; padding: 6px 11px; font-size: 0.76rem; }
+  .actions .btn { min-height: 34px; padding: 6px 11px; font-size: 0.875rem; }
   @media (max-width: 560px) {
     .updater { padding: 10px; }
     .actions .btn.primary { flex: 1 1 auto; }

@@ -146,16 +146,16 @@
  h3:focus { outline: none; }
  h3:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
  h4 { margin: 18px 0 6px; font-size: 1.05rem; }
- .hint, .which { color: var(--muted); font-size: .8rem; line-height: 1.5; margin: 6px 0 12px; }
+ .hint, .which { color: var(--muted); font-size: 0.875rem; line-height: 1.5; margin: 6px 0 12px; }
  .which strong { color: var(--ink); }
  .check-live { min-height: 1.4em; margin: 0 0 10px; font-size: .9rem; }
  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
- .reasons, .issues { margin: 0 0 12px; padding-left: 18px; font-size: .85rem; line-height: 1.5; overflow-wrap: anywhere; }
- .warn { margin: 0 0 12px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); border-radius: 8px; color: var(--bad); font-size: .85rem; }
- .label { margin: 12px 0 4px; font-size: .8rem; font-weight: 600; }
+ .reasons, .issues { margin: 0 0 12px; padding-left: 18px; font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
+ .warn { margin: 0 0 12px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); border-radius: 8px; color: var(--bad); font-size: 0.875rem; }
+ .label { margin: 12px 0 4px; font-size: 0.875rem; font-weight: 600; }
  .verdict { margin: 12px 0; font-size: .9rem; line-height: 1.5; }
  .scroll { max-height: 320px; overflow: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; }
- table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+ table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
  caption { text-align: left; padding: 8px 10px; font-weight: 600; }
  th, td { padding: 6px 10px; text-align: left; vertical-align: top; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
  thead th { color: var(--muted); font-weight: 500; }

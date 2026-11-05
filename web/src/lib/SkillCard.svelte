@@ -519,7 +519,7 @@
 </li>
 
 <style>
-  .envmachine { display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:5px 8px; border:1px solid var(--line); border-radius:8px; min-width:0; } .envmachine>strong { font-size:.7rem; font-weight:600; overflow-wrap:anywhere; }
+  .envmachine { display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:5px 8px; border:1px solid var(--line); border-radius:8px; min-width:0; } .envmachine>strong { font-size:0.875rem; font-weight:600; overflow-wrap:anywhere; }
   .skill { position: relative; padding: 20px 22px; border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: var(--radius); background: var(--card); min-width: 0; }
   .skill.use { border-left-color: var(--accent); }
   .skill.try { border-left-color: var(--accent); border-left-style: dashed; }
@@ -538,34 +538,34 @@
   .box svg { width: 12px; height: 12px; color: var(--accent-ink); }
   h3 a { color: inherit; text-decoration-color: var(--line); text-underline-offset: 4px; }
   h3 a:hover { color: var(--accent-text); text-decoration-color: currentColor; }
-  .age { margin: 0 0 10px; color: var(--muted); font-size: 0.75rem; }
-  .source { color: var(--muted); font-size: 0.75rem; overflow-wrap: anywhere; }
+  .age { margin: 0 0 10px; color: var(--muted); font-size: 0.875rem; }
+  .source { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
   .source-link { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; max-width: 100%; justify-self: start; text-decoration-color: var(--line); }
   .head h3 a { text-decoration: none; }
   .head h3 a:hover { text-decoration: underline; }
   .source-link:hover { color: var(--accent-text); text-decoration-color: currentColor; }
   .source-link code { min-width: 0; }
   .source-link svg { width: 12px; height: 12px; flex: none; }
-  .disclosure { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 0.78rem; cursor: pointer; flex: none; }
+  .disclosure { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 0.875rem; cursor: pointer; flex: none; }
   .disclosure:hover { border-color: var(--muted); color: var(--ink); }
   .disclosure svg { width: 14px; height: 14px; }
   .disclosure[aria-expanded='true'] svg { transform: rotate(180deg); }
-  .core-data { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .core-data { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .stage-label { color: var(--ink); font-weight: 600; }
   .metric { display: inline-flex; align-items: center; gap: 4px; }
   .metric > svg { width: 14px; height: 14px; flex: none; }
   .card-details:not([hidden]) { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   .quick-actions { margin-top: 10px; }
   .installation-summary-row { margin-top: 10px; }
-  .installation-summary { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 32px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); font: inherit; font-size: 0.75rem; text-align: left; cursor: pointer; }
+  .installation-summary { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 32px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); font: inherit; font-size: 0.875rem; text-align: left; cursor: pointer; }
   .installation-summary:hover { border-color: var(--muted); color: var(--ink); }
   .installation-summary > span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
   .installation-summary .summary-action { flex: none; color: var(--accent-text); font-weight: 650; }
   .installation-badges { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 10px 0 0; }
-  .installation-badge { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); font-size: 0.75rem; }
+  .installation-badge { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); font-size: 0.875rem; }
   .installation-badge .host { overflow-wrap: anywhere; min-width: 0; }
   /* A long host name must wrap rather than widen the page on a phone: the text is a shrinkable flex item that breaks anywhere. */
-  .sync-intent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 0; min-width: 0; color: var(--muted); font-size: 0.75rem; }
+  .sync-intent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 0; min-width: 0; color: var(--muted); font-size: 0.875rem; }
   .sync-intent span { min-width: 0; overflow-wrap: anywhere; }
   .sync-intent svg { width: 13px; height: 13px; flex: none; }
   .sync-intent span { min-width: 0; overflow-wrap: anywhere; }
@@ -577,16 +577,16 @@
   .installation-badge.installed { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); background: color-mix(in srgb, var(--good) 5%, var(--card)); }
   .installation-badge.missing { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); background: color-mix(in srgb, var(--warn) 5%, var(--card)); }
   .installation-badge.unknown { border-style: dashed; }
-  .install-now { flex: none; min-height: 28px; padding: 2px 9px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); border-radius: 5px; background: var(--card); color: var(--ink); font: inherit; font-size: 0.72rem; font-weight: 650; cursor: pointer; }
+  .install-now { flex: none; min-height: 28px; padding: 2px 9px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); border-radius: 5px; background: var(--card); color: var(--ink); font: inherit; font-size: 0.875rem; font-weight: 650; cursor: pointer; }
   .install-now:hover:not(:disabled) { border-color: var(--ink); }
   .install-now.unknown { border-color: color-mix(in srgb, var(--muted) 55%, var(--line)); }
-  .remove-from { color: var(--muted); font-size: 0.72rem; text-decoration: underline; text-underline-offset: 2px; }
+  .remove-from { color: var(--muted); font-size: 0.875rem; text-decoration: underline; text-underline-offset: 2px; }
   .remove-from:hover { color: var(--accent-text); }
   .install-now:disabled { opacity: 0.6; cursor: wait; }
   .menu-trigger { min-width: 40px; justify-content: center; font-size: 1rem; line-height: 1; color: var(--muted); }
   .quick-menu { position: fixed; z-index: 80; display: grid; min-width: 240px; max-width: min(300px, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
-  .quick-menu-title { margin: 4px 8px 6px; color: var(--muted); font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
-  .quick-menu a, .quick-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 0.8rem; text-align: left; text-decoration: none; cursor: pointer; }
+  .quick-menu-title { margin: 4px 8px 6px; color: var(--muted); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  .quick-menu a, .quick-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 0.875rem; text-align: left; text-decoration: none; cursor: pointer; }
   .quick-menu a:hover, .quick-menu button:hover:not(:disabled) { background: var(--tint); }
   .quick-menu button:disabled { opacity: 0.55; cursor: wait; }
   .quick-menu button.danger { color: var(--bad); }
@@ -599,25 +599,25 @@
   .change.down { color: var(--bad); }
   .stale { font-style: italic; }
   code { overflow-wrap: anywhere; }
-  .desc { margin: 6px 0 0; color: var(--muted); max-width: 70ch; font-size: 0.86rem; }
+  .desc { margin: 6px 0 0; color: var(--muted); max-width: 70ch; font-size: 0.875rem; }
   .desc.clamp { display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .more {
     display: inline-flex; align-items: center; margin-top: 4px; padding: 2px 0; min-height: 32px;
-    background: none; border: 0; color: var(--muted); font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    background: none; border: 0; color: var(--muted); font-size: 0.875rem; font-weight: 600; cursor: pointer;
   }
   .more:hover { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
   .tagrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
   .tag {
     display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; min-height: 28px;
     border: 1px solid var(--line); border-radius: 999px; background: transparent;
-    color: var(--muted); font-size: 0.78rem; cursor: pointer;
+    color: var(--muted); font-size: 0.875rem; cursor: pointer;
   }
   .tag:hover { color: var(--ink); border-color: var(--muted); }
   .tag.add { border-style: dashed; border-color: var(--accent); color: var(--accent-text); }
   .tag.add[aria-expanded='true'] { background: var(--tint); color: var(--ink); }
   .tag.remove span { color: var(--bad); font-weight: 700; }
   .tag-edit { margin-top: 8px; padding: 12px; display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
-  .tag-help, .tag-error { margin: 0; font-size: 0.8rem; color: var(--muted); }
+  .tag-help, .tag-error { margin: 0; font-size: 0.875rem; color: var(--muted); }
   .tag-error { color: var(--bad); }
   .tag:disabled { opacity: 0.55; cursor: wait; }
   .tag-edit form { display: flex; gap: 8px; }
@@ -626,7 +626,7 @@
   .envchip {
     display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; min-height: 28px;
     border: 1px solid var(--line); border-radius: 6px; background: color-mix(in srgb, var(--bg) 55%, var(--card));
-    color: var(--muted); font-size: 0.75rem; cursor: pointer;
+    color: var(--muted); font-size: 0.875rem; cursor: pointer;
   }
   .envchip:hover { color: var(--ink); border-color: var(--muted); }
   .envchip.old { opacity: 0.5; }
@@ -636,14 +636,14 @@
     display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; min-height: 28px;
     border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: 6px;
     background: color-mix(in srgb, var(--tint) 28%, var(--card)); color: var(--accent-text);
-    font-size: 0.75rem; font-weight: 600; cursor: pointer;
+    font-size: 0.875rem; font-weight: 600; cursor: pointer;
   }
   .listchip:hover { border-color: var(--accent); background: color-mix(in srgb, var(--tint) 55%, var(--card)); }
   .listchip svg { width: 13px; height: 13px; flex: none; }
   .history { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
-  .history p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+  .history p { margin: 0; color: var(--muted); font-size: 0.875rem; }
   .history ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-  .history li { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 0.82rem; }
+  .history li { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 0.875rem; }
   .history li span { min-width: 0; overflow-wrap: anywhere; }
   .history time { flex: none; font-variant-numeric: tabular-nums; }
   .notes { margin: 12px 0 0; padding: 4px 0 4px 14px; border-left: 2px solid var(--accent); font: italic 1rem/1.5 var(--serif); white-space: pre-wrap; }
@@ -673,12 +673,12 @@
   }
   .seg button {
     background: none; border: 0; border-radius: 6px; padding: 4px 10px; min-height: 28px;
-    color: var(--muted); font-size: 0.8rem; font-weight: 600; cursor: pointer;
+    color: var(--muted); font-size: 0.875rem; font-weight: 600; cursor: pointer;
   }
   .seg button:hover { color: var(--ink); }
   .seg button[aria-pressed='true'] { background: var(--tint); color: var(--ink); }
   .install-line { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; }
-  .install-line code { flex: 1; min-width: 0; font-size: 0.8rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .install-line code { flex: 1; min-width: 0; font-size: 0.875rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
   .edit { margin-top: 12px; display: grid; gap: 8px; }
   .edit div { display: flex; gap: 8px; }
   .edit.link input { flex: 1; }
@@ -687,7 +687,7 @@
   .compact h3 { font-size: 1.2rem; }
   .compact .desc { font-size: 0.88rem; }
   .compact .actions { gap: 6px; }
-  .compact .actions .chip { padding: 5px 10px; font-size: 0.82rem; }
+  .compact .actions .chip { padding: 5px 10px; font-size: 0.875rem; }
   .compact .install-line { flex-direction: column; align-items: stretch; }
   .compact .tag-edit form { flex-direction: column; }
   .compact .edit div { flex-wrap: wrap; }

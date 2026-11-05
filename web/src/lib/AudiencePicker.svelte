@@ -57,9 +57,9 @@
 </fieldset>
 
 <style>
- .audience { margin:20px 0 0; padding:0; border:0; min-width:0; } legend { font-weight:650; font-size:.85rem; margin-bottom:10px; }
- .choices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; } .choice { display:grid; grid-template-columns:18px 1fr; gap:10px; padding:11px; border:1px solid var(--line); border-radius:9px; cursor:pointer; } .choice:has(input:checked) { border-color:var(--accent); background:var(--tint); } .choice input { accent-color:var(--accent); margin-top:4px; } .choice span { display:grid; gap:3px; } strong { font-size:.85rem; } small,.hint { color:var(--muted); font-size:.77rem; line-height:1.5; } .field { display:grid; gap:6px; font-size:.8rem; font-weight:600; margin-top:12px; } textarea,select { width:100%; min-width:0; font-weight:400; } .person { display:flex; gap:8px; align-items:center; margin-top:8px; } .person span { flex:1; font-size:.8rem; overflow-wrap:anywhere; } .person select { width:100px; }
- .preview { padding:12px; margin-top:16px; border:1px solid var(--line); border-radius:9px; background:var(--bg); } .preview p { margin:6px 0; font-size:.8rem; overflow-wrap:anywhere; }
-.exceptions { margin-top:16px; padding:12px; border:1px solid var(--line); border-radius:9px; } summary { cursor:pointer; font-size:.83rem; font-weight:600; }
+ .audience { margin:20px 0 0; padding:0; border:0; min-width:0; } legend { font-weight:650; font-size:0.875rem; margin-bottom:10px; }
+ .choices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; } .choice { display:grid; grid-template-columns:18px 1fr; gap:10px; padding:11px; border:1px solid var(--line); border-radius:9px; cursor:pointer; } .choice:has(input:checked) { border-color:var(--accent); background:var(--tint); } .choice input { accent-color:var(--accent); margin-top:4px; } .choice span { display:grid; gap:3px; } strong { font-size:0.875rem; } small,.hint { color:var(--muted); font-size:0.875rem; line-height:1.5; } .field { display:grid; gap:6px; font-size:0.875rem; font-weight:600; margin-top:12px; } textarea,select { width:100%; min-width:0; font-weight:400; } .person { display:flex; gap:8px; align-items:center; margin-top:8px; } .person span { flex:1; font-size:0.875rem; overflow-wrap:anywhere; } .person select { width:100px; }
+ .preview { padding:12px; margin-top:16px; border:1px solid var(--line); border-radius:9px; background:var(--bg); } .preview p { margin:6px 0; font-size:0.875rem; overflow-wrap:anywhere; }
+.exceptions { margin-top:16px; padding:12px; border:1px solid var(--line); border-radius:9px; } summary { cursor:pointer; font-size:0.875rem; font-weight:600; }
  @media(max-width:480px) { .choices { grid-template-columns:1fr; } }
 </style>

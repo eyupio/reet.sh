@@ -72,7 +72,7 @@
   .columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
   .column { display: grid; align-content: start; gap: 16px; }
   .tile { display: grid; gap: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 20px; min-height: 145px; align-content: start; }
-  .load-slow { position: fixed; bottom: 80px; inset-inline: 16px; margin: auto; width: fit-content; max-width: calc(100% - 32px); padding: 12px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); z-index: 65; font-size: .85rem; }
+  .load-slow { position: fixed; bottom: 80px; inset-inline: 16px; margin: auto; width: fit-content; max-width: calc(100% - 32px); padding: 12px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); z-index: 65; font-size: 0.875rem; }
   @media (prefers-reduced-motion: no-preference) {
     i, .button { background: linear-gradient(90deg, var(--line), var(--line-soft), var(--line)); background-size: 200% 100%; animation: route-shimmer 1.8s ease-in-out infinite; }
   }

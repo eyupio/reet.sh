@@ -91,9 +91,9 @@
   .sheet { display: flex; flex-direction: column; min-height: 0; padding: 8px 8px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--card-raised); }
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px 8px 8px 16px; }
   header > div { min-width: 0; }
-  .eyebrow { margin: 0; color: var(--accent-text); font-size: 11px; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 14px; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; }
   h2 { margin: 3px 0 0; font: 600 1.4rem/1.25 var(--serif); overflow-wrap: anywhere; }
-  .lede { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  .lede { margin: 6px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
   .close { flex: none; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--muted); cursor: pointer; }
   .close svg { width: 19px; height: 19px; }
   .body { display: flex; flex-direction: column; gap: 8px; padding: 4px; overflow: auto; }
@@ -107,10 +107,10 @@
   .icon.folder { color: var(--muted); }
   .copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
   .copy b { font-weight: 600; overflow-wrap: anywhere; }
-  .copy small { color: var(--muted); font: 11px/1.4 var(--mono); overflow-wrap: anywhere; }
-  .branch { flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px/1.4 var(--mono); color: var(--muted); }
+  .copy small { color: var(--muted); font: 14px/1.4 var(--mono); overflow-wrap: anywhere; }
+  .branch { flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 14px/1.4 var(--mono); color: var(--muted); }
   .chev { flex: none; color: var(--muted); font-size: 20px; }
-  .none, .reason { margin: 0; padding: 8px 12px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+  .none, .reason { margin: 0; padding: 8px 12px; font-size: 14px; line-height: 1.5; color: var(--muted); }
   .reason { color: var(--warn); }
   footer { display: flex; justify-content: flex-end; padding: 8px 4px 0; }
   .cancel { min-height: 40px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }

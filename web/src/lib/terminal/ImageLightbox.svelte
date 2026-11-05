@@ -43,7 +43,7 @@
  .lightbox { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 56px 64px; background: color-mix(in srgb, black 82%, transparent); backdrop-filter: blur(4px); }
  figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 100%; max-height: 100%; min-height: 0; }
  img { max-width: 100%; max-height: calc(100vh - 150px); border-radius: 10px; object-fit: contain; background: color-mix(in srgb, white 12%, transparent); box-shadow: 0 18px 60px color-mix(in srgb, black 60%, transparent); }
- figcaption { font: 500 12.5px var(--sans); color: color-mix(in srgb, white 94%, transparent); max-width: 80vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ figcaption { font: 500 14px var(--sans); color: color-mix(in srgb, white 94%, transparent); max-width: 80vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
  button { position: absolute; display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid color-mix(in srgb, white 20%, transparent); border-radius: 50%; background: color-mix(in srgb, black 55%, transparent); color: color-mix(in srgb, white 94%, transparent); cursor: pointer; transition: background .15s; }
  button:hover { background: color-mix(in srgb, black 80%, transparent); }
  button:focus-visible { outline: 2px solid var(--accent, white); outline-offset: 2px; }

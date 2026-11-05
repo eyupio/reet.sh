@@ -147,16 +147,16 @@
 <style>
  .adopt { margin: 18px 0 0; padding: 14px 0 0; border-top: 1px solid var(--line); }
  h4 { margin: 0 0 6px; font-size: 1.05rem; }
- .hint { color: var(--muted); font-size: .8rem; line-height: 1.5; margin: 6px 0 12px; }
+ .hint { color: var(--muted); font-size: 0.875rem; line-height: 1.5; margin: 6px 0 12px; }
  .verdict { margin: 12px 0; font-size: .9rem; line-height: 1.5; }
  fieldset { margin: 0 0 12px; padding: 0; border: 0; min-width: 0; }
- legend { padding: 0; margin: 0 0 6px; font-size: .8rem; font-weight: 600; }
+ legend { padding: 0; margin: 0 0 6px; font-size: 0.875rem; font-weight: 600; }
  .choice { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; margin: 0 0 6px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
- .choice span { display: grid; gap: 2px; min-width: 0; font-size: .85rem; overflow-wrap: anywhere; }
- .choice small { color: var(--muted); font-size: .75rem; }
- .breakdown { min-height: 1.4em; margin: 0 0 8px; font-size: .85rem; line-height: 1.5; overflow-wrap: anywhere; }
+ .choice span { display: grid; gap: 2px; min-width: 0; font-size: 0.875rem; overflow-wrap: anywhere; }
+ .choice small { color: var(--muted); font-size: 0.875rem; }
+ .breakdown { min-height: 1.4em; margin: 0 0 8px; font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
  .scroll { max-height: 320px; overflow: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; }
- table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+ table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
  caption { text-align: left; padding: 8px 10px; font-weight: 600; }
  th, td { padding: 6px 10px; text-align: left; vertical-align: top; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
  thead th { color: var(--muted); font-weight: 500; }

@@ -144,14 +144,14 @@
 </dialog>
 
 <style>
-  .mono { font-family: var(--mono); font-size: .95em; }
-  h3 { margin: 16px 0 6px; font-size: 12px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-  .warning { margin: 0 0 6px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); border-left: 3px solid var(--warn); border-radius: 8px; background: color-mix(in srgb, var(--warn) 6%, var(--card)); color: var(--ink-soft); font-size: 13px; line-height: 1.5; }
+  .mono { font-family: var(--mono); font-size: max(0.875rem, .95em); }
+  h3 { margin: 16px 0 6px; font-size: 14px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .warning { margin: 0 0 6px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); border-left: 3px solid var(--warn); border-radius: 8px; background: color-mix(in srgb, var(--warn) 6%, var(--card)); color: var(--ink-soft); font-size: 14px; line-height: 1.5; }
   .warning strong { display: block; margin-bottom: 3px; color: var(--ink); }
   .branches { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
-  .branches li { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-height: 28px; padding: 4px 9px; border: 1px solid var(--line-soft); border-radius: 7px; background: var(--bg-sunk); font-size: 13px; }
+  .branches li { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-height: 28px; padding: 4px 9px; border: 1px solid var(--line-soft); border-radius: 7px; background: var(--bg-sunk); font-size: 14px; }
   .branches li.gone { color: var(--muted); text-decoration: line-through; }
-  .branches small { color: var(--muted); font-size: 12px; }
-  .hint { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+  .branches small { color: var(--muted); font-size: 14px; }
+  .hint { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
   .notice { margin: 0 0 10px; }
 </style>

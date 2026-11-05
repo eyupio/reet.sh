@@ -732,7 +732,7 @@
   dialog::backdrop { background: var(--scrim); }
   header { display: flex; align-items: center; gap: 12px; padding: 20px 24px 12px; }
   .titles { flex-grow: 1; min-width: 0; }
-  .eyebrow { margin: 0; font: 600 11px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--accent-text); }
+  .eyebrow { margin: 0; font: 600 14px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--accent-text); }
   h2 { margin: 2px 0 0; font: 600 24px/1.25 var(--serif); overflow-wrap: anywhere; }
   .close { flex: none; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink-soft); cursor: pointer; }
   .close svg { width: 18px; height: 18px; }
@@ -743,13 +743,13 @@
   fieldset { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; min-height: 100%; }
   dialog.browsing fieldset { height: 100%; }
   .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  .label { color: var(--muted); font-size: 13px; }
+  .label { color: var(--muted); font-size: 14px; }
   .optional { color: var(--faint); }
   input:not([type=checkbox]), select, textarea { width: 100%; min-width: 0; height: 42px; min-height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: 14px var(--sans); }
   input::placeholder, textarea::placeholder { color: var(--faint); }
   textarea { height: auto; min-height: 84px; padding: 10px 12px; resize: vertical; line-height: 1.45; }
   .folder-row { display: flex; gap: 8px; }
-  .folder-row input { flex-grow: 1; font: 13px var(--mono); }
+  .folder-row input { flex-grow: 1; font: 14px var(--mono); }
   .folder-row input::placeholder { color: var(--muted); }
   .toggle { flex: none; height: 42px; padding: 0 16px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink); font-weight: 500; cursor: pointer; }
   .toggle:disabled { opacity: .5; cursor: default; }
@@ -767,7 +767,7 @@
   .select-wrap { position: relative; }
   .select-wrap select { appearance: none; padding-right: 34px; cursor: pointer; }
   .select-wrap .chev { position: absolute; right: 12px; top: 14px; pointer-events: none; }
-  .machine-note, .hint, .field-note { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
+  .machine-note, .hint, .field-note { margin: 0; font-size: 14px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
   .hint a { color: var(--accent-text); }
   .note-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .field-note { flex: 1 1 14em; min-width: 0; }
@@ -778,7 +778,7 @@
   .pair { display: flex; gap: 12px; }
   .pair > .field { flex: 1; }
   .fold { border-top: 1px solid var(--line-soft); padding-top: 12px; }
-  summary { cursor: pointer; color: var(--muted); font-size: 13px; width: fit-content; }
+  summary { cursor: pointer; color: var(--muted); font-size: 14px; width: fit-content; }
   summary:hover { color: var(--ink); }
   .fold-body { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
   .fold-body.defaults { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -792,7 +792,7 @@
   .over { color: var(--bad); }
   footer { display: flex; align-items: center; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--line-soft); }
   .chosen { display: none; }
-  .status { flex-grow: 1; min-width: 0; margin: 0; font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+  .status { flex-grow: 1; min-width: 0; margin: 0; font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
   .status.quiet { color: var(--muted); }
   .status.bad { color: var(--bad); }
   .actions { display: flex; gap: 10px; flex: none; }
@@ -803,8 +803,8 @@
   .submit:disabled, .cancel:disabled { opacity: .5; cursor: default; }
   .narrow { display: none; }
   .mine { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg); }
-  .mine h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink); }
-  .mine ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+  .mine h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--ink); }
+  .mine ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
   .mine-label { color: var(--muted); }
   .mine-value { overflow-wrap: anywhere; white-space: pre-wrap; }
   .mine .ghost { align-self: flex-start; }
@@ -823,7 +823,7 @@
     dialog.browsing { height: auto; }
     header, form { background: var(--bg); }
     header { height: 60px; flex: none; padding: 0 8px 0 16px; border-bottom: 1px solid var(--line-soft); }
-    .eyebrow { font-size: 10px; letter-spacing: .09em; }
+    .eyebrow { font-size: 14px; letter-spacing: .09em; }
     h2 { margin: 0; font-size: 21px; }
     .close { border: 0; }
     .close svg { width: 20px; height: 20px; }
@@ -841,7 +841,7 @@
     .fold-body.defaults { grid-template-columns: minmax(0, 1fr); }
     .picker { height: 48px; border-radius: 10px; font-size: 16px; }
     footer { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px 16px 16px; background: var(--bg-sunk); }
-    .chosen { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: 13px; min-width: 0; }
+    .chosen { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: 14px; min-width: 0; }
     .chosen .path { flex-grow: 1; min-width: 0; font-family: var(--mono); color: var(--ink); overflow-wrap: anywhere; }
     .chosen .kind { flex: none; color: var(--repo); }
     .chosen .none { color: var(--muted); }

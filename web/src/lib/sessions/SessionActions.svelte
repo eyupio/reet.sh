@@ -51,6 +51,13 @@
     context = { item, x: Math.min(Math.max(8, x), Math.max(8, innerWidth - 248)), y: Math.max(8, Math.min(y, innerHeight - 290)) }
     onopen?.(item)
     await tick()
+    // Measure the menu once it is drawn: its height grows with the text size, so a fixed allowance cannot keep a long
+    // menu (the list view's actions on a phone) above the bottom edge.
+    if (menu) {
+      const rect = menu.getBoundingClientRect()
+      menu.style.left = `${Math.max(8, Math.min(parseFloat(menu.style.left) || rect.left, innerWidth - rect.width - 8))}px`
+      menu.style.top = `${Math.max(8, Math.min(parseFloat(menu.style.top) || rect.top, innerHeight - rect.height - 8))}px`
+    }
     menu?.querySelector<HTMLElement>('[role=menuitem]:not(:disabled):not([aria-disabled=true])')?.focus()
   }
   export function closeMenu(focus = true) { context = null; onclose?.(); if (focus) returnFocus?.focus() }
@@ -156,8 +163,8 @@
 
 <style>
   .menu { position: fixed; z-index: 110; width: 240px; max-height: calc(100dvh - 16px); overflow: auto; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
-  .menu p { margin: 5px 8px 8px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
-  .menu small { display: block; margin-top: 3px; font-size: 12px; font-weight: 400; color: var(--muted); }
+  .menu p { margin: 5px 8px 8px; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+  .menu small { display: block; margin-top: 3px; font-size: 14px; font-weight: 400; color: var(--muted); }
   .menu [role=menuitem] { display: block; min-height: 36px; padding: 8px 9px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 400 14px var(--sans); text-align: left; text-decoration: none; cursor: pointer; }
   .menu [role=menuitem]:hover:not(:disabled):not([aria-disabled=true]), .menu [role=menuitem]:focus-visible { background: var(--tint); outline: none; }
   .menu [role=menuitem]:disabled, .menu [role=menuitem][aria-disabled=true] { opacity: .45; cursor: default; }

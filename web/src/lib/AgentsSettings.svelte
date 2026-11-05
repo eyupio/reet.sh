@@ -543,16 +543,16 @@
   h2 { margin: 0; font: 500 1.35rem/1.25 var(--serif); }
   h3 { margin: 26px 0 0; font: 600 1.02rem/1.3 var(--sans); }
   h4 { margin: 0 0 8px; font: 600 .9rem/1.3 var(--sans); color: var(--ink); }
-  .muted { margin: 8px 0 0; color: var(--muted); font-size: .86rem; line-height: 1.5; }
-  .muted.small { font-size: .78rem; }
+  .muted { margin: 8px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
+  .muted.small { font-size: 0.875rem; }
   .readonly { color: var(--ink-soft); }
-  .notice { margin: 12px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: .86rem; }
+  .notice { margin: 12px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: 0.875rem; }
   .notice.bad { border-color: var(--bad); }
   .notice.good { border-color: var(--good); }
   form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 12px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; min-width: 0; }
-  .grid2 label, .field, .addrow label { display: grid; gap: 4px; font-size: .84rem; color: var(--muted); min-width: 0; }
-  .grid2 small { color: var(--muted); font-size: .76rem; line-height: 1.45; }
+  .grid2 label, .field, .addrow label { display: grid; gap: 4px; font-size: 0.875rem; color: var(--muted); min-width: 0; }
+  .grid2 small { color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
   select, input { min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
   select:disabled, input:disabled { opacity: .6; }
   .picker { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
@@ -566,10 +566,10 @@
   .favmain { display: grid; gap: 6px; min-width: 0; flex: 1 1 240px; }
   .favname { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
   .favname strong { overflow-wrap: anywhere; }
-  .default { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: .8rem; line-height: 1.4; }
+  .default { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 0.875rem; line-height: 1.4; }
   .default input { flex: none; width: auto; min-height: 0; }
   .favactions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .tag { padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: .65rem; }
+  .tag { padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.875rem; }
   .add { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); min-width: 0; }
   .addrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: end; }
   .addpicker { align-self: end; }

@@ -382,16 +382,16 @@
   .filters summary { display: flex; align-items: center; min-height: 44px; padding: 0 12px; font-size: 14px; color: var(--ink-soft); cursor: pointer; }
   .on-count { color: var(--accent-text); font-weight: 600; white-space: pre; }
   .filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 4px 12px 12px; align-items: end; }
-  .filter-grid label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+  .filter-grid label { display: grid; gap: 4px; font-size: 14px; color: var(--muted); min-width: 0; }
   .filter-grid select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
   .filter-grid .check { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 14px; color: var(--ink); cursor: pointer; }
   .filter-grid .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
   .clear { min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: none; color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
   .clear:disabled { opacity: .45; cursor: default; }
-  .live p, .problem { margin: 0; font-size: 13px; color: var(--muted); }
+  .live p, .problem { margin: 0; font-size: 14px; color: var(--muted); }
   .status-line { display: flex; align-items: baseline; gap: 12px; min-height: 18px; margin: -6px 0; }
   .status-line .live { flex: 1; min-width: 0; }
-  .checking { margin: 0 0 0 auto; flex: none; font-size: 13px; line-height: 18px; color: var(--muted); }
+  .checking { margin: 0 0 0 auto; flex: none; font-size: 14px; line-height: 18px; color: var(--muted); }
   .notice.bad, .problem { color: var(--bad); }
   .again { min-height: 44px; padding: 0 6px; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
   .none { margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--card); color: var(--muted); }
@@ -402,10 +402,10 @@
   .group, .projects, .tools { min-width: 0; }
   .group h2 { display: flex; align-items: center; gap: 8px; margin: 0; padding: 0 2px 6px; font: 600 15px/1.3 var(--sans); }
   .group h2 .name { min-width: 0; overflow-wrap: anywhere; }
-  .group h2 .count { color: var(--muted); font-weight: 500; font-size: 13px; flex-grow: 1; }
+  .group h2 .count { color: var(--muted); font-weight: 500; font-size: 14px; flex-grow: 1; }
   .mark { width: 14px; height: 14px; flex: none; fill: var(--repo); }
-  .machine-pill { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 1px 8px; border: 1px solid var(--line-strong); border-radius: 99px; font-size: 12px; font-weight: 400; color: var(--muted); }
-  .offline { margin: 0 2px 6px; font-size: 13px; color: var(--warn); }
+  .machine-pill { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 1px 8px; border: 1px solid var(--line-strong); border-radius: 99px; font-size: 14px; font-weight: 400; color: var(--muted); }
+  .offline { margin: 0 2px 6px; font-size: 14px; color: var(--warn); }
   .card { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 13px; background: var(--card); overflow: hidden; }
   .session-row { display: flex; align-items: stretch; border-top: 1px solid var(--line-soft); }
   .session-row:first-child { border-top: 0; }
@@ -421,20 +421,20 @@
   .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
   .line { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; }
-  .badge { flex: none; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 99px; font-size: 11px; line-height: 17px; color: var(--muted); }
+  .badge { flex: none; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 99px; font-size: 14px; line-height: 17px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }
-  .meta { font-size: 12px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .word { flex: none; max-width: 34%; font-size: 12px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 99px; padding: 1px 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .meta { font-size: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .word { flex: none; max-width: 34%; font-size: 14px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 99px; padding: 1px 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .session-row[data-status='waiting'], .session-row[data-status='working'], .session-row[data-status='starting'], .session-row[data-status='failed'] { background: color-mix(in srgb, var(--status) 5%, transparent); box-shadow: inset 3px 0 var(--status); }
   .session-row[data-status='waiting'] .title, .session-row[data-status='working'] .title, .session-row[data-status='failed'] .title { color: var(--status); }
-  .age { flex: none; min-width: 28px; text-align: right; font-size: 12px; color: var(--muted); }
+  .age { flex: none; min-width: 28px; text-align: right; font-size: 14px; color: var(--muted); }
   .more { flex: none; width: 44px; display: grid; place-items: center; padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
   .more:hover { color: var(--accent-text); background: var(--tint); }
   .more svg { width: 18px; height: 18px; }
   .projects { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
   .projects-head { display: flex; align-items: center; gap: 10px; }
   .start-chosen { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 16px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 600; text-decoration: none; }
-  .projects-head h2 { flex-grow: 1; margin: 0; font: 600 11px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+  .projects-head h2 { flex-grow: 1; margin: 0; font: 600 14px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
   .add { min-height: 44px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: none; color: var(--ink); font: 500 15px var(--sans); cursor: pointer; }
   .add:hover { background: var(--tint); }
   .project-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: 8px; }
@@ -442,10 +442,10 @@
   .project-card:hover { background: var(--card-raised); }
   .stripe { width: 4px; align-self: stretch; border-radius: 2px; background: var(--project-colour, transparent); border: 1px solid var(--line-soft); flex: none; }
   .pname { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .pmachine { flex: 0 1 auto; min-width: 0; max-width: 50%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--muted); }
+  .pmachine { flex: 0 1 auto; min-width: 0; max-width: 50%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; color: var(--muted); }
   .menu { position: fixed; z-index: 110; width: 240px; max-height: calc(100dvh - 16px); overflow: auto; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
-  .menu p { margin: 5px 8px 8px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
-  .menu small { display: block; margin-top: 3px; font-size: 12px; font-weight: 400; color: var(--muted); }
+  .menu p { margin: 5px 8px 8px; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+  .menu small { display: block; margin-top: 3px; font-size: 14px; font-weight: 400; color: var(--muted); }
   .menu [role=menuitem] { display: block; min-height: 36px; padding: 8px 9px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 400 14px var(--sans); text-align: left; text-decoration: none; cursor: pointer; }
   .menu [role=menuitem]:hover, .menu [role=menuitem]:focus-visible { background: var(--tint); outline: none; }
   .menu [role=menuitem]:disabled { opacity: .45; cursor: default; }
@@ -460,7 +460,7 @@
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .sessions-page { gap: 12px; }
     .filter-grid { grid-template-columns: minmax(0, 1fr); }
-    .word { font-size: 12px; }
+    .word { font-size: 14px; }
     /* The mock-up's phone row: dot, title, state word and age. The agent line and the worktree badge are left out to keep the
        title readable (YOLO stays); "last known" is still read out, and the group says the machine is offline. */
     .meta, .badge.wt { display: none; }

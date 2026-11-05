@@ -77,22 +77,22 @@
   .mark {
     display: grid; place-items: center; width: 22px; height: 22px; flex: none;
     border: 1px solid color-mix(in srgb, var(--bad) 50%, var(--line)); border-radius: 50%;
-    color: var(--bad); font-size: 0.78rem; font-weight: 700;
+    color: var(--bad); font-size: 0.875rem; font-weight: 700;
   }
   .copy { display: grid; gap: 3px; min-width: 0; }
   .title { margin: 0; color: var(--ink); font-size: 0.88rem; font-weight: 650; line-height: 1.35; }
-  .detail { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.55; overflow-wrap: anywhere; }
-  .repeat { margin: 0; color: var(--bad); font-size: 0.72rem; font-weight: 600; line-height: 1.45; }
+  .detail { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.55; overflow-wrap: anywhere; }
+  .repeat { margin: 0; color: var(--bad); font-size: 0.875rem; font-weight: 600; line-height: 1.45; }
   .commands { display: grid; gap: 6px; }
-  .label { margin: 0; color: var(--muted); font-size: 0.7rem; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; }
+  .label { margin: 0; color: var(--muted); font-size: 0.875rem; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; }
   .command {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;
     padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
   }
-  .command code { flex: 1 1 200px; min-width: 0; font: 0.76rem/1.5 var(--mono); overflow-wrap: anywhere; }
-  .hint { margin: 0; color: var(--muted); font-size: 0.74rem; line-height: 1.5; }
+  .command code { flex: 1 1 200px; min-width: 0; font: 0.875rem/1.5 var(--mono); overflow-wrap: anywhere; }
+  .hint { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
-  .actions :global(.btn) { min-height: 34px; padding: 6px 12px; font-size: 0.8rem; }
+  .actions :global(.btn) { min-height: 34px; padding: 6px 12px; font-size: 0.875rem; }
   @media (max-width: 560px) {
     .command :global(button) { width: 100%; }
     .actions :global(.btn) { flex: 1 1 auto; }

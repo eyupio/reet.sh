@@ -519,18 +519,18 @@
  h2:focus { outline: none; }
  h2:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
  h2 { margin: 4px 0 0; font: 500 1.65rem/1.2 var(--serif); overflow-wrap: anywhere; }
- .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; overflow-wrap: anywhere; }
+ .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: 0.875rem; letter-spacing: .1em; overflow-wrap: anywhere; }
  header .btn { flex: none; white-space: nowrap; }
  .body { padding: 22px; min-height: 0; overflow: auto; overflow-wrap: anywhere; }
- .intro, small { color: var(--muted); font-size: .8rem; line-height: 1.5; }
+ .intro, small { color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
  .intro { margin: 0 0 14px; }
- .live { min-height: 0; margin: 0; font-size: .85rem; color: var(--good); }
+ .live { min-height: 0; margin: 0; font-size: 0.875rem; color: var(--good); }
  .live:not(:empty) { margin: 0 0 14px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--good) 35%, var(--line)); border-radius: 8px; }
- .alert { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 14px; padding: 10px 12px; color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); border-radius: 8px; font-size: .85rem; }
+ .alert { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 14px; padding: 10px 12px; color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); border-radius: 8px; font-size: 0.875rem; }
  .alert p { margin: 0; overflow-wrap: anywhere; }
  .back { margin: 0 0 14px; }
  .add-machine { margin: -6px 0 14px; }
- .linklike { padding: 4px 0; min-height: 32px; font: inherit; font-size: .85rem; color: var(--accent-text); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
+ .linklike { padding: 4px 0; min-height: 32px; font: inherit; font-size: 0.875rem; color: var(--accent-text); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
  .linklike:disabled { color: var(--muted); cursor: default; }
  footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 22px; border-top: 1px solid var(--line); background: var(--card); border-radius: 0 0 16px 16px; }
  footer small { margin: 0; }

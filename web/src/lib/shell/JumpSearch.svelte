@@ -134,8 +134,8 @@
   [role='option']:hover, [role='option']:focus { background: var(--tint); outline: none; }
   [role='option']:focus-visible { box-shadow: inset 0 0 0 2px var(--accent-text); }
   .label { font-weight: 500; overflow-wrap: anywhere; }
-  .detail { color: var(--muted); font-size: 0.75rem; overflow-wrap: anywhere; }
-  .note { margin: 0; padding: 10px; color: var(--muted); font-size: 0.85rem; }
+  .detail { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+  .note { margin: 0; padding: 10px; color: var(--muted); font-size: 0.875rem; }
   /* Tablet and phone: a row under the top bar, opened by the search button; 16 px text so focusing never zooms. */
   @media (max-width: 1099.98px) {
     .jump { display: none; }

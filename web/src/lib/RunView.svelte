@@ -119,18 +119,18 @@
  .run { display: grid; gap: 10px; min-width: 0; }
  .summary, .note, .one { margin: 0; font-size: .88rem; line-height: 1.5; }
  .note { color: var(--warn); }
- .btn.small { min-height: 36px; padding: 5px 10px; font-size: .82rem; margin-left: 6px; }
+ .btn.small { min-height: 36px; padding: 5px 10px; font-size: 0.875rem; margin-left: 6px; }
  .muted { color: var(--muted); }
- .small { margin: 0; font-size: .78rem; }
+ .small { margin: 0; font-size: 0.875rem; }
  .members { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
  .members > li { display: flex; flex-wrap: wrap; gap: 10px 16px; justify-content: space-between; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); min-width: 0; }
  .members > li[data-state='failed'] { border-left: 3px solid var(--bad); }
  .members > li[data-state='started'] { border-left: 3px solid var(--good); }
  .members > li[data-state='pending'] { border-left: 3px solid var(--line); }
  .what { display: grid; gap: 2px; min-width: 0; flex: 1 1 260px; }
- .what p { margin: 0; font-size: .85rem; line-height: 1.5; overflow-wrap: anywhere; }
+ .what p { margin: 0; font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
  .meta { color: var(--muted); }
- .mono { font-family: var(--mono); font-size: .78rem; }
+ .mono { font-family: var(--mono); font-size: 0.875rem; }
  .line { display: flex; gap: 8px; align-items: baseline; }
  .line.bad { color: var(--bad); }
  .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); transform: translateY(-1px); }
@@ -139,5 +139,5 @@
  [data-state='removed'] .dot { background: var(--line); }
  .warn { color: var(--ink); padding-left: 8px; border-left: 2px solid var(--warn); }
  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
- .actions .btn { min-height: 40px; padding: 7px 12px; font-size: .84rem; }
+ .actions .btn { min-height: 40px; padding: 7px 12px; font-size: 0.875rem; }
 </style>

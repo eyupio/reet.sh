@@ -27,10 +27,10 @@
   </details>
 {/if}
 <style>
-  small, .content-observation { font-size: .75rem; color: var(--muted); }
+  small, .content-observation { font-size: 0.875rem; color: var(--muted); }
   summary { cursor: pointer; }
   p { margin: .4rem 0; }
   ul { padding-left: 1.2rem; }
-  code { display: block; overflow-wrap: anywhere; font-size: .68rem; }
+  code { display: block; overflow-wrap: anywhere; font-size: 0.875rem; }
   .skill-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 </style>

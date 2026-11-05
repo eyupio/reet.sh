@@ -266,11 +266,11 @@
   .queue { position: sticky; top: 18px; max-height: calc(100vh - 48px); overflow: auto; }
   .queue-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
   .filters { display: flex; flex-wrap: wrap; gap: 6px; }
-  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .scope:hover { border-color: var(--muted); color: var(--ink); }
   .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
-  .scope small { margin-left: 5px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
-  .search { flex: 1 1 240px; display: grid; gap: 5px; color: var(--muted); font-size: 0.8rem; }
+  .scope small { margin-left: 5px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+  .search { flex: 1 1 240px; display: grid; gap: 5px; color: var(--muted); font-size: 0.875rem; }
   .search input { width: 100%; }
   .state-block { padding: 20px 0 12px; max-width: 52ch; }
   .state-block h3 { margin: 0; font: 500 1.25rem/1.2 var(--serif); }
@@ -281,21 +281,21 @@
   .tickets button:hover, .tickets button.selected { background: var(--tint); }
   .tickets .main { min-width: 0; display: grid; gap: 3px; }
   .tickets strong { overflow-wrap: anywhere; }
-  .tickets small { color: var(--muted); font-size: 0.74rem; overflow-wrap: anywhere; }
-  .assignee { grid-column: 1 / -1; color: var(--muted); font-size: 0.72rem; }
-  .state { justify-self: end; align-self: start; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.7rem; white-space: nowrap; }
+  .tickets small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+  .assignee { grid-column: 1 / -1; color: var(--muted); font-size: 0.875rem; }
+  .state { justify-self: end; align-self: start; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
   .state.open { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent-text); }
   .state.waiting { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--warn); }
   .state.closed { border-color: color-mix(in srgb, var(--good) 35%, var(--line)); color: var(--good); }
-  .empty, .empty-detail { color: var(--muted); font-size: 0.86rem; padding: 20px 0; text-align: center; }
+  .empty, .empty-detail { color: var(--muted); font-size: 0.875rem; padding: 20px 0; text-align: center; }
   .empty-detail h3 { margin: 0 0 6px; font: 500 1.3rem/1.2 var(--serif); color: var(--ink); }
   .empty-detail p { margin: 0; }
   .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-  .eyebrow { color: var(--muted); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .eyebrow { color: var(--muted); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
   .detail h3 { margin: 3px 0 5px; font: 500 1.5rem/1.2 var(--serif); overflow-wrap: anywhere; }
-  .meta { margin: 0; font-size: 0.78rem; overflow-wrap: anywhere; }
+  .meta { margin: 0; font-size: 0.875rem; overflow-wrap: anywhere; }
   .controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 16px 0; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-  .controls label { display: grid; gap: 4px; color: var(--muted); font-size: 0.76rem; min-width: 150px; }
+  .controls label { display: grid; gap: 4px; color: var(--muted); font-size: 0.875rem; min-width: 150px; }
   .controls select { width: 100%; }
   .thread { list-style: none; display: grid; gap: 9px; margin: 0 0 16px; padding: 0; }
   .thread li { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: color-mix(in srgb, var(--card) 90%, var(--bg)); }
@@ -303,8 +303,8 @@
   .thread li.team { border-left: 3px solid var(--good); }
   .thread li.note { background: color-mix(in srgb, var(--warn) 8%, var(--card)); border-style: dashed; }
   .who { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 9px; margin-bottom: 6px; }
-  .who strong { font-size: 0.86rem; }
-  .who span, .who time { color: var(--muted); font-size: 0.72rem; }
+  .who strong { font-size: 0.875rem; }
+  .who span, .who time { color: var(--muted); font-size: 0.875rem; }
   .tag { padding: 1px 6px; border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); border-radius: 999px; color: var(--warn); }
   .thread p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; font-size: 0.9rem; }
   .composer { margin-top: 0; }
@@ -313,7 +313,7 @@
   .composer textarea { width: 100%; min-height: 110px; resize: vertical; }
   .send { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
   .send-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
-  .notice { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.84rem; }
+  .notice { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.875rem; }
   .notice.bad { border-color: var(--bad); }
   .notice.good { border-color: var(--good); }
   @media (max-width: 1050px) {

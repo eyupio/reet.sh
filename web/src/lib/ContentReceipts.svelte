@@ -52,9 +52,9 @@
  h3 { margin: 0 0 8px; font-size: 1rem; }
  h3:focus { outline: none; }
  h3:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
- .hint { color: var(--muted); font-size: .8rem; margin: 6px 0; }
+ .hint { color: var(--muted); font-size: 0.875rem; margin: 6px 0; }
  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
  li { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
- .what { display: grid; gap: 2px; min-width: 0; flex: 1 1 220px; font-size: .85rem; overflow-wrap: anywhere; }
- small { color: var(--muted); font-size: .75rem; }
+ .what { display: grid; gap: 2px; min-width: 0; flex: 1 1 220px; font-size: 0.875rem; overflow-wrap: anywhere; }
+ small { color: var(--muted); font-size: 0.875rem; }
 </style>

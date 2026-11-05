@@ -109,26 +109,26 @@
 
 <style>
   h2 { margin: 0 0 6px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }
-  .muted { margin: 4px 0 0; color: var(--muted); font-size: 0.84rem; line-height: 1.55; }
-  .note { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+  .muted { margin: 4px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.55; }
+  .note { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
   fieldset { margin: 14px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
   fieldset:first-of-type { margin-top: 0; }
-  legend { padding: 0 5px; color: var(--muted); font-size: 0.78rem; font-weight: 600; }
+  legend { padding: 0 5px; color: var(--muted); font-size: 0.875rem; font-weight: 600; }
   .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 0; border-top: 1px solid var(--line); }
   .row:first-of-type { border-top: 0; }
   .what { flex: 1 1 220px; min-width: 0; display: grid; gap: 2px; }
-  .what strong { font-size: 0.86rem; overflow-wrap: anywhere; }
-  .what small { color: var(--muted); font-size: 0.75rem; line-height: 1.4; }
-  .check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .what strong { font-size: 0.875rem; overflow-wrap: anywhere; }
+  .what small { color: var(--muted); font-size: 0.875rem; line-height: 1.4; }
+  .check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.875rem; }
   .check input { width: 17px; height: 17px; min-height: 0; }
-  .mode { display: grid; gap: 3px; color: var(--muted); font-size: 0.74rem; min-width: 150px; }
+  .mode { display: grid; gap: 3px; color: var(--muted); font-size: 0.875rem; min-width: 150px; }
   .mode select { width: 100%; }
-  .locked { flex: 1 1 100%; color: var(--muted); font-size: 0.76rem; line-height: 1.45; }
+  .locked { flex: 1 1 100%; color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
   .state-block { padding: 24px 0 16px; max-width: 58ch; }
   .state-block h3 { margin: 0; font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; }
   .state-block p { margin: 6px 0 12px; color: var(--muted); }
   .state-block.error p { color: var(--ink); }
-  .notice { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.85rem; }
+  .notice { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.875rem; }
   .notice.bad { border-color: var(--bad); }
   .notice.good { border-color: var(--good); }
   @media (max-width: 560px) {

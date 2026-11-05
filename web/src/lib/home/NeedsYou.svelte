@@ -77,7 +77,7 @@
   .needs { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
   header { display: flex; align-items: center; gap: 8px; min-height: 32px; }
   h2 { margin: 0; font: 600 20px/1.3 var(--serif); }
-  .count { font-size: 12px; font-weight: 600; border: 1px solid var(--line); border-radius: 99px; padding: 1px 9px; color: var(--muted); }
+  .count { font-size: 14px; font-weight: 600; border: 1px solid var(--line); border-radius: 99px; padding: 1px 9px; color: var(--muted); }
   .count.waiting { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
   .none {
     margin: 0; min-height: 133px; padding: 13px 15px; box-sizing: border-box;
@@ -90,15 +90,15 @@
     display: flex; flex-direction: column; gap: 6px;
   }
   .card[data-status='waiting'], .card[data-status='failed'], .card[data-status='finished'] { border-color: var(--status-edge); background: color-mix(in srgb, var(--status) 5%, var(--card)); }
-  .kind { align-self: flex-start; font-size: 11px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 99px; padding: 2px 8px; }
+  .kind { align-self: flex-start; font-size: 14px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 99px; padding: 2px 8px; }
   .title { font-size: 14px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
-  .meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-  .ask { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; max-height: 6.5em; overflow: hidden; }
+  .meta { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+  .ask { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; max-height: 6.5em; overflow: hidden; }
   .ask .more { color: var(--muted); }
   .actions { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
   .btn {
     display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 12px;
-    border-radius: 8px; font: 500 13px/1 var(--sans); text-decoration: none; cursor: pointer;
+    border-radius: 8px; font: 500 14px/1 var(--sans); text-decoration: none; cursor: pointer;
   }
   .btn.open { border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
   .btn.seen { border: 1px solid var(--line-strong, var(--line)); background: transparent; color: var(--ink); }

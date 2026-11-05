@@ -51,24 +51,24 @@
 </div>
 
 <style>
-  .session-card { width: 320px; max-width: calc(100vw - 16px); padding: 12px 14px; border: 1px solid var(--line-strong); border-left: 3px solid var(--card-colour, transparent); border-radius: 12px; background: var(--card-raised); color: var(--ink); box-shadow: 0 18px 40px -18px var(--scrim); font-size: .78rem; line-height: 1.4; }
+  .session-card { width: 320px; max-width: calc(100vw - 16px); padding: 12px 14px; border: 1px solid var(--line-strong); border-left: 3px solid var(--card-colour, transparent); border-radius: 12px; background: var(--card-raised); color: var(--ink); box-shadow: 0 18px 40px -18px var(--scrim); font-size: 0.875rem; line-height: 1.4; }
   header { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .swatch { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--card-colour); }
   .swatch.empty { display: none; }
-  header strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; }
-  .state { flex: none; font-size: .68rem; padding: 1px 7px; border: 1px solid var(--status-edge); border-radius: 99px; color: var(--status); background: var(--status-wash); font-weight: 600; }
+  header strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.875rem; }
+  .state { flex: none; font-size: 0.875rem; padding: 1px 7px; border: 1px solid var(--status-edge); border-radius: 99px; color: var(--status); background: var(--status-wash); font-weight: 600; }
   .where { margin: 6px 0 0; color: var(--muted); overflow-wrap: anywhere; }
-  code { font-family: var(--mono); font-size: .72rem; }
-  .age { margin: 2px 0 0; color: var(--muted); font-size: .7rem; }
-  .agent { margin: 2px 0 0; color: var(--muted); font-size: .7rem; overflow-wrap: anywhere; }
+  code { font-family: var(--mono); font-size: 0.875rem; }
+  .age { margin: 2px 0 0; color: var(--muted); font-size: 0.875rem; }
+  .agent { margin: 2px 0 0; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
   .resources { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
   .resources > div { display: grid; gap: 3px; min-width: 0; }
-  dt { color: var(--muted); font-size: .62rem; letter-spacing: .05em; text-transform: uppercase; }
+  dt { color: var(--muted); font-size: 0.875rem; letter-spacing: .05em; text-transform: uppercase; }
   dd { margin: 0; font: 600 .88rem/1.2 var(--mono); font-variant-numeric: tabular-nums; }
-  dd small { font: 400 .65rem var(--sans); color: var(--muted); }
+  dd small { font: 400 0.875rem var(--sans); color: var(--muted); }
   .meter { display: block; height: 4px; border-radius: 2px; background: var(--line-soft); overflow: hidden; }
   .meter > span { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
-  footer { display: flex; align-items: baseline; gap: 8px; margin-top: 10px; font-size: .68rem; color: var(--muted); }
+  footer { display: flex; align-items: baseline; gap: 8px; margin-top: 10px; font-size: 0.875rem; color: var(--muted); }
   footer .stale { color: var(--warn); }
   .jump { margin-left: auto; color: var(--accent-text); font-weight: 600; white-space: nowrap; }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

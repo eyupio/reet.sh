@@ -315,27 +315,27 @@
  header { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; padding: 22px; border-bottom: 1px solid var(--line); border-radius: 16px 16px 0 0; }
  header > div { min-width: 0; }
  h2 { margin: 4px 0 0; font: 500 1.65rem/1.2 var(--serif); overflow-wrap: anywhere; }
- .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: .65rem; letter-spacing: .1em; }
+ .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: 0.875rem; letter-spacing: .1em; }
  .lede { margin: 8px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
  header .btn { flex: none; white-space: nowrap; }
  .body { display: grid; gap: 22px; padding: 22px; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; }
  section { min-width: 0; }
  h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font: 600 1rem/1.3 var(--sans); }
- .num { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--tint); color: var(--accent-text); font-size: .8rem; }
+ .num { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--tint); color: var(--accent-text); font-size: 0.875rem; }
  form { display: grid; gap: 6px; }
- label { font-size: .85rem; font-weight: 600; }
+ label { font-size: 0.875rem; font-weight: 600; }
  input { min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
  input[aria-invalid='true'] { border-color: var(--bad); }
- .hint, small { margin: 6px 0; color: var(--muted); font-size: .83rem; line-height: 1.5; }
- .reason { margin: 0; color: var(--bad); font-size: .85rem; }
+ .hint, small { margin: 6px 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
+ .reason { margin: 0; color: var(--bad); font-size: 0.875rem; }
  .command { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
- pre { flex: 1 1 260px; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: .78rem/1.6 var(--mono); }
+ pre { flex: 1 1 260px; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 0.875rem/1.6 var(--mono); }
  .one-time { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--bg); }
  .one-time code { display: block; margin: 10px 0; overflow-wrap: anywhere; }
- .linklike { padding: 4px 0; min-height: 32px; font: inherit; font-size: .85rem; color: var(--accent-text); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
+ .linklike { padding: 4px 0; min-height: 32px; font: inherit; font-size: 0.875rem; color: var(--accent-text); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
  .join-status { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
  .join-status > div { display: grid; gap: 4px; min-width: 0; }
- .detail { color: var(--muted); font-size: .85rem; line-height: 1.5; }
+ .detail { color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
  .dot { flex: none; width: 12px; height: 12px; margin-top: 4px; border-radius: 50%; background: var(--muted); }
  .dot.waiting, .dot.first_scan, .dot.idle { background: var(--muted); }
  .dot.syncing { background: var(--accent-text); }
@@ -344,7 +344,7 @@
  .dot.ready { background: var(--good); }
  .dot.unknown { background: var(--bad); }
  .again { margin: -12px 0 0; }
- .hold, .auto { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: .85rem; line-height: 1.5; }
+ .hold, .auto { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: 0.875rem; line-height: 1.5; }
  .hold p, .auto span { margin: 0; overflow-wrap: anywhere; }
  .hold .actions, .auto { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
  footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 22px; border-top: 1px solid var(--line); border-radius: 0 0 16px 16px; }

@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 )
@@ -379,37 +380,70 @@ func (s *Store) listAudienceIDs(id, ownerID int64, visibility string) ([]int64, 
 	return out, rows.Err()
 }
 func (s *Store) Community() ([]SharedList, []ListSkill, error) {
-	rows, err := s.db.Query(`SELECT slug FROM lists WHERE visibility='public' ORDER BY updated_at DESC,id DESC`)
-	if err != nil {
-		return nil, nil, err
-	}
-	slugs := []string{}
-	for rows.Next() {
-		var slug string
-		if err = rows.Scan(&slug); err != nil {
-			rows.Close()
-			return nil, nil, err
-		}
-		slugs = append(slugs, slug)
-	}
-	err = rows.Err()
-	rows.Close()
+	rows, err := s.readStmts.query(listSummaryQuery + ` WHERE l.visibility='public' ORDER BY l.updated_at DESC,l.id DESC`)
 	if err != nil {
 		return nil, nil, err
 	}
 	lists := []SharedList{}
+	ids := []any{}
+	for rows.Next() {
+		list, err := s.scanSharedList(rows)
+		if err != nil {
+			rows.Close()
+			return nil, nil, err
+		}
+		list.Role = "reader"
+		list.OwnerID = 0
+		list.OwnerName = ""
+		list.MemberCount = 0
+		lists = append(lists, list)
+		ids = append(ids, list.ID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, nil, err
+	}
+	rows.Close()
 	skills := []ListSkill{}
+	if len(lists) == 0 {
+		return lists, skills, nil
+	}
+
+	byList := make(map[int64][]ListSkill, len(lists))
+	rows, err = s.readStmts.query(`SELECT ls.list_id,s.id,s.source,s.slug,s.source_type,s.url,s.name,s.description,'',
+		s.installs,s.installs_week,s.trend,0,0,0,s.created_at,s.updated_at,
+		ls.note,COALESCE(ls.added_by,0),COALESCE(u.name,'')
+		FROM list_skills ls JOIN skills s ON s.id=ls.skill_id
+		LEFT JOIN users u ON u.id=ls.added_by
+		WHERE ls.list_id IN (`+placeholders(len(ids))+`) AND s.hidden=0
+		ORDER BY ls.list_id ASC,ls.position ASC,ls.added_at ASC,lower(s.name)`, ids...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var listID int64
+		var k ListSkill
+		var liked, bookmarked, used int
+		var trend string
+		if err := rows.Scan(&listID, &k.ID, &k.Source, &k.Slug, &k.SourceType, &k.URL, &k.Name, &k.Description, &k.Notes,
+			&k.Installs, &k.InstallsWeek, &trend, &liked, &bookmarked, &used, &k.CreatedAt, &k.UpdatedAt,
+			&k.Note, &k.AddedBy, &k.AddedByName); err != nil {
+			return nil, nil, err
+		}
+		if trend != "" {
+			_ = json.Unmarshal([]byte(trend), &k.Trend)
+		}
+		k.Liked, k.Bookmarked, k.Used = liked != 0, bookmarked != 0, used != 0
+		k.AddedBy, k.AddedByName, k.UseCount, k.MemberCount = 0, "", 0, 0
+		byList[listID] = append(byList[listID], k)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
 	seen := map[string]bool{}
-	for _, slug := range slugs {
-		d, e := s.PublicListFor(slug)
-		if errors.Is(e, ErrNotFound) {
-			continue
-		}
-		if e != nil {
-			return nil, nil, e
-		}
-		lists = append(lists, d.SharedList)
-		for _, skill := range d.Skills {
+	for _, list := range lists {
+		for _, skill := range byList[list.ID] {
 			if seen[skill.ID] {
 				continue
 			}

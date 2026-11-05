@@ -221,9 +221,14 @@ func (s *Store) advanceMachineSkillSync(uid int64, role string, r RemoteImport) 
 			}
 		}
 	}
-	followShelf := wantFollow && in.SourceID == "shelf" && in.ListID == 0
+	followShelf := wantFollow && (in.SourceID == "shelf" || in.SourceID == "library") && in.ListID == 0
 	if followShelf {
-		candidates, e := s.SyncCandidatesFor(uid, role, 0)
+		var candidates []SyncSkill
+		if in.SourceID == "library" {
+			candidates, e = s.SyncLibraryFor(uid, role)
+		} else {
+			candidates, e = s.SyncCandidatesFor(uid, role, 0)
+		}
 		if e != nil {
 			return e
 		}

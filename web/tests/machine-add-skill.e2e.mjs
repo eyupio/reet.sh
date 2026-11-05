@@ -29,6 +29,29 @@ const open = options => {
 const laptop = page => page.getByRole('article', { name: 'dev-laptop' })
 
 try {
+  if (run('automatic destination only')) {
+    const sync=state()
+    sync.agents[0].keepSynced=true
+    const desktopScope={...scope,id:'desktop-agents',host:'desktop'}
+    sync.environments.push(desktopScope)
+    sync.machines.push({host:'desktop',groups:[desktopScope],skillCount:1})
+    sync.agents.push({id:'desktop-agent',host:'desktop',version:'test',lastSeen:now,paused:false,autoUpdate:false,keepSynced:false})
+    sync.targets.push({target:desktopScope,sourceId:'shelf',mode:'mirror',desired:[installed],missing:[],extra:[],revision:'custom-desktop'})
+    const writes=[]
+    const {context,page,errors}=await openWorkspace(browser,{width:1440,sync,routes:{
+      '/api/v2/sync':sync,
+      '/api/v2/sync/candidates':{skills:[installed,candidate]},
+      '/api/v2/sync/library':request=>{writes.push(request.postDataJSON());return sync},
+    }})
+    await page.goto(`${base}/machines`)
+    await laptop(page).locator('summary[aria-label^="More options"]').click()
+    await page.getByRole('menuitem',{name:/^Add a skill/}).click()
+    await page.getByRole('dialog',{name:'Add a skill to dev-laptop'}).getByRole('button',{name:'Add code-review to dev-laptop'}).click()
+    await expect(page.getByRole('dialog',{name:'Add a skill to dev-laptop'})).toHaveCount(0)
+    expect(writes).toEqual([{agentId:'agent-1'}])
+    expect(errors).toEqual([])
+    await context.close()
+  }
   if (run('picker and add')) {
     const { context, page, errors, desired, syncRun } = await open({})
     await page.goto(`${base}/machines`)

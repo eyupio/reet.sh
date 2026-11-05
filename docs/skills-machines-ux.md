@@ -1,4 +1,24 @@
-# Skills and Sync: simplified workflow
+# Skills and Sync: shared library
+
+The current beta workflow is one library for every connected machine. The Sync
+page opens with library and machine counts, **Sync all machines**, and a status
+for every enrollment, including offline machines without an inventory. Own drafts
+are included automatically and stay private. Adding a skill offers a direct sync
+action; saving written content links to fleet sync. New machine setup waits for
+library sync after its first scan before reporting Ready.
+
+The installer now accepts `--server` and `--name`, enables local skill apply,
+reuses matching enrollments on retry, and starts an independent native sync
+service without tmux or terminal consent. Hosts without a service manager get a
+background agent with explicit restart guidance. Automatic sync owns supported
+home folders. Turn it off before using a custom home-folder plan; project folders
+are explicit. Sync all machines restores the common library.
+
+See [the detailed code and usability review](https://github.com/eyupio/reet.sh/blob/main/docs/research/skills-machines-sync-review-2026-11-05.md)
+for the defects, evidence, validation and remaining boundaries. The following
+sections describe the previous selection-based interface and its history.
+
+## Previous selection-based workflow
 
 The signed-in Sync page now starts with two choices: **all shelf skills or individual skills**, then **one or more machines**. **Sync now** saves the selection and starts the existing agent preview/apply chain. The default preserves other installed skills. Lists, reference machines, exact-set removals and per-location controls remain under Advanced sync.
 

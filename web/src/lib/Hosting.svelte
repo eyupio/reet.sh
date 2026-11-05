@@ -360,7 +360,7 @@
 <svelte:window ondragover={windowDragOver} ondrop={windowDrop} />
 <PageHeader eyebrow="Write &amp; publish" title="Write a skill." lede="Keep it on your machines, or publish it for anyone to install." />
 {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
-{#if notice}<p class="notice good" role="status">{notice}{#if syncHref && /saved|published|Renamed/.test(notice)}<span class="next-action">Next: <a href={syncHref}>Put it on a machine</a>.</span>{/if}</p>{/if}
+{#if notice}<p class="notice good" role="status">{notice}{#if syncHref && /saved|published|Renamed/.test(notice)}<span class="next-action">Ready for your machines. <a href={syncHref}>Sync all machines</a>.</span>{/if}</p>{/if}
 {#if loading}<Skeleton label="Loading your skills…" shape="cards" count={3} />
 {:else if !canWrite}<p class="notice">Your account is read-only. Ask an admin for publishing access.</p>
 {:else if !username}

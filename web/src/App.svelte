@@ -657,7 +657,7 @@
       syncFilter = ''
       selectedMachine = ''
       onlyOne = false
-      ok(s.created ? `Reet, added ${s.name} to the shelf.` : `Already on the shelf, in ${stageTitle(stageOf(s))}.`)
+      showToast(s.created ? `Added ${s.name} to your library. Ready for your machines.` : `Already on the shelf, in ${stageTitle(stageOf(s))}.`, 'Sync machines', () => { location.assign('/sync') })
       await reloadAll()
       await flash(s.id)
       setTimeout(load, 2500) // pick up fetched metadata
@@ -1210,8 +1210,8 @@
       <PageLoadError />
     {/await}
   {:else if isSkills}
-    <PageHeader eyebrow="Ey up. Your skill shelf." title="Skills." lede="Find, create and share skills. Sync the ones you want to your machines.">
-      {#snippet actions()}{#if loading || counts.all > 0}<a class="btn" href="/sync">Sync skills</a>{/if}{#if canWrite && authMode !== 'accounts'}<a class="btn" href="/hosting">Create a skill</a>{/if}{/snippet}
+    <PageHeader eyebrow="Ey up. Your skill shelf." title="Skills." lede="Add a skill once. Keep your library on every machine, including skills you write yourself.">
+      {#snippet actions()}<a class="btn" href="/sync">Sync all machines</a>{#if canWrite && authMode !== 'accounts'}<a class="btn" href="/hosting">Create a skill</a>{/if}{/snippet}
     </PageHeader>
     {#if canWrite}
       <form class="add" onsubmit={add} aria-busy={adding}>

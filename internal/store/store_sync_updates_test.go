@@ -234,6 +234,11 @@ func TestTheLatestUpdateIsKeptForEachMachineWhenJobHistoryIsBusy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Millisecond timestamps can collide during a quick retry. The later
+	// inserted update must still supersede the earlier failed one.
+	if _, err = s.db.Exec(`UPDATE sync_jobs SET created_at=1 WHERE user_id=?`, uid); err != nil {
+		t.Fatal(err)
+	}
 	latest, err := s.LatestUpdateJobsFor(uid)
 	if err != nil || len(latest) != 2 {
 		t.Fatalf("latest updates: %+v %v", latest, err)

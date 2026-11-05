@@ -29,6 +29,23 @@ const readyMachine = () => machine([group('claude')])
 const opts = (changes = {}) => ({ accounts: true, canWrite: true, now, ...changes })
 const view = (changes = {}) => joinState({ name: 'studio', machines: [readyMachine()], agents: [agent()], baseline: null, now, ...changes })
 
+test('new machine setup waits for verified library sync and exposes actionable failures', () => {
+  const ready = view()
+  const target = { target:{host:'studio',project:'',id:'t'},sourceId:'library',missing:[],desired:[],revision:'r' }
+  const state = { agents:[agent({keepSynced:true})],targets:[],jobs:[],environments:[] }
+  assert.equal(join.joinSyncState(ready,'studio',state).stage,'syncing')
+  state.targets=[{...target,missing:[{id:'draft'}]}]
+  assert.equal(join.joinSyncState(ready,'studio',state).canUse,false)
+  state.targets=[target]
+  assert.equal(join.joinSyncState(ready,'studio',state).label,'Ready · library in sync')
+  state.jobs=[{agentId:'a1',kind:'apply',status:'failed',message:'Remote apply is disabled locally',updatedAt:now}]
+  assert.equal(join.joinSyncState(ready,'studio',state).detail,'Remote apply is disabled locally')
+  state.jobs=[]
+  state.targets=[{...target,problem:'Connect the source machine to copy your skill.'}]
+  assert.equal(join.joinSyncState(ready,'studio',state).stage,'sync_issue')
+  assert.equal(join.joinSyncState({...ready,stage:'first_scan'},'studio',state).stage,'first_scan')
+})
+
 test('validateMachineName trims and refuses empty, too long and control characters, each with its own reason', () => {
   assert.deepEqual(validateMachineName('  studio  '), { ok: true, name: 'studio' })
   assert.equal(MAX_MACHINE_NAME_BYTES, 200)
@@ -61,24 +78,20 @@ test('the name limit counts UTF-8 bytes, as the server does', () => {
   assert.equal(validateMachineName(`  ${'a'.repeat(200)}  `).ok, true)
 })
 
-test('joinCommands is install, configure and enrol in order with a blank line between, and never holds a token', () => {
+test('joinCommands delegates connection and sync to the installer without a token', () => {
   const site = 'https://reet.example'
   for (const channel of ['stable', 'dev']) {
-    assert.equal(joinCommands(site, 'studio', channel), [setup.installCommands(channel), setup.configureCommand(site), setup.enrollCommands(site, 'studio')].join('\n\n'))
+    assert.equal(joinCommands(site, 'studio', channel), `curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh -s --${channel === 'dev' ? ' --version dev' : ''} --server 'https://reet.example' --name 'studio'`)
   }
   const text = joinCommands(site, 'studio', 'stable')
-  assert.doesNotMatch(text, /token|Bearer|--allow-apply/i)
+  assert.doesNotMatch(text, /token|Bearer/i)
   assert.equal(joinCommands(site, '  studio ', 'stable'), text)
 })
 
 test('joinCommands quotes hostile names exactly as shellQuote does', () => {
   const site = 'https://reet.example'
-  const install = 'curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh\nexport PATH="$HOME/.local/bin:$PATH"\nreet --version'
-  const prefix = `${install}\n\nreet configure --url 'https://reet.example' --version latest\n\nreet agent enroll --server 'https://reet.example' --env `
-  assert.equal(joinCommands(site, "it's $(x) `y`", 'stable'), `${prefix}'it'\\''s $(x) \`y\`'\nreet agent run`)
-  assert.equal(joinCommands(site, 'a b', 'stable'), `${prefix}'a b'\nreet agent run`)
-  assert.equal(joinCommands(site, "o'brien", 'stable'), `${prefix}'o'\\''brien'\nreet agent run`)
-  assert.equal(joinCommands(site, '$(touch /tmp/x)', 'stable'), `${prefix}'$(touch /tmp/x)'\nreet agent run`)
+  const prefix = "curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh -s -- --server 'https://reet.example' --name "
+  for (const name of ["it's $(x) `y`", 'a b', "o'brien", '$(touch /tmp/x)']) assert.equal(joinCommands(site, name, 'stable'), prefix + setup.shellQuote(name))
 })
 
 test('joinState: no connector for the name is waiting', () => {
@@ -303,7 +316,7 @@ test('names with text-direction overrides are refused, but zero-width joiners ar
 })
 
 test('joinCommands only quotes: refusing control characters is validateMachineName\'s job, not the builder\'s', () => {
-  assert.match(joinCommands('https://reet.example', 'a\nb', 'stable'), /--env 'a\nb'\n/)
+  assert.match(joinCommands('https://reet.example', 'a\nb', 'stable'), /--name 'a\nb'$/)
 })
 
 test('landingFor passes on the sign-in reason when accounts are off', () => {

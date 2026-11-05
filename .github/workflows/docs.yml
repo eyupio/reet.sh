@@ -38,8 +38,23 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # The IndexNow key. Not a secret: the protocol proves ownership by this
+      # key being served as docs/<key>.txt beside the sitemap, where anyone can
+      # read it. See hooks/indexnow.py.
+      INDEXNOW_KEY: 55aec9c1c3acf466942e8ce7639cd2a9
+    outputs:
+      # The pages to tell search engines about, worked out here against the
+      # sitemap that is still live and sent by the deploy job once the new site
+      # has replaced it. Empty when there is nothing to send.
+      indexnow_payload: ${{ steps.indexnow.outputs.payload }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The sitemap stamps each URL with the date its page was last edited,
+          # which is in the history. A shallow checkout has none, so no page
+          # would be dated and the sitemap could not say which pages changed.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v7
         with:
@@ -51,6 +66,9 @@ jobs:
 
       - run: pip install -r docs/requirements.txt
 
+      - name: Check the sitemap and IndexNow hooks
+        run: python -m unittest discover -s hooks -p '*_test.py'
+
       # --strict makes a broken internal link or a missing page fail the build
       # instead of shipping a site with dead ends.
       - name: Build
@@ -60,6 +78,26 @@ jobs:
 
       - name: Check rendered links, assets, metadata and search
         run: python scripts/check-docs.py
+
+      # IndexNow tells Bing and the other participating engines which pages
+      # changed, rather than waiting for them to recrawl. The protocol trusts a
+      # submission only if the key file is served beside the sitemap, so a build
+      # that stopped publishing it would have every submission ignored.
+      - name: The IndexNow key file is published beside the sitemap
+        run: |
+          set -eu
+          test "$(cat "site/${INDEXNOW_KEY}.txt")" = "${INDEXNOW_KEY}"
+
+      # Compared against the sitemap that is live now, before this build
+      # replaces it: only new pages and pages whose last-edited date moved are
+      # submitted. A pull request is not published, so it submits nothing. It
+      # never fails the build.
+      - name: Work out which pages changed, for IndexNow
+        id: indexnow
+        if: github.event_name != 'pull_request'
+        env:
+          DOCS_SITE_URL: ${{ vars.DOCS_SITE_URL || 'https://reet.sh/' }}
+        run: python hooks/indexnow.py site/sitemap.xml "${DOCS_SITE_URL%/}/sitemap.xml" "${INDEXNOW_KEY}"
 
       - name: Install browser smoke-test dependencies
         run: |
@@ -85,3 +123,21 @@ jobs:
 
       - id: deployment
         uses: actions/deploy-pages@v5
+
+      # After the deploy, not before: an engine told about a page fetches it
+      # straight away, and it has to find the new one. A failed submission is
+      # reported and does not fail the deploy; the site is up, and the sitemap
+      # will get the pages found regardless.
+      - name: Tell IndexNow which pages changed
+        if: needs.build.outputs.indexnow_payload != ''
+        env:
+          PAYLOAD: ${{ needs.build.outputs.indexnow_payload }}
+        run: |
+          set -u
+          status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H 'Content-Type: application/json; charset=utf-8' \
+            --data "$PAYLOAD" https://api.indexnow.org/indexnow) || status=unreachable
+          case "$status" in
+            200|202) echo "IndexNow accepted the submission ($status)" ;;
+            *) echo "::warning::IndexNow did not accept the submission ($status)" ;;
+          esac

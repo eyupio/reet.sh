@@ -369,6 +369,11 @@ func TestSwapRestoresPreviousModeWhenNewStartFails(t *testing.T) {
 
 func TestSwapDoesNotInvalidateReconcile(t *testing.T) {
 	h, _, _ := testChatHost(t)
+	// The chat is started again after each swap back, so every start needs its
+	// own process; the shared test process is closed the first time.
+	h.sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
+		return &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{}), onEvent: opts.OnEvent}, nil
+	}
 	sw, shells := openSwapChat(t, h)
 	snapshot := func() terminalproto.Reconcile {
 		sessions, _ := shells.List(t.Context())

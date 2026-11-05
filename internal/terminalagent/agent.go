@@ -134,7 +134,8 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 		// session while a mode swap moves it between the two.
 		chats := attachChats(supervisor, ctx, opts, generation, send, terminalproto.SupportsACPHistory(headers.Get(terminalproto.FeatureHeader)),
 			terminalproto.SupportsACPToolDetails(headers.Get(terminalproto.FeatureHeader)),
-			terminalproto.SupportsACPQuestion(headers.Get(terminalproto.FeatureHeader)), terminalproto.SupportsACPPreviews(headers.Get(terminalproto.FeatureHeader)))
+			terminalproto.SupportsACPQuestion(headers.Get(terminalproto.FeatureHeader)), terminalproto.SupportsACPPreviews(headers.Get(terminalproto.FeatureHeader)),
+			terminalproto.SupportsACPModelCatalogue(headers.Get(terminalproto.FeatureHeader)))
 		m, managerErr := terminalhost.NewManager(ctx, opts)
 		switcher := &agentSwitch{chats: chats, shells: swapShells(m)}
 		// swaps tracks the mode swaps in flight. A swap outlives a lost

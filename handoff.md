@@ -18,6 +18,24 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## OVERVIEW-2: the machine reads the extra pull request fields (5 November 2026)
+
+Part B of the session overview. `internal/terminalhost/inspect.go` now fills the optional fields added to the
+inspect wire in `3580786`: base and head branch, created, merged and closed times, reviews, review requests,
+auto-merge, review threads, the last commit date and `DetailKnown`, plus `Remote` (`owner/name`) on the status
+and GitHub views, so the page can link the repository before any pull request exists.
+
+- The first `gh pr view --json` call gains only scalar fields (`createdAt,mergedAt,closedAt,baseRefName,headRefName`).
+  Review bodies and commit lists could overrun its 128 KiB output cap and break the whole read, so reviews, review
+  requests, auto-merge, threads and the last commit date come from one fixed-query `gh api graphql` call (owner, name
+  and number as flag variables), for open pull requests only. A merged or closed pull request makes one `gh` call.
+- Absent means "not read": a failed or `null` GraphQL reply leaves reviews, threads, auto-merge and last push unset
+  while `DetailKnown` stays true; a first reply without `createdAt` is not `DetailKnown`.
+- Rollout: the controller decodes machine replies with `DisallowUnknownFields`, so a machine sending these fields to
+  an older controller has its inspect reply refused. Update controllers before machines (documented in
+  `docs/terminal-workspace.md`).
+- The 12 KiB reply cap still trims checks first; the new fields are small and a test holds that.
+
 ## CONCURRENCY-1: background work is stopped and joined (5 November 2026)
 
 A Go concurrency audit of the connector, controller and agent loops found work that could outlive its owner or
@@ -144,6 +162,19 @@ tools or subagents in a turn. A provider failure Cline logs without an ACP frame
 Merged as [PR #554](https://github.com/eyupio/reet.sh/pull/554) (`3919deef`); all 18 checks passed, including the
 browser suite that runs the new `chat-cline.e2e.mjs`.
 
+### The model picker shows the agent's whole catalogue (5 November 2026)
+
+Cline reports 307 models; a live control reply capped a model selector at 16 values inside 10 KiB, so most of the
+catalogue was unreachable without typing an id. `acp-model-catalogue-v1` widens the model selector to 512 ids in a
+snapshot bounded at 56 KiB — the worst case a valid snapshot can reach, and still one frame because `MaxControlBytes`
+is 64 KiB — while the effort selector keeps its 16-value bound. The session keeps every value the agent offers;
+`chatHost.forConnection` trims the model list to 16 for a connection that did not negotiate the feature, on a copy, so
+an older controller never receives a frame its decoder rejects, the session snapshot stays whole, and a reconnect with
+the feature gets the full list without asking the agent again. Tests: `TestModelCatalogueBoundsTheModelSelectorNotEffort`
+(proto, both directions on the wire), `TestModelCatalogueKeepsEveryOfferedModel`, `TestModelCatalogueIsTrimmedPerConnection`
+and a 307-entry case in `web/src/lib/models.test.mjs`. In review as
+[PR #586](https://github.com/eyupio/reet.sh/pull/586).
+
 ## SEO-1: public search surface and documentation (4 November 2026)
 
 The public-search audit and its current status are in [SEO_AUDIT.md](SEO_AUDIT.md). The continuation state, remaining
@@ -184,8 +215,8 @@ open; follow the "Starting a fresh session" checklist in the continuation handof
 Implementation and verification are tracked in [the startup-options handoff](docs/handoffs/start-agent-options.md).
 Both start dialogs and backlog creation/editing retain model and native effort choices. The new `acp-start-options-v1`
 contract prevents older live-control connectors receiving unsupported create fields. Runtime confirmation precedes readiness
-and the opening prompt. The local web, browser and focused race checks pass. [PR #493](https://github.com/eyupio/reet.sh/pull/493) contains the follow-up
-and integrates #490 for combined verification; merge the toolbar PR first, then this PR when review and final-head checks pass.
+and the opening prompt. The local web, browser and focused race checks pass. [PR #493](https://github.com/eyupio/reet.sh/pull/493) merged as
+`918f452`, after the toolbar PR #490 merged as `99c7fd8`; its final head passed every check and no review findings were open.
 
 ## GAFFER-LIVE-1: live settings and durable message delivery (4 November 2026)
 

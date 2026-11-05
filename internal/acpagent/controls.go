@@ -93,7 +93,13 @@ func readSettings(raw json.RawMessage) ([]terminalproto.ACPSetting, bool) {
 			return nil, false
 		}
 		add := func(v string) {
-			canAdd := len(setting.Values) < 16 && v != "" && terminalproto.ValidModel(v)
+			// A model may be the whole catalogue (Cline offers 307 ids); the
+			// connection trims it to the values its peer can read.
+			limit := terminalproto.MaxACPThoughtLevelValues
+			if category == "model" {
+				limit = terminalproto.MaxACPSettingValues
+			}
+			canAdd := len(setting.Values) < limit && v != "" && terminalproto.ValidModel(v)
 			if canAdd && !slices.Contains(setting.Values, v) {
 				setting.Values = append(setting.Values, v)
 			}

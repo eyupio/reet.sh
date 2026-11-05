@@ -43,8 +43,8 @@ PR #490 is integrated as a dependency so final-head checks exercise the complete
 appendices are retained. The complete chat/recovery and legacy Start an agent suites pass after switching test helpers to
 the visible header controls. All seven affected backend packages pass their complete race suites, including the full API package (472 seconds). No inline review findings were open at the latest check.
 
-Publication state and final-head checks are recorded on PR #493. Merge #490 first, then this follow-up when its checks and
-review are green. Resolve any new main changes without dropping either handoff or UI verification section.
+Publication state and final-head checks are recorded on PR #493, merged as `918f452` after #490 (`99c7fd8`). Keep both handoffs
+and both UI verification appendices when resolving new main changes.
 
 ## Current head
 

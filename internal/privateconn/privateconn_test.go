@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/eyupio/reet.sh/internal/sealed"
+	"go.uber.org/goleak"
 	"tailscale.com/derp/derpserver"
 	"tailscale.com/envknob"
 	"tailscale.com/net/netcheck"
@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 	netcheck.HookStartCaptivePortalDetection.SetForTest(func(context.Context, *netcheck.Client, *tailcfg.DERPMap, tailcfg.DERPRegionID, func(bool)) (<-chan struct{}, func()) {
 		return syncs.ClosedChan(), func() {}
 	})
-	os.Exit(m.Run())
+	goleak.VerifyTestMain(m)
 }
 
 func testRelay(t *testing.T) *tailcfg.DERPRegion {

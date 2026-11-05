@@ -5,7 +5,8 @@ import { mkdirSync } from 'node:fs'
 import { active, openWorkspace } from './helpers/workspace.mjs'
 
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
-const A = 'connector-agy000000000001', S = 'session-agy00000000000001'
+const A = 'connector-agy000000000001', S = 'session-agy00000000000001', S2 = 'session-agy00000000000002'
+const native = '123e4567-e89b-12d3-a456-426614174000'
 const name = 'Google Antigravity (AGY)', now = Date.now()
 const login = 'Sign in to Google Antigravity on that machine first (run agy).'
 const descriptor = { tool: 'antigravity', adapter: 'agy', state: 'available', minimumVersion: '1.5.0', history: true, images: true, model: true, approval: true, options: [{ id: 'thought_level', category: 'thought_level', values: ['low', 'medium', 'high'] }] }
@@ -15,21 +16,31 @@ try {
  for (const width of [1360, 320]) for (const theme of ['light', 'dark']) {
   const machine = { agentId: A, host: 'dev-laptop', ready: true, serverEnabled: true, capabilities: { protocolVersion: 1, terminalControl: true, os: 'linux', osUser: 'dev', terminalEnabled: true, healthEnabled: true, readiness: 'ready', launch: true, agentsV2: true, tools: ['antigravity'], acp: true, acpHistory: true, acpImages: true, acpModel: true, acpApproval: true, acpLiveControls: true, acpStartOptions: true, acpAgents: [] } }
   const session = { id: S, agentId: A, title: name, state: 'running', createdAt: now, updatedAt: now, exitCode: null, tool: 'antigravity', model: 'gemini-4-argon', effort: 'medium', yolo: false, projectId: null, dir: '/home/dev', structured: true }
+  const controls = { controls: { configuring: false, working: false, waiting: false, compacting: false, steering: false, model: 'gemini-4-argon', options: [{ id: 'model', category: 'model', current: 'gemini-4-argon', values: ['gemini-4-argon'] }, { id: 'thought_level', category: 'thought_level', current: 'medium', values: ['low', 'medium', 'high'] }] } }
   const { context, page, state, errors } = await openWorkspace(browser, {
    width, height: 900, theme, touch: width < 600, terminalStatus: active, terminalMachines: [machine],
    routes: {
     '/api/v2/terminal/sessions': req => {
      if (req.method() === 'POST') {
-      state.create = req.postDataJSON()
+      const body = req.postDataJSON()
+      if (body.resumeAcp) {
+       state.resume = body
+       if (!body.trust) return { status: 409, json: { code: 'acp_trust_required', error: 'AGY workspace hooks and customizations may run. Start only in a folder you trust.' } }
+       state.newSession = { ...session, id: S2, state: 'running' }
+       return state.newSession
+      }
+      state.create = body
       if (state.failLogin) return { status: 422, json: { code: 'acp_unavailable', error: login, detail: login } }
       state.created = true
       return { ...session, title: state.create.title }
      }
-     return { sessions: state.created ? [session] : [] }
+     return { sessions: state.newSession ? [session, state.newSession] : state.created ? [session] : [] }
     },
     '/api/v2/settings/yolo': { allowed: false },
-    [`/api/v2/terminal/sessions/${S}/chat/controls`]: { controls: { configuring: false, working: false, waiting: false, compacting: false, steering: false, model: 'gemini-4-argon', options: [{ id: 'model', category: 'model', current: 'gemini-4-argon', values: ['gemini-4-argon'] }, { id: 'thought_level', category: 'thought_level', current: 'medium', values: ['low', 'medium', 'high'] }] } },
+    [`/api/v2/terminal/sessions/${S}/chat/controls`]: controls,
     [`/api/v2/terminal/sessions/${S}/chat/queue`]: { queue: [] },
+    [`/api/v2/terminal/sessions/${S2}/chat/controls`]: controls,
+    [`/api/v2/terminal/sessions/${S2}/chat/queue`]: { queue: [] },
     [`/api/v2/terminal/sessions/${S}/chat/permissions/p1`]: req => { state.allow = req.postDataJSON(); return { answered: true } },
     [`/api/v2/terminal/sessions/${S}/chat/permissions/p2`]: req => { state.deny = req.postDataJSON(); return { answered: true } },
    },
@@ -95,6 +106,22 @@ try {
    await page.screenshot({ path: `work/agy-gaffer-${width}-${theme}.png`, fullPage: true })
    await page.getByRole('button', { name: 'Deny', exact: true }).click()
    await expect.poll(() => state.deny).toMatchObject({ allow: false })
+   // A stopped or closed AGY chat must carry the same folder acknowledgement
+   // when the person explicitly continues its stored conversation.
+   session.state = 'ended'
+   session.acpSessionId = native
+   await page.goto(`${base}/sessions?agent=${A}&session=${S}`)
+   await page.locator('.ended-note').getByRole('button', { name: 'Continue with history', exact: true }).click()
+   await page.waitForURL(new RegExp(`session=${S2}`))
+   expect(state.resume).toMatchObject({ tool: 'antigravity', structured: true, trust: true, resumeAcp: native, model: 'gemini-4-argon', dir: '/home/dev' })
+   expect(state.resume).not.toHaveProperty('prompt')
+   await expect(page.getByRole('textbox', { name: `Message ${name}`, exact: true })).toBeVisible()
+   await page.waitForFunction(id => window.__chatStream?.url.includes(id) && !window.__chatStream.closed && window.__chatStream.listeners.chat?.length, S2)
+   await page.evaluate(() => {
+    window.__chatStream.emit('reset', { truncated: false })
+    window.__chatStream.emit('chat', { seq: 1, kind: 'agent', messageId: 'restored', text: 'AGY history restored.' })
+   })
+   await expect(page.locator('.prose').filter({ hasText: 'AGY history restored.' })).toBeVisible()
    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
    expect(errors).toEqual([])
    console.log(`AGY ${width}px ${theme} passed`)
@@ -104,5 +131,5 @@ try {
    throw error
   } finally { await context.close() }
  }
- console.log('AGY Gaffer UI passed on desktop and phone in both themes: descriptor gating, folder trust, model/effort, missing login and retry, streaming, Allow once and Deny.')
+ console.log('AGY Gaffer UI passed on desktop and phone in both themes: descriptor gating, folder trust, model/effort, missing login and retry, streaming, Allow once and Deny, and trusted history continuation.')
 } finally { await browser.close() }

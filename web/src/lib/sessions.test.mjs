@@ -200,6 +200,16 @@ test('changed files: at most twenty paths and the total', () => {
   assert.deepEqual(changedList({ changed: 0, paths: [] }), { shown: [], total: 0, more: 0 })
 })
 
+test('AGY history continuation retains its folder acknowledgement and stored conversation', () => {
+ const capabilities = { acp: true, acpAgents: [{ tool: 'antigravity', adapter: 'agy', state: 'available', history: true }] }
+ for (const state of ['lost', 'ended', 'exited']) {
+  const s = { tool: 'antigravity', structured: true, state, dir: '/home/u/site', projectId: 'p1', model: 'gemini-4-argon', acpSessionId: '123e4567-e89b-12d3-a456-426614174000' }
+  assert.equal(canContinueChat(s, { capabilities }), true)
+  assert.deepEqual(continueChatLaunch(s), { tool: 'antigravity', structured: true, trust: true, dir: s.dir, projectId: s.projectId, model: s.model, resumeAcp: s.acpSessionId })
+  assert.equal(canContinueChat(s, { capabilities: { acp: true, acpHistory: true } }), false)
+ }
+})
+
 test('chat descriptors override legacy flags and continuation retains the stored agent', () => {
  const s = { structured: true, tool: 'opencode', acpSessionId: 'ses_stored', state: 'exited', dir: '/home/u/site' }
  const capabilities = { acp: true, acpHistory: true, acpAgents: [] }

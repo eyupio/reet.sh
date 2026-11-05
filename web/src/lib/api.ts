@@ -1061,6 +1061,7 @@ export async function queueSyncJob(agentId: string, targetId: string, kind: stri
 export async function controlSyncJob(id: string, action: string, hash = ''): Promise<SyncState> { return (await req('/api/v2/sync/jobs', { method: 'PATCH', body: json({ id, action, hash }) })).json() }
 export async function controlSyncAgent(id: string, action: string): Promise<SyncState> { return (await req('/api/v2/sync/agents', { method: 'PATCH', body: json({ id, action }) })).json() }
 export async function startSyncRun(agentId: string, targetIds: string[] = []): Promise<SyncState> { return (await req('/api/v2/sync/run', { method: 'POST', body: json({ agentId, targetIds }) })).json() }
+export async function syncLibraryMachines(): Promise<SyncState> { return (await req('/api/v2/sync/library', { method: 'POST', body: json({}) })).json() }
 export async function updateSyncAgent(id: string, version = 'latest'): Promise<SyncState> { return (await req('/api/v2/sync/agents/update', { method: 'POST', body: json({ id, version }) })).json() }
 
 export async function listSetupProfiles(): Promise<{ profiles: SetupProfileSummary[] }> {

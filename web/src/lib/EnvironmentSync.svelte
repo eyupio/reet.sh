@@ -26,7 +26,6 @@
   let serverMachines = $derived((syncState.machines ?? []).filter((machine) => agentGroups(machine).length === 0))
   let reportedMachines = $derived(syncState.machines ?? [])
   // A fresh instance reports its own server scan; that is not a machine anyone connected, so it does not count here.
-  const hasConnectedMachine = $derived(inventoryMachines(syncState.machines ?? []).length > 0)
   let profiles = $state<SetupProfileSummary[]>([])
   let loading = $state(true)
   let busy = $state(false)
@@ -239,7 +238,7 @@
   })
 </script>
 
-<section class="sync" aria-labelledby={view === 'compare' ? undefined : 'sync-title'}>
+<section class="sync" class:compare={view === 'compare'} aria-labelledby={view === 'compare' ? undefined : 'sync-title'}>
   {#if view !== 'compare'}
   <h2 class="vh" id="sync-title">{view === 'machines' ? 'Machines' : 'Compare & sync'}</h2>
   <div class="page-tools">
@@ -256,14 +255,10 @@
   </div>
 
   {#if view === 'compare'}
-    {#if hasConnectedMachine}
-      <SyncControl snapshot={syncState} {canWrite} {view} onupdate={updateState} />
+    {#if loading && !loaded}
+      <Skeleton label="Reading your machines…" shape="cards" count={2} height="150px" />
     {:else}
-      <section class="sync-empty" aria-labelledby="sync-empty-title">
-        <h3 id="sync-empty-title">Connect a machine to start syncing</h3>
-        {#if canWrite}<a class="btn primary" href={accounts ? '/machines#add-machine' : '/machines#connect-machine'}>Connect a machine</a>{/if}
-        <p>Sync compares your skills with what a machine has installed, then lets you review every change before it is applied.</p>
-      </section>
+      <SyncControl snapshot={syncState} {canWrite} {view} onupdate={updateState} />
     {/if}
   {:else}
     {#if loading && !loaded}
@@ -343,8 +338,8 @@
   .sync-empty { border: 1px dashed var(--line); border-radius: 12px; padding: 18px; background: var(--card); }
   .sync-empty h3 { margin: 0 0 12px; font: 500 1.3rem/1.2 var(--serif); letter-spacing: -0.02em; }
   .sync-empty p { margin: 12px 0 0; max-width: 60ch; color: var(--muted); font-size: 0.86rem; line-height: 1.6; }
-  .sync-empty .btn { width: fit-content; }
   .sync { margin-top: 24px; padding: clamp(14px, 2.4vw, 22px); border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+  .sync.compare { padding: 0; border: 0; background: transparent; }
   .page-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
   .tools-status { flex: 1 1 240px; margin: 0; text-align: right; font-size: .75rem; }
   .hint { color: var(--muted); font-size: .83rem; margin: 6px 0; overflow-wrap: anywhere; }

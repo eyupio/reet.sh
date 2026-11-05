@@ -452,7 +452,7 @@ try {
   await page.goto(`${base}/skills`)
   await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toBeVisible()
   expect(await page.title()).toMatch(/^Skills ·/)
-  await expect(page.getByRole('link',{name:'Sync skills',exact:true})).toHaveAttribute('href','/sync')
+  await expect(page.getByRole('link',{name:'Sync all machines',exact:true})).toHaveAttribute('href','/sync')
   await page.getByRole('button',{name:/^More/}).first().click()
   await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Sync',exact:true})).toHaveCount(0)
   await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Write a skill',exact:true})).toHaveAttribute('href','/hosting')

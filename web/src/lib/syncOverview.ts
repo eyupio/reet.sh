@@ -156,6 +156,14 @@ export function machineSyncOverview(machine: Machine, snapshot: SyncState, now =
   if (!fresh) {
     return { ...base, tone: 'attention', label: 'Rescan needed', detail: 'A complete agent scan from the last 14 days is needed before syncing.', canSync: false }
   }
+  const problem = targets.find(target => target.problem)?.problem
+  const failure = [...jobs].sort((a, b) => b.updatedAt - a.updatedAt).find(job => {
+    const target = targets.find(target => target.target.id === job.targetId)
+    return !!target && job.revision === target.revision
+  })
+  if (problem || failure?.status === 'failed') {
+    return { ...base, tone: 'attention', label: 'Sync needs attention', detail: problem || failure?.message || 'Open Sync activity to retry.', canSync: true }
+  }
   if (missing > 0) {
     return { ...base, tone: 'action', label: `${missing} skill${missing === 1 ? '' : 's'} to install`, detail: detailFor('Ready to apply'), canSync: true }
   }

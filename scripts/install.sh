@@ -4,11 +4,13 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [--version VERSION] [--dir DIRECTORY]
+Usage: install.sh [--version VERSION] [--dir DIRECTORY] [--server URL --name NAME]
 
 Install reet for Linux or macOS (amd64 or arm64) from GitHub Releases.
   --version VERSION  Install a specific release, e.g. v1.2.3 or dev (default: REET_VERSION or latest)
   --dir DIRECTORY    Install directory (default: REET_INSTALL_DIR or ~/.local/bin)
+  --server URL       Connect to this Reet site and enable shared-library sync
+  --name NAME        Machine name on that site (required with --server)
   -h, --help         Show this help
 
 Requires curl, tar, and sha256sum or shasum. Existing reet binaries are replaced
@@ -31,16 +33,22 @@ quote() {
 
 version=${REET_VERSION:-latest}
 install_dir=${REET_INSTALL_DIR:-"${HOME:?HOME is not set}/.local/bin"}
+server_url=
+machine_name=
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --version|--dir)
+    --version|--dir|--server|--name)
       [ "$#" -ge 2 ] && [ -n "$2" ] || fail "$1 requires a value"
-      case "$1" in --version) version=$2 ;; --dir) install_dir=$2 ;; esac
+      case "$1" in --version) version=$2 ;; --dir) install_dir=$2 ;; --server) server_url=$2 ;; --name) machine_name=$2 ;; esac
       shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) fail "unknown option: $1 (use --help)" ;;
   esac
 done
+if [ -n "$server_url" ] || [ -n "$machine_name" ]; then
+  [ -n "$server_url" ] && [ -n "$machine_name" ] || fail '--server and --name must be supplied together'
+fi
+requested_version=$version
 
 case "$(uname -s)" in
   Linux) os=linux ;;
@@ -144,3 +152,26 @@ printf '\nCheck your installation:\n'
 quote "$install_dir/reet"
 printf ' --version\n\nConnect to an existing site: open Machines on that site, then Connect a machine.\nHost your own site: run reet install --mode native (user service), or --mode compose (Docker).\nFor an existing managed server, use reet upgrade for future updates.\n'
 printf '\nConnect a machine and set up its terminal with: reet agent terminal setup\nThe wizard checks tmux 3.2+, local shell consent and native services. Initial reet install and upgrade also offer connection setup in interactive sessions.\n'
+if [ -n "$server_url" ]; then
+  printf '\nConnecting %s to %s and enabling skill sync…\n' "$machine_name" "$server_url"
+  connect_machine() {
+    "$install_dir/reet" configure --url "$server_url" --version "$requested_version"
+    "$install_dir/reet" agent enroll --server "$server_url" --env "$machine_name" --allow-apply --if-needed --skip-terminal-setup
+    if "$install_dir/reet" agent service install --sync-only; then
+      printf 'Automatic startup is configured for skill sync.\n'
+    else
+      printf 'Native service setup was unavailable. Starting in the background; run reet agent run again after login or reboot.\n'
+      "$install_dir/reet" agent restart
+    fi
+  }
+  # curl | sh uses stdin for the script. Read credentials from the actual
+  # terminal, without ever embedding them in the command or shell history.
+  if [ -t 0 ]; then
+    connect_machine
+  elif ( : </dev/tty ) 2>/dev/null; then
+    connect_machine </dev/tty
+  else
+    connect_machine
+  fi
+  printf '\nConnected. Your skill library syncs after the first scan and stays up to date.\n'
+fi

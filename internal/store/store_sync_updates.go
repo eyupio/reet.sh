@@ -200,7 +200,7 @@ func (s *Store) AgentUpdateSettledSince(uid int64, agentID string, since int64) 
 // enrolled machines. The general job list is bounded so a busy machine's scans
 // cannot push its update out of sight.
 func (s *Store) LatestUpdateJobsFor(uid int64) ([]SyncJob, error) {
-	rows, err := s.db.Query(`SELECT `+jobCols+` FROM sync_jobs WHERE user_id=? AND kind='update' ORDER BY created_at DESC LIMIT 500`, uid)
+	rows, err := s.db.Query(`SELECT `+jobCols+` FROM sync_jobs WHERE user_id=? AND kind='update' ORDER BY created_at DESC,rowid DESC LIMIT 500`, uid)
 	if err != nil {
 		return nil, err
 	}

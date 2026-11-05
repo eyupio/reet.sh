@@ -11,8 +11,8 @@ export function installCommands(channel: ReleaseChannel): string {
   return `curl -fsSL https://raw.githubusercontent.com/eyupio/reet.sh/main/scripts/install.sh | sh${channel === 'dev' ? ' -s -- --version dev' : ''}\nexport PATH="$HOME/.local/bin:$PATH"\nreet --version`
 }
 
-export function configureCommand(site: string): string {
-  return `reet configure --url ${shellQuote(site)} --version latest`
+export function configureCommand(site: string, channel: ReleaseChannel = 'stable'): string {
+  return `reet configure --url ${shellQuote(site)} --version ${channel === 'dev' ? 'dev' : 'latest'}`
 }
 
 export function scanCommand(site: string, host: string): string {

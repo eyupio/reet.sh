@@ -1335,6 +1335,33 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 	}
 	var rf ref.Ref
 	local := false
+	privateWritten, privatePublished := false, false
+	if source == "" && item.Host != "" && item.Agent != "" {
+		wanted, ok, err := s.st.PrivateSyncIdentityFor(userID, item.Host, item.Agent, item.Project, name)
+		if err != nil {
+			return "", false, false, err
+		}
+		if ok && strings.HasPrefix(wanted.ID, "hosted/") {
+			username, err := s.st.PublishingUsername(userID)
+			if err != nil {
+				return "", false, false, err
+			}
+			// Ownership and the saved private target authorize this identity;
+			// the public-input parser deliberately rejects unpublished drafts.
+			candidate, err := ref.ParseAt(requestOrigin(request)+"/"+username+"/"+name, request.Host)
+			if err == nil && candidate.ID == wanted.ID {
+				written, err := s.st.HostedSkillsFor(userID)
+				if err != nil {
+					return "", false, false, err
+				}
+				for _, skill := range written {
+					if skill.Slug == name {
+						rf, privateWritten, privatePublished = candidate, true, skill.Published
+					}
+				}
+			}
+		}
+	}
 	if strings.Contains(source, "://") {
 		if parsed, err := s.parseSkillInput(request, strings.TrimRight(source, "/")+"/"+name); err == nil && parsed.SourceType == "hosted" {
 			rf = parsed
@@ -1381,7 +1408,11 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 	if err != nil {
 		return id, false, false, err
 	}
-	if !local {
+	if privateWritten {
+		if err = s.st.SetHostedSkillVisible(sk.ID, privatePublished); err != nil {
+			return id, false, false, err
+		}
+	} else if !local {
 		s.enqueue(rf)
 	}
 	if item.Host != "" && item.Agent != "" {

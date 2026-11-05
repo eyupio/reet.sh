@@ -288,6 +288,10 @@ func (s *Store) SyncTargetsFor(userID int64) ([]SyncTarget, error) {
 		if err != nil {
 			return nil, err
 		}
+		content, err := s.ContentObservationFor(userID, out[i].Target.ID)
+		if err != nil {
+			return nil, err
+		}
 		desiredIDs, actualIDs := map[string]bool{}, map[string]bool{}
 		for _, sk := range out[i].Desired {
 			desiredIDs[sk.ID] = true
@@ -298,12 +302,29 @@ func (s *Store) SyncTargetsFor(userID int64) ([]SyncTarget, error) {
 		out[i].Missing = []SyncSkill{}
 		out[i].Extra = []SyncSkill{}
 		for _, sk := range out[i].Desired {
-			if !actualIDs[sk.ID] {
+			installed := actualIDs[sk.ID]
+			if sk.SourceType == "private" {
+				// Scanner identities cannot prove private content: a written skill
+				// is often reported as local/<name>. Compare the bundle digest.
+				installed = false
+				if content.State == "observed" {
+					for _, observed := range content.Skills {
+						if observed.Name == sk.Slug && observed.Complete && strings.HasSuffix(sk.Source, ":"+observed.Digest) && observed.Digest != "" {
+							installed = true
+						}
+					}
+				}
+			}
+			if !installed {
 				out[i].Missing = append(out[i].Missing, sk)
 			}
 		}
 		for _, sk := range actual {
-			if !desiredIDs[sk.ID] {
+			privateName := false
+			for _, want := range out[i].Desired {
+				privateName = privateName || want.SourceType == "private" && want.Slug == sk.Slug
+			}
+			if !desiredIDs[sk.ID] && !privateName {
 				out[i].Extra = append(out[i].Extra, sk)
 			}
 		}

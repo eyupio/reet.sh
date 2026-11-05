@@ -15,7 +15,7 @@ try {
    const {context,page,errors} = await open({width})
    await page.goto(`${base}/skills`)
    await expect(page.getByRole('heading',{name:'Put the first skill on your shelf.'})).toBeVisible()
-   await expect(page.getByRole('link',{name:'Sync skills'}), `Sync skills at ${width}px`).toHaveCount(0)
+   await expect(page.getByRole('link',{name:'Sync all machines'}), `Library sync at ${width}px`).toHaveAttribute('href','/sync')
    const create = page.getByRole('link',{name:'Create a skill'})
    await expect(create).toBeVisible()
    await expect(create).not.toHaveClass(/primary/)
@@ -31,7 +31,7 @@ try {
  if (run('populated')) {
   const {context,page} = await open({width:1440,skills:[skill('code-review')]})
   await page.goto(`${base}/skills`)
-  await expect(page.getByRole('link',{name:'Sync skills'})).toHaveAttribute('href','/sync')
+  await expect(page.getByRole('link',{name:'Sync all machines'})).toHaveAttribute('href','/sync')
   await expect(page.getByRole('link',{name:'Create a skill'})).not.toHaveClass(/primary/)
   await context.close()
  }
@@ -127,27 +127,23 @@ try {
   const scope = {id:'dev-laptop-agents',host:'dev-laptop',agent:'agents',name:'dev-laptop',skills:[],skillCount:0,complete:true,scannedAt:now,lastSeen:now,os:'linux',arch:'amd64',version:'test'}
   const sync = {environments:[scope],machines:[{host:'dev-laptop',groups:[scope],skillCount:0}],agents:[{id:'a1',host:'dev-laptop',version:'1.2.3',lastSeen:now,paused:false,autoUpdate:false}],targets:[{target:scope,sourceId:'shelf',sourceName:'Shelf',mode:'additive',desired:[draft],missing:[draft],extra:[],revision:'r1',updatedAt:now}],jobs:[],runs:[],updateJobs:[]}
   const hosting = {username:'sam',prefix:'reet-',skills:[{slug:'reet-incident-notes',description:'A private draft.',content:'---\nname: reet-incident-notes\ndescription: x\n---\nbody',files:{},published:false,createdAt:now,updatedAt:now}]}
-  const routes = {'/api/v2/sync/candidates': req => new URL(req.url()).searchParams.get('collection') === 'hosted' ? {skills:[draft,nowDraft,broken]} : {skills:[shelfSkill,stale]}}
+  const routes = {'/api/v2/sync/candidates': req => { const collection=new URL(req.url()).searchParams.get('collection');return collection==='library'?{skills:[shelfSkill,draft,nowDraft,broken]}:collection==='hosted'?{skills:[draft,nowDraft,broken]}:{skills:[shelfSkill,stale]} }}
   const {context,page,errors} = await open({width:1440,skills:[shelfSkill],hosting,sync,routes})
   await page.goto(`${base}/skills`)
   await expect(page.locator('.hosted-list .where')).toContainText('Pending on dev-laptop')
   const row = page.locator('.hosted-list').getByRole('link',{name:'Sync to machines…'})
   await expect(row).toHaveAttribute('href',`/sync?skill=${encodeURIComponent(draftId)}`)
   await page.goto(`${base}/sync?skill=${encodeURIComponent(draftId)}`)
-  await expect(page.getByRole('radio',{name:/Choose individual skills/})).toBeChecked()
-  const choice = page.locator('.skills label', {hasText:'reet-incident-notes'})
-  await expect(choice.getByRole('checkbox')).toBeChecked()
-  await expect(choice.getByRole('checkbox')).toBeEnabled()
-  await expect(choice).toContainText('Your private draft')
-  await expect(page.locator('.skills label', {hasText:'code-review'}).getByRole('checkbox')).not.toBeChecked()
-  const unpublished = page.locator('.skills label', {hasText:'reet-standup'})
+  await expect(page.getByRole('heading',{name:'Your skills, everywhere.'})).toBeVisible()
+  await page.locator('.library-content > summary').filter({hasText:'In your library'}).click()
+  const choice = page.locator('.library-content li', {hasText:'reet-incident-notes'})
+  await expect(choice).toContainText('Private · only your machines')
+  await expect(page.locator('.library-content li', {hasText:'code-review'})).toBeVisible()
+  const unpublished = page.locator('.library-content li', {hasText:'reet-standup'})
   await expect(unpublished).toHaveCount(1)
-  await expect(unpublished).toContainText('Your private draft')
-  await expect(unpublished.getByRole('checkbox')).toBeEnabled()
-  const stuck = page.locator('.skills label', {hasText:'reet-broken'})
-  await expect(stuck).toContainText('private skill storage is full')
-  await expect(stuck.getByRole('checkbox')).toBeDisabled()
-  await expect(stuck.getByRole('link',{name:'Link source'})).toHaveCount(0)
+  await expect(unpublished).toContainText('Private · only your machines')
+  await expect(page.getByRole('status').filter({hasText:'private skill storage is full'})).toBeVisible()
+  await expect(page.locator('.library-content li', {hasText:'reet-broken'})).toContainText('Needs attention')
   expect(errors).toEqual([])
   await context.close()
  }

@@ -9,7 +9,7 @@
  import type { Snippet } from 'svelte'
  import { UnauthorizedError, type Machine, type SyncState } from './api'
  import { SIGNED_OUT, isSignedOut, sameHost } from './contentReview'
- import { JOIN_AUTO_MS, JOIN_WATCH_CAP_MS, canonicalHost, fromPrivateSkills, joinBaseline, joinCommands, joinDelay, joinState, landingFor, landingNote, validateMachineName, type JoinBaseline, type JoinContext, type Landing } from './machineJoin'
+ import { JOIN_AUTO_MS, JOIN_WATCH_CAP_MS, canonicalHost, fromPrivateSkills, joinBaseline, joinCommands, joinDelay, joinState, joinSyncState, landingFor, landingNote, validateMachineName, type JoinBaseline, type JoinContext, type Landing } from './machineJoin'
  import type { ReleaseChannel } from './machineSetup'
  import CopyButton from './CopyButton.svelte'
 
@@ -64,7 +64,7 @@
   void clock
   if (!host || !snapshot || captured?.key !== key) return undefined
   // A fresh clock reading every time the state is asked, never a value held from earlier.
-  return joinState({ name: host, machines, agents: snapshot.agents ?? [], baseline: captured.baseline, now: Date.now() })
+  return joinSyncState(joinState({ name: host, machines, agents: snapshot.agents ?? [], baseline: captured.baseline, now: Date.now() }), canonical, snapshot)
  })
  const status = $derived.by(() => {
   if (signedOut) return { stage: 'unknown', label: SIGNED_OUT, detail: '', canUse: false }
@@ -221,7 +221,7 @@
   <div>
    <p class="eyebrow" data-shell-aside>Machines</p>
    <h2 id={titleId}>Add a machine</h2>
-   <p class="lede" data-shell-aside>Right then: name it, give it a key, run one block of commands on it, and reet.sh will watch for it.</p>
+   <p class="lede" data-shell-aside>Connect once. Reet brings your skill library to this machine and keeps it up to date.</p>
   </div>
   <button type="button" class="btn" onclick={close} aria-label="Close" data-shell-close>Close ×</button>
  </header>
@@ -258,7 +258,7 @@
    {#if host && !decided}
     <p class="hint">Machines are still loading. The commands appear once they have been read.</p>
    {:else if host}
-    <p class="hint">Paste this once in a terminal on the machine. It installs reet, saves the connection, then enrols and runs the agent.</p>
+    <p class="hint">Paste this in a terminal on the machine. It installs reet, connects it and enables skill sync. Reet checks changes and backs up replaced copies.</p>
     <div class="command"><pre class="commands">{commands}</pre><CopyButton text={commands} label="Copy commands" /></div>
     <p class="hint">The machine will ask for a token. Paste the machine token from step 2 when it does; a missing or failed token does not change the commands.</p>
    {:else}
@@ -297,10 +297,10 @@
    <p class="hint">Cancelled. Press Use {host} when you want to carry on.</p>
   {/if}
   {#if waitingOut}<p class="again"><button type="button" class="btn" onclick={checkAgain}>Check again</button></p>{/if}
-  <p class="hint">Connected and Ready only say what reet.sh has been told: that a connector reported in and a scan arrived. They do not show that the commands worked.</p>
+  {#if status.stage === 'sync_issue'}<a class="btn" href="/sync">Open sync activity</a>{/if}
  </div>
  <footer data-shell-foot>
-  <small data-shell-aside>Nothing here changes a machine.</small>
+  <small data-shell-aside>Your drafts stay private. Sync continues after you close this dialog.</small>
   <div class="actions">
    {#if host && !canUse}<button type="button" class="btn" onclick={checkAgain}>I've run it — check again</button>{/if}
    {#if canUse}<button type="button" class="btn primary" onclick={use}>Done — show {canonical}</button>{/if}
@@ -338,6 +338,8 @@
  .detail { color: var(--muted); font-size: .85rem; line-height: 1.5; }
  .dot { flex: none; width: 12px; height: 12px; margin-top: 4px; border-radius: 50%; background: var(--muted); }
  .dot.waiting, .dot.first_scan, .dot.idle { background: var(--muted); }
+ .dot.syncing { background: var(--accent-text); }
+ .dot.sync_issue { background: var(--warn); }
  .dot.connected, .dot.already_here { background: var(--warn); }
  .dot.ready { background: var(--good); }
  .dot.unknown { background: var(--bad); }

@@ -387,6 +387,7 @@ func runAgentService(args []string, out io.Writer) error {
 	fs.SetOutput(out)
 	config := fs.String("config", agentConfigPath(), "private machine enrollment file")
 	prefix := fs.String("service-prefix", "reet", "native service name prefix")
+	syncOnly := fs.Bool("sync-only", false, "install only monitoring and skill sync, without tmux or terminal services")
 	if err := fs.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -395,6 +396,9 @@ func runAgentService(args []string, out io.Writer) error {
 	}
 	if fs.NArg() != 0 {
 		return errors.New("unexpected positional arguments")
+	}
+	if *syncOnly && action != "install" {
+		return errors.New("--sync-only is an install option; use reet agent status to inspect the sync agent")
 	}
 	absolute, err := filepath.Abs(*config)
 	if err != nil {
@@ -408,12 +412,15 @@ func runAgentService(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	plan, err := terminalhost.PlanServices(context.Background(), terminalhost.ServiceOptions{Prefix: *prefix, ConfigPath: absolute, Layout: layout, AllowMissingTmux: action != "install"})
+	plan, err := terminalhost.PlanServices(context.Background(), terminalhost.ServiceOptions{Prefix: *prefix, ConfigPath: absolute, Layout: layout, AllowMissingTmux: action != "install" || *syncOnly})
 	if err != nil {
 		return err
 	}
 	switch action {
 	case "install":
+		if *syncOnly {
+			return installSyncAgentService(plan, out)
+		}
 		if err := installAgentServices(plan, out); err != nil {
 			return err
 		}

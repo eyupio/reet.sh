@@ -131,6 +131,8 @@ try {
   await page.getByRole('button', { name: 'New session', exact: true }).click()
   const composer = page.getByRole('dialog')
   await expect(composer).toBeVisible()
+  // A new session asks which project before it can be saved; it does not pick the first one for you.
+  await expect(composer.getByLabel('Project', { exact: true })).toHaveValue('')
   await page.screenshot({path:'../work/screenshots/session-composer-desktop.png',fullPage:false})
   const promptBox = composer.getByRole('textbox', { name: /^Prompt/ })
   await promptBox.fill('Make session filtering feel effortless')
@@ -195,6 +197,7 @@ try {
   await page.getByRole('button', { name: 'New session', exact: true }).click()
   const options = page.getByRole('dialog')
   await options.getByRole('textbox', { name: /^Prompt/ }).fill('Tighten the checkout copy')
+  await options.getByLabel('Project', { exact: true }).selectOption('p1')
   await options.getByLabel('Agent', { exact: true }).selectOption('codex')
   await expect(options.getByRole('group', { name: 'Approvals' })).toBeVisible()
   await expect(options.getByLabel('Start in a fresh worktree')).toBeVisible()
@@ -220,6 +223,7 @@ try {
   await page.getByRole('button', { name: 'New session', exact: true }).click()
   const ideaForm = page.getByRole('dialog')
   await ideaForm.getByLabel('Just capture an idea').check()
+  await ideaForm.getByLabel('Project', { exact: true }).selectOption('p1')
   await ideaForm.getByRole('button', { name: 'Save idea' }).click()
   await expect(ideaForm.getByRole('alert')).toContainText('title or a note')
   await ideaForm.getByLabel('Session title', { exact: false }).fill('Rethink onboarding')
@@ -242,7 +246,7 @@ try {
   await expect(ideaCard.locator('.idea-badge')).toHaveCount(0)
   await expect(ideaCard.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
   expect(box.starts).toHaveLength(startsAfterIdea)
-  const captureIdea = async (title, projectId = '') => {
+  const captureIdea = async (title, projectId = 'p1') => {
     await page.getByRole('button', { name: 'New session', exact: true }).click()
     const form = page.getByRole('dialog')
     await form.getByLabel('Just capture an idea').check()
@@ -313,6 +317,7 @@ try {
   const native = await workspace(390, 'dark', true)
   await native.page.getByRole('button', { name: 'New session', exact: true }).click()
   const form = native.page.getByRole('dialog')
+  await form.getByLabel('Project', { exact: true }).selectOption('p1')
   await form.getByLabel('Agent', { exact: true }).selectOption('opencode')
   const opensIn = form.getByRole('group', { name: 'Opens in' })
   await expect(opensIn.getByRole('button', { name: 'OpenCode TUI', exact: true })).toBeVisible()

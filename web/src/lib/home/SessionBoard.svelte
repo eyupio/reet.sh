@@ -9,13 +9,15 @@
   import { shortAge, stateWord } from '../home'
   import { sessionStatus } from '../sessionStatus'
   import { listDrafts, getDraft, deleteDraft, startDraft } from '../sessionBacklog'
-  import { boardItems, dropIntent, emptyFilters, filterBoard, filterCount, sortBoard, STAGES, type BoardView, type SessionDraft } from '../sessionBoard'
+  import { boardItems, dropIntent, emptyFilters, filterBoard, filterCount, sortBoard, STAGES, type BoardView, type DraftImage, type SessionDraft } from '../sessionBoard'
   import { launchUpload, readiness, sessionHref, TerminalError, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { imagePrompt } from '../terminal/upload'
   import type { LaunchDefaults } from '../launchBar'
   import SessionComposer from './SessionComposer.svelte'
   import StartSessionDialog from './StartSessionDialog.svelte'
   import BoardIcon from './BoardIcon.svelte'
+  import DraftImagePreview from './DraftImagePreview.svelte'
+  import ImageLightbox from '../terminal/ImageLightbox.svelte'
   import SessionActions from '../sessions/SessionActions.svelte'
 
   let { userId, sessions, sessionsFailed = false, projects, machines, health, profile, now, initialProject = '', removeDefault = false,
@@ -47,6 +49,15 @@
   let actions = $state<SessionActions>(), filterButton = $state<HTMLButtonElement>(), filterPanel = $state<HTMLDivElement>(), deleteDialog = $state<HTMLDialogElement>()
   let generation = 0
   let activeRequests = new Set<string>()
+  // A reference-image preview opens on hover or focus of a backlog card's image badge. Large image bodies are only
+  // fetched on that first look, then kept for the rest of the visit.
+  let imagePreview = $state<{ draft: SessionDraft; anchor: { left: number; top: number; bottom: number; width: number; height: number } } | null>(null)
+  let imageCache = $state<Record<string, DraftImage[]>>({})
+  let imageLoading = $state<Record<string, boolean>>({})
+  let imageErrors = $state<Record<string, string>>({})
+  let lightbox = $state<{ items: { url: string; name: string }[]; index: number } | null>(null)
+  let previewShowTimer: ReturnType<typeof setTimeout> | undefined, previewHideTimer: ReturnType<typeof setTimeout> | undefined
+  const imageRequests = new Map<string, Promise<DraftImage[] | undefined>>()
   const machineNames = $derived(new Map(machines.map(m => [m.agentId, m.host])))
   const projectNames = $derived(new Map(projects.map(p => [p.id, p.name])))
   const all = $derived(boardItems(drafts ?? [], sessions ?? []))
@@ -83,6 +94,46 @@
   function preferences() {
     try { localStorage.setItem(`reet.sessionBoard.${userId}`, JSON.stringify({ view, sort, compact })) } catch { /* The view still works without storage. */ }
   }
+  function anchorOf(el: HTMLElement) { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, bottom: r.bottom, width: r.width, height: r.height } }
+  function showImagePreview(draft: SessionDraft, el: HTMLElement, delay = true) {
+    clearTimeout(previewShowTimer); clearTimeout(previewHideTimer)
+    const open = () => { imagePreview = { draft, anchor: anchorOf(el) }; void loadDraftImages(draft) }
+    if (delay) previewShowTimer = setTimeout(open, 130); else open()
+  }
+  function keepImagePreview() { clearTimeout(previewHideTimer); clearTimeout(previewShowTimer) }
+  function hideImagePreview(delay = 0) {
+    clearTimeout(previewShowTimer); clearTimeout(previewHideTimer)
+    if (delay) previewHideTimer = setTimeout(() => { imagePreview = null }, delay); else imagePreview = null
+  }
+  function loadDraftImages(draft: SessionDraft): Promise<DraftImage[] | undefined> {
+    if (imageCache[draft.id]) return Promise.resolve(imageCache[draft.id])
+    const pending = imageRequests.get(draft.id)
+    if (pending) return pending
+    const request = (async () => {
+      imageLoading = { ...imageLoading, [draft.id]: true }
+      const errors = { ...imageErrors }; delete errors[draft.id]; imageErrors = errors
+      try {
+        const full = await getDraft(draft.id, signal())
+        if (life.signal.aborted) return undefined
+        const images = full.images ?? []
+        imageCache = { ...imageCache, [draft.id]: images }
+        return images
+      } catch (e) {
+        if (!life.signal.aborted) { error(e); imageErrors = { ...imageErrors, [draft.id]: "Couldn't read those images." } }
+        return undefined
+      } finally {
+        if (!life.signal.aborted) { const next = { ...imageLoading }; delete next[draft.id]; imageLoading = next }
+      }
+    })()
+    imageRequests.set(draft.id, request)
+    void request.finally(() => { imageRequests.delete(draft.id) })
+    return request
+  }
+  async function openImageLightbox(draft: SessionDraft, index = 0) {
+    hideImagePreview()
+    const images = imageCache[draft.id] ?? await loadDraftImages(draft)
+    if (images?.length) lightbox = { items: images.map(image => ({ url: image.data, name: image.name })), index }
+  }
   function setView(next: BoardView) { view = next; preferences() }
   function toggleDetails(key: string) {
     expanded = expanded.includes(key) ? expanded.filter(k => k !== key) : [...expanded, key]
@@ -97,7 +148,7 @@
   function outside(e: PointerEvent) {
     if (filtersOpen && !filterPanel?.contains(e.target as Node) && !filterButton?.contains(e.target as Node)) closeFilters()
   }
-  function keydown(e: KeyboardEvent) { if (e.key === 'Escape' && filtersOpen) { e.preventDefault(); closeFilters(true) } }
+  function keydown(e: KeyboardEvent) { if (e.key === 'Escape' && imagePreview) { e.preventDefault(); hideImagePreview(); return } if (e.key === 'Escape' && filtersOpen) { e.preventDefault(); closeFilters(true) } }
   async function edit(draft: SessionDraft, opener: HTMLElement, start = false) {
     if (loadingId || working) return
     loadingId = draft.id; notice = ''
@@ -221,7 +272,7 @@
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, 15_000)
     const refresh = () => { if (document.visibilityState === 'visible') void load() }
     document.addEventListener('visibilitychange', refresh)
-    return () => { life.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', refresh) }
+    return () => { life.abort(); clearInterval(timer); clearTimeout(previewShowTimer); clearTimeout(previewHideTimer); document.removeEventListener('visibilitychange', refresh) }
   })
 </script>
 
@@ -293,7 +344,7 @@
               {@const detailOpen = expanded.includes(item.key)}
               {@const detailId = `${id}-${stage.id}-${index}-details`}
               <article class="session-card" class:attention={session?.attention === 'waiting'} class:starting={working === draft?.id} class:dragging={!!draft && dragDraft === draft.id} data-status={session ? sessionStatus(session) : undefined} draggable={draft ? !draft.starting && !working && !loadingId : undefined} ondragstart={draft ? event => dragStart(event, draft) : undefined} ondragend={draft ? dragEnd : undefined}>
-                <div class="card-top"><span class="project-label" title={project?.name ?? item.dir}><BoardIcon name="folder" size={13}/>{project?.name || (item.projectId ? 'Removed project' : item.dir.split('/').filter(Boolean).at(-1) || 'Home folder')}</span>{#if draft?.idea}<span class="idea-badge">Idea</span>{/if}{#if draft?.imageCount}<span class="image-count" title={`${draft.imageCount} reference images`}><BoardIcon name="image" size={13}/>{draft.imageCount}</span>{/if}<div class="card-tools">{#if hasDetails}<button type="button" class="disclosure" aria-expanded={detailOpen} aria-controls={detailId} aria-label={`${detailOpen ? 'Hide' : 'Show'} details for ${item.title}`} title={detailOpen ? 'Hide details' : 'Show details'} onclick={() => toggleDetails(item.key)}><span class="disclosure-text" aria-hidden="true">{detailOpen ? 'Hide' : 'Details'}</span><BoardIcon name="chevron" size={13}/></button>{/if}{#if session}<button class="more" aria-label={`Actions for ${item.title}`} onclick={e => void actions?.openMenu(e, session)}><BoardIcon name="more"/></button>{/if}</div></div>
+                <div class="card-top"><span class="project-label" title={project?.name ?? item.dir}><BoardIcon name="folder" size={13}/>{project?.name || (item.projectId ? 'Removed project' : item.dir.split('/').filter(Boolean).at(-1) || 'Home folder')}</span>{#if draft?.idea}<span class="idea-badge">Idea</span>{/if}{#if draft?.imageCount}<button type="button" class="image-count" aria-label={`Preview ${draft.imageCount} reference ${draft.imageCount === 1 ? 'image' : 'images'}`} aria-haspopup="dialog" onpointerenter={event => showImagePreview(draft, event.currentTarget)} onpointerleave={() => hideImagePreview(160)} onfocus={event => showImagePreview(draft, event.currentTarget, false)} onblur={() => hideImagePreview()} onclick={() => void openImageLightbox(draft)}><BoardIcon name="image" size={13}/>{draft.imageCount}</button>{/if}<div class="card-tools">{#if hasDetails}<button type="button" class="disclosure" aria-expanded={detailOpen} aria-controls={detailId} aria-label={`${detailOpen ? 'Hide' : 'Show'} details for ${item.title}`} title={detailOpen ? 'Hide details' : 'Show details'} onclick={() => toggleDetails(item.key)}><span class="disclosure-text" aria-hidden="true">{detailOpen ? 'Hide' : 'Details'}</span><BoardIcon name="chevron" size={13}/></button>{/if}{#if session}<button class="more" aria-label={`Actions for ${item.title}`} onclick={e => void actions?.openMenu(e, session)}><BoardIcon name="more"/></button>{/if}</div></div>
                 <h4>{#if session}<a href={sessionHref(session)}>{item.title}</a>{:else}<button onclick={e => draft && void edit(draft, e.currentTarget)} disabled={!!loadingId || !!draft?.starting}>{item.title}</button>{/if}</h4>
                 {#if hasDetails}<div class="details" class:open={detailOpen} id={detailId} inert={!detailOpen}><div class="details-inner">{#if draft}<p class="prompt-preview">{detailText}</p>{:else}<p class="branch" title={session?.worktreeBranch}>↳ {detailText}</p>{/if}</div></div>{/if}
                 <div class="agent-meta"><span class="agent-icon">{item.tool ? toolName(item.tool).slice(0, 1) : '›'}</span><strong>{item.tool ? toolName(item.tool) : 'Shell'}</strong><span class="model" title={item.model || 'Agent default'}>{item.model || 'Agent default'}</span>{#if item.effort}<span class="effort">{item.effort}</span>{/if}</div>
@@ -320,6 +371,13 @@
 {#if yoloAsk}<YoloDialog gates={yoloGateList} tool={yoloAsk.tool} structured={yoloAsk.chat === true} machine={machineNames.get(yoloAsk.agentId) || 'the machine'} oncancel={cancelYolo} onstart={confirmYolo} />{/if}
 {#if composer}<SessionComposer draft={composer.draft} startNow={composer.start === true} {startCheck} {projects} {machines} {profile} {initialProject} onsaved={saved} onclose={closeComposer} onerror={error}/>{/if}
 {#if removing}<dialog class="delete-dialog" bind:this={deleteDialog} aria-labelledby={`${id}-delete`} oncancel={e => { if (deleteBusy) e.preventDefault(); else removing = null }}><h2 id={`${id}-delete`}>Delete this backlog item?</h2><p>“{removing.title}” and its saved images will be removed.</p><div><button class="btn" disabled={deleteBusy} onclick={() => removing = null}>Keep session</button><button class="btn primary" disabled={deleteBusy} aria-busy={deleteBusy} onclick={() => void remove()}>{deleteBusy ? 'Deleting…' : 'Delete item'}</button></div></dialog>{/if}
+{#if imagePreview}
+  {@const previewDraft = imagePreview.draft}
+  {#key previewDraft.id}
+    <DraftImagePreview images={imageCache[previewDraft.id] ?? []} count={previewDraft.imageCount} loading={!!imageLoading[previewDraft.id]} error={imageErrors[previewDraft.id] ?? ''} anchor={imagePreview.anchor} onenter={keepImagePreview} onleave={() => hideImagePreview(160)} />
+  {/key}
+{/if}
+{#if lightbox}<ImageLightbox items={lightbox.items} index={lightbox.index} onclose={() => lightbox = null} />{/if}
 <SessionActions bind:this={actions} machines={health} {offline} terminals={machines} {removeDefault} {onsignedout} {onchanged} onnotice={n => notice = n?.text ?? ''}/>
 
 <style>
@@ -376,7 +434,7 @@
   .session-card[draggable='true'] { cursor: grab; }.session-card.dragging { opacity: .55; cursor: grabbing; }
   .session-card[data-status] { box-shadow: inset 3px 0 var(--status), 0 2px 3px color-mix(in srgb, var(--ink) 1%, transparent); }
   .session-card[data-status='working'], .session-card[data-status='waiting'], .session-card[data-status='starting'], .session-card[data-status='failed'] { background: color-mix(in srgb, var(--status) 4%, var(--card)); }.session-card.attention { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }.session-card.starting { border-color: var(--accent-text); }
-  .card-top { display: flex; align-items: center; gap: 7px; min-height: 18px; color: var(--muted); font-size: 14px; }.project-label { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.project-label :global(svg) { flex-shrink: 0; }.image-count { display: flex; align-items: center; gap: 3px; }
+  .card-top { display: flex; align-items: center; gap: 7px; min-height: 18px; color: var(--muted); font-size: 14px; }.project-label { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.project-label :global(svg) { flex-shrink: 0; }.image-count { display: flex; align-items: center; gap: 3px; flex: none; min-height: 22px; padding: 1px 5px; margin: -1px -3px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; transition: color .15s, background-color .15s, border-color .15s; }.image-count:hover, .image-count:focus-visible { color: var(--ink); background: var(--bg-sunk); border-color: var(--line); }.image-count :global(svg) { flex: none; }
   .card-tools { display: flex; align-items: center; gap: 1px; margin-left: auto; }
   .disclosure { display: inline-flex; align-items: center; gap: 3px; border: 0; background: transparent; color: var(--muted); margin: -4px -3px -4px 0; padding: 5px 5px; cursor: pointer; border-radius: 4px; font: 500 14px var(--sans); min-height: 24px; }.disclosure:hover { background: var(--bg-sunk); color: var(--ink-soft); }.disclosure:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }.disclosure :global(svg) { transition: transform .18s ease; }.disclosure[aria-expanded='true'] :global(svg) { transform: rotate(180deg); }
   .more { border: 0; background: transparent; color: var(--muted); margin: -4px -5px -4px 0; padding: 5px; cursor: pointer; display: flex; border-radius: 4px; }.more:hover { background: var(--bg-sunk); }

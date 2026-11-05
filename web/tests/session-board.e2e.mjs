@@ -10,9 +10,11 @@ const project = (id, name, dir, host = 'm1') => ({ id, name, host, machine: host
 const projects = [project('p1', 'Reet', '/home/sam/reet'), project('p2', 'Storefront', '/home/sam/storefront'), project('p3', 'Personal site', '/Users/sam/site', 'm2')]
 const draft = (id, title, prompt, over = {}) => ({ id, title, prompt, agentId: 'm1', projectId: 'p1', dir: '/home/sam/reet', tool: 'claude', model: 'sonnet', effort: '', imageCount: 0, images: [], starting: false, version: 1, createdAt: now - 40 * minute, updatedAt: now - 20 * minute, ...over })
 const session = (id, title, over = {}) => ({ id, title, agentId: 'm1', projectId: 'p1', dir: '/home/sam/reet', state: 'running', tool: 'codex', model: 'gpt-5-codex', attention: 'working', createdAt: now - 80 * minute, updatedAt: now - 5 * minute, exitCode: null, ...over })
+const pixel = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='
+const referenceImages = [{ name: 'layout-reference.png', data: pixel }, { name: 'spacing-notes.png', data: pixel }]
 async function workspace(width = 1440, theme = 'light', touch = false, entry = '/') {
   const box = {
-    drafts: [draft('draft-design', 'Give the settings page a proper polish', 'Refine the account settings layout. Focus on spacing, clear labels and a calmer visual hierarchy.', { imageCount: 2 }), draft('draft-tests', 'Cover the session recovery edge cases', 'Add focused coverage for a reconnect after the browser goes offline.', { tool: 'cline', model: 'anthropic/claude-sonnet', effort: 'high', projectId: 'p2', dir: '/home/sam/storefront' }), draft('draft-site', 'Bring the case studies up to date', 'Refresh the project stories and add the new screenshots.', { agentId: 'm2', projectId: 'p3', dir: '/Users/sam/site', tool: 'opencode', model: 'anthropic/claude-sonnet' })],
+    drafts: [draft('draft-design', 'Give the settings page a proper polish', 'Refine the account settings layout. Focus on spacing, clear labels and a calmer visual hierarchy.', { imageCount: referenceImages.length, images: referenceImages }), draft('draft-tests', 'Cover the session recovery edge cases', 'Add focused coverage for a reconnect after the browser goes offline.', { tool: 'cline', model: 'anthropic/claude-sonnet', effort: 'high', projectId: 'p2', dir: '/home/sam/storefront' }), draft('draft-site', 'Bring the case studies up to date', 'Refresh the project stories and add the new screenshots.', { agentId: 'm2', projectId: 'p3', dir: '/Users/sam/site', tool: 'opencode', model: 'anthropic/claude-sonnet' })],
     sessions: [session('s1', 'Build a faster project picker'), session('s2', 'Review the checkout changes', { attention: 'waiting', tool: 'claude', model: 'opus', projectId: 'p2', dir: '/home/sam/storefront' }), session('s3', 'Tidy up the keyboard shortcuts', { state: 'exited', attention: 'finished', exitCode: 0, updatedAt: now - 35 * minute }), session('s4', 'Document the new launch options', { state: 'ended', attention: 'finished', tool: 'claude', model: 'sonnet', updatedAt: now - 90 * minute })],
     starts: [], saves: [], updates: [], deletes: [], failList: false,
   }
@@ -25,6 +27,8 @@ async function workspace(width = 1440, theme = 'light', touch = false, entry = '
     '/api/v2/model-favourites': { favourites: [] },
     '/api/v2/terminal/yolo': { allowed: false },
     '/api/v2/settings/yolo': { allowed: true },
+    '/api/v2/machines/m1/uploads': () => ({ headers: { 'X-Reet-Upload-Path': encodeURIComponent('/tmp/reference.png'), 'X-Reet-Upload-Reference': encodeURIComponent('@/tmp/reference.png') } }),
+    '/api/v2/machines/m2/uploads': () => ({ headers: { 'X-Reet-Upload-Path': encodeURIComponent('/tmp/reference.png'), 'X-Reet-Upload-Reference': encodeURIComponent('@/tmp/reference.png') } }),
     '/api/v2/session-backlog': request => {
       if (request.method() === 'POST') {
         const input = request.postDataJSON(); box.saves.push(input)
@@ -109,6 +113,31 @@ try {
   await expect(detailCard.locator('.details')).not.toHaveAttribute('inert', '')
   await hideDetails.click()
   await expect(showDetails).toHaveAttribute('aria-expanded', 'false')
+  // A card with reference images previews them on hover or keyboard focus, and the icon opens them full size.
+  const badge = detailCard.getByRole('button', { name: 'Preview 2 reference images', exact: true })
+  await expect(badge).toHaveAttribute('aria-haspopup', 'dialog')
+  await badge.hover()
+  const imagePreview = page.getByRole('tooltip')
+  await expect(imagePreview).toBeVisible()
+  await expect(imagePreview.getByRole('img')).toHaveCount(2)
+  await expect(imagePreview).toContainText('layout-reference.png')
+  await expect(imagePreview).toContainText('spacing-notes.png')
+  await expect(imagePreview).toContainText('Click the image icon to view full size')
+  const previewBox = await imagePreview.boundingBox(), badgeBox = await badge.boundingBox()
+  expect(previewBox.y).toBeGreaterThanOrEqual(badgeBox.y + badgeBox.height)
+  expect(previewBox.x).toBeGreaterThanOrEqual(0)
+  expect(previewBox.x + previewBox.width).toBeLessThanOrEqual(page.viewportSize().width)
+  await page.screenshot({ path: '../work/screenshots/session-image-preview.png' })
+  await badge.click()
+  const imageLightbox = page.getByRole('dialog', { name: 'Image preview: layout-reference.png', exact: true })
+  await expect(imageLightbox).toBeVisible()
+  await expect(imageLightbox.getByRole('img')).toHaveAttribute('src', pixel)
+  await page.keyboard.press('Escape')
+  await expect(imageLightbox).toHaveCount(0)
+  await badge.focus()
+  await expect(imagePreview).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(imagePreview).toHaveCount(0)
   await page.getByRole('button', { name: /^Backlog/ }).click()
   await expect(page.locator('.stage')).toHaveCount(1); await expect(page.locator('.session-card')).toHaveCount(3)
   await page.screenshot({path:'../work/screenshots/session-backlog-focus.png',fullPage:true})

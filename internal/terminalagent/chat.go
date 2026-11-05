@@ -608,7 +608,7 @@ func chatUnavailable(cs *chatSession) bool {
 
 func (h *chatHost) startPrompt(cs *chatSession, text string, images []acpagent.Attachment) bool {
 	h.sup.mu.Lock()
-	if chatUnavailable(cs) {
+	if h.sup.closed || chatUnavailable(cs) {
 		h.sup.mu.Unlock()
 		return false
 	}
@@ -1400,6 +1400,10 @@ func (h *chatHost) setModel(ctx context.Context, sessionID, model string) error 
 		return terminalhost.ErrSessionMissing
 	}
 	h.sup.mu.Lock()
+	if h.sup.closed {
+		h.sup.mu.Unlock()
+		return terminalhost.ErrManagerClosed
+	}
 	if chatUnavailable(cs) {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict
@@ -1440,6 +1444,10 @@ func (h *chatHost) setAgentMode(ctx context.Context, sessionID, mode string) err
 		return terminalhost.ErrSessionMissing
 	}
 	h.sup.mu.Lock()
+	if h.sup.closed {
+		h.sup.mu.Unlock()
+		return terminalhost.ErrManagerClosed
+	}
 	if chatUnavailable(cs) {
 		h.sup.mu.Unlock()
 		return terminalhost.ErrOperationConflict

@@ -51,6 +51,13 @@
     context = { item, x: Math.min(Math.max(8, x), Math.max(8, innerWidth - 248)), y: Math.max(8, Math.min(y, innerHeight - 290)) }
     onopen?.(item)
     await tick()
+    // Measure the menu once it is drawn: its height grows with the text size, so a fixed allowance cannot keep a long
+    // menu (the list view's actions on a phone) above the bottom edge.
+    if (menu) {
+      const rect = menu.getBoundingClientRect()
+      menu.style.left = `${Math.max(8, Math.min(parseFloat(menu.style.left) || rect.left, innerWidth - rect.width - 8))}px`
+      menu.style.top = `${Math.max(8, Math.min(parseFloat(menu.style.top) || rect.top, innerHeight - rect.height - 8))}px`
+    }
     menu?.querySelector<HTMLElement>('[role=menuitem]:not(:disabled):not([aria-disabled=true])')?.focus()
   }
   export function closeMenu(focus = true) { context = null; onclose?.(); if (focus) returnFocus?.focus() }

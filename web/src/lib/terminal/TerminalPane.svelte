@@ -582,6 +582,12 @@
     /* With the keyboard open there are too few rows for the header; it returns when the keyboard closes. */
     .pane.keyboard>header {display:none}
   }
+  /* A short window owes its height to the shell, however narrow: trim the chrome's padding and keep the status on one
+     line so the terminal keeps enough rows to lay out. */
+  @media(max-height:500px) {
+    .pane>header,.terminal-toolbar,footer {padding-top:0;padding-bottom:0}
+    footer .link-state {white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  }
   /* The Alt+Shift+M advice is for a hardware keyboard; the Restore size button stays. */
   @media(hover:none) and (pointer:coarse) {.maximise-hint {display:none}}
   /* A touch tablet: the pane's header, menu and footer controls are 44 px; the terminal's own keys (toolbar and extra keys) stay 40 px, as the spec allows. */

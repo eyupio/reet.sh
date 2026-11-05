@@ -43,6 +43,8 @@ export type WorktreeTarget = { agentId: string; project: string; repo: string; r
 export type WorktreeStatus = {
   path: string; branch: string; changed: number; unpushed: number; paths: string[]
   unreferenced: number; hidden: number; nested: boolean; incomplete: boolean
+  /** Identifies the uncommitted changes shown; a discard repeats it. Absent from a machine that is not up to date. */
+  fingerprint?: string
 }
 
 /** Go's path.Clean: one slash between parts, no `.` parts, and each `..` removes the part before it (never above /). */
@@ -116,22 +118,37 @@ export function projectRefusalText(status: number, code?: string, message?: stri
 }
 
 /**
- * What stops a worktree from being removed, in the spec's sentences. Uncommitted changes always block: they are shown, and
- * the person commits, stashes or discards them in the worktree and checks again. Only unpushed commits can be removed with,
- * because they stay on the branch.
+ * What stops a worktree from being removed, in the spec's sentences. Uncommitted changes do not block: they are shown with
+ * a warning (see `discardWarning`) and removed only when the person confirms discarding them. Unpushed commits stay on the
+ * branch. Everything listed here can never be confirmed away.
  */
 export function worktreeBlockers(s: WorktreeStatus): string[] {
   const out: string[] = []
-  if (s.changed > 0) out.push(codeSentence('has_changes'))
   if (s.unreferenced > 0) out.push(codeSentence('unreferenced_commits'))
   if (s.hidden > 0) out.push(codeSentence('hidden_changes'))
   if (s.nested) out.push(codeSentence('nested_repository'))
   if (s.incomplete) out.push(codeSentence('check_incomplete'))
+  if (s.changed > 0 && !s.fingerprint) out.push('Update reet on that machine to remove a worktree that has uncommitted changes.')
   return out
+}
+
+/**
+ * The warning for a worktree with uncommitted changes, or '' when it has none. With a pull request the work is likely
+ * safe on GitHub but the changes still go; with none (or none that could be checked) the work exists only in this folder.
+ */
+export function discardWarning(s: WorktreeStatus, pull?: { number: number } | null): string {
+  if (s.changed <= 0) return ''
+  const files = `${s.changed} ${s.changed === 1 ? 'file' : 'files'} with uncommitted changes`
+  if (pull) return `This worktree has ${files}. Pull request #${pull.number} exists, but these changes are not in it and will be deleted.`
+  return `This worktree has ${files} and no pull request was found for its branch. Removing it deletes that work for good.`
 }
 
 /** The confirmation for a remove, with the counts that were shown (and that the remove request repeats). */
 export function removeConfirmText(s: WorktreeStatus): string {
+  if (s.changed > 0) {
+    const kept = s.unpushed === 0 ? '' : ` Its ${s.unpushed} unpushed ${s.unpushed === 1 ? 'commit stays' : 'commits stay'} on the branch.`
+    return `Remove the worktree at ${s.path} and delete its uncommitted changes?${kept} Ignored files in it, such as .env or node_modules, are deleted with the folder. ${branchKept(s.branch)}`
+  }
   const unpushed = s.unpushed === 0 ? 'no unpushed commits' : `${s.unpushed} unpushed ${s.unpushed === 1 ? 'commit, which stays' : 'commits, which stay'} on the branch`
   return `Remove the worktree at ${s.path}? It has no uncommitted changes and ${unpushed}. Ignored files in it, such as .env or node_modules, are deleted with the folder. ${branchKept(s.branch)}`
 }

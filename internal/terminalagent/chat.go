@@ -350,8 +350,11 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 // transcript, so only what happens after the start reaches it.
 func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create, dropReplay bool) (terminalproto.SessionChanged, error) {
 	if in.Tool == agentsoftware.OpenCodeTool {
-		softwareGate.RLock()
-		defer softwareGate.RUnlock()
+		release, err := lockSoftwareRead(h.sup.ctx)
+		if err != nil {
+			return terminalproto.SessionChanged{}, terminalhost.ErrManagerClosed
+		}
+		defer release()
 	}
 	h.sup.mu.Lock()
 	if h.sup.closed {
@@ -1366,6 +1369,8 @@ func chatResult(err error) terminalproto.Result {
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: acpagent.ErrClineLogin.Error()}
 	case errors.Is(err, acpagent.ErrNoStoredConversation):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "This chat has no stored conversation on the machine yet, so it could not be reconnected. Start a new chat."}
+	case errors.Is(err, acpagent.ErrAntigravityLogin):
+		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: acpagent.ErrAntigravityLogin.Error()}
 	case errors.Is(err, acpagent.ErrUnsupported):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "That agent does not support chats on this machine."}
 	case errors.Is(err, acpagent.ErrPluginsUnreadable):

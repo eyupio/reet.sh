@@ -178,11 +178,15 @@ test('Enter sends on a hardware keyboard; Shift+Enter adds a line; touch never s
 test('title from the first line', () => {
   assert.equal(defaultTitle('Fix the failing tests\nThen push'), 'Fix the failing tests')
   assert.equal(defaultTitle('\n  \n  Docs pass  \nmore'), 'Docs pass')
-  assert.equal(defaultTitle('x'.repeat(90)), 'x'.repeat(80))
-  assert.equal(defaultTitle('é'.repeat(81)), 'é'.repeat(80))
-  assert.equal(defaultTitle('tab\there\u200bnow'), 'tab herenow')
+  // A long first line is cut at a word, or at 60 characters when it has none, with an ellipsis.
+  assert.equal(defaultTitle('x'.repeat(90)), 'X' + 'x'.repeat(59) + '…')
+  assert.equal(defaultTitle('é'.repeat(81)), 'é'.repeat(60) + '…')
+  assert.equal(defaultTitle('tab\there\u200bnow'), 'Tab herenow')
   assert.equal(defaultTitle(''), '')
   assert.equal(defaultTitle('', 'Claude Code · reet'), 'Claude Code · reet')
+  // Greetings and "please" are not the work; a prompt with nothing in it falls back.
+  assert.equal(defaultTitle('Hi, can you please fix the login redirect loop on staging? It started after the deploy.'), 'Fix the login redirect loop on staging')
+  assert.equal(defaultTitle('hi', 'Claude Code · reet'), 'Claude Code · reet')
 })
 
 test('a prompt starting with - is refused with the launch sentence', () => {
@@ -553,4 +557,18 @@ test('Gaffer offers the effort its machine advertises', () => {
   assert.ok(slots(parts).includes('effort'))
   assert.equal(words(parts), 'Run Codex in Gaffer with default on reet at studio · thinking ultra')
   assert.equal(summary(parts), 'Codex on reet at studio · thinking ultra')
+})
+
+test('AGY Gaffer needs its own descriptor and folder trust', () => {
+ const agent={tool:'antigravity',adapter:'agy',state:'available',minimumVersion:'1.5.0',model:true,approval:true,options:[{id:'thought_level',category:'thought_level',values:['low','medium','high']}]}
+ const target=machine('m-studio','studio',{tools:['antigravity'],acp:true,acpStartOptions:true,acpAgents:[agent]})
+ const picked={...reet,defaultTool:'antigravity'}
+ const selected={...initialChoice([picked],profile,{machines:[target]}),model:'gemini-4-argon',effort:'medium'}
+ assert.equal(selected.chat,true)
+ assert.match(startable(selected,[picked],[target]),/trust this folder/)
+ const trusted={...selected,trust:true}
+ assert.equal(startable(trusted,[picked],[target]),null)
+ assert.deepEqual(toCreate(trusted,picked,'r'.repeat(16),'a'.repeat(16)).launch,{tool:'antigravity',structured:true,trust:true,model:'gemini-4-argon',dir:picked.dir,projectId:picked.id,effort:'medium'})
+ target.capabilities.acpAgents=[]
+ assert.match(startable(trusted,[picked],[target]),/does not offer Gaffer/)
 })

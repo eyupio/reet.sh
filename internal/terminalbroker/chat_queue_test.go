@@ -186,3 +186,38 @@ func TestQueueWillNotPassWaitingOrUncertainMessage(t *testing.T) {
 		t.Fatal(q)
 	}
 }
+
+func TestEnqueueChatSendsAtOnceWhenIdleAndQueuesWhenWorking(t *testing.T) {
+	working := false
+	prompts := 0
+	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		switch m.Body.(type) {
+		case *terminalproto.ACPControl:
+			return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Working: working, Options: []terminalproto.ACPSetting{}}}, true
+		case *terminalproto.ACPPrompt:
+			prompts++
+		}
+		return nil, true
+	})
+	s := chatSession(t, b, uid, agent)
+	if err := b.EnqueueChat(uid, s.ID, ID(), "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	if prompts != 1 {
+		t.Fatalf("idle message waited for the queue worker: %d prompts", prompts)
+	}
+	if q, _ := b.st.TerminalQueueFor(uid, s.ID); len(q) != 0 {
+		t.Fatalf("delivered message stayed in the queue: %+v", q)
+	}
+	working = true
+	if err := b.EnqueueChat(uid, s.ID, ID(), "next", nil); err != nil {
+		t.Fatal(err)
+	}
+	if prompts != 1 {
+		t.Fatalf("message for a working agent was sent directly: %d prompts", prompts)
+	}
+	q, _ := b.st.TerminalQueueFor(uid, s.ID)
+	if len(q) != 1 || q[0].State != "queued" {
+		t.Fatalf("busy message was not queued: %+v", q)
+	}
+}

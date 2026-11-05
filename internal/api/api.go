@@ -41,31 +41,32 @@ import (
 )
 
 type server struct {
-	importMu     sync.Mutex
-	st           *store.Store
-	f            meta.Fetcher
-	token        string
-	version      string
-	commit       string
-	debug        bool
-	topics       bool
-	refreshJob   bool
-	authMode     AuthMode
-	signup       bool
-	supportDesk  bool
-	contactEmail string
-	limiter      *auth.Limiter
-	dummyHash    string
-	oauthLimiter *auth.Limiter
-	publicURL    string
-	defaultUser  store.User
-	queue        chan ref.Ref
-	stop         chan struct{}
-	stopOnce     sync.Once
-	backups      *backup.Service
-	mail         *mail.Mailer
-	notify       *notify.Service
-	releases     *agentupdate.Checker
+	importMu       sync.Mutex
+	st             *store.Store
+	f              meta.Fetcher
+	token          string
+	version        string
+	commit         string
+	debug          bool
+	topics         bool
+	refreshJob     bool
+	maintenanceJob bool
+	authMode       AuthMode
+	signup         bool
+	supportDesk    bool
+	contactEmail   string
+	limiter        *auth.Limiter
+	dummyHash      string
+	oauthLimiter   *auth.Limiter
+	publicURL      string
+	defaultUser    store.User
+	queue          chan ref.Ref
+	stop           chan struct{}
+	stopOnce       sync.Once
+	backups        *backup.Service
+	mail           *mail.Mailer
+	notify         *notify.Service
+	releases       *agentupdate.Checker
 
 	sso                *oidc.Provider
 	ssoLimiter         *auth.Limiter
@@ -155,6 +156,11 @@ func WithDebug(debug bool) Option {
 // WithTopics enables the daily skills.sh topic seed.
 func WithTopics(enabled bool) Option {
 	return func(s *server) { s.topics = enabled }
+}
+
+// WithMaintenance enables the scheduled machine maintenance sweeps (off until an admin turns them on).
+func WithMaintenance(enabled bool) Option {
+	return func(s *server) { s.maintenanceJob = enabled }
 }
 
 // WithRefresh enables the six-hourly metadata refresh.
@@ -318,6 +324,9 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	if s.refreshJob {
 		go s.refreshWorker()
 	}
+	if s.maintenanceJob {
+		go s.maintenanceWorker()
+	}
 	s.healthHub = agenthealth.NewHub(agenthealth.HubConfig{Store: st, Logf: func(format string, args ...any) {
 		log.Printf("machine health: "+format, args...)
 	}})
@@ -421,6 +430,10 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/admin/settings", s.requireOwner(s.adminSettings))
 	mux.HandleFunc("GET /api/v2/settings/yolo", s.requireWriter(s.yoloSettingGet))
 	mux.HandleFunc("PUT /api/v2/settings/yolo", s.requireAdmin(s.yoloSettingPut))
+	mux.HandleFunc("GET /api/v2/maintenance", s.requireWriter(s.maintenanceGet))
+	mux.HandleFunc("PUT /api/v2/maintenance/worktrees", s.requireAdmin(s.maintenancePut))
+	mux.HandleFunc("POST /api/v2/maintenance/worktrees/scan", s.terminal(s.maintenanceWorktreeScan))
+	mux.HandleFunc("POST /api/v2/maintenance/worktrees/clean", s.terminal(s.maintenanceWorktreeClean))
 	mux.HandleFunc("GET /api/v2/settings/branch-prune", s.requireWriter(s.branchPruneSettingGet))
 	mux.HandleFunc("PUT /api/v2/settings/branch-prune", s.requireAdmin(s.branchPruneSettingPut))
 	mux.HandleFunc("GET /api/export", s.requireWriter(s.export))

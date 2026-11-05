@@ -90,3 +90,17 @@ export function visibleProjects<P extends ProjectLike>(
   })
   return { shown, hidden: projects.length - shown.length }
 }
+
+/** The group key of a session that belongs to no project. */
+export const NO_PROJECT = '__no_project__'
+
+/** The project-tree group a session sits under: its project, else the "No project" group. */
+export function projectGroupKey(session: { projectId?: string | null }): string {
+  return session.projectId || NO_PROJECT
+}
+
+/** Project groups in the order the projects are listed; a project no longer listed follows, and "No project" is last. */
+export function orderProjectGroups<G extends { key: string }>(groups: readonly G[], projectIds: readonly string[]): G[] {
+  const rank = (key: string) => (key === NO_PROJECT ? Number.MAX_SAFE_INTEGER : projectIds.includes(key) ? projectIds.indexOf(key) : projectIds.length)
+  return [...groups].sort((a, b) => rank(a.key) - rank(b.key))
+}

@@ -27,6 +27,14 @@ says so and Start waits.
 
 ## Gaffer or the agent TUI
 
+Google Antigravity (AGY) offers **Gaffer** on an updated machine that reports its
+native ACP integration. Choose **Google Antigravity (AGY) TUI** for its terminal
+instead. Gaffer uses AGY's configured permission rules, displays its approval
+requests, and supports model/effort choices, images and continuing closed chats
+with history. Workspace hooks and customizations may run, so start only in a
+folder you trust. Sign in with `agy` on that machine first. See
+[AGY in Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md#google-antigravity-agy-in-gaffer).
+
 For OpenCode (1.19.5 or newer) or Cline (3.0.74 or newer) on a machine that advertises `acp`, the dialog's **Session**
 choice is **Gaffer** by default; choose the agent's own TUI for the terminal interface instead. A chat sends
 `structured: true`, and OpenCode also sends the person's trust confirmation. The **Model** control chooses the model;
@@ -45,8 +53,9 @@ conversation into a new session row. The conditions, deadlines and limits are in
 
 For a plain shell, **New session**, the workspace’s **✦ Start a new Terminal session**, and the
 sidebar machine menu’s **Terminal** open the terminal settings dialog. Choose its machine, enter an
-absolute folder path (or leave it empty for that machine’s home folder), and name the session before
-pressing **New terminal**. Changing draft settings or closing the dialog leaves the current session
+absolute folder path (or leave it empty for that machine’s home folder), and, if you like, name the
+session before pressing **New terminal**. Left empty, the name is Terminal, followed by the folder’s last
+part when you chose one (Terminal · api); the field shows it as you type the folder. Changing draft settings or closing the dialog leaves the current session
 in place. An unconfirmed creation preserves its original machine, folder, name and request ID for retry.
 
 ## Who sees it
@@ -83,10 +92,10 @@ several projects and for an address that hands Home projects (`#launch`, `/?proj
 `/?projects=<id>,<id>`). It is a **Describe the job** box, **Start**, and the launch sentence, whose
 bold words are the choices. It no longer sits docked at the foot of the page.
 
-For OpenCode or Cline on a machine that advertises `acp`, the sentence says **in Gaffer** by default and Start
-opens Gaffer instead of the agent terminal UI. For OpenCode, Home asks you to confirm **I trust this folder** first,
-because OpenCode runs any plugins in `.opencode` when Gaffer starts; Cline has no folder plugin warning. The **Gaffer**
-word switches it to **in the agent TUI**; the worktree and thinking choices come back for that terminal. The Model word
+For OpenCode, Cline or AGY on a machine that offers its Gaffer integration, the sentence says **in Gaffer** by default and Start
+opens Gaffer instead of the agent terminal UI. OpenCode and AGY ask you to confirm **I trust this folder** first:
+OpenCode plugins in `.opencode`, or AGY workspace hooks and customizations, may run. Cline has no folder plugin warning. The **Gaffer**
+word switches it to **in the agent TUI**; the worktree choices come back for that terminal. AGY also offers its supported effort choices in Gaffer. The Model word
 chooses the chat's model; leave it at **default** to use the agent's configured model. Gaffer runs in the chosen project
 folder (not a worktree) and can attach images through Home's existing pasted-image path. It starts in one folder at a time. A session's actions menu has **Open a terminal here…**, which starts a plain shell in
 the same folder as a separate session.
@@ -127,8 +136,14 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   that machine to list its branches."
 - **Starter prompt.** A project's starter prompt is offered as **Use the starter prompt** while the
   box is empty. It is never put in the box, or sent, by itself.
-- **Title.** The prompt's first line is the session's title, shown as Titled "…" before sending (and
-  stored as the session title); without a prompt it is \<Agent\> · \<folder name\>.
+- **Title.** The session is titled by the work the prompt asks for, shown as Titled "…" before sending (and
+  stored as the session title). That is the first line with something to say, without a greeting or
+  "please" ("Hi, can you please fix the login redirect loop? It started after the deploy." becomes
+  "Fix the login redirect loop"), up to the end of its first sentence and at most 60 characters, cut at a
+  word with an ellipsis. The `Use the {name} skill.` line the skills picker adds, code fences and lines of
+  punctuation are skipped. Without a prompt, or one with nothing to name it from, it is
+  \<Agent\> · \<folder name\>. A title you type is kept as typed. [Session titles](terminal-launch.md#session-titles)
+  says how the controller names a session whose request carries none.
 - **Keys.** Enter sends from a hardware keyboard; Shift+Enter adds a line. Ctrl+Enter and Cmd+Enter
   also send. On touch no key sends, Enter included: only **Start** does.
 - **Images.** Paste (or drop) a PNG, JPEG, GIF or WebP into the prompt to attach it. Each image is

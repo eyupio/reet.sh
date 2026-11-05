@@ -64,7 +64,7 @@
   }
   // Rename, End (with the remove-from-history choice) and Remove from history, each confirmed; then the list is read again.
   let action = $state<{ kind: 'rename' | 'end' | 'archive'; item: TerminalSession } | null>(null)
-  let rename = $state(''), removeOnEnd = $state(false), busy = $state(false)
+  let rename = $state(''), removeOnEnd = $state(false), busy = $state(false), alsoWorktree = $state(false)
   const endKeys = new Map<string, { key: string; remove: boolean }>()
   function begin(kind: 'rename' | 'end' | 'archive') {
     if (!context) return
@@ -72,6 +72,7 @@
     closeMenu(false)
     rename = item.title
     removeOnEnd = endKeys.get(item.id)?.remove ?? (item.state === 'end_requested' ? item.removeHistory ?? false : removeDefault)
+    alsoWorktree = false
     action = { kind, item }
   }
   function cancel() { action = null; returnFocus?.focus() }
@@ -82,7 +83,12 @@
     action = null; busy = true; onnotice(null)
     try {
       if (kind === 'rename') await renameTerminal(item.id, rename.trim())
-      else if (kind === 'archive') await archiveTerminal(item.id)
+      else if (kind === 'archive') {
+        await archiveTerminal(item.id)
+        // Removing the session never deletes its folder by itself: the usual worktree check opens, with its warning, and the person decides there.
+        const t = alsoWorktree ? worktreeTargetOf(item) : null
+        if (t) removing = { item, host: hostOf(item.agentId), target: t }
+      }
       else {
         let op = endKeys.get(item.id)
         if (!op) { op = { key: crypto.randomUUID(), remove: removeOnEnd }; endKeys.set(item.id, op) }
@@ -138,7 +144,11 @@
     <label class="option"><input type="checkbox" bind:checked={removeOnEnd} disabled={endKeys.has(action.item.id) || action.item.state === 'end_requested'} /><span>Remove from history when this session ends</span></label>
   </ConfirmDialog>
 {:else if action?.kind === 'archive'}
-  <ConfirmDialog title={`Remove ${action.item.title} from history?`} body={terminalArchiveBody(action.item.state)} confirmLabel="Remove from history" onconfirm={() => void perform()} oncancel={cancel} />
+  <ConfirmDialog title={`Remove ${action.item.title} from history?`} body={terminalArchiveBody(action.item.state)} confirmLabel="Remove from history" onconfirm={() => void perform()} oncancel={cancel}>
+    {#if worktreeTargetOf(action.item) && !live(action.item) && !offline.has(action.item.agentId)}
+      <label class="option"><input type="checkbox" bind:checked={alsoWorktree} /><span>Then check its worktree. You see any unsaved changes before anything is deleted.</span></label>
+    {/if}
+  </ConfirmDialog>
 {/if}
 {#if removing && member}
   <WorktreeDialog {member} host={removing.host} opener={returnFocus ?? null} onremoved={() => void onchanged()} onsignedout={onsignedout} onclose={() => (removing = null)} />

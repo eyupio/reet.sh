@@ -1,4 +1,4 @@
-import { isChatTool, structuredAgent, terminalClosed, type Capabilities, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
+import { chatNeedsTrust, isChatTool, structuredAgent, terminalClosed, type Capabilities, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
 import { groupSessions, sessionOwners, type Group, type GroupBy } from './home'
 import { toolName } from './agentLaunch'
 import { CATALOGUE } from './catalogue'
@@ -140,11 +140,11 @@ export function continueLaunch(s: Pick<TerminalSession, 'state' | 'tool' | 'mode
 }
 
 /** A closed structured chat reopens as a new row that asks the machine to load that agent's stored history. The old row
- *  stays in history. Trust is OpenCode's plugin warning; no other chat tool reads the folder's extensions. */
+ *  stays in history. Explicit continuation keeps the folder acknowledgement for agents that load workspace extensions. */
 export function continueChatLaunch(s: Pick<TerminalSession, 'state' | 'tool' | 'structured' | 'acpSessionId' | 'dir' | 'projectId' | 'model'>): LaunchRequest | null {
   if (!s.structured || !s.acpSessionId || !terminalClosed(s.state) || !isChatTool(s.tool)) return null
   const launch: LaunchRequest = { tool: s.tool as string, structured: true, resumeAcp: s.acpSessionId }
-  if (s.tool === 'opencode') launch.trust = true
+  if (chatNeedsTrust(s.tool)) launch.trust = true
   if (s.model) launch.model = s.model
   if (s.dir) launch.dir = s.dir
   if (s.projectId) launch.projectId = s.projectId
@@ -225,7 +225,7 @@ export function decisionsLine(s: Pick<TerminalSession, 'yolo' | 'structured'>): 
 export function switchModeState(session: TerminalSession, caps: Capabilities | undefined, busy: boolean): { to: 'terminal' | 'chat'; enabled: boolean; why: string } {
   const to = session.structured ? 'terminal' : 'chat'
   const no = (why: string) => ({ to, enabled: false, why } as const)
-  if (session.tool !== 'opencode') return no('Gaffer is for a structured OpenCode session.')
+  if (session.tool !== 'opencode') return no('Switching between Gaffer and the agent’s TUI is currently available for OpenCode only.')
   if (session.state !== 'running') return no('Only a running session can switch.')
   if (to === 'chat' && !session.acpSessionId) return no('This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.')
   // The controller also requires OpenCode to be one of the machine's launch tools (Capabilities.SessionModeFor); an absent list is unknown.

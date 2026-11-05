@@ -87,7 +87,9 @@ async function open(options={}) {
   window.EventSource = FakeEventSource
  }, !!options.chatHold)
  // The sessions panel's saved colours, as the workspace keeps them in this browser.
- if (options.colours) await opened.page.addInitScript(colors => localStorage.setItem('reet-terminal-layout:1:sessions', JSON.stringify({colors})), options.colours)
+ // These checks were written against the machine grouping; Project is the default now, so the panel is seeded with Machine.
+ if (!options.defaultGroup) await opened.page.addInitScript(colors => localStorage.setItem('reet-terminal-layout:1:sessions', JSON.stringify({group:'machine',...(colors?{colors}:{})})), options.colours)
+ else if (options.colours) await opened.page.addInitScript(colors => localStorage.setItem('reet-terminal-layout:1:sessions', JSON.stringify({colors})), options.colours)
  // A session's own writes: rename (PATCH), end and remove from history (POST).
  await opened.page.route('**/api/v2/terminal/sessions/*', async route => {
   const request = route.request(), id = decodeURIComponent(new URL(request.url()).pathname.split('/').pop())
@@ -123,7 +125,7 @@ const noSideScroll = page => page.evaluate(() => document.documentElement.scroll
 try {
  // The page itself: the heading, Group by shared with Home, the groups as the mock-up draws them, and the projects below.
  if (run('page')) {
-  const {context,page,errors,state} = await open()
+  const {context,page,errors,state} = await open({defaultGroup:true})
   await page.goto(`${base}/sessions?view=list`)
   await expect(page.getByRole('heading',{name:'Sessions',level:1})).toBeVisible()
   expect(await page.title()).toBe('Sessions · reet.sh')
@@ -674,11 +676,11 @@ try {
   await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
   await expect(view.getByRole('button',{name:'OpenCode TUI'})).toHaveAttribute('aria-pressed','true')
   await expect(view.getByRole('button',{name:'Gaffer'})).toHaveAttribute('aria-disabled','false')
-  // Another agent has no Gaffer at all.
+  // Another agent cannot switch between Gaffer and its TUI.
   await sidebarRow(page, 'Add browse-v1 protocol').click()
   const chat = view.getByRole('button',{name:'Gaffer'})
   await expect(chat).toHaveAttribute('aria-disabled','true')
-  await expect(chat).toHaveAccessibleDescription("Gaffer is for a structured OpenCode session. Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI.")
+  await expect(chat).toHaveAccessibleDescription("Switching between Gaffer and the agent’s TUI is currently available for OpenCode only. Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI.")
   await expect(view.getByRole('button',{name:'Claude Code TUI'})).toHaveAttribute('aria-pressed','true')
   // Choosing it changes nothing (it is aria-disabled, so it stays in the tab order with its reason).
   await chat.click({force:true})

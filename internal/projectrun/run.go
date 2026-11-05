@@ -42,10 +42,8 @@ import (
 	"log"
 	"path"
 	"slices"
-	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
@@ -152,30 +150,12 @@ func Title(project, dir string) string {
 }
 
 // SelectionTitle is the session title for a member of a start in several
-// projects, as a single launch titles one: the prompt's first line with text
-// (tabs as spaces, without invisible characters, at most
-// terminalproto.MaxTitleRunes characters), else the project's name.
+// projects, as a single launch titles one: what the prompt asks for
+// (terminalproto.PromptTitle: the first line with something to say, without
+// greetings or "please", at most 60 characters), else the project's name.
 func SelectionTitle(prompt, name string) string {
-	for _, line := range strings.Split(prompt, "\n") {
-		line = strings.TrimSpace(strings.Map(func(r rune) rune {
-			switch {
-			case r == '\t':
-				return ' '
-			case unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029':
-				return -1
-			}
-			return r
-		}, line))
-		if line == "" {
-			continue
-		}
-		if r := []rune(line); len(r) > terminalproto.MaxTitleRunes {
-			line = strings.TrimSpace(string(r[:terminalproto.MaxTitleRunes]))
-		}
-		if terminalproto.ValidTitle(line) {
-			return line
-		}
-		break
+	if title := terminalproto.PromptTitle(prompt); title != "" {
+		return title
 	}
 	return Title(name, "/")
 }

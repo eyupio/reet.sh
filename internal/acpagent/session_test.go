@@ -55,6 +55,10 @@ func TestFakeACP(t *testing.T) {
 	in := bufio.NewScanner(os.Stdin)
 	out := bufio.NewWriter(os.Stdout)
 	defer out.Flush()
+	if strings.HasPrefix(scenario, "antigravity-") {
+		runAntigravityHelper(in, out, scenario, version)
+		os.Exit(0)
+	}
 	send := func(v any) {
 		data, _ := json.Marshal(v)
 		_, _ = out.Write(append(data, '\n'))

@@ -24,6 +24,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/privateconn"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
+	"golang.org/x/sync/semaphore"
 )
 
 var (
@@ -48,9 +49,12 @@ var (
 	// 10 s; this leaves room for the reply and process reaping.
 	modelsAnswerAfter = 12 * time.Second
 	// softwareAnswerAfter is when an apply that has not returned is answered
-	// timed_out. The download itself stops at softwareApplyTimeout, which is
-	// shorter, so an answer never races a late install.
+	// timed_out. The install continues under softwareApplyWorkTimeout, and a
+	// later reconcile observes the version it left.
 	softwareAnswerAfter = 5*time.Minute + 30*time.Second
+	// softwareApplyWorkTimeout bounds how long an apply may hold the gate,
+	// including its download. It matches the controller's own apply timeout.
+	softwareApplyWorkTimeout = 21 * time.Minute
 	// modelListFloor is the shortest interval between two real listings for
 	// the same tool. Within it the connector answers its last result.
 	modelListFloor = 60 * time.Second
@@ -76,11 +80,33 @@ var (
 var softwareSlot = make(chan struct{}, 1)
 
 // softwareGate coordinates a software apply with new OpenCode sessions. An
-// apply holds it for writing from before the download until the installation
-// is recorded; the terminal and structured-chat launch paths hold it for
-// reading while they create an OpenCode session. That closes the window
-// between the controller's live-session check and the installation changing.
-var softwareGate sync.RWMutex
+// apply takes every token from before the download until the installation is
+// recorded; the terminal and structured-chat launch paths take one token while
+// they create an OpenCode session. That closes the window between the
+// controller's live-session check and the installation changing. A launch
+// waiting for an apply gives up with its request, and the apply gives up with
+// its work deadline, so neither can hold the other forever.
+const softwareGateTokens = 1 << 20
+
+var softwareGate = semaphore.NewWeighted(softwareGateTokens)
+
+// lockSoftwareRead waits for an apply to finish, or for ctx to end. The caller
+// must call the returned release.
+func lockSoftwareRead(ctx context.Context) (func(), error) {
+	if err := softwareGate.Acquire(ctx, 1); err != nil {
+		return nil, err
+	}
+	return func() { softwareGate.Release(1) }, nil
+}
+
+// lockSoftwareWrite waits for every launch to finish, or for ctx to end. The
+// caller must call the returned release.
+func lockSoftwareWrite(ctx context.Context) (func(), error) {
+	if err := softwareGate.Acquire(ctx, softwareGateTokens); err != nil {
+		return nil, err
+	}
+	return func() { softwareGate.Release(softwareGateTokens) }, nil
+}
 
 // modelListCacheEntry is one tool's last listing and when it was made.
 type modelListCacheEntry struct {
@@ -263,6 +289,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			}
 			if create, ok := msg.Body.(*terminalproto.Create); ok {
 				if create.Tool == "antigravity" && !terminalproto.SupportsAntigravity(headers.Get(terminalproto.FeatureHeader)) {
+					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
+					return send(callCtx, reply)
+				}
+				if create.Tool == "antigravity" && create.Structured && !terminalproto.SupportsAntigravityACP(headers.Get(terminalproto.FeatureHeader)) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)
 				}
@@ -530,14 +560,19 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplyBusy},
 					terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyFailed, Reason: terminalproto.SoftwareApplyTimedOut},
 					func(ctx context.Context) terminalproto.Body {
-						softwareGate.Lock()
-						defer softwareGate.Unlock()
+						workCtx, cancel := context.WithTimeout(ctx, softwareApplyWorkTimeout)
+						defer cancel()
+						release, err := lockSoftwareWrite(workCtx)
+						if err != nil {
+							return terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyFailed, Reason: terminalproto.SoftwareApplyTimedOut}
+						}
+						defer release()
 						// The controller checked before sending, but a session could
 						// have started since. Nothing else can now: every OpenCode
 						// launch waits on this gate.
 						live := chats.sup.liveTool(agentsoftware.OpenCodeTool)
 						if m != nil {
-							if sessions, err := m.List(ctx); err == nil {
+							if sessions, err := m.List(workCtx); err == nil {
 								for _, session := range sessions {
 									if session.Tool == agentsoftware.OpenCodeTool && session.State.ReservesQuota() {
 										live++
@@ -548,7 +583,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						if live > 0 {
 							return terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplySessions}
 						}
-						return applySoftware(ctx, opts.Home, req, exec.LookPath, terminalhost.SoftwareSource{
+						return applySoftware(workCtx, opts.Home, req, exec.LookPath, terminalhost.SoftwareSource{
 							// The controller may need minutes to fill a cold cache
 							// before it sends headers; the shared client gives up
 							// after 10 seconds.
@@ -855,8 +890,11 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					})
 				}
 				if op.Tool == agentsoftware.OpenCodeTool {
-					softwareGate.RLock()
-					defer softwareGate.RUnlock()
+					release, err := lockSoftwareRead(createCtx)
+					if err != nil {
+						return respond(err)
+					}
+					defer release()
 				}
 				s, err := m.Create(createCtx, msg.RequestID, msg.SessionID, *op)
 				if err != nil {

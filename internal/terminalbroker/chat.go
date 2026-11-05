@@ -112,6 +112,13 @@ type ChatEvent struct {
 	size int
 }
 
+// chatWrite is one persisted event waiting for the next batch flush.
+type chatWrite struct {
+	seq  int64
+	at   int64
+	data []byte
+}
+
 type chatLog struct {
 	controlMu sync.Mutex
 	mu        sync.Mutex
@@ -136,12 +143,23 @@ type chatLog struct {
 	lastState   string
 	// trims counts ring evictions since the last persisted transcript trim.
 	trims int
+	// writes buffers transcript rows for one batched commit; writeTimer bounds
+	// how long a quiet chat leaves its tail unpersisted.
+	writes     []chatWrite
+	writeTimer *time.Timer
+	writeMu    sync.Mutex
+	// flushWG counts batches that have left l.writes but have not finished
+	// their store commit. close waits for it before returning.
+	flushWG sync.WaitGroup
+	closing bool
 }
 
 const (
-	maxChatEvents = 1000
-	maxChatBytes  = 256 << 10
-	maxChatSubs   = 32
+	maxChatEvents  = 1000
+	maxChatBytes   = 256 << 10
+	maxChatSubs    = 32
+	chatWriteBatch = 32
+	chatWriteDelay = 200 * time.Millisecond
 )
 
 func newChatLog() *chatLog {
@@ -164,7 +182,14 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 	l.ensureLoaded()
 	nowMs := time.Now().UnixMilli()
 	l.mu.Lock()
-	defer l.mu.Unlock()
+	var batch []chatWrite
+	var trimSeq int64
+	// Persist after unlocking: subscribers and the ring must not wait for a WAL
+	// commit, and one batch commit replaces one fsync per streamed event.
+	defer func() {
+		l.mu.Unlock()
+		l.persist(batch, trimSeq)
+	}()
 	l.updatedAt = nowMs
 	switch event.Kind {
 	case "user":
@@ -370,11 +395,14 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 		}
 		l.truncated = true
 	}
-	if l.st != nil {
-		_ = l.st.AppendTerminalChatEventFor(l.uid, l.sessionID, l.seq, nowMs, data)
-		if l.trims++; l.trims >= 32 && len(l.events) > 0 {
-			l.trims = 0
-			_ = l.st.TrimTerminalChatEventsFor(l.uid, l.sessionID, l.events[0].Seq)
+	if l.st != nil && !l.closing {
+		l.writes = append(l.writes, chatWrite{seq: l.seq, at: nowMs, data: data})
+		if l.writeTimer == nil {
+			l.writeTimer = time.AfterFunc(chatWriteDelay, l.flushLater)
+		}
+		l.trims++
+		if len(l.writes) >= chatWriteBatch {
+			batch, trimSeq = l.takeWritesLocked()
 		}
 	}
 	for id, ch := range l.subs {
@@ -386,6 +414,60 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 			delete(l.subs, id)
 			close(ch)
 		}
+	}
+}
+
+// takeWritesLocked removes the queued rows and, when the ring has evicted
+// enough entries, the sequence below which the stored transcript can be
+// trimmed. The caller holds l.mu.
+func (l *chatLog) takeWritesLocked() ([]chatWrite, int64) {
+	if l.writeTimer != nil {
+		l.writeTimer.Stop()
+		l.writeTimer = nil
+	}
+	if len(l.writes) == 0 {
+		return nil, 0
+	}
+	batch := l.writes
+	l.writes = nil
+	l.flushWG.Add(1)
+	var trimSeq int64
+	if l.trims >= 32 && len(l.events) > 0 {
+		l.trims = 0
+		trimSeq = l.events[0].Seq
+	}
+	return batch, trimSeq
+}
+
+// flushLater persists a quiet chat's buffer once the write delay expires.
+func (l *chatLog) flushLater() {
+	l.mu.Lock()
+	batch, trimSeq := l.takeWritesLocked()
+	l.mu.Unlock()
+	l.persist(batch, trimSeq)
+}
+
+// persist writes one batch and trims the stored transcript afterwards. It
+// never runs while l.mu is held.
+func (l *chatLog) persist(batch []chatWrite, trimSeq int64) {
+	if len(batch) == 0 {
+		return
+	}
+	defer l.flushWG.Done()
+	if l.st == nil {
+		return
+	}
+	events := make([]store.StoredChatEvent, len(batch))
+	for i := range batch {
+		events[i] = store.StoredChatEvent{Seq: batch[i].seq, At: batch[i].at, Event: batch[i].data}
+	}
+	l.writeMu.Lock()
+	defer l.writeMu.Unlock()
+	if err := l.st.AppendTerminalChatEventsFor(l.uid, l.sessionID, events); err != nil {
+		return
+	}
+	if trimSeq > 0 {
+		_ = l.st.TrimTerminalChatEventsFor(l.uid, l.sessionID, trimSeq)
 	}
 }
 
@@ -533,10 +615,15 @@ func (l *chatLog) subscribe() (snapshot []ChatEvent, truncated bool, events <-ch
 	l.nextSub++
 	if len(l.subs) >= maxChatSubs {
 		// Oldest subscriber is dropped; its stream reconnects and resets.
-		for old, oldCh := range l.subs {
-			delete(l.subs, old)
-			close(oldCh)
-			break
+		oldest := -1
+		for id := range l.subs {
+			if oldest < 0 || id < oldest {
+				oldest = id
+			}
+		}
+		if oldest >= 0 {
+			close(l.subs[oldest])
+			delete(l.subs, oldest)
 		}
 	}
 	l.subs[id] = ch
@@ -567,11 +654,17 @@ func (l *chatLog) permissionEvent(permissionID string) (terminalproto.ACPEvent, 
 
 func (l *chatLog) close() {
 	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.closing = true
+	batch, trimSeq := l.takeWritesLocked()
 	for id, ch := range l.subs {
 		delete(l.subs, id)
 		close(ch)
 	}
+	l.mu.Unlock()
+	l.persist(batch, trimSeq)
+	// A timer callback may already have taken a batch and be committing it.
+	// Wait for it before the caller deletes the transcript or shuts down.
+	l.flushWG.Wait()
 }
 
 func (b *Broker) chatLog(uid int64, session string) *chatLog {

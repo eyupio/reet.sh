@@ -90,6 +90,8 @@ func loginError(spec Spec, err error) error {
 		return ErrClaudeLogin
 	case Cline.Key:
 		return ErrClineLogin
+	case Antigravity.Key:
+		return ErrAntigravityLogin
 	}
 	return nil
 }
@@ -750,13 +752,17 @@ func toolDetails(rawInput, rawOutput json.RawMessage) toolDetailsValue {
 	var detail toolDetailsValue
 	if len(rawInput) > 0 {
 		var input struct {
-			Command  string `json:"command"`
-			FilePath string `json:"filePath"`
-			Filepath string `json:"filepath"`
-			Path     string `json:"path"`
+			Command     string `json:"command"`
+			CommandLine string `json:"CommandLine"`
+			FilePath    string `json:"filePath"`
+			Filepath    string `json:"filepath"`
+			Path        string `json:"path"`
 		}
 		if json.Unmarshal(rawInput, &input) == nil {
 			detail.command = input.Command
+			if detail.command == "" {
+				detail.command = input.CommandLine
+			}
 			detail.path = firstNonEmpty(input.FilePath, input.Filepath, input.Path)
 		}
 	}
@@ -921,11 +927,12 @@ type permissionParams struct {
 		} `json:"_meta"`
 		Content  []permissionContent `json:"content"`
 		RawInput struct {
-			Command  string   `json:"command"`
-			Commands []string `json:"commands"`
-			URL      string   `json:"url"`
-			Queries  []string `json:"queries"`
-			Files    []struct {
+			Command     string   `json:"command"`
+			CommandLine string   `json:"CommandLine"`
+			Commands    []string `json:"commands"`
+			URL         string   `json:"url"`
+			Queries     []string `json:"queries"`
+			Files       []struct {
 				Path string `json:"path"`
 			} `json:"files"`
 			Description  string `json:"description"`
@@ -1013,6 +1020,9 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 		truncated = true
 	}
 	command := input.Command
+	if command == "" {
+		command = input.CommandLine
+	}
 	if command == "" && len(input.Commands) > 0 {
 		command = strings.Join(input.Commands, "\n")
 	}

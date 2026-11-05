@@ -9,7 +9,10 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
 const source = compile('./agentLaunch.ts').replace("from './catalogue'", `from '${asURL(compile('./catalogue.ts'))}'`)
 const m = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
-const { cleanModel, validateDir, TOOLS, MAX_PROMPT_BYTES, modelSuggestions, validateModel, validatePrompt, folderChoices, launchSentence, refusalText, titleFor, notStartedText } = m
+const { cleanModel, validateDir, TOOLS, MAX_PROMPT_BYTES, modelSuggestions, validateModel, validatePrompt, folderChoices, launchSentence, refusalText, titleFor, promptTitle, notStartedText } = m
+// The controller's cases (internal/terminalproto/testdata/autotitle.json): the same file drives its Go tests, so the
+// name the dialog suggests is the name the controller would give.
+const autoTitles = JSON.parse(readFileSync(new URL('../../../internal/terminalproto/testdata/autotitle.json', import.meta.url), 'utf8'))
 
 test('tools are the four built-in ids', () => {
   assert.deepEqual(TOOLS, [{ id: 'claude', name: 'Claude Code' }, { id: 'codex', name: 'Codex' }, { id: 'opencode', name: 'OpenCode' }, { id: 'gemini', name: 'Gemini CLI' }])
@@ -141,6 +144,19 @@ test('titles', () => {
   assert.equal(titleFor('gemini', '/'), 'Gemini CLI')
   assert.ok(Array.from(titleFor('claude', '/x/' + 'y'.repeat(200))).length <= 80)
   for (const [name, c] of Object.entries(BAD_CHARS)) assert.equal(titleFor('claude', '/x/a' + c + 'b'), 'Claude Code', name)
+  // A plain shell has no agent: it is a Terminal, in its folder when it has one.
+  assert.equal(titleFor('', ''), 'Terminal')
+  assert.equal(titleFor('', '/srv/api'), 'Terminal ' + ch(0xb7) + ' api')
+})
+
+test('prompt titles agree with the controller', () => {
+  assert.ok(autoTitles.prompt.length >= 30, 'the shared cases are loaded')
+  for (const c of autoTitles.prompt) assert.equal(promptTitle(c.prompt), c.want, c.name)
+})
+
+test('automatic titles agree with the controller', () => {
+  assert.ok(autoTitles.auto.length >= 10, 'the shared cases are loaded')
+  for (const c of autoTitles.auto) assert.equal(promptTitle(c.prompt) || titleFor(c.tool, c.dir), c.want, c.name)
 })
 
 test('refusal sentences', () => {

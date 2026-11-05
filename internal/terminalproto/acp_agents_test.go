@@ -11,6 +11,32 @@ func chatCapabilities() Capabilities {
 	entries := []ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", History: true}}
 	return Capabilities{ProtocolVersion: Version, OS: "linux", OSUser: "test", TerminalEnabled: true, HealthEnabled: true, TerminalControl: true, Readiness: Ready, Launch: true, Tools: []string{"opencode"}, ACP: true, ACPHistory: true, ACPAgents: &entries}
 }
+
+func TestAntigravityChatNeedsItsNegotiatedFeature(t *testing.T) {
+	entry := ACPAgent{Tool: "antigravity", Adapter: "agy", State: "available", MinimumVersion: "1.5.0"}
+	c := chatCapabilities()
+	c.AgentsV2, c.Tools, c.ACPAgents = true, []string{"antigravity"}, &[]ACPAgent{entry}
+	features := AgentsFeature + "," + AntigravityFeature + "," + ACPFeature + "," + ACPAgentsFeature
+	if c.ValidateFor(features) == nil {
+		t.Fatal("AGY Gaffer descriptor sent to a terminal-only AGY controller")
+	}
+	if c.ValidateFor(features+","+AntigravityACPFeature) != nil || c.Validate() != nil {
+		t.Fatal("negotiated AGY Gaffer refused")
+	}
+	if _, ok := c.ChatAgent("antigravity"); !ok {
+		t.Fatal("AGY descriptor was not offered")
+	}
+	c.ACPAgents = nil
+	if _, ok := c.ChatAgent("antigravity"); ok {
+		t.Fatal("AGY borrowed the legacy OpenCode fallback")
+	}
+	if !ValidACPSessionIDFor("antigravity", "123e4567-e89b-12d3-a456-426614174000") || ValidACPSessionIDFor("antigravity", "ses_otheragent") {
+		t.Fatal("AGY history namespace changed")
+	}
+	if !SupportsAntigravityACP("other, "+AntigravityACPFeature+" ") || SupportsAntigravityACP(AntigravityACPFeature+"0") {
+		t.Fatal("AGY ACP token match changed")
+	}
+}
 func TestACPAgentsNegotiationAndRoundTrip(t *testing.T) {
 	c := chatCapabilities()
 	if c.ValidateFor(ACPFeature) == nil {

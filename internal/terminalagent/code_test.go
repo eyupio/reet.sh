@@ -33,6 +33,7 @@ func TestLaunchFieldsRequireNegotiatedFeature(t *testing.T) {
 		{terminalproto.CommandHistoryFeature, terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "claude"}, terminalproto.LaunchFailed},
 		{terminalproto.LaunchFeature, terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "claude"}, terminalproto.Unavailable},
 		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature, terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "antigravity"}, terminalproto.LaunchOptionUnsupported},
+		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature + "," + terminalproto.AntigravityFeature + "," + terminalproto.ACPFeature, terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "antigravity", Structured: true, Trust: true}, terminalproto.LaunchOptionUnsupported},
 		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature + "," + terminalproto.AntigravityFeature, terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "antigravity"}, terminalproto.Unavailable},
 		{"", terminalproto.Create{Title: "a", Cols: 80, Rows: 24}, terminalproto.Unavailable},
 	} {

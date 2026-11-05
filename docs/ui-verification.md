@@ -1,5 +1,35 @@
 # UI verification — 4 November 2026
 
+## Automatic session names (5 November 2026)
+
+A session started without a title is named from what its prompt asks for, or from its agent and folder; the
+plain-terminal dialog's **New session name** is now optional, with the name it would get as its placeholder and a
+one-line hint that follows the folder. The rules and their cases are in
+[Launch requests](terminal-launch.md#session-titles).
+
+- **Unit.** `agentLaunch.test.mjs` and `launchBar.test.mjs` read the controller's own cases
+  (`internal/terminalproto/testdata/autotitle.json`, 38 prompt and 14 whole-title cases) and agree on every one.
+  The new tests failed against a stub first (`expected 'Terminal'`, `actual ''`). The whole web unit suite passes
+  and `svelte-check` reports no errors; its one warning, an unused selector in `SessionHoverCard.svelte`, was
+  already there.
+- **Browser, red then green.** With the two Svelte files put back to their old state and the updated
+  expectations in place, `home`, `start-agent` and `terminal-organisation` failed on `Expected "Terminal"` /
+  `Received "Shell"` and `terminal-start` on the name field (`Expected ""`, `Received "Shell"`). With the new
+  code all four pass. `terminal-start` gained the folder case: the field is empty, its placeholder and hint read
+  `Terminal · project with spaces`, and New terminal is enabled without typing a name.
+- **Whole e2e set.** All 82 files ran against `vite preview` in Chromium. 78 passed first time. `chat` failed
+  once under load (the hosted-skill Approve button detached) and passes in isolation, twice on the original code
+  and twice on this change. `launch` hit my own 180-second limit while the machine was busy and passes in 37
+  seconds on both. `phone-dialogs` takes 244 seconds on both, so it also outran that limit. `terminal` needs the
+  Go terminal fixture and cannot run on its own.
+- **Real controller, tmux and browser.** `REET_BROWSER_TESTS=1 go test ./internal/api` passes the launch,
+  worktree and browse/branches tests. `TestTerminalPrivateLifecyclePreservesActualShell` fails in this container
+  on `.xterm-accessibility-tree` not containing the emoji line `💥 __split_utf8__`, on the original code as well
+  as on this change, so the later stages of `terminal.e2e.mjs` were not reached in either run.
+- **Seen.** The real dialog at 1360×900 and 390×844 in the light theme: the hint wraps cleanly on the phone, the
+  page does not scroll sideways and no page errors were logged. The dark theme, Firefox, Safari and physical
+  devices were not exercised, and no screenshots are kept in the repository.
+
 ## Gaffer: transparent artwork and smoother state changes
 
 The approved Grid/Phosphor drawings now render as transparent ink in the app's actual palette:

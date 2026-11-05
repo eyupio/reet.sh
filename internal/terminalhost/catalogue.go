@@ -54,7 +54,7 @@ var Catalogue = []Preset{
 	{ID: "pi", Name: "Pi", Binary: "pi", DisabledReason: "This CLI has no built-in approval policy for tool execution."},
 	{ID: "cursor", Name: "Cursor Agent", Binary: "cursor-agent", DisabledReason: "CLI help and permission defaults have not been confirmed."},
 	{ID: "cline", Name: "Cline", Binary: "cline", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--yolo", "--tui"}, SafeArgs: []string{"--auto-approve", "false", "--tui"}, EffortArgs: map[string][]string{"low": {"--thinking", "low"}, "medium": {"--thinking", "medium"}, "high": {"--thinking", "high"}}, ACP: "native"},
-	{ID: "antigravity", Name: "Google Antigravity (AGY)", Binary: "agy", ModelFlag: "--model", PromptFlag: "--prompt-interactive", YoloArgs: []string{"--dangerously-skip-permissions"}, EffortArgs: map[string][]string{"low": {"--effort", "low"}, "medium": {"--effort", "medium"}, "high": {"--effort", "high"}}},
+	{ID: "antigravity", Name: "Google Antigravity (AGY)", Binary: "agy", ModelFlag: "--model", PromptFlag: "--prompt-interactive", YoloArgs: []string{"--dangerously-skip-permissions"}, EffortArgs: map[string][]string{"low": {"--effort", "low"}, "medium": {"--effort", "medium"}, "high": {"--effort", "high"}}, ACP: "native"},
 }
 
 // launchPreset is a private execution view of the confirmed catalogue rows.

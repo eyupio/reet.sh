@@ -191,9 +191,18 @@ def check(site_dir):
                 error(path, f"missing CSS asset: {link}")
 
     sitemap = (site_dir / "sitemap.xml").read_bytes()
-    locations = {node.text for node in ElementTree.fromstring(sitemap).iter("{http://www.sitemaps.org/schemas/sitemap/0.9}loc")}
+    sitemap_tree = ElementTree.fromstring(sitemap)
+    sitemap_namespace = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+    locations = {node.text for node in sitemap_tree.iter(sitemap_namespace + "loc")}
     if locations != public_urls:
         errors.append(f"sitemap differs from rendered pages: {locations ^ public_urls}")
+    undated = [
+        node.text
+        for node in sitemap_tree.iter(sitemap_namespace + "lastmod")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", node.text or "")
+    ]
+    if undated:
+        errors.append(f"sitemap last-edited times must be UTC, YYYY-MM-DDTHH:MM:SSZ: {undated}")
     if gzip.decompress((site_dir / "sitemap.xml.gz").read_bytes()) != sitemap:
         errors.append("compressed sitemap does not match sitemap.xml")
     if base + "sitemap.xml" not in (site_dir / "robots.txt").read_text():

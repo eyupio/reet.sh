@@ -40,6 +40,8 @@ var (
 	// the adapter does not have. Cline stores a chat at its first prompt, so a
 	// chat that never ran one cannot be reopened.
 	ErrNoStoredConversation = errors.New("the agent has no stored conversation for this chat")
+	// AGY reuses the machine's selected login; reet never starts an OAuth flow.
+	ErrAntigravityLogin = errors.New("Sign in to Google Antigravity on that machine first (run agy).")
 	// ErrMode means the requested mode is not one this profile lets a person
 	// choose, or the agent did not confirm the switch.
 	ErrMode = errors.New("the agent did not switch to that mode")
@@ -150,8 +152,8 @@ type Spec struct {
 	// keeps running is to retire the process group, so the person is told and the
 	// chat ends. A stop with no tool running only cancels the turn.
 	EndChatOnStopWhileToolRuns bool
-	// Trust reports the files in dir that the agent would execute before a
-	// chat starts. Nil means this adapter has no repository trust surface.
+	// Trust reports executable files or configuration surfaces in dir that need
+	// acknowledgement. Nil means this adapter has no repository trust surface.
 	Trust func(dir string) ([]string, error)
 	// ConfigEnv supplies the adapter's private environment for one session
 	// (owned config, password, opt-outs). It is applied after the inherited

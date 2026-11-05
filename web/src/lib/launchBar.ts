@@ -1,10 +1,10 @@
 import type { Profile, YoloSetting } from './api'
 import type { BranchesResult, FolderProject, LaunchRequest, TerminalMachine, TerminalSession } from './terminal/api'
-import { isChatTool, readiness, structuredAgent } from './terminal/api'
+import { chatNeedsTrust, isChatTool, readiness, structuredAgent } from './terminal/api'
 import { CATALOGUE, agentChoices } from './catalogue'
 import { launchEfforts } from './terminal/launchOptions'
 import { resolveLaunchDefaults, type ModelFavourite } from './models'
-import { MAX_PROMPT_BYTES, cleanModel, codeSentence, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
+import { MAX_PROMPT_BYTES, cleanModel, codeSentence, promptTitle, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
 
 // The launch bar's logic: what the sentence says, what it starts from, whether Start may be pressed, and the one create
 // request per session. Pure: no DOM, no fetch, no storage. The controller and the machine check everything again.
@@ -48,7 +48,6 @@ const supportsChat = (agent: string, host: string | undefined, machines: LaunchM
 
 const UPDATE_FOR_OPTION = 'Update reet on that machine to use that option.'
 const NO_OPTION = "That agent doesn't take that option."
-const MAX_TITLE = 80
 const MAX_SLUG = 40
 
 const agentOf = (id: string) => CATALOGUE.find(agent => agent.id === id)
@@ -296,8 +295,7 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
   if (prompt) return prompt
   if (choice.chat === true) {
     if (picked.length > 1) return 'Gaffer starts in one folder at a time. Choose one project, or switch to the agent TUI.'
-    // The trust prompt is OpenCode's plugin warning; Claude ignores a folder's own settings, so there is nothing to confirm.
-    if (choice.agent === 'opencode' && choice.trust !== true) return 'Confirm you trust this folder before starting Gaffer.'
+    if (chatNeedsTrust(choice.agent) && choice.trust !== true) return 'Confirm you trust this folder before starting Gaffer.'
     const model = validateModel(choice.model)
     if (model) return model
     const target = machines.find(x => x.agentId === (picked[0]?.host ?? choice.homeMachine ?? ''))
@@ -335,14 +333,9 @@ export function projectSlug(name: string): string {
   return cut || 'project'
 }
 
-// Control and format characters and the two Unicode line separators; a title may hold none of them.
-const INVISIBLE = new RegExp('[\\p{Cc}\\p{Cf}\\u2028\\u2029]', 'gu')
-
-/** The session title from the prompt: its first line with text, without invisible characters, at most 80 characters; `fallback` when there is none. */
+/** The session title from the prompt (see `promptTitle`: the work it asks for, without greetings or "please", at most 60 characters); `fallback` when it says nothing. */
 export function defaultTitle(prompt: string, fallback = ''): string {
-  const line = String(prompt ?? '').split(/\r?\n/).map(l => l.replace(/\t/g, ' ').replace(INVISIBLE, '').trim()).find(l => l !== '') ?? ''
-  if (line === '') return fallback
-  return Array.from(line).slice(0, MAX_TITLE).join('').trim()
+  return promptTitle(prompt) || fallback
 }
 
 /**
@@ -352,8 +345,7 @@ export function defaultTitle(prompt: string, fallback = ''): string {
 export function toCreate(choice: LaunchChoice, project: LaunchProject | null, requestId: string, runToken: string, profile: LaunchDefaults = {}): LaunchCreate {
   const chat = choice.chat === true && isChatTool(choice.agent)
   const launch: LaunchRequest = { tool: choice.agent }
-  // Trust is OpenCode's plugin warning; no other chat tool takes it, so it is never sent for one.
-  if (chat) { launch.structured = true; if (choice.trust === true && choice.agent === 'opencode') launch.trust = true }
+  if (chat) { launch.structured = true; if (choice.trust === true && chatNeedsTrust(choice.agent)) launch.trust = true }
   const model = cleanModel(choice.model)
   if (model) launch.model = model
   if (project) launch.dir = project.dir

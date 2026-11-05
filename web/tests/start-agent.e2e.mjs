@@ -98,6 +98,8 @@ await page.routeWebSocket('**/api/v2/terminal/socket',socket=>{socket.onMessage(
 // the fixture across page loads (a later write cannot hide an earlier one).
 const storageWrites=[]
 await page.exposeFunction('__recordStorage',(op,key,value)=>{storageWrites.push(`${op} ${key} ${value}`)})
+// This check starts a plain terminal from a machine's header, which the Machine grouping shows; Project is the default now. Seeded before the recorder below, so it is not counted as a write.
+await page.addInitScript(()=>{try{localStorage.setItem('reet-terminal-layout:1:sessions',JSON.stringify({group:'machine'}))}catch{/* optional */}})
 await page.addInitScript(()=>{
  window.__storageCalls=[]
  for(const op of ['setItem','removeItem','clear']){const original=Storage.prototype[op];Storage.prototype[op]=function(...args){window.__storageCalls.push({op,key:String(args[0]??''),value:String(args[1]??'')});window.__recordStorage(op,String(args[0]??''),String(args[1]??''));return original.apply(this,args)}}
@@ -324,7 +326,7 @@ try{
  await expect.poll(()=>posts.length).toBe(2)
  const plain=body(1)
  expect(Object.keys(plain)).toEqual(['agentId','requestId','title','cols','rows'])
- expect(posts[1]).toBe(JSON.stringify({agentId:A,requestId:plain.requestId,title:'Shell',cols:100,rows:30}))
+ expect(posts[1]).toBe(JSON.stringify({agentId:A,requestId:plain.requestId,title:'Terminal',cols:100,rows:30}))
  await expect(page).toHaveURL(new RegExp(`session=session-${plain.requestId.replaceAll('-','').slice(0,20)}`))
 
  // ── A held first Start: every field locked, Close and Escape wait, a second submit sends nothing. ──

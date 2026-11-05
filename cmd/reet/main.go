@@ -361,7 +361,7 @@ func serve() error {
 		api.WithRemoteTerminals(terminalControl.Enabled()),
 		api.WithAuthMode(mode), api.WithVersion(version, commit), api.WithDebug(os.Getenv("REET_LOG") == "debug"),
 		api.WithTopics(os.Getenv("REET_TOPICS") != "off"), api.WithPublicURL(publicURL),
-		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithBackups(backups),
+		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithMaintenance(os.Getenv("REET_MAINTENANCE") != "off"), api.WithBackups(backups),
 		api.WithSignup(signup), api.WithSupportDesk(truthy(os.Getenv("REET_SUPPORT_DESK"))), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer), api.WithNotify(notifier),
 		api.WithPrivateConnection(bcfg.Sealer, os.Getenv("REET_RELAY_MAP_URL")),
 		api.WithReleaseChecker(releases), api.WithOIDC(sso))

@@ -3,6 +3,12 @@
 Updated 4 November 2026. Repository: https://github.com/eyupio/reet.sh. All paths below are relative to this repository.
 No state in a previous machine, checkout, browser server, temporary directory or tool session is required to continue.
 
+For the AI critical-buddy direction selected on 5 November, read the
+[active Gaffer session-companion handoff](../work-orchestration-handoff.md#active-direction-gaffer-session-companion-mvp-5-november-2026).
+It owns the general/per-session conversations, provider settings, MCP access and
+offline follow-up scope. This continuation file retains the delivered worker UI,
+controls, artwork and lifecycle contracts that companion work must preserve.
+
 ## Standing user instructions
 
 Continue the Gaffer wrapper review and implementation in reviewable PR batches. Fix review comments and merge conflicts,

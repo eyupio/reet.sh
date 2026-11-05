@@ -18,6 +18,28 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## Gaffer AI session-companion MVP: agreed direction (5 November 2026)
+
+The user selected the [Gaffer session-companion MVP](docs/work-orchestration-handoff.md#active-direction-gaffer-session-companion-mvp-5-november-2026)
+as the initial AI-chat direction. Outside a session Gaffer is a general
+Zoomies-style chat; each reet session has its own Gaffer conversation. Gaffer is
+the user's quirky critical buddy: it reads permitted context and messages the
+existing working model, which performs the coding and PR actions. Explicit goals
+can continue for several selected sessions while the user is offline and recover
+after controller restart. Initial follow-up supports verified structured chats.
+
+The companion handoff records all choices, source evidence, provider/MCP
+limitations and proposed GM0-GM6 slices alongside the broader KZ roadmap. Next:
+complete GM0's session, provider, grant, receipt and recovery contract. This
+realignment is captured in [draft plan PR #600](https://github.com/eyupio/reet.sh/pull/600).
+The first implementation slice, `feat/gaffer-provider-foundation`, adds isolated
+HTTP provider adapters and fake-backed protocol tests; the companion handoff's
+GM1A entry records scope, verification and remaining settings/integration work.
+AI-chat routes and offline coordination remain ahead. Tests use local fake
+providers, with real credentials supplied later through Gaffer settings.
+Keep that handoff current in every implementation batch. Changes remain confined
+to reet.sh; reference repositories are read-only.
+
 ## OVERVIEW-3: the Overview in the browser (5 November 2026)
 
 Part C of the session overview, on branch `claude/session-overview-ui`. The right-hand panel's Overview now
@@ -922,9 +944,11 @@ independent Kanzo-inspired documentation/resource/refresh improvements. This fil
 remains the entry point for standing rules and the active task. The core stages
 fit richer run orchestration; the current structured-chat sequence retains its
 recorded priority and capability gates until the active task is explicitly changed.
-Only the handoff and this index entry are delivered. No KZ runtime implementation stage is complete; the Gaffer follow-up above records
-a bounded KZ5A probe. When this workstream is selected, begin with KZ0 baseline reconciliation
-and record the one active slice here.
+No KZ runtime implementation stage is complete; the branding follow-up records
+a bounded KZ5A probe. The 5 November session-companion MVP now owns the active
+first-release direction, with GM0 as its next design slice. The broader KZ
+workstream retains its KZ0 reconciliation and later dependencies. Record the one
+selected slice here and keep the companion's active section authoritative.
 
 **Docs tidy-up (27 October 2026).** Finished plans, specs, stage documents and audits were removed
 on 27 October 2026; they live in git history before commit `bd9e56c` (for example

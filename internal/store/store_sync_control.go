@@ -132,9 +132,20 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		if source == "hosted" {
 			return errors.New("choose individual published skills for syncing")
 		}
+		// A machine-only skill whose private copy failed is listed with its reason
+		// and skipped; structural library problems still need a decision.
+		var captureProblems map[string]string
+		if source == "library" {
+			if captureProblems, err = s.libraryCaptureProblems(uid); err != nil {
+				return err
+			}
+		}
 		in.SkillIDs = nil
 		for _, sk := range candidates {
 			if sk.Problem != "" {
+				if _, failed := captureProblems[sk.ID]; failed {
+					continue
+				}
 				return errors.New(sk.Problem)
 			}
 			if sk.Source == "" || sk.SourceType == "local" {

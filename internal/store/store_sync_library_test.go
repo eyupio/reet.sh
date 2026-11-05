@@ -223,3 +223,203 @@ func TestLibrarySourceConflictPreservesLastGoodSelection(t *testing.T) {
 		t.Fatalf("last good selection changed: %+v", targets)
 	}
 }
+
+func TestLibrarySkipsSkillWhosePrivateCopyFailed(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	if err := s.SetSyncLibraryOrigin(uid, "https://reet.example"); err != nil {
+		t.Fatal(err)
+	}
+	s.UpsertFor(uid, mustRef(t, "a/b/one"), Patch{})
+	if _, err := s.UpsertLocalFor(uid, "huge", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	source, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.TouchEnvironmentFor(uid, "laptop", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	srcEnv := EnvironmentIDFor(uid, "laptop", "agents", "")
+	if err = s.RecordInventoryFor(uid, srcEnv, true, MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RecordEnvironmentFor(uid, "local/huge", "laptop", "agents", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	destination, _, err := s.EnrollSyncAgent(uid, "desktop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.TouchEnvironmentFor(uid, "desktop", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	destEnv := EnvironmentIDFor(uid, "desktop", "agents", "")
+	if err = s.RecordInventoryFor(uid, destEnv, true, MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ClaimRemoteImportFor(uid, source.ID, strings.Repeat("a", 48)); err != nil {
+		t.Fatal(err)
+	}
+	request, err := s.RequestMachineSkillSync(uid, "local/huge", destination.Host, "", "library_"+secretHash("local/huge"), destEnv, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.FailRemoteImportFor(uid, source.ID, request.ID, request.Instance, "capture_failed"); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates, err := s.SyncLibraryFor(uid, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var problem string
+	for _, candidate := range candidates {
+		if candidate.ID == "local/huge" {
+			problem = candidate.Problem
+		}
+	}
+	if !strings.Contains(problem, "could not be copied") {
+		t.Fatalf("uncopyable skill not explained: %q", problem)
+	}
+
+	// The failure belongs to one skill, not the whole machine: the rest of the
+	// library still reaches the destination.
+	destination.KeepSynced = true
+	if err = s.prepareLibraryTargets(uid, "owner", destination, false); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.MaintainSync(uid, "owner", destination); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := s.SyncJobsFor(uid)
+	if err != nil || len(jobs) == 0 {
+		t.Fatalf("one uncopyable skill blocked the library: %+v %v", jobs, err)
+	}
+	targets, err := s.SyncTargetsFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range targets {
+		if target.Target.ID == destEnv && target.Problem != "" {
+			t.Fatalf("machine kept the skill failure as its own: %+v", target)
+		}
+	}
+}
+
+func TestFailedCaptureDoesNotRewriteDesiredSetOnIdlePoll(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	if err := s.SetSyncLibraryOrigin(uid, "https://reet.example"); err != nil {
+		t.Fatal(err)
+	}
+	s.UpsertFor(uid, mustRef(t, "a/b/one"), Patch{})
+	if _, err := s.UpsertLocalFor(uid, "huge", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	source, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.TouchEnvironmentFor(uid, "laptop", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	srcEnv := EnvironmentIDFor(uid, "laptop", "agents", "")
+	if err = s.RecordInventoryFor(uid, srcEnv, true, MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RecordEnvironmentFor(uid, "local/huge", "laptop", "agents", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	destination, _, err := s.EnrollSyncAgent(uid, "desktop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.TouchEnvironmentFor(uid, "desktop", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	destEnv := EnvironmentIDFor(uid, "desktop", "agents", "")
+	if err = s.RecordInventoryFor(uid, destEnv, true, MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RecordEnvironmentFor(uid, "a/b/one", "desktop", "agents", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ClaimRemoteImportFor(uid, source.ID, strings.Repeat("a", 48)); err != nil {
+		t.Fatal(err)
+	}
+	request, err := s.RequestMachineSkillSync(uid, "local/huge", destination.Host, "", "library_"+secretHash("local/huge"), destEnv, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.FailRemoteImportFor(uid, source.ID, request.ID, request.Instance, "capture_failed"); err != nil {
+		t.Fatal(err)
+	}
+	destination.KeepSynced = true
+	if err = s.prepareLibraryTargets(uid, "owner", destination, false); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.MaintainSync(uid, "owner", destination); err != nil {
+		t.Fatal(err)
+	}
+	targets, err := s.SyncTargetsFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var revision string
+	for _, target := range targets {
+		if target.Target.ID == destEnv {
+			revision = target.Revision
+		}
+	}
+	if revision == "" {
+		t.Fatal("library target was not prepared")
+	}
+	for range 2 {
+		if err = s.MaintainSync(uid, "owner", destination); err != nil {
+			t.Fatal(err)
+		}
+	}
+	targets, err = s.SyncTargetsFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range targets {
+		if target.Target.ID == destEnv && target.Revision != revision {
+			t.Fatalf("an idle poll rewrote the desired set: %s -> %s", revision, target.Revision)
+		}
+	}
+}
+
+func TestLibrarySourceConflictStillBlocksAutomation(t *testing.T) {
+	s, uid, id := controlFixture(t)
+	if err := s.SetSyncLibraryOrigin(uid, "https://reet.example"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.EnrollSyncAgent(uid, "laptop", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "library", FollowSource: true, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	s.UpsertFor(uid, mustRef(t, "c/d/one"), Patch{})
+	agents, err := s.SyncAgentsFor(uid)
+	if err != nil || len(agents) != 1 {
+		t.Fatal(agents, err)
+	}
+	agents[0].KeepSynced = true
+	if err = s.MaintainSync(uid, "owner", agents[0]); err != nil {
+		t.Fatal(err)
+	}
+	targets, err := s.SyncTargetsFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].Problem == "" {
+		t.Fatalf("ambiguous library was not reported: %+v", targets)
+	}
+	if len(targets[0].Desired) != 1 || targets[0].Desired[0].ID != "a/b/one" {
+		t.Fatalf("last good selection was replaced: %+v", targets[0].Desired)
+	}
+}

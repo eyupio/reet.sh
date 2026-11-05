@@ -78,6 +78,10 @@ func (s *Store) SyncLibraryFor(uid int64, role string) ([]SyncSkill, error) {
 	for _, sk := range written {
 		byID[sk.ID] = s.privateDraftCandidate(uid, sk.ID, bySlug[sk.Slug])
 	}
+	problems, err := s.libraryCaptureProblems(uid)
+	if err != nil {
+		return nil, err
+	}
 	linked := map[string]bool{}
 	sources := map[string]string{}
 	conflicts := map[string]bool{}
@@ -91,6 +95,16 @@ func (s *Store) SyncLibraryFor(uid int64, role string) ([]SyncSkill, error) {
 			sources[sk.Slug] = key
 		}
 	}
+	for id, problem := range problems {
+		sk, ok := byID[id]
+		// A machine-only copy is already replaced by the linked skill of the same
+		// name, so its capture failure is not a problem for the library.
+		if !ok || sk.Problem != "" || linked[sk.Slug] || (sk.Source != "" && sk.SourceType != "local") {
+			continue
+		}
+		sk.Problem = problem
+		byID[id] = sk
+	}
 	out := []SyncSkill{}
 	for _, sk := range byID {
 		if sk.SourceType == "local" && sk.Problem == "" && linked[sk.Slug] {
@@ -103,6 +117,48 @@ func (s *Store) SyncLibraryFor(uid int64, role string) ([]SyncSkill, error) {
 	}
 	slices.SortFunc(out, func(a, b SyncSkill) int { return strings.Compare(a.ID, b.ID) })
 	return out, nil
+}
+
+// libraryCaptureProblems explains machine-only skills whose private copy has
+// already failed. A skill that cannot be captured is reported and skipped rather
+// than blocking the rest of the library; an explicit retry releases its request
+// key first, so these problems clear when the person asks for another attempt.
+func (s *Store) libraryCaptureProblems(uid int64) (map[string]string, error) {
+	rows, err := s.db.Query(`SELECT json_extract(data,'$.syncSkillId'),json_extract(data,'$.error') FROM machine_import_requests WHERE user_id=? AND request_key LIKE 'library\_%' ESCAPE '\' AND state IN ('failed','expired','cancelled')`, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	problems := map[string]string{}
+	for rows.Next() {
+		var id, code sql.NullString
+		if err = rows.Scan(&id, &code); err != nil {
+			return nil, err
+		}
+		if id.String != "" {
+			problems[id.String] = privateCopyProblem(code.String)
+		}
+	}
+	return problems, rows.Err()
+}
+
+func privateCopyProblem(code string) string {
+	switch code {
+	case "capture_failed":
+		return "This skill folder could not be copied from its machine; it may contain unsupported files, or be larger than 256 files or 8 MiB."
+	case "invalid_skill_manifest":
+		return "SKILL.md needs valid matching metadata and instructions, so this skill cannot be copied."
+	case "source_changed":
+		return "The skill files changed while they were being copied. Retry to copy the current files."
+	case "scope_unavailable":
+		return "The source machine no longer has this skill folder."
+	case "transfer_failed":
+		return "This skill could not be saved privately. Private skill storage may be full."
+	case "preview_expired":
+		return "The private copy request expired before the files arrived. Retry to copy it."
+	default:
+		return "This skill could not be copied from its machine."
+	}
 }
 
 // prepareLibraryTargets enrols newly scanned home folders in the shared library.
@@ -207,17 +263,10 @@ func (s *Store) syncLibraryMachinesFor(uid int64, role, origin, agentID string) 
 	if err := s.SetSyncLibraryOrigin(uid, origin); err != nil {
 		return err
 	}
-	candidates, err := s.SyncLibraryFor(uid, role)
-	if err != nil {
-		return err
-	}
-	for _, candidate := range candidates {
-		if candidate.Problem != "" {
-			return errors.New(candidate.Problem)
-		}
-	}
 	// Explicit retry releases terminal capture keys, keeping their audit trail.
-	// Polls alone never create a stream of retries for a broken source.
+	// Polls alone never create a stream of retries for a broken source. This runs
+	// before the candidates are read so a retry also clears the per-skill problem
+	// that a previous capture failure put on the library.
 	if err := s.withTx(func(tx *sql.Tx) error {
 		rows, err := tx.Query(`SELECT r.data FROM machine_import_requests r WHERE r.user_id=? AND r.request_key LIKE 'library_%' AND r.state IN ('failed','expired','cancelled') AND (?='' OR json_extract(r.data,'$.destinationId') IN (SELECT e.id FROM environments e JOIN sync_agents a ON a.user_id=e.user_id AND a.host=e.host COLLATE NOCASE WHERE a.id=? AND a.user_id=?))`, uid, agentID, agentID, uid)
 		if err != nil {
@@ -254,6 +303,25 @@ func (s *Store) syncLibraryMachinesFor(uid int64, role, origin, agentID string) 
 		return nil
 	}); err != nil {
 		return err
+	}
+	candidates, err := s.SyncLibraryFor(uid, role)
+	if err != nil {
+		return err
+	}
+	captureProblems, err := s.libraryCaptureProblems(uid)
+	if err != nil {
+		return err
+	}
+	for _, candidate := range candidates {
+		if candidate.Problem == "" {
+			continue
+		}
+		// Another machine's failed private copy is reported on that skill and
+		// skipped; only problems in the library itself stop this action.
+		if _, capture := captureProblems[candidate.ID]; capture {
+			continue
+		}
+		return errors.New(candidate.Problem)
 	}
 	for _, agent := range agents {
 		if err = s.ControlSyncAgent(uid, agent.ID, "keep-sync-on"); err != nil {

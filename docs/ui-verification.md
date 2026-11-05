@@ -1,5 +1,20 @@
 # UI verification — 4 November 2026
 
+## Session reference image preview (5 November 2026)
+
+A home session card's reference-image badge now opens a polished preview on hover or keyboard focus instead of
+the browser's plain title text. The preview is placed below the badge, flips above when the foot of the window is
+near, and is clamped inside every viewport edge. Thumbnails load lazily from the draft detail read, are cached for
+the visit, and keep their filenames. Clicking the badge opens the existing full-size lightbox; a coarse pointer
+goes straight to it. Motion is removed when the person prefers reduced motion.
+
+- **Unit.** `home/imagePreview.test.mjs` covers the below, flip-above, horizontal clamp and tall-card cases.
+- **Browser.** `tests/session-board.e2e.mjs` checks hover and focus previews, both thumbnails, the placement
+  against the badge and viewport, the full-size lightbox by click, and Escape closing each layer.
+- **Seen.** The preview at 1440×1000 in the light theme: names read cleanly, the 14px floor holds and no page
+  errors were logged. The dark theme, phone width and physical devices were not exercised, and no screenshots
+  are kept in the repository.
+
 ## The Overview made compact at 14px (5 November 2026)
 
 The 14px round had made the narrow Overview long. It is compact again, still at 14px. At the default 360 px panel the five

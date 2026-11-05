@@ -35,6 +35,12 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 	if err != nil {
 		return err
 	}
+	// A failed private copy is reported on its own skill, not as a change to the
+	// saved selection, so it must not make every poll rewrite the desired set.
+	captureProblems, err := s.libraryCaptureProblems(uid)
+	if err != nil {
+		return err
+	}
 	var libraryCandidates []SyncSkill
 	libraryRead := false
 	for _, target := range targets {
@@ -104,7 +110,6 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 				if !shelfSource || customSource || sk.Problem != "" {
 					continue
 				}
-				preparing = true
 				key := "follow_" + secretHash(target.Target.ID+"\x00"+sk.ID)
 				if target.SourceID == "library" {
 					// One private capture can serve the whole fleet. Other folders
@@ -113,13 +118,18 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 				}
 				request, e := s.RequestMachineSkillSync(uid, sk.ID, agent.Host, "", key, target.Target.ID, true)
 				if e == nil && (request.State == "failed" || request.State == "expired" || request.State == "cancelled") {
-					e = fmt.Errorf("private copy %s: %s; use Sync all machines to retry", request.State, request.Error)
+					e = fmt.Errorf("private copy %s: %s", request.State, request.Error)
 				}
 				if e != nil {
-					if e = problem("Connect and update the source machine to copy " + sk.Name + ". " + e.Error()); e != nil {
+					// One skill that cannot be copied is reported and skipped; it
+					// must not hold every other skill on the machine hostage.
+					if e = problem("Could not copy " + sk.Name + " privately: " + e.Error() + ". Use Sync all machines to retry."); e != nil {
 						return e
 					}
-				} else if e = problem("Copying machine-only skills privately before installation."); e != nil {
+					continue
+				}
+				preparing = true
+				if e = problem("Copying machine-only skills privately before installation."); e != nil {
 					return e
 				}
 			}
@@ -127,7 +137,10 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 				continue
 			}
 			ordered := func(skills []SyncSkill) []SyncSkill {
-				out := slices.Clone(skills)
+				out := slices.DeleteFunc(slices.Clone(skills), func(sk SyncSkill) bool {
+					_, failed := captureProblems[sk.ID]
+					return failed
+				})
 				slices.SortFunc(out, func(a, b SyncSkill) int { return strings.Compare(a.ID, b.ID) })
 				return out
 			}

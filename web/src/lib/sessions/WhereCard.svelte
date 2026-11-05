@@ -31,17 +31,17 @@
 </dl>
 
 <style>
-  .where{display:grid;gap:8px;margin:0;font-size:12px}
+  .where{display:grid;gap:8px;margin:0;font-size:14px}
   .where>div{display:flex;justify-content:space-between;align-items:center;gap:12px;min-width:0;min-height:24px}
   dt{color:var(--muted);flex:none}
   dd{margin:0;min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:8px;overflow:hidden;white-space:nowrap;text-align:right}
   dd>span:not(.state),dd>a{min-width:0;overflow:hidden;text-overflow:ellipsis}
   dd>:global(button){flex:none}
-  /* The copy button arrives with the branch name; the row is already its height, so the read finishing moves nothing below. */
-  .where>.copyable{min-height:32px}
+  /* The copy button arrives with the branch name; the row is already its height (34 px, the compact copy button at 14px), so the read finishing moves nothing below. */
+  .where>.copyable{min-height:34px}
   .mono{font-family:var(--mono)}
-  .path{font-size:11px;color:var(--ink-soft)}
-  .base{flex:none;color:var(--muted);font-size:11px}
+  .path{color:var(--ink-soft)}
+  .base{flex:0 0 auto;max-width:50%;color:var(--muted)}
   .state{color:var(--muted)}.state.good{color:var(--good)}.state.warn{color:var(--warn)}
   a{color:var(--ink);text-decoration:underline;text-underline-offset:2px}
   /* The path is the worktree's second line, so the two read as one fact. */

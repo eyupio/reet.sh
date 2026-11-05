@@ -50,13 +50,13 @@
   header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
   h2 { margin: 0; font: 500 1.35rem var(--serif); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 20px 0; }
-  .chip { border-radius: 999px; padding: 3px 9px; background: var(--tint); color: var(--muted); font: 500 11px var(--mono); overflow-wrap: anywhere; }
+  .chip { border-radius: 999px; padding: 3px 9px; background: var(--tint); color: var(--muted); font: 500 14px var(--mono); overflow-wrap: anywhere; }
   .chip.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
   .body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; }
-  .text { white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.65 var(--sans); }
-  .muted { margin: 0; color: var(--muted); font-size: 13px; }
+  .text { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.65 var(--sans); }
+  .muted { margin: 0; color: var(--muted); font-size: 14px; }
   footer { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px 12px; padding: 12px 20px; border-top: 1px solid var(--line); }
-  footer .status, footer .failure { margin: 0; flex: 1 1 12em; min-width: 0; font-size: 12px; color: var(--muted); }
+  footer .status, footer .failure { margin: 0; flex: 1 1 12em; min-width: 0; font-size: 14px; color: var(--muted); }
   footer .status:empty { display: none; }
   footer .failure { color: var(--bad); }
   @media (max-width: 560px) { header, .chips, .body, footer { padding-inline: 16px; } footer > :global(.btn) { flex: 1 1 100%; } }

@@ -63,14 +63,14 @@
 {/if}
 
 <style>
-  h4 { margin: 0 0 10px; font: 600 11px var(--sans); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+  h4 { margin: 0 0 10px; font: 600 14px var(--sans); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
   .slot { height: 40px; }
   blockquote { margin: 0; padding-left: 10px; border-left: 2px solid var(--line); }
-  blockquote p, .line { margin: 0; font-size: 12px; line-height: 20px; overflow-wrap: anywhere; }
+  blockquote p, .line { margin: 0; font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
   blockquote p { height: 40px; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; color: var(--ink); }
   .line { color: var(--muted); max-height: 40px; overflow: hidden; }
   .action { height: 34px; display: flex; align-items: center; }
-  .open { font: inherit; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; border: 0; background: none; padding: 5px 0; min-height: 30px; color: var(--ink); text-decoration: underline; }
+  .open { font: inherit; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; border: 0; background: none; padding: 5px 0; min-height: 30px; color: var(--ink); text-decoration: underline; }
   .open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   @media (pointer: coarse) { .action { height: 44px; } .open { min-height: 44px; min-width: 44px; } }
 </style>

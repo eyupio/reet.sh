@@ -558,8 +558,8 @@ try {
   await expect(next).toContainText('Last known · checked 12m ago')
   expect(errors).toEqual([]);await context.close()
  }
- // A panel under 340 px shortens Planning to Plan rather than risk cutting it to "Plann…"; a wider one keeps the whole word.
- for(const [width,word] of [[300,'Plan'],[520,'Planning']]){
+ // At 14px a narrow panel lists the steps one per row and a wide one sets them side by side; either way Planning keeps its whole word.
+ for(const [width,word] of [[300,'Planning'],[340,'Planning'],[520,'Planning']]){
   const {page,context,panel,errors}=await open(1600,'dark',true,null,{session:{agentMode:'plan'}})
   await page.locator('.session-screen').evaluate((el,w)=>el.style.setProperty('--context-width',w+'px'),width)
   const tracker=panel.getByRole('group',{name:'Progress'}),label=tracker.locator('li[data-step=code] .label')
@@ -568,6 +568,8 @@ try {
   expect(await label.evaluate(e=>e.innerText),`${width}px: the planning step's label`).toBe(word)
   const cut=await tracker.locator('li .label').evaluateAll(els=>els.filter(e=>e.scrollWidth>e.clientWidth).map(e=>e.innerText))
   expect(cut,`${width}px: a step label is cut off`).toEqual([])
+  const words=await tracker.locator('li .word').evaluateAll(els=>els.filter(e=>e.scrollWidth>e.clientWidth).map(e=>e.innerText))
+  expect(words,`${width}px: a step's state word is cut off`).toEqual([])
   expect(errors).toEqual([]);await context.close()
  }
  // Asking the agent to fix: the message goes into the chat composer for the person to read and send, or onto the clipboard. Nothing is sent for them.
@@ -720,7 +722,7 @@ try {
    const {context,panel,errors}=await open(1600,'dark',true,null,{reason})
    const card=panel.getByRole('group',{name:'Pull request'})
    await expect(card).toContainText(text)
-   expect(Math.round((await card.locator('.placeholder').boundingBox()).height),`${reason}: the placeholder row is 69px`).toBe(69)
+   expect(Math.round((await card.locator('.placeholder').boundingBox()).height),`${reason}: the placeholder row is 76px, as tall as the changes card`).toBe(76)
    expect(errors).toEqual([]);await context.close()
   }
   {
@@ -802,6 +804,9 @@ try {
   await expect(panel.getByRole('group',{name:'Progress'}).locator('li[data-step=merge]')).toHaveAttribute('data-state','attention')
   const fits=await panel.evaluate(el=>[...el.querySelectorAll('.tracker, .pull')].every(n=>n.scrollWidth<=n.clientWidth+1))
   expect(fits,`${theme} ${width}px: the tracker or card overflows sideways`).toBe(true)
+  // The fixed words (step labels and states, the Next and fix buttons, the card's buttons) are never cut, at any of these widths.
+  const cut=await panel.evaluate(el=>[...el.querySelectorAll('.tracker li .label, .tracker li .word, .tracker .primary, .tracker .fix, .pull .btn')].filter(n=>n.scrollWidth>n.clientWidth+1).map(n=>n.textContent.trim()))
+  expect(cut,`${theme} ${width}px: a fixed word is cut`).toEqual([])
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   if(phone){for(const target of await panel.locator('.tracker button, .tracker a, .pull button, .pull a').all()){const b=await target.boundingBox();if(b)expect(b.height,'a touch target under 44px').toBeGreaterThanOrEqual(43)}}
   expect(errors).toEqual([]);await context.close()
@@ -849,6 +854,67 @@ try {
    for(const target of targets){const b=await target.boundingBox();if(b)expect(b.height,`${label}: a touch target under 44px`).toBeGreaterThanOrEqual(43)}
   }
   expect(errors).toEqual([]);await context.close()
+ }
+ // No text in the panel, the Overview's cards or the prompt dialog is under 14px: quiet labels are quiet in colour and weight, never in size.
+ // Every visible text node is measured by its parent's computed size, in each state that brings its own words.
+ {
+  const small=root=>root.evaluate(el=>{
+   const out=new Set(),walk=document.createTreeWalker(el,NodeFilter.SHOW_TEXT)
+   for(let n=walk.nextNode();n;n=walk.nextNode()){
+    const p=n.parentElement
+    if(!n.textContent.trim()||!p||p.closest('.xterm')||!p.checkVisibility({visibilityProperty:true}))continue
+    const size=parseFloat(getComputedStyle(p).fontSize)
+    if(size<14)out.add(`${p.tagName.toLowerCase()}${p.className&&typeof p.className==='string'?'.'+p.className.trim().split(/\s+/).join('.'):''} ${size}px "${n.textContent.trim().slice(0,32)}"`)
+   }
+   return [...out]
+  })
+  const detail={detailKnown:true,reviews:{approved:1,changesRequested:1,commented:0,requested:0},threads:{open:3,resolved:2},lastPushAt:Date.now()-4*60000,base:'main'}
+  for(const width of [1600,375]){
+   const {page,context,panel,errors,box}=await open(width,'dark',true,null,{pull:detail})
+   const label=`${width}px${width<800?' touch':''}`
+   await expect(panel.getByRole('group',{name:'Pull request'})).toContainText('#42')
+   await expect(panel.getByRole('group',{name:'You asked'})).toContainText('Rebuild the session overview')
+   if(width<800)expect(await page.evaluate(()=>matchMedia('(pointer: coarse)').matches),'the phone context has a coarse pointer').toBe(true)
+   expect(await small(panel),`${label}: text under 14px in the Overview`).toEqual([])
+   // The Last known marker on the card and the Next line, then the machine back.
+   let before=box.lists
+   box.offline=true;await page.evaluate(()=>window.dispatchEvent(new Event('online')))
+   await expect.poll(()=>box.lists).toBeGreaterThan(before)
+   await expect(panel.getByRole('group',{name:'Pull request'}).locator('.ident')).toContainText('Last known')
+   await expect(panel.getByRole('group',{name:'Progress'}).locator('.next')).toContainText('Last known')
+   expect(await small(panel),`${label}: text under 14px with the Last known marker`).toEqual([])
+   before=box.lists
+   box.offline=false;await page.evaluate(()=>window.dispatchEvent(new Event('online')))
+   await expect.poll(()=>box.lists).toBeGreaterThan(before)
+   await expect(panel.locator('.connection')).not.toHaveText('Machine offline')
+   // The merged row.
+   box.pull=()=>({...snapshot(),pull:{...pull().pull,state:'MERGED',mergeable:'UNKNOWN',checks:[],mergedAt:Date.now()-720000}})
+   await panel.getByRole('button',{name:'Refresh session workspace'}).click()
+   await expect(panel.getByRole('group',{name:'Progress'}).locator('.merged')).toBeVisible()
+   expect(await small(panel),`${label}: text under 14px with the pull request merged`).toEqual([])
+   // A question from the agent brings the notice's own words and the Next line's Review button.
+   await page.evaluate(e=>window.__insightStream.emit('chat',e),{seq:60,kind:'permission',permissionId:'ask60',title:'Allow the agent to run the build?',toolKind:'execute'})
+   await expect(panel.locator('.session-summary .notice-action')).toBeVisible()
+   expect(await small(panel),`${label}: text under 14px while the agent asks`).toEqual([])
+   // The prompt dialog, with its chips and the whole text.
+   await panel.getByRole('button',{name:'Read full prompt'}).click()
+   const dialog=page.getByRole('dialog',{name:'You asked'})
+   await expect(dialog).toContainText('FINAL-LINE-ONLY-IN-FULL-TEXT')
+   expect(await small(dialog),`${label}: text under 14px in the prompt dialog`).toEqual([])
+   await page.keyboard.press('Escape')
+   expect(errors).toEqual([]);await context.close()
+  }
+  // A terminal session's fix button copies, and says so beside it.
+  {
+   const {page,context,panel}=await open(1600,'dark',true,null,{pull:{mergeable:'CONFLICTING',review:'REVIEW_REQUIRED',checks:[ok('Build')],base:'main'},session:{structured:false}})
+   await context.grantPermissions(['clipboard-read','clipboard-write'])
+   await page.waitForTimeout(2000)
+   const tracker=panel.getByRole('group',{name:'Progress'})
+   await tracker.getByRole('button',{name:/conflicts/}).click()
+   await expect(tracker.getByRole('status')).toHaveText('Copied')
+   expect(await small(panel),'text under 14px beside the fix button').toEqual([])
+   await context.close()
+  }
  }
  console.log('Session workspace: tabs, return summary, changes, previews, folders, CI, stale data, sidebar signals, context panel resize/collapse and phone/tablet focus passed.')
 }finally{await browser.close()}

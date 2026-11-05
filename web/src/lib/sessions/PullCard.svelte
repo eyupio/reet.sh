@@ -5,7 +5,7 @@
   import InsightIcon from './InsightIcon.svelte'
   import CopyButton from '../CopyButton.svelte'
 
-  // `pull` is absent while GitHub is loading, not read, or has nothing for this branch; `placeholder` then says which, in the 69 px row the changes card also uses.
+  // `pull` is absent while GitHub is loading, not read, or has nothing for this branch; `placeholder` then says which, in the 76 px row the changes card also uses.
   // `stale` is the "Last known" marker for a read the machine can no longer vouch for; empty while the read is current.
   let { id, pull, placeholder, now, onfull, stale = '' }: { id: string; pull?: InsightPull; placeholder: string; now: number; onfull: () => void; stale?: string } = $props()
   const checks = $derived(pull?.checks ?? [])
@@ -27,13 +27,13 @@
   {#if pull && verdict && threads && conflict}
     <div class="pull">
       <!-- A stale read takes the push time's place: how old the whole card is matters more than when the branch last moved. -->
-      <div class="row ident"><span class="grow"><b>#{pull.number}</b> · {pull.state.toLowerCase()}{#if pull.draft} · draft{/if}</span>{#if stale}<span class="muted stale" title={stale}>{stale}</span>{:else if pull.lastPushAt}<span class="muted">pushed {elapsedWord(pull.lastPushAt, now)}</span>{/if}{#if prURL}<span class="copy-link"><CopyButton text={prURL} label="Link" ariaLabel="Copy pull request link" compact /></span>{/if}</div>
+      <div class="row ident"><span class="grow"><b>#{pull.number}</b> · {pull.state.toLowerCase()}{#if pull.draft} · draft{/if}</span>{#if stale}<span class="muted stale" title={stale}>{stale}</span>{:else if pull.lastPushAt}<span class="muted pushed" title={`pushed ${elapsedWord(pull.lastPushAt, now)}`}>pushed {elapsedWord(pull.lastPushAt, now)}</span>{/if}{#if prURL}<span class="copy-link"><CopyButton text={prURL} label="Link" ariaLabel="Copy pull request link" compact /></span>{/if}</div>
       <div class="row title" title={pull.title}>{pull.title}</div>
       <div class="row verdict" data-tone={verdict.tone} title={verdict.detail}><InsightIcon name={verdict.icon} /><strong>{verdict.title}</strong></div>
       <div class="chips">
-        {#if split.failed.length}<span class="chip bad">{split.failed.length} failing</span>{/if}
-        {#if split.running.length}<span class="chip warn">{split.running.length} running</span>{/if}
-        {#if split.passed.length}<span class="chip good">{split.passed.length} passed</span>{/if}
+        {#if split.failed.length}<span class="chip bad" title={`${split.failed.length} failing`}>{split.failed.length} failing</span>{/if}
+        {#if split.running.length}<span class="chip warn" title={`${split.running.length} running`}>{split.running.length} running</span>{/if}
+        {#if split.passed.length}<span class="chip good" title={`${split.passed.length} passed`}>{split.passed.length} passed</span>{/if}
         {#if !total}<span class="chip">None reported</span>{/if}
       </div>
       <div class="meter-slot">
@@ -43,9 +43,9 @@
           </div>
         {:else}<div class="meter"></div>{/if}
       </div>
-      <div class="row" title={reviews}>{reviews}</div>
-      <div class="row" data-tone={threads.tone} title={threads.text}>{threads.text}</div>
-      <div class="row split"><span class="grow" data-tone={conflict.tone} title={conflict.text}>{conflict.text}</span><span class="totals" aria-label={`${pull.added.toLocaleString()} lines added and ${pull.removed.toLocaleString()} removed`}><span class="good">+{pull.added.toLocaleString()}</span> <span class="bad">−{pull.removed.toLocaleString()}</span></span></div>
+      <div class="row fact" title={reviews}><span class="grow">{reviews}</span></div>
+      <div class="row fact" data-tone={threads.tone} title={threads.text}><span class="grow">{threads.text}</span></div>
+      <div class="row fact split"><span class="grow" data-tone={conflict.tone} title={conflict.text}>{conflict.text}</span><span class="totals" aria-label={`${pull.added.toLocaleString()} lines added and ${pull.removed.toLocaleString()} removed`}><span class="good">+{pull.added.toLocaleString()}</span> <span class="bad">−{pull.removed.toLocaleString()}</span></span></div>
       <div class="buttons">
         {#if prURL}<a class="btn" href={prURL} target="_blank" rel="noopener noreferrer">Open pull request</a>{:else}<span></span>{/if}
         {#if failingURL}<a class="btn" href={failingURL} target="_blank" rel="noopener noreferrer">Open failing check</a>{:else}<span></span>{/if}
@@ -59,36 +59,46 @@
 </div>
 
 <style>
-  .pull-card { min-width: 0; --btn: 32px; --ident: 24px; }
-  h4 { margin: 0 0 10px; font: 600 11px var(--sans); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
-  .placeholder { box-sizing: border-box; height: 69px; display: flex; align-items: center; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); }
-  .placeholder p { margin: 0; font-size: 12px; line-height: 1.6; color: var(--muted); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+  /* 14px type does not fit a narrow panel the way 11px did. Under about 380 px the buttons go one per row so "Open failing check"
+     keeps its words, the chips may take a second line, and the three fact rows two lines each; the card is still one height. */
+  .pull-card { min-width: 0; --btn: 32px; --ident: 24px; container-type: inline-size; }
+  h4 { margin: 0 0 10px; font: 600 14px var(--sans); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+  .placeholder { box-sizing: border-box; height: 76px; display: flex; align-items: center; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); }
+  .placeholder p { margin: 0; font-size: 14px; line-height: 20px; color: var(--muted); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
   /* Every row has a fixed height, whether or not it has anything to say, so a pull request that changes never moves what is below it. */
-  .pull { box-sizing: border-box; overflow: hidden; min-width: 0; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--ink); height: calc(24px + 129px + var(--ident) + 8px + 6px + 2 * var(--btn)); }
-  .row { display: flex; align-items: center; gap: 8px; height: 18px; font-size: 11px; line-height: 18px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pull { --rows: 2; --chips: 28px; --fact: 20px; box-sizing: border-box; overflow: hidden; min-width: 0; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--ink); height: calc(24px + 53px + var(--chips) + 3 * var(--fact) + var(--ident) + 8px + (var(--rows) - 1) * 6px + var(--rows) * var(--btn)); }
+  .row { display: flex; align-items: center; gap: 8px; height: 20px; font-size: 14px; line-height: 20px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* The ident row is as tall as the copy control in it (24 px, 44 px on touch), in every state, so the card keeps one height. */
   .row.ident { height: var(--ident); color: var(--muted); } .ident b { color: var(--ink); font-weight: 600; }
   .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* The number and state are the card's name and never shrink; the push time and the marker give way, with their words in a title. */
+  .ident .grow { flex: 1 0 auto; }
   .muted { flex: none; color: var(--muted); }
-  .stale { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+  .pushed, .stale { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .stale { font-weight: 600; }
   .copy-link { flex: none; display: inline-flex; align-items: center; }
-  .copy-link :global(.copy.compact) { box-sizing: border-box; min-height: var(--ident); min-width: 24px; padding: 0 7px; gap: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); font: inherit; font-size: 10px; cursor: pointer; }
-  .copy-link :global(.copy svg) { width: 12px; height: 12px; }
-  .title { display: block; height: 20px; line-height: 20px; font-size: 13px; font-weight: 600; color: var(--ink); }
-  .verdict { height: 20px; color: var(--ink); } .verdict strong { font-size: 12px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .copy-link :global(.copy.compact) { box-sizing: border-box; min-height: var(--ident); min-width: 24px; padding: 0 7px; gap: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); font: inherit; font-size: 14px; line-height: 20px; cursor: pointer; }
+  .copy-link :global(.copy svg) { width: 14px; height: 14px; }
+  .title { display: block; height: 20px; line-height: 20px; font-size: 14px; font-weight: 600; color: var(--ink); }
+  .verdict { height: 20px; color: var(--ink); } .verdict strong { font-size: 14px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .verdict :global(svg) { flex: none; }
   .verdict[data-tone='bad'] { color: var(--bad); } .verdict[data-tone='warn'] { color: var(--warn); } .verdict[data-tone='good'] { color: var(--good); }
-  .chips { display: flex; align-items: center; gap: 5px; height: 22px; overflow: hidden; }
-  .chip { flex: none; border-radius: 999px; padding: 2px 7px; background: var(--tint); color: var(--muted); font: 500 10px var(--mono); white-space: nowrap; }
+  .chips { display: flex; flex-wrap: wrap; align-content: center; align-items: center; gap: 4px; height: var(--chips); overflow: hidden; }
+  .chip { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; border-radius: 999px; padding: 2px 7px; background: var(--tint); color: var(--muted); font: 500 14px/20px var(--sans); white-space: nowrap; }
   .chip.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); } .chip.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); } .chip.good { color: var(--good); background: color-mix(in srgb, var(--good) 10%, transparent); }
   .meter-slot { height: 13px; display: flex; align-items: center; }
   .meter { display: flex; width: 100%; height: 5px; border-radius: 3px; overflow: hidden; background: var(--line-soft); }
   .meter i { display: block; height: 100%; } .meter .bad { background: var(--bad); } .meter .warn { background: var(--warn); } .meter .good { background: var(--good); }
   [data-tone='bad'] { color: var(--bad); } [data-tone='warn'] { color: var(--warn); } [data-tone='good'] { color: var(--good); }
-  .split { gap: 10px; } .totals { flex: none; font: 11px var(--mono); } .totals .good { color: var(--good); } .totals .bad { color: var(--bad); }
+  .fact { height: var(--fact); } .split { gap: 10px; } .totals { flex: none; font: 14px var(--mono); } .totals .good { color: var(--good); } .totals .bad { color: var(--bad); }
   .buttons { margin-top: 8px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: var(--btn); gap: 6px; }
-  .btn { box-sizing: border-box; min-width: 0; display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); font: inherit; font-size: 11px; text-decoration: none; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .btn { box-sizing: border-box; min-width: 0; display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); font: inherit; font-size: 14px; text-decoration: none; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .btn:hover { background: var(--tint); }
+  /* Empty places keep their row, so the card is one height whichever buttons a pull request has. */
+  @container (max-width: 329px) {
+    .pull { --rows: 4; --chips: 52px; --fact: 40px; } .buttons { grid-template-columns: minmax(0, 1fr); }
+    .fact { align-items: flex-start; } .fact .grow { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+  }
   :is(a, button):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   @media (pointer: coarse) { .pull-card { --btn: 44px; --ident: 44px; } .copy-link :global(.copy.compact) { min-width: 44px; } }
 </style>

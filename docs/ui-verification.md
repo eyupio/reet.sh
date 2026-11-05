@@ -1,5 +1,27 @@
 # UI verification — 4 November 2026
 
+## The Overview at the 14px floor (5 November 2026)
+
+After `main`'s change that keeps all web UI text at 14px or larger, the Overview's cards and the prompt dialog were
+brought up to the same floor; quiet labels keep their colour and weight. At 14px five steps with their words do not fit
+side by side in a panel under about 450 px, so there the tracker lists the steps one per row, and the Next button, the fix
+button and its note stack beneath the sentence. Under about 380 px the pull request card puts its buttons one per row and
+lets its chips and fact rows take a second line. The pull request placeholder is now 76 px, the height `main` gave the
+changes card. Every slot still has one fixed height per width.
+
+A new block in `session-workspace.e2e.mjs` walks every visible text node in the panel and the prompt dialog at 1600 px and
+at 375 px with a coarse pointer (loaded, Last known, merged, the agent asking, the dialog, and a terminal's "Copied" note)
+and fails on a computed size under 14px. Against the components before this change it failed with 77 elements. The
+tracker stability block also now fails when a step label, state word, Next or fix button or card button is cut; with the
+card's narrow rule removed it failed at 300 px on "Open pull request" and "Open failing check".
+
+Run from `web/` against `npx vite preview --port 4173` (stopped afterwards), Chromium from `/opt/pw-browsers/chromium`:
+`npm test` (833 tests, 0 failures), `npm run check` (0 errors, the 2 existing warnings), `npm run build`; browser, all
+passing: `session-workspace`, `sessions`, `chat`, `chat-controls`, `chat-previews`, `sessions-phone`, `phone-layout`,
+`phone-dialogs`, `phone-zoom` and `start-agent`. `GOTOOLCHAIN=auto go vet ./...` is clean and the `terminalproto`,
+`terminalhost`, `store` and `api` packages pass. Not run: the axe audits (`REET_AXE_PATH` unset), the other browser files,
+Firefox, Safari and physical devices.
+
 ## Session workspace: the Overview (5 November 2026)
 
 The Overview now has a run clock, a prompt card and dialog, a five-step tracker with one Next line, a pull request

@@ -10,6 +10,7 @@
   import CopyButton from './CopyButton.svelte'
   import { shell } from './dialogShell'
   import { canAutoFocus } from './focus'
+  import { keepLauncherClear } from './floatingLauncher'
   import { formatWhen } from './time'
   import { toolName } from './agentLaunch'
 
@@ -175,7 +176,7 @@
 </script>
 
 {#if !open}
-  <button class="gaffer-launcher" class:in-session={!!$gafferSessionContext} bind:this={launcher} aria-label="Ask Gaffer" aria-haspopup="dialog" onclick={() => open = true}>
+  <button class="gaffer-launcher" use:keepLauncherClear bind:this={launcher} aria-label="Ask Gaffer" aria-haspopup="dialog" onclick={() => open = true}>
     <span class="launcher-portrait" aria-hidden="true"><GafferAvatar phase="idle" pose="tea" /></span><span>Ask Gaffer</span>
   </button>
 {/if}
@@ -254,8 +255,7 @@
 {#if confirming && current}<ConfirmDialog title="Remove this Gaffer conversation?" body="This deletes its messages and stops its current answer. Your working agent keeps running. Provider credits already used cannot be recovered." confirmLabel="Remove conversation" danger oncancel={() => confirming = false} onconfirm={() => void removeConversation()} />{/if}
 
 <style>
-  .gaffer-launcher { position: fixed; z-index: 18; right: 24px; bottom: calc(var(--bottom-chrome, 0px) + 20px); min-height: 52px; display: flex; align-items: center; gap: 8px; padding: 4px 16px 4px 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--card-raised); color: var(--ink); box-shadow: 0 5px 22px var(--scrim); font: 600 14px var(--sans); cursor: pointer; }
-  .gaffer-launcher.in-session { bottom: calc(var(--bottom-chrome, 0px) + 100px); }
+  .gaffer-launcher { position: fixed; z-index: 18; right: 24px; bottom: var(--launcher-clearance, calc(var(--bottom-chrome, 0px) + 20px)); min-height: 52px; display: flex; align-items: center; gap: 8px; padding: 4px 16px 4px 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--card-raised); color: var(--ink); box-shadow: 0 5px 22px var(--scrim); font: 600 14px var(--sans); cursor: pointer; }
   .launcher-portrait { width: 38px; height: 38px; }
   .gaffer-launcher:hover { border-color: var(--accent); }
   .gaffer-chat { position: fixed; z-index: 30; inset: auto 20px calc(var(--bottom-chrome, 0px) + 18px) auto; margin: 0; width: 450px; max-width: calc(100vw - 32px); height: min(770px, calc(100dvh - var(--bottom-chrome, 0px) - 48px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--card); color: var(--ink); box-shadow: 0 16px 64px var(--scrim); overflow: hidden; }

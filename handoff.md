@@ -18,52 +18,56 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
-## Gaffer AI session-companion MVP: current direction (5 November 2026)
+## Gaffer AI session-companion MVP: agreed direction (5 November 2026)
 
-Use the [active companion roadmap](docs/work-orchestration-handoff.md#active-direction-gaffer-session-companion-mvp-5-november-2026)
-and [conversation/access contract](docs/handoffs/gaffer-conversations.md). Gaffer is
-the user's quirky critical buddy, with its own provider/model and private general
-or session-specific conversation. The existing working model performs coding,
-commands and PR work. The agreed complete MVP includes explicitly delegated,
-durable follow goals for several selected structured sessions while the user is
-offline; approvals and scope changes return to the user. Native and Docker support,
-provider/backend parity and dynamic model choices remain the recorded direction.
+The user selected the [Gaffer session-companion MVP](docs/work-orchestration-handoff.md#active-direction-gaffer-session-companion-mvp-5-november-2026)
+as the initial AI-chat direction. Outside a session Gaffer is a general
+Zoomies-style chat; each reet session has its own Gaffer conversation. Gaffer is
+the user's quirky critical buddy: it reads permitted context and messages the
+existing working model, which performs the coding and PR actions. Explicit goals
+can continue for several selected sessions while the user is offline and recover
+after controller restart. Initial follow-up supports verified structured chats.
 
-| Slice | Current delivery |
-| --- | --- |
-| Plan / GM1A | #600 and #601 merged: agreed MVP and fake-tested HTTP provider foundation |
-| GM1B | [#603](https://github.com/eyupio/reet.sh/pull/603): owned provider settings, encrypted keys, discovery/test/defaults and account UI; still open; now also includes #605 at `628118e8` |
-| GM0 / GM2A | [#605](https://github.com/eyupio/reet.sh/pull/605), `e315b2fe`: access/recovery contract and durable conversations, replies, overrides and receipts; merged into #603’s branch as `628118e8`, not main |
-| GM2B | [Draft #606](https://github.com/eyupio/reet.sh/pull/606), `feat/gaffer-floating-chat`, based on #603 after #605 merged there: floating desktop/phone companion UI, separate scoped drafts/history, model choice, streaming, cancellation, saved-chat cleanup and uncertain-send/restart recovery |
+The companion handoff records all choices, source evidence, provider/MCP
+limitations and proposed GM0-GM6 slices alongside the broader KZ roadmap. The
+plan [#600](https://github.com/eyupio/reet.sh/pull/600) and HTTP provider foundation
+[#601](https://github.com/eyupio/reet.sh/pull/601) are merged. Tests use local fake
+providers, with real credentials supplied later through Gaffer settings.
 
-GM2B sends only explicitly typed companion messages and its completed history.
-It reads no live reet activity or worker transcript and sends no worker instruction.
-Provider context switches are policy for the forthcoming scoped tools. The widget
-makes those limits visible, names both models and preserves the worker composer
-and approval flow. Closing it keeps an admitted answer running; explicit Cancel
-answer affects Gaffer only. Receipt metadata may enter browser session storage;
-drafts, message text and credentials do not. See the [user guide](docs/gaffer-ai.md)
-and [UI evidence](docs/ui-verification.md#gaffer-floating-companion-chat-5-november-2026).
+GM1B and GM2A now share [open PR #603](https://github.com/eyupio/reet.sh/pull/603),
+`feat/gaffer-provider-settings`. The owner merged conversation backend #605 into
+that branch, not into main. It contains account-owned providers, encrypted keys,
+live model selection and Account → Gaffer AI, plus separate durable general/session
+conversations, versioned model choices, turn receipts, SSE, cancellation and
+restart recovery without replay. Only typed companion messages reach providers.
+The [conversation/access contract](docs/handoffs/gaffer-conversations.md) records
+worker eligibility, grants and queue receipt/recovery boundaries for later slices.
 
-Next bounded slice: GM3A's account/session grants and tested allowlisted context
-projections. Reuse existing bounded worker events and status reads with current
-provider permissions, explicit grants and honest stale/truncated evidence. Then
-GM3B adds scoped MCP/companion messaging through the existing next-turn queue and
-its durable receipts. GM4 adds bounded offline goals and reconciliation. Existing
-shelf MCP credentials retain their scope; do not bypass worker permissions,
-answer approval cards, enable experiments or automate terminal keystrokes.
+GM2B is [draft PR #606](https://github.com/eyupio/reet.sh/pull/606),
+`feat/gaffer-floating-chat`, based on #603 and carrying its `d7bfa84e` review fix.
+It supplies floating general/session chat, independent model choices, durable
+receipt recovery, scoped drafts, cancellation and history cleanup. Its browser CI
+exposed launcher overlaps with **Save draft** and worker **Queue** controls. The
+launcher now follows measured composer/action-dock bounds; both failing flows and
+the full Gaffer chat browser matrix pass locally. See the companion record and
+[UI evidence](docs/ui-verification.md) for the widget scope and final checks. Do
+not merge either PR without owner direction. Scoped context tools, worker messages
+and durable offline supervision remain ahead; Gaffer has no coding or PR authority.
 
-GM2B local web unit/type/build and browser matrices, Go vet and strict docs checks
-pass. The full Go race run passes every package except four known terminal-host
-failures (three missing tmux; one process-group check). See the companion record
-for exact evidence/limits. Tests use local fakes; configure real keys later through
-Gaffer settings. No paid provider, physical device or deployment was exercised.
+The 5 November #603 review follow-up fixes first-address-only provider dialing:
+try all validated literal addresses, with dual-stack fallback and bounded,
+cancelled/joined racers. A localhost HTTP regression fails on the old transport
+and passes with the fix. The recurring offline-browse CI failure now uses fake
+time for the request while retaining its 100 ms limit, six offline/access cases
+and no-send/no-audit assertions; an injected 101 ms wait still fails. No browse
+production source changes. Focused repeated race checks, web check/build, vet,
+16 MCP checks, strict docs and the provider browser matrix pass. The new full race
+run passes API (409 s), Gaffer (40 s), store (197 s), broker (66 s) and every package
+except the same five baseline terminal-host failures. Final-head CI remains the
+merge gate; see the companion handoff's dated follow-up record for exact limits.
 
-Do not merge #603 or #606 without owner direction. Settings `ecaa08be` and
-conversation `e315b2fe` completed their CI checks; use the current heads’ checks
-for the final merge gates. Keep this handoff and the
-companion contract current in every batch. Change reet.sh only; attached reference
-repositories are read-only.
+Keep that handoff current in every implementation batch. Changes remain confined
+to reet.sh; reference repositories are read-only.
 
 ## OVERVIEW-2: the machine reads the extra pull request fields (5 November 2026)
 

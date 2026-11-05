@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/coder/websocket"
@@ -408,18 +409,22 @@ func TestBrowseOfflineMachineAnswersAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.peers[f.agent].Close()
-	for _, agent := range []string{f.agent, never.ID, "not-a-machine-of-this-account"} {
-		for _, path := range []string{browsePath(agent, browseNonce(), nil), branchesPath(agent, browseTestHome+"/site", "")} {
-			start := time.Now()
-			code, out, raw := f.get(t, f.cookie, path)
-			if code != 503 || out["code"] != "machine_unavailable" || out["error"] != readinessSentence {
-				t.Fatal(path, code, raw)
-			}
-			if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
-				t.Fatal("an offline machine took", elapsed)
+	// Keep the fixture's real network listeners outside the bubble. Fake time
+	// measures waits in the request, not filesystem or runner scheduling pauses.
+	synctest.Test(t, func(t *testing.T) {
+		for _, agent := range []string{f.agent, never.ID, "not-a-machine-of-this-account"} {
+			for _, path := range []string{browsePath(agent, browseNonce(), nil), branchesPath(agent, browseTestHome+"/site", "")} {
+				start := time.Now()
+				code, out, raw := f.get(t, f.cookie, path)
+				if code != 503 || out["code"] != "machine_unavailable" || out["error"] != readinessSentence {
+					t.Fatal(path, code, raw)
+				}
+				if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+					t.Fatal("an offline machine took", elapsed)
+				}
 			}
 		}
-	}
+	})
 	if len(f.sentRequests()) != 0 || len(browseEvents(t, f.st, f.uid)) != 0 {
 		t.Fatal("an offline browse was sent or audited")
 	}

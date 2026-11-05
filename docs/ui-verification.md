@@ -37,6 +37,14 @@ worker instructions and offline follow-up remain subsequent work.
   calls and controller/Docker rollout were not exercised. No backend authority
   changed in this UI slice.
 
+Follow-up: final-head browser CI found the launcher covering **Save draft** and
+worker **Queue**. The launcher now measures the actual composer, work-update card and fixed save
+dock, including their changing height, rather than using a fixed session offset.
+The previously failing sync-vocabulary/live-controls flows pass, with geometry
+assertions for the save dock and multi-line worker composer in desktop/phone and
+both themes. The companion browser matrix and web check/build also pass. No
+worker/provider authority or model interaction changed in this layout fix.
+
 ## Gaffer AI provider settings (5 November 2026)
 
 Account → Gaffer AI now has account-owned provider cards, default/pause/remove

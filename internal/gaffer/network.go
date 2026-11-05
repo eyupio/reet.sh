@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"sync"
 	"time"
 )
 
@@ -98,7 +99,120 @@ func newProviderClient(local bool) *http.Client {
 		if err != nil {
 			return nil, err
 		}
-		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
+		return dialProviderAddresses(ctx, network, port, ips, local, dialer.DialContext)
 	}
 	return &http.Client{Transport: &guardedTransport{transport, local}}
+}
+
+// dialProviderAddresses preserves address pinning while giving both validated
+// families a chance. Every racer is cancelled and joined before returning, and
+// a late successful connection is closed rather than leaked.
+func dialProviderAddresses(parent context.Context, network, port string, ips []netip.Addr, local bool, dial func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
+	if err := checkAddresses(ips, local); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	type result struct {
+		conn    net.Conn
+		err     error
+		primary bool
+	}
+	results := make(chan result, 2)
+	var workers sync.WaitGroup
+	defer func() {
+		cancel()
+		workers.Wait()
+		close(results)
+		for r := range results {
+			if r.conn != nil {
+				r.conn.Close()
+			}
+		}
+	}()
+	groups := [2][]netip.Addr{}
+	first4 := ips[0].Unmap().Is4()
+	for _, ip := range ips {
+		ip = ip.Unmap()
+		if network == "tcp4" && !ip.Is4() || network == "tcp6" && ip.Is4() {
+			continue
+		}
+		group := 0
+		if ip.Is4() != first4 {
+			group = 1
+		}
+		groups[group] = append(groups[group], ip)
+	}
+	if len(groups[0]) == 0 {
+		groups[0], groups[1] = groups[1], nil
+	}
+	if len(groups[0]) == 0 {
+		return nil, errors.New("the provider has no address for this network")
+	}
+	start := func(primary bool, addresses []netip.Addr) {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			var failures []error
+			for i, ip := range addresses {
+				if err := ctx.Err(); err != nil {
+					results <- result{err: err, primary: primary}
+					return
+				}
+				deadline, _ := ctx.Deadline()
+				remaining := time.Until(deadline)
+				perAddress := remaining / time.Duration(len(addresses)-i)
+				if perAddress < 2*time.Second {
+					perAddress = min(2*time.Second, remaining)
+				}
+				attempt, stop := context.WithTimeout(ctx, perAddress)
+				conn, err := dial(attempt, network, net.JoinHostPort(ip.String(), port))
+				stop()
+				if err == nil && ctx.Err() == nil {
+					results <- result{conn: conn, primary: primary}
+					return
+				}
+				if conn != nil {
+					conn.Close()
+				}
+				if err == nil {
+					err = ctx.Err()
+				}
+				failures = append(failures, err)
+			}
+			results <- result{err: errors.Join(failures...), primary: primary}
+		}()
+	}
+	start(true, groups[0])
+	fallbackStarted := false
+	timer := time.NewTimer(300 * time.Millisecond)
+	defer timer.Stop()
+	var failures []error
+	for {
+		select {
+		case r := <-results:
+			if r.err == nil {
+				if err := ctx.Err(); err != nil {
+					r.conn.Close()
+					return nil, err
+				}
+				return r.conn, nil
+			}
+			failures = append(failures, r.err)
+			if len(groups[1]) == 0 || len(failures) == 2 {
+				return nil, errors.Join(failures...)
+			}
+			if r.primary && !fallbackStarted {
+				fallbackStarted = true
+				timer.Stop()
+				start(false, groups[1])
+			}
+		case <-timer.C:
+			if len(groups[1]) > 0 && !fallbackStarted {
+				fallbackStarted = true
+				start(false, groups[1])
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }

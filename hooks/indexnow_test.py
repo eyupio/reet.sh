@@ -45,6 +45,11 @@ class Changed(unittest.TestCase):
         live = {"https://reet.sh/a/": "2026-01-01", "https://reet.sh/b/": "2026-01-01"}
         self.assertEqual(indexnow.changed(built, live), ["https://reet.sh/a/"])
 
+    def test_a_second_edit_the_same_day_is_submitted(self):
+        built = {"https://reet.sh/a/": "2026-02-01T10:00:00Z"}
+        live = {"https://reet.sh/a/": "2026-02-01T09:00:00Z"}
+        self.assertEqual(indexnow.changed(built, live), ["https://reet.sh/a/"])
+
     def test_a_page_with_the_same_date_is_left_alone(self):
         pages = {"https://reet.sh/a/": "2026-01-01"}
         self.assertEqual(indexnow.changed(pages, dict(pages)), [])

@@ -47,16 +47,32 @@ class GitDates(unittest.TestCase):
 
     def test_a_page_is_dated_by_its_last_edit_not_its_first(self):
         dates = docs._git_dates(str(self.repo / "docs"))
-        self.assertEqual(dates["a.md"], "2026-03-04")
+        self.assertEqual(dates["a.md"], "2026-03-04T10:00:00Z")
 
     def test_paths_are_relative_to_the_docs_directory(self):
         dates = docs._git_dates(str(self.repo / "docs"))
-        self.assertEqual(dates["guides/b.md"], "2026-02-03")
+        self.assertEqual(dates["guides/b.md"], "2026-02-03T10:00:00Z")
 
     def test_a_change_outside_the_docs_does_not_date_anything(self):
         dates = docs._git_dates(str(self.repo / "docs"))
         self.assertNotIn("README.md", dates)
         self.assertEqual(set(dates), {"a.md", "guides/b.md"})
+
+    def test_two_edits_on_the_same_day_get_different_stamps(self):
+        # A docs deploy runs on every merge, and a page is often edited more than
+        # once in a day. A date alone would give both versions the same lastmod and
+        # the second deploy would tell engines nothing.
+        commit(self.repo, "2026-06-01T09:00:00+00:00", "morning", {"docs/c.md": "one"})
+        morning = docs._git_dates(str(self.repo / "docs"))["c.md"]
+        commit(self.repo, "2026-06-01T10:00:00+00:00", "later", {"docs/c.md": "two"})
+        later = docs._git_dates(str(self.repo / "docs"))["c.md"]
+        self.assertNotEqual(morning, later)
+
+    def test_a_stamp_is_in_utc_whatever_zone_the_commit_was_made_in(self):
+        # The same moment must read the same, or a contributor's time zone would
+        # look like an edit.
+        commit(self.repo, "2026-06-02T12:00:00+02:00", "abroad", {"docs/d.md": "one"})
+        self.assertEqual(docs._git_dates(str(self.repo / "docs"))["d.md"], "2026-06-02T10:00:00Z")
 
     def test_a_directory_with_no_history_gives_no_dates_rather_than_failing_the_build(self):
         with tempfile.TemporaryDirectory() as bare:
@@ -82,7 +98,7 @@ class OnFiles(unittest.TestCase):
         docs.on_files(files, {"docs_dir": str(repo / "docs")})
         self.assertEqual(
             docs._lastmod,
-            {"documentation/index.html": "2026-04-05", "new/index.html": "2026-03-04"},
+            {"documentation/index.html": "2026-04-05T10:00:00Z", "new/index.html": "2026-03-04T10:00:00Z"},
         )
 
     def test_the_dates_of_one_build_do_not_leak_into_the_next(self):
@@ -99,8 +115,8 @@ class Sitemap(unittest.TestCase):
             return Path(site, "sitemap.xml").read_text(encoding="utf-8")
 
     def test_a_dated_page_carries_its_last_edit(self):
-        xml = self.written([{"url": "https://reet.sh/a/", "lastmod": "2026-03-04"}])
-        self.assertIn("<loc>https://reet.sh/a/</loc>\n    <lastmod>2026-03-04</lastmod>", xml)
+        xml = self.written([{"url": "https://reet.sh/a/", "lastmod": "2026-03-04T10:00:00Z"}])
+        self.assertIn("<loc>https://reet.sh/a/</loc>\n    <lastmod>2026-03-04T10:00:00Z</lastmod>", xml)
 
     def test_an_undated_page_is_listed_without_inventing_a_date(self):
         xml = self.written([{"url": "https://reet.sh/a/", "lastmod": ""}])

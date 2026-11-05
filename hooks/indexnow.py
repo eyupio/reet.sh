@@ -2,7 +2,7 @@
 
 This is not an MkDocs hook (mkdocs.yml does not register it) but it lives beside
 them because it reads what they write: the sitemap hooks/docs.py renders, where
-every URL carries the date its page was last edited in git.
+every URL carries the time its page was last edited in git.
 
 A crawler finds a changed page on its own eventually, through that sitemap.
 IndexNow (https://www.indexnow.org) is the way to say so the moment it ships:
@@ -11,14 +11,14 @@ changed. Google does not take part; it reads the sitemap.
 
 It submits only what changed. The live sitemap, fetched before the new site
 replaces it, is the record of what search engines were last shown; a URL that is
-new, or whose last-edited date moved, goes in the payload, and nothing else
+new, or whose last-edited time moved, goes in the payload, and nothing else
 does. Resubmitting every page on every rebuild would be noise the protocol asks
 senders not to make.
 
 Two cases submit nothing on purpose:
 
 * A page the build could not date. A shallow checkout has no history, so no
-  page has a date; treating "no date" as "changed" would resubmit the whole site
+  page has a time; treating "no time" as "changed" would resubmit the whole site
   on every deploy. Only a URL the live sitemap has never listed is submitted
   without one.
 * A build that tells crawlers to stay away (DOCS_NOINDEX, a preview). Telling
@@ -64,7 +64,7 @@ def entries(xml: str) -> dict[str, str]:
 
 
 def changed(built: dict[str, str], live: dict[str, str]) -> list[str]:
-    """The URLs that are new, or whose last-edited date differs from the live site's."""
+    """The URLs that are new, or whose last-edited time differs from the live site's."""
     return sorted(
         loc
         for loc, date in built.items()

@@ -199,10 +199,10 @@ def check(site_dir):
     undated = [
         node.text
         for node in sitemap_tree.iter(sitemap_namespace + "lastmod")
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", node.text or "")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", node.text or "")
     ]
     if undated:
-        errors.append(f"sitemap last-edited dates must be YYYY-MM-DD: {undated}")
+        errors.append(f"sitemap last-edited times must be UTC, YYYY-MM-DDTHH:MM:SSZ: {undated}")
     if gzip.decompress((site_dir / "sitemap.xml.gz").read_bytes()) != sitemap:
         errors.append("compressed sitemap does not match sitemap.xml")
     if base + "sitemap.xml" not in (site_dir / "robots.txt").read_text():

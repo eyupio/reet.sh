@@ -15,6 +15,7 @@ import math
 import os
 import re
 import subprocess
+from datetime import datetime, timezone
 from xml.sax.saxutils import escape
 
 from markdown.extensions.toc import slugify
@@ -32,8 +33,22 @@ log = logging.getLogger("mkdocs.hooks.docs")
 _lastmod: dict[str, str] = {}
 
 
+def _utc(stamp):
+    """A commit's ISO 8601 time as UTC, `2026-03-04T10:00:00Z`, or "" if git gave none.
+
+    The whole time is kept, not just the day: a docs deploy runs on every merge, a
+    page is often edited more than once in a day, and a date alone would give both
+    versions the same stamp, so the second deploy would tell search engines
+    nothing. UTC, so a contributor's time zone never looks like an edit.
+    """
+    try:
+        return datetime.fromisoformat(stamp).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return ""
+
+
 def _git_dates(docs_dir):
-    """Map each file under docs_dir to the date of the last commit that touched it."""
+    """Map each file under docs_dir to when the last commit that touched it was made."""
     cmd = ["git", "log", "--pretty=format:%x00%cI", "--name-only", "--no-renames", "--relative", "--", "."]
     try:
         out = subprocess.run(
@@ -47,7 +62,7 @@ def _git_dates(docs_dir):
     for line in out.splitlines():
         if line.startswith("\x00"):
             # A commit header: every path until the next one was touched by it.
-            current = line[1:11]
+            current = _utc(line[1:])
         elif line.strip():
             # Newest first, so the first commit seen for a path is its last edit.
             dates.setdefault(line.strip(), current)
@@ -59,7 +74,7 @@ def on_files(files, config):
 
     The sitemap tells a crawler when a page last changed. MkDocs' own stamps
     every URL with the build date, which says the whole site changed on every
-    build and so says nothing; the date a page was last edited is in git. A
+    build and so says nothing; the time a page was last edited is in git. A
     page with no history (a shallow checkout, a file not yet committed) is left
     undated rather than given today's date, because an invented date reads as a
     change and would have the whole site resubmitted to search engines on every

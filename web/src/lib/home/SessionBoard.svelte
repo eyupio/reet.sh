@@ -50,8 +50,9 @@
   let generation = 0
   let activeRequests = new Set<string>()
   // A reference-image preview opens on hover or focus of a backlog card's image badge. Large image bodies are only
-  // fetched on that first look, then kept for the rest of the visit.
-  let imagePreview = $state<{ draft: SessionDraft; anchor: { left: number; top: number; bottom: number; width: number; height: number } } | null>(null)
+  // fetched on that first look, then kept for the visit. The cache is keyed by the draft's version, so changing its
+  // attachments can never show the previous ones.
+  let imagePreview = $state<{ draft: SessionDraft; anchor: HTMLElement } | null>(null)
   let imageCache = $state<Record<string, DraftImage[]>>({})
   let imageLoading = $state<Record<string, boolean>>({})
   let imageErrors = $state<Record<string, string>>({})
@@ -85,7 +86,7 @@
     try {
       const next = await listDrafts(signal())
       if (life.signal.aborted || mine !== generation) return
-      drafts = next; problem = ''
+      drafts = next; problem = ''; pruneImages(next)
     } catch (e) {
       if (life.signal.aborted || mine !== generation) return
       error(e); problem = drafts ? "Couldn't refresh the backlog. Showing your last saved items." : "Couldn't read the backlog just now."
@@ -94,10 +95,16 @@
   function preferences() {
     try { localStorage.setItem(`reet.sessionBoard.${userId}`, JSON.stringify({ view, sort, compact })) } catch { /* The view still works without storage. */ }
   }
-  function anchorOf(el: HTMLElement) { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, bottom: r.bottom, width: r.width, height: r.height } }
+  const imageKey = (draft: Pick<SessionDraft, 'id' | 'version'>) => `${draft.id}:${draft.version}`
+  // A draft that was edited or started no longer needs the images of its earlier versions.
+  function pruneImages(drafts: SessionDraft[]) {
+    const live = new Set(drafts.map(imageKey))
+    const keep = <T,>(record: Record<string, T>) => Object.fromEntries(Object.entries(record).filter(([key]) => live.has(key)))
+    imageCache = keep(imageCache); imageErrors = keep(imageErrors); imageLoading = keep(imageLoading)
+  }
   function showImagePreview(draft: SessionDraft, el: HTMLElement, delay = true) {
     clearTimeout(previewShowTimer); clearTimeout(previewHideTimer)
-    const open = () => { imagePreview = { draft, anchor: anchorOf(el) }; void loadDraftImages(draft) }
+    const open = () => { imagePreview = { draft, anchor: el }; void loadDraftImages(draft) }
     if (delay) previewShowTimer = setTimeout(open, 130); else open()
   }
   function keepImagePreview() { clearTimeout(previewHideTimer); clearTimeout(previewShowTimer) }
@@ -106,32 +113,33 @@
     if (delay) previewHideTimer = setTimeout(() => { imagePreview = null }, delay); else imagePreview = null
   }
   function loadDraftImages(draft: SessionDraft): Promise<DraftImage[] | undefined> {
-    if (imageCache[draft.id]) return Promise.resolve(imageCache[draft.id])
-    const pending = imageRequests.get(draft.id)
+    const key = imageKey(draft)
+    if (imageCache[key]) return Promise.resolve(imageCache[key])
+    const pending = imageRequests.get(key)
     if (pending) return pending
     const request = (async () => {
-      imageLoading = { ...imageLoading, [draft.id]: true }
-      const errors = { ...imageErrors }; delete errors[draft.id]; imageErrors = errors
+      imageLoading = { ...imageLoading, [key]: true }
+      const errors = { ...imageErrors }; delete errors[key]; imageErrors = errors
       try {
         const full = await getDraft(draft.id, signal())
         if (life.signal.aborted) return undefined
         const images = full.images ?? []
-        imageCache = { ...imageCache, [draft.id]: images }
+        imageCache = { ...imageCache, [key]: images }
         return images
       } catch (e) {
-        if (!life.signal.aborted) { error(e); imageErrors = { ...imageErrors, [draft.id]: "Couldn't read those images." } }
+        if (!life.signal.aborted) { error(e); imageErrors = { ...imageErrors, [key]: "Couldn't read those images." } }
         return undefined
       } finally {
-        if (!life.signal.aborted) { const next = { ...imageLoading }; delete next[draft.id]; imageLoading = next }
+        if (!life.signal.aborted) { const next = { ...imageLoading }; delete next[key]; imageLoading = next }
       }
     })()
-    imageRequests.set(draft.id, request)
-    void request.finally(() => { imageRequests.delete(draft.id) })
+    imageRequests.set(key, request)
+    void request.finally(() => { imageRequests.delete(key) })
     return request
   }
   async function openImageLightbox(draft: SessionDraft, index = 0) {
     hideImagePreview()
-    const images = imageCache[draft.id] ?? await loadDraftImages(draft)
+    const images = imageCache[imageKey(draft)] ?? await loadDraftImages(draft)
     if (images?.length) lightbox = { items: images.map(image => ({ url: image.data, name: image.name })), index }
   }
   function setView(next: BoardView) { view = next; preferences() }
@@ -192,7 +200,7 @@
   function closeComposer() { const opener = composer?.opener; composer = null; void tick().then(() => opener?.focus()) }
   function saved(draft: SessionDraft) {
     const start = composer?.start
-    generation++; drafts = [...(drafts ?? []).filter(d => d.id !== draft.id), { ...draft, images: undefined }]
+    generation++; drafts = [...(drafts ?? []).filter(d => d.id !== draft.id), { ...draft, images: undefined }]; pruneImages(drafts)
     closeComposer()
     // A refined idea is now a normal backlog item, so it starts exactly like one.
     if (start) { void activate(draft); return }
@@ -256,7 +264,7 @@
     if (!removing || deleteBusy) return
     const draft = removing; deleteBusy = true
     try {
-      await deleteDraft(draft, signal()); generation++; drafts = (drafts ?? []).filter(d => d.id !== draft.id)
+      await deleteDraft(draft, signal()); generation++; drafts = (drafts ?? []).filter(d => d.id !== draft.id); pruneImages(drafts)
       removing = null; notice = 'Backlog item deleted.'
     } catch (e) { error(e); notice = e instanceof Error ? e.message : "Couldn't delete that item."; removing = null; await load() }
     finally { deleteBusy = false }
@@ -374,7 +382,7 @@
 {#if imagePreview}
   {@const previewDraft = imagePreview.draft}
   {#key previewDraft.id}
-    <DraftImagePreview images={imageCache[previewDraft.id] ?? []} count={previewDraft.imageCount} loading={!!imageLoading[previewDraft.id]} error={imageErrors[previewDraft.id] ?? ''} anchor={imagePreview.anchor} onenter={keepImagePreview} onleave={() => hideImagePreview(160)} />
+    <DraftImagePreview images={imageCache[imageKey(previewDraft)] ?? []} count={previewDraft.imageCount} loading={!!imageLoading[imageKey(previewDraft)]} error={imageErrors[imageKey(previewDraft)] ?? ''} anchor={imagePreview.anchor} onenter={keepImagePreview} onleave={() => hideImagePreview(160)} />
   {/key}
 {/if}
 {#if lightbox}<ImageLightbox items={lightbox.items} index={lightbox.index} onclose={() => lightbox = null} />{/if}

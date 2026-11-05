@@ -1,13 +1,15 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import type { DraftImage } from '../sessionBoard'
-  import { placePreview, type PreviewPlace, type PreviewAnchor } from './imagePreview'
+  import { placePreview, type PreviewPlace } from './imagePreview'
 
   let { images, count, loading = false, error = '', anchor, onenter, onleave }: {
     images: DraftImage[]
     count: number
     loading?: boolean
     error?: string
-    anchor: PreviewAnchor
+    /** The badge itself, measured each time the preview is placed, so scrolling and resizing keep it attached. */
+    anchor: HTMLElement
     onenter: () => void
     onleave: () => void
   } = $props()
@@ -20,8 +22,9 @@
 
   function measure() {
     if (!card) return
-    const next = placePreview(anchor, { width: card.offsetWidth, height: card.offsetHeight }, { width: innerWidth, height: innerHeight })
-    place = next
+    const rect = anchor.getBoundingClientRect()
+    if (!anchor.isConnected || rect.bottom < 0 || rect.top > innerHeight || rect.right < 0 || rect.left > innerWidth) { onleave(); return }
+    place = placePreview(rect, { width: card.offsetWidth, height: card.offsetHeight }, { width: innerWidth, height: innerHeight })
     ready = true
   }
   function schedule() {
@@ -37,10 +40,13 @@
     if (card) observer.observe(card)
     return () => observer.disconnect()
   })
+  onMount(() => {
+    const follow = () => schedule()
+    document.addEventListener('scroll', follow, true)
+    window.addEventListener('resize', follow)
+    return () => { document.removeEventListener('scroll', follow, true); window.removeEventListener('resize', follow); cancelAnimationFrame(frame) }
+  })
 </script>
-
-<svelte:window onresize={schedule} />
-<svelte:document onscroll={schedule} />
 
 <div class="image-preview" bind:this={card} role="tooltip" id={id} data-placement={place.placement} class:ready
   style={`left:${place.left}px;top:${place.top}px`} onpointerenter={onenter} onpointerleave={onleave}>

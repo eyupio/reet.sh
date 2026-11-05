@@ -220,6 +220,34 @@ async function req(path: string, init: RequestInit = {}): Promise<Response> {
 
 const json = (v: unknown) => JSON.stringify(v)
 
+export type GafferCheck = { at: number; ok: boolean; model: string; latencyMs: number; usageReported: boolean; error?: string }
+export type GafferProvider = {
+  id: string; revision: number; name: string; kind: string; baseUrl: string; model: string; reasoningEffort: string
+  enabled: boolean; isDefault: boolean; localOnly: boolean; allowStatus: boolean; allowSessions: boolean; allowCode: boolean
+  hasKey: boolean; lastCheck?: GafferCheck; createdAt: number; updatedAt: number
+}
+export type GafferPreset = { id: string; name: string; kind: string; baseUrl: string; help: string; localOnly: boolean }
+export type GafferSettings = { providers: GafferProvider[]; presets: GafferPreset[]; available: boolean; canUseLocal: boolean; maxProviders: number }
+export type GafferInput = {
+  id?: string; revision?: number; name: string; kind: string; baseUrl: string; model: string; reasoningEffort: string
+  enabled: boolean; localOnly: boolean; allowStatus: boolean; allowSessions: boolean; allowCode: boolean
+  apiKey?: string; clearKey?: boolean; makeDefault?: boolean
+}
+export async function getGafferSettings(signal?: AbortSignal): Promise<GafferSettings> {
+  return (await req('/api/v2/gaffer/providers', { signal, cache: 'no-store' })).json()
+}
+export async function saveGafferProvider(input: GafferInput, signal?: AbortSignal): Promise<GafferSettings> {
+  const path = input.id ? `/api/v2/gaffer/providers/${encodeURIComponent(input.id)}` : '/api/v2/gaffer/providers'
+  return (await req(path, { method: input.id ? 'PUT' : 'POST', body: json(input), signal })).json()
+}
+export async function getGafferModels(input: GafferInput, signal?: AbortSignal): Promise<{ models: string[] }> {
+  return (await req('/api/v2/gaffer/providers/models', { method: 'POST', body: json(input), signal })).json()
+}
+export async function actOnGafferProvider(p: GafferProvider, action: 'test' | 'default' | 'enabled' | 'delete', enabled?: boolean, signal?: AbortSignal): Promise<GafferSettings> {
+  const path = `/api/v2/gaffer/providers/${encodeURIComponent(p.id)}${action === 'delete' ? '' : `/${action}`}`
+  return (await req(path, { method: action === 'delete' ? 'DELETE' : 'POST', body: json({ revision: p.revision, ...(enabled === undefined ? {} : { enabled }) }), signal })).json()
+}
+
 export async function getAuthStatus(): Promise<AuthStatus> {
   return (await req('/api/v2/auth/status')).json()
 }

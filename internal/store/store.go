@@ -359,6 +359,14 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := st.migrateGaffer(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := st.migrateGafferChats(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := st.migrateMail(); err != nil {
 		db.Close()
 		return nil, err

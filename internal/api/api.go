@@ -27,6 +27,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/agentupdate"
 	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/backup"
+	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/mail"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/notify"
@@ -77,6 +78,8 @@ type server struct {
 	afterSessionsEnded func(ids []string) // a test seam: which sessions were just ended
 
 	privateSealer     *sealed.Sealer
+	gafferSealer      *sealed.Sealer
+	gafferProviders   *gaffer.Service
 	privateRelayURL   string
 	private           privateTransport
 	healthHub         *agenthealth.Hub
@@ -282,6 +285,9 @@ func (s *Server) Close() error {
 		})
 	}
 	s.s.workers.Wait()
+	if s.s.gafferProviders != nil {
+		s.s.gafferProviders.Close()
+	}
 	if s.s.healthHub != nil {
 		s.s.healthHub.Close()
 	}
@@ -322,6 +328,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	for _, opt := range opts {
 		opt(s)
 	}
+	s.gafferProviders = gaffer.New(st, s.gafferSealer)
 	if s.authMode == AuthToken || s.authMode == AuthNone {
 		if id, err := st.DefaultOwner(); err == nil {
 			if u, ok, err := st.UserByID(id); err == nil && ok {
@@ -456,6 +463,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
 	s.registerBackupRoutes(mux)
 	s.registerProfileRoutes(mux)
+	s.registerGafferRoutes(mux)
+	s.registerGafferChatRoutes(mux)
 	s.registerModelFavouriteRoutes(mux)
 	s.registerMCPRoutes(mux)
 	s.registerHostedRoutes(mux)

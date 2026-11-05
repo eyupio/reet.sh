@@ -29,14 +29,39 @@ can continue for several selected sessions while the user is offline and recover
 after controller restart. Initial follow-up supports verified structured chats.
 
 The companion handoff records all choices, source evidence, provider/MCP
-limitations and proposed GM0-GM6 slices alongside the broader KZ roadmap. Next:
-complete GM0's session, provider, grant, receipt and recovery contract. This
-realignment is captured in [draft plan PR #600](https://github.com/eyupio/reet.sh/pull/600).
-The first implementation slice, `feat/gaffer-provider-foundation`, adds isolated
-HTTP provider adapters and fake-backed protocol tests; the companion handoff's
-GM1A entry records scope, verification and remaining settings/integration work.
-AI-chat routes and offline coordination remain ahead. Tests use local fake
+limitations and proposed GM0-GM6 slices alongside the broader KZ roadmap. The
+plan [#600](https://github.com/eyupio/reet.sh/pull/600) and HTTP provider foundation
+[#601](https://github.com/eyupio/reet.sh/pull/601) are merged. Tests use local fake
 providers, with real credentials supplied later through Gaffer settings.
+
+GM1B and GM2A now share [open PR #603](https://github.com/eyupio/reet.sh/pull/603),
+`feat/gaffer-provider-settings`. The owner merged conversation backend #605 into
+that branch, not into main. It contains account-owned providers, encrypted keys,
+live model selection and Account → Gaffer AI, plus separate durable general/session
+conversations, versioned model choices, turn receipts, SSE, cancellation and
+restart recovery without replay. Only typed companion messages reach providers.
+The [conversation/access contract](docs/handoffs/gaffer-conversations.md) records
+worker eligibility, grants and queue receipt/recovery boundaries for later slices.
+
+GM2B is [draft PR #606](https://github.com/eyupio/reet.sh/pull/606),
+`feat/gaffer-floating-chat`, based on #603. Its floating general/session widget,
+model choices, stream recovery and scope isolation are published separately;
+read that branch's verification record before continuing its browser work. Do not
+merge either PR without owner direction. Scoped context tools, worker messages
+and durable offline supervision remain ahead; Gaffer has no coding or PR authority.
+
+The 5 November #603 review follow-up fixes first-address-only provider dialing:
+try all validated literal addresses, with dual-stack fallback and bounded,
+cancelled/joined racers. A localhost HTTP regression fails on the old transport
+and passes with the fix. The recurring offline-browse CI failure now uses fake
+time for the request while retaining its 100 ms limit, six offline/access cases
+and no-send/no-audit assertions; an injected 101 ms wait still fails. No browse
+production source changes. Focused repeated race checks, web check/build, vet,
+16 MCP checks, strict docs and the provider browser matrix pass. The new full race
+run passes API (409 s), Gaffer (40 s), store (197 s), broker (66 s) and every package
+except the same five baseline terminal-host failures. Final-head CI remains the
+merge gate; see the companion handoff's dated follow-up record for exact limits.
+
 Keep that handoff current in every implementation batch. Changes remain confined
 to reet.sh; reference repositories are read-only.
 

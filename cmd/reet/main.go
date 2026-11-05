@@ -364,6 +364,7 @@ func serve() error {
 		api.WithRefresh(os.Getenv("REET_REFRESH") != "off"), api.WithMaintenance(os.Getenv("REET_MAINTENANCE") != "off"), api.WithBackups(backups),
 		api.WithSignup(signup), api.WithSupportDesk(truthy(os.Getenv("REET_SUPPORT_DESK"))), api.WithContactEmail(os.Getenv("REET_CONTACT_EMAIL")), api.WithMail(mailer), api.WithNotify(notifier),
 		api.WithPrivateConnection(bcfg.Sealer, os.Getenv("REET_RELAY_MAP_URL")),
+		api.WithGafferProviders(bcfg.Sealer),
 		api.WithReleaseChecker(releases), api.WithOIDC(sso))
 	defer func() { terminalControl.Close(); h.Close() }()
 	if err := terminalControl.Serve(h.SetRemoteTerminals, h.RemoteTerminalsAvailable, terminalcontrol.Options{Configure: h.ConfigureTerminalOrigin, Reason: h.RemoteTerminalsReason, PublicURL: h.RemoteTerminalPublicURL, AuthMode: h.RemoteTerminalAuthMode}); err != nil {

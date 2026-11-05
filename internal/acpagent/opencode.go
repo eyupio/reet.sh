@@ -31,6 +31,7 @@ var OpenCode = Spec{
 	MinVersion:           "1.19.5",
 	RequireMode:          "build",
 	AllowOmittedModelAck: true,
+	Reattach:             true,
 	EnvAllowlist: []string{
 		"ANTHROPIC_API_KEY",
 		"OPENAI_API_KEY",

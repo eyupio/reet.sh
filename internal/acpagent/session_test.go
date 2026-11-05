@@ -270,6 +270,16 @@ func TestFakeACP(t *testing.T) {
 			}
 			_ = json.Unmarshal(message.Params, &params)
 			session = params.SessionID
+			if clineScenario {
+				// Cline stores a chat at its first prompt: an id it does not
+				// have is answered -32002 Resource not found.
+				if scenario == "cline-no-store" {
+					send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32002, "message": "Resource not found: " + params.SessionID}})
+					continue
+				}
+				reply(message.ID, map[string]any{"configOptions": clineConfig()})
+				continue
+			}
 			if startupReply(message.ID, session) {
 				continue
 			}

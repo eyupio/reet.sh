@@ -163,6 +163,10 @@ type Capabilities struct {
 	// ACPAgentOptions is set on a connection that negotiated
 	// acp-agent-options-v1 and an available descriptor has options to describe.
 	ACPAgentOptions bool `json:"acpAgentOptions,omitempty"`
+	// ACPAgentReattach is set on a connection that negotiated
+	// acp-agent-reattach-v1 and an available descriptor claims in-place
+	// reattach. ChatReattach stays the machine-wide chat-reattach-v1 flag.
+	ACPAgentReattach bool `json:"acpAgentReattach,omitempty"`
 	// ACPImages is sent only when acp-image-v1 was negotiated as well.
 	ACPImages bool `json:"acpImages,omitempty"`
 	// ACPApproval is sent only when acp-approval-v1 was negotiated; a live
@@ -172,7 +176,9 @@ type Capabilities struct {
 	// can then switch between the OpenCode terminal and the chat.
 	SessionMode bool `json:"sessionMode,omitempty"`
 	// ChatReattach is sent only when chat-reattach-v1 was negotiated; a lost
-	// OpenCode chat can then be reconnected in place.
+	// chat can then be reconnected in place. OpenCode is allowed by the
+	// original rule; another agent also needs acp-agent-reattach-v1 and its
+	// descriptor's Reattach.
 	ChatReattach bool `json:"chatReattach,omitempty"`
 	// ACPQuestions is sent only when acp-question-v1 was negotiated; typed agent
 	// questions can then be delivered and answered. No agent offers them yet.
@@ -227,6 +233,9 @@ func (c Capabilities) Validate() error {
 			}
 		}
 	}
+	if c.ACPAgentReattach {
+		features = append(features, ACPAgentReattachFeature)
+	}
 	return c.ValidateFor(strings.Join(features, ","))
 }
 
@@ -252,6 +261,9 @@ func (c Capabilities) ValidateFor(features string) error {
 	}
 	unsupported := c.ACPAgents != nil && !SupportsACPAgents(features)
 	if unsupported || !c.validACPAgents() {
+		return ErrInvalid
+	}
+	if c.ACPAgentReattach && !(SupportsACPAgentReattach(features) && c.ACPAgents != nil) {
 		return ErrInvalid
 	}
 	needsAgents := c.AgentsV2 || c.OSVersion != ""
@@ -303,7 +315,7 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	acpExtras := c.ACPHistory || c.ACPImages || c.ACPApproval || c.ACPQuestions ||
-		c.ACPModel || c.ACPLiveControls || c.ACPAgentMode || c.ACPAgentOptions
+		c.ACPModel || c.ACPLiveControls || c.ACPAgentMode || c.ACPAgentOptions || c.ACPAgentReattach
 	needsTerminalForACP := c.ACP || c.Inspect || c.ShellDir || c.Attention
 	acpRule := acpExtras && !c.ACP
 	acpTerminalRule := needsTerminalForACP && !c.TerminalControl

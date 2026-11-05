@@ -372,7 +372,7 @@ func (s *server) terminalSessionModeError(w http.ResponseWriter, err error) {
 	}
 }
 
-// terminalChatReattach reconnects a lost or exited OpenCode chat in place. The
+// terminalChatReattach reconnects a lost or exited chat in place. The
 // call is held until the machine answers (up to about 75 s); the server sets no
 // response deadline, so the handler waits on the request context alone.
 //
@@ -414,8 +414,8 @@ func (s *server) terminalReattachError(w http.ResponseWriter, err error) {
 	case errors.Is(err, terminalbroker.ErrReattachUnsupported):
 		writeErrCode(w, 409, "chat_reattach_unsupported", "", err.Error(), "")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported):
-		// Not an OpenCode chat (or the agent cannot chat there): updating reet
-		// would not help.
+		// The agent cannot chat there, or its descriptor does not claim
+		// in-place reattach: updating reet would not help.
 		writeErrCode(w, 409, "chat_reattach_unsupported", "", "This chat cannot be reconnected in place.", "")
 	case errors.Is(err, terminalbroker.ErrACPClosed):
 		// A person ended it: continuing is a deliberate new row.

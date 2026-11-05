@@ -71,6 +71,7 @@ type AgentConfig struct {
 	sessionMode        bool
 	chatReattach       bool
 	chatReattachDetail bool
+	acpAgentReattach   bool
 	acpQuestion        bool
 	inspect            bool
 	shellDir           bool
@@ -772,6 +773,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpPreviews = terminalproto.SupportsACPPreviews(advertised)
 	cfg.acpAgentMode = terminalproto.SupportsACPAgentMode(advertised)
 	cfg.acpAgentOptions = terminalproto.SupportsACPAgentOptions(advertised)
+	cfg.acpAgentReattach = terminalproto.SupportsACPAgentReattach(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
 	cfg.acpApproval = terminalproto.SupportsACPApproval(advertised)
 	// session-mode-v1 stands on chats, their history and launches; it is
@@ -864,6 +866,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpAgentOptions {
 		features = append(features, terminalproto.ACPAgentOptionsFeature)
+	}
+	if cfg.acpAgentReattach {
+		features = append(features, terminalproto.ACPAgentReattachFeature)
 	}
 	if cfg.acpHistory {
 		features = append(features, terminalproto.ACPHistoryFeature)
@@ -1035,12 +1040,27 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 					if !cfg.acpAgentOptions {
 						entry.Options = nil
 					}
+					if !cfg.acpAgentReattach {
+						entry.Reattach = false
+					}
 					entry.Questions = entry.Questions && cfg.acpQuestion
 				}
 				entries = append(entries, entry)
 			}
 		}
 		chatAgents = &entries
+	}
+	// In-place reattach has always covered OpenCode when chat-reattach-v1 was
+	// negotiated. Another agent needs the per-agent claim as well, and only
+	// when its own available descriptor asks for it here (after the claim was
+	// stripped for a peer that did not negotiate it).
+	reattachable := slices.Contains(tools, "opencode")
+	if chatAgents != nil {
+		for _, entry := range *chatAgents {
+			if entry.State == "available" && entry.Reattach && slices.Contains(tools, entry.Tool) {
+				reattachable = true
+			}
+		}
 	}
 	return terminalproto.Capabilities{
 		ACPAgents: chatAgents,
@@ -1071,15 +1091,18 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// Only when a descriptor lists another option, so the flag never appears
 		// without one.
 		ACPAgentOptions: acp && cfg.acpAgentOptions && anyOptions(chatAgents),
-		ACPImages:       acp && cfg.acpImages,
-		ACPApproval:     acp && cfg.acpApproval,
+		// Only when a descriptor claims it, so the flag never appears without one.
+		ACPAgentReattach: acp && cfg.acpAgentReattach && anyReattach(chatAgents),
+		ACPImages:        acp && cfg.acpImages,
+		ACPApproval:      acp && cfg.acpApproval,
 		// Only on a connection that negotiated session-mode-v1, with chats and
 		// their history, and only when OpenCode can be launched in a
 		// terminal: a switch opens the OpenCode TUI.
 		SessionMode: acp && cfg.acpHistory && cfg.sessionMode && launch && slices.Contains(tools, "opencode"),
 		// Only on a connection that negotiated chat-reattach-v1, with chats and
-		// their history, and only for OpenCode.
-		ChatReattach:    acp && cfg.acpHistory && cfg.chatReattach && slices.Contains(tools, "opencode"),
+		// their history, and for an agent that can reopen its stored
+		// conversation: OpenCode, or one whose descriptor claims it.
+		ChatReattach:    acp && cfg.acpHistory && cfg.chatReattach && reattachable,
 		ACPQuestions:    acp && cfg.acpQuestion,
 		Inspect:         cfg.inspect && control && enabled,
 		ShellDir:        cfg.shellDir && control && enabled,
@@ -1161,6 +1184,18 @@ func anyOptions(agents *[]terminalproto.ACPAgent) bool {
 	}
 	for _, a := range *agents {
 		if len(a.Options) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func anyReattach(agents *[]terminalproto.ACPAgent) bool {
+	if agents == nil {
+		return false
+	}
+	for _, a := range *agents {
+		if a.Reattach {
 			return true
 		}
 	}

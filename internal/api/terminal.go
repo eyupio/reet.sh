@@ -290,9 +290,9 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		// ProjectID is the folder project the session belongs to, checked
 		// here and recorded by the controller only; the machine never sees it.
 		ProjectID string `json:"projectId"`
-		// Structured starts an OpenCode chat; trust confirms the repository
-		// plugin warning. Both are controller-side choices and are never
-		// inferred by the machine.
+		// Structured starts a reviewed chat; trust confirms the repository
+		// plugin warning, which OpenCode is the only reviewed tool to read. Both
+		// are controller-side choices and are never inferred by the machine.
 		Structured bool   `json:"structured"`
 		Trust      bool   `json:"trust"`
 		ResumeACP  string `json:"resumeAcp"`

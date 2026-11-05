@@ -58,6 +58,10 @@ picks in Gaffer.
 frames and returns the modes and model list. It loaded both a session this probe
 created and a task id created by Cline's own TUI (`1793848303972_xxmw4`).
 
+A session Cline never stored answers `-32002 Resource not found: <id>`, which is
+what a chat with no prompt gets: reet reports that as "no stored conversation"
+rather than retrying a load that cannot succeed.
+
 ## Approvals
 
 With `--auto-approve false`, every tool call produced

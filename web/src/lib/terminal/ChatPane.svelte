@@ -612,7 +612,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
 </script>
 
 {#snippet inline(text: string)}
- {#each inlineSegments(text) as part, n (n)}{#if part.kind === 'code'}<code>{part.text}</code>{:else if part.kind === 'strong'}<strong>{part.text}</strong>{:else if part.kind === 'link'}<a class="prose-link" href={part.href} title={part.href} onclick={(event) => { event.preventDefault(); linkPrompt = part.href }} onauxclick={(event) => { if (event.button === 1) { event.preventDefault(); linkPrompt = part.href } }}>{part.text}</a>{:else}{part.text}{/if}{/each}
+ {#each inlineSegments(text) as part, n (n)}{#if part.kind === 'code'}<code>{part.text}</code>{:else if part.kind === 'strong'}<strong>{part.text}</strong>{:else if part.kind === 'link'}<button type="button" class="prose-link" title={part.href} onclick={() => (linkPrompt = part.href)} onauxclick={(event) => { if (event.button === 1) { event.preventDefault(); linkPrompt = part.href } }}>{part.text}</button>{:else}{part.text}{/if}{/each}
 {/snippet}
 
 <section class="chat-pane" aria-label={`Gaffer in ${session.title}`} ondragover={(event) => { if (canAttach) { event.preventDefault(); dropping = true } }} ondragleave={(event) => { if (event.currentTarget === event.target || !(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) dropping = false }} ondrop={(event) => { dropping = false; dropped(event) }}>
@@ -1041,7 +1041,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  .prose-quote { margin: 0 0 8px; padding: 2px 0 2px 11px; border-left: 2px solid var(--line-strong); color: var(--muted); font-style: italic; white-space: pre-wrap; overflow-wrap: anywhere; }
  .prose code, .prose-list code, .prose-quote code { padding: 1px 4px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--bg-sunk); font: 11.5px var(--mono); color: var(--ink); }
  .prose strong, .prose-list strong { font-weight: 600; color: var(--ink); }
- .prose-link { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; cursor: pointer; }
+ .prose-link { padding: 0; border: 0; background: none; color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; cursor: pointer; font: inherit; text-align: left; }
  .prose-link:hover { color: var(--ink); }
  .prose-link:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 2px; }
  .code { margin: 9px 0; border: 1px solid var(--line); border-radius: 9px; background: var(--bg-sunk); overflow: hidden; }

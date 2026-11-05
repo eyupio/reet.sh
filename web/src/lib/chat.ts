@@ -564,6 +564,38 @@ function trimLink(raw: string): string {
   return raw.slice(0, end)
 }
 
+/** A markdown link whose destination may itself hold balanced parentheses, as Wikipedia titles often do. */
+function markdownLinkAt(text: string, start: number): { label: string; href: string; end: number } | null {
+  const close = text.indexOf(']', start + 1)
+  if (close === -1 || text[close + 1] !== '(') return null
+  const label = text.slice(start + 1, close)
+  if (!label || label.includes('\n')) return null
+  let depth = 1, i = close + 2
+  while (i < text.length) {
+    const ch = text[i]
+    if (ch === '\n' || /\s/.test(ch)) return null
+    if (ch === '(') depth++
+    else if (ch === ')') {
+      depth--
+      if (depth === 0) {
+        const href = text.slice(close + 2, i)
+        return /^https?:\/\//.test(href) ? { label, href, end: i + 1 } : null
+      }
+    }
+    i++
+  }
+  return null
+}
+
+/** A bare http(s) URL, cut at whitespace and stripped of trailing punctuation that belongs to the sentence. */
+function bareLinkAt(text: string, start: number): { href: string; end: number } | null {
+  if (!/^https?:\/\//.test(text.slice(start))) return null
+  let end = start
+  while (end < text.length && !/[\s<>"']/.test(text[end])) end++
+  const raw = text.slice(start, end)
+  return { href: trimLink(raw), end }
+}
+
 /**
  * Split a prose line into plain text, `inline code`, **bold**, markdown links and bare http(s) URLs, without
  * interpreting anything as HTML. Only http and https links are returned, so a crafted message cannot smuggle in a
@@ -571,24 +603,53 @@ function trimLink(raw: string): string {
  */
 export function inlineSegments(text: string): InlineSegment[] {
   const out: InlineSegment[] = []
-  const pattern = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"']+)/g
-  let at = 0, match: RegExpExecArray | null
-  while ((match = pattern.exec(text))) {
-    if (match.index > at) out.push({ kind: 'text', text: text.slice(at, match.index) })
-    if (match[1] !== undefined) out.push({ kind: 'code', text: match[1] })
-    else if (match[2] !== undefined) out.push({ kind: 'strong', text: match[2] })
-    else if (match[4] !== undefined) out.push({ kind: 'link', text: match[3], href: match[4] })
-    else {
-      const raw = match[5] ?? ''
-      const href = trimLink(raw)
-      if (href) {
-        out.push({ kind: 'link', text: href, href })
-        if (href.length < raw.length) out.push({ kind: 'text', text: raw.slice(href.length) })
-      } else out.push({ kind: 'text', text: raw })
-    }
-    at = pattern.lastIndex
+  const pushText = (value: string) => {
+    if (!value) return
+    const last = out[out.length - 1]
+    if (last?.kind === 'text') last.text += value
+    else out.push({ kind: 'text', text: value })
   }
-  if (at < text.length) out.push({ kind: 'text', text: text.slice(at) })
+  let at = 0
+  while (at < text.length) {
+    const ch = text[at]
+    if (ch === '`') {
+      const end = text.indexOf('`', at + 1)
+      if (end > at + 1 && !text.slice(at + 1, end).includes('\n')) {
+        out.push({ kind: 'code', text: text.slice(at + 1, end) })
+        at = end + 1
+        continue
+      }
+    }
+    if (ch === '*' && text[at + 1] === '*' && text[at + 2] !== '*') {
+      const end = text.indexOf('**', at + 2)
+      const inner = end > at + 2 ? text.slice(at + 2, end) : ''
+      if (inner && !inner.includes('\n') && !inner.includes('*')) {
+        out.push({ kind: 'strong', text: inner })
+        at = end + 2
+        continue
+      }
+    }
+    if (ch === '[') {
+      const link = markdownLinkAt(text, at)
+      if (link) {
+        out.push({ kind: 'link', text: link.label, href: link.href })
+        at = link.end
+        continue
+      }
+    }
+    if (ch === 'h') {
+      const link = bareLinkAt(text, at)
+      const prev = at > 0 ? text[at - 1] : ''
+      if (link?.href && (!prev || /[\s(\[{'"“‘]/.test(prev))) {
+        out.push({ kind: 'link', text: link.href, href: link.href })
+        pushText(text.slice(at + link.href.length, link.end))
+        at = link.end
+        continue
+      }
+    }
+    pushText(ch)
+    at++
+  }
   return out
 }
 

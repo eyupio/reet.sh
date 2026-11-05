@@ -27,7 +27,7 @@
  const sessionColourHex=(item:TerminalSession)=>projectColourHex(sessionColour(item))
  const projectSessions=(p:FolderProject)=>sessions.filter(item=>item.projectId===p.id)
  const newestProjectSession=(p:FolderProject)=>projectSessions(p).find(item=>['creating','running','end_requested'].includes(item.state))??projectSessions(p)[0]
- const matches=$derived(sessions.filter(item=>`${item.title} ${machineName(item.agentId)} ${item.state.replaceAll('_',' ')}`.toLowerCase().includes(query.toLowerCase())))
+ const matches=$derived(sessions.filter(item=>`${item.title} ${projectOf(item)?.name??''} ${machineName(item.agentId)} ${item.state.replaceAll('_',' ')}`.toLowerCase().includes(query.toLowerCase())))
  // The header names what it counts: live sessions (the Show sessions badge counts the same), then any finished ones listed too.
  const liveCount=$derived(matches.filter(item=>['creating','running','end_requested'].includes(item.state)).length)
  const finishedCount=$derived(matches.length-liveCount)

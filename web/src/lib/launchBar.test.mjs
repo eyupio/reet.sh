@@ -554,3 +554,17 @@ test('Gaffer offers the effort its machine advertises', () => {
   assert.equal(words(parts), 'Run Codex in Gaffer with default on reet at studio · thinking ultra')
   assert.equal(summary(parts), 'Codex on reet at studio · thinking ultra')
 })
+
+test('AGY Gaffer needs its own descriptor and folder trust', () => {
+ const agent={tool:'antigravity',adapter:'agy',state:'available',minimumVersion:'1.5.0',model:true,approval:true,options:[{id:'thought_level',category:'thought_level',values:['low','medium','high']}]}
+ const target=machine('m-studio','studio',{tools:['antigravity'],acp:true,acpStartOptions:true,acpAgents:[agent]})
+ const picked={...reet,defaultTool:'antigravity'}
+ const selected={...initialChoice([picked],profile,{machines:[target]}),model:'gemini-4-argon',effort:'medium'}
+ assert.equal(selected.chat,true)
+ assert.match(startable(selected,[picked],[target]),/trust this folder/)
+ const trusted={...selected,trust:true}
+ assert.equal(startable(trusted,[picked],[target]),null)
+ assert.deepEqual(toCreate(trusted,picked,'r'.repeat(16),'a'.repeat(16)).launch,{tool:'antigravity',structured:true,trust:true,model:'gemini-4-argon',dir:picked.dir,projectId:picked.id,effort:'medium'})
+ target.capabilities.acpAgents=[]
+ assert.match(startable(trusted,[picked],[target]),/does not offer Gaffer/)
+})

@@ -301,8 +301,9 @@ official Linux archive in an isolated home and project. The checksum matches the
 Homebrew `antigravity-cli` cask. The connector resolves only `agy`, reports the
 `antigravity` tool id only after both `agents-v2` and `antigravity-cli-v1` are negotiated, and passes an opening prompt through
 `--prompt-interactive` as one argument. No print, approval-bypass or mode flag is
-sent for an ordinary launch. Model listing, resume and Gaffer integration remain
-unreviewed and unavailable for this preset.
+sent for an ordinary launch. Terminal model listing and terminal resume remain
+unreviewed. The separate native Gaffer integration requires `antigravity-acp-v1`;
+see [AGY in Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md#google-antigravity-agy-in-gaffer).
 
 The session listing retains tool, model and effort; it never includes the opening
 prompt. The launch audit records `effort`, `base` and `yolo`, without prompt text.

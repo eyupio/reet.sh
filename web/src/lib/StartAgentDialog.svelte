@@ -13,7 +13,7 @@
  import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './terminal/upload'
  import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
  import { projectSlug } from './launchBar'
- import { chatToolName, structuredAgent } from './terminal/api'
+ import { chatNeedsTrust, chatToolName, structuredAgent } from './terminal/api'
  import SlotPicker, { type SlotOption } from './launch/SlotPicker.svelte'
  import YoloDialog from './launch/YoloDialog.svelte'
  import { yoloCanStart, type YoloGate } from './launchBar'
@@ -502,7 +502,7 @@
    if (invalid) { failed = true; message = invalid[1]; invalidMessage = true; field(invalid[0])?.focus(); return }
    if (imageReason) { failed = true; field('prompt')?.focus(); return }
    const launch: LaunchRequest & { tool: string } = { tool: chosenTool }
-   if (structured) { launch.structured = true; if (chosenTool === 'opencode') launch.trust = true }
+   if (structured) { launch.structured = true; if (chatNeedsTrust(chosenTool)) launch.trust = true }
    if (model) launch.model = model
    if (effort) launch.effort = effort as NonNullable<LaunchRequest['effort']>
    if (dir) launch.dir = dir
@@ -696,6 +696,8 @@
        <p class="hint">In Gaffer, Codex starts in the mode where it runs commands inside its sandbox and asks before one leaves it. You can switch it to let Codex decide for itself, in which case you may not be asked. Its transcript is kept with the session.</p>
       {:else if chosenTool === 'cline'}
        <p class="hint">In Gaffer, Cline asks before it reads a file, edits one or runs a command. Its own settings and hooks apply, and its transcript is kept with the session, which can be restored after reet restarts on the machine.</p>
+      {:else if chosenTool === 'antigravity'}
+       <p class="hint">In Gaffer, Google Antigravity (AGY) starts in Default mode with its configured permission rules. Approval requests appear here. Start only in a folder you trust: AGY workspace hooks and customizations may run. Its transcript is kept with the session.</p>
       {:else}
        <p class="hint">In Gaffer, OpenCode asks before it edits a file or runs a command. Any plugins in this folder's <code>.opencode</code> run when it starts, so use a folder you trust. Its transcript is kept with the session, which can be restored after reet restarts on the machine.</p>
       {/if}

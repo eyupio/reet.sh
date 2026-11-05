@@ -7,6 +7,29 @@ import (
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
+func TestAntigravityChatDoesNotLeakToTerminalOnlyControllers(t *testing.T) {
+	entry := terminalproto.ACPAgent{Tool: "antigravity", Adapter: "agy", State: "available", MinimumVersion: "1.5.0", History: true, Images: true, Model: true, Approval: true}
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"antigravity"} }, StructuredAgents: func() []terminalproto.ACPAgent { return []terminalproto.ACPAgent{entry} }}
+	base := strings.Join([]string{terminalproto.LaunchFeature, terminalproto.AgentsFeature, terminalproto.AntigravityFeature, terminalproto.ACPFeature, terminalproto.ACPAgentsFeature, terminalproto.ACPHistoryFeature, terminalproto.ACPImageFeature, terminalproto.ACPModelFeature, terminalproto.ACPApprovalFeature}, ",")
+	for _, chat := range []bool{false, true} {
+		features := base
+		if chat {
+			features += "," + terminalproto.AntigravityACPFeature
+		}
+		negotiateFeatures(&cfg, features)
+		caps := capabilitiesFor(cfg, true, terminalproto.Ready)
+		if caps.ACP != chat {
+			t.Fatalf("chat=%v caps=%+v", chat, caps)
+		}
+		if _, ok := caps.ChatAgent("antigravity"); ok != chat {
+			t.Fatalf("chat=%v descriptor offered=%v", chat, ok)
+		}
+		if err := caps.ValidateFor(features); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestACPAgentsOnlyObservedAfterNegotiation(t *testing.T) {
 	calls := 0
 	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }, StructuredAgents: func() []terminalproto.ACPAgent {

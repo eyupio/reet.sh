@@ -11,7 +11,7 @@
   import { favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { saveDraft } from '../sessionBacklog'
   import { insertSkillPrompt } from '../skillPrompt'
-  import { machineModels, refreshMachineModels, structuredAgent, type FolderProject, type TerminalMachine } from '../terminal/api'
+  import { chatTrustText, machineModels, refreshMachineModels, structuredAgent, type FolderProject, type TerminalMachine } from '../terminal/api'
   import { cleanDraftOptions, draftOptionRules, ideaProblem, type StartPlace } from '../draftOptions'
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
   import type { DraftImage, SessionDraft } from '../sessionBoard'
@@ -307,7 +307,7 @@
           {#if rules.showChat}<div class="field"><span>Opens in</span><div class="mode" role="group" aria-label="Opens in"><button use:gafferTooltip type="button" class:on={chat} aria-pressed={chat} onclick={() => chat = true}>Gaffer</button><button type="button" class:on={!chat} aria-pressed={!chat} onclick={() => chat = false}>{toolName(tool)} TUI</button></div></div>{/if}
           {#if rules.showWorktree}<label class="check"><input type="checkbox" bind:checked={worktree} /> Start in a fresh worktree</label>
             {#if worktree}<label class="field"><span>Base branch <small>Optional · leave empty for the default</small></span><input aria-label="Base branch" bind:value={base} placeholder="main" maxlength="200" /></label>{/if}{/if}
-          {#if rules.showTrust}<label class="check"><input type="checkbox" bind:checked={trust} /> I trust this folder; OpenCode plugins in <code>.opencode</code> may run.</label>{/if}
+          {#if rules.showTrust}<label class="check"><input type="checkbox" bind:checked={trust} /> {chatTrustText(tool)}</label>{/if}
         </div>
         {#if rules.chat && !structuredAgent(machine?.capabilities, tool)}<p class="hint">Gaffer is saved for this plan. Reconnect or update this machine before starting it.</p>{/if}
         {#if yolo}<p class="hint yolo-hint" role="note">YOLO is saved as a plan only. You’ll be asked to confirm, with the account and machine checks, when you start it.</p>{/if}

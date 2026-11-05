@@ -55,6 +55,7 @@ try{
    await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
    const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true})
    await expect(chat.getByRole('button',{name:'Context',exact:true})).toHaveAttribute('title','Context off · typed messages only')
+   await expect(chat.getByRole('button',{name:'Context',exact:true})).toHaveAccessibleDescription('Context off · typed messages only')
    await chat.getByRole('button',{name:'Context',exact:true}).click()
    const dialog=w.page.getByRole('dialog',{name:'What Gaffer can read',exact:true})
    await expect(dialog.getByText('Workshop Gaffer',{exact:true})).toBeVisible()

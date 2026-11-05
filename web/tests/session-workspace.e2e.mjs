@@ -13,9 +13,10 @@ const pull = () => ({...snapshot(),pull:{number:42,title:'Improve the session wo
 const FULL_PROMPT = 'Rebuild the session overview so the opening prompt is readable at a glance.\n\n' + 'Keep the quote short and the status header where it is. '.repeat(6) + '\n\nFINAL-LINE-ONLY-IN-FULL-TEXT'
 const EXCERPT = FULL_PROMPT.slice(0, 300)
 session.promptExcerpt = EXCERPT; session.promptMore = true
+const ok = name => ({name,state:'SUCCESS'})
 const second = {...session, id:'session-insights-002', title:'Second session', promptExcerpt:'SECOND-SESSION-PROMPT is a short one.', promptMore:false}
 async function open(width=1600,theme='dark', supported=true, hold=null, opts={}) {
- const calls=[], box={fail:false, answer:null}, prompts=[]
+ const calls=[], box={fail:false, answer:null, pull:null}, prompts=[]
  const first = {...session, ...opts.session}
  const inspect = async request=>{
    const q=new URL(request.url()).searchParams,view=q.get('view'),path=q.get('path');calls.push({view,path})
@@ -23,6 +24,8 @@ async function open(width=1600,theme='dark', supported=true, hold=null, opts={})
    if(box.answer)return box.answer(view,path)
    if(box.fail)return {status:503,json:{error:'Machine unavailable'}}
    if(view==='status')return {...snapshot(),...opts.status}
+   if(view==='github'&&opts.reason)return {...snapshot(),...opts.status,reason:opts.reason}
+   if(view==='github'&&box.pull)return box.pull()
    if(view==='github'){const answer=pull();return opts.noPull?{...snapshot(),...opts.status}:{...answer,...opts.status,pull:{...answer.pull,...opts.pull}}}
    if(view==='files')return {checkedAt:Date.now(),files:path?[{path:'src/session.ts',added:0,removed:0}]:[{path:'src',directory:true,added:0,removed:0},{path:'README.md',added:0,removed:0}],ahead:0,behind:0,changed:0,conflicts:0}
    return {checkedAt:Date.now(),text:view==='diff'?'@@ -1 +1 @@\n-old value\n+new value':'export const status = "working"',ahead:0,behind:0,changed:0,conflicts:0}
@@ -149,6 +152,8 @@ try {
   const steady=await open(width,'dark'),{page:sp,panel:sw}=steady
   await expect(sw.getByText('3 changed files',{exact:true})).toBeVisible()
   await expect(sw.getByText('Latest agent update')).toBeVisible()
+  // The pull request card is taller than the loading row it replaces, once; the baseline is taken after that.
+  await expect(sw.getByRole('group',{name:'Pull request'})).toContainText('#42')
   const pinned=()=>sw.evaluate(el=>{const top=n=>Math.round(n.getBoundingClientRect().top),h=name=>[...el.querySelectorAll('.panel-body h4')].find(n=>n.textContent.trim().toLowerCase()===name);return{changes:top(h('workspace changes')),where:top(h("where it's working")),details:top(el.querySelector('.session-details > summary'))}})
   const settle=()=>sp.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
   const baseline=await pinned()
@@ -182,7 +187,8 @@ try {
  // The first workspace read replaces a short "Checking…" line with the changes card, and the section after it stays put.
  {
   let release;const held=new Promise(done=>{release=done})
-  const first=await open(1600,'dark',true,held)
+  // The pull request slot holds its height from loading to "no pull request", so only the changes card is what arrives here.
+  const first=await open(1600,'dark',true,held,{reason:'no_pr'})
   const whereTop=()=>first.panel.evaluate(el=>Math.round([...el.querySelectorAll('.panel-body h4')].find(n=>n.textContent.trim().toLowerCase()==="where it's working").getBoundingClientRect().top))
   await expect(first.panel.getByText('Checking the workspace…')).toBeVisible()
   const loading=await whereTop();release()
@@ -435,6 +441,184 @@ try {
   await expect(panel.getByRole('link',{name:'acme/widgets'})).toBeVisible()
   expect(await heights(),`${width}px: the Where card or run line changed height when the read arrived`).toEqual(loading)
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  expect(errors).toEqual([]);await context.close()
+ }
+
+ // The stage tracker and the Next line: five steps, each with an icon and a word, one Next sentence, and honest "not read".
+ {
+  const detail = (over={}) => ({detailKnown:true,reviews:{approved:0,changesRequested:0,commented:0,requested:0},threads:{open:0,resolved:0},...over})
+  const WORD = {done:'Done',current:'Now',attention:'Needs you',upcoming:'Not yet',unknown:'Not read'}
+  const PR = 'https://github.com/example/project/pull/42', RUN = 'https://github.com/example/project/actions/runs/1'
+  const scenarios = [
+   ['conflicts',{pull:{mergeable:'CONFLICTING',review:'REVIEW_REQUIRED',checks:[ok('Build')],base:'main',...detail()}},['done','done','done','current','attention'],'review','Conflicts with main.',['Open pull request',PR],'Ask the agent to fix the conflicts'],
+   ['failing checks',{pull:{mergeable:'MERGEABLE',review:'REVIEW_REQUIRED'}},['done','done','attention','current','upcoming'],'review','1 check failing.',['Open failing check',RUN],'Ask the agent to fix the checks'],
+   ['running checks',{pull:{mergeable:'MERGEABLE',review:'APPROVED',checks:[{name:'Build',state:'IN_PROGRESS'},{name:'Lint',state:'QUEUED'},ok('Unit tests')],...detail()}},['done','done','current','done','upcoming'],'checks','Waiting on Build and Lint.',null,null],
+   ['approved with no open threads',{pull:{mergeable:'MERGEABLE',review:'APPROVED',checks:[ok('Build'),ok('Unit tests')],...detail({threads:{open:0,resolved:2}})}},['done','done','done','done','current'],'merge','Ready. GitHub decides whether it can merge.',['Open pull request',PR],null],
+   ['no review decision and none requested',{pull:{mergeable:'MERGEABLE',review:'',checks:[ok('Build')],...detail()}},['done','done','done','done','current'],'merge','Ready. GitHub decides whether it can merge.',['Open pull request',PR],null],
+   ['open review threads',{pull:{mergeable:'MERGEABLE',review:'REVIEW_REQUIRED',checks:[ok('Build')],...detail({reviews:{approved:0,changesRequested:0,commented:0,requested:1},threads:{open:3,resolved:2}})}},['done','done','done','attention','upcoming'],'review','3 unresolved review threads.',['Open review',PR],'Ask the agent to address the threads'],
+   ['an older machine',{pull:{mergeable:'MERGEABLE',review:'APPROVED',checks:[ok('Build')]}},['done','done','done','current','upcoming'],'review','Nothing needs you right now.',null,null],
+   ['github unavailable',{reason:'github_unavailable'},['current','unknown','unknown','unknown','unknown'],'code','GitHub status is not available on this machine.',null,null],
+   ['no pull request',{reason:'no_pr'},['current','upcoming','upcoming','upcoming','upcoming'],'code','Nothing needs you right now.',null,null],
+  ]
+  for(const [name,opts,states,current,next,primary,fix] of scenarios){
+   const {page,context,panel,errors}=await open(1600,'dark',true,null,opts)
+   const tracker=panel.getByRole('group',{name:'Progress'})
+   await expect(tracker.locator('.next')).toContainText(next)
+   const steps=await tracker.locator('ol > li').evaluateAll(els=>els.map(e=>({key:e.dataset.step,state:e.dataset.state,word:e.querySelector('.word').textContent.trim(),current:e.getAttribute('aria-current')})))
+   expect(steps.map(x=>x.key),`${name}: the five steps`).toEqual(['code','pr','checks','review','merge'])
+   expect(steps.map(x=>x.state),`${name}: step states`).toEqual(states)
+   expect(steps.map(x=>x.word),`${name}: every state has a word`).toEqual(states.map(x=>WORD[x]))
+   expect(steps.filter(x=>x.current).map(x=>[x.key,x.current]),`${name}: aria-current marks one step`).toEqual([[current,'step']])
+   if(primary){
+    const link=tracker.locator('.next').getByRole('link',{name:primary[0]})
+    await expect(link).toHaveAttribute('href',primary[1]);await expect(link).toHaveAttribute('target','_blank');await expect(link).toHaveAttribute('rel',/noopener noreferrer/)
+   } else await expect(tracker.locator('.next a')).toHaveCount(0)
+   const fixButton=tracker.getByRole('button',{name:/^Ask the agent to (fix|address)/})
+   if(fix){
+    await expect(fixButton).toHaveAccessibleName(fix);await expect(fixButton).toHaveText(fix.replace(/ the \w+$/,''))
+    // The shortcut only calls its callback for now: nothing is sent, read or opened.
+    const seen=[];page.on('request',r=>{if(r.url().includes('/api/'))seen.push(r.method()+' '+new URL(r.url()).pathname)})
+    await fixButton.focus();await page.keyboard.press('Enter');await page.waitForTimeout(250)
+    expect(seen,`${name}: asking the agent to fix sends nothing`).toEqual([])
+   } else await expect(fixButton).toHaveCount(0)
+   // Every link in the tracker and the card is https with a safe rel.
+   const links=await panel.locator('.tracker a, .pull a').evaluateAll(els=>els.map(a=>({href:a.href,rel:a.rel,target:a.target})))
+   for(const l of links){expect(l.href.startsWith('https:'),`${name}: ${l.href}`).toBe(true);expect(l.rel).toContain('noopener');expect(l.rel).toContain('noreferrer');expect(l.target).toBe('_blank')}
+   expect(errors).toEqual([]);await context.close()
+  }
+  // A merged pull request collapses the tracker and the Next line into one row of the same total height.
+  {
+   const live=await open(1600,'dark',true,null,{pull:{mergeable:'MERGEABLE',review:'REVIEW_REQUIRED',checks:[ok('Build')],...detail()}})
+   const tracker=live.panel.getByRole('group',{name:'Progress'}),where=live.panel.getByRole('heading',{name:"Where it's working"})
+   await expect(tracker.locator('ol > li')).toHaveCount(5)
+   const expanded={tracker:Math.round((await tracker.boundingBox()).height),where:Math.round((await where.boundingBox()).y)}
+   live.box.pull=()=>({...snapshot(),pull:{...pull().pull,state:'MERGED',mergeable:'UNKNOWN',checks:[],mergedAt:Date.now()-12*60000,...detail()}})
+   await live.panel.getByRole('button',{name:'Refresh session workspace'}).click()
+   const row=tracker.locator('.merged')
+   await expect(row).toContainText('Merged');await expect(row).toContainText('12m ago')
+   await expect(tracker.locator('ol')).toHaveCount(0)
+   const link=row.getByRole('link',{name:'Open pull request'})
+   await expect(link).toHaveAttribute('href',PR);await expect(link).toHaveAttribute('rel',/noopener noreferrer/)
+   expect({tracker:Math.round((await tracker.boundingBox()).height),where:Math.round((await where.boundingBox()).y)},'merging moved the blocks below').toEqual(expanded)
+   // Without a merge time the row says nothing about when.
+   live.box.pull=()=>({...snapshot(),pull:{...pull().pull,state:'MERGED',mergeable:'UNKNOWN',checks:[]}})
+   await live.panel.getByRole('button',{name:'Refresh session workspace'}).click()
+   await expect(row).not.toContainText('ago');await expect(row).toContainText('Merged')
+   expect(live.errors).toEqual([]);await live.context.close()
+  }
+ }
+ // The pull request card: facts only, "not read" where the machine did not read, and a placeholder when there is no pull request.
+ {
+  const detail = (over={}) => ({detailKnown:true,reviews:{approved:1,changesRequested:1,commented:0,requested:0},threads:{open:3,resolved:2},...over})
+  const withPull = over => open(1600,'dark',true,null,{pull:{mergeable:'CONFLICTING',review:'CHANGES_REQUESTED',base:'main',lastPushAt:Date.now()-4*60000,...detail(),...over}})
+  {
+   const {context,panel,errors}=await withPull({})
+   const card=panel.getByRole('group',{name:'Pull request'})
+   await expect(card).toContainText('#42 · open');await expect(card).toContainText('Improve the session workspace')
+   await expect(card).toContainText('Resolve merge conflicts')
+   await expect(card.getByText('1 failing',{exact:true})).toBeVisible();await expect(card.getByText('1 running',{exact:true})).toBeVisible();await expect(card.getByText('1 passed',{exact:true})).toBeVisible()
+   await expect(card.getByRole('img',{name:'1 failing, 1 running, 1 passed'})).toBeVisible()
+   await expect(card).toContainText('1 approved · changes requested by 1')
+   await expect(card).toContainText('3 open threads')
+   await expect(card).toContainText('Conflicts with main')
+   await expect(card).toContainText('+45');await expect(card).toContainText('13')
+   await expect(card).toContainText('pushed 4m ago')
+   await expect(card).not.toContainText('can merge')
+   await expect(card.getByRole('link',{name:'Open pull request'})).toHaveAttribute('href','https://github.com/example/project/pull/42')
+   await expect(card.getByRole('link',{name:'Open failing check'})).toHaveAttribute('href','https://github.com/example/project/actions/runs/1')
+   await expect(card.getByRole('link',{name:'Open review'})).toHaveAttribute('href','https://github.com/example/project/pull/42')
+   await card.getByRole('button',{name:'Full detail'}).click()
+   await expect(panel.getByRole('tab',{name:/^GitHub/})).toHaveAttribute('aria-selected','true')
+   await expect(panel.getByText('Resolve merge conflicts')).toBeVisible()
+   expect(errors).toEqual([]);await context.close()
+  }
+  {
+   const {context,panel,errors}=await withPull({detailKnown:undefined,reviews:undefined,threads:undefined,lastPushAt:undefined,review:'APPROVED',mergeable:'MERGEABLE'})
+   const card=panel.getByRole('group',{name:'Pull request'})
+   await expect(card).toContainText('Review threads not read on this machine')
+   await expect(card).not.toContainText('No open threads');await expect(card).not.toContainText('0 open')
+   await expect(card).not.toContainText('pushed')
+   await expect(card.getByRole('link',{name:'Open review'})).toHaveCount(0)
+   expect(errors).toEqual([]);await context.close()
+  }
+  {
+   const {context,panel,errors}=await withPull({threads:{open:0,resolved:0,more:true},review:'APPROVED',mergeable:'MERGEABLE'})
+   await expect(panel.getByRole('group',{name:'Pull request'})).toContainText('100+ threads')
+   expect(errors).toEqual([]);await context.close()
+  }
+  for(const [reason,text] of [['no_pr','No pull request yet.'],['github_unavailable','GitHub status is not available on this machine.'],['timed_out','GitHub status could not be read.']]){
+   const {context,panel,errors}=await open(1600,'dark',true,null,{reason})
+   const card=panel.getByRole('group',{name:'Pull request'})
+   await expect(card).toContainText(text)
+   expect(Math.round((await card.locator('.placeholder').boundingBox()).height),`${reason}: the placeholder row is 69px`).toBe(69)
+   expect(errors).toEqual([]);await context.close()
+  }
+  {
+   const {context,panel,errors}=await open(1600,'dark',false)
+   await expect(panel.getByRole('group',{name:'Pull request'})).toContainText('Update reet on this machine for GitHub status.')
+   await expect(panel.getByRole('group',{name:'Progress'}).locator('.next')).toContainText('Update reet on this machine for GitHub status.')
+   expect(errors).toEqual([]);await context.close()
+  }
+ }
+ // The Overview reads GitHub once per cadence for a visible session, and not at all on its own with Live updates off.
+ {
+  const live=await open(1600,'dark')
+  await expect(live.panel.getByRole('group',{name:'Pull request'})).toContainText('#42')
+  const gh=()=>live.calls.filter(c=>c.view==='github').length
+  await live.page.waitForTimeout(400)
+  expect(gh(),'the panel and the navigation share the first read').toBe(1)
+  await live.page.clock.install()
+  await live.page.clock.runFor(130000)
+  await expect.poll(gh).toBe(2)
+  await live.page.clock.runFor(10000);await live.page.waitForTimeout(200)
+  expect(gh(),'one read per cadence').toBe(2)
+  await live.panel.getByRole('checkbox',{name:'Live updates'}).uncheck()
+  await live.page.clock.runFor(700000);await live.page.waitForTimeout(300)
+  expect(gh(),'with Live updates off the Overview makes no further GitHub reads').toBe(2)
+  await live.page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')))
+  await live.page.waitForTimeout(300)
+  expect(gh(),'coming back to the tab does not read either').toBe(2)
+  // A manual refresh still reads at once.
+  await live.panel.getByRole('button',{name:'Refresh session workspace'}).click()
+  await expect.poll(gh).toBe(3)
+  expect(live.errors).toEqual([]);await live.context.close()
+ }
+ // Nothing below the tracker moves when the pull request changes, at the panel widths and on the phone sheet, in both themes.
+ for(const theme of ['dark','light']) for(const width of [300,340,520,375]){
+  const phone=width===375
+  const {page,context,panel,errors,box}=await open(phone?375:1600,theme,true,null,{pull:{mergeable:'MERGEABLE',review:'REVIEW_REQUIRED',checks:[ok('Build')],detailKnown:true,reviews:{approved:0,changesRequested:0,commented:0,requested:1},threads:{open:0,resolved:0}}})
+  if(!phone)await page.locator('.session-screen').evaluate((el,w)=>el.style.setProperty('--context-width',w+'px'),width)
+  await expect(panel.getByRole('group',{name:'Pull request'})).toContainText('#42')
+  const settle=()=>page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
+  const pinned=()=>panel.evaluate(el=>{const top=n=>Math.round(n.getBoundingClientRect().top),h=name=>[...el.querySelectorAll('.panel-body h4')].find(n=>n.textContent.trim().toLowerCase()===name);return{tracker:top(h('progress')),pull:top(h('pull request')),changes:top(h('workspace changes')),where:top(h("where it's working")),details:top(el.querySelector('.session-details > summary'))}})
+  const baseline=await pinned()
+  const states=[
+   ['conflicts',{mergeable:'CONFLICTING',base:'a-very-long-branch-name-that-cannot-possibly-fit-in-the-slot-at-three-hundred-pixels'}],
+   ['failing checks with long names',{mergeable:'MERGEABLE',checks:[{name:'A check with a name long enough to need cutting off somewhere sensible',state:'FAILURE',url:'https://github.com/example/project/actions/runs/9'},{name:'Other',state:'FAILURE'},{name:'Third',state:'FAILURE'}]}],
+   ['running checks',{mergeable:'MERGEABLE',checks:[{name:'Build',state:'IN_PROGRESS'},{name:'Lint',state:'QUEUED'},{name:'Unit tests with a long name here',state:'PENDING'}]}],
+   ['open threads',{mergeable:'MERGEABLE',checks:[ok('Build')],threads:{open:12,resolved:1}}],
+   ['a long title',{title:'Improve the session workspace so that the overview keeps every section where it is while the pull request moves on and on'}],
+   ['an older machine',{detailKnown:undefined,reviews:undefined,threads:undefined,lastPushAt:undefined}],
+   ['approved and ready',{mergeable:'MERGEABLE',review:'APPROVED',checks:[ok('Build')],detailKnown:true,threads:{open:0,resolved:0}}],
+   ['merged',{state:'MERGED',mergeable:'UNKNOWN',checks:[],mergedAt:Date.now()-720000}],
+   ['closed',{state:'CLOSED',mergeable:'UNKNOWN',checks:[]}],
+   ['a draft',{state:'OPEN',draft:true,mergeable:'MERGEABLE',checks:[]}],
+  ]
+  for(const [label,over] of states){
+   box.pull=()=>({...snapshot(),pull:{...pull().pull,...over}})
+   await panel.getByRole('button',{name:'Refresh session workspace'}).click()
+   await expect(panel.getByRole('button',{name:'Refresh session workspace'})).toBeEnabled()
+   await settle()
+   expect(await pinned(),`${theme} ${width}px: blocks moved for ${label}`).toEqual(baseline)
+  }
+  // Every step still shows its icon and word, and nothing scrolls sideways or is cut by the panel.
+  box.pull=()=>({...snapshot(),pull:{...pull().pull,mergeable:'CONFLICTING'}})
+  await panel.getByRole('button',{name:'Refresh session workspace'}).click()
+  await expect(panel.getByRole('group',{name:'Progress'}).locator('li[data-step=merge]')).toHaveAttribute('data-state','attention')
+  const fits=await panel.evaluate(el=>[...el.querySelectorAll('.tracker, .pull')].every(n=>n.scrollWidth<=n.clientWidth+1))
+  expect(fits,`${theme} ${width}px: the tracker or card overflows sideways`).toBe(true)
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  if(phone){for(const target of await panel.locator('.tracker button, .tracker a, .pull button, .pull a').all()){const b=await target.boundingBox();if(b)expect(b.height,'a touch target under 44px').toBeGreaterThanOrEqual(43)}}
   expect(errors).toEqual([]);await context.close()
  }
  console.log('Session workspace: tabs, return summary, changes, previews, folders, CI, stale data, sidebar signals, context panel resize/collapse and phone/tablet focus passed.')

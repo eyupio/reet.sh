@@ -34,6 +34,14 @@ function pullTurn(task: () => Promise<SessionInsight>): Promise<SessionInsight> 
     else pullQueue.push(run)
   })
 }
+/** When the shared read for this session last started, and whether one is running now: the panel reads GitHub itself (it shows reasons and errors), so it asks first and tells the store after, and a visible session costs one read per cadence. */
+export function pullReadBusy(sessionId: string): boolean { return pullReads.has(sessionId) }
+export function pullReadAge(sessionId: string): number { return Date.now() - (pullReadAt.get(sessionId) ?? 0) }
+export function trackPullRead(sessionId: string, read: Promise<unknown>) {
+  pullReadAt.set(sessionId, Date.now())
+  const tracked: Promise<void> = read.then(() => undefined, () => undefined).finally(() => { if (pullReads.get(sessionId) === tracked) pullReads.delete(sessionId) })
+  pullReads.set(sessionId, tracked)
+}
 export function ensurePullInsight(sessionId: string, active: boolean): Promise<void> {
   if (!get(insightsAuto)) return Promise.resolve()
   const maxAge = active ? PULL_ACTIVE_MS : PULL_QUIET_MS
@@ -42,7 +50,8 @@ export function ensurePullInsight(sessionId: string, active: boolean): Promise<v
   if (pending) return pending
   pullReadAt.set(sessionId, Date.now())
   const read = pullTurn(() => inspectSession(sessionId, 'github', '', AbortSignal.timeout(30_000)))
-    .then(answer => { if (!answer.reason) rememberInsight(sessionId, 'github', answer) })
+    // A reason ("no pull request", "GitHub not available") is an answer the Overview shows, but it must never replace a pull request already known: a busy machine says so in the same words.
+    .then(answer => { if (!answer.reason || !get(sessionInsights)[sessionId]?.github?.pull) rememberInsight(sessionId, 'github', answer) })
     .catch(() => { /* A failed read is tried again on the next pass. */ })
     .finally(() => { pullReads.delete(sessionId) })
   pullReads.set(sessionId, read)

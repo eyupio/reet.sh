@@ -7,7 +7,7 @@
   import { changedList, worktreeTargetOf } from '../sessions'
   import { inspectSession, worktreeStatus, type TerminalSession } from '../terminal/api'
   import { elapsedWord, insightReason, type InsightFile, type InsightView, type SessionInsight } from '../sessionInsights'
-  import { insightsAuto, rememberInsight, sessionInsights } from './insightStore'
+  import { insightsAuto, pullReadAge, pullReadBusy, rememberInsight, sessionInsights, trackPullRead } from './insightStore'
   import InsightIcon from './InsightIcon.svelte'
   import { pullVerdict } from './pullVerdict'
   import OverviewTab from './OverviewTab.svelte'
@@ -70,7 +70,9 @@
     if (which === 'github') lastGitHub = Date.now()
     if (key === 'preview') preview = null
     try {
-      const answer = await inspectSession(session.id, which, path, life.signal)
+      const call = inspectSession(session.id, which, path, life.signal)
+      if (which === 'github') trackPullRead(session.id, call)
+      const answer = await call
       if (!alive || life.signal.aborted) return
       if (answer.reason && (which === 'status' ? workspace && !workspace.reason : which === 'github' ? github?.pull : false)) { errors[key] = insightReason(answer.reason); return }
       if (which === 'status') { workspace = answer; lastLocal = Date.now(); rememberInsight(session.id, 'status', answer) }
@@ -88,7 +90,14 @@
     catch { if (alive) legacyFailed = true }
     finally { if (alive) legacyBusy = false }
   }
-  function refresh() { if (!supported) void readLegacy(); else if (selected) void read(previewView, selected); else void read(view, tab === 'files' ? folder : '') }
+  // Every automatic GitHub read goes through here: not while Live updates is off, not while the navigation's read for this session is in flight, and not within a cadence of the last read by either.
+  function backgroundGitHub() {
+    if (!auto || !canRead || document.hidden || pending.github || pullReadBusy(session.id)) return
+    if (github && Math.min(Date.now() - lastGitHub, pullReadAge(session.id)) < 120_000) return
+    void read('github')
+  }
+  // The Overview shows the pull request too, so its Refresh reads both; a manual refresh is never held back by the cadence.
+  function refresh() { if (!supported) void readLegacy(); else if (selected) void read(previewView, selected); else { void read(view, tab === 'files' ? folder : ''); if (tab === 'overview') void read('github') } }
   function pick(next: Tab) {
     tab = next; selected = ''; preview = null
     requests.get('preview')?.abort(); pending.preview = false
@@ -112,7 +121,10 @@
     else return
     event.preventDefault(); pick(tabs[next].key); document.getElementById(`${id}-tab-${tabs[next].key}`)?.focus()
   }
-  $effect(() => { if (canRead) untrack(() => { if (!workspace && !pending.status) void read('status'); if (!github && !pending.github) void read('github') }) })
+  $effect(() => { if (canRead) untrack(() => { if (!workspace && !pending.status) void read('status'); if (tab === 'overview' || tab === 'github') backgroundGitHub() }) })
+  // A read the navigation made for this session lands in the store; the panel takes it up rather than reading again.
+  const stored = $derived($sessionInsights[session.id]?.github)
+  $effect(() => { const next = stored; if (next && (!github || (next.checkedAt ?? 0) > (github.checkedAt ?? 0))) untrack(() => { github = next; errors.github = ''; lastGitHub = Date.now() }) })
   // Live updates is the one switch for automatic reads: the navigation's background PR reads follow it too.
   $effect(() => { insightsAuto.set(auto) })
   onMount(() => {
@@ -122,12 +134,12 @@
     const visibility = () => {
       if (document.hidden) return
       readVisit(); saveVisit()
-      if (auto && canRead) { void read('status'); if (tab === 'github' || tab === 'overview') void read('github') }
+      if (auto && canRead) { void read('status'); if (tab === 'github' || tab === 'overview') backgroundGitHub() }
     }
     const timer = setInterval(() => {
       if (!auto || document.hidden || !canRead) return
       if (!pending.status && Date.now() - lastLocal >= (session.attention === 'working' ? 15_000 : 60_000)) void read('status')
-      if ((tab === 'github' || tab === 'overview') && !pending.github && Date.now() - lastGitHub >= 120_000) void read('github')
+      if (tab === 'github' || tab === 'overview') backgroundGitHub()
     }, 5000)
     document.addEventListener('visibilitychange', visibility)
     return () => { saveVisit(); alive = false; clearInterval(timer); document.removeEventListener('visibilitychange', visibility); requests.forEach(r => r.abort()) }
@@ -143,7 +155,7 @@
   </header>
   <div class="panel-body" id={`${id}-view`} role="tabpanel" aria-labelledby={`${id}-tab-${tab}`} tabindex="0">
     {#if tab === 'overview'}
-      <OverviewTab {id} {session} {host} {status} {project} {skills} {now} {chat} {supported} {workspace} base={github?.pull?.base} remote={workspace?.remote || github?.remote} {pending} {errors} {baseline} {newEvents} {terminalAdvanced} {onterminal} onpick={pick} />
+      <OverviewTab {id} {session} {host} {status} {project} {skills} {now} {chat} {supported} {workspace} {github} base={github?.pull?.base} remote={workspace?.remote || github?.remote} {pending} {errors} {baseline} {newEvents} {terminalAdvanced} {onterminal} onpick={pick} onfull={() => pick('github')} />
     {:else if !supported}
       {#if tab === 'changes'}<section aria-label="Changed files"><h3>Changed files</h3>{#if !session.worktreePath}<p class="empty">Update reet on this machine to inspect changes in the checkout.</p>{:else if !target}<p class="empty">reet can't name this worktree, so its changes aren't listed here.</p>{:else if legacyList}<p><span class="total">{legacyList.total}</span> changed files</p><ul class="legacy-files">{#each legacyList.shown as path}<li>{path}</li>{/each}</ul>{#if legacyList.more}<p class="quiet">and {legacyList.more} more not listed.</p>{/if}{:else}<p class="empty">{legacyFailed ? "Couldn't read the changed files just now." : 'Checking…'}</p>{/if}{#if target}<button class="secondary" disabled={legacyBusy} aria-busy={legacyBusy} onclick={() => void readLegacy()}>Refresh changed files</button>{/if}</section>{:else}<p class="empty">Update reet on this machine to use {tab === 'github' ? 'GitHub status' : 'read-only file browsing'}.</p>{/if}
     {:else}

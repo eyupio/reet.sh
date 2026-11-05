@@ -126,9 +126,13 @@ try {
   await dialog.getByRole('textbox', { name: /Opening prompt/ }).fill('fix the failing build')
   await dialog.getByRole('button', { name: 'Start', exact: true }).click()
   await page.waitForURL(new RegExp(`session=${S}`))
+  // The URL changes before the dialog has finished closing, and while it is a modal the page behind it is inert: focus() on the
+  // button would do nothing and no tooltip would open. Wait for it to go, then check the button really took the focus.
+  await expect(dialog).toBeHidden()
   await expect(page.getByRole('button', { name: 'Gaffer', exact: true })).toHaveAttribute('aria-pressed', 'true')
   const gaffer = page.getByRole('button', { name: 'Gaffer', exact: true })
   await gaffer.focus()
+  await expect(gaffer).toBeFocused()
   await expect(page.getByRole('tooltip')).toHaveText(`Gaffer${explanation}`)
   await page.keyboard.press('Escape')
   await expect(page.getByRole('tooltip')).toHaveCount(0)
@@ -602,8 +606,25 @@ try {
     await picker.getByRole('button', { name: 'Install pdf', exact: true }).click()
     await expect(panelOf).toBeVisible()
   }
-  const confirmInstall = async () => { await panelOf.getByRole('button', { name: 'Install', exact: true }).click() }
+  // The mocked install route numbers the job as it handles the request, and the tests name that job (cur()) straight afterwards,
+  // so wait until it has: on a slow machine the click returns first and cur() would still name the previous job.
+  const confirmInstall = async () => {
+    const before = inst.installs.length
+    await panelOf.getByRole('button', { name: 'Install', exact: true }).click()
+    await expect.poll(() => inst.installs.length).toBeGreaterThan(before)
+  }
   const poll = () => page.clock.runFor(2000)
+  // The clock keeps running after install(), so on a slow machine the panel's own 2 second poll can land between the test swapping the
+  // mocked job and the click that is meant to meet the old plan. Hold time still for that span; poll() and fastForward() still move it.
+  // pauseAt() must name a time still ahead of the page's clock, which keeps moving while the call is on its way, so allow more room each try.
+  const holdClock = async body => {
+    for (let ahead = 100; ; ahead *= 4) {
+      try { await page.clock.pauseAt((await page.evaluate(() => Date.now())) + ahead); break } catch (error) {
+        if (!/past/.test(String(error)) || ahead > 6400) throw error
+      }
+    }
+    try { await body() } finally { await page.clock.resume() }
+  }
 
   // Both a published and a private-draft reet row offer Install; the draft says so in its source line.
   resetInstall()
@@ -728,9 +749,11 @@ try {
   inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
   await poll()
   await expect(panelOf.getByRole('button', { name: 'Approve and install', exact: true })).toBeVisible()
-  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }, { add: false, skill: { slug: 'gone' } }], { hash: 'hash-late-2' })
-  await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
-  await expect(panelOf.getByRole('button', { name: 'Approve and install' })).toHaveCount(0)
+  await holdClock(async () => {
+    inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }, { add: false, skill: { slug: 'gone' } }], { hash: 'hash-late-2' })
+    await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
+    await expect(panelOf.getByRole('button', { name: 'Approve and install' })).toHaveCount(0)
+  })
   await expect(panelOf.getByText('This install would change other skills. Review it on the Sync page.')).toBeVisible()
   expect(inst.patches).toEqual([])
   await page.keyboard.press('Escape')
@@ -742,9 +765,11 @@ try {
   inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }])
   await poll()
   await expect(panelOf.getByRole('button', { name: 'Approve and install', exact: true })).toBeFocused()
-  inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }], { hash: 'hash-new', revision: 'r2', plan: { directory: '/elsewhere/skills', actions: [{ add: true, skill: { slug: 'pdf' } }] } })
-  await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
-  await expect(statusOf).toHaveText('This install changed while you were reviewing it. Check it again.')
+  await holdClock(async () => {
+    inst.job = planJob(cur(), [{ add: true, skill: { slug: 'pdf' } }], { hash: 'hash-new', revision: 'r2', plan: { directory: '/elsewhere/skills', actions: [{ add: true, skill: { slug: 'pdf' } }] } })
+    await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()
+    await expect(statusOf).toHaveText('This install changed while you were reviewing it. Check it again.')
+  })
   await expect(panelOf.getByText('Folder: /elsewhere/skills', { exact: true })).toBeVisible()
   expect(inst.patches).toEqual([])
   await panelOf.getByRole('button', { name: 'Approve and install', exact: true }).click()

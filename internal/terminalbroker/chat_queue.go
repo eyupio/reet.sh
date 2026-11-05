@@ -59,8 +59,20 @@ func (b *Broker) EnqueueChat(uid int64, session, id, text string, images []strin
 	if err := b.st.EnqueueTerminalFor(uid, session, id, text, images); err != nil {
 		return err
 	}
+	// A message sent while the agent is idle is delivered before the request
+	// returns, rather than waiting for the queue worker's next pass. The queue
+	// still holds it if an earlier message or a busy turn must go first.
+	b.deliverQueuedNow(uid, session, id)
 	b.startChatQueue(uid, session)
 	return nil
+}
+
+func (b *Broker) deliverQueuedNow(uid int64, session, id string) {
+	list, err := b.st.TerminalQueueFor(uid, session)
+	if err != nil || len(list) == 0 || list[0].ID != id {
+		return
+	}
+	b.stepChatQueueWith(uid, session, true)
 }
 
 func (b *Broker) ChangeChatQueue(uid int64, session, id string, revision int64, action, text string, acknowledge bool) error {
@@ -119,6 +131,12 @@ func (b *Broker) startChatQueue(uid int64, session string) {
 }
 
 func (b *Broker) stepChatQueue(uid int64, session string) {
+	b.stepChatQueueWith(uid, session, false)
+}
+
+// stepChatQueueWith takes requeueBusy when this pass is a fresh send that
+// raced a turn starting: it waits for that turn instead of failing the message.
+func (b *Broker) stepChatQueueWith(uid int64, session string, requeueBusy bool) {
 	list, err := b.st.TerminalQueueFor(uid, session)
 	if err != nil || len(list) == 0 {
 		return
@@ -212,6 +230,10 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 		errors.Is(err, ErrACPModeUnknown) || errors.Is(err, ErrACPImageUnavailable) ||
 		errors.Is(err, ErrACPImagesUnsupported)
 	if rejected {
+		if requeueBusy && errors.Is(err, ErrACPBusy) {
+			finish("queued", "")
+			return
+		}
 		finish("failed", err.Error())
 		return
 	}

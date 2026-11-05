@@ -438,6 +438,7 @@ func backupImport(args []string, out io.Writer) error {
 	// The options come first and the copy last, and the copy is streamed, so
 	// the server can refuse early and this side never holds it whole.
 	pr, pw := io.Pipe()
+	defer pr.Close()
 	mw := multipart.NewWriter(pw)
 	go func() {
 		fields := [][2]string{{"password", password}, {"ownerEmail", *owner},

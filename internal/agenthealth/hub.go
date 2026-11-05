@@ -80,6 +80,7 @@ type Hub struct {
 	closed  bool
 	done    chan struct{}
 	prune   sync.Once
+	probes  sync.WaitGroup
 	writers sync.WaitGroup
 }
 
@@ -167,6 +168,7 @@ func (h *Hub) Connect(uid int64, agentID string, generation int64, instance stri
 		c.acc.NoteReconnect()
 	}
 	h.live[key] = c
+	h.probes.Add(1)
 	if h.st != nil {
 		h.writers.Add(1)
 	}
@@ -174,7 +176,7 @@ func (h *Hub) Connect(uid int64, agentID string, generation int64, instance stri
 	if old != nil {
 		old.Close()
 	}
-	go c.probeLoop()
+	go func() { defer h.probes.Done(); c.probeLoop() }()
 	if h.st != nil {
 		go func() { defer h.writers.Done(); c.persistLoop() }()
 	}
@@ -225,6 +227,7 @@ func (h *Hub) Close() {
 	for _, c := range conns {
 		c.Close()
 	}
+	h.probes.Wait()
 	h.writers.Wait()
 }
 

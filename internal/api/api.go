@@ -60,6 +60,8 @@ type server struct {
 	publicURL    string
 	defaultUser  store.User
 	queue        chan ref.Ref
+	stop         chan struct{}
+	stopOnce     sync.Once
 	backups      *backup.Service
 	mail         *mail.Mailer
 	notify       *notify.Service
@@ -256,11 +258,14 @@ func (s *server) publicOrigin() string {
 	return s.publicURL
 }
 
-// Close stops the private listener and any of its active streams. It does not
-// close the store or background workers, as in earlier increments.
+// Close stops the private listener, the background workers and any of its
+// active streams. It does not close the store.
 func (s *Server) Close() error {
 	if s == nil || s.s == nil {
 		return nil
+	}
+	if s.s.stop != nil {
+		s.s.stopOnce.Do(func() { close(s.s.stop) })
 	}
 	if s.s.healthHub != nil {
 		s.s.healthHub.Close()
@@ -294,6 +299,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		ssoLimiter: auth.NewLimiter(60, time.Minute), logoutLimiter: auth.NewLimiter(60, time.Minute),
 		folderWrites: auth.NewLimiter(folderProjectWriteLimit, time.Minute),
 		queue:        make(chan ref.Ref, 256),
+		stop:         make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -771,8 +777,13 @@ func clientIP(r *http.Request) string {
 }
 
 func (s *server) worker() {
-	for r := range s.queue {
-		s.fetchInto(r)
+	for {
+		select {
+		case <-s.stop:
+			return
+		case r := <-s.queue:
+			s.fetchInto(r)
+		}
 	}
 }
 
@@ -809,6 +820,7 @@ func (s *server) fetchInto(r ref.Ref) bool {
 
 func (s *server) enqueue(r ref.Ref) {
 	select {
+	case <-s.stop:
 	case s.queue <- r:
 	default:
 	}
@@ -818,8 +830,13 @@ func (s *server) topicWorker() {
 	s.syncTopics()
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
-	for range ticker.C {
-		s.syncTopics()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			s.syncTopics()
+		}
 	}
 }
 
@@ -854,12 +871,23 @@ func (s *server) syncTopics() {
 }
 
 func (s *server) refreshWorker() {
-	time.Sleep(10 * time.Second)
+	delay := time.NewTimer(10 * time.Second)
+	defer delay.Stop()
+	select {
+	case <-s.stop:
+		return
+	case <-delay.C:
+	}
 	s.refreshBatch()
 	ticker := time.NewTicker(6 * time.Hour)
 	defer ticker.Stop()
-	for range ticker.C {
-		s.refreshBatch()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			s.refreshBatch()
+		}
 	}
 }
 

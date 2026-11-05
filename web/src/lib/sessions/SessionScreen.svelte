@@ -505,6 +505,8 @@
   .context-separator { grid-column: 2; grid-row: 1 / -1; }
   .panel-separator { position: relative; z-index: 3; margin: 0 -8px; display: flex; align-items: center; justify-content: center; cursor: col-resize; touch-action: none; outline: 0; }
   .panel-separator::after { content: ''; width: 4px; height: 40px; border-radius: 2px; background: var(--line); }
+  /* The chat column's scrollbar sits flush against this track, so the hit area must not overlap it: extend only into the panel. */
+  .context-separator { margin: 0 -8px 0 0; }
   .panel-separator:hover::after, .session-screen.resizing .panel-separator::after { background: var(--accent); height: 64px; }
   .panel-separator:focus-visible::after { background: var(--accent); height: 64px; outline: 2px solid var(--accent); outline-offset: 3px; }
   .session-screen.resizing { cursor: col-resize; user-select: none; }

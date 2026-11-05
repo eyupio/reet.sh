@@ -32,9 +32,9 @@ provider/backend parity and dynamic model choices remain the recorded direction.
 | Slice | Current delivery |
 | --- | --- |
 | Plan / GM1A | #600 and #601 merged: agreed MVP and fake-tested HTTP provider foundation |
-| GM1B | [#603](https://github.com/eyupio/reet.sh/pull/603), `ecaa08be`: owned provider settings, encrypted keys, discovery/test/defaults and polished account UI; unmerged, completed CI checks pass after docs fix/Go rerun |
-| GM0 / GM2A | [#605](https://github.com/eyupio/reet.sh/pull/605), `e315b2fe`: access/recovery contract and durable general/session conversations, streamed replies, overrides, exact receipts and cancellation; unmerged, completed CI checks pass |
-| GM2B | `feat/gaffer-floating-chat`, stacked on #605: floating desktop/phone companion UI, separate scoped drafts/history, model choice, streaming, cancellation, saved-chat cleanup and uncertain-send/restart recovery |
+| GM1B | [#603](https://github.com/eyupio/reet.sh/pull/603): owned provider settings, encrypted keys, discovery/test/defaults and account UI; still open; now also includes #605 at `628118e8` |
+| GM0 / GM2A | [#605](https://github.com/eyupio/reet.sh/pull/605), `e315b2fe`: access/recovery contract and durable conversations, replies, overrides and receipts; merged into #603’s branch as `628118e8`, not main |
+| GM2B | [Draft #606](https://github.com/eyupio/reet.sh/pull/606), `feat/gaffer-floating-chat`, based on #603 after #605 merged there: floating desktop/phone companion UI, separate scoped drafts/history, model choice, streaming, cancellation, saved-chat cleanup and uncertain-send/restart recovery |
 
 GM2B sends only explicitly typed companion messages and its completed history.
 It reads no live reet activity or worker transcript and sends no worker instruction.
@@ -59,7 +59,9 @@ failures (three missing tmux; one process-group check). See the companion record
 for exact evidence/limits. Tests use local fakes; configure real keys later through
 Gaffer settings. No paid provider, physical device or deployment was exercised.
 
-Do not merge #603, #605 or GM2B without owner direction. Keep this handoff and the
+Do not merge #603 or #606 without owner direction. Settings `ecaa08be` and
+conversation `e315b2fe` completed their CI checks; use the current heads’ checks
+for the final merge gates. Keep this handoff and the
 companion contract current in every batch. Change reet.sh only; attached reference
 repositories are read-only.
 

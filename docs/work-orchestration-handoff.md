@@ -389,10 +389,13 @@ provider/model tool capability and physical/deployed-flow evidence remain open.
 
 ### GM2B: floating general/session companion UI (5 November 2026)
 
-Branch `feat/gaffer-floating-chat`, stacked on #605. Live GitHub reads show #603
-`ecaa08be` and #605 `e315b2fe` unmerged, with completed checks passing; #603's
-previous Go timing failures passed on the requested rerun. Do not merge any slice
-without owner direction. Older delivery records above describe their checkpoints.
+[Draft PR #606](https://github.com/eyupio/reet.sh/pull/606),
+`feat/gaffer-floating-chat`. Settings `ecaa08be` and conversation `e315b2fe`
+completed CI successfully, including the requested Go rerun. During this batch
+#605 was merged into #603's branch as `628118e8`; #603 itself remains open.
+#606 targets that combined branch. Its base tree matches the tested conversation
+head, and its diff contains only the widget slice. Do not merge #603 or #606
+without owner direction. Older records above describe their dated checkpoints.
 
 - `GafferChatWidget.svelte`, the typed API and receipt helpers connect the GM2A
   runtime to a global **Ask Gaffer** launcher for private browser writers. It does

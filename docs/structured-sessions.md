@@ -55,7 +55,9 @@ lists its models, modes and approvals:
   runs `session/load`, and the conversation replays into the new row. In-place
   reconnect is OpenCode-only.
 - Cline keeps provider failures in its own message store and may end a turn with
-  no reply; Gaffer then shows the turn as finished with nothing to show.
+  no reply; it also writes the reason to its own log, which the connector reads
+  for that chat and turn, so a failed turn ends with the error instead of
+  nothing.
 
 The measured behaviour, the exact frames and the two refused tool calls are in
 [Cline ACP probe](research/cline-acp-probe.md).
@@ -559,10 +561,11 @@ lost, so a session survives an upgrade or a reboot rather than asking for a new 
 - **Approval mode can change while a structured chat runs**, on a connector that negotiated `acp-approval-v1`. The
   per-session approval card and the Ask me/YOLO switch are described above. A terminal session cannot change the flags
   it was launched with.
-- **Dropped provider errors are recovered.** When OpenCode ends a turn without streaming any progress, the connector reads
-  the newest matching error from OpenCode's local store and shows it instead of leaving a silently empty turn. A provider
-  error OpenCode writes to its log during a silent turn is read the same way; the connector shows it and stops that turn
-  rather than leaving "still working" until the deadline.
+- **Dropped provider errors are recovered.** When an agent ends a turn without streaming any progress, the connector reads
+  the newest matching error from that agent's own store and shows it instead of leaving a silently empty turn. OpenCode's
+  store and log are read this way, and so is Cline's log (`CLINE_DIR/data/logs/cline.log`, this chat's error written after
+  the turn started). An error written while a turn is still silent is read the same way; the connector shows it and stops
+  that turn rather than leaving "still working" until the deadline.
 - **Images are embedded when the machine supports it.** An `acp-image-v1` machine embeds the uploaded image in the ACP prompt
   (at most eight per prompt); an older machine names the path as text. OpenCode's agent modes, MCP servers, resume of a live turn and other
   agents are not in this slice.

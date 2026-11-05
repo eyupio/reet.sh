@@ -31,7 +31,12 @@ after controller restart. Initial follow-up supports verified structured chats.
 The companion handoff records all choices, source evidence, provider/MCP
 limitations and proposed GM0-GM6 slices alongside the broader KZ roadmap. Next:
 complete GM0's session, provider, grant, receipt and recovery contract. This
-realignment is documentation only; AI-chat runtime implementation remains ahead.
+realignment is captured in [draft plan PR #600](https://github.com/eyupio/reet.sh/pull/600).
+The first implementation slice, `feat/gaffer-provider-foundation`, adds isolated
+HTTP provider adapters and fake-backed protocol tests; the companion handoff's
+GM1A entry records scope, verification and remaining settings/integration work.
+AI-chat routes and offline coordination remain ahead. Tests use local fake
+providers, with real credentials supplied later through Gaffer settings.
 Keep that handoff current in every implementation batch. Changes remain confined
 to reet.sh; reference repositories are read-only.
 

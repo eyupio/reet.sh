@@ -3,9 +3,9 @@
 // Original source: internal/assistant/. See NOTICE.md for provenance.
 // Package elicore defines what a model provider is to the assistant: one
 // streaming chat call with tool calls, usage and cancellation, and one check.
-// Every adapter satisfies Provider and passes RunContractTests, so the panel,
-// the tools and the limits in later slices never branch on which model
-// answers. Nothing outside this package imports an adapter (purity_test.go).
+// The HTTP adapters in provider satisfy Provider and run the same test-only
+// conformance checks as the fake. Settings and session coordination can use
+// this contract without depending on a model's wire protocol.
 package elicore
 
 import (

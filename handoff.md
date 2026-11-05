@@ -81,7 +81,9 @@ nothing to review stays unapprovable. Opt-in `TestRealClineStart` passes against
 prompt: version floor, identity, act mode, a confirmed plan/act switch and a confirmed model switch. Two prompts
 with every permission rejected recorded the cards, and a stored conversation replayed through `session/load`.
 The evidence and limits are in [the Cline ACP probe](docs/research/cline-acp-probe.md). Not covered: images, MCP
-tools or subagents in a turn, and Cline's display-only provider errors (a failed turn can end with no reply).
+tools or subagents in a turn. A provider failure Cline logs without an ACP frame is now shown as that turn's error
+([PR #573](https://github.com/eyupio/reet.sh/pull/573)); in-place reconnect for a lost Cline chat is in review
+([PR #567](https://github.com/eyupio/reet.sh/pull/567)).
 Merged as [PR #554](https://github.com/eyupio/reet.sh/pull/554) (`3919deef`); all 18 checks passed, including the
 browser suite that runs the new `chat-cline.e2e.mjs`.
 

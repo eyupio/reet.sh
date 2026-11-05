@@ -148,6 +148,10 @@ type chatLog struct {
 	writes     []chatWrite
 	writeTimer *time.Timer
 	writeMu    sync.Mutex
+	// flushWG counts batches that have left l.writes but have not finished
+	// their store commit. close waits for it before returning.
+	flushWG sync.WaitGroup
+	closing bool
 }
 
 const (
@@ -391,7 +395,7 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 		}
 		l.truncated = true
 	}
-	if l.st != nil {
+	if l.st != nil && !l.closing {
 		l.writes = append(l.writes, chatWrite{seq: l.seq, at: nowMs, data: data})
 		if l.writeTimer == nil {
 			l.writeTimer = time.AfterFunc(chatWriteDelay, l.flushLater)
@@ -426,6 +430,7 @@ func (l *chatLog) takeWritesLocked() ([]chatWrite, int64) {
 	}
 	batch := l.writes
 	l.writes = nil
+	l.flushWG.Add(1)
 	var trimSeq int64
 	if l.trims >= 32 && len(l.events) > 0 {
 		l.trims = 0
@@ -445,7 +450,11 @@ func (l *chatLog) flushLater() {
 // persist writes one batch and trims the stored transcript afterwards. It
 // never runs while l.mu is held.
 func (l *chatLog) persist(batch []chatWrite, trimSeq int64) {
-	if l.st == nil || len(batch) == 0 {
+	if len(batch) == 0 {
+		return
+	}
+	defer l.flushWG.Done()
+	if l.st == nil {
 		return
 	}
 	events := make([]store.StoredChatEvent, len(batch))
@@ -640,6 +649,7 @@ func (l *chatLog) permissionEvent(permissionID string) (terminalproto.ACPEvent, 
 
 func (l *chatLog) close() {
 	l.mu.Lock()
+	l.closing = true
 	batch, trimSeq := l.takeWritesLocked()
 	for id, ch := range l.subs {
 		delete(l.subs, id)
@@ -647,6 +657,9 @@ func (l *chatLog) close() {
 	}
 	l.mu.Unlock()
 	l.persist(batch, trimSeq)
+	// A timer callback may already have taken a batch and be committing it.
+	// Wait for it before the caller deletes the transcript or shuts down.
+	l.flushWG.Wait()
 }
 
 func (b *Broker) chatLog(uid int64, session string) *chatLog {

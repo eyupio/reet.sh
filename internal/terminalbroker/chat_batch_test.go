@@ -69,3 +69,42 @@ func TestChatLogCloseFlushesPendingTail(t *testing.T) {
 		t.Fatalf("close left %d events, want 1", len(events))
 	}
 }
+
+func TestChatLogCloseWaitsForDetachedFlush(t *testing.T) {
+	l, st := batchedChatLog(t)
+	l.publish(terminalproto.ACPEvent{Kind: "agent", MessageID: "msg", Text: "tail"})
+
+	// Simulate a timer callback that has taken the batch and released l.mu but
+	// has not reached the store yet.
+	l.mu.Lock()
+	batch, trimSeq := l.takeWritesLocked()
+	l.mu.Unlock()
+	if len(batch) == 0 {
+		t.Fatal("expected a pending write")
+	}
+
+	closed := make(chan struct{})
+	go func() {
+		l.close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		t.Fatal("close returned while a detached flush was still pending")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	l.persist(batch, trimSeq)
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("close did not return after the detached flush")
+	}
+	events, err := st.TerminalChatEventsFor(l.uid, l.sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("stored %d events, want 1", len(events))
+	}
+}

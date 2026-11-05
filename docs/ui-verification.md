@@ -17,7 +17,8 @@ worker instructions and offline follow-up remain subsequent work.
   pass; two existing unused-selector warnings remain.
 - **Browser.** `web/tests/gaffer-chat.e2e.mjs` covers first send, partial/final
   streaming, close/reopen without another send, exact-receipt retry, lost reply
-  acknowledgement across reload, provider/model override, cancellation, removal,
+  acknowledgement/gateway failure across reload, preserving newer drafts during
+  exact-receipt retry, provider/model override, cancellation, removal,
   archived-chat cleanup, separate drafts, late session-A responses after switching
   to B, worker-history exclusion, plain-terminal guidance, native EventSource,
   no-provider/access states, UTF-8 limits and Escape/focus return. It exercises

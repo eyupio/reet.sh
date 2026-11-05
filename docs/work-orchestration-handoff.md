@@ -413,6 +413,8 @@ without owner direction. Older delivery records above describe their checkpoints
   metadata, never prompt text or credentials. An uncertain outcome blocks a new
   send until reconciliation; explicit safe retry uses the original ID/body/revision.
   A reload can find an already-admitted receipt without calling the model again.
+  Gateway/server failures also retain uncertainty. Retrying the original message
+  preserves any newer draft the user has typed while checking delivery.
   Definitive initial refusals retain the draft; a failed retry keeps its uncertainty.
 - Provider/model choices are independent of the worker. Discovery/manual fallback
   and explicit application of overrides disclose conversation-history sharing.

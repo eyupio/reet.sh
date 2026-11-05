@@ -146,13 +146,15 @@
       if (mine !== epoch) return
       if (turn.id !== receipt.id || turn.conversationId !== receipt.conversationId) throw new Error('The message receipt did not match. Check delivery before sending again.')
       accepted = true
-      remember(key, null); drafts[key] = ''; stickToBottom = true
+      remember(key, null); if (drafts[key] === text) drafts[key] = ''; stickToBottom = true
       view = {...answer, turns:[...answer.turns.filter(t => t.id !== turn.id),turn]}; scrollEnd()
       if (turn.state === 'running') observe(turn, mine)
       else { updating = true; const fresh = await getGafferConversation(key, request?.signal); if (mine === epoch) { view = fresh; updating = false } }
     } catch (e) {
       if (mine !== epoch) return
-      if (admitted && !existing && e instanceof ApiError && [400,401,403,404,409,413,422,429,503].includes(e.status)) remember(key, null)
+      // Gateway/server failures cannot prove the controller rejected a send.
+      // Keep its original receipt until a read confirms the saved outcome.
+      if (admitted && !existing && e instanceof ApiError && [400,401,403,404,409,413,422,429].includes(e.status)) remember(key, null)
       if (accepted) streamError = 'Reload the saved conversation before sending another message.'
       error = message(e)
     } finally { if (mine === epoch) { sending = false; updating = false } }

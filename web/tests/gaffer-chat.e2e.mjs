@@ -57,7 +57,7 @@ async function open(options={}){
    if(f.box.failSend){f.box.failSend=false;return route.abort('failed')}
    let turn=view.turns.find(t=>t.id===input.id)
    if(!turn){turn={id:input.id,conversationId:id,requestRevision:input.revision,prompt:input.text,answer:'',state:'running',providerId:view.conversation.providerId,providerName:providers.find(p=>p.id===view.conversation.providerId).name,model:view.conversation.model||providers.find(p=>p.id===view.conversation.providerId).model,inputTokens:0,outputTokens:0,usageReported:false,cut:false,startedAt:now,updatedAt:now,finishedAt:0};view.turns.push(turn);view.conversation.revision++}
-   if(f.box.dropAck){f.box.dropAck=false;return route.abort('failed')}
+   if(f.box.dropAck){const code=f.box.dropAck;f.box.dropAck=false;return code===503?route.fulfill({status:503,json:{error:'Gateway service unavailable'}}):route.abort('failed')}
    return route.fulfill({status:202,json:turn})
   }
   if(parts[8]==='cancel'){f.box.cancel.push(parts[7]);return route.fulfill({json:{requested:true}})}
@@ -127,12 +127,15 @@ try{
  await expect(panel(uncertain.page).getByLabel('Message Gaffer')).toHaveValue('Private draft stays in memory')
  const stored=await uncertain.page.evaluate(()=>Object.entries(sessionStorage).filter(([k])=>k.startsWith('reet-gaffer-pending:')).map(([,v])=>v))
  expect(stored.join('')).not.toContain('Private draft')
+ await panel(uncertain.page).getByLabel('Message Gaffer').fill('A second question to keep')
  await panel(uncertain.page).getByRole('button',{name:'Send same message safely'}).click()
  await expect(panel(uncertain.page).getByRole('button',{name:'Cancel answer',exact:true})).toBeVisible()
  expect(uncertain.box.posts).toHaveLength(2);expect(uncertain.box.posts[1].id).toBe(uncertain.box.posts[0].id)
+ expect(uncertain.box.posts[1].text).toBe('Private draft stays in memory')
+ await expect(panel(uncertain.page).getByLabel('Message Gaffer')).toHaveValue('A second question to keep')
  await finish(uncertain);expect(uncertain.errors).toEqual([]);await uncertain.context.close()
 
- const lost=await open();lost.box.dropAck=true;await show(lost)
+ const lost=await open();lost.box.dropAck=503;await show(lost)
  await panel(lost.page).getByLabel('Message Gaffer').fill('Already accepted by the controller')
  await panel(lost.page).getByRole('button',{name:'Send message',exact:true}).click()
  await expect(panel(lost.page).getByText('Message delivery is unconfirmed.')).toBeVisible()

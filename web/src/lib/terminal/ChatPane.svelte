@@ -136,6 +136,9 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
    return [info.sentence, info.age ? `Read ${info.age}.` : ''].filter(Boolean).join(' ')
   })
  const failed = $derived(chat.status.state === 'error')
+ // A refusal that names a sign-in is a step the person can take, not a failure of
+ // the agent, so it reads as that step rather than as an error to diagnose.
+ const signIn = $derived(failed && chat.status.code === 'login')
  const guidance = $derived.by(() => {
   const detail = chat.status.detail
   if (/credit|quota|usage limit|billing|balance|insufficient_quota/i.test(detail)) return acpModel
@@ -659,9 +662,13 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  {/if}
  {#if failed}
   <div class="error-panel" role="alert">
-   <strong>{toolName} could not continue</strong>
-   <p>{guidance}</p>
-   {#if statusDetail}<details open><summary>Error details</summary><p>{statusDetail}</p></details>{/if}
+   <strong>{signIn ? `${toolName} needs a sign-in` : `${toolName} could not continue`}</strong>
+   {#if signIn}
+    <p>{chat.status.detail}</p>
+   {:else}
+    <p>{guidance}</p>
+    {#if statusDetail}<details open><summary>Error details</summary><p>{statusDetail}</p></details>{/if}
+   {/if}
   </div>
  {/if}
  {#if chat.truncated && !reattaching}<p class="notice bad">Earlier messages in this reet session are no longer available.</p>{/if}

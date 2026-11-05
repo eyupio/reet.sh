@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Claude creates a session without a login and answers "Authentication required"
@@ -14,7 +15,7 @@ import (
 // That refusal has to reach the person as the sign-in step, not as a generic
 // failure that looks like the agent broke.
 func TestClaudeMissingLoginAtTheFirstPromptIsActionable(t *testing.T) {
-	opts, _ := options(t, "claude-prompt-auth-required", ClaudeCandidate.MinVersion)
+	opts, got := options(t, "claude-prompt-auth-required", ClaudeCandidate.MinVersion)
 	opts.Agent = ClaudeCandidate
 	opts.BaseEnv = append(opts.BaseEnv, "HOME="+t.TempDir())
 	session, err := Start(context.Background(), opts)
@@ -24,6 +25,22 @@ func TestClaudeMissingLoginAtTheFirstPromptIsActionable(t *testing.T) {
 	defer session.Close()
 	if err := session.Prompt(context.Background(), "say hello"); !errors.Is(err, ErrClaudeLogin) {
 		t.Fatalf("prompt: %v", err)
+	}
+	// The browser reads the status event, not the returned error, so the sentence
+	// and the reason it stands for have to travel with the event.
+	for {
+		select {
+		case event := <-got.wait:
+			if event.Kind != "status" || event.State != "error" {
+				continue
+			}
+			if event.Code != "login" || event.Detail != ErrClaudeLogin.Error() {
+				t.Fatalf("login status event: %+v", event)
+			}
+			return
+		case <-time.After(3 * time.Second):
+			t.Fatal("no login status event reached the browser")
+		}
 	}
 }
 

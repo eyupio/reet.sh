@@ -29,6 +29,7 @@ func TestACPBodiesRoundTrip(t *testing.T) {
 		"resolved":          &ACPEvent{Kind: "permission_resolved", PermissionID: "permission-0123456789", Allow: &allow},
 		"cancelled":         &ACPEvent{Kind: "permission_cancelled", PermissionID: "permission-0123456789", Reason: "timeout"},
 		"status":            &ACPEvent{Kind: "status", State: "working", Detail: "Still working"},
+		"login status":      &ACPEvent{Kind: "status", State: "error", Detail: "Sign in to Claude on that machine first.", Code: "login"},
 		"notice":            &ACPEvent{Kind: "notice", Text: "hello", Bad: pending},
 	} {
 		data, err := Encode(acpMessage(body))
@@ -66,6 +67,8 @@ func TestACPRejectsUnboundedOrUnknownBodies(t *testing.T) {
 		"agent no id":        &ACPEvent{Kind: "agent", Text: "x"},
 		"permission empty":   &ACPEvent{Kind: "permission", PermissionID: "permission-0123456789"},
 		"bad status":         &ACPEvent{Kind: "status", State: "nope"},
+		"unknown code":       &ACPEvent{Kind: "status", State: "error", Code: "signed-out"},
+		"code on a tool":     &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Status: "completed", Code: "login"},
 		"bad permission":     &ACPPermission{PermissionID: "x"},
 		"negative additions": &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", Additions: -1},
 		"negative duration":  &ACPEvent{Kind: "tool", ToolCallID: "call_1", Title: "write", ToolKind: "edit", DurationMs: -1},

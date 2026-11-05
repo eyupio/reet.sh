@@ -1291,7 +1291,7 @@ func wireEvent(event acpagent.Event) (terminalproto.ACPEvent, bool) {
 		State: event.State, Text: event.Text, Command: event.Command, Path: event.Path, Diff: event.Diff,
 		Additions: event.Additions, Deletions: event.Deletions, DurationMs: event.DurationMs,
 		Locations: event.Locations, Allow: event.Allow, Bad: event.Bad, Truncated: event.Truncated,
-		Reason: event.Reason, Detail: event.Detail, QuestionID: event.QuestionID}
+		Reason: event.Reason, Detail: event.Detail, QuestionID: event.QuestionID, Code: event.Code}
 	if event.Question != nil {
 		question := event.Question.Wire()
 		wire.Question = &question

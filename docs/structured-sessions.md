@@ -97,7 +97,9 @@ When a machine opts in, its descriptor reports that agent as available and the b
 Codex chat starts in `read-only` and carries the approvals control; `agent` is chosen per chat and `agent-full-access` is
 never offered. Claude reports approvals and the model switch only. Neither is proof of a signed-in turn: the descriptor is
 an observation. Without a login on that machine, the first prompt comes back naming the sign-in step — "Sign in to Claude on
-that machine first." or "Sign in to Codex on that machine first." — and the turn ends without an edit or command.
+that machine first." or "Sign in to Codex on that machine first." — and the turn ends without an edit or command. That refusal
+carries `code: "login"` on its status event, so the chat heads it *"{agent} needs a sign-in"* instead of *"could not
+continue"*: it is a step a person takes, not a fault to diagnose.
 
 The switches are not a support statement. The device and login checks that would retire them, and the ledger that records
 them, are in [Device checks](device-checks.md).

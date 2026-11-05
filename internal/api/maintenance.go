@@ -393,7 +393,7 @@ func (s *server) runScheduledMaintenance(now time.Time) {
 	if err != nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), maintSweepTimeout)
+	ctx, cancel := context.WithTimeout(s.baseContext(), maintSweepTimeout)
 	defer cancel()
 	sum := worktreeSweepSummary{At: now.UnixMilli()}
 	for _, u := range users {

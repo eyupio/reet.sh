@@ -1,5 +1,27 @@
 # UI verification — 4 November 2026
 
+## The Overview made compact at 14px (5 November 2026)
+
+The 14px round had made the narrow Overview long. It is compact again, still at 14px. At the default 360 px panel the five
+steps sit in one row (92 px; a state word may take two lines), the Next sentence and both its buttons fit 110 px with the
+fix note's line, and the pull request card is a 158 px summary with a **Details** fold for the secondary facts and actions.
+Before, at 360 px, these were 128, 176 and 427 px. The thresholds come from measured 14px words and are in the comments of
+`StageTracker.svelte` and `PullCard.svelte`; the 300 px panel sets the steps three over two.
+
+`session-workspace.e2e.mjs` now checks, in both themes at 300, 340, 360 and 520 px and the 375 px phone sheet: that the steps
+are one row from 340 px up (three over two at 300), that the Next buttons share a row from 340 px, that no fixed word is cut
+across or down with the fold closed and open, that the folded card keeps one height across ten pull request states, and that
+the no pull request and GitHub not available placeholders are 76 px. The card test checks that the fold starts closed, opens
+with the keyboard, reveals "not read on this machine" and "100+ threads", and stays open across a refresh and the Overview's
+own GitHub poll; the 14px block opens the fold first. Against the components before this change, a check script with these
+assertions failed 19 of 25 (one row, Plan at 340 px, the shared button row, the fold, the heights).
+
+Run from `web/` against `npx vite preview --port 4173` (stopped afterwards), Chromium from `/opt/pw-browsers/chromium`:
+`npm test` (834 tests, 0 failures), `npm run check` (0 errors, the 2 existing warnings), `npm run build`; browser, all
+passing: `session-workspace`, `sessions`, `chat`, `chat-controls`, `chat-previews`, `sessions-phone`, `phone-layout`,
+`phone-zoom`, `phone-dialogs` and `start-agent`. Not run: the axe audits (`REET_AXE_PATH` unset), the other browser files,
+the Go tests (no Go file changed), Firefox, Safari and physical devices.
+
 ## The Overview at the 14px floor (5 November 2026)
 
 After `main`'s change that keeps all web UI text at 14px or larger, the Overview's cards and the prompt dialog were

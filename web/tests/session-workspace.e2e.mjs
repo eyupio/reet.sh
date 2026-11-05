@@ -558,8 +558,9 @@ try {
   await expect(next).toContainText('Last known · checked 12m ago')
   expect(errors).toEqual([]);await context.close()
  }
- // At 14px a narrow panel lists the steps one per row and a wide one sets them side by side; either way Planning keeps its whole word.
- for(const [width,word] of [[300,'Planning'],[340,'Planning'],[520,'Planning']]){
+ // At 14px the five steps sit side by side from 340 px up; a cell is too narrow for "Planning" only in a panel of about 306 to 354 px,
+ // where the step reads "Plan", and the 300 px panel sets them three over two, wide enough for "Planning" again. No word is ever cut.
+ for(const [width,word,rows] of [[300,'Planning',2],[340,'Plan',1],[360,'Planning',1],[520,'Planning',1]]){
   const {page,context,panel,errors}=await open(1600,'dark',true,null,{session:{agentMode:'plan'}})
   await page.locator('.session-screen').evaluate((el,w)=>el.style.setProperty('--context-width',w+'px'),width)
   const tracker=panel.getByRole('group',{name:'Progress'}),label=tracker.locator('li[data-step=code] .label')
@@ -568,8 +569,10 @@ try {
   expect(await label.evaluate(e=>e.innerText),`${width}px: the planning step's label`).toBe(word)
   const cut=await tracker.locator('li .label').evaluateAll(els=>els.filter(e=>e.scrollWidth>e.clientWidth).map(e=>e.innerText))
   expect(cut,`${width}px: a step label is cut off`).toEqual([])
-  const words=await tracker.locator('li .word').evaluateAll(els=>els.filter(e=>e.scrollWidth>e.clientWidth).map(e=>e.innerText))
+  const words=await tracker.locator('li .word').evaluateAll(els=>els.filter(e=>e.scrollWidth>e.clientWidth||e.scrollHeight>e.clientHeight).map(e=>e.innerText))
   expect(words,`${width}px: a step's state word is cut off`).toEqual([])
+  const tops=await tracker.locator('ol > li').evaluateAll(els=>new Set(els.map(e=>Math.round(e.getBoundingClientRect().top))).size)
+  expect(tops,`${width}px: the steps' rows`).toBe(rows)
   expect(errors).toEqual([]);await context.close()
  }
  // Asking the agent to fix: the message goes into the chat composer for the person to read and send, or onto the clipboard. Nothing is sent for them.
@@ -681,24 +684,50 @@ try {
   const detail = (over={}) => ({detailKnown:true,reviews:{approved:1,changesRequested:1,commented:0,requested:0},threads:{open:3,resolved:2},...over})
   const withPull = over => open(1600,'dark',true,null,{pull:{mergeable:'CONFLICTING',review:'CHANGES_REQUESTED',base:'main',lastPushAt:Date.now()-4*60000,...detail(),...over}})
   {
-   const {context,panel,errors}=await withPull({})
-   const card=panel.getByRole('group',{name:'Pull request'})
-   await expect(card).toContainText('#42 · open');await expect(card).toContainText('Improve the session workspace')
+   const {page,context,panel,errors,box,calls}=await withPull({})
+   const card=panel.getByRole('group',{name:'Pull request'}),fold=card.locator('details.more'),summary=fold.locator('summary')
+   const isOpen=()=>fold.evaluate(d=>d.open)
+   // Folded by default: the summary holds what a person scans for, and the rest waits behind Details.
+   await expect(card).toContainText('#42 · open');await expect(card.locator('.title')).toHaveText('Improve the session workspace')
+   await expect(card.locator('.title')).toHaveAttribute('title','Improve the session workspace')
    await expect(card).toContainText('Resolve merge conflicts')
-   await expect(card.getByText('1 failing',{exact:true})).toBeVisible();await expect(card.getByText('1 running',{exact:true})).toBeVisible();await expect(card.getByText('1 passed',{exact:true})).toBeVisible()
-   await expect(card.getByRole('img',{name:'1 failing, 1 running, 1 passed'})).toBeVisible()
-   await expect(card).toContainText('1 approved · changes requested by 1')
-   await expect(card).toContainText('3 open threads')
-   await expect(card).toContainText('Conflicts with main')
-   await expect(card).toContainText('+45');await expect(card).toContainText('13')
-   await expect(card).toContainText('pushed 4m ago')
-   await expect(card).not.toContainText('can merge')
+   await expect(card.getByRole('img',{name:'Checks: 1 failing, 1 running, 1 passed',exact:true})).toBeVisible()
+   await expect(card.locator('.summary-facts .review')).toHaveText('Changes requested')
+   await expect(card.locator('.summary-facts .conflicts')).toHaveText('Conflicts')
    await expect(card.getByRole('link',{name:'Open pull request'})).toHaveAttribute('href','https://github.com/example/project/pull/42')
+   expect(await isOpen(),'the Details fold starts closed').toBe(false)
+   await expect(summary).toHaveText('Details');await expect(summary).toBeVisible()
+   for(const hidden of [card.getByText('1 failing',{exact:true}),card.getByText('1 approved · changes requested by 1'),card.getByText('3 open threads'),card.getByText('pushed 4m ago'),card.getByRole('link',{name:'Open failing check'}),card.getByRole('link',{name:'Open review'}),card.getByRole('button',{name:'Copy pull request link'}),card.getByRole('button',{name:'Full detail'})])await expect(hidden,'a secondary fact or action shows while the fold is closed').toBeHidden()
+   // Details opens the fold with the keyboard as well as the pointer, and holds every secondary fact and action.
+   await summary.focus();await page.keyboard.press('Enter')
+   await expect.poll(isOpen,'Details opened the fold').toBe(true)
+   await expect(card.getByText('1 failing',{exact:true})).toBeVisible();await expect(card.getByText('1 running',{exact:true})).toBeVisible();await expect(card.getByText('1 passed',{exact:true})).toBeVisible()
+   await expect(card.getByRole('img',{name:'1 failing, 1 running, 1 passed',exact:true})).toBeVisible()
+   await expect(card.getByText('1 approved · changes requested by 1')).toBeVisible()
+   await expect(card.getByText('3 open threads')).toBeVisible()
+   await expect(card.getByText('Conflicts with main')).toBeVisible()
+   await expect(card).toContainText('+45');await expect(card).toContainText('13')
+   await expect(card.getByText('pushed 4m ago')).toBeVisible()
+   await expect(card).not.toContainText('can merge')
    await expect(card.getByRole('link',{name:'Open failing check'})).toHaveAttribute('href','https://github.com/example/project/actions/runs/1')
    await expect(card.getByRole('link',{name:'Open review'})).toHaveAttribute('href','https://github.com/example/project/pull/42')
    await context.grantPermissions(['clipboard-read','clipboard-write'])
    await card.getByRole('button',{name:'Copy pull request link'}).click()
    expect(await panel.evaluate(()=>navigator.clipboard.readText())).toBe('https://github.com/example/project/pull/42')
+   // The fold is the person's: neither a refresh nor the workspace's own poll closes it, while the facts inside it move on.
+   box.pull=()=>({...snapshot(),pull:{...pull().pull,mergeable:'CONFLICTING',review:'CHANGES_REQUESTED',base:'main',...detail({threads:{open:5,resolved:2}})}})
+   await panel.getByRole('button',{name:'Refresh session workspace'}).click()
+   await expect(card.getByText('5 open threads')).toBeVisible()
+   expect(await isOpen(),'a refresh closed the Details fold').toBe(true)
+   // The Overview's own GitHub poll, once its cadence has passed.
+   const reads=()=>calls.filter(c=>c.view==='github').length,before=reads()
+   box.pull=()=>({...snapshot(),pull:{...pull().pull,mergeable:'CONFLICTING',review:'CHANGES_REQUESTED',base:'main',...detail({threads:{open:6,resolved:2}})}})
+   await page.clock.install();await page.clock.runFor(130000)
+   await expect.poll(reads,'the Overview polled GitHub').toBeGreaterThan(before)
+   await expect(card.getByText('6 open threads')).toBeVisible()
+   expect(await isOpen(),'a poll closed the Details fold').toBe(true)
+   await summary.click();await expect.poll(isOpen,'Details closes the fold again').toBe(false)
+   await summary.click();await expect.poll(isOpen).toBe(true)
    await card.getByRole('button',{name:'Full detail'}).click()
    await expect(panel.getByRole('tab',{name:/^GitHub/})).toHaveAttribute('aria-selected','true')
    await expect(panel.getByText('Resolve merge conflicts')).toBeVisible()
@@ -707,7 +736,10 @@ try {
   {
    const {context,panel,errors}=await withPull({detailKnown:undefined,reviews:undefined,threads:undefined,lastPushAt:undefined,review:'APPROVED',mergeable:'MERGEABLE'})
    const card=panel.getByRole('group',{name:'Pull request'})
-   await expect(card).toContainText('Review threads not read on this machine')
+   await expect(card.locator('.summary-facts .review')).toHaveText('Approved')
+   // The honest words are one tap away, never replaced by a count the machine did not read.
+   await card.locator('summary').click()
+   await expect(card.getByText('Review threads not read on this machine')).toBeVisible()
    await expect(card).not.toContainText('No open threads');await expect(card).not.toContainText('0 open')
    await expect(card).not.toContainText('pushed')
    await expect(card.getByRole('link',{name:'Open review'})).toHaveCount(0)
@@ -715,7 +747,9 @@ try {
   }
   {
    const {context,panel,errors}=await withPull({threads:{open:0,resolved:0,more:true},review:'APPROVED',mergeable:'MERGEABLE'})
-   await expect(panel.getByRole('group',{name:'Pull request'})).toContainText('100+ threads')
+   const card=panel.getByRole('group',{name:'Pull request'})
+   await card.locator('summary').click()
+   await expect(card.getByText('100+ threads, not all read')).toBeVisible()
    expect(errors).toEqual([]);await context.close()
   }
   for(const [reason,text] of [['no_pr','No pull request yet.'],['github_unavailable','GitHub status is not available on this machine.'],['timed_out','GitHub status could not be read.']]){
@@ -769,8 +803,9 @@ try {
   expect(gh(),'opening a session whose pull request was read moments ago makes no extra read').toBe(2)
   expect(warm.errors).toEqual([]);await warm.context.close()
  }
- // Nothing below the tracker moves when the pull request changes, at the panel widths and on the phone sheet, in both themes.
- for(const theme of ['dark','light']) for(const width of [300,340,520,375]){
+ // Nothing below the tracker moves when the pull request changes, at the panel widths and on the phone sheet, in both themes,
+ // and the folded pull request card is one height in every state that has a pull request.
+ for(const theme of ['dark','light']) for(const width of [300,340,360,520,375]){
   const phone=width===375
   const {page,context,panel,errors,box}=await open(phone?375:1600,theme,true,null,{pull:{mergeable:'MERGEABLE',review:'REVIEW_REQUIRED',checks:[ok('Build')],detailKnown:true,reviews:{approved:0,changesRequested:0,commented:0,requested:1},threads:{open:0,resolved:0}}})
   if(!phone)await page.locator('.session-screen').evaluate((el,w)=>el.style.setProperty('--context-width',w+'px'),width)
@@ -779,6 +814,8 @@ try {
   const pinned=()=>panel.evaluate(el=>{const top=n=>Math.round(n.getBoundingClientRect().top),h=name=>[...el.querySelectorAll('.panel-body h4')].find(n=>n.textContent.trim().toLowerCase()===name);return{tracker:top(h('progress')),pull:top(h('pull request')),changes:top(h('workspace changes')),where:top(h("where it's working")),details:top(el.querySelector('.session-details > summary'))}})
   const baseline=await pinned()
   expect(Object.values(baseline),'every block was found for the baseline').not.toContain(null)
+  const folded=()=>panel.evaluate(el=>Math.round(el.querySelector('.pull').getBoundingClientRect().height))
+  const cardHeight=await folded()
   const states=[
    ['conflicts',{mergeable:'CONFLICTING',base:'a-very-long-branch-name-that-cannot-possibly-fit-in-the-slot-at-three-hundred-pixels'}],
    ['failing checks with long names',{mergeable:'MERGEABLE',checks:[{name:'A check with a name long enough to need cutting off somewhere sensible',state:'FAILURE',url:'https://github.com/example/project/actions/runs/9'},{name:'Other',state:'FAILURE'},{name:'Third',state:'FAILURE'}]}],
@@ -797,6 +834,7 @@ try {
    await expect(panel.getByRole('button',{name:'Refresh session workspace'})).toBeEnabled()
    await settle()
    expect(await pinned(),`${theme} ${width}px: blocks moved for ${label}`).toEqual(baseline)
+   expect(await folded(),`${theme} ${width}px: the folded card changed height for ${label}`).toBe(cardHeight)
   }
   // Every step still shows its icon and word, and nothing scrolls sideways or is cut by the panel.
   box.pull=()=>({...snapshot(),pull:{...pull().pull,mergeable:'CONFLICTING'}})
@@ -804,16 +842,35 @@ try {
   await expect(panel.getByRole('group',{name:'Progress'}).locator('li[data-step=merge]')).toHaveAttribute('data-state','attention')
   const fits=await panel.evaluate(el=>[...el.querySelectorAll('.tracker, .pull')].every(n=>n.scrollWidth<=n.clientWidth+1))
   expect(fits,`${theme} ${width}px: the tracker or card overflows sideways`).toBe(true)
-  // The fixed words (step labels and states, the Next and fix buttons, the card's buttons) are never cut, at any of these widths.
-  const cut=await panel.evaluate(el=>[...el.querySelectorAll('.tracker li .label, .tracker li .word, .tracker .primary, .tracker .fix, .pull .btn')].filter(n=>n.scrollWidth>n.clientWidth+1).map(n=>n.textContent.trim()))
-  expect(cut,`${theme} ${width}px: a fixed word is cut`).toEqual([])
+  // The fixed words (step labels and states, the Next and fix buttons, the card's buttons and its Details summary) are never cut, at
+  // any of these widths, with the fold closed and open.
+  const cutWords=()=>panel.evaluate(el=>[...el.querySelectorAll('.tracker li .label, .tracker li .word, .tracker .primary, .tracker .fix, .pull .btn, .pull summary')].filter(n=>n.checkVisibility()&&(n.scrollWidth>n.clientWidth+1||n.scrollHeight>n.clientHeight+1)).map(n=>n.textContent.trim()))
+  expect(await cutWords(),`${theme} ${width}px: a fixed word is cut`).toEqual([])
+  // At 340 px and wider the five steps are one row and the two Next buttons share one; the 300 px panel has three steps over two.
+  const layout=await panel.evaluate(el=>{const top=n=>Math.round(n.getBoundingClientRect().top);return{rows:new Set([...el.querySelectorAll('.tracker ol > li')].map(top)).size,buttons:top(el.querySelector('.tracker .primary'))===top(el.querySelector('.tracker .fix'))}})
+  expect(layout,`${theme} ${width}px: the steps' rows and the Next buttons`).toEqual(width===300?{rows:2,buttons:false}:{rows:1,buttons:true})
+  await panel.getByRole('group',{name:'Pull request'}).locator('summary').click()
+  await expect(panel.getByRole('group',{name:'Pull request'}).getByRole('button',{name:'Full detail'})).toBeVisible()
+  expect(await cutWords(),`${theme} ${width}px: a fixed word is cut in the open fold`).toEqual([])
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
-  if(phone){for(const target of await panel.locator('.tracker button, .tracker a, .pull button, .pull a').all()){const b=await target.boundingBox();if(b)expect(b.height,'a touch target under 44px').toBeGreaterThanOrEqual(43)}}
+  if(phone){for(const target of await panel.locator('.tracker button, .tracker a, .pull button, .pull a, .pull summary').all()){const b=await target.boundingBox();if(b)expect(b.height,'a touch target under 44px').toBeGreaterThanOrEqual(43)}}
+  expect(errors).toEqual([]);await context.close()
+ }
+ // With no pull request, or none read, the card is the one documented exception: the placeholder row, 76 px at every width, as tall
+ // as the changes card. (A reason never replaces a pull request already shown, so each starts from a fresh read.)
+ for(const width of [300,340,360,520,375]) for(const reason of ['github_unavailable','no_pr']){
+  const phone=width===375
+  const {page,context,panel,errors}=await open(phone?375:1600,'dark',true,null,{reason})
+  if(!phone)await page.locator('.session-screen').evaluate((el,w)=>el.style.setProperty('--context-width',w+'px'),width)
+  const placeholder=panel.getByRole('group',{name:'Pull request'}).locator('.placeholder')
+  await expect(placeholder).toContainText(reason==='no_pr'?'No pull request yet.':'GitHub status is not available on this machine.')
+  await page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
+  expect(Math.round((await placeholder.boundingBox()).height),`${width}px: the ${reason} placeholder`).toBe(76)
   expect(errors).toEqual([]);await context.close()
  }
 
  // Every slot of the Overview stays put while the headline, the notice, the activity and the pull request all change, at the panel widths and on the phone sheet.
- for(const theme of ['dark','light']) for(const width of [300,340,520,'phone']){
+ for(const theme of ['dark','light']) for(const width of [300,340,360,520,'phone']){
   const phone=width==='phone',viewport=phone?340:1600
   const {page,context,panel,errors,box}=await open(viewport,theme,true,null,{second:true,pull:{mergeable:'MERGEABLE',review:'REVIEW_REQUIRED',checks:[ok('Build')],detailKnown:true,reviews:{approved:0,changesRequested:0,commented:0,requested:1},threads:{open:0,resolved:0}}})
   if(!phone)await page.locator('.session-screen').evaluate((el,w)=>el.style.setProperty('--context-width',w+'px'),width)
@@ -849,7 +906,7 @@ try {
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${label}: the page scrolls sideways`).toBe(true)
   if(phone){
    expect(await page.evaluate(()=>matchMedia('(pointer: coarse)').matches),'the phone context has a coarse pointer').toBe(true)
-   const targets=await panel.locator('.prompt button, .prompt a, .tracker button, .tracker a, .pull button, .pull a, .where button, .where a, .notice-action, .session-summary button').all()
+   const targets=await panel.locator('.prompt button, .prompt a, .tracker button, .tracker a, .pull button, .pull a, .pull summary, .where button, .where a, .notice-action, .session-summary button').all()
    expect(targets.length,'there are touch targets to measure').toBeGreaterThan(0)
    for(const target of targets){const b=await target.boundingBox();if(b)expect(b.height,`${label}: a touch target under 44px`).toBeGreaterThanOrEqual(43)}
   }
@@ -876,6 +933,10 @@ try {
    await expect(panel.getByRole('group',{name:'You asked'})).toContainText('Rebuild the session overview')
    if(width<800)expect(await page.evaluate(()=>matchMedia('(pointer: coarse)').matches),'the phone context has a coarse pointer').toBe(true)
    expect(await small(panel),`${label}: text under 14px in the Overview`).toEqual([])
+   // The fold's own words are measured too, so it is opened first; it stays open for every state below.
+   await panel.getByRole('group',{name:'Pull request'}).locator('summary').click()
+   await expect(panel.getByRole('group',{name:'Pull request'}).getByText('pushed 4m ago')).toBeVisible()
+   expect(await small(panel),`${label}: text under 14px in the open Details fold`).toEqual([])
    // The Last known marker on the card and the Next line, then the machine back.
    let before=box.lists
    box.offline=true;await page.evaluate(()=>window.dispatchEvent(new Event('online')))

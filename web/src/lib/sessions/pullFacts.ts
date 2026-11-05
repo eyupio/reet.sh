@@ -25,6 +25,20 @@ export function reviewsLine(pull: InsightPull): string {
   return DECISIONS[pull.review] || 'No reviews yet'
 }
 
+const DECISION_TONES: Record<string, Fact['tone']> = { CHANGES_REQUESTED: 'bad', APPROVED: 'good', REVIEW_REQUIRED: 'warn' }
+
+/** The review in a few words, for the card's summary row: the decision when there is one, else the counts a machine vouched for.
+ * The whole tally stays in the reviews line behind the card's Details fold. */
+export function reviewWord(pull: InsightPull): Fact {
+  if (DECISIONS[pull.review]) return { text: DECISIONS[pull.review], tone: DECISION_TONES[pull.review] }
+  const r = pull.detailKnown === true ? pull.reviews : undefined
+  if (!r) return { text: 'No review decision yet', tone: 'muted' }
+  const given = r.approved + r.changesRequested + r.commented
+  if (given > 0) return { text: `${given} ${given === 1 ? 'review' : 'reviews'}`, tone: 'muted' }
+  if (r.requested > 0) return { text: `${r.requested} ${r.requested === 1 ? 'review' : 'reviews'} requested`, tone: 'muted' }
+  return { text: 'No reviews yet', tone: 'muted' }
+}
+
 /** Open review threads. A pull request that is not open has none worth reading, so the slot stays empty. */
 export function threadsFact(pull: InsightPull): Fact {
   if (pull.state !== 'OPEN') return { text: '', tone: 'muted' }

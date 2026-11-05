@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 
 const source = ts.transpileModule(readFileSync(new URL('./pullFacts.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { reviewsLine, threadsFact, conflictFact, placeholderLine, githubReadDue, githubStale } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+const { reviewsLine, reviewWord, threadsFact, conflictFact, placeholderLine, githubReadDue, githubStale } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 
 const pull = (over = {}) => ({ number: 7, title: 't', url: 'https://github.com/o/r/pull/7', state: 'OPEN', draft: false, review: '', mergeable: 'MERGEABLE', added: 1, removed: 1, checks: [], ...over })
 
@@ -23,6 +23,17 @@ test('an empty tally keeps the decision the pull request reports', () => {
   const empty = { approved: 0, changesRequested: 0, commented: 0, requested: 0 }
   assert.equal(reviewsLine(pull({ detailKnown: true, reviews: empty, review: 'REVIEW_REQUIRED' })), 'Review required')
   assert.equal(reviewsLine(pull({ detailKnown: true, reviews: empty })), 'No reviews yet')
+})
+
+test('the summary row names the review decision, and only counts what the machine read', () => {
+  assert.deepEqual(reviewWord(pull({ review: 'CHANGES_REQUESTED', detailKnown: true, reviews: { approved: 1, changesRequested: 1, commented: 0, requested: 0 } })), { text: 'Changes requested', tone: 'bad' })
+  assert.deepEqual(reviewWord(pull({ review: 'APPROVED' })), { text: 'Approved', tone: 'good' })
+  assert.deepEqual(reviewWord(pull({ review: 'REVIEW_REQUIRED' })), { text: 'Review required', tone: 'warn' })
+  assert.deepEqual(reviewWord(pull({ detailKnown: true, reviews: { approved: 0, changesRequested: 0, commented: 2, requested: 1 } })), { text: '2 reviews', tone: 'muted' })
+  assert.deepEqual(reviewWord(pull({ detailKnown: true, reviews: { approved: 0, changesRequested: 0, commented: 0, requested: 1 } })), { text: '1 review requested', tone: 'muted' })
+  assert.deepEqual(reviewWord(pull({ detailKnown: true, reviews: { approved: 0, changesRequested: 0, commented: 0, requested: 0 } })), { text: 'No reviews yet', tone: 'muted' })
+  // Counts a machine did not vouch for are not shown, even when the record carries them.
+  assert.deepEqual(reviewWord(pull({ reviews: { approved: 0, changesRequested: 0, commented: 3, requested: 0 } })), { text: 'No review decision yet', tone: 'muted' })
 })
 
 test('threads that were not read are never reported as none', () => {

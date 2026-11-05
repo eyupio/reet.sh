@@ -32,9 +32,11 @@ the workspace usable; on a phone it fills the screen and stays above the keyboar
 The portrait follows your Gaffer animation and reduced-motion preferences.
 
 Outside a session, use **General Gaffer chat**. Inside a supported structured chat,
-**This session** has its own conversation and draft. The panel names both the
-working agent/model and Gaffer's independent provider/model. A plain terminal
-explains why its session companion is unavailable and offers general chat.
+**This session** has its own conversation and draft. **Conversation history** in
+the header switches between general chat and this session, or opens a saved
+companion in its session workspace. The current conversation is named in the
+compact header. **Chat options** shows the working agent/model and Gaffer's
+independent provider/model. A plain terminal explains why its session companion is unavailable and offers general chat.
 Changing scope does not grant access to the working agent's history. Each
 conversation has its own sharing choices, off until you enable them.
 
@@ -45,12 +47,16 @@ of Gaffer's answer and leaves the working agent alone. The final saved outcome
 shows completion, cancellation, interruption or failure. Provider usage is shown
 when reported, otherwise marked unknown. No automatic follow-up starts here.
 
-Use **Model** to choose Gaffer's provider and optional model override for this
-conversation. Fetch the provider's model list or enter an exact name. **Apply
-choice** saves it before your next message; that message shares this Gaffer
+Use the compact **Model** control below the message box to choose Gaffer's
+provider and optional model override. The picker opens separately, leaving the
+conversation area at its full size. Cancel discards unsaved changes. Fetch the
+provider's model list or enter an exact name. **Apply choice** saves it before your next message; that message shares this Gaffer
 conversation's completed history with the chosen provider. Working-agent defaults
 stay separate. Provider changes during an answer wait until it finishes or you
-cancel it. Connection tests and model protocol limits below still apply.
+cancel it. Connection tests and model protocol limits below still apply. Replies
+use readable paragraphs, lists and code; **Reply details** expands provider, usage
+and retained-context receipts. **Context** stays beside the model control, with
+a visible off/on/review state.
 
 If delivery is unconfirmed, choose **Check delivery**. Gaffer reads its saved
 receipt rather than sending the message again. **Send same message safely**, when
@@ -61,15 +67,15 @@ with its saved partial text and is never replayed automatically.
 
 Drafts stay in memory while the page is open, separately for each scope; a reload
 loses unsent drafts. Saved messages remain on the controller. Only receipt IDs,
-not drafts or message text, enter browser session storage. **Remove chat**
+not drafts or message text, enter browser session storage. **Chat options → Remove chat**
 deletes its messages and stops its current answer; it leaves the working agent
 running and cannot recover provider credits already used. Limits are 100 stored
 conversations per account, 100 turns per conversation, 8,000 bytes per question
 and 64 KiB per reply. The panel shows when a reply was cut short.
 
-**Saved chats** lists your conversation metadata and offers removal, including
-companions whose worker session has been archived. To read a session conversation,
-open that session's workspace. Archiving worker history does not silently delete
+**Conversation history** in the header lists saved conversations with links to
+available session workspaces. Unavailable sessions stay listed for removal,
+including companions whose worker session has been archived. Archiving worker history does not silently delete
 your Gaffer messages; the saved-chat cleanup remains available.
 
 ## Add a provider

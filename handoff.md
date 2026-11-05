@@ -60,6 +60,15 @@ receipts record the source/category/digest; revoked context-derived history cann
 silently re-enter later provider prompts. See the updated
 [conversation/access contract](docs/handoffs/gaffer-conversations.md).
 
+The screenshot-led UX follow-up in #608 makes the narrative the main area: compact
+header with Conversation history, separate model picker opened from below the
+composer, Context beside it, and options/reply metadata on demand. History switches
+general/current conversations or links to other available session workspaces while
+preserving scoped drafts. The shared text parser renders paragraphs/lists/code as
+escaped content. The browser matrix includes the supplied 800×1280 touch-tablet
+shape, 560 px boundary, phones and desktop; normal layouts reserve over 60% for
+messages. See the latest UI evidence and the PR for final verification.
+
 Next is GM3B: explicit worker-message grants and queue receipt reconciliation.
 Durable goals and offline supervision remain GM4. Gaffer has no coding/PR authority;
 the working model performs those actions. No model-requested tools, worker writes,

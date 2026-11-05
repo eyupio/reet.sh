@@ -123,7 +123,9 @@ Use **Lists** to browse My lists, Shared with me and Teams & organisations. **Co
 
 **Ask Gaffer** opens a private floating chat for signed-in accounts with write access.
 Outside a session it is general chat; in a structured session you can switch to that
-session's separate companion conversation. Gaffer's provider/model is independent of
+session's separate companion conversation. History lives in the header; the compact
+model/context controls sit below the message box, leaving the main area for chat.
+Gaffer's provider/model is independent of
 the agent doing your work. Replies stream and stay saved on the controller; closing
 the panel keeps the current answer running, while **Cancel answer** stops it. This
 chat starts with typed messages only. **Context** lets you preview and explicitly

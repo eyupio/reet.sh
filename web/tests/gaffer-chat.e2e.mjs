@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises'
 import { openWorkspace } from './helpers/workspace.mjs'
 
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
-const captures=process.env.REET_UI_SCREENSHOTS||'../work/gaffer/widget-screenshots'
+const captures=process.env.REET_UI_SCREENSHOTS||'/tmp/reet-gaffer-chat'
 await mkdir(captures,{recursive:true})
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const now=Date.now(), pid='a'.repeat(32), otherPid='b'.repeat(32)
@@ -48,7 +48,7 @@ function fixture({seed=false,noProviders=false}={}){
  return {box,routes,create,find,settings}
 }
 async function open(options={}){
- const f=fixture(options),w=await openWorkspace(browser,{width:options.width||1440,height:options.height||1000,theme:options.theme||'light',touch:(options.width||1440)<650,routes:f.routes,status:options.status})
+ const f=fixture(options),w=await openWorkspace(browser,{width:options.width||1440,height:options.height||1000,theme:options.theme||'light',touch:options.touch??(options.width||1440)<=800,routes:f.routes,status:options.status})
  await w.page.route('**/api/v2/gaffer/conversations/**',async route=>{
   const path=new URL(route.request().url()).pathname, parts=path.split('/'),id=parts[5],view=f.find(id),r=route.request()
   if(!view)return route.fulfill({status:404,json:{error:'Conversation unavailable'}})
@@ -77,6 +77,8 @@ async function open(options={}){
  return {...w,...f}
 }
 const panel=page=>page.getByRole('dialog',{name:'Gaffer',exact:true})
+const modelDialog=page=>page.getByRole('dialog',{name:'Gaffer model',exact:true})
+async function chooseConversation(w,mode){await panel(w.page).getByRole('button',{name:'Conversation history',exact:true}).click();const history=w.page.getByRole('dialog',{name:'Conversation history',exact:true});await history.getByRole('button',{name:mode==='general'?'General Gaffer chat':'This session',exact:false}).first().click();await expect(history).toHaveCount(0)}
 async function show(w,path='/'){
  await w.page.goto(base+path);await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click();await expect(panel(w.page)).toBeVisible();await expect(panel(w.page).getByText('Finding our place…')).toHaveCount(0)
 }
@@ -104,21 +106,26 @@ try{
  await finish(w)
  await expect(panel(w.page).getByRole('button',{name:'Send message',exact:true})).toBeDisabled()
  await panel(w.page).getByRole('button',{name:'Model',exact:true}).click()
- await panel(w.page).getByLabel('Gaffer provider',{exact:true}).selectOption(otherPid)
- await panel(w.page).getByRole('button',{name:'Fetch models',exact:true}).click()
- await expect(panel(w.page).getByLabel('Gaffer model',{exact:true}).getByRole('option',{name:'model-beta',exact:true})).toHaveCount(1)
- await panel(w.page).getByLabel('Gaffer model',{exact:true}).selectOption('__manual__')
- await panel(w.page).getByLabel('Exact Gaffer model',{exact:true}).fill('   ')
- await expect(panel(w.page).getByRole('button',{name:'Apply choice',exact:true})).toBeDisabled()
- await panel(w.page).getByLabel('Gaffer model',{exact:true}).selectOption('model-beta')
- await panel(w.page).getByRole('button',{name:'Apply choice',exact:true}).click()
+ await modelDialog(w.page).getByLabel('Gaffer provider',{exact:true}).selectOption(otherPid)
+ await modelDialog(w.page).getByRole('button',{name:'Cancel',exact:true}).click()
+ await expect(panel(w.page).getByRole('button',{name:'Model',exact:true})).toHaveAttribute('title','Gaffer: My OpenCode · glm-5')
+ await panel(w.page).getByRole('button',{name:'Model',exact:true}).click()
+ await modelDialog(w.page).getByLabel('Gaffer provider',{exact:true}).selectOption(otherPid)
+ await modelDialog(w.page).getByRole('button',{name:'Fetch models',exact:true}).click()
+ await expect(modelDialog(w.page).getByLabel('Gaffer model',{exact:true}).getByRole('option',{name:'model-beta',exact:true})).toHaveCount(1)
+ await modelDialog(w.page).getByLabel('Gaffer model',{exact:true}).selectOption('__manual__')
+ await modelDialog(w.page).getByLabel('Exact Gaffer model',{exact:true}).fill('   ')
+ await expect(modelDialog(w.page).getByRole('button',{name:'Apply choice',exact:true})).toBeDisabled()
+ await modelDialog(w.page).getByLabel('Gaffer model',{exact:true}).selectOption('model-beta')
+ await modelDialog(w.page).getByRole('button',{name:'Apply choice',exact:true}).click()
  await expect(panel(w.page).getByText('Choice of brains saved.',{exact:true})).toBeVisible()
  expect(w.box.patches[0].model).toBe('model-beta');expect(w.box.models[0].id).toBe(otherPid)
  await panel(w.page).getByLabel('Message Gaffer').fill('Another question')
  await panel(w.page).getByRole('button',{name:'Send message',exact:true}).click()
  await panel(w.page).getByRole('button',{name:'Cancel answer',exact:true}).click()
  await expect.poll(()=>w.box.cancel.length).toBe(1);await finish(w,'cancelled','A partial thought before cancellation.')
- await panel(w.page).getByRole('button',{name:'Remove conversation',exact:true}).click()
+ await panel(w.page).getByRole('button',{name:'Chat options',exact:true}).click()
+ await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Remove conversation',exact:true}).click()
  await w.page.getByRole('button',{name:'Remove conversation',exact:true}).last().click()
  await expect(panel(w.page).getByText('Conversation removed. Fresh brew, fresh start.')).toBeVisible()
  expect(w.errors).toEqual([]);await w.context.close()
@@ -149,19 +156,21 @@ try{
 
  const scoped=await open();scoped.create(sessions[0].id);scoped.create(sessions[1].id)
  await show(scoped,`/sessions?agent=a1&session=${sessions[0].id}`)
- await expect(panel(scoped.page).getByLabel('Conversation',{exact:true})).toHaveValue('session')
- await expect(panel(scoped.page).getByText('Working agent: OpenCode · worker-model',{exact:true})).toBeVisible()
+ await expect(panel(scoped.page).locator('.scope-title')).toHaveText('First session')
+ await panel(scoped.page).getByRole('button',{name:'Chat options',exact:true}).click()
+ await expect(scoped.page.getByRole('dialog',{name:'Chat options',exact:true}).getByText('Working agent: OpenCode · worker-model',{exact:true})).toBeVisible()
+ await scoped.page.keyboard.press('Escape')
  await panel(scoped.page).getByLabel('Message Gaffer').fill('Draft for the first session')
- await panel(scoped.page).getByLabel('Conversation',{exact:true}).selectOption('general')
+ await chooseConversation(scoped,'general')
  await expect(panel(scoped.page).getByLabel('Message Gaffer')).toHaveValue('')
  await panel(scoped.page).getByLabel('Message Gaffer').fill('General draft')
- await panel(scoped.page).getByLabel('Conversation',{exact:true}).selectOption('session')
+ await chooseConversation(scoped,'session')
  await expect(panel(scoped.page).getByLabel('Message Gaffer')).toHaveValue('Draft for the first session')
  await expect(panel(scoped.page)).not.toContainText('PRIVATE WORKER TRANSCRIPT')
  // A late response from session A must not replace session B, even while the panel stays open.
  scoped.box.lateScope=sessions[0].id
- await panel(scoped.page).getByLabel('Conversation',{exact:true}).selectOption('general')
- await panel(scoped.page).getByLabel('Conversation',{exact:true}).selectOption('session')
+ await chooseConversation(scoped,'general')
+ await chooseConversation(scoped,'session')
  await expect.poll(()=>typeof scoped.box.releaseScope).toBe('function')
  await scoped.page.getByRole('button',{name:/^Second session on/}).click()
  await expect(panel(scoped.page).locator('.scope-title')).toHaveText('Second session')
@@ -172,6 +181,10 @@ try{
  await scoped.page.getByRole('button',{name:/^First session on/}).click()
  await expect(panel(scoped.page).locator('.scope-title')).toHaveText('First session')
  await expect(panel(scoped.page).getByLabel('Message Gaffer')).toHaveValue('Draft for the first session')
+ await panel(scoped.page).getByRole('button',{name:'Conversation history',exact:true}).click()
+ await scoped.page.getByRole('dialog',{name:'Conversation history',exact:true}).getByRole('link',{name:'Second session',exact:true}).click()
+ await expect(panel(scoped.page).locator('.scope-title')).toHaveText('Second session')
+ await expect(panel(scoped.page).getByLabel('Message Gaffer')).toHaveValue('Second session draft')
  await panel(scoped.page).getByRole('button',{name:'Close Gaffer',exact:true}).click()
  await scoped.page.goto(`${base}/sessions?agent=a1&session=${sessions[2].id}`)
  await scoped.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
@@ -179,14 +192,19 @@ try{
  expect(scoped.errors).toEqual([]);await scoped.context.close()
 
  const history=await open({seed:true});history.create('archived-session-buddy');await show(history)
- await panel(history.page).getByRole('button',{name:'Saved chats',exact:true}).click()
- const saved=history.page.getByRole('dialog',{name:'Saved Gaffer chats',exact:true})
+ await panel(history.page).getByRole('button',{name:'Conversation history',exact:true}).click()
+ const saved=history.page.getByRole('dialog',{name:'Conversation history',exact:true})
  await expect(saved.getByText('Session companion · on-buddy',{exact:true})).toBeVisible()
  await saved.getByRole('button',{name:'Remove session on-buddy chat',exact:true}).click()
  await history.page.getByRole('button',{name:'Remove saved chat',exact:true}).click()
  await expect(saved.getByText('Session companion · on-buddy',{exact:true})).toHaveCount(0)
- await saved.getByRole('button',{name:'Close saved chats',exact:true}).click()
- expect(history.box.deletes).toHaveLength(1);expect(history.errors).toEqual([]);await history.context.close()
+ await saved.getByRole('button',{name:'Close history',exact:true}).click()
+ expect(history.box.deletes).toHaveLength(1)
+ history.create(sessions[1].id)
+ await panel(history.page).getByRole('button',{name:'Conversation history',exact:true}).click()
+ await history.page.getByRole('dialog',{name:'Conversation history',exact:true}).getByRole('link',{name:'Second session',exact:true}).click()
+ await expect(panel(history.page).locator('.scope-title')).toHaveText('Second session')
+ expect(history.errors).toEqual([]);await history.context.close()
 
  const no=await open({noProviders:true});await show(no)
  await expect(panel(no.page).getByRole('link',{name:'Set up Gaffer',exact:true})).toBeVisible()
@@ -204,13 +222,45 @@ try{
  await expect(panel(native.page).getByText('Native streamed answer.',{exact:true})).toBeVisible()
  expect(native.box.posts).toHaveLength(1);expect(native.errors).toEqual([]);await native.context.close()
 
- for(const width of [1440,390,320])for(const theme of ['light','dark']){
-  const w=await open({seed:true,width,theme,height:width<650?844:1000});await show(w)
-  await expect(panel(w.page).getByText('Reet, let’s give it a proper look.',{exact:false})).toBeVisible()
+ const rich=await open({seed:true,width:800,height:1280})
+ const richView=rich.box.conversations.get('');richView.turns[0].answer='## A proper look\n\n- **First:** check the failing job.\n- Keep the worker on the same goal.\n\nUse `git status` before changing anything.\n\n```sh\ngit status\n```\n\n<img src=x onerror="window.__gafferXss=true"> [unsafe](javascript:alert(1))'
+ await show(rich)
+ await expect(panel(rich.page).getByRole('heading',{name:'A proper look',exact:true})).toBeVisible()
+ await expect(panel(rich.page).locator('.gaffer-prose strong')).toHaveText('First:')
+ await expect(panel(rich.page).locator('.gaffer-prose li')).toHaveCount(2)
+ await expect(panel(rich.page).locator('.gaffer-prose pre code')).toContainText('git status')
+ await expect(panel(rich.page).locator('img[src="x"],a[href^="javascript:"]')).toHaveCount(0)
+ expect(await rich.page.evaluate(()=>window.__gafferXss)).toBeUndefined()
+ expect(rich.errors).toEqual([]);await rich.context.close()
+
+ for(const width of [1440,800,560,390,320])for(const theme of ['light','dark']){
+  const w=await open({seed:true,width,theme,height:width===800?1280:width<650?844:1000})
+  let target='/'
+  if(width===800){
+   const longSession={...sessions[0],title:'See how we can improve the backup UX and UI'}
+   w.routes['/api/v2/terminal/sessions']={sessions:[longSession,...sessions.slice(1)]}
+   const general=w.box.conversations.get(''),view=w.create(longSession.id,pid,'deepseek-v4.1-flash:1017')
+   view.turns=general.turns.map(t=>({...t,conversationId:view.conversation.id,prompt:'Give me a summary and what remains.',answer:'Reet, here is where we are.\n\nThe working model has improved the backup screen and is checking the result.\n\n- **Done:** the first layout pass.\n- **Next:** check the phone view and raise a PR.\n- **Still to verify:** the latest CI checks.\n\nI will keep the facts separate from the hopeful bits. A good brew is no substitute for a passing check.'}))
+   target=`/sessions?agent=a1&session=${longSession.id}`
+  }
+  await show(w,target)
+  await expect(panel(w.page).getByText(width===800?'Reet, here is where we are.':'Reet, let’s give it a proper look.',{exact:false})).toBeVisible()
   expect(await w.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   const bounds=await panel(w.page).boundingBox();expect(bounds.x).toBeGreaterThanOrEqual(0);expect(bounds.x+bounds.width).toBeLessThanOrEqual(width+1)
-  if(width<650){expect(await w.page.evaluate(()=>document.querySelector('.gaffer-chat').matches(':modal'))).toBe(true);expect((await panel(w.page).getByRole('button',{name:'Send message',exact:true}).boundingBox()).height).toBeGreaterThanOrEqual(44)}
+  if(width<560){expect(await w.page.evaluate(()=>document.querySelector('.gaffer-chat').matches(':modal'))).toBe(true);expect((await panel(w.page).getByRole('button',{name:'Send message',exact:true}).boundingBox()).height).toBeGreaterThanOrEqual(44)}
+  const narrative=panel(w.page).getByRole('region',{name:'Gaffer conversation messages'})
+  const messageBounds=await narrative.boundingBox(),composerBounds=await panel(w.page).locator('.composer').boundingBox()
+  expect(messageBounds.height/bounds.height,'messages occupy most of the chat').toBeGreaterThan(.6)
+  expect((await panel(w.page).getByRole('button',{name:'Model',exact:true}).boundingBox()).y).toBeGreaterThan(messageBounds.y+messageBounds.height)
+  expect(await panel(w.page).getByRole('combobox').count()).toBe(0)
+  const previousHeight=messageBounds.height
+  await panel(w.page).getByRole('button',{name:'Model',exact:true}).click()
+  await expect(modelDialog(w.page)).toBeVisible()
+  expect((await narrative.boundingBox()).height).toBe(previousHeight)
+  await w.page.keyboard.press('Escape');await expect(modelDialog(w.page)).toHaveCount(0)
+  await expect(panel(w.page).getByRole('button',{name:'Model',exact:true})).toBeFocused()
   await w.page.screenshot({path:`${captures}/gaffer-chat-${width}-${theme}.png`})
+  if(width===800)await panel(w.page).screenshot({path:`${captures}/gaffer-chat-panel-${width}-${theme}.png`})
   await panel(w.page).getByLabel('Message Gaffer').fill('☕'.repeat(2667))
   await expect(panel(w.page).getByText('8,001 / 8,000 bytes',{exact:true})).toBeVisible()
   await expect(panel(w.page).getByRole('button',{name:'Send message',exact:true})).toBeDisabled()

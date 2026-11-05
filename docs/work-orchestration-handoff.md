@@ -108,6 +108,16 @@ are being rerun on the aligned base; the first full run ended without a complete
 report. Final-head CI is the merge gate, not an assumed local pass. No merge was
 performed. See the PR for the latest check results.
 
+UX follow-up from the user's tablet screenshot: move Conversation into header
+history, put a compact model choice below the composer, and make narrative the
+main area. Provider editing opens in a separate dialog; Chat options carries
+worker identity/settings/removal, and reply receipts expand on demand. General
+and session drafts, exact delivery receipts, explicit context grants and worker
+approval boundaries stay under the same contracts. This updates #608 rather than
+starting the next automation slice. New width/theme geometry checks require more
+than 60% of the normal panel for messages, including the screenshot's 800×1280
+shape, with keyboard and focus-return coverage.
+
 This is the GM3 read half, not the whole supervision MVP. GM3B must add explicit
 worker-message grants and durable idempotent mapping to the existing queue before
 GM4 creates offline goals. Opening/closing the widget or enabling read sharing

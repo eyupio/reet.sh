@@ -227,12 +227,19 @@
         const next = queue.shift()!
         if (seen.has(next.path)) continue
         seen.add(next.path)
-        const page = await browseFolder(host, { path: next.path, session: sessionId }, signal())
-        requests++
-        scanRequests = requests
-        all = mergeRepos(all, reposFrom(page, host))
-        found = all
-        queue = [...queue, ...nextFolders(page, next.depth, MAX_SCAN_DEPTH, seen)]
+        // A folder can hold more entries than one browse page lists: follow its cursor while the scan has budget left.
+        let after: string | undefined
+        while (requests < MAX_SCAN_REQUESTS) {
+          const page = await browseFolder(host, { path: next.path, after, session: sessionId }, signal())
+          requests++
+          scanRequests = requests
+          all = mergeRepos(all, reposFrom(page, host))
+          found = all
+          queue = [...queue, ...nextFolders(page, next.depth, MAX_SCAN_DEPTH, seen)]
+          const last = page.entries.at(-1)?.name
+          if (!page.more || !last || last === after) break
+          after = last
+        }
       }
     } catch (e) {
       if (refused(e)) { onsignedout(); return }
@@ -254,7 +261,9 @@
     const created: FolderProject[] = []
     try {
       for (const repo of selectedFound.slice(0, MAX_ADDED_AT_ONCE)) {
-        let project = await createFolderProject({ host: repo.host, dir: repo.dir, name: repo.name, isRepo: true }, signal())
+        // No name: the server names the project after its folder and suffixes a clash, so two machines with a `site`
+        // both come in, and a folder name longer than the project-name limit is still accepted.
+        let project = await createFolderProject({ host: repo.host, dir: repo.dir, isRepo: true }, signal())
         if (addTargetGroup) {
           await setFolderProjectGroup(project.id, addTargetGroup, signal())
           project = { ...project, groupId: addTargetGroup }
@@ -349,7 +358,7 @@
 
         {#if !projects}
           <div class="empty"><p>Reading your projects…</p></div>
-        {:else if list.length === 0}
+        {:else if list.length === 0 && sortedGroups.length === 0}
           <div class="empty">
             <span class="empty-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 6.5A1.5 1.5 0 014.5 5H9l2 2h8.5A1.5 1.5 0 0121 8.5v9a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 17.5z" /></svg></span>
             <h3>No projects yet</h3>

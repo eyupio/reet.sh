@@ -53,14 +53,25 @@ func (s *server) syncCandidates(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"skills": skills})
 }
 func (s *server) syncLibraryMachines(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		AgentID string `json:"agentId"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
 	s.importMu.Lock()
-	err := s.st.SyncLibraryMachinesFor(s.uid(r), s.role(r), requestOrigin(r))
+	var err error
+	if in.AgentID == "" {
+		err = s.st.SyncLibraryMachinesFor(s.uid(r), s.role(r), requestOrigin(r))
+	} else {
+		err = s.st.SyncLibraryMachineFor(s.uid(r), s.role(r), requestOrigin(r), in.AgentID)
+	}
 	s.importMu.Unlock()
 	if err != nil {
 		writeErr(w, 409, err.Error())
 		return
 	}
-	s.eventRequest(r, "sync-library", "", nil)
+	s.eventRequest(r, "sync-library", "", map[string]string{"agent": in.AgentID})
 	s.syncState(w, r)
 }
 func (s *server) saveDesired(w http.ResponseWriter, r *http.Request) {

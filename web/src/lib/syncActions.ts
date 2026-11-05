@@ -1,4 +1,4 @@
-import { getSyncState, queueSyncJob, saveDesired, startSyncRun, syncCandidates, syncLibraryMachines, type Skill, type SyncSkill, type SyncState } from './api'
+import { getSyncState, queueSyncJob, saveDesired, startSyncRun, syncCandidates, syncLibraryMachine, type Skill, type SyncSkill, type SyncState } from './api'
 import { agentOnline } from './machines'
 import { fallbackInstallTarget, foldHost, pickSyncCandidate, savedInstallTargets } from './syncOverview'
 
@@ -43,7 +43,7 @@ export async function installSkillOnMachine(skill: Pick<Skill, 'id' | 'slug' | '
   if (!pickSyncCandidate(shelf, skill)) throw new MachineSourceRequired(`${skill.name} needs a copy from a machine that has it.`)
 
   if (agent.keepSynced) {
-    const next = await syncLibraryMachines()
+    const next = await syncLibraryMachine(agent.id)
     return { state: next, host: machine.host, targets: next.targets.filter(target => foldHost(target.target.host) === foldHost(host)).length, createdScope: false }
   }
 

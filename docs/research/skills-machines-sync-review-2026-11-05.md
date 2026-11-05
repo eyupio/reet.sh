@@ -50,6 +50,8 @@ The implemented default is:
 | P2 | The main action required choosing skills, machines and install locations. Offline enrollments without inventory were absent, making the fleet look smaller than it was. | One fleet action, counts, and a row per enrollment. Offline, paused, syncing and failed states have distinct text. Library details and custom controls are secondary. |
 | P2 | A source conflict after a successful old run could still look like a healthy machine. Duplicate-name validation compared only the first two candidates. | Machine summaries expose current problems/failures. Library candidates identify name conflicts, preserve the previous good selection, and validation checks every selected source. |
 | P2 | Quick binary-update retries can share a millisecond timestamp, causing the Machines UI to display an older failed update as the latest. | Use insertion order as the timestamp tie-breaker. The regression test forces equal timestamps. |
+| P2 | A per-machine Add a skill action called the fleet reset, enabling automatic sync and replacing custom plans on unrelated machines. | Destination actions pass the selected enrollment to the controller. Only that machine's policy, plans and failed private-copy requests are retried; the explicit fleet action retains its fleet scope. |
+| P2 | An unrelated unreadable or oversized skill made a whole content observation incomplete, hiding complete matching private skills and repeatedly scheduling no-op jobs ahead of later folders. | Fresh incomplete observations can prove individual complete matching digests. Stale, paused and invalidated observations cannot. A regression verifies the next folder receives its work. |
 
 ## Code map
 
@@ -108,13 +110,28 @@ Final checks on this working tree:
 | `go test ./internal/store ./scripts` | Passed. |
 | `go test ./internal/scan ./cmd/reet` | Passed. |
 | The two new sync-only native service tests | Passed without tmux. |
-| `REET_THEME_BASE=HEAD npm run check` | Passed; zero errors and one existing unused-CSS warning in SessionHoverCard. |
+| `npm run check` | Passed; zero errors and two existing unused-CSS warnings in LaunchBar and SessionHoverCard. |
 | `npm run build` and `go build ./cmd/reet` | Passed. The web build retains its existing large-chunk warning. |
 | `skills-sync-simple.e2e.mjs` | Passed on phone/desktop and both themes. |
 | `add-machine.e2e.mjs` | Passed, including the new first-scan → syncing → attention → ready scenario. |
 | Existing affected browser suites | First skills, empty states, vocabulary, written-skill records, machine transfers, per-machine additions, skill cards, first machine, fleet status, activity and navigation all passed; 13 suites total with the two above. |
 | `sh -n scripts/install.sh` and `git diff --check` | Passed. |
+| Race-enabled PR follow-up regressions and real two-home integration | Passed. Destination policies and capture retries stay scoped; complete digests advance later folders without trusting stale observations. |
+| Docs hook tests, strict build and rendered-link checker | Passed: 28 hook tests and 50 rendered pages. |
 | Entire terminal-host package | Not clean in this environment; missing tmux and existing process-timeout failures are detailed below. |
+
+PR #572 follow-up verification also covers destination-scoped requests, preserving
+another machine's disabled automation and custom mirror plan, rejecting an unknown
+enrollment, and fresh incomplete observations versus stale, paused and invalidated
+ones. Each reported regression was reproduced before applying its fix. The docs
+review link now points to its repository source because research notes are excluded
+from the published site; strict docs build and rendered-link checks pass.
+
+The full `go test -race -p 2 ./...` run completed with no reported data races. Its
+only failing package was `internal/terminalhost`: three tests require missing tmux,
+and two process-group timeout tests reported surviving children. Other packages,
+including API, store, scanner, CLI and installer, passed. The combined full-suite
+check remains incomplete; passing scoped regressions do not replace it.
 
 - Controller/store/scanner/installer package tests cover scheduling, ownership,
   durable policies, previews, applies, receipts, source conflicts and recovery.

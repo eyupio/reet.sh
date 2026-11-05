@@ -14,7 +14,7 @@ background agent with explicit restart guidance. Automatic sync owns supported
 home folders. Turn it off before using a custom home-folder plan; project folders
 are explicit. Sync all machines restores the common library.
 
-See [the detailed code and usability review](research/skills-machines-sync-review-2026-11-05.md)
+See [the detailed code and usability review](https://github.com/eyupio/reet.sh/blob/main/docs/research/skills-machines-sync-review-2026-11-05.md)
 for the defects, evidence, validation and remaining boundaries. The following
 sections describe the previous selection-based interface and its history.
 

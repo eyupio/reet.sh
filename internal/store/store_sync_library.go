@@ -172,8 +172,37 @@ func (s *Store) prepareLibraryTargets(uid int64, role string, agent SyncAgent, r
 // SyncLibraryMachinesFor establishes one durable policy, including offline
 // machines. Polls finish setup after the first complete scan, without a browser.
 func (s *Store) SyncLibraryMachinesFor(uid int64, role, origin string) error {
+	return s.syncLibraryMachinesFor(uid, role, origin, "")
+}
+
+// SyncLibraryMachineFor retries one destination without changing other
+// enrollments, custom plans, or private-copy requests.
+func (s *Store) SyncLibraryMachineFor(uid int64, role, origin, agentID string) error {
+	if agentID == "" {
+		return errors.New("choose an enrolled machine")
+	}
+	return s.syncLibraryMachinesFor(uid, role, origin, agentID)
+}
+
+func (s *Store) syncLibraryMachinesFor(uid int64, role, origin, agentID string) error {
 	if role == "viewer" {
 		return errors.New("read-only account")
+	}
+	agents, err := s.SyncAgentsFor(uid)
+	if err != nil {
+		return err
+	}
+	if agentID != "" {
+		selected := []SyncAgent{}
+		for _, agent := range agents {
+			if agent.ID == agentID {
+				selected = append(selected, agent)
+			}
+		}
+		if len(selected) == 0 {
+			return ErrNotFound
+		}
+		agents = selected
 	}
 	if err := s.SetSyncLibraryOrigin(uid, origin); err != nil {
 		return err
@@ -190,7 +219,7 @@ func (s *Store) SyncLibraryMachinesFor(uid int64, role, origin string) error {
 	// Explicit retry releases terminal capture keys, keeping their audit trail.
 	// Polls alone never create a stream of retries for a broken source.
 	if err := s.withTx(func(tx *sql.Tx) error {
-		rows, err := tx.Query(`SELECT data FROM machine_import_requests WHERE user_id=? AND request_key LIKE 'library_%' AND state IN ('failed','expired','cancelled')`, uid)
+		rows, err := tx.Query(`SELECT r.data FROM machine_import_requests r WHERE r.user_id=? AND r.request_key LIKE 'library_%' AND r.state IN ('failed','expired','cancelled') AND (?='' OR json_extract(r.data,'$.destinationId') IN (SELECT e.id FROM environments e JOIN sync_agents a ON a.user_id=e.user_id AND a.host=e.host COLLATE NOCASE WHERE a.id=? AND a.user_id=?))`, uid, agentID, agentID, uid)
 		if err != nil {
 			return err
 		}
@@ -224,10 +253,6 @@ func (s *Store) SyncLibraryMachinesFor(uid int64, role, origin string) error {
 		}
 		return nil
 	}); err != nil {
-		return err
-	}
-	agents, err := s.SyncAgentsFor(uid)
-	if err != nil {
 		return err
 	}
 	for _, agent := range agents {

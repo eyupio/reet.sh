@@ -307,7 +307,10 @@ func (s *Store) SyncTargetsFor(userID int64) ([]SyncTarget, error) {
 				// Scanner identities cannot prove private content: a written skill
 				// is often reported as local/<name>. Compare the bundle digest.
 				installed = false
-				if content.State == "observed" {
+				// An unrelated unreadable skill makes the scope incomplete, but
+				// complete entries can still prove their own content. Stale,
+				// paused and invalidated observations remain unusable.
+				if content.State == "observed" || content.State == "incomplete" {
 					for _, observed := range content.Skills {
 						if observed.Name == sk.Slug && observed.Complete && strings.HasSuffix(sk.Source, ":"+observed.Digest) && observed.Digest != "" {
 							installed = true

@@ -10,10 +10,95 @@ import (
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/auth"
+	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/scan"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/store/storetest"
 )
+
+func TestScopedLibrarySyncPreservesOtherMachinePolicies(t *testing.T) {
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	uid, _ := st.DefaultOwner()
+	if _, err = st.CreateAPIToken(uid, "owner", auth.HashToken("scoped-owner")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"one", "two"} {
+		rf, err := ref.Parse("a/b/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = st.UpsertFor(uid, rf, store.Patch{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agents := map[string]store.SyncAgent{}
+	for _, host := range []string{"laptop", "desktop"} {
+		if err = st.TouchEnvironmentFor(uid, host, "agents", "", ""); err != nil {
+			t.Fatal(err)
+		}
+		id := store.EnvironmentIDFor(uid, host, "agents", "")
+		if err = st.RecordInventoryFor(uid, id, true, store.MachineInfo{}); err != nil {
+			t.Fatal(err)
+		}
+		a, _, err := st.EnrollSyncAgent(uid, host, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		agents[host] = a
+	}
+	if err = st.ControlSyncAgent(uid, agents["laptop"].ID, "keep-sync-on"); err != nil {
+		t.Fatal(err)
+	}
+	desktopID := store.EnvironmentIDFor(uid, "desktop", "agents", "")
+	if err = st.SaveDesiredFor(uid, "owner", store.DesiredSelection{TargetID: desktopID, SourceID: "shelf", Mode: "mirror", SkillIDs: []string{"a/b/one"}}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := st.SyncTargetsFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts)))
+	defer srv.Close()
+	body, _ := json.Marshal(map[string]string{"agentId": agents["laptop"].ID})
+	code, response := doClient(t, srv.Client(), srv, "POST", "/api/v2/sync/library", string(body), "X-Reet-Token", "scoped-owner")
+	if code != 200 {
+		t.Fatal(code, response)
+	}
+	afterAgents, _ := st.SyncAgentsFor(uid)
+	for _, a := range afterAgents {
+		if a.Host == "desktop" && a.KeepSynced {
+			t.Fatal("scoped add enabled automatic sync on another machine")
+		}
+	}
+	after, _ := st.SyncTargetsFor(uid)
+	if len(after) != 2 {
+		t.Fatalf("expected the selected machine's library plan and the existing custom plan: %+v", after)
+	}
+	for _, target := range after {
+		if target.Target.ID == desktopID && (target.Revision != before[0].Revision || target.SourceID != "shelf" || target.Mode != "mirror" || len(target.Desired) != 1) {
+			t.Fatalf("scoped add replaced another machine's plan: %+v", target)
+		}
+		if target.Target.Host == "laptop" && (target.SourceID != "library" || target.Mode != "additive" || !target.FollowSource || len(target.Desired) != 2) {
+			t.Fatalf("selected machine did not follow the library: %+v", target)
+		}
+	}
+	jobs, _ := st.SyncJobsFor(uid)
+	if len(jobs) != 1 {
+		t.Fatalf("expected one install for the selected machine: %+v", jobs)
+	}
+	for _, job := range jobs {
+		if job.AgentID != agents["laptop"].ID {
+			t.Fatalf("scoped add queued work for another machine: %+v", job)
+		}
+	}
+	if code, response = doClient(t, srv.Client(), srv, "POST", "/api/v2/sync/library", `{"agentId":"not-owned"}`, "X-Reet-Token", "scoped-owner"); code != 409 {
+		t.Fatal("unknown enrollment accepted", code, response)
+	}
+}
 
 // Real controller routes and the binary's enrollment/poll/apply code, with two
 // isolated home directories. No browser orchestrates the sync and no public

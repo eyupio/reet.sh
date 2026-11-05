@@ -346,6 +346,46 @@ separate; only it performs coding, commands and PR work. Subsequent GM3/GM4 add
 scoped tools and durable offline goals through the existing next-turn queue,
 without answering approval cards or enabling terminal keystroke automation.
 
+### GM0 contract and GM2A conversation runtime (5 November 2026)
+
+`feat/gaffer-conversations` continues from provider settings #603. Its docs browser
+failure was a stale eight-guide expectation after adding Gaffer's ninth guide;
+that test now checks filter/no-JS parity against the initial card count and
+explicitly locates Gaffer's guide. The complete local docs browser run passes.
+The fix is on #603, which remains owner-controlled and unmerged at this checkpoint.
+
+The [conversation/access contract](handoffs/gaffer-conversations.md) fixes the
+account/session/provider boundaries, current structured-worker eligibility checks,
+queue-receipt mapping and uncertain-delivery/restart rules before tool integration.
+GM2A implements owned general and per-session conversations, versioned provider/
+model choices, durable request receipts, partial replies, SSE observation,
+cancellation, bounded context/storage and restart interruption without replay.
+It sends only explicitly typed Gaffer messages. No worker history, status tool,
+MCP grant, worker message or offline follow goal is enabled; no UI uses the new
+routes yet. The working model retains all implementation and PR authority.
+
+Verification: the final targeted Gaffer store/domain/API race tests pass, including
+actual DB reopen, a UTF-8 output ceiling and cross-account/viewer HTTP refusal.
+The full Go race run passes API (477 s), store (239 s), broker (104 s) and all
+packages except the same five baseline terminal-host failures recorded above.
+The last small metadata/cancel/deadline refinements have additional targeted
+race coverage. `go vet ./...`, web checks (zero errors, two existing warnings),
+all 16 MCP tests, strict docs/rendered-site checks (51 pages) and the real static
+docs browser matrix (40 responsive views and no-JS) pass. No live provider or
+physical device was used; the frontend has not changed in this slice.
+
+#603's final settings head `ecaa08be` passes Gaffer browser, web and docs build.
+Its Go CI run failed two unchanged wall-clock assertions: offline browse took
+102.8 ms against 100 ms, and a retry took 772.7 ms against 650 ms. Both source
+tests match unchanged `d5485e12`; both pass five local race repetitions. Only the
+failed Go job was requested again; its final result remains a merge gate, not a
+reason to weaken those tests or claim CI is green.
+
+Next: build the floating companion UI over these routes, then the contract's
+allowlisted context projections and explicit scoped grants for GM3. Prove those
+before enabling GM4's durable offline supervision. Backend/subscription parity,
+provider/model tool capability and physical/deployed-flow evidence remain open.
+
 ## Gaffer branding and Eli reuse (1 November 2026)
 
 Historical delivery record. Its PR state and immediate next steps describe the

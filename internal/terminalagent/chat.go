@@ -859,8 +859,9 @@ func (s *chatSupervisor) ended(cs *chatSession, code int) {
 		}
 		link := s.link
 		acpID, exit, quiet := cs.acpID, cs.exit, cs.quiet
-		s.mu.Unlock()
+		// Every writer changes link.live under s.mu, so it is read under it too.
 		live := link != nil && link.live
+		s.mu.Unlock()
 		if !live || quiet {
 			return
 		}

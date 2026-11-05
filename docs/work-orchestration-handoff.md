@@ -348,7 +348,8 @@ without answering approval cards or enabling terminal keystroke automation.
 
 ### GM0 contract and GM2A conversation runtime (5 November 2026)
 
-`feat/gaffer-conversations` continues from provider settings #603. Its docs browser
+[Draft PR #605](https://github.com/eyupio/reet.sh/pull/605),
+`feat/gaffer-conversations`, is stacked on provider settings #603. Its docs browser
 failure was a stale eight-guide expectation after adding Gaffer's ninth guide;
 that test now checks filter/no-JS parity against the initial card count and
 explicitly locates Gaffer's guide. The complete local docs browser run passes.

@@ -60,7 +60,8 @@ Follow-up: #603’s docs browser check found the old eight-guide assumption.
 The fixture now checks filter restoration and no-JS parity against the initial
 card count and explicitly finds the Gaffer guide; all 40 responsive views pass.
 
-GM0/GM2A continues on `feat/gaffer-conversations`: see the
+GM0/GM2A is [draft PR #605](https://github.com/eyupio/reet.sh/pull/605),
+`feat/gaffer-conversations`, stacked on #603: see the
 [conversation/access contract](docs/handoffs/gaffer-conversations.md) for current
 worker eligibility, grants, queue receipt/recovery and retention boundaries.
 The backend adds separate owned general/session conversations, versioned provider/

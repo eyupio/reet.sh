@@ -134,6 +134,9 @@ type chatLink struct {
 	// only when it is set: an older controller's strict decoder rejects them.
 	questions bool
 	previews  bool
+	// catalogue is acp-model-catalogue-v1 on this connection: a model selector
+	// may then carry the agent's whole catalogue instead of 16 values.
+	catalogue bool
 	live      bool
 }
 
@@ -237,7 +240,7 @@ type chatHost struct {
 // attachChats attaches a control connection to a supervisor. A nil supervisor
 // creates a connection-scoped one, which keeps unit tests and any caller that
 // does not own a process yet isolated.
-func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalhost.ManagerOptions, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, questions ...bool) *chatHost {
+func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalhost.ManagerOptions, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, flags ...bool) *chatHost {
 	var s *chatSupervisor
 	if supervisor != nil {
 		s = supervisor.s
@@ -245,11 +248,11 @@ func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalh
 		s = newChatSupervisor(ctx, opts)
 		s.startResume()
 	}
-	return s.attach(ctx, generation, send, history, details, questions...)
+	return s.attach(ctx, generation, send, history, details, flags...)
 }
 
-func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, questions ...bool) *chatHost {
-	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(questions) > 0 && questions[0], previews: len(questions) > 1 && questions[1]}
+func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, flags ...bool) *chatHost {
+	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(flags) > 0 && flags[0], previews: len(flags) > 1 && flags[1], catalogue: len(flags) > 2 && flags[2]}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()

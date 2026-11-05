@@ -5,7 +5,9 @@ package acpagent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
+	"strings"
 	"testing"
 	"time"
 )
@@ -210,5 +212,22 @@ func TestSteeringOwnsNoAdditionalTurnAndReportsDelivery(t *testing.T) {
 			_ = s.Cancel()
 			<-done
 		})
+	}
+}
+
+// A model selector keeps every value the agent offers; the connection, not the
+// session, decides how many its peer can read.
+func TestModelCatalogueKeepsEveryOfferedModel(t *testing.T) {
+	entries := make([]string, 0, 40)
+	for i := 0; i < 40; i++ {
+		entries = append(entries, fmt.Sprintf(`{"value":"provider/model-%02d"}`, i))
+	}
+	raw := json.RawMessage(`{"configOptions":[{"id":"model","category":"model","currentValue":"provider/model-00","options":[` + strings.Join(entries, ",") + `]}]}`)
+	settings, ok := readSettings(raw)
+	if !ok || len(settings) != 1 || len(settings[0].Values) != len(entries) {
+		t.Fatalf("selector: %+v ok=%v", settings, ok)
+	}
+	if got := settings[0].Values[len(entries)-1]; got != "provider/model-39" {
+		t.Fatalf("last offered model: %q", got)
 	}
 }

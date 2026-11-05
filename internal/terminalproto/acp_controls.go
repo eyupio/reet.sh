@@ -12,6 +12,37 @@ const ACPLiveControlsFeature = "acp-live-controls-v1"
 // live controls alone still uses the older create validation contract.
 const ACPStartOptionsFeature = "acp-start-options-v1"
 
+// ACPModelCatalogueFeature negotiates a model selector that may carry the whole
+// catalogue an agent offers (Cline reports 307 ids) instead of the 16 values a
+// live control reply was sized for. Without it a connector sends at most 16, so
+// a controller that predates the feature never receives a larger frame.
+const ACPModelCatalogueFeature = "acp-model-catalogue-v1"
+
+const (
+	// MaxACPSettingValues bounds a model selector's values. Together with the
+	// id and current value, 512 ids of a realistic length stay inside
+	// MaxACPControlsBytes.
+	MaxACPSettingValues = 512
+	// MaxACPThoughtLevelValues bounds an effort selector: an agent offers a
+	// handful of levels, so a long list there is not a catalogue.
+	MaxACPThoughtLevelValues = 16
+	// MaxACPControlsBytes bounds one controls snapshot. It is larger than
+	// MaxACPEventBytes because a catalogue is one list, not a long chat body.
+	// The worst case a valid snapshot can reach is MaxACPSettingValues ids of
+	// MaxModelBytes each (about 53 KiB), and MaxControlBytes still has room for
+	// the envelope.
+	MaxACPControlsBytes = 56 << 10
+)
+
+func SupportsACPModelCatalogue(features string) bool {
+	for _, f := range strings.Split(features, ",") {
+		if strings.TrimSpace(f) == ACPModelCatalogueFeature {
+			return true
+		}
+	}
+	return false
+}
+
 func SupportsACPStartOptions(features string) bool {
 	for _, f := range strings.Split(features, ",") {
 		if strings.TrimSpace(f) == ACPStartOptionsFeature {
@@ -60,7 +91,11 @@ func (s ACPControls) Valid() bool {
 		validID := validAgentOptionToken(o.ID) && !ids[o.ID]
 		validCategory := !categories[o.Category] &&
 			(o.Category == "model" || o.Category == "thought_level")
-		validValues := len(o.Values) <= 16
+		valueLimit := MaxACPThoughtLevelValues
+		if o.Category == "model" {
+			valueLimit = MaxACPSettingValues
+		}
+		validValues := len(o.Values) <= valueLimit
 		valid := validID && validCategory && validValues
 		if !valid {
 			return false
@@ -79,7 +114,7 @@ func (s ACPControls) Valid() bool {
 		}
 	}
 	b, err := json.Marshal(s)
-	return err == nil && len(b) <= MaxACPEventBytes
+	return err == nil && len(b) <= MaxACPControlsBytes
 }
 
 type ACPControl struct {

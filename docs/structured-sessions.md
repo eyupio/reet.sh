@@ -130,6 +130,10 @@ read-back. A model can change the available effort values, so the whole selector
 shows the value as unconfirmed. Permission and approval modes remain separate controls. Confirmed model and effort values
 are saved for connector restart and in-place reconnect; a saved effort must be accepted before a reopened chat is ready.
 Older connectors keep the existing idle-only model control and do not show an effort selector.
+A connector that also negotiated `acp-model-catalogue-v1` sends the agent's whole catalogue in the model selector (Cline
+reports 307 ids); one that did not keeps the 16 values a live control reply was sized for, so an older controller never
+receives a larger frame. Effort keeps its short bound either way, the session keeps every value across a reconnect, and the
+picker filters as the person types.
 
 The runtime controls endpoint is `GET /api/v2/terminal/sessions/{id}/chat/controls`; `POST` accepts
 `{"action":"set","configId":"effort","value":"high"}` using an ID and value reported by that exact session.

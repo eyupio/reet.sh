@@ -144,6 +144,19 @@ tools or subagents in a turn. A provider failure Cline logs without an ACP frame
 Merged as [PR #554](https://github.com/eyupio/reet.sh/pull/554) (`3919deef`); all 18 checks passed, including the
 browser suite that runs the new `chat-cline.e2e.mjs`.
 
+### The model picker shows the agent's whole catalogue (5 November 2026)
+
+Cline reports 307 models; a live control reply capped a model selector at 16 values inside 10 KiB, so most of the
+catalogue was unreachable without typing an id. `acp-model-catalogue-v1` widens the model selector to 512 ids in a
+snapshot bounded at 56 KiB — the worst case a valid snapshot can reach, and still one frame because `MaxControlBytes`
+is 64 KiB — while the effort selector keeps its 16-value bound. The session keeps every value the agent offers;
+`chatHost.forConnection` trims the model list to 16 for a connection that did not negotiate the feature, on a copy, so
+an older controller never receives a frame its decoder rejects, the session snapshot stays whole, and a reconnect with
+the feature gets the full list without asking the agent again. Tests: `TestModelCatalogueBoundsTheModelSelectorNotEffort`
+(proto, both directions on the wire), `TestModelCatalogueKeepsEveryOfferedModel`, `TestModelCatalogueIsTrimmedPerConnection`
+and a 307-entry case in `web/src/lib/models.test.mjs`. In review as
+[PR #586](https://github.com/eyupio/reet.sh/pull/586).
+
 ## SEO-1: public search surface and documentation (4 November 2026)
 
 The public-search audit and its current status are in [SEO_AUDIT.md](SEO_AUDIT.md). The continuation state, remaining

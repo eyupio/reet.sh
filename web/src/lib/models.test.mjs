@@ -117,6 +117,14 @@ test('model options keep the documented group order and deduplicate across group
   assert.deepEqual(options.filter(o => o.group === 'Current').map(o => o.value), ['current-model'])
 })
 
+test('a whole agent catalogue reaches the picker instead of the first sixteen', () => {
+  const suggestions = Array.from({ length: 307 }, (_, index) => `cline-pass/model-${String(index).padStart(3, '0')}`)
+  const options = modelOptions({ tool: 'cline', current: suggestions[0], suggestions, favourites: [], recent: [] })
+  const offered = options.filter(o => o.group === 'reet’s suggestions')
+  assert.equal(offered.length, suggestions.length)
+  assert.equal(offered[offered.length - 1].value, 'cline-pass/model-306')
+})
+
 test('model options without a machine list stay honest and selectedModel wins over current', () => {
   const options = modelOptions({
     tool: 'claude', current: 'old', selectedModel: 'new',

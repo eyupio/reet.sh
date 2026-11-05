@@ -193,23 +193,14 @@ Branch: `feat/gaffer-animation-variety`, 4 November 2026. The standalone workspa
 
 Local validation: unit suite and production build; the existing Gaffer artwork, theme, return, interaction, progress and minimised browser checks; the new foreground-rotation regression. Final-head GitHub checks and review remain the merge gate. The new preview and both theme sheets are linked from `docs/ui-verification.md`.
 
-## Phone dialog runner follow-up
+## Session lifecycle and browser reliability follow-up
 
 Branch: `fix/phone-dialog-runner-contention`, based on `98615e5` after #543 merged with all PR checks green.
-The self-hosted main run then reported ten five-second waits for a live terminal in the phone-dialog fixture,
-before the drawer checks could start. Six phone contexts were sharing one browser concurrently.
 
-Run those viewports sequentially. All 23 dialog cases, six screen sizes, both keyboard simulations, geometry,
-scroll locking, hit testing, API/error guards and existing connection/dialog deadlines stay in place.
-Application code, workflow gates and dependencies are unchanged. Reproduce with the existing
-`REET_UI_URL=... node web/tests/phone-dialogs.e2e.mjs` command; validate this follow-up through a new PR.
+- Stop can arrive after a turn is marked working but before its prompt is written. `writeRequest` orders the prompt write with the cancellation marker under the turn lock. A turn already cancelled is never sent and returns as stopped; the next turn remains usable. This is the only application change in the follow-up.
+- The self-hosted main run reported ten five-second waits for a live terminal before drawer checks could start. Run the phone fixture's viewports sequentially instead of competing in six concurrent browser contexts. All 23 dialogs, six screen sizes, both keyboard simulations, geometry, scroll locking, hit testing, API/error guards and existing deadlines remain.
+- `TestSupervisorRemembersAndResumesAcrossProcesses` cancelled supervisors without waiting for registry writes before removing temporary layouts. Register both Close cleanups and close the first before simulating the next process.
 
-Local evidence against the same production build: the original concurrent fixture passed in 96.8 seconds;
-the sequential fixture passed all 23 dialogs at all six sizes in 262.5 seconds. The self-hosted failure above
-is the evidence for the change; local success alone does not establish the runner result.
+Evidence: the deterministic early-Stop regression failed before the application fix. Twenty race-detector repetitions of early Stop, command-aware Stop and permission-on-cancel pass afterwards; both full `acpagent` and `terminalagent` packages pass under the race detector. The supervisor cleanup reproduced three failures in 100 runs before its fix and passed all 100 afterwards.
 
-The follow-up's Go CI then exposed a separate test cleanup race in
-`TestSupervisorRemembersAndResumesAcrossProcesses`: cancellation does not synchronously finish registry writes,
-so its temporary layout could be removed while a supervisor was still using it. Register both supervisors'
-`Close` cleanups and wait for the first to close before simulating the second process. No application change.
-The original test failed three times in a 100-run race-detector reproduction; the fixed test passed all 100.
+The original concurrent phone fixture passed locally in 96.8 seconds; the sequential fixture passed all 23 dialogs at all six sizes in 262.5 seconds and in the first PR CI run in 235.8 seconds. The self-hosted post-merge run remains the validation of its runner-specific contention. Reproduce with `REET_UI_URL=... node web/tests/phone-dialogs.e2e.mjs`. No workflow gate, deadline or dependency was relaxed. Final-head CI and review remain the merge gate.

@@ -471,6 +471,20 @@ func (s *Session) request(ctx context.Context, method string, params any) (json.
 	return s.requestWithReply(ctx, method, params, nil)
 }
 
+func (s *Session) writeRequest(method string, message any) error {
+	if method == "session/prompt" {
+		// Working is visible before the prompt is written. Order that write
+		// with Cancel: never send a turn Stop already cancelled, and never
+		// let session/cancel overtake a prompt being committed to the pipe.
+		s.turnMu.Lock()
+		defer s.turnMu.Unlock()
+		if s.cancelledSeq == s.turnSeq {
+			return context.Canceled
+		}
+	}
+	return s.write(message)
+}
+
 // apply runs in protocol read order before a later notification can supersede
 // this reply. It must be bounded and must never wait for another RPC.
 func (s *Session) requestWithReply(ctx context.Context, method string, params any, apply func(json.RawMessage)) (json.RawMessage, error) {
@@ -483,7 +497,7 @@ func (s *Session) requestWithReply(ctx context.Context, method string, params an
 	}
 	s.calls[id] = rpcCall{reply: ch, apply: apply}
 	s.mu.Unlock()
-	if err := s.write(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
+	if err := s.writeRequest(method, map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
 		s.mu.Lock()
 		delete(s.calls, id)
 		s.mu.Unlock()
@@ -1431,6 +1445,10 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		"prompt":    prompt,
 	})
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			// Cancel already reported the stopped turn; no request was sent.
+			return nil
+		}
 		s.mu.Lock()
 		reported := s.turnError
 		s.mu.Unlock()
